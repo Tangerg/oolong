@@ -436,9 +436,9 @@ func (m *MultiSelect[T]) Focus(has bool) {
 
 func (m *MultiSelect[T]) ensure() {
 	m.list.Items = m.Options
-	// The list is moved with this field's own map, which has the list's movement in it
-	// as well as the key that takes a choice.
-	m.list.Keys = m.keys()
+	// The list inside has no map of its own: this field resolves every keystroke
+	// against one that has the movement and the key that takes a choice in it, and
+	// drives the list by name. Offering the event to both would resolve it twice.
 	if m.list.Row == nil {
 		m.list.Row = func(v grid.View, at int, option Option[T], under bool) {
 			m.look.choice(v, option.Label, under, at < len(m.taken) && m.taken[at])

@@ -100,11 +100,11 @@ fields and takes a `Row` function instead, and it is the difference between a li
 people adopt and a library people fork.
 
 The layering is not a convention anyone is trusted to keep. `internal/arch` parses
-every import in the module and fails when one points the wrong way, when a directory
-appears that no rule governs, when a fourth dependency is added, when anything above
-`primitives/` reaches for what draws the terminal, or when the rules themselves would
-no longer refuse anything. The last one is the counter-example: a guard never shown to
-fail is a guard nobody knows is wired up.
+every import in every module and fails when one points the wrong way, when a directory
+appears that no rule governs, when a dependency nothing declared is added, when anything
+above the substrate reaches for what draws the terminal, or when the rules themselves
+would no longer refuse anything. The last one is the counter-example: a guard never
+shown to fail is a guard nobody knows is wired up.
 
 ### The dependency promise
 
@@ -124,18 +124,18 @@ these two is touched.
 
 ### agentui — the direct source
 
-Most of `primitives/` is a reimplementation of [agentui][agentui] (Apache-2.0), a
+Most of `core/` is a reimplementation of [agentui][agentui] (Apache-2.0), a
 self-built Go terminal engine. The attribution obligation is in [NOTICE](NOTICE); this
 section is about the engineering.
 
 | agentui | here | what changed |
 | --- | --- | --- |
-| `cellbuf` | `primitives/grid` | one painter instead of four near-identical emit loops; control characters dropped at the cell as a trust boundary; scroll shortcut gated on a measured byte-cost floor |
-| `textwrap` | `primitives/text` | one width authority, with an explicit width table instead of the locale's |
-| `term` + `input` | `primitives/term`, `primitives/input` | one escape parser instead of two divergent ones; the frame writer's unbounded queue and condition variable replaced by a sequence watermark |
-| `present` | `primitives/present` | a throttled request always owes a frame; the interval decides when, not whether |
-| `fuzzy` | `primitives/fuzzy` | anchored best-of instead of pure greedy; beginning the candidate scores above beginning a word inside it |
-| `overlay`, `theme` | `primitives/layout`, `kit` | placement separated from drawing, so a hit test a frame later asks the same question |
+| `cellbuf` | `core/grid` | one painter instead of four near-identical emit loops; control characters dropped at the cell as a trust boundary; scroll shortcut gated on a measured byte-cost floor |
+| `textwrap` | `core/text` | one width authority, with an explicit width table instead of the locale's |
+| `term` + `input` | `core/term`, `core/input` | one escape parser instead of two divergent ones; the frame writer's unbounded queue and condition variable replaced by a sequence watermark |
+| `present` | `core/present` | a throttled request always owes a frame; the interval decides when, not whether |
+| `fuzzy` | `core/fuzzy` | anchored best-of instead of pure greedy; beginning the candidate scores above beginning a word inside it |
+| `overlay`, `theme` | `core/layout`, `kit` | placement separated from drawing, so a hit test a frame later asks the same question |
 | widgets living inside its runtime | `headless/` and `kit/` | lifted out, then split down the middle: what a widget does from what it looks like |
 
 agentui's largest package by far is its `runtime` — a whole agent CLI. That is the part
@@ -147,7 +147,7 @@ spelled `@!`, a shell mode opening on `!`, a completion source enum with an `ai`
 a truncation flag so that Tab will not infer a common prefix from a capped result set,
 and a "drill anchor" protecting one previously accepted directory whose name contains
 spaces. All of that is a product's grammar wearing a library's clothes. What is general
-is a scorer and a list, and that is what `primitives/fuzzy` and `headless.Completion`
+is a scorer and a list, and that is what `core/fuzzy` and `headless.Completion`
 are.
 
 One thing agentui does that was read and deliberately inverted: its `theme` package
@@ -190,7 +190,7 @@ in place.
 
 ## 3. What is built
 
-### primitives
+### core
 
 - **`grid`** — styled grapheme cells; a clipped drawing view whose coordinates are
   local, so a widget cannot draw outside its box. Two ways a frame reaches a terminal:
@@ -209,7 +209,9 @@ in place.
   reporting with movement, bracketed paste, focus, and the two shapes an *answer*
   comes in — operating system commands and device attributes. Events are a sealed
   interface. The introducer of an answer is also the bytes a terminal sends for a
-  chord, so a command is recognised only when what follows looks like one.
+  chord, so a command is recognised only when what follows looks like one. And the
+  table that turns a keystroke into the name of what it does, which is what lets a
+  binding be several chords long and be written to a file and read back.
 - **`term`** — the only package that touches the operating system. Raw mode, the modes
   a session turns on and the reverse order they are put back in, the goroutines reading
   input, and a frame writer with its own goroutine so that a slow terminal cannot stop
@@ -229,6 +231,9 @@ in place.
   terminal is still swallowing the last frame.
 - **`fuzzy`** — subsequence ranking, answering in byte offsets because whatever asks is
   about to draw the candidate with the matched characters picked out.
+- **`diff`** — what changed between two texts, line by line, and the hunks worth
+  showing. Beside `fuzzy` for the same reason: what changed is a fact about two
+  strings and has nothing to do with a terminal.
 - **`anim`** — easing, a shimmer sweep, a running wave, and a transition counted in
   ticks rather than measured in wall-clock time, because a widget that asks what
   time it is cannot be stepped by a test or paused by a loop that parked.
@@ -253,10 +258,22 @@ in place.
 ### headless
 
 Behaviour with no appearance: scroll position that follows a live log without dragging
-a reader who scrolled up, mouse tracking that commits a click on release over the
-target that took the press, a generic list, a multi-line editor with a kill ring and
-coalesced undo, a completion offered against a token, and the key bindings all of them
-match against.
+a reader who scrolled up, mouse tracking that commits a click on release over the target
+that took the press, a generic list, an editor with a kill ring and coalesced undo — in
+one line or many, masked or not — a completion offered against a token, and a window
+that shows a slice of anything taller than the room it has.
+
+What decides which of several widgets an event is for is a **container**: a key goes to
+the one that has the keyboard, a mouse event to the one it is over, in that widget's own
+coordinates, with a press captured until the release. A **form** is that container with
+an answer checked when the keyboard leaves a field and the set checked on submission,
+and the four fields anything ever asks for — a line of text, one choice, several, and a
+yes or no — each binding what it collects to a variable of the caller's own.
+
+None of it owns a keystroke. A widget names what it can do and answers to the name; an
+`input.Keymap` says which keystrokes produce which name, sequences included. That is why
+every key can be rebound without replacing anything, and why every action is reachable
+from a menu, from a command typed out, or from a test that presses nothing.
 
 And, since a session's output has to be addressable before anything can be asked about
 it, a **transcript**: blocks in order, each of a height that follows the width, and the
@@ -275,8 +292,8 @@ whoever does, which is the one design decision that makes the ring above it opti
 One set of answers: box and border, label, wrapped paragraph, spinner, scrollbar, help
 row, table, a floating layer with shading, a transcript view that lays selection and
 search results over what was drawn, a command palette that picks out the characters a
-query matched, and the three pieces a streaming interface is actually made of — a
-composer, a status line, and a printed message. Plus a semantic palette, `Theme`, whose
+query matched, a diff, a dressed form, and the three pieces a streaming interface is
+actually made of — a composer, a status line, and a printed message. Plus a semantic palette, `Theme`, whose
 names are roles rather than colours and which follows what the terminal said it draws
 on, and a glyph set with an ASCII fallback for a terminal whose locale says it cannot
 draw the other one.
@@ -426,9 +443,10 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   full.** The buffer absorbs a burst, and a component that posted from inside `Draw`
   or `Handle` faster than the loop drains would block the only consumer there is. It
   takes 256 outstanding posts to reach, and `InlineLoop.Print` is the realistic way in.
-- **Not published, not versioned, no CI.** It is consumed from a sibling checkout by one
-  program. Everything about the public API is still cheap to change, and it should be
-  changed while that is true.
+- **Tagged low, on purpose.** The modules are versioned and built on every push, and
+  they are tagged at `v0.0.1` because everything about the public API is still cheap to
+  change and should be changed while that is true. A pre-1.0 tag is a promise about
+  what will break, not the absence of one.
 
 ---
 
