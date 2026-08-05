@@ -1,6 +1,8 @@
 package input_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,5 +269,47 @@ func TestShiftAndTabAreOneKeystrokeHoweverTheTerminalSpelledIt(t *testing.T) {
 		if action, _ := m.Lookup(key, &input.Pending{}); action != "focus-prev" {
 			t.Errorf("%q decoded as %v, which the binding does not match", bytes, key)
 		}
+	}
+}
+
+func TestAKeybindingSurvivesAConfigurationFile(t *testing.T) {
+	// The reason the round trip has to be exact: a keybinding written to a file and
+	// read back has to be the same keystroke. Implementing the text encoding is what
+	// lets any of the usual decoders fill a map in without being told how.
+	var keys map[input.Action]input.Keys
+	if err := json.Unmarshal([]byte(`{
+		"delete-word-back": "ctrl+w",
+		"go-to-top":        "g g"
+	}`), &keys); err != nil {
+		t.Fatalf("reading a keybinding file: %v", err)
+	}
+	m := &input.Keymap{}
+	for action, seq := range keys {
+		m.Bind(action, seq...)
+	}
+	if action, _ := m.Action(input.Ctrl.Rune('w')); action != "delete-word-back" {
+		t.Fatalf("ctrl+w = %q", action)
+	}
+	if action, _ := m.Action(input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'}); action != "go-to-top" {
+		t.Fatalf("the two-chord binding = %q", action)
+	}
+
+	written, err := json.Marshal(keys)
+	if err != nil {
+		t.Fatalf("writing it back out: %v", err)
+	}
+	if !strings.Contains(string(written), `"ctrl+w"`) {
+		t.Fatalf("written back as %s", written)
+	}
+}
+
+func TestAConfigurationFileIsToldWhatItGotWrong(t *testing.T) {
+	var chord input.Chord
+	err := chord.UnmarshalText([]byte("contrl+a"))
+	if err == nil {
+		t.Fatal("a typo in a keybinding file was accepted")
+	}
+	if !strings.Contains(err.Error(), "contrl+a") {
+		t.Fatalf("the error is %q, want it to name what it could not read", err)
 	}
 }

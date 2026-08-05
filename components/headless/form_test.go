@@ -2,6 +2,7 @@ package headless_test
 
 import (
 	"errors"
+	"image"
 	"strings"
 	"testing"
 
@@ -291,5 +292,82 @@ func TestAFormAbandonedSaysSo(t *testing.T) {
 	form.Handle(input.Key{Code: input.Esc})
 	if gone != 1 {
 		t.Fatalf("cancelled %d times", gone)
+	}
+}
+
+func TestAChoiceCanBePressed(t *testing.T) {
+	// A list could be walked with the arrow keys and not pointed at. The label is a row
+	// of the field and not part of what it holds, so a press under it means a row lower
+	// than the position says — the same translation a container does for its children.
+	var picked string
+	field := &headless.Select[string]{
+		Label:   "Model",
+		Options: headless.Options("fast", "good", "cheap"),
+		Value:   headless.Bind(&picked),
+	}
+	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form.Draw(grid.NewSurface(12, 4).View())
+
+	form.Handle(input.Mouse{
+		Pos: image.Pt(2, 3), Action: input.MouseDown, Button: input.ButtonLeft,
+	})
+	if picked != "cheap" {
+		t.Fatalf("pressing the third row chose %q", picked)
+	}
+	// And a drag carries the choice with it.
+	form.Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDrag})
+	if picked != "fast" {
+		t.Fatalf("dragging back up chose %q", picked)
+	}
+}
+
+func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
+	// The label's own row belongs to the label. A field that read it as the first
+	// option would answer a press nobody made.
+	var picked string
+	field := &headless.Select[string]{
+		Label:   "Model",
+		Options: headless.Options("fast", "good"),
+		Value:   headless.Bind(&picked),
+	}
+	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form.Draw(grid.NewSurface(12, 3).View())
+	field.Do(headless.SelectNext)
+
+	form.Handle(input.Mouse{
+		Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft,
+	})
+	if picked != "good" {
+		t.Fatalf("a press on the label chose %q", picked)
+	}
+}
+
+func TestAConfirmCanBePressed(t *testing.T) {
+	var sure bool
+	field := &headless.Confirm{Label: "Delete it?", Value: headless.Bind(&sure), Yes: "yes", No: "no"}
+	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form.Draw(grid.NewSurface(20, 2).View())
+
+	press := func(x int) {
+		form.Handle(input.Mouse{
+			Pos: image.Pt(x, 1), Action: input.MouseDown, Button: input.ButtonLeft,
+		})
+	}
+	press(1)
+	if !sure {
+		t.Fatal("pressing the first answer did not say yes")
+	}
+	press(10)
+	if sure {
+		t.Fatal("pressing the second answer did not say no")
+	}
+}
+
+func TestAFieldNobodyHasDrawnAnswersNoPress(t *testing.T) {
+	// A press arrives between two frames and is about the one on screen. With no frame
+	// on screen there is nothing for it to be about.
+	field := &headless.Text{Label: "Name"}
+	if field.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft}) {
+		t.Fatal("a field that has never been drawn answered a press")
 	}
 }

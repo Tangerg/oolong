@@ -1385,3 +1385,36 @@ func TestAnUnclaimedPressPushesWhateverIsUnderIt(t *testing.T) {
 		t.Fatal("a control nowhere near the press draws as pushed")
 	}
 }
+
+func TestAListRowCanBePressed(t *testing.T) {
+	// A list could be walked with the arrow keys and not pointed at, which is not
+	// something any list anywhere does.
+	l := newList(10)
+	paint(12, 4, l.Draw)
+	if !l.Handle(press(2, 2, input.MouseDown, input.ButtonLeft)) || l.Selected() != 2 {
+		t.Fatalf("pressing the third row selected %d", l.Selected())
+	}
+	// A drag carries the selection, and a press past the last row is a press on
+	// nothing rather than on the row that happens to be nearest.
+	if !l.Handle(press(2, 0, input.MouseDrag, input.ButtonLeft)) || l.Selected() != 0 {
+		t.Fatalf("dragging back up selected %d", l.Selected())
+	}
+	if l.Handle(press(2, 9, input.MouseDown, input.ButtonLeft)) {
+		t.Fatal("a press below the drawn rows selected something")
+	}
+}
+
+func TestAPressOnAListScrolledDownReachesTheRowUnderIt(t *testing.T) {
+	// A press arrives between two frames and is about the one on screen, which is
+	// scrolled — so the row under the pointer is not the row at that index.
+	l := newList(20)
+	paint(12, 4, l.Draw)
+	l.Select(10)
+	paint(12, 4, l.Draw)
+	first := l.Scroll().Offset()
+
+	l.Handle(press(2, 1, input.MouseDown, input.ButtonLeft))
+	if got := l.Selected(); got != first+1 {
+		t.Fatalf("pressing the second row on screen selected %d, want %d", got, first+1)
+	}
+}

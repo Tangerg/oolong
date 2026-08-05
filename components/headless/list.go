@@ -92,19 +92,10 @@ func (l *List[T]) SetItems(items []T) {
 	l.selected = l.clampIndex(l.selected)
 }
 
-// Handle answers keys and the wheel, reporting whether it consumed the event.
+// Handle answers keys, the wheel and a press, reporting whether it consumed the event.
 func (l *List[T]) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
-		switch mouse.Action {
-		case input.WheelUp:
-			l.scroll.By(l.scroll.wheel.At(mouse.At, -1))
-			return true
-		case input.WheelDown:
-			l.scroll.By(l.scroll.wheel.At(mouse.At, 1))
-			return true
-		default:
-			return false
-		}
+		return l.mouse(mouse)
 	}
 	key, ok := ev.(input.Key)
 	if !ok {
@@ -140,6 +131,48 @@ func (l *List[T]) Do(action input.Action) bool {
 	default:
 		return false
 	}
+	return true
+}
+
+// mouse scrolls on the wheel and moves the selection to whatever was pressed.
+//
+// A row a reader pressed is the row they mean, and a drag carries the selection with
+// it, which is what a list does everywhere. The position is in the list's own box —
+// whoever drew it is responsible for that, which for anything inside a [Container] is
+// the container.
+func (l *List[T]) mouse(ev input.Mouse) bool {
+	switch ev.Action {
+	case input.WheelUp:
+		l.scroll.By(l.scroll.wheel.At(ev.At, -1))
+		return true
+	case input.WheelDown:
+		l.scroll.By(l.scroll.wheel.At(ev.At, 1))
+		return true
+	case input.MouseDown:
+		if ev.Button != input.ButtonLeft {
+			return false
+		}
+		return l.reach(ev.Pos.Y)
+	case input.MouseDrag:
+		return l.reach(ev.Pos.Y)
+	default:
+		return false
+	}
+}
+
+// reach moves the selection to the row at a height in the box, when there is one there.
+//
+// Against the window the last frame drew, because a press arrives between two frames
+// and is about the one on screen.
+func (l *List[T]) reach(y int) bool {
+	if l.window <= 0 || y < 0 || y >= l.window {
+		return false
+	}
+	at := l.scroll.Offset() + y
+	if at >= len(l.Items) {
+		return false
+	}
+	l.Select(at)
 	return true
 }
 

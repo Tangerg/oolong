@@ -113,7 +113,7 @@ func (e *Editor) lineAt(at int) int {
 		return at
 	}
 	line := e.lines[0]
-	if len(e.Mask) == 0 || at <= 0 {
+	if at <= 0 {
 		return 0
 	}
 	want := at / len(e.Mask)

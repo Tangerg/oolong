@@ -47,7 +47,7 @@ func (d Diff) Draw(v grid.View) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	gutter := d.gutter()
+	numbers := d.margin()
 	y := 0
 	for i, hunk := range d.Hunks {
 		if i > 0 {
@@ -58,7 +58,7 @@ func (d Diff) Draw(v grid.View) {
 			if y >= h {
 				return
 			}
-			d.line(v, y, w, gutter, line)
+			d.line(v, y, w, numbers, line)
 			y++
 		}
 	}
@@ -70,31 +70,23 @@ func (d Diff) Draw(v grid.View) {
 // The style covers the whole row rather than the text alone. A background that stopped
 // where the text did would leave a diff looking like ragged bunting, and the eye reads
 // the block of colour long before it reads the mark.
-func (d Diff) line(v grid.View, y, w, gutter int, line diff.Line) {
+func (d Diff) line(v grid.View, y, w int, numbers margin, line diff.Line) {
 	style := d.style(line.Kind)
 	v.Fill(grid.Rect(0, y, w, 1), style)
 
-	x := 0
-	if gutter > 0 {
-		x += v.Text(x, y, d.numbers(line, gutter), style.Merge(d.Theme.Subtle))
-	}
+	x := v.Text(0, y, numbers.of(line), style.Merge(d.Theme.Subtle))
 	x += v.Text(x, y, line.Kind.String(), style)
 	v.Text(x, y, text.Truncate(line.Text, max(w-x, 0), "…"), style)
 }
 
-// numbers is a line's place in each text, right-aligned in the gutter, with a blank
-// where the line is not in one of them.
-func (d Diff) numbers(line diff.Line, gutter int) string {
-	each := (gutter - 2) / 2
-	return pad(number(line.Old), each) + " " + pad(number(line.New), each) + " "
-}
+// margin is the column of line numbers down the left of a diff: how wide each of the
+// two numbers is, or zero for a diff that does not draw them.
+type margin struct{ each int }
 
-// gutter is how wide the numbers are, or zero when they are not drawn: a column each
-// for the widest number in either text, one between them, and one before the mark so
-// that a line with only one of the two numbers does not read as a longer one.
-func (d Diff) gutter() int {
+// margin is how wide the numbers have to be to hold every line's.
+func (d Diff) margin() margin {
 	if !d.Numbers {
-		return 0
+		return margin{}
 	}
 	widest := 1
 	for _, hunk := range d.Hunks {
@@ -102,7 +94,19 @@ func (d Diff) gutter() int {
 			widest = max(widest, len(number(line.Old)), len(number(line.New)))
 		}
 	}
-	return 2*widest + 2
+	return margin{each: widest}
+}
+
+// of is a line's place in each text, right-aligned, with a blank where the line is not
+// in one of them.
+//
+// A column between the two and one after them, so that a line with only one of the
+// numbers does not read as a longer one and the marks stay in a column of their own.
+func (m margin) of(line diff.Line) string {
+	if m.each == 0 {
+		return ""
+	}
+	return pad(number(line.Old), m.each) + " " + pad(number(line.New), m.each) + " "
 }
 
 // gap is the break between two hunks, which is what says lines were left out.

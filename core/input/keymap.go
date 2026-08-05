@@ -1,6 +1,7 @@
 package input
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -88,6 +89,30 @@ func (c Chord) String() string {
 		b.WriteRune(c.Rune)
 	}
 	return b.String()
+}
+
+// MarshalText writes the chord as [Chord.String] does, so a keybinding survives being
+// written to a configuration file and read back.
+func (c Chord) MarshalText() ([]byte, error) { return []byte(c.String()), nil }
+
+// UnmarshalText reads what MarshalText wrote.
+//
+// It is here rather than left to whatever reads the file because it is the same parse
+// either way, and because implementing it is what makes a keymap something any of the
+// usual decoders can fill in without being told how.
+func (c *Chord) UnmarshalText(b []byte) error {
+	chord, ok := ParseChord(string(b))
+	if !ok {
+		return notAKeystroke(string(b))
+	}
+	*c = chord
+	return nil
+}
+
+// notAKeystroke is what a configuration file gets told when it names something nobody
+// can press.
+func notAKeystroke(s string) error {
+	return errors.New("input: " + strconv.Quote(s) + " is not a keystroke")
 }
 
 // ParseChord reads what [Chord.String] writes, and reports whether it was a keystroke
@@ -187,6 +212,19 @@ func (k Keys) String() string {
 	return strings.Join(parts, " ")
 }
 
+// MarshalText writes the sequence as [Keys.String] does.
+func (k Keys) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
+
+// UnmarshalText reads what MarshalText wrote.
+func (k *Keys) UnmarshalText(b []byte) error {
+	keys, ok := ParseKeys(string(b))
+	if !ok {
+		return notAKeystroke(string(b))
+	}
+	*k = keys
+	return nil
+}
+
 // ParseKeys reads a sequence: chords separated by spaces. A chord that is itself the
 // space bar is written "space", so there is nothing ambiguous to split on.
 func ParseKeys(s string) (Keys, bool) {
@@ -268,7 +306,7 @@ type Keymap struct {
 
 	// bound is every binding in the order it was made, which is the order
 	// [Keymap.Keys] answers in and therefore the order a hint row shows.
-	bound []binding
+	bound []Binding
 	// root is the same bindings as a tree, which is what a keystroke is looked up in.
 	// It is rebuilt whenever bound changes: binding is rare, looking up happens on
 	// every keystroke, and a tree pruned in place leaves prefixes that swallow keys
@@ -276,10 +314,15 @@ type Keymap struct {
 	root *chordNode
 }
 
-type binding struct {
-	keys   Keys
-	action Action
+// Binding is one entry of a map: a sequence of chords, and what it does.
+type Binding struct {
+	Keys   Keys
+	Action Action
 }
+
+// String writes the binding the way a keybinding file does: what to press, then what it
+// does.
+func (b Binding) String() string { return b.Keys.String() + " " + string(b.Action) }
 
 type chordNode struct {
 	next   map[Chord]*chordNode
@@ -297,18 +340,18 @@ func (m *Keymap) Bind(a Action, keys ...Chord) {
 		return
 	}
 	seq := Keys(slices.Clone(keys))
-	m.bound = slices.DeleteFunc(m.bound, func(b binding) bool {
-		return slices.Equal(b.keys, seq)
+	m.bound = slices.DeleteFunc(m.bound, func(b Binding) bool {
+		return slices.Equal(b.Keys, seq)
 	})
-	m.bound = append(m.bound, binding{keys: seq, action: a})
+	m.bound = append(m.bound, Binding{Keys: seq, Action: a})
 	m.rebuild()
 }
 
 // Unbind takes a sequence out, reporting whether it was there.
 func (m *Keymap) Unbind(keys ...Chord) bool {
 	before := len(m.bound)
-	m.bound = slices.DeleteFunc(m.bound, func(b binding) bool {
-		return slices.Equal(b.keys, Keys(keys))
+	m.bound = slices.DeleteFunc(m.bound, func(b Binding) bool {
+		return slices.Equal(b.Keys, Keys(keys))
 	})
 	if len(m.bound) == before {
 		return false
@@ -325,8 +368,8 @@ func (m *Keymap) Keys(a Action) []Keys {
 	}
 	var out []Keys
 	for _, b := range m.bound {
-		if b.action == a {
-			out = append(out, slices.Clone(b.keys))
+		if b.Action == a {
+			out = append(out, slices.Clone(b.Keys))
 		}
 	}
 	return out
@@ -334,16 +377,15 @@ func (m *Keymap) Keys(a Action) []Keys {
 
 // Bindings is every binding in the map, in the order it was made. It is what a program
 // showing its own keybinding list, or writing one back out to a file, asks for.
-func (m *Keymap) Bindings() ([]Keys, []Action) {
+func (m *Keymap) Bindings() []Binding {
 	if m == nil {
-		return nil, nil
+		return nil
 	}
-	keys := make([]Keys, len(m.bound))
-	actions := make([]Action, len(m.bound))
+	out := make([]Binding, len(m.bound))
 	for i, b := range m.bound {
-		keys[i], actions[i] = slices.Clone(b.keys), b.action
+		out[i] = Binding{Keys: slices.Clone(b.Keys), Action: b.Action}
 	}
-	return keys, actions
+	return out
 }
 
 // Action is what a sequence names on its own, and whether it names anything.
@@ -384,10 +426,7 @@ func (m *Keymap) Lookup(k Key, p *Pending) (Action, bool) {
 	chord := k.Chord()
 
 	// Where the chords already typed have got to, if they still count for anything.
-	var prefix Keys
-	if p != nil && len(p.keys) > 0 && !expired(m.timeout(), p.at, k.At) {
-		prefix = p.keys
-	}
+	prefix := p.current(m.timeout(), k.At)
 	node, ok := m.follow(append(slices.Clone(prefix), chord))
 	if !ok && len(prefix) > 0 {
 		// The chord does not continue what was being typed, so what was being typed is
@@ -431,7 +470,7 @@ func (m *Keymap) rebuild() {
 	root := &chordNode{}
 	for _, b := range m.bound {
 		node := root
-		for _, chord := range b.keys {
+		for _, chord := range b.Keys {
 			if node.next == nil {
 				node.next = map[Chord]*chordNode{}
 			}
@@ -442,7 +481,7 @@ func (m *Keymap) rebuild() {
 			}
 			node = next
 		}
-		node.action = b.action
+		node.action = b.Action
 	}
 	m.root = root
 }
@@ -454,15 +493,20 @@ func (m *Keymap) timeout() time.Duration {
 	return DefaultKeyTimeout
 }
 
-// expired reports whether too long passed between one chord and the next for them to
-// be part of the same sequence.
+// current is what has been typed so far, if it still counts for anything: nothing when
+// no sequence is under way, and nothing when too long passed for the next chord to be
+// part of the same one.
 //
-// A keystroke nothing timed cannot say, so it never expires. The arrival time is
-// stamped by whatever read the terminal, and a caller feeding a widget events it made
-// up itself gets sequences with no deadline rather than sequences that never complete.
-func expired(timeout time.Duration, last, now time.Time) bool {
-	if last.IsZero() || now.IsZero() {
-		return false
+// A keystroke nothing timed cannot say how long it has been, so it never expires. The
+// arrival time is stamped by whatever read the terminal, and a caller feeding a widget
+// events it made up itself gets sequences with no deadline rather than sequences that
+// can never be completed.
+func (p *Pending) current(timeout time.Duration, now time.Time) Keys {
+	if p == nil || len(p.keys) == 0 {
+		return nil
 	}
-	return now.Sub(last) > timeout
+	if !p.at.IsZero() && !now.IsZero() && now.Sub(p.at) > timeout {
+		return nil
+	}
+	return p.keys
 }

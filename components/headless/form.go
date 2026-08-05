@@ -81,7 +81,9 @@ type Look struct {
 	Taken, Free string
 }
 
-// mark is the mark for a choice, and how many columns the pair of them takes.
+// mark is the mark for a choice, and how many columns the pair of them takes. The pair
+// is measured rather than the one being drawn, so that a row with a mark and a row
+// without line up.
 func (l Look) mark(taken bool) (string, int) {
 	width := max(text.Width(l.Taken), text.Width(l.Free))
 	if width == 0 {
@@ -92,6 +94,36 @@ func (l Look) mark(taken bool) (string, int) {
 	}
 	return l.Free, width + 1
 }
+
+// choice draws one option on a row: its mark, and its label in whatever is left.
+//
+// It is here rather than on the field because all three of the fields that offer a
+// choice draw a row the same way, and the look is the only thing the drawing depends
+// on. under is the row the keyboard is on, taken the choice that has been made — which
+// are the same row in a [Select] and two different ones in a [MultiSelect].
+func (l Look) choice(v grid.View, label string, under, taken bool) {
+	w, _ := v.Size()
+	style := l.Text
+	if under {
+		style = l.Selection
+		v.Fill(v.Bounds(), style)
+	}
+	x := 0
+	if mark, width := l.mark(taken); width > 0 {
+		marked := style
+		if taken {
+			marked = style.Merge(l.Accent)
+		}
+		v.Text(x, 0, mark, marked)
+		x = width
+	}
+	v.Text(x, 0, text.Truncate(label, max(w-x, 0), "…"), style)
+}
+
+// dressed is a field of this package's, which takes its look from the form it is in.
+// One written elsewhere takes it from wherever its author likes, and a form does not
+// reach into it.
+type dressed interface{ dress(l Look) }
 
 // field is what every field in this package has in common: what it draws itself with,
 // whether it has the keyboard, and what was wrong with the answer.
@@ -107,6 +139,11 @@ type field struct {
 	// an answer nobody has given yet is how a form greets somebody with three errors.
 	held    bool
 	blurred bool
+	// top is how many rows the label took in the last frame, and inner the box the
+	// field itself was drawn in. A press arrives between two frames and has to be
+	// answered against the one on screen.
+	top   int
+	inner layout.Size
 }
 
 // Error is what checking the answer last found.
@@ -143,7 +180,26 @@ func (f *field) frame(v grid.View, label string) grid.View {
 		bottom = 1
 		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, "…"), f.look.Danger)
 	}
-	return v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
+	inner := v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
+	f.top = top
+	f.inner.W, f.inner.H = inner.Size()
+	return inner
+}
+
+// within translates a pointer event into the field's own box and reports whether it
+// landed in it.
+//
+// The label is a row of the field and is not part of what the field holds, so a press
+// under it means a row lower than the position says. It is the same translation a
+// container does for its children and for the same reason: a widget reasons in its own
+// coordinates, and a position that arrived in anybody else's is one it cannot use.
+func (f *field) within(ev input.Mouse) (input.Mouse, bool) {
+	if f.inner.H <= 0 {
+		// Nothing has been drawn, so there is no frame for the press to be about.
+		return ev, false
+	}
+	ev.Pos.Y -= f.top
+	return ev, ev.Pos.Y >= 0 && ev.Pos.Y < f.inner.H
 }
 
 // check records what is wrong with an answer and reports it.
@@ -219,6 +275,7 @@ func (f *Form) Focused() Field {
 // out there were four.
 func (f *Form) Submit() bool {
 	f.arrange()
+	f.problem = nil
 	ok := true
 	for _, field := range f.Fields {
 		if field.Validate() != nil {
@@ -226,10 +283,8 @@ func (f *Form) Submit() bool {
 		}
 	}
 	if !ok {
-		f.problem = nil
 		return false
 	}
-	f.problem = nil
 	if f.Check != nil {
 		if err := f.Check(); err != nil {
 			f.problem = err
@@ -313,8 +368,8 @@ func (f *Form) arrange() {
 	f.body.Keys = f.keys()
 	f.body.Items = f.body.Items[:0]
 	for i, field := range f.Fields {
-		if dressed, ok := field.(interface{ dress(l Look) }); ok {
-			dressed.dress(f.Look)
+		if takes, ok := field.(dressed); ok {
+			takes.dress(f.Look)
 		}
 		if i > 0 && f.Gap > 0 {
 			f.body.Items = append(f.body.Items, Item{Size: layout.Fixed(f.Gap)})

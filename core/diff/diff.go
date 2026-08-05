@@ -10,7 +10,10 @@
 // speaks in.
 package diff
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // Kind is what happened to a line.
 type Kind uint8
@@ -46,21 +49,17 @@ type Line struct {
 	Old, New int
 }
 
-// maxEdits bounds how much work a single comparison may do.
-//
-// The algorithm's cost grows with the number of differing lines, not with the size of
-// the texts, so two nearly identical files are cheap however long they are. Past this
-// many differences the two texts have nothing much in common and the answer is the
-// honest one: what was there is gone and what is there is new. Nobody reads a
-// five-hundred-line diff line by line anyway.
-const maxEdits = 512
+// String writes the line the way a diff writes one: its mark, then its text.
+func (l Line) String() string { return l.Kind.String() + l.Text }
 
-// Lines is what changed between two texts.
+// Script is a change to a text, as the lines that make it.
 //
-// The result reads top to bottom as the change itself: every line of both texts appears
-// once, in an order in which the removals and the additions of the same passage sit
-// together.
-func Lines(before, after []string) []Line {
+// It reads top to bottom as the change itself: every line of both texts appears once,
+// in an order in which the removals and the additions of the same passage sit together.
+type Script []Line
+
+// Between is what changed between two texts.
+func Between(before, after []string) Script {
 	// The ends first. Two versions of a file usually differ in the middle, and the
 	// shortest edit script between them is found by not looking at the parts that are
 	// the same.
@@ -74,11 +73,16 @@ func Lines(before, after []string) []Line {
 		tail++
 	}
 
-	out := make([]Line, 0, len(before)+len(after))
+	out := make(Script, 0, len(before)+len(after))
 	for i := range head {
 		out = append(out, Line{Text: before[i], Old: i + 1, New: i + 1})
 	}
-	out = append(out, middle(before[head:len(before)-tail], after[head:len(after)-tail], head)...)
+	middle := myers{
+		before: before[head : len(before)-tail],
+		after:  after[head : len(after)-tail],
+		from:   head,
+	}
+	out = append(out, middle.script()...)
 	for i := range tail {
 		at := len(before) - tail + i
 		out = append(out, Line{Text: before[at], Old: at + 1, New: len(after) - tail + i + 1})
@@ -86,152 +90,42 @@ func Lines(before, after []string) []Line {
 	return out
 }
 
-// middle diffs the parts that are not shared ends, numbering from an offset.
-func middle(before, after []string, from int) []Line {
-	switch {
-	case len(before) == 0 && len(after) == 0:
-		return nil
-	case len(before) == 0 || len(after) == 0:
-		return replaced(before, after, from)
-	}
-	path, ok := trace(before, after)
-	if !ok {
-		return replaced(before, after, from)
-	}
-	return walk(path, before, after, from)
+// Same reports whether the two texts were the same, which is a script with nothing
+// changed in it.
+func (s Script) Same() bool {
+	return !slices.ContainsFunc(s, func(line Line) bool { return line.Kind != Context })
 }
 
-// replaced is the answer when nothing useful is shared: all of one, then all of the
-// other.
-func replaced(before, after []string, from int) []Line {
-	out := make([]Line, 0, len(before)+len(after))
-	for i, line := range before {
-		out = append(out, Line{Kind: Removed, Text: line, Old: from + i + 1})
+// String writes the script the way a diff is written: one line each, marked.
+func (s Script) String() string {
+	var b strings.Builder
+	for _, line := range s {
+		b.WriteString(line.String())
+		b.WriteByte('\n')
 	}
-	for i, line := range after {
-		out = append(out, Line{Kind: Added, Text: line, New: from + i + 1})
-	}
-	return out
+	return b.String()
 }
 
-// trace runs Myers' algorithm, keeping the furthest point reached on each diagonal
-// after every edit, and reports false when the two texts differ by more than
-// [maxEdits].
-//
-// The furthest points are what the answer is reconstructed from: an edit script is a
-// path through a grid, and the path is walked back out of these afterwards. Keeping
-// them is the whole memory cost, which is why the number of edits is capped rather
-// than the size of the texts.
-func trace(before, after []string) ([][]int, bool) {
-	n, m := len(before), len(after)
-	limit := min(n+m, maxEdits)
-	// v holds the furthest x reached on each diagonal k, offset so that k = 0 sits in
-	// the middle.
-	v := make([]int, 2*limit+3)
-	offset := limit + 1
-	var path [][]int
-
-	for d := 0; d <= limit; d++ {
-		path = append(path, slices.Clone(v))
-		for k := -d; k <= d; k += 2 {
-			var x int
-			// Down when the diagonal above has got further, which is an insertion;
-			// right otherwise, which is a deletion. The edges have only one choice.
-			if k == -d || (k != d && v[offset+k-1] < v[offset+k+1]) {
-				x = v[offset+k+1]
-			} else {
-				x = v[offset+k-1] + 1
-			}
-			y := x - k
-			for x < n && y < m && before[x] == after[y] {
-				x, y = x+1, y+1
-			}
-			v[offset+k] = x
-			if x >= n && y >= m {
-				return path, true
-			}
-		}
-	}
-	return nil, false
-}
-
-// walk reads the edit script back out of the trace, from the end to the beginning, and
-// turns it into lines in reading order.
-func walk(path [][]int, before, after []string, from int) []Line {
-	// The offset the trace was built with: each snapshot is 2*limit+3 long, centred on
-	// the diagonal through the origin.
-	offset := (len(path[0]) - 1) / 2
-	x, y := len(before), len(after)
-	var reversed []Line
-
-	// path[d] is where every diagonal had got to before the d-th edit was made, so a
-	// point reached by the d-th edit came from there.
-	for d := len(path) - 1; d > 0; d-- {
-		v := path[d]
-		k := x - y
-		var prevK int
-		if k == -d || (k != d && v[offset+k-1] < v[offset+k+1]) {
-			prevK = k + 1
-		} else {
-			prevK = k - 1
-		}
-		prevX := v[offset+prevK]
-		prevY := prevX - prevK
-
-		// The run of matching lines this step ended with.
-		for x > prevX && y > prevY {
-			x, y = x-1, y-1
-			reversed = append(reversed, Line{
-				Text: before[x], Old: from + x + 1, New: from + y + 1,
-			})
-		}
-		switch {
-		case x > prevX:
-			x--
-			reversed = append(reversed, Line{Kind: Removed, Text: before[x], Old: from + x + 1})
-		case y > prevY:
-			y--
-			reversed = append(reversed, Line{Kind: Added, Text: after[y], New: from + y + 1})
-		}
-	}
-	// Whatever the first step matched, before any edit was made.
-	for x > 0 && y > 0 {
-		x, y = x-1, y-1
-		reversed = append(reversed, Line{Text: before[x], Old: from + x + 1, New: from + y + 1})
-	}
-
-	slices.Reverse(reversed)
-	return reversed
-}
-
-// Hunk is a run of a diff worth showing: what changed, and a few lines either side of
-// it so a reader can see where they are.
-type Hunk struct {
-	Lines []Line
-	// Old and New are where the hunk begins in each text, counting from one.
-	Old, New int
-}
-
-// Hunks is the changed parts of a diff with context lines around them, and everything
-// else left out.
+// Hunks is the changed parts of the script with context lines around them, and
+// everything else left out.
 //
 // A file that changed in two places is two hundred lines of which six matter, and a
 // view that shows all two hundred is a view nobody reads. Overlapping runs of context
 // are one hunk rather than two, because a gap of one unchanged line is not a gap worth
 // drawing a break across.
 //
-// A context of zero is the changed lines alone. A diff with nothing changed in it has
+// A context of zero is the changed lines alone. A script with nothing changed in it has
 // no hunks at all, which is how "these are the same" is said.
-func Hunks(lines []Line, context int) []Hunk {
+func (s Script) Hunks(context int) []Hunk {
 	context = max(context, 0)
-	keep := make([]bool, len(lines))
+	keep := make([]bool, len(s))
 	changed := false
-	for i, line := range lines {
+	for i, line := range s {
 		if line.Kind == Context {
 			continue
 		}
 		changed = true
-		for j := max(i-context, 0); j <= min(i+context, len(lines)-1); j++ {
+		for j := max(i-context, 0); j <= min(i+context, len(s)-1); j++ {
 			keep[j] = true
 		}
 	}
@@ -240,21 +134,32 @@ func Hunks(lines []Line, context int) []Hunk {
 	}
 
 	var out []Hunk
-	for i := 0; i < len(lines); i++ {
+	for i := 0; i < len(s); i++ {
 		if !keep[i] {
 			continue
 		}
 		start := i
-		for i < len(lines) && keep[i] {
+		for i < len(s) && keep[i] {
 			i++
 		}
-		out = append(out, hunk(lines[start:i]))
+		out = append(out, hunkOf(s[start:i]))
 	}
 	return out
 }
 
-// hunk is one run of lines with its starting numbers worked out.
-func hunk(lines []Line) Hunk {
+// Hunk is a run of a script worth showing: what changed, and a few lines either side of
+// it so a reader can see where they are.
+type Hunk struct {
+	Lines Script
+	// Old and New are where the hunk begins in each text, counting from one.
+	Old, New int
+}
+
+// String writes the hunk the way a diff writes one.
+func (h Hunk) String() string { return h.Lines.String() }
+
+// hunkOf is one run of lines with its starting numbers worked out.
+func hunkOf(lines Script) Hunk {
 	h := Hunk{Lines: lines}
 	for _, line := range lines {
 		if h.Old == 0 && line.Old > 0 {
@@ -265,4 +170,140 @@ func hunk(lines []Line) Hunk {
 		}
 	}
 	return h
+}
+
+// maxEdits bounds how much work one comparison may do.
+//
+// The algorithm's cost grows with the number of differing lines, not with the size of
+// the texts, so two nearly identical files are cheap however long they are. Past this
+// many differences the two texts have nothing much in common and the answer is the
+// honest one: what was there is gone and what is there is new. Nobody reads a
+// five-hundred-line diff line by line anyway.
+const maxEdits = 512
+
+// myers is one comparison, from the two texts to the lines that describe the change.
+//
+// It is a type rather than four functions passing the same three arguments between
+// them, because the algorithm is a walk forward and then a walk back over one piece of
+// state: how far each diagonal had got after every edit. That state is the whole of it,
+// and naming it is what makes the two walks readable as the two halves of one thing.
+type myers struct {
+	// before and after are the parts of the two texts that are not shared ends.
+	before, after []string
+	// from is how many lines were the same before these, which is what turns a
+	// position here into a line number there.
+	from int
+
+	// path is where every diagonal had got to before each edit was made. It is what
+	// the answer is reconstructed from: an edit script is a path through a grid, and
+	// this is the grid's frontier at each step.
+	path [][]int
+	// offset is where the diagonal through the origin sits in each snapshot, since
+	// diagonals are numbered from negative to positive and a slice is not.
+	offset int
+}
+
+// script is what changed, by whichever route can answer.
+func (m *myers) script() Script {
+	switch {
+	case len(m.before) == 0 && len(m.after) == 0:
+		return nil
+	case len(m.before) == 0 || len(m.after) == 0 || !m.trace():
+		return m.replaced()
+	}
+	return m.walk()
+}
+
+// replaced is the answer when nothing useful is shared: all of one, then all of the
+// other.
+func (m *myers) replaced() Script {
+	out := make(Script, 0, len(m.before)+len(m.after))
+	for i, line := range m.before {
+		out = append(out, Line{Kind: Removed, Text: line, Old: m.from + i + 1})
+	}
+	for i, line := range m.after {
+		out = append(out, Line{Kind: Added, Text: line, New: m.from + i + 1})
+	}
+	return out
+}
+
+// trace walks forward, keeping the furthest point reached on each diagonal after every
+// edit, and reports false when the two texts differ by more than [maxEdits].
+func (m *myers) trace() bool {
+	n, size := len(m.before), len(m.after)
+	limit := min(n+size, maxEdits)
+	// v holds the furthest x reached on each diagonal k, offset so that k = 0 sits in
+	// the middle.
+	v := make([]int, 2*limit+3)
+	m.offset, m.path = limit+1, nil
+
+	for d := 0; d <= limit; d++ {
+		m.path = append(m.path, slices.Clone(v))
+		for k := -d; k <= d; k += 2 {
+			var x int
+			// Down when the diagonal above has got further, which is an insertion;
+			// right otherwise, which is a deletion. The edges have only one choice.
+			if k == -d || (k != d && v[m.offset+k-1] < v[m.offset+k+1]) {
+				x = v[m.offset+k+1]
+			} else {
+				x = v[m.offset+k-1] + 1
+			}
+			y := x - k
+			for x < n && y < size && m.before[x] == m.after[y] {
+				x, y = x+1, y+1
+			}
+			v[m.offset+k] = x
+			if x >= n && y >= size {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// walk reads the edit script back out of the trace, from the end to the beginning, and
+// turns it into lines in reading order.
+func (m *myers) walk() Script {
+	x, y := len(m.before), len(m.after)
+	var reversed Script
+
+	// path[d] is where every diagonal had got to before the d-th edit was made, so a
+	// point reached by the d-th edit came from there.
+	for d := len(m.path) - 1; d > 0; d-- {
+		v := m.path[d]
+		k := x - y
+		prevK := k - 1
+		if k == -d || (k != d && v[m.offset+k-1] < v[m.offset+k+1]) {
+			prevK = k + 1
+		}
+		prevX := v[m.offset+prevK]
+		prevY := prevX - prevK
+
+		// The run of matching lines this step ended with.
+		for x > prevX && y > prevY {
+			x, y = x-1, y-1
+			reversed = append(reversed, m.kept(x, y))
+		}
+		switch {
+		case x > prevX:
+			x--
+			reversed = append(reversed, Line{Kind: Removed, Text: m.before[x], Old: m.from + x + 1})
+		case y > prevY:
+			y--
+			reversed = append(reversed, Line{Kind: Added, Text: m.after[y], New: m.from + y + 1})
+		}
+	}
+	// Whatever the first step matched, before any edit was made.
+	for x > 0 && y > 0 {
+		x, y = x-1, y-1
+		reversed = append(reversed, m.kept(x, y))
+	}
+
+	slices.Reverse(reversed)
+	return reversed
+}
+
+// kept is a line that both texts have, numbered in each of them.
+func (m *myers) kept(x, y int) Line {
+	return Line{Text: m.before[x], Old: m.from + x + 1, New: m.from + y + 1}
 }

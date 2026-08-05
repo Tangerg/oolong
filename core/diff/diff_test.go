@@ -8,17 +8,7 @@ import (
 	"github.com/Tangerg/oolong/core/diff"
 )
 
-// script writes a diff the way a reader sees it, which is what the tests assert on:
-// what matters about a diff is what it reads as, not which internal path produced it.
-func script(lines []diff.Line) string {
-	var b strings.Builder
-	for _, line := range lines {
-		b.WriteString(line.Kind.String())
-		b.WriteString(line.Text)
-		b.WriteByte('\n')
-	}
-	return b.String()
-}
+// The tests assert on what a diff reads as, not on which internal path produced it.
 
 func split(s string) []string {
 	if s == "" {
@@ -70,7 +60,7 @@ func TestWhatChangedReadsAsTheChange(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := script(diff.Lines(split(tc.before), split(tc.after))); got != tc.want {
+			if got := diff.Between(split(tc.before), split(tc.after)).String(); got != tc.want {
 				t.Fatalf("got:\n%swant:\n%s", got, tc.want)
 			}
 		})
@@ -94,7 +84,7 @@ func TestEveryLineOfBothTextsAppearsExactlyOnce(t *testing.T) {
 	}
 	for range 300 {
 		before, after := pick(r.Intn(12)), pick(r.Intn(12))
-		lines := diff.Lines(before, after)
+		lines := diff.Between(before, after)
 
 		var kept, added []string
 		for _, line := range lines {
@@ -119,7 +109,7 @@ func TestEveryLineOfBothTextsAppearsExactlyOnce(t *testing.T) {
 func TestALineKnowsWhereItIsInBothTexts(t *testing.T) {
 	// A reader looking for what to open needs the number in the text that still
 	// exists; one reading the change needs both.
-	lines := diff.Lines(split("a\nb\nc"), split("a\nB\nc"))
+	lines := diff.Between(split("a\nb\nc"), split("a\nB\nc"))
 	want := []diff.Line{
 		{Text: "a", Old: 1, New: 1},
 		{Kind: diff.Removed, Text: "b", Old: 2},
@@ -139,11 +129,11 @@ func TestALineKnowsWhereItIsInBothTexts(t *testing.T) {
 func TestHunksLeaveOutWhatNobodyIsReading(t *testing.T) {
 	before := strings.Split("1\n2\n3\n4\n5\n6\n7\n8\n9", "\n")
 	after := strings.Split("1\n2\n3\nX\n5\n6\n7\n8\n9", "\n")
-	hunks := diff.Hunks(diff.Lines(before, after), 1)
+	hunks := diff.Between(before, after).Hunks(1)
 	if len(hunks) != 1 {
 		t.Fatalf("got %d hunks, want one", len(hunks))
 	}
-	if got := script(hunks[0].Lines); got != " 3\n-4\n+X\n 5\n" {
+	if got := hunks[0].String(); got != " 3\n-4\n+X\n 5\n" {
 		t.Fatalf("hunk:\n%s", got)
 	}
 	if hunks[0].Old != 3 || hunks[0].New != 3 {
@@ -155,14 +145,14 @@ func TestTwoChangesCloseTogetherAreOneHunk(t *testing.T) {
 	// A gap of one unchanged line is not a gap worth drawing a break across.
 	before := strings.Split("1\n2\n3\n4\n5", "\n")
 	after := strings.Split("1\nX\n3\nY\n5", "\n")
-	if got := len(diff.Hunks(diff.Lines(before, after), 1)); got != 1 {
+	if got := len(diff.Between(before, after).Hunks(1)); got != 1 {
 		t.Fatalf("got %d hunks, want the overlapping context to join them", got)
 	}
 }
 
 func TestNothingChangedIsNoHunks(t *testing.T) {
 	same := strings.Split("a\nb\nc", "\n")
-	if hunks := diff.Hunks(diff.Lines(same, same), 3); hunks != nil {
+	if hunks := diff.Between(same, same).Hunks(3); hunks != nil {
 		t.Fatalf("got %d hunks for two texts that are the same", len(hunks))
 	}
 }
@@ -176,7 +166,7 @@ func TestTwoTextsWithTooLittleInCommonAreSaidToBeReplaced(t *testing.T) {
 		before[i] = "old " + string(rune('a'+i%26))
 		after[i] = "new " + string(rune('A'+i%26))
 	}
-	lines := diff.Lines(before, after)
+	lines := diff.Between(before, after)
 	if len(lines) != len(before)+len(after) {
 		t.Fatalf("got %d lines, want every line of both", len(lines))
 	}

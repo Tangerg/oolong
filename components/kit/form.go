@@ -34,7 +34,7 @@ func (f Form) Measure(across int) int {
 	if f.Form == nil {
 		return 0
 	}
-	return f.rows(across) + f.Form.Measure(across)
+	return f.rows() + f.Form.Measure(across)
 }
 
 // Draw dresses the form and paints it.
@@ -76,7 +76,7 @@ func (f Form) look() headless.Look {
 	}
 }
 
-func (f Form) rows(int) int { return f.titleRows() + f.hintRows() }
+func (f Form) rows() int { return f.titleRows() + f.hintRows() }
 
 func (f Form) titleRows() int {
 	if f.Title == "" {

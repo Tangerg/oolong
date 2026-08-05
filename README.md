@@ -17,16 +17,25 @@ at the bottom is about a hundred lines: [`examples/streaming`](examples/streamin
 
 Underneath that: a transcript the output can be selected, searched and scrolled
 back over; an editor with undo, selection, the system clipboard and atomic
-elements; prompt history and a slash-command registry; a theme that follows the
-colour the terminal says it draws on, and box glyphs that fall back to ASCII when
-the locale says they must.
+elements, in one line or many; forms with the four fields anything ever asks for;
+a diff and something to scroll it in; prompt history and a slash-command registry;
+a theme that follows the colour the terminal says it draws on, and box glyphs that
+fall back to ASCII when the locale says they must.
+
+Every key is a name in a table rather than a keystroke in a widget, so all of it
+can be rebound without replacing anything — and every widget answers to the name,
+so all of it can be driven from a menu, from a command typed out, or from a test
+that presses nothing.
 
 ```sh
 go run ./examples/streaming        # from the repository root, which is a Go workspace
 ```
 
-[`ROADMAP.md`](ROADMAP.md) is what is missing and in what order, read against the
-libraries this one was lifted from and the ones it was compared with.
+[`ROADMAP.md`](ROADMAP.md) was what was missing and in what order, read against the
+libraries this one was lifted from and the ones it was compared with. It is all
+done; what each item turned out to mean — including the three places the
+implementation contradicted the analysis — is recorded under it, and what the work
+turned up is at the end.
 
 ## What it is
 

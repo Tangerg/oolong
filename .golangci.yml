@@ -103,6 +103,15 @@ linters:
       # repetitions that can drift apart should share a constant.
       match-constant: false
 
+    recvcheck:
+      # Reading a value and writing one are not the same receiver, and the text
+      # encoding needs both: MarshalText reads, and encoding.TextUnmarshaler cannot
+      # be satisfied without a pointer. It is what time.Time and net.IP do, and the
+      # alternative is a value type nobody can decode into.
+      exclusions:
+        - "*.UnmarshalText"
+        - "*.UnmarshalBinary"
+
     nolintlint:
       # A suppression is a claim that the linter is wrong. It has to name the rule
       # it disables and say why, or it is indistinguishable from silencing a real

@@ -3,7 +3,6 @@ package headless
 import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/text"
 )
 
 // The fields a form is made of: a line of text, one choice, several, and a yes or no.
@@ -37,9 +36,6 @@ type Text struct {
 
 	editor Editor
 	seeded bool
-	// width is how wide the field was in the last frame, which is what a click has to
-	// be resolved against: a click is about a frame that has already been drawn.
-	width int
 }
 
 // Editor is the field itself, for a caller that needs the cursor or the clipboard.
@@ -57,20 +53,18 @@ func (t *Text) Draw(v grid.View) {
 	t.editor.Style = t.look.Text
 	t.editor.PlaceholderStyle = t.look.Subtle
 	t.editor.SelectionStyle = t.look.Selection
-	inner := t.frame(v, t.Label)
-	t.width, _ = inner.Size()
-	t.editor.Draw(inner)
+	t.editor.Draw(t.frame(v, t.Label))
 }
 
 // Handle passes input to the field and keeps the value in step with it.
 func (t *Text) Handle(ev input.Event) bool {
 	t.ensure()
 	if mouse, ok := ev.(input.Mouse); ok {
-		if t.width <= 0 {
-			// Nothing has been drawn, so there is no frame for the click to be about.
+		local, in := t.within(mouse)
+		if !in {
 			return false
 		}
-		return t.editor.HandleMouse(mouse, t.width)
+		return t.editor.HandleMouse(local, t.inner.W)
 	}
 	if !t.editor.Handle(ev) {
 		return false
@@ -142,6 +136,25 @@ type Option[T any] struct {
 	Value T
 }
 
+// holds reports whether the option is the one standing for a value, by the caller's
+// rule or, with none, by what the option is shown as.
+//
+// Comparing what is shown is the only thing possible without a rule: Go will not
+// compare two values of a type parameter, and a type it cannot compare at all — a
+// slice, a map — would panic on the attempt.
+func (o Option[T]) holds(want T, same func(a, b T) bool) bool {
+	if same != nil {
+		return same(o.Value, want)
+	}
+	switch shown := any(want).(type) {
+	case string:
+		return o.Label == shown
+	case interface{ String() string }:
+		return o.Label == shown.String()
+	}
+	return false
+}
+
 // Options is the usual case, where what is shown is what it means.
 func Options[T ~string](values ...T) []Option[T] {
 	out := make([]Option[T], len(values))
@@ -209,6 +222,13 @@ func (s *Select[T]) Draw(v grid.View) {
 // Handle moves the cursor, and takes the choice with it.
 func (s *Select[T]) Handle(ev input.Event) bool {
 	s.ensure()
+	if mouse, ok := ev.(input.Mouse); ok {
+		local, in := s.within(mouse)
+		if !in {
+			return false
+		}
+		ev = local
+	}
 	if !s.list.Handle(ev) {
 		return false
 	}
@@ -251,13 +271,16 @@ func (s *Select[T]) Focus(has bool) {
 func (s *Select[T]) ensure() {
 	s.list.Items = s.Options
 	s.list.Keys = s.Keys
-	s.list.Row = func(v grid.View, _ int, option Option[T], under bool) {
-		drawChoice(v, s.look, option.Label, under, under)
-	}
 	if s.seeded {
 		return
 	}
 	s.seeded = true
+	// Wired once rather than every frame: it reads the look and the options through
+	// this field, so it does not go stale, and a Draw that assigns to the thing it is
+	// about to draw is a Draw with a side effect.
+	s.list.Row = func(v grid.View, _ int, option Option[T], under bool) {
+		s.look.choice(v, option.Label, under, under)
+	}
 	if s.Value == nil {
 		s.store()
 		return
@@ -266,7 +289,7 @@ func (s *Select[T]) ensure() {
 	// is coming back to show what they said last time.
 	want := s.Value.Get()
 	for i, option := range s.Options {
-		if sameOption(s.Same, option, want) {
+		if option.holds(want, s.Same) {
 			s.list.Select(i)
 			break
 		}
@@ -373,7 +396,15 @@ func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 		}
 		return false
 	}
-	return m.list.Handle(ev)
+	mouse, ok := ev.(input.Mouse)
+	if !ok {
+		return false
+	}
+	local, in := m.within(mouse)
+	if !in {
+		return false
+	}
+	return m.list.Handle(local)
 }
 
 // Do runs one of the field's actions by name. See [Doer].
@@ -408,8 +439,10 @@ func (m *MultiSelect[T]) ensure() {
 	// The list is moved with this field's own map, which has the list's movement in it
 	// as well as the key that takes a choice.
 	m.list.Keys = m.keys()
-	m.list.Row = func(v grid.View, at int, option Option[T], under bool) {
-		drawChoice(v, m.look, option.Label, under, at < len(m.taken) && m.taken[at])
+	if m.list.Row == nil {
+		m.list.Row = func(v grid.View, at int, option Option[T], under bool) {
+			m.look.choice(v, option.Label, under, at < len(m.taken) && m.taken[at])
+		}
 	}
 	if len(m.taken) != len(m.Options) {
 		taken := make([]bool, len(m.Options))
@@ -425,7 +458,7 @@ func (m *MultiSelect[T]) ensure() {
 	}
 	for _, want := range m.Value.Get() {
 		for i, option := range m.Options {
-			if sameOption(m.Same, option, want) {
+			if option.holds(want, m.Same) {
 				m.taken[i] = true
 				break
 			}
@@ -463,6 +496,9 @@ type Confirm struct {
 	yes     bool
 	seeded  bool
 	pending input.Pending
+	// split is the column the second answer begins at in the last frame, which is what
+	// a press has to be answered against.
+	split int
 }
 
 // Prompt is what the field is asking.
@@ -495,26 +531,36 @@ func (c *Confirm) Draw(v grid.View) {
 		return
 	}
 	x := 0
-	for _, answer := range []struct {
-		word string
-		yes  bool
-	}{{c.word(true), true}, {c.word(false), false}} {
+	for _, yes := range []bool{true, false} {
+		if !yes {
+			// Where one answer ends and the other begins, which is the whole of what a
+			// press needs to know.
+			c.split = x
+		}
 		style := c.look.Text
-		if answer.yes == c.yes {
+		if yes == c.yes {
 			style = c.look.Selection.Merge(c.look.Accent)
 		}
-		if mark, width := c.look.mark(answer.yes == c.yes); width > 0 {
+		if mark, width := c.look.mark(yes == c.yes); width > 0 {
 			x += row.Text(x, 0, mark, style)
 			x++
 		}
-		x += row.Text(x, 0, answer.word, style)
+		x += row.Text(x, 0, c.word(yes), style)
 		x += row.Text(x, 0, "  ", c.look.Text)
 	}
 }
 
-// Handle answers the field.
+// Handle answers the field, by key or by pressing one of the two answers.
 func (c *Confirm) Handle(ev input.Event) bool {
 	c.ensure()
+	if mouse, ok := ev.(input.Mouse); ok {
+		local, in := c.within(mouse)
+		if !in || local.Action != input.MouseDown || local.Button != input.ButtonLeft {
+			return false
+		}
+		c.Say(local.Pos.X < c.split)
+		return true
+	}
 	key, ok := ev.(input.Key)
 	if !ok {
 		return false
@@ -590,44 +636,4 @@ func (c *Confirm) keys() *input.Keymap {
 		return c.Keys
 	}
 	return confirmKeys()
-}
-
-// drawChoice draws one option: its mark, and its label in whatever the row is worth.
-func drawChoice(v grid.View, look Look, label string, under, taken bool) {
-	w, _ := v.Size()
-	style := look.Text
-	if under {
-		style = look.Selection
-		v.Fill(v.Bounds(), style)
-	}
-	x := 0
-	if mark, width := look.mark(taken); width > 0 {
-		marked := style
-		if taken {
-			marked = style.Merge(look.Accent)
-		}
-		v.Text(x, 0, mark, marked)
-		x = width
-	}
-	v.Text(x, 0, text.Truncate(label, max(w-x, 0), "…"), style)
-}
-
-// sameOption reports whether an option holds a value, by the caller's rule or by what
-// is shown.
-func sameOption[T any](same func(a, b T) bool, option Option[T], want T) bool {
-	if same != nil {
-		return same(option.Value, want)
-	}
-	return option.Label == labelOf(want)
-}
-
-// labelOf is what a value would be shown as, for the comparison of last resort.
-func labelOf[T any](v T) string {
-	if s, ok := any(v).(string); ok {
-		return s
-	}
-	if s, ok := any(v).(interface{ String() string }); ok {
-		return s.String()
-	}
-	return ""
 }

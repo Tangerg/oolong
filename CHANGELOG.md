@@ -150,7 +150,15 @@ point of tagging them low rather than not at all.
   answers.
 - **`core/diff`** — what changed between two texts, line by line, and the hunks worth
   showing. It is beside `core/fuzzy` for the same reason that is: what changed is a fact
-  about two strings and has nothing to do with a terminal.
+  about two strings and has nothing to do with a terminal. `diff.Between(old, new)` is
+  a `Script`, which knows how to break itself into hunks and how to write itself out.
+- **A keybinding survives a configuration file.** `Chord` and `Keys` marshal to and
+  from text, so any of the usual decoders fills a keymap in without being told how.
+- **A list row can be pressed**, and so can a choice and a yes-or-no. A list could be
+  walked with the arrow keys and not pointed at, which is not something any list
+  anywhere does. `List.Row` is told which row it is drawing, because a row is often
+  about more than the item and finding the index again by comparing items is a guess
+  whenever two of them are alike.
 - **`components/kit.Diff`** draws one, which is what `Theme.Added`, `Removed` and
   `Context` were waiting for. It is sized, so a change taller than its pane goes in a
   `Viewport` and scrolls with no further arrangement.

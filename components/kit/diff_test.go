@@ -11,7 +11,7 @@ import (
 )
 
 func changed(before, after string) []diff.Hunk {
-	return diff.Hunks(diff.Lines(strings.Split(before, "\n"), strings.Split(after, "\n")), 1)
+	return diff.Between(strings.Split(before, "\n"), strings.Split(after, "\n")).Hunks(1)
 }
 
 func TestADiffMarksEachLineWithWhatHappenedToIt(t *testing.T) {
