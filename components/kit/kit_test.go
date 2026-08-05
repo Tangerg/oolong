@@ -1,6 +1,7 @@
 package kit_test
 
 import (
+	"errors"
 	"image"
 	"strings"
 	"testing"
@@ -765,4 +766,47 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 		".. .grid....",
 		" .README....",
 	})
+}
+
+func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
+	// The same form, the same values, the same complaints — and no grid. What a
+	// screen reader has, what a pipe has, and what a test that would rather say
+	// "good" than press the down arrow twice has.
+	var (
+		name  string
+		model string
+		sure  bool
+	)
+	form := &headless.Form{Fields: []headless.Field{
+		&headless.Text{Label: "Name", Value: headless.Bind(&name), Check: func(s string) error {
+			if s == "" {
+				return errors.New("a name is needed")
+			}
+			return nil
+		}},
+		&headless.Select[string]{
+			Label:   "Model",
+			Options: headless.Options("fast", "good"),
+			Value:   headless.Bind(&model),
+		},
+		&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
+	}}
+
+	var out strings.Builder
+	said := strings.NewReader("\nada\ngo\ny\n")
+	if err := kit.Ask(form, said, &out); err != nil {
+		t.Fatalf("answering the form: %v", err)
+	}
+	if name != "ada" || model != "good" || !sure {
+		t.Fatalf("collected %q %q %v", name, model, sure)
+	}
+
+	// The questions say what may be said, and a refused answer is put again rather
+	// than taken.
+	written := out.String()
+	for _, want := range []string{"Model: 1) fast 2) good", "Sure? (yes/no)", "a name is needed"} {
+		if !strings.Contains(written, want) {
+			t.Fatalf("the conversation was:\n%s\nwant %q in it", written, want)
+		}
+	}
 }
