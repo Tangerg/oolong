@@ -25,6 +25,9 @@ the locale says they must.
 go run ./examples/streaming        # from the repository root, which is a Go workspace
 ```
 
+[`ROADMAP.md`](ROADMAP.md) is what is missing and in what order, read against the
+libraries this one was lifted from and the ones it was compared with.
+
 ## What it is
 
 Four modules in one repository.
@@ -73,6 +76,9 @@ eventually disagrees with, so the way out is built in: stop importing `kit`, kee
 
 That is the whole reason `headless.List` has no style fields and takes a `Row`
 function instead.
+
+[`ROADMAP.md`](ROADMAP.md) is what is missing and in what order, read against the
+libraries this one was lifted from and the ones it was compared with.
 
 ## What it is for
 
