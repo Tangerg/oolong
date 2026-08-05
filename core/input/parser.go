@@ -2,6 +2,7 @@ package input
 
 import (
 	"image"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -45,6 +46,9 @@ type Parser struct {
 	// are text rather than input to interpret.
 	pasting bool
 	paste   []byte
+	// discarding is set when a control sequence's parameter section overran what
+	// one can hold, and stays set until that sequence ends. See [Parser.skip].
+	discarding bool
 }
 
 // Feed adds bytes and returns everything now decodable.
@@ -61,21 +65,41 @@ func (p *Parser) Feed(b []byte) []Event {
 // ambiguous, and cutting it short would corrupt the text.
 func (p *Parser) Flush() []Event { return p.drain(true) }
 
-// Pending reports whether bytes are waiting for more to make sense of them. It is
-// what tells a loop to arm the timer that will call [Parser.Flush].
-func (p *Parser) Pending() bool { return len(p.buf) > 0 }
+// Pending reports whether anything is waiting for more input to make sense of it:
+// bytes that might yet become a sequence, or a runaway one still being dropped. It
+// is what tells a loop to arm the timer that will call [Parser.Flush], and the
+// runaway counts because the state has to end somewhere — otherwise the next
+// keystroke that happened to be a parameter byte would vanish into it.
+func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.discarding }
 
 // drain decodes as much as it can. When final, trailing ambiguity is resolved
 // rather than kept.
 func (p *Parser) drain(final bool) []Event {
 	var events []Event
 	for {
+		if p.discarding {
+			if !p.skip() {
+				if final {
+					// Input went quiet part-way through, so the runaway sequence
+					// is over however it ended. Staying in this state would eat
+					// the next keystroke that happened to be a parameter byte.
+					p.discarding = false
+				}
+				return events
+			}
+			continue
+		}
 		if p.pasting {
 			text, done := p.readPaste()
 			if !done {
 				return events
 			}
-			events = append(events, Paste{Text: text})
+			// A paste is bytes a terminal was handed by something else, and Text
+			// is a string, which every consumer will treat as text and eventually
+			// put in a cell. Invalid UTF-8 is replaced rather than passed on, for
+			// the same reason a control character is dropped at the cell: this is
+			// where untrusted bytes stop being untrusted.
+			events = append(events, Paste{Text: strings.ToValidUTF8(text, "\uFFFD")})
 			continue
 		}
 		if len(p.buf) == 0 {
@@ -102,6 +126,32 @@ func (p *Parser) drain(final bool) []Event {
 		// rather than the buffer keeps whatever follows decodable.
 		p.take(1)
 	}
+}
+
+// skip drops the rest of a control sequence whose parameter section overran, and
+// reports whether it found the end.
+//
+// The bytes are dropped rather than re-read as text. A stream of parameter bytes
+// would otherwise arrive as a flood of keystrokes, which is a worse answer to a
+// malformed sequence than silence — and one that a hostile terminal could aim.
+func (p *Parser) skip() bool {
+	i := 0
+	for i < len(p.buf) && p.buf[i] >= 0x20 && p.buf[i] <= 0x3f {
+		i++
+	}
+	if i >= len(p.buf) {
+		p.take(i)
+		return false // still inside it
+	}
+	// The byte that ended the run of parameter bytes ends the sequence too, if it
+	// is one a sequence could have ended with. Anything else proved the sequence
+	// malformed and is left to be read on its own terms.
+	if p.buf[i] >= 0x40 && p.buf[i] <= 0x7e {
+		i++
+	}
+	p.take(i)
+	p.discarding = false
+	return true
 }
 
 // take drops n decoded bytes, releasing the buffer once it is empty so an idle
@@ -251,10 +301,17 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	for i < len(b) && b[i] >= 0x20 && b[i] <= 0x3f {
 		i++
 	}
+	if i-2 > maxSequenceBody {
+		// Overran what one may hold. The check does not wait to see whether a
+		// final byte happens to be in this chunk, and it does not drop "whatever
+		// is buffered": either would make the cap depend on where the read split,
+		// and the same bytes would decode differently for arriving in different
+		// pieces. What is dropped is the introducer and the body seen so far, and
+		// [Parser.skip] drops the rest wherever it turns up.
+		p.discarding = true
+		return i, nil, true
+	}
 	if i >= len(b) {
-		if i-2 > maxSequenceBody {
-			return len(b), nil, true // no final byte is coming: discard
-		}
 		return 0, nil, false
 	}
 	final := b[i]

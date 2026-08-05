@@ -1,0 +1,137 @@
+version: "2"
+
+# Lint configuration for every module in the repository.
+#
+# The enabled set is deliberately much broader than golangci-lint's default six.
+# This file exists so the standard is enforced on every push rather than
+# re-established by hand: a finding is either fixed, or suppressed at the exact
+# line with a comment saying why. No linter that found real code is disabled
+# wholesale.
+
+run:
+  # Tests are where most of this repository's claims are actually stated, so they
+  # are held to the same standard as the code they describe.
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - dogsled
+    - dupword
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - goconst
+    - gocritic
+    - godot
+    - goprintffuncname
+    - gosec
+    - govet
+    - iface
+    - inamedparam
+    - ineffassign
+    - intrange
+    - makezero
+    - mirror
+    - misspell
+    - nakedret
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - predeclared
+    - reassign
+    - recvcheck
+    - revive
+    - staticcheck
+    - tagalign
+    - testableexamples
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+
+  settings:
+    govet:
+      # Includes shadow, so the zero-shadowing property is enforced rather than
+      # periodically restored.
+      enable-all: true
+      disable:
+        # Field order in this repository is chosen to read as documentation — what
+        # a type is, then how it is configured, then what it remembers. Reordering
+        # for padding would trade that for a few bytes per value, and the values
+        # here are counted in cells rather than in millions.
+        - fieldalignment
+
+    exhaustive:
+      # A default case handles the remaining values by construction in the places
+      # this matters: the switches over colour depth and mouse action exist to
+      # take a small supported set and treat everything else one way.
+      default-signifies-exhaustive: true
+
+    goconst:
+      # Tests repeat values in readable case tables on purpose and are excluded
+      # below. Ignoring them while counting too stops a test-only repetition from
+      # reporting the sole real occurrence.
+      ignore-tests: true
+      # Equal strings in separate protocols are not the same concept. Only
+      # repetitions that can drift apart should share a constant.
+      match-constant: false
+
+    nolintlint:
+      # A suppression is a claim that the linter is wrong. It has to name the rule
+      # it disables and say why, or it is indistinguishable from silencing a real
+      # finding.
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+  exclusions:
+    # Generated files are code too. None exist yet, and disabling the implicit
+    # exclusion keeps any that appear inside the gate from the day they do.
+    generated: disable
+    warn-unused: true
+    rules:
+      # A failed assertion in a test is a test failure with a stack trace pointing
+      # at the assertion. The comma-ok form would add a branch that can only ever
+      # report the same thing less directly.
+      - path: _test\.go
+        linters:
+          - forcetypeassert
+
+issues:
+  # Truncating output turns "clean" into "clean as far as we looked".
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: disable

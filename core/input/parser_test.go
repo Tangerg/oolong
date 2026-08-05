@@ -411,13 +411,39 @@ func TestRunawaySequenceIsDiscarded(t *testing.T) {
 	// without limit.
 	var p Parser
 	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxSequenceBody)))
-	if p.Pending() {
+	if len(p.buf) > 0 {
 		t.Fatal("a runaway sequence is still buffered")
 	}
-	// And the parser still works afterwards.
+
+	// The sequence is still open, though, and the parser says so: something is
+	// waiting on time rather than on more bytes. A byte that could end a control
+	// sequence ends this one, because in the terminal's own stream that is what it
+	// is — the keystroke it looks like never happened.
+	if !p.Pending() {
+		t.Fatal("the runaway sequence was forgotten before it ended")
+	}
+	if events := p.Feed([]byte("a")); len(events) != 0 {
+		t.Fatalf("got %+v, want the final byte taken as the end of the sequence", events)
+	}
+
+	// And the parser works normally from the next byte on.
 	events := p.Feed([]byte("a"))
 	if len(events) != 1 {
 		t.Fatalf("got %+v, want the parser to have recovered", events)
+	}
+}
+
+func TestAFlushEndsARunawaySequence(t *testing.T) {
+	// Otherwise the state outlives the stream that caused it, and the next
+	// keystroke that happened to be a parameter byte would vanish into it.
+	var p Parser
+	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxSequenceBody)))
+	p.Flush()
+	if p.Pending() {
+		t.Fatal("a flush left the runaway sequence open")
+	}
+	if events := p.Feed([]byte("0")); len(events) != 1 {
+		t.Fatalf("got %+v, want an ordinary keystroke", events)
 	}
 }
 
