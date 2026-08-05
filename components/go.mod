@@ -1,6 +1,6 @@
 module github.com/Tangerg/oolong/components
 
-go 1.26.5
+go 1.26.0
 
 require github.com/Tangerg/oolong/core v0.0.0
 

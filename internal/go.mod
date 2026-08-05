@@ -1,3 +1,3 @@
 module github.com/Tangerg/oolong/internal
 
-go 1.26.5
+go 1.26.0

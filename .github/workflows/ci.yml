@@ -34,16 +34,18 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # The declared floor and the current patch release. A module that only
+        # builds on the newest toolchain has a floor it is not honouring, and the
+        # people it breaks are the ones who read the go directive and believed it.
+        go: ["1.26.0", "1.26.x"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v6
         with:
-          # From core's go.mod rather than pinned here, so the version this is
-          # built against and the version it declares cannot drift apart.
-          go-version-file: core/go.mod
-          check-latest: true
+          go-version: ${{ matrix.go }}
+          cache: true
 
       # Built into a scratch directory rather than in place: a module whose
       # only package is a command in a directory of the same name would

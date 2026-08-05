@@ -1,6 +1,6 @@
 module github.com/Tangerg/oolong/core
 
-go 1.26.5
+go 1.26.0
 
 require (
 	github.com/mattn/go-runewidth v0.0.16
