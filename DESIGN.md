@@ -358,6 +358,14 @@ Ordered by what would be built next.
    glyph fallback. The transcript, selection, search, sticky headers and the command
    palette are proved by their own tests and by `kit`, not by a program anyone can
    run. A second example that puts them together is worth having.
+5. **Caret affinity.** Where the width breaks a line, the offset after its last
+   character and the offset before the next row's first are one offset with two
+   places on screen. The editor draws it in the second, so clicking past the end of
+   a wrapped row shows the caret at the start of the next one. Telling them apart
+   needs a bit on the caret that every movement and every edit has to maintain.
+6. **A trackpad scrolling differently from a wheel.** The reports are identical and
+   only their rate tells them apart, which needs a clock in the decoder. What is
+   there normalises how many reports a notch is, which was the larger error.
 
 Not in the list because they are not the library's: syntax-aware editing, a shell,
 process management.

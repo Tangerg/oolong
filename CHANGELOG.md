@@ -46,6 +46,24 @@ point of tagging them low rather than not at all.
   can be used in a region that redraws.
 - `core/text.Wrapped` records the byte range each row came from, which makes the
   wrap invertible — needed by links, selection and search alike.
+- **File paths are links.** `core/link` finds rooted, relative and quoted paths,
+  the line and column written after one, and says whether a link points at a URL
+  or a file — two destinations with different meanings, not one with two
+  spellings. A path is usually *not* given to the terminal as a hyperlink,
+  because the terminal finds paths itself and knows the directory.
+- **`core/input.Wheel`** says what a terminal's wheel reports are worth. They
+  carry no magnitude and terminals send between one and three per notch, so a
+  fixed number of rows per report scrolled three times as far on half of them.
+- **Double-click and triple-click**, with `core/text.WordAt` deciding where a
+  word is — including the three scripts written without spaces, where the script
+  itself is the boundary.
+- **The mouse reaches a text field.** Click to place the cursor, drag to select.
+- **`headless.Transcript.Commit`** gives the leading run of finished blocks to
+  the terminal, in order and once each.
+- `headless.Scroll.Reveal` brings a row into the window, without which a search
+  match could be found and not reached.
+- `headless.Editor.SelectionStyle`, and `Spans`, which is what draws a selection
+  in a wrapped field.
 
 - `core/term.OpenOn` takes over a terminal that is not the process's own, which
   a program serving a session over a pty needs and which makes the package's
