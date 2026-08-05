@@ -367,7 +367,7 @@ func TestTheNameDecidesTheProtocol(t *testing.T) {
 	if got := tty.Graphics(); got != graphics.Kitty {
 		t.Errorf("graphics = %v, want kitty — the environment was stale", got)
 	}
-	if got := tty.Wheel(); got != (input.Wheel{Reports: 3, Rows: 3}) {
+	if got := tty.Wheel(); got != (input.Wheel{Reports: 3, Rows: 3, Trackpad: 3}) {
 		t.Errorf("wheel = %+v, want kitty's", got)
 	}
 }

@@ -159,10 +159,10 @@ func (s *Scroll) Handle(ev input.Event, keys ScrollKeys) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp:
-			s.By(s.wheel.By(-1))
+			s.By(s.wheel.At(mouse.At, -1))
 			return true
 		case input.WheelDown:
-			s.By(s.wheel.By(1))
+			s.By(s.wheel.At(mouse.At, 1))
 			return true
 		default:
 			return false

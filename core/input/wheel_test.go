@@ -2,6 +2,7 @@ package input_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -30,34 +31,34 @@ func TestWheelForKnowsWhoSendsWhat(t *testing.T) {
 		{
 			name: "iTerm2",
 			env:  map[string]string{"TERM_PROGRAM": "iTerm.app"},
-			want: input.Wheel{Reports: 1, Rows: 3},
+			want: input.Wheel{Reports: 1, Rows: 1, Trackpad: 3},
 		},
 		{
 			name: "iTerm2 across an ssh hop",
 			env:  map[string]string{"LC_TERMINAL": "iTerm2"},
-			want: input.Wheel{Reports: 1, Rows: 3},
+			want: input.Wheel{Reports: 1, Rows: 1, Trackpad: 3},
 		},
 		{
 			name: "an editor's embedded terminal",
 			env:  map[string]string{"TERM_PROGRAM": "vscode"},
-			want: input.Wheel{Reports: 1, Rows: 3},
+			want: input.Wheel{Reports: 1, Rows: 3, Trackpad: 15},
 		},
 
 		// Three reports to a notch.
 		{
 			name: "Apple Terminal",
 			env:  map[string]string{"TERM_PROGRAM": "Apple_Terminal"},
-			want: input.Wheel{Reports: 3, Rows: 3},
+			want: input.Wheel{Reports: 3, Rows: 3, Trackpad: 3},
 		},
 		{
 			name: "kitty by its own variable",
 			env:  map[string]string{"KITTY_WINDOW_ID": "1"},
-			want: input.Wheel{Reports: 3, Rows: 3},
+			want: input.Wheel{Reports: 3, Rows: 3, Trackpad: 3},
 		},
 		{
 			name: "alacritty by its socket",
 			env:  map[string]string{"ALACRITTY_SOCKET": "/tmp/x"},
-			want: input.Wheel{Reports: 3, Rows: 3},
+			want: input.Wheel{Reports: 3, Rows: 3, Trackpad: 3},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -83,7 +84,7 @@ func TestAMultiplexerAnswersForItself(t *testing.T) {
 		{name: "zellij", env: map[string]string{"ZELLIJ": "0", "TERM_PROGRAM": "Apple_Terminal"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			want := input.Wheel{Reports: 1, Rows: 3}
+			want := input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}
 			if got := input.WheelFor(env(tc.env), ""); got != want {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
@@ -185,11 +186,123 @@ func TestTheZeroAdvanceScrollsOneRowAReport(t *testing.T) {
 func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
 	// Started from Apple Terminal, ssh'd somewhere, actually talking to iTerm2.
 	stale := map[string]string{"TERM_PROGRAM": "Apple_Terminal"}
-	if got := input.WheelFor(env(stale), "iTerm2 3.5.0"); got != (input.Wheel{Reports: 1, Rows: 3}) {
+	if got := input.WheelFor(env(stale), "iTerm2 3.5.0"); got != (input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}) {
 		t.Errorf("= %+v, want iTerm2's one report a notch", got)
 	}
 	// And a name nobody knows falls back to whatever the environment says.
-	if got := input.WheelFor(env(stale), "SomeNewTerminal 1.0"); got != (input.Wheel{Reports: 3, Rows: 3}) {
+	if got := input.WheelFor(env(stale), "SomeNewTerminal 1.0"); got != (input.Wheel{Reports: 3, Rows: 3, Trackpad: 3}) {
 		t.Errorf("= %+v, want the environment's answer", got)
+	}
+}
+
+// TestAFingerIsToldFromTheWheelByHowFastItArrives. Both send the same report; only the
+// rate is different, which is why a mouse event carries when it came.
+func TestAFingerIsToldFromTheWheelByHowFastItArrives(t *testing.T) {
+	// An editor's terminal: one report a notch, and it coalesces a swipe hardest, so
+	// its two numbers are the ones that differ most.
+	profile := input.Wheel{Reports: 1, Rows: 3, Trackpad: 15}
+	base := time.Unix(0, 0)
+
+	var wheel input.Advance
+	wheel.Wheel(profile)
+	turned := 0
+	for i := range 4 {
+		// A hand turning a wheel: notches a fifth of a second apart.
+		turned += wheel.At(base.Add(time.Duration(i)*200*time.Millisecond), 1)
+	}
+	if turned != 12 {
+		t.Errorf("four notches scrolled %d rows, want 12", turned)
+	}
+
+	var finger input.Advance
+	finger.Wheel(profile)
+	swiped := 0
+	for i := range 4 {
+		// A finger: reports as fast as the terminal can send them.
+		swiped += finger.At(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+	}
+	if swiped <= turned {
+		t.Errorf("four reports of a swipe scrolled %d rows and four notches scrolled %d", swiped, turned)
+	}
+}
+
+func TestAGestureEndsAndTheNextIsJudgedAfresh(t *testing.T) {
+	var a input.Advance
+	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	base := time.Unix(0, 0)
+
+	// A swipe.
+	for i := range 6 {
+		a.At(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+	}
+	// Then, long after, a single notch — which must not be charged at the swipe's rate.
+	if got := a.At(base.Add(2*time.Second), 1); got != 3 {
+		t.Errorf("a notch after the swipe scrolled %d rows, want 3", got)
+	}
+}
+
+// TestATerminalThatBatchesIsNeverAskedTheQuestion. On one that sends three reports a
+// notch, a notch already looks like a burst — and the two numbers come to the same
+// thing anyway.
+func TestATerminalThatBatchesIsNeverAskedTheQuestion(t *testing.T) {
+	var a input.Advance
+	a.Wheel(input.Wheel{Reports: 3, Rows: 3, Trackpad: 3})
+	base := time.Unix(0, 0)
+
+	rows := 0
+	for i := range 6 {
+		rows += a.At(base.Add(time.Duration(i)*time.Millisecond), 1)
+	}
+	if rows != 6 {
+		t.Errorf("six reports scrolled %d rows, want 6 — one each", rows)
+	}
+}
+
+func TestAReportWithNoTimeIsTheWheel(t *testing.T) {
+	// Nothing timed it, so there is nothing to tell a finger by.
+	var a input.Advance
+	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	for range 6 {
+		if got := a.By(1); got != 3 {
+			t.Fatalf("an untimed report scrolled %d rows, want the wheel's 3", got)
+		}
+	}
+}
+
+func TestTrackpadDistanceFallsBackToTheWheel(t *testing.T) {
+	// A terminal that says nothing about a finger is taken to treat it like the wheel,
+	// which is what nearly all of them do.
+	w := input.Wheel{Reports: 1, Rows: 3}
+	if got := w.TrackpadDistance(); got != w.Distance() {
+		t.Errorf("= %v, want the wheel's %v", got, w.Distance())
+	}
+}
+
+func TestAFingerSwipingUpwardsIsStillAFinger(t *testing.T) {
+	// The direction is not part of the question, so a swipe up counts its reports the
+	// same way a swipe down does.
+	var a input.Advance
+	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	base := time.Unix(0, 0)
+
+	rows := 0
+	for i := range 6 {
+		rows += a.At(base.Add(time.Duration(i)*8*time.Millisecond), -1)
+	}
+	if rows > -18 {
+		t.Errorf("six upward reports scrolled %d rows, want more than six notches' worth", rows)
+	}
+}
+
+func TestResetForgetsTheGesture(t *testing.T) {
+	var a input.Advance
+	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	base := time.Unix(0, 0)
+	for i := range 6 {
+		a.At(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+	}
+	a.Reset()
+	if got := a.At(base.Add(50*time.Millisecond), 1); got != 3 {
+		t.Errorf("the first report after a reset scrolled %d rows, want the wheel's 3", got)
 	}
 }
