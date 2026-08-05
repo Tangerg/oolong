@@ -1,12 +1,15 @@
 package kit_test
 
 import (
+	"image"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 )
 
 // said is a block of plain rows, standing in for anything a session prints.
@@ -223,5 +226,180 @@ func TestCommittingNothingWhenThereIsNothingToCommitTo(t *testing.T) {
 	}
 	if got := (kit.Transcript{}).Commit(&recordingPrinter{}); got != 0 {
 		t.Errorf("a view of nothing committed %d", got)
+	}
+}
+
+// TestSteppingToAMatchScrollsToIt. Search returns the row a match begins on and the
+// scroll can be told to bring a row in; nothing joined them, so a match could be found
+// and not reached.
+func TestSteppingToAMatchScrollsToIt(t *testing.T) {
+	rows := make([]string, 60)
+	for i := range rows {
+		rows[i] = "line"
+	}
+	tr := session(t, 20, rows)
+	var sc headless.Scroll
+	s := grid.NewSurface(20, 5)
+
+	view := kit.Transcript{
+		Content: tr,
+		Scroll:  &sc,
+		Matches: []headless.Match{
+			{Row: 2, Spans: []headless.Span{{Col: 0, Width: 4}}},
+			{Row: 40, Spans: []headless.Span{{Col: 0, Width: 4}}},
+		},
+		Current: 1,
+	}
+	view.Draw(s.View())
+
+	if got := sc.Offset(); got > 40 || got+5 <= 40 {
+		t.Errorf("the window starts at %d, which does not show row 40", got)
+	}
+}
+
+// TestSteppingToAMatchShowsTheWholeOfIt, because a match that crosses a break the width
+// made covers several rows and half of one is half of what was asked for.
+func TestSteppingToAMatchShowsTheWholeOfIt(t *testing.T) {
+	rows := make([]string, 60)
+	for i := range rows {
+		rows[i] = "line"
+	}
+	tr := session(t, 20, rows)
+	var sc headless.Scroll
+	s := grid.NewSurface(20, 5)
+
+	kit.Transcript{
+		Content: tr,
+		Scroll:  &sc,
+		Matches: []headless.Match{{Row: 30, Spans: []headless.Span{
+			{Col: 0, Width: 4}, {Col: 0, Width: 4}, {Col: 0, Width: 4},
+		}}},
+	}.Draw(s.View())
+
+	if got := sc.Offset(); got > 30 || got+5 < 33 {
+		t.Errorf("the window starts at %d, which does not show rows 30 to 32", got)
+	}
+}
+
+func TestNoCurrentMatchScrollsNowhere(t *testing.T) {
+	tr := session(t, 20, []string{"a", "b", "c"})
+	var sc headless.Scroll
+	sc.ToBottom()
+	s := grid.NewSurface(20, 2)
+
+	for _, view := range []kit.Transcript{
+		{Content: tr, Scroll: &sc},
+		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}, Current: 9},
+		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}, Current: -1},
+		// A match with no columns to show is not somewhere to go.
+		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}},
+	} {
+		view.Draw(s.View())
+		if !sc.AtBottom() {
+			t.Errorf("%+v moved the view off the end", view.Matches)
+			sc.ToBottom()
+		}
+	}
+}
+
+// press is a left button going down on the top row of the drawn window.
+func press(x int, at time.Time) input.Mouse {
+	return input.Mouse{Pos: image.Pt(x, 0), Action: input.MouseDown, Button: input.ButtonLeft, At: at}
+}
+
+// TestSelectingWithTheMouse is the seam this closes: a selection, a click counter, the
+// word rule, the scroll offset and the translation from a point on screen into a row
+// were five pieces a caller had to wire together.
+func TestSelectingWithTheMouse(t *testing.T) {
+	tr := session(t, 30, []string{"the quick brown", "fox jumps over"})
+	var sel headless.Selection
+	var clicks headless.Clicks
+	view := kit.Transcript{Content: tr, Selection: &sel}
+	base := time.Unix(0, 0)
+
+	// A drag.
+	view.Handle(press(4, base), &clicks)
+	view.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDrag}, &clicks)
+	view.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseUp}, &clicks)
+	if got := sel.Text(tr); got != "quick" {
+		t.Errorf("the drag selected %q, want %q", got, "quick")
+	}
+
+	// A double-click takes the word.
+	sel.Clear()
+	clicks.Reset()
+	view.Handle(press(11, base), &clicks)
+	view.Handle(press(11, base.Add(80*time.Millisecond)), &clicks)
+	if got := sel.Text(tr); got != "brown" {
+		t.Errorf("the double-click selected %q, want %q", got, "brown")
+	}
+
+	// A third takes the row.
+	view.Handle(press(11, base.Add(160*time.Millisecond)), &clicks)
+	if got := sel.Text(tr); got != "the quick brown" {
+		t.Errorf("the triple-click selected %q, want the row", got)
+	}
+}
+
+// TestSelectingAccountsForTheScroll, because a point on screen means nothing without
+// knowing how far the transcript has been scrolled.
+func TestSelectingAccountsForTheScroll(t *testing.T) {
+	tr := session(t, 30, []string{"first", "second", "third", "fourth"})
+	var sc headless.Scroll
+	var sel headless.Selection
+	s := grid.NewSurface(30, 2)
+	view := kit.Transcript{Content: tr, Scroll: &sc, Selection: &sel}
+	view.Draw(s.View())
+	sc.By(2)
+	view.Draw(s.View())
+
+	// The top row on screen is now "third".
+	view.Handle(press(0, time.Unix(0, 0)), nil)
+	view.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag}, nil)
+	if got := sel.Text(tr); got != "third" {
+		t.Errorf("selected %q, want the row that is on screen", got)
+	}
+}
+
+func TestTheTranscriptLeavesAloneWhatIsNotItsToAnswer(t *testing.T) {
+	tr := session(t, 30, []string{"a"})
+	var sel headless.Selection
+	for _, tc := range []struct {
+		name string
+		view kit.Transcript
+		ev   input.Mouse
+	}{
+		{name: "no content", view: kit.Transcript{Selection: &sel}, ev: press(0, time.Time{})},
+		{name: "no selection", view: kit.Transcript{Content: tr}, ev: press(0, time.Time{})},
+		{
+			name: "the wrong button",
+			view: kit.Transcript{Content: tr, Selection: &sel},
+			ev:   input.Mouse{Action: input.MouseDown, Button: input.ButtonRight},
+		},
+		{
+			name: "the wheel",
+			view: kit.Transcript{Content: tr, Selection: &sel},
+			ev:   input.Mouse{Action: input.WheelDown},
+		},
+	} {
+		if tc.view.Handle(tc.ev, nil) {
+			t.Errorf("%s: it was consumed", tc.name)
+		}
+	}
+}
+
+// TestADoubleClickInTheMarginStartsASelection, because there is no word there to take
+// and a press is still a press.
+func TestADoubleClickInTheMarginStartsASelection(t *testing.T) {
+	tr := session(t, 30, []string{"ab"})
+	var sel headless.Selection
+	var clicks headless.Clicks
+	view := kit.Transcript{Content: tr, Selection: &sel}
+	base := time.Unix(0, 0)
+
+	view.Handle(press(20, base), &clicks)
+	view.Handle(press(20, base.Add(80*time.Millisecond)), &clicks)
+	if !sel.Dragging() {
+		t.Error("a double-click past the text did not start a selection")
 	}
 }

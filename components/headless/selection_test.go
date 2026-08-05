@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 )
 
 // lines is a block whose rows are given verbatim, so a selection test can state the
@@ -268,17 +269,17 @@ func TestClicksCountAGesture(t *testing.T) {
 	base := time.Unix(0, 0)
 	at := image.Pt(10, 4)
 
-	if got := c.Press(at, base); got != 1 {
+	if got := c.Press(input.Mouse{Pos: at, At: base}); got != 1 {
 		t.Errorf("the first press is %d, want 1", got)
 	}
-	if got := c.Press(at, base.Add(100*time.Millisecond)); got != 2 {
+	if got := c.Press(input.Mouse{Pos: at, At: base.Add(100 * time.Millisecond)}); got != 2 {
 		t.Errorf("a press soon after is %d, want 2", got)
 	}
-	if got := c.Press(at, base.Add(200*time.Millisecond)); got != 3 {
+	if got := c.Press(input.Mouse{Pos: at, At: base.Add(200 * time.Millisecond)}); got != 3 {
 		t.Errorf("a third is %d, want 3", got)
 	}
 	// Long after, the run starts again.
-	if got := c.Press(at, base.Add(2*time.Second)); got != 1 {
+	if got := c.Press(input.Mouse{Pos: at, At: base.Add(2 * time.Second)}); got != 1 {
 		t.Errorf("a press long after is %d, want 1", got)
 	}
 }
@@ -286,8 +287,8 @@ func TestClicksCountAGesture(t *testing.T) {
 func TestClicksBreakWhenThePointerMoves(t *testing.T) {
 	var c headless.Clicks
 	base := time.Unix(0, 0)
-	c.Press(image.Pt(10, 4), base)
-	if got := c.Press(image.Pt(30, 4), base.Add(50*time.Millisecond)); got != 1 {
+	c.Press(input.Mouse{Pos: image.Pt(10, 4), At: base})
+	if got := c.Press(input.Mouse{Pos: image.Pt(30, 4), At: base.Add(50 * time.Millisecond)}); got != 1 {
 		t.Errorf("a press elsewhere is %d, want 1", got)
 	}
 }
@@ -297,8 +298,8 @@ func TestClicksBreakWhenThePointerMoves(t *testing.T) {
 func TestClicksAllowAHandThatDrifts(t *testing.T) {
 	var c headless.Clicks
 	base := time.Unix(0, 0)
-	c.Press(image.Pt(10, 4), base)
-	if got := c.Press(image.Pt(11, 5), base.Add(50*time.Millisecond)); got != 2 {
+	c.Press(input.Mouse{Pos: image.Pt(10, 4), At: base})
+	if got := c.Press(input.Mouse{Pos: image.Pt(11, 5), At: base.Add(50 * time.Millisecond)}); got != 2 {
 		t.Errorf("a press one cell away is %d, want 2", got)
 	}
 }
@@ -306,8 +307,8 @@ func TestClicksAllowAHandThatDrifts(t *testing.T) {
 func TestClicksTakeTheirOwnInterval(t *testing.T) {
 	c := headless.Clicks{Within: 10 * time.Millisecond}
 	base := time.Unix(0, 0)
-	c.Press(image.Pt(0, 0), base)
-	if got := c.Press(image.Pt(0, 0), base.Add(50*time.Millisecond)); got != 1 {
+	c.Press(input.Mouse{Pos: image.Pt(0, 0), At: base})
+	if got := c.Press(input.Mouse{Pos: image.Pt(0, 0), At: base.Add(50 * time.Millisecond)}); got != 1 {
 		t.Errorf("a press past the interval is %d, want 1", got)
 	}
 }
@@ -315,9 +316,9 @@ func TestClicksTakeTheirOwnInterval(t *testing.T) {
 func TestClicksReset(t *testing.T) {
 	var c headless.Clicks
 	base := time.Unix(0, 0)
-	c.Press(image.Pt(0, 0), base)
+	c.Press(input.Mouse{Pos: image.Pt(0, 0), At: base})
 	c.Reset()
-	if got := c.Press(image.Pt(0, 0), base.Add(time.Millisecond)); got != 1 {
+	if got := c.Press(input.Mouse{Pos: image.Pt(0, 0), At: base.Add(time.Millisecond)}); got != 1 {
 		t.Errorf("the press after a reset is %d, want 1", got)
 	}
 }
@@ -407,8 +408,8 @@ func TestClicksBreakWhenThePointerMovesUpAndLeft(t *testing.T) {
 	// The other sign, which is the branch a single direction of drift never reaches.
 	var c headless.Clicks
 	base := time.Unix(0, 0)
-	c.Press(image.Pt(10, 4), base)
-	if got := c.Press(image.Pt(4, 1), base.Add(50*time.Millisecond)); got != 1 {
+	c.Press(input.Mouse{Pos: image.Pt(10, 4), At: base})
+	if got := c.Press(input.Mouse{Pos: image.Pt(4, 1), At: base.Add(50 * time.Millisecond)}); got != 1 {
 		t.Errorf("a press up and to the left is %d, want 1", got)
 	}
 }

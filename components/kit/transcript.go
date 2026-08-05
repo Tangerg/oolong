@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 )
 
 // Transcript draws a session's output: the window of it that fits, the header pinned
@@ -59,6 +60,12 @@ func (t Transcript) Draw(v grid.View) {
 	// output notices immediately; sizing the header against the reduced height makes
 	// the header's own presence change how much of it there is, which has no fixed
 	// point at all.
+	// The current match is brought into view before anything is laid out against the
+	// scroll, because stepping to a match that cannot be seen is not stepping to it.
+	// It is done here rather than left to a caller because the caller has no way to
+	// know how tall the window turned out to be.
+	t.reveal(h)
+
 	body, from := v, t.layout(h)
 	if t.Sticky != nil {
 		if pinned, ok := t.Sticky.At(t.Content, from, h); ok && pinned.Rows < h {
@@ -70,6 +77,23 @@ func (t Transcript) Draw(v grid.View) {
 
 	t.Content.Draw(body, from)
 	t.mark(body, from)
+}
+
+// reveal brings the current match into the window.
+//
+// The whole match, when it fits: a match that crosses a break the width made covers
+// several rows, and showing the first and cutting the rest is showing half of what the
+// reader asked to see.
+func (t Transcript) reveal(rows int) {
+	if t.Scroll == nil || t.Current < 0 || t.Current >= len(t.Matches) {
+		return
+	}
+	m := t.Matches[t.Current]
+	if len(m.Spans) == 0 {
+		return
+	}
+	t.Scroll.Layout(t.Content.Height(), rows)
+	t.Scroll.RevealRange(m.Row, m.Row+len(m.Spans)-1)
 }
 
 // layout puts the scroll against a window of the given height and reports where it
@@ -208,4 +232,67 @@ type Printer interface {
 	// PrintRows draws rows into the terminal's own output, above the interface, where
 	// they stay after the program exits.
 	PrintRows(rows int, draw func(grid.View))
+}
+
+// Handle answers a mouse event over the transcript, reporting whether it took it.
+//
+// A press starts a selection, a drag moves its far end, a second press in the same
+// place takes the word and a third takes the row. That is what selecting text means
+// everywhere, and it took five pieces wired together by hand until this: a selection, a
+// click counter, the word rule, the scroll offset, and the translation from a position
+// on screen into a row of the transcript.
+//
+// The last of those is why it lives here rather than on the selection. A point on
+// screen means nothing without knowing where the transcript was drawn and how far it is
+// scrolled, and this is the thing that drew it.
+//
+// The clicks are counted from the time the event arrived with, which the terminal's
+// reader stamped on it. A caller feeding events it made up itself gets single clicks,
+// because there is nothing to tell one press from another by.
+func (t Transcript) Handle(ev input.Mouse, clicks *headless.Clicks) bool {
+	if t.Content == nil || t.Selection == nil {
+		return false
+	}
+	at := headless.Point{Row: t.offset() + ev.Pos.Y, Col: ev.Pos.X}
+	switch ev.Action {
+	case input.MouseDown:
+		if ev.Button != input.ButtonLeft {
+			return false
+		}
+		run := 1
+		if clicks != nil {
+			run = clicks.Press(ev)
+		}
+		// A word or a row, when there is one there. A double-click in the margin has
+		// nothing to take, and falls back to starting a selection like any press.
+		switch run {
+		case 2:
+			if t.Selection.SelectWord(t.Content, at) {
+				return true
+			}
+		case 3:
+			if t.Selection.SelectLine(t.Content, at) {
+				return true
+			}
+		}
+		t.Selection.Begin(at)
+		return true
+	case input.MouseDrag:
+		t.Selection.Extend(at)
+		return true
+	case input.MouseUp:
+		t.Selection.Done()
+		return true
+	default:
+		return false
+	}
+}
+
+// offset is the row the drawn window starts at, which a position on screen has to be
+// added to before it means anything to the content.
+func (t Transcript) offset() int {
+	if t.Scroll == nil {
+		return 0
+	}
+	return t.Scroll.Offset()
 }

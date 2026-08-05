@@ -55,6 +55,9 @@ type pump struct {
 	size func() (w, h int, err error)
 	// grace overrides escGrace, for tests.
 	grace time.Duration
+	// now overrides the clock, for tests. It stamps mouse reports with when they
+	// arrived, which is a fact only the reader has and which two things above need.
+	now func() time.Time
 }
 
 // run decodes until the input ends or the pump is asked to stop, then closes out.
@@ -152,6 +155,10 @@ func (p *pump) deliver(events []input.Event) bool {
 		if pasted, ok := p.pasted(ev); ok {
 			ev = pasted
 		}
+		if mouse, ok := ev.(input.Mouse); ok && mouse.At.IsZero() {
+			mouse.At = p.clock()
+			ev = mouse
+		}
 		select {
 		case p.out <- ev:
 		case <-p.stop:
@@ -159,6 +166,14 @@ func (p *pump) deliver(events []input.Event) bool {
 		}
 	}
 	return true
+}
+
+// clock is when it is now, as this pump reckons it.
+func (p *pump) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
 }
 
 // pasted turns the terminal's answer about the clipboard into the paste it means,

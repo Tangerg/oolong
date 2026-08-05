@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -188,8 +189,20 @@ type Clicks struct {
 // Press records a press and reports which of the run it is.
 //
 // A press far from the last one, or long after it, starts a new run — and so does the
-// first press of all, because the zero value has never seen one.
-func (c *Clicks) Press(at image.Point, when time.Time) int {
+// first press of all, because the zero value has never seen one, and so does one that
+// arrived with no time on it, because there is nothing to compare.
+//
+// The time comes from the event rather than from a clock here, because arrival is a
+// fact about the input and the thing that read it is the only thing that knows.
+func (c *Clicks) Press(ev input.Mouse) int {
+	return c.press(ev.Pos, ev.At)
+}
+
+func (c *Clicks) press(at image.Point, when time.Time) int {
+	if when.IsZero() {
+		c.at, c.last, c.count = at, when, 1
+		return 1
+	}
 	within := c.Within
 	if within <= 0 {
 		within = DefaultMultiClick

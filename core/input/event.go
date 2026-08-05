@@ -15,6 +15,7 @@ import (
 	"image"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Event is one thing the terminal reported. The set is closed by the unexported
@@ -244,6 +245,16 @@ type Mouse struct {
 	Action MouseAction
 	Button Button
 	Mods   Mods
+	// At is when the report arrived, as whatever read it saw. It is zero when nothing
+	// timed it, which is what a parser fed bytes directly produces.
+	//
+	// A mouse report means different things depending on when it came. Two presses
+	// close together are a double-click and a terminal never says so; a run of wheel
+	// reports without a gap is a trackpad and not the wheel. Both questions are about
+	// arrival, and the only thing that knows the answer is the goroutine that did the
+	// reading — so it is stamped there rather than left for every caller to supply a
+	// clock for a fact the library already had.
+	At time.Time
 }
 
 func (Mouse) terminalEvent() {}
