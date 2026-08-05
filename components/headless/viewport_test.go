@@ -121,3 +121,23 @@ func TestAnEmptyWindowDrawsNothingAndAnswersNothing(t *testing.T) {
 		t.Fatal("a window with nothing in it scrolled")
 	}
 }
+
+func TestAWindowAnswersToTheNameOfWhatItDoes(t *testing.T) {
+	// Its own actions and its content's, which is what lets one be driven from a menu
+	// or from a command typed by name.
+	p := &headless.Viewport{Content: &tall{rows: 20}}
+	paint(6, 4, p.Draw)
+
+	if !p.Do(headless.ScrollBottom) || !p.Scroll().AtBottom() {
+		t.Fatal("the window did not go to the end")
+	}
+	if !p.Do(headless.ScrollTop) || p.Scroll().Offset() != 0 {
+		t.Fatal("the window did not go back to the start")
+	}
+	if !p.Do(headless.ScrollPageDown) || p.Scroll().Offset() != 3 {
+		t.Fatalf("a page took it to %d, want a window less the row of overlap", p.Scroll().Offset())
+	}
+	if p.Do("fly") {
+		t.Fatal("the window claimed an action nobody taught it")
+	}
+}

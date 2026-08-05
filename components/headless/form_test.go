@@ -371,3 +371,94 @@ func TestAFieldNobodyHasDrawnAnswersNoPress(t *testing.T) {
 		t.Fatal("a field that has never been drawn answered a press")
 	}
 }
+
+// kind is a value a form collects that is not a string, which is what the comparison
+// rules are about.
+type kind int
+
+func (k kind) String() string { return [...]string{"file", "folder"}[k] }
+
+func TestAChoiceOfSomethingThatIsNotAStringFindsWhatWasAlreadyChosen(t *testing.T) {
+	// Go will not compare two values of a type parameter, so with no rule the labels
+	// are compared — which is right whenever what is shown is what it means.
+	picked := kind(1)
+	shown := &headless.Select[kind]{
+		Options: []headless.Option[kind]{{Label: "file", Value: 0}, {Label: "folder", Value: 1}},
+		Value:   headless.Bind(&picked),
+	}
+	if chosen, _ := shown.Chosen(); chosen.Value != 1 {
+		t.Fatalf("cursor on %+v, want what the value is shown as", chosen)
+	}
+
+	// And a rule of the caller's wins, which is the only thing that works when two
+	// options are shown the same way or when the type is one Go cannot compare.
+	byValue := &headless.Select[kind]{
+		Options: []headless.Option[kind]{{Label: "one", Value: 0}, {Label: "two", Value: 1}},
+		Value:   headless.Bind(&picked),
+		Same:    func(a, b kind) bool { return a == b },
+	}
+	if chosen, _ := byValue.Chosen(); chosen.Value != 1 {
+		t.Fatalf("cursor on %+v, want the caller's rule to have found it", chosen)
+	}
+}
+
+func TestEveryFieldAnswersToTheNameOfWhatItDoes(t *testing.T) {
+	// The same promise the widgets make, kept by the fields built on them: an action
+	// is reachable from somewhere that is not the keyboard.
+	var name string
+	text := &headless.Text{Value: headless.Bind(&name)}
+	typeInto(text, "one two")
+	if !text.Do(headless.DeleteWordBack) || name != "one " {
+		t.Fatalf("text = %q", name)
+	}
+
+	var sure bool
+	confirm := &headless.Confirm{Value: headless.Bind(&sure)}
+	if !confirm.Do(headless.Toggle) || !confirm.Answer() {
+		t.Fatal("the confirm did not turn over")
+	}
+	if confirm.Do("fly") {
+		t.Fatal("the confirm claimed an action nobody taught it")
+	}
+}
+
+func TestEveryFieldChecksWhatItHolds(t *testing.T) {
+	tooMany := errors.New("too many")
+	multi := &headless.MultiSelect[string]{
+		Options: headless.Options("a", "b"),
+		Check: func(v []string) error {
+			if len(v) > 1 {
+				return tooMany
+			}
+			return nil
+		},
+	}
+	multi.Do(headless.Toggle)
+	multi.Do(headless.SelectNext)
+	multi.Do(headless.Toggle)
+	if !errors.Is(multi.Validate(), tooMany) {
+		t.Fatalf("the multi-select says %v", multi.Error())
+	}
+
+	never := errors.New("never")
+	confirm := &headless.Confirm{Check: func(bool) error { return never }}
+	if !errors.Is(confirm.Validate(), never) {
+		t.Fatalf("the confirm says %v", confirm.Error())
+	}
+}
+
+func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
+	first := &headless.Text{Label: "One"}
+	second := &headless.Text{Label: "Two"}
+	form := &headless.Form{Fields: []headless.Field{first, second}}
+	form.Draw(grid.NewSurface(20, 6).View())
+
+	form.Focus(false)
+	if first.Editor().Handle(input.Key{Code: input.Character, Rune: 'x'}); first.Editor().Text() != "x" {
+		t.Fatal("the field itself stopped taking text")
+	}
+	form.Focus(true)
+	if got := form.Measure(20); got != 4 {
+		t.Fatalf("a form of two one-line fields with labels is %d rows", got)
+	}
+}

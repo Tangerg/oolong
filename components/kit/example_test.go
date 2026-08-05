@@ -2,9 +2,11 @@ package kit_test
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
+	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -83,4 +85,55 @@ func ExampleBox() {
 	// |╭─Plan───────╮|
 	// |│step one    │|
 	// |╰────────────╯|
+}
+
+func ExampleForm() {
+	// A theme becomes the handful of roles a field draws itself in, and a glyph set
+	// becomes the marks beside a choice. That is the whole of dressing a form.
+	var name, model string
+	form := &headless.Form{Fields: []headless.Field{
+		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
+		&headless.Select[string]{
+			Label:   "Model",
+			Options: headless.Options("fast", "good"),
+			Value:   headless.Bind(&model),
+		},
+	}}
+	keys := headless.DefaultFormKeys()
+	view := kit.Form{
+		Form:   form,
+		Theme:  kit.Dark(),
+		Glyphs: kit.ASCII(),
+		Title:  "New session",
+		Keys:   keys,
+		Hints:  []input.Action{headless.Submit},
+	}
+	show(22, view.Measure(22), view.Draw)
+
+	// Output:
+	// |New session           |
+	// |Name                  |
+	// |who?                  |
+	// |Model                 |
+	// |x fast                |
+	// |- good                |
+	// |enter submit          |
+}
+
+func ExampleDiff() {
+	before := strings.Split("keep\nold\nkeep", "\n")
+	after := strings.Split("keep\nnew\nkeep", "\n")
+	view := kit.Diff{
+		Hunks:   diff.Between(before, after).Hunks(1),
+		Theme:   kit.Dark(),
+		Glyphs:  kit.ASCII(),
+		Numbers: true,
+	}
+	show(16, view.Measure(16), view.Draw)
+
+	// Output:
+	// |1 1  keep       |
+	// |2   -old        |
+	// |  2 +new        |
+	// |3 3  keep       |
 }
