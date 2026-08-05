@@ -33,6 +33,15 @@ type pump struct {
 	// out receives the decoded events, and is closed when the pump returns so a
 	// consumer ranging over it learns that input is over.
 	out chan input.Event
+	// parser decodes the bytes. It is handed over rather than created here so that
+	// a startup probe, which had to read the terminal before this goroutine could,
+	// can pass on a sequence that straddles the handover.
+	parser *input.Parser
+	// early holds events decoded before the pump started. They are delivered from
+	// here rather than pushed into out directly, because nothing is reading out
+	// until this goroutine runs and a burst large enough to fill it would deadlock
+	// whoever pushed.
+	early []input.Event
 	// size reports the terminal's current size.
 	size func() (w, h int, err error)
 	// grace overrides escGrace, for tests.
@@ -47,7 +56,14 @@ func (p *pump) run() {
 	if grace <= 0 {
 		grace = escGrace
 	}
-	var parser input.Parser
+	if !p.deliver(p.early) {
+		return
+	}
+	p.early = nil
+	parser := p.parser
+	if parser == nil {
+		parser = &input.Parser{}
+	}
 
 	// A stopped timer with a drained channel, so arming and disarming it is a
 	// matter of Reset and Stop and never of a stale tick arriving late.
@@ -93,7 +109,7 @@ func (p *pump) run() {
 			// cannot be told to prefer one, so whichever this pass happened to see
 			// first says nothing about which happened first. Everything already
 			// waiting is taken before anything is given up.
-			if !p.drainRaw(&parser) {
+			if !p.drainRaw(parser) {
 				return
 			}
 			p.deliver(parser.Flush())

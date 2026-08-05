@@ -2,6 +2,7 @@ package input_test
 
 import (
 	"image"
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/input"
@@ -283,20 +284,49 @@ func TestLoneEscapeResolvesOnlyOnFlush(t *testing.T) {
 	}
 }
 
-func TestFlushBetweenEscapeAndItsSequence(t *testing.T) {
-	// The user pressed Escape and then typed a bracket. Waiting made it ambiguous;
-	// the flush says the waiting is over, so it is two keystrokes.
+func TestAnIntroducerThatNeverCompletedIsAChord(t *testing.T) {
+	// An introducer is also the character a terminal sends for Alt with that key,
+	// and by the time the wait is over the two are no longer ambiguous: both bytes
+	// arrived before the pause, so they came in one burst. A burst is what a chord
+	// is — an escape the user pressed on its own is followed by a human gap, and
+	// resolves as Escape while nothing has followed it at all.
+	//
+	// Getting this wrong is what makes Alt+[, Alt+] and Alt+Shift+O unbindable.
+	for _, tc := range []struct {
+		in   string
+		want rune
+	}{
+		{"\x1b[", '['},
+		{"\x1b]", ']'},
+		{"\x1bO", 'O'},
+	} {
+		var p input.Parser
+		p.Feed([]byte(tc.in))
+		events := p.Flush()
+		if len(events) != 1 {
+			t.Fatalf("%q produced %+v, want one chord", tc.in, events)
+		}
+		if got := events[0].(input.Key); !got.IsRune(tc.want, input.Alt) {
+			t.Errorf("%q produced %+v, want alt+%c", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestEscapeThenTypingIsTwoKeystrokes(t *testing.T) {
+	// The other half: the user pressed Escape, the wait ran out, and only then did
+	// they type. The gap is the whole difference, and the parser sees it as one.
 	var p input.Parser
-	p.Feed([]byte("\x1b["))
+	p.Feed([]byte("\x1b"))
 	events := p.Flush()
-	if len(events) != 2 {
-		t.Fatalf("got %+v, want the Escape key and the bracket", events)
+	if len(events) != 1 || events[0].(input.Key).Code != input.Esc {
+		t.Fatalf("got %+v, want the Escape key", events)
 	}
-	if got := events[0].(input.Key).Code; got != input.Esc {
-		t.Fatalf("first = %v, want Escape", got)
+	events = p.Feed([]byte("["))
+	if len(events) != 1 {
+		t.Fatalf("got %+v, want the bracket", events)
 	}
-	if got := events[1].(input.Key); !got.IsRune('[', 0) {
-		t.Fatalf("second = %+v, want the bracket", got)
+	if got := events[0].(input.Key); !got.IsRune('[', 0) {
+		t.Errorf("got %+v, want a bare bracket", got)
 	}
 }
 
@@ -463,5 +493,69 @@ func TestKeyString(t *testing.T) {
 		if got := tc.key.String(); got != tc.want {
 			t.Errorf("%+v = %q, want %q", tc.key, got, tc.want)
 		}
+	}
+}
+
+func TestDeviceAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		in       string
+		class    int
+		features []int
+	}{
+		{"\x1b[?62;4;22c", 62, []int{4, 22}},
+		{"\x1b[?1;2c", 1, []int{2}},
+		{"\x1b[?64c", 64, nil},
+		{"\x1b[?6c", 6, nil},
+		// A claim that cannot be read is left out, and the rest of the list is
+		// still worth having: unlike a key report, a bad number here fires nothing.
+		{"\x1b[?62;;4c", 62, []int{4}},
+		{"\x1b[?62;99999999999999999999;4c", 62, []int{4}},
+	} {
+		ev, ok := one(t, tc.in).(input.DeviceAttributes)
+		if !ok {
+			t.Errorf("%q did not decode as device attributes", tc.in)
+			continue
+		}
+		if ev.Class != tc.class {
+			t.Errorf("%q: class = %d, want %d", tc.in, ev.Class, tc.class)
+		}
+		if !slices.Equal(ev.Features, tc.features) {
+			t.Errorf("%q: features = %v, want %v", tc.in, ev.Features, tc.features)
+		}
+		for _, want := range tc.features {
+			if !ev.Has(want) {
+				t.Errorf("%q: Has(%d) is false", tc.in, want)
+			}
+		}
+		if ev.Has(0) {
+			t.Errorf("%q: Has(0) is true, but zero is never a claim", tc.in)
+		}
+	}
+}
+
+func TestOnlyThePrivateFormIsDeviceAttributes(t *testing.T) {
+	// "CSI c" without the marker is a request, not an answer, and a terminal that
+	// sent one would be asking this program what it is.
+	for _, in := range []string{"\x1b[c", "\x1b[62c", "\x1b[>0;1;0c"} {
+		for _, ev := range feed(in) {
+			if _, ok := ev.(input.DeviceAttributes); ok {
+				t.Errorf("%q decoded as an answer", in)
+			}
+		}
+	}
+}
+
+func TestDeviceAttributesWithAClassNobodyCanRead(t *testing.T) {
+	// A number beyond any encoding is not a class, and reporting it as a negative
+	// one would hand a caller a value the terminal never sent.
+	ev, ok := one(t, "\x1b[?99999999999999999999;4c").(input.DeviceAttributes)
+	if !ok {
+		t.Fatal("the answer did not decode")
+	}
+	if ev.Class != 0 {
+		t.Errorf("class = %d, want 0", ev.Class)
+	}
+	if !ev.Has(4) {
+		t.Error("the claim that could be read was thrown away with the one that could not")
 	}
 }

@@ -91,6 +91,26 @@ func (ps params) at(i int) int {
 // count is how many parameter groups the sequence carried.
 func (ps params) count() int { return len(ps.groups) }
 
+// deviceAttributes reads what a terminal answered when asked what it is: a class,
+// then the extensions it claims.
+//
+// A malformed number is left out rather than refused. Unlike a key report, where
+// the wrong modifiers fire something nobody asked for, a claim that cannot be read
+// is simply a claim nobody can act on — and the rest of the list is still worth
+// having.
+func (ps params) deviceAttributes() DeviceAttributes {
+	attrs := DeviceAttributes{Class: ps.first()}
+	if attrs.Class < 0 {
+		attrs.Class = 0
+	}
+	for i := 1; i < len(ps.groups); i++ {
+		if group := ps.groups[i]; len(group) > 0 && group[0] > 0 {
+			attrs.Features = append(attrs.Features, group[0])
+		}
+	}
+	return attrs
+}
+
 // keyMeta reads the modifier and transition group that key reports carry, and
 // that the Kitty keyboard protocol also adds to arrow and numbered-key reports.
 //

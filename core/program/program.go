@@ -83,6 +83,20 @@ type Loop interface {
 	// Quit asks the program to stop. The program returns from Run once the frame in
 	// hand has been dealt with.
 	Quit()
+
+	// Background is the colour the terminal draws on, and whether it is known.
+	//
+	// It is known when the terminal was asked and answered — see
+	// [term.Options.Probe] — and [grid.RGB.Dark] turns it into the only question a
+	// look usually has. A component told false has to choose for itself, and there
+	// is no safe guess: dark is the commoner choice, and light is the one that
+	// becomes unreadable when it is guessed wrong.
+	//
+	// The colour is here rather than the conclusion because the conclusion is not
+	// the only use for it. Something drawing a gradient, or blending an overlay
+	// against what is behind it, needs the colour itself — and a lower layer that
+	// only ever answered "dark?" would have decided for everyone above it.
+	Background() (grid.RGB, bool)
 }
 
 // InlineLoop is what an inline program's component may ask of it: everything a
@@ -144,6 +158,13 @@ type Host interface {
 	Writer() *term.Writer
 	// Size is the terminal's size in cells.
 	Size() (w, h int, err error)
+	// Background is the colour the terminal draws on, and whether it said. A host
+	// that is not a terminal answers false, and so does a terminal nobody asked.
+	//
+	// It is here rather than in [Config] because it is a fact about the thing being
+	// drawn on, and this is what stands for that thing. A test host that can say it
+	// is light is a test that can check a look both ways round.
+	Background() (grid.RGB, bool)
 }
 
 // Config is what a program needs to run.
@@ -492,6 +513,11 @@ func (l loop) Post(fn func()) {
 func (l loop) Quit() {
 	l.Post(func() { l.p.quit = true })
 }
+
+// Background reads through to the host rather than caching the answer. What the
+// terminal said it draws on was settled before the program started and cannot
+// change under it, so there is nothing to keep in step.
+func (l loop) Background() (grid.RGB, bool) { return l.p.host.Background() }
 
 func (l loop) Every(d time.Duration, fn func()) (stop func()) {
 	if d <= 0 || fn == nil {

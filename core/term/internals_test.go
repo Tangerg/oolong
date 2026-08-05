@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -242,5 +243,56 @@ func TestPumpClosesItsChannelWhenAskedToStop(t *testing.T) {
 	}
 	if _, ok := <-d.events; ok {
 		t.Fatal("the event channel was not closed")
+	}
+}
+
+func TestParseXParseColor(t *testing.T) {
+	// The digit count is the precision, not padding. That is the whole of what
+	// this form gets wrong when it is read as hexadecimal and nothing else: "8"
+	// is eight fifteenths of full brightness, and "0008" is very nearly black.
+	for _, tc := range []struct {
+		spec string
+		want grid.RGB
+	}{
+		{"rgb:1a1a/1b1b/2626", grid.RGB{R: 0x1a, G: 0x1b, B: 0x26}},
+		{"rgb:ffff/ffff/ffff", grid.RGB{R: 255, G: 255, B: 255}},
+		{"rgb:0000/0000/0000", grid.RGB{}},
+		{"rgb:f/f/f", grid.RGB{R: 255, G: 255, B: 255}},
+		{"rgb:ff/ff/ff", grid.RGB{R: 255, G: 255, B: 255}},
+		{"rgb:8/8/8", grid.RGB{R: 136, G: 136, B: 136}},
+		{"rgb:0008/0008/0008", grid.RGB{}},
+		{"rgb:FDFD/F6F6/E3E3", grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}},
+		{"rgb:0/8/f", grid.RGB{R: 0, G: 136, B: 255}},
+	} {
+		got, ok := parseXParseColor(tc.spec)
+		if !ok {
+			t.Errorf("%q was refused", tc.spec)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%q = %+v, want %+v", tc.spec, got, tc.want)
+		}
+	}
+}
+
+func TestParseXParseColorRefusesWhatItCannotRead(t *testing.T) {
+	// A colour invented for a malformed answer is worse than no colour: it decides
+	// a whole theme, and nobody can tell it apart from one the terminal gave.
+	for _, spec := range []string{
+		"",
+		"rgb:",
+		"1a1a/1b1b/2626",
+		"rgba:1/1/1/1",
+		"rgb:1a1a/1b1b",
+		"rgb:1a/1b/26/ff",
+		"rgb:11111/1/1",
+		"rgb://",
+		"rgb:1a1a/1b1b/zzzz",
+		"rgb:-1/0/0",
+		"#1a1b26",
+	} {
+		if got, ok := parseXParseColor(spec); ok {
+			t.Errorf("%q was read as %+v", spec, got)
+		}
 	}
 }

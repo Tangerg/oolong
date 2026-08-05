@@ -33,6 +33,15 @@ var seeds = []string{
 	"\x1b[999999999999999999999;1u",
 	"\x1b[-1;-1u",
 	"\x1b[;;;;u",
+	"\x1b]11;rgb:1a1a/1b1b/2626\x07",
+	"\x1b]11;rgb:0/0/0\x1b\\",
+	"\x1b]52;c;aGVsbG8=\x07",
+	"\x1b]11\x07",
+	"\x1b]",
+	"\x1b]a",
+	"\x1b]999999;x\x07",
+	"\x1b]52;unterminated",
+	"\x1b]52;abandoned\x1bmore",
 	"\xff\xfe\xfd",
 	"\xe4\xb8",
 	"中文",
@@ -75,17 +84,46 @@ func FuzzParserEmitsOnlyValidRunes(f *testing.F) {
 	})
 }
 
-func FuzzParserEmitsOnlyValidPastes(f *testing.F) {
-	// Pasted text goes straight into a document and then onto a screen. Invalid
-	// UTF-8 reaching a cell is a glyph nobody can measure.
+func FuzzParserEmitsOnlyValidText(f *testing.F) {
+	// Every string this parser hands out came from bytes somebody else wrote, and
+	// every one of them ends up in a document or on a screen. Invalid UTF-8
+	// reaching a cell is a glyph nobody can measure.
 	for _, seed := range seeds {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, in []byte) {
 		var p input.Parser
 		for _, ev := range append(p.Feed(in), p.Flush()...) {
-			if paste, ok := ev.(input.Paste); ok && !utf8.ValidString(paste.Text) {
-				t.Fatalf("paste carries %q, which is not valid UTF-8", paste.Text)
+			switch ev := ev.(type) {
+			case input.Paste:
+				if !utf8.ValidString(ev.Text) {
+					t.Fatalf("paste carries %q, which is not valid UTF-8", ev.Text)
+				}
+			case input.OSC:
+				if !utf8.ValidString(ev.Params) {
+					t.Fatalf("command %d carries %q, which is not valid UTF-8", ev.Command, ev.Params)
+				}
+			case input.Key:
+				if ev.Text != "" && !utf8.ValidString(ev.Text) {
+					t.Fatalf("key carries %q, which is not valid UTF-8", ev.Text)
+				}
+			}
+		}
+	})
+}
+
+// FuzzOSCCommandIsNeverNegative because a command number is fed straight into a
+// switch by whoever asked the question, and a negative one means the digits
+// overflowed on the way in.
+func FuzzOSCCommandIsNeverNegative(f *testing.F) {
+	for _, seed := range seeds {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, in []byte) {
+		var p input.Parser
+		for _, ev := range append(p.Feed(in), p.Flush()...) {
+			if osc, ok := ev.(input.OSC); ok && osc.Command < 0 {
+				t.Fatalf("command number %d is negative", osc.Command)
 			}
 		}
 	})

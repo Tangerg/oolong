@@ -109,6 +109,21 @@ func (c RGB) Index256() uint8 {
 	return best
 }
 
+// Dark reports whether this colour is dark enough that what goes on top of it
+// should be light.
+//
+// That, rather than "is it dark" in the abstract, is the question a theme asks
+// when it learns what the terminal draws on. The answer weights the channels by
+// how much of brightness the eye takes from each — green far more than blue — and
+// puts the line down the middle. An unweighted average would call a saturated
+// blue light and a saturated green dark, and get both backwards.
+func (c RGB) Dark() bool {
+	// The weights sum to a thousand, so the sum is a thousand times a value in
+	// 0–255 and the middle of that range is 128 thousand. Kept in integers because
+	// the answer is a threshold, and a threshold does not need the fraction.
+	return 299*int(c.R)+587*int(c.G)+114*int(c.B) < 128_000
+}
+
 // Index16 is the nearest of the sixteen colours every terminal has.
 func (c RGB) Index16() uint8 {
 	best, bestDist := uint8(0), distance(c, ansi16[0])

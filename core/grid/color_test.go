@@ -185,3 +185,41 @@ type buffer struct{ b strings.Builder }
 
 func (w *buffer) Write(p []byte) (int, error) { return w.b.Write(p) }
 func (w *buffer) String() string              { return w.b.String() }
+
+func TestDarkIsWeightedTheWayTheEyeIs(t *testing.T) {
+	// The themes people actually run, from both ends.
+	for _, tc := range []struct {
+		name string
+		c    grid.RGB
+		dark bool
+	}{
+		{"black", grid.RGB{}, true},
+		{"white", grid.RGB{R: 255, G: 255, B: 255}, false},
+		{"the default dark of most editors", grid.RGB{R: 0x1e, G: 0x1e, B: 0x1e}, true},
+		{"solarized dark", grid.RGB{R: 0x00, G: 0x2b, B: 0x36}, true},
+		{"solarized light", grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}, false},
+		{"tokyo night", grid.RGB{R: 0x1a, G: 0x1b, B: 0x26}, true},
+		{"a paper white", grid.RGB{R: 0xf5, G: 0xf5, B: 0xf5}, false},
+
+		// The pair an unweighted average gets backwards, which is the reason for
+		// weighting at all: these have the same mean and nothing like the same
+		// brightness.
+		{"saturated blue", grid.RGB{B: 255}, true},
+		{"saturated green", grid.RGB{G: 255}, false},
+	} {
+		if got := tc.c.Dark(); got != tc.dark {
+			t.Errorf("%s %+v: Dark() = %v, want %v", tc.name, tc.c, got, tc.dark)
+		}
+	}
+}
+
+func TestDarkSplitsTheRangeDownTheMiddle(t *testing.T) {
+	// A grey either side of the line, so the threshold itself is pinned and not
+	// only the obvious ends.
+	if !(grid.RGB{R: 127, G: 127, B: 127}).Dark() {
+		t.Error("the grey just below the middle was called light")
+	}
+	if (grid.RGB{R: 129, G: 129, B: 129}).Dark() {
+		t.Error("the grey just above the middle was called dark")
+	}
+}

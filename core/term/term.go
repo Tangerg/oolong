@@ -16,6 +16,7 @@ import (
 
 	xterm "golang.org/x/term"
 
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -41,6 +42,15 @@ type Options struct {
 	// releases and repeats, and the text a key produced. Terminals that do not
 	// implement it ignore the request.
 	Keyboard bool
+	// Probe asks the terminal about itself while [Open] is still running: the
+	// colour it draws on, and the extensions it claims. See [Terminal.Background]
+	// and [Terminal.Attributes].
+	//
+	// It is the only option that costs anything — one round trip to the terminal,
+	// normally a millisecond and bounded either way — and the only one whose answer
+	// a session cannot get any other way. A theme that has to be told whether the
+	// terminal is light is a theme that is wrong for half the people who run it.
+	Probe bool
 }
 
 // Terminal is a terminal taken over for a session.
@@ -57,6 +67,9 @@ type Terminal struct {
 
 	events chan input.Event
 	writer *Writer
+	// said is what the terminal was willing to say about itself, when it was asked.
+	// It is written once during Open and only read afterwards.
+	said answers
 
 	winch    chan os.Signal
 	resized  chan struct{}
@@ -135,11 +148,23 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 
 	raw := make(chan []byte, 4)
 	readErr := make(chan error, 1)
+	go t.read(raw, readErr)
+
+	// Asking has to happen here, between the reader starting and the pump starting.
+	// A terminal has exactly one reader; asking any earlier means nothing is
+	// listening for the answer, and any later means two readers race for it.
+	parser := &input.Parser{}
+	var early []input.Event
+	if opts.Probe {
+		pr := &probe{raw: raw, out: out, parser: parser}
+		t.said = pr.run()
+		early = pr.early
+	}
+
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
-		out: t.events, size: t.Size,
+		out: t.events, parser: parser, early: early, size: t.Size,
 	}
-	go t.read(raw, readErr)
 	go t.fanResize()
 	go func() {
 		defer close(t.pumpDone)
@@ -153,6 +178,24 @@ func (t *Terminal) Events() <-chan input.Event { return t.events }
 
 // Writer is where frames go.
 func (t *Terminal) Writer() *Writer { return t.writer }
+
+// Background is the colour the terminal draws on, and whether it said.
+//
+// It is the fact a look is built on: [grid.RGB.Dark] turns it into the only
+// question a theme needs answered. A terminal that was not asked, or that did not
+// answer, reports false — and a session that gets false has to choose for itself,
+// because there is no safe default. Dark is the commoner choice and light is the
+// one that becomes unreadable when guessed wrong.
+func (t *Terminal) Background() (grid.RGB, bool) { return t.said.background, t.said.hasBg }
+
+// Attributes is what the terminal said it was, and whether it said.
+//
+// The class is of little use. What the extensions carry is worth having: sixel
+// graphics is claimed here and nowhere else, so this is how a program learns it
+// can draw pixels on a terminal that does not speak Kitty's protocol.
+func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
+	return t.said.attributes, t.said.hasAttrs
+}
 
 // Size is the terminal's size in cells.
 func (t *Terminal) Size() (w, h int, err error) {

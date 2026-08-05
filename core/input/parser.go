@@ -26,6 +26,25 @@ const (
 // pasteClose is the sequence a terminal sends to end a bracketed paste.
 var pasteClose = []byte{esc, '[', '2', '0', '1', '~'}
 
+// dropping says which kind of runaway sequence the parser is throwing away, if
+// any.
+//
+// Both kinds have to be remembered rather than simply left behind: the bytes
+// still to come would otherwise arrive as a flood of keystrokes, and a hostile
+// terminal could aim that.
+type dropping uint8
+
+const (
+	// droppingNothing is the zero value: nothing is being thrown away.
+	droppingNothing dropping = iota
+	// droppingParams is a control sequence whose parameter section overran. It
+	// ends at the first byte a sequence could have ended with.
+	droppingParams
+	// droppingString is an operating system command whose parameters overran. It
+	// ends at a terminator.
+	droppingString
+)
+
 // Parser decodes terminal bytes into events, incrementally.
 //
 // Bytes are handed to [Parser.Feed] exactly as they arrived, at whatever
@@ -46,9 +65,14 @@ type Parser struct {
 	// are text rather than input to interpret.
 	pasting bool
 	paste   []byte
-	// discarding is set when a control sequence's parameter section overran what
-	// one can hold, and stays set until that sequence ends. See [Parser.skip].
-	discarding bool
+	// inOSC is set between an operating system command's head and its terminator,
+	// when bytes are that command's parameters rather than input to interpret.
+	inOSC     bool
+	oscCmd    int
+	oscParams []byte
+	// dropping is set when a sequence overran what one can hold, and stays set
+	// until that sequence ends. See [Parser.skipParams] and [Parser.skipString].
+	dropping dropping
 }
 
 // Feed adds bytes and returns everything now decodable.
@@ -70,22 +94,38 @@ func (p *Parser) Flush() []Event { return p.drain(true) }
 // is what tells a loop to arm the timer that will call [Parser.Flush], and the
 // runaway counts because the state has to end somewhere — otherwise the next
 // keystroke that happened to be a parameter byte would vanish into it.
-func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.discarding }
+func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.dropping != droppingNothing }
 
 // drain decodes as much as it can. When final, trailing ambiguity is resolved
 // rather than kept.
 func (p *Parser) drain(final bool) []Event {
 	var events []Event
 	for {
-		if p.discarding {
-			if !p.skip() {
+		if p.dropping != droppingNothing {
+			if !p.skipRunaway() {
 				if final {
 					// Input went quiet part-way through, so the runaway sequence
 					// is over however it ended. Staying in this state would eat
 					// the next keystroke that happened to be a parameter byte.
-					p.discarding = false
+					//
+					// A command still accumulating gets no such treatment: it is
+					// incomplete rather than ambiguous, and time says nothing about
+					// it. Giving up on one already given up on has to end
+					// somewhere; giving up on one still arriving would corrupt the
+					// answer to a query as large as a clipboard.
+					p.dropping = droppingNothing
 				}
 				return events
+			}
+			continue
+		}
+		if p.inOSC {
+			ev, done := p.readOSC()
+			if !done {
+				return events
+			}
+			if ev != nil {
+				events = append(events, ev)
 			}
 			continue
 		}
@@ -105,7 +145,7 @@ func (p *Parser) drain(final bool) []Event {
 		if len(p.buf) == 0 {
 			return events
 		}
-		n, ev, done := p.decode(p.buf)
+		n, ev, done := p.decode(p.buf, final)
 		if done {
 			p.take(n)
 			if ev != nil {
@@ -128,13 +168,21 @@ func (p *Parser) drain(final bool) []Event {
 	}
 }
 
-// skip drops the rest of a control sequence whose parameter section overran, and
-// reports whether it found the end.
+// skipRunaway drops the rest of whichever runaway sequence is being thrown away.
+func (p *Parser) skipRunaway() bool {
+	if p.dropping == droppingString {
+		return p.skipString()
+	}
+	return p.skipParams()
+}
+
+// skipParams drops the rest of a control sequence whose parameter section
+// overran, and reports whether it found the end.
 //
 // The bytes are dropped rather than re-read as text. A stream of parameter bytes
 // would otherwise arrive as a flood of keystrokes, which is a worse answer to a
 // malformed sequence than silence — and one that a hostile terminal could aim.
-func (p *Parser) skip() bool {
+func (p *Parser) skipParams() bool {
 	i := 0
 	for i < len(p.buf) && p.buf[i] >= 0x20 && p.buf[i] <= 0x3f {
 		i++
@@ -150,7 +198,7 @@ func (p *Parser) skip() bool {
 		i++
 	}
 	p.take(i)
-	p.discarding = false
+	p.dropping = droppingNothing
 	return true
 }
 
@@ -206,10 +254,14 @@ func (p *Parser) endPaste() string {
 // consumed, the event — nil when the bytes were understood but mean nothing to
 // report — and whether it got far enough to decide. When it did not, no bytes
 // were consumed.
-func (p *Parser) decode(b []byte) (n int, ev Event, done bool) {
+//
+// final says the wait for more bytes is over, which only an escape sequence has
+// any use for: it is the difference between a sequence still arriving and one
+// that was never a sequence.
+func (p *Parser) decode(b []byte, final bool) (n int, ev Event, done bool) {
 	switch c := b[0]; {
 	case c == esc:
-		return p.decodeEscape(b)
+		return p.decodeEscape(b, final)
 	case c == 0x0d:
 		return 1, Key{Code: Enter}, true
 	case c == 0x09:
@@ -256,13 +308,41 @@ func c0Rune(c byte) rune {
 }
 
 // decodeEscape reads a sequence introduced by the escape byte.
-func (p *Parser) decodeEscape(b []byte) (n int, ev Event, done bool) {
+//
+// When the wait is over and the sequence never completed, what arrived is read as
+// a chord instead. Every introducer is also a character a terminal sends for Alt
+// with that key — "\x1b[" is Alt+[ as much as it is the start of a control
+// sequence — and by the time the wait is over the two are no longer ambiguous:
+// both bytes arrived before the pause, so they came in one burst, and a burst is
+// what a chord is. An escape that stood alone never reaches here; it is resolved
+// a step earlier, when nothing had followed it at all.
+func (p *Parser) decodeEscape(b []byte, final bool) (n int, ev Event, done bool) {
 	if len(b) == 1 {
 		return 0, nil, false // could be the key, could be a sequence: wait
 	}
+	n, ev, done = p.decodeIntroduced(b)
+	if !done && final {
+		return decodeAlt(b)
+	}
+	return n, ev, done
+}
+
+// decodeIntroduced reads the sequence the byte after the escape introduces.
+func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	switch second := b[1]; {
 	case second == '[':
 		return p.decodeControl(b)
+	case second == oscIntro:
+		cmd, size := oscHead(b)
+		switch {
+		case size > 0:
+			p.beginOSC(cmd)
+			return size, nil, true
+		case size == 0:
+			return 0, nil, false // too few bytes to tell a command from the key
+		default:
+			return decodeAlt(b)
+		}
 	case second == 'O':
 		if len(b) < 3 {
 			return 0, nil, false
@@ -283,15 +363,21 @@ func (p *Parser) decodeEscape(b []byte) (n int, ev Event, done bool) {
 		// and the control byte is read on the next pass.
 		return 1, Key{Code: Esc}, true
 	default:
-		if !utf8.FullRune(b[1:]) {
-			return 0, nil, false
-		}
-		r, size := utf8.DecodeRune(b[1:])
-		if r == utf8.RuneError && size == 1 {
-			return 1, Key{Code: Esc}, true
-		}
-		return 1 + size, Key{Code: Character, Rune: r, Mods: Alt}, true
+		return decodeAlt(b)
 	}
+}
+
+// decodeAlt reads an escape followed by a character as that character with Alt
+// held, which is how a terminal reports the chord.
+func decodeAlt(b []byte) (n int, ev Event, done bool) {
+	if !utf8.FullRune(b[1:]) {
+		return 0, nil, false
+	}
+	r, size := utf8.DecodeRune(b[1:])
+	if r == utf8.RuneError && size == 1 {
+		return 1, Key{Code: Esc}, true
+	}
+	return 1 + size, Key{Code: Character, Rune: r, Mods: Alt}, true
 }
 
 // decodeControl reads a control sequence: a parameter section, then a final byte
@@ -307,8 +393,8 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		// is buffered": either would make the cap depend on where the read split,
 		// and the same bytes would decode differently for arriving in different
 		// pieces. What is dropped is the introducer and the body seen so far, and
-		// [Parser.skip] drops the rest wherever it turns up.
-		p.discarding = true
+		// [Parser.skipParams] drops the rest wherever it turns up.
+		p.dropping = droppingParams
 		return i, nil, true
 	}
 	if i >= len(b) {
@@ -326,6 +412,8 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	switch {
 	case ps.mouse() && (final == 'M' || final == 'm'):
 		return n, decodeMouse(ps, final == 'M'), true
+	case ps.private == '?' && final == 'c':
+		return n, ps.deviceAttributes(), true
 	case ps.empty() && final == 'I':
 		return n, FocusIn{}, true
 	case ps.empty() && final == 'O':

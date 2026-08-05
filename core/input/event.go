@@ -13,6 +13,7 @@ package input
 
 import (
 	"image"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -254,6 +255,49 @@ func (Mouse) terminalEvent() {}
 type Paste struct{ Text string }
 
 func (Paste) terminalEvent() {}
+
+// OSC is an operating system command the terminal sent.
+//
+// This is how a terminal answers a question. A program writes a query, and the
+// answer comes back on the input stream mixed in with whatever the user is
+// typing — asking what colour the terminal draws on and reading its clipboard
+// both work this way. A session that asks nothing never sees one.
+type OSC struct {
+	// Command is the number the sequence names itself by: 11 for the colour the
+	// terminal draws on, 52 for its clipboard.
+	Command int
+	// Params is everything after the command number and its semicolon, left as
+	// the terminal wrote it apart from invalid UTF-8 being replaced.
+	//
+	// What it means depends on the command, which this package deliberately does
+	// not work out. Reading a background colour belongs to whatever owns colours;
+	// this package owns bytes.
+	Params string
+}
+
+func (OSC) terminalEvent() {}
+
+// DeviceAttributes is a terminal's answer to being asked what it is.
+//
+// Every terminal answers this one, which makes it useful for more than what it
+// says. A question a terminal might not understand can be followed by this one,
+// and this answer arriving without the other is how a terminal says it did not
+// understand — which is not something any terminal says out loud.
+type DeviceAttributes struct {
+	// Class is the terminal class the answer led with: 62 for a VT220, 64 for a
+	// VT420. Little depends on it, and terminals that emulate one of those are
+	// not otherwise alike.
+	Class int
+	// Features are the numbered extensions the terminal claims. Sixel graphics is
+	// 4. There is no authority over the list and a terminal may claim what it
+	// does not do, so this is evidence rather than proof.
+	Features []int
+}
+
+func (DeviceAttributes) terminalEvent() {}
+
+// Has reports whether the terminal claimed extension n.
+func (d DeviceAttributes) Has(n int) bool { return slices.Contains(d.Features, n) }
 
 // Resize reports the terminal's new size in cells.
 type Resize struct{ Width, Height int }

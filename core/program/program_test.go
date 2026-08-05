@@ -30,6 +30,8 @@ type host struct {
 	frames *frames
 	writer *term.Writer
 	w, h   int
+	bg     grid.RGB
+	saidBg bool
 }
 
 func newHost() *host {
@@ -46,6 +48,11 @@ func newHost() *host {
 func (h *host) Events() <-chan input.Event { return h.events }
 func (h *host) Writer() *term.Writer       { return h.writer }
 func (h *host) Size() (int, int, error)    { return h.w, h.h, nil }
+
+// Background says what a real terminal would only say if it were asked. A host
+// that can answer this is a host that can put an interface's look under test
+// both ways round, which no amount of driving keystrokes could.
+func (h *host) Background() (grid.RGB, bool) { return h.bg, h.saidBg }
 
 func (h *host) send(ev input.Event) { h.events <- ev }
 func (h *host) rune(r rune)         { h.send(input.Key{Code: input.Character, Rune: r}) }
@@ -717,4 +724,72 @@ func TestPrintingNothingIsIgnored(t *testing.T) {
 		t.Fatalf("program: %v", err)
 	}
 	_ = h
+}
+
+// startOn runs a program over a host the caller prepared, so a test can say what
+// the terminal would have answered. The program is stopped when the test ends.
+func startOn(t *testing.T, h *host, root func(program.Loop) program.Component) *running {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- program.Run(ctx, program.Config{Host: h, Root: root}) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("the program never returned after its context was cancelled")
+		}
+	})
+	return &running{host: h, done: done, t: t}
+}
+
+func TestAComponentLearnsWhatTheTerminalDrawsOn(t *testing.T) {
+	// The one fact a look cannot be built without and cannot work out for itself.
+	// A component reads it from the loop it already holds.
+	h := newHost()
+	h.bg, h.saidBg = grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}, true
+
+	learned, known := make(chan grid.RGB, 1), make(chan bool, 1)
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		bg, ok := l.Background()
+		learned <- bg
+		known <- ok
+		return &component{text: "ready", consume: true, loop: l}
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+
+	if !<-known {
+		t.Fatal("the component was told the background was unknown")
+	}
+	got := <-learned
+	if want := (grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}); got != want {
+		t.Errorf("background = %+v, want %+v", got, want)
+	}
+	if got.Dark() {
+		t.Error("a paper-white background was taken as dark")
+	}
+}
+
+func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
+	// There is no safe guess, so the unknown has to be reportable as unknown rather
+	// than as the zero colour — which is black, and would silently mean "dark" to
+	// everything above it.
+	h := newHost()
+
+	known, dark := make(chan bool, 1), make(chan bool, 1)
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		bg, ok := l.Background()
+		known <- ok
+		dark <- bg.Dark()
+		return &component{text: "ready", consume: true, loop: l}
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+
+	if <-known {
+		t.Fatal("a host that said nothing was reported as having said something")
+	}
+	if !<-dark {
+		t.Error("the zero colour is not black, so this test asserts nothing")
+	}
 }
