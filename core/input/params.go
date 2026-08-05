@@ -3,90 +3,21 @@ package input
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/oolong/core/ansi"
 )
 
-// params is a control sequence's parameter section, parsed once and read by
-// whichever decoder the sequence's final byte selects.
+// params is a control sequence's parameter section: the syntax, which is shared
+// with everything else that reads a sequence, and the meanings that only a
+// terminal's own reports have.
 //
-// There is one parser rather than one per sequence family. Two parsers over the
-// same syntax drift: they disagree about what an empty field means, or about what
-// to do with a field that is not a number, and the sequence that exercises the
-// difference is the one nobody tested.
-type params struct {
-	// private is the marker byte a private sequence begins with — '<' for a mouse
-	// report — or zero for an ordinary sequence.
-	private byte
-	// groups are the semicolon-separated parameters, each of which may carry
-	// colon-separated subparameters.
-	//
-	// A field left empty is the protocol's default, which is zero. A field that is
-	// not a number, or is far larger than any parameter legitimately gets, is -1:
-	// a decoder can then refuse the report instead of acting on a value invented
-	// for it.
-	groups [][]int
-}
+// The split is what keeps the two apart. Which bytes are parameters and what an
+// empty field means are facts about the wire and belong to nobody in particular;
+// that the second group of a key report is a modifier mask plus one is a fact about
+// keyboards, and belongs here.
+type params struct{ ansi.Params }
 
-// paramLimit is well past any real parameter and short of anything that could
-// overflow. A number beyond it is treated as malformed.
-const paramLimit = 1 << 20
-
-func parseParams(body string) params {
-	var ps params
-	if body != "" && body[0] >= 0x3c && body[0] <= 0x3f {
-		ps.private = body[0]
-		body = body[1:]
-	}
-	if body == "" {
-		return ps
-	}
-	fields := strings.Split(body, ";")
-	ps.groups = make([][]int, 0, len(fields))
-	for _, field := range fields {
-		subs := strings.Split(field, ":")
-		group := make([]int, 0, len(subs))
-		for _, sub := range subs {
-			group = append(group, parseParam(sub))
-		}
-		ps.groups = append(ps.groups, group)
-	}
-	return ps
-}
-
-func parseParam(s string) int {
-	if s == "" {
-		return 0
-	}
-	value := 0
-	for i := range len(s) {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return -1
-		}
-		value = value*10 + int(c-'0')
-		if value > paramLimit {
-			return -1
-		}
-	}
-	return value
-}
-
-// empty reports whether the sequence carried no parameters.
-func (ps params) empty() bool { return len(ps.groups) == 0 }
-
-// first is the leading parameter, or zero when there was none. Zero is the
-// protocol's own default for a missing parameter, so a caller need not distinguish.
-func (ps params) first() int { return ps.at(0) }
-
-// at is the leading value of group i, or zero when the group is absent.
-func (ps params) at(i int) int {
-	if i >= len(ps.groups) || len(ps.groups[i]) == 0 {
-		return 0
-	}
-	return ps.groups[i][0]
-}
-
-// count is how many parameter groups the sequence carried.
-func (ps params) count() int { return len(ps.groups) }
+func parseParams(body string) params { return params{ansi.Parse(body)} }
 
 // deviceAttributes reads what a terminal answered when asked what it is: a class,
 // then the extensions it claims.
@@ -96,13 +27,13 @@ func (ps params) count() int { return len(ps.groups) }
 // is simply a claim nobody can act on — and the rest of the list is still worth
 // having.
 func (ps params) deviceAttributes() DeviceAttributes {
-	class := ps.first()
+	class := ps.First()
 	if class < 0 {
 		class = 0
 	}
-	features := make([]int, 0, max(len(ps.groups)-1, 0))
-	for i := 1; i < len(ps.groups); i++ {
-		if group := ps.groups[i]; len(group) > 0 {
+	features := make([]int, 0, max(ps.Count()-1, 0))
+	for i := 1; i < ps.Count(); i++ {
+		if group := ps.Group(i); len(group) > 0 {
 			features = append(features, group[0])
 		}
 	}
@@ -116,10 +47,10 @@ func (ps params) deviceAttributes() DeviceAttributes {
 // event with the wrong modifiers is worse than no key event, because it fires
 // something the user did not ask for.
 func (ps params) keyMeta() (Mods, Transition, bool) {
-	if ps.count() < 2 || len(ps.groups[1]) == 0 {
+	group := ps.Group(1)
+	if len(group) == 0 {
 		return 0, Press, true
 	}
-	group := ps.groups[1]
 	if len(group) > 2 || group[0] < 0 {
 		return 0, Press, false
 	}
@@ -153,11 +84,11 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 // text reads the associated-text group of a Kitty key report: the code points the
 // key produced, which the terminal is better placed to know than this program is.
 func (ps params) text() (string, bool) {
-	if ps.count() < 3 {
+	if ps.Count() < 3 {
 		return "", true
 	}
 	var b strings.Builder
-	for _, cp := range ps.groups[2] {
+	for _, cp := range ps.Group(2) {
 		if cp == 0 {
 			continue
 		}

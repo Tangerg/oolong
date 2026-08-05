@@ -4,9 +4,13 @@ import (
 	"image"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/oolong/core/ansi"
 )
 
-const esc = 0x1b
+// esc is the byte every sequence begins with, under the name this package's own
+// reading of them uses.
+const esc = ansi.Escape
 
 const (
 	// maxSequenceBody caps a control sequence's parameter section. A real key or
@@ -184,7 +188,7 @@ func (p *Parser) skipRunaway() bool {
 // malformed sequence than silence — and one that a hostile terminal could aim.
 func (p *Parser) skipParams() bool {
 	i := 0
-	for i < len(p.buf) && p.buf[i] >= 0x20 && p.buf[i] <= 0x3f {
+	for i < len(p.buf) && ansi.Body(p.buf[i]) {
 		i++
 	}
 	if i >= len(p.buf) {
@@ -194,7 +198,7 @@ func (p *Parser) skipParams() bool {
 	// The byte that ended the run of parameter bytes ends the sequence too, if it
 	// is one a sequence could have ended with. Anything else proved the sequence
 	// malformed and is left to be read on its own terms.
-	if p.buf[i] >= 0x40 && p.buf[i] <= 0x7e {
+	if ansi.Final(p.buf[i]) {
 		i++
 	}
 	p.take(i)
@@ -394,7 +398,7 @@ func decodeAlt(b []byte) (n int, ev Event, done bool) {
 // that says what the sequence was.
 func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	i := 2
-	for i < len(b) && b[i] >= 0x20 && b[i] <= 0x3f {
+	for i < len(b) && ansi.Body(b[i]) {
 		i++
 	}
 	if i-2 > maxSequenceBody {
@@ -411,7 +415,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return 0, nil, false
 	}
 	final := b[i]
-	if final < 0x40 || final > 0x7e {
+	if !ansi.Final(final) {
 		// A byte that cannot appear in a control sequence. Drop the malformed
 		// prefix and start again at the byte that proved it malformed.
 		return i, nil, true
@@ -427,14 +431,14 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	// found broken. Dispatching on the final byte alone let a keyboard-flags reply —
 	// "CSI ? 31 u" — decode as a keystroke of an invisible control character, which is
 	// a defect that hides itself: printing the events showed an empty pair of brackets.
-	if ps.private != 0 {
+	if ps.Private != 0 {
 		return n, ps.report(final), true
 	}
 
 	switch {
-	case ps.empty() && final == 'I':
+	case ps.Empty() && final == 'I':
 		return n, FocusIn{}, true
-	case ps.empty() && final == 'O':
+	case ps.Empty() && final == 'O':
 		return n, FocusOut{}, true
 	}
 
@@ -469,7 +473,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 // decodeNumberedKey reads the sequences that name a key by number, which is also
 // how a terminal announces a paste.
 func (p *Parser) decodeNumberedKey(ps params) Event {
-	switch num := ps.first(); num {
+	switch num := ps.First(); num {
 	case pasteOpen:
 		p.pasting = true
 		return nil
@@ -497,10 +501,10 @@ const (
 // only form that distinguishes releases from presses and can say what text a key
 // produced.
 func (ps params) extendedKey() Event {
-	if ps.empty() || ps.count() > 3 {
+	if ps.Empty() || ps.Count() > 3 {
 		return nil // a bare sequence here is a cursor report, not a key
 	}
-	primary := ps.groups[0]
+	primary := ps.Group(0)
 	if len(primary) == 0 || len(primary) > 3 || primary[0] <= 0 {
 		return nil
 	}
@@ -568,10 +572,10 @@ var extendedKeys = map[int]Code{
 // mouse reads an SGR mouse report. down distinguishes the final byte that
 // means "went down or moved" from the one that means "came up".
 func (ps params) mouse(down bool) Event {
-	if ps.count() < 3 {
+	if ps.Count() < 3 {
 		return nil
 	}
-	bits, x, y := ps.at(0), ps.at(1), ps.at(2)
+	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
 	if bits < 0 || x < 0 || y < 0 {
 		return nil // a malformed report says nothing about where the mouse is
 	}

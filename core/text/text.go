@@ -6,6 +6,14 @@
 // that is measured one way and drawn another is the source of every misaligned
 // terminal UI, so measuring and drawing live in the same place and agree by
 // construction.
+//
+// # Text that arrives already styled
+//
+// [Decoder] is the other direction: the output of a command an interface ran,
+// which comes with the escape sequences that coloured it, read back into the same
+// [Span]s everything here lays out. It is here rather than beside the terminal
+// because what it produces is text — the sequences are how the styling was
+// spelled, and this is the package that knows what styled text is.
 package text
 
 import (

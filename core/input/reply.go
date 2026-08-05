@@ -1,11 +1,15 @@
 package input
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/Tangerg/oolong/core/ansi"
+)
 
 const (
 	// bel is the older of the two ways a terminal ends a string it is sending. The
 	// other is ST: an escape and a backslash.
-	bel = 0x07
+	bel = ansi.Bell
 
 	// oscIntro and dcsIntro are the bytes that introduce the two strings a terminal
 	// answers with: an operating system command, and a device control string.
@@ -217,14 +221,14 @@ func (p *Parser) skipString() bool {
 // said into whatever had focus.
 func (ps params) report(final byte) Event {
 	switch {
-	case ps.private == '<' && (final == 'M' || final == 'm'):
+	case ps.Private == '<' && (final == 'M' || final == 'm'):
 		return ps.mouse(final == 'M')
-	case ps.private == '?' && final == 'c':
+	case ps.Private == '?' && final == 'c':
 		return ps.deviceAttributes()
-	case ps.private == '?' && final == 'u':
-		return KeyboardFlags{Flags: max(ps.first(), 0)}
-	case ps.private == '>' && final == 'c':
-		return DeviceVersion{Kind: max(ps.at(0), 0), Version: max(ps.at(1), 0), Patch: max(ps.at(2), 0)}
+	case ps.Private == '?' && final == 'u':
+		return KeyboardFlags{Flags: max(ps.First(), 0)}
+	case ps.Private == '>' && final == 'c':
+		return DeviceVersion{Kind: max(ps.At(0), 0), Version: max(ps.At(1), 0), Patch: max(ps.At(2), 0)}
 	default:
 		return nil
 	}
