@@ -99,16 +99,17 @@ func (ps params) count() int { return len(ps.groups) }
 // is simply a claim nobody can act on — and the rest of the list is still worth
 // having.
 func (ps params) deviceAttributes() DeviceAttributes {
-	attrs := DeviceAttributes{Class: ps.first()}
-	if attrs.Class < 0 {
-		attrs.Class = 0
+	class := ps.first()
+	if class < 0 {
+		class = 0
 	}
+	features := make([]int, 0, max(len(ps.groups)-1, 0))
 	for i := 1; i < len(ps.groups); i++ {
-		if group := ps.groups[i]; len(group) > 0 && group[0] > 0 {
-			attrs.Features = append(attrs.Features, group[0])
+		if group := ps.groups[i]; len(group) > 0 {
+			features = append(features, group[0])
 		}
 	}
-	return attrs
+	return Attributes(class, features...)
 }
 
 // keyMeta reads the modifier and transition group that key reports carry, and

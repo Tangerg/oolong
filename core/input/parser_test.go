@@ -519,8 +519,8 @@ func TestDeviceAttributes(t *testing.T) {
 		if ev.Class != tc.class {
 			t.Errorf("%q: class = %d, want %d", tc.in, ev.Class, tc.class)
 		}
-		if !slices.Equal(ev.Features, tc.features) {
-			t.Errorf("%q: features = %v, want %v", tc.in, ev.Features, tc.features)
+		if !slices.Equal(ev.Features(), tc.features) {
+			t.Errorf("%q: features = %v, want %v", tc.in, ev.Features(), tc.features)
 		}
 		for _, want := range tc.features {
 			if !ev.Has(want) {
@@ -557,5 +557,56 @@ func TestDeviceAttributesWithAClassNobodyCanRead(t *testing.T) {
 	}
 	if !ev.Has(4) {
 		t.Error("the claim that could be read was thrown away with the one that could not")
+	}
+}
+
+// TestEveryEventIsComparable is the invariant a slice field in one of them broke.
+//
+// Events are handed about as an interface, so comparing two of them compiles whatever
+// they hold and panics at run time when what they hold cannot be compared. A caller
+// keeping the last event to see whether anything changed, or a test asserting that a
+// split read decoded the same way, finds that out the hard way — which is how this was
+// found, in CI, by the fuzz target that feeds the same bytes twice.
+func TestEveryEventIsComparable(t *testing.T) {
+	for _, ev := range []input.Event{
+		input.Key{Code: input.Character, Rune: 'a'},
+		input.Mouse{Pos: image.Pt(1, 2)},
+		input.Paste{Text: "x"},
+		input.Resize{Width: 80, Height: 24},
+		input.FocusIn{},
+		input.FocusOut{},
+		input.OSC{Command: 11, Params: "rgb:0/0/0"},
+		input.Attributes(62, 4, 22),
+	} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("comparing two %T panicked: %v", ev, r)
+				}
+			}()
+			// Both sides are the interface, which is what makes this the comparison
+			// a caller would actually write.
+			other := ev
+			if ev != other {
+				t.Errorf("%T does not equal itself", ev)
+			}
+		}()
+	}
+}
+
+func TestAttributesBuildsWhatTheParserWouldHave(t *testing.T) {
+	// A host standing in for a terminal has to be able to make one of these, and it
+	// has to be the same value the bytes would have decoded to.
+	decoded := one(t, "\x1b[?62;4;22c")
+	built := input.Attributes(62, 4, 22)
+	if decoded != built {
+		t.Errorf("decoded %+v, built %+v", decoded, built)
+	}
+	// A claim of nothing is not a claim.
+	if got := input.Attributes(62, 0, -1); got != input.Attributes(62) {
+		t.Errorf("zero and negative claims were kept: %+v", got.Features())
+	}
+	if input.Attributes(62).Has(0) {
+		t.Error("Has(0) is true, but zero is never a claim")
 	}
 }

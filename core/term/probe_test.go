@@ -65,10 +65,10 @@ func TestProbeLearnsWhatTheTerminalClaims(t *testing.T) {
 		t.Errorf("class = %d, want 62", attrs.Class)
 	}
 	if !attrs.Has(4) {
-		t.Errorf("features %v do not include sixel, which the terminal claimed", attrs.Features)
+		t.Errorf("features %v do not include sixel, which the terminal claimed", attrs.Features())
 	}
 	if attrs.Has(9) {
-		t.Errorf("features %v include something the terminal never claimed", attrs.Features)
+		t.Errorf("features %v include something the terminal never claimed", attrs.Features())
 	}
 }
 

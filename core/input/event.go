@@ -13,7 +13,6 @@ package input
 
 import (
 	"image"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -288,16 +287,67 @@ type DeviceAttributes struct {
 	// VT420. Little depends on it, and terminals that emulate one of those are
 	// not otherwise alike.
 	Class int
-	// Features are the numbered extensions the terminal claims. Sixel graphics is
-	// 4. There is no authority over the list and a terminal may claim what it
-	// does not do, so this is evidence rather than proof.
-	Features []int
+	// claims is the numbered extensions, semicolon-separated as the terminal wrote
+	// them.
+	//
+	// A string rather than a slice so that this event is comparable, like every
+	// other one. Comparing events through the interface is what a caller does and
+	// what this package's own tests do, and a slice field turns that into a panic
+	// at run time rather than an error at compile time — the fuzz target that
+	// checks a split read decodes the same way found exactly that.
+	claims string
+}
+
+// Attributes is an answer with the given class and extensions, for anything
+// standing in for a terminal.
+func Attributes(class int, features ...int) DeviceAttributes {
+	var b strings.Builder
+	for _, n := range features {
+		if n <= 0 {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(';')
+		}
+		b.WriteString(strconv.Itoa(n))
+	}
+	return DeviceAttributes{Class: class, claims: b.String()}
 }
 
 func (DeviceAttributes) terminalEvent() {}
 
+// Features are the numbered extensions the terminal claimed. Sixel graphics is 4.
+// There is no authority over the list and a terminal may claim what it does not do,
+// so this is evidence rather than proof.
+func (d DeviceAttributes) Features() []int {
+	if d.claims == "" {
+		return nil
+	}
+	fields := strings.Split(d.claims, ";")
+	out := make([]int, 0, len(fields))
+	for _, field := range fields {
+		if n, err := strconv.Atoi(field); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // Has reports whether the terminal claimed extension n.
-func (d DeviceAttributes) Has(n int) bool { return slices.Contains(d.Features, n) }
+//
+// It reads the claims rather than building the slice, because this is asked once per
+// capability and a session asks about two of them.
+func (d DeviceAttributes) Has(n int) bool {
+	if n <= 0 {
+		return false
+	}
+	for field := range strings.SplitSeq(d.claims, ";") {
+		if claimed, err := strconv.Atoi(field); err == nil && claimed == n {
+			return true
+		}
+	}
+	return false
+}
 
 // Resize reports the terminal's new size in cells.
 type Resize struct{ Width, Height int }
