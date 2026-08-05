@@ -196,6 +196,20 @@ func (e *Editor) Draw(v grid.View) {
 		r := rows[index]
 		text.Of(e.lines[r.line][r.start:r.end], e.Style).Draw(v, 0, y)
 	}
+	// The selection is laid over the text rather than drawn into it, so a run that
+	// crosses a style boundary keeps whatever was underneath — and so that the rows
+	// above did not have to be told which of them was selected.
+	for _, span := range e.SelectionSpans(width) {
+		y := span.Row - first
+		if y < 0 || y >= height {
+			continue
+		}
+		for x := span.Col; x < span.Col+span.Width && x < width; x++ {
+			if c := v.CellAt(x, y); c != nil {
+				c.Style = c.Style.Merge(e.SelectionStyle)
+			}
+		}
+	}
 	if y := cursorRow - first; y >= 0 && y < height {
 		v.PlaceCursor(cursorColumn, y)
 	}

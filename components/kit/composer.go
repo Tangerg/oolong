@@ -74,6 +74,7 @@ func (c *Composer) Draw(v grid.View) {
 	c.editor.MaxRows = c.rows()
 	c.editor.Style = c.Theme.Text
 	c.editor.PlaceholderStyle = c.Theme.Subtle
+	c.editor.SelectionStyle = c.Theme.Selection
 	c.editor.Placeholder = c.Placeholder
 
 	rows := layout.Rows(v,

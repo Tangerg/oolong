@@ -71,6 +71,41 @@ func (s *Scroll) ToTop() {
 	s.offset = 0
 }
 
+// Reveal scrolls as little as it can to bring a row into the window.
+//
+// As little as it can, rather than centring it: a reader stepping through search
+// results wants the surrounding text to stay put where it already fits, and a view
+// that jumped every time would lose the context that made the result worth finding.
+// A row already visible moves nothing at all.
+//
+// It stops following the end, because a row was asked for and following would
+// immediately scroll away from it.
+func (s *Scroll) Reveal(row int) {
+	s.RevealRange(row, row)
+}
+
+// RevealRange brings as much of [first, last] into the window as will fit.
+//
+// When the range is taller than the window its start wins, because that is where
+// reading begins. Anything else would show the end of a match and leave the reader
+// to scroll backwards to find out what it was part of.
+func (s *Scroll) RevealRange(first, last int) {
+	if s.window <= 0 {
+		return
+	}
+	if last < first {
+		first, last = last, first
+	}
+	s.following = false
+	switch {
+	case first < s.offset:
+		s.offset = first
+	case last >= s.offset+s.window:
+		s.offset = min(last-s.window+1, first)
+	}
+	s.clamp()
+}
+
 // Pages scrolls whole windows, keeping one row of overlap so the reader has
 // something to recognise on the other side of the jump.
 func (s *Scroll) Pages(n int) {

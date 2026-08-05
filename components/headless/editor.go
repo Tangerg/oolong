@@ -26,6 +26,10 @@ type Editor struct {
 	Placeholder      string
 	Style            grid.Style
 	PlaceholderStyle grid.Style
+	// SelectionStyle is laid over the selected text. The zero value draws no
+	// selection, which is what a field that never selects wants — and which is what
+	// this had before there was one, when a selection could be made and not seen.
+	SelectionStyle grid.Style
 	// Keys are the bindings the editor answers.
 	Keys EditorKeys
 	// Clipboard is where copy and cut send text and where paste asks for it. Nil

@@ -485,3 +485,84 @@ func rowTexts(rows []headless.Row) []string {
 	}
 	return out
 }
+
+func TestScrollRevealMovesAsLittleAsItCan(t *testing.T) {
+	// A reader stepping through search results wants the text around them to stay put
+	// where it already fits. Centring every result loses the context that made it
+	// worth finding.
+	for _, tc := range []struct {
+		name       string
+		offset     int
+		row        int
+		wantOffset int
+	}{
+		{name: "already visible", offset: 10, row: 12, wantOffset: 10},
+		{name: "the first visible row", offset: 10, row: 10, wantOffset: 10},
+		{name: "the last visible row", offset: 10, row: 14, wantOffset: 10},
+		{name: "just above", offset: 10, row: 9, wantOffset: 9},
+		{name: "far above", offset: 10, row: 2, wantOffset: 2},
+		{name: "just below", offset: 10, row: 15, wantOffset: 11},
+		{name: "far below", offset: 10, row: 40, wantOffset: 36},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var s headless.Scroll
+			s.Layout(100, 5)
+			s.By(tc.offset)
+			s.Reveal(tc.row)
+			if got := s.Offset(); got != tc.wantOffset {
+				t.Errorf("offset = %d, want %d", got, tc.wantOffset)
+			}
+		})
+	}
+}
+
+func TestScrollRevealStopsFollowing(t *testing.T) {
+	// A row was asked for, and following the end would scroll away from it at once.
+	var s headless.Scroll
+	s.ToBottom()
+	s.Layout(100, 5)
+	if !s.AtBottom() {
+		t.Fatal("not following to begin with")
+	}
+	s.Reveal(3)
+	if s.AtBottom() {
+		t.Error("still following after a row was asked for")
+	}
+	if got := s.Offset(); got != 3 {
+		t.Errorf("offset = %d, want 3", got)
+	}
+}
+
+func TestScrollRevealRangeShowsWhereReadingBegins(t *testing.T) {
+	// A match taller than the window: its start wins, or the reader is shown the end
+	// of something and left to scroll back for what it was part of.
+	var s headless.Scroll
+	s.Layout(100, 3)
+	s.RevealRange(20, 40)
+	if got := s.Offset(); got != 20 {
+		t.Errorf("offset = %d, want the start of the range", got)
+	}
+
+	// And a range that fits is brought in whole.
+	s.RevealRange(60, 62)
+	if got := s.Offset(); got != 60 {
+		t.Errorf("offset = %d, want 60", got)
+	}
+}
+
+func TestScrollRevealBackwardsRangeIsTheSameRange(t *testing.T) {
+	var s headless.Scroll
+	s.Layout(100, 5)
+	s.RevealRange(40, 20)
+	if got := s.Offset(); got != 20 {
+		t.Errorf("offset = %d, want 20", got)
+	}
+}
+
+func TestScrollRevealWithNoWindowDoesNothing(t *testing.T) {
+	var s headless.Scroll
+	s.Reveal(50)
+	if got := s.Offset(); got != 0 {
+		t.Errorf("offset = %d before any layout", got)
+	}
+}

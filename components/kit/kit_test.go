@@ -580,3 +580,31 @@ func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 		t.Errorf("copied %q, want %q", got, word)
 	}
 }
+
+// TestTheComposerShowsASelection. Behaviour with no appearance is the arrangement
+// between the two packages; a selection nobody can see is not that arrangement, it is
+// a feature half finished.
+func TestTheComposerShowsASelection(t *testing.T) {
+	th := kit.Dark()
+	c := &kit.Composer{Theme: th, Prompt: "> "}
+	c.SetText("hello world")
+	c.Editor().SetCursor(0, 0)
+	for range 5 {
+		c.Handle(input.Key{Code: input.Right, Mods: input.Shift})
+	}
+
+	s := grid.NewSurface(30, 3)
+	c.Draw(s.View())
+
+	marked := 0
+	for y := range 3 {
+		for x := range 30 {
+			if cell := s.View().CellAt(x, y); cell != nil && cell.Style == th.Text.Merge(th.Selection) {
+				marked++
+			}
+		}
+	}
+	if marked != 5 {
+		t.Errorf("%d cells are marked, want the five selected", marked)
+	}
+}
