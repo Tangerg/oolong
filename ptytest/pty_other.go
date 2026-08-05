@@ -11,6 +11,10 @@ import (
 // is only allocating a pty that does not, so the package still builds and only
 // [Start] refuses.
 
+// supported says this platform has no pty, so [Start] refuses and [Supported]
+// lets a test find that out before it has built anything.
+const supported = false
+
 func openPTY() (primary, replica *os.File, err error) { return nil, nil, ErrUnsupported }
 
 func attach(*exec.Cmd, *os.File) {}

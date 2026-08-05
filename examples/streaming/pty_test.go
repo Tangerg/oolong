@@ -33,8 +33,14 @@ func build(t *testing.T) string {
 }
 
 // start runs the example on a pty, skipping where there is no pty to run it on.
+//
+// The skip comes before the build, not after: skipping at the end of the
+// expensive part still costs what it skipped, once per test.
 func start(t *testing.T) *ptytest.Session {
 	t.Helper()
+	if !ptytest.Supported() {
+		t.Skip("no pty on this platform")
+	}
 	session, err := ptytest.StartWith(
 		ptytest.Options{Size: ptytest.Size{Cols: 60, Rows: 20}},
 		build(t),

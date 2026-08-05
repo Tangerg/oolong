@@ -35,6 +35,13 @@ import (
 // ErrUnsupported is reported by [Start] on a platform with no pty here.
 var ErrUnsupported = errors.New("ptytest: no pty on this platform")
 
+// Supported reports whether this platform has a pty here.
+//
+// It is worth asking before doing the work a pty test needs — building the
+// binary under test, usually — rather than after: a skip that happens at the end
+// of the expensive part is a skip that still costs what it skipped.
+func Supported() bool { return supported }
+
 // Size is a terminal size in cells.
 type Size struct{ Cols, Rows int }
 
@@ -76,8 +83,10 @@ type Session struct {
 	readDone chan struct{}
 	waitDone chan struct{}
 
-	waitOnce sync.Once
-	waitErr  error
+	// waitErr is written by the one goroutine that reaps the child, before
+	// waitDone closes, and read only after — which is what makes it safe without
+	// a lock.
+	waitErr error
 
 	closeOnce sync.Once
 }

@@ -11,6 +11,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// supported says this platform has a pty.
+const supported = true
+
 // attach makes the replica the child's controlling terminal, which is what makes
 // the child believe it is talking to one.
 func attach(cmd *exec.Cmd, replica *os.File) {
