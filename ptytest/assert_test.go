@@ -2,6 +2,7 @@ package ptytest
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ type recorder struct{ failures []string }
 
 func (r *recorder) Helper() {}
 
-func (r *recorder) Errorf(format string, args ...any) {
+func (r *recorder) Errorf(format string, _ ...any) {
 	r.failures = append(r.failures, format)
 }
 
@@ -184,23 +185,9 @@ func TestWaitForGivesUpAndSaysWhatItNeverSaw(t *testing.T) {
 	if strings.Contains(err.Error(), `"only"`) {
 		t.Fatalf("the failure was %q, want it to name only what was missing", err)
 	}
-	if !errorsIs(err, context.DeadlineExceeded) {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("the failure does not unwrap to a deadline: %v", err)
 	}
-}
-
-func errorsIs(err, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
 }
 
 func TestSizesThatATerminalCannotReportAreRefused(t *testing.T) {

@@ -28,9 +28,13 @@ func attach(cmd *exec.Cmd, replica *os.File) {
 }
 
 func setSize(primary *os.File, size Size) error {
+	cols, rows, err := size.dims()
+	if err != nil {
+		return err
+	}
 	return unix.IoctlSetWinsize(int(primary.Fd()), unix.TIOCSWINSZ, &unix.Winsize{
-		Col: uint16(size.Cols),
-		Row: uint16(size.Rows),
+		Col: cols,
+		Row: rows,
 	})
 }
 

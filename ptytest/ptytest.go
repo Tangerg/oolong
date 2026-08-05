@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"sync"
@@ -51,13 +52,23 @@ type Size struct{ Cols, Rows int }
 // size is a state a test almost never means to ask for and always struggles to
 // diagnose, because everything downstream simply draws nothing.
 func (s Size) check() error {
+	_, _, err := s.dims()
+	return err
+}
+
+// dims is the size in the type the winsize ioctl takes, or the reason it is not a
+// size at all.
+//
+// The bound and the narrowing are in one function on purpose: a conversion whose
+// safety depends on a check somewhere else is a conversion nobody can read.
+func (s Size) dims() (cols, rows uint16, err error) {
 	if s.Cols <= 0 || s.Rows <= 0 {
-		return fmt.Errorf("ptytest: size %dx%d: both must be positive", s.Cols, s.Rows)
+		return 0, 0, fmt.Errorf("ptytest: size %dx%d: both must be positive", s.Cols, s.Rows)
 	}
-	if s.Cols > 0xffff || s.Rows > 0xffff {
-		return fmt.Errorf("ptytest: size %dx%d: larger than a terminal can report", s.Cols, s.Rows)
+	if s.Cols > math.MaxUint16 || s.Rows > math.MaxUint16 {
+		return 0, 0, fmt.Errorf("ptytest: size %dx%d: larger than a terminal can report", s.Cols, s.Rows)
 	}
-	return nil
+	return uint16(s.Cols), uint16(s.Rows), nil
 }
 
 // Options configures a session.
@@ -92,12 +103,17 @@ type Session struct {
 }
 
 // Start runs a command on a new pty of the default size.
-func Start(name string, args ...string) (*Session, error) {
-	return StartWith(Options{}, name, args...)
+func Start(ctx context.Context, name string, args ...string) (*Session, error) {
+	return StartWith(ctx, Options{}, name, args...)
 }
 
 // StartWith runs a command on a new pty.
-func StartWith(opts Options, name string, args ...string) (*Session, error) {
+//
+// Cancelling ctx kills the program. A test that hands it t.Context() therefore
+// cannot leave one behind however it fails — which matters more here than
+// anywhere else in the repository, because what would be left behind is a process
+// holding a terminal.
+func StartWith(ctx context.Context, opts Options, name string, args ...string) (*Session, error) {
 	size := opts.Size
 	if size == (Size{}) {
 		size = Size{Cols: 80, Rows: 24}
@@ -113,20 +129,22 @@ func StartWith(opts Options, name string, args ...string) (*Session, error) {
 	// The replica belongs to the child once it is running; this side of it is
 	// closed either way, and closing it on the failure path is what stops a failed
 	// start from leaking a descriptor per attempt.
-	defer replica.Close()
+	defer func() { _ = replica.Close() }()
 
 	if err := setSize(primary, size); err != nil {
-		primary.Close()
+		_ = primary.Close()
 		return nil, err
 	}
 
-	cmd := exec.Command(name, args...)
+	// Running a command the caller named is what this package is for.
+	//nolint:gosec // G204: the command is the harness's argument, by design.
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = opts.Dir
 	cmd.Env = opts.Env
 	attach(cmd, replica)
 
 	if err := cmd.Start(); err != nil {
-		primary.Close()
+		_ = primary.Close()
 		return nil, fmt.Errorf("ptytest: start %s: %w", name, err)
 	}
 

@@ -206,6 +206,10 @@ func (e *Editor) splice(s string) {
 	col := len(inserted[last])
 	inserted[last] += tail
 
+	// The inner append extends a slice this function just built, which is the
+	// pattern makezero warns about when the slice came from elsewhere. It did not:
+	// inserted holds the replacement lines and the tail is being put after them.
+	//nolint:makezero // inserted is local and fully written above.
 	e.lines = append(e.lines[:e.line], append(inserted, e.lines[e.line+1:]...)...)
 	e.line += last
 	e.col = col

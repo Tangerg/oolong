@@ -41,6 +41,8 @@ type Handler interface {
 // Mods is the set of modifier keys held during an event.
 type Mods uint8
 
+// The modifiers a terminal can report. Super is last because it is the only one
+// that needs the Kitty protocol to arrive at all.
 const (
 	Shift Mods = 1 << iota
 	Alt
@@ -71,6 +73,9 @@ func (m Mods) String() string {
 // carried in [Key.Rune].
 type Code int
 
+// The keys a terminal can report: a character press, then the named keys in the
+// order a keyboard is usually described — what finishes a line, what cancels,
+// what edits, then movement, then the function row.
 const (
 	// Character is the zero value, so a Key literal with only a rune in it is a
 	// character press — which is what most of them are.
@@ -137,6 +142,8 @@ var codeNames = map[Code]string{
 // Transition is what happened to a key.
 type Transition uint8
 
+// What happened to a key. Repeat and Release only ever arrive from a terminal
+// speaking the Kitty keyboard protocol; everything else reports presses.
 const (
 	// Press is the zero value: an ordinary terminal only ever reports presses,
 	// and a Key literal that says nothing about its transition means one.
@@ -206,6 +213,8 @@ func (k Key) String() string {
 // MouseAction is what the mouse did.
 type MouseAction uint8
 
+// What the mouse did. Drag is a move with a button held, and the two wheel
+// directions are actions rather than buttons because no button is involved.
 const (
 	MouseDown MouseAction = iota
 	MouseUp
@@ -218,6 +227,8 @@ const (
 // Button identifies which mouse button an action belongs to.
 type Button uint8
 
+// The buttons a terminal reports. There is no fourth: the higher button numbers
+// in the protocol are the wheel, which arrives as an action instead.
 const (
 	// ButtonNone is the zero value, which is right for a bare move and for a
 	// wheel: neither belongs to a button.

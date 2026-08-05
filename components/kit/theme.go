@@ -56,20 +56,20 @@ type Theme struct {
 // slightly yellow, and the whole interface looks dusty.
 func Dark() Theme {
 	var (
-		text    = grid.RGBColor(0xE2, 0xE6, 0xEF)
-		muted   = grid.RGBColor(0x94, 0x9C, 0xB0)
-		subtle  = grid.RGBColor(0x64, 0x6C, 0x80)
-		accent  = grid.RGBColor(0x7A, 0xA2, 0xF7)
-		green   = grid.RGBColor(0x7A, 0xC8, 0x8E)
-		amber   = grid.RGBColor(0xD7, 0xA6, 0x5C)
-		red     = grid.RGBColor(0xE8, 0x7D, 0x7D)
-		cyan    = grid.RGBColor(0x6C, 0xB6, 0xC4)
-		line    = grid.RGBColor(0x3A, 0x41, 0x52)
-		surface = grid.RGBColor(0x16, 0x19, 0x22)
-		sunken  = grid.RGBColor(0x1D, 0x21, 0x2C)
-		select_ = grid.RGBColor(0x25, 0x2B, 0x3A)
-		addedBG = grid.RGBColor(0x18, 0x2C, 0x21)
-		goneBG  = grid.RGBColor(0x2E, 0x1C, 0x1F)
+		text     = grid.RGBColor(0xE2, 0xE6, 0xEF)
+		muted    = grid.RGBColor(0x94, 0x9C, 0xB0)
+		subtle   = grid.RGBColor(0x64, 0x6C, 0x80)
+		accent   = grid.RGBColor(0x7A, 0xA2, 0xF7)
+		green    = grid.RGBColor(0x7A, 0xC8, 0x8E)
+		amber    = grid.RGBColor(0xD7, 0xA6, 0x5C)
+		red      = grid.RGBColor(0xE8, 0x7D, 0x7D)
+		cyan     = grid.RGBColor(0x6C, 0xB6, 0xC4)
+		line     = grid.RGBColor(0x3A, 0x41, 0x52)
+		surface  = grid.RGBColor(0x16, 0x19, 0x22)
+		sunken   = grid.RGBColor(0x1D, 0x21, 0x2C)
+		selected = grid.RGBColor(0x25, 0x2B, 0x3A)
+		addedBG  = grid.RGBColor(0x18, 0x2C, 0x21)
+		goneBG   = grid.RGBColor(0x2E, 0x1C, 0x1F)
 	)
 	return Theme{
 		Text:      grid.Style{FG: text},
@@ -84,7 +84,7 @@ func Dark() Theme {
 		Info:      grid.Style{FG: cyan},
 		Border:    grid.Style{FG: line},
 		Divider:   grid.Style{FG: line},
-		Selection: grid.Style{BG: select_},
+		Selection: grid.Style{BG: selected},
 		Surface:   grid.Style{BG: surface},
 		Sunken:    grid.Style{BG: sunken},
 		Added:     grid.Style{FG: green, BG: addedBG},
@@ -96,20 +96,20 @@ func Dark() Theme {
 // Light is the same palette turned over, for a terminal on a light background.
 func Light() Theme {
 	var (
-		text    = grid.RGBColor(0x1C, 0x21, 0x2C)
-		muted   = grid.RGBColor(0x5C, 0x65, 0x78)
-		subtle  = grid.RGBColor(0x8B, 0x93, 0xA5)
-		accent  = grid.RGBColor(0x2E, 0x5C, 0xC8)
-		green   = grid.RGBColor(0x1F, 0x7A, 0x45)
-		amber   = grid.RGBColor(0x92, 0x5F, 0x0E)
-		red     = grid.RGBColor(0xB4, 0x2D, 0x2D)
-		cyan    = grid.RGBColor(0x1B, 0x6A, 0x78)
-		line    = grid.RGBColor(0xD2, 0xD7, 0xE0)
-		surface = grid.RGBColor(0xFA, 0xFB, 0xFD)
-		sunken  = grid.RGBColor(0xF0, 0xF2, 0xF6)
-		select_ = grid.RGBColor(0xE4, 0xE8, 0xF0)
-		addedBG = grid.RGBColor(0xE7, 0xF6, 0xEC)
-		goneBG  = grid.RGBColor(0xFB, 0xEA, 0xEA)
+		text     = grid.RGBColor(0x1C, 0x21, 0x2C)
+		muted    = grid.RGBColor(0x5C, 0x65, 0x78)
+		subtle   = grid.RGBColor(0x8B, 0x93, 0xA5)
+		accent   = grid.RGBColor(0x2E, 0x5C, 0xC8)
+		green    = grid.RGBColor(0x1F, 0x7A, 0x45)
+		amber    = grid.RGBColor(0x92, 0x5F, 0x0E)
+		red      = grid.RGBColor(0xB4, 0x2D, 0x2D)
+		cyan     = grid.RGBColor(0x1B, 0x6A, 0x78)
+		line     = grid.RGBColor(0xD2, 0xD7, 0xE0)
+		surface  = grid.RGBColor(0xFA, 0xFB, 0xFD)
+		sunken   = grid.RGBColor(0xF0, 0xF2, 0xF6)
+		selected = grid.RGBColor(0xE4, 0xE8, 0xF0)
+		addedBG  = grid.RGBColor(0xE7, 0xF6, 0xEC)
+		goneBG   = grid.RGBColor(0xFB, 0xEA, 0xEA)
 	)
 	return Theme{
 		Text:      grid.Style{FG: text},
@@ -124,7 +124,7 @@ func Light() Theme {
 		Info:      grid.Style{FG: cyan},
 		Border:    grid.Style{FG: line},
 		Divider:   grid.Style{FG: line},
-		Selection: grid.Style{BG: select_},
+		Selection: grid.Style{BG: selected},
 		Surface:   grid.Style{BG: surface},
 		Sunken:    grid.Style{BG: sunken},
 		Added:     grid.Style{FG: green, BG: addedBG},

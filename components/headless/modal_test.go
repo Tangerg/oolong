@@ -44,6 +44,8 @@ func middle(w, h int) layout.Placement {
 	return layout.Placement{Anchor: layout.Middle, Width: w, Height: h}
 }
 
+// draw lays the stack out in a space, which is what fills in where each layer
+// went so a later hit test has something to ask about.
 func draw(s *Stack, w, h int) {
 	s.Draw(grid.NewSurface(w, h).View())
 }
@@ -208,6 +210,27 @@ func TestAMouseEventArrivesInTheLayersOwnCoordinates(t *testing.T) {
 	got := p.seen[0].(input.Mouse).Pos
 	if got != (image.Point{}) {
 		t.Fatalf("the layer was told the press was at %v, want its own origin", got)
+	}
+}
+
+func TestALayerIsPlacedAgainstTheSpaceItIsGiven(t *testing.T) {
+	// Placement is a question about the space, so it has to be asked in more than
+	// one: a centre computed against a height nobody varied is a centre nobody
+	// checked.
+	p := &panel{name: "p", place: middle(4, 2)}
+	var s Stack
+	s.Push(p)
+
+	draw(&s, 20, 10)
+	short, _ := s.Area()
+	draw(&s, 20, 30)
+	tall, _ := s.Area()
+
+	if short.Min.Y == tall.Min.Y {
+		t.Fatalf("the layer sat at row %d in both a 10-row and a 30-row space", short.Min.Y)
+	}
+	if want := (30 - 2) / 2; tall.Min.Y != want {
+		t.Fatalf("in 30 rows the layer sat at %d, want the centre at %d", tall.Min.Y, want)
 	}
 }
 

@@ -20,11 +20,11 @@ func needPTY(t *testing.T) {
 
 func TestASessionCapturesWhatTheCommandWrote(t *testing.T) {
 	needPTY(t)
-	s, err := Start("echo", "hello from a pty")
+	s, err := Start(t.Context(), "echo", "hello from a pty")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.Transcript().WaitWithin(10*time.Second, "hello from a pty"); err != nil {
 		t.Fatal(err)
@@ -40,27 +40,27 @@ func TestASessionSendsWhatIsTyped(t *testing.T) {
 	needPTY(t)
 	// cat echoes its input back through the pty, which is the smallest thing that
 	// proves typing reaches the far end.
-	s, err := Start("cat")
+	s, err := Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
-	if err := s.Type("knock knock\n"); err != nil {
+	if err := s.Type("typed and echoed\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transcript().WaitWithin(10*time.Second, "knock knock"); err != nil {
+	if err := s.Transcript().WaitWithin(10*time.Second, "typed and echoed"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestASessionReportsTheSizeItWasGiven(t *testing.T) {
 	needPTY(t)
-	s, err := StartWith(Options{Size: Size{Cols: 37, Rows: 11}}, "stty", "size")
+	s, err := StartWith(t.Context(), Options{Size: Size{Cols: 37, Rows: 11}}, "stty", "size")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	// stty prints "rows cols".
 	if err := s.Transcript().WaitWithin(10*time.Second, "11 37"); err != nil {
@@ -70,11 +70,11 @@ func TestASessionReportsTheSizeItWasGiven(t *testing.T) {
 
 func TestResizingIsRefusedForASizeATerminalCannotReport(t *testing.T) {
 	needPTY(t)
-	s, err := Start("cat")
+	s, err := Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	if err := s.Resize(Size{Cols: 0, Rows: 0}); err == nil {
 		t.Fatal("a terminal was collapsed to no size")
@@ -83,13 +83,13 @@ func TestResizingIsRefusedForASizeATerminalCannotReport(t *testing.T) {
 
 func TestStartingSomethingThatIsNotThereFails(t *testing.T) {
 	needPTY(t)
-	if _, err := Start("this-command-does-not-exist-anywhere"); err == nil {
+	if _, err := Start(t.Context(), "this-command-does-not-exist-anywhere"); err == nil {
 		t.Fatal("starting a command that does not exist succeeded")
 	}
 }
 
 func TestStartingAtASizeATerminalCannotReportFails(t *testing.T) {
-	if _, err := StartWith(Options{Size: Size{Cols: -1, Rows: 5}}, "echo"); err == nil {
+	if _, err := StartWith(t.Context(), Options{Size: Size{Cols: -1, Rows: 5}}, "echo"); err == nil {
 		t.Fatal("a pty was opened at a size that cannot be represented")
 	}
 }
@@ -97,7 +97,7 @@ func TestStartingAtASizeATerminalCannotReportFails(t *testing.T) {
 func TestClosingTwiceIsSafe(t *testing.T) {
 	// So a test can defer it and still close explicitly.
 	needPTY(t)
-	s, err := Start("cat")
+	s, err := Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestClosingTwiceIsSafe(t *testing.T) {
 
 func TestClosingKillsSomethingStillRunning(t *testing.T) {
 	needPTY(t)
-	s, err := Start("cat") // waits for input for ever
+	s, err := Start(t.Context(), "cat") // waits for input for ever
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,11 +122,11 @@ func TestClosingKillsSomethingStillRunning(t *testing.T) {
 
 func TestWaitGivesUpWhenItsContextDoes(t *testing.T) {
 	needPTY(t)
-	s, err := Start("cat")
+	s, err := Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -137,11 +137,11 @@ func TestWaitGivesUpWhenItsContextDoes(t *testing.T) {
 
 func TestWriteSendsRawBytes(t *testing.T) {
 	needPTY(t)
-	s, err := Start("cat")
+	s, err := Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	n, err := s.Write([]byte("raw\n"))
 	if err != nil || n != 4 {
@@ -156,7 +156,7 @@ func TestAnUnsupportedPlatformSaysSoRatherThanHanging(t *testing.T) {
 	if Supported() {
 		t.Skip("this platform has a pty")
 	}
-	_, err := Start("echo")
+	_, err := Start(t.Context(), "echo")
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("= %v, want ErrUnsupported", err)
 	}

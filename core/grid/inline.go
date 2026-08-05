@@ -123,8 +123,8 @@ func (i *Inline) Invalidate() {
 
 // Frame blanks the drawing surface and returns the view for this frame.
 //
-// The view is as tall as the block may grow to, not as tall as the block is: how
-// tall it is is decided by what this frame draws into it.
+// The view is as tall as the block may grow to, not as tall as the block ends up:
+// its height is decided by what this frame draws into it.
 func (i *Inline) Frame() View {
 	i.back.Reset()
 	i.placed = Cursor{}

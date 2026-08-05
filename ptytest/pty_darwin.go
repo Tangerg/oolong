@@ -4,6 +4,7 @@ package ptytest
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"unsafe"
@@ -25,25 +26,27 @@ func openPTY() (primary, replica *os.File, err error) {
 		}
 	}()
 
-	ioctl := func(request uintptr, arg uintptr) error {
-		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), request, arg); errno != 0 {
-			return errno
-		}
-		return nil
+	// Granting and unlocking take no argument, so the package's own wrapper does.
+	if grantErr := unix.IoctlSetInt(fd, unix.TIOCPTYGRANT, 0); grantErr != nil {
+		return nil, nil, fmt.Errorf("ptytest: grant the pty: %w", grantErr)
 	}
-	if err := ioctl(unix.TIOCPTYGRANT, 0); err != nil {
-		return nil, nil, fmt.Errorf("ptytest: grant the pty: %w", err)
+	if unlockErr := unix.IoctlSetInt(fd, unix.TIOCPTYUNLK, 0); unlockErr != nil {
+		return nil, nil, fmt.Errorf("ptytest: unlock the pty: %w", unlockErr)
 	}
-	if err := ioctl(unix.TIOCPTYUNLK, 0); err != nil {
-		return nil, nil, fmt.Errorf("ptytest: unlock the pty: %w", err)
-	}
+
+	// Asking the replica's name does take one — a buffer — and x/sys/unix has no
+	// typed wrapper for this particular ioctl, so there is nothing to call but the
+	// syscall. The deprecation asks for a libSystem wrapper that the package does
+	// not offer here; the alternative is not using a pty on macOS at all.
 	var name [128]byte
-	if err := ioctl(unix.TIOCPTYGNAME, uintptr(unsafe.Pointer(&name[0]))); err != nil {
-		return nil, nil, fmt.Errorf("ptytest: name the replica: %w", err)
+	//nolint:staticcheck,gosec // SA1019/G103: no wrapper exists for TIOCPTYGNAME, which needs a buffer.
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), unix.TIOCPTYGNAME,
+		uintptr(unsafe.Pointer(&name[0]))); errno != 0 {
+		return nil, nil, fmt.Errorf("ptytest: name the replica: %w", errno)
 	}
 	end := bytes.IndexByte(name[:], 0)
 	if end <= 0 {
-		return nil, nil, fmt.Errorf("ptytest: the replica has no name")
+		return nil, nil, errors.New("ptytest: the replica has no name")
 	}
 
 	path := string(name[:end])

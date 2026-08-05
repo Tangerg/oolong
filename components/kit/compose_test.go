@@ -202,7 +202,7 @@ func TestAMessageWrapsToTheWidthItIsGiven(t *testing.T) {
 	}
 }
 
-func TestADialogIsAModalTheStackCanDrive(t *testing.T) {
+func TestADialogIsAModalTheStackCanDrive(_ *testing.T) {
 	// The contract is the point: the appearance half has to satisfy the interface
 	// the behaviour half drives, or neither is any use.
 	var _ headless.Modal = (*Dialog)(nil)
@@ -288,7 +288,7 @@ func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
 	}
 }
 
-func TestADialogWithNoRoomDrawsNothing(t *testing.T) {
+func TestADialogWithNoRoomDrawsNothing(_ *testing.T) {
 	d := &Dialog{Title: "Squeezed", Body: Label{Text: "x"}}
 	d.Draw(grid.NewSurface(0, 0).View())
 	d.Backdrop(grid.NewSurface(0, 0).View())

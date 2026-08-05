@@ -439,7 +439,7 @@ func TestInlineRowsAreEndedWithACarriageReturnBeforeTheNewline(t *testing.T) {
 	if !strings.Contains(got, "abcd"+eraseLine+"\r\n") {
 		t.Fatalf("frame = %q, want the row break to begin with a carriage return", got)
 	}
-	for at := 0; at < len(got); at++ {
+	for at := range got {
 		if got[at] == '\n' && (at == 0 || got[at-1] != '\r') {
 			t.Fatalf("frame = %q has a newline at %d with no carriage return before it", got, at)
 		}

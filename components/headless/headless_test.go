@@ -170,13 +170,15 @@ func TestTokenAt(t *testing.T) {
 		{"a slash inside a path", "@src/ma", 7, []Trigger{file, command}, "1:7:src/ma"},
 		{
 			"the rightmost trigger wins", "/open @src", 10,
-			[]Trigger{file, command}, "7:10:src",
+			[]Trigger{file, command},
+			"7:10:src",
 		},
 		{"an email address", "write to me@example.com", 23, []Trigger{file}, ""},
 		{"the cursor before the trigger", "@src", 0, []Trigger{file}, ""},
 		{
 			"the cursor inside the token replaces all of it", "@source", 4,
-			[]Trigger{file}, "1:7:sou",
+			[]Trigger{file},
+			"1:7:sou",
 		},
 		{"the cursor past the token", "@src and more", 9, []Trigger{file}, ""},
 		{"a token that ends at a space", "@src more", 4, []Trigger{file}, "1:4:src"},
@@ -430,7 +432,7 @@ func TestADetailWithNoRoomIsDropped(t *testing.T) {
 	}
 }
 
-func TestACompletionWithNoRoomDrawsNothing(t *testing.T) {
+func TestACompletionWithNoRoomDrawsNothing(_ *testing.T) {
 	var c Completion
 	offer(&c, "one", "two")
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {4, 1}} {

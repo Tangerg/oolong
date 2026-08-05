@@ -25,7 +25,9 @@ func build(t *testing.T) string {
 	if os.PathSeparator == '\\' {
 		binary += ".exe"
 	}
-	out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput()
+	// The only variable here is a path this test just made with t.TempDir.
+	//nolint:gosec // G204: the arguments are this test's own, not a caller's.
+	out, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput()
 	if err != nil {
 		t.Fatalf("building the example: %v\n%s", err, out)
 	}
@@ -42,6 +44,7 @@ func start(t *testing.T) *ptytest.Session {
 		t.Skip("no pty on this platform")
 	}
 	session, err := ptytest.StartWith(
+		t.Context(),
 		ptytest.Options{Size: ptytest.Size{Cols: 60, Rows: 20}},
 		build(t),
 	)

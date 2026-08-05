@@ -69,6 +69,8 @@ func (c Color) Blend(over Color, opacity float64) Color {
 // Attr is a set of text attributes.
 type Attr uint8
 
+// The attributes a cell can carry. They are the ones every terminal implements
+// and the ones a single SGR parameter turns on, which is why there are six.
 const (
 	Bold Attr = 1 << iota
 	Dim

@@ -78,6 +78,52 @@ jobs:
         shell: bash
         run: for m in $MODULES; do (cd "$m" && go test -race -count=1 ./...) || exit 1; done
 
+  quality:
+    name: lint and vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: core/go.mod
+          check-latest: true
+
+      # Pinned rather than floating: a linter that changes under a repository is
+      # one whose findings arrive as unrelated failures on somebody else's change.
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+      - name: golangci-lint
+        run: for m in $MODULES; do (cd "$m" && golangci-lint run ./...) || exit 1; done
+
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      - name: govulncheck
+        run: for m in $MODULES; do (cd "$m" && govulncheck ./...) || exit 1; done
+
+  # The committed seed corpus runs as part of `go test`, which only replays inputs
+  # somebody already found. The bug that made this job exist — a parser whose
+  # answer depended on where the read split — passed every other check here and
+  # was reached by a fuzzer in fifteen seconds, so the generator runs on every
+  # push and not only when someone remembers.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: core/go.mod
+          check-latest: true
+      - name: Fuzz every target
+        run: |
+          set -euo pipefail
+          grep -rl '^func Fuzz' --include='*_test.go' . | while read -r file; do
+            package="./$(dirname "$file")"
+            module="$(cd "$(dirname "$file")" && git rev-parse --show-prefix | cut -d/ -f1)"
+            grep -o '^func Fuzz[A-Za-z0-9_]*' "$file" | cut -d' ' -f2 | while read -r target; do
+              echo "::group::$file $target"
+              (cd "$(dirname "$file")" && go test . -run '^$' -fuzz "^${target}\$" -fuzztime=30s)
+              echo "::endgroup::"
+            done
+          done
+
   tidy:
     name: formatting and modules
     runs-on: ubuntu-latest
@@ -89,11 +135,15 @@ jobs:
           go-version-file: core/go.mod
           check-latest: true
 
-      - name: gofmt
+      # gofumpt rather than gofmt: it is gofmt plus the decisions gofmt left open,
+      # and a repository that argues about them in review is one that has not made
+      # them.
+      - run: go install mvdan.cc/gofumpt@v0.11.0
+      - name: gofumpt
         run: |
-          unformatted="$(gofmt -l .)"
+          unformatted="$(gofumpt -l .)"
           if [ -n "$unformatted" ]; then
-            echo "these files are not gofmt'd:"
+            echo "these files are not gofumpt'd:"
             echo "$unformatted"
             exit 1
           fi
@@ -102,13 +152,7 @@ jobs:
       # fails when an import appears that its module does not declare, and this
       # fails when the declaration and the imports have drifted the other way.
       - name: go mod tidy is a no-op everywhere
-        run: |
-          for m in $MODULES; do (cd "$m" && go mod tidy); done
-          if ! git diff --quiet; then
-            echo "go mod tidy changed something:"
-            git diff
-            exit 1
-          fi
+        run: for m in $MODULES; do (cd "$m" && go mod tidy -diff) || exit 1; done
 
       # A workspace that has fallen out of step with the modules in it is a
       # checkout that builds for the person who wrote it and nobody else.

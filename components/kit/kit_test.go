@@ -92,7 +92,7 @@ func TestBoxTitleSitsInTheBorder(t *testing.T) {
 	}
 }
 
-func TestBoxSurvivesBeingSqueezed(t *testing.T) {
+func TestBoxSurvivesBeingSqueezed(_ *testing.T) {
 	// A collapsing layout must look small, not corrupted. None of these may panic.
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {2, 1}, {1, 3}, {3, 2}} {
 		paint(size[0], size[1], func(v grid.View) {

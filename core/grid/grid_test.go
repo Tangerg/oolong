@@ -603,7 +603,7 @@ func TestAWidgetScrolledOffScreenCannotMoveTheCursor(t *testing.T) {
 	}
 }
 
-func TestPlacingTheCursorOnAPlainSurfaceIsHarmless(t *testing.T) {
+func TestPlacingTheCursorOnAPlainSurfaceIsHarmless(_ *testing.T) {
 	// A scratch surface is not a frame. Placing a cursor there means nothing, and
 	// meaning nothing is not the same as being an error.
 	NewSurface(4, 1).View().PlaceCursor(1, 0)

@@ -110,7 +110,12 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 	if group[0] > 1 {
 		// The encoding is the modifier bits plus one, so that a parameter of one
 		// means no modifiers and the field is never empty.
-		mods = Mods(group[0]-1) & (Shift | Alt | Ctrl | Super)
+		//
+		// Masked before it is narrowed, not after. A terminal can put any number
+		// here, and narrowing first would let a large one wrap into a modifier
+		// nobody held — the same class of mistake as reading a rune out of an
+		// integer and asking afterwards whether it was one.
+		mods = Mods((group[0] - 1) & int(Shift|Alt|Ctrl|Super))
 	}
 	if len(group) < 2 {
 		return mods, Press, true
@@ -138,11 +143,27 @@ func (ps params) text() (string, bool) {
 		if cp == 0 {
 			continue
 		}
-		r := rune(cp)
-		if cp < 0 || !utf8.ValidRune(r) {
+		r, ok := codePoint(cp)
+		if !ok {
 			return "", false
 		}
 		b.WriteRune(r)
 	}
 	return b.String(), true
+}
+
+// codePoint turns a parsed number into the rune it names, reporting whether it
+// names one at all.
+//
+// The range is checked on the number rather than on the rune, because converting
+// is what destroys the evidence: a rune is 32 bits, so a code point of
+// 0x100000041 narrows quietly to "A" and asking utf8.ValidRune afterwards asks
+// about a value the terminal never sent. Every number in this package arrives
+// from a sequence somebody else wrote, so every one of them gets this.
+func codePoint(cp int) (rune, bool) {
+	if cp < 0 || cp > utf8.MaxRune {
+		return 0, false
+	}
+	r := rune(cp)
+	return r, utf8.ValidRune(r)
 }

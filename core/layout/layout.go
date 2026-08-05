@@ -26,6 +26,7 @@ type Size struct{ W, H int }
 // Align is how content sits in a space wider than itself.
 type Align uint8
 
+// Where content sits when it is narrower than its space.
 const (
 	Start Align = iota
 	Center
@@ -93,6 +94,7 @@ type Measurer interface {
 // MeasureFunc adapts a function to [Measurer].
 type MeasureFunc func(across int) int
 
+// Measure calls f.
 func (f MeasureFunc) Measure(across int) int { return f(across) }
 
 // Sizing says how much of an axis a slot wants.

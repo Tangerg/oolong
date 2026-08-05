@@ -256,7 +256,7 @@ func TestEveryModuleIsDeclaredAndEveryDeclaredModuleExists(t *testing.T) {
 // TestEveryDirectoryBelongsToARing catches a package added outside the layering.
 func TestEveryDirectoryBelongsToARing(t *testing.T) {
 	root := repoRoot(t)
-	walk(t, root, func(dir, path string) {
+	walk(t, root, func(dir, _ string) {
 		if ringOf(dir) == "" {
 			t.Errorf("%s belongs to no ring: add it to the rules, or put its code in a "+
 				"ring that exists", dir)

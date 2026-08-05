@@ -40,10 +40,22 @@ var cube = [6]uint8{0, 95, 135, 175, 215, 255}
 // number them. The values are the common xterm defaults: a terminal is free to
 // render its own, which is the point of using an index rather than a value.
 var ansi16 = [16]RGB{
-	{0, 0, 0}, {128, 0, 0}, {0, 128, 0}, {128, 128, 0},
-	{0, 0, 128}, {128, 0, 128}, {0, 128, 128}, {192, 192, 192},
-	{128, 128, 128}, {255, 0, 0}, {0, 255, 0}, {255, 255, 0},
-	{0, 0, 255}, {255, 0, 255}, {0, 255, 255}, {255, 255, 255},
+	{0, 0, 0},
+	{128, 0, 0},
+	{0, 128, 0},
+	{128, 128, 0},
+	{0, 0, 128},
+	{128, 0, 128},
+	{0, 128, 128},
+	{192, 192, 192},
+	{128, 128, 128},
+	{255, 0, 0},
+	{0, 255, 0},
+	{255, 255, 0},
+	{0, 0, 255},
+	{255, 0, 255},
+	{0, 255, 255},
+	{255, 255, 255},
 }
 
 // PaletteRGB is what the xterm 256-colour palette holds at an index.
@@ -76,30 +88,36 @@ func PaletteRGB(index uint8) RGB {
 // choosing one because its default value happened to be close is choosing a colour
 // nobody can predict.
 func (c RGB) Index256() uint8 {
+	// All of this is uint8 arithmetic on purpose. Each cube index is at most 5, so
+	// the largest value reachable here is 16+36*5+6*5+5 = 231, and the largest grey
+	// index is 232+23 = 255 — both inside the type the answer is returned in. Doing
+	// the sums in a wider type and converting at the end would be the same numbers
+	// with a conversion nobody can check by reading it.
 	r, g, b := nearestCube(c.R), nearestCube(c.G), nearestCube(c.B)
-	best := 16 + 36*uint16(r) + 6*uint16(g) + uint16(b)
+	best := 16 + 36*r + 6*g + b
 	bestDist := distance(c, RGB{cube[r], cube[g], cube[b]})
 
 	// The ramp runs 8, 18, 28 … 238. Rounding the luminance to the nearest step
 	// finds the candidate without walking all twenty-four.
 	lum := (int(c.R) + int(c.G) + int(c.B)) / 3
 	step := clampStep((lum - 8 + 5) / 10)
-	grey := uint8(8 + step*10)
+
+	grey := 8 + step*10
 	if d := distance(c, RGB{grey, grey, grey}); d < bestDist {
-		return uint8(232 + step)
+		return 232 + step
 	}
-	return uint8(best)
+	return best
 }
 
 // Index16 is the nearest of the sixteen colours every terminal has.
 func (c RGB) Index16() uint8 {
-	best, bestDist := 0, distance(c, ansi16[0])
+	best, bestDist := uint8(0), distance(c, ansi16[0])
 	for i := 1; i < len(ansi16); i++ {
 		if d := distance(c, ansi16[i]); d < bestDist {
-			best, bestDist = i, d
+			best, bestDist = uint8(i), d
 		}
 	}
-	return uint8(best)
+	return best
 }
 
 // nearestCube is the index into [cube] whose value is closest to v.
@@ -113,7 +131,23 @@ func nearestCube(v uint8) uint8 {
 	return uint8(best)
 }
 
-func clampStep(n int) int { return min(max(n, 0), 23) }
+// clampStep holds a ramp index inside the twenty-four steps the ramp has, and
+// answers in the type the index is used as, so nothing downstream has to convert.
+//
+// Written as three explicit cases rather than as a clamp inside a conversion:
+// the conversion is then guarded by a comparison on the line above it, which is
+// something a reader and an analyser can both follow to the same conclusion.
+func clampStep(n int) uint8 {
+	const lastStep = 23
+	switch {
+	case n <= 0:
+		return 0
+	case n >= lastStep:
+		return lastStep
+	default:
+		return uint8(n)
+	}
+}
 
 func diff(a, b uint8) int {
 	if a > b {

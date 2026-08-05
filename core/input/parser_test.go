@@ -531,3 +531,35 @@ func TestAnIdleParserHoldsNothing(t *testing.T) {
 		t.Fatal("the buffer is still allocated after everything decoded")
 	}
 }
+
+func TestACodePointTooLargeToBeOneIsRefused(t *testing.T) {
+	// A rune is 32 bits and a parsed number is not, so a conversion made before the
+	// range is checked turns 0x100000041 into "A" — a key nobody pressed, arriving
+	// because an integer wrapped.
+	//
+	// Two things stop it, and this pins both: parseParams refuses a number past
+	// paramLimit, and codePoint refuses one past the last real code point. The first
+	// is three functions away from the conversion, which is why the second exists —
+	// an invariant nobody can see at the point that depends on it is an invariant
+	// waiting to be moved.
+	for _, seq := range []string{
+		"\x1b[4294967361u",      // 0x100000041: narrows to 'A'
+		"\x1b[4294967392u",      // 0x100000060: narrows to '`'
+		"\x1b[1114112u",         // one past the last real code point
+		"\x1b[97;1;4294967361u", // the same, in the associated-text group
+	} {
+		var p Parser
+		for _, ev := range append(p.Feed([]byte(seq)), p.Flush()...) {
+			key, ok := ev.(Key)
+			if !ok {
+				continue
+			}
+			if key.Rune == 'A' || key.Rune == '`' {
+				t.Errorf("%q produced %q, which is what the number narrows to rather than what it says", seq, key.Rune)
+			}
+			if key.Text == "A" || key.Text == "`" {
+				t.Errorf("%q produced text %q from a code point that is not one", seq, key.Text)
+			}
+		}
+	}
+}

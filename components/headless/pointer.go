@@ -59,6 +59,11 @@ func (p *Pointer) Handle(ev input.Event) bool {
 		if !p.captured.Empty() && !mouse.Pos.In(p.captured) {
 			p.captured = image.Rectangle{}
 		}
+	default:
+		// Movement, dragging and the wheel change where the pointer is and nothing
+		// else, and where it is was recorded above. A drag in particular must not
+		// touch the held press: following the pointer rather than the press is what
+		// makes a button let go when you slide off it, which no interface does.
 	}
 	return true
 }

@@ -5,6 +5,8 @@ import "image"
 // Anchor is where a floating layer sits in the space it floats over.
 type Anchor uint8
 
+// Where a layer can sit: the centre, then the eight edges and corners clockwise
+// from the top left. Middle is first because it is the zero value.
 const (
 	// Middle is the centre, which is where a modal belongs: it is the one position
 	// that does not imply the thing it covers is still reachable.

@@ -398,7 +398,7 @@ func decodeExtendedKey(ps params) Event {
 	// was pressed is this type's job, and reporting which key it would have been
 	// under another layout is not.
 	for _, alternate := range primary[1:] {
-		if alternate < 0 || (alternate != 0 && !utf8.ValidRune(rune(alternate))) {
+		if _, ok := codePoint(alternate); alternate != 0 && !ok {
 			return nil
 		}
 	}
@@ -429,8 +429,10 @@ func extendedKeyCode(num int) (Code, rune, bool) {
 	if num >= 57364 && num <= 57375 {
 		return F1 + Code(num-57364), 0, true
 	}
-	r := rune(num)
-	if !utf8.ValidRune(r) || (num >= 0xe000 && num <= 0xf8ff) {
+	// The private use area is where a terminal puts keys that are not characters,
+	// and this function has already taken the ones it knows about.
+	r, ok := codePoint(num)
+	if !ok || (num >= 0xe000 && num <= 0xf8ff) {
 		return 0, 0, false
 	}
 	return Character, r, true
