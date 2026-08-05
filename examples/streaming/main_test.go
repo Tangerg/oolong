@@ -32,12 +32,12 @@ func newHost() *host {
 	return &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(b)}
 }
 
-func (h *host) Events() <-chan input.Event   { return h.events }
-func (h *host) Writer() *term.Writer         { return h.writer }
-func (h *host) Size() (int, int, error)      { return 60, 12, nil }
-func (h *host) Background() (grid.RGB, bool) { return grid.RGB{}, false }
-func (h *host) Copy(string) bool             { return false }
-func (h *host) Paste()                       {}
+func (h *host) Events() <-chan input.Event { return h.events }
+func (h *host) Writer() *term.Writer       { return h.writer }
+func (h *host) Size() (int, int, error)    { return 60, 12, nil }
+func (h *host) Ground() grid.Ground        { return grid.Ground{} }
+func (h *host) Copy(string) bool           { return false }
+func (h *host) Paste()                     {}
 
 func (h *host) typeText(s string) {
 	for _, r := range s {

@@ -152,6 +152,52 @@ func TestAPinnedHeaderTakesRoomFromTheBody(t *testing.T) {
 	}
 }
 
+// TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff. The fade is worked out where
+// the scrolling is and has to reach the cells, or a header slides out at full
+// strength and disappears at the edge — which reads as a glitch rather than as one
+// thing giving way to another.
+func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
+	draw := func(scrollBy int) grid.Style {
+		t.Helper()
+		tr := session(t, 20,
+			[]string{"first", "prompt"},
+			[]string{"a1", "a2", "a3"},
+			[]string{"second", "prompt"},
+			[]string{"b1", "b2", "b3"},
+		)
+		var sc headless.Scroll
+		sticky := &headless.Sticky{Blocks: []int{0, 2}}
+		s := grid.NewSurface(20, 4)
+		s.SetGround(grid.Ground{
+			FG: grid.RGBColor(0xFF, 0xFF, 0xFF),
+			BG: grid.RGBColor(0x00, 0x00, 0x00),
+		})
+		sc.Layout(tr.Height(), 4)
+		sc.By(scrollBy)
+		kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky}.Draw(s.View())
+		return s.CellAt(0, 0).Style
+	}
+
+	// Two rows down the first header is pinned and sitting still; four rows down the
+	// second block is coming up under it and pushing it off.
+	settled, pushed := draw(2), draw(4)
+
+	// A header sitting still is left exactly as it drew itself, which is what keeps
+	// an interface that is not moving silent on the wire.
+	if !settled.FG.Default() {
+		t.Errorf("a header sitting still was recoloured to %+v", settled.FG.RGB())
+	}
+	// One being pushed off has moved toward what it is drawn on — and only part of
+	// the way, because a header that jumped straight to the background would blink
+	// out rather than give way.
+	if pushed.FG.Default() {
+		t.Fatal("a header being pushed off was not faded at all")
+	}
+	if got := pushed.FG.RGB(); got.R == 0xFF || got.R == 0x00 {
+		t.Errorf("a header being pushed off is %+v, want it part way from the text to the background", got)
+	}
+}
+
 func TestTranscriptDrawsNothingWithoutContent(t *testing.T) {
 	s := grid.NewSurface(10, 2)
 	kit.Transcript{}.Draw(s.View())

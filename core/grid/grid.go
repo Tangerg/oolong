@@ -31,6 +31,21 @@ func Rect(x, y, w, h int) image.Rectangle {
 // RGB is a 24-bit colour.
 type RGB struct{ R, G, B uint8 }
 
+// Blend mixes c toward over by opacity, clamped to [0,1].
+//
+// This is the whole of compositing in a terminal. There is no alpha channel on the
+// wire — a cell holds one background and one foreground, and both are opaque — so a
+// translucent layer has to be resolved to opaque colours before anything is written.
+// Doing the mixing here, on two colours that are certainly numbers, is what keeps
+// that resolution in one place.
+func (c RGB) Blend(over RGB, opacity float64) RGB {
+	opacity = min(max(opacity, 0), 1)
+	lerp := func(a, b uint8) uint8 {
+		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*opacity))
+	}
+	return RGB{lerp(c.R, over.R), lerp(c.G, over.G), lerp(c.B, over.B)}
+}
+
 // Color is a cell colour: either the terminal's own default, or a truecolor
 // value. The zero Color is the default, which is what an unstyled cell wants.
 type Color struct {
@@ -48,22 +63,24 @@ func (c Color) Default() bool { return !c.set }
 // the terminal default.
 func (c Color) RGB() RGB { return c.rgb }
 
-// Blend mixes c toward over by opacity, clamped to [0,1]. A blend involving the
-// terminal default is over unchanged: there is no way to know what the default
-// resolves to, and guessing would tint every theme differently.
+// Blend mixes c toward over by opacity, clamped to [0,1].
+//
+// A colour that defers to the terminal is not a number, so a blend involving one
+// cannot be computed and c is returned unchanged. That is the rule everywhere
+// blending appears: what cannot be resolved is left alone, rather than guessed at.
+// Guessing would tint an interface differently on every terminal, and be wrong in
+// the direction that makes text vanish — a scrim assumed to be over black, painted
+// over white, blacks out the screen.
+//
+// Turning a default into a number is [Ground]'s job, and doing it first is what
+// makes a blend answerable. A frame drawn by a program has one, because the
+// terminal was asked at startup.
 func (c Color) Blend(over Color, opacity float64) Color {
 	if c.Default() || over.Default() {
-		return over
+		return c
 	}
-	opacity = min(max(opacity, 0), 1)
-	lerp := func(a, b uint8) uint8 {
-		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*opacity))
-	}
-	return RGBColor(
-		lerp(c.rgb.R, over.rgb.R),
-		lerp(c.rgb.G, over.rgb.G),
-		lerp(c.rgb.B, over.rgb.B),
-	)
+	blended := c.rgb.Blend(over.rgb, opacity)
+	return RGBColor(blended.R, blended.G, blended.B)
 }
 
 // Attr is a set of text attributes.
@@ -102,6 +119,38 @@ func (s Style) Merge(over Style) Style {
 	}
 	out.Attr |= over.Attr
 	return out
+}
+
+// Ground is what a terminal's own two colours actually are.
+//
+// Leaving a cell's colour at the default is the right way to store it: the user's
+// own theme shows through, an unstyled cell costs nothing on the wire, and a
+// terminal recoloured while a program is running follows along. The price is that
+// "the terminal's own" is not a value, and anything that has to mix with what is
+// underneath needs one. This is where the answer is kept, once the terminal has been
+// asked — see the startup probe in the term package, which asks with OSC 10 and 11.
+//
+// The zero value is two defaults, which is what a terminal that was not asked or
+// did not answer leaves behind. Blending through it resolves nothing and changes
+// nothing, which is the honest outcome: a scrim over an unknown background is a
+// question with no answer, and the visible cost of skipping it — a layer that does
+// not dim what it covers — is far smaller than the cost of guessing.
+type Ground struct{ FG, BG Color }
+
+// Resolve fills in whatever a style left to the terminal, so a caller that needs
+// numbers has them. What the terminal never said stays default.
+//
+// [Reverse] is deliberately not applied. It swaps the two colours on the way to the
+// screen, and swapping them here would mean a caller that resolved a style and drew
+// it back would reverse it twice.
+func (g Ground) Resolve(s Style) Style {
+	if s.FG.Default() {
+		s.FG = g.FG
+	}
+	if s.BG.Default() {
+		s.BG = g.BG
+	}
+	return s
 }
 
 // span says how wide a cell is and whether it is the second column of a wide

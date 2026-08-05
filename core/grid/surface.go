@@ -13,6 +13,11 @@ import (
 type Surface struct {
 	w, h  int
 	cells []Cell
+	// ground is what a default colour in these cells resolves to. It lives on the
+	// surface rather than being passed to whoever needs it because it is a property
+	// of the cells' meaning, not of one view onto them: every view derived from a
+	// surface is looking at the same terminal.
+	ground Ground
 }
 
 // NewSurface returns a blank surface of the given size.
@@ -41,6 +46,18 @@ func (s *Surface) Reset() { clear(s.cells) }
 
 // Size returns the surface's width and height.
 func (s *Surface) Size() (w, h int) { return s.w, s.h }
+
+// SetGround says what a default colour in these cells resolves to. It survives a
+// resize and a reset, because it describes the terminal rather than the contents.
+func (s *Surface) SetGround(g Ground) { s.ground = g }
+
+// Ground is what a default colour in these cells resolves to.
+func (s *Surface) Ground() Ground {
+	if s == nil {
+		return Ground{}
+	}
+	return s.ground
+}
 
 // Bounds is the surface's own rectangle, with its origin at zero.
 func (s *Surface) Bounds() image.Rectangle { return Rect(0, 0, s.w, s.h) }
@@ -203,6 +220,75 @@ func (v View) CellAt(x, y int) *Cell {
 		return nil
 	}
 	return v.surface.CellAt(p.X, p.Y)
+}
+
+// Ground is what a default colour in this view's cells resolves to.
+//
+// A widget that has to mix its own colours with what it is drawn onto asks here.
+// Nothing above this package carries the answer around: the view is already where
+// drawing happens, and it already knows which terminal it is bound for.
+func (v View) Ground() Ground { return v.surface.Ground() }
+
+// Blend paints a translucent sheet of colour over r, in this view's coordinates:
+// every cell's foreground and background move toward over by opacity.
+//
+// This is how a layer floats above what it covers instead of erasing it. Both
+// colours move, and by the same amount, which is what makes the region recede as a
+// whole — text and its background keep their relationship and simply lose contrast
+// against everything outside the sheet. Content is untouched, so what is behind
+// stays readable and stays where it was.
+//
+// A cell whose colour is the terminal's own is resolved through [View.Ground]
+// first. Where that has no answer the cell keeps the colour it had, which is the
+// rule stated on [Color.Blend] and the reason a program asks the terminal what it
+// draws on before the first frame.
+func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
+	if v.surface == nil || over.Default() || opacity <= 0 {
+		return
+	}
+	area := v.clip.Intersect(r.Add(v.origin))
+	if area.Empty() {
+		return
+	}
+	ground := v.surface.ground
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		row := v.surface.Row(y)
+		for x := area.Min.X; x < area.Max.X; x++ {
+			style := ground.Resolve(row[x].Style)
+			row[x].Style.FG = style.FG.Blend(over, opacity)
+			row[x].Style.BG = style.BG.Blend(over, opacity)
+		}
+	}
+}
+
+// Fade dissolves what is in r into whatever it is drawn on: each cell's foreground
+// moves toward that cell's own background by amount, from 0 for nothing to 1 for
+// gone.
+//
+// It is the other half of compositing and the one that takes no colour, because the
+// colour is different in every cell and is already there. A header sliding out from
+// under the next one, and a sweep of light along a line still arriving, are both
+// this — and neither could be a [View.Blend], because the sheet would have to be a
+// different colour over the themed part than over the plain part.
+//
+// A cell whose colours are the terminal's own is resolved through [View.Ground]
+// first, and where that has no answer the cell is left alone.
+func (v View) Fade(r image.Rectangle, amount float64) {
+	if v.surface == nil || amount <= 0 {
+		return
+	}
+	area := v.clip.Intersect(r.Add(v.origin))
+	if area.Empty() {
+		return
+	}
+	ground := v.surface.ground
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		row := v.surface.Row(y)
+		for x := area.Min.X; x < area.Max.X; x++ {
+			style := ground.Resolve(row[x].Style)
+			row[x].Style.FG = style.FG.Blend(style.BG, amount)
+		}
+	}
 }
 
 // Fill blanks every cell in r, in this view's coordinates, and gives it style.

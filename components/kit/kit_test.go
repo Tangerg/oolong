@@ -393,17 +393,48 @@ func TestOverlayDrawsIntoWhereItSaidItWould(t *testing.T) {
 
 func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 	// What is behind stays legible and simply recedes, which is what tells the reader it
-	// is still there rather than gone.
-	shade := grid.Style{Attr: grid.Dim}
+	// is still there rather than gone. Half way to black is a colour that is neither
+	// what it was nor what the sheet is made of, which is what mixing means.
 	s := grid.NewSurface(8, 2)
-	s.View().Text(0, 0, "behind", grid.Style{})
+	s.View().Text(0, 0, "behind", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF)})
+	shade := kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}
 	kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Shade: shade}.Draw(s.View())
 
 	if got := s.CellAt(0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
 	}
-	if !s.CellAt(0, 0).Style.Attr.Has(grid.Dim) {
-		t.Fatal("what is behind was not dimmed")
+	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+		t.Fatalf("what is behind is %+v, want it half way to the shade", got)
+	}
+}
+
+// TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn is the end of the chain that
+// begins with the startup probe. A cell nobody coloured has no numbers of its own,
+// so what it mixes to depends entirely on the terminal having said what it draws
+// with — and where it did not say, the honest outcome is that nothing changes.
+func TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn(t *testing.T) {
+	shade := kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}
+	overlay := kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Shade: shade}
+
+	unasked := grid.NewSurface(8, 2)
+	unasked.View().Text(0, 0, "behind", grid.Style{})
+	overlay.Draw(unasked.View())
+	if got := unasked.CellAt(0, 0).Style; got != (grid.Style{}) {
+		t.Errorf("a cell over an unknown terminal became %+v, want it left alone", got)
+	}
+
+	asked := grid.NewSurface(8, 2)
+	asked.SetGround(grid.Ground{
+		FG: grid.RGBColor(0xFF, 0xFF, 0xFF),
+		BG: grid.RGBColor(0x20, 0x20, 0x20),
+	})
+	asked.View().Text(0, 0, "behind", grid.Style{})
+	overlay.Draw(asked.View())
+	if got := asked.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+		t.Errorf("text over a known terminal is %+v, want it half way to the shade", got)
+	}
+	if got := asked.CellAt(0, 0).Style.BG.RGB(); got != (grid.RGB{R: 16, G: 16, B: 16}) {
+		t.Errorf("the background is %+v, want it half way to the shade", got)
 	}
 }
 

@@ -20,23 +20,21 @@ import (
 // no styling of its own.
 type Overlay struct {
 	layout.Placement
-	// Shade dims what the layer covers, so the eye goes to the layer and it is
-	// obvious that what is behind it is not the thing to act on. Its zero value
-	// covers nothing.
-	Shade grid.Style
+	// Shade is painted over what the layer covers, so the eye goes to the layer and
+	// it is obvious that what is behind it is not the thing to act on. Its zero value
+	// covers nothing; a theme's is [Theme.Scrim].
+	Shade Scrim
 }
 
-// Draw dims what is behind the layer and returns the view to draw the layer into.
+// Draw shades what is behind the layer and returns the view to draw the layer into.
 func (o Overlay) Draw(v grid.View) grid.View {
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return v.Sub(image.Rectangle{})
 	}
-	if o.Shade != (grid.Style{}) {
-		// Restyled rather than filled: what is behind stays legible and simply
-		// recedes, which is what tells the reader it is still there and not gone.
-		o.shade(v, width, height)
-	}
+	// Mixed rather than filled: what is behind stays legible and simply recedes,
+	// which is what tells the reader it is still there and not gone.
+	o.Shade.Over(v)
 	return v.Sub(o.Area(v))
 }
 
@@ -45,15 +43,4 @@ func (o Overlay) Draw(v grid.View) grid.View {
 func (o Overlay) Area(v grid.View) image.Rectangle {
 	width, height := v.Size()
 	return o.In(layout.Size{W: width, H: height})
-}
-
-// shade restyles every cell of the space it covers.
-func (o Overlay) shade(v grid.View, width, height int) {
-	for y := range height {
-		for x := range width {
-			if cell := v.CellAt(x, y); cell != nil {
-				cell.Style = cell.Style.Merge(o.Shade)
-			}
-		}
-	}
 }

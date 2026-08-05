@@ -114,6 +114,18 @@ func (i *Inline) SetDepth(d Depth) {
 	i.Invalidate()
 }
 
+// SetGround says what the terminal's own two colours are, so that a layer drawn
+// over another can mix with it — see [View.Blend].
+//
+// The scratch surface is told as well as the two that swap: printed output is drawn
+// through a view like anything else, and a block of it that dims part of itself
+// should dim the same way there as it would in the frame.
+func (i *Inline) SetGround(g Ground) {
+	i.front.SetGround(g)
+	i.back.SetGround(g)
+	i.scratch.SetGround(g)
+}
+
 // Invalidate forgets what the terminal is showing, so the next flush rewrites the
 // whole block.
 func (i *Inline) Invalidate() {

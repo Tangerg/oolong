@@ -241,25 +241,35 @@ func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 func TestADialogBackdropDimsWhatIsBehindWithoutErasingIt(t *testing.T) {
 	// What is behind stays legible and simply recedes, which is what says it is
 	// still there rather than gone.
+	theme := kit.Dark()
 	s := grid.NewSurface(10, 2)
-	s.View().Text(0, 0, "behind", grid.Style{})
-	(&kit.Dialog{}).Backdrop(s.View())
+	s.View().Text(0, 0, "behind", theme.Text)
+	(&kit.Dialog{Theme: theme}).Backdrop(s.View())
 
 	if got := s.CellAt(0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
 	}
-	if !s.CellAt(0, 0).Style.Attr.Has(grid.Dim) {
+	dimmed := s.CellAt(0, 0).Style.FG.RGB()
+	if dimmed == theme.Text.FG.RGB() {
 		t.Fatal("what is behind was not dimmed")
+	}
+	if dimmed == theme.Scrim.Color.RGB() {
+		t.Fatal("what is behind was painted over rather than mixed with")
 	}
 }
 
-func TestADialogCanBeToldToDimNothing(t *testing.T) {
+// TestADialogDimsWithTheThemeAndNotWithAnOpinionOfItsOwn: how far an interface
+// recedes is part of its look, and a light one takes less of it than a dark one. A
+// dialog given no look dims nothing, because dimming toward a colour nobody chose
+// would be a guess about what is underneath.
+func TestADialogDimsWithTheThemeAndNotWithAnOpinionOfItsOwn(t *testing.T) {
 	s := grid.NewSurface(10, 2)
-	s.View().Text(0, 0, "behind", grid.Style{})
-	(&kit.Dialog{Shade: &grid.Style{}}).Backdrop(s.View())
+	before := kit.Dark().Text
+	s.View().Text(0, 0, "behind", before)
+	(&kit.Dialog{}).Backdrop(s.View())
 
-	if s.CellAt(0, 0).Style.Attr.Has(grid.Dim) {
-		t.Fatal("an explicitly empty shade dimmed what it covers")
+	if got := s.CellAt(0, 0).Style; got != before {
+		t.Fatalf("a dialog with no theme dimmed what it covers to %+v", got)
 	}
 }
 

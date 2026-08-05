@@ -145,8 +145,8 @@ func rowOf(v grid.View, y, width int) string {
 }
 
 func TestThemeFollowsWhatTheTerminalSaid(t *testing.T) {
-	dark := kit.Suited(grid.RGB{R: 0x1a, G: 0x1b, B: 0x26}, true)
-	light := kit.Suited(grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}, true)
+	dark := kit.Suited(grid.Ground{BG: grid.RGBColor(0x1a, 0x1b, 0x26)})
+	light := kit.Suited(grid.Ground{BG: grid.RGBColor(0xfd, 0xf6, 0xe3)})
 	if dark == light {
 		t.Fatal("a light and a dark terminal got the same theme")
 	}
@@ -159,7 +159,7 @@ func TestThemeFollowsWhatTheTerminalSaid(t *testing.T) {
 
 	// A terminal that said nothing gets dark: it is the commoner choice, and light is
 	// the one that becomes unreadable when it is guessed wrong.
-	if got := kit.Suited(grid.RGB{R: 255, G: 255, B: 255}, false); got != kit.Dark() {
+	if got := kit.Suited(grid.Ground{FG: grid.RGBColor(255, 255, 255)}); got != kit.Dark() {
 		t.Error("a terminal that said nothing did not get the dark theme")
 	}
 }

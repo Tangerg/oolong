@@ -84,19 +84,22 @@ type Loop interface {
 	// hand has been dealt with.
 	Quit()
 
-	// Background is the colour the terminal draws on, and whether it is known.
+	// Ground is what the terminal's own two colours are, as far as anyone knows.
 	//
-	// It is known when the terminal was asked and answered — see
-	// [term.Options.Probe] — and [grid.RGB.Dark] turns it into the only question a
-	// look usually has. A component told false has to choose for itself, and there
-	// is no safe guess: dark is the commoner choice, and light is the one that
-	// becomes unreadable when it is guessed wrong.
+	// They are known when the terminal was asked and answered — see
+	// [term.Options.Probe]. The background is the one a look is usually built on, and
+	// [grid.RGB.Dark] turns it into the only question a theme has; a component given
+	// no answer has to choose for itself, and there is no safe guess, because dark is
+	// the commoner choice and light is the one that becomes unreadable when it is
+	// guessed wrong.
 	//
-	// The colour is here rather than the conclusion because the conclusion is not
-	// the only use for it. Something drawing a gradient, or blending an overlay
-	// against what is behind it, needs the colour itself — and a lower layer that
-	// only ever answered "dark?" would have decided for everyone above it.
-	Background() (grid.RGB, bool)
+	// The colours are here rather than the conclusion because the conclusion is not
+	// the only use for them. A component drawing a gradient, or floating a layer over
+	// what is behind it, needs the numbers — and a lower layer that only ever answered
+	// "dark?" would have decided for everyone above it. The frame already carries the
+	// same answer for drawing's sake, which is why a widget with a view in hand asks
+	// [grid.View.Ground] instead of coming back here.
+	Ground() grid.Ground
 
 	// Copy asks for text to be put on the system clipboard, reporting false for
 	// text too large to carry — see [term.Terminal.Copy].
@@ -199,13 +202,13 @@ type Host interface {
 	Writer() *term.Writer
 	// Size is the terminal's size in cells.
 	Size() (w, h int, err error)
-	// Background is the colour the terminal draws on, and whether it said. A host
-	// that is not a terminal answers false, and so does a terminal nobody asked.
+	// Ground is the terminal's own two colours. A host that is not a terminal answers
+	// the zero value, and so does a terminal nobody asked.
 	//
 	// It is here rather than in [Config] because it is a fact about the thing being
 	// drawn on, and this is what stands for that thing. A test host that can say it
 	// is light is a test that can check a look both ways round.
-	Background() (grid.RGB, bool)
+	Ground() grid.Ground
 	// Wheel is what the terminal's wheel reports are worth. A host that is not a
 	// terminal answers the zero value, which is the common arrangement.
 	Wheel() input.Wheel
@@ -332,6 +335,12 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		p.canvas = screen
 		p.root = cfg.Root(loop{p})
 	}
+	// What the terminal draws with and on goes to the canvas, not just to the
+	// component: a cell left at the terminal's own colours has no numbers of its own,
+	// and a layer floating over one has to mix with something. This is the only place
+	// that knows both the answer and the surface, so it is the only place that can
+	// join them — see [grid.Ground].
+	p.canvas.SetGround(host.Ground())
 	return p.run(ctx)
 }
 
@@ -342,6 +351,7 @@ type canvas interface {
 	Size() (w, h int)
 	Resize(w, h int)
 	Invalidate()
+	SetGround(g grid.Ground)
 	Frame() grid.View
 	Flush(w io.Writer) error
 }
@@ -575,10 +585,10 @@ func (l loop) Quit() {
 	l.Post(func() { l.p.quit = true })
 }
 
-// Background reads through to the host rather than caching the answer. What the
-// terminal said it draws on was settled before the program started and cannot
+// Ground reads through to the host rather than caching the answer. What the
+// terminal said its colours were was settled before the program started and cannot
 // change under it, so there is nothing to keep in step.
-func (l loop) Background() (grid.RGB, bool) { return l.p.host.Background() }
+func (l loop) Ground() grid.Ground { return l.p.host.Ground() }
 
 // Copy and Paste read through to the host. Neither needs the program's goroutine:
 // nothing about the interface changes, and the answer to a paste comes back the way

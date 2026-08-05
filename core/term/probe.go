@@ -14,6 +14,15 @@ const (
 	// back as command 11 with an XParseColor specification in it.
 	queryBackground = "\x1b]11;?\x07"
 
+	// queryForeground asks the terminal what colour it draws with.
+	//
+	// It is the other half of the same question, and it is asked for a different
+	// reason: the background decides which theme suits, while the pair of them is
+	// what a translucent layer mixes with. A cell left at the terminal's own colours
+	// is the commonest cell there is, and without both answers such a cell cannot be
+	// dimmed — see [grid.Ground].
+	queryForeground = "\x1b]10;?\x07"
+
 	// queryVersion asks the terminal to name itself.
 	//
 	// It is the question worth asking most, because everything else this library does
@@ -77,6 +86,8 @@ type probe struct {
 type answers struct {
 	background grid.RGB
 	hasBg      bool
+	foreground grid.RGB
+	hasFg      bool
 	attributes input.DeviceAttributes
 	hasAttrs   bool
 	// name is what the terminal called itself, which outranks anything the
@@ -99,8 +110,8 @@ type answers struct {
 // without knowing any of this — so none of them is an error.
 func (p *probe) run() answers {
 	var got answers
-	if _, err := p.out.WriteString(queryBackground + queryVersion + queryDeviceVersion +
-		queryKeyboard + queryAttributes); err != nil {
+	if _, err := p.out.WriteString(queryBackground + queryForeground + queryVersion +
+		queryDeviceVersion + queryKeyboard + queryAttributes); err != nil {
 		return got
 	}
 
@@ -125,7 +136,11 @@ func (p *probe) run() answers {
 func (p *probe) take(ev input.Event, got *answers) {
 	switch ev := ev.(type) {
 	case input.OSC:
-		if ev.Command == 11 {
+		switch ev.Command {
+		case 10:
+			got.foreground, got.hasFg = parseXParseColor(ev.Params)
+			return
+		case 11:
 			got.background, got.hasBg = parseXParseColor(ev.Params)
 			return
 		}

@@ -187,14 +187,28 @@ func (t *Terminal) Events() <-chan input.Event { return t.events }
 // Writer is where frames go.
 func (t *Terminal) Writer() *Writer { return t.writer }
 
-// Background is the colour the terminal draws on, and whether it said.
+// Ground is what the terminal's own two colours are, and whether it said.
 //
-// It is the fact a look is built on: [grid.RGB.Dark] turns it into the only
-// question a theme needs answered. A terminal that was not asked, or that did not
-// answer, reports false — and a session that gets false has to choose for itself,
-// because there is no safe default. Dark is the commoner choice and light is the
-// one that becomes unreadable when guessed wrong.
-func (t *Terminal) Background() (grid.RGB, bool) { return t.said.background, t.said.hasBg }
+// It answers two questions that used to be one. Which theme suits is decided by the
+// background alone — [grid.RGB.Dark] turns it into a yes or no. What a translucent
+// layer mixes with needs both, because a cell left at the terminal's own colours has
+// no numbers of its own until this says what they are; that is what [grid.Ground] is
+// for and why a frame is given one.
+//
+// A colour the terminal was not asked for, or would not give, comes back as the
+// default — see [grid.Color.Default]. A session that gets one has to choose for
+// itself, because there is no safe guess: dark is the commoner choice and light is
+// the one that becomes unreadable when guessed wrong.
+func (t *Terminal) Ground() grid.Ground {
+	var g grid.Ground
+	if t.said.hasFg {
+		g.FG = grid.RGBColor(t.said.foreground.R, t.said.foreground.G, t.said.foreground.B)
+	}
+	if t.said.hasBg {
+		g.BG = grid.RGBColor(t.said.background.R, t.said.background.G, t.said.background.B)
+	}
+	return g
+}
 
 // Attributes is what the terminal said it was, and whether it said.
 //

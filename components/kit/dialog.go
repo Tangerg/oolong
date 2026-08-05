@@ -25,9 +25,6 @@ type Dialog struct {
 	Body headless.Widget
 	// Border draws the frame. The zero value uses [Rounded], which reads as a panel.
 	Border Border
-	// Shade dims what the dialog covers. The zero value dims; set it to an explicit
-	// empty style to cover nothing.
-	Shade *grid.Style
 	// Hints are drawn along the bottom border, where they do not cost a row.
 	Hints []headless.Binding
 }
@@ -43,19 +40,16 @@ func (d *Dialog) Handle(ev input.Event) bool {
 	return false
 }
 
-// Backdrop dims what the dialog covers.
+// Backdrop shades what the dialog covers.
 //
 // It is a separate step from Draw because a layer is handed a view of its own
 // area and nothing else — which is what stops it drawing outside its box, and
 // what makes reaching the space behind it something it has to ask for.
-func (d *Dialog) Backdrop(v grid.View) {
-	width, height := v.Size()
-	shade := d.shade()
-	if width <= 0 || height <= 0 || shade == (grid.Style{}) {
-		return
-	}
-	Overlay{Shade: shade}.shade(v, width, height)
-}
+//
+// What it paints is the theme's, not the dialog's. Dimming is part of a look and
+// varies with it — a light interface takes less of it than a dark one — so it is
+// held where the rest of the look is, and a dialog given no theme dims nothing.
+func (d *Dialog) Backdrop(v grid.View) { d.Theme.Scrim.Over(v) }
 
 // Draw paints the frame and the body.
 func (d *Dialog) Draw(v grid.View) {
@@ -100,14 +94,4 @@ func (d *Dialog) border() Border {
 		return Rounded
 	}
 	return d.Border
-}
-
-// shade is what the dialog dims its surroundings with. A nil Shade dims, because
-// a dialog that did not would look like part of what it is covering; an explicit
-// empty style covers nothing.
-func (d *Dialog) shade() grid.Style {
-	if d.Shade != nil {
-		return *d.Shade
-	}
-	return grid.Style{Attr: grid.Dim}
 }

@@ -123,6 +123,12 @@ func (t Transcript) drawHeader(v grid.View, pinned headless.Pinned) {
 			restyle(v, x, y, t.HeaderStyle)
 		}
 	}
+	// The header dissolves into whatever it is drawn on as the next one pushes it
+	// off, rather than sliding out at full strength and vanishing at the edge. What
+	// it fades toward is different in every cell — its own background where the
+	// theme gave it one, the terminal's where it did not — which is why this is a
+	// fade and not a sheet of colour.
+	v.Fade(image.Rect(0, 0, w, visible), 1-pinned.Fade)
 	if t.Divider != "" && pinned.Rows > visible {
 		for x := range w {
 			v.Text(x, visible, t.Divider, t.DividerStyle)

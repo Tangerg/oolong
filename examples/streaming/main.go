@@ -65,7 +65,7 @@ var _ headless.Clipboard = program.Loop(nil)
 func newChat(loop program.InlineLoop) *chat {
 	// The look follows what the terminal said. A theme that has to be told whether the
 	// terminal is light is a theme that is wrong for half the people who run it.
-	theme := kit.Suited(loop.Background())
+	theme := kit.Suited(loop.Ground())
 	// The furniture follows the locale, because a terminal that is not in UTF-8 draws
 	// a box character as mojibake and there is no way to ask it.
 	glyphs := kit.GlyphsFor(os.Getenv)

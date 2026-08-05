@@ -78,6 +78,17 @@ func (s *Screen) SetDepth(d Depth) {
 	s.Invalidate()
 }
 
+// SetGround says what the terminal's own two colours are, so that a layer drawn
+// over another can mix with it — see [View.Blend].
+//
+// Both surfaces are told, because a flush swaps them. No repaint is forced: the
+// ground is read while a frame is being drawn, so the next frame uses it by drawing
+// itself, and nothing already on the terminal was encoded with it.
+func (s *Screen) SetGround(g Ground) {
+	s.front.SetGround(g)
+	s.back.SetGround(g)
+}
+
 // Invalidate forgets what the terminal is showing, so the next flush repaints in
 // full. It is what to call after handing the terminal to another program.
 func (s *Screen) Invalidate() {

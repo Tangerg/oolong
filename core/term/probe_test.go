@@ -39,18 +39,43 @@ func answered(t *testing.T, answer string) (*term.Terminal, *os.File) {
 	return tty, primary
 }
 
-func TestProbeLearnsTheBackgroundColour(t *testing.T) {
-	tty, _ := answered(t, "\x1b]11;rgb:1a1a/1b1b/2626\x07\x1b[?62;4;22c")
+func TestProbeLearnsTheColoursTheTerminalDrawsWith(t *testing.T) {
+	tty, _ := answered(t,
+		"\x1b]11;rgb:1a1a/1b1b/2626\x07\x1b]10;rgb:c0c0/caca/f5f5\x07\x1b[?62;4;22c")
 
-	bg, ok := tty.Background()
-	if !ok {
-		t.Fatal("the terminal answered and the session did not learn it")
+	ground := tty.Ground()
+	if ground.BG.Default() {
+		t.Fatal("the terminal said what it draws on and the session did not learn it")
 	}
-	if want := (grid.RGB{R: 0x1a, G: 0x1b, B: 0x26}); bg != want {
-		t.Errorf("background = %+v, want %+v", bg, want)
+	if want := (grid.RGB{R: 0x1a, G: 0x1b, B: 0x26}); ground.BG.RGB() != want {
+		t.Errorf("background = %+v, want %+v", ground.BG.RGB(), want)
 	}
-	if !bg.Dark() {
+	if !ground.BG.RGB().Dark() {
 		t.Error("a background of #1a1b26 was not taken as dark")
+	}
+	// The foreground is asked for so that a cell nobody coloured can still be
+	// blended with — see [grid.Ground]. It is a separate answer and a separate
+	// question, so a terminal that gives one and not the other is ordinary.
+	if ground.FG.Default() {
+		t.Fatal("the terminal said what it draws with and the session did not learn it")
+	}
+	if want := (grid.RGB{R: 0xc0, G: 0xca, B: 0xf5}); ground.FG.RGB() != want {
+		t.Errorf("foreground = %+v, want %+v", ground.FG.RGB(), want)
+	}
+}
+
+// TestProbeKeepsHalfAnAnswer because the two colour queries are two questions, and
+// a terminal that answers one and ignores the other is commoner than one that
+// answers neither.
+func TestProbeKeepsHalfAnAnswer(t *testing.T) {
+	tty, _ := answered(t, "\x1b]11;rgb:0/0/0\x07\x1b[?62;4;22c")
+
+	ground := tty.Ground()
+	if ground.BG.Default() {
+		t.Error("the background the terminal did give was not kept")
+	}
+	if !ground.FG.Default() {
+		t.Error("a foreground was reported by a terminal that never gave one")
 	}
 }
 
@@ -79,7 +104,7 @@ func TestProbeLearnsWhatTheTerminalClaims(t *testing.T) {
 func TestProbeStopsWaitingWhenTheTerminalSaysWhatItIs(t *testing.T) {
 	tty, _ := answered(t, "\x1b[?1;2c")
 
-	if _, ok := tty.Background(); ok {
+	if !tty.Ground().BG.Default() {
 		t.Error("a background was reported by a terminal that never gave one")
 	}
 	if _, ok := tty.Attributes(); !ok {
@@ -89,7 +114,7 @@ func TestProbeStopsWaitingWhenTheTerminalSaysWhatItIs(t *testing.T) {
 
 func TestProbeAsksNothingUnlessAsked(t *testing.T) {
 	tty, primary := open(t, term.Options{})
-	if _, ok := tty.Background(); ok {
+	if !tty.Ground().BG.Default() {
 		t.Error("a terminal nobody questioned reported a background")
 	}
 	if _, ok := tty.Attributes(); ok {
@@ -172,7 +197,7 @@ func TestProbeHandsOverASequenceItSplit(t *testing.T) {
 func TestProbeGivesUpOnATerminalThatSaysNothing(t *testing.T) {
 	tty, _ := answered(t, "")
 
-	if _, ok := tty.Background(); ok {
+	if !tty.Ground().BG.Default() {
 		t.Error("a background was reported by a terminal that said nothing")
 	}
 	if _, ok := tty.Attributes(); ok {

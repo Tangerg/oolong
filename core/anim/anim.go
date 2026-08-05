@@ -51,8 +51,9 @@ const (
 // highlight — the "this is still arriving" effect on streamed text.
 //
 // pos is the column, width the row's width, and the result is in [0.35, 1]. It is
-// meant for [grid.Color.Blend]: blend the text's colour toward the background by
-// one minus this, and the sweep reads as light rather than as characters changing.
+// meant for [grid.View.Fade]: fade the column by one minus this, and the sweep reads
+// as light rather than as characters changing. A fade rather than a colour, because
+// what the text dissolves into is whatever that column is drawn on.
 func Shimmer(tick uint64, pos, width int) float64 {
 	if width <= 0 {
 		return shimmerBase

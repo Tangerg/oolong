@@ -92,10 +92,31 @@ point of tagging them low rather than not at all.
   a read happened to split them.
 - Benchmarks over the cell diff, drawing and wrapping.
 
+- **Compositing.** `core/grid.View.Blend` paints a translucent sheet of colour over
+  a region, and `View.Fade` dissolves what is in one into whatever it is drawn on.
+  A terminal has no alpha channel, so both resolve to opaque colours before
+  anything is written — which needs to know what a cell left at the terminal's own
+  colours actually is. `grid.Ground` is that answer, `core/term` asks for it with
+  OSC 10 and 11, and the program hands it to the surface being drawn on. What
+  cannot be resolved is left alone rather than guessed at, everywhere.
+- **`components/kit.Scrim`** is what a layer paints over what it covers, and it
+  lives on `Theme`: how far an interface recedes is part of its look, and a light
+  one takes less of it than a dark one.
+
 ### Changed
 
 - `core/input.WheelFor` and `core/graphics.DetectIn` take what the terminal called
   itself, which outranks the environment.
+- `Background()` on the terminal, the host and the loop is now `Ground()`, which
+  carries both of the terminal's own colours and says which of them it gave. The
+  background alone decides a theme; the pair is what a translucent layer mixes
+  with. `kit.Suited` takes the pair.
+- `kit.Overlay.Shade` and `kit.Dialog`'s backdrop are a scrim rather than a style
+  merged over every cell — a style could only set one colour over everything,
+  which erases what is behind instead of dimming it. A dialog dims with its
+  theme's scrim and no longer carries an opinion of its own.
+- A pinned header now dissolves as the next one pushes it off.
+  `headless.Pinned.Fade` was being worked out and never drawn.
 - **An escape sequence that never completed is now read as a chord.** It used to
   become the Escape key plus the character, which made Alt+[, Alt+] and
   Alt+Shift+O unbindable. An escape pressed on its own is followed by a human

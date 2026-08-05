@@ -47,16 +47,46 @@ type Theme struct {
 	Removed grid.Style
 	// Context is a diff line that did not change.
 	Context grid.Style
+
+	// Scrim is what a layer paints over what it covers, so the eye goes to the layer
+	// and it is obvious that what is behind it is not the thing to act on.
+	//
+	// It is the one entry that is not a style, because receding is not a colour: it
+	// is mixing with whatever is already there. A style could only have set one
+	// colour over everything, which erases the interface underneath instead of
+	// dimming it.
+	Scrim Scrim
 }
 
-// Suited is the theme for what the terminal said it draws on.
+// Scrim is a translucent sheet of colour, painted over a region to make it recede.
 //
-// known is whether the terminal answered at all — see the loop a program hands its
-// component. A terminal that said nothing gets the dark theme, because dark is the
-// commoner choice and light is the one that becomes unreadable when it is guessed
-// wrong: grey on white is faint, and grey on black is invisible.
-func Suited(background grid.RGB, known bool) Theme {
-	if known && !background.Dark() {
+// The zero value covers nothing, so a widget that was given no theme dims nothing —
+// which is the right answer, because dimming toward a colour nobody chose is a
+// guess about what the interface looks like.
+type Scrim struct {
+	// Color is what the sheet is made of, and Opacity how much of it shows, from 0
+	// for nothing to 1 for paint.
+	Color   grid.Color
+	Opacity float64
+}
+
+// Over paints the scrim across everything the view covers.
+//
+// Where a cell's colour is the terminal's own it is resolved first, which needs the
+// terminal to have said what that is — see [grid.View.Blend]. Nothing else here has
+// to know that, which is why this is one line and lives at the bottom of the layer
+// rather than in every widget that floats something.
+func (s Scrim) Over(v grid.View) { v.Blend(v.Bounds(), s.Color, s.Opacity) }
+
+// Suited is the theme for what the terminal said its own colours were — see the
+// loop a program hands its component.
+//
+// Only the background decides, because that is what everything is read against. A
+// terminal that said nothing gets the dark theme, because dark is the commoner
+// choice and light is the one that becomes unreadable when it is guessed wrong:
+// grey on white is faint, and grey on black is invisible.
+func Suited(g grid.Ground) Theme {
+	if !g.BG.Default() && !g.BG.RGB().Dark() {
 		return Light()
 	}
 	return Dark()
@@ -103,6 +133,10 @@ func Dark() Theme {
 		Added:     grid.Style{FG: green, BG: addedBG},
 		Removed:   grid.Style{FG: red, BG: goneBG},
 		Context:   grid.Style{FG: muted},
+		// Body text mixed this far toward black lands almost exactly on Subtle, which
+		// is what a covered interface should read as: still legible, plainly not the
+		// thing being asked about.
+		Scrim: Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.55},
 	}
 }
 
@@ -143,5 +177,9 @@ func Light() Theme {
 		Added:     grid.Style{FG: green, BG: addedBG},
 		Removed:   grid.Style{FG: red, BG: goneBG},
 		Context:   grid.Style{FG: muted},
+		// Less of it than the dark theme takes. A light interface is nearly all
+		// background, so the same sheet that dims a dark one turns this one into a
+		// grey panel and loses the sense that something is behind the layer.
+		Scrim: Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.4},
 	}
 }

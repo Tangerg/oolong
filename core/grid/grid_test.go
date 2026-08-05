@@ -3,6 +3,7 @@ package grid_test
 import (
 	"bytes"
 	"image"
+	"io"
 	"strings"
 	"testing"
 
@@ -247,13 +248,163 @@ func TestColorBlend(t *testing.T) {
 	if got := black.Blend(white, 2); got != white {
 		t.Fatal("opacity above one did not clamp to the overlay")
 	}
-	// Nothing is known about what the terminal default resolves to, so a blend
-	// involving it cannot invent a mixture.
-	if got := (grid.Color{}).Blend(white, 0.5); got != white {
-		t.Fatal("blending from the terminal default guessed at a value")
+	// A colour that defers to the terminal is not a number, so a blend involving one
+	// cannot be computed. What cannot be resolved is left alone rather than guessed
+	// at — see [grid.Ground] for where the numbers come from.
+	if got := (grid.Color{}).Blend(white, 0.5); !got.Default() {
+		t.Fatal("blending from the terminal default invented a value for it")
 	}
-	if got := black.Blend(grid.Color{}, 0.5); !got.Default() {
-		t.Fatal("blending toward the terminal default lost it")
+	if got := black.Blend(grid.Color{}, 0.5); got != black {
+		t.Fatal("blending toward the terminal default changed the colour it started from")
+	}
+}
+
+func TestGroundResolvesWhatWasLeftToTheTerminal(t *testing.T) {
+	ground := grid.Ground{FG: grid.RGBColor(0xC0, 0xCA, 0xF5), BG: grid.RGBColor(0x1A, 0x1B, 0x26)}
+	got := ground.Resolve(grid.Style{Attr: grid.Bold})
+	if got.FG != ground.FG || got.BG != ground.BG {
+		t.Errorf("an unstyled cell resolved to %+v, want the terminal's own colours", got)
+	}
+	if !got.Attr.Has(grid.Bold) {
+		t.Error("resolving a style dropped its attributes")
+	}
+
+	// What was stated stays stated: resolving fills gaps and decides nothing else.
+	stated := grid.Style{FG: grid.RGBColor(1, 2, 3), BG: grid.RGBColor(4, 5, 6)}
+	if got := ground.Resolve(stated); got != stated {
+		t.Errorf("a fully stated style resolved to %+v, want it untouched", got)
+	}
+
+	// A terminal that said nothing leaves the style alone, which is what makes an
+	// unanswered probe cost a missing effect rather than a wrong colour.
+	if got := (grid.Ground{}).Resolve(grid.Style{}); got != (grid.Style{}) {
+		t.Errorf("an unknown terminal resolved an unstyled cell to %+v", got)
+	}
+}
+
+func TestBlendMixesEveryCellItCoversAndKeepsTheContent(t *testing.T) {
+	s := grid.NewSurface(4, 2)
+	v := s.View()
+	v.Text(0, 0, "ab", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0, 0, 0)})
+	v.Blend(grid.Rect(0, 0, 1, 1), grid.RGBColor(0, 0, 0), 0.5)
+
+	if got := s.CellAt(0, 0).Content; got != "a" {
+		t.Errorf("content = %q, want the cell mixed rather than erased", got)
+	}
+	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+		t.Errorf("foreground = %+v, want it half way to the sheet", got)
+	}
+	// Only what it covers. A sheet is a rectangle, and a cell outside it is not part
+	// of the thing receding.
+	if got := s.CellAt(1, 0).Style.FG.RGB(); got != (grid.RGB{R: 255, G: 255, B: 255}) {
+		t.Errorf("the cell beside the sheet became %+v", got)
+	}
+}
+
+// TestBlendResolvesThroughTheSurfacesGround is the whole point of asking the
+// terminal what it draws with. A cell nobody coloured is the commonest cell there
+// is, and until the answer arrives it cannot be mixed with anything.
+func TestBlendResolvesThroughTheSurfacesGround(t *testing.T) {
+	s := grid.NewSurface(2, 1)
+	s.View().Text(0, 0, "ab", grid.Style{})
+	s.View().Blend(s.Bounds(), grid.RGBColor(0, 0, 0), 0.5)
+	if got := s.CellAt(0, 0).Style; got != (grid.Style{}) {
+		t.Fatalf("an unstyled cell over an unknown terminal became %+v", got)
+	}
+
+	s.SetGround(grid.Ground{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0x20, 0x20, 0x20)})
+	s.View().Blend(s.Bounds(), grid.RGBColor(0, 0, 0), 0.5)
+	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+		t.Errorf("foreground = %+v, want the terminal's own colour half way to the sheet", got)
+	}
+	if got := s.CellAt(0, 0).Style.BG.RGB(); got != (grid.RGB{R: 16, G: 16, B: 16}) {
+		t.Errorf("background = %+v, want the terminal's own colour half way to the sheet", got)
+	}
+}
+
+// TestFadeDissolvesEachCellIntoWhateverItIsDrawnOn — which is a different colour in
+// every cell, and is why this takes no colour of its own.
+func TestFadeDissolvesEachCellIntoWhateverItIsDrawnOn(t *testing.T) {
+	s := grid.NewSurface(3, 1)
+	v := s.View()
+	white := grid.RGBColor(0xFF, 0xFF, 0xFF)
+	v.Text(0, 0, "a", grid.Style{FG: white, BG: grid.RGBColor(0, 0, 0)})
+	v.Text(1, 0, "b", grid.Style{FG: white, BG: grid.RGBColor(0x40, 0x40, 0x40)})
+	v.Text(2, 0, "c", grid.Style{FG: white})
+	v.Fade(s.Bounds(), 0.5)
+
+	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+		t.Errorf("over black the text is %+v", got)
+	}
+	if got := s.CellAt(1, 0).Style.FG.RGB(); got != (grid.RGB{R: 160, G: 160, B: 160}) {
+		t.Errorf("over a lighter cell the text is %+v, want it to have gone a shorter way", got)
+	}
+	// The background is what the text dissolves into, so it is not itself moved.
+	if got := s.CellAt(1, 0).Style.BG.RGB(); got != (grid.RGB{R: 0x40, G: 0x40, B: 0x40}) {
+		t.Errorf("the background moved to %+v", got)
+	}
+	// A cell on the terminal's own background over a terminal that never said what
+	// that is has nothing to dissolve into, and keeps what it had.
+	if got := s.CellAt(2, 0).Style.FG; got != white {
+		t.Errorf("over an unknown terminal the text became %+v", got.RGB())
+	}
+
+	// Nothing asked for is nothing done, which is what keeps a header that is not
+	// moving from being rewritten every frame.
+	before := *s.CellAt(0, 0)
+	v.Fade(s.Bounds(), 0)
+	if got := *s.CellAt(0, 0); got != before {
+		t.Errorf("fading by nothing changed the cell to %+v", got)
+	}
+}
+
+// TestBlendClipsToTheViewBecauseADrawingViewIsABox: a widget cannot dim what is
+// outside its box any more than it can draw there.
+func TestBlendClipsToTheViewBecauseADrawingViewIsABox(t *testing.T) {
+	s := grid.NewSurface(4, 1)
+	white := grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF)}
+	s.View().Text(0, 0, "abcd", white)
+
+	inner := s.View().Sub(grid.Rect(0, 0, 2, 1))
+	inner.Blend(grid.Rect(0, 0, 100, 100), grid.RGBColor(0, 0, 0), 1)
+
+	if got := s.CellAt(1, 0).Style.FG.RGB(); got != (grid.RGB{}) {
+		t.Errorf("a cell inside the view is %+v, want it painted", got)
+	}
+	if got := s.CellAt(2, 0).Style; got != white {
+		t.Errorf("a cell outside the view is %+v, want it untouched", got)
+	}
+}
+
+// TestSurfaceKeepsItsGroundAcrossAResize because it describes the terminal and not
+// the contents: a resize blanks the cells, and the terminal is still the same one.
+func TestSurfaceKeepsItsGroundAcrossAResize(t *testing.T) {
+	ground := grid.Ground{BG: grid.RGBColor(0x1A, 0x1B, 0x26)}
+	s := grid.NewSurface(2, 1)
+	s.SetGround(ground)
+	s.Resize(4, 2)
+	if got := s.Ground(); got != ground {
+		t.Errorf("ground = %+v, want it to survive a resize", got)
+	}
+	if got := s.View().Ground(); got != ground {
+		t.Errorf("a view onto it reports %+v", got)
+	}
+}
+
+// TestAFrameCarriesTheGroundAcrossTheSwap: a screen draws into one surface and
+// shows the other, and swaps them every flush. A ground set on one of them would
+// work on every other frame, which is the kind of bug that reads as flicker.
+func TestAFrameCarriesTheGroundAcrossTheSwap(t *testing.T) {
+	ground := grid.Ground{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0, 0, 0)}
+	s := grid.NewScreen(2, 1)
+	s.SetGround(ground)
+	for frame := range 3 {
+		if got := s.Frame().Ground(); got != ground {
+			t.Fatalf("frame %d was drawn against %+v", frame, got)
+		}
+		if err := s.Flush(io.Discard); err != nil {
+			t.Fatalf("flushing frame %d: %v", frame, err)
+		}
 	}
 }
 

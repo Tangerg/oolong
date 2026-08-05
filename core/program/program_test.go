@@ -31,8 +31,7 @@ type host struct {
 	frames    *frames
 	writer    *term.Writer
 	w, h      int
-	bg        grid.RGB
-	saidBg    bool
+	ground    grid.Ground
 	wheel     input.Wheel
 	keys      input.KeyboardFlags
 	saidKeys  bool
@@ -62,10 +61,10 @@ func (h *host) Events() <-chan input.Event { return h.events }
 func (h *host) Writer() *term.Writer       { return h.writer }
 func (h *host) Size() (int, int, error)    { return h.w, h.h, nil }
 
-// Background says what a real terminal would only say if it were asked. A host
-// that can answer this is a host that can put an interface's look under test
-// both ways round, which no amount of driving keystrokes could.
-func (h *host) Background() (grid.RGB, bool) { return h.bg, h.saidBg }
+// Ground says what a real terminal would only say if it were asked. A host that
+// can answer this is a host that can put an interface's look under test both ways
+// round, which no amount of driving keystrokes could.
+func (h *host) Ground() grid.Ground { return h.ground }
 
 func (h *host) Copy(text string) bool {
 	h.clipMu.Lock()
@@ -795,28 +794,62 @@ func TestAComponentLearnsWhatTheTerminalDrawsOn(t *testing.T) {
 	// The one fact a look cannot be built without and cannot work out for itself.
 	// A component reads it from the loop it already holds.
 	h := newHost()
-	h.bg, h.saidBg = grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}, true
+	h.ground = grid.Ground{BG: grid.RGBColor(0xfd, 0xf6, 0xe3)}
 
-	learned, known := make(chan grid.RGB, 1), make(chan bool, 1)
+	learned := make(chan grid.Ground, 1)
 	r := startOn(t, h, func(l program.Loop) program.Component {
-		bg, ok := l.Background()
-		learned <- bg
-		known <- ok
+		learned <- l.Ground()
 		return &component{text: "ready", consume: true, loop: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
-	if !<-known {
+	got := <-learned
+	if got.BG.Default() {
 		t.Fatal("the component was told the background was unknown")
 	}
-	got := <-learned
-	if want := (grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}); got != want {
-		t.Errorf("background = %+v, want %+v", got, want)
+	if want := (grid.RGB{R: 0xfd, G: 0xf6, B: 0xe3}); got.BG.RGB() != want {
+		t.Errorf("background = %+v, want %+v", got.BG.RGB(), want)
 	}
-	if got.Dark() {
+	if got.BG.RGB().Dark() {
 		t.Error("a paper-white background was taken as dark")
 	}
 }
+
+// TestTheFrameIsDrawnAgainstWhatTheTerminalSaid closes the chain that starts with
+// the startup probe. A widget that floats one thing over another mixes with what is
+// underneath, and a cell nobody coloured has no numbers of its own — so the answer
+// has to reach the surface being drawn on, not only the component. Nothing above
+// this carries it: the view already knows which terminal it is bound for.
+func TestTheFrameIsDrawnAgainstWhatTheTerminalSaid(t *testing.T) {
+	h := newHost()
+	h.ground = grid.Ground{FG: grid.RGBColor(0xC0, 0xCA, 0xF5), BG: grid.RGBColor(0x1A, 0x1B, 0x26)}
+
+	drawnAgainst := make(chan grid.Ground, 1)
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		return &drawer{loop: l, seen: drawnAgainst}
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+
+	if got := <-drawnAgainst; got != h.ground {
+		t.Errorf("the frame was drawn against %+v, want what the terminal said", got)
+	}
+}
+
+// drawer reports the ground the frame it was handed resolves defaults against.
+type drawer struct {
+	loop program.Loop
+	seen chan grid.Ground
+}
+
+func (d *drawer) Draw(v grid.View) {
+	select {
+	case d.seen <- v.Ground():
+	default:
+	}
+	v.Text(0, 0, "ready", grid.Style{})
+}
+
+func (d *drawer) Handle(input.Event) bool { return true }
 
 func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
 	// There is no safe guess, so the unknown has to be reportable as unknown rather
@@ -826,9 +859,9 @@ func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
 
 	known, dark := make(chan bool, 1), make(chan bool, 1)
 	r := startOn(t, h, func(l program.Loop) program.Component {
-		bg, ok := l.Background()
-		known <- ok
-		dark <- bg.Dark()
+		ground := l.Ground()
+		known <- !ground.BG.Default()
+		dark <- ground.BG.RGB().Dark()
 		return &component{text: "ready", consume: true, loop: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
