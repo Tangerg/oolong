@@ -160,7 +160,7 @@ func TestKeystrokesTypedAtATerminalArriveAsEvents(t *testing.T) {
 	tty, watch := open(t, term.Options{})
 	<-tty.Events() // the opening size
 
-	if _, err := watch.Write([]byte("k")); err != nil {
+	if _, err := watch.WriteString("k"); err != nil {
 		t.Fatal(err)
 	}
 	select {

@@ -124,6 +124,16 @@ jobs:
             done
           done
 
+  docs:
+    name: markdown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npx --yes markdownlint-cli2@0.23.2
+
   tidy:
     name: formatting and modules
     runs-on: ubuntu-latest

@@ -365,9 +365,21 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   this the right stopping point; a scoring matrix per candidate is what it would take.
 - **The scroll shortcut is `Screen`-only.** Inline mode has no equivalent, because a
   block cannot address the region it would scroll.
-- **No benchmarks.** Nothing here has been measured, only reasoned about and bounded.
-  Section 1 makes three comparative claims about cost, and until they are measured
-  they are claims.
+- **The comparative claims in section 1 are still claims.** There are benchmarks
+  now, and they measure this library against itself rather than against another
+  one, which is the honest half of the job. Two things they already say, on a
+  120×40 screen:
+
+  A frame's cost is dominated by drawing text into cells, not by diffing them.
+  Drawing forty rows takes about 200µs and allocates nothing; the diff on top of
+  that is tens of microseconds, and a frame that changed nothing costs about the
+  same as one that changed a row. "An idle interface is silent" is a claim about
+  bytes on the wire, and it is true; it is not a claim about work not done.
+
+  Wrapping allocates heavily — about a thousand allocations for a paragraph —
+  because it flattens a line into one unit per grapheme cluster. That is why
+  `kit.Paragraph` memoises its wrap, and it is the first place worth looking if
+  any of this ever needs to be faster.
 - **`Loop.Post` must not be called from the loop's own goroutine while its queue is
   full.** The buffer absorbs a burst, and a component that posted from inside `Draw`
   or `Handle` faster than the loop drains would block the only consumer there is. It
