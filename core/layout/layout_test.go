@@ -266,3 +266,89 @@ func TestPlacementWithNowhereToGo(t *testing.T) {
 		t.Fatalf("area = %v, want nothing", got)
 	}
 }
+
+func TestARowOfSlotsCanHaveRoomBetweenThem(t *testing.T) {
+	// Written once for the whole division rather than as padding on every slot but
+	// the last — which is the version where the last one is wrong.
+	flow := layout.Flow{Axis: layout.Across, Gap: 2}
+	rects := flow.Rects(layout.Size{W: 13, H: 1}, []layout.Slot{
+		{Size: layout.Flex(1)}, {Size: layout.Flex(1)}, {Size: layout.Flex(1)},
+	})
+	if len(rects) != 3 {
+		t.Fatalf("divided into %d", len(rects))
+	}
+	for i, want := range []int{0, 5, 10} {
+		if rects[i].Min.X != want || rects[i].Dx() != 3 {
+			t.Fatalf("slot %d is %v, want 3 columns at %d", i, rects[i], want)
+		}
+	}
+
+	// And what is asked for altogether includes them, so something made of slots can
+	// answer for itself when it is in a slot.
+	slots := []layout.Slot{{Size: layout.Fixed(3)}, {Size: layout.Fixed(3)}}
+	if got := flow.Wanted(1, slots); got != 8 {
+		t.Fatalf("two slots of three with two between them want %d", got)
+	}
+}
+
+func TestTheRoomBetweenSlotsDoesNotDependOnWhatIsInThem(t *testing.T) {
+	// A gap that appeared and disappeared with its neighbour's contents would move
+	// every column after it whenever a value happened to be empty.
+	flow := layout.Flow{Axis: layout.Across, Gap: 1}
+	full := flow.Rects(layout.Size{W: 12, H: 1}, []layout.Slot{
+		{Size: layout.Fixed(4)}, {Size: layout.Fixed(3)}, {Size: layout.Fixed(2)},
+	})
+	empty := flow.Rects(layout.Size{W: 12, H: 1}, []layout.Slot{
+		{Size: layout.Fixed(4)}, {Size: layout.Fixed(0)}, {Size: layout.Fixed(2)},
+	})
+	if full[2].Min.X != 9 {
+		t.Fatalf("the third slot starts at %d", full[2].Min.X)
+	}
+	if empty[2].Min.X != 6 {
+		t.Fatalf("with the middle slot empty the third starts at %d", empty[2].Min.X)
+	}
+}
+
+func TestASlotSaysWhereContentNarrowerThanItSits(t *testing.T) {
+	rects := layout.Down.Rects(layout.Size{W: 10, H: 3}, []layout.Slot{
+		{Size: layout.Fixed(1), Cross: layout.Cross{Size: 4, Align: layout.Center}},
+		{Size: layout.Fixed(1), Cross: layout.Cross{Size: 4, Align: layout.End}},
+		{Size: layout.Fixed(1)},
+	})
+	if got := rects[0]; got.Min.X != 3 || got.Dx() != 4 {
+		t.Fatalf("centred content is at %v", got)
+	}
+	if got := rects[1]; got.Min.X != 6 || got.Dx() != 4 {
+		t.Fatalf("content against the end is at %v", got)
+	}
+	// The zero value fills the region, which is what every slot did before there was
+	// a way to say otherwise.
+	if got := rects[2]; got.Min.X != 0 || got.Dx() != 10 {
+		t.Fatalf("a slot that said nothing about the cross axis is %v", got)
+	}
+
+	// The same question the other way round: dividing width, a slot says how tall.
+	across := layout.Across.Rects(layout.Size{W: 3, H: 8}, []layout.Slot{
+		{Size: layout.Fixed(1), Cross: layout.Cross{Size: 2, Align: layout.Center}},
+	})
+	if got := across[0]; got.Min.Y != 3 || got.Dy() != 2 {
+		t.Fatalf("centred content is at %v", got)
+	}
+}
+
+func TestAShareOfTheWholeIsNotAShareOfWhatIsLeft(t *testing.T) {
+	// The sentence a caller means literally: half of this, whatever else happens. A
+	// share of the remainder cannot say it, because the remainder moves when anything
+	// beside it does.
+	half := layout.Slot{Size: layout.Part(1, 2)}
+	rest := layout.Slot{Size: layout.Flex(1)}
+	equal(t, layout.Divide(20, 1, []layout.Slot{half, rest}), []int{10, 10})
+
+	// A status bar appears above it, and the half is still a half.
+	bar := layout.Slot{Size: layout.Fixed(4)}
+	equal(t, layout.Divide(20, 1, []layout.Slot{bar, half, rest}), []int{4, 10, 6})
+
+	// Where a share of what is left would have been six and then four.
+	third := layout.Slot{Size: layout.Flex(1)}
+	equal(t, layout.Divide(20, 1, []layout.Slot{bar, third, rest}), []int{4, 8, 8})
+}

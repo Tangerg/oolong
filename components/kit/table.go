@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"image"
+
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
 )
@@ -61,40 +63,32 @@ type Table struct {
 // Widths works out each column's width for a total, which a caller needs when it is
 // aligning something else to the same grid.
 func (t Table) Widths(total int) []int {
-	gap := max(t.Gap, 1)
-	widths := make([]int, len(t.Columns))
-	left := total - gap*max(len(t.Columns)-1, 0)
-	shares := 0
+	return t.flow().Divide(total, 1, t.slots())
+}
 
+// slots say what each column asks for. A column with neither a width nor a share
+// gets one share, because a column nobody sized still has to be visible.
+func (t Table) slots() []layout.Slot {
+	slots := make([]layout.Slot, len(t.Columns))
 	for i, c := range t.Columns {
 		if c.Width > 0 {
-			widths[i] = min(c.Width, max(left, 0))
-			left -= widths[i]
+			slots[i] = layout.Slot{Size: layout.Fixed(c.Width)}
 			continue
 		}
-		shares += max(c.Flex, 1)
+		slots[i] = layout.Slot{Size: layout.Sizing{Flex: max(c.Flex, 1), Min: c.Min}}
 	}
-	if shares == 0 {
-		return widths
-	}
-	remainder := max(left, 0)
-	last := -1
-	used := 0
-	for i, c := range t.Columns {
-		if c.Width > 0 {
-			continue
-		}
-		widths[i] = max(remainder*max(c.Flex, 1)/shares, c.Min)
-		used += widths[i]
-		last = i
-	}
-	// The rounding remainder goes to the last flexible column rather than being
-	// lost, so the table fills its width exactly and its right edge lines up with
-	// whatever is drawn beside it.
-	if last >= 0 && used < remainder {
-		widths[last] += remainder - used
-	}
-	return widths
+	return slots
+}
+
+// flow is how the columns divide the width: across, with the gap between them.
+//
+// The arithmetic used to be written out here — the fixed columns, then the shares of
+// what was left, then the rounding remainder to the last one. It was the same
+// arithmetic as [layout.Divide] with the gaps taken off the front, which is the
+// signal that a gap belongs one layer down: two copies of a sizing rule are two
+// chances to round it differently.
+func (t Table) flow() layout.Flow {
+	return layout.Flow{Axis: layout.Across, Gap: max(t.Gap, 1)}
 }
 
 // Measure is the rows plus the header, which is what a container measures against.
@@ -111,12 +105,11 @@ func (t Table) Draw(v grid.View) {
 	if width <= 0 || height <= 0 || len(t.Columns) == 0 {
 		return
 	}
-	widths := t.Widths(width)
-	gap := max(t.Gap, 1)
+	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
 
 	y := 0
 	if t.Header {
-		t.drawRow(v, y, widths, gap, func(col int, cell grid.View) {
+		t.drawRow(v, y, boxes, func(col int, cell grid.View) {
 			c := t.Columns[col]
 			Label{Text: c.Title, Style: t.Theme.Heading, Align: c.Align, Ellipsis: "…"}.Draw(cell)
 		})
@@ -133,19 +126,22 @@ func (t Table) Draw(v grid.View) {
 		if band != (grid.Style{}) {
 			v.Fill(grid.Rect(0, y, width, 1), band)
 		}
-		t.drawRow(v, y, widths, gap, func(col int, cell grid.View) {
+		t.drawRow(v, y, boxes, func(col int, cell grid.View) {
 			t.Cell(cell, row, col, band)
 		})
 	}
 }
 
-// drawRow hands each column's box to draw.
-func (t Table) drawRow(v grid.View, y int, widths []int, gap int, draw func(col int, cell grid.View)) {
-	x := 0
-	for col, w := range widths {
-		if w > 0 {
-			draw(col, v.Sub(grid.Rect(x, y, w, 1)))
+// drawRow hands each column's box to draw, on the row at y.
+//
+// The boxes are worked out once for the table and moved down a row at a time: where
+// a column starts does not depend on which row is being drawn, and a table that
+// divided its width again for every row would be doing the same arithmetic once per
+// row of the terminal.
+func (t Table) drawRow(v grid.View, y int, boxes []image.Rectangle, draw func(col int, cell grid.View)) {
+	for col, box := range boxes {
+		if box.Dx() > 0 {
+			draw(col, v.Sub(grid.Rect(box.Min.X, y, box.Dx(), 1)))
 		}
-		x += w + gap
 	}
 }

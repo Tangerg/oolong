@@ -47,3 +47,30 @@ func ExampleMeasured() {
 	// measured against a width of 20: 5 rows
 	// measured against a height of 8: 2 columns
 }
+
+func ExampleFlow() {
+	// A gap between the panes, said once for the division rather than as padding on
+	// every pane but the last — and a hint row centred under them, which is the other
+	// thing dividing an axis cannot say.
+	rows := layout.Rows(grid.NewSurface(24, 4).View(),
+		layout.Slot{Size: layout.Flex(1)},
+		layout.Slot{Size: layout.Fixed(1), Cross: layout.Cross{Size: 8, Align: layout.Center}},
+	)
+	panes := layout.Flow{Axis: layout.Across, Gap: 2}.Views(rows[0],
+		layout.Slot{Size: layout.Part(1, 2)},
+		layout.Slot{Size: layout.Flex(1)},
+		layout.Slot{Size: layout.Flex(1)},
+	)
+	for _, p := range panes {
+		w, h := p.Size()
+		fmt.Printf("pane %dx%d\n", w, h)
+	}
+	w, _ := rows[1].Size()
+	fmt.Printf("hints %d wide\n", w)
+
+	// Output:
+	// pane 10x3
+	// pane 5x3
+	// pane 5x3
+	// hints 8 wide
+}

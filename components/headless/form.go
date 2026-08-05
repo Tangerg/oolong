@@ -365,14 +365,12 @@ func (f *Form) Focus(has bool) {
 // because the look is a field of this one and may have been changed since.
 func (f *Form) arrange() {
 	f.body.Axis = layout.Down
+	f.body.Gap = f.Gap
 	f.body.Keys = f.keys()
 	f.body.Items = f.body.Items[:0]
-	for i, field := range f.Fields {
+	for _, field := range f.Fields {
 		if takes, ok := field.(dressed); ok {
 			takes.dress(f.Look)
-		}
-		if i > 0 && f.Gap > 0 {
-			f.body.Items = append(f.body.Items, Item{Size: layout.Fixed(f.Gap)})
 		}
 		f.body.Items = append(f.body.Items, Item{Size: layout.Measured(1, 0), Of: field})
 	}

@@ -95,6 +95,14 @@ type Container struct {
 	// identity, so a child that is still there keeps it and one that is gone gives it
 	// up to the first child that will take it.
 	Items []Item
+	// Gap is how many blank rows or columns go between one child and the next. Zero
+	// puts them against each other.
+	//
+	// It is the layout's — see [layout.Flow] — rather than a blank child inserted
+	// between every pair, which is what spacing used to be and which put things in
+	// the ring that are not children: a hole nothing can focus, nothing can be
+	// clicked in, and every index has to be corrected for.
+	Gap int
 	// Keys say which keystrokes move the keyboard along the ring. Nil reads through
 	// [DefaultContainerKeys], which is tab and shift+tab.
 	//
@@ -186,7 +194,7 @@ func (c *Container) Focus(has bool) {
 func (c *Container) Draw(v grid.View) {
 	c.settle()
 	width, height := v.Size()
-	c.areas = c.Axis.Rects(layout.Size{W: width, H: height}, c.arrange())
+	c.areas = c.flow().Rects(layout.Size{W: width, H: height}, c.arrange())
 	for i, item := range c.Items {
 		if item.Of != nil {
 			item.Of.Draw(v.Sub(c.areas[i]))
@@ -197,7 +205,13 @@ func (c *Container) Draw(v grid.View) {
 // Measure is how much of the divided axis the children want altogether, which is
 // what a container inside a measured slot answers with.
 func (c *Container) Measure(across int) int {
-	return layout.Wanted(across, c.arrange())
+	return c.flow().Wanted(across, c.arrange())
+}
+
+// flow is how this container divides its region: its axis, and the room it leaves
+// between one child and the next.
+func (c *Container) flow() layout.Flow {
+	return layout.Flow{Axis: c.Axis, Gap: c.Gap}
 }
 
 // Handle gives the event to whichever child it is for.

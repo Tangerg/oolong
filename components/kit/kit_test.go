@@ -314,10 +314,18 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 }
 
 func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
-	table := kit.Table{Columns: []kit.Column{{Width: 20}, {Flex: 1, Min: 4}}, Gap: 1}
-	widths := table.Widths(22)
-	if widths[1] < 4 {
+	table := kit.Table{Columns: []kit.Column{{Width: 8}, {Flex: 1, Min: 4}}, Gap: 1}
+	if widths := table.Widths(22); widths[1] < 4 {
 		t.Fatalf("widths %v, want the flexible column to keep its floor", widths)
+	}
+
+	// And keeps it only while there is room for it. A floor that was handed out
+	// anyway would tell the column it had a width the view then clipped, which the
+	// column cannot see and lays its cells out against.
+	squeezed := kit.Table{Columns: []kit.Column{{Width: 20}, {Flex: 1, Min: 4}}, Gap: 1}
+	widths := squeezed.Widths(22)
+	if total := widths[0] + widths[1] + 1; total > 22 {
+		t.Fatalf("widths %v and the gap come to %d, which is more than the table has", widths, total)
 	}
 }
 
