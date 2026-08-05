@@ -442,7 +442,7 @@ func TestEncodeRowIsSelfContainedInlineText(t *testing.T) {
 	v.Text(0, 0, "hi", Style{FG: RGBColor(1, 2, 3)})
 	v.Link(0, 0, 2, "https://example.test")
 
-	row := EncodeRow(s.Row(0))
+	row := EncodeRow(s.Row(0), TrueColor)
 	if strings.Contains(row, "\x1b[1;") || strings.Contains(row, "H") {
 		t.Fatalf("row = %q, want nothing that moves the cursor", row)
 	}
@@ -462,7 +462,7 @@ func TestEncodeRowIsSelfContainedInlineText(t *testing.T) {
 func TestEncodeRowSkipsTrailingHalvesOfWideClusters(t *testing.T) {
 	s := NewSurface(4, 1)
 	s.View().Text(0, 0, "中文", Style{})
-	if got := EncodeRow(s.Row(0)); got != "中文" {
+	if got := EncodeRow(s.Row(0), TrueColor); got != "中文" {
 		t.Fatalf("row = %q, want each wide cluster emitted once", got)
 	}
 }

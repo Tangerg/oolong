@@ -28,6 +28,10 @@ type painter struct {
 	out   []byte
 	style Style
 	link  string
+	// depth is how much colour the terminal is being asked to show. It is applied
+	// here and nowhere else: a frame is built in truecolor all the way down, and
+	// this is the one place a style becomes bytes.
+	depth Depth
 	// at is where the terminal's cursor sits, and known says whether that is
 	// worth believing. A run of adjacent cells needs no positioning.
 	at    image.Point
@@ -46,6 +50,10 @@ func (p *painter) restart() {
 	p.known = false
 	p.begun = false
 }
+
+// adoptDepth carries the colour depth over to another painter, so a frame built
+// out of more than one of them speaks with one voice.
+func (p *painter) adoptDepth(depth Depth) { p.depth = depth }
 
 // begin states the default style, once per frame, before the first cell.
 //
@@ -135,23 +143,58 @@ func (p *painter) appendStyle(next Style) {
 		}
 	}
 	if !next.FG.Default() {
-		p.appendColor(38, next.FG.rgb)
+		p.appendColor(foreground, next.FG.rgb)
 	}
 	if !next.BG.Default() {
-		p.appendColor(48, next.BG.rgb)
+		p.appendColor(background, next.BG.rgb)
 	}
 	p.out = append(p.out, 'm')
 }
 
+// The SGR bases for the two colours a cell has. The sixteen-colour forms are
+// numbered from them rather than written out: 30 and 40 begin the ANSI eight, and
+// 90 and 100 begin their bright counterparts.
+const (
+	foreground int64 = 38
+	background int64 = 48
+)
+
+// appendColor writes one colour at the depth the terminal is being asked for.
+//
+// The parameters are appended to an SGR that is already open, which is why every
+// branch starts with a semicolon and none of them ends the sequence.
 func (p *painter) appendColor(base int64, c RGB) {
-	p.out = append(p.out, ';')
-	p.out = strconv.AppendInt(p.out, base, 10)
-	p.out = append(p.out, ";2;"...)
-	p.out = strconv.AppendInt(p.out, int64(c.R), 10)
-	p.out = append(p.out, ';')
-	p.out = strconv.AppendInt(p.out, int64(c.G), 10)
-	p.out = append(p.out, ';')
-	p.out = strconv.AppendInt(p.out, int64(c.B), 10)
+	switch p.depth {
+	case NoColor:
+		return
+
+	case Depth16:
+		index := c.Index16()
+		// 30–37 and 40–47 are the eight; 90–97 and 100–107 are the bright ones,
+		// which are 60 above their plain forms in both cases.
+		code := base - 8 + int64(index%8)
+		if index >= 8 {
+			code += 60
+		}
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, code, 10)
+
+	case Depth256:
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, base, 10)
+		p.out = append(p.out, ";5;"...)
+		p.out = strconv.AppendInt(p.out, int64(c.Index256()), 10)
+
+	default:
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, base, 10)
+		p.out = append(p.out, ";2;"...)
+		p.out = strconv.AppendInt(p.out, int64(c.R), 10)
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, int64(c.G), 10)
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, int64(c.B), 10)
+	}
 }
 
 // appendLink closes the open hyperlink and opens target.
@@ -260,9 +303,9 @@ func printableTarget(target string) bool {
 // scrollback, where the line must survive on its own with no screen to address.
 // The result always closes an open hyperlink and returns to the default style, so
 // rows can be concatenated safely.
-func EncodeRow(cells []Cell) string {
+func EncodeRow(cells []Cell, depth Depth) string {
 	cells = trimBlankTail(cells)
-	var p painter
+	p := painter{depth: depth}
 	for i := 0; i < len(cells); {
 		c := &cells[i]
 		if c.span == spanTrail {

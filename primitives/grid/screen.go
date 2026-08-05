@@ -67,6 +67,17 @@ func (s *Screen) Resize(w, h int) {
 	s.Invalidate()
 }
 
+// SetDepth says how much colour the terminal can show. It forces a full repaint,
+// because every cell the terminal is holding was encoded at the old depth.
+func (s *Screen) SetDepth(d Depth) {
+	if s.frame.depth == d {
+		return
+	}
+	s.frame.adoptDepth(d)
+	s.scratch.adoptDepth(d)
+	s.Invalidate()
+}
+
 // Invalidate forgets what the terminal is showing, so the next flush repaints in
 // full. It is what to call after handing the terminal to another program.
 func (s *Screen) Invalidate() {

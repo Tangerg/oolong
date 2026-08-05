@@ -143,6 +143,17 @@ type Config struct {
 	// contradiction and is reported as one.
 	Terminal term.Options
 
+	// Color says how much colour the terminal can show. The zero value, [grid.Auto],
+	// asks [term.DetectDepth] — which is the one thing in this library that reads
+	// its environment rather than making a request and letting it be ignored,
+	// because a truecolor sequence a terminal cannot read prints wrong rather than
+	// degrading.
+	//
+	// Setting it is how a program that already knows — from its own configuration,
+	// or because it is writing to something that is not a terminal at all — takes
+	// that decision back.
+	Color grid.Depth
+
 	// Host overrides where input comes from and frames go. Nil opens the real terminal
 	// and gives it back on the way out.
 	Host Host
@@ -197,12 +208,19 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		p.frameRate = DefaultFrameRate
 	}
 	defer close(p.done)
+	depth := cfg.Color
+	if depth == grid.Auto {
+		depth = term.DetectDepth()
+	}
 	if cfg.Inline != nil {
 		p.inline = grid.NewInline(width, height)
+		p.inline.SetDepth(depth)
 		p.canvas = p.inline
 		p.root = cfg.Inline(inlineLoop{loop{p}})
 	} else {
-		p.canvas = grid.NewScreen(width, height)
+		screen := grid.NewScreen(width, height)
+		screen.SetDepth(depth)
+		p.canvas = screen
 		p.root = cfg.Root(loop{p})
 	}
 	return p.run(ctx)

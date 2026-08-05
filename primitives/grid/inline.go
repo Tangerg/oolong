@@ -70,6 +70,9 @@ type Inline struct {
 	// full forces the next flush to rewrite every row of the block.
 	full bool
 
+	// depth is how much colour the terminal is being asked to show.
+	depth Depth
+
 	// buf is one frame's payload and out the same wrapped for atomic application.
 	buf, out []byte
 }
@@ -98,6 +101,16 @@ func (i *Inline) Resize(w, h int) {
 	}
 	i.front.Resize(w, h)
 	i.back.Resize(w, h)
+	i.Invalidate()
+}
+
+// SetDepth says how much colour the terminal can show. It forces a full repaint,
+// because every row the terminal is holding was encoded at the old depth.
+func (i *Inline) SetDepth(d Depth) {
+	if i.depth == d {
+		return
+	}
+	i.depth = d
 	i.Invalidate()
 }
 
@@ -141,7 +154,7 @@ func (i *Inline) Print(rows int, draw func(View)) {
 		draw(i.scratch.View())
 	}
 	for y := range rows {
-		i.pending = append(i.pending, EncodeRow(i.scratch.Row(y)))
+		i.pending = append(i.pending, EncodeRow(i.scratch.Row(y), i.depth))
 	}
 }
 
@@ -269,7 +282,7 @@ func (i *Inline) compose(used int) {
 			// Erasing leaves the cursor where it is, which is already column zero.
 			i.buf = append(i.buf, eraseLine...)
 		case changed(y):
-			row := EncodeRow(i.back.Row(y))
+			row := EncodeRow(i.back.Row(y), i.depth)
 			i.buf = append(i.buf, row...)
 			i.buf = append(i.buf, eraseLine...)
 			moved = len(row) > 0
