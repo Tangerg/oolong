@@ -194,6 +194,14 @@ in place.
   terminal is still swallowing the last frame.
 - **`fuzzy`** — subsequence ranking, answering in byte offsets because whatever asks is
   about to draw the candidate with the matched characters picked out.
+- **`anim`** — easing, a shimmer sweep, a running wave, and a transition counted in
+  ticks rather than measured in wall-clock time, because a widget that asks what
+  time it is cannot be stepped by a test or paused by a loop that parked.
+- **`link`** — the URLs in a piece of text, as byte ranges. A cell has carried an
+  OSC 8 target since the beginning; this is what works out what to put in one.
+- **`graphics`** — inline images over the kitty protocol, which is what kitty,
+  Ghostty, WezTerm and Warp all speak. PNG only, because a PNG's dimensions are in
+  its first twenty-four bytes and a decoder would be a dependency.
 
 - **`layout`** — dividing a region: fixed, flexible and measured slots, insets,
   alignment, and the placement a floating layer is clamped into. It hands back views
@@ -246,11 +254,15 @@ time.
 - The arch tests above, each with a counter-example.
 - Tests state behaviour rather than implementation: what an idle frame must not write,
   what a release away from a button must not do, what a resize must repaint.
-- The inline renderer was verified against a real pty with an emulator implementing only
-  the sequences the renderer is allowed to use — transcript accumulating above the block,
-  the block shrinking with no debris, the caret on the right row and column every frame,
-  correct behaviour on a terminal too short for the interface, and the caller's own
-  output landing below the block after `Run` returns.
+- Two ways to drive an interface without being one. A `program.Host` runs it with no
+  terminal in sight, which is how most of `examples/streaming` is tested; `ptytest`
+  runs the real binary on a real pty, which is how the rest is. The second exists
+  because a host can only prove that an interface drew the frame it meant to, and
+  what is worth proving about a renderer is what its bytes then do to a terminal.
+- The assertions that came with it, `RequireSymmetricModes` above all: every mode a
+  session turned on was turned off, and unwound in the reverse of the order it was
+  set up. A terminal left in a mode nobody turned off is a terminal the user has to
+  close, and nothing short of a real pty can see it happen.
 
 ---
 
@@ -282,18 +294,15 @@ Ordered by what would be built next.
    syntax highlighter. Those are exactly the dependencies the core promise excludes, so
    this is a separate module in this repository — the same relationship glamour has to
    bubbletea. Not started.
-2. **A testing harness.** There is no equivalent of bubbletea's teatest or agentui's
-   ptytest — the latter is worth porting almost as it stands, particularly its
-   `RequireSymmetricModes`, which asserts that every terminal mode a session turned on
-   was turned off again. What exists today is that an interface can be driven through
-   a `program.Host` with no terminal in sight, which is how `examples/streaming` is
-   tested end to end; what is missing is a real pty and the assertions to go with it.
-   This is the largest remaining gap for adopters.
-3. **A focus model.** Nothing assigns the keyboard to one of several widgets; a container
-   routes events by trying its children in an order it chose. That works for one composer
-   and one transcript and stops working at the first dialog with two fields.
-4. **Images and graphics.** Kitty and iTerm2 inline images, sixel. Real for an agent
-   that reads screenshots, and last because it is the least general.
+2. **Markdown's siblings.** Syntax highlighting, and mermaid. Both are in
+   grok-build's renderer and both want dependencies the core promise excludes, so
+   they belong wherever markdown ends up.
+3. **iTerm2 images, and sixel.** The kitty protocol is in `primitives/graphics`,
+   which covers kitty, Ghostty, WezTerm and Warp. iTerm2 speaks its own and is
+   common enough on macOS to be worth having; sixel is the long tail.
+4. **Text selection across blocks.** grok-build has it and nothing here does. In
+   inline mode the terminal's own selection works, which covers most of it; what
+   it does not cover is selecting across a block the program is still redrawing.
 5. **Search over a transcript.** Product-shaped enough that it may never belong here.
 
 Not in the list because they are not the library's: syntax-aware editing, a shell,
@@ -310,10 +319,22 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   from where the cursor was left. Exact when the terminal did not reflow, approximate
   when it did. Querying the cursor position (DSR) would make it exact and needs a
   synchronous round trip through an asynchronous loop; not done.
-- **No terminfo, and no colour fallback.** Truecolor is emitted unconditionally. On a
-  terminal without it, colours will be wrong rather than degraded. This is the one place
-  where "ask and let it be ignored" does not hold, and it is the most likely thing to
-  need fixing first.
+
+  Worth recording what the alternative costs, because grok-build tried the clever
+  version and abandoned it. Its note says it computed the reflow from character
+  counts and that "edge cases and terminal-specific behaviors made this unreliable",
+  so it settled on clearing the screen *and the scrollback* and re-emitting the whole
+  transcript from a string the application retains. That is exact on every terminal,
+  and it costs two things this library is not willing to pay: the application has to
+  keep the entire transcript in memory, which contradicts the whole point of giving
+  finished output to the terminal, and it destroys whatever the user had in their
+  scrollback before the program started. Approximate is the cheaper mistake.
+- **No terminfo.** Colour degrades — `grid.Depth` maps a truecolor value to the 256
+  palette, to the sixteen ANSI colours, or to nothing at all, and `term.DetectDepth`
+  reads NO_COLOR, COLORTERM and TERM to choose. Everything else is still asked for
+  rather than detected. What remains is that an unrecognised TERM is treated as
+  truecolor, which is the right bet for the terminals people actually use and the
+  wrong one for a genuinely old terminal that does not say so.
 - **Windows has no resize events.** The console reports resizing through its own input
   API rather than a signal. A session gets its opening size and nothing after, unless a
   host delivers sizes itself. Everything else is portable.
@@ -324,6 +345,8 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
 - **The scroll shortcut is `Screen`-only.** Inline mode has no equivalent, because a
   block cannot address the region it would scroll.
 - **No benchmarks.** Nothing here has been measured, only reasoned about and bounded.
+  Section 1 makes three comparative claims about cost, and until they are measured
+  they are claims.
 - **`Loop.Post` must not be called from the loop's own goroutine while its queue is
   full.** The buffer absorbs a burst, and a component that posted from inside `Draw`
   or `Handle` faster than the loop drains would block the only consumer there is. It

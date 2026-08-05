@@ -29,6 +29,7 @@ A ladder of abstraction, and a host beside it.
 | `headless/` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
 | `kit/` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
 | `program/` | the loop. The only ring that owns a goroutine, and the one that must never know the widgets exist. | the browser |
+| `ptytest/` | a harness that runs a terminal program on a real pty and says what reached the terminal. Nothing in the library imports it. | the test runner |
 
 The layering is not a convention. `internal/arch` parses every import in the module
 and fails the build if one points the wrong way, if a ring appears that no rule
@@ -69,6 +70,22 @@ Three dependencies: `rivo/uniseg`, `mattn/go-runewidth`, `golang.org/x/term` (an
 `golang.org/x/sys` behind the last of them). The list is a promise, and a test fails
 when it grows — a terminal library that drags a tree behind it is one people work
 around instead of using.
+
+## Testing an interface
+
+Two ways, and the second is why the first is not enough:
+
+```go
+program.Run(ctx, program.Config{Host: myHost, Inline: ...})   // no terminal in sight
+ptytest.Start("./my-cli")                                     // a real pty
+```
+
+A host proves an interface drew the frame it meant to. A pty proves the bytes of
+that frame do to a terminal what they were supposed to — that the block shrank
+without debris, that an idle interface writes nothing at all, that every mode the
+session turned on was turned off again in the reverse of the order it was set up.
+That last one is a terminal the user has to close if you get it wrong, and nothing
+short of a real pty can see it happen.
 
 ## Concurrency, in full
 
