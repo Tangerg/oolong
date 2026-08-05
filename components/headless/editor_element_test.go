@@ -98,6 +98,58 @@ func TestEditingAroundAnElementMovesIt(t *testing.T) {
 	}
 }
 
+// TestAnElementCoversTheSameWordsAfterEveryKindOfEdit. There is one rule for moving
+// a mark over a change — see [text.Shift] — and the way to know the editor is using
+// it once and correctly is to state the outcome as "the same words", which no amount
+// of arithmetic on line and column numbers can be quietly wrong about.
+func TestAnElementCoversTheSameWordsAfterEveryKindOfEdit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		does func(e *headless.Editor)
+	}{
+		{"typing in front of it", func(e *headless.Editor) {
+			e.SetCursor(0, 0)
+			e.Insert("see ")
+		}},
+		{"a backspace in front of it", func(e *headless.Editor) {
+			e.SetCursor(0, 4)
+			e.DeleteBack()
+		}},
+		{"a whole paragraph pasted above", func(e *headless.Editor) {
+			e.SetCursor(0, 0)
+			e.Insert("one\ntwo\nthree\n")
+		}},
+		{"the line below joined onto it", func(e *headless.Editor) {
+			e.SetCursor(0, 0)
+			e.MoveLineEnd()
+			e.DeleteForward()
+		}},
+		{"typing after it", func(e *headless.Editor) {
+			e.SetCursor(0, 0)
+			e.MoveLineEnd()
+			e.Insert(" please")
+		}},
+	} {
+		e := editorWith("look ")
+		e.SetCursor(0, len("look "))
+		el := e.InsertElement(fileChip, "@main.go")
+		e.Insert("\ntail")
+		tc.does(e)
+
+		got := e.Elements()
+		if len(got) != 1 {
+			t.Errorf("%s: the editor holds %+v, want the one element", tc.name, got)
+			continue
+		}
+		if got[0].ID != el.ID {
+			t.Errorf("%s: the element came back as %d, want %d", tc.name, got[0].ID, el.ID)
+		}
+		if body := got[0].Text(e); body != "@main.go" {
+			t.Errorf("%s: the element now covers %q", tc.name, body)
+		}
+	}
+}
+
 func TestElementsSurviveALineBreakAboveThem(t *testing.T) {
 	e := editorWith("")
 	el := e.InsertElement(fileChip, "@main.go")

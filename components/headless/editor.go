@@ -67,9 +67,10 @@ type Editor struct {
 	rowEnd    Caret
 	rowEndSet bool
 
-	// elements are the runs of text that behave as one character, in the order they
-	// appear. nextElement is the last identity handed out.
-	elements    []Element
+	// marks are the runs of text that behave as one character, in the order they
+	// appear, as offsets into the whole text. nextElement is the last identity handed
+	// out. See [Editor.offsetOf] for why they are not kept in lines and columns.
+	marks       []text.Mark
 	nextElement uint64
 
 	// killed is the last text cut, for putting back. One entry, like a terminal's.
@@ -96,10 +97,10 @@ type Editor struct {
 type editorState struct {
 	lines     []string
 	line, col int
-	// elements are part of the state and not derivable from the text: two chips with
+	// marks are part of the state and not derivable from the text: two chips with
 	// the same words are two different things, and an undo that gave them back with
 	// new identities would have given back different ones.
-	elements []Element
+	marks []text.Mark
 }
 
 // EditorKeys are the keystrokes an editor answers.
@@ -265,7 +266,7 @@ func (e *Editor) Replace(start, end int, s string) {
 	end = min(max(end, start), len(line))
 	e.endTyping()
 	e.snapshot()
-	e.cutElements(Caret{Line: e.line, Col: start}, Caret{Line: e.line, Col: end})
+	e.removed(Caret{Line: e.line, Col: start}, Caret{Line: e.line, Col: end}, "")
 	e.lines[e.line] = line[:start] + line[end:]
 	e.col = start
 	e.splice(s)
@@ -273,13 +274,17 @@ func (e *Editor) Replace(start, end int, s string) {
 
 // splice puts text in at the cursor, assuming the undo step has been opened already.
 func (e *Editor) splice(s string) {
+	// The marks are moved before anything else is, because an edit is described
+	// against the document as it was.
+	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
+	e.edited(text.Edit{Start: at, End: at, Text: s})
+
 	parts := strings.Split(s, "\n")
 	current := e.lines[e.line]
 	head, tail := current[:e.col], current[e.col:]
 
 	if len(parts) == 1 {
 		e.lines[e.line] = head + parts[0] + tail
-		e.spliceElements(e.line, e.col, 0, e.col+len(parts[0]))
 		e.col += len(parts[0])
 		e.invalidate()
 		return
@@ -296,7 +301,6 @@ func (e *Editor) splice(s string) {
 	// inserted holds the replacement lines and the tail is being put after them.
 	//nolint:makezero // inserted is local and fully written above.
 	e.lines = append(e.lines[:e.line], append(inserted, e.lines[e.line+1:]...)...)
-	e.spliceElements(e.line, e.col, last, col)
 	e.line += last
 	e.col = col
 	e.invalidate()
@@ -322,7 +326,7 @@ func (e *Editor) Newline() {
 	e.ensure()
 	current := e.lines[e.line]
 	head, tail := current[:e.col], current[e.col:]
-	e.spliceElements(e.line, e.col, 1, 0)
+	e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}, "\n")
 	e.lines = append(e.lines[:e.line], append([]string{head, tail}, e.lines[e.line+1:]...)...)
 	e.line++
 	e.col = 0
@@ -344,8 +348,7 @@ func (e *Editor) DeleteBack() {
 		if el, inside := e.insideElement(e.line, at); inside {
 			at = el.Start
 		}
-		e.cutElements(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col})
-		e.cutElements(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col})
+		e.removed(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
 		e.lines[e.line] = e.lines[e.line][:at] + e.lines[e.line][e.col:]
 		e.col = at
 		e.invalidate()
@@ -361,7 +364,7 @@ func (e *Editor) DeleteBack() {
 	e.snapshot()
 	above := e.lines[e.line-1]
 	e.col = len(above)
-	e.cutElements(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0})
+	e.removed(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0}, "")
 	e.lines[e.line-1] = above + e.lines[e.line]
 	e.lines = append(e.lines[:e.line], e.lines[e.line+1:]...)
 	e.line--
@@ -381,7 +384,7 @@ func (e *Editor) DeleteForward() {
 		if el, inside := e.ElementAt(e.line, e.col); inside {
 			at = el.End
 		}
-		e.cutElements(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: at})
+		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: at}, "")
 		e.lines[e.line] = current[:e.col] + current[at:]
 		e.invalidate()
 		return
@@ -390,7 +393,7 @@ func (e *Editor) DeleteForward() {
 		return
 	}
 	e.snapshot()
-	e.cutElements(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0})
+	e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 	e.lines[e.line] = current + e.lines[e.line+1]
 	e.lines = append(e.lines[:e.line+1], e.lines[e.line+2:]...)
 	e.invalidate()
@@ -423,14 +426,14 @@ func (e *Editor) KillToEnd() {
 	current := e.lines[e.line]
 	if e.col < len(current) {
 		e.killed = current[e.col:]
-		e.cutElements(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)})
+		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
 		e.lines[e.line] = current[:e.col]
 		e.invalidate()
 		return
 	}
 	if e.line < len(e.lines)-1 {
 		e.killed = "\n"
-		e.cutElements(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0})
+		e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 		e.lines[e.line] = current + e.lines[e.line+1]
 		e.lines = append(e.lines[:e.line+1], e.lines[e.line+2:]...)
 	}
@@ -446,7 +449,7 @@ func (e *Editor) KillToStart() {
 	}
 	e.snapshot()
 	e.killed = e.lines[e.line][:e.col]
-	e.cutElements(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col})
+	e.removed(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col}, "")
 	e.lines[e.line] = e.lines[e.line][e.col:]
 	e.col = 0
 	e.invalidate()
@@ -709,16 +712,16 @@ const maxUndo = 200
 
 func (e *Editor) state() editorState {
 	return editorState{
-		lines:    append([]string(nil), e.lines...),
-		line:     e.line,
-		col:      e.col,
-		elements: append([]Element(nil), e.elements...),
+		lines: append([]string(nil), e.lines...),
+		line:  e.line,
+		col:   e.col,
+		marks: append([]text.Mark(nil), e.marks...),
 	}
 }
 
 func (e *Editor) restore(s editorState) {
 	e.lines = append([]string(nil), s.lines...)
-	e.elements = append([]Element(nil), s.elements...)
+	e.marks = append([]text.Mark(nil), s.marks...)
 	e.line, e.col = s.line, s.col
 	e.selecting = false
 	e.layout.stale = true

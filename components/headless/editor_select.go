@@ -112,10 +112,13 @@ func (e *Editor) DeleteSelection() bool {
 // replaceRange puts s where the range was, leaving the cursor at the end of what it
 // put there. The caller has taken the snapshot.
 func (e *Editor) replaceRange(start, end Caret, s string) {
+	// The cut is described against the document it is a cut of, so the marks move
+	// before the lines do. What goes in its place is a second edit, made by splice
+	// below, against the document the cut left.
+	e.removed(start, end, "")
 	head := e.lines[start.Line][:start.Col]
 	tail := e.lines[end.Line][end.Col:]
 	e.lines = append(e.lines[:start.Line], append([]string{head + tail}, e.lines[end.Line+1:]...)...)
-	e.cutElements(start, end)
 	e.line, e.col = start.Line, start.Col
 	e.wantColumn = -1
 	e.invalidate()

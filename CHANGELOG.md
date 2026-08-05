@@ -115,6 +115,12 @@ point of tagging them low rather than not at all.
 - `core/layout.Axis`, `Axis.Rects` and `Wanted`. The geometry without a view, because
   a click arrives between two frames and has to be answered against the frame that is
   on screen.
+- **`core/text.Edit` and `core/text.Mark`.** An insertion, a deletion and a
+  replacement are one thing said three ways, and a range that has to stay over the
+  same words while the text around it changes is one problem however many things want
+  it — a chip in a prompt, a highlight, a search result, a diff region.
+  `headless.Element` is now a mark, and the editor's two shifting routines are one
+  call to `text.Shift`.
 
 ### Changed
 
