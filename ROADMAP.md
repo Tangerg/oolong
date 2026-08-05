@@ -7,8 +7,11 @@ not used). It is ordered by what blocks what, not by what is most wanted.
 Three findings gate everything else, so they come first.
 
 **Done:** all of it. What each turned out to mean in practice is recorded under the
-item, including the three places the implementation contradicted the analysis. What is
-left is at the end, under *What this turned up*.
+item, including the three places the implementation contradicted the analysis.
+
+With that list finished, the same reading was done again. Sections 6 and 7 are the
+result: what the work itself put in view, and what is still missing when this is held
+against what a Go program would otherwise be built on.
 
 ---
 
@@ -303,3 +306,132 @@ rediscovered from scratch.
   deliberate today — it keeps its own position for a good reason — but the two now
   answer overlapping questions, and one of them should probably be named as a special
   case of the other rather than left to look like a coincidence.
+
+---
+
+## 7. Read against them again
+
+The first list was drawn against five prior arts. With it finished, here is the same
+reading, held this time against the two a Go program would otherwise be built on —
+`opentui`, and the `bubbletea` family taken whole: `bubbles`, `lipgloss`, `glamour`,
+`huh`, `harmonica`, `bubblezone`, `wish`, and the `x/` packages beside them.
+
+Ordered by what blocks what. Section 4 already says what is refused on purpose, and
+nothing here contradicts it.
+
+### 7.1 What stops an interface being built on this today
+
+1. **Text that arrives with escape sequences in it.** An interface that runs commands
+   is handed their output, and their output is coloured. A cell drops control
+   characters at the boundary — deliberately, as a trust boundary — and nothing turns
+   `ESC [ 31 m` into a red cell. Every caller has to strip the colour or write the
+   decoder again.
+
+   Two things, and the difference between them is a factor of ten. **A one-way SGR
+   decoder** — escape sequences to styled spans — is small, and the parameter parser it
+   needs already exists in `core/input`. **A terminal emulator** — cursor movement,
+   erasure, an alternate screen, so that an interactive child can live in a pane — is
+   another product's worth of work and is a decision rather than a gap. `charm` has
+   both, in `x/cellbuf` and `x/vt`; `opentui` decodes into its own buffer.
+
+   The first one is the largest thing missing for the price.
+
+2. **Handing the terminal to a child and taking it back.** Opening an editor, a pager,
+   or anything that wants the terminal for itself. `core/term.Relaunch` replaces this
+   process; there is no "let go, wait, and resume". The machinery for it is already
+   here and is the reason it would be exact: a session records the modes it turned on
+   and unwinds them in the reverse order, which is the same thing giving the terminal
+   up and taking it back has to do, twice. Suspend on Ctrl+Z is the same mechanism with
+   a signal in front of it.
+
+3. **Markdown.** Section 3 puts it off to wherever markdown ends up, and `DESIGN.md`
+   says why that is a module of its own: it wants a parser and a highlighter, which are
+   the dependencies the two modules here promise not to have. It is still the largest
+   functional gap, because rendering an answer is the commonest thing a streaming
+   interface does — and the hard part is not the parser but that streaming markdown is
+   an incremental parse of text still arriving, which no off-the-shelf parser does.
+   `glamour` is what a `bubbletea` program reaches for, and it renders a finished
+   document.
+
+4. **Images in a frame.** `core/graphics` knows the protocols and which of them survive
+   a redraw; `core/grid` has no notion of an image, so nothing can put one in a drawn
+   frame. Section 3 calls this waiting on the frame pipeline, which is exactly what it
+   is waiting on.
+
+### 7.2 Widgets that are simply absent
+
+Nothing here is hard. They are listed because "the library has no progress bar" is a
+sentence somebody says out loud.
+
+| missing | there | why it matters |
+| --- | --- | --- |
+| **A progress bar** | `bubbles/progress` | Anything with a total. `kit` has a spinner for work with no total and nothing for work with one. |
+| **A tree** | `lipgloss/tree`, `opentui` | Files, and nested output. |
+| **Tabs** | both | More panes than fit. |
+| **A table with a cursor** | `bubbles/table` | `kit.Table` draws; nothing in `headless` selects a row, scrolls one into view, or sorts. `List` is the one-column case of it. |
+| **A list with a filter** | `bubbles/list` | The parts are here — `List`, `core/fuzzy`, `Viewport` — and nothing puts them together. |
+| **The window title, the bell, a notification** | OSC 0/2, OSC 9 | The library already speaks OSC 7, 8, 10, 11 and 52. These three are a dozen lines and their absence is arbitrary. |
+| **Somewhere to log while the terminal is taken** | `charmbracelet/log`, `tea.LogToFile` | Printing to stdout during a frame corrupts it, so debugging an interface needs somewhere else to write. |
+| **Springs, and a timeline** | `harmonica`, `opentui` | `core/anim` eases and counts ticks. Neither an overshoot nor a sequence of steps can be said. |
+| **A form that can be answered without a screen** | `huh`'s accessible mode | A prompt at a time, for a reader that is not looking at a grid. |
+
+### 7.3 Where `layout` actually falls short
+
+Not flexbox — section 4 refuses that, and it is still the right refusal. Three smaller
+things, and one of them has already been written twice:
+
+- **A gap between slots.** `kit.Table` and `headless.Form` each have their own, which is
+  the signal that it belongs one layer down.
+- **Cross-axis alignment.** `Align` places text inside a width; a slot cannot say where
+  a child narrower than it should sit.
+- **A share expressed as a fraction of the whole.** `Flex` is a share of what is left,
+  which is not the same thing and cannot express "half of this, whatever else happens".
+
+### 7.4 What the comparison says not to build
+
+Recorded because a roadmap that only lists gaps invites filling in the ones already
+answered.
+
+- **Cell diffing, against line-string diffing.** `bubbletea`'s standard renderer diffs
+  rendered strings by line; this diffs cells. Wide characters, combining marks and emoji
+  are exactly where the first produces damage the second cannot.
+- **Compositing that asks the terminal first.** `lipgloss` blends with alpha; nothing
+  there asks what the terminal draws on, so a translucent layer over a cell left at the
+  terminal's own colours is a guess. `Ground`, `Blend` and `Fade` are the answer to that
+  and they cost one round trip at startup.
+- **Printed output that belongs to the terminal.** Finished blocks go into the
+  scrollback and are not redrawn, with a tail column so a stream need not stop at a line
+  boundary. There is no equivalent: an inline `bubbletea` program owns every row it has
+  ever written.
+- **A transcript with selection, search and sticky headers.** Built here, and built by
+  hand in every program that wants it there.
+- **Keys as a table of names.** `bubbles/key.Binding` is a keystroke and a description
+  in one value, which is what `headless.Binding` was until it was taken out. Sequences
+  are in neither.
+- **Focus and press capture in a container.** `bubblezone` bolts mouse hit-testing onto
+  a string renderer after the fact; here it falls out of the container knowing where it
+  put its children.
+- **A harness that runs the real binary on a real pty**, and arch tests that fail the
+  build when an import points the wrong way. `teatest` drives a model; neither of the
+  others checks that every mode a session turned on was turned off.
+
+### 7.5 Order
+
+By what blocks what, as before:
+
+1. **The SGR decoder** — smallest of the four in 7.1 and the one whose absence is hit
+   daily.
+2. **Handing over the terminal, and suspend** — the mechanism is already here.
+3. **A progress bar, the window title, the bell** — an afternoon, and they stop being
+   sentences people say out loud.
+4. **The gap and the alignment in `layout`** — a thing written twice is a thing that
+   belongs lower down.
+5. **Markdown, as its own module** — the largest, and the one that should be started
+   only with room to finish it.
+6. **A tree, tabs, a table with a cursor, a list with a filter** — as they are wanted.
+
+Three things are not on this list and are not omissions. A terminal emulator, for the
+reason given in 7.1. Framework bindings of the kind `opentui` ships for React, Solid and
+Vue, which Go does not have the same need for. And serving an interface over ssh, as
+`wish` does: `core/term.OpenOn` is the primitive that makes it possible, and everything
+above it — the server, the keys, the sessions — is a program rather than a library.

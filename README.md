@@ -32,10 +32,11 @@ go run ./examples/streaming        # from the repository root, which is a Go wor
 ```
 
 [`ROADMAP.md`](ROADMAP.md) was what was missing and in what order, read against the
-libraries this one was lifted from and the ones it was compared with. It is all
-done; what each item turned out to mean — including the three places the
-implementation contradicted the analysis — is recorded under it, and what the work
-turned up is at the end.
+libraries this one was lifted from and the ones it was compared with. That list is
+done, and what each item turned out to mean — including the three places the
+implementation contradicted the analysis — is recorded under it. At the end is the
+same reading done again: what the work put in view, and what is still missing when
+this is held against `opentui` and the `bubbletea` family.
 
 ## What it is
 
