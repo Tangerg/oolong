@@ -843,7 +843,7 @@ func TestEditorLeavesChordsItHasNoUseForAlone(t *testing.T) {
 	for _, ev := range []input.Event{
 		ctrlKey('g'),
 		ctrlKey('c'),
-		altKey('x'),
+		altKey('q'),
 		input.Key{Code: input.F5},
 		input.Key{Code: input.Character, Rune: 'a', Transition: input.Release},
 	} {

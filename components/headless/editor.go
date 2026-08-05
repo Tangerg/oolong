@@ -28,6 +28,13 @@ type Editor struct {
 	PlaceholderStyle grid.Style
 	// Keys are the bindings the editor answers.
 	Keys EditorKeys
+	// Clipboard is where copy and cut send text and where paste asks for it. Nil
+	// leaves those keys doing nothing, which is the right answer for a field in a
+	// program that has no terminal to ask.
+	//
+	// A program's loop already offers exactly this, so wiring a field to the system
+	// clipboard is one assignment.
+	Clipboard Clipboard
 	// MaxRows caps how tall the field grows. Beyond it the field scrolls and keeps
 	// the cursor in view. Zero means it grows without limit, which only suits a
 	// field that owns its whole pane.
@@ -40,6 +47,11 @@ type Editor struct {
 	// through short lines comes back out where it went in. Negative means it has not
 	// been set and the cursor's own column is the aim.
 	wantColumn int
+
+	// anchor is where a selection began, and selecting says there is one. The far end
+	// is the cursor, so a selection needs nothing kept in step with movement.
+	anchor    Caret
+	selecting bool
 
 	// killed is the last text cut, for putting back. One entry, like a terminal's.
 	killed string
@@ -77,6 +89,11 @@ type EditorKeys struct {
 	Yank                      Binding
 	Newline                   Binding
 	Undo                      Binding
+	// SelectAll, Copy, Cut and PasteFrom work on a selection. There is deliberately
+	// no binding for selecting in a direction: shift with any way of moving is what
+	// selects, so every movement selects and none of them was taught to.
+	SelectAll            Binding
+	Copy, Cut, PasteFrom Binding
 }
 
 // DefaultEditorKeys are the bindings a terminal text field is expected to have.
@@ -109,6 +126,14 @@ func DefaultEditorKeys() EditorKeys {
 		Yank:           ctrl('y', "put back"),
 		Newline:        Binding{Key: input.Key{Code: input.Enter, Mods: input.Alt}, Does: "newline"},
 		Undo:           ctrl('_', "undo"),
+		// The chords a terminal leaves alone. Ctrl+C is the interrupt, Ctrl+V is the
+		// literal-next escape, and Ctrl+A is where readline has always put the start
+		// of the line — taking any of them would break something every terminal user
+		// already relies on.
+		SelectAll: alt('a', "select all"),
+		Copy:      alt('c', "copy"),
+		Cut:       alt('x', "cut"),
+		PasteFrom: alt('v', "paste"),
 	}
 }
 
@@ -193,6 +218,9 @@ func (e *Editor) Insert(s string) {
 	if !e.typing {
 		e.snapshot()
 	}
+	// Typing over a selection replaces it, and does so inside the same undo step: a
+	// user who selected a word and typed another did one thing.
+	e.dropSelection()
 	e.splice(s)
 }
 
@@ -495,27 +523,39 @@ func (e *Editor) Handle(ev input.Event) bool {
 	e.ensure()
 
 	k := e.keys()
+
+	// Shift turns any way of moving into a way of selecting. The anchor is dropped
+	// first and taken back if the key was not a movement after all, which is what
+	// keeps this to one rule instead of a second binding for every direction.
+	if key.Mods&input.Shift != 0 {
+		unshifted := key
+		unshifted.Mods &^= input.Shift
+		had := e.selecting
+		e.Anchor()
+		if e.move(k, unshifted) {
+			return true
+		}
+		e.selecting = had
+	}
+	if e.selectionKey(k, ev) {
+		return true
+	}
+	if e.move(k, ev) {
+		// Moving without shift is how a selection is let go of, which is what every
+		// other editor does and what an arrow key means.
+		e.SelectNone()
+		return true
+	}
+
 	switch {
-	case k.Left.Matches(ev):
-		e.MoveLeft()
-	case k.Right.Matches(ev):
-		e.MoveRight()
-	case k.Up.Matches(ev):
-		e.MoveUp()
-	case k.Down.Matches(ev):
-		e.MoveDown()
-	case k.WordLeft.Matches(ev):
-		e.MoveWordLeft()
-	case k.WordRight.Matches(ev):
-		e.MoveWordRight()
-	case k.LineStart.Matches(ev):
-		e.MoveLineStart()
-	case k.LineEnd.Matches(ev):
-		e.MoveLineEnd()
 	case k.DeleteBack.Matches(ev):
-		e.DeleteBack()
+		if !e.DeleteSelection() {
+			e.DeleteBack()
+		}
 	case k.DeleteForward.Matches(ev):
-		e.DeleteForward()
+		if !e.DeleteSelection() {
+			e.DeleteForward()
+		}
 	case k.DeleteWordBack.Matches(ev):
 		e.DeleteWordBack()
 	case k.KillToEnd.Matches(ev):
