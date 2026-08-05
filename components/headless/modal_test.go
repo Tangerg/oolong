@@ -19,7 +19,6 @@ type panel struct {
 	seen      []input.Event
 	drawnInto []int
 	closed    int
-	stick     bool
 }
 
 func (p *panel) Draw(v grid.View) {
@@ -38,9 +37,12 @@ func (p *panel) Place(layout.Size) layout.Placement { return p.place }
 
 func (p *panel) Closed() { p.closed++ }
 
-type stickyPanel struct{ panel }
+type insistentPanel struct {
+	panel
+	insist bool
+}
 
-func (s *stickyPanel) Sticky() bool { return s.stick }
+func (s *insistentPanel) Insists() bool { return s.insist }
 
 func middle(w, h int) layout.Placement {
 	return layout.Placement{Anchor: layout.Middle, Width: w, Height: h}
@@ -123,24 +125,24 @@ func TestALayerThatConsumesEscapeKeepsIt(t *testing.T) {
 	}
 }
 
-func TestAStickyLayerRefusesToBeDismissed(t *testing.T) {
+func TestAnInsistentLayerRefusesToBeDismissed(t *testing.T) {
 	// The layer that has to be answered rather than dismissed. Consuming escape
 	// and doing nothing would read as a bug at the call site.
-	p := &stickyPanel{panel: panel{name: "p", place: middle(4, 2)}}
-	p.stick = true
+	p := &insistentPanel{panel: panel{name: "p", place: middle(4, 2)}}
+	p.insist = true
 	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 
 	s.Handle(esc())
 	if s.Depth() != 1 {
-		t.Fatal("a sticky layer was dismissed")
+		t.Fatal("an insistent layer was dismissed")
 	}
 	// And stops insisting once it has what it needs.
-	p.stick = false
+	p.insist = false
 	s.Handle(esc())
 	if !s.Empty() {
-		t.Fatal("the layer stopped being sticky and was still not dismissed")
+		t.Fatal("the layer stopped insisting and was still not dismissed")
 	}
 }
 

@@ -31,17 +31,17 @@ type Modal interface {
 	Place(space layout.Size) layout.Placement
 }
 
-// Sticky is a modal that the escape key does not close.
+// Insistent is a modal that the escape key does not close.
 //
 // It is for the layer that has to be answered rather than dismissed — a
 // confirmation, a required choice. Without it the way to make one would be to
 // consume the escape key and do nothing, which reads at the call site as a bug.
-type Sticky interface {
+type Insistent interface {
 	Modal
-	// Sticky reports whether the modal currently refuses to be dismissed. It is a
+	// Insists reports whether the modal currently refuses to be dismissed. It is a
 	// method rather than a marker so a layer can stop insisting once it has what
 	// it needs.
-	Sticky() bool
+	Insists() bool
 }
 
 // Closer is a modal that wants to know when it has been popped, whether that was
@@ -79,7 +79,7 @@ type Backdrop interface {
 type Stack struct {
 	// Escape is the key that pops the top layer when the layer did not consume it.
 	// The zero value is the escape key. A layer that must be answered rather than
-	// dismissed implements [Sticky].
+	// dismissed implements [Insistent].
 	Escape Binding
 	// KeepOnClickOutside stops a press outside the top layer from popping it.
 	// Off by default, because a click on what a modal is covering means the user
@@ -220,6 +220,6 @@ func (s *Stack) escape() Binding {
 
 // sticky reports whether a layer currently refuses to be dismissed.
 func sticky(m Modal) bool {
-	s, ok := m.(Sticky)
-	return ok && s.Sticky()
+	insistent, ok := m.(Insistent)
+	return ok && insistent.Insists()
 }
