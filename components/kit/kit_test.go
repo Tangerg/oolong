@@ -1,6 +1,7 @@
 package kit_test
 
 import (
+	"image"
 	"strings"
 	"testing"
 
@@ -643,5 +644,34 @@ func TestParagraphStillHyperlinksAURL(t *testing.T) {
 
 	if c := s.View().CellAt(len("see "), 0); c == nil || c.Link != "https://a.test" {
 		t.Errorf("the first column of the URL carries %+v", c)
+	}
+}
+
+// TestTheComposerCanBeClickedInto. The field learned the mouse; a composer that did
+// not pass it on would leave the default widget unable to do the first thing anybody
+// tries.
+func TestTheComposerCanBeClickedInto(t *testing.T) {
+	c := &kit.Composer{Theme: kit.Dark(), Prompt: "> "}
+	c.SetText("hello world")
+	c.Editor().SetCursor(0, 0)
+
+	s := grid.NewSurface(30, 3)
+	c.Draw(s.View())
+
+	// Column 8 on screen is column 6 of the field, because the marker takes two.
+	if !c.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+		t.Fatal("the composer ignored a click")
+	}
+	if _, col := c.Editor().Cursor(); col != 6 {
+		t.Errorf("the cursor is at %d, want 6 — the marker's width was not taken off", col)
+	}
+}
+
+func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
+	// A click is about a frame, and there has not been one.
+	c := &kit.Composer{Theme: kit.Dark()}
+	c.SetText("hello")
+	if c.Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+		t.Error("it answered a click about a frame that was never drawn")
 	}
 }

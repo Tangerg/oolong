@@ -1,6 +1,7 @@
 package headless_test
 
 import (
+	"image"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -181,5 +182,210 @@ func TestTheSelectionAndTheCursorAgree(t *testing.T) {
 	}
 	if last[0]+1 != cursor.Pos.X {
 		t.Errorf("the selection ends at column %d and the cursor is at %d", last[0], cursor.Pos.X)
+	}
+}
+
+func click(x, y int) input.Mouse {
+	return input.Mouse{Pos: image.Pt(x, y), Action: input.MouseDown, Button: input.ButtonLeft}
+}
+
+// drag is a pointer moving with the button held, on the first row.
+func drag(x int) input.Mouse {
+	return input.Mouse{Pos: image.Pt(x, 0), Action: input.MouseDrag, Button: input.ButtonLeft}
+}
+
+// TestAFieldCanBeClickedInto. Until this, a text field could be typed into and not
+// clicked into, which is the first thing anybody tries.
+func TestAFieldCanBeClickedInto(t *testing.T) {
+	e := editorWith("hello world")
+	if !e.HandleMouse(click(6, 0), 20) {
+		t.Fatal("the field ignored a click")
+	}
+	if line, col := e.Cursor(); line != 0 || col != 6 {
+		t.Errorf("the cursor is at %d:%d, want 0:6", line, col)
+	}
+}
+
+func TestClickingLandsOnAClusterBoundary(t *testing.T) {
+	// Column three is the second half of the second wide character, and half of one is
+	// not a place a cursor can be.
+	e := editorWith("中文ab")
+	e.HandleMouse(click(3, 0), 20)
+	_, col := e.Cursor()
+	if col != len("中") {
+		t.Errorf("the cursor is at byte %d, want the boundary at %d", col, len("中"))
+	}
+}
+
+func TestClickingAWrappedRow(t *testing.T) {
+	e := editorWith("the quick brown fox jumps")
+	// At width 10 the second row begins at "brown".
+	e.HandleMouse(click(0, 1), 10)
+	_, col := e.Cursor()
+	if got := e.Text()[col:]; got != "brown fox jumps" {
+		t.Errorf("the cursor landed before %q", got)
+	}
+}
+
+func TestClickingBelowTheTextMeansTheEnd(t *testing.T) {
+	// What a click past the last line means in every editor there is.
+	e := editorWith("one\ntwo")
+	e.HandleMouse(click(0, 8), 20)
+	line, col := e.Cursor()
+	if line != 1 || col != len("two") {
+		t.Errorf("the cursor is at %d:%d, want the end", line, col)
+	}
+}
+
+func TestDraggingSelects(t *testing.T) {
+	e := editorWith("hello world")
+	e.HandleMouse(click(0, 0), 20)
+	e.HandleMouse(drag(5), 20)
+	if got := e.Selected(); got != "hello" {
+		t.Errorf("dragging selected %q, want %q", got, "hello")
+	}
+	e.HandleMouse(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseUp}, 20)
+	if got := e.Selected(); got != "hello" {
+		t.Errorf("the selection did not survive the button coming up: %q", got)
+	}
+}
+
+// TestAClickThatDidNotMoveSelectsNothing, because an anchor still on the cursor is a
+// click and not a selection.
+func TestAClickThatDidNotMoveSelectsNothing(t *testing.T) {
+	e := editorWith("hello world")
+	e.HandleMouse(click(3, 0), 20)
+	e.HandleMouse(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp}, 20)
+	if got := e.Selected(); got != "" {
+		t.Errorf("a click selected %q", got)
+	}
+}
+
+func TestAClickReplacesTheSelectionBefore(t *testing.T) {
+	e := editorWith("hello world")
+	e.SelectAll()
+	e.HandleMouse(click(2, 0), 20)
+	if got := e.Selected(); got != "" {
+		t.Errorf("the old selection survived a click: %q", got)
+	}
+}
+
+func TestTheFieldIgnoresWhatIsNotItsToAnswer(t *testing.T) {
+	e := editorWith("hello")
+	for _, ev := range []input.Mouse{
+		{Pos: image.Pt(1, 0), Action: input.MouseDown, Button: input.ButtonRight},
+		{Pos: image.Pt(1, 0), Action: input.MouseMove},
+		{Pos: image.Pt(1, 0), Action: input.WheelDown},
+		// A drag with nothing started by a press of its own.
+		drag(3),
+	} {
+		if e.HandleMouse(ev, 20) {
+			t.Errorf("the field consumed %+v", ev)
+		}
+	}
+	if e.HandleMouse(click(1, 0), 0) {
+		t.Error("the field answered a click in a box of no width")
+	}
+	if e.HandleMouse(click(-1, -1), 20) {
+		t.Error("the field answered a click outside it")
+	}
+}
+
+// TestClickingStepsOverAnElement, the same rule moving does: a chip is one thing, and
+// a cursor inside it has no position a reader could account for.
+func TestClickingStepsOverAnElement(t *testing.T) {
+	e := editorWith("")
+	e.InsertElement(fileChip, "@main.go")
+	e.HandleMouse(click(3, 0), 40)
+	_, col := e.Cursor()
+	if col != len("@main.go") {
+		t.Errorf("a click inside the element put the cursor at %d, want past it", col)
+	}
+}
+
+// TestClickingAgreesWithWhereTheTextWasDrawn is the property all three walks share.
+// A click, a cursor and a selection read the same rows, or they disagree exactly when
+// the text is interesting.
+func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
+	const width = 12
+	e := editorWith("中文 mixed 文字 with wide ones")
+	screen := grid.NewScreen(width, 8)
+
+	// Only the rows the text actually has: below them a click means the end, which is
+	// a different promise and has its own test.
+	for y := range e.Measure(width) {
+		for x := range width {
+			e.HandleMouse(click(x, y), width)
+			frame := screen.Frame()
+			e.Draw(frame)
+			cursor := screen.Cursor()
+			if !cursor.Visible {
+				continue
+			}
+			// The cursor lands on the row that was clicked and no further right than
+			// the click — or at the start of the row below, which is the same
+			// position in the text: where a row was broken by the width, the offset
+			// after its last character and the offset before the next row's first
+			// are one offset with two places on screen, and this editor draws it in
+			// the second. A click past the end of a wrapped row therefore shows the
+			// caret at the start of the next.
+			onward := cursor.Pos.Y == y+1 && cursor.Pos.X == 0
+			if onward {
+				continue
+			}
+			if cursor.Pos.Y != y {
+				t.Fatalf("a click at (%d,%d) put the cursor at (%d,%d)", x, y, cursor.Pos.X, cursor.Pos.Y)
+			}
+			if cursor.Pos.X > x {
+				t.Fatalf("a click at (%d,%d) put the cursor at column %d", x, y, cursor.Pos.X)
+			}
+		}
+	}
+}
+
+func TestClickingAnEmptyField(t *testing.T) {
+	// An empty field still has a row, because a blank line in a composer is a blank
+	// line on screen. A click anywhere in it lands on the only position there is.
+	e := headless.NewEditor()
+	at, ok := e.At(4, 5, 20)
+	if !ok {
+		t.Fatal("a click in an empty field found nothing")
+	}
+	if at != (headless.Caret{}) {
+		t.Errorf("it landed at %+v, want the start", at)
+	}
+}
+
+func TestSpansOfARangeOutsideTheText(t *testing.T) {
+	e := editorWith("one\ntwo")
+	// A range whose lines are not there covers nothing rather than indexing past the
+	// end.
+	if got := e.Spans(headless.Caret{Line: 5}, headless.Caret{Line: 9}, 20); len(got) != 0 {
+		t.Errorf("covered %+v", got)
+	}
+}
+
+func TestDraggingUpwardsSelects(t *testing.T) {
+	// The other direction, which exercises the ordering the anchor is kept for.
+	e := editorWith("hello world")
+	e.HandleMouse(click(11, 0), 20)
+	e.HandleMouse(drag(6), 20)
+	if got := e.Selected(); got != "world" {
+		t.Errorf("dragging back selected %q, want %q", got, "world")
+	}
+}
+
+func TestDraggingOffTheFieldChangesNothing(t *testing.T) {
+	// A drag that leaves the box entirely has no position to move to, and moving the
+	// far end to a guess would select something nobody dragged over.
+	e := editorWith("hello world")
+	e.HandleMouse(click(0, 0), 20)
+	e.HandleMouse(drag(2), 20)
+	before := e.Selected()
+	if e.HandleMouse(drag(-5), 20) {
+		t.Error("a drag outside the field was consumed")
+	}
+	if got := e.Selected(); got != before {
+		t.Errorf("the selection became %q, want it left at %q", got, before)
 	}
 }

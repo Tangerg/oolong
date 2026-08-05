@@ -402,3 +402,13 @@ func TestSelectLineOfNothing(t *testing.T) {
 		t.Error("a selection over no transcript found a line")
 	}
 }
+
+func TestClicksBreakWhenThePointerMovesUpAndLeft(t *testing.T) {
+	// The other sign, which is the branch a single direction of drift never reaches.
+	var c headless.Clicks
+	base := time.Unix(0, 0)
+	c.Press(image.Pt(10, 4), base)
+	if got := c.Press(image.Pt(4, 1), base.Add(50*time.Millisecond)); got != 1 {
+		t.Errorf("a press up and to the left is %d, want 1", got)
+	}
+}

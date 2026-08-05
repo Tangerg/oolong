@@ -33,6 +33,9 @@ type Composer struct {
 	MaxRows int
 
 	editor headless.Editor
+	// width is how wide the field was in the last frame, which is what a click has to
+	// be resolved against: a click is about a frame that has already been drawn.
+	width int
 }
 
 // DefaultComposerRows is how tall a composer grows before it starts scrolling:
@@ -56,7 +59,21 @@ func (c *Composer) Reset() { c.editor.Clear() }
 func (c *Composer) Editor() *headless.Editor { return &c.editor }
 
 // Handle passes input to the field.
-func (c *Composer) Handle(ev input.Event) bool { return c.editor.Handle(ev) }
+//
+// A mouse event is translated into the field's own box first, which is something only
+// whatever drew the composer can do: the field is inset by the marker and the position
+// on screen means nothing to it. The width is remembered from the last frame, because
+// a click can only be about a frame that has already been drawn.
+func (c *Composer) Handle(ev input.Event) bool {
+	if mouse, ok := ev.(input.Mouse); ok {
+		if c.width <= 0 {
+			return false
+		}
+		mouse.Pos.X -= c.markerWidth()
+		return c.editor.HandleMouse(mouse, c.width)
+	}
+	return c.editor.Handle(ev)
+}
 
 // Measure is how many rows the composer needs at this width: the field, and a row
 // for the hints when there are any.
@@ -72,6 +89,7 @@ func (c *Composer) Draw(v grid.View) {
 		return
 	}
 	c.editor.MaxRows = c.rows()
+	c.width = max(width-c.markerWidth(), 0)
 	c.editor.Style = c.Theme.Text
 	c.editor.PlaceholderStyle = c.Theme.Subtle
 	c.editor.SelectionStyle = c.Theme.Selection
