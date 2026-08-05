@@ -14,6 +14,30 @@ const (
 	// back as command 11 with an XParseColor specification in it.
 	queryBackground = "\x1b]11;?\x07"
 
+	// queryVersion asks the terminal to name itself.
+	//
+	// It is the question worth asking most, because everything else this library does
+	// to identify a terminal reads environment variables — and those do not survive
+	// ssh, do not exist in a container, and are rewritten by a multiplexer. A terminal
+	// that answers this has told the truth about itself; one that does not leaves the
+	// environment as the only evidence there was.
+	queryVersion = "\x1b[>0q"
+
+	// queryDeviceVersion asks for a version number rather than a name.
+	//
+	// It is for the terminals that answer nothing else: Alacritty exports no version
+	// in its environment and declines to answer the question above, and this is what
+	// it does answer.
+	queryDeviceVersion = "\x1b[>0c"
+
+	// queryKeyboard asks which of the Kitty keyboard protocol's enhancements are
+	// actually on, which is not the same as which were asked for.
+	//
+	// It must be written after the request that turns them on, which is what modes
+	// does before any of this runs. Asking first would report the state of a terminal
+	// this session had not spoken to yet.
+	queryKeyboard = "\x1b[?u"
+
 	// queryAttributes asks the terminal what it is.
 	//
 	// It is sent after every other question as the marker that the answers are
@@ -55,6 +79,17 @@ type answers struct {
 	hasBg      bool
 	attributes input.DeviceAttributes
 	hasAttrs   bool
+	// name is what the terminal called itself, which outranks anything the
+	// environment says.
+	name    string
+	hasName bool
+	// version is the number a terminal gives when it will not give a name.
+	version    input.DeviceVersion
+	hasVersion bool
+	// keyboard is which of the Kitty protocol's enhancements are on, which is not
+	// the same as which were asked for.
+	keyboard    input.KeyboardFlags
+	hasKeyboard bool
 }
 
 // run asks everything worth asking and returns what came back.
@@ -64,7 +99,8 @@ type answers struct {
 // without knowing any of this — so none of them is an error.
 func (p *probe) run() answers {
 	var got answers
-	if _, err := p.out.WriteString(queryBackground + queryAttributes); err != nil {
+	if _, err := p.out.WriteString(queryBackground + queryVersion + queryDeviceVersion +
+		queryKeyboard + queryAttributes); err != nil {
 		return got
 	}
 
@@ -96,6 +132,17 @@ func (p *probe) take(ev input.Event, got *answers) {
 		// An answer to a question this program did not ask. It is still addressed
 		// to the program rather than to the terminal, so it is passed on.
 		p.early = append(p.early, ev)
+	case input.DCS:
+		if name, found := strings.CutPrefix(ev.Body, ">|"); found {
+			got.name, got.hasName = name, true
+			return
+		}
+		// An answer to something else. It is still addressed to the program.
+		p.early = append(p.early, ev)
+	case input.DeviceVersion:
+		got.version, got.hasVersion = ev, true
+	case input.KeyboardFlags:
+		got.keyboard, got.hasKeyboard = ev, true
 	case input.DeviceAttributes:
 		got.attributes, got.hasAttrs = ev, true
 	default:

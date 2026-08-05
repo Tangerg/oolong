@@ -276,6 +276,73 @@ type OSC struct {
 
 func (OSC) terminalEvent() {}
 
+// DCS is a device control string the terminal sent.
+//
+// It is the other shape an answer comes in, and the one that carries a terminal's own
+// name and version — the reply to the version query is ">|kitty(0.32.2)". There is no
+// command number and no single grammar, so the body comes back as it was written and
+// what it means is decided by whoever asked.
+//
+// Only the shapes a terminal actually replies in are decoded as one. See the package's
+// own notes on why: the introducer is also Alt+Shift+P.
+type DCS struct{ Body string }
+
+func (DCS) terminalEvent() {}
+
+// KeyboardFlags is a terminal's answer about which of the Kitty keyboard protocol's
+// enhancements are turned on.
+//
+// Asking is not the same as being answered, and being answered is not the same as
+// having asked. A terminal may accept the request for unambiguous key codes and give
+// nothing for key releases — the protocol is live, the teardown still owes a pop, and
+// no release ever arrives. Nothing in the events themselves distinguishes that from a
+// user who simply has not lifted a key, so the only way to know is to read back what
+// took.
+type KeyboardFlags struct{ Flags int }
+
+func (KeyboardFlags) terminalEvent() {}
+
+// The Kitty keyboard protocol's progressive enhancements, as the bits a terminal
+// reports them in.
+const (
+	// KittyDisambiguate makes every key arrive as an unambiguous code rather than as
+	// whatever byte it historically produced. It is what makes Shift+Enter and
+	// Ctrl+Enter tellable apart from Enter.
+	KittyDisambiguate = 1 << iota
+	// KittyReportEvents adds key releases and repeats. Without it a key going down is
+	// all there is, and anything held cannot be known to have been let go.
+	KittyReportEvents
+	// KittyReportAlternates adds the key a different layout would have produced.
+	KittyReportAlternates
+	// KittyReportAllAsEscapes makes even plain letters arrive as sequences.
+	KittyReportAllAsEscapes
+	// KittyReportText adds the text a key produced, which the terminal knows and a
+	// program guessing from a keycode does not.
+	KittyReportText
+)
+
+// Has reports whether a flag is among those the terminal turned on.
+func (k KeyboardFlags) Has(flag int) bool { return k.Flags&flag == flag }
+
+// DeviceVersion is a terminal's answer to being asked which version of itself it is.
+//
+// It is the query for the terminals that answer nothing else. Alacritty exports no
+// version in the environment and declines the version string on principle; this is
+// what it does answer.
+//
+// The numbers are as the terminal sent them, because what they mean is the terminal's
+// convention and not a standard: most pack a version as major, minor and patch into
+// [DeviceVersion.Version], and reading it as anything is a bet on which terminal is
+// being asked.
+type DeviceVersion struct {
+	// Kind is the terminal class number, which says very little.
+	Kind int
+	// Version and Patch are what it reported.
+	Version, Patch int
+}
+
+func (DeviceVersion) terminalEvent() {}
+
 // DeviceAttributes is a terminal's answer to being asked what it is.
 //
 // Every terminal answers this one, which makes it useful for more than what it

@@ -339,3 +339,171 @@ func TestGraphicsPrefersAHandleOverAClaim(t *testing.T) {
 		t.Errorf("= %v, want kitty", got)
 	}
 }
+
+// TestTheTerminalNamesItself is the answer worth more than any variable. An
+// environment describes the terminal a session started from; over ssh, in a container,
+// or under a multiplexer that is not the one it is talking to.
+func TestTheTerminalNamesItself(t *testing.T) {
+	tty, _ := answered(t, "\x1bP>|kitty(0.32.2)\x1b\\\x1b[?62c")
+
+	name, ok := tty.Name()
+	if !ok {
+		t.Fatal("the terminal named itself and the session did not learn it")
+	}
+	if name != "kitty(0.32.2)" {
+		t.Errorf("name = %q", name)
+	}
+}
+
+// TestTheNameDecidesTheProtocol, whatever the environment left behind.
+func TestTheNameDecidesTheProtocol(t *testing.T) {
+	for _, k := range []string{"KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "LC_TERMINAL"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
+
+	tty, _ := answered(t, "\x1bP>|kitty(0.32.2)\x1b\\\x1b[?62c")
+	if got := tty.Graphics(); got != graphics.Kitty {
+		t.Errorf("graphics = %v, want kitty — the environment was stale", got)
+	}
+	if got := tty.Wheel(); got != (input.Wheel{Reports: 3, Rows: 3}) {
+		t.Errorf("wheel = %+v, want kitty's", got)
+	}
+}
+
+func TestTheVersionNumberWhenThereIsNoName(t *testing.T) {
+	// Alacritty exports no version and declines to name itself; this is what it does
+	// answer.
+	tty, _ := answered(t, "\x1b[>0;10000;1c\x1b[?62c")
+
+	if _, ok := tty.Name(); ok {
+		t.Error("a name was reported by a terminal that gave none")
+	}
+	version, ok := tty.Version()
+	if !ok {
+		t.Fatal("the version was not kept")
+	}
+	if version.Version != 10000 {
+		t.Errorf("version = %+v", version)
+	}
+}
+
+// TestWhichKeyboardEnhancementsTookEffect. Asking for them is not the same as getting
+// them, and the difference is invisible in the events: a terminal that accepts
+// disambiguation and gives nothing for releases leaves every key held for ever as far
+// as this program can tell.
+func TestWhichKeyboardEnhancementsTookEffect(t *testing.T) {
+	// Only disambiguation, which is what an older Alacritty does.
+	tty, _ := answered(t, "\x1b[?1u\x1b[?62c")
+
+	flags, ok := tty.Keyboard()
+	if !ok {
+		t.Fatal("the terminal answered and the session did not learn it")
+	}
+	if !flags.Has(input.KittyDisambiguate) {
+		t.Error("disambiguation was not reported")
+	}
+	if flags.Has(input.KittyReportEvents) {
+		t.Error("releases were reported by a terminal that turned them off")
+	}
+}
+
+func TestATerminalThatSaysNothingAboutItsKeyboard(t *testing.T) {
+	tty, _ := answered(t, "\x1b[?62c")
+	if _, ok := tty.Keyboard(); ok {
+		t.Error("flags were reported by a terminal that said nothing")
+	}
+	if _, ok := tty.Name(); ok {
+		t.Error("a name was reported by a terminal that said nothing")
+	}
+	if _, ok := tty.Version(); ok {
+		t.Error("a version was reported by a terminal that said nothing")
+	}
+}
+
+// TestNoAnswerIsReadAsTyping is the defect all of this was found by. Every one of
+// these used to arrive as keystrokes — the keyboard flags as one invisible control
+// character, the version string as fifteen.
+func TestNoAnswerIsReadAsTyping(t *testing.T) {
+	tty, _ := answered(t, "\x1bP>|kitty(0.32.2)\x1b\\\x1b[>0;276;0c\x1b[?31u\x1b[?62c!")
+
+	// The only thing the session should see is the exclamation mark typed after them.
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the keystroke never arrived")
+		}
+		if _, resize := ev.(input.Resize); resize {
+			continue // the opening size, which every session is told
+		}
+		key, isKey := ev.(input.Key)
+		if !isKey {
+			t.Fatalf("an answer reached the session as %T %+v", ev, ev)
+		}
+		if !key.IsRune('!', 0) {
+			t.Fatalf("an answer reached the session as the key %+v", key)
+		}
+		return
+	}
+}
+
+func TestReportingTheDirectory(t *testing.T) {
+	tty, primary := open(t, term.Options{})
+	if err := tty.ReportDirectory("/tmp/some dir/x"); err != nil {
+		t.Fatalf("ReportDirectory: %v", err)
+	}
+	got := read(t, primary, time.Second)
+	if !strings.Contains(got, "\x1b]7;file://") {
+		t.Errorf("the terminal was sent %q, which does not report a directory", got)
+	}
+	// The separators survive and the space does not, or no terminal resolves it.
+	if !strings.Contains(got, "/tmp/some%20dir/x") {
+		t.Errorf("the path came out as %q", got)
+	}
+}
+
+func TestReportingTheDirectoryDefaultsToThisOne(t *testing.T) {
+	tty, primary := open(t, term.Options{})
+	if err := tty.ReportDirectory(""); err != nil {
+		t.Fatalf("ReportDirectory: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Skip("no working directory")
+	}
+	if got := read(t, primary, time.Second); !strings.Contains(got, cwd) {
+		t.Errorf("the terminal was sent %q, want the working directory %q", got, cwd)
+	}
+}
+
+func TestAnAnswerToSomethingElseIsPassedOn(t *testing.T) {
+	// A device control string that is not the version answers a question this session
+	// did not ask, and is still addressed to the program.
+	tty, _ := answered(t, "\x1bP1$r0 q\x1b\\\x1b[?62c")
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the answer never arrived")
+		}
+		if dcs, isDCS := ev.(input.DCS); isDCS {
+			if dcs.Body != "1$r0 q" {
+				t.Errorf("body = %q", dcs.Body)
+			}
+			return
+		}
+	}
+}
+
+func TestReportingADirectoryThatCannotBeMadeAbsolute(t *testing.T) {
+	// A path is made absolute because a relative one tells the terminal nothing it did
+	// not already have.
+	tty, primary := open(t, term.Options{})
+	if err := tty.ReportDirectory("relative/path"); err != nil {
+		t.Fatalf("ReportDirectory: %v", err)
+	}
+	got := read(t, primary, time.Second)
+	if !strings.Contains(got, "/relative/path") || strings.Contains(got, "file://relative") {
+		t.Errorf("the terminal was sent %q, want an absolute path", got)
+	}
+}

@@ -65,11 +65,11 @@ type Parser struct {
 	// are text rather than input to interpret.
 	pasting bool
 	paste   []byte
-	// inOSC is set between an operating system command's head and its terminator,
-	// when bytes are that command's parameters rather than input to interpret.
-	inOSC     bool
-	oscCmd    int
-	oscParams []byte
+	// str is the kind of string being accumulated, between its head and its
+	// terminator, when bytes are its body rather than input to interpret.
+	str     stringKind
+	oscCmd  int
+	strBody []byte
 	// dropping is set when a sequence overran what one can hold, and stays set
 	// until that sequence ends. See [Parser.skipParams] and [Parser.skipString].
 	dropping dropping
@@ -119,8 +119,8 @@ func (p *Parser) drain(final bool) []Event {
 			}
 			continue
 		}
-		if p.inOSC {
-			ev, done := p.readOSC()
+		if p.str != noString {
+			ev, done := p.readString()
 			if !done {
 				return events
 			}
@@ -336,10 +336,20 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 		cmd, size := oscHead(b)
 		switch {
 		case size > 0:
-			p.beginOSC(cmd)
+			p.beginString(oscString, cmd)
 			return size, nil, true
 		case size == 0:
 			return 0, nil, false // too few bytes to tell a command from the key
+		default:
+			return decodeAlt(b)
+		}
+	case second == dcsIntro:
+		switch size := dcsHead(b); {
+		case size > 0:
+			p.beginString(dcsString, 0)
+			return size, nil, true
+		case size == 0:
+			return 0, nil, false
 		default:
 			return decodeAlt(b)
 		}
@@ -409,11 +419,19 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	n = i + 1
 	ps := parseParams(string(b[2:i]))
 
+	// A private marker says the sequence is a report and not a key, because a key
+	// never carries one. So anything with a marker is answered by decodeReport or
+	// dropped, and nothing carrying one can reach the code below that reads keys.
+	//
+	// The rule is the fix for a whole class rather than for the two reports that were
+	// found broken. Dispatching on the final byte alone let a keyboard-flags reply —
+	// "CSI ? 31 u" — decode as a keystroke of an invisible control character, which is
+	// a defect that hides itself: printing the events showed an empty pair of brackets.
+	if ps.private != 0 {
+		return n, decodeReport(ps, final), true
+	}
+
 	switch {
-	case ps.mouse() && (final == 'M' || final == 'm'):
-		return n, decodeMouse(ps, final == 'M'), true
-	case ps.private == '?' && final == 'c':
-		return n, ps.deviceAttributes(), true
 	case ps.empty() && final == 'I':
 		return n, FocusIn{}, true
 	case ps.empty() && final == 'O':

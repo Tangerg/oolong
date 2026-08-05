@@ -261,14 +261,20 @@ func Fit(pxW, pxH, cellW, cellH, maxCols, maxRows int) (cols, rows int) {
 //
 // WezTerm speaks iTerm2's protocol too and is listed here rather than there, because
 // where both are available the one with handles is the one worth having.
-var kittyPrograms = []string{"ghostty", "wezterm", "warp"}
+var kittyPrograms = []string{"kitty", "ghostty", "wezterm", "warp"}
 
 // iterm2Programs are the same for iTerm2's protocol.
-var iterm2Programs = []string{"iterm.app", "mintty"}
+// The substring that identifies each, not its full name: a terminal names itself
+// differently in every place it is asked. iTerm2 is "iTerm.app" in TERM_PROGRAM,
+// "iTerm2" in LC_TERMINAL, and "iTerm2 3.5.0" when it is asked directly.
+var iterm2Programs = []string{"iterm", "mintty"}
 
 // DetectIn works out the richest protocol a terminal supports.
 //
-// It takes two facts because one is not enough. The environment names the terminal,
+// name is what the terminal said it was when asked, or empty when nothing was asked or
+// nothing answered. It outranks the environment for the reason above.
+//
+// It takes these facts because fewer are not enough. The environment names the terminal,
 // which is how kitty's protocol and iTerm2's are found; nothing in the environment
 // names sixel, so a terminal that supports sixel and nothing else is
 // indistinguishable from a terminal that supports nothing. That answer only comes
@@ -280,31 +286,42 @@ var iterm2Programs = []string{"iterm.app", "mintty"}
 // test passes whatever it wants the terminal to be. There is no cached global and no
 // override hook, for the same reason there is no global palette — a program with two
 // terminals could not have two answers, and a test could not pin either.
-func DetectIn(getenv func(string) string, sixel bool) Protocol {
+func DetectIn(getenv func(string) string, name string, sixel bool) Protocol {
+	// What the terminal called itself, first. An environment describes the terminal a
+	// session was started from, which over ssh, in a container, or under a multiplexer
+	// is not the terminal it is talking to; an answer to a question came from the one
+	// that is actually drawing.
+	if p, ok := named(name); ok {
+		return p
+	}
 	if getenv("KITTY_WINDOW_ID") != "" || getenv("GHOSTTY_RESOURCES_DIR") != "" {
 		return Kitty
 	}
-	if strings.Contains(getenv("TERM"), "kitty") {
-		return Kitty
-	}
-	program := strings.ToLower(getenv("TERM_PROGRAM"))
-	for _, name := range kittyPrograms {
-		if program != "" && strings.Contains(program, name) {
-			return Kitty
-		}
-	}
-	// iTerm2 sets its own variable as well, and a shell that carried LC_TERMINAL
-	// across an ssh hop is the case TERM_PROGRAM does not survive.
-	if strings.Contains(strings.ToLower(getenv("LC_TERMINAL")), "iterm") {
-		return ITerm2
-	}
-	for _, name := range iterm2Programs {
-		if program != "" && strings.Contains(program, name) {
-			return ITerm2
-		}
+	if p, ok := named(getenv("TERM") + " " + getenv("TERM_PROGRAM") + " " + getenv("LC_TERMINAL")); ok {
+		return p
 	}
 	if sixel {
 		return Sixel
 	}
 	return None
+}
+
+// named is the protocol whichever terminal an identity names speaks, if it is one this
+// package knows.
+func named(identity string) (Protocol, bool) {
+	if identity == "" {
+		return None, false
+	}
+	identity = strings.ToLower(identity)
+	for _, name := range kittyPrograms {
+		if strings.Contains(identity, name) {
+			return Kitty, true
+		}
+	}
+	for _, name := range iterm2Programs {
+		if strings.Contains(identity, name) {
+			return ITerm2, true
+		}
+	}
+	return None, false
 }

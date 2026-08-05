@@ -65,4 +65,4 @@ const sixelAttribute = 4
 // no environment variable names sixel, so the only way to learn about it is to ask,
 // and asking needs a terminal. [Terminal.Graphics] is that answer; this is the one
 // available to code holding no terminal at all.
-func DetectGraphics() graphics.Protocol { return graphics.DetectIn(os.Getenv, false) }
+func DetectGraphics() graphics.Protocol { return graphics.DetectIn(os.Getenv, "", false) }

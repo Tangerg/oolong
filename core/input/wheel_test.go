@@ -61,7 +61,7 @@ func TestWheelForKnowsWhoSendsWhat(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := input.WheelFor(env(tc.env)); got != tc.want {
+			if got := input.WheelFor(env(tc.env), ""); got != tc.want {
 				t.Errorf("got %+v, want %+v", got, tc.want)
 			}
 		})
@@ -84,7 +84,7 @@ func TestAMultiplexerAnswersForItself(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := input.Wheel{Reports: 1, Rows: 3}
-			if got := input.WheelFor(env(tc.env)); got != want {
+			if got := input.WheelFor(env(tc.env), ""); got != want {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
@@ -92,7 +92,7 @@ func TestAMultiplexerAnswersForItself(t *testing.T) {
 }
 
 func TestWheelForWithNothingToAsk(t *testing.T) {
-	if got := input.WheelFor(nil); got != (input.Wheel{}) {
+	if got := input.WheelFor(nil, ""); got != (input.Wheel{}) {
 		t.Errorf("got %+v, want the zero value", got)
 	}
 }
@@ -177,5 +177,19 @@ func TestTheZeroAdvanceScrollsOneRowAReport(t *testing.T) {
 	var a input.Advance
 	if got := a.By(1); got != 1 {
 		t.Errorf("got %d, want one row", got)
+	}
+}
+
+// TestWhatTheTerminalSaidOutranksTheEnvironment, because an environment is about the
+// terminal a session started from and not the one it is talking to.
+func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
+	// Started from Apple Terminal, ssh'd somewhere, actually talking to iTerm2.
+	stale := map[string]string{"TERM_PROGRAM": "Apple_Terminal"}
+	if got := input.WheelFor(env(stale), "iTerm2 3.5.0"); got != (input.Wheel{Reports: 1, Rows: 3}) {
+		t.Errorf("= %+v, want iTerm2's one report a notch", got)
+	}
+	// And a name nobody knows falls back to whatever the environment says.
+	if got := input.WheelFor(env(stale), "SomeNewTerminal 1.0"); got != (input.Wheel{Reports: 3, Rows: 3}) {
+		t.Errorf("= %+v, want the environment's answer", got)
 	}
 }

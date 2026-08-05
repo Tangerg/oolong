@@ -42,6 +42,13 @@ var seeds = []string{
 	"\x1b]999999;x\x07",
 	"\x1b]52;unterminated",
 	"\x1b]52;abandoned\x1bmore",
+	"\x1bP>|kitty(0.32.2)\x1b\\",
+	"\x1bP1$r0 q\x1b\\",
+	"\x1bP",
+	"\x1bPnot a reply",
+	"\x1b[?31u",
+	"\x1b[>0;276;0c",
+	"\x1b[?2026$y",
 	"\xff\xfe\xfd",
 	"\xe4\xb8",
 	"中文",
@@ -102,6 +109,10 @@ func FuzzParserEmitsOnlyValidText(f *testing.F) {
 			case input.OSC:
 				if !utf8.ValidString(ev.Params) {
 					t.Fatalf("command %d carries %q, which is not valid UTF-8", ev.Command, ev.Params)
+				}
+			case input.DCS:
+				if !utf8.ValidString(ev.Body) {
+					t.Fatalf("a device control string carries %q, which is not valid UTF-8", ev.Body)
 				}
 			case input.Key:
 				if ev.Text != "" && !utf8.ValidString(ev.Text) {

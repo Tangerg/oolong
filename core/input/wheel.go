@@ -73,7 +73,12 @@ var wheelProfiles = []struct {
 	{"rio", Wheel{Reports: 3, Rows: 3}},
 }
 
-// WheelFor is what the terminal this environment describes does with its wheel.
+// WheelFor is what a terminal does with its wheel.
+//
+// name is what the terminal said it was when asked, and outranks everything else: an
+// environment describes the terminal a session was started from, which over ssh, in a
+// container, or under a multiplexer is not the terminal it is talking to. An empty name
+// means nothing was asked, or nothing answered, and the environment is all there is.
 //
 // # Multiplexers
 //
@@ -86,26 +91,40 @@ var wheelProfiles = []struct {
 // The lookup is passed in rather than read, for the same reason it is everywhere else
 // in this library: this package is a function of its inputs, and a test that could not
 // say what terminal it was in could not check any of these answers.
-func WheelFor(getenv func(string) string) Wheel {
+func WheelFor(getenv func(string) string, name string) Wheel {
+	if wheel, ok := profileOf(name); ok {
+		return wheel
+	}
 	if getenv == nil {
 		return Wheel{}
 	}
 	if multiplexed(getenv) {
 		return Wheel{Reports: 1, Rows: 3}
 	}
-	identity := strings.ToLower(strings.Join([]string{
-		getenv("TERM"), getenv("TERM_PROGRAM"), getenv("LC_TERMINAL"),
-	}, " "))
 	if getenv("KITTY_WINDOW_ID") != "" || getenv("GHOSTTY_RESOURCES_DIR") != "" ||
 		getenv("ALACRITTY_SOCKET") != "" {
 		return Wheel{Reports: 3, Rows: 3}
 	}
-	for _, profile := range wheelProfiles {
-		if strings.Contains(identity, profile.name) {
-			return profile.wheel
-		}
+	if wheel, ok := profileOf(strings.Join([]string{
+		getenv("TERM"), getenv("TERM_PROGRAM"), getenv("LC_TERMINAL"),
+	}, " ")); ok {
+		return wheel
 	}
 	return Wheel{}
+}
+
+// profileOf is the profile of whichever terminal an identity names.
+func profileOf(identity string) (Wheel, bool) {
+	if identity == "" {
+		return Wheel{}, false
+	}
+	identity = strings.ToLower(identity)
+	for _, profile := range wheelProfiles {
+		if strings.Contains(identity, profile.name) {
+			return profile.wheel, true
+		}
+	}
+	return Wheel{}, false
 }
 
 // multiplexed reports whether something between the terminal and this program is

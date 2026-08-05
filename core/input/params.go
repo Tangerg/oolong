@@ -73,9 +73,6 @@ func parseParam(s string) int {
 // empty reports whether the sequence carried no parameters.
 func (ps params) empty() bool { return len(ps.groups) == 0 }
 
-// mouse reports whether the sequence is a mouse report.
-func (ps params) mouse() bool { return ps.private == '<' }
-
 // first is the leading parameter, or zero when there was none. Zero is the
 // protocol's own default for a missing parameter, so a caller need not distinguish.
 func (ps params) first() int { return ps.at(0) }

@@ -33,6 +33,7 @@ type host struct {
 	w, h   int
 	bg     grid.RGB
 	saidBg bool
+	wheel  input.Wheel
 
 	// clip stands in for a system clipboard, so a test can assert on what was put
 	// there instead of on the bytes that would have asked a terminal to do it.
@@ -932,5 +933,25 @@ func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
 	r.until("the key after the unanswered request", func() bool { return rec.handled.Load() >= 1 })
 	if got := rec.pasted(); len(got) != 0 {
 		t.Errorf("an unanswered request produced the paste %q", got)
+	}
+}
+
+func (h *host) Wheel() input.Wheel { return h.wheel }
+
+func TestAComponentLearnsWhatANotchIs(t *testing.T) {
+	// The fact a scroll cannot work out for itself and a component cannot read from
+	// anywhere else.
+	h := newHost()
+	h.wheel = input.Wheel{Reports: 1, Rows: 3}
+
+	got := make(chan input.Wheel, 1)
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		got <- l.Wheel()
+		return &component{text: "ready", consume: true, loop: l}
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+
+	if want := (input.Wheel{Reports: 1, Rows: 3}); <-got != want {
+		t.Errorf("the component was told %+v", want)
 	}
 }

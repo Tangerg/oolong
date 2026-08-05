@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -240,6 +242,56 @@ func (t *Terminal) Paste() {
 	t.writer.Queue([]byte(clipboard.Request(clipboard.System)))
 }
 
+// Name is what the terminal called itself when asked, and whether it answered.
+//
+// It is worth more than anything the environment says, which is why everything here
+// that identifies a terminal prefers it. Environment variables do not survive ssh, do
+// not exist in a container, and are rewritten by a multiplexer; an answer to this came
+// from the terminal that is actually drawing.
+//
+// The form is whatever the terminal chose — "kitty(0.32.2)", "WezTerm 20240203" — so
+// it is matched against and not parsed.
+func (t *Terminal) Name() (string, bool) { return t.said.name, t.said.hasName }
+
+// Version is the number a terminal gives when it will not give a name, and whether it
+// gave one. See [input.DeviceVersion] for why the numbers are not interpreted here.
+func (t *Terminal) Version() (input.DeviceVersion, bool) {
+	return t.said.version, t.said.hasVersion
+}
+
+// Keyboard is which of the Kitty keyboard protocol's enhancements the terminal
+// actually turned on, and whether it said.
+//
+// Asking for them is not the same as getting them, and that difference is invisible in
+// the events themselves. A terminal can accept the request for unambiguous key codes
+// and give nothing for key releases: the protocol is live, Shift+Enter works, the
+// teardown still owes a pop — and every key is held forever as far as this program can
+// tell. A component that waits for a key to be let go would wait for ever, and nothing
+// would say why.
+//
+// A session that did not ask for the protocol, or a terminal that does not implement
+// it, reports false.
+func (t *Terminal) Keyboard() (input.KeyboardFlags, bool) {
+	return t.said.keyboard, t.said.hasKeyboard
+}
+
+// identity is what to match a terminal against: what it called itself when asked, and
+// nothing when it did not.
+func (t *Terminal) identity() string {
+	if t.said.hasName {
+		return t.said.name
+	}
+	return ""
+}
+
+// Wheel is what this terminal's wheel reports are worth.
+//
+// It prefers what the terminal said it was over what the environment claims, for the
+// reason [Terminal.Name] gives.
+func (t *Terminal) Wheel() input.Wheel {
+	return input.WheelFor(os.Getenv, t.identity())
+}
+
 // Graphics is the richest way this terminal will take an image.
 //
 // It is the environment and the terminal's own claims together, which is what it
@@ -248,7 +300,62 @@ func (t *Terminal) Paste() {
 // alone supports, which is the same as [DetectGraphics].
 func (t *Terminal) Graphics() graphics.Protocol {
 	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
-	return graphics.DetectIn(os.Getenv, sixel)
+	return graphics.DetectIn(os.Getenv, t.identity(), sixel)
+}
+
+// ReportDirectory tells the terminal which directory the program is working in.
+//
+// It is the other half of leaving relative paths alone. A terminal finds paths in its
+// own output and offers to open them, and it can only resolve "src/main.go" against a
+// directory it knows — which, once a program has changed its own, is not the one the
+// shell started in. Without this the terminal's own path handling quietly stops
+// working for exactly the output a program produces, and the reason a program declines
+// to make a relative path a hyperlink is that the terminal would do it better.
+//
+// The path is made absolute, because a relative one tells the terminal nothing it did
+// not already have. An empty path reports the process's own working directory.
+//
+// It is written beside the frames, so it lands between two of them and never inside
+// one. A terminal that does not implement it ignores it.
+func (t *Terminal) ReportDirectory(path string) error {
+	if path == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("term: report the directory: %w", err)
+		}
+		path = cwd
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("term: report the directory: %w", err)
+	}
+	// The host is part of the form and is what tells a terminal on the other end of an
+	// ssh connection that the path is not one of its own. A machine that cannot name
+	// itself reports none, which is the form's own way of saying "wherever this is".
+	host, _ := os.Hostname()
+	t.writer.Queue([]byte("\x1b]7;file://" + host + pathEscape(abs) + "\x1b\\"))
+	return nil
+}
+
+// pathEscape percent-encodes the bytes of a path that cannot appear in a URL.
+//
+// url.PathEscape is not it: that escapes the separators too, and a path whose slashes
+// are %2F is a path no terminal will resolve. What has to go is the small set that
+// would end the sequence or be read as part of the URL's own syntax.
+func pathEscape(path string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := range len(path) {
+		switch c := path[i]; {
+		case c > 0x20 && c < 0x7f && c != '%' && c != '#' && c != '?':
+			b.WriteByte(c)
+		default:
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0f])
+		}
+	}
+	return b.String()
 }
 
 // Size is the terminal's size in cells.

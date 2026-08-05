@@ -107,6 +107,12 @@ type Loop interface {
 	// another way without anything above having to hear about it.
 	Copy(text string) bool
 
+	// Wheel is what this terminal's wheel reports are worth, which is not a constant:
+	// terminals send between one and three of them for one notch, and there is no way
+	// to tell from a report. A component holding a scroll passes it on once — see
+	// [headless.Scroll.Wheel].
+	Wheel() input.Wheel
+
 	// Paste asks for the system clipboard's contents.
 	//
 	// The answer arrives as an ordinary [input.Paste], which is what makes this
@@ -182,6 +188,9 @@ type Host interface {
 	// drawn on, and this is what stands for that thing. A test host that can say it
 	// is light is a test that can check a look both ways round.
 	Background() (grid.RGB, bool)
+	// Wheel is what the terminal's wheel reports are worth. A host that is not a
+	// terminal answers the zero value, which is the common arrangement.
+	Wheel() input.Wheel
 	// Copy puts text on the system clipboard, reporting false for text it will not
 	// carry.
 	Copy(text string) bool
@@ -551,6 +560,8 @@ func (l loop) Background() (grid.RGB, bool) { return l.p.host.Background() }
 // nothing about the interface changes, and the answer to a paste comes back the way
 // every other event does.
 func (l loop) Copy(text string) bool { return l.p.host.Copy(text) }
+
+func (l loop) Wheel() input.Wheel { return l.p.host.Wheel() }
 
 func (l loop) Paste() { l.p.host.Paste() }
 

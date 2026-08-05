@@ -149,3 +149,5 @@ func TestAnEmptyMessageIsNotSent(t *testing.T) {
 // where both are visible: what commits finished output is declared in components and
 // satisfied by the loop in core, and neither knows about the other.
 var _ kit.Printer = program.InlineLoop(nil)
+
+func (h *host) Wheel() input.Wheel { return input.Wheel{} }

@@ -31,35 +31,36 @@ func env(m map[string]string) func(string) string {
 
 func TestDetection(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
+		desc  string
 		env   map[string]string
+		name  string
 		sixel bool
 		want  graphics.Protocol
 	}{
-		{name: "nothing at all", env: map[string]string{}, want: graphics.None},
-		{name: "a plain xterm", env: map[string]string{"TERM": "xterm-256color"}, want: graphics.None},
-		{name: "kitty by window id", env: map[string]string{"KITTY_WINDOW_ID": "1"}, want: graphics.Kitty},
-		{name: "kitty by TERM", env: map[string]string{"TERM": "xterm-kitty"}, want: graphics.Kitty},
-		{name: "ghostty by program", env: map[string]string{"TERM_PROGRAM": "Ghostty"}, want: graphics.Kitty},
-		{name: "ghostty by resources", env: map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, want: graphics.Kitty},
-		{name: "wezterm", env: map[string]string{"TERM_PROGRAM": "WezTerm"}, want: graphics.Kitty},
-		{name: "warp", env: map[string]string{"TERM_PROGRAM": "WarpTerminal"}, want: graphics.Kitty},
-		{name: "iterm2 by program", env: map[string]string{"TERM_PROGRAM": "iTerm.app"}, want: graphics.ITerm2},
-		{name: "iterm2 across an ssh hop", env: map[string]string{"LC_TERMINAL": "iTerm2"}, want: graphics.ITerm2},
-		{name: "mintty", env: map[string]string{"TERM_PROGRAM": "mintty"}, want: graphics.ITerm2},
-		{name: "apple terminal", env: map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, want: graphics.None},
-		{name: "vscode", env: map[string]string{"TERM_PROGRAM": "vscode"}, want: graphics.None},
+		{desc: "nothing at all", env: map[string]string{}, want: graphics.None},
+		{desc: "a plain xterm", env: map[string]string{"TERM": "xterm-256color"}, want: graphics.None},
+		{desc: "kitty by window id", env: map[string]string{"KITTY_WINDOW_ID": "1"}, want: graphics.Kitty},
+		{desc: "kitty by TERM", env: map[string]string{"TERM": "xterm-kitty"}, want: graphics.Kitty},
+		{desc: "ghostty by program", env: map[string]string{"TERM_PROGRAM": "Ghostty"}, want: graphics.Kitty},
+		{desc: "ghostty by resources", env: map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, want: graphics.Kitty},
+		{desc: "wezterm", env: map[string]string{"TERM_PROGRAM": "WezTerm"}, want: graphics.Kitty},
+		{desc: "warp", env: map[string]string{"TERM_PROGRAM": "WarpTerminal"}, want: graphics.Kitty},
+		{desc: "iterm2 by program", env: map[string]string{"TERM_PROGRAM": "iTerm.app"}, want: graphics.ITerm2},
+		{desc: "iterm2 across an ssh hop", env: map[string]string{"LC_TERMINAL": "iTerm2"}, want: graphics.ITerm2},
+		{desc: "mintty", env: map[string]string{"TERM_PROGRAM": "mintty"}, want: graphics.ITerm2},
+		{desc: "apple terminal", env: map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, want: graphics.None},
+		{desc: "vscode", env: map[string]string{"TERM_PROGRAM": "vscode"}, want: graphics.None},
 		{
-			name: "a window id outranks a plain TERM",
+			desc: "a window id outranks a plain TERM",
 			env:  map[string]string{"KITTY_WINDOW_ID": "3", "TERM": "xterm-256color"},
 			want: graphics.Kitty,
 		},
 
 		// Sixel is the one nothing in the environment names, so it is the one that
 		// has to be asked about.
-		{name: "a terminal that only claims sixel", env: map[string]string{"TERM": "xterm"}, sixel: true, want: graphics.Sixel},
+		{desc: "a terminal that only claims sixel", env: map[string]string{"TERM": "xterm"}, sixel: true, want: graphics.Sixel},
 		{
-			name: "the same terminal, never asked",
+			desc: "the same terminal, never asked",
 			env:  map[string]string{"TERM": "xterm"},
 			want: graphics.None,
 		},
@@ -76,8 +77,8 @@ func TestDetection(t *testing.T) {
 			want:  graphics.ITerm2,
 		},
 	} {
-		if got := graphics.DetectIn(env(tc.env), tc.sixel); got != tc.want {
-			t.Errorf("%s: = %v, want %v", tc.name, got, tc.want)
+		if got := graphics.DetectIn(env(tc.env), tc.name, tc.sixel); got != tc.want {
+			t.Errorf("%s: = %v, want %v", tc.desc, got, tc.want)
 		}
 	}
 }
@@ -324,5 +325,48 @@ func TestFitKeepsTheProportionsItWasGiven(t *testing.T) {
 	// wide that is 10 tall.
 	if rows != 10 {
 		t.Fatalf("rows = %d, want the height that keeps a 4:1 box", rows)
+	}
+}
+
+// TestWhatTheTerminalSaidOutranksTheEnvironment. An environment describes the terminal
+// a session was started from; over ssh, in a container, or under a multiplexer that is
+// not the terminal it is talking to.
+func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		desc string
+		env  map[string]string
+		name string
+		want graphics.Protocol
+	}{
+		{
+			desc: "ssh into a machine with no variables, from kitty",
+			env:  map[string]string{"TERM": "xterm-256color"},
+			name: "kitty(0.32.2)",
+			want: graphics.Kitty,
+		},
+		{
+			desc: "the environment is left over from the terminal that started the shell",
+			env:  map[string]string{"TERM_PROGRAM": "Apple_Terminal"},
+			name: "WezTerm 20240203",
+			want: graphics.Kitty,
+		},
+		{
+			desc: "iTerm2 naming itself",
+			env:  map[string]string{},
+			name: "iTerm2 3.5.0",
+			want: graphics.ITerm2,
+		},
+		{
+			desc: "a terminal that named itself something nobody knows falls back",
+			env:  map[string]string{"TERM_PROGRAM": "iTerm.app"},
+			name: "SomeNewTerminal 1.0",
+			want: graphics.ITerm2,
+		},
+	} {
+		t.Run(tc.desc, func(t *testing.T) {
+			if got := graphics.DetectIn(env(tc.env), tc.name, false); got != tc.want {
+				t.Errorf("= %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
