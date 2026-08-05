@@ -37,6 +37,9 @@ type Text struct {
 
 	editor Editor
 	seeded bool
+	// width is how wide the field was in the last frame, which is what a click has to
+	// be resolved against: a click is about a frame that has already been drawn.
+	width int
 }
 
 // Editor is the field itself, for a caller that needs the cursor or the clipboard.
@@ -54,14 +57,20 @@ func (t *Text) Draw(v grid.View) {
 	t.editor.Style = t.look.Text
 	t.editor.PlaceholderStyle = t.look.Subtle
 	t.editor.SelectionStyle = t.look.Selection
-	t.editor.Draw(t.frame(v, t.Label))
+	inner := t.frame(v, t.Label)
+	t.width, _ = inner.Size()
+	t.editor.Draw(inner)
 }
 
 // Handle passes input to the field and keeps the value in step with it.
 func (t *Text) Handle(ev input.Event) bool {
 	t.ensure()
 	if mouse, ok := ev.(input.Mouse); ok {
-		return t.editor.HandleMouse(mouse, t.width(mouse))
+		if t.width <= 0 {
+			// Nothing has been drawn, so there is no frame for the click to be about.
+			return false
+		}
+		return t.editor.HandleMouse(mouse, t.width)
 	}
 	if !t.editor.Handle(ev) {
 		return false
@@ -102,16 +111,17 @@ func (t *Text) Focus(has bool) {
 	}
 }
 
-// ensure gives the field its first look at the value it is collecting.
+// ensure keeps the field in step with what the caller set, and gives it its first look
+// at the value it is collecting.
 func (t *Text) ensure() {
-	if t.seeded {
-		return
-	}
-	t.seeded = true
 	t.editor.SingleLine = true
 	t.editor.Mask = t.Mask
 	t.editor.Placeholder = t.Placeholder
 	t.editor.Keys = t.Keys
+	if t.seeded {
+		return
+	}
+	t.seeded = true
 	if t.Value != nil {
 		t.editor.SetText(t.Value.Get())
 	}
@@ -123,11 +133,6 @@ func (t *Text) store() {
 		t.Value.Set(t.editor.Text())
 	}
 }
-
-// width is how wide the field was drawn, which a click has to be resolved against. A
-// one-line field reasons in columns from where it is drawn, so the position is already
-// the answer.
-func (t *Text) width(ev input.Mouse) int { return max(ev.Pos.X, 0) + 1 }
 
 // Option is one thing a choice offers.
 type Option[T any] struct {
@@ -246,7 +251,7 @@ func (s *Select[T]) Focus(has bool) {
 func (s *Select[T]) ensure() {
 	s.list.Items = s.Options
 	s.list.Keys = s.Keys
-	s.list.Row = func(v grid.View, option Option[T], under bool) {
+	s.list.Row = func(v grid.View, _ int, option Option[T], under bool) {
 		drawChoice(v, s.look, option.Label, under, under)
 	}
 	if s.seeded {
@@ -403,9 +408,8 @@ func (m *MultiSelect[T]) ensure() {
 	// The list is moved with this field's own map, which has the list's movement in it
 	// as well as the key that takes a choice.
 	m.list.Keys = m.keys()
-	m.list.Row = func(v grid.View, option Option[T], under bool) {
-		at := indexOfOption(m.Options, option)
-		drawChoice(v, m.look, option.Label, under, at >= 0 && at < len(m.taken) && m.taken[at])
+	m.list.Row = func(v grid.View, at int, option Option[T], under bool) {
+		drawChoice(v, m.look, option.Label, under, at < len(m.taken) && m.taken[at])
 	}
 	if len(m.taken) != len(m.Options) {
 		taken := make([]bool, len(m.Options))
@@ -626,14 +630,4 @@ func labelOf[T any](v T) string {
 		return s.String()
 	}
 	return ""
-}
-
-// indexOfOption is where an option sits among the others, by label, or -1.
-func indexOfOption[T any](options []Option[T], want Option[T]) int {
-	for i, option := range options {
-		if option.Label == want.Label {
-			return i
-		}
-	}
-	return -1
 }

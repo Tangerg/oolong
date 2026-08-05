@@ -292,7 +292,7 @@ func (c *Completion) Draw(v grid.View) {
 
 // drawRow draws one candidate: its label with the matched characters picked out, and
 // its detail pushed to the right.
-func (c *Completion) drawRow(v grid.View, candidate Candidate, selected bool) {
+func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected bool) {
 	width, _ := v.Size()
 	base := c.RowStyle
 	if selected {

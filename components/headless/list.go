@@ -18,10 +18,15 @@ import (
 type List[T any] struct {
 	// Items are what the list shows.
 	Items []T
-	// Row draws one item. selected says whether it is the one under the cursor,
-	// which the caller renders however it likes — a list does not know what
-	// selected looks like in its surroundings.
-	Row func(v grid.View, item T, selected bool)
+	// Row draws one item. at is where it sits among the items and selected says
+	// whether it is the one under the cursor, which the caller renders however it
+	// likes — a list does not know what selected looks like in its surroundings.
+	//
+	// The index is there because a row is often about more than the item: a number
+	// down the left, a mark for what has been chosen, a colour that alternates. Only
+	// the list knows it, and a caller finding it again by comparing items would be
+	// guessing whenever two of them were alike.
+	Row func(v grid.View, at int, item T, selected bool)
 	// Keys say which keystrokes produce which of the actions the list answers to —
 	// see [List.Do]. Nil reads through [DefaultListKeys].
 	Keys *input.Keymap
@@ -166,7 +171,7 @@ func (l *List[T]) Draw(v grid.View) {
 	}
 	selected := l.Selected()
 	l.scroll.Rows(v, len(l.Items), func(row grid.View, index int) {
-		l.Row(row, l.Items[index], index == selected)
+		l.Row(row, index, l.Items[index], index == selected)
 	})
 }
 

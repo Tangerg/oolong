@@ -123,7 +123,7 @@ func newList(n int) *headless.List[string] {
 	return &headless.List[string]{
 		Items: items(n),
 		Keys:  headless.DefaultListKeys(),
-		Row: func(v grid.View, item string, selected bool) {
+		Row: func(v grid.View, _ int, item string, selected bool) {
 			prefix := " "
 			if selected {
 				prefix = ">"
