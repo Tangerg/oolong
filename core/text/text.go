@@ -83,6 +83,15 @@ type Wrapped struct {
 	// line of its own. Anything rejoining rows — copying a selection, say — needs
 	// to know which line breaks were the text's and which were the width's.
 	Joined bool
+	// From and To are the byte range of the line this row came from, as [Line.String]
+	// numbers it. They make the wrap invertible: anything that found something in the
+	// text before it was wrapped — a URL, a search match, the ends of a selection —
+	// can work out which rows it landed on and where along them.
+	//
+	// The range is not the same text as the row: the spaces a break consumed are
+	// outside it at either end, a tab inside it became the spaces it stands for, and a
+	// control character inside it was dropped. It is provenance, not content.
+	From, To int
 }
 
 // Width is how many columns the row occupies.
@@ -103,11 +112,11 @@ func (w Wrapped) Draw(v grid.View, x, y int) int { return w.Line.Draw(v, x, y) }
 // away.
 func (l Line) Wrap(width int) []Wrapped {
 	if width <= 0 {
-		return []Wrapped{{Line: l}}
+		return []Wrapped{{Line: l, To: byteLen(l)}}
 	}
 	units := flatten(l)
 	if len(units) == 0 {
-		return []Wrapped{{Line: l}}
+		return []Wrapped{{Line: l, To: byteLen(l)}}
 	}
 	w := wrapper{width: width}
 	for i, n := 0, len(units); i < n; {
@@ -158,7 +167,12 @@ func (w *wrapper) takeHeld() {
 func (w *wrapper) dropHeld() { w.held, w.heldW = nil, 0 }
 
 func (w *wrapper) breakRow() {
-	w.rows = append(w.rows, Wrapped{Line: join(w.row), Joined: len(w.rows) > 0})
+	row := Wrapped{Line: join(w.row), Joined: len(w.rows) > 0}
+	if n := len(w.row); n > 0 {
+		first, last := w.row[0], w.row[n-1]
+		row.From, row.To = first.at, last.at+last.size
+	}
+	w.rows = append(w.rows, row)
 	w.row, w.rowWidth = nil, 0
 }
 
@@ -312,12 +326,19 @@ type unit struct {
 	// space marks a break opportunity. A tab is one, and is also the reason a
 	// unit's width is not derivable from its cluster alone.
 	space bool
+	// at is where this cluster started in the line's text, so that a row can say
+	// which part of the line it came from. A tab's expansion carries the tab's own
+	// offset on every space it became.
+	at int
+	// size is how many bytes the cluster took, which is not len(cluster) for a tab
+	// that became a space.
+	size int
 }
 
 // flatten turns a line into units, expanding tabs against the running column.
 func flatten(l Line) []unit {
 	var units []unit
-	col := 0
+	col, at := 0, 0
 	for _, s := range l {
 		g := uniseg.NewGraphemes(s.Text)
 		for g.Next() {
@@ -326,23 +347,42 @@ func flatten(l Line) []unit {
 			case cluster == "\t":
 				n := TabStop - col%TabStop
 				for range n {
-					units = append(units, unit{cluster: " ", style: s.Style, width: 1, space: true})
+					units = append(units, unit{
+						cluster: " ", style: s.Style, width: 1, space: true,
+						at: at, size: len(cluster),
+					})
 				}
 				col += n
 			case dropped(cluster):
 				// A control character has no width to lay out and no business
 				// reaching a cell.
 			case cluster == " ":
-				units = append(units, unit{cluster: " ", style: s.Style, width: 1, space: true})
+				units = append(units, unit{
+					cluster: " ", style: s.Style, width: 1, space: true,
+					at: at, size: len(cluster),
+				})
 				col++
 			default:
 				w := clusterWidth(cluster)
-				units = append(units, unit{cluster: cluster, style: s.Style, width: w})
+				units = append(units, unit{
+					cluster: cluster, style: s.Style, width: w,
+					at: at, size: len(cluster),
+				})
 				col += w
 			}
+			at += len(cluster)
 		}
 	}
 	return units
+}
+
+// byteLen is how many bytes the line's text takes, without building it.
+func byteLen(l Line) int {
+	n := 0
+	for _, s := range l {
+		n += len(s.Text)
+	}
+	return n
 }
 
 // join rebuilds a line from units, merging neighbours that share a style.
@@ -528,4 +568,27 @@ func OffsetAt(s string, col int) int {
 		at = offset + len(cluster)
 	}
 	return at
+}
+
+// StampLink turns the columns occupied by the byte range [start, end) of s into a
+// hyperlink, on text already drawn at (x, y), and reports the columns it covered.
+//
+// The conversion is the whole point of it existing. Anything that finds links works
+// in bytes, because bytes are what text is; a cell is a column, and the two counts
+// are not the same one. A URL written after an emoji begins at a different column
+// than at its byte offset, one containing a full-width character covers more columns
+// than it has clusters, and a tab before it moves everything by however much was
+// left to the next stop. Getting that wrong underlines the wrong text — visibly, and
+// only for the people whose text is not ASCII.
+//
+// The returned width is what a caller records so that a click on those columns can
+// be answered later.
+func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col, width int) {
+	if start < 0 || end > len(s) || start >= end {
+		return 0, 0
+	}
+	col = ColumnOf(s, start)
+	width = ColumnOf(s, end) - col
+	v.Link(x+col, y, width, url)
+	return col, width
 }

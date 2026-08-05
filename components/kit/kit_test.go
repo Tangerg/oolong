@@ -405,3 +405,138 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 		t.Fatal("what is behind was not dimmed")
 	}
 }
+
+// linkedCells is the target on every column of a row, so a test can state exactly
+// which columns became clickable.
+func linkedCells(v grid.View, y, width int) []string {
+	out := make([]string, width)
+	for x := range width {
+		if c := v.CellAt(x, y); c != nil {
+			out[x] = c.Link
+		}
+	}
+	return out
+}
+
+func TestParagraphMakesURLsClickable(t *testing.T) {
+	s := grid.NewSurface(30, 3)
+	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
+	p.Links = true
+	p.Draw(s.View())
+
+	got := linkedCells(s.View(), 0, 30)
+	for x := range len("go to ") {
+		if got[x] != "" {
+			t.Errorf("column %d, before the URL, is linked to %q", x, got[x])
+		}
+	}
+	for x := len("go to "); x < len("go to https://a.test"); x++ {
+		if got[x] != "https://a.test" {
+			t.Errorf("column %d = %q, want the URL", x, got[x])
+		}
+	}
+	if after := len("go to https://a.test"); got[after] != "" {
+		t.Errorf("the space after the URL is linked to %q", got[after])
+	}
+}
+
+func TestParagraphLeavesTextAloneUnlessAsked(t *testing.T) {
+	// Text a program composed itself has no URLs worth finding, and scanning every
+	// line on every width change is not free.
+	s := grid.NewSurface(30, 3)
+	kit.NewParagraph("go to https://a.test now", grid.Style{}).Draw(s.View())
+	for x, target := range linkedCells(s.View(), 0, 30) {
+		if target != "" {
+			t.Fatalf("column %d is linked without being asked: %q", x, target)
+		}
+	}
+}
+
+// TestParagraphKeepsAWrappedURLWhole is the case that makes detecting on the logical
+// line necessary. Read row by row, the first half of a split URL is a shorter address
+// that resolves somewhere else, and a hyperlink to the wrong page is worse than none.
+func TestParagraphKeepsAWrappedURLWhole(t *testing.T) {
+	const url = "https://example.com/a/long/path"
+	s := grid.NewSurface(12, 6)
+	p := kit.NewParagraph(url, grid.Style{})
+	p.Links = true
+	p.Draw(s.View())
+
+	v, rows := s.View(), 0
+	for y := range 6 {
+		linked := 0
+		for _, target := range linkedCells(v, y, 12) {
+			if target == "" {
+				continue
+			}
+			linked++
+			if target != url {
+				t.Fatalf("row %d links to %q, want the whole URL", y, target)
+			}
+		}
+		if linked > 0 {
+			rows++
+		}
+	}
+	if rows < 3 {
+		t.Fatalf("the URL was linked on %d rows, want it split across several", rows)
+	}
+}
+
+func TestParagraphAnswersAClick(t *testing.T) {
+	s := grid.NewSurface(30, 3)
+	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
+	p.Links = true
+	p.Draw(s.View())
+
+	if got, ok := p.LinkAt(8, 0); !ok || got != "https://a.test" {
+		t.Errorf("a click inside the URL found %q (%v)", got, ok)
+	}
+	if _, ok := p.LinkAt(1, 0); ok {
+		t.Error("a click before the URL found one")
+	}
+	if _, ok := p.LinkAt(8, 1); ok {
+		t.Error("a click on an empty row found one")
+	}
+}
+
+func TestParagraphForgetsLinksItNoLongerDraws(t *testing.T) {
+	// The record comes out of the pass that drew the cells, so it cannot be left
+	// answering about text that has since changed.
+	s := grid.NewSurface(30, 3)
+	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
+	p.Links = true
+	p.Draw(s.View())
+	if _, ok := p.LinkAt(8, 0); !ok {
+		t.Fatal("no link was recorded to begin with")
+	}
+
+	p.SetText(nil)
+	p.Draw(grid.NewSurface(30, 3).View())
+	if got, ok := p.LinkAt(8, 0); ok {
+		t.Errorf("a click still finds %q after the text was replaced", got)
+	}
+}
+
+// TestParagraphDoesNotLinkATruncatedRow: a row cut off with an ellipsis no longer
+// draws the text its range describes, so a link stamped from that range would land
+// on the ellipsis rather than on any address.
+func TestParagraphDoesNotLinkATruncatedRow(t *testing.T) {
+	s := grid.NewSurface(20, 2)
+	p := kit.NewParagraph("first line here\nhttps://a.test is on the second row", grid.Style{})
+	p.Links = true
+	p.MaxRows = 2
+	p.Draw(s.View())
+
+	v := s.View()
+	for y := range 2 {
+		for x, target := range linkedCells(v, y, 20) {
+			if target == "" {
+				continue
+			}
+			if c := v.CellAt(x, y); c != nil && c.Content == "…" {
+				t.Errorf("the ellipsis at (%d,%d) is linked to %q", x, y, target)
+			}
+		}
+	}
+}

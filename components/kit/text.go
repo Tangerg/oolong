@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
+	"github.com/Tangerg/oolong/core/link"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -49,12 +50,32 @@ type Paragraph struct {
 	// MaxRows caps the height. Zero means no cap; a cap replaces the last row it
 	// keeps with one ending in an ellipsis.
 	MaxRows int
+	// Links makes the URLs in the text clickable, on terminals that support it, and
+	// records where they were drawn so a click can be answered — see [Paragraph.LinkAt].
+	//
+	// It is off by default. Text a program composed itself has no URLs in it worth
+	// finding, and marking up a line nobody will click costs a scan of every line
+	// every time the width changes.
+	Links bool
 
 	// wrapped memoises the last wrap, which is asked for twice per frame — once to
 	// measure and once to draw — and is the most expensive thing this widget does.
-	wrapped []text.Wrapped
+	wrapped []row
 	atWidth int
 	fresh   bool
+	// found is where the links went in the last frame drawn.
+	found link.Map
+}
+
+// row is a wrapped row and which of the paragraph's lines it came from.
+//
+// The index is what makes a link that wrapped still one link. Detection runs on the
+// logical line, because a URL split across two rows is not two URLs — reading each
+// row on its own would find a truncated address on the first and nothing on the
+// second, and a hyperlink to the wrong page is worse than no hyperlink.
+type row struct {
+	text.Wrapped
+	line int
 }
 
 // NewParagraph is a paragraph of one plain styled string. Its newlines are line
@@ -76,16 +97,57 @@ func (p *Paragraph) Measure(width int) int { return len(p.rows(width)) }
 func (p *Paragraph) Draw(v grid.View) {
 	w, h := v.Size()
 	rows := p.rows(w)
-	for y, row := range rows {
+	p.found.Reset()
+	for y, r := range rows {
 		if y >= h {
 			return
 		}
-		row.Draw(v, p.Indent, y)
+		r.Draw(v, p.Indent, y)
+		if p.Links {
+			p.stamp(v, y, r)
+		}
 	}
 }
 
+// stamp makes the links on one row clickable.
+//
+// The row's own text is the range of the logical line it came from, so a link's
+// offsets are shifted into it and the parts of a link that landed on other rows are
+// clipped away. A link that wrapped is stamped on each row it covers, with the same
+// target on all of them, which is how a terminal draws one hyperlink over two lines.
+func (p *Paragraph) stamp(v grid.View, y int, r row) {
+	if r.line >= len(p.Lines) || r.To <= r.From {
+		return
+	}
+	whole := p.Lines[r.line].String()
+	if r.To > len(whole) {
+		return
+	}
+	part := whole[r.From:r.To]
+	for _, l := range link.Detect(whole) {
+		start, end := max(l.Start, r.From)-r.From, min(l.End, r.To)-r.From
+		if start >= end {
+			continue
+		}
+		col, width := text.StampLink(v, p.Indent, y, part, start, end, l.URL)
+		p.found.Add(p.Indent+col, y, width, l.URL)
+	}
+}
+
+// LinkAt is the URL at a position in the space the paragraph was last drawn into,
+// and whether there is one.
+//
+// It answers a click from what was drawn rather than by looking again: the record
+// comes out of the same pass that wrote the cells, so there is nothing to keep in
+// step and no chance of answering about text that has since changed.
+func (p *Paragraph) LinkAt(x, y int) (string, bool) { return p.found.At(x, y) }
+
 // rows is the wrap at this width, computed once per width.
-func (p *Paragraph) rows(width int) []text.Wrapped {
+//
+// Each line is wrapped on its own rather than through text.WrapAll, so that a row
+// still knows which line it came from. Nothing else would: the rows of every line
+// arrive in one slice, and a byte range means nothing without the line it indexes.
+func (p *Paragraph) rows(width int) []row {
 	room := width - p.Indent
 	if room <= 0 {
 		return nil
@@ -93,14 +155,21 @@ func (p *Paragraph) rows(width int) []text.Wrapped {
 	if p.fresh && p.atWidth == room {
 		return p.wrapped
 	}
-	rows := text.WrapAll(p.Lines, room)
+	var rows []row
+	for i, line := range p.Lines {
+		for _, wrapped := range line.Wrap(room) {
+			rows = append(rows, row{Wrapped: wrapped, line: i})
+		}
+	}
 	if p.MaxRows > 0 && len(rows) > p.MaxRows {
 		rows = rows[:p.MaxRows]
 		last := len(rows) - 1
-		rows[last] = text.Wrapped{
-			Line:   cutOff(rows[last].Line, room),
-			Joined: rows[last].Joined,
-		}
+		rows[last].Line = cutOff(rows[last].Line, room)
+		// The row no longer draws the text its range describes — it ends in an
+		// ellipsis standing for everything dropped after it — so it has no
+		// provenance to offer. A link stamped from the old range would land on the
+		// ellipsis, and a hyperlink over "…" is worse than none.
+		rows[last].From, rows[last].To = 0, 0
 	}
 	p.wrapped, p.atWidth, p.fresh = rows, room, true
 	return rows

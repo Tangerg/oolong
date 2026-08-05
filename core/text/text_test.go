@@ -426,3 +426,137 @@ func TestNextClusterFromInsideOne(t *testing.T) {
 		t.Fatal("stepping from inside a cluster went nowhere")
 	}
 }
+
+// TestWrapRecordsWhereEachRowCameFrom is what makes the wrap invertible. Anything
+// found in the text before it was wrapped — a URL, a search match, the end of a
+// selection — has to be locatable on the rows afterwards.
+func TestWrapRecordsWhereEachRowCameFrom(t *testing.T) {
+	const s = "the quick brown fox jumps"
+	rows := text.Of(s, grid.Style{}).Wrap(10)
+	if len(rows) < 2 {
+		t.Fatalf("%q at width 10 produced %d rows", s, len(rows))
+	}
+	for i, row := range rows {
+		drawn := row.Line.String()
+		// The range covers the row's text, and the row's text is what the range
+		// spans once the break's own spaces are excluded.
+		if got := s[row.From:row.To]; got != drawn {
+			t.Errorf("row %d covers %q but draws %q", i, got, drawn)
+		}
+		if i > 0 && rows[i-1].To > row.From {
+			t.Errorf("row %d starts at %d, before row %d ended at %d", i, row.From, i-1, rows[i-1].To)
+		}
+	}
+	if last := rows[len(rows)-1]; last.To != len(s) {
+		t.Errorf("the last row ends at %d, want %d", last.To, len(s))
+	}
+}
+
+func TestWrapProvenanceSurvivesAHardBreak(t *testing.T) {
+	// A word longer than the row is split between clusters, and both halves still
+	// have to say where they came from.
+	const s = "https://example.com/a/very/long/path"
+	rows := text.Of(s, grid.Style{}).Wrap(12)
+	if len(rows) < 3 {
+		t.Fatalf("got %d rows, want the word broken across several", len(rows))
+	}
+	var rejoined strings.Builder
+	for i, row := range rows {
+		if got := s[row.From:row.To]; got != row.Line.String() {
+			t.Errorf("row %d covers %q but draws %q", i, got, row.Line.String())
+		}
+		rejoined.WriteString(s[row.From:row.To])
+	}
+	if rejoined.String() != s {
+		t.Errorf("the rows rejoin to %q, want %q", rejoined.String(), s)
+	}
+}
+
+func TestWrapProvenanceWithWideCharacters(t *testing.T) {
+	// The counts differ: bytes, columns and clusters are three numbers here.
+	const s = "中文 abc 日本語"
+	rows := text.Of(s, grid.Style{}).Wrap(6)
+	for i, row := range rows {
+		if row.From < 0 || row.To > len(s) || row.From > row.To {
+			t.Fatalf("row %d has the range [%d,%d) in a string of %d bytes", i, row.From, row.To, len(s))
+		}
+		if got := s[row.From:row.To]; got != row.Line.String() {
+			t.Errorf("row %d covers %q but draws %q", i, got, row.Line.String())
+		}
+	}
+}
+
+func TestWrapProvenanceOfADegenerateWidth(t *testing.T) {
+	// A width nothing fits in returns the line whole, and the range has to describe
+	// the whole of it rather than nothing.
+	const s = "unwrappable"
+	rows := text.Of(s, grid.Style{}).Wrap(0)
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	if rows[0].From != 0 || rows[0].To != len(s) {
+		t.Errorf("range = [%d,%d), want [0,%d)", rows[0].From, rows[0].To, len(s))
+	}
+}
+
+func TestStampLinkConvertsBytesToColumns(t *testing.T) {
+	// The counts differ, and that is the whole point. A URL after an emoji does not
+	// start at the column its byte offset names, and getting it wrong underlines the
+	// wrong text — visibly, and only for people whose text is not ASCII.
+	const url = "https://a.test"
+	for _, tc := range []struct {
+		name    string
+		s       string
+		wantCol int
+	}{
+		{"plain ASCII", "see " + url + " now", 4},
+		// Two clusters of two columns each, then a space.
+		{"after a wide character", "中文 " + url, 5},
+		{"after an emoji", "🚀 " + url, 3},
+		{"after a combining mark", "é " + url, 2},
+		{"after a tab", "\t" + url, text.TabStop},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Found rather than written down: a byte offset into UTF-8 spelled out by
+			// hand is a test that fails for the wrong reason.
+			start := strings.Index(tc.s, url)
+			end := start + len(url)
+			wantWidth := len(url) // every byte of it is one ASCII column
+			surface := grid.NewSurface(40, 1)
+			col, width := text.StampLink(surface.View(), 0, 0, tc.s, start, end, url)
+			if col != tc.wantCol || width != wantWidth {
+				t.Fatalf("stamped column %d width %d, want %d and %d", col, width, tc.wantCol, wantWidth)
+			}
+			// And the cells it named actually carry it, which is the part a reader
+			// of the arithmetic alone cannot check.
+			v := surface.View()
+			if c := v.CellAt(col, 0); c == nil || c.Link != url {
+				t.Errorf("the first column of the run carries %+v", c)
+			}
+			if c := v.CellAt(col+width-1, 0); c == nil || c.Link != url {
+				t.Errorf("the last column of the run carries %+v", c)
+			}
+			if c := v.CellAt(col-1, 0); c != nil && c.Link != "" {
+				t.Errorf("the column before the run carries %q", c.Link)
+			}
+			if c := v.CellAt(col+width, 0); c != nil && c.Link != "" {
+				t.Errorf("the column after the run carries %q", c.Link)
+			}
+		})
+	}
+}
+
+func TestStampLinkRefusesARangeItCannotUse(t *testing.T) {
+	surface := grid.NewSurface(20, 1)
+	for _, tc := range []struct{ start, end int }{
+		{-1, 5},
+		{0, 100},
+		{5, 5},
+		{6, 3},
+	} {
+		col, width := text.StampLink(surface.View(), 0, 0, "some text here", tc.start, tc.end, "https://a.test")
+		if col != 0 || width != 0 {
+			t.Errorf("[%d,%d) stamped column %d width %d", tc.start, tc.end, col, width)
+		}
+	}
+}
