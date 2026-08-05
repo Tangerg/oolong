@@ -51,13 +51,17 @@ type Paragraph struct {
 	// MaxRows caps the height. Zero means no cap; a cap replaces the last row it
 	// keeps with one ending in an ellipsis.
 	MaxRows int
-	// Links makes the URLs in the text clickable, on terminals that support it, and
+	// Links makes what the text points at clickable, on terminals that support it, and
 	// records where they were drawn so a click can be answered — see [Paragraph.LinkAt].
 	//
-	// It is off by default. Text a program composed itself has no URLs in it worth
+	// It is off by default. Text a program composed itself has nothing in it worth
 	// finding, and marking up a line nobody will click costs a scan of every line
 	// every time the width changes.
 	Links bool
+	// Exists says whether a path is a file, and is what lets the shapes that cannot be
+	// told from prose be found — see [link.DetectIn]. Nil leaves them out, which is
+	// right for text about somebody else's machine.
+	Exists func(path string) bool
 
 	// wrapped memoises the last wrap, which is asked for twice per frame — once to
 	// measure and once to draw — and is the most expensive thing this widget does.
@@ -125,13 +129,17 @@ func (p *Paragraph) stamp(v grid.View, y int, r row) {
 		return
 	}
 	part := whole[r.From:r.To]
-	for _, l := range link.Detect(whole) {
+	for _, l := range link.DetectIn(whole, p.Exists) {
 		start, end := max(l.Start, r.From)-r.From, min(l.End, r.To)-r.From
 		if start >= end {
 			continue
 		}
-		col, width := text.StampLink(v, p.Indent, y, part, start, end, l.URL)
-		p.found.Add(p.Indent+col, y, width, l.URL)
+		// A link the terminal is better off finding for itself gets no OSC 8, and is
+		// still recorded so that a click on it can be answered here — see
+		// [link.Link.Hyperlink].
+		target, _ := l.Hyperlink()
+		col, width := text.StampLink(v, p.Indent, y, part, start, end, target)
+		p.found.Add(p.Indent+col, y, width, l.Target)
 	}
 }
 

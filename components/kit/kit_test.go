@@ -608,3 +608,40 @@ func TestTheComposerShowsASelection(t *testing.T) {
 		t.Errorf("%d cells are marked, want the five selected", marked)
 	}
 }
+
+// TestParagraphMakesAPathClickable. In an agent's output the file is the commoner
+// destination, and the line number after it is the useful half.
+func TestParagraphMakesAPathClickable(t *testing.T) {
+	s := grid.NewSurface(40, 3)
+	p := kit.NewParagraph("edited src/main.go:42 for you", grid.Style{})
+	p.Links = true
+	p.Exists = func(path string) bool { return path == "src/main.go" }
+	p.Draw(s.View())
+
+	target, ok := p.LinkAt(len("edited "), 0)
+	if !ok {
+		t.Fatal("the path was not recorded")
+	}
+	if target != "src/main.go" {
+		t.Errorf("a click found %q, want the path", target)
+	}
+	// A relative path gets no OSC 8: the terminal knows the directory and offers to
+	// open it in the editor the user actually uses.
+	for x := range 40 {
+		if c := s.View().CellAt(x, 0); c != nil && c.Link != "" {
+			t.Errorf("column %d carries the hyperlink %q", x, c.Link)
+			break
+		}
+	}
+}
+
+func TestParagraphStillHyperlinksAURL(t *testing.T) {
+	s := grid.NewSurface(40, 3)
+	p := kit.NewParagraph("see https://a.test now", grid.Style{})
+	p.Links = true
+	p.Draw(s.View())
+
+	if c := s.View().CellAt(len("see "), 0); c == nil || c.Link != "https://a.test" {
+		t.Errorf("the first column of the URL carries %+v", c)
+	}
+}
