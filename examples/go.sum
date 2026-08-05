@@ -1,3 +1,9 @@
+github.com/Tangerg/oolong/components v0.0.1 h1:yEZdK1rjkvDtungx+4YLChuGON1JopkC41u0qAMWXuI=
+github.com/Tangerg/oolong/components v0.0.1/go.mod h1:cQexP5xRBGetge7FFTCP7PzOTgutEhe4fp0NdGnU6q8=
+github.com/Tangerg/oolong/core v0.0.1 h1:e1gNPwWqgiu+Cze4YVqDivMfo00erYbWRuRrFkntOS4=
+github.com/Tangerg/oolong/core v0.0.1/go.mod h1:v0j97OQRN3r45ZB8xDdVUW0HhKWMASfPZudwBGkE/rU=
+github.com/Tangerg/oolong/ptytest v0.0.1 h1:UAHhTi05XVQ6R45b5fW5YJrQ18fSJNVADC1cTbbb3pM=
+github.com/Tangerg/oolong/ptytest v0.0.1/go.mod h1:7NcUtUuCwH3yDALHxxEJsK2dlvmY14EHWO/mCda3+pY=
 github.com/mattn/go-runewidth v0.0.16 h1:E5ScNMtiwvlvB5paMFdw9p4kSQzbXFikJ5SQO6TULQc=
 github.com/mattn/go-runewidth v0.0.16/go.mod h1:Jdepj2loyihRzMpdS35Xk/zdY8IAYHsh153qUoGf23w=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
