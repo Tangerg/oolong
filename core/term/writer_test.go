@@ -151,6 +151,12 @@ func TestProgressWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
 func TestProgressCoalesces(t *testing.T) {
 	// A loop that has not noticed the last advance does not need to be told twice,
 	// and a bounded signal is what keeps a burst of frames from queueing wake-ups.
+	//
+	// This depends on the writer publishing a wake-up before it moves the watermark
+	// Drain returns on: the other order leaves the last frame's wake-up in flight
+	// after Drain has returned, and one more arrives just after the first is taken.
+	// It failed that way once, on a machine that interleaved it differently from
+	// eight hundred runs here.
 	w := term.NewWriter(&recorder{})
 	for range 5 {
 		w.Queue([]byte("x"))

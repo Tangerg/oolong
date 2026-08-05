@@ -231,14 +231,19 @@ func (w *Writer) finish(seq uint64, err error) {
 		// stream of the same error and, worse, a partly-written frame after it.
 		w.discarding.Store(true)
 	}
+	// The wake-up is queued before the watermark moves, and the watermark moves
+	// before the broadcast. That order is what makes "Drain has returned" imply
+	// "every wake-up those frames owed has already been queued": Drain returns on
+	// the watermark, so anything published after it could still be in flight when
+	// the caller looks.
+	select {
+	case w.progress <- struct{}{}:
+	default:
+	}
 	for {
 		if seen := w.processed.Load(); seen >= seq || w.processed.CompareAndSwap(seen, seq) {
 			break
 		}
-	}
-	select {
-	case w.progress <- struct{}{}:
-	default:
 	}
 	// And the broadcast, which anything else waiting on the watermark observes
 	// without taking the wake-up above.
