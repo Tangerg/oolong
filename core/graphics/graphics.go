@@ -4,17 +4,33 @@
 // one, decide where it goes, or know what a cell contains. What it needs is a PNG
 // that somebody else already has and a place the caller has already worked out.
 //
-// # Why only PNG, and only kitty
+// # Why only PNG
 //
 // PNG because its dimensions are in the first twenty-four bytes, which means the
 // size can be known without a decoder and therefore without a dependency. The
 // promise this library makes about its dependency list is worth more than the
 // convenience of accepting a JPEG.
 //
-// Kitty because it is the protocol the terminals worth targeting converged on —
-// kitty, Ghostty, WezTerm and Warp all speak it. iTerm2's own protocol and sixel
-// are not here, and a terminal that speaks neither this nor nothing at all gets
-// [None], which is the caller's cue to draw a placeholder.
+// # The protocols, and what each is good for
+//
+// Showing an image and showing one in an interface that redraws are two different
+// capabilities, and only one protocol has both.
+//
+// Kitty's gives the program a handle: an image is sent once under a number, placed
+// as often as needed, moved, and deleted. That is what a live region requires —
+// what it showed last frame has to be moved or taken away this frame, and a
+// protocol with no way to name an image has no way to be told which one.
+//
+// iTerm2's protocol and sixel put pixels at the cursor and end there. No number, no
+// z-order, no deletion. They are usable where nothing will redraw over the result —
+// printed output, which belongs to the terminal from then on — and not in a region
+// being drawn again sixty times a second. [Protocol.Supports] is that distinction,
+// and it is why this package names more protocols than it writes.
+//
+// What it writes is kitty and iTerm2. Sixel is detected and reported and not
+// produced: producing it means decoding the image into pixels, and a decoder is the
+// dependency this package exists without. A caller holding an encoder of its own
+// learns from [Sixel] that the terminal will take what it makes.
 package graphics
 
 import (
@@ -36,9 +52,63 @@ type Protocol uint8
 const (
 	// None is a terminal that cannot show an image. A caller draws a placeholder.
 	None Protocol = iota
-	// Kitty is the kitty graphics protocol: kitty, Ghostty, WezTerm and Warp.
+	// Kitty is the kitty graphics protocol: kitty, Ghostty, WezTerm and Warp. It is
+	// the only one usable in a region the interface redraws.
 	Kitty
+	// ITerm2 is iTerm2's own inline-image protocol, also spoken by WezTerm and
+	// mintty. An image goes at the cursor and cannot be referred to again.
+	ITerm2
+	// Sixel is the oldest of the three and the most widely implemented after
+	// kitty's: xterm, foot, mlterm, contour, and recent Windows Terminal. This
+	// package reports it and does not write it — see the package comment.
+	Sixel
 )
+
+// String names the protocol the way a diagnostic would.
+func (p Protocol) String() string {
+	switch p {
+	case Kitty:
+		return "kitty"
+	case ITerm2:
+		return "iterm2"
+	case Sixel:
+		return "sixel"
+	default:
+		return "none"
+	}
+}
+
+// Placement is where an image is going, which is what decides whether a protocol
+// will do.
+type Placement uint8
+
+const (
+	// Printed is output written once that then belongs to the terminal, scrolling
+	// away with the rest of the session. Nothing draws over it again, so a protocol
+	// that cannot be told to remove an image is no worse off here than one that can.
+	//
+	// It is the zero value because it is the weaker requirement: code that has not
+	// said where an image is going gets the answer that holds in both places.
+	Printed Placement = iota
+	// Live is a region the interface redraws. An image there has to be placeable
+	// again on the next frame and removable on the frame after, which takes a
+	// protocol that lets an image be named.
+	Live
+)
+
+// Supports reports whether an image can go in that place over this protocol.
+//
+// Asking it is worth more than a single yes or no about the terminal. A terminal
+// that draws images but cannot be told to move them is a different thing to tell
+// the user about from one that draws none: the first shows a picture in printed
+// output and nothing in a live view, and a caller holding one boolean can explain
+// neither.
+func (p Protocol) Supports(where Placement) bool {
+	if where == Live {
+		return p == Kitty
+	}
+	return p != None
+}
 
 // ErrNotPNG is reported for data that is not a PNG this package can size.
 var ErrNotPNG = errors.New("graphics: not a PNG")
@@ -135,6 +205,27 @@ func Delete(w io.Writer, id uint32) error {
 	return err
 }
 
+// Inline writes an image at the cursor over iTerm2's protocol.
+//
+// There is no counterpart to [Place] or [Delete], because the protocol has none:
+// the image goes where the cursor is and the program never hears of it again. That
+// is why it is only for [Printed] output — see the package comment — and why this
+// takes the payload every time rather than an identifier.
+//
+// The box is in cells, and the image is fitted inside it rather than stretched to
+// it, so a caller passes what [Fit] worked out and gets the aspect ratio kept.
+func Inline(w io.Writer, png []byte, cols, rows int) error {
+	if _, _, err := PNGSize(png); err != nil {
+		return err
+	}
+	// The payload is base64 for the same reason a clipboard's is: the alphabet holds
+	// neither the escape byte nor the terminator, so image data cannot end the
+	// sequence early and have the rest of itself read as commands.
+	_, err := fmt.Fprintf(w, "\x1b]1337;File=inline=1;size=%d;width=%d;height=%d;preserveAspectRatio=1:%s\x07",
+		len(png), max(cols, 1), max(rows, 1), base64.StdEncoding.EncodeToString(png))
+	return err
+}
+
 // Fit is the cell box an image of pxW by pxH should occupy, keeping its aspect
 // ratio and staying inside maxCols by maxRows.
 //
@@ -167,29 +258,53 @@ func Fit(pxW, pxH, cellW, cellH, maxCols, maxRows int) (cols, rows int) {
 
 // kittyPrograms are the TERM_PROGRAM values, matched as lowercase substrings, of
 // terminals that speak the kitty protocol without saying so in TERM.
+//
+// WezTerm speaks iTerm2's protocol too and is listed here rather than there, because
+// where both are available the one with handles is the one worth having.
 var kittyPrograms = []string{"ghostty", "wezterm", "warp"}
 
-// DetectIn works out the protocol from an environment.
+// iterm2Programs are the same for iTerm2's protocol.
+var iterm2Programs = []string{"iterm.app", "mintty"}
+
+// DetectIn works out the richest protocol a terminal supports.
 //
-// It takes its own lookup rather than reading the process environment, which is
-// what makes it a function of its inputs: [term.DetectGraphics] passes os.Getenv,
-// and a test passes whatever it wants to say the terminal is. There is no cached
-// global and no override hook, for the same reason there is no global palette —
-// a program with two terminals could not have two answers, and a test could not
-// pin either.
-func DetectIn(getenv func(string) string) Protocol {
+// It takes two facts because one is not enough. The environment names the terminal,
+// which is how kitty's protocol and iTerm2's are found; nothing in the environment
+// names sixel, so a terminal that supports sixel and nothing else is
+// indistinguishable from a terminal that supports nothing. That answer only comes
+// from asking the terminal — see [input.DeviceAttributes] and [term.Options.Probe] —
+// and sixel says what it said.
+//
+// The lookup is passed in rather than read, which is what makes this a function of
+// its inputs: [term.Terminal.Graphics] passes os.Getenv and its own answers, and a
+// test passes whatever it wants the terminal to be. There is no cached global and no
+// override hook, for the same reason there is no global palette — a program with two
+// terminals could not have two answers, and a test could not pin either.
+func DetectIn(getenv func(string) string, sixel bool) Protocol {
 	if getenv("KITTY_WINDOW_ID") != "" || getenv("GHOSTTY_RESOURCES_DIR") != "" {
 		return Kitty
 	}
 	if strings.Contains(getenv("TERM"), "kitty") {
 		return Kitty
 	}
-	if program := strings.ToLower(getenv("TERM_PROGRAM")); program != "" {
-		for _, name := range kittyPrograms {
-			if strings.Contains(program, name) {
-				return Kitty
-			}
+	program := strings.ToLower(getenv("TERM_PROGRAM"))
+	for _, name := range kittyPrograms {
+		if program != "" && strings.Contains(program, name) {
+			return Kitty
 		}
+	}
+	// iTerm2 sets its own variable as well, and a shell that carried LC_TERMINAL
+	// across an ssh hop is the case TERM_PROGRAM does not survive.
+	if strings.Contains(strings.ToLower(getenv("LC_TERMINAL")), "iterm") {
+		return ITerm2
+	}
+	for _, name := range iterm2Programs {
+		if program != "" && strings.Contains(program, name) {
+			return ITerm2
+		}
+	}
+	if sixel {
+		return Sixel
 	}
 	return None
 }

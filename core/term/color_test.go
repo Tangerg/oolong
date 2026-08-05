@@ -64,10 +64,14 @@ func TestDetectGraphics(t *testing.T) {
 		{"ghostty by resources", map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, graphics.Kitty},
 		{"kitty by TERM", map[string]string{"TERM": "xterm-kitty"}, graphics.Kitty},
 		{"wezterm by program", map[string]string{"TERM_PROGRAM": "WezTerm"}, graphics.Kitty},
-		{"iterm2 speaks its own", map[string]string{"TERM_PROGRAM": "iTerm.app"}, graphics.None},
+		{"iterm2 speaks its own", map[string]string{"TERM_PROGRAM": "iTerm.app"}, graphics.ITerm2},
+		{"apple terminal speaks none", map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, graphics.None},
+		// Sixel is not reachable from here on purpose: nothing in an environment
+		// names it, so this function cannot find it and says so.
+		{"a terminal that only draws sixel", map[string]string{"TERM": "xterm"}, graphics.None},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, k := range []string{"KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "TERM", "TERM_PROGRAM"} {
+			for _, k := range []string{"KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "TERM", "TERM_PROGRAM", "LC_TERMINAL"} {
 				if v, ok := tc.env[k]; ok {
 					t.Setenv(k, v)
 				} else {

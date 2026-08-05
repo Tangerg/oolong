@@ -18,6 +18,7 @@ import (
 	xterm "golang.org/x/term"
 
 	"github.com/Tangerg/oolong/core/clipboard"
+	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -237,6 +238,17 @@ func (t *Terminal) Copy(text string) bool {
 func (t *Terminal) Paste() {
 	t.pasting.Store(true)
 	t.writer.Queue([]byte(clipboard.Request(clipboard.System)))
+}
+
+// Graphics is the richest way this terminal will take an image.
+//
+// It is the environment and the terminal's own claims together, which is what it
+// takes: the environment names the terminal, and only the terminal names sixel. A
+// session that did not ask — see [Options.Probe] — gets the answer the environment
+// alone supports, which is the same as [DetectGraphics].
+func (t *Terminal) Graphics() graphics.Protocol {
+	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
+	return graphics.DetectIn(os.Getenv, sixel)
 }
 
 // Size is the terminal's size in cells.

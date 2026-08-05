@@ -9,6 +9,7 @@ import (
 	xterm "golang.org/x/term"
 
 	"github.com/Tangerg/oolong/core/clipboard"
+	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/term"
@@ -304,5 +305,37 @@ func TestAnUnreadableAnswerIsNotAnEmptyPaste(t *testing.T) {
 		case input.Paste:
 			t.Fatalf("an unreadable answer became the paste %q", e.Text)
 		}
+	}
+}
+
+// TestGraphicsNeedsBothFacts is why the probe keeps the attributes. The environment
+// names the terminal; only the terminal names sixel, so a terminal that draws sixel
+// and nothing else is indistinguishable from one that draws nothing until it is
+// asked.
+func TestGraphicsNeedsBothFacts(t *testing.T) {
+	for _, name := range []string{"KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "TERM_PROGRAM", "LC_TERMINAL"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("TERM", "xterm")
+
+	asked, _ := answered(t, "\x1b]11;rgb:0/0/0\x07\x1b[?62;4;22c")
+	if got := asked.Graphics(); got != graphics.Sixel {
+		t.Errorf("a terminal that claimed sixel reports %v", got)
+	}
+
+	// The same terminal, never asked, cannot know.
+	unasked, _ := open(t, term.Options{})
+	if got := unasked.Graphics(); got != graphics.None {
+		t.Errorf("a terminal nobody asked reports %v, want none", got)
+	}
+}
+
+func TestGraphicsPrefersAHandleOverAClaim(t *testing.T) {
+	// A protocol that lets an image be named is worth more than one that only draws
+	// pixels, however loudly the second is claimed.
+	t.Setenv("TERM", "xterm-kitty")
+	tty, _ := answered(t, "\x1b[?62;4c")
+	if got := tty.Graphics(); got != graphics.Kitty {
+		t.Errorf("= %v, want kitty", got)
 	}
 }

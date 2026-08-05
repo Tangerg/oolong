@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,30 +31,148 @@ func env(m map[string]string) func(string) string {
 
 func TestDetection(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		env  map[string]string
-		want graphics.Protocol
+		name  string
+		env   map[string]string
+		sixel bool
+		want  graphics.Protocol
 	}{
-		{"nothing at all", map[string]string{}, graphics.None},
-		{"a plain xterm", map[string]string{"TERM": "xterm-256color"}, graphics.None},
-		{"kitty by window id", map[string]string{"KITTY_WINDOW_ID": "1"}, graphics.Kitty},
-		{"kitty by TERM", map[string]string{"TERM": "xterm-kitty"}, graphics.Kitty},
-		{"ghostty by program", map[string]string{"TERM_PROGRAM": "Ghostty"}, graphics.Kitty},
-		{"ghostty by resources", map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, graphics.Kitty},
-		{"wezterm", map[string]string{"TERM_PROGRAM": "WezTerm"}, graphics.Kitty},
-		{"warp", map[string]string{"TERM_PROGRAM": "WarpTerminal"}, graphics.Kitty},
-		{"iterm2 speaks its own", map[string]string{"TERM_PROGRAM": "iTerm.app"}, graphics.None},
-		{"apple terminal", map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, graphics.None},
-		{"vscode", map[string]string{"TERM_PROGRAM": "vscode"}, graphics.None},
+		{name: "nothing at all", env: map[string]string{}, want: graphics.None},
+		{name: "a plain xterm", env: map[string]string{"TERM": "xterm-256color"}, want: graphics.None},
+		{name: "kitty by window id", env: map[string]string{"KITTY_WINDOW_ID": "1"}, want: graphics.Kitty},
+		{name: "kitty by TERM", env: map[string]string{"TERM": "xterm-kitty"}, want: graphics.Kitty},
+		{name: "ghostty by program", env: map[string]string{"TERM_PROGRAM": "Ghostty"}, want: graphics.Kitty},
+		{name: "ghostty by resources", env: map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, want: graphics.Kitty},
+		{name: "wezterm", env: map[string]string{"TERM_PROGRAM": "WezTerm"}, want: graphics.Kitty},
+		{name: "warp", env: map[string]string{"TERM_PROGRAM": "WarpTerminal"}, want: graphics.Kitty},
+		{name: "iterm2 by program", env: map[string]string{"TERM_PROGRAM": "iTerm.app"}, want: graphics.ITerm2},
+		{name: "iterm2 across an ssh hop", env: map[string]string{"LC_TERMINAL": "iTerm2"}, want: graphics.ITerm2},
+		{name: "mintty", env: map[string]string{"TERM_PROGRAM": "mintty"}, want: graphics.ITerm2},
+		{name: "apple terminal", env: map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, want: graphics.None},
+		{name: "vscode", env: map[string]string{"TERM_PROGRAM": "vscode"}, want: graphics.None},
 		{
-			"a window id outranks a plain TERM",
-			map[string]string{"KITTY_WINDOW_ID": "3", "TERM": "xterm-256color"},
-			graphics.Kitty,
+			name: "a window id outranks a plain TERM",
+			env:  map[string]string{"KITTY_WINDOW_ID": "3", "TERM": "xterm-256color"},
+			want: graphics.Kitty,
+		},
+
+		// Sixel is the one nothing in the environment names, so it is the one that
+		// has to be asked about.
+		{name: "a terminal that only claims sixel", env: map[string]string{"TERM": "xterm"}, sixel: true, want: graphics.Sixel},
+		{
+			name: "the same terminal, never asked",
+			env:  map[string]string{"TERM": "xterm"},
+			want: graphics.None,
+		},
+		{
+			name:  "a claim of sixel does not outrank a handle",
+			env:   map[string]string{"TERM": "xterm-kitty"},
+			sixel: true,
+			want:  graphics.Kitty,
+		},
+		{
+			name:  "nor does it outrank iTerm2, which at least says how big to draw",
+			env:   map[string]string{"TERM_PROGRAM": "iTerm.app"},
+			sixel: true,
+			want:  graphics.ITerm2,
 		},
 	} {
-		if got := graphics.DetectIn(env(tc.env)); got != tc.want {
+		if got := graphics.DetectIn(env(tc.env), tc.sixel); got != tc.want {
 			t.Errorf("%s: = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestSupportsSeparatesShowingFromPlacing is the distinction the whole model exists
+// for. A terminal that draws an image but cannot be told to move it is fine for
+// output that is written once and wrong for a region redrawn sixty times a second.
+func TestSupportsSeparatesShowingFromPlacing(t *testing.T) {
+	for _, tc := range []struct {
+		p             graphics.Protocol
+		printed, live bool
+	}{
+		{graphics.None, false, false},
+		{graphics.Kitty, true, true},
+		{graphics.ITerm2, true, false},
+		{graphics.Sixel, true, false},
+	} {
+		if got := tc.p.Supports(graphics.Printed); got != tc.printed {
+			t.Errorf("%v printed = %v, want %v", tc.p, got, tc.printed)
+		}
+		if got := tc.p.Supports(graphics.Live); got != tc.live {
+			t.Errorf("%v live = %v, want %v", tc.p, got, tc.live)
+		}
+	}
+}
+
+func TestPrintedIsTheZeroPlacement(t *testing.T) {
+	// Code that has not said where an image is going gets the answer that holds in
+	// both places, not the one that holds in neither.
+	var where graphics.Placement
+	if where != graphics.Printed {
+		t.Fatalf("the zero placement is %v, want Printed", where)
+	}
+}
+
+func TestProtocolNames(t *testing.T) {
+	for p, want := range map[graphics.Protocol]string{
+		graphics.None:          "none",
+		graphics.Kitty:         "kitty",
+		graphics.ITerm2:        "iterm2",
+		graphics.Sixel:         "sixel",
+		graphics.Protocol(200): "none",
+	} {
+		if got := p.String(); got != want {
+			t.Errorf("%d = %q, want %q", p, got, want)
+		}
+	}
+}
+
+func TestInlineCarriesThePNGAndItsBox(t *testing.T) {
+	var b strings.Builder
+	data := png(320, 240, 16)
+	if err := graphics.Inline(&b, data, 20, 10); err != nil {
+		t.Fatalf("Inline: %v", err)
+	}
+	out := b.String()
+	for _, want := range []string{
+		"\x1b]1337;File=inline=1;",
+		"size=" + strconv.Itoa(len(data)),
+		"width=20", "height=10",
+		"preserveAspectRatio=1",
+		base64.StdEncoding.EncodeToString(data),
+		"\x07",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the sequence does not carry %q: %q", want, out)
+		}
+	}
+	// The payload is encoded for the same reason a clipboard's is: nothing in the
+	// image can end the sequence early and have the rest read as commands.
+	body := strings.SplitN(out, ":", 2)[1]
+	if strings.ContainsAny(strings.TrimSuffix(body, "\x07"), "\x1b\x07") {
+		t.Error("the payload can end its own sequence")
+	}
+}
+
+func TestInlineRefusesWhatIsNotAPNG(t *testing.T) {
+	var b strings.Builder
+	if err := graphics.Inline(&b, []byte("not a png at all, truly"), 4, 2); err == nil {
+		t.Error("something that is not a PNG was written anyway")
+	}
+	if b.Len() != 0 {
+		t.Errorf("it wrote %q before refusing", b.String())
+	}
+}
+
+func TestInlineBoxIsNeverEmpty(t *testing.T) {
+	// A box of no cells would ask the terminal to draw nothing, which is not what a
+	// caller who passed a zero meant.
+	var b strings.Builder
+	if err := graphics.Inline(&b, png(8, 8, 8), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "width=1") || !strings.Contains(b.String(), "height=1") {
+		t.Errorf("got %q", b.String())
 	}
 }
 

@@ -50,9 +50,19 @@ func DetectDepth() grid.Depth {
 	}
 }
 
-// DetectGraphics works out whether this terminal can show inline images.
+// sixelAttribute is the extension number a terminal claims when it can draw sixel
+// graphics. It is claimed in the device attributes and nowhere else.
+const sixelAttribute = 4
+
+// DetectGraphics works out whether this terminal can show inline images, from the
+// environment alone.
 //
 // It is the same bargain as [DetectDepth] and the same reason for living here:
 // [graphics.DetectIn] is a function of an environment, and this is the package
 // allowed to have one.
-func DetectGraphics() graphics.Protocol { return graphics.DetectIn(os.Getenv) }
+//
+// A terminal that draws sixel and nothing else will come back as [graphics.None]:
+// no environment variable names sixel, so the only way to learn about it is to ask,
+// and asking needs a terminal. [Terminal.Graphics] is that answer; this is the one
+// available to code holding no terminal at all.
+func DetectGraphics() graphics.Protocol { return graphics.DetectIn(os.Getenv, false) }
