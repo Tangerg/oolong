@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/term"
@@ -18,32 +16,18 @@ import (
 // means to, that it comes back the way it was found, and that the parts a caller
 // touches work on a terminal that is not this process's own.
 
-// pty opens a pty pair and closes both ends when the test is done.
+// pty opens a pty pair and closes both ends when the test is done, skipping
+// where there is no pty to open.
+//
+// The opening itself lives in the platform files, which is where the syscalls
+// are: a test file that named one could not be compiled on a platform without
+// it, and this package is meant to build everywhere it claims to.
 func pty(t *testing.T) (primary, replica *os.File) {
 	t.Helper()
-	fd, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_CLOEXEC, 0)
+	primary, replica, err := openPTY()
 	if err != nil {
 		t.Skipf("no pty here: %v", err)
 	}
-	name, err := ptyName(fd)
-	if err != nil {
-		_ = unix.Close(fd)
-		t.Skipf("no pty here: %v", err)
-	}
-	rfd, err := unix.Open(name, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		_ = unix.Close(fd)
-		t.Skipf("no pty here: %v", err)
-	}
-	// Non-blocking so the runtime's poller owns it, which is what makes a read
-	// deadline work: a plain descriptor would block a test for ever instead.
-	if err := unix.SetNonblock(fd, true); err != nil {
-		_ = unix.Close(fd)
-		_ = unix.Close(rfd)
-		t.Skipf("no pty here: %v", err)
-	}
-	primary = os.NewFile(uintptr(fd), "/dev/ptmx")
-	replica = os.NewFile(uintptr(rfd), name)
 	t.Cleanup(func() { _ = replica.Close(); _ = primary.Close() })
 	return primary, replica
 }

@@ -197,9 +197,16 @@ jobs:
           go-version-file: core/go.mod
           check-latest: true
 
-      # Only the terminal package and the harness touch the operating system, so
-      # this is the cheapest way to keep that true: the day something else reaches
-      # for a syscall, one of these stops building.
+      # Vet rather than build, because vet type-checks the tests too. A test file
+      # that named a syscall package with no build tag on it compiled here and
+      # failed on Windows, and a build-only check could not see it: the tests are
+      # where the platform-specific code in this repository actually lives.
+      - name: Vet
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: for m in $MODULES; do (cd "$m" && go vet ./...) || exit 1; done
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
