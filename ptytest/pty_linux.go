@@ -23,18 +23,18 @@ func openPTY() (primary, replica *os.File, err error) {
 		}
 	}()
 
-	if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
-		return nil, nil, fmt.Errorf("ptytest: unlock the pty: %w", err)
+	if unlockErr := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); unlockErr != nil {
+		return nil, nil, fmt.Errorf("ptytest: unlock the pty: %w", unlockErr)
 	}
-	index, err := unix.IoctlGetInt(fd, unix.TIOCGPTN)
-	if err != nil {
-		return nil, nil, fmt.Errorf("ptytest: number the replica: %w", err)
+	index, indexErr := unix.IoctlGetInt(fd, unix.TIOCGPTN)
+	if indexErr != nil {
+		return nil, nil, fmt.Errorf("ptytest: number the replica: %w", indexErr)
 	}
 
 	path := fmt.Sprintf("/dev/pts/%d", index)
-	replicaFD, err := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, nil, fmt.Errorf("ptytest: open the replica %q: %w", path, err)
+	replicaFD, openErr := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
+	if openErr != nil {
+		return nil, nil, fmt.Errorf("ptytest: open the replica %q: %w", path, openErr)
 	}
 	keep = true
 	return os.NewFile(uintptr(fd), "/dev/ptmx"), os.NewFile(uintptr(replicaFD), path), nil

@@ -16,20 +16,20 @@ func openPTY() (primary, replica *os.File, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
+	if unlockErr := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); unlockErr != nil {
 		_ = unix.Close(fd)
-		return nil, nil, err
+		return nil, nil, unlockErr
 	}
-	index, err := unix.IoctlGetInt(fd, unix.TIOCGPTN)
-	if err != nil {
+	index, indexErr := unix.IoctlGetInt(fd, unix.TIOCGPTN)
+	if indexErr != nil {
 		_ = unix.Close(fd)
-		return nil, nil, err
+		return nil, nil, indexErr
 	}
 	path := fmt.Sprintf("/dev/pts/%d", index)
-	rfd, err := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
-	if err != nil {
+	rfd, openErr := unix.Open(path, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
+	if openErr != nil {
 		_ = unix.Close(fd)
-		return nil, nil, err
+		return nil, nil, openErr
 	}
 	if err := unix.SetNonblock(fd, true); err != nil {
 		_ = unix.Close(fd)
