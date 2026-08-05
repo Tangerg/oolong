@@ -53,6 +53,11 @@ type Editor struct {
 	anchor    Caret
 	selecting bool
 
+	// elements are the runs of text that behave as one character, in the order they
+	// appear. nextElement is the last identity handed out.
+	elements    []Element
+	nextElement uint64
+
 	// killed is the last text cut, for putting back. One entry, like a terminal's.
 	killed string
 
@@ -72,6 +77,10 @@ type Editor struct {
 type editorState struct {
 	lines     []string
 	line, col int
+	// elements are part of the state and not derivable from the text: two chips with
+	// the same words are two different things, and an undo that gave them back with
+	// new identities would have given back different ones.
+	elements []Element
 }
 
 // EditorKeys are the keystrokes an editor answers.
@@ -237,6 +246,7 @@ func (e *Editor) Replace(start, end int, s string) {
 	end = min(max(end, start), len(line))
 	e.endTyping()
 	e.snapshot()
+	e.cutElements(Caret{Line: e.line, Col: start}, Caret{Line: e.line, Col: end})
 	e.lines[e.line] = line[:start] + line[end:]
 	e.col = start
 	e.splice(s)
@@ -250,6 +260,7 @@ func (e *Editor) splice(s string) {
 
 	if len(parts) == 1 {
 		e.lines[e.line] = head + parts[0] + tail
+		e.spliceElements(e.line, e.col, 0, e.col+len(parts[0]))
 		e.col += len(parts[0])
 		e.invalidate()
 		return
@@ -266,6 +277,7 @@ func (e *Editor) splice(s string) {
 	// inserted holds the replacement lines and the tail is being put after them.
 	//nolint:makezero // inserted is local and fully written above.
 	e.lines = append(e.lines[:e.line], append(inserted, e.lines[e.line+1:]...)...)
+	e.spliceElements(e.line, e.col, last, col)
 	e.line += last
 	e.col = col
 	e.invalidate()
@@ -291,6 +303,7 @@ func (e *Editor) Newline() {
 	e.ensure()
 	current := e.lines[e.line]
 	head, tail := current[:e.col], current[e.col:]
+	e.spliceElements(e.line, e.col, 1, 0)
 	e.lines = append(e.lines[:e.line], append([]string{head, tail}, e.lines[e.line+1:]...)...)
 	e.line++
 	e.col = 0
@@ -306,6 +319,14 @@ func (e *Editor) DeleteBack() {
 			e.snapshot()
 		}
 		at := text.PrevCluster(e.lines[e.line], e.col)
+		// A backspace that took a letter off the end of an element would leave a
+		// fragment that still looks like the thing and no longer is, so it takes all
+		// of it.
+		if el, inside := e.insideElement(e.line, at); inside {
+			at = el.Start
+		}
+		e.cutElements(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col})
+		e.cutElements(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col})
 		e.lines[e.line] = e.lines[e.line][:at] + e.lines[e.line][e.col:]
 		e.col = at
 		e.invalidate()
@@ -321,6 +342,7 @@ func (e *Editor) DeleteBack() {
 	e.snapshot()
 	above := e.lines[e.line-1]
 	e.col = len(above)
+	e.cutElements(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0})
 	e.lines[e.line-1] = above + e.lines[e.line]
 	e.lines = append(e.lines[:e.line], e.lines[e.line+1:]...)
 	e.line--
@@ -335,6 +357,12 @@ func (e *Editor) DeleteForward() {
 	if e.col < len(current) {
 		e.snapshot()
 		at := text.NextCluster(current, e.col)
+		// The whole element or none of it, for the same reason a backspace takes all
+		// of one.
+		if el, inside := e.ElementAt(e.line, e.col); inside {
+			at = el.End
+		}
+		e.cutElements(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: at})
 		e.lines[e.line] = current[:e.col] + current[at:]
 		e.invalidate()
 		return
@@ -343,6 +371,7 @@ func (e *Editor) DeleteForward() {
 		return
 	}
 	e.snapshot()
+	e.cutElements(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0})
 	e.lines[e.line] = current + e.lines[e.line+1]
 	e.lines = append(e.lines[:e.line+1], e.lines[e.line+2:]...)
 	e.invalidate()
@@ -375,12 +404,14 @@ func (e *Editor) KillToEnd() {
 	current := e.lines[e.line]
 	if e.col < len(current) {
 		e.killed = current[e.col:]
+		e.cutElements(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)})
 		e.lines[e.line] = current[:e.col]
 		e.invalidate()
 		return
 	}
 	if e.line < len(e.lines)-1 {
 		e.killed = "\n"
+		e.cutElements(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0})
 		e.lines[e.line] = current + e.lines[e.line+1]
 		e.lines = append(e.lines[:e.line+1], e.lines[e.line+2:]...)
 	}
@@ -396,6 +427,7 @@ func (e *Editor) KillToStart() {
 	}
 	e.snapshot()
 	e.killed = e.lines[e.line][:e.col]
+	e.cutElements(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col})
 	e.lines[e.line] = e.lines[e.line][e.col:]
 	e.col = 0
 	e.invalidate()
@@ -417,7 +449,9 @@ func (e *Editor) MoveLeft() {
 	e.endTyping()
 	e.wantColumn = -1
 	if e.col > 0 {
-		e.col = text.PrevCluster(e.lines[e.line], e.col)
+		// Stepping over an element rather than into it: it is one thing on screen,
+		// and a cursor inside it has no position a reader could account for.
+		e.col = e.snapElement(e.line, text.PrevCluster(e.lines[e.line], e.col), false)
 		return
 	}
 	if e.line > 0 {
@@ -432,7 +466,7 @@ func (e *Editor) MoveRight() {
 	e.endTyping()
 	e.wantColumn = -1
 	if e.col < len(e.lines[e.line]) {
-		e.col = text.NextCluster(e.lines[e.line], e.col)
+		e.col = e.snapElement(e.line, text.NextCluster(e.lines[e.line], e.col), true)
 		return
 	}
 	if e.line < len(e.lines)-1 {
@@ -645,12 +679,19 @@ func (e *Editor) snapshot() {
 const maxUndo = 200
 
 func (e *Editor) state() editorState {
-	return editorState{lines: append([]string(nil), e.lines...), line: e.line, col: e.col}
+	return editorState{
+		lines:    append([]string(nil), e.lines...),
+		line:     e.line,
+		col:      e.col,
+		elements: append([]Element(nil), e.elements...),
+	}
 }
 
 func (e *Editor) restore(s editorState) {
 	e.lines = append([]string(nil), s.lines...)
+	e.elements = append([]Element(nil), s.elements...)
 	e.line, e.col = s.line, s.col
+	e.selecting = false
 	e.layout.stale = true
 	e.wantColumn = -1
 }

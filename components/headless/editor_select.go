@@ -115,6 +115,7 @@ func (e *Editor) replaceRange(start, end Caret, s string) {
 	head := e.lines[start.Line][:start.Col]
 	tail := e.lines[end.Line][end.Col:]
 	e.lines = append(e.lines[:start.Line], append([]string{head + tail}, e.lines[end.Line+1:]...)...)
+	e.cutElements(start, end)
 	e.line, e.col = start.Line, start.Col
 	e.wantColumn = -1
 	e.invalidate()
