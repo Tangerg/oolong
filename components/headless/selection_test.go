@@ -1,7 +1,9 @@
 package headless_test
 
 import (
+	"image"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
@@ -256,5 +258,147 @@ func TestSelectionTrimsThePaddingARowWasDrawnWith(t *testing.T) {
 	s.Extend(headless.Point{Row: 1, Col: 99})
 	if got, want := s.Text(tr), "short\nalso short"; got != want {
 		t.Errorf("copied %q, want %q", got, want)
+	}
+}
+
+func TestClicksCountAGesture(t *testing.T) {
+	// A terminal reports two presses and never a double-click, so whether they are one
+	// gesture is a question about when they arrived.
+	var c headless.Clicks
+	base := time.Unix(0, 0)
+	at := image.Pt(10, 4)
+
+	if got := c.Press(at, base); got != 1 {
+		t.Errorf("the first press is %d, want 1", got)
+	}
+	if got := c.Press(at, base.Add(100*time.Millisecond)); got != 2 {
+		t.Errorf("a press soon after is %d, want 2", got)
+	}
+	if got := c.Press(at, base.Add(200*time.Millisecond)); got != 3 {
+		t.Errorf("a third is %d, want 3", got)
+	}
+	// Long after, the run starts again.
+	if got := c.Press(at, base.Add(2*time.Second)); got != 1 {
+		t.Errorf("a press long after is %d, want 1", got)
+	}
+}
+
+func TestClicksBreakWhenThePointerMoves(t *testing.T) {
+	var c headless.Clicks
+	base := time.Unix(0, 0)
+	c.Press(image.Pt(10, 4), base)
+	if got := c.Press(image.Pt(30, 4), base.Add(50*time.Millisecond)); got != 1 {
+		t.Errorf("a press elsewhere is %d, want 1", got)
+	}
+}
+
+// TestClicksAllowAHandThatDrifts. A gesture that broke because the pointer moved one
+// column would feel like the double-click had failed.
+func TestClicksAllowAHandThatDrifts(t *testing.T) {
+	var c headless.Clicks
+	base := time.Unix(0, 0)
+	c.Press(image.Pt(10, 4), base)
+	if got := c.Press(image.Pt(11, 5), base.Add(50*time.Millisecond)); got != 2 {
+		t.Errorf("a press one cell away is %d, want 2", got)
+	}
+}
+
+func TestClicksTakeTheirOwnInterval(t *testing.T) {
+	c := headless.Clicks{Within: 10 * time.Millisecond}
+	base := time.Unix(0, 0)
+	c.Press(image.Pt(0, 0), base)
+	if got := c.Press(image.Pt(0, 0), base.Add(50*time.Millisecond)); got != 1 {
+		t.Errorf("a press past the interval is %d, want 1", got)
+	}
+}
+
+func TestClicksReset(t *testing.T) {
+	var c headless.Clicks
+	base := time.Unix(0, 0)
+	c.Press(image.Pt(0, 0), base)
+	c.Reset()
+	if got := c.Press(image.Pt(0, 0), base.Add(time.Millisecond)); got != 1 {
+		t.Errorf("the press after a reset is %d, want 1", got)
+	}
+}
+
+func TestSelectWord(t *testing.T) {
+	tr := transcriptOf(plainRows("the quick brown fox")...)
+	var s headless.Selection
+
+	if !s.SelectWord(tr, headless.Point{Row: 0, Col: 5}) {
+		t.Fatal("no word at column 5")
+	}
+	if got := s.Text(tr); got != "quick" {
+		t.Errorf("selected %q, want %q", got, "quick")
+	}
+	// And it is a finished selection rather than a drag still in progress.
+	if s.Dragging() {
+		t.Error("a double-click left a drag in progress")
+	}
+}
+
+// TestSelectWordTakesACJKRun, which is the refinement that matters for text written
+// without spaces.
+func TestSelectWordTakesACJKRun(t *testing.T) {
+	tr := transcriptOf(plainRows("见 中文词组 here")...)
+	var s headless.Selection
+	// Column 4 is inside the CJK run: "见" is two columns, then a space.
+	if !s.SelectWord(tr, headless.Point{Row: 0, Col: 4}) {
+		t.Fatal("no word there")
+	}
+	if got := s.Text(tr); got != "中文词组" {
+		t.Errorf("selected %q, want the whole run", got)
+	}
+}
+
+func TestSelectWordFindsNothingInTheMargin(t *testing.T) {
+	tr := transcriptOf(plainRows("word")...)
+	var s headless.Selection
+	for _, col := range []int{99, -1} {
+		if s.SelectWord(tr, headless.Point{Row: 0, Col: col}) {
+			t.Errorf("column %d selected %q", col, s.Text(tr))
+		}
+	}
+	if s.SelectWord(nil, headless.Point{}) {
+		t.Error("a selection over no transcript found a word")
+	}
+	if s.SelectWord(tr, headless.Point{Row: 9}) {
+		t.Error("a row that is not there had a word on it")
+	}
+}
+
+func TestSelectWordSelectsNothingOnASpace(t *testing.T) {
+	tr := transcriptOf(plainRows("a b")...)
+	var s headless.Selection
+	if s.SelectWord(tr, headless.Point{Row: 0, Col: 1}) {
+		t.Errorf("a double-click on a space selected %q", s.Text(tr))
+	}
+}
+
+// TestSelectLineTakesTheRowAndNotTheLine. What a triple-click selects is what the
+// reader sees as a line; the logical line behind it holds text they cannot point at.
+func TestSelectLineTakesTheRowAndNotTheLine(t *testing.T) {
+	tr := transcriptOf(
+		headless.Row{Text: "the quick"},
+		headless.Row{Text: "brown fox", Joined: true, Gap: " "},
+	)
+	var s headless.Selection
+	if !s.SelectLine(tr, headless.Point{Row: 1, Col: 3}) {
+		t.Fatal("no line there")
+	}
+	if got := s.Text(tr); got != "brown fox" {
+		t.Errorf("selected %q, want just the row", got)
+	}
+}
+
+func TestSelectLineOfNothing(t *testing.T) {
+	tr := transcriptOf(headless.Row{Text: ""})
+	var s headless.Selection
+	if s.SelectLine(tr, headless.Point{Row: 0}) {
+		t.Error("an empty row was selected")
+	}
+	if s.SelectLine(nil, headless.Point{}) {
+		t.Error("a selection over no transcript found a line")
 	}
 }

@@ -560,3 +560,97 @@ func TestStampLinkRefusesARangeItCannotUse(t *testing.T) {
 		}
 	}
 }
+
+func TestClassOf(t *testing.T) {
+	for _, tc := range []struct {
+		cluster string
+		want    text.Class
+	}{
+		{" ", text.Space},
+		{"\t", text.Space},
+		{"a", text.Word},
+		{"Z", text.Word},
+		{"7", text.Word},
+		{"_", text.Word},
+		{"é", text.Word},
+		{"中", text.Han},
+		{"あ", text.Kana},
+		{"ア", text.Kana},
+		{"한", text.Hangul},
+		{".", text.Punct},
+		{"-", text.Punct},
+		{"", text.Space},
+	} {
+		if got := text.ClassOf(tc.cluster); got != tc.want {
+			t.Errorf("%q = %v, want %v", tc.cluster, got, tc.want)
+		}
+	}
+}
+
+// TestWordAtTakesTheRunOfOneScript is the refinement that matters for text written
+// without spaces. Taking the alphabetic rule would swallow the Latin beside a CJK
+// phrase; taking one character would select less than anybody meant.
+func TestWordAtTakesTheRunOfOneScript(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		s    string
+		at   int
+		want string
+	}{
+		{name: "a word", s: "the quick brown", at: 5, want: "quick"},
+		{name: "the first word", s: "the quick", at: 0, want: "the"},
+		{name: "the last word", s: "the quick", at: 8, want: "quick"},
+		{name: "an underscore is part of one", s: "a snake_case name", at: 5, want: "snake_case"},
+		{name: "digits are too", s: "go1.26 here", at: 1, want: "go1"},
+		{name: "punctuation is its own", s: "a.b", at: 1, want: "."},
+		{name: "a CJK phrase", s: "见 中文词组 here", at: len("见 中"), want: "中文词组"},
+		{name: "CJK does not swallow the latin beside it", s: "中文abc", at: 0, want: "中文"},
+		{name: "and the latin does not swallow the CJK", s: "中文abc", at: len("中文"), want: "abc"},
+		{name: "kana is its own script", s: "中文ひらがな", at: len("中文"), want: "ひらがな"},
+		{name: "hangul too", s: "한글text", at: 0, want: "한글"},
+		{name: "a combining mark stays with its letter", s: "café here", at: 3, want: "café"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end, ok := text.WordAt(tc.s, tc.at)
+			if !ok {
+				t.Fatalf("found no word at %d in %q", tc.at, tc.s)
+			}
+			if got := tc.s[start:end]; got != tc.want {
+				t.Errorf("found %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWordAtFindsNothingWorthSelecting(t *testing.T) {
+	// Whitespace is not a word, so a double-click in the margin selects nothing rather
+	// than selecting the gap.
+	for _, tc := range []struct {
+		s  string
+		at int
+	}{
+		{"the quick", 3},
+		{"  ", 0},
+		{"", 0},
+		{"abc", -1},
+		{"abc", 3},
+		{"abc", 99},
+	} {
+		if start, end, ok := text.WordAt(tc.s, tc.at); ok {
+			t.Errorf("%q at %d found %q", tc.s, tc.at, tc.s[start:end])
+		}
+	}
+}
+
+func TestWordAtLandsOnAClusterBoundary(t *testing.T) {
+	// An offset inside a multi-byte character belongs to that character, so a caller
+	// working in columns cannot get half of one.
+	const s = "中文词组"
+	start, end, ok := text.WordAt(s, 1)
+	if !ok {
+		t.Fatal("found no word")
+	}
+	if got := s[start:end]; got != s {
+		t.Errorf("found %q, want the whole run", got)
+	}
+}

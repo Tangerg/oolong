@@ -11,6 +11,7 @@ package text
 import (
 	"iter"
 	"strings"
+	"unicode"
 
 	"github.com/rivo/uniseg"
 
@@ -591,4 +592,108 @@ func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col
 	width = ColumnOf(s, end) - col
 	v.Link(x+col, y, width, url)
 	return col, width
+}
+
+// Class is the family of characters a cluster belongs to, for deciding where a word
+// begins and ends.
+type Class uint8
+
+const (
+	// Space is whitespace, which is not part of any word.
+	Space Class = iota
+	// Word is a letter, a digit or an underscore — the run a double-click takes in
+	// text written in an alphabet.
+	Word
+	// Han is Chinese, and the first of the three scripts written without spaces.
+	//
+	// In those, a run of letters is not a word and the script itself is the only
+	// boundary left. Double-clicking inside 中文词组 takes the whole run: taking the
+	// alphabetic rule instead would swallow the Latin beside it, and taking one
+	// character would select less than anybody meant.
+	Han
+	// Kana is Japanese hiragana and katakana, which are one boundary between them
+	// because a word switches from one to the other inside itself.
+	Kana
+	// Hangul is Korean.
+	Hangul
+	// Punct is everything else. It selects only itself, because a run of punctuation
+	// is not a thing anybody means to have selected.
+	Punct
+)
+
+// ClassOf is the family the first character of a cluster belongs to.
+func ClassOf(cluster string) Class {
+	for _, r := range cluster {
+		switch {
+		case unicode.IsSpace(r):
+			return Space
+		case r == '_' || unicode.IsLetter(r) && !cjk(r) || unicode.IsDigit(r) && !cjk(r):
+			return Word
+		case unicode.Is(unicode.Han, r):
+			return Han
+		case unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r):
+			return Kana
+		case unicode.Is(unicode.Hangul, r):
+			return Hangul
+		default:
+			return Punct
+		}
+	}
+	return Space
+}
+
+// cjk reports whether a rune belongs to a script written without spaces.
+func cjk(r rune) bool {
+	return unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r)
+}
+
+// WordAt is the byte range of the word containing an offset, and whether there is one.
+//
+// A word is the run of clusters sharing the class of the one under the offset — see
+// [Class]. Whitespace is not a word and reports false, so a double-click in the margin
+// selects nothing rather than selecting the gap. Punctuation is its own word of one
+// cluster, because a run of it is not something anybody means to have selected.
+//
+// The offset is pulled to a cluster boundary first, so a caller working in columns
+// cannot land inside a character and get half of it.
+func WordAt(s string, at int) (start, end int, ok bool) {
+	if s == "" || at < 0 || at >= len(s) {
+		return 0, 0, false
+	}
+	// The clusters, with the class of each, and which of them the offset is inside.
+	// Materialised rather than walked twice: the walk is the expensive part, this
+	// runs once per double-click, and expanding in both directions from the middle of
+	// an iterator is how the first version of it came to be wrong.
+	type span struct {
+		from, to int
+		class    Class
+	}
+	var spans []span
+	hit := -1
+	for offset, cluster := range Clusters(s) {
+		if at >= offset && at < offset+len(cluster) {
+			hit = len(spans)
+		}
+		spans = append(spans, span{from: offset, to: offset + len(cluster), class: ClassOf(cluster)})
+	}
+	if hit < 0 {
+		return 0, 0, false
+	}
+
+	switch class := spans[hit].class; class {
+	case Space:
+		return 0, 0, false
+	case Punct:
+		return spans[hit].from, spans[hit].to, true
+	default:
+		first, last := hit, hit
+		for first > 0 && spans[first-1].class == class {
+			first--
+		}
+		for last+1 < len(spans) && spans[last+1].class == class {
+			last++
+		}
+		return spans[first].from, spans[last].to, true
+	}
 }

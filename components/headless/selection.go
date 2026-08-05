@@ -1,7 +1,9 @@
 package headless
 
 import (
+	"image"
 	"strings"
+	"time"
 
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -151,4 +153,125 @@ func clusterAtOrAfter(s string, col int) int {
 		return text.NextCluster(s, at)
 	}
 	return at
+}
+
+// DefaultMultiClick is how close together two presses have to be to count as one
+// gesture. It is what desktop systems have settled on.
+const DefaultMultiClick = 400 * time.Millisecond
+
+// multiClickSlack is how far the pointer may move between presses of one gesture. A
+// cell, because a hand on a trackpad does not hold a pixel and a gesture that broke
+// because the pointer drifted one column would feel like the double-click had failed.
+const multiClickSlack = 1
+
+// Clicks counts a run of presses in the same place as one gesture: one for a single
+// click, two for a double, three for a triple.
+//
+// # Why this is not somewhere else
+//
+// A terminal does not report a double-click. It reports two presses, and whether they
+// are one gesture is a question about when they arrived — so it can only be answered
+// by whatever has a clock.
+//
+// The time is an argument rather than read here, which is the same bargain the rest of
+// this library makes: a type that called time.Now could not be told to be at a
+// particular moment, and every test of it would be a test of how fast the machine ran.
+type Clicks struct {
+	// Within is how close together presses must be. Zero uses [DefaultMultiClick].
+	Within time.Duration
+
+	at    image.Point
+	last  time.Time
+	count int
+}
+
+// Press records a press and reports which of the run it is.
+//
+// A press far from the last one, or long after it, starts a new run — and so does the
+// first press of all, because the zero value has never seen one.
+func (c *Clicks) Press(at image.Point, when time.Time) int {
+	within := c.Within
+	if within <= 0 {
+		within = DefaultMultiClick
+	}
+	near := abs(at.X-c.at.X) <= multiClickSlack && abs(at.Y-c.at.Y) <= multiClickSlack
+	if c.count == 0 || !near || when.Sub(c.last) > within {
+		c.count = 1
+	} else {
+		c.count++
+	}
+	c.at, c.last = at, when
+	return c.count
+}
+
+// Reset forgets the run, which a caller does when something else has happened that
+// makes the next press a first one.
+func (c *Clicks) Reset() { c.count = 0 }
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// SelectWord selects the word at a point, which is what a double-click means.
+//
+// Where a word begins and ends is [text.WordAt]'s to say — including the part that
+// matters for text written without spaces, where the run of one script is the word.
+// It reports false when there is no word there, so a double-click in the margin
+// selects nothing rather than selecting the gap.
+func (s *Selection) SelectWord(t *Transcript, p Point) bool {
+	row, ok := rowText(t, p.Row)
+	if !ok || p.Col < 0 {
+		// A negative column is not a position in the text, which is what [Selection.Covers]
+		// already says about one. Clamping it to the start instead would make a click
+		// in the margin select the first word.
+		return false
+	}
+	at := text.OffsetAt(row, p.Col)
+	start, end, ok := text.WordAt(row, at)
+	if !ok {
+		return false
+	}
+	s.set(p.Row, text.ColumnOf(row, start), text.ColumnOf(row, end)-1)
+	return true
+}
+
+// SelectLine selects a whole row, which is what a triple-click means.
+//
+// The row, not the logical line the width broke it out of. What a triple-click selects
+// is what the reader sees as a line, and asking for the line behind it would take text
+// they can neither see nor point at.
+func (s *Selection) SelectLine(t *Transcript, p Point) bool {
+	row, ok := rowText(t, p.Row)
+	if !ok {
+		return false
+	}
+	width := text.Width(row)
+	if width == 0 {
+		return false
+	}
+	s.set(p.Row, 0, width-1)
+	return true
+}
+
+// set puts the selection over one row's columns, both ends inclusive, and leaves no
+// drag in progress: a click that selected something has finished selecting it.
+func (s *Selection) set(row, from, to int) {
+	s.anchor = Point{Row: row, Col: from}
+	s.extent = Point{Row: row, Col: to}
+	s.active, s.dragging = true, false
+}
+
+// rowText is the text of one row of a transcript, and whether there is one.
+func rowText(t *Transcript, row int) (string, bool) {
+	if t == nil {
+		return "", false
+	}
+	rows := t.Rows(row, 1)
+	if len(rows) == 0 {
+		return "", false
+	}
+	return rows[0].Text, true
 }
