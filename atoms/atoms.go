@@ -54,15 +54,6 @@ type Interactive interface {
 	Handle(ev input.Event) bool
 }
 
-// Focusable is a widget that behaves differently when it has the keyboard.
-//
-// Focus is a container's to give: a widget can render itself as focused, but it
-// cannot decide that it is.
-type Focusable interface {
-	Widget
-	Focus(focused bool)
-}
-
 // Align is how content sits in a space wider than itself.
 type Align uint8
 

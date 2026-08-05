@@ -55,12 +55,11 @@ for the terminal reporting progress — never on a clock that runs regardless. A
 that wants a clock starts one with `Loop.Every`, and an interface with nothing animating
 costs nothing.
 
-## Prior work
+## More
 
-The rendering substrate is a reimplementation of [agentui][agentui], which is itself an
-independent reimplementation of the Grok CLI terminal interface. See [NOTICE](NOTICE).
-
-[agentui]: https://github.com/minoism/agentui
+[DESIGN.md](DESIGN.md) is the orientation document: where the library came from, what
+was taken from whom and what was left, what is built, what is deliberately not here,
+what is missing, and what its known limits are.
 
 ## License
 
