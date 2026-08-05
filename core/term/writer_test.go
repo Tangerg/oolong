@@ -284,3 +284,32 @@ func TestManyProducersKeepSequenceAndWriteOrderTogether(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 }
+
+func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
+	// Two things wait for the watermark: the loop, through Progress, and Drain.
+	// Progress holds one wake-up and a taken one is gone, so a Drain that waited on
+	// it would leave the loop with nothing to wake on — and would do so only on a
+	// machine slow enough for Drain to get there first, which is how this hid.
+	dst := newBlocker()
+	w := NewWriter(dst)
+	seq := w.Queue([]byte("frame"))
+
+	// Drain is waiting before anything has been written, which is the ordering the
+	// fast path never takes.
+	drained := make(chan bool, 1)
+	go func() { drained <- w.Drain(2 * time.Second) }()
+	time.Sleep(20 * time.Millisecond)
+	dst.releaseAll()
+
+	if !<-drained {
+		t.Fatal("never drained")
+	}
+	select {
+	case <-w.Progress():
+	case <-time.After(time.Second):
+		t.Fatal("the loop was never woken: Drain took the wake-up it was owed")
+	}
+	if got := w.Written(); got != seq {
+		t.Fatalf("watermark = %d, want %d", got, seq)
+	}
+}

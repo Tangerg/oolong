@@ -42,8 +42,19 @@ type Writer struct {
 
 	frames chan frame
 	// progress holds at most one pending wake-up: a loop that has not yet noticed
-	// the last advance does not need to be told twice.
+	// the last advance does not need to be told twice. It has exactly one consumer,
+	// the loop that owns the terminal, and a wake-up taken from it is gone.
 	progress chan struct{}
+
+	// advanced is closed and replaced every time the watermark moves.
+	//
+	// It exists because [Writer.Drain] also waits for the watermark, and a second
+	// consumer of progress would take wake-ups the loop is owed. A closed channel
+	// is a broadcast: every waiter sees it, and none can take it from another.
+	// Waiting on progress from two places was a hang that only appeared on a
+	// machine slow enough for Drain to reach the channel first.
+	advanceMu sync.Mutex
+	advanced  chan struct{}
 
 	queued    atomic.Uint64
 	written   atomic.Uint64
@@ -76,6 +87,7 @@ func NewWriter(dst io.Writer) *Writer {
 		dst:      dst,
 		frames:   make(chan frame, 8),
 		progress: make(chan struct{}, 1),
+		advanced: make(chan struct{}),
 		loopDone: make(chan struct{}),
 	}
 	go w.run()
@@ -127,20 +139,32 @@ func (w *Writer) Err() error {
 // It is what to call before handing the terminal to another program, so that
 // program does not find half a frame in front of it. A failed frame counts as
 // drained: a broken terminal must not be able to wedge a shutdown.
+//
+// It takes nothing from [Writer.Progress]. Waiting here must not cost the loop a
+// wake-up it is owed, which is what the broadcast channel is for.
 func (w *Writer) Drain(timeout time.Duration) bool {
 	target := w.queued.Load()
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-	for w.processed.Load() < target {
+	for {
+		// The channel is taken before the watermark is read, so that an advance
+		// landing between the two closes a channel this is about to wait on rather
+		// than one it has already let go of.
+		w.advanceMu.Lock()
+		advanced := w.advanced
+		w.advanceMu.Unlock()
+
+		if w.processed.Load() >= target {
+			return true
+		}
 		select {
-		case <-w.progress:
+		case <-advanced:
 		case <-w.loopDone:
 			return w.processed.Load() >= target
 		case <-deadline.C:
 			return false
 		}
 	}
-	return true
 }
 
 // Close drains what it can, stops the goroutine and reports whether anything had
@@ -216,4 +240,11 @@ func (w *Writer) finish(seq uint64, err error) {
 	case w.progress <- struct{}{}:
 	default:
 	}
+	// And the broadcast, which anything else waiting on the watermark observes
+	// without taking the wake-up above.
+	w.advanceMu.Lock()
+	settled := w.advanced
+	w.advanced = make(chan struct{})
+	w.advanceMu.Unlock()
+	close(settled)
 }
