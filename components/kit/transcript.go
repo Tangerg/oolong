@@ -1,0 +1,174 @@
+package kit
+
+import (
+	"image"
+
+	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/core/grid"
+)
+
+// Transcript draws a session's output: the window of it that fits, the header pinned
+// above, and whatever is selected or found picked out.
+//
+// It owns no content. The blocks, where the view is scrolled to, what is selected and
+// what a search turned up are all the caller's, held in the headless types that answer
+// those questions — this decides what they look like and nothing else.
+type Transcript struct {
+	// Content is what to draw.
+	Content *headless.Transcript
+	// Scroll is where in it the window sits.
+	Scroll *headless.Scroll
+	// Selection picks out cells the user dragged over. Nil selects nothing.
+	Selection *headless.Selection
+	// Sticky pins a header above the window. Nil pins nothing.
+	Sticky *headless.Sticky
+	// Matches are highlighted where they fall inside the window, and Current is the
+	// index of the one being stepped to, which is drawn differently. A Current
+	// outside the matches means none of them is current.
+	Matches []headless.Match
+	Current int
+
+	// SelectionStyle, MatchStyle and CurrentStyle are how the three are picked out.
+	SelectionStyle grid.Style
+	MatchStyle     grid.Style
+	CurrentStyle   grid.Style
+	// HeaderStyle is laid over a pinned header, and DividerStyle draws the rule under
+	// it when the sticky leaves a gap for one.
+	HeaderStyle  grid.Style
+	DividerStyle grid.Style
+	// Divider is the character the rule is drawn with. Empty leaves the gap blank.
+	Divider string
+}
+
+// Draw fills v with as much of the transcript as fits.
+func (t Transcript) Draw(v grid.View) {
+	w, h := v.Size()
+	if t.Content == nil || w <= 0 || h <= 0 {
+		return
+	}
+	t.Content.Resize(w)
+
+	// Laid out twice, because the two answers depend on each other: how much room the
+	// content has depends on the header, and which block is pinned depends on where
+	// the content is scrolled to. One pass settles it — the first says roughly where
+	// the window is, which is enough to know which header goes above it, and the
+	// second lays the scroll out against the room actually left.
+	//
+	// Doing it once either way is worse. Laying out against the full height leaves the
+	// last rows of a transcript unreachable, which a session that follows its own
+	// output notices immediately; sizing the header against the reduced height makes
+	// the header's own presence change how much of it there is, which has no fixed
+	// point at all.
+	body, from := v, t.layout(h)
+	if t.Sticky != nil {
+		if pinned, ok := t.Sticky.At(t.Content, from, h); ok && pinned.Rows < h {
+			from = t.layout(h - pinned.Rows)
+			t.drawHeader(v, pinned)
+			body = v.Sub(image.Rect(0, pinned.Rows, w, h))
+		}
+	}
+
+	t.Content.Draw(body, from)
+	t.mark(body, from)
+}
+
+// layout puts the scroll against a window of the given height and reports where it
+// starts. A transcript with no scroll shows its beginning.
+func (t Transcript) layout(rows int) int {
+	if t.Scroll == nil {
+		return 0
+	}
+	t.Scroll.Layout(t.Content.Height(), max(rows, 0))
+	return t.Scroll.Offset()
+}
+
+// drawHeader draws the pinned block and the rule under it.
+func (t Transcript) drawHeader(v grid.View, pinned headless.Pinned) {
+	w, _ := v.Size()
+	block := t.Content.Block(pinned.Block)
+	if block == nil {
+		return
+	}
+	// Drawn into a view that starts above the space available, so the rows clipped
+	// off the top are discarded rather than each widget being taught about being
+	// pushed — the same arrangement a transcript uses for a block the window cuts.
+	visible := pinned.Visible()
+	block.Draw(v.Sub(image.Rect(0, -pinned.ClipTop, w, visible)))
+	for y := range visible {
+		for x := range w {
+			restyle(v, x, y, t.HeaderStyle)
+		}
+	}
+	if t.Divider != "" && pinned.Rows > visible {
+		for x := range w {
+			v.Text(x, visible, t.Divider, t.DividerStyle)
+		}
+	}
+}
+
+// mark lays the selection and the search results over what was drawn.
+//
+// Over, rather than into: what is selected is a property of the cells and not of the
+// content, so it is applied after the content drew itself and without the content
+// knowing. A block that had to be told it was selected would have to be told again
+// every time the drag moved.
+func (t Transcript) mark(v grid.View, from int) {
+	w, h := v.Size()
+	if t.Selection != nil && t.Selection.Active() {
+		for y := range h {
+			for x := range w {
+				if t.Selection.Covers(from+y, x) {
+					restyle(v, x, y, t.SelectionStyle)
+				}
+			}
+		}
+	}
+	for i, m := range t.Matches {
+		style := t.MatchStyle
+		if i == t.Current {
+			style = t.CurrentStyle
+		}
+		for row, span := range m.Spans {
+			y := m.Row + row - from
+			if y < 0 || y >= h {
+				continue
+			}
+			for x := span.Col; x < span.Col+span.Width && x < w; x++ {
+				restyle(v, x, y, style)
+			}
+		}
+	}
+}
+
+// restyle lays a style over a cell without touching what is in it.
+//
+// Over, not instead of: a header tinted by replacing every style would lose the accent
+// on its own first word, and a selection drawn that way would lose the emphasis inside
+// the sentence it covers. Merging keeps whatever the overlay did not state.
+func restyle(v grid.View, x, y int, style grid.Style) {
+	if style == (grid.Style{}) {
+		return
+	}
+	if c := v.CellAt(x, y); c != nil {
+		c.Style = c.Style.Merge(style)
+	}
+}
+
+// Dressed is a transcript in a theme's colours, drawn with a glyph set.
+//
+// It is a starting point and not a requirement: every field it fills in is one a
+// caller can set instead, which is the whole arrangement between this package and the
+// one below it.
+func Dressed(th Theme, g Glyphs) Transcript {
+	return Transcript{
+		SelectionStyle: th.Selection,
+		// A match is picked out the way a selection is, and the one being stepped to
+		// is accented, so that stepping through matches is visible without the others
+		// disappearing.
+		MatchStyle:   th.Selection,
+		CurrentStyle: th.Accent,
+		HeaderStyle:  th.Surface,
+		DividerStyle: th.Divider,
+		Divider:      g.Horizontal,
+	}
+}
