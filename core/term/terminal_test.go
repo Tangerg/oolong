@@ -1,6 +1,7 @@
 package term_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -178,3 +179,80 @@ func read(t *testing.T, f *os.File, within time.Duration) string {
 type frameBytes struct{ b []byte }
 
 func (f *frameBytes) Write(p []byte) (int, error) { f.b = append(f.b, p...); return len(p), nil }
+
+func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
+	// The session records the modes it turned on and unwinds them in the opposite
+	// order, which is what closing does — so handing the terminal to a child is that
+	// twice, and the child gets a terminal with no idea a program was using it.
+	primary, replica := pty(t)
+	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true, Mouse: true})
+	if err != nil {
+		t.Fatalf("opening a pty as a terminal: %v", err)
+	}
+	defer func() { _ = tty.Close() }()
+	<-tty.Events() // the opening size
+	read(t, primary, 200*time.Millisecond)
+
+	typed := make(chan string, 1)
+	err = tty.Hand(func() error {
+		// The sequences are written out here rather than read from the package: what
+		// is asserted is what a terminal is sent, and a test that asked the code what
+		// it sends would pass whatever it happened to send.
+		if seen := read(t, primary, time.Second); !strings.Contains(seen, "\x1b[?1049l") ||
+			!strings.Contains(seen, "\x1b[?1003l") {
+			t.Errorf("the child was given a terminal still holding %q", seen)
+		}
+
+		// And the reader is off the terminal, which is the half nothing else can do
+		// for a caller: a session that only put the modes back would still be reading,
+		// and every other keystroke would go to this process instead of to the child.
+		go func() {
+			buf := make([]byte, 8)
+			n, _ := replica.Read(buf)
+			typed <- string(buf[:n])
+		}()
+		time.Sleep(20 * time.Millisecond)
+		if _, writeErr := primary.WriteString("k\n"); writeErr != nil {
+			return writeErr
+		}
+		select {
+		case got := <-typed:
+			if got != "k\n" {
+				t.Errorf("the child read %q, want the whole keystroke", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("the session's reader took the byte the child was meant to get")
+		}
+		return nil
+	})
+	if errors.Is(err, errors.ErrUnsupported) {
+		t.Skip("a reader cannot be taken off the terminal here")
+	}
+	if err != nil {
+		t.Fatalf("handing the terminal over: %v", err)
+	}
+
+	if seen := read(t, primary, time.Second); !strings.Contains(seen, "\x1b[?1049h") {
+		t.Errorf("the terminal was taken back as %q, want the modes on again", seen)
+	}
+	if _, err := primary.WriteString("z"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-tty.Events():
+			// A fresh size arrives as well, because nothing reported one while the
+			// terminal was somebody else's: the signal went to whatever was in the
+			// foreground.
+			if key, ok := ev.(input.Key); ok {
+				if key.Rune != 'z' {
+					t.Fatalf("got %#v, want the keystroke", ev)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("the reader never went back on the terminal")
+		}
+	}
+}

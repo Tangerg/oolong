@@ -44,6 +44,7 @@ type host struct {
 	refuse   bool
 	pasteFor string
 	asked    int
+	handed   int
 }
 
 func newHost() *host {
@@ -86,6 +87,25 @@ func (h *host) Paste() {
 	if deliver {
 		h.events <- input.Paste{Text: text}
 	}
+}
+
+// Hand runs it. A host with no terminal has nothing to give away, and the half
+// worth testing is the program's: that the block is left behind first, that nothing
+// is drawn while it is gone, and that the interface is drawn again afterwards.
+func (h *host) Hand(run func() error) error {
+	h.clipMu.Lock()
+	h.handed++
+	h.clipMu.Unlock()
+	if run == nil {
+		return nil
+	}
+	return run()
+}
+
+func (h *host) timesHanded() int {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	return h.handed
 }
 
 func (h *host) copies() []string {
@@ -583,6 +603,10 @@ type printer struct {
 
 	text  string
 	drawn atomic.Int64
+	// hand is what to give the terminal to on the next event, if anything.
+	hand func() error
+	// handErr is what handing it over came to.
+	handErr atomic.Pointer[error]
 }
 
 func (p *printer) Draw(v grid.View) {
@@ -590,7 +614,15 @@ func (p *printer) Draw(v grid.View) {
 	v.Text(0, 0, p.text, grid.Style{})
 }
 
-func (p *printer) Handle(input.Event) bool { return true }
+func (p *printer) Handle(input.Event) bool {
+	if p.hand != nil {
+		run := p.hand
+		p.hand = nil
+		err := p.loop.Hand(run)
+		p.handErr.Store(&err)
+	}
+	return true
+}
 
 // startInline runs an inline program over a fake host.
 func startInline(t *testing.T) (*host, *printer, chan error) {
@@ -1105,5 +1137,61 @@ func TestAComponentCanTellTheTerminalWhereItIs(t *testing.T) {
 	defer h.clipMu.Unlock()
 	if h.directory != "/tmp/work" {
 		t.Errorf("the host was told %q", h.directory)
+	}
+}
+
+func TestTheBlockIsLeftBehindBeforeAnythingElseGetsTheTerminal(t *testing.T) {
+	// An editor, a pager, anything that wants the terminal for itself. The interface
+	// is left in the terminal's own output with the cursor below it, so the child
+	// starts on a line of its own rather than on top of a block that is no longer
+	// being redrawn.
+	h, root, done := startInline(t)
+
+	var (
+		drawnDuring atomic.Int64
+		drawnBy     atomic.Int64
+		seenDuring  atomic.Value
+	)
+	root.hand = func() error {
+		seenDuring.Store(h.frames.String())
+		before := root.drawn.Load()
+		time.Sleep(30 * time.Millisecond)
+		drawnDuring.Store(root.drawn.Load() - before)
+		drawnBy.Store(root.drawn.Load())
+		return nil
+	}
+	h.send(input.Key{Code: input.Character, Rune: 'e'})
+
+	waitFor(t, done, h, "the terminal to be handed over and taken back", func() bool {
+		return root.handErr.Load() != nil
+	})
+	if err := *root.handErr.Load(); err != nil {
+		t.Fatalf("handing the terminal over: %v", err)
+	}
+	if h.timesHanded() != 1 {
+		t.Fatalf("the host was handed the terminal %d times", h.timesHanded())
+	}
+
+	// The cursor is shown and the block finished before the child ran, and what was
+	// queued had reached the terminal: a frame arriving in the middle of a child's
+	// output is a frame drawn over it.
+	seen, _ := seenDuring.Load().(string)
+	if !strings.HasSuffix(seen, "\x1b[?25h") {
+		t.Errorf("the child was given a terminal still holding the block: %q", seen)
+	}
+	if n := drawnDuring.Load(); n != 0 {
+		t.Errorf("the interface drew %d frames while a child owned the terminal", n)
+	}
+
+	// And it is drawn again afterwards, in full, because what a child did to the
+	// screen is not knowable. Against what it had drawn while the terminal was
+	// somebody else's, not against now: the redraw may well have happened already.
+	waitFor(t, done, h, "the interface to be drawn again", func() bool {
+		return root.drawn.Load() > drawnBy.Load()
+	})
+
+	root.loop.Quit()
+	if err := <-done; err != nil {
+		t.Fatalf("the program ended with %v", err)
 	}
 }

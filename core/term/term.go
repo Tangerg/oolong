@@ -72,6 +72,12 @@ type Terminal struct {
 
 	events chan input.Event
 	writer *Writer
+	// waker ends the reader's wait when this process, rather than the terminal, has
+	// something to say about it.
+	waker *waker
+	// handed is the latch the reader parks on while the terminal is somebody else's
+	// — see [Terminal.Hand].
+	handed handover
 	// said is what the terminal was willing to say about itself, when it was asked.
 	// It is written once during Open and only read afterwards.
 	said answers
@@ -146,6 +152,13 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	}
 
 	t.writer = NewWriter(out)
+	waker, wakeErr := newWaker(fd)
+	if wakeErr != nil {
+		_, _ = out.WriteString(t.modes.leave())
+		_ = xterm.Restore(fd, oldState)
+		return nil, wakeErr
+	}
+	t.waker = waker
 	notifyResize(t.winch)
 
 	// The size is delivered as an event rather than left to be asked for, so a
@@ -386,6 +399,11 @@ func (t *Terminal) Close() error {
 	t.closeOnce.Do(func() {
 		signal.Stop(t.winch)
 		close(t.stop)
+		// The reader is waiting for the terminal to say something, and nothing will:
+		// waking it is what lets it see that the session is over. It is also what
+		// releases a reader parked mid-handover, so a session closed while the
+		// terminal is somebody else's still ends.
+		t.waker.wake()
 		<-t.fanDone
 
 		// Frames first: the writer may still hold one, and writing it after the
@@ -394,12 +412,7 @@ func (t *Terminal) Close() error {
 		if err := t.writer.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		if _, err := t.out.WriteString(t.modes.leave()); err != nil {
-			errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
-		}
-		if err := xterm.Restore(int(t.in.Fd()), t.oldState); err != nil {
-			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
-		}
+		errs = append(errs, t.giveBack()...)
 		// The pump owns the event channel, so it has to have finished before anyone
 		// could observe the channel closed.
 		<-t.pumpDone
@@ -408,14 +421,59 @@ func (t *Terminal) Close() error {
 	return t.closeErr
 }
 
-// read performs the blocking reads and hands chunks to the pump.
+// giveBack puts the terminal back the way it was found: every mode this session
+// turned on, turned off in the opposite order, and then cooked mode.
 //
-// A blocking read on a terminal cannot be cancelled portably, so this goroutine
-// outlives the request to stop and returns on the next byte or on end of input.
-// Leaving raw mode, which Close does, is what makes that happen promptly in
-// practice. Nothing waits for it: it holds no state anyone else needs.
+// It is the whole of what taking a terminal over has to be undone by, which is why
+// closing the session and handing it to a child both go through here. Two of these
+// would drift, and the way they would drift is one of them forgetting a mode — a
+// terminal the user has to close.
+func (t *Terminal) giveBack() []error {
+	var errs []error
+	if _, err := t.out.WriteString(t.modes.leave()); err != nil {
+		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
+	}
+	if err := xterm.Restore(int(t.in.Fd()), t.oldState); err != nil {
+		errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
+	}
+	return errs
+}
+
+// read waits for the terminal to have something to say, reads it, and hands the
+// chunk to the pump.
+//
+// The waiting is separate from the reading, and that is the whole shape of it. A
+// blocking read cannot be cancelled portably, so a reader that simply read would be
+// inside a read at exactly the moments a session needs it not to be: while the
+// terminal belongs to a child, and after the session has been closed. Waiting first
+// means every one of those finds this goroutine holding nothing — see [waker].
+//
+// Where there is no way to wait — see [interruptible] — the wait reports "maybe"
+// and the read below it does the blocking, which is what a reader that cannot be
+// woken did before any of this existed.
 func (t *Terminal) read(raw chan<- []byte, readErr chan<- error) {
+	defer t.waker.close()
 	for {
+		// Before the read and not after it: a byte taken while the terminal is
+		// somebody else's is a byte they never see.
+		t.handed.park(t.stop)
+		select {
+		case <-t.stop:
+			return
+		default:
+		}
+		ready, err := t.waker.wait()
+		if err != nil {
+			readErr <- err
+			return
+		}
+		if !ready {
+			// This process asked for the reader back, so nothing was read and there is
+			// nothing to hand on. Whether that was a handover or the end of the session
+			// is answered at the top of the loop.
+			continue
+		}
+
 		buf := make([]byte, 4096)
 		n, err := t.in.Read(buf)
 		if n > 0 {

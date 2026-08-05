@@ -141,6 +141,34 @@ type Loop interface {
 	// nothing further to insert what they copied somewhere else. It may never
 	// arrive — most terminals refuse to be read — so nothing should wait on one.
 	Paste()
+
+	// Hand gives the terminal to something else — an editor, a pager, a shell — and
+	// takes it back when run returns.
+	//
+	// It runs on the goroutine that owns the interface and does not return until run
+	// does, which is the point rather than a limitation: nothing may draw while a
+	// child owns the screen, and the simplest way to guarantee that is for the one
+	// goroutine that draws to be inside this call. Everything posted meanwhile waits
+	// its turn, and the interface is redrawn in full afterwards, because what a child
+	// did to the screen is not knowable.
+	//
+	// An inline interface is left in the terminal first, with the cursor below it, so
+	// the child starts on a line of its own and the block is not written over. It is
+	// drawn again where the cursor ends up.
+	//
+	// Where a terminal cannot be handed over — see [term.Terminal.Hand] — this
+	// reports [errors.ErrUnsupported] and run is not called.
+	Hand(run func() error) error
+
+	// Suspend gives the terminal back and stops this process, the way Ctrl+Z does in
+	// a shell, returning when it is continued.
+	//
+	// In raw mode the terminal does not do this for the user: Ctrl+Z arrives as a
+	// keystroke like any other, so a program that wants the shell's behaviour binds
+	// it to this. It is [Loop.Hand] around [term.Suspend], and the terminal is given
+	// back before the process stops rather than after, or the user is left looking at
+	// half an interface they cannot type into.
+	Suspend() error
 }
 
 // InlineLoop is what an inline program's component may ask of it: everything a
@@ -240,6 +268,10 @@ type Host interface {
 	// may refuse; a host somewhere else can shell out to the local tools and be
 	// right for that case, which asking the terminal would not be.
 	Paste()
+	// Hand gives the terminal to something else and takes it back when run returns —
+	// see [term.Terminal.Hand]. A host that is not a terminal has nothing to give
+	// away and simply runs it.
+	Hand(run func() error) error
 }
 
 // Config is what a program needs to run.
@@ -538,16 +570,28 @@ func (p *program) flush() uint64 {
 // would find the program's last frame arriving in the middle of it.
 func (p *program) finish() {
 	if p.inline != nil {
-		p.root.Draw(p.inline.Frame())
-		p.flush()
-
-		var tail frameBuffer
-		_ = p.inline.Finish(&tail)
-		if len(tail.bytes) > 0 {
-			p.writer.Queue(tail.bytes)
-		}
+		p.leaveBlock()
 	}
 	p.writer.Drain(term.DrainGrace)
+}
+
+// leaveBlock draws the interface one last time and leaves it in the terminal's own
+// output, with the cursor below it.
+//
+// It is what the end of an inline program is made of, and it is also what handing
+// the terminal to a child is made of, which is why it is not written inside either:
+// both mean "this block is finished with, and whatever writes next starts on a line
+// of its own". After it, the block has no position to write relative to, so the next
+// frame draws wherever the cursor has ended up.
+func (p *program) leaveBlock() {
+	p.root.Draw(p.inline.Frame())
+	p.flush()
+
+	var tail frameBuffer
+	_ = p.inline.Finish(&tail)
+	if len(tail.bytes) > 0 {
+		p.writer.Queue(tail.bytes)
+	}
 }
 
 // frameBuffer collects one frame's bytes.
@@ -645,6 +689,29 @@ func (l loop) Keyboard() (input.KeyboardFlags, bool) { return l.p.host.Keyboard(
 func (l loop) ReportDirectory(path string) error { return l.p.host.ReportDirectory(path) }
 
 func (l loop) Paste() { l.p.host.Paste() }
+
+// Hand runs on the goroutine that owns the interface, and everything it does is in
+// that order: the block is left in the terminal, the terminal is given away, the
+// child has it, and what comes back is a screen nothing knows anything about — so
+// the next frame is drawn in full.
+func (l loop) Hand(run func() error) error {
+	if run == nil {
+		return nil
+	}
+	if l.p.inline != nil {
+		l.p.leaveBlock()
+	}
+	// What was queued has to be on the wire before anything else owns the terminal,
+	// including the frame that was just drawn to leave the block behind. It is done
+	// here rather than left to the host because every host needs it and only this
+	// knows a frame was queued a line ago.
+	l.p.writer.Drain(term.DrainGrace)
+	err := l.p.host.Hand(run)
+	l.p.present.RequestFull()
+	return err
+}
+
+func (l loop) Suspend() error { return l.Hand(term.Suspend) }
 
 func (l loop) Every(d time.Duration, fn func()) (stop func()) {
 	if d <= 0 || fn == nil {

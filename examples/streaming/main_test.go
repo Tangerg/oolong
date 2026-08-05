@@ -39,6 +39,15 @@ func (h *host) Ground() grid.Ground        { return grid.Ground{} }
 func (h *host) Copy(string) bool           { return false }
 func (h *host) Paste()                     {}
 
+// Hand runs it. There is no terminal here to give away, which is the whole point
+// of this host: what the demonstration does is testable without one.
+func (h *host) Hand(run func() error) error {
+	if run == nil {
+		return nil
+	}
+	return run()
+}
+
 func (h *host) typeText(s string) {
 	for _, r := range s {
 		h.events <- input.Key{Code: input.Character, Rune: r}
