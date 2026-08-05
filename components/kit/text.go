@@ -3,6 +3,7 @@ package kit
 import (
 	"strings"
 
+	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/link"
@@ -132,6 +133,32 @@ func (p *Paragraph) stamp(v grid.View, y int, r row) {
 		col, width := text.StampLink(v, p.Indent, y, part, start, end, l.URL)
 		p.found.Add(p.Indent+col, y, width, l.URL)
 	}
+}
+
+// Rows is what the paragraph says, one entry per drawn row, so a selection over it
+// can be copied.
+//
+// Each row carries what the wrap consumed at the break above it, which is why the
+// wrap records where every row came from. Between words it swallowed a space, and
+// splitting a word too long for the row swallowed nothing; neither is recoverable
+// from the rows afterwards, and guessing wrong either runs two words together or
+// breaks a word in half.
+func (p *Paragraph) Rows(width int) []headless.Row {
+	rows := p.rows(width)
+	out := make([]headless.Row, 0, len(rows))
+	prevTo, prevLine := 0, -1
+	for _, r := range rows {
+		row := headless.Row{Text: r.Line.String(), Joined: r.Joined}
+		if r.Joined && r.line == prevLine && r.line < len(p.Lines) {
+			whole := p.Lines[r.line].String()
+			if prevTo <= r.From && r.From <= len(whole) {
+				row.Gap = whole[prevTo:r.From]
+			}
+		}
+		out = append(out, row)
+		prevTo, prevLine = r.To, r.line
+	}
+	return out
 }
 
 // LinkAt is the URL at a position in the space the paragraph was last drawn into,

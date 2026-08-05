@@ -540,3 +540,43 @@ func TestParagraphDoesNotLinkATruncatedRow(t *testing.T) {
 		}
 	}
 }
+
+// TestParagraphCopiesAsAParagraph is the end of the chain that began with the wrap
+// recording where each row came from. What the user copies out of a narrow window
+// has to paste as the text that was written, not as a column of fragments.
+func TestParagraphCopiesAsAParagraph(t *testing.T) {
+	var tr headless.Transcript
+	p := kit.NewParagraph("the quick brown fox jumps over it\nand a second line", grid.Style{})
+	tr.Resize(12)
+	tr.Append(p)
+
+	if tr.Height() < 4 {
+		t.Fatalf("the text wrapped to %d rows, want several", tr.Height())
+	}
+
+	var s headless.Selection
+	s.Begin(headless.Point{Row: 0, Col: 0})
+	s.Extend(headless.Point{Row: tr.Height() - 1, Col: 999})
+
+	want := "the quick brown fox jumps over it\nand a second line"
+	if got := s.Text(&tr); got != want {
+		t.Errorf("copied\n  %q,\nwant\n  %q", got, want)
+	}
+}
+
+// TestParagraphCopiesAWordItHadToBreak: a word longer than the row is split between
+// clusters and the break swallows nothing, so putting a space back would break the
+// word that was copied.
+func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
+	const word = "supercalifragilisticexpialidocious"
+	var tr headless.Transcript
+	tr.Resize(10)
+	tr.Append(kit.NewParagraph(word, grid.Style{}))
+
+	var s headless.Selection
+	s.Begin(headless.Point{Row: 0, Col: 0})
+	s.Extend(headless.Point{Row: tr.Height() - 1, Col: 999})
+	if got := s.Text(&tr); got != word {
+		t.Errorf("copied %q, want %q", got, word)
+	}
+}

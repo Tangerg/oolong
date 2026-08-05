@@ -54,8 +54,8 @@ type placed struct {
 // Len is how many blocks the transcript holds.
 func (t *Transcript) Len() int { return len(t.blocks) }
 
-// Rows is the total height of everything in it, at the current width.
-func (t *Transcript) Rows() int { return t.total }
+// Height is the total height of everything in it, at the current width.
+func (t *Transcript) Height() int { return t.total }
 
 // Width is the width every height in it was measured at.
 func (t *Transcript) Width() int { return t.width }
@@ -232,36 +232,63 @@ func (t *Transcript) Draw(v grid.View, from int) {
 	}
 }
 
+// Row is one row of a block's content, as a copy would take it.
+type Row struct {
+	// Text is what the row says, without the padding or the decoration around it,
+	// and in the same columns it was drawn in — a selection slices this by column,
+	// so it has to line up with what the user dragged over.
+	Text string
+	// Joined marks a row the width made rather than the text: it continues the row
+	// above, and a copy of both must not put a line break between them. Otherwise a
+	// paragraph copied out of a terminal arrives hard-wrapped to whatever width the
+	// window happened to be.
+	Joined bool
+	// Gap is what the break consumed, and is only read when Joined.
+	//
+	// Wrapping between words swallows the space, so rejoining without one runs two
+	// words together; splitting a word too long for the row swallows nothing, and
+	// putting a space there would break the word. Neither is derivable from the rows
+	// afterwards, which is why it is carried rather than guessed.
+	Gap string
+}
+
+// Separator is what goes between this row and the one above it in a copy.
+func (r Row) Separator() string {
+	if r.Joined {
+		return r.Gap
+	}
+	return "\n"
+}
+
 // Copyable is a block that can say what it draws, so a selection can be copied out
 // of it.
 //
 // It is separate from drawing because copying is not drawing: what a user expects on
 // the clipboard is the text, without the box around it, without the accent in the
 // gutter, and without the padding that made it look right. A block that cannot answer
-// this contributes blank rows to a selection rather than nothing at all — it still
-// occupies the rows, and a selection dragged across it has to come out with the same
-// number of lines the user dragged over.
+// this contributes empty rows to a selection rather than nothing at all — it still
+// occupies the rows, and a selection dragged across it has to come out with as many
+// lines as the user dragged over.
 type Copyable interface {
-	// Text is what the block's rows say at a width, one string per row, and as many
-	// of them as [layout.Measurer.Measure] reports at that width.
-	Text(width int) []string
+	// Rows is what the block's rows say at a width, and there are as many of them as
+	// Measure reports at that width.
+	Rows(width int) []Row
 }
 
-// Text is what the transcript's rows say, one string per row, for the rows
-// [from, from+rows).
+// Rows is what the transcript says over [from, from+count), one entry per row.
 //
-// Rows belonging to a block that cannot be copied come back empty. The count is
-// always the number of rows asked for, clamped to what exists, so a caller can index
-// the result by row and get the row it meant.
-func (t *Transcript) Text(from, rows int) []string {
-	if rows <= 0 || from >= t.total {
+// Rows belonging to a block that cannot be copied come back empty and unjoined. The
+// count is what was asked for, clamped to what exists, so a caller can index the
+// result by row and get the row it meant.
+func (t *Transcript) Rows(from, count int) []Row {
+	if count <= 0 || from >= t.total {
 		return nil
 	}
 	from = max(from, 0)
-	rows = min(rows, t.total-from)
-	out := make([]string, rows)
+	count = min(count, t.total-from)
+	out := make([]Row, count)
 
-	first, last := t.Visible(from, rows)
+	first, last := t.Visible(from, count)
 	for i := first; i < last; i++ {
 		b := t.blocks[i]
 		if b.height == 0 {
@@ -271,13 +298,13 @@ func (t *Transcript) Text(from, rows int) []string {
 		if !ok {
 			continue
 		}
-		lines := copyable.Text(t.width)
+		rows := copyable.Rows(t.width)
 		for row := range b.height {
 			at := b.top + row - from
-			if at < 0 || at >= rows || row >= len(lines) {
+			if at < 0 || at >= count || row >= len(rows) {
 				continue
 			}
-			out[at] = lines[row]
+			out[at] = rows[row]
 		}
 	}
 	return out

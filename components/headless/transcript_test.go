@@ -39,12 +39,12 @@ func (b *block) Draw(v grid.View) {
 	}
 }
 
-// Text makes the block copyable, which is what a selection needs.
-func (b *block) Text(width int) []string {
+// Rows makes the block copyable, which is what a selection needs.
+func (b *block) Rows(width int) []headless.Row {
 	rows := b.Measure(width)
-	out := make([]string, rows)
+	out := make([]headless.Row, rows)
 	for y := range rows {
-		out[y] = fmt.Sprintf("%s:%d", b.name, y)
+		out[y] = headless.Row{Text: fmt.Sprintf("%s:%d", b.name, y)}
 	}
 	return out
 }
@@ -64,7 +64,7 @@ func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 	tr.Append(b)
 	tr.Append(c)
 
-	if got := tr.Rows(); got != 8 {
+	if got := tr.Height(); got != 8 {
 		t.Fatalf("total rows = %d, want 8", got)
 	}
 	for i, want := range []struct{ top, height int }{{0, 3}, {3, 1}, {4, 4}} {
@@ -154,7 +154,7 @@ func TestTranscriptOnlyMeasuresWhatMoved(t *testing.T) {
 			t.Errorf("block %d was measured %d times for a change after it", i, b.measure)
 		}
 	}
-	if got := tr.Rows(); got != 49*2+5 {
+	if got := tr.Height(); got != 49*2+5 {
 		t.Errorf("total rows = %d, want %d", got, 49*2+5)
 	}
 }
@@ -242,7 +242,7 @@ func TestTranscriptDrawsNothingIntoNoSpace(t *testing.T) {
 	tr.Draw(grid.View{}, 0)
 
 	// And the transcript itself is unchanged by having been asked.
-	if got := tr.Rows(); got != 2 {
+	if got := tr.Height(); got != 2 {
 		t.Errorf("rows = %d after drawing into nothing, want 2", got)
 	}
 }
@@ -253,7 +253,7 @@ func TestTranscriptTextIsTheRowsAndNothingElse(t *testing.T) {
 	tr.Append(&block{name: "a", lines: 2})
 	tr.Append(&block{name: "b", lines: 2})
 
-	got := tr.Text(1, 2)
+	got := rowTexts(tr.Rows(1, 2))
 	want := []string{"a:1", "b:0"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d: %q", len(got), len(want), got)
@@ -274,7 +274,7 @@ func TestTranscriptTextKeepsTheRowsOfBlocksItCannotCopy(t *testing.T) {
 	tr.Append(&plain{lines: 2})
 	tr.Append(&block{name: "b", lines: 1})
 
-	got := tr.Text(0, 4)
+	got := rowTexts(tr.Rows(0, 4))
 	want := []string{"a:0", "", "", "b:0"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d: %q", len(got), len(want), got)
@@ -291,14 +291,14 @@ func TestTranscriptTextClampsToWhatExists(t *testing.T) {
 	tr.Resize(20)
 	tr.Append(&block{name: "a", lines: 2})
 
-	if got := tr.Text(0, 10); len(got) != 2 {
-		t.Errorf("asking for ten rows of a two-row transcript gave %d: %q", len(got), got)
+	if got := tr.Rows(0, 10); len(got) != 2 {
+		t.Errorf("asking for ten rows of a two-row transcript gave %d: %q", len(got), rowTexts(got))
 	}
-	if got := tr.Text(5, 2); got != nil {
-		t.Errorf("asking past the end gave %q", got)
+	if got := tr.Rows(5, 2); got != nil {
+		t.Errorf("asking past the end gave %q", rowTexts(got))
 	}
-	if got := tr.Text(0, 0); got != nil {
-		t.Errorf("asking for no rows gave %q", got)
+	if got := tr.Rows(0, 0); got != nil {
+		t.Errorf("asking for no rows gave %q", rowTexts(got))
 	}
 }
 
@@ -307,7 +307,7 @@ func TestTranscriptWithoutAWidthMeasuresNothing(t *testing.T) {
 	// and a height measured against no width is a number invented for it.
 	var tr headless.Transcript
 	tr.Append(&block{name: "a", lines: 3})
-	if got := tr.Rows(); got != 0 {
+	if got := tr.Height(); got != 0 {
 		t.Errorf("rows = %d before any width was set, want 0", got)
 	}
 	if got := tr.Resize(20); got != 3 {
@@ -385,14 +385,14 @@ func TestTranscriptEdges(t *testing.T) {
 	}
 
 	// A negative start is clamped rather than indexing backwards.
-	if got := tr.Text(-4, 2); len(got) != 2 || got[0] != "a:0" {
-		t.Errorf("Text(-4, 2) = %q, want the first two rows", got)
+	if got := tr.Rows(-4, 2); len(got) != 2 || got[0].Text != "a:0" {
+		t.Errorf("Rows(-4, 2) = %q, want the first two rows", rowTexts(got))
 	}
 }
 
 func TestTranscriptOfNothingAtAll(t *testing.T) {
 	var tr headless.Transcript
-	if got := tr.Rows(); got != 0 {
+	if got := tr.Height(); got != 0 {
 		t.Errorf("rows = %d", got)
 	}
 	if _, _, ok := tr.At(0); ok {
@@ -403,8 +403,8 @@ func TestTranscriptOfNothingAtAll(t *testing.T) {
 		t.Errorf("Visible = [%d,%d), want [0,0)", first, last)
 	}
 	tr.Draw(grid.NewSurface(10, 2).View(), 0)
-	if got := tr.Text(0, 4); got != nil {
-		t.Errorf("Text = %q, want nothing", got)
+	if got := tr.Rows(0, 4); got != nil {
+		t.Errorf("Rows = %q, want nothing", rowTexts(got))
 	}
 }
 
@@ -447,8 +447,8 @@ func TestTranscriptStepsOverEmptyBlocksWhileDrawing(t *testing.T) {
 			t.Errorf("row %d = %q, want %q", y, got, want)
 		}
 	}
-	if got := tr.Text(0, 2); len(got) != 2 || got[0] != "a:0" || got[1] != "b:0" {
-		t.Errorf("Text = %q, want [a:0 b:0]", got)
+	if got := rowTexts(tr.Rows(0, 2)); len(got) != 2 || got[0] != "a:0" || got[1] != "b:0" {
+		t.Errorf("Rows = %q, want [a:0 b:0]", got)
 	}
 }
 
@@ -456,16 +456,16 @@ func TestTranscriptStepsOverEmptyBlocksWhileDrawing(t *testing.T) {
 // a block whose content changed between measuring and copying looks like.
 type short struct{ rows int }
 
-func (s *short) Measure(int) int   { return s.rows }
-func (s *short) Draw(v grid.View)  { v.Text(0, 0, "short", grid.Style{}) }
-func (s *short) Text(int) []string { return []string{"only one"} }
+func (s *short) Measure(int) int         { return s.rows }
+func (s *short) Draw(v grid.View)        { v.Text(0, 0, "short", grid.Style{}) }
+func (s *short) Rows(int) []headless.Row { return []headless.Row{{Text: "only one"}} }
 
 func TestTranscriptTextSurvivesABlockThatSaysTooLittle(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(20)
 	tr.Append(&short{rows: 3})
 
-	got := tr.Text(0, 3)
+	got := rowTexts(tr.Rows(0, 3))
 	want := []string{"only one", "", ""}
 	if len(got) != len(want) {
 		t.Fatalf("got %d rows, want %d: %q", len(got), len(want), got)
@@ -475,4 +475,13 @@ func TestTranscriptTextSurvivesABlockThatSaysTooLittle(t *testing.T) {
 			t.Errorf("row %d = %q, want %q", i, got[i], want[i])
 		}
 	}
+}
+
+// rowTexts is what a row list says, so a test can state the whole of it at once.
+func rowTexts(rows []headless.Row) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Text
+	}
+	return out
 }
