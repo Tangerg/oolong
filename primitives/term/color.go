@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Tangerg/oolong/primitives/graphics"
 	"github.com/Tangerg/oolong/primitives/grid"
 )
 
@@ -48,3 +49,10 @@ func DetectDepth() grid.Depth {
 		return grid.TrueColor
 	}
 }
+
+// DetectGraphics works out whether this terminal can show inline images.
+//
+// It is the same bargain as [DetectDepth] and the same reason for living here:
+// [graphics.DetectIn] is a function of an environment, and this is the package
+// allowed to have one.
+func DetectGraphics() graphics.Protocol { return graphics.DetectIn(os.Getenv) }
