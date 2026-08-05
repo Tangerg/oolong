@@ -46,6 +46,7 @@ var rings = []struct {
 	{"headless/", "headless"},
 	{"kit/", "kit"},
 	{"program/", "program"},
+	{"ptytest/", "ptytest"},
 	{"examples/", "examples"},
 	{"internal/", "internal"},
 }
@@ -55,31 +56,36 @@ var forbidden = map[string][]string{
 	// Cells, graphemes, input, layout and the terminal. The most general layer there
 	// is: it knows what a terminal is made of and nothing about what anyone builds
 	// from it.
-	"primitives": {"headless", "kit", "program", "examples"},
+	"primitives": {"headless", "kit", "program", "ptytest", "examples"},
 
 	// Behaviour with no appearance: a list knows what the arrow keys do and not what
 	// a selected row looks like. It may draw and answer input; it may not own a
 	// goroutine, a terminal, or a program, and it may not depend on the one set of
 	// answers kit gives — otherwise walking away from kit would mean walking away
 	// from the behaviour too.
-	"headless": {"kit", "program", "examples"},
+	"headless": {"kit", "program", "ptytest", "examples"},
 
 	// One appearance for that behaviour, and the only ring anybody is expected to
 	// replace. It may not own a goroutine or a program.
-	"kit": {"program", "examples"},
+	"kit": {"program", "ptytest", "examples"},
 
 	// The host: the loop, the frame schedule, the one goroutine. It is beside the
 	// ladder rather than on top of it, and it must never know the widgets exist —
 	// a loop that imported them would make every interface built on it inherit this
 	// library's taste.
-	"program": {"headless", "kit", "examples"},
+	"program": {"headless", "kit", "ptytest", "examples"},
+
+	// The harness. It drives a terminal program from outside and nothing in the
+	// library may lean on it: a harness the thing it tests depends on is a harness
+	// nobody can change.
+	"ptytest": {"headless", "kit", "program", "examples"},
 
 	// The demonstrations. Everything may be imported here and nothing may import
 	// them, which is what keeps an example from quietly becoming a dependency.
 	"examples": {},
 
 	// The tests that guard the rings. They import nothing.
-	"internal": {"primitives", "headless", "kit", "program", "examples"},
+	"internal": {"primitives", "headless", "kit", "program", "ptytest", "examples"},
 }
 
 // dependencies are the only third-party packages this library uses.
@@ -167,7 +173,12 @@ func TestOnlyPrimitivesKnowWhatDrawsTheTerminal(t *testing.T) {
 	fset := token.NewFileSet()
 
 	walk(t, root, func(dir, path string) {
-		if ring := ringOf(dir); ring == "primitives" || ring == "" {
+		// ptytest is exempt, and the exemption is narrow: this rule is about what
+		// draws a terminal, and ptytest drives one from the outside. It allocates a
+		// pty and spawns a process into it, which is the operating system's business
+		// and not the renderer's — and it is not part of the library, which is why
+		// letting it reach for a syscall costs the substrate nothing.
+		if ring := ringOf(dir); ring == "primitives" || ring == "ptytest" || ring == "" {
 			return
 		}
 		for _, imported := range imports(t, fset, path) {
@@ -232,6 +243,10 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		// from quietly becoming a dependency.
 		{"kit", "examples/streaming", true},
 		{"headless", "examples/streaming", true},
+
+		// Nothing in the library leans on the harness that tests it.
+		{"program", "ptytest", true},
+		{"primitives/grid", "ptytest", true},
 
 		// The edges the rings are made of.
 		{"headless", "primitives/grid", false},
