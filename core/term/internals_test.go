@@ -296,3 +296,27 @@ func TestParseXParseColorRefusesWhatItCannotRead(t *testing.T) {
 		}
 	}
 }
+
+func FuzzParseXParseColorNeverPanicsAndStaysInRange(f *testing.F) {
+	// The colour a terminal answers with decides a whole theme, and it arrives on the
+	// same input a hostile process could be writing to.
+	for _, seed := range []string{
+		"", "rgb:", "rgb:0/0/0", "rgb:ffff/ffff/ffff", "rgb:1a1a/1b1b/2626",
+		"rgb:f/f/f", "rgb:0008/0008/0008", "rgba:1/1/1/1", "#1a1b26",
+		"rgb://///", "rgb:zzzz/0/0", "rgb:99999999999/0/0",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, spec string) {
+		got, ok := parseXParseColor(spec)
+		if !ok {
+			return
+		}
+		// A refusal is free; an acceptance has to mean something. Every channel is
+		// already the eight bits a cell holds, so the only way this can be wrong is
+		// by having accepted a specification that says nothing.
+		if !strings.HasPrefix(spec, "rgb:") {
+			t.Fatalf("accepted %q as the colour %+v", spec, got)
+		}
+	})
+}

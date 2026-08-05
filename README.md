@@ -15,6 +15,12 @@ program.Run(ctx, program.Config{
 A chat interface that prints into your terminal's scrollback and keeps a live block
 at the bottom is about a hundred lines: [`examples/streaming`](examples/streaming).
 
+Underneath that: a transcript the output can be selected, searched and scrolled
+back over; an editor with undo, selection, the system clipboard and atomic
+elements; prompt history and a slash-command registry; a theme that follows the
+colour the terminal says it draws on, and box glyphs that fall back to ASCII when
+the locale says they must.
+
 ```sh
 go run ./examples/streaming        # from the repository root, which is a Go workspace
 ```

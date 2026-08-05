@@ -206,11 +206,22 @@ in place.
   terminal UI.
 - **`input`** — an incremental parser for what a terminal sends: CSI and SS3 keys, the
   Kitty keyboard protocol including release and repeat and associated text, SGR mouse
-  reporting with movement, bracketed paste, focus. Events are a sealed interface.
+  reporting with movement, bracketed paste, focus, and the two shapes an *answer*
+  comes in — operating system commands and device attributes. Events are a sealed
+  interface. The introducer of an answer is also the bytes a terminal sends for a
+  chord, so a command is recognised only when what follows looks like one.
 - **`term`** — the only package that touches the operating system. Raw mode, the modes
   a session turns on and the reverse order they are put back in, the goroutines reading
   input, and a frame writer with its own goroutine so that a slow terminal cannot stop
-  the loop from reading input.
+  the loop from reading input. It also asks: what colour the terminal draws on and what
+  it claims to support, in one round trip during startup, ended by a device attributes
+  query because that is the only answer every terminal gives. And it starts the program
+  again in place of itself, keeping the terminal, which is the only way to move an
+  interface between the alternate screen and the terminal's own.
+- **`clipboard`** — the sequences that carry text to and from the terminal's
+  clipboard. The terminal does the copying because over ssh, in a container, or
+  through a multiplexer running elsewhere it is the only end of the connection the
+  user is at.
 - **`present`** — when to draw. Coalescing, throttling, and refusing to draw while the
   terminal is still swallowing the last frame.
 - **`fuzzy`** — subsequence ranking, answering in byte offsets because whatever asks is
@@ -218,11 +229,15 @@ in place.
 - **`anim`** — easing, a shimmer sweep, a running wave, and a transition counted in
   ticks rather than measured in wall-clock time, because a widget that asks what
   time it is cannot be stepped by a test or paused by a loop that parked.
-- **`link`** — the URLs in a piece of text, as byte ranges. A cell has carried an
-  OSC 8 target since the beginning; this is what works out what to put in one.
-- **`graphics`** — inline images over the kitty protocol, which is what kitty,
-  Ghostty, WezTerm and Warp all speak. PNG only, because a PNG's dimensions are in
-  its first twenty-four bytes and a decoder would be a dependency.
+- **`link`** — the URLs in a piece of text, as byte ranges, plus a record of where
+  they were drawn so a click can be answered from the same pass that wrote the cells.
+  Turning a byte range into the columns it covers is `text`'s, because that is the
+  package that already owns the relationship between the two counts.
+- **`graphics`** — inline images, and which protocol can be used where. Kitty's gives
+  a program a handle and can therefore be used in a region that redraws; iTerm2's and
+  sixel put pixels at the cursor and can only be printed once. Kitty and iTerm2 are
+  written; sixel is detected and not produced, because producing it means decoding the
+  image and a decoder would be a dependency. PNG only, for the same reason.
 
 - **`layout`** — dividing a region: fixed, flexible and measured slots, insets,
   alignment, and the placement a floating layer is clamped into. It hands back views
@@ -240,15 +255,28 @@ target that took the press, a generic list, a multi-line editor with a kill ring
 coalesced undo, a completion offered against a token, and the key bindings all of them
 match against.
 
+And, since a session's output has to be addressable before anything can be asked about
+it, a **transcript**: blocks in order, each of a height that follows the width, and the
+row each of them starts at. One coordinate space that everything else answers in —
+**selection** that survives scrolling and rejoins what the width broke, **search** that
+runs off the interface's goroutine and keeps only the newest query, and **sticky
+headers** that keep the question on screen while the answer scrolls past. Plus the two
+halves of a prompt: **history** that gives back the draft it interrupted, and a
+**command registry** ranked by what was typed and by what was used last.
+
 Nothing here decides what any of it looks like. A list draws a row by calling back to
 whoever does, which is the one design decision that makes the ring above it optional.
 
 ### kit
 
 One set of answers: box and border, label, wrapped paragraph, spinner, scrollbar, help
-row, table, a floating layer with shading, and the three pieces a streaming interface
-is actually made of — a composer, a status line, and a printed message. Plus a
-semantic palette, `Theme`, whose names are roles rather than colours.
+row, table, a floating layer with shading, a transcript view that lays selection and
+search results over what was drawn, a command palette that picks out the characters a
+query matched, and the three pieces a streaming interface is actually made of — a
+composer, a status line, and a printed message. Plus a semantic palette, `Theme`, whose
+names are roles rather than colours and which follows what the terminal said it draws
+on, and a glyph set with an ASCII fallback for a terminal whose locale says it cannot
+draw the other one.
 
 It is a default and not a destination, and the whole ring is designed to be walked
 away from.
@@ -311,20 +339,25 @@ Not "later" — these are decisions:
 Ordered by what would be built next.
 
 1. **Markdown, as a sibling module.** Rendering a model's answer is the single most
-   common thing a streaming interface does, and doing it properly wants goldmark and a
+   common thing a streaming interface does, and doing it properly wants a parser and a
    syntax highlighter. Those are exactly the dependencies the core promise excludes, so
    this is a separate module in this repository — the same relationship glamour has to
-   bubbletea. Not started.
+   bubbletea. Not started, and deliberately so: streaming markdown is an incremental
+   parse of text that is still arriving, which no off-the-shelf parser does.
 2. **Markdown's siblings.** Syntax highlighting, and mermaid. Both are in
    grok-build's renderer and both want dependencies the core promise excludes, so
    they belong wherever markdown ends up.
-3. **iTerm2 images, and sixel.** The kitty protocol is in `primitives/graphics`,
-   which covers kitty, Ghostty, WezTerm and Warp. iTerm2 speaks its own and is
-   common enough on macOS to be worth having; sixel is the long tail.
-4. **Text selection across blocks.** grok-build has it and nothing here does. In
-   inline mode the terminal's own selection works, which covers most of it; what
-   it does not cover is selecting across a block the program is still redrawing.
-5. **Search over a transcript.** Product-shaped enough that it may never belong here.
+3. **Images through the frame pipeline.** `core/graphics` knows the protocols and
+   which of them can be used where — kitty has handles and can be placed in a region
+   that redraws, iTerm2 and sixel can only be printed once. What is missing is the
+   other half: `core/grid` has no notion of an image, so nothing can put one in a
+   drawn frame. Sixel is reported and not written, because producing it means
+   decoding the image and a decoder is the dependency the package exists without.
+4. **A worked example of the whole surface.** The example is a chat that streams,
+   and it now proves the probe, the theme that follows it, the clipboard and the
+   glyph fallback. The transcript, selection, search, sticky headers and the command
+   palette are proved by their own tests and by `kit`, not by a program anyone can
+   run. A second example that puts them together is worth having.
 
 Not in the list because they are not the library's: syntax-aware editing, a shell,
 process management.

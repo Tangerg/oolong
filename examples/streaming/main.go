@@ -22,11 +22,16 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
+	"github.com/Tangerg/oolong/core/term"
 )
 
 func main() {
 	if err := program.Run(context.Background(), program.Config{
 		Inline: func(loop program.InlineLoop) program.Component { return newChat(loop) },
+		// Asking costs one round trip and is the only way to learn two things a
+		// program cannot work out for itself: what colour the terminal draws on, and
+		// what it will do with an image.
+		Terminal: term.Options{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "streaming:", err)
 		os.Exit(1)
@@ -52,13 +57,22 @@ type chat struct {
 
 var quit = headless.Binding{Key: input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}, Does: "quit"}
 
+// Loop is what an editor wants for its clipboard, which is worth saying out loud:
+// the interface is declared in components and satisfied in core, and neither knows
+// about the other.
+var _ headless.Clipboard = program.Loop(nil)
+
 func newChat(loop program.InlineLoop) *chat {
-	theme := kit.Dark()
+	// The look follows what the terminal said. A theme that has to be told whether the
+	// terminal is light is a theme that is wrong for half the people who run it.
+	theme := kit.Suited(loop.Background())
+	// The furniture follows the locale, because a terminal that is not in UTF-8 draws
+	// a box character as mojibake and there is no way to ask it.
+	glyphs := kit.GlyphsFor(os.Getenv)
 	c := &chat{loop: loop, theme: theme}
-	c.theme = theme
 	c.composer = kit.Composer{
 		Theme:       theme,
-		Prompt:      "› ",
+		Prompt:      glyphs.Marker + " ",
 		Placeholder: "Ask something, or press ctrl+c to leave",
 		Hints: []headless.Binding{
 			{Key: input.Key{Code: input.Enter}, Does: "send"},
@@ -67,6 +81,9 @@ func newChat(loop program.InlineLoop) *chat {
 		},
 	}
 	c.status = kit.Status{Theme: theme}
+	// Copy and cut go to the terminal, which over ssh or through a multiplexer is the
+	// only end of the connection the user is at.
+	c.composer.Editor().Clipboard = loop
 	return c
 }
 
