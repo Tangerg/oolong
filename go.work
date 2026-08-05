@@ -13,6 +13,7 @@ go 1.26.0
 use (
 	./components
 	./core
+	./markdown
 	./examples
 	./internal
 	./ptytest
