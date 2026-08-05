@@ -1,4 +1,4 @@
-package atoms
+package kit
 
 import (
 	"github.com/Tangerg/oolong/primitives/grid"
@@ -16,8 +16,8 @@ var Dots = []string{"·", "•", "●", "•"}
 // Spinner shows that something is happening.
 //
 // It holds a frame number rather than a clock. Whoever runs the loop decides when
-// time passes, which is what lets a test step it deterministically and what keeps
-// an idle UI from waking up to animate something nobody is waiting for.
+// time passes, which is what lets a test step it deterministically and what keeps an
+// idle UI from waking up to animate something nobody is waiting for.
 type Spinner struct {
 	// Frames are the glyphs cycled through. Empty means [Braille].
 	Frames []string
@@ -32,8 +32,8 @@ type Spinner struct {
 // Tick advances the animation by one frame.
 func (s *Spinner) Tick() { s.frame++ }
 
-// Height is one row.
-func (s *Spinner) Height(int) int { return 1 }
+// Measure is one row.
+func (s *Spinner) Measure(int) int { return 1 }
 
 // Draw writes the current frame and its label.
 func (s *Spinner) Draw(v grid.View) {
@@ -68,8 +68,8 @@ type Scrollbar struct {
 	TrackStyle, ThumbStyle grid.Style
 }
 
-// Needed reports whether there is anything to indicate. A bar drawn when
-// everything already fits is a column of decoration.
+// Needed reports whether there is anything to indicate. A bar drawn when everything
+// already fits is a column of decoration.
 func (s Scrollbar) Needed() bool { return s.Total > s.Window && s.Window > 0 }
 
 // Draw paints the bar down the first column of v.

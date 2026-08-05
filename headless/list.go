@@ -1,4 +1,4 @@
-package atoms
+package headless
 
 import (
 	"github.com/Tangerg/oolong/primitives/grid"
@@ -139,21 +139,24 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	return true
 }
 
-// keys are the bindings to answer, filling in the ones a caller left unset.
+// keys are the bindings to answer, standing in the defaults for a caller who left
+// them unset. A list is a struct a caller fills in, so its zero value has to work:
+// one that quietly ignored the arrow keys would look finished and not be.
 //
-// Lazily rather than in a constructor, because a list is a struct a caller fills in
-// and so its zero value has to work: one that quietly ignored the arrow keys would
-// look finished and not be.
+// It answers without recording the answer. Writing the defaults back would make a
+// read path change an exported field, so the zero value a caller set up would
+// survive only until the first keystroke — and a list compared, copied or logged
+// after that would not be the one they wrote.
 func (l *List[T]) keys() ListKeys {
 	if l.Keys == (ListKeys{}) {
-		l.Keys = DefaultListKeys()
+		return DefaultListKeys()
 	}
 	return l.Keys
 }
 
-// Height is one row per item, which is what a container needs to decide whether the
+// Measure is one row per item, which is what a container needs to decide whether the
 // list can have all the room it wants.
-func (l *List[T]) Height(int) int { return len(l.Items) }
+func (l *List[T]) Measure(int) int { return len(l.Items) }
 
 // Scroll exposes the position, for a scrollbar drawn beside the list.
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }

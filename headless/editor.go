@@ -1,4 +1,4 @@
-package atoms
+package headless
 
 import (
 	"strings"
@@ -463,7 +463,7 @@ func (e *Editor) Handle(ev input.Event) bool {
 	}
 	e.ensure()
 
-	k := e.Keys
+	k := e.keys()
 	switch {
 	case k.Left.Matches(ev):
 		e.MoveLeft()
@@ -520,15 +520,21 @@ func (e *Editor) Handle(ev input.Event) bool {
 	return true
 }
 
-// ensure makes the zero editor usable: one empty line, a cursor in it, and the
-// bindings it documents. An editor that took text but answered no arrow keys would
-// be the worse kind of broken — it would look like it worked.
+// keys are the bindings to answer, standing in the defaults for a caller who left
+// them unset, without recording the answer. See [List.keys].
+func (e *Editor) keys() EditorKeys {
+	if e.Keys == (EditorKeys{}) {
+		return DefaultEditorKeys()
+	}
+	return e.Keys
+}
+
+// ensure makes the zero editor usable: one empty line, with a cursor in it. An
+// editor that took text but answered no arrow keys would be the worse kind of
+// broken — it would look like it worked.
 func (e *Editor) ensure() {
 	if len(e.lines) == 0 {
 		e.lines = []string{""}
-	}
-	if e.Keys == (EditorKeys{}) {
-		e.Keys = DefaultEditorKeys()
 	}
 	e.line = min(max(e.line, 0), len(e.lines)-1)
 	e.col = min(max(e.col, 0), len(e.lines[e.line]))

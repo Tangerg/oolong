@@ -1,4 +1,4 @@
-package atoms
+package headless
 
 import (
 	"github.com/Tangerg/oolong/primitives/grid"
@@ -150,8 +150,8 @@ func (e *Editor) moveRow(delta int) {
 	e.wantColumn = column
 }
 
-// Height is how many rows the field needs at a width, within its cap.
-func (e *Editor) Height(width int) int {
+// Measure is how many rows the field needs at a width, within its cap.
+func (e *Editor) Measure(width int) int {
 	e.ensure()
 	rows := len(e.layout.rowsFor(e.lines, width))
 	if e.MaxRows > 0 {

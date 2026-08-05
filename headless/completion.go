@@ -1,4 +1,4 @@
-package atoms
+package headless
 
 import (
 	"strings"
@@ -179,6 +179,10 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 	}
 	c.token, c.open = t, true
 	c.list.Items = candidates
+	// The row renderer is wired here rather than while drawing: a Draw that assigns
+	// to the thing it is about to draw is a Draw with a side effect, and this is the
+	// one place the list's contents change anyway.
+	c.list.Row = c.drawRow
 	c.list.Select(0)
 }
 
@@ -236,8 +240,8 @@ func (c *Completion) Handle(ev input.Event) bool {
 	return c.list.Handle(ev)
 }
 
-// Height is how tall the list wants to be: a row per candidate, capped.
-func (c *Completion) Height(int) int {
+// Measure is how tall the list wants to be: a row per candidate, capped.
+func (c *Completion) Measure(int) int {
 	if !c.Open() {
 		return 0
 	}
@@ -266,7 +270,6 @@ func (c *Completion) Draw(v grid.View) {
 	if !c.Open() {
 		return
 	}
-	c.list.Row = c.drawRow
 	width, height := v.Size()
 	c.list.Draw(v.Sub(grid.Rect(0, 0, width, min(height, c.rows()))))
 }
@@ -323,9 +326,11 @@ func (c *Completion) rows() int {
 	return DefaultCompletionRows
 }
 
+// keys are the bindings to answer, standing in the defaults for a caller who left
+// them unset, without recording the answer. See [List.keys].
 func (c *Completion) keys() CompletionKeys {
 	if c.Keys == (CompletionKeys{}) {
-		c.Keys = DefaultCompletionKeys()
+		return DefaultCompletionKeys()
 	}
 	return c.Keys
 }

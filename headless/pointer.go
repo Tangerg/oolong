@@ -1,4 +1,4 @@
-package atoms
+package headless
 
 import (
 	"image"

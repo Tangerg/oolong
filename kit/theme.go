@@ -1,13 +1,4 @@
-// Package theme names the colours the interface is built from.
-//
-// The names are roles, not colours: a widget asks for the style of a border or of
-// muted text, never for a particular grey. That is what lets the whole interface
-// change palette in one place, and what stops the same grey from being chosen
-// twice with two slightly different values.
-//
-// Nothing here draws. A theme is a value that widgets are given, not a global they
-// reach for: a global palette cannot be varied per pane, and a test cannot pin one.
-package theme
+package kit
 
 import "github.com/Tangerg/oolong/primitives/grid"
 

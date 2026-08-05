@@ -1,9 +1,22 @@
 // Package arch holds the tests that keep the library's layering true.
 //
-// The layering is what the library is: three rings, each more general than the one
-// above it, and a dependency edge that only ever points down. A ring nothing checks is
-// a ring that drifts — the boundary held by discipline alone is the one somebody
-// crosses once, quietly, in a hurry.
+// The layering is what the library is, and it has two axes rather than one.
+//
+// The first is a ladder of abstraction: primitives, then headless, then kit, each
+// less general than the one below it, with a dependency edge that only ever points
+// down. Primitives know what a terminal is made of. Headless knows what a list does
+// and not what one looks like. Kit decides what one looks like, and is the only ring
+// anybody is expected to walk away from.
+//
+// The second is the host. [github.com/Tangerg/oolong/program] runs an interface, and
+// it is not the top of the ladder — it is beside it. It may reach down to primitives
+// for cells and events, and it must never know that headless or kit exist: the loop
+// drives a Component, which is a method set, and a loop that imported the widgets
+// would make every interface built on it depend on this library's taste in widgets.
+// That rule is the one this file exists for.
+//
+// A ring nothing checks is a ring that drifts — the boundary held by discipline alone
+// is the one somebody crosses once, quietly, in a hurry.
 //
 // Each ring declares the rings it must never import, rather than the ones it may. A
 // list of wrong directions stays short and stays true; a matrix of allowed edges has to
@@ -30,27 +43,43 @@ var rings = []struct {
 	name   string
 }{
 	{"primitives/", "primitives"},
-	{"atoms/", "atoms"},
+	{"headless/", "headless"},
+	{"kit/", "kit"},
 	{"program/", "program"},
+	{"examples/", "examples"},
 	{"internal/", "internal"},
 }
 
 // forbidden is, for each ring, the rings it may never import.
 var forbidden = map[string][]string{
-	// Cells, text, input and the terminal. The most general layer there is: it knows
-	// what a terminal is made of and nothing about what anyone builds from it.
-	"primitives": {"atoms", "program"},
+	// Cells, graphemes, input, layout and the terminal. The most general layer there
+	// is: it knows what a terminal is made of and nothing about what anyone builds
+	// from it.
+	"primitives": {"headless", "kit", "program", "examples"},
 
-	// Widgets with no meaning of their own: a list is a list whether it holds files or
-	// sessions. Atoms may draw and answer input; they may not own a goroutine, a
-	// terminal, or a program.
-	"atoms": {"program"},
+	// Behaviour with no appearance: a list knows what the arrow keys do and not what
+	// a selected row looks like. It may draw and answer input; it may not own a
+	// goroutine, a terminal, or a program, and it may not depend on the one set of
+	// answers kit gives — otherwise walking away from kit would mean walking away
+	// from the behaviour too.
+	"headless": {"kit", "program", "examples"},
 
-	// The loop. It is the outermost ring and the only one that owns a goroutine.
-	"program": {},
+	// One appearance for that behaviour, and the only ring anybody is expected to
+	// replace. It may not own a goroutine or a program.
+	"kit": {"program", "examples"},
+
+	// The host: the loop, the frame schedule, the one goroutine. It is beside the
+	// ladder rather than on top of it, and it must never know the widgets exist —
+	// a loop that imported them would make every interface built on it inherit this
+	// library's taste.
+	"program": {"headless", "kit", "examples"},
+
+	// The demonstrations. Everything may be imported here and nothing may import
+	// them, which is what keeps an example from quietly becoming a dependency.
+	"examples": {},
 
 	// The tests that guard the rings. They import nothing.
-	"internal": {"primitives", "atoms", "program"},
+	"internal": {"primitives", "headless", "kit", "program", "examples"},
 }
 
 // dependencies are the only third-party packages this library uses.
@@ -186,17 +215,32 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		from, to string
 		refused  bool
 	}{
-		// The edges that make the rings rings.
-		{"primitives/grid", "atoms", true},
+		// The edges that make the ladder a ladder.
+		{"primitives/grid", "headless", true},
+		{"primitives/layout", "kit", true},
 		{"primitives/text", "program", true},
-		{"atoms", "program", true},
-		{"atoms/theme", "program", true},
+		{"headless", "kit", true},
+		{"headless", "program", true},
+		{"kit", "program", true},
+
+		// The rule the host exists under: the loop must not know the widgets. It is
+		// the one edge that would look reasonable to add and would cost the most.
+		{"program", "headless", true},
+		{"program", "kit", true},
+
+		// An example may be imported by nothing, which is what keeps a demonstration
+		// from quietly becoming a dependency.
+		{"kit", "examples/streaming", true},
+		{"headless", "examples/streaming", true},
 
 		// The edges the rings are made of.
-		{"atoms", "primitives/grid", false},
-		{"program", "atoms", false},
+		{"headless", "primitives/grid", false},
+		{"kit", "headless", false},
+		{"kit", "primitives/layout", false},
 		{"program", "primitives/term", false},
 		{"primitives/text", "primitives/grid", false},
+		{"examples/streaming", "kit", false},
+		{"examples/streaming", "program", false},
 	} {
 		from, to := ringOf(tc.from), ringOf(tc.to)
 		if from == "" {

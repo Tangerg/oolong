@@ -1,4 +1,4 @@
-package atoms
+package headless
 
 import (
 	"github.com/Tangerg/oolong/primitives/grid"

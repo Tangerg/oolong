@@ -32,6 +32,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/Tangerg/oolong/primitives/grid"
@@ -456,12 +457,9 @@ func (l loop) Every(d time.Duration, fn func()) (stop func()) {
 			}
 		}
 	}()
-	var once bool
-	return func() {
-		if once {
-			return
-		}
-		once = true
-		close(stopped)
-	}
+	// sync.Once rather than a bool: stop is handed out to a caller who may keep it
+	// anywhere, and two goroutines reaching a plain flag at once would both close
+	// the channel and one would panic.
+	var once sync.Once
+	return func() { once.Do(func() { close(stopped) }) }
 }

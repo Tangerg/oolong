@@ -1,9 +1,10 @@
-package atoms
+package kit
 
 import (
 	"image"
 
 	"github.com/Tangerg/oolong/primitives/grid"
+	"github.com/Tangerg/oolong/primitives/layout"
 	"github.com/Tangerg/oolong/primitives/text"
 )
 
@@ -31,19 +32,6 @@ var (
 // drawn reports whether the border draws anything.
 func (b Border) drawn() bool { return b != Border{} }
 
-// Inset is space held clear on each side.
-type Inset struct{ Top, Right, Bottom, Left int }
-
-// Uniform is the same inset on every side.
-func Uniform(n int) Inset { return Inset{Top: n, Right: n, Bottom: n, Left: n} }
-
-// Symmetric is one inset above and below, another to the left and right — the
-// common case, because a terminal cell is about twice as tall as it is wide and
-// even padding does not look even.
-func Symmetric(vertical, horizontal int) Inset {
-	return Inset{Top: vertical, Right: horizontal, Bottom: vertical, Left: horizontal}
-}
-
 // Box frames and pads a region.
 //
 // It is not a container: it does not own a child. A caller draws the box and then
@@ -52,7 +40,7 @@ func Symmetric(vertical, horizontal int) Inset {
 type Box struct {
 	Border Border
 	// Padding is held clear inside the border.
-	Padding Inset
+	Padding layout.Inset
 	// Style paints the border and the padding.
 	Style grid.Style
 	// Fill paints the interior before anything is drawn into it. Its zero value
@@ -62,21 +50,22 @@ type Box struct {
 	// corner.
 	Title      string
 	TitleStyle grid.Style
-	TitleAlign Align
+	TitleAlign layout.Align
 	// Footer sits in the bottom border, on the same terms as the title.
 	Footer      string
 	FooterStyle grid.Style
-	FooterAlign Align
+	FooterAlign layout.Align
 }
 
-// Overhead is how many columns and rows the frame and padding take, which is what
-// a caller subtracts to know what is left for the content.
-func (b Box) Overhead() (w, h int) {
+// Overhead is how many columns and rows the frame and padding take, which is what a
+// caller subtracts to know what is left for the content.
+func (b Box) Overhead() layout.Size {
 	edge := 0
 	if b.Border.drawn() {
 		edge = 2
 	}
-	return edge + b.Padding.Left + b.Padding.Right, edge + b.Padding.Top + b.Padding.Bottom
+	pad := b.Padding.Size()
+	return layout.Size{W: edge + pad.W, H: edge + pad.H}
 }
 
 // Inner is the region left for content, in v's coordinates.
@@ -86,10 +75,10 @@ func (b Box) Inner(v grid.View) grid.View {
 	if b.Border.drawn() {
 		edge = 1
 	}
+	over := b.Overhead()
 	x := edge + b.Padding.Left
 	y := edge + b.Padding.Top
-	ow, oh := b.Overhead()
-	return v.Sub(grid.Rect(x, y, max(w-ow, 0), max(h-oh, 0)))
+	return v.Sub(grid.Rect(x, y, max(w-over.W, 0), max(h-over.H, 0)))
 }
 
 // Draw paints the frame and returns the region left for content, so the common use
@@ -146,13 +135,13 @@ func (b Box) drawEdge(v grid.View, y, w int, left, mid, right string) {
 
 // label writes a title or footer into a border row, keeping a column of border on
 // each side of it so the line still reads as a frame.
-func (b Box) label(v grid.View, y, w int, label string, style grid.Style, align Align) {
+func (b Box) label(v grid.View, y, w int, label string, style grid.Style, align layout.Align) {
 	if label == "" || w <= 4 {
 		return
 	}
 	room := w - 4
 	label = text.Truncate(label, room, "…")
 	width := text.Width(label)
-	x := 2 + align.offset(room, width)
+	x := 2 + align.Offset(room, width)
 	v.Text(x, y, label, style)
 }

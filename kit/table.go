@@ -1,16 +1,16 @@
-package atoms
+package kit
 
 import (
 	"github.com/Tangerg/oolong/primitives/grid"
-	"github.com/Tangerg/oolong/primitives/text"
+	"github.com/Tangerg/oolong/primitives/layout"
 )
 
 // Column is one column of a [Table].
 type Column struct {
 	Title string
-	Align Align
-	// Width is an exact number of columns. Zero lets the column take a share of
-	// what is left, weighted by Flex.
+	Align layout.Align
+	// Width is an exact number of columns. Zero lets the column take a share of what
+	// is left, weighted by Flex.
 	Width int
 	// Flex is this column's share of the space the fixed columns did not take. A
 	// column with neither a width nor a flex share gets one share, because a column
@@ -31,11 +31,20 @@ type Table struct {
 	Columns []Column
 	// Rows is how many rows there are.
 	Rows int
-	// Cell is the text of one cell, and how it is styled.
-	Cell func(row, column int) (string, grid.Style)
-	// DrawCell, when set, takes over a cell entirely: it is handed a view of exactly
-	// the cell's box. It wins over Cell, for the cells that need more than text.
-	DrawCell func(v grid.View, row, column int)
+	// Cell draws one cell into a view of exactly its box.
+	//
+	// There is one way to fill a cell rather than two, and the plain-text case goes
+	// through the same door as every other:
+	//
+	//	Cell: func(v grid.View, row, col int, base grid.Style) {
+	//		Label{Text: data[row][col], Align: cols[col].Align,
+	//			Style: base, Ellipsis: "…"}.Draw(v)
+	//	}
+	//
+	// base is the row's own style — a band, a selection — already merged with
+	// nothing else. A cell drawn over a filled row replaces what was there,
+	// background and all, so a cell that ignores base loses the band it sits in.
+	Cell func(v grid.View, row, column int, base grid.Style)
 	// Gap is the space between columns. Zero uses one column, which is the least
 	// that still reads as two columns rather than one.
 	Gap int
@@ -43,11 +52,6 @@ type Table struct {
 	Header      bool
 	HeaderStyle grid.Style
 	// RowStyle styles a whole row, for banding or for a selection.
-	//
-	// It is merged into each cell's own style rather than painted underneath it: a
-	// cell drawn over a filled row replaces what was there, background and all, so a
-	// band painted first would survive only in the gaps between cells. A cell drawn
-	// by DrawCell is on its own — it owns its box, background included.
 	RowStyle func(row int) grid.Style
 }
 
@@ -90,8 +94,8 @@ func (t Table) Widths(total int) []int {
 	return widths
 }
 
-// Height is the rows plus the header, which is what a container measures against.
-func (t Table) Height(int) int {
+// Measure is the rows plus the header, which is what a container measures against.
+func (t Table) Measure(int) int {
 	if t.Header {
 		return t.Rows + 1
 	}
@@ -115,6 +119,9 @@ func (t Table) Draw(v grid.View) {
 		})
 		y++
 	}
+	if t.Cell == nil {
+		return
+	}
 	for row := 0; row < t.Rows && y < height; row, y = row+1, y+1 {
 		var band grid.Style
 		if t.RowStyle != nil {
@@ -124,7 +131,7 @@ func (t Table) Draw(v grid.View) {
 			v.Fill(grid.Rect(0, y, width, 1), band)
 		}
 		t.drawRow(v, y, widths, gap, func(col int, cell grid.View) {
-			t.drawCell(cell, row, col, band)
+			t.Cell(cell, row, col, band)
 		})
 	}
 }
@@ -138,19 +145,4 @@ func (t Table) drawRow(v grid.View, y int, widths []int, gap int, draw func(col 
 		}
 		x += w + gap
 	}
-}
-
-func (t Table) drawCell(cell grid.View, row, col int, band grid.Style) {
-	if t.DrawCell != nil {
-		t.DrawCell(cell, row, col)
-		return
-	}
-	if t.Cell == nil {
-		return
-	}
-	content, style := t.Cell(row, col)
-	c := t.Columns[col]
-	width, _ := cell.Size()
-	shown := text.Truncate(content, width, "…")
-	cell.Text(c.Align.offset(width, text.Width(shown)), 0, shown, band.Merge(style))
 }

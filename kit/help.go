@@ -1,39 +1,17 @@
-package atoms
+package kit
 
 import (
+	"github.com/Tangerg/oolong/headless"
 	"github.com/Tangerg/oolong/primitives/grid"
-	"github.com/Tangerg/oolong/primitives/input"
 	"github.com/Tangerg/oolong/primitives/text"
 )
 
-// Binding is a key and what it does.
-//
-// It pairs the two on purpose. A keystroke handled in one place and described in
-// another drift apart, and the version the user reads is the one that is wrong.
-type Binding struct {
-	// Key is the keystroke, as the parser reports it, so the hint and the handler
-	// are talking about the same thing.
-	Key input.Key
-	// What it does, in as few words as fit.
-	Does string
-	// Hidden keeps a binding out of the hint row without making it any less real —
-	// for a chord that works but that nobody needs told about.
-	Hidden bool
-}
-
-// Matches reports whether ev is this binding's keystroke.
-func (b Binding) Matches(ev input.Event) bool {
-	key, ok := ev.(input.Key)
-	return ok && key.Down() && key.Code == b.Key.Code &&
-		key.Rune == b.Key.Rune && key.Mods == b.Key.Mods
-}
-
 // Help is a row of key hints.
 //
-// The keys come from the same [Binding] values the handlers match against, which is
-// what stops the hints and the behaviour from disagreeing.
+// The keys come from the same [headless.Binding] values the handlers match against,
+// which is what stops the hints and the behaviour from disagreeing.
 type Help struct {
-	Bindings  []Binding
+	Bindings  []headless.Binding
 	KeyStyle  grid.Style
 	DoesStyle grid.Style
 	// Separator sits between hints. Empty uses two spaces, which separates without
@@ -42,8 +20,8 @@ type Help struct {
 	SeparatorStyle grid.Style
 }
 
-// Height is one row.
-func (h Help) Height(int) int { return 1 }
+// Measure is one row.
+func (h Help) Measure(int) int { return 1 }
 
 // Draw writes as many hints as fit, in order, dropping the rest.
 //

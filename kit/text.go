@@ -1,9 +1,10 @@
-package atoms
+package kit
 
 import (
 	"strings"
 
 	"github.com/Tangerg/oolong/primitives/grid"
+	"github.com/Tangerg/oolong/primitives/layout"
 	"github.com/Tangerg/oolong/primitives/text"
 )
 
@@ -15,14 +16,14 @@ import (
 type Label struct {
 	Text  string
 	Style grid.Style
-	Align Align
-	// Ellipsis marks a truncation. Empty means truncate silently, which is right
-	// for a value the user can see in full elsewhere and wrong for prose.
+	Align layout.Align
+	// Ellipsis marks a truncation. Empty means truncate silently, which is right for
+	// a value the user can see in full elsewhere and wrong for prose.
 	Ellipsis string
 }
 
-// Height is one row, whatever the width.
-func (l Label) Height(int) int { return 1 }
+// Measure is one row, whatever the width.
+func (l Label) Measure(int) int { return 1 }
 
 // Draw writes the label into the first row of v.
 func (l Label) Draw(v grid.View) {
@@ -31,13 +32,14 @@ func (l Label) Draw(v grid.View) {
 		return
 	}
 	shown := text.Truncate(l.Text, w, l.Ellipsis)
-	v.Text(l.Align.offset(w, text.Width(shown)), 0, shown, l.Style)
+	v.Text(l.Align.Offset(w, text.Width(shown)), 0, shown, l.Style)
 }
 
 // Paragraph is text that wraps to the width it is given.
 //
-// Its height is not known until its width is, which is the whole reason [Sized]
-// exists: a container has to ask before it can decide how much room to give.
+// Its height is not known until its width is, which is the whole reason
+// [headless.Sized] exists: a container has to ask before it can decide how much room
+// to give.
 type Paragraph struct {
 	// Lines are the logical lines. A line's own styling survives wrapping.
 	Lines []text.Line
@@ -55,8 +57,9 @@ type Paragraph struct {
 	fresh   bool
 }
 
-// Of is a paragraph of one plain styled string. Its newlines are line breaks.
-func Of(s string, style grid.Style) *Paragraph {
+// NewParagraph is a paragraph of one plain styled string. Its newlines are line
+// breaks.
+func NewParagraph(s string, style grid.Style) *Paragraph {
 	return &Paragraph{Lines: linesOf(s, style)}
 }
 
@@ -66,8 +69,8 @@ func (p *Paragraph) SetText(lines []text.Line) {
 	p.fresh = false
 }
 
-// Height is how many rows the paragraph needs at this width.
-func (p *Paragraph) Height(width int) int { return len(p.rows(width)) }
+// Measure is how many rows the paragraph needs at this width.
+func (p *Paragraph) Measure(width int) int { return len(p.rows(width)) }
 
 // Draw writes the paragraph, one wrapped row per row of v.
 func (p *Paragraph) Draw(v grid.View) {
