@@ -1,8 +1,10 @@
 package term
 
 import (
+	"sync/atomic"
 	"time"
 
+	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -42,6 +44,13 @@ type pump struct {
 	// until this goroutine runs and a burst large enough to fill it would deadlock
 	// whoever pushed.
 	early []input.Event
+	// pasting says whether a clipboard request is outstanding, so that only an
+	// answer this session asked for is turned into a paste.
+	//
+	// It is shared with whoever called Paste, on whatever goroutine that was, which
+	// is why it is atomic and why it is a pointer: the flag belongs to the terminal
+	// and the reading of it belongs here.
+	pasting *atomic.Bool
 	// size reports the terminal's current size.
 	size func() (w, h int, err error)
 	// grace overrides escGrace, for tests.
@@ -140,6 +149,9 @@ func (p *pump) drainRaw(parser *input.Parser) bool {
 // downstream is listening any more.
 func (p *pump) deliver(events []input.Event) bool {
 	for _, ev := range events {
+		if pasted, ok := p.pasted(ev); ok {
+			ev = pasted
+		}
 		select {
 		case p.out <- ev:
 		case <-p.stop:
@@ -147,4 +159,32 @@ func (p *pump) deliver(events []input.Event) bool {
 		}
 	}
 	return true
+}
+
+// pasted turns the terminal's answer about the clipboard into the paste it means,
+// when this session was the one that asked.
+//
+// Reading a clipboard and pasting into a terminal are the same event to whatever
+// receives them, and giving them separate names would mean writing the insert
+// twice. The translation happens here because this is the layer that knows what an
+// operating system command is; nothing above it should have to.
+//
+// Only an answer that was asked for is turned into one. A terminal has no reason to
+// volunteer this and none is known to, but the alternative rule — any of them is a
+// paste — would let text arrive in a document nobody asked to put it in, which is
+// not a thing to relax about on the strength of what terminals are known to do.
+func (p *pump) pasted(ev input.Event) (input.Event, bool) {
+	osc, ok := ev.(input.OSC)
+	if !ok || osc.Command != clipboardCommand || p.pasting == nil || !p.pasting.Load() {
+		return nil, false
+	}
+	p.pasting.Store(false)
+	_, text, ok := clipboard.Parse(osc.Params)
+	if !ok {
+		// A terminal that answered with nothing readable still answered. Turning
+		// that into an empty paste would clear a selection the user still has, so
+		// the answer is passed through as what it is.
+		return nil, false
+	}
+	return input.Paste{Text: text}, true
 }

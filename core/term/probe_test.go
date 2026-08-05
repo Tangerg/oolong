@@ -8,6 +8,7 @@ import (
 
 	xterm "golang.org/x/term"
 
+	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/term"
@@ -197,6 +198,111 @@ func TestProbePassesOnAnAnswerToSomethingElse(t *testing.T) {
 				t.Errorf("params = %q, want %q", osc.Params, "c;aGk=")
 			}
 			return
+		}
+	}
+}
+
+func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
+	// The terminal does the copying because over ssh, in a container, or through a
+	// multiplexer running elsewhere it is the only end the user is at.
+	tty, primary := open(t, term.Options{})
+	if !tty.Copy("hello") {
+		t.Fatal("a small copy was refused")
+	}
+	want, _ := clipboard.Copy(clipboard.System, "hello")
+	if got := read(t, primary, time.Second); !strings.Contains(got, want) {
+		t.Errorf("the terminal was sent %q, which does not carry the copy", got)
+	}
+}
+
+func TestCopyRefusesMoreThanItCanCarry(t *testing.T) {
+	tty, _ := open(t, term.Options{})
+	if tty.Copy(strings.Repeat("x", clipboard.Limit()+1)) {
+		t.Error("a copy past the limit was reported as asked for")
+	}
+}
+
+// TestPasteArrivesAsAPaste is the translation. Reading a clipboard and pasting into
+// a terminal are the same event to whatever receives them, and this is the layer
+// that knows the difference so that nothing above has to.
+func TestPasteArrivesAsAPaste(t *testing.T) {
+	tty, primary := open(t, term.Options{})
+	<-tty.Events() // the opening size
+
+	tty.Paste()
+	if got := read(t, primary, time.Second); !strings.Contains(got, clipboard.Request(clipboard.System)) {
+		t.Fatalf("the terminal was sent %q, which does not ask for the clipboard", got)
+	}
+
+	answer, _ := clipboard.Copy(clipboard.System, "from the clipboard")
+	if _, err := primary.WriteString(answer); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the answer never arrived")
+		}
+		switch e := ev.(type) {
+		case input.Paste:
+			if e.Text != "from the clipboard" {
+				t.Errorf("pasted %q", e.Text)
+			}
+			return
+		case input.OSC:
+			t.Fatalf("the answer arrived untranslated as %+v", e)
+		}
+	}
+}
+
+// TestAnAnswerNobodyAskedForIsNotAPaste. A terminal has no reason to volunteer one,
+// but the alternative rule would let text arrive in a document nobody asked to put
+// it in.
+func TestAnAnswerNobodyAskedForIsNotAPaste(t *testing.T) {
+	tty, primary := open(t, term.Options{})
+	<-tty.Events()
+
+	answer, _ := clipboard.Copy(clipboard.System, "unasked")
+	if _, err := primary.WriteString(answer); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the command never arrived at all")
+		}
+		switch e := ev.(type) {
+		case input.OSC:
+			if e.Command != 52 {
+				t.Fatalf("got command %d, want 52", e.Command)
+			}
+			return
+		case input.Paste:
+			t.Fatalf("text nobody asked for arrived as the paste %q", e.Text)
+		}
+	}
+}
+
+// TestAnUnreadableAnswerIsNotAnEmptyPaste, because an empty paste would clear a
+// selection the user still has.
+func TestAnUnreadableAnswerIsNotAnEmptyPaste(t *testing.T) {
+	tty, primary := open(t, term.Options{})
+	<-tty.Events()
+
+	tty.Paste()
+	if _, err := primary.WriteString("\x1b]52;c;\x1b\\"); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the answer never arrived")
+		}
+		switch e := ev.(type) {
+		case input.OSC:
+			return // passed through as what it is
+		case input.Paste:
+			t.Fatalf("an unreadable answer became the paste %q", e.Text)
 		}
 	}
 }

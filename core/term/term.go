@@ -13,9 +13,11 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 
 	xterm "golang.org/x/term"
 
+	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -70,6 +72,9 @@ type Terminal struct {
 	// said is what the terminal was willing to say about itself, when it was asked.
 	// It is written once during Open and only read afterwards.
 	said answers
+	// pasting is set between asking for the clipboard and the answer arriving. It is
+	// atomic because Paste may be called from anywhere and the pump reads it.
+	pasting atomic.Bool
 
 	winch    chan os.Signal
 	resized  chan struct{}
@@ -163,7 +168,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
-		out: t.events, parser: parser, early: early, size: t.Size,
+		out: t.events, parser: parser, early: early, pasting: &t.pasting, size: t.Size,
 	}
 	go t.fanResize()
 	go func() {
@@ -195,6 +200,43 @@ func (t *Terminal) Background() (grid.RGB, bool) { return t.said.background, t.s
 // can draw pixels on a terminal that does not speak Kitty's protocol.
 func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
 	return t.said.attributes, t.said.hasAttrs
+}
+
+// clipboardCommand is the operating system command that carries a clipboard.
+const clipboardCommand = 52
+
+// Copy asks the terminal to put text on the system clipboard, reporting false for
+// text too large to carry — see [clipboard.Limit].
+//
+// The terminal does it rather than the process, because the terminal is the only
+// part of this on the user's side of the connection. Over ssh, in a container, or
+// through a multiplexer running elsewhere, shelling out to pbcopy fills a clipboard
+// nobody can paste from.
+//
+// The sequence is queued beside the frames, so it lands between two of them and
+// never inside one. A terminal is free to refuse and says nothing when it does, so
+// true means asked for rather than done.
+func (t *Terminal) Copy(text string) bool {
+	seq, ok := clipboard.Copy(clipboard.System, text)
+	if !ok {
+		return false
+	}
+	t.writer.Queue([]byte(seq))
+	return true
+}
+
+// Paste asks the terminal what is on the system clipboard.
+//
+// The answer arrives on [Terminal.Events] as an ordinary [input.Paste], because
+// that is what it is: a component that already inserts what the user pasted needs
+// nothing further to insert what they copied somewhere else.
+//
+// Most terminals refuse to answer, because a program that can read the clipboard
+// can read what the user copied out of a password manager. A refusal has no reply,
+// so nothing should wait on one.
+func (t *Terminal) Paste() {
+	t.pasting.Store(true)
+	t.writer.Queue([]byte(clipboard.Request(clipboard.System)))
 }
 
 // Size is the terminal's size in cells.

@@ -97,6 +97,23 @@ type Loop interface {
 	// against what is behind it, needs the colour itself — and a lower layer that
 	// only ever answered "dark?" would have decided for everyone above it.
 	Background() (grid.RGB, bool)
+
+	// Copy asks for text to be put on the system clipboard, reporting false for
+	// text too large to carry — see [term.Terminal.Copy].
+	//
+	// Who does the copying is the host's business and not a component's. A terminal
+	// asks the terminal, because over ssh or through a multiplexer that is the only
+	// end of the connection the user is at; a host that knows better can do it
+	// another way without anything above having to hear about it.
+	Copy(text string) bool
+
+	// Paste asks for the system clipboard's contents.
+	//
+	// The answer arrives as an ordinary [input.Paste], which is what makes this
+	// worth having: a component that already inserts what the user pasted needs
+	// nothing further to insert what they copied somewhere else. It may never
+	// arrive — most terminals refuse to be read — so nothing should wait on one.
+	Paste()
 }
 
 // InlineLoop is what an inline program's component may ask of it: everything a
@@ -165,6 +182,17 @@ type Host interface {
 	// drawn on, and this is what stands for that thing. A test host that can say it
 	// is light is a test that can check a look both ways round.
 	Background() (grid.RGB, bool)
+	// Copy puts text on the system clipboard, reporting false for text it will not
+	// carry.
+	Copy(text string) bool
+	// Paste asks for the system clipboard, whose contents arrive later on Events as
+	// an [input.Paste]. A host that cannot read a clipboard does nothing.
+	//
+	// Copying and pasting are the host's because how they are done depends entirely
+	// on what is at the other end. A terminal asks the terminal, over a protocol it
+	// may refuse; a host somewhere else can shell out to the local tools and be
+	// right for that case, which asking the terminal would not be.
+	Paste()
 }
 
 // Config is what a program needs to run.
@@ -518,6 +546,13 @@ func (l loop) Quit() {
 // terminal said it draws on was settled before the program started and cannot
 // change under it, so there is nothing to keep in step.
 func (l loop) Background() (grid.RGB, bool) { return l.p.host.Background() }
+
+// Copy and Paste read through to the host. Neither needs the program's goroutine:
+// nothing about the interface changes, and the answer to a paste comes back the way
+// every other event does.
+func (l loop) Copy(text string) bool { return l.p.host.Copy(text) }
+
+func (l loop) Paste() { l.p.host.Paste() }
 
 func (l loop) Every(d time.Duration, fn func()) (stop func()) {
 	if d <= 0 || fn == nil {

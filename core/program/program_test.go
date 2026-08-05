@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,14 @@ type host struct {
 	w, h   int
 	bg     grid.RGB
 	saidBg bool
+
+	// clip stands in for a system clipboard, so a test can assert on what was put
+	// there instead of on the bytes that would have asked a terminal to do it.
+	clipMu   sync.Mutex
+	copied   []string
+	refuse   bool
+	pasteFor string
+	asked    int
 }
 
 func newHost() *host {
@@ -53,6 +62,40 @@ func (h *host) Size() (int, int, error)    { return h.w, h.h, nil }
 // that can answer this is a host that can put an interface's look under test
 // both ways round, which no amount of driving keystrokes could.
 func (h *host) Background() (grid.RGB, bool) { return h.bg, h.saidBg }
+
+func (h *host) Copy(text string) bool {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	if h.refuse {
+		return false
+	}
+	h.copied = append(h.copied, text)
+	return true
+}
+
+// Paste answers the way a host that is not a terminal would: by delivering the
+// text itself. Nothing above cares which it was.
+func (h *host) Paste() {
+	h.clipMu.Lock()
+	text, deliver := h.pasteFor, h.pasteFor != ""
+	h.asked++
+	h.clipMu.Unlock()
+	if deliver {
+		h.events <- input.Paste{Text: text}
+	}
+}
+
+func (h *host) copies() []string {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	return slices.Clone(h.copied)
+}
+
+func (h *host) timesAsked() int {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	return h.asked
+}
 
 func (h *host) send(ev input.Event) { h.events <- ev }
 func (h *host) rune(r rune)         { h.send(input.Key{Code: input.Character, Rune: r}) }
@@ -791,5 +834,103 @@ func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
 	}
 	if !<-dark {
 		t.Error("the zero colour is not black, so this test asserts nothing")
+	}
+}
+
+// recorder is a component that keeps what it was handed, so a test can assert on
+// which event a reply turned into.
+type recorder struct {
+	loop    program.Loop
+	handled atomic.Int64
+	mu      sync.Mutex
+	pastes  []string
+}
+
+func (r *recorder) Draw(v grid.View) { v.Text(0, 0, "ready", grid.Style{}) }
+
+func (r *recorder) Handle(ev input.Event) bool {
+	r.handled.Add(1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if paste, ok := ev.(input.Paste); ok {
+		r.pastes = append(r.pastes, paste.Text)
+	}
+	return true
+}
+
+func (r *recorder) pasted() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.pastes)
+}
+
+// startRecording runs a program whose component keeps what it was handed.
+func startRecording(t *testing.T) (*running, *recorder) {
+	t.Helper()
+	h := newHost()
+	rec := &recorder{}
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		rec.loop = l
+		return rec
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+	return r, rec
+}
+
+func TestCopyGoesToTheHost(t *testing.T) {
+	// Who does the copying is the host's business. A component asks, and what it
+	// asked for is observable without anyone parsing an escape sequence.
+	r, rec := startRecording(t)
+	if !rec.loop.Copy("hello") {
+		t.Fatal("a copy the host accepts was reported as refused")
+	}
+	if got := r.host.copies(); len(got) != 1 || got[0] != "hello" {
+		t.Errorf("the host was given %q, want [hello]", got)
+	}
+}
+
+func TestCopyReportsAHostThatWillNotTakeIt(t *testing.T) {
+	r, rec := startRecording(t)
+	r.host.clipMu.Lock()
+	r.host.refuse = true
+	r.host.clipMu.Unlock()
+
+	if rec.loop.Copy("hello") {
+		t.Error("a refused copy was reported as asked for")
+	}
+	if got := r.host.copies(); len(got) != 0 {
+		t.Errorf("the host recorded %q after refusing", got)
+	}
+}
+
+// TestPasteComesBackAsAPaste is the seam that makes this worth having: a component
+// that already inserts what the user pasted needs nothing further to insert what
+// they copied somewhere else.
+func TestPasteComesBackAsAPaste(t *testing.T) {
+	r, rec := startRecording(t)
+	r.host.clipMu.Lock()
+	r.host.pasteFor = "copied"
+	r.host.clipMu.Unlock()
+
+	rec.loop.Paste()
+	r.until("the answer to arrive as a paste", func() bool { return len(rec.pasted()) == 1 })
+	if got := rec.pasted()[0]; got != "copied" {
+		t.Errorf("pasted %q, want %q", got, "copied")
+	}
+}
+
+func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
+	// Most terminals refuse to be read, and a refusal has no reply. Asking has to
+	// be safe and silent.
+	r, rec := startRecording(t)
+	rec.loop.Paste()
+	r.until("the host to be asked", func() bool { return r.host.timesAsked() == 1 })
+
+	// Followed by something observable, so the absence of a paste is waited for
+	// rather than assumed.
+	r.host.rune('z')
+	r.until("the key after the unanswered request", func() bool { return rec.handled.Load() >= 1 })
+	if got := rec.pasted(); len(got) != 0 {
+		t.Errorf("an unanswered request produced the paste %q", got)
 	}
 }
