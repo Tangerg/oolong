@@ -113,6 +113,24 @@ type Loop interface {
 	// [headless.Scroll.Wheel].
 	Wheel() input.Wheel
 
+	// Keyboard is which of the Kitty keyboard protocol's enhancements the terminal
+	// actually turned on, and whether it said.
+	//
+	// A component that waits for a key to be let go needs it. Asking for the
+	// enhancements is not the same as getting them: a terminal can accept unambiguous
+	// key codes and give nothing for releases, and then every key is held for ever as
+	// far as this program can tell. Nothing in the events distinguishes that from a
+	// user who has not lifted a key, so a component that cannot ask has no way to
+	// choose a different interaction — which is what this is for.
+	Keyboard() (input.KeyboardFlags, bool)
+
+	// ReportDirectory tells the terminal which directory the program is working in.
+	//
+	// It is what lets a terminal resolve the relative paths in a program's own output
+	// — which is why [link.Link.Hyperlink] declines to make one a hyperlink and leaves
+	// it to the terminal. A host that is not a terminal does nothing.
+	ReportDirectory(path string) error
+
 	// Paste asks for the system clipboard's contents.
 	//
 	// The answer arrives as an ordinary [input.Paste], which is what makes this
@@ -191,6 +209,12 @@ type Host interface {
 	// Wheel is what the terminal's wheel reports are worth. A host that is not a
 	// terminal answers the zero value, which is the common arrangement.
 	Wheel() input.Wheel
+	// Keyboard is which Kitty keyboard enhancements are on, and whether the terminal
+	// said. A host that cannot ask reports false.
+	Keyboard() (input.KeyboardFlags, bool)
+	// ReportDirectory tells the terminal where the program is working. A host that is
+	// not a terminal does nothing and reports no error: there is nobody to tell.
+	ReportDirectory(path string) error
 	// Copy puts text on the system clipboard, reporting false for text it will not
 	// carry.
 	Copy(text string) bool
@@ -562,6 +586,10 @@ func (l loop) Background() (grid.RGB, bool) { return l.p.host.Background() }
 func (l loop) Copy(text string) bool { return l.p.host.Copy(text) }
 
 func (l loop) Wheel() input.Wheel { return l.p.host.Wheel() }
+
+func (l loop) Keyboard() (input.KeyboardFlags, bool) { return l.p.host.Keyboard() }
+
+func (l loop) ReportDirectory(path string) error { return l.p.host.ReportDirectory(path) }
 
 func (l loop) Paste() { l.p.host.Paste() }
 

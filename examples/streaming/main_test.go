@@ -150,4 +150,6 @@ func TestAnEmptyMessageIsNotSent(t *testing.T) {
 // satisfied by the loop in core, and neither knows about the other.
 var _ kit.Printer = program.InlineLoop(nil)
 
-func (h *host) Wheel() input.Wheel { return input.Wheel{} }
+func (h *host) Wheel() input.Wheel                    { return input.Wheel{} }
+func (h *host) Keyboard() (input.KeyboardFlags, bool) { return input.KeyboardFlags{}, false }
+func (h *host) ReportDirectory(string) error          { return nil }

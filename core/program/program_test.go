@@ -27,13 +27,16 @@ import (
 
 // host stands in for a terminal: a channel of events in, a buffer of frames out.
 type host struct {
-	events chan input.Event
-	frames *frames
-	writer *term.Writer
-	w, h   int
-	bg     grid.RGB
-	saidBg bool
-	wheel  input.Wheel
+	events    chan input.Event
+	frames    *frames
+	writer    *term.Writer
+	w, h      int
+	bg        grid.RGB
+	saidBg    bool
+	wheel     input.Wheel
+	keys      input.KeyboardFlags
+	saidKeys  bool
+	directory string
 
 	// clip stands in for a system clipboard, so a test can assert on what was put
 	// there instead of on the bytes that would have asked a terminal to do it.
@@ -938,6 +941,17 @@ func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
 
 func (h *host) Wheel() input.Wheel { return h.wheel }
 
+func (h *host) Keyboard() (input.KeyboardFlags, bool) { return h.keys, h.saidKeys }
+
+// ReportDirectory does nothing, which is what a host with no terminal to tell has to
+// do — and reports no error, because there was nothing to fail.
+func (h *host) ReportDirectory(path string) error {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	h.directory = path
+	return nil
+}
+
 func TestAComponentLearnsWhatANotchIs(t *testing.T) {
 	// The fact a scroll cannot work out for itself and a component cannot read from
 	// anywhere else.
@@ -953,5 +967,55 @@ func TestAComponentLearnsWhatANotchIs(t *testing.T) {
 
 	if want := (input.Wheel{Reports: 1, Rows: 3}); <-got != want {
 		t.Errorf("the component was told %+v", want)
+	}
+}
+
+func TestAComponentLearnsWhatTheKeyboardActuallyDoes(t *testing.T) {
+	// The case this exists for: the protocol is live and no release will ever arrive.
+	// Nothing in the events says so, so a component that cannot ask cannot choose a
+	// different interaction.
+	h := newHost()
+	h.keys, h.saidKeys = input.KeyboardFlags{Flags: input.KittyDisambiguate}, true
+
+	got := make(chan input.KeyboardFlags, 1)
+	said := make(chan bool, 1)
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		flags, ok := l.Keyboard()
+		got <- flags
+		said <- ok
+		return &component{text: "ready", consume: true, loop: l}
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+
+	if !<-said {
+		t.Fatal("the component was told nothing was known")
+	}
+	flags := <-got
+	if !flags.Has(input.KittyDisambiguate) {
+		t.Error("disambiguation was not reported")
+	}
+	if flags.Has(input.KittyReportEvents) {
+		t.Error("releases were reported by a terminal that turned them off")
+	}
+}
+
+func TestAComponentCanTellTheTerminalWhereItIs(t *testing.T) {
+	// The other half of leaving a relative path to the terminal: it can only resolve
+	// one against a directory it knows.
+	h := newHost()
+	done := make(chan error, 1)
+	r := startOn(t, h, func(l program.Loop) program.Component {
+		done <- l.ReportDirectory("/tmp/work")
+		return &component{text: "ready", consume: true, loop: l}
+	})
+	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
+
+	if err := <-done; err != nil {
+		t.Fatalf("ReportDirectory: %v", err)
+	}
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	if h.directory != "/tmp/work" {
+		t.Errorf("the host was told %q", h.directory)
 	}
 }
