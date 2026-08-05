@@ -14,30 +14,46 @@ import (
 // draws into the view the box hands back, which keeps the box out of the question
 // of what goes inside it and lets the same box frame a widget, a string, or nothing.
 type Box struct {
+	// Theme is the look. A box's parts each have a fixed role in one — the frame is
+	// a border, the interior is a surface, the title is a heading — so there is
+	// nothing here for a caller to choose between and no style of its own to set.
+	Theme Theme
+	// Glyphs are the characters the frame is drawn with, which is a fact about the
+	// terminal rather than about the look: a box drawn with line characters on a
+	// terminal that cannot show them is a box drawn in mojibake.
+	Glyphs Glyphs
+	// Border is which frame to draw. The zero value takes the rounded one from the
+	// glyph set, which reads as a panel; [Box.Bare] draws none.
 	Border Border
 	// Padding is held clear inside the border.
 	Padding layout.Inset
-	// Style paints the border and the padding.
-	Style grid.Style
-	// Fill paints the interior before anything is drawn into it. Its zero value
-	// leaves the interior as the terminal had it.
-	Fill grid.Style
+	// Bare draws no frame at all, for a box that only pads and fills.
+	Bare bool
 	// Title sits in the top border, indented one column so the corner reads as a
 	// corner.
 	Title      string
-	TitleStyle grid.Style
 	TitleAlign layout.Align
 	// Footer sits in the bottom border, on the same terms as the title.
 	Footer      string
-	FooterStyle grid.Style
 	FooterAlign layout.Align
+}
+
+// border is the frame this box actually draws.
+func (b Box) border() Border {
+	if b.Bare {
+		return Border{}
+	}
+	if b.Border != (Border{}) {
+		return b.Border
+	}
+	return b.Glyphs.Rounded()
 }
 
 // Overhead is how many columns and rows the frame and padding take, which is what a
 // caller subtracts to know what is left for the content.
 func (b Box) Overhead() layout.Size {
 	edge := 0
-	if b.Border.drawn() {
+	if b.border().drawn() {
 		edge = 2
 	}
 	pad := b.Padding.Size()
@@ -48,7 +64,7 @@ func (b Box) Overhead() layout.Size {
 func (b Box) Inner(v grid.View) grid.View {
 	w, h := v.Size()
 	edge := 0
-	if b.Border.drawn() {
+	if b.border().drawn() {
 		edge = 1
 	}
 	over := b.Overhead()
@@ -67,45 +83,45 @@ func (b Box) Draw(v grid.View) grid.View {
 	if w <= 0 || h <= 0 {
 		return v.Sub(image.Rectangle{})
 	}
-	if b.Fill != (grid.Style{}) {
-		v.Fill(grid.Rect(0, 0, w, h), b.Fill)
+	if fill := b.Theme.Surface; fill != (grid.Style{}) {
+		v.Fill(grid.Rect(0, 0, w, h), fill)
 	}
-	if b.Border.drawn() {
-		b.drawBorder(v, w, h)
+	if border := b.border(); border.drawn() {
+		b.drawBorder(v, border, w, h)
 	}
 	return b.Inner(v)
 }
 
-func (b Box) drawBorder(v grid.View, w, h int) {
+func (b Box) drawBorder(v grid.View, border Border, w, h int) {
 	// A box one column or one row deep has no room for two opposing edges. Drawing
 	// what fits and no more keeps a collapsing layout from looking corrupted.
 	if h >= 1 {
-		b.drawEdge(v, 0, w, b.Border.TopLeft, b.Border.Top, b.Border.TopRight)
+		b.drawEdge(v, 0, w, border.TopLeft, border.Top, border.TopRight)
 	}
 	if h >= 2 {
-		b.drawEdge(v, h-1, w, b.Border.BottomLeft, b.Border.Bottom, b.Border.BottomRight)
+		b.drawEdge(v, h-1, w, border.BottomLeft, border.Bottom, border.BottomRight)
 	}
 	for y := 1; y < h-1; y++ {
-		v.Text(0, y, b.Border.Left, b.Style)
+		v.Text(0, y, border.Left, b.Theme.Border)
 		if w >= 2 {
-			v.Text(w-1, y, b.Border.Right, b.Style)
+			v.Text(w-1, y, border.Right, b.Theme.Border)
 		}
 	}
 	if h >= 1 {
-		b.label(v, 0, w, b.Title, b.TitleStyle, b.TitleAlign)
+		b.label(v, 0, w, b.Title, b.Theme.Heading, b.TitleAlign)
 	}
 	if h >= 2 {
-		b.label(v, h-1, w, b.Footer, b.FooterStyle, b.FooterAlign)
+		b.label(v, h-1, w, b.Footer, b.Theme.Subtle, b.FooterAlign)
 	}
 }
 
 func (b Box) drawEdge(v grid.View, y, w int, left, mid, right string) {
-	v.Text(0, y, left, b.Style)
+	v.Text(0, y, left, b.Theme.Border)
 	for x := 1; x < w-1; x++ {
-		v.Text(x, y, mid, b.Style)
+		v.Text(x, y, mid, b.Theme.Border)
 	}
 	if w >= 2 {
-		v.Text(w-1, y, right, b.Style)
+		v.Text(w-1, y, right, b.Theme.Border)
 	}
 }
 

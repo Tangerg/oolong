@@ -19,12 +19,13 @@ var Dots = []string{"·", "•", "●", "•"}
 // time passes, which is what lets a test step it deterministically and what keeps an
 // idle UI from waking up to animate something nobody is waiting for.
 type Spinner struct {
+	// Theme is the look: the glyph is what the interface is waiting on, and the
+	// label is a note about it.
+	Theme Theme
 	// Frames are the glyphs cycled through. Empty means [Braille].
 	Frames []string
-	Style  grid.Style
 	// Label follows the glyph, if there is room.
-	Label      string
-	LabelStyle grid.Style
+	Label string
 
 	frame int
 }
@@ -46,11 +47,11 @@ func (s *Spinner) Draw(v grid.View) {
 		frames = Braille
 	}
 	glyph := frames[((s.frame%len(frames))+len(frames))%len(frames)]
-	x := v.Text(0, 0, glyph, s.Style)
+	x := v.Text(0, 0, glyph, s.Theme.Accent)
 	if s.Label == "" || x+1 >= w {
 		return
 	}
-	v.Text(x+1, 0, text.Truncate(s.Label, w-x-1, "…"), s.LabelStyle)
+	v.Text(x+1, 0, text.Truncate(s.Label, w-x-1, "…"), s.Theme.Muted)
 }
 
 // Scrollbar shows where a window sits in something taller than itself.
@@ -62,10 +63,12 @@ type Scrollbar struct {
 	// Total is how many rows of content there are, Window how many are shown, and
 	// Offset how many are above the window.
 	Total, Window, Offset int
+	// Theme is the look: the track is structure the eye should skip, and the thumb
+	// is where you are.
+	Theme Theme
 	// Track and Thumb draw the bar. Their zero values use a light track and a solid
 	// thumb, which reads at a glance without drawing the eye.
-	Track, Thumb           string
-	TrackStyle, ThumbStyle grid.Style
+	Track, Thumb string
 }
 
 // Needed reports whether there is anything to indicate. A bar drawn when everything
@@ -87,7 +90,7 @@ func (s Scrollbar) Draw(v grid.View) {
 	}
 	if !s.Needed() {
 		for y := range h {
-			v.Text(0, y, track, s.TrackStyle)
+			v.Text(0, y, track, s.Theme.Subtle)
 		}
 		return
 	}
@@ -103,9 +106,9 @@ func (s Scrollbar) Draw(v grid.View) {
 	}
 	for y := range h {
 		if y >= top && y < top+size {
-			v.Text(0, y, thumb, s.ThumbStyle)
+			v.Text(0, y, thumb, s.Theme.Muted)
 			continue
 		}
-		v.Text(0, y, track, s.TrackStyle)
+		v.Text(0, y, track, s.Theme.Subtle)
 	}
 }

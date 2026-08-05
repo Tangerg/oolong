@@ -75,6 +75,11 @@ type Editor struct {
 	// killed is the last text cut, for putting back. One entry, like a terminal's.
 	killed string
 
+	// blurred says the field has been told it does not have the keyboard, so it
+	// draws no cursor. Inverted, because a field that has never been told anything
+	// is the whole interface and does have it — see [Focusable].
+	blurred bool
+
 	undo, redo []editorState
 	// typing marks a run of plain insertions, so undo steps over a phrase rather
 	// than a letter.

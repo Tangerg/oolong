@@ -67,16 +67,27 @@ type Backdrop interface {
 	Backdrop(v grid.View)
 }
 
-// Stack is the layers floating over an interface, and the answer to which of them
-// the keyboard belongs to.
+// Stack is an interface with layers floating over it, and the answer to which of
+// them the keyboard belongs to.
 //
-// Only the top layer sees input. That is the whole of the focus model, and it is
-// enough for what a streaming interface actually does — a dialog over a composer,
-// a palette over both — without anything having to hold a focus ring or decide
-// what Tab means. An interface that outgrows it has the pieces to build more.
+// Only the top layer sees input; with nothing on it, the interface underneath has
+// its input back. That is the whole of the focus model between layers, and it is
+// enough for what a streaming interface actually does — a dialog over a composer, a
+// palette over both. Within a layer, or within the interface underneath, a
+// [Container] is what decides.
 //
 // The zero Stack is empty and ready.
 type Stack struct {
+	// Base is the interface the layers float over. It is drawn first and has the
+	// input whenever no layer does.
+	//
+	// It is here rather than left to the caller because owning it is what lets the
+	// stack say who has the keyboard. A caller that drew the interface itself and
+	// then drew the stack over it would leave a field underneath still believing it
+	// was being typed into — still drawing a cursor, into the frame's one cursor,
+	// under a dialog that has one of its own.
+	Base Widget
+
 	// Escape is the key that pops the top layer when the layer did not consume it.
 	// The zero value is the escape key. A layer that must be answered rather than
 	// dismissed implements [Insistent].
@@ -91,18 +102,29 @@ type Stack struct {
 	// stack was drawn into. A hit test happens between frames, so it has to ask
 	// about the frame that is on screen rather than the one being built.
 	areas []image.Rectangle
+
+	// holder is whatever was last told it has the keyboard, and settled says
+	// anything has been told at all. Until then every one of them believes it does —
+	// see [Focusable].
+	holder  Widget
+	settled bool
+	// blurred says the stack itself has been told it does not have the keyboard,
+	// which is what a stack inside something larger is told.
+	blurred bool
 }
 
-// Push puts a layer on top.
+// Push puts a layer on top, and gives it the keyboard.
 func (s *Stack) Push(m Modal) {
 	if m == nil {
 		return
 	}
 	s.layers = append(s.layers, m)
 	s.areas = append(s.areas, image.Rectangle{})
+	s.settle()
 }
 
-// Pop removes the top layer and reports whether there was one.
+// Pop removes the top layer and reports whether there was one. The keyboard goes
+// back to whatever was underneath.
 func (s *Stack) Pop() bool {
 	n := len(s.layers)
 	if n == 0 {
@@ -111,6 +133,7 @@ func (s *Stack) Pop() bool {
 	top := s.layers[n-1]
 	s.layers = s.layers[:n-1]
 	s.areas = s.areas[:n-1]
+	s.settle()
 	if closer, ok := top.(Closer); ok {
 		closer.Closed()
 	}
@@ -154,8 +177,12 @@ func (s *Stack) Area() (image.Rectangle, bool) {
 // key, because a key reaching what a modal is covering is a keystroke going
 // somewhere the user cannot see.
 func (s *Stack) Handle(ev input.Event) bool {
+	s.settle()
 	top := s.Top()
 	if top == nil {
+		if handler, ok := s.Base.(input.Handler); ok {
+			return handler.Handle(ev)
+		}
 		return false
 	}
 	area, _ := s.Area()
@@ -194,9 +221,13 @@ func (s *Stack) outside(mouse input.Mouse) bool {
 	return mouse.Action == input.MouseUp
 }
 
-// Draw paints the layers from the bottom up, each into the space it asked for,
-// and records where they went.
+// Draw paints the interface and then the layers from the bottom up, each into the
+// space it asked for, and records where they went.
 func (s *Stack) Draw(v grid.View) {
+	s.settle()
+	if s.Base != nil {
+		s.Base.Draw(v)
+	}
 	width, height := v.Size()
 	space := layout.Size{W: width, H: height}
 	for i, m := range s.layers {
@@ -207,6 +238,45 @@ func (s *Stack) Draw(v grid.View) {
 		s.areas[i] = area
 		m.Draw(v.Sub(area))
 	}
+}
+
+// Focus takes the keyboard for the whole stack, or gives it up, and passes the news
+// to whichever of the layers or the interface underneath currently holds it. A stack
+// is a widget, so one can sit inside a [Container] like anything else.
+func (s *Stack) Focus(has bool) {
+	s.blurred = !has
+	s.settled = false
+	s.settle()
+}
+
+// settle makes sure the keyboard is where the layers say it should be, and that
+// whatever had it before has been told it no longer does.
+func (s *Stack) settle() {
+	want := Widget(nil)
+	if top := s.Top(); top != nil {
+		want = top
+	} else if s.Base != nil {
+		want = s.Base
+	}
+	if s.settled && want == s.holder {
+		return
+	}
+	from := s.holder
+	s.holder, s.settled = want, true
+	if from != nil && from != want {
+		tell(from, false)
+	}
+	// A layer that is no longer on top is covered by one that is, which is the same
+	// thing as not having the keyboard.
+	for _, m := range s.layers {
+		if m != want && m != from {
+			tell(m, false)
+		}
+	}
+	if s.Base != nil && s.Base != want && s.Base != from {
+		tell(s.Base, false)
+	}
+	tell(want, !s.blurred)
 }
 
 // escape is the binding to pop on, standing in the default for a caller who left

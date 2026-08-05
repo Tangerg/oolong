@@ -58,6 +58,10 @@ func (c *Composer) Reset() { c.editor.Clear() }
 // history, or a completion offered against what is being typed.
 func (c *Composer) Editor() *headless.Editor { return &c.editor }
 
+// Focus takes the keyboard, or gives it up, and passes the news to the field. A
+// composer without it draws no cursor — see [headless.Focusable].
+func (c *Composer) Focus(has bool) { c.editor.Focus(has) }
+
 // Handle passes input to the field.
 //
 // A mouse event is translated into the field's own box first, which is something only
@@ -101,12 +105,7 @@ func (c *Composer) Draw(v grid.View) {
 	)
 	c.drawField(rows[0])
 	if c.hintRows() > 0 {
-		Help{
-			Bindings:       c.Hints,
-			KeyStyle:       c.Theme.Accent,
-			DoesStyle:      c.Theme.Subtle,
-			SeparatorStyle: c.Theme.Subtle,
-		}.Draw(rows[1])
+		Help{Theme: c.Theme, Bindings: c.Hints}.Draw(rows[1])
 	}
 }
 

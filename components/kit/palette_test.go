@@ -28,12 +28,15 @@ func TestThePaletteShowsWhyEachCommandIsThere(t *testing.T) {
 	}
 
 	s := grid.NewSurface(40, 2)
-	kit.Palette{Found: found, Style: th.Text, MatchStyle: th.Accent}.Draw(s.View())
+	kit.Palette{Found: found, Theme: th}.Draw(s.View())
 
 	// "n" of "new" and "s" of "session" are the two matched letters, and only those.
+	// The first row is the one under the cursor, so a matched letter on it is the
+	// accent over the selection rather than over ordinary text.
+	picked := th.Selection.Merge(th.Accent)
 	accented := 0
 	for x := range 40 {
-		if c := s.View().CellAt(x, 0); c != nil && c.Style == th.Text.Merge(th.Accent) {
+		if c := s.View().CellAt(x, 0); c != nil && c.Style == picked {
 			accented++
 		}
 	}
@@ -49,17 +52,16 @@ func TestThePaletteMarksTheSelection(t *testing.T) {
 	th := kit.Dark()
 	s := grid.NewSurface(40, 2)
 	kit.Palette{
-		Found:         commands(t).Find(""),
-		Selected:      1,
-		Style:         th.Text,
-		SelectedStyle: th.Selection,
-		Marker:        "> ",
+		Found:    commands(t).Find(""),
+		Selected: 1,
+		Theme:    th,
+		Glyphs:   kit.ASCII(),
 	}.Draw(s.View())
 
-	if got := rowOf(s.View(), 1, 40); !strings.HasPrefix(got, "> ") {
+	if got := rowOf(s.View(), 1, 40); !strings.HasPrefix(got, kit.ASCII().Marker+" ") {
 		t.Errorf("the selected row is %q, want the marker", got)
 	}
-	if got := rowOf(s.View(), 0, 40); strings.HasPrefix(got, ">") {
+	if got := rowOf(s.View(), 0, 40); strings.HasPrefix(got, kit.ASCII().Marker) {
 		t.Errorf("an unselected row is %q", got)
 	}
 	// And the names stay in line, because the marker's width is held clear on every
@@ -73,8 +75,14 @@ func TestThePaletteSaysWhenNothingMatched(t *testing.T) {
 	// Nothing at all leaves the space blank, which reads as a bug rather than as an
 	// answer.
 	s := grid.NewSurface(40, 2)
-	kit.Palette{Found: nil, Empty: "no matching command"}.Draw(s.View())
+	kit.Palette{Found: nil}.Draw(s.View())
 	if got := rowOf(s.View(), 0, 40); !strings.Contains(got, "no matching command") {
+		t.Errorf("the row is %q, want the palette to say so in words", got)
+	}
+	// And a caller with something better to say says it.
+	s.Reset()
+	kit.Palette{Found: nil, Empty: "nothing here"}.Draw(s.View())
+	if got := rowOf(s.View(), 0, 40); !strings.Contains(got, "nothing here") {
 		t.Errorf("the row is %q", got)
 	}
 }
@@ -97,20 +105,13 @@ func TestThePaletteDrawsIntoWhateverItIsGiven(t *testing.T) {
 	kit.Palette{Found: found}.Draw(grid.View{})
 }
 
-func TestDressGivesThePaletteALook(t *testing.T) {
-	th, g := kit.Dark(), kit.ASCII()
-	got := (kit.Palette{}).Dress(th, g)
-	if got.MatchStyle != th.Accent {
-		t.Error("the matched characters were not dressed")
-	}
-	if !strings.HasPrefix(got.Marker, g.Marker) {
-		t.Errorf("the marker is %q, want the glyph set's", got.Marker)
-	}
-	if got.Empty == "" {
-		t.Error("there is nothing to say when nothing matches")
-	}
-	// A caller's own message survives being dressed.
-	if got := (kit.Palette{Empty: "mine"}).Dress(th, g); got.Empty != "mine" {
-		t.Errorf("the message became %q", got.Empty)
+// TestAWidgetWithNoLookDrawsNoLook. A theme nobody set is not a theme to fall back
+// on: it is a caller who has not said, and guessing would put colours on a terminal
+// whose own the interface has never asked about.
+func TestAWidgetWithNoLookDrawsNoLook(t *testing.T) {
+	s := grid.NewSurface(40, 2)
+	kit.Palette{Found: commands(t).Find(""), Selected: 0}.Draw(s.View())
+	if got := s.View().CellAt(0, 0).Style; got != (grid.Style{}) {
+		t.Errorf("an undressed palette drew %+v", got)
 	}
 }

@@ -178,7 +178,7 @@ func (e *Editor) Draw(v grid.View) {
 
 	if e.Empty() && e.Placeholder != "" {
 		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.PlaceholderStyle)
-		v.PlaceCursor(0, 0)
+		e.placeCursor(v, 0, 0)
 		return
 	}
 
@@ -219,8 +219,24 @@ func (e *Editor) Draw(v grid.View) {
 		}
 	}
 	if y := cursorRow - first; y >= 0 && y < height {
-		v.PlaceCursor(cursorColumn, y)
+		e.placeCursor(v, cursorColumn, y)
 	}
+}
+
+// Focus takes the keyboard, or gives it up. A field without it draws no cursor.
+//
+// A frame has one cursor and the terminal draws it, so two fields both asking for it
+// is not two cursors: it is one, wherever the last of them happened to draw. This is
+// how the question is settled — see [Focusable], and note that a field nobody has
+// told anything believes it has the keyboard, which is what makes a lone field work.
+func (e *Editor) Focus(has bool) { e.blurred = !has }
+
+// placeCursor asks for the terminal's cursor only when this field has the keyboard.
+func (e *Editor) placeCursor(v grid.View, x, y int) {
+	if e.blurred {
+		return
+	}
+	v.PlaceCursor(x, y)
 }
 
 // Scroll exposes the field's position, for a scrollbar beside a tall field.

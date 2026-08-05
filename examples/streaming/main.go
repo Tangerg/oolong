@@ -44,6 +44,11 @@ type chat struct {
 	loop  program.InlineLoop
 	theme kit.Theme
 
+	// body is the two of them arranged, and the thing that decides which of them an
+	// event is for. Laying them out by hand would mean translating a click into the
+	// composer's own box by hand too — and getting it wrong on exactly the frames
+	// where the status line is there and everything below it has moved down a row.
+	body     *headless.Container
 	composer kit.Composer
 	status   kit.Status
 
@@ -84,19 +89,21 @@ func newChat(loop program.InlineLoop) *chat {
 	// Copy and cut go to the terminal, which over ssh or through a multiplexer is the
 	// only end of the connection the user is at.
 	c.composer.Editor().Clipboard = loop
+	c.body = headless.Rows(
+		headless.Item{Size: layout.Fixed(0), Of: &c.status},
+		headless.Item{Size: layout.Measured(1, 0), Of: &c.composer},
+	)
 	return c
 }
 
 // Draw stacks the status line over the composer.
+//
+// The status row is there only while something is happening, which is one number
+// rather than a branch around the drawing: a slot of no rows is a slot, and the
+// container works out what that leaves for everything else.
 func (c *chat) Draw(v grid.View) {
-	rows := layout.Rows(v,
-		layout.Slot{Size: layout.Fixed(c.statusRows())},
-		layout.Slot{Size: layout.Measured(1, 0), Of: &c.composer},
-	)
-	if c.statusRows() > 0 {
-		c.status.Draw(rows[0])
-	}
-	c.composer.Draw(rows[1])
+	c.body.Items[0].Size = layout.Fixed(c.statusRows())
+	c.body.Draw(v)
 }
 
 func (c *chat) statusRows() int {
@@ -106,7 +113,8 @@ func (c *chat) statusRows() int {
 	return 1
 }
 
-// Handle sends on Enter and leaves on ctrl+c. Everything else is the composer's.
+// Handle sends on Enter and leaves on ctrl+c. Everything else belongs to whichever
+// part of the interface it is for, which is the container's to work out.
 func (c *chat) Handle(ev input.Event) bool {
 	if quit.Matches(ev) {
 		c.loop.Quit()
@@ -116,7 +124,7 @@ func (c *chat) Handle(ev input.Event) bool {
 		c.send()
 		return true
 	}
-	return c.composer.Handle(ev)
+	return c.body.Handle(ev)
 }
 
 // send prints what was typed and starts a reply arriving.

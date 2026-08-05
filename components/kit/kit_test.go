@@ -45,7 +45,7 @@ func equalRows(t *testing.T, got, want []string) {
 }
 
 func TestBoxFramesAndReportsWhatIsLeft(t *testing.T) {
-	box := kit.Box{Border: kit.Rounded, Padding: layout.Uniform(1)}
+	box := kit.Box{Glyphs: kit.Unicode(), Padding: layout.Uniform(1)}
 	rows := paint(8, 5, func(v grid.View) {
 		inner := box.Draw(v)
 		w, h := inner.Size()
@@ -68,9 +68,9 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 	// clipped, and the bug would look like it belonged to the content.
 	for _, box := range []kit.Box{
 		{},
-		{Border: kit.Rounded},
+		{Glyphs: kit.Unicode()},
 		{Padding: layout.Uniform(2)},
-		{Border: kit.Square, Padding: layout.Symmetric(1, 2)},
+		{Glyphs: kit.Unicode(), Border: kit.Unicode().Square(), Padding: layout.Symmetric(1, 2)},
 	} {
 		over := box.Overhead()
 		s := grid.NewSurface(20, 10)
@@ -84,7 +84,7 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 
 func TestBoxTitleSitsInTheBorder(t *testing.T) {
 	rows := paint(12, 2, func(v grid.View) {
-		kit.Box{Border: kit.Rounded, Title: "Plan"}.Draw(v)
+		kit.Box{Glyphs: kit.Unicode(), Title: "Plan"}.Draw(v)
 	})
 	if !strings.Contains(rows[0], "Plan") {
 		t.Fatalf("top border = %q, want the title in it", rows[0])
@@ -99,7 +99,7 @@ func TestBoxSurvivesBeingSqueezed(_ *testing.T) {
 	// A collapsing layout must look small, not corrupted. None of these may panic.
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {2, 1}, {1, 3}, {3, 2}} {
 		paint(size[0], size[1], func(v grid.View) {
-			kit.Box{Border: kit.Rounded, Title: "title", Footer: "footer", Padding: layout.Uniform(1)}.Draw(v)
+			kit.Box{Glyphs: kit.Unicode(), Title: "title", Footer: "footer", Padding: layout.Uniform(1)}.Draw(v)
 		})
 	}
 }
@@ -397,8 +397,8 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 	// what it was nor what the sheet is made of, which is what mixing means.
 	s := grid.NewSurface(8, 2)
 	s.View().Text(0, 0, "behind", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF)})
-	shade := kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}
-	kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Shade: shade}.Draw(s.View())
+	theme := kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}}
+	kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Theme: theme}.Draw(s.View())
 
 	if got := s.CellAt(0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
@@ -413,8 +413,8 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 // so what it mixes to depends entirely on the terminal having said what it draws
 // with — and where it did not say, the honest outcome is that nothing changes.
 func TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn(t *testing.T) {
-	shade := kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}
-	overlay := kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Shade: shade}
+	theme := kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}}
+	overlay := kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Theme: theme}
 
 	unasked := grid.NewSurface(8, 2)
 	unasked.View().Text(0, 0, "behind", grid.Style{})

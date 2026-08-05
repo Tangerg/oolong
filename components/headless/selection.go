@@ -32,6 +32,16 @@ func (p Point) Before(q Point) bool {
 //
 // The zero value selects nothing.
 type Selection struct {
+	// Clicks counts the run a press belongs to, which is what tells a double-click
+	// from two clicks. It lives here because a selection is the only thing that asks:
+	// a second press takes the word and a third takes the line, and both are
+	// questions about this selection rather than about the pointer in general.
+	//
+	// It is a field rather than something the caller keeps and passes in, because a
+	// widget that had to be handed the state of its own gesture is a widget its
+	// caller has to understand to use.
+	Clicks Clicks
+
 	anchor, extent Point
 	active         bool
 	dragging       bool

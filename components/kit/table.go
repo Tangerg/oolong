@@ -28,6 +28,10 @@ type Column struct {
 // wherever it already lives instead of copied into a widget, and it means a cell can
 // be as elaborate as its own draw function likes.
 type Table struct {
+	// Theme is the look. A column title is a heading and there is nothing else here
+	// with a fixed role: what a row looks like is data, not a look, which is why
+	// RowStyle is a function of the row.
+	Theme   Theme
 	Columns []Column
 	// Rows is how many rows there are.
 	Rows int
@@ -49,8 +53,7 @@ type Table struct {
 	// that still reads as two columns rather than one.
 	Gap int
 	// Header draws the column titles in the first row.
-	Header      bool
-	HeaderStyle grid.Style
+	Header bool
 	// RowStyle styles a whole row, for banding or for a selection.
 	RowStyle func(row int) grid.Style
 }
@@ -115,7 +118,7 @@ func (t Table) Draw(v grid.View) {
 	if t.Header {
 		t.drawRow(v, y, widths, gap, func(col int, cell grid.View) {
 			c := t.Columns[col]
-			Label{Text: c.Title, Style: t.HeaderStyle, Align: c.Align, Ellipsis: "…"}.Draw(cell)
+			Label{Text: c.Title, Style: t.Theme.Heading, Align: c.Align, Ellipsis: "…"}.Draw(cell)
 		})
 		y++
 	}

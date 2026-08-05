@@ -11,13 +11,14 @@ import (
 // The keys come from the same [headless.Binding] values the handlers match against,
 // which is what stops the hints and the behaviour from disagreeing.
 type Help struct {
-	Bindings  []headless.Binding
-	KeyStyle  grid.Style
-	DoesStyle grid.Style
+	// Theme is the look. Each part of a hint has a fixed role in one — the key is
+	// the thing to press, what it does is a note about it — so there is nothing here
+	// to choose between.
+	Theme    Theme
+	Bindings []headless.Binding
 	// Separator sits between hints. Empty uses two spaces, which separates without
 	// adding another thing to look at.
-	Separator      string
-	SeparatorStyle grid.Style
+	Separator string
 }
 
 // Measure is one row.
@@ -54,10 +55,10 @@ func (h Help) Draw(v grid.View) {
 			return
 		}
 		if x > 0 {
-			x += v.Text(x, 0, separator, h.SeparatorStyle)
+			x += v.Text(x, 0, separator, h.Theme.Subtle)
 		}
-		x += v.Text(x, 0, key, h.KeyStyle)
-		x += v.Text(x, 0, " ", h.DoesStyle)
-		x += v.Text(x, 0, b.Does, h.DoesStyle)
+		x += v.Text(x, 0, key, h.Theme.Accent)
+		x += v.Text(x, 0, " ", h.Theme.Muted)
+		x += v.Text(x, 0, b.Does, h.Theme.Muted)
 	}
 }

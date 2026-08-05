@@ -29,16 +29,19 @@ type Transcript struct {
 	Matches []headless.Match
 	Current int
 
-	// SelectionStyle, MatchStyle and CurrentStyle are how the three are picked out.
-	SelectionStyle grid.Style
-	MatchStyle     grid.Style
-	CurrentStyle   grid.Style
-	// HeaderStyle is laid over a pinned header, and DividerStyle draws the rule under
-	// it when the sticky leaves a gap for one.
-	HeaderStyle  grid.Style
-	DividerStyle grid.Style
-	// Divider is the character the rule is drawn with. Empty leaves the gap blank.
-	Divider string
+	// Theme is the look. Every part of a transcript has a fixed role in one — a
+	// selection is the selection, the match being stepped to is the accent, a pinned
+	// header sits on a surface — so there is nothing here to choose between.
+	//
+	// A caller who wants one of them different passes a theme with that role
+	// changed, which is one line and keeps the look in the one place a look lives:
+	//
+	//	quiet := theme
+	//	quiet.Selection = quiet.Sunken
+	Theme Theme
+	// Glyphs are the characters the rule under a pinned header is drawn with, which
+	// is a fact about the terminal rather than about the look.
+	Glyphs Glyphs
 }
 
 // Draw fills v with as much of the transcript as fits.
@@ -120,7 +123,7 @@ func (t Transcript) drawHeader(v grid.View, pinned headless.Pinned) {
 	block.Draw(v.Sub(image.Rect(0, -pinned.ClipTop, w, visible)))
 	for y := range visible {
 		for x := range w {
-			restyle(v, x, y, t.HeaderStyle)
+			restyle(v, x, y, t.Theme.Surface)
 		}
 	}
 	// The header dissolves into whatever it is drawn on as the next one pushes it
@@ -129,9 +132,9 @@ func (t Transcript) drawHeader(v grid.View, pinned headless.Pinned) {
 	// theme gave it one, the terminal's where it did not — which is why this is a
 	// fade and not a sheet of colour.
 	v.Fade(image.Rect(0, 0, w, visible), 1-pinned.Fade)
-	if t.Divider != "" && pinned.Rows > visible {
+	if t.Glyphs.Horizontal != "" && pinned.Rows > visible {
 		for x := range w {
-			v.Text(x, visible, t.Divider, t.DividerStyle)
+			v.Text(x, visible, t.Glyphs.Horizontal, t.Theme.Divider)
 		}
 	}
 }
@@ -148,15 +151,15 @@ func (t Transcript) mark(v grid.View, from int) {
 		for y := range h {
 			for x := range w {
 				if t.Selection.Covers(from+y, x) {
-					restyle(v, x, y, t.SelectionStyle)
+					restyle(v, x, y, t.Theme.Selection)
 				}
 			}
 		}
 	}
 	for i, m := range t.Matches {
-		style := t.MatchStyle
+		style := t.Theme.Selection
 		if i == t.Current {
-			style = t.CurrentStyle
+			style = t.Theme.Accent
 		}
 		for row, span := range m.Spans {
 			y := m.Row + row - from
@@ -181,25 +184,6 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 	}
 	if c := v.CellAt(x, y); c != nil {
 		c.Style = c.Style.Merge(style)
-	}
-}
-
-// Dressed is a transcript in a theme's colours, drawn with a glyph set.
-//
-// It is a starting point and not a requirement: every field it fills in is one a
-// caller can set instead, which is the whole arrangement between this package and the
-// one below it.
-func Dressed(th Theme, g Glyphs) Transcript {
-	return Transcript{
-		SelectionStyle: th.Selection,
-		// A match is picked out the way a selection is, and the one being stepped to
-		// is accented, so that stepping through matches is visible without the others
-		// disappearing.
-		MatchStyle:   th.Selection,
-		CurrentStyle: th.Accent,
-		HeaderStyle:  th.Surface,
-		DividerStyle: th.Divider,
-		Divider:      g.Horizontal,
 	}
 }
 
@@ -255,8 +239,13 @@ type Printer interface {
 // The clicks are counted from the time the event arrived with, which the terminal's
 // reader stamped on it. A caller feeding events it made up itself gets single clicks,
 // because there is nothing to tell one press from another by.
-func (t Transcript) Handle(ev input.Mouse, clicks *headless.Clicks) bool {
-	if t.Content == nil || t.Selection == nil {
+//
+// The position is in the transcript's own coordinates, like everything else a widget
+// is handed. Whoever drew it is responsible for that, which for anything inside a
+// [headless.Container] is the container.
+func (t Transcript) Handle(event input.Event) bool {
+	ev, ok := event.(input.Mouse)
+	if !ok || t.Content == nil || t.Selection == nil {
 		return false
 	}
 	at := headless.Point{Row: t.offset() + ev.Pos.Y, Col: ev.Pos.X}
@@ -265,10 +254,7 @@ func (t Transcript) Handle(ev input.Mouse, clicks *headless.Clicks) bool {
 		if ev.Button != input.ButtonLeft {
 			return false
 		}
-		run := 1
-		if clicks != nil {
-			run = clicks.Press(ev)
-		}
+		run := t.Selection.Clicks.Press(ev)
 		// A word or a row, when there is one there. A double-click in the margin has
 		// nothing to take, and falls back to starting a selection like any press.
 		switch run {

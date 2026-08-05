@@ -102,6 +102,19 @@ point of tagging them low rather than not at all.
 - **`components/kit.Scrim`** is what a layer paints over what it covers, and it
   lives on `Theme`: how far an interface recedes is part of its look, and a light
   one takes less of it than a dark one.
+- **`components/headless.Container`** — widgets arranged in a region, and the answer
+  to which of them an event is for. A key goes to the widget that has the keyboard;
+  a mouse event goes to the widget it is over, in that widget's own coordinates, and
+  a press is captured until the release. Every interface with two things on screen
+  was doing all three by hand, and the last of them can only be answered while a
+  frame is being drawn.
+- **`components/headless.Focusable`** — a widget that can hold the keyboard, and is
+  told when it does. A frame has one cursor, so two fields both asking for it is not
+  two cursors: it is one, wherever the last of them drew. A widget nobody has told
+  anything assumes it has the keyboard, which is what makes a lone field work.
+- `core/layout.Axis`, `Axis.Rects` and `Wanted`. The geometry without a view, because
+  a click arrives between two frames and has to be answered against the frame that is
+  on screen.
 
 ### Changed
 
@@ -117,6 +130,17 @@ point of tagging them low rather than not at all.
   theme's scrim and no longer carries an opinion of its own.
 - A pinned header now dissolves as the next one pushes it off.
   `headless.Pinned.Fade` was being worked out and never drawn.
+- **There is one way to dress a widget, and it is a field.** Every `kit` widget takes
+  a `Theme`, and a `Glyphs` as well if it draws furniture; none of them carries styles
+  of its own. `Palette.Dress`, `Dressed`, and the package-level `Rounded` and `Square`
+  are gone — the last two were borders built from whatever glyphs the machine that
+  compiled the program could draw. Text is the exception: `Label` and `Paragraph`
+  take a style, because which role a piece of text plays is the caller's to say.
+- `kit.Transcript.Handle` takes an `input.Event` like every other widget, and the
+  click counter it used to be handed lives on `headless.Selection`, which is the only
+  thing that asks.
+- `headless.Stack` owns the interface its layers float over, as `Base`. Owning it is
+  what lets the stack say who has the keyboard.
 - **An escape sequence that never completed is now read as a chord.** It used to
   become the Escape key plus the character, which made Alt+[, Alt+] and
   Alt+Shift+O unbindable. An escape pressed on its own is followed by a human

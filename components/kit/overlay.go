@@ -20,10 +20,10 @@ import (
 // no styling of its own.
 type Overlay struct {
 	layout.Placement
-	// Shade is painted over what the layer covers, so the eye goes to the layer and
-	// it is obvious that what is behind it is not the thing to act on. Its zero value
-	// covers nothing; a theme's is [Theme.Scrim].
-	Shade Scrim
+	// Theme is the look, of which an overlay uses exactly one part: the scrim it
+	// paints over what it covers, so the eye goes to the layer and it is obvious that
+	// what is behind is not the thing to act on. A zero theme covers nothing.
+	Theme Theme
 }
 
 // Draw shades what is behind the layer and returns the view to draw the layer into.
@@ -34,7 +34,7 @@ func (o Overlay) Draw(v grid.View) grid.View {
 	}
 	// Mixed rather than filled: what is behind stays legible and simply recedes,
 	// which is what tells the reader it is still there and not gone.
-	o.Shade.Over(v)
+	o.Theme.Scrim.Over(v)
 	return v.Sub(o.Area(v))
 }
 

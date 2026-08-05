@@ -147,10 +147,7 @@ func (g Glyphs) Square() Border {
 // drawn reports whether the border draws anything.
 func (b Border) drawn() bool { return b != Border{} }
 
-// Rounded and Square are the two borders drawn with the glyphs nearly every terminal
-// has. A caller whose terminal cannot — see [GlyphsFor] — takes its borders from the
-// set it was given instead.
-var (
-	Rounded = Unicode().Rounded()
-	Square  = Unicode().Square()
-)
+// There is no package-level rounded or square border, on purpose. One would be built
+// from the glyphs this machine happens to be able to draw, and would be the wrong
+// answer everywhere else — see [GlyphsFor]. A border comes from the set a widget was
+// given, which is why a widget that draws one takes a set.

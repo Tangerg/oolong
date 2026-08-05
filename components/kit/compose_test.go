@@ -212,7 +212,7 @@ func TestADialogIsAModalTheStackCanDrive(_ *testing.T) {
 }
 
 func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
-	d := &kit.Dialog{Title: "Confirm", Body: kit.Label{Text: "really?"}}
+	d := &kit.Dialog{Glyphs: kit.Unicode(), Title: "Confirm", Body: kit.Label{Text: "really?"}}
 	rows := paint(20, 5, func(v grid.View) { d.Draw(v) })
 	if !strings.Contains(rows[0], "Confirm") {
 		t.Fatalf("top row = %q, want the title in the border", rows[0])
@@ -228,9 +228,10 @@ func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
 func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 	// Where they do not cost a row, which is the whole reason to put them there.
 	d := &kit.Dialog{
-		Title: "Confirm",
-		Body:  kit.Label{Text: "x"},
-		Hints: []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "ok"}},
+		Glyphs: kit.Unicode(),
+		Title:  "Confirm",
+		Body:   kit.Label{Text: "x"},
+		Hints:  []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "ok"}},
 	}
 	rows := paint(24, 4, func(v grid.View) { d.Draw(v) })
 	if !strings.Contains(rows[3], "ok") {
@@ -293,7 +294,7 @@ func TestADialogWithABodyThatIgnoresInputConsumesNothing(t *testing.T) {
 }
 
 func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
-	d := &kit.Dialog{Title: "Empty"}
+	d := &kit.Dialog{Glyphs: kit.Unicode(), Title: "Empty"}
 	rows := paint(14, 3, func(v grid.View) { d.Draw(v) })
 	if !strings.Contains(rows[0], "Empty") {
 		t.Fatalf("top row = %q, want the frame drawn anyway", rows[0])

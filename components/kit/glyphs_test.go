@@ -117,7 +117,7 @@ func TestBordersAreBuiltFromTheGlyphs(t *testing.T) {
 
 func TestBoxDrawsWithTheGlyphsItWasGiven(t *testing.T) {
 	s := grid.NewSurface(8, 3)
-	kit.Box{Border: kit.ASCII().Square()}.Draw(s.View())
+	kit.Box{Glyphs: kit.ASCII(), Border: kit.ASCII().Square()}.Draw(s.View())
 
 	row := rowOf(s.View(), 0, 8)
 	if !strings.HasPrefix(row, "+") || !strings.Contains(row, "-") {

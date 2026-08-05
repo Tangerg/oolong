@@ -68,7 +68,7 @@ func ExampleMessage() {
 }
 
 func ExampleBox() {
-	inner := kit.Box{Border: kit.Rounded, Title: "Plan"}
+	inner := kit.Box{Glyphs: kit.Unicode(), Title: "Plan"}
 	show(14, 3, func(v grid.View) {
 		kit.Label{Text: "step one"}.Draw(inner.Draw(v))
 	})

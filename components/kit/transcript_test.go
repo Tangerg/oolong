@@ -77,7 +77,7 @@ func TestSelectionIsLaidOverWhatWasDrawn(t *testing.T) {
 
 	th := kit.Dark()
 	s := grid.NewSurface(20, 1)
-	kit.Transcript{Content: tr, Selection: &sel, SelectionStyle: th.Selection}.Draw(s.View())
+	kit.Transcript{Content: tr, Selection: &sel, Theme: th}.Draw(s.View())
 
 	got := styles(s.View(), 0, 20)
 	for x := range 5 {
@@ -105,9 +105,8 @@ func TestMatchesArePickedOutAndTheCurrentOneDiffers(t *testing.T) {
 			{Row: 0, Spans: []headless.Span{{Col: 0, Width: 3}}},
 			{Row: 0, Spans: []headless.Span{{Col: 8, Width: 3}}},
 		},
-		Current:      1,
-		MatchStyle:   th.Selection,
-		CurrentStyle: th.Accent,
+		Current: 1,
+		Theme:   th,
 	}.Draw(s.View())
 
 	got := styles(s.View(), 0, 20)
@@ -133,7 +132,7 @@ func TestAPinnedHeaderTakesRoomFromTheBody(t *testing.T) {
 	sticky := &headless.Sticky{Blocks: []int{0}, Gap: 1}
 	s := grid.NewSurface(20, 4)
 
-	view := kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Divider: "-"}
+	view := kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}
 	// Scrolled two rows down, so the prompt is off the top.
 	sc.Layout(tr.Height(), 4)
 	sc.By(2)
@@ -207,17 +206,13 @@ func TestTranscriptDrawsNothingWithoutContent(t *testing.T) {
 	}
 }
 
-func TestDressedFillsInALook(t *testing.T) {
-	th, g := kit.Dark(), kit.Unicode()
-	got := kit.Dressed(th, g)
-	if got.SelectionStyle != th.Selection {
-		t.Error("the selection was not dressed")
-	}
-	if got.Divider != g.Horizontal {
-		t.Errorf("the divider is %q, want the glyph set's rule", got.Divider)
-	}
-	if got.CurrentStyle == got.MatchStyle {
-		t.Error("the current match looks like every other one")
+// TestTheCurrentMatchIsToldApartFromTheRest. Stepping through matches has to be
+// visible without the others disappearing, so one theme role picks out a match and
+// another picks out the one being stepped to.
+func TestTheCurrentMatchIsToldApartFromTheRest(t *testing.T) {
+	th := kit.Dark()
+	if th.Selection == th.Accent {
+		t.Fatal("the two roles a transcript tells matches apart with are the same colour")
 	}
 }
 
@@ -234,7 +229,7 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 	sticky := &headless.Sticky{Blocks: []int{0}, Gap: 1}
 	s := grid.NewSurface(20, 4)
 
-	kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Divider: "-"}.Draw(s.View())
+	kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}.Draw(s.View())
 
 	// Two rows of body, and the last of them has to be the last row of content.
 	if got := rowOf(s.View(), 3, 20); !strings.HasPrefix(got, "a6") {
@@ -359,29 +354,28 @@ func press(x int, at time.Time) input.Mouse {
 func TestSelectingWithTheMouse(t *testing.T) {
 	tr := session(t, 30, []string{"the quick brown", "fox jumps over"})
 	var sel headless.Selection
-	var clicks headless.Clicks
 	view := kit.Transcript{Content: tr, Selection: &sel}
 	base := time.Unix(0, 0)
 
 	// A drag.
-	view.Handle(press(4, base), &clicks)
-	view.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDrag}, &clicks)
-	view.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseUp}, &clicks)
+	view.Handle(press(4, base))
+	view.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDrag})
+	view.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseUp})
 	if got := sel.Text(tr); got != "quick" {
 		t.Errorf("the drag selected %q, want %q", got, "quick")
 	}
 
 	// A double-click takes the word.
 	sel.Clear()
-	clicks.Reset()
-	view.Handle(press(11, base), &clicks)
-	view.Handle(press(11, base.Add(80*time.Millisecond)), &clicks)
+	sel.Clicks.Reset()
+	view.Handle(press(11, base))
+	view.Handle(press(11, base.Add(80*time.Millisecond)))
 	if got := sel.Text(tr); got != "brown" {
 		t.Errorf("the double-click selected %q, want %q", got, "brown")
 	}
 
 	// A third takes the row.
-	view.Handle(press(11, base.Add(160*time.Millisecond)), &clicks)
+	view.Handle(press(11, base.Add(160*time.Millisecond)))
 	if got := sel.Text(tr); got != "the quick brown" {
 		t.Errorf("the triple-click selected %q, want the row", got)
 	}
@@ -400,8 +394,8 @@ func TestSelectingAccountsForTheScroll(t *testing.T) {
 	view.Draw(s.View())
 
 	// The top row on screen is now "third".
-	view.Handle(press(0, time.Unix(0, 0)), nil)
-	view.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag}, nil)
+	view.Handle(press(0, time.Unix(0, 0)))
+	view.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag})
 	if got := sel.Text(tr); got != "third" {
 		t.Errorf("selected %q, want the row that is on screen", got)
 	}
@@ -428,7 +422,7 @@ func TestTheTranscriptLeavesAloneWhatIsNotItsToAnswer(t *testing.T) {
 			ev:   input.Mouse{Action: input.WheelDown},
 		},
 	} {
-		if tc.view.Handle(tc.ev, nil) {
+		if tc.view.Handle(tc.ev) {
 			t.Errorf("%s: it was consumed", tc.name)
 		}
 	}
@@ -439,12 +433,11 @@ func TestTheTranscriptLeavesAloneWhatIsNotItsToAnswer(t *testing.T) {
 func TestADoubleClickInTheMarginStartsASelection(t *testing.T) {
 	tr := session(t, 30, []string{"ab"})
 	var sel headless.Selection
-	var clicks headless.Clicks
 	view := kit.Transcript{Content: tr, Selection: &sel}
 	base := time.Unix(0, 0)
 
-	view.Handle(press(20, base), &clicks)
-	view.Handle(press(20, base.Add(80*time.Millisecond)), &clicks)
+	view.Handle(press(20, base))
+	view.Handle(press(20, base.Add(80*time.Millisecond)))
 	if !sel.Dragging() {
 		t.Error("a double-click past the text did not start a selection")
 	}

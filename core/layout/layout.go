@@ -138,42 +138,102 @@ type Slot struct {
 	Of Measurer
 }
 
-// Rows divides v into horizontal bands down the region and returns the view for
-// each, in order.
+// Axis is which way a region is divided.
+//
+// It exists so that something arranging its contents can be told which way round it
+// goes instead of being written twice. [Rows] and [Columns] are the two values of it
+// under the names a caller usually wants.
+type Axis uint8
+
+const (
+	// Down stacks bands one above another, dividing height.
+	Down Axis = iota
+	// Across puts panes side by side, dividing width.
+	Across
+)
+
+// Rects is where each slot goes when a space is divided along the axis, in the
+// space's own coordinates.
+//
+// It is the geometry on its own, without a view to draw into, because working out
+// where something went and drawing it there happen at different times: a click
+// arrives between two frames and has to be answered against the frame that is on
+// screen. Anything routing input by position asks this and keeps the answer.
+//
+// The order of business is measure, then arrange: the only order that works when one
+// slot's size depends on its content and another's depends on what is left. Slots
+// that end up with no room still get a rectangle — an empty one — because a caller's
+// code runs every frame, and code that only breaks when it is squeezed to nothing
+// breaks in front of the user.
+func (a Axis) Rects(space Size, slots []Slot) []image.Rectangle {
+	total, across := space.H, space.W
+	if a == Across {
+		total, across = space.W, space.H
+	}
+	sizes := Divide(total, across, slots)
+
+	rects := make([]image.Rectangle, len(slots))
+	at := 0
+	for i, size := range sizes {
+		if a == Across {
+			rects[i] = grid.Rect(at, 0, size, space.H)
+		} else {
+			rects[i] = grid.Rect(0, at, space.W, size)
+		}
+		at += size
+	}
+	return rects
+}
+
+// Views divides v along the axis and returns the view for each slot, in order.
 //
 // Nothing is drawn. The caller draws into the views it is given, which is what lets
 // a slot be left empty, be drawn conditionally, or be measured now and drawn later.
-//
-// The order of business is measure, then arrange: the only order that works when
-// one slot's size depends on its content and another's depends on what is left.
-// Slots that end up with no height still get a view — an empty one — because a
-// caller's draw code runs every frame, and code that only breaks when it is squeezed
-// to nothing breaks in front of the user.
-func Rows(v grid.View, slots ...Slot) []grid.View {
+func (a Axis) Views(v grid.View, slots ...Slot) []grid.View {
 	width, height := v.Size()
-	sizes := Divide(height, width, slots)
+	rects := a.Rects(Size{W: width, H: height}, slots)
 
-	views := make([]grid.View, len(slots))
-	y := 0
-	for i, size := range sizes {
-		views[i] = v.Sub(grid.Rect(0, y, width, size))
-		y += size
+	views := make([]grid.View, len(rects))
+	for i, r := range rects {
+		views[i] = v.Sub(r)
 	}
 	return views
 }
 
-// Columns is [Rows] across, for panes side by side.
-func Columns(v grid.View, slots ...Slot) []grid.View {
-	width, height := v.Size()
-	sizes := Divide(width, height, slots)
+// Rows divides v into horizontal bands down the region and returns the view for
+// each, in order.
+func Rows(v grid.View, slots ...Slot) []grid.View { return Down.Views(v, slots...) }
 
-	views := make([]grid.View, len(slots))
-	x := 0
-	for i, size := range sizes {
-		views[i] = v.Sub(grid.Rect(x, 0, size, height))
-		x += size
+// Columns is [Rows] across, for panes side by side.
+func Columns(v grid.View, slots ...Slot) []grid.View { return Across.Views(v, slots...) }
+
+// Wanted is how much of the divided axis a set of slots asks for altogether,
+// measured against across.
+//
+// It is what something made of slots answers when it is itself in a measured slot: a
+// column of widgets inside a pane that grows to fit its contents. A flexible slot has
+// nothing to ask for — a share is a share of a total, and there is no total yet — so
+// it counts as its floor.
+func Wanted(across int, slots []Slot) int {
+	total := 0
+	for _, slot := range slots {
+		switch {
+		case slot.Size.Fixed > 0:
+			total += slot.Size.Fixed
+		case slot.Size.Measured:
+			want := slot.Size.Min
+			if slot.Of != nil {
+				want = max(slot.Of.Measure(across), slot.Size.Min)
+			}
+			if slot.Size.Max > 0 {
+				want = min(want, slot.Size.Max)
+			}
+			total += max(want, 0)
+		default:
+			total += max(slot.Size.Min, 0)
+		}
 	}
-	return views
+	return total
 }
 
 // Divide splits total among slots, measuring against across, and returns each

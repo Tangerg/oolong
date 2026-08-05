@@ -22,17 +22,33 @@ type Palette struct {
 	// Selected is the index under the cursor.
 	Selected int
 
-	// Style is an ordinary row, SelectedStyle the one under the cursor, and MatchStyle
-	// the characters the query matched.
-	Style, SelectedStyle, MatchStyle grid.Style
-	// TitleStyle is the description beside a name.
-	TitleStyle grid.Style
-	// Marker is drawn in the first column of the selected row, and the same width is
-	// held clear on every other row so the names stay in line.
-	Marker string
-	// Empty is what to say when nothing matched. Nothing at all leaves the space
-	// blank, which reads as a bug rather than as an answer.
+	// Theme is the look. Every part of a row has a fixed role in one — a name is
+	// text, the row under the cursor is the selection, a matched letter is the accent
+	// — so there is nothing here to choose between.
+	Theme Theme
+	// Glyphs are the characters the marker is drawn with, which is a fact about the
+	// terminal rather than about the look.
+	Glyphs Glyphs
+	// Empty is what to say when nothing matched. Empty says so in words, because a
+	// blank space reads as a bug rather than as an answer.
 	Empty string
+}
+
+// marker is what sits in the first column of the selected row, with the same width
+// held clear on every other row so the names stay in line.
+func (p Palette) marker() string {
+	if p.Glyphs.Marker == "" {
+		return ""
+	}
+	return p.Glyphs.Marker + " "
+}
+
+// empty is what to say when nothing matched.
+func (p Palette) empty() string {
+	if p.Empty == "" {
+		return "no matching command"
+	}
+	return p.Empty
 }
 
 // Measure is one row per command, or one for the message when nothing matched.
@@ -45,20 +61,21 @@ func (p Palette) Draw(v grid.View) {
 		return
 	}
 	if len(p.Found) == 0 {
-		Label{Text: p.Empty, Style: p.TitleStyle, Ellipsis: "…"}.Draw(v)
+		Label{Text: p.empty(), Style: p.Theme.Muted, Ellipsis: "…"}.Draw(v)
 		return
 	}
 
-	marker := max(text.Width(p.Marker), 0)
+	mark := p.marker()
+	marker := max(text.Width(mark), 0)
 	for y, found := range p.Found {
 		if y >= h {
 			return
 		}
-		style := p.Style
+		style := p.Theme.Text
 		if y == p.Selected {
-			style = p.SelectedStyle
-			if p.Marker != "" {
-				v.Text(0, y, p.Marker, style)
+			style = p.Theme.Selection
+			if mark != "" {
+				v.Text(0, y, mark, style)
 			}
 		}
 		p.row(v, y, marker, w, found, style)
@@ -79,7 +96,7 @@ func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.
 		}
 		clusterStyle := style
 		if matchedIn(found.At, at, at+len(cluster)) {
-			clusterStyle = style.Merge(p.MatchStyle)
+			clusterStyle = style.Merge(p.Theme.Accent)
 		}
 		v.Text(x, y, cluster, clusterStyle)
 		x += text.Width(cluster)
@@ -89,24 +106,11 @@ func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.
 		return
 	}
 	x += 2
-	Label{Text: found.Command.Title, Style: style.Merge(p.TitleStyle), Ellipsis: "…"}.
+	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: "…"}.
 		Draw(v.Sub(image.Rect(x, y, w, y+1)))
 }
 
 // matchedIn reports whether any match offset falls in a byte range.
 func matchedIn(at []int, from, to int) bool {
 	return slices.ContainsFunc(at, func(offset int) bool { return offset >= from && offset < to })
-}
-
-// Dress fills the palette in from a theme and a glyph set.
-func (p Palette) Dress(th Theme, g Glyphs) Palette {
-	p.Style = th.Text
-	p.SelectedStyle = th.Selection
-	p.MatchStyle = th.Accent
-	p.TitleStyle = th.Muted
-	p.Marker = g.Marker + " "
-	if p.Empty == "" {
-		p.Empty = "no matching command"
-	}
-	return p
 }

@@ -23,7 +23,10 @@ type Dialog struct {
 	// Body is what goes inside the frame. A body that answers input gets it: the
 	// stack has already decided this is the layer with the keyboard.
 	Body headless.Widget
-	// Border draws the frame. The zero value uses [Rounded], which reads as a panel.
+	// Glyphs are the characters the frame is drawn with. See [Box.Glyphs].
+	Glyphs Glyphs
+	// Border draws the frame. The zero value takes the rounded one from the glyph
+	// set, which reads as a panel.
 	Border Border
 	// Hints are drawn along the bottom border, where they do not cost a row.
 	Hints []headless.Binding
@@ -57,15 +60,13 @@ func (d *Dialog) Draw(v grid.View) {
 		return
 	}
 	box := Box{
-		Border:      d.border(),
+		Theme:       d.Theme,
+		Glyphs:      d.Glyphs,
+		Border:      d.Border,
 		Padding:     layout.Symmetric(0, 1),
-		Style:       d.Theme.Border,
-		Fill:        d.Theme.Surface,
 		Title:       d.Title,
-		TitleStyle:  d.Theme.Heading,
 		TitleAlign:  layout.Start,
 		Footer:      d.footer(),
-		FooterStyle: d.Theme.Subtle,
 		FooterAlign: layout.End,
 	}
 	inner := box.Draw(v)
@@ -87,11 +88,4 @@ func (d *Dialog) footer() string {
 		out += b.Key.String() + " " + b.Does
 	}
 	return out
-}
-
-func (d *Dialog) border() Border {
-	if d.Border == (Border{}) {
-		return Rounded
-	}
-	return d.Border
 }

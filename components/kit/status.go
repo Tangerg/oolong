@@ -35,9 +35,8 @@ func (s *Status) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	s.spinner.Style = s.Theme.Accent
+	s.spinner.Theme = s.Theme
 	s.spinner.Label = s.Doing
-	s.spinner.LabelStyle = s.Theme.Muted
 
 	if s.Elapsed == "" {
 		s.spinner.Draw(v)
