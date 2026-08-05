@@ -8,30 +8,6 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Border is the set of characters a box is drawn with. The zero Border draws no
-// lines, which is what a box that only pads its content wants.
-type Border struct {
-	Top, Bottom, Left, Right string
-	TopLeft, TopRight        string
-	BottomLeft, BottomRight  string
-}
-
-// Rounded and Square are the two line styles worth having. Rounded reads as a
-// panel and Square as a table; anything heavier competes with the content.
-var (
-	Rounded = Border{
-		Top: "─", Bottom: "─", Left: "│", Right: "│",
-		TopLeft: "╭", TopRight: "╮", BottomLeft: "╰", BottomRight: "╯",
-	}
-	Square = Border{
-		Top: "─", Bottom: "─", Left: "│", Right: "│",
-		TopLeft: "┌", TopRight: "┐", BottomLeft: "└", BottomRight: "┘",
-	}
-)
-
-// drawn reports whether the border draws anything.
-func (b Border) drawn() bool { return b != Border{} }
-
 // Box frames and pads a region.
 //
 // It is not a container: it does not own a child. A caller draws the box and then

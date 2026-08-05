@@ -1,0 +1,156 @@
+package kit
+
+import "strings"
+
+// Glyphs are the characters a look draws its furniture with.
+//
+// # Why they are gathered
+//
+// Not every terminal can draw them. A terminal running in a locale that is not UTF-8
+// shows a box-drawing character as a question mark or as two bytes of mojibake, and a
+// panel drawn in mojibake is worse than a panel drawn in dashes. There is no way to
+// ask a terminal about this, so the answer is the locale — which is a fact about the
+// environment, and therefore an argument rather than something read here.
+//
+// Gathering them is what makes one answer possible. Scattered through the widgets,
+// each would need its own fallback and the set would be inconsistent the first time
+// somebody added a glyph and forgot one.
+//
+// The zero value draws nothing, which is not useful: [Unicode] and [ASCII] are the two
+// sets, and [GlyphsFor] picks between them.
+type Glyphs struct {
+	// The lines a box is drawn with, rounded and square.
+	Horizontal, Vertical                       string
+	TopLeft, TopRight, BottomLeft, BottomRight string
+	RoundTopLeft, RoundTopRight                string
+	RoundBottomLeft, RoundBottomRight          string
+
+	// Ellipsis stands for text that did not fit.
+	Ellipsis string
+	// Bullet marks an item in a list, and Marker the one under the cursor.
+	Bullet, Marker string
+	// ScrollTrack and ScrollThumb are the two halves of a scrollbar.
+	ScrollTrack, ScrollThumb string
+	// Spinner is the frames of a busy indicator, in order.
+	Spinner []string
+}
+
+// Unicode is the set for a terminal that can draw them, which is nearly all of them.
+func Unicode() Glyphs {
+	return Glyphs{
+		Horizontal: "─", Vertical: "│",
+		TopLeft: "┌", TopRight: "┐", BottomLeft: "└", BottomRight: "┘",
+		RoundTopLeft: "╭", RoundTopRight: "╮",
+		RoundBottomLeft: "╰", RoundBottomRight: "╯",
+		Ellipsis:    "…",
+		Bullet:      "•",
+		Marker:      "▸",
+		ScrollTrack: "│", ScrollThumb: "█",
+		Spinner: []string{"·", "•", "●", "•"},
+	}
+}
+
+// ASCII is the set for a terminal that cannot, and for output that is going somewhere
+// other than a terminal at all.
+//
+// It is not a transliteration of the other set. A rounded corner has no ASCII
+// equivalent and is drawn square; an ellipsis is three stops, which is wider, and the
+// widgets that use it measure rather than assume. The point is that it is readable,
+// not that it looks the same.
+func ASCII() Glyphs {
+	return Glyphs{
+		Horizontal: "-", Vertical: "|",
+		TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
+		RoundTopLeft: "+", RoundTopRight: "+",
+		RoundBottomLeft: "+", RoundBottomRight: "+",
+		Ellipsis:    "...",
+		Bullet:      "*",
+		Marker:      ">",
+		ScrollTrack: "|", ScrollThumb: "#",
+		Spinner: []string{".", "o", "O", "o"},
+	}
+}
+
+// GlyphsFor picks the set a terminal in this environment can draw.
+//
+// The test is the locale, because there is no other. A terminal cannot be asked
+// whether it will render a box-drawing character, and the one thing that reliably
+// decides it is whether the environment says UTF-8: outside it, a multi-byte glyph
+// arrives as bytes the terminal draws one at a time.
+//
+// The lookup is passed in rather than read, for the same reason it is everywhere else
+// here — this package is not one that touches the operating system, and a test that
+// could not say what the locale was could not check either answer.
+func GlyphsFor(getenv func(string) string) Glyphs {
+	if getenv == nil {
+		return Unicode()
+	}
+	// The first of these that is set decides, which is the order the C library reads
+	// them in: LC_ALL overrides everything, LC_CTYPE decides character handling, and
+	// LANG is the fallback for both.
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if value := getenv(name); value != "" {
+			if utf8Locale(value) {
+				return Unicode()
+			}
+			return ASCII()
+		}
+	}
+	// Nothing said. Modern terminals are UTF-8 whether or not anybody set a variable,
+	// and assuming otherwise would give dashes to the overwhelming majority to spare
+	// the few — the same bet, and for the same reason, as an unrecognised TERM being
+	// treated as truecolor.
+	return Unicode()
+}
+
+// utf8Locale reports whether a locale names the UTF-8 character set.
+func utf8Locale(value string) bool {
+	_, charset, found := strings.Cut(value, ".")
+	if !found {
+		// "C" and "POSIX" name no character set and mean ASCII. Anything else without
+		// one is a language with no encoding given, which is not a promise of UTF-8.
+		return false
+	}
+	charset = strings.ToLower(strings.ReplaceAll(charset, "-", ""))
+	return strings.HasPrefix(charset, "utf8")
+}
+
+// Border is the set of characters a box is drawn with. The zero Border draws no
+// lines, which is what a box that only pads its content wants.
+type Border struct {
+	Top, Bottom, Left, Right string
+	TopLeft, TopRight        string
+	BottomLeft, BottomRight  string
+}
+
+// Rounded and Square are the two line styles worth having, drawn with these glyphs.
+// Rounded reads as a panel and Square as a table; anything heavier competes with the
+// content.
+func (g Glyphs) Rounded() Border {
+	return Border{
+		Top: g.Horizontal, Bottom: g.Horizontal, Left: g.Vertical, Right: g.Vertical,
+		TopLeft: g.RoundTopLeft, TopRight: g.RoundTopRight,
+		BottomLeft: g.RoundBottomLeft, BottomRight: g.RoundBottomRight,
+	}
+}
+
+// Square is the other, for a table or anything that should not read as a floating
+// panel.
+func (g Glyphs) Square() Border {
+	return Border{
+		Top: g.Horizontal, Bottom: g.Horizontal, Left: g.Vertical, Right: g.Vertical,
+		TopLeft: g.TopLeft, TopRight: g.TopRight,
+		BottomLeft: g.BottomLeft, BottomRight: g.BottomRight,
+	}
+}
+
+// drawn reports whether the border draws anything.
+func (b Border) drawn() bool { return b != Border{} }
+
+// Rounded and Square are the two borders drawn with the glyphs nearly every terminal
+// has. A caller whose terminal cannot — see [GlyphsFor] — takes its borders from the
+// set it was given instead.
+var (
+	Rounded = Unicode().Rounded()
+	Square  = Unicode().Square()
+)

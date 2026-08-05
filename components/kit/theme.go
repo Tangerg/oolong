@@ -49,6 +49,19 @@ type Theme struct {
 	Context grid.Style
 }
 
+// Suited is the theme for what the terminal said it draws on.
+//
+// known is whether the terminal answered at all — see the loop a program hands its
+// component. A terminal that said nothing gets the dark theme, because dark is the
+// commoner choice and light is the one that becomes unreadable when it is guessed
+// wrong: grey on white is faint, and grey on black is invisible.
+func Suited(background grid.RGB, known bool) Theme {
+	if known && !background.Dark() {
+		return Light()
+	}
+	return Dark()
+}
+
 // Dark is the default theme: a cool slate, the same family the desktop interface
 // uses, so the two do not look like different products.
 //
