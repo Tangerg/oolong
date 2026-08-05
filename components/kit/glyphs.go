@@ -42,6 +42,12 @@ type Glyphs struct {
 	// separate design.
 	BarFull, BarEmpty string
 	BarSteps          []string
+	// Expanded and Collapsed are the two states of a branch in a tree: one showing
+	// what is under it, and one inviting the reader to look. Like Taken and Free they
+	// are drawn in the same column and have to be the same width.
+	Expanded, Collapsed string
+	// Ascending and Descending mark the column a table is sorted by.
+	Ascending, Descending string
 	// Spinner is the frames of a busy indicator, in order.
 	Spinner []string
 }
@@ -60,8 +66,11 @@ func Unicode() Glyphs {
 		Free:        "○",
 		ScrollTrack: "│", ScrollThumb: "█",
 		BarFull: "█", BarEmpty: "░",
-		BarSteps: []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
-		Spinner:  []string{"·", "•", "●", "•"},
+		BarSteps:  []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
+		Expanded:  "▾",
+		Collapsed: "▸",
+		Ascending: "↑", Descending: "↓",
+		Spinner: []string{"·", "•", "●", "•"},
 	}
 }
 
@@ -85,6 +94,8 @@ func ASCII() Glyphs {
 		Free:        "-",
 		ScrollTrack: "|", ScrollThumb: "#",
 		BarFull: "#", BarEmpty: "-",
+		Expanded: "-", Collapsed: "+",
+		Ascending: "^", Descending: "v",
 		Spinner: []string{".", "o", "O", "o"},
 	}
 }

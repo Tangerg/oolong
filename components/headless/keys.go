@@ -71,6 +71,23 @@ const (
 // Close is what dismisses the top layer of a [Stack].
 const Close input.Action = "close"
 
+// The actions a [Tree] answers to, on top of the list movement through its rows.
+//
+// They are a pair rather than one "toggle", because what a reader means by the right
+// arrow on something already open is "go into it", and by the left arrow on
+// something already closed is "go up" — which is a tree behaving like a tree and not
+// two names for one thing.
+const (
+	Expand   input.Action = "expand"
+	Collapse input.Action = "collapse"
+)
+
+// The actions a [Tabs] answers to.
+const (
+	NextTab input.Action = "next-tab"
+	PrevTab input.Action = "prev-tab"
+)
+
 // The actions a form and its fields answer to, on top of the list movement a choice
 // uses and the editing a line of text uses.
 const (
@@ -182,6 +199,29 @@ func DefaultContainerKeys() *input.Keymap {
 	return m
 }
 
+// DefaultTreeKeys are the keystrokes a tree is expected to answer: the movement any
+// list has, and the two that open and close a branch.
+func DefaultTreeKeys() *input.Keymap {
+	m := DefaultListKeys()
+	m.Bind(Expand, input.Chord{Code: input.Right})
+	m.Bind(Collapse, input.Chord{Code: input.Left})
+	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})
+	return m
+}
+
+// DefaultTabsKeys are the keystrokes that move between panes.
+//
+// Alt with the arrows, and not control with tab. Control and tab is what a desktop
+// application binds and what a terminal cannot report: the two are the same byte
+// there unless the terminal speaks the Kitty protocol, so a binding on it works on
+// some terminals and silently does nothing on the rest.
+func DefaultTabsKeys() *input.Keymap {
+	m := &input.Keymap{}
+	m.Bind(NextTab, input.Alt.With(input.Right))
+	m.Bind(PrevTab, input.Alt.With(input.Left))
+	return m
+}
+
 // DefaultMultiSelectKeys are the keystrokes a list of choices answers: the movement any
 // list has, and the one that takes what is under the cursor.
 func DefaultMultiSelectKeys() *input.Keymap {
@@ -234,6 +274,8 @@ var (
 	completionKeys  = sync.OnceValue(DefaultCompletionKeys)
 	stackKeys       = sync.OnceValue(DefaultStackKeys)
 	containerKeys   = sync.OnceValue(DefaultContainerKeys)
+	treeKeys        = sync.OnceValue(DefaultTreeKeys)
+	tabsKeys        = sync.OnceValue(DefaultTabsKeys)
 	multiSelectKeys = sync.OnceValue(DefaultMultiSelectKeys)
 	confirmKeys     = sync.OnceValue(DefaultConfirmKeys)
 	formKeys        = sync.OnceValue(DefaultFormKeys)

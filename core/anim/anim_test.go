@@ -154,3 +154,103 @@ func TestTickingPastTheEndIsSafe(t *testing.T) {
 		t.Fatalf("= %v, want the target held", got)
 	}
 }
+
+func TestASpringArrivesAndStops(t *testing.T) {
+	// The damping decides what arriving looks like. One arrives and stops; below one
+	// it goes past and comes back; above one it creeps in. All three have to end in
+	// the same place, or a caller's choice of feel would change where things land.
+	for _, damping := range []float64{0.4, 1, 2.5} {
+		s := anim.Spring{Frequency: 0.4, Damping: damping}
+		s.To(10)
+		steps := 0
+		for ; !s.Settled() && steps < 1000; steps++ {
+			s.Tick()
+		}
+		if steps >= 1000 {
+			t.Fatalf("a spring damped %v never settled, at %v", damping, s.Value())
+		}
+		if got := s.Value(); got != 10 {
+			t.Errorf("a spring damped %v settled at %v", damping, got)
+		}
+	}
+}
+
+func TestALooseSpringGoesPastAndAStiffOneDoesNot(t *testing.T) {
+	loose := anim.Spring{Frequency: 0.5, Damping: 0.3}
+	loose.To(1)
+	past := false
+	for range 100 {
+		loose.Tick()
+		past = past || loose.Value() > 1
+	}
+	if !past {
+		t.Error("a spring damped below one never went past its target")
+	}
+
+	tight := anim.Spring{Frequency: 0.5, Damping: 1}
+	tight.To(1)
+	for range 100 {
+		tight.Tick()
+		if tight.Value() > 1.000001 {
+			t.Fatalf("a critically damped spring went past its target, to %v", tight.Value())
+		}
+	}
+}
+
+func TestASpringKeepsTheSpeedItHadWhenTheTargetMoves(t *testing.T) {
+	// The whole difference between a spring and a transition. A target that moves
+	// twice has to read as one movement, which it cannot if the second one starts
+	// from a standstill.
+	var s anim.Spring
+	s.To(10)
+	for range 5 {
+		s.Tick()
+	}
+	moving := s.Velocity()
+	if moving <= 0 {
+		t.Fatal("a spring on its way somewhere is not moving")
+	}
+	s.To(20)
+	if got := s.Velocity(); got != moving {
+		t.Fatalf("moving the target changed the speed from %v to %v", moving, got)
+	}
+}
+
+func TestATimelineHoldsItsEndsAndPassesThroughItsFrames(t *testing.T) {
+	line := anim.Timeline{Frames: []anim.Keyframe{
+		{At: 0, Value: 0},
+		{At: 4, Value: 1},
+		{At: 8, Value: 1},
+		{At: 12, Value: 0},
+	}}
+	want := []float64{0, 0.25, 0.5, 0.75, 1, 1, 1, 1, 1, 0.75, 0.5, 0.25, 0}
+	for i, w := range want {
+		if got := line.Value(); got != w {
+			t.Fatalf("at tick %d the value is %v, want %v", i, got, w)
+		}
+		line.Tick()
+	}
+	// Past the end it holds the last frame rather than running off it, so a caller
+	// one tick late draws the end state instead of nothing.
+	line.Tick()
+	if got := line.Value(); got != 0 || !line.Done() {
+		t.Fatalf("past the end the value is %v and done is %v", got, line.Done())
+	}
+}
+
+func TestALoopingTimelineIsNeverDone(t *testing.T) {
+	line := anim.Timeline{Loop: true, Frames: []anim.Keyframe{{At: 0, Value: 0}, {At: 2, Value: 1}}}
+	seen := make([]float64, 0, 8)
+	for range 8 {
+		seen = append(seen, line.Value())
+		line.Tick()
+	}
+	for i, want := range []float64{0, 0.5, 1, 0, 0.5, 1, 0, 0.5} {
+		if seen[i] != want {
+			t.Fatalf("the loop went %v", seen)
+		}
+	}
+	if line.Done() {
+		t.Error("a timeline that goes round for ever said it had finished")
+	}
+}

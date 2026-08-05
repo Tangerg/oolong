@@ -56,6 +56,18 @@ type Table struct {
 	Gap int
 	// Header draws the column titles in the first row.
 	Header bool
+	// Sorted says which column the rows are in the order of and which way round, when
+	// they are in an order at all, so the header can mark it — the only way a reader
+	// can tell an order from a coincidence.
+	//
+	// It is a function because that is the shape the answer already has: a table with
+	// a cursor answers exactly this, so wiring the two together is
+	// Sorted: rows.Sorted. And because the zero value of a column number is a column,
+	// which would mark the first one on every table nobody sorted.
+	Sorted func() (column int, descending, ok bool)
+	// Glyphs are the marks beside a sorted column's title. A table given none marks
+	// nothing, which is the rule the whole package keeps.
+	Glyphs Glyphs
 	// RowStyle styles a whole row, for banding or for a selection.
 	RowStyle func(row int) grid.Style
 }
@@ -105,14 +117,9 @@ func (t Table) Draw(v grid.View) {
 	if width <= 0 || height <= 0 || len(t.Columns) == 0 {
 		return
 	}
-	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
-
 	y := 0
 	if t.Header {
-		t.drawRow(v, y, boxes, func(col int, cell grid.View) {
-			c := t.Columns[col]
-			Label{Text: c.Title, Style: t.Theme.Heading, Align: c.Align, Ellipsis: "…"}.Draw(cell)
-		})
+		t.Titles(v)
 		y++
 	}
 	if t.Cell == nil {
@@ -126,10 +133,74 @@ func (t Table) Draw(v grid.View) {
 		if band != (grid.Style{}) {
 			v.Fill(grid.Rect(0, y, width, 1), band)
 		}
-		t.drawRow(v, y, boxes, func(col int, cell grid.View) {
-			t.Cell(cell, row, col, band)
-		})
+		t.Cells(v.Sub(grid.Rect(0, y, width, 1)), row, band)
 	}
+}
+
+// Titles draws the column headings into the first row of v, with a mark beside the
+// one the rows are sorted by.
+//
+// It is separate from [Table.Draw] because a table with a cursor draws its own rows:
+// the rows are a window onto more of them than fit, and only the thing that owns the
+// cursor knows which of them are showing. The header is still this table's, and so
+// is where every column starts — which is the whole reason to hand the two out
+// separately instead of making a second table that agrees with this one by hand.
+func (t Table) Titles(v grid.View) {
+	width, _ := v.Size()
+	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
+	t.drawRow(v, 0, boxes, func(col int, cell grid.View) {
+		c := t.Columns[col]
+		Label{Text: c.Title + t.mark(col), Style: t.Theme.Heading, Align: c.Align, Ellipsis: "…"}.
+			Draw(cell)
+	})
+}
+
+// Cells draws one row's cells into v, which is one row of a table this wide.
+//
+// base is what the row is drawn on — a band, a selection — and is handed to every
+// cell for the reason [Table.Cell] gives: a cell that ignores it loses the row it
+// sits in.
+func (t Table) Cells(v grid.View, row int, base grid.Style) {
+	width, _ := v.Size()
+	if t.Cell == nil || width <= 0 {
+		return
+	}
+	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
+	t.drawRow(v, 0, boxes, func(col int, cell grid.View) {
+		t.Cell(cell, row, col, base)
+	})
+}
+
+// ColumnAt is which column a position in a row of this width falls in, and whether
+// it fell in one at all — a press in the gap between two columns is in neither.
+//
+// It is what turns a click on a heading into a sort. Answering it here is the point
+// of the geometry living in one place: a caller working it out from the widths would
+// be doing the same arithmetic a second time, against a table that may since have
+// been given a different width.
+func (t Table) ColumnAt(x, width int) (int, bool) {
+	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
+	for i, box := range boxes {
+		if x >= box.Min.X && x < box.Max.X {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// mark is what goes after a column's title to say the rows are in its order.
+func (t Table) mark(column int) string {
+	if t.Sorted == nil {
+		return ""
+	}
+	sorted, descending, ok := t.Sorted()
+	if !ok || sorted != column {
+		return ""
+	}
+	if descending {
+		return t.Glyphs.Descending
+	}
+	return t.Glyphs.Ascending
 }
 
 // drawRow hands each column's box to draw, on the row at y.

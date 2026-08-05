@@ -719,3 +719,50 @@ func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
 		t.Error("it answered a click about a frame that was never drawn")
 	}
 }
+
+func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
+	panes := &headless.Tabs{Items: []headless.Tab{
+		{Title: "chat", Of: kit.Label{Text: "one"}},
+		{Title: "files", Of: kit.Label{Text: "two"}},
+	}}
+	tabs := kit.Tabs{Of: panes, Theme: kit.Dark(), Glyphs: kit.ASCII(), Rule: true}
+	equalRows(t, paint(14, 4, tabs.Draw), []string{
+		"chat..files...",
+		"--------------",
+		"one...........",
+		"..............",
+	})
+
+	// A press on a name selects it; a press below the strip belongs to the pane, in
+	// the pane's own coordinates.
+	if !tabs.Handle(input.Mouse{Pos: image.Pt(7, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+		t.Fatal("a press on a name did nothing")
+	}
+	if panes.Selected() != 1 {
+		t.Fatalf("the pane showing is %d", panes.Selected())
+	}
+	if _, on := tabs.At(5); on {
+		t.Fatal("the room between two names belongs to one of them")
+	}
+}
+
+func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
+	tree := &headless.Tree[string]{Nodes: []headless.Node[string]{
+		{Item: "core", Children: []headless.Node[string]{{Item: "grid"}}},
+		{Item: "README"},
+	}}
+	tree.Open(0)
+	view := kit.Tree[string]{
+		Of:     tree,
+		Text:   func(s string) string { return s },
+		Theme:  kit.Dark(),
+		Glyphs: kit.ASCII(),
+	}
+	// A leaf starts in the same column as a branch — the mark is a blank as wide as
+	// one — so a tree of files does not read as a tree of two different things.
+	equalRows(t, paint(12, 3, view.Draw), []string{
+		"-.core......",
+		".. .grid....",
+		" .README....",
+	})
+}
