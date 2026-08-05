@@ -6,9 +6,16 @@ not used). It is ordered by what blocks what, not by what is most wanted.
 
 Three findings gate everything else, so they come first.
 
+**Done so far:** all of section 1, and 2.1 and 2.4 of section 2. What each turned out
+to mean in practice is recorded under the item. What is left is 2.2, 2.3, 2.5 and
+section 3, in the order at the end.
+
 ---
 
 ## 1. What blocks the rest
+
+*All three are done. They interlocked exactly as described: the container came first,
+focus came with it, and only then did "how is a widget dressed" have one answer.*
 
 ### 1.1 Components do not compose
 
@@ -43,6 +50,19 @@ before 1.1, because the answer — a parent passes the look down — needs a par
 **These three interlock.** Composition needs a container; a container needs focus
 routing; only once both exist does "how is a widget dressed" have one answer.
 
+**What the answer turned out to be.** Not a parent passing the look down. A parent was
+needed to see the answer, not to carry it: once `Composer` and `Transcript` were things
+a container held rather than things a caller wired up, the question "which of these
+five style fields does this widget actually let a caller choose?" had one answer —
+none of them. Every part of a widget has a fixed role in a look, so a field per part is
+a field with one sensible value and a hundred ways to be inconsistent. Every `kit`
+widget takes a `Theme`, and a `Glyphs` if it draws furniture, and nothing else.
+`Dress`, `Dressed` and the package-level `Rounded` and `Square` are gone.
+
+The exception is text: `Label` and `Paragraph` take a style, because the same label is
+a heading in one place and a warning in another, and which it is here is the caller's
+to say and nothing a theme can work out.
+
 ---
 
 ## 2. Abstractions worth taking
@@ -72,6 +92,12 @@ separate mark-shifting routines, and the special case caret affinity needed.
 Moving the editor to a flat buffer is its own change and is not proposed here. It should
 be re-examined after the marks land, when the shifting logic is in one place and the
 change is smaller.
+
+**What it turned out to cost.** Nothing: the prerequisite was not one. `text.Edit` and
+`text.Mark` are flat, the editor keeps its lines, and the two meet in `offsetOf` and
+`caretAt` — a caret as an offset, an offset as a caret. Neither idea knows about the
+other. The shifting logic is now one call in one place, which is what makes the flat
+buffer worth re-examining; it is no longer what would make it possible.
 
 ### 2.2 Keys: commands and keystrokes are two things
 
@@ -116,6 +142,15 @@ gets. Adding `RGB.Blend` makes that answer load-bearing for compositing rather t
 for choosing a theme.
 
 Smallest of the four, and the one that proves the probe's answer end to end.
+
+**What it turned out to need.** Both of the terminal's colours, not one. A cell left at
+the terminal's own is the commonest cell there is, and dimming one needs to know what
+its foreground resolves to as well — so the probe asks OSC 10 alongside 11, and
+`Background()` on the terminal, the host and the loop became `Ground()`. There are two
+compositing operations and not one: `View.Blend` paints a sheet of colour over a
+region, and `View.Fade` dissolves what is in one into whatever it is already drawn on.
+The second cannot be the first, because the colour to fade toward is different in every
+cell. It is what `headless.Pinned.Fade` had been computing with nothing to draw it.
 
 ### 2.5 A printed block that does not start at a column
 
@@ -164,13 +199,23 @@ shaped; timers and stopwatches are application logic rather than components.
 
 By dependency, not by value:
 
-1. **Blending** (2.4) — depends on nothing new, and proves the probe's answer.
-2. **Container and focus** (1.1, 1.2) — after which 1.3 has one answer.
-3. **Marks and edits** (2.1) — independent of the above; makes the editor's storage
-   problem visible in one place.
+1. ~~**Blending** (2.4)~~ — done. Depended on nothing new, and proved the probe's
+   answer end to end.
+2. ~~**Container and focus** (1.1, 1.2)~~ — done, and 1.3 with them.
+3. ~~**Marks and edits** (2.1)~~ — done.
 4. **Keys** (2.2) — needs an arrival time on a key; otherwise independent.
 5. **Components** (3) — after the container, or each one adds another hand-wiring.
 6. **Forms** (2.3) — needs keys for navigation and the components above.
 
 The editor's flat buffer is not in this list. It is a separate change, best judged after
 3, when the shifting logic is in one place.
+
+### Why 4 is one change and not four
+
+Every widget here owns both halves of its own key handling, so separating them
+separates them everywhere at once: `EditorKeys`, `List`, `Completion`, `Scroll`,
+`History`, `Commands`, `Stack.Escape` and `Container.Next` all name keystrokes where
+they mean commands, and `kit.Help`, `Composer.Hints` and `Dialog.Hints` all read the
+same `Binding` back out to draw a hint row. Doing half of it would leave two ways to
+bind a key, which is the defect 1.3 was — and this time it would be a defect a caller
+could see from outside.
