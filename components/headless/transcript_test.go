@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 )
 
 // block is a test block of a stated height, which can be changed to stand in for a
@@ -564,5 +565,30 @@ func TestScrollRevealWithNoWindowDoesNothing(t *testing.T) {
 	s.Reveal(50)
 	if got := s.Offset(); got != 0 {
 		t.Errorf("offset = %d before any layout", got)
+	}
+}
+
+// TestScrollTakesTheTerminalsWordForWhatANotchIs. The same code used to scroll three
+// times as far on Apple Terminal as on iTerm2, because it moved a fixed number of rows
+// per report and they send a different number of reports.
+func TestScrollTakesTheTerminalsWordForWhatANotchIs(t *testing.T) {
+	keys := headless.DefaultScrollKeys()
+	notch := func(w input.Wheel) int {
+		var s headless.Scroll
+		s.Layout(1000, 10)
+		s.ToTop()
+		s.Wheel(w)
+		for range w.Reports {
+			s.Handle(input.Mouse{Action: input.WheelDown}, keys)
+		}
+		return s.Offset()
+	}
+
+	// One notch is three rows on both, however many reports it took to say so.
+	if got := notch(input.Wheel{Reports: 3, Rows: 3}); got != 3 {
+		t.Errorf("a notch on a terminal that sends three reports moved %d rows, want 3", got)
+	}
+	if got := notch(input.Wheel{Reports: 1, Rows: 3}); got != 3 {
+		t.Errorf("a notch on a terminal that sends one report moved %d rows, want 3", got)
 	}
 }

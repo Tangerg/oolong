@@ -26,6 +26,9 @@ type Scroll struct {
 	// total and window are what the last layout measured, remembered so a scroll
 	// arriving between frames is clamped against something real.
 	total, window int
+	// wheel turns the terminal's reports into rows, keeping the part of a row a
+	// report was worth but did not fill.
+	wheel input.Advance
 }
 
 // Layout tells the scroll how much content there is and how much of it is shown.
@@ -41,6 +44,16 @@ func (s *Scroll) Layout(total, window int) {
 	}
 	s.clamp()
 }
+
+// Wheel says what the terminal's wheel reports are worth, which is not a constant:
+// terminals disagree about how many of them one notch is. Pass what
+// [input.WheelFor] answered, once.
+//
+// Left alone, the common arrangement is assumed — which is right on most terminals and
+// wrong by at most a factor of three on the rest. That is still better than the fixed
+// number of rows per report this used to scroll, which was wrong by that factor on
+// half of them.
+func (s *Scroll) Wheel(w input.Wheel) { s.wheel.Wheel(w) }
 
 // Offset is how many rows are hidden above the window, which is what a scrollbar and
 // a hit test both want.
@@ -146,10 +159,10 @@ func (s *Scroll) Handle(ev input.Event, keys ScrollKeys) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp:
-			s.By(-wheelRows)
+			s.By(s.wheel.By(-1))
 			return true
 		case input.WheelDown:
-			s.By(wheelRows)
+			s.By(s.wheel.By(1))
 			return true
 		default:
 			return false
@@ -173,10 +186,6 @@ func (s *Scroll) Handle(ev input.Event, keys ScrollKeys) bool {
 	}
 	return true
 }
-
-// wheelRows is how far one notch of the wheel scrolls. Three is what a terminal
-// sends for a line-based scroll and what every other program moves.
-const wheelRows = 3
 
 // Rows draws the visible slice of a set of rows.
 //

@@ -1002,8 +1002,16 @@ func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
 	if !s.Handle(key(input.Down), keys) || s.Offset() != 1 {
 		t.Fatalf("offset after one down = %d", s.Offset())
 	}
-	if !s.Handle(wheel(input.WheelDown), keys) || s.Offset() != 1+3 {
-		t.Fatalf("offset after a wheel notch = %d", s.Offset())
+	// One report, not one notch. By default a terminal is assumed to send three
+	// reports to a notch worth three rows, so a report is worth one — and a whole
+	// notch is three, which is what every other program moves.
+	if !s.Handle(wheel(input.WheelDown), keys) || s.Offset() != 1+1 {
+		t.Fatalf("offset after one wheel report = %d", s.Offset())
+	}
+	s.Handle(wheel(input.WheelDown), keys)
+	s.Handle(wheel(input.WheelDown), keys)
+	if s.Offset() != 1+3 {
+		t.Fatalf("offset after a whole notch = %d, want three rows on from where it began", s.Offset())
 	}
 	if !s.Handle(key(input.End), keys) || !s.AtBottom() {
 		t.Fatal("End did not go to the end")

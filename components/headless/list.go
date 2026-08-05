@@ -109,10 +109,10 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp:
-			l.scroll.By(-wheelRows)
+			l.scroll.By(l.scroll.wheel.By(-1))
 			return true
 		case input.WheelDown:
-			l.scroll.By(wheelRows)
+			l.scroll.By(l.scroll.wheel.By(1))
 			return true
 		default:
 			return false
