@@ -83,15 +83,23 @@ func (l *editorLayout) wrapLine(index int, line string, width int) {
 }
 
 // rowOf is the index of the visual row holding a cursor, and the column within it.
-func rowOf(rows []editorRow, lines []string, line, col int) (row, column int) {
+// rowOf is the visual row and column a cursor sits at.
+//
+// atEnd resolves the one position that has two answers. Where the width broke a line,
+// the offset after its last character and the offset before the next row's first are
+// one offset with two places on screen; a cursor that arrived by moving through the
+// text belongs to the second, and one that arrived by being clicked past the end of a
+// row belongs to the first. Nothing in the offset says which, so it has to be carried.
+func rowOf(rows []editorRow, lines []string, line, col int, atEnd bool) (row, column int) {
 	for i, r := range rows {
 		if r.line != line {
 			continue
 		}
 		// The end of a row is the start of the next, so a cursor there belongs to the
 		// next row — except on the last row of a line, where there is no next and the
-		// cursor sits after the final character.
-		if col < r.end || (col == r.end && lastRowOfLine(rows, i)) {
+		// cursor sits after the final character, and except when it was put there by a
+		// click on this row.
+		if col < r.end || (col == r.end && (atEnd || lastRowOfLine(rows, i))) {
 			return i, text.ColumnOf(lines[line][r.start:r.end], col-r.start)
 		}
 	}
@@ -138,7 +146,7 @@ func (e *Editor) moveRow(delta int) {
 		return
 	}
 	rows := e.layout.rowsFor(e.lines, width)
-	row, column := rowOf(rows, e.lines, e.line, e.col)
+	row, column := rowOf(rows, e.lines, e.line, e.col, e.prefersRowEnd())
 	if e.wantColumn >= 0 {
 		column = e.wantColumn
 	}
@@ -175,7 +183,7 @@ func (e *Editor) Draw(v grid.View) {
 	}
 
 	rows := e.layout.rowsFor(e.lines, width)
-	cursorRow, cursorColumn := rowOf(rows, e.lines, e.line, e.col)
+	cursorRow, cursorColumn := rowOf(rows, e.lines, e.line, e.col, e.prefersRowEnd())
 
 	// The field scrolls only when it is taller than its box, and then only as far as
 	// it must to keep the cursor visible: a field that jumped to the end would lose

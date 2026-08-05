@@ -57,6 +57,16 @@ type Editor struct {
 	anchor    Caret
 	selecting bool
 
+	// rowEnd is where a click landed that meant the end of a wrapped row rather than
+	// the start of the next, and set says there was one.
+	//
+	// It is cleared in [Editor.endTyping], which every movement and every edit already
+	// passes through, rather than in the forty-odd places the cursor is assigned — and
+	// it is checked against the cursor's own position as well, so a stale one cannot
+	// apply to a position it was never about.
+	rowEnd    Caret
+	rowEndSet bool
+
 	// elements are the runs of text that behave as one character, in the order they
 	// appear. nextElement is the last identity handed out.
 	elements    []Element
@@ -665,7 +675,17 @@ func (e *Editor) invalidate() {
 
 // endTyping closes a run of typing, so the next insertion starts an undo step of its
 // own. Every movement and every structural change ends one.
-func (e *Editor) endTyping() { e.typing = false }
+// endTyping closes a run of insertions, and with it the one thing a click could have
+// said about where the cursor belongs.
+//
+// Every movement and every edit already calls this — it is the point they all pass
+// through — so the affinity is cleared in one place rather than in the forty-odd places
+// the cursor is assigned. A bit that every one of those had to reset would be reset in
+// thirty-nine of them.
+func (e *Editor) endTyping() {
+	e.typing = false
+	e.rowEndSet = false
+}
 
 // snapshot records the state for undo, coalescing a run of typing into one step so
 // that undo steps over a phrase rather than a letter.

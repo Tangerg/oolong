@@ -100,12 +100,6 @@ func (e *Editor) At(x, y, width int) (Caret, bool) {
 	}
 	r := rows[index]
 	line := e.lines[r.line]
-	// A click past the end of the row lands at the end of its text. Where the width
-	// broke a line, that offset and the offset before the next row's first character
-	// are one offset with two places on screen, and this editor draws it in the second
-	// — so clicking past the end of a wrapped row shows the caret at the start of the
-	// next one. Telling them apart takes an affinity bit on the caret, which is a
-	// larger change than this and is on the list.
 	col := r.start + text.OffsetAt(line[r.start:r.end], x)
 	// Out of any element it lands in, forwards, so a click in the middle of a chip
 	// puts the cursor after it rather than inside — the same rule moving does.
@@ -137,6 +131,10 @@ func (e *Editor) HandleMouse(ev input.Mouse, width int) bool {
 		e.endTyping()
 		e.line, e.col, e.wantColumn = at.Line, at.Col, -1
 		e.anchor, e.selecting = at, true
+		// A click that landed past the end of a wrapped row means that row, not the
+		// start of the next. It is the only way a cursor comes to be at a soft break
+		// and belong to the earlier side.
+		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(ev.Pos.X, ev.Pos.Y, width)
 		return true
 	case input.MouseDrag:
 		if !e.selecting {
@@ -158,4 +156,22 @@ func (e *Editor) HandleMouse(ev input.Mouse, width int) bool {
 	default:
 		return false
 	}
+}
+
+// pastRowEnd reports whether a point is beyond the text of a row that the width broke,
+// which is the only place a cursor can belong to the earlier side of a break.
+func (e *Editor) pastRowEnd(x, y, width int) bool {
+	rows := e.layout.rowsFor(e.lines, width)
+	index := e.scroll.Offset() + y
+	if index < 0 || index >= len(rows) || lastRowOfLine(rows, index) {
+		return false
+	}
+	r := rows[index]
+	return x >= text.Width(e.lines[r.line][r.start:r.end])
+}
+
+// prefersRowEnd reports whether the cursor should be drawn at the end of a wrapped row
+// rather than at the start of the next. See [Editor.rowEnd].
+func (e *Editor) prefersRowEnd() bool {
+	return e.rowEndSet && e.rowEnd == Caret{Line: e.line, Col: e.col}
 }

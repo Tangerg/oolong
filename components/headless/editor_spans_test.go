@@ -323,16 +323,9 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 				continue
 			}
 			// The cursor lands on the row that was clicked and no further right than
-			// the click — or at the start of the row below, which is the same
-			// position in the text: where a row was broken by the width, the offset
-			// after its last character and the offset before the next row's first
-			// are one offset with two places on screen, and this editor draws it in
-			// the second. A click past the end of a wrapped row therefore shows the
-			// caret at the start of the next.
-			onward := cursor.Pos.Y == y+1 && cursor.Pos.X == 0
-			if onward {
-				continue
-			}
+			// the click. Every cell, including the ones past the end of a row the
+			// width broke — which used to put the caret at the start of the next row,
+			// because that offset has two places on screen and nothing said which.
 			if cursor.Pos.Y != y {
 				t.Fatalf("a click at (%d,%d) put the cursor at (%d,%d)", x, y, cursor.Pos.X, cursor.Pos.Y)
 			}
@@ -387,5 +380,75 @@ func TestDraggingOffTheFieldChangesNothing(t *testing.T) {
 	}
 	if got := e.Selected(); got != before {
 		t.Errorf("the selection became %q, want it left at %q", got, before)
+	}
+}
+
+// TestClickingPastAWrappedRowStaysOnThatRow is the ambiguity resolved. Where the width
+// broke a line, the offset after its last character and the offset before the next
+// row's first are one offset with two places on screen; a cursor that arrived by
+// moving belongs to the second, and one that was clicked there belongs to the first.
+func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
+	// At width twelve the first row is "the quick " — ten columns — so the last two
+	// columns of the box are past the end of a row the width broke, which is the only
+	// place this question arises.
+	const width = 12
+	e := editorWith("the quick brown fox jumps")
+	screen := grid.NewScreen(width, 6)
+
+	e.HandleMouse(click(11, 0), width)
+	e.Draw(screen.Frame())
+	if got := screen.Cursor(); got.Pos.Y != 0 {
+		t.Errorf("the caret is on row %d, want the row that was clicked", got.Pos.Y)
+	}
+
+	// And a cursor that arrived by moving belongs to the other side, which is what
+	// makes this an affinity and not a rule about offsets.
+	// To the break itself: the row is "the quick " including the space the wrap took,
+	// so the boundary is one past what the row draws.
+	e.SetCursor(0, 0)
+	for range len("the quick ") {
+		e.Handle(input.Key{Code: input.Right})
+	}
+	e.Draw(screen.Frame())
+	if got := screen.Cursor(); got.Pos.Y != 1 {
+		t.Errorf("a caret that arrived by moving is on row %d, want the next row", got.Pos.Y)
+	}
+}
+
+// TestAffinityStopsApplyingWhenTheCursorMoves. It is carried without a flag anyone has
+// to clear: it applies only while the cursor is exactly where the click put it.
+func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
+	const width = 12
+	e := editorWith("the quick brown fox jumps")
+	screen := grid.NewScreen(width, 6)
+
+	e.HandleMouse(click(11, 0), width)
+	e.Draw(screen.Frame())
+	if got := screen.Cursor(); got.Pos.Y != 0 {
+		t.Fatalf("the click did not put the caret on row 0")
+	}
+
+	// Away and back to the same offset, arrived at by moving. The click said nothing
+	// about this cursor, and a movement is where that is forgotten.
+	e.Handle(input.Key{Code: input.Right})
+	e.Handle(input.Key{Code: input.Left})
+	e.Draw(screen.Frame())
+	if got := screen.Cursor(); got.Pos.Y != 1 {
+		t.Errorf("the caret is on row %d after moving away and back, want the next row", got.Pos.Y)
+	}
+}
+
+// TestTypingAfterClickingPastARowGoesWhereTheCaretIs, which is the point of the
+// affinity: what a user clicked is where the next character appears.
+func TestTypingAfterClickingPastARowGoesWhereTheCaretIs(t *testing.T) {
+	e := editorWith("the quick brown fox")
+	e.HandleMouse(click(11, 0), 12)
+	e.Insert("X")
+	// The row is "the quick " including the space the wrap took, so its end is after
+	// that space and the character goes there. Where the re-wrap then draws it is the
+	// wrap's business; what this asserts is that it went in at the offset that was
+	// clicked and not at the start of the row below.
+	if got := e.Text(); got != "the quick Xbrown fox" {
+		t.Errorf("text = %q", got)
 	}
 }
