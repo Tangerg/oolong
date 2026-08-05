@@ -37,6 +37,10 @@ type Transcript struct {
 	blocks []placed
 	width  int
 	total  int
+	// gen counts the changes, so that anything holding a copy of the rows can tell
+	// whether the copy is still the rows. It is what lets a search of a long session
+	// on every keystroke reuse the snapshot it already took.
+	gen uint64
 }
 
 // placed is a block, its height at the transcript's width, and where it sits.
@@ -60,6 +64,14 @@ func (t *Transcript) Height() int { return t.total }
 // Width is the width every height in it was measured at.
 func (t *Transcript) Width() int { return t.width }
 
+// Generation is how many times the transcript has changed.
+//
+// It is for anything that took a copy of the rows and wants to know whether to take
+// another. Two calls returning the same number mean the rows are the same rows; a
+// different number means something was appended, changed, or re-measured, and says
+// nothing about how much.
+func (t *Transcript) Generation() uint64 { return t.gen }
+
 // Append adds a block at the end and measures it.
 func (t *Transcript) Append(b Sized) {
 	if b == nil {
@@ -68,6 +80,7 @@ func (t *Transcript) Append(b Sized) {
 	height := t.measure(b)
 	t.blocks = append(t.blocks, placed{block: b, height: height, top: t.total})
 	t.total += height
+	t.gen++
 }
 
 // Block is the block at index i, or nil when there is none there.
@@ -99,6 +112,7 @@ func (t *Transcript) Changed(i int) {
 		return
 	}
 	t.remeasure(i)
+	t.gen++
 }
 
 // Resize measures everything again at a new width, and reports the new total.
@@ -114,6 +128,7 @@ func (t *Transcript) Resize(width int) int {
 	}
 	t.width = width
 	t.remeasure(0)
+	t.gen++
 	return t.total
 }
 
