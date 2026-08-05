@@ -1,0 +1,113 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # A library nobody has touched for a month can still be broken by a new Go
+  # release or a dependency's. Finding that out on a schedule is cheaper than
+  # finding it out from the first person who tries to use it.
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # All three, because the library claims to be portable and a claim nothing
+    # checks is a claim that stops being true quietly. Windows has no resize
+    # events — that is a documented limit, not a reason to stop building there.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          # From go.mod rather than pinned here, so the version this is built
+          # against and the version it declares cannot drift apart.
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # The race detector is the point of running the tests at all: the whole
+      # concurrency model is "one goroutine owns the state", and the only way
+      # that stays true is if something checks.
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  tidy:
+    name: formatting and modules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # go.mod and go.sum are part of the dependency promise: the arch test
+      # fails when an import appears that is not on the list, and this fails
+      # when the module files disagree with the imports that are there.
+      - name: go mod tidy is a no-op
+        run: |
+          go mod tidy
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "go mod tidy changed go.mod or go.sum:"
+            git diff -- go.mod go.sum
+            exit 1
+          fi
+
+  cross:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: freebsd
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # Only the terminal package touches the operating system, so this is the
+      # cheapest way to keep that true: the day something above it reaches for a
+      # syscall, one of these stops building.
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...
