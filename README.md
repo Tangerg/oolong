@@ -16,28 +16,47 @@ A chat interface that prints into your terminal's scrollback and keeps a live bl
 at the bottom is about a hundred lines: [`examples/streaming`](examples/streaming).
 
 ```sh
-go run ./examples/streaming
+go run ./examples/streaming        # from the repository root, which is a Go workspace
 ```
 
 ## What it is
 
-A ladder of abstraction, and a host beside it.
+Four modules in one repository.
+
+| module | what it is | dependencies |
+| --- | --- | --- |
+| **`core`** | the engine: cells, text, input, layout, the terminal, frame pacing, and the loop that drives them | `uniseg`, `go-runewidth`, `x/term`, `x/sys` |
+| **`components`** | widgets built on it, split into behaviour and appearance | **none of its own** — everything comes through `core` |
+| **`ptytest`** | a harness that runs a terminal program on a real pty and says what reached the terminal | `x/sys` |
+| **`examples`** | demonstrations, which nothing may import | — |
+
+A module boundary costs version skew and buys an independent dependency set, so
+there is one wherever the dependencies genuinely differ and nowhere else. That is
+why `core` is not split further into a cell buffer, a styling layer and a runtime:
+everyone who wants one wants all three, and three modules would buy nothing but a
+version dance. It is also why markdown, when it arrives, has to be its own — it
+wants goldmark and a syntax highlighter, and neither of the two modules above
+should ever hear about them.
+
+### Inside them, a ladder
 
 | ring | what lives there | the web analogy |
 | --- | --- | --- |
-| `primitives/` | cells, text, input, layout, the terminal, frame pacing, ranking. Knows what a terminal is made of and nothing about what anyone builds from it. | HTML and CSS |
-| `headless/` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
-| `kit/` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
-| `program/` | the loop. The only ring that owns a goroutine, and the one that must never know the widgets exist. | the browser |
-| `ptytest/` | a harness that runs a terminal program on a real pty and says what reached the terminal. Nothing in the library imports it. | the test runner |
+| `core/grid`, `text`, `input`, `layout`, `term`, … | cells, graphemes, columns, escape sequences. Knows what a terminal is made of and nothing about what anyone builds from it. | HTML and CSS |
+| `components/headless` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
+| `components/kit` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
+| `core/program` | the loop. The only package that owns a goroutine, and the one that must never know the widgets exist. | the browser |
 
-The layering is not a convention. `internal/arch` parses every import in the module
-and fails the build if one points the wrong way, if a ring appears that no rule
-governs, or if the rules themselves would no longer refuse anything.
+The layering is not a convention. `internal/arch` parses every import in every
+module and fails the build if one points the wrong way, if a module appears whose
+dependencies nothing governs, or if the rules themselves would no longer refuse
+anything.
 
-`program/` is deliberately not the top of the ladder. It is beside it: it drives a
-`Component`, which is a method set, and a loop that imported the widgets would make
-every interface built on it inherit this library's taste in widgets.
+`core/program` is deliberately not the top of the ladder. It is beside it: it drives
+a `Component`, which is a method set, and a loop that imported the widgets would
+make every interface built on it inherit this library's taste in widgets. The module
+graph cannot catch that one — `core` could require `components` and Go would allow
+it — which is why it is the rule the arch test exists for above all the others.
 
 ## Walking away from `kit`
 
@@ -66,10 +85,16 @@ by a cell diff that emits the smallest escape stream turning one frame into the 
 
 ## What it costs
 
-Three dependencies: `rivo/uniseg`, `mattn/go-runewidth`, `golang.org/x/term` (and
-`golang.org/x/sys` behind the last of them). The list is a promise, and a test fails
-when it grows — a terminal library that drags a tree behind it is one people work
-around instead of using.
+`core` has four dependencies: `rivo/uniseg`, `mattn/go-runewidth`,
+`golang.org/x/term` and `golang.org/x/sys`. `components` imports none of them —
+whatever reaches it, reaches it through `core`, which is what makes it obvious that
+everything a widget needs is already down there.
+
+Both lists are a promise, and a test fails when either grows — a terminal library
+that drags a tree behind it is one people work around instead of using. Splitting
+into modules made the promise sharper rather than looser: the list belongs to a
+module now, so a future markdown module can carry goldmark without either of these
+two noticing.
 
 ## Testing an interface
 

@@ -17,11 +17,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job runs over every module. `go test ./...` covers the module it is
+# standing in and no other, so a workspace has to be walked rather than trusted —
+# and the list comes from go.work, so a module added without being wired into the
+# workspace is a module CI never sees, which the arch test also refuses.
+env:
+  MODULES: . core components ptytest examples
+
 jobs:
   test:
     # All three, because the library claims to be portable and a claim nothing
     # checks is a claim that stops being true quietly. Windows has no resize
-    # events — that is a documented limit, not a reason to stop building there.
+    # events and no pty here — both are documented limits, not reasons to stop
+    # building there.
     strategy:
       fail-fast: false
       matrix:
@@ -32,22 +40,41 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          # From go.mod rather than pinned here, so the version this is built
-          # against and the version it declares cannot drift apart.
-          go-version-file: go.mod
+          # From core's go.mod rather than pinned here, so the version this is
+          # built against and the version it declares cannot drift apart.
+          go-version-file: core/go.mod
           check-latest: true
 
+      # Built into a scratch directory rather than in place: a module whose
+      # only package is a command in a directory of the same name would
+      # otherwise try to write the binary over that directory.
       - name: Build
-        run: go build ./...
+        shell: bash
+        run: |
+          for m in $MODULES; do
+            (
+              cd "$m"
+              # A module holding a command builds into a scratch directory: the
+              # binary would otherwise be written next to, and over, the directory
+              # it was built from.
+              if go list -f '{{.Name}}' ./... | grep -qx main; then
+                go build -o "$RUNNER_TEMP/build/" ./...
+              else
+                go build ./...
+              fi
+            ) || exit 1
+          done
 
       - name: Vet
-        run: go vet ./...
+        shell: bash
+        run: for m in $MODULES; do (cd "$m" && go vet ./...) || exit 1; done
 
       # The race detector is the point of running the tests at all: the whole
       # concurrency model is "one goroutine owns the state", and the only way
       # that stays true is if something checks.
       - name: Test
-        run: go test -race -count=1 ./...
+        shell: bash
+        run: for m in $MODULES; do (cd "$m" && go test -race -count=1 ./...) || exit 1; done
 
   tidy:
     name: formatting and modules
@@ -57,7 +84,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: core/go.mod
           check-latest: true
 
       - name: gofmt
@@ -69,15 +96,26 @@ jobs:
             exit 1
           fi
 
-      # go.mod and go.sum are part of the dependency promise: the arch test
-      # fails when an import appears that is not on the list, and this fails
-      # when the module files disagree with the imports that are there.
-      - name: go mod tidy is a no-op
+      # Each module's go.mod is part of its dependency promise: the arch test
+      # fails when an import appears that its module does not declare, and this
+      # fails when the declaration and the imports have drifted the other way.
+      - name: go mod tidy is a no-op everywhere
         run: |
-          go mod tidy
-          if ! git diff --quiet -- go.mod go.sum; then
-            echo "go mod tidy changed go.mod or go.sum:"
-            git diff -- go.mod go.sum
+          for m in $MODULES; do (cd "$m" && go mod tidy); done
+          if ! git diff --quiet; then
+            echo "go mod tidy changed something:"
+            git diff
+            exit 1
+          fi
+
+      # A workspace that has fallen out of step with the modules in it is a
+      # checkout that builds for the person who wrote it and nobody else.
+      - name: go work sync is a no-op
+        run: |
+          go work sync
+          if ! git diff --quiet -- go.work; then
+            echo "go work sync changed go.work:"
+            git diff -- go.work
             exit 1
           fi
 
@@ -100,14 +138,27 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version-file: core/go.mod
           check-latest: true
 
-      # Only the terminal package touches the operating system, so this is the
-      # cheapest way to keep that true: the day something above it reaches for a
-      # syscall, one of these stops building.
+      # Only the terminal package and the harness touch the operating system, so
+      # this is the cheapest way to keep that true: the day something else reaches
+      # for a syscall, one of these stops building.
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build ./...
+        run: |
+          for m in $MODULES; do
+            (
+              cd "$m"
+              # A module holding a command builds into a scratch directory: the
+              # binary would otherwise be written next to, and over, the directory
+              # it was built from.
+              if go list -f '{{.Name}}' ./... | grep -qx main; then
+                go build -o "$RUNNER_TEMP/cross/" ./...
+              else
+                go build ./...
+              fi
+            ) || exit 1
+          done

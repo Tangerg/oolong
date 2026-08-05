@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tangerg/oolong/headless"
-	"github.com/Tangerg/oolong/kit"
-	"github.com/Tangerg/oolong/primitives/grid"
-	"github.com/Tangerg/oolong/primitives/input"
-	"github.com/Tangerg/oolong/primitives/layout"
-	"github.com/Tangerg/oolong/program"
+	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/components/kit"
+	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
+	"github.com/Tangerg/oolong/core/program"
 )
 
 func main() {

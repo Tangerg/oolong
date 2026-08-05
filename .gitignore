@@ -8,11 +8,10 @@
 *.prof
 coverage.*
 
-# A workspace file is a local arrangement — which sibling checkouts this module
-# is being developed against — and not something a consumer of the library has
-# any use for. Go's own guidance is not to commit one from a module that is a
-# dependency.
-go.work
+# go.work is committed, not ignored. That guidance is for a single-module
+# library, where a workspace file is one developer's local arrangement; here it
+# is the repository's structure, and a checkout without it does not build. Only
+# the checksum file, which is derived, stays out.
 go.work.sum
 
 # Editor and OS leavings. Kept here rather than in a personal global ignore file

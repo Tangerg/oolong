@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/primitives/input"
-	"github.com/Tangerg/oolong/primitives/term"
-	"github.com/Tangerg/oolong/program"
+	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/program"
+	"github.com/Tangerg/oolong/core/term"
 )
 
 // The example is driven the way any interface built on this library can be: through

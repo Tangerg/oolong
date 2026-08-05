@@ -1,3 +1,13 @@
 go 1.26.5
 
-use .
+// Every module in the repository, so that a change spanning two of them is one
+// change: built together, tested together, committed together. That is the whole
+// reason to keep them in one repository rather than five, and it is why this file
+// is committed rather than ignored — without it a checkout does not build.
+use (
+	.
+	./components
+	./core
+	./examples
+	./ptytest
+)

@@ -57,22 +57,39 @@ one. Everything else here follows from it.
 
 ### What "in layers" buys
 
-A ladder of abstraction, and a host beside it. The web has the same shape and the
-names are borrowed from it deliberately, because the shape is what people already
-know:
+Two kinds of boundary, enforced two different ways.
+
+A **module** boundary is where the dependencies differ. `core` carries the whole
+third-party list; `components` carries none; a future markdown module will carry
+goldmark and a highlighter, and neither of the first two will hear about it. That
+is the only thing a module boundary is worth paying for — it costs version skew,
+and the Charm ecosystem's own v2 migration is the standing demonstration of what
+that costs when bubbletea, bubbles and lipgloss all have to move together.
+
+Which is why `core` is one module and not three. Charm splits the cell buffer
+(`ultraviolet`), the styling layer (`lipgloss`) and the runtime (`bubbletea`) into
+separate repositories, and that split is ten years of organic growth rather than a
+design. Everyone who wants one of ours wants all three.
+
+A **ring** boundary is inside a module, where the compiler cannot see it. The web
+has the same shape and the names are borrowed from it deliberately, because the
+shape is what people already know:
 
 | ring | knows about | must never touch | the analogy |
 | --- | --- | --- | --- |
-| `primitives/` | cells, graphemes, columns, escape sequences, layout, the terminal, pacing, ranking | anything built from them | HTML, CSS |
-| `headless/` | what a list does, what a press means, where a cursor goes | what any of it looks like; goroutines; programs | Radix |
-| `kit/` | what all that should look like, and a palette | goroutines, programs | shadcn |
-| `program/` | the loop, the frame schedule, the one goroutine | the widgets | the browser |
+| `core/grid`, `text`, `input`, `layout`, `term`, … | cells, graphemes, columns, escape sequences, layout, the terminal, pacing, ranking | anything built from them, including the loop | HTML, CSS |
+| `components/headless` | what a list does, what a press means, where a cursor goes | what any of it looks like; goroutines; programs | Radix |
+| `components/kit` | what all that should look like, and a palette | goroutines, programs | shadcn |
+| `core/program` | the loop, the frame schedule, the one goroutine | the widgets | the browser |
 
 The last row is the one that is easy to get wrong, and the first version of this
-library did. `program/` is not the top of the ladder — it is orthogonal to it. It
-drives a `Component`, which is a method set, and the day it imports `headless` is the
-day every interface built on this library inherits its taste in widgets. That edge is
-the one `internal/arch` exists for above all the others.
+library did. `core/program` is not the top of the ladder — it is orthogonal to it.
+It drives a `Component`, which is a method set, and the day it imports `headless` is
+the day every interface built on this library inherits its taste in widgets.
+
+Note that the module graph does *not* catch this: `core` could require `components`
+and Go would allow it. That is exactly why the edge is checked by hand, and why it
+is the rule `internal/arch` exists for above all the others.
 
 The split between `headless/` and `kit/` is the other thing worth stating plainly.
 Everything arguable lives in `kit`: what a border is made of, what a spinner looks
@@ -91,11 +108,15 @@ fail is a guard nobody knows is wired up.
 
 ### The dependency promise
 
-Three: `rivo/uniseg`, `mattn/go-runewidth`, `golang.org/x/term`. This is a promise, not
-a coincidence, and a test fails when the list grows. A terminal library that drags a
-tree behind it is one people work around instead of adopting — which is why anything
-needing a heavy dependency (markdown, syntax highlighting, images) belongs in a sibling
-module and not in here.
+`core`: `rivo/uniseg`, `mattn/go-runewidth`, `golang.org/x/term`, `golang.org/x/sys`.
+`components`: none of its own — it imports nothing outside `core` and the standard
+library, and the four appear in its go.mod only as what `core` brought with it. Both
+are promises rather than coincidences, and a test fails when either list grows.
+
+A terminal library that drags a tree behind it is one people work around instead of
+adopting — which is why anything needing a heavy dependency (markdown, syntax
+highlighting) becomes a module of its own, with a list of its own, and neither of
+these two is touched.
 
 ---
 
