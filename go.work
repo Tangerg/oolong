@@ -4,10 +4,16 @@ go 1.26.5
 // change: built together, tested together, committed together. That is the whole
 // reason to keep them in one repository rather than five, and it is why this file
 // is committed rather than ignored — without it a checkout does not build.
+//
+// The repository root is not one of them. A module is a unit of distribution and
+// the root distributes nothing: a module there would be an empty thing to tag, an
+// empty page on pkg.go.dev, and a question every reader has to ask. The tests that
+// guard the layering live in ./internal, which is a module because it has to be
+// compiled to run and not because anyone will ever depend on it.
 use (
-	.
 	./components
 	./core
 	./examples
+	./internal
 	./ptytest
 )

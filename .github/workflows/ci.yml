@@ -22,7 +22,7 @@ concurrency:
 # and the list comes from go.work, so a module added without being wired into the
 # workspace is a module CI never sees, which the arch test also refuses.
 env:
-  MODULES: . core components ptytest examples
+  MODULES: core components internal ptytest examples
 
 jobs:
   test:

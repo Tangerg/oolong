@@ -80,7 +80,7 @@ shape is what people already know:
 | `core/grid`, `text`, `input`, `layout`, `term`, … | cells, graphemes, columns, escape sequences, layout, the terminal, pacing, ranking | anything built from them, including the loop | HTML, CSS |
 | `components/headless` | what a list does, what a press means, where a cursor goes | what any of it looks like; goroutines; programs | Radix |
 | `components/kit` | what all that should look like, and a palette | goroutines, programs | shadcn |
-| `core/program` | the loop, the frame schedule, the one goroutine | the widgets | the browser |
+| `core/program`, `core/present` | the loop, the frame schedule, the goroutine that owns the interface | the widgets | the browser |
 
 The last row is the one that is easy to get wrong, and the first version of this
 library did. `core/program` is not the top of the ladder — it is orthogonal to it.

@@ -45,7 +45,7 @@ should ever hear about them.
 | `core/grid`, `text`, `input`, `layout`, `term`, … | cells, graphemes, columns, escape sequences. Knows what a terminal is made of and nothing about what anyone builds from it. | HTML and CSS |
 | `components/headless` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
 | `components/kit` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
-| `core/program` | the loop. The only package that owns a goroutine, and the one that must never know the widgets exist. | the browser |
+| `core/program`, `core/present` | the loop and its frame schedule. The only goroutine that touches the interface's state, and the one ring that must never know the widgets exist. | the browser |
 
 The layering is not a convention. `internal/arch` parses every import in every
 module and fails the build if one points the wrong way, if a module appears whose
@@ -116,7 +116,13 @@ short of a real pty can see it happen.
 
 One goroutine draws and handles input. Anything that happens elsewhere reaches the
 interface through `Loop.Post` and runs there. That is the whole of it, and it is why
-every widget below `program` is an ordinary mutable object with no lock in it.
+every widget is an ordinary mutable object with no lock in it.
+
+To be exact, because the short version is easy to overstate: the process has more
+goroutines than one. `core/term` runs three — a reader that cannot be interrupted
+portably, a frame writer so that a slow terminal cannot stop the loop from reading
+input, and a resize signal fan. None of them touches a widget. The claim is about
+who owns the interface's state, and exactly one goroutine does.
 
 The program parks when there is nothing to do. It wakes for input, for posted work, and
 for the terminal reporting progress — never on a clock that runs regardless. A component

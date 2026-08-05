@@ -45,7 +45,6 @@ const modulePath = "github.com/Tangerg/oolong"
 // dependency — markdown, syntax highlighting — becomes a module of its own with
 // its own list, and neither of these two is touched.
 var modules = map[string][]string{
-	".": nil,
 	"core": {
 		"github.com/rivo/uniseg",
 		"github.com/mattn/go-runewidth",
@@ -53,9 +52,15 @@ var modules = map[string][]string{
 		"golang.org/x/sys",
 	},
 	"components": nil,
+	"internal":   nil,
 	"ptytest":    {"golang.org/x/sys"},
 	"examples":   nil,
 }
+
+// The repository root is deliberately not a module. A module is a unit of
+// distribution and the root distributes nothing, so one there would be an empty
+// thing to tag and an empty page for anyone who went looking. Every Go file
+// therefore belongs to one of the modules above, and moduleOf says so.
 
 // The rings, longest prefix first so the first match wins.
 var rings = []struct {
@@ -63,6 +68,10 @@ var rings = []struct {
 	name   string
 }{
 	{"core/program/", "host"},
+	// Frame pacing is the loop's business and not the terminal's: nothing else
+	// uses it, and "when to draw" is a question about what someone is building
+	// rather than about what a terminal is made of.
+	{"core/present/", "host"},
 	{"core/", "substrate"},
 	{"components/headless/", "headless"},
 	{"components/kit/", "kit"},
@@ -91,12 +100,13 @@ var forbidden = map[string][]string{
 	// Behaviour with no appearance: a list knows what the arrow keys do and not
 	// what a selected row looks like. It may not depend on the one set of answers
 	// kit gives, or walking away from kit would mean walking away from the
-	// behaviour too.
-	"headless": {"kit", "harness", "examples"},
+	// behaviour too — and it may not depend on the host, because a widget that
+	// needed a loop to exist could not be tested without starting one.
+	"headless": {"host", "kit", "harness", "examples"},
 
 	// One appearance for that behaviour, and the only ring anybody is expected to
 	// replace.
-	"kit": {"harness", "examples"},
+	"kit": {"host", "harness", "examples"},
 
 	// The harness. Nothing here may lean on it: a harness that the thing it tests
 	// depends on is a harness nobody can change.
@@ -153,7 +163,11 @@ func TestEachModuleDependsOnWhatItSaidItWould(t *testing.T) {
 	fset := token.NewFileSet()
 
 	walk(t, root, func(dir, path string) {
-		module, allowed := moduleOf(dir)
+		module, allowed, ok := moduleOf(dir)
+		if !ok {
+			t.Errorf("%s is in no module, so nothing governs what it may import", dir)
+			return
+		}
 		for _, imported := range imports(t, fset, path) {
 			if !strings.Contains(imported, ".") || strings.HasPrefix(imported, modulePath) {
 				continue // the standard library, or our own
@@ -273,6 +287,13 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		// And the substrate must not reach for the loop that drives it.
 		{"core/grid", "core/program", true},
 		{"core/text", "core/program", true},
+		{"core/grid", "core/present", true},
+
+		// Nor may a widget: one that needed a loop to exist could not be tested
+		// without starting one, and this is the edge the table used to allow.
+		{"components/headless", "core/program", true},
+		{"components/kit", "core/program", true},
+		{"components/headless", "core/present", true},
 
 		// Nothing leans on the harness, and nothing imports a demonstration.
 		{"core/program", "ptytest", true},
@@ -321,21 +342,22 @@ func ringOf(dir string) string {
 // moduleOf names the module a repository-relative directory belongs to, and what
 // that module may import. The longest matching prefix wins, so a module nested
 // inside another is attributed to the inner one.
-func moduleOf(dir string) (string, []string) {
+//
+// A directory belonging to no module is reported as such rather than defaulted:
+// with no module at the root there is no module for it to fall back to, and code
+// nothing governs is exactly what these tests exist to notice.
+func moduleOf(dir string) (string, []string, bool) {
 	dir = filepath.ToSlash(dir)
-	best, allowed := ".", modules["."]
+	best, allowed := "", []string(nil)
 	for name, deps := range modules {
-		if name == "." {
-			continue
-		}
 		if dir != name && !strings.HasPrefix(dir, name+"/") {
 			continue
 		}
-		if best == "." || len(name) > len(best) {
+		if len(name) > len(best) {
 			best, allowed = name, deps
 		}
 	}
-	return best, allowed
+	return best, allowed, best != ""
 }
 
 // skipped reports whether a directory is none of this test's business.
