@@ -82,25 +82,32 @@ func (l *editorLayout) wrapLine(index int, line string, width int) {
 	l.rows = append(l.rows, editorRow{line: index, start: start, end: len(line), joined: start > 0})
 }
 
-// rowOf is the index of the visual row holding a cursor, and the column within it.
-// rowOf is the visual row and column a cursor sits at.
+// lastOfLine reports whether the row at i is the final row of its logical line.
+func (l *editorLayout) lastOfLine(i int) bool {
+	return i == len(l.rows)-1 || l.rows[i+1].line != l.rows[i].line
+}
+
+// rowAt is the visual row the cursor is on at a width, and the column within it.
 //
-// atEnd resolves the one position that has two answers. Where the width broke a line,
-// the offset after its last character and the offset before the next row's first are
-// one offset with two places on screen; a cursor that arrived by moving through the
-// text belongs to the second, and one that arrived by being clicked past the end of a
-// row belongs to the first. Nothing in the offset says which, so it has to be carried.
-func rowOf(rows []editorRow, lines []string, line, col int, atEnd bool) (row, column int) {
+// The one position with two answers is where the width broke a line: the offset after
+// its last character and the offset before the next row's first are one offset with two
+// places on screen. A cursor that arrived by moving through the text belongs to the
+// second, and one that arrived by being clicked past the end of a row belongs to the
+// first. Nothing in the offset says which, so the field remembers — see
+// [Editor.prefersRowEnd].
+func (e *Editor) rowAt(width int) (row, column int) {
+	rows := e.rows(width)
+	atEnd := e.prefersRowEnd()
 	for i, r := range rows {
-		if r.line != line {
+		if r.line != e.line {
 			continue
 		}
 		// The end of a row is the start of the next, so a cursor there belongs to the
 		// next row — except on the last row of a line, where there is no next and the
 		// cursor sits after the final character, and except when it was put there by a
 		// click on this row.
-		if col < r.end || (col == r.end && (atEnd || lastRowOfLine(rows, i))) {
-			return i, text.ColumnOf(lines[line][r.start:r.end], col-r.start)
+		if e.col < r.end || (e.col == r.end && (atEnd || e.layout.lastOfLine(i))) {
+			return i, text.ColumnOf(e.lines[e.line][r.start:r.end], e.col-r.start)
 		}
 	}
 	if len(rows) == 0 {
@@ -109,18 +116,14 @@ func rowOf(rows []editorRow, lines []string, line, col int, atEnd bool) (row, co
 	return len(rows) - 1, 0
 }
 
-// lastRowOfLine reports whether rows[i] is the final row of its logical line.
-func lastRowOfLine(rows []editorRow, i int) bool {
-	return i == len(rows)-1 || rows[i+1].line != rows[i].line
-}
-
-// offsetIn is the cursor offset that sits at a column of a row.
-func offsetIn(rows []editorRow, lines []string, row, column int) (line, col int) {
+// offsetIn is the cursor position that sits at a column of a visual row.
+func (e *Editor) offsetIn(width, row, column int) (line, col int) {
+	rows := e.rows(width)
 	if row < 0 || row >= len(rows) {
 		return 0, 0
 	}
 	r := rows[row]
-	segment := lines[r.line][r.start:r.end]
+	segment := e.lines[r.line][r.start:r.end]
 	return r.line, r.start + text.OffsetAt(segment, column)
 }
 
@@ -145,16 +148,15 @@ func (e *Editor) moveRow(delta int) {
 		e.col = min(e.col, len(e.lines[e.line]))
 		return
 	}
-	rows := e.rows(width)
-	row, column := rowOf(rows, e.lines, e.line, e.col, e.prefersRowEnd())
+	row, column := e.rowAt(width)
 	if e.wantColumn >= 0 {
 		column = e.wantColumn
 	}
 	target := row + delta
-	if target < 0 || target >= len(rows) {
+	if target < 0 || target >= len(e.rows(width)) {
 		return
 	}
-	e.line, e.col = offsetIn(rows, e.lines, target, column)
+	e.line, e.col = e.offsetIn(width, target, column)
 	e.wantColumn = column
 }
 
@@ -190,7 +192,7 @@ func (e *Editor) Draw(v grid.View) {
 	}
 
 	rows := e.rows(width)
-	cursorRow, cursorColumn := rowOf(rows, e.lines, e.line, e.col, e.prefersRowEnd())
+	cursorRow, cursorColumn := e.rowAt(width)
 
 	// The field scrolls only when it is taller than its box, and then only as far as
 	// it must to keep the cursor visible: a field that jumped to the end would lose

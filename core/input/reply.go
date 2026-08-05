@@ -210,15 +210,15 @@ func (p *Parser) skipString() bool {
 	return false
 }
 
-// decodeReport reads a control sequence that carried a private marker.
+// report reads a control sequence that carried a private marker.
 //
 // Every one of these is a terminal answering rather than a person typing, so an
 // unrecognised one is dropped. Reading it as a key would put whatever the terminal
 // said into whatever had focus.
-func decodeReport(ps params, final byte) Event {
+func (ps params) report(final byte) Event {
 	switch {
 	case ps.private == '<' && (final == 'M' || final == 'm'):
-		return decodeMouse(ps, final == 'M')
+		return ps.mouse(final == 'M')
 	case ps.private == '?' && final == 'c':
 		return ps.deviceAttributes()
 	case ps.private == '?' && final == 'u':

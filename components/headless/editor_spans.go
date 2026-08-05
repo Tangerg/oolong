@@ -166,7 +166,7 @@ func (e *Editor) HandleMouse(ev input.Mouse, width int) bool {
 func (e *Editor) pastRowEnd(x, y, width int) bool {
 	rows := e.rows(width)
 	index := e.scroll.Offset() + y
-	if index < 0 || index >= len(rows) || lastRowOfLine(rows, index) {
+	if index < 0 || index >= len(rows) || e.layout.lastOfLine(index) {
 		return false
 	}
 	r := rows[index]

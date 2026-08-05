@@ -420,7 +420,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	ps := parseParams(string(b[2:i]))
 
 	// A private marker says the sequence is a report and not a key, because a key
-	// never carries one. So anything with a marker is answered by decodeReport or
+	// never carries one. So anything with a marker is answered as a report or
 	// dropped, and nothing carrying one can reach the code below that reads keys.
 	//
 	// The rule is the fix for a whole class rather than for the two reports that were
@@ -428,7 +428,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	// "CSI ? 31 u" — decode as a keystroke of an invisible control character, which is
 	// a defect that hides itself: printing the events showed an empty pair of brackets.
 	if ps.private != 0 {
-		return n, decodeReport(ps, final), true
+		return n, ps.report(final), true
 	}
 
 	switch {
@@ -440,7 +440,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 
 	switch final {
 	case 'u':
-		return n, decodeExtendedKey(ps), true
+		return n, ps.extendedKey(), true
 	case '~':
 		return n, p.decodeNumberedKey(ps), true
 	case 'Z':
@@ -493,10 +493,10 @@ const (
 	pasteCloseNum = 201
 )
 
-// decodeExtendedKey reads the Kitty keyboard protocol's key report, which is the
+// extendedKey reads the Kitty keyboard protocol's key report, which is the
 // only form that distinguishes releases from presses and can say what text a key
 // produced.
-func decodeExtendedKey(ps params) Event {
+func (ps params) extendedKey() Event {
 	if ps.empty() || ps.count() > 3 {
 		return nil // a bare sequence here is a cursor report, not a key
 	}
@@ -565,9 +565,9 @@ var extendedKeys = map[int]Code{
 	57357: End,
 }
 
-// decodeMouse reads an SGR mouse report. down distinguishes the final byte that
+// mouse reads an SGR mouse report. down distinguishes the final byte that
 // means "went down or moved" from the one that means "came up".
-func decodeMouse(ps params, down bool) Event {
+func (ps params) mouse(down bool) Event {
 	if ps.count() < 3 {
 		return nil
 	}

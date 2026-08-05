@@ -113,11 +113,11 @@ func (w Wrapped) Draw(v grid.View, x, y int) int { return w.Line.Draw(v, x, y) }
 // away.
 func (l Line) Wrap(width int) []Wrapped {
 	if width <= 0 {
-		return []Wrapped{{Line: l, To: byteLen(l)}}
+		return []Wrapped{{Line: l, To: l.bytes()}}
 	}
-	units := flatten(l)
+	units := l.units()
 	if len(units) == 0 {
-		return []Wrapped{{Line: l, To: byteLen(l)}}
+		return []Wrapped{{Line: l, To: l.bytes()}}
 	}
 	w := wrapper{width: width}
 	for i, n := 0, len(units); i < n; {
@@ -168,7 +168,7 @@ func (w *wrapper) takeHeld() {
 func (w *wrapper) dropHeld() { w.held, w.heldW = nil, 0 }
 
 func (w *wrapper) breakRow() {
-	row := Wrapped{Line: join(w.row), Joined: len(w.rows) > 0}
+	row := Wrapped{Line: line(w.row), Joined: len(w.rows) > 0}
 	if n := len(w.row); n > 0 {
 		first, last := w.row[0], w.row[n-1]
 		row.From, row.To = first.at, last.at+last.size
@@ -278,7 +278,7 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 	}
 	budget := width - Width(ellipsis)
 
-	units := flatten(l)
+	units := l.units()
 	kept := make([]unit, 0, len(units))
 	used := 0
 	style := grid.Style{}
@@ -290,7 +290,7 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 		used += u.width
 		style = u.style
 	}
-	out := join(kept)
+	out := line(kept)
 	if ellipsis == "" {
 		return out
 	}
@@ -336,8 +336,9 @@ type unit struct {
 	size int
 }
 
-// flatten turns a line into units, expanding tabs against the running column.
-func flatten(l Line) []unit {
+// units is the line as the things that occupy columns, with tabs expanded against the
+// running column.
+func (l Line) units() []unit {
 	var units []unit
 	col, at := 0, 0
 	for _, s := range l {
@@ -377,8 +378,8 @@ func flatten(l Line) []unit {
 	return units
 }
 
-// byteLen is how many bytes the line's text takes, without building it.
-func byteLen(l Line) int {
+// bytes is how many bytes the line's text takes, without building it.
+func (l Line) bytes() int {
 	n := 0
 	for _, s := range l {
 		n += len(s.Text)
@@ -386,8 +387,8 @@ func byteLen(l Line) int {
 	return n
 }
 
-// join rebuilds a line from units, merging neighbours that share a style.
-func join(units []unit) Line {
+// line rebuilds a line from units, merging neighbours that share a style.
+func line(units []unit) Line {
 	var out Line
 	for _, u := range units {
 		if n := len(out); n > 0 && out[n-1].Style == u.style {
