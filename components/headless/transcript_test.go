@@ -225,7 +225,7 @@ func TestTranscriptDrawsAcrossItsOwnEdges(t *testing.T) {
 
 	want := []string{"a:2", "a:3", "b:0"}
 	for y, text := range want {
-		if got := rowText(s.View(), y, 20); got != text {
+		if got := rowText(s.View(), y); got != text {
 			t.Errorf("row %d = %q, want %q", y, got, text)
 		}
 	}
@@ -340,8 +340,9 @@ func TestTranscriptIgnoresWhatItCannotHold(t *testing.T) {
 
 // rowText reads one row of a surface back as a string, trimmed of the blanks that
 // padding leaves.
-func rowText(v grid.View, y, width int) string {
+func rowText(v grid.View, y int) string {
 	var b strings.Builder
+	width, _ := v.Size()
 	for x := range width {
 		if c := v.CellAt(x, y); c != nil && c.Content != "" {
 			b.WriteString(c.Content)
@@ -381,7 +382,7 @@ func TestTranscriptEdges(t *testing.T) {
 	// reaching for a block that is not there.
 	s := grid.NewSurface(20, 2)
 	tr.Draw(s.View(), 99)
-	if got := rowText(s.View(), 0, 20); got != "" {
+	if got := rowText(s.View(), 0); got != "" {
 		t.Errorf("a window past the end drew %q", got)
 	}
 
@@ -444,7 +445,7 @@ func TestTranscriptStepsOverEmptyBlocksWhileDrawing(t *testing.T) {
 	s := grid.NewSurface(20, 2)
 	tr.Draw(s.View(), 0)
 	for y, want := range []string{"a:0", "b:0"} {
-		if got := rowText(s.View(), y, 20); got != want {
+		if got := rowText(s.View(), y); got != want {
 			t.Errorf("row %d = %q, want %q", y, got, want)
 		}
 	}
@@ -590,5 +591,174 @@ func TestScrollTakesTheTerminalsWordForWhatANotchIs(t *testing.T) {
 	}
 	if got := notch(input.Wheel{Reports: 1, Rows: 3}); got != 3 {
 		t.Errorf("a notch on a terminal that sends one report moved %d rows, want 3", got)
+	}
+}
+
+// printer records what was handed to the terminal, and can refuse.
+type printer struct {
+	got    []string
+	refuse bool
+}
+
+func (p *printer) print(b headless.Sized, rows int) bool {
+	if p.refuse {
+		return false
+	}
+	name := "?"
+	if bl, ok := b.(*block); ok {
+		name = bl.name
+	}
+	p.got = append(p.got, fmt.Sprintf("%s:%d", name, rows))
+	return true
+}
+
+// TestOnlyTheLeadingRunIsCommitted. Text printed into a terminal goes after what is
+// already there, so a block that finished while an earlier one is still being written
+// has to wait — giving it over first would put the answer above the question.
+func TestOnlyTheLeadingRunIsCommitted(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(20)
+	for i := range 4 {
+		tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 2})
+	}
+	// The first, and the third, but not the second.
+	tr.Finish(0)
+	tr.Finish(2)
+
+	var p printer
+	if got := tr.Commit(p.print); got != 1 {
+		t.Fatalf("committed %d blocks, want only the leading one", got)
+	}
+	if len(p.got) != 1 || p.got[0] != "b0:2" {
+		t.Errorf("gave the terminal %v", p.got)
+	}
+
+	// Once the second finishes, both it and the third go, in order.
+	tr.Finish(1)
+	p.got = nil
+	if got := tr.Commit(p.print); got != 2 {
+		t.Fatalf("committed %d, want the two now leading", got)
+	}
+	if len(p.got) != 2 || p.got[0] != "b1:2" || p.got[1] != "b2:2" {
+		t.Errorf("gave the terminal %v, want b1 then b2", p.got)
+	}
+}
+
+// TestABlockGoesOnce, whatever happens to it afterwards. The terminal owns it and the
+// program cannot take it back.
+func TestABlockGoesOnce(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(20)
+	b := &block{name: "only", lines: 2}
+	tr.Append(b)
+	tr.Finish(0)
+
+	var p printer
+	tr.Commit(p.print)
+	// It changes anyway, which a caller should not do and which must not print again.
+	b.lines = 9
+	tr.Changed(0)
+	if got := tr.Commit(p.print); got != 0 {
+		t.Errorf("committed %d blocks the second time", got)
+	}
+	if len(p.got) != 1 {
+		t.Errorf("gave the terminal %v", p.got)
+	}
+}
+
+func TestARefusalStopsTheRun(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(20)
+	for i := range 3 {
+		tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 1})
+		tr.Finish(i)
+	}
+
+	p := printer{refuse: true}
+	if got := tr.Commit(p.print); got != 0 {
+		t.Fatalf("committed %d despite a refusal", got)
+	}
+	// And everything is still there to try again.
+	p.refuse = false
+	if got := tr.Commit(p.print); got != 3 {
+		t.Errorf("committed %d on the retry, want all three", got)
+	}
+}
+
+// TestACommittedBlockIsNoLongerDrawn, because it is the terminal's now and drawing it
+// again would show it twice.
+func TestACommittedBlockIsNoLongerDrawn(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(20)
+	tr.Append(&block{name: "gone", lines: 2})
+	tr.Append(&block{name: "here", lines: 2})
+	tr.Finish(0)
+
+	var p printer
+	tr.Commit(p.print)
+
+	s := grid.NewSurface(20, 4)
+	tr.Draw(s.View(), tr.CommittedRows())
+	for y, want := range []string{"here:0", "here:1"} {
+		if got := rowText(s.View(), y); got != want {
+			t.Errorf("row %d = %q, want %q", y, got, want)
+		}
+	}
+}
+
+func TestCommittedRowsIsWhereWhatIsLeftBegins(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(20)
+	tr.Append(&block{name: "a", lines: 3})
+	tr.Append(&block{name: "b", lines: 2})
+
+	if got := tr.CommittedRows(); got != 0 {
+		t.Errorf("nothing committed, and it begins at %d", got)
+	}
+	tr.Finish(0)
+	var p printer
+	tr.Commit(p.print)
+	if got := tr.CommittedRows(); got != 3 {
+		t.Errorf("begins at %d, want past the three rows given away", got)
+	}
+	if got := tr.Committed(); got != 1 {
+		t.Errorf("committed = %d, want 1", got)
+	}
+}
+
+func TestFinishIgnoresWhatIsNotThere(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(20)
+	tr.Append(&block{name: "a", lines: 1})
+	tr.Finish(-1)
+	tr.Finish(9)
+	if tr.Finished(-1) || tr.Finished(9) || tr.Finished(0) {
+		t.Error("something was finished that should not be")
+	}
+	tr.Finish(0)
+	if !tr.Finished(0) {
+		t.Error("the block was not finished")
+	}
+}
+
+func TestCommittingChangesTheGeneration(t *testing.T) {
+	// A search holding a copy of the rows has to take another: what it holds includes
+	// text the transcript no longer draws.
+	var tr headless.Transcript
+	tr.Resize(20)
+	tr.Append(&block{name: "a", lines: 1})
+	tr.Finish(0)
+	before := tr.Generation()
+
+	var p printer
+	tr.Commit(p.print)
+	if tr.Generation() == before {
+		t.Error("the generation did not move")
+	}
+	// And a commit that gave nothing away changes nothing.
+	after := tr.Generation()
+	tr.Commit(p.print)
+	if tr.Generation() != after {
+		t.Error("a commit that gave nothing away moved the generation")
 	}
 }

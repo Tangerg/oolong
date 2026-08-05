@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
@@ -143,3 +144,8 @@ func TestAnEmptyMessageIsNotSent(t *testing.T) {
 		t.Fatal("pressing enter on an empty composer started an answer")
 	}
 }
+
+// TestTheLoopCanPrintForATranscript is the seam between the two modules, asserted
+// where both are visible: what commits finished output is declared in components and
+// satisfied by the loop in core, and neither knows about the other.
+var _ kit.Printer = program.InlineLoop(nil)

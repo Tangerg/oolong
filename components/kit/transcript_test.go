@@ -192,3 +192,36 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 		t.Errorf("the last row is %q, want the end of the content", got)
 	}
 }
+
+// recordingPrinter stands in for an inline loop.
+type recordingPrinter struct{ rows []int }
+
+func (p *recordingPrinter) PrintRows(rows int, draw func(grid.View)) {
+	p.rows = append(p.rows, rows)
+	draw(grid.NewSurface(20, rows).View())
+}
+
+func TestCommittingGivesTheFinishedBlocksToThePrinter(t *testing.T) {
+	tr := session(t, 20, []string{"one", "two"}, []string{"three"})
+	tr.Finish(0)
+
+	var p recordingPrinter
+	view := kit.Transcript{Content: tr}
+	if got := view.Commit(&p); got != 1 {
+		t.Fatalf("committed %d, want the one finished block", got)
+	}
+	if len(p.rows) != 1 || p.rows[0] != 2 {
+		t.Errorf("printed %v, want one block of two rows", p.rows)
+	}
+}
+
+func TestCommittingNothingWhenThereIsNothingToCommitTo(t *testing.T) {
+	tr := session(t, 20, []string{"one"})
+	tr.Finish(0)
+	if got := (kit.Transcript{Content: tr}).Commit(nil); got != 0 {
+		t.Errorf("committed %d to nobody", got)
+	}
+	if got := (kit.Transcript{}).Commit(&recordingPrinter{}); got != 0 {
+		t.Errorf("a view of nothing committed %d", got)
+	}
+}

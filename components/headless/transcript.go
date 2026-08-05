@@ -41,6 +41,9 @@ type Transcript struct {
 	// whether the copy is still the rows. It is what lets a search of a long session
 	// on every keystroke reuse the snapshot it already took.
 	gen uint64
+	// committed is how many leading blocks have been given to the terminal, and are
+	// therefore no longer this transcript's to draw.
+	committed int
 }
 
 // placed is a block, its height at the transcript's width, and where it sits.
@@ -53,6 +56,9 @@ type placed struct {
 	block  Sized
 	height int
 	top    int
+	// finished says the block will not change again, which is what makes it eligible
+	// to be given to the terminal. See [Transcript.Commit].
+	finished bool
 }
 
 // Len is how many blocks the transcript holds.
@@ -237,7 +243,7 @@ func (t *Transcript) Draw(v grid.View, from int) {
 		return
 	}
 	first, last := t.Visible(from, h)
-	for i := first; i < last; i++ {
+	for i := max(first, t.committed); i < last; i++ {
 		b := t.blocks[i]
 		if b.height == 0 {
 			continue
@@ -323,4 +329,78 @@ func (t *Transcript) Rows(from, count int) []Row {
 		}
 	}
 	return out
+}
+
+// Finish says a block will not change again.
+//
+// It is what makes a block eligible to be given to the terminal, and it is the caller's
+// to say: a streaming answer is finished when whatever is streaming it says so, and
+// nothing here can tell a pause from an ending.
+func (t *Transcript) Finish(i int) {
+	if i < 0 || i >= len(t.blocks) {
+		return
+	}
+	t.blocks[i].finished = true
+}
+
+// Finished reports whether a block has been said to be finished.
+func (t *Transcript) Finished(i int) bool {
+	return i >= 0 && i < len(t.blocks) && t.blocks[i].finished
+}
+
+// Committed is how many blocks have been given to the terminal.
+func (t *Transcript) Committed() int { return t.committed }
+
+// CommittedRows is the first row the transcript still draws, which is where a view of
+// it starts and where a scroll should stop going back.
+func (t *Transcript) CommittedRows() int {
+	if t.committed == 0 {
+		return 0
+	}
+	last := t.blocks[t.committed-1]
+	return last.top + last.height
+}
+
+// Commit gives the leading run of finished blocks to the terminal, in order, and
+// reports how many went.
+//
+// # Why only the leading run
+//
+// Text printed into a terminal's own output goes after what is already there, and
+// there is no way to put something in front of it. So a block that finished while an
+// earlier one is still being written has to wait: giving it over first would put the
+// answer above the question.
+//
+// # Why this is one call
+//
+// The alternative is a range to ask for and a range to record afterwards, and the
+// second half of that pair is the one that gets forgotten — which prints the whole
+// session again on the next frame. give is called with each block and its height, and
+// returning false stops the run and leaves that block and everything after it for
+// another time.
+//
+// # It is a one-way door
+//
+// A committed block belongs to the terminal. It is no longer drawn, no longer
+// re-wrapped when the window changes, and no longer selectable or searchable by this
+// program — that is the trade printing makes, and it is why nothing is committed
+// unless it is asked for. What it buys is that the output survives the program
+// exiting, and that a session's memory stops growing.
+func (t *Transcript) Commit(give func(b Sized, rows int) bool) int {
+	gone := 0
+	for i := t.committed; i < len(t.blocks); i++ {
+		b := t.blocks[i]
+		if !b.finished {
+			break
+		}
+		if !give(b.block, b.height) {
+			break
+		}
+		t.committed = i + 1
+		gone++
+	}
+	if gone > 0 {
+		t.gen++
+	}
+	return gone
 }

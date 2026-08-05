@@ -172,3 +172,40 @@ func Dressed(th Theme, g Glyphs) Transcript {
 		Divider:      g.Horizontal,
 	}
 }
+
+// Commit gives the transcript's finished leading blocks to a printer, which is what
+// puts them in the terminal's own output for good.
+//
+// It is here rather than on the transcript because printing needs a width to draw at
+// and the transcript does not have one until it has been laid out. The rest of the
+// rule — leading, in order, once each — is [headless.Transcript.Commit]'s, and this
+// only supplies the drawing.
+//
+// A program's inline loop satisfies Printer, so committing is one call a frame:
+//
+//	view.Commit(loop)
+//
+// Nothing is committed unless this is called. A block given to the terminal is no
+// longer selectable, searchable, or re-wrapped when the window changes, so the choice
+// is the program's and is made block by block with
+// [headless.Transcript.Finish].
+func (t Transcript) Commit(p Printer) int {
+	if t.Content == nil || p == nil {
+		return 0
+	}
+	return t.Content.Commit(func(b headless.Sized, rows int) bool {
+		p.PrintRows(rows, b.Draw)
+		return true
+	})
+}
+
+// Printer is somewhere finished output can be put permanently, which is what an inline
+// program's loop offers.
+//
+// It is declared here rather than taken from there for the reason everything in these
+// two packages is: they are not allowed to know that a program exists.
+type Printer interface {
+	// PrintRows draws rows into the terminal's own output, above the interface, where
+	// they stay after the program exits.
+	PrintRows(rows int, draw func(grid.View))
+}
