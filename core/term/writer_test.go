@@ -1,4 +1,4 @@
-package term
+package term_test
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/oolong/core/term"
 )
 
 // recorder collects everything written to it.
@@ -76,7 +78,7 @@ func (s *short) Write(p []byte) (int, error) {
 
 func TestFramesReachTheTerminalInOrder(t *testing.T) {
 	dst := &recorder{}
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 
 	var last uint64
 	for _, frame := range []string{"one", "two", "three"} {
@@ -102,7 +104,7 @@ func TestFramesReachTheTerminalInOrder(t *testing.T) {
 
 func TestQueueDoesNotWaitForTheTerminal(t *testing.T) {
 	dst := newBlocker()
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 	defer dst.releaseAll()
 
 	// The whole reason this type exists: a terminal that is not accepting bytes must
@@ -126,7 +128,7 @@ func (b *blocker) releaseAll() { close(b.release) }
 
 func TestProgressWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
 	dst := newBlocker()
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 
 	seq := w.Queue([]byte("frame"))
 	select {
@@ -149,7 +151,7 @@ func TestProgressWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
 func TestProgressCoalesces(t *testing.T) {
 	// A loop that has not noticed the last advance does not need to be told twice,
 	// and a bounded signal is what keeps a burst of frames from queueing wake-ups.
-	w := NewWriter(&recorder{})
+	w := term.NewWriter(&recorder{})
 	for range 5 {
 		w.Queue([]byte("x"))
 	}
@@ -164,7 +166,7 @@ func TestProgressCoalesces(t *testing.T) {
 
 func TestShortWritesAreCompleted(t *testing.T) {
 	dst := &short{}
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 	w.Queue([]byte("hello"))
 	if !w.Drain(time.Second) {
 		t.Fatal("never drained")
@@ -176,7 +178,7 @@ func TestShortWritesAreCompleted(t *testing.T) {
 
 func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	dst := &failing{ok: 1}
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 
 	w.Queue([]byte("first"))
 	w.Queue([]byte("second"))
@@ -198,7 +200,7 @@ func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 
 func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 	// A broken terminal must not be able to wedge a shutdown.
-	w := NewWriter(&failing{})
+	w := term.NewWriter(&failing{})
 	w.Queue([]byte("doomed"))
 	if !w.Drain(time.Second) {
 		t.Fatal("Drain waited for a frame that had already failed")
@@ -207,7 +209,7 @@ func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 
 func TestDrainGivesUpOnATerminalThatNeverAccepts(t *testing.T) {
 	dst := newBlocker()
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 	defer dst.releaseAll()
 
 	w.Queue([]byte("frame"))
@@ -218,7 +220,7 @@ func TestDrainGivesUpOnATerminalThatNeverAccepts(t *testing.T) {
 
 func TestCloseReportsAbandonedFrames(t *testing.T) {
 	dst := newBlocker()
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 	defer dst.releaseAll()
 
 	w.Queue([]byte("first"))
@@ -229,18 +231,18 @@ func TestCloseReportsAbandonedFrames(t *testing.T) {
 	if err == nil {
 		t.Fatal("Close hid the frames it abandoned")
 	}
-	if !errors.Is(err, ErrClosed) {
-		t.Fatalf("Close error = %v, want it to be recognisable as ErrClosed", err)
+	if !errors.Is(err, term.ErrClosed) {
+		t.Fatalf("Close error = %v, want it to be recognisable as term.ErrClosed", err)
 	}
 	// A write already inside the terminal cannot be interrupted, so Close returns on
 	// its grace period rather than waiting for one that never comes back.
-	if elapsed := time.Since(start); elapsed > 2*DrainGrace {
+	if elapsed := time.Since(start); elapsed > 2*term.DrainGrace {
 		t.Fatalf("Close took %v, want it bounded by the grace period", elapsed)
 	}
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
-	w := NewWriter(&recorder{})
+	w := term.NewWriter(&recorder{})
 	w.Queue([]byte("frame"))
 	first := w.Close()
 	second := w.Close()
@@ -250,7 +252,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 }
 
 func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
-	w := NewWriter(&recorder{})
+	w := term.NewWriter(&recorder{})
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -269,7 +271,7 @@ func TestManyProducersKeepSequenceAndWriteOrderTogether(t *testing.T) {
 	// Sequence order and write order have to agree, or the watermark would release a
 	// frame that has not landed.
 	dst := &recorder{}
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 	const frames = 50
 	for i := range frames {
 		w.Queue([]byte(strings.Repeat("x", i%7+1)))
@@ -291,7 +293,7 @@ func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
 	// it would leave the loop with nothing to wake on — and would do so only on a
 	// machine slow enough for Drain to get there first, which is how this hid.
 	dst := newBlocker()
-	w := NewWriter(dst)
+	w := term.NewWriter(dst)
 	seq := w.Queue([]byte("frame"))
 
 	// Drain is waiting before anything has been written, which is the ordering the

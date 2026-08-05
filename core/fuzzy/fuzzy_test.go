@@ -1,8 +1,10 @@
-package fuzzy
+package fuzzy_test
 
 import (
 	"slices"
 	"testing"
+
+	"github.com/Tangerg/oolong/core/fuzzy"
 )
 
 func TestAPatternHasToBeASubsequence(t *testing.T) {
@@ -19,12 +21,12 @@ func TestAPatternHasToBeASubsequence(t *testing.T) {
 		{"abc", "ABC", true},
 		{"a", "", false},
 	} {
-		m, ok := Score(tc.pattern, tc.candidate)
+		m, ok := fuzzy.Score(tc.pattern, tc.candidate)
 		if ok != tc.matches {
-			t.Errorf("Score(%q, %q) matched = %v, want %v", tc.pattern, tc.candidate, ok, tc.matches)
+			t.Errorf("fuzzy.Score(%q, %q) matched = %v, want %v", tc.pattern, tc.candidate, ok, tc.matches)
 		}
 		if ok && tc.pattern != "" && m.Score < 1 {
-			t.Errorf("Score(%q, %q) = %d, want a match to be worth something",
+			t.Errorf("fuzzy.Score(%q, %q) = %d, want a match to be worth something",
 				tc.pattern, tc.candidate, m.Score)
 		}
 	}
@@ -33,7 +35,7 @@ func TestAPatternHasToBeASubsequence(t *testing.T) {
 func TestMatchedOffsetsAreWhereTheCharactersAre(t *testing.T) {
 	// They are byte offsets because what asks is about to draw the candidate with them
 	// picked out, and drawing walks a string by offset.
-	m, ok := Score("hé", "chèz hér")
+	m, ok := fuzzy.Score("hé", "chèz hér")
 	if !ok {
 		t.Fatal("no match")
 	}
@@ -53,7 +55,7 @@ func TestMatchedOffsetsAreWhereTheCharactersAre(t *testing.T) {
 func TestAWordStartBeatsTheMiddleOfAWord(t *testing.T) {
 	// The case that makes a palette feel right or wrong: typing "st" should find the
 	// status, not the st in test.
-	m, ok := Score("st", "test_status")
+	m, ok := fuzzy.Score("st", "test_status")
 	if !ok {
 		t.Fatal("no match")
 	}
@@ -64,7 +66,7 @@ func TestAWordStartBeatsTheMiddleOfAWord(t *testing.T) {
 
 func TestAnEarlierPlacementWinsWhenNothingBeatsIt(t *testing.T) {
 	// The greedy answer is the right one when there is no later word to prefer.
-	m, ok := Score("ts", "test")
+	m, ok := fuzzy.Score("ts", "test")
 	if !ok {
 		t.Fatal("no match")
 	}
@@ -74,8 +76,8 @@ func TestAnEarlierPlacementWinsWhenNothingBeatsIt(t *testing.T) {
 }
 
 func TestCharactersThatRunTogetherScoreBest(t *testing.T) {
-	together, _ := Score("ab", "xxab")
-	apart, _ := Score("ab", "xaxxb")
+	together, _ := fuzzy.Score("ab", "xxab")
+	apart, _ := fuzzy.Score("ab", "xaxxb")
 	if together.Score <= apart.Score {
 		t.Fatalf("run together = %d, spread out = %d, want the run to win",
 			together.Score, apart.Score)
@@ -83,8 +85,8 @@ func TestCharactersThatRunTogetherScoreBest(t *testing.T) {
 }
 
 func TestAWordStartScoresBest(t *testing.T) {
-	start, _ := Score("s", "a_start")
-	middle, _ := Score("s", "abcsdef")
+	start, _ := fuzzy.Score("s", "a_start")
+	middle, _ := fuzzy.Score("s", "abcsdef")
 	if start.Score <= middle.Score {
 		t.Fatalf("word start = %d, middle = %d, want the word start to win",
 			start.Score, middle.Score)
@@ -92,31 +94,16 @@ func TestAWordStartScoresBest(t *testing.T) {
 }
 
 func TestTheSameCaseIsWorthALittleMore(t *testing.T) {
-	same, _ := Score("S", "Session")
-	other, _ := Score("s", "Session")
+	same, _ := fuzzy.Score("S", "Session")
+	other, _ := fuzzy.Score("s", "Session")
 	if same.Score <= other.Score {
 		t.Fatalf("same case = %d, other case = %d", same.Score, other.Score)
 	}
 }
 
-func TestSeparatorsAreWhatStartsAWordAndNotCase(t *testing.T) {
-	// Treating a capital as a word start would score "SQL" as three words, and the
-	// bonus is meant to find the beginning of something a person would name.
-	for _, prev := range []rune{' ', '\t', '_', '-', '.', '/', ':'} {
-		if !opensWord(prev) {
-			t.Errorf("%q does not open a word", prev)
-		}
-	}
-	for _, prev := range []rune{'a', 'Z', '0', '(', '\''} {
-		if opensWord(prev) {
-			t.Errorf("%q opens a word", prev)
-		}
-	}
-}
-
 func TestFilterRanksBestFirst(t *testing.T) {
 	candidates := []string{"unrelated", "test_status", "status_line", "stats"}
-	got := Filter("st", candidates)
+	got := fuzzy.Filter("st", candidates)
 	if len(got) != 3 {
 		t.Fatalf("%d matched, want 3 (%q must not)", len(got), "unrelated")
 	}
@@ -134,7 +121,7 @@ func TestFilterKeepsTheOrderItWasGivenForTies(t *testing.T) {
 	// Which is where a caller's own idea of importance belongs: it sorted its items
 	// before asking, and equal scores must not undo that.
 	candidates := []string{"ab", "ab", "ab"}
-	got := Filter("ab", candidates)
+	got := fuzzy.Filter("ab", candidates)
 	if len(got) != 3 {
 		t.Fatalf("%d matched, want 3", len(got))
 	}
@@ -146,17 +133,17 @@ func TestFilterKeepsTheOrderItWasGivenForTies(t *testing.T) {
 }
 
 func TestAnEmptyPatternMatchesEverythingAndHighlightsNothing(t *testing.T) {
-	m, ok := Score("", "anything")
+	m, ok := fuzzy.Score("", "anything")
 	if !ok || len(m.At) != 0 || m.Score != 0 {
-		t.Fatalf("Score(\"\", …) = %+v, %v", m, ok)
+		t.Fatalf("fuzzy.Score(\"\", …) = %+v, %v", m, ok)
 	}
-	if got := Filter("", []string{"a", "b"}); len(got) != 2 {
+	if got := fuzzy.Filter("", []string{"a", "b"}); len(got) != 2 {
 		t.Fatalf("%d matched an empty pattern, want everything", len(got))
 	}
 }
 
 func TestNothingMatchesNothing(t *testing.T) {
-	if got := Filter("zz", []string{"a", "b"}); len(got) != 0 {
+	if got := fuzzy.Filter("zz", []string{"a", "b"}); len(got) != 0 {
 		t.Fatalf("%d matched, want none", len(got))
 	}
 }

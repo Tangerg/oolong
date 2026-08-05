@@ -1,8 +1,10 @@
-package headless
+package headless_test
 
 import (
 	"image"
 	"testing"
+
+	"github.com/Tangerg/oolong/components/headless"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -46,7 +48,7 @@ func middle(w, h int) layout.Placement {
 
 // draw lays the stack out in a space, which is what fills in where each layer
 // went so a later hit test has something to ask about.
-func draw(s *Stack, w, h int) {
+func draw(s *headless.Stack, w, h int) {
 	s.Draw(grid.NewSurface(w, h).View())
 }
 
@@ -55,7 +57,7 @@ func esc() input.Event { return input.Key{Code: input.Esc} }
 func TestAnEmptyStackConsumesNothing(t *testing.T) {
 	// So an interface can offer it every event and carry on when it is not
 	// interested.
-	var s Stack
+	var s headless.Stack
 	if s.Handle(esc()) {
 		t.Fatal("an empty stack consumed a key")
 	}
@@ -68,7 +70,7 @@ func TestAnEmptyStackConsumesNothing(t *testing.T) {
 func TestOnlyTheTopLayerSeesInput(t *testing.T) {
 	under := &panel{name: "under", place: middle(6, 2)}
 	over := &panel{name: "over", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(under)
 	s.Push(over)
 	draw(&s, 20, 10)
@@ -86,7 +88,7 @@ func TestAStackWithAnythingInItSwallowsEveryKey(t *testing.T) {
 	// A key reaching what a modal is covering acts somewhere the user is not
 	// looking.
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 	if !s.Handle(input.Key{Code: input.Character, Rune: 'x'}) {
@@ -95,7 +97,7 @@ func TestAStackWithAnythingInItSwallowsEveryKey(t *testing.T) {
 }
 
 func TestEscapePopsTheTopLayer(t *testing.T) {
-	var s Stack
+	var s headless.Stack
 	s.Push(&panel{name: "a", place: middle(4, 2)})
 	s.Push(&panel{name: "b", place: middle(4, 2)})
 	draw(&s, 20, 10)
@@ -112,7 +114,7 @@ func TestEscapePopsTheTopLayer(t *testing.T) {
 
 func TestALayerThatConsumesEscapeKeepsIt(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2), takes: input.Esc}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 	s.Handle(esc())
@@ -126,7 +128,7 @@ func TestAStickyLayerRefusesToBeDismissed(t *testing.T) {
 	// and doing nothing would read as a bug at the call site.
 	p := &stickyPanel{panel: panel{name: "p", place: middle(4, 2)}}
 	p.stick = true
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 
@@ -144,7 +146,7 @@ func TestAStickyLayerRefusesToBeDismissed(t *testing.T) {
 
 func TestAPressOutsideTheLayerPopsIt(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 
@@ -161,7 +163,7 @@ func TestAPressOutsideTheLayerPopsIt(t *testing.T) {
 
 func TestAPressOutsideCanBeKept(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	s := Stack{KeepOnClickOutside: true}
+	s := headless.Stack{KeepOnClickOutside: true}
 	s.Push(p)
 	draw(&s, 20, 10)
 
@@ -177,7 +179,7 @@ func TestAPressOutsideCanBeKept(t *testing.T) {
 func TestTheWheelOutsideTheLayerBelongsToWhatIsUnderIt(t *testing.T) {
 	// A modal does not stop the transcript behind it from scrolling.
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 
@@ -195,7 +197,7 @@ func TestAMouseEventArrivesInTheLayersOwnCoordinates(t *testing.T) {
 	// The layer draws into a view whose origin is its own, so it reasons in its own
 	// coordinates and a position has to arrive in them.
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 
@@ -218,7 +220,7 @@ func TestALayerIsPlacedAgainstTheSpaceItIsGiven(t *testing.T) {
 	// one: a centre computed against a height nobody varied is a centre nobody
 	// checked.
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 
 	draw(&s, 20, 10)
@@ -236,7 +238,7 @@ func TestALayerIsPlacedAgainstTheSpaceItIsGiven(t *testing.T) {
 
 func TestALayerIsDrawnIntoTheSpaceItAskedFor(t *testing.T) {
 	p := &panel{name: "p", place: middle(6, 3)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10)
 	if len(p.drawnInto) != 2 || p.drawnInto[0] != 6 || p.drawnInto[1] != 3 {
@@ -246,7 +248,7 @@ func TestALayerIsDrawnIntoTheSpaceItAskedFor(t *testing.T) {
 
 func TestPoppingTellsALayerItIsClosed(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	s.Pop()
 	if p.closed != 1 {
@@ -262,7 +264,7 @@ func TestClearPopsFromTheTopDown(t *testing.T) {
 			note:  func() { order = append(order, name) },
 		}
 	}
-	var s Stack
+	var s headless.Stack
 	s.Push(mark("a"))
 	s.Push(mark("b"))
 	s.Push(mark("c"))
@@ -287,14 +289,14 @@ type closingPanel struct {
 func (c *closingPanel) Closed() { c.note() }
 
 func TestPoppingAnEmptyStackIsNotAPanic(t *testing.T) {
-	var s Stack
+	var s headless.Stack
 	if s.Pop() {
 		t.Fatal("popped something from an empty stack")
 	}
 }
 
 func TestPushingNothingIsIgnored(t *testing.T) {
-	var s Stack
+	var s headless.Stack
 	s.Push(nil)
 	if !s.Empty() {
 		t.Fatal("a nil layer went onto the stack, where it would panic on the next frame")
@@ -303,7 +305,7 @@ func TestPushingNothingIsIgnored(t *testing.T) {
 
 func TestTheEscapeBindingCanBeRebound(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	s := Stack{Escape: Binding{Key: input.Key{Code: input.Character, Rune: 'q'}, Does: "close"}}
+	s := headless.Stack{Escape: headless.Binding{Key: input.Key{Code: input.Character, Rune: 'q'}, Does: "close"}}
 	s.Push(p)
 	draw(&s, 20, 10)
 
@@ -333,7 +335,7 @@ func TestABackdropIsGivenTheWholeSpaceAndTheLayerIsNot(t *testing.T) {
 	// drawing outside its box. Dimming what is behind needs the rest, so it is a
 	// separate question with a separate answer.
 	b := &backdropPanel{panel: panel{name: "b", place: middle(4, 2)}}
-	var s Stack
+	var s headless.Stack
 	s.Push(b)
 	draw(&s, 20, 10)
 
@@ -347,7 +349,7 @@ func TestABackdropIsGivenTheWholeSpaceAndTheLayerIsNot(t *testing.T) {
 
 func TestALayerWithNoBackdropIsNotAskedForOne(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	var s Stack
+	var s headless.Stack
 	s.Push(p)
 	draw(&s, 20, 10) // must not panic looking for a method that is not there
 	if p.drawnInto[0] != 4 {

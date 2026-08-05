@@ -1,20 +1,22 @@
-package anim
+package anim_test
 
 import (
 	"math"
 	"testing"
+
+	"github.com/Tangerg/oolong/core/anim"
 )
 
 func TestEaseOutCubicIsClampedAndMonotonic(t *testing.T) {
-	if got := EaseOutCubic(-1); got != 0 {
+	if got := anim.EaseOutCubic(-1); got != 0 {
 		t.Errorf("before the start = %v, want 0", got)
 	}
-	if got := EaseOutCubic(2); got != 1 {
+	if got := anim.EaseOutCubic(2); got != 1 {
 		t.Errorf("after the end = %v, want 1", got)
 	}
 	last := 0.0
 	for i := range 101 {
-		v := EaseOutCubic(float64(i) / 100)
+		v := anim.EaseOutCubic(float64(i) / 100)
 		if v < last {
 			t.Fatalf("eased value went backwards at %d: %v after %v", i, v, last)
 		}
@@ -25,7 +27,7 @@ func TestEaseOutCubicIsClampedAndMonotonic(t *testing.T) {
 func TestEaseOutCubicCoversMostOfTheDistanceEarly(t *testing.T) {
 	// That is what makes a pane that grows read as having arrived rather than as
 	// having been cut off. Halfway through the time is well past halfway there.
-	if got := EaseOutCubic(0.5); got <= 0.8 {
+	if got := anim.EaseOutCubic(0.5); got <= 0.8 {
 		t.Fatalf("halfway = %v, want most of the distance already covered", got)
 	}
 }
@@ -33,10 +35,12 @@ func TestEaseOutCubicCoversMostOfTheDistanceEarly(t *testing.T) {
 func TestShimmerStaysInItsRange(t *testing.T) {
 	for tick := range uint64(200) {
 		for pos := range 40 {
-			v := Shimmer(tick, pos, 40)
-			if v < shimmerBase-1e-9 || v > shimmerPeak+1e-9 {
-				t.Fatalf("Shimmer(%d,%d,40) = %v, outside [%v,%v]",
-					tick, pos, v, shimmerBase, shimmerPeak)
+			v := anim.Shimmer(tick, pos, 40)
+			// The range the doc comment promises, spelled out rather than read
+			// from the constants: a test that took its expectation from the code
+			// under test would pass however that code changed.
+			if v < 0.35-1e-9 || v > 1+1e-9 {
+				t.Fatalf("Shimmer(%d,%d,40) = %v, outside [0.35,1]", tick, pos, v)
 			}
 		}
 	}
@@ -48,7 +52,7 @@ func TestShimmerSweepsAcrossTheRow(t *testing.T) {
 	brightest := func(tick uint64) int {
 		at, best := 0, -1.0
 		for pos := range 40 {
-			if v := Shimmer(tick, pos, 40); v > best {
+			if v := anim.Shimmer(tick, pos, 40); v > best {
 				at, best = pos, v
 			}
 		}
@@ -60,7 +64,7 @@ func TestShimmerSweepsAcrossTheRow(t *testing.T) {
 }
 
 func TestShimmerWithNoRoomIsTheBase(t *testing.T) {
-	if got := Shimmer(5, 0, 0); got != shimmerBase {
+	if got := anim.Shimmer(5, 0, 0); got != 0.35 {
 		t.Fatalf("= %v, want the dim base rather than a division by zero", got)
 	}
 }
@@ -69,12 +73,12 @@ func TestWaveStaysInItsRangeAndOffsetsPerRow(t *testing.T) {
 	same := true
 	for tick := range uint64(100) {
 		for row := range 10 {
-			v := Wave(tick, row)
+			v := anim.Wave(tick, row)
 			if v < 0.2-1e-9 || v > 1+1e-9 {
-				t.Fatalf("Wave(%d,%d) = %v, outside [0.2,1]", tick, row, v)
+				t.Fatalf("anim.Wave(%d,%d) = %v, outside [0.2,1]", tick, row, v)
 			}
 		}
-		if math.Abs(Wave(tick, 0)-Wave(tick, 3)) > 1e-9 {
+		if math.Abs(anim.Wave(tick, 0)-anim.Wave(tick, 3)) > 1e-9 {
 			same = false
 		}
 	}
@@ -84,7 +88,7 @@ func TestWaveStaysInItsRangeAndOffsetsPerRow(t *testing.T) {
 }
 
 func TestTheZeroTransitionIsSettledAtZero(t *testing.T) {
-	var tr Transition
+	var tr anim.Transition
 	if !tr.Done() {
 		t.Fatal("the zero transition is animating something")
 	}
@@ -98,7 +102,7 @@ func TestTheZeroTransitionIsSettledAtZero(t *testing.T) {
 }
 
 func TestATransitionArrivesAfterItsSpan(t *testing.T) {
-	var tr Transition
+	var tr anim.Transition
 	tr.To(10, 4)
 	for range 4 {
 		if tr.Done() {
@@ -116,7 +120,7 @@ func TestATransitionArrivesAfterItsSpan(t *testing.T) {
 
 func TestATransitionWithNoSpanArrivesAtOnce(t *testing.T) {
 	// Which is how a caller sets a value without animating it.
-	var tr Transition
+	var tr anim.Transition
 	tr.To(7, 0)
 	if !tr.Done() || tr.Value() != 7 {
 		t.Fatalf("= %v done=%v, want 7 and settled", tr.Value(), tr.Done())
@@ -126,7 +130,7 @@ func TestATransitionWithNoSpanArrivesAtOnce(t *testing.T) {
 func TestRetargetingStartsFromWhereItGotTo(t *testing.T) {
 	// Snapping back to the old start would be visible, and is what makes a widget
 	// that is retargeted mid-flight jump.
-	var tr Transition
+	var tr anim.Transition
 	tr.To(10, 10)
 	tr.Tick()
 	tr.Tick()
@@ -141,7 +145,7 @@ func TestRetargetingStartsFromWhereItGotTo(t *testing.T) {
 }
 
 func TestTickingPastTheEndIsSafe(t *testing.T) {
-	var tr Transition
+	var tr anim.Transition
 	tr.To(3, 2)
 	for range 20 {
 		tr.Tick()

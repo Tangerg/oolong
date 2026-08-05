@@ -1,11 +1,12 @@
-package ptytest
+package ptytest_test
 
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/oolong/ptytest"
 )
 
 // These drive the harness itself against small commands, so that the parts a
@@ -13,14 +14,14 @@ import (
 
 func needPTY(t *testing.T) {
 	t.Helper()
-	if !Supported() {
+	if !ptytest.Supported() {
 		t.Skip("no pty on this platform")
 	}
 }
 
 func TestASessionCapturesWhatTheCommandWrote(t *testing.T) {
 	needPTY(t)
-	s, err := Start(t.Context(), "echo", "hello from a pty")
+	s, err := ptytest.Start(t.Context(), "echo", "hello from a pty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestASessionSendsWhatIsTyped(t *testing.T) {
 	needPTY(t)
 	// cat echoes its input back through the pty, which is the smallest thing that
 	// proves typing reaches the far end.
-	s, err := Start(t.Context(), "cat")
+	s, err := ptytest.Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +57,7 @@ func TestASessionSendsWhatIsTyped(t *testing.T) {
 
 func TestASessionReportsTheSizeItWasGiven(t *testing.T) {
 	needPTY(t)
-	s, err := StartWith(t.Context(), Options{Size: Size{Cols: 37, Rows: 11}}, "stty", "size")
+	s, err := ptytest.StartWith(t.Context(), ptytest.Options{Size: ptytest.Size{Cols: 37, Rows: 11}}, "stty", "size")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,26 +71,26 @@ func TestASessionReportsTheSizeItWasGiven(t *testing.T) {
 
 func TestResizingIsRefusedForASizeATerminalCannotReport(t *testing.T) {
 	needPTY(t)
-	s, err := Start(t.Context(), "cat")
+	s, err := ptytest.Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
 
-	if err := s.Resize(Size{Cols: 0, Rows: 0}); err == nil {
+	if err := s.Resize(ptytest.Size{Cols: 0, Rows: 0}); err == nil {
 		t.Fatal("a terminal was collapsed to no size")
 	}
 }
 
 func TestStartingSomethingThatIsNotThereFails(t *testing.T) {
 	needPTY(t)
-	if _, err := Start(t.Context(), "this-command-does-not-exist-anywhere"); err == nil {
+	if _, err := ptytest.Start(t.Context(), "this-command-does-not-exist-anywhere"); err == nil {
 		t.Fatal("starting a command that does not exist succeeded")
 	}
 }
 
 func TestStartingAtASizeATerminalCannotReportFails(t *testing.T) {
-	if _, err := StartWith(t.Context(), Options{Size: Size{Cols: -1, Rows: 5}}, "echo"); err == nil {
+	if _, err := ptytest.StartWith(t.Context(), ptytest.Options{Size: ptytest.Size{Cols: -1, Rows: 5}}, "echo"); err == nil {
 		t.Fatal("a pty was opened at a size that cannot be represented")
 	}
 }
@@ -97,7 +98,7 @@ func TestStartingAtASizeATerminalCannotReportFails(t *testing.T) {
 func TestClosingTwiceIsSafe(t *testing.T) {
 	// So a test can defer it and still close explicitly.
 	needPTY(t)
-	s, err := Start(t.Context(), "cat")
+	s, err := ptytest.Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestClosingTwiceIsSafe(t *testing.T) {
 
 func TestClosingKillsSomethingStillRunning(t *testing.T) {
 	needPTY(t)
-	s, err := Start(t.Context(), "cat") // waits for input for ever
+	s, err := ptytest.Start(t.Context(), "cat") // waits for input for ever
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestClosingKillsSomethingStillRunning(t *testing.T) {
 
 func TestWaitGivesUpWhenItsContextDoes(t *testing.T) {
 	needPTY(t)
-	s, err := Start(t.Context(), "cat")
+	s, err := ptytest.Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestWaitGivesUpWhenItsContextDoes(t *testing.T) {
 
 func TestWriteSendsRawBytes(t *testing.T) {
 	needPTY(t)
-	s, err := Start(t.Context(), "cat")
+	s, err := ptytest.Start(t.Context(), "cat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,22 +154,11 @@ func TestWriteSendsRawBytes(t *testing.T) {
 }
 
 func TestAnUnsupportedPlatformSaysSoRatherThanHanging(t *testing.T) {
-	if Supported() {
+	if ptytest.Supported() {
 		t.Skip("this platform has a pty")
 	}
-	_, err := Start(t.Context(), "echo")
-	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("= %v, want ErrUnsupported", err)
-	}
-}
-
-func TestTheTranscriptIsAStringByteForByte(t *testing.T) {
-	tr := newTranscript()
-	tr.append([]byte("\x1b[0m\xff"))
-	if got := tr.String(); got != "\x1b[0m\xff" {
-		t.Fatalf("= %q, want the bytes unchanged", got)
-	}
-	if !strings.Contains(tr.String(), "\x1b[0m") {
-		t.Fatal("an escape sequence did not survive the round trip")
+	_, err := ptytest.Start(t.Context(), "echo")
+	if !errors.Is(err, ptytest.ErrUnsupported) {
+		t.Fatalf("= %v, want ptytest.ErrUnsupported", err)
 	}
 }

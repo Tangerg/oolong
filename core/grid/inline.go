@@ -158,6 +158,10 @@ func (i *Inline) Print(rows int, draw func(View)) {
 	}
 }
 
+// Cursor is where the last frame asked for the terminal's cursor to go, in the
+// block's own coordinates. See [Screen.Cursor].
+func (i *Inline) Cursor() Cursor { return i.placed }
+
 // Flush writes this frame to w, leaving the cursor wherever the frame placed it.
 //
 // A flush that would change nothing writes nothing at all, for the same reason a

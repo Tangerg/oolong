@@ -98,6 +98,14 @@ func (s *Screen) Frame() View {
 	return v
 }
 
+// Cursor is where the last frame asked for the terminal's cursor to go.
+//
+// It reads back what [View.PlaceCursor] recorded, which is otherwise only
+// observable by decoding the escape stream. A caller that has to know where the
+// caret is — to place something beside it, or to check that a widget put it where
+// it meant to — had no way to ask before this.
+func (s *Screen) Cursor() Cursor { return s.placed }
+
 // Flush writes this frame to w, leaving the cursor wherever the frame placed it.
 func (s *Screen) Flush(w io.Writer) error {
 	s.frame.restart()

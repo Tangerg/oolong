@@ -1,8 +1,10 @@
-package present
+package present_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/Tangerg/oolong/core/present"
 )
 
 var epoch = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
@@ -21,7 +23,7 @@ func (d *drew) draw(full bool) uint64 {
 }
 
 func TestNothingIsDrawnUntilSomethingAsks(t *testing.T) {
-	var p Presenter
+	var p present.Presenter
 	var d drew
 	if p.Present(epoch, d.draw) {
 		t.Fatal("drew a frame nobody asked for")
@@ -33,7 +35,7 @@ func TestNothingIsDrawnUntilSomethingAsks(t *testing.T) {
 }
 
 func TestManyRequestsCollapseIntoOneFrame(t *testing.T) {
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 1}
 	for range 10 {
 		p.Request()
@@ -54,7 +56,7 @@ func TestManyRequestsCollapseIntoOneFrame(t *testing.T) {
 }
 
 func TestAFullRepaintRequestSurvivesCoalescing(t *testing.T) {
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 1}
 	p.RequestFull()
 	p.Request()
@@ -73,7 +75,7 @@ func TestAFullRepaintRequestSurvivesCoalescing(t *testing.T) {
 }
 
 func TestAFrameThatQueuedNothingLeavesNothingInFlight(t *testing.T) {
-	var p Presenter
+	var p present.Presenter
 	// An unchanged frame writes no bytes, so there is nothing to wait for and the
 	// next request must not be held.
 	d := drew{seq: 0}
@@ -86,7 +88,7 @@ func TestAFrameThatQueuedNothingLeavesNothingInFlight(t *testing.T) {
 }
 
 func TestAcknowledgementOfALaterFrameReleasesAnEarlierOne(t *testing.T) {
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 7}
 	p.Request()
 	p.Present(epoch, d.draw)
@@ -100,7 +102,7 @@ func TestAcknowledgementOfALaterFrameReleasesAnEarlierOne(t *testing.T) {
 }
 
 func TestThrottledRequestsAreSpacedOut(t *testing.T) {
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 1}
 	const interval = 16 * time.Millisecond
 
@@ -141,7 +143,7 @@ func TestThrottledRequestsAreSpacedOut(t *testing.T) {
 func TestAFrameInFlightHoldsEverythingBehindIt(t *testing.T) {
 	// Which is the whole of the backpressure: a terminal that has not finished with the
 	// last frame is not given another.
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 1}
 	p.Request()
 	p.Present(epoch, d.draw)
@@ -162,7 +164,7 @@ func TestAThrottledRequestStillOwesAFrame(t *testing.T) {
 	// The interval decides when a frame is drawn, not whether. A request that only
 	// recorded a deadline would lose the last update of a burst: the loop would wake at
 	// the deadline, find nothing owed, and draw nothing.
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 1}
 	const interval = 16 * time.Millisecond
 
@@ -184,7 +186,7 @@ func TestAThrottledRequestStillOwesAFrame(t *testing.T) {
 
 func TestAskingForAFrameNowCancelsTheWait(t *testing.T) {
 	// A resize cannot be made to wait behind a token stream's pacing.
-	var p Presenter
+	var p present.Presenter
 	d := drew{seq: 1}
 	const interval = 16 * time.Millisecond
 

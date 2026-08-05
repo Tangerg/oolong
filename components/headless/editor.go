@@ -156,6 +156,33 @@ func (e *Editor) Cursor() (line, col int) {
 	return e.line, e.col
 }
 
+// SetCursor moves the cursor to a logical line and a byte offset within it.
+//
+// Both are clamped to the text, and the offset is pulled back to the start of the
+// cluster it lands inside: a cursor between a letter and the accent that modifies
+// it is not a place a terminal could draw one.
+//
+// It is what a caller needs to restore a draft where they left it, and what
+// placing the cursor from a click will be built on — the editor could report where
+// its caret was and not be told where to put it, which made the round trip only
+// half a round.
+func (e *Editor) SetCursor(line, col int) {
+	e.ensure()
+	e.endTyping()
+	e.line = min(max(line, 0), len(e.lines)-1)
+	current := e.lines[e.line]
+	col = min(max(col, 0), len(current))
+	// NextCluster from the preceding boundary lands on the boundary at or before
+	// col, which is the only offset a caret can occupy.
+	if col > 0 && col < len(current) {
+		if at := text.PrevCluster(current, col); text.NextCluster(current, at) > col {
+			col = at
+		}
+	}
+	e.col = col
+	e.wantColumn = -1
+}
+
 // Insert puts text in at the cursor. Newlines in it split lines, so a paste arrives
 // as the text that was pasted rather than as a run of keystrokes.
 func (e *Editor) Insert(s string) {

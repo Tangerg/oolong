@@ -1,4 +1,4 @@
-package program
+package program_test
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/oolong/core/program"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -77,7 +79,7 @@ func (f *frames) size() int {
 // Its counters are atomic because a test reads them; the text it draws is only ever
 // touched on the program's goroutine, which is the rule this package promises.
 type component struct {
-	loop Loop
+	loop program.Loop
 
 	text    string
 	handled atomic.Int64
@@ -114,9 +116,9 @@ func start(t *testing.T, prepare func(*component)) *running {
 	root := &component{text: "ready", consume: true}
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(context.Background(), Config{
+		done <- program.Run(context.Background(), program.Config{
 			Host: h,
-			Root: func(loop Loop) Component {
+			Root: func(loop program.Loop) program.Component {
 				root.loop = loop
 				if prepare != nil {
 					prepare(root)
@@ -335,7 +337,7 @@ func TestACancelledContextEndsTheProgramWithoutAnError(t *testing.T) {
 	done := make(chan error, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		done <- Run(ctx, Config{Host: h, Root: func(Loop) Component { return root }})
+		done <- program.Run(ctx, program.Config{Host: h, Root: func(program.Loop) program.Component { return root }})
 	}()
 	cancel()
 	select {
@@ -455,9 +457,9 @@ func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 	h.writer = term.NewWriter(brokenTerminal{})
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(context.Background(), Config{
+		done <- program.Run(context.Background(), program.Config{
 			Host: h,
-			Root: func(Loop) Component { return &component{text: "ready"} },
+			Root: func(program.Loop) program.Component { return &component{text: "ready"} },
 		})
 	}()
 	select {
@@ -471,7 +473,7 @@ func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 }
 
 func TestAProgramWithNoComponentIsRefused(t *testing.T) {
-	if err := Run(context.Background(), Config{Host: newHost()}); err == nil {
+	if err := program.Run(context.Background(), program.Config{Host: newHost()}); err == nil {
 		t.Fatal("a program with nothing to draw was accepted")
 	}
 }
@@ -482,11 +484,11 @@ func TestTheComponentIsGivenItsLoopBeforeItIsDrawn(t *testing.T) {
 	h := newHost()
 	var hadLoop atomic.Bool
 	done := make(chan error, 1)
-	var quit Loop
+	var quit program.Loop
 	go func() {
-		done <- Run(context.Background(), Config{
+		done <- program.Run(context.Background(), program.Config{
 			Host: h,
-			Root: func(loop Loop) Component {
+			Root: func(loop program.Loop) program.Component {
 				quit = loop
 				hadLoop.Store(loop != nil)
 				return &component{text: "ready"}
@@ -524,7 +526,7 @@ func (brokenTerminal) Write([]byte) (int, error) { return 0, errBrokenTerminal }
 
 // printer is a component that draws a line and can send finished output above itself.
 type printer struct {
-	loop InlineLoop
+	loop program.InlineLoop
 
 	text  string
 	drawn atomic.Int64
@@ -544,9 +546,9 @@ func startInline(t *testing.T) (*host, *printer, chan error) {
 	root := &printer{text: "prompt"}
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(context.Background(), Config{
+		done <- program.Run(context.Background(), program.Config{
 			Host: h,
-			Inline: func(loop InlineLoop) Component {
+			Inline: func(loop program.InlineLoop) program.Component {
 				root.loop = loop
 				return root
 			},
@@ -582,12 +584,12 @@ func waitFor(t *testing.T, done chan error, h *host, what string, cond func() bo
 func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 	// Which of the two is set decides the rendering model, so neither and both are
 	// equally unanswerable.
-	both := Config{
-		Root:   func(Loop) Component { return &component{} },
-		Inline: func(InlineLoop) Component { return &printer{} },
+	both := program.Config{
+		Root:   func(program.Loop) program.Component { return &component{} },
+		Inline: func(program.InlineLoop) program.Component { return &printer{} },
 	}
-	for what, cfg := range map[string]Config{"neither": {}, "both": both} {
-		if err := Run(context.Background(), cfg); err == nil {
+	for what, cfg := range map[string]program.Config{"neither": {}, "both": both} {
+		if err := program.Run(context.Background(), cfg); err == nil {
 			t.Errorf("%s root was accepted", what)
 		}
 	}
@@ -596,8 +598,8 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
 	// A caller who asked for both believes something false: an interface on a screen
 	// of its own has no session output to sit among, and nowhere to print.
-	err := Run(context.Background(), Config{
-		Inline:   func(InlineLoop) Component { return &printer{} },
+	err := program.Run(context.Background(), program.Config{
+		Inline:   func(program.InlineLoop) program.Component { return &printer{} },
 		Terminal: term.Options{AltScreen: true},
 		Host:     newHost(),
 	})

@@ -1,5 +1,10 @@
 package term
 
+// Tests of what this package keeps to itself: which escape sequences a session
+// writes to take a terminal over and the order it puts them back in, and the pump
+// that turns bytes into events. None of it has a public name, and ptytest asserts
+// the same properties end to end against a real terminal.
+
 import (
 	"errors"
 	"strings"
@@ -8,70 +13,6 @@ import (
 
 	"github.com/Tangerg/oolong/core/input"
 )
-
-func TestEveryModeTurnedOnIsTurnedBackOff(t *testing.T) {
-	// A mode left on outlives the process: mouse reporting still on means the shell
-	// prints escape sequences when the user moves the mouse, and the alternate
-	// screen still on means whatever was on screen before is gone.
-	all := modes{altScreen: true, mouse: true, focus: true, keyboard: true}
-	enter, leave := all.enter(), all.leave()
-
-	for _, pair := range all.sequence() {
-		if !strings.Contains(enter, pair.on) {
-			t.Errorf("entering does not turn on %q", pair.on)
-		}
-		if !strings.Contains(leave, pair.off) {
-			t.Errorf("leaving does not turn off %q", pair.on)
-		}
-	}
-}
-
-func TestModesAreUndoneInTheOppositeOrder(t *testing.T) {
-	// The alternate screen is entered first and has to be left last, or the modes
-	// underneath are put back onto a screen that is about to be discarded.
-	all := modes{altScreen: true, mouse: true, focus: true, keyboard: true}
-	enter, leave := all.enter(), all.leave()
-
-	seq := all.sequence()
-	for i := range seq {
-		for j := i + 1; j < len(seq); j++ {
-			if strings.Index(enter, seq[i].on) > strings.Index(enter, seq[j].on) {
-				t.Fatalf("%q is turned on after %q", seq[i].on, seq[j].on)
-			}
-			if strings.Index(leave, seq[i].off) < strings.Index(leave, seq[j].off) {
-				t.Fatalf("%q is turned off before %q", seq[i].off, seq[j].off)
-			}
-		}
-	}
-}
-
-func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
-	none := modes{}
-	enter, leave := none.enter(), none.leave()
-	for _, unwanted := range []string{altScreenOn, mouseOn, focusOn, keyboardOn} {
-		if strings.Contains(enter, unwanted) {
-			t.Errorf("entering turned on %q without being asked", unwanted)
-		}
-	}
-	for _, unwanted := range []string{altScreenOff, mouseOff, focusOff, keyboardOff} {
-		if strings.Contains(leave, unwanted) {
-			t.Errorf("leaving turned off %q that was never on", unwanted)
-		}
-	}
-	// Bracketed paste is not optional: without it a pasted block arrives as
-	// keystrokes, and pasted code runs.
-	if !strings.Contains(enter, pasteOn) || !strings.Contains(leave, pasteOff) {
-		t.Error("bracketed paste is not handled unconditionally")
-	}
-}
-
-func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
-	// A frame may have hidden it, and a hidden cursor in the shell afterwards looks
-	// like a hung terminal.
-	if !strings.HasSuffix(modes{}.leave(), cursorShow) {
-		t.Error("leaving does not end by showing the cursor")
-	}
-}
 
 func TestOpenWithoutATerminal(t *testing.T) {
 	// Under a test runner standard input is not a terminal, which is exactly the
@@ -199,6 +140,70 @@ func TestPumpIgnoresAResizeItCannotMeasure(t *testing.T) {
 	d.resized <- struct{}{}
 	// Reporting a size of zero would have every widget lay out into nothing.
 	d.silent(t, 40*time.Millisecond)
+}
+
+func TestEveryModeTurnedOnIsTurnedBackOff(t *testing.T) {
+	// A mode left on outlives the process: mouse reporting still on means the shell
+	// prints escape sequences when the user moves the mouse, and the alternate
+	// screen still on means whatever was on screen before is gone.
+	all := modes{altScreen: true, mouse: true, focus: true, keyboard: true}
+	enter, leave := all.enter(), all.leave()
+
+	for _, pair := range all.sequence() {
+		if !strings.Contains(enter, pair.on) {
+			t.Errorf("entering does not turn on %q", pair.on)
+		}
+		if !strings.Contains(leave, pair.off) {
+			t.Errorf("leaving does not turn off %q", pair.on)
+		}
+	}
+}
+
+func TestModesAreUndoneInTheOppositeOrder(t *testing.T) {
+	// The alternate screen is entered first and has to be left last, or the modes
+	// underneath are put back onto a screen that is about to be discarded.
+	all := modes{altScreen: true, mouse: true, focus: true, keyboard: true}
+	enter, leave := all.enter(), all.leave()
+
+	seq := all.sequence()
+	for i := range seq {
+		for j := i + 1; j < len(seq); j++ {
+			if strings.Index(enter, seq[i].on) > strings.Index(enter, seq[j].on) {
+				t.Fatalf("%q is turned on after %q", seq[i].on, seq[j].on)
+			}
+			if strings.Index(leave, seq[i].off) < strings.Index(leave, seq[j].off) {
+				t.Fatalf("%q is turned off before %q", seq[i].off, seq[j].off)
+			}
+		}
+	}
+}
+
+func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
+	none := modes{}
+	enter, leave := none.enter(), none.leave()
+	for _, unwanted := range []string{altScreenOn, mouseOn, focusOn, keyboardOn} {
+		if strings.Contains(enter, unwanted) {
+			t.Errorf("entering turned on %q without being asked", unwanted)
+		}
+	}
+	for _, unwanted := range []string{altScreenOff, mouseOff, focusOff, keyboardOff} {
+		if strings.Contains(leave, unwanted) {
+			t.Errorf("leaving turned off %q that was never on", unwanted)
+		}
+	}
+	// Bracketed paste is not optional: without it a pasted block arrives as
+	// keystrokes, and pasted code runs.
+	if !strings.Contains(enter, pasteOn) || !strings.Contains(leave, pasteOff) {
+		t.Error("bracketed paste is not handled unconditionally")
+	}
+}
+
+func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
+	// A frame may have hidden it, and a hidden cursor in the shell afterwards looks
+	// like a hung terminal.
+	if !strings.HasSuffix(modes{}.leave(), cursorShow) {
+		t.Error("leaving does not end by showing the cursor")
+	}
 }
 
 func TestPumpDeliversTheLastKeystrokeWhenInputEnds(t *testing.T) {

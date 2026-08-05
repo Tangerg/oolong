@@ -1,8 +1,10 @@
-package kit
+package kit_test
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/oolong/components/kit"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
@@ -42,7 +44,7 @@ func equalRows(t *testing.T, got, want []string) {
 }
 
 func TestBoxFramesAndReportsWhatIsLeft(t *testing.T) {
-	box := Box{Border: Rounded, Padding: layout.Uniform(1)}
+	box := kit.Box{Border: kit.Rounded, Padding: layout.Uniform(1)}
 	rows := paint(8, 5, func(v grid.View) {
 		inner := box.Draw(v)
 		w, h := inner.Size()
@@ -63,11 +65,11 @@ func TestBoxFramesAndReportsWhatIsLeft(t *testing.T) {
 func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 	// A box that reported one overhead and drew another would have its content
 	// clipped, and the bug would look like it belonged to the content.
-	for _, box := range []Box{
+	for _, box := range []kit.Box{
 		{},
-		{Border: Rounded},
+		{Border: kit.Rounded},
 		{Padding: layout.Uniform(2)},
-		{Border: Square, Padding: layout.Symmetric(1, 2)},
+		{Border: kit.Square, Padding: layout.Symmetric(1, 2)},
 	} {
 		over := box.Overhead()
 		s := grid.NewSurface(20, 10)
@@ -81,7 +83,7 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 
 func TestBoxTitleSitsInTheBorder(t *testing.T) {
 	rows := paint(12, 2, func(v grid.View) {
-		Box{Border: Rounded, Title: "Plan"}.Draw(v)
+		kit.Box{Border: kit.Rounded, Title: "Plan"}.Draw(v)
 	})
 	if !strings.Contains(rows[0], "Plan") {
 		t.Fatalf("top border = %q, want the title in it", rows[0])
@@ -96,7 +98,7 @@ func TestBoxSurvivesBeingSqueezed(_ *testing.T) {
 	// A collapsing layout must look small, not corrupted. None of these may panic.
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {2, 1}, {1, 3}, {3, 2}} {
 		paint(size[0], size[1], func(v grid.View) {
-			Box{Border: Rounded, Title: "title", Footer: "footer", Padding: layout.Uniform(1)}.Draw(v)
+			kit.Box{Border: kit.Rounded, Title: "title", Footer: "footer", Padding: layout.Uniform(1)}.Draw(v)
 		})
 	}
 }
@@ -105,7 +107,7 @@ func TestLabelTruncatesRatherThanWraps(t *testing.T) {
 	// One row is all a label ever has. Folding would push whatever is below it off
 	// the screen.
 	rows := paint(6, 2, func(v grid.View) {
-		Label{Text: "far too long", Ellipsis: "…"}.Draw(v)
+		kit.Label{Text: "far too long", Ellipsis: "…"}.Draw(v)
 	})
 	equalRows(t, rows, []string{"far t…", "......"})
 }
@@ -120,14 +122,14 @@ func TestLabelAlignment(t *testing.T) {
 		{layout.End, "........ab"},
 	} {
 		rows := paint(10, 1, func(v grid.View) {
-			Label{Text: "ab", Align: tc.align}.Draw(v)
+			kit.Label{Text: "ab", Align: tc.align}.Draw(v)
 		})
 		equalRows(t, rows, []string{tc.want})
 	}
 }
 
 func TestParagraphHeightFollowsWidth(t *testing.T) {
-	p := NewParagraph("one two three four", grid.Style{})
+	p := kit.NewParagraph("one two three four", grid.Style{})
 	if got := p.Measure(9); got != 3 {
 		t.Fatalf("height at 9 = %d, want 3", got)
 	}
@@ -140,21 +142,21 @@ func TestParagraphHeightFollowsWidth(t *testing.T) {
 }
 
 func TestParagraphKeepsNewlinesAsLineBreaks(t *testing.T) {
-	p := NewParagraph("first\nsecond", grid.Style{})
+	p := kit.NewParagraph("first\nsecond", grid.Style{})
 	if got := p.Measure(20); got != 2 {
 		t.Fatalf("height = %d, want a row per line", got)
 	}
 }
 
 func TestParagraphIndentsEveryRow(t *testing.T) {
-	p := NewParagraph("one two three", grid.Style{})
+	p := kit.NewParagraph("one two three", grid.Style{})
 	p.Indent = 2
 	rows := paint(7, 3, func(v grid.View) { p.Draw(v) })
 	equalRows(t, rows, []string{"..one..", "..two..", "..three"})
 }
 
 func TestParagraphCapsItsHeight(t *testing.T) {
-	p := NewParagraph("one two three four five", grid.Style{})
+	p := kit.NewParagraph("one two three four five", grid.Style{})
 	p.MaxRows = 2
 	if got := p.Measure(6); got != 2 {
 		t.Fatalf("height = %d, want the cap", got)
@@ -170,11 +172,11 @@ func TestParagraphCapsItsHeight(t *testing.T) {
 func TestParagraphRewrapsWhenItsTextChanges(t *testing.T) {
 	// The wrap is memoised because it is asked for twice a frame. A memo that
 	// outlived its content would show the old text forever.
-	p := NewParagraph("short", grid.Style{})
+	p := kit.NewParagraph("short", grid.Style{})
 	if got := p.Measure(20); got != 1 {
 		t.Fatalf("height = %d", got)
 	}
-	p.SetText(linesOf("one\ntwo\nthree", grid.Style{}))
+	p.SetText(kit.NewParagraph("one\ntwo\nthree", grid.Style{}).Lines)
 	if got := p.Measure(20); got != 3 {
 		t.Fatalf("height after the text changed = %d, want 3", got)
 	}
@@ -183,7 +185,7 @@ func TestParagraphRewrapsWhenItsTextChanges(t *testing.T) {
 func TestSpinnerAdvancesOnlyWhenTold(t *testing.T) {
 	// It holds a frame number, not a clock: an idle UI must not wake up to animate
 	// something nobody is waiting for.
-	s := &Spinner{Frames: []string{"a", "b"}, Label: "working"}
+	s := &kit.Spinner{Frames: []string{"a", "b"}, Label: "working"}
 	first := paint(10, 1, func(v grid.View) { s.Draw(v) })
 	again := paint(10, 1, func(v grid.View) { s.Draw(v) })
 	equalRows(t, first, again)
@@ -199,7 +201,7 @@ func TestSpinnerAdvancesOnlyWhenTold(t *testing.T) {
 }
 
 func TestSpinnerDropsALabelThatDoesNotFit(t *testing.T) {
-	s := &Spinner{Frames: []string{"a"}, Label: "far too long to fit"}
+	s := &kit.Spinner{Frames: []string{"a"}, Label: "far too long to fit"}
 	rows := paint(3, 1, func(v grid.View) { s.Draw(v) })
 	if !strings.HasPrefix(rows[0], "a") {
 		t.Fatalf("row = %q, want the glyph", rows[0])
@@ -208,13 +210,13 @@ func TestSpinnerDropsALabelThatDoesNotFit(t *testing.T) {
 
 func TestScrollbarThumbTracksThePosition(t *testing.T) {
 	top := paint(1, 4, func(v grid.View) {
-		Scrollbar{Total: 40, Window: 4, Offset: 0, Track: "-", Thumb: "#"}.Draw(v)
+		kit.Scrollbar{Total: 40, Window: 4, Offset: 0, Track: "-", Thumb: "#"}.Draw(v)
 	})
 	if top[0] != "#" || top[3] != "-" {
 		t.Fatalf("at the top the bar is %v, want the thumb at the top", top)
 	}
 	bottom := paint(1, 4, func(v grid.View) {
-		Scrollbar{Total: 40, Window: 4, Offset: 36, Track: "-", Thumb: "#"}.Draw(v)
+		kit.Scrollbar{Total: 40, Window: 4, Offset: 36, Track: "-", Thumb: "#"}.Draw(v)
 	})
 	if bottom[3] != "#" || bottom[0] != "-" {
 		t.Fatalf("at the end the bar is %v, want the thumb at the bottom", bottom)
@@ -224,7 +226,7 @@ func TestScrollbarThumbTracksThePosition(t *testing.T) {
 func TestScrollbarThumbNeverRoundsAway(t *testing.T) {
 	// A thumb rounded down to nothing tells the user nothing.
 	rows := paint(1, 4, func(v grid.View) {
-		Scrollbar{Total: 10000, Window: 4, Offset: 5000, Track: "-", Thumb: "#"}.Draw(v)
+		kit.Scrollbar{Total: 10000, Window: 4, Offset: 5000, Track: "-", Thumb: "#"}.Draw(v)
 	})
 	if !strings.Contains(strings.Join(rows, ""), "#") {
 		t.Fatalf("bar = %v, want a thumb somewhere in it", rows)
@@ -232,16 +234,16 @@ func TestScrollbarThumbNeverRoundsAway(t *testing.T) {
 }
 
 func TestScrollbarKnowsWhenItIsPointless(t *testing.T) {
-	if (Scrollbar{Total: 3, Window: 10}).Needed() {
+	if (kit.Scrollbar{Total: 3, Window: 10}).Needed() {
 		t.Error("a bar claims to be needed when everything already fits")
 	}
-	if !(Scrollbar{Total: 30, Window: 10}).Needed() {
+	if !(kit.Scrollbar{Total: 30, Window: 10}).Needed() {
 		t.Error("a bar does not know it is needed")
 	}
 }
 
 func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
-	help := Help{Bindings: []headless.Binding{
+	help := kit.Help{Bindings: []headless.Binding{
 		{Key: input.Key{Code: input.Enter}, Does: "send"},
 		{Key: input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}, Does: "quit"},
 		{Key: input.Key{Code: input.Character, Rune: 'g', Mods: input.Ctrl}, Does: "tasks"},
@@ -264,7 +266,7 @@ func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
 }
 
 func TestHelpSkipsHiddenBindings(t *testing.T) {
-	help := Help{Bindings: []headless.Binding{
+	help := kit.Help{Bindings: []headless.Binding{
 		{Key: input.Key{Code: input.Enter}, Does: "send"},
 		{Key: input.Key{Code: input.F5}, Does: "secret", Hidden: true},
 	}}
@@ -291,7 +293,7 @@ func TestTextIsMeasuredTheSameWayItIsDrawn(t *testing.T) {
 
 func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 	// The right edge has to line up with whatever is drawn beside it.
-	table := Table{Columns: []Column{{Width: 6}, {Flex: 1}, {Flex: 2}}, Gap: 1}
+	table := kit.Table{Columns: []kit.Column{{Width: 6}, {Flex: 1}, {Flex: 2}}, Gap: 1}
 	widths := table.Widths(30)
 	total := widths[0] + widths[1] + widths[2] + 2
 	if total != 30 {
@@ -306,7 +308,7 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 }
 
 func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
-	table := Table{Columns: []Column{{Width: 20}, {Flex: 1, Min: 4}}, Gap: 1}
+	table := kit.Table{Columns: []kit.Column{{Width: 20}, {Flex: 1, Min: 4}}, Gap: 1}
 	widths := table.Widths(22)
 	if widths[1] < 4 {
 		t.Fatalf("widths %v, want the flexible column to keep its floor", widths)
@@ -314,13 +316,13 @@ func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 }
 
 func TestTableDrawsHeaderAndRows(t *testing.T) {
-	table := Table{
-		Columns: []Column{{Title: "id", Width: 4}, {Title: "name", Flex: 1}},
+	table := kit.Table{
+		Columns: []kit.Column{{Title: "id", Width: 4}, {Title: "name", Flex: 1}},
 		Rows:    2,
 		Header:  true,
 		Cell: func(v grid.View, row, col int, base grid.Style) {
 			data := [][]string{{"a1", "alpha"}, {"b2", "bravo"}}
-			Label{Text: data[row][col], Style: base}.Draw(v)
+			kit.Label{Text: data[row][col], Style: base}.Draw(v)
 		},
 	}
 	rows := paint(12, 3, func(v grid.View) { table.Draw(v) })
@@ -335,12 +337,12 @@ func TestTableDrawsHeaderAndRows(t *testing.T) {
 }
 
 func TestTableCellsAreTruncatedToTheirColumn(t *testing.T) {
-	table := Table{
-		Columns: []Column{{Width: 5}, {Flex: 1}},
+	table := kit.Table{
+		Columns: []kit.Column{{Width: 5}, {Flex: 1}},
 		Rows:    1,
 		Cell: func(v grid.View, _, col int, base grid.Style) {
 			_ = col
-			Label{Text: "far too long", Style: base, Ellipsis: "…"}.Draw(v)
+			kit.Label{Text: "far too long", Style: base, Ellipsis: "…"}.Draw(v)
 		},
 	}
 	rows := paint(12, 1, func(v grid.View) { table.Draw(v) })
@@ -352,12 +354,12 @@ func TestTableCellsAreTruncatedToTheirColumn(t *testing.T) {
 
 func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 	selected := grid.Style{BG: grid.RGBColor(40, 40, 40)}
-	table := Table{
-		Columns:  []Column{{Flex: 1}},
+	table := kit.Table{
+		Columns:  []kit.Column{{Flex: 1}},
 		Rows:     2,
 		RowStyle: func(row int) grid.Style { return map[bool]grid.Style{true: selected}[row == 1] },
 		Cell: func(v grid.View, _, _ int, base grid.Style) {
-			Label{Text: "x", Style: base}.Draw(v)
+			kit.Label{Text: "x", Style: base}.Draw(v)
 		},
 	}
 	s := grid.NewSurface(6, 2)
@@ -372,7 +374,7 @@ func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 func TestOverlayDrawsIntoWhereItSaidItWould(t *testing.T) {
 	// Area and Draw have to agree, or a hit test a frame later answers about the wrong
 	// place.
-	o := Overlay{Placement: layout.Placement{Anchor: layout.Middle, Width: 4, Height: 1}}
+	o := kit.Overlay{Placement: layout.Placement{Anchor: layout.Middle, Width: 4, Height: 1}}
 	s := grid.NewSurface(10, 3)
 	area := o.Area(s.View())
 	o.Draw(s.View()).Text(0, 0, "abcd", grid.Style{})
@@ -394,7 +396,7 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 	shade := grid.Style{Attr: grid.Dim}
 	s := grid.NewSurface(8, 2)
 	s.View().Text(0, 0, "behind", grid.Style{})
-	Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Shade: shade}.Draw(s.View())
+	kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Shade: shade}.Draw(s.View())
 
 	if got := s.CellAt(0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)

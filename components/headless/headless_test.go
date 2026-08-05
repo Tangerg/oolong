@@ -1,10 +1,12 @@
-package headless
+package headless_test
 
 import (
 	"image"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/oolong/components/headless"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -18,15 +20,15 @@ import (
 // A test may reach across rings where production code may not, which is the whole
 // reason this assertion can live beside the interface it is about.
 var (
-	_ program.Component = (*Editor)(nil)
-	_ program.Component = (*List[string])(nil)
-	_ program.Component = (*Completion)(nil)
-	_ Interactive       = (*Editor)(nil)
+	_ program.Component    = (*headless.Editor)(nil)
+	_ program.Component    = (*headless.List[string])(nil)
+	_ program.Component    = (*headless.Completion)(nil)
+	_ headless.Interactive = (*headless.Editor)(nil)
 )
 
 var (
-	file    = Trigger{Prefix: "@"}
-	command = Trigger{Prefix: "/", AtStart: true}
+	file    = headless.Trigger{Prefix: "@"}
+	command = headless.Trigger{Prefix: "/", AtStart: true}
 )
 
 // paint draws a widget into a surface of the given size and returns what it looks
@@ -62,18 +64,18 @@ func equalRows(t *testing.T, got, want []string) {
 func key(code input.Code) input.Event { return input.Key{Code: code} }
 
 // offer opens a completion on a token with plain candidates.
-func offer(c *Completion, texts ...string) Token {
-	token := Token{Start: 1, End: 4, Query: "src", Trigger: file}
-	candidates := make([]Candidate, len(texts))
+func offer(c *headless.Completion, texts ...string) headless.Token {
+	token := headless.Token{Start: 1, End: 4, Query: "src", Trigger: file}
+	candidates := make([]headless.Candidate, len(texts))
 	for i, s := range texts {
-		candidates[i] = Candidate{Text: s}
+		candidates[i] = headless.Candidate{Text: s}
 	}
 	c.Offer(token, candidates)
 	return token
 }
 
 // typeText sends each character of s to the editor as a keystroke.
-func typeText(e *Editor, s string) {
+func typeText(e *headless.Editor, s string) {
 	for _, r := range s {
 		e.Handle(input.Key{Code: input.Character, Rune: r})
 	}
@@ -89,15 +91,16 @@ func altKey(r rune) input.Event {
 
 // cursorAt lays the editor out at a width and returns the cursor's row and column.
 
-// cursorAt lays the editor out at a width and returns the cursor's row and column.
-func cursorAt(e *Editor, w, h int) (int, int) {
-	surface := grid.NewSurface(w, h)
-	// A plain surface has no cursor slot, so the position is taken from the layout
-	// the editor itself reports.
-	e.Draw(surface.View())
-	rows := e.layout.rowsFor(e.lines, w)
-	row, column := rowOf(rows, e.lines, e.line, e.col)
-	return row - e.scroll.Offset(), column
+// cursorAt lays the editor out at a width and returns where it put the caret.
+//
+// Through a screen, because a screen is what carries a cursor: the editor places
+// one with [grid.View.PlaceCursor] and [grid.Screen.Cursor] reads it back, which
+// is the same question a caller asks and the same answer they get.
+func cursorAt(e *headless.Editor, w, h int) (int, int) {
+	screen := grid.NewScreen(w, h)
+	e.Draw(screen.Frame())
+	at := screen.Cursor()
+	return at.Pos.Y, at.Pos.X
 }
 
 func wheel(action input.MouseAction) input.Event {
@@ -116,10 +119,10 @@ func items(n int) []string {
 // newList builds a list that draws each item as its text, marking the selected one.
 
 // newList builds a list that draws each item as its text, marking the selected one.
-func newList(n int) *List[string] {
-	return &List[string]{
+func newList(n int) *headless.List[string] {
+	return &headless.List[string]{
 		Items: items(n),
-		Keys:  DefaultListKeys(),
+		Keys:  headless.DefaultListKeys(),
 		Row: func(v grid.View, item string, selected bool) {
 			prefix := " "
 			if selected {
@@ -138,7 +141,7 @@ func press(x, y int, action input.MouseAction, button input.Button) input.Event 
 func TestBindingMatchesTheKeystrokeItDescribes(t *testing.T) {
 	// The hint and the handler have to be talking about the same thing, which is the
 	// whole reason they are one value.
-	b := Binding{Key: input.Key{Code: input.Character, Rune: 's', Mods: input.Ctrl}, Does: "save"}
+	b := headless.Binding{Key: input.Key{Code: input.Character, Rune: 's', Mods: input.Ctrl}, Does: "save"}
 	if !b.Matches(input.Key{Code: input.Character, Rune: 's', Mods: input.Ctrl}) {
 		t.Error("a binding does not match its own keystroke")
 	}
@@ -160,33 +163,33 @@ func TestTokenAt(t *testing.T) {
 		what     string
 		line     string
 		cursor   int
-		triggers []Trigger
+		triggers []headless.Trigger
 		want     string // "start:end:query" or "" for no token
 	}{
-		{"a mention being typed", "look at @src/ma", 15, []Trigger{file}, "9:15:src/ma"},
-		{"the prefix alone", "@", 1, []Trigger{file}, "1:1:"},
-		{"a command at the start", "/hel", 4, []Trigger{command}, "1:4:hel"},
-		{"a command not at the start", "and /hel", 8, []Trigger{command}, ""},
-		{"a slash inside a path", "@src/ma", 7, []Trigger{file, command}, "1:7:src/ma"},
+		{"a mention being typed", "look at @src/ma", 15, []headless.Trigger{file}, "9:15:src/ma"},
+		{"the prefix alone", "@", 1, []headless.Trigger{file}, "1:1:"},
+		{"a command at the start", "/hel", 4, []headless.Trigger{command}, "1:4:hel"},
+		{"a command not at the start", "and /hel", 8, []headless.Trigger{command}, ""},
+		{"a slash inside a path", "@src/ma", 7, []headless.Trigger{file, command}, "1:7:src/ma"},
 		{
 			"the rightmost trigger wins", "/open @src", 10,
-			[]Trigger{file, command},
+			[]headless.Trigger{file, command},
 			"7:10:src",
 		},
-		{"an email address", "write to me@example.com", 23, []Trigger{file}, ""},
-		{"the cursor before the trigger", "@src", 0, []Trigger{file}, ""},
+		{"an email address", "write to me@example.com", 23, []headless.Trigger{file}, ""},
+		{"the cursor before the trigger", "@src", 0, []headless.Trigger{file}, ""},
 		{
 			"the cursor inside the token replaces all of it", "@source", 4,
-			[]Trigger{file},
+			[]headless.Trigger{file},
 			"1:7:sou",
 		},
-		{"the cursor past the token", "@src and more", 9, []Trigger{file}, ""},
-		{"a token that ends at a space", "@src more", 4, []Trigger{file}, "1:4:src"},
-		{"nothing to complete", "just words", 10, []Trigger{file, command}, ""},
+		{"the cursor past the token", "@src and more", 9, []headless.Trigger{file}, ""},
+		{"a token that ends at a space", "@src more", 4, []headless.Trigger{file}, "1:4:src"},
+		{"nothing to complete", "just words", 10, []headless.Trigger{file, command}, ""},
 		{"no triggers at all", "@src", 4, nil, ""},
-		{"an empty trigger", "@src", 4, []Trigger{{}}, ""},
+		{"an empty trigger", "@src", 4, []headless.Trigger{{}}, ""},
 	} {
-		token, ok := TokenAt(tc.line, tc.cursor, tc.triggers...)
+		token, ok := headless.TokenAt(tc.line, tc.cursor, tc.triggers...)
 		got := ""
 		if ok {
 			got = strings.Join([]string{
@@ -194,7 +197,7 @@ func TestTokenAt(t *testing.T) {
 			}, ":")
 		}
 		if got != tc.want {
-			t.Errorf("%s: TokenAt(%q, %d) = %q, want %q", tc.what, tc.line, tc.cursor, got, tc.want)
+			t.Errorf("%s: headless.TokenAt(%q, %d) = %q, want %q", tc.what, tc.line, tc.cursor, got, tc.want)
 		}
 	}
 }
@@ -202,7 +205,7 @@ func TestTokenAt(t *testing.T) {
 func TestTokenAtIsClampedToTheLine(t *testing.T) {
 	// A cursor from somewhere that has since changed the text must not index out of it.
 	for _, cursor := range []int{-5, 100} {
-		if _, ok := TokenAt("@src", cursor, file); ok && cursor < 0 {
+		if _, ok := headless.TokenAt("@src", cursor, file); ok && cursor < 0 {
 			t.Errorf("cursor %d found a token", cursor)
 		}
 	}
@@ -212,9 +215,9 @@ func TestTokenAtIsClampedToTheLine(t *testing.T) {
 
 func TestAnEmptyOfferIsADismissal(t *testing.T) {
 	// A popup with nothing in it is a popup in the way.
-	var c Completion
+	var c headless.Completion
 	offer(&c, "one")
-	c.Offer(Token{}, nil)
+	c.Offer(headless.Token{}, nil)
 	if c.Open() {
 		t.Fatal("an offer of nothing left the completion open")
 	}
@@ -225,8 +228,8 @@ func TestAnEmptyOfferIsADismissal(t *testing.T) {
 
 func TestAClosedCompletionAnswersNothing(t *testing.T) {
 	// It would be a completion with opinions about text it is not offering anything for.
-	var c Completion
-	c.Accept = func(Candidate, Token) { t.Fatal("a closed completion accepted") }
+	var c headless.Completion
+	c.Accept = func(headless.Candidate, headless.Token) { t.Fatal("a closed completion accepted") }
 	for _, ev := range []input.Event{
 		input.Key{Code: input.Down},
 		input.Key{Code: input.Tab},
@@ -240,10 +243,10 @@ func TestAClosedCompletionAnswersNothing(t *testing.T) {
 }
 
 func TestAcceptingReportsTheCandidateAndTheTokenItReplaces(t *testing.T) {
-	var c Completion
-	var got Candidate
-	var at Token
-	c.Accept = func(candidate Candidate, token Token) { got, at = candidate, token }
+	var c headless.Completion
+	var got headless.Candidate
+	var at headless.Token
+	c.Accept = func(candidate headless.Candidate, token headless.Token) { got, at = candidate, token }
 	token := offer(&c, "src/one.go", "src/two.go")
 
 	c.Handle(input.Key{Code: input.Down})
@@ -264,9 +267,9 @@ func TestAcceptingReportsTheCandidateAndTheTokenItReplaces(t *testing.T) {
 func TestAcceptingClosesBeforeTheCallbackRuns(t *testing.T) {
 	// The callback is about to change the text the token came from, and that change
 	// must not read as another query for a completion that is still open.
-	var c Completion
+	var c headless.Completion
 	openDuring := true
-	c.Accept = func(Candidate, Token) { openDuring = c.Open() }
+	c.Accept = func(headless.Candidate, headless.Token) { openDuring = c.Open() }
 	offer(&c, "one")
 	c.Handle(input.Key{Code: input.Tab})
 	if openDuring {
@@ -277,7 +280,7 @@ func TestAcceptingClosesBeforeTheCallbackRuns(t *testing.T) {
 func TestWithNowhereToSendItAcceptingIsNotConsumed(t *testing.T) {
 	// A key swallowed by a widget that then does nothing with it is a key the user
 	// pressed for no reason.
-	var c Completion
+	var c headless.Completion
 	offer(&c, "one")
 	if c.Handle(input.Key{Code: input.Tab}) {
 		t.Fatal("accepting was consumed with nothing to accept into")
@@ -288,7 +291,7 @@ func TestWithNowhereToSendItAcceptingIsNotConsumed(t *testing.T) {
 }
 
 func TestDismissing(t *testing.T) {
-	var c Completion
+	var c headless.Completion
 	offer(&c, "one", "two")
 	if !c.Handle(input.Key{Code: input.Esc}) {
 		t.Fatal("escape was not handled")
@@ -299,7 +302,7 @@ func TestDismissing(t *testing.T) {
 }
 
 func TestMovingThroughTheCandidates(t *testing.T) {
-	var c Completion
+	var c headless.Completion
 	offer(&c, "one", "two", "three")
 	if got, _ := c.Current(); got.Text != "one" {
 		t.Fatalf("opens on %q, want the first", got.Text)
@@ -320,7 +323,7 @@ func TestMovingThroughTheCandidates(t *testing.T) {
 func TestANewOfferStartsAtTheFirstCandidate(t *testing.T) {
 	// The query changed, so which candidate was under the cursor answers a question
 	// nobody asked.
-	var c Completion
+	var c headless.Completion
 	offer(&c, "one", "two")
 	c.Handle(input.Key{Code: input.Down})
 	offer(&c, "alpha", "beta")
@@ -330,7 +333,7 @@ func TestANewOfferStartsAtTheFirstCandidate(t *testing.T) {
 }
 
 func TestTheMeasuredHeightIsARowPerCandidateUpToTheCap(t *testing.T) {
-	var c Completion
+	var c headless.Completion
 	c.MaxRows = 3
 	offer(&c, "one", "two")
 	if got := c.Measure(20); got != 2 {
@@ -343,19 +346,19 @@ func TestTheMeasuredHeightIsARowPerCandidateUpToTheCap(t *testing.T) {
 }
 
 func TestTheWidthFitsTheWidestRow(t *testing.T) {
-	var c Completion
-	c.Offer(Token{}, []Candidate{
+	var c headless.Completion
+	c.Offer(headless.Token{}, []headless.Candidate{
 		{Text: "short"},
 		{Text: "much longer one", Detail: "dir"},
 	})
-	if got, want := c.Width(), len("much longer one")+detailGap+len("dir"); got != want {
+	if got, want := c.Width(), len("much longer one")+2+len("dir"); got != want {
 		t.Fatalf("width = %d, want %d", got, want)
 	}
 }
 
 func TestARowShowsItsLabelAndDetail(t *testing.T) {
-	var c Completion
-	c.Offer(Token{}, []Candidate{{Text: "src/main.go", Label: "main.go", Detail: "src"}})
+	var c headless.Completion
+	c.Offer(headless.Token{}, []headless.Candidate{{Text: "src/main.go", Label: "main.go", Detail: "src"}})
 	rows := paint(20, 1, c.Draw)
 	if !strings.Contains(rows[0], "main.go") {
 		t.Fatalf("row = %q, want the label rather than the text", rows[0])
@@ -366,17 +369,17 @@ func TestARowShowsItsLabelAndDetail(t *testing.T) {
 }
 
 func TestARowWithNoLabelShowsWhatItWouldInsert(t *testing.T) {
-	var c Completion
-	c.Offer(Token{}, []Candidate{{Text: "insert-me"}})
+	var c headless.Completion
+	c.Offer(headless.Token{}, []headless.Candidate{{Text: "insert-me"}})
 	if rows := paint(20, 1, c.Draw); !strings.Contains(rows[0], "insert-me") {
 		t.Fatalf("row = %q", rows[0])
 	}
 }
 
 func TestTheMatchedCharactersArePickedOut(t *testing.T) {
-	var c Completion
+	var c headless.Completion
 	c.MatchStyle = grid.Style{Attr: grid.Bold}
-	c.Offer(Token{}, []Candidate{{Text: "status", Matched: []int{0, 1}}})
+	c.Offer(headless.Token{}, []headless.Candidate{{Text: "status", Matched: []int{0, 1}}})
 
 	s := grid.NewSurface(20, 1)
 	c.Draw(s.View())
@@ -391,10 +394,10 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 	// A pattern character can match a combining mark, whose offset is inside the
 	// cluster rather than at its start. Testing for equality there would leave the
 	// character the reader sees unhighlighted.
-	var c Completion
+	var c headless.Completion
 	c.MatchStyle = grid.Style{Attr: grid.Bold}
 	// "e" plus a combining acute: one cluster, two runes, the mark at offset 1.
-	c.Offer(Token{}, []Candidate{{Text: "éx", Matched: []int{1}}})
+	c.Offer(headless.Token{}, []headless.Candidate{{Text: "éx", Matched: []int{1}}})
 
 	s := grid.NewSurface(10, 1)
 	c.Draw(s.View())
@@ -407,7 +410,7 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 }
 
 func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
-	var c Completion
+	var c headless.Completion
 	c.SelectedStyle = grid.Style{Attr: grid.Reverse}
 	offer(&c, "one", "two")
 	c.Handle(input.Key{Code: input.Down})
@@ -424,8 +427,8 @@ func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
 
 func TestADetailWithNoRoomIsDropped(t *testing.T) {
 	// Half a description reads as a broken label. None of this may overflow the row.
-	var c Completion
-	c.Offer(Token{}, []Candidate{{Text: "a-fairly-long-label", Detail: "and a description"}})
+	var c headless.Completion
+	c.Offer(headless.Token{}, []headless.Candidate{{Text: "a-fairly-long-label", Detail: "and a description"}})
 	rows := paint(12, 1, c.Draw)
 	if len(rows[0]) != 12 {
 		t.Fatalf("row = %q, want twelve columns", rows[0])
@@ -433,7 +436,7 @@ func TestADetailWithNoRoomIsDropped(t *testing.T) {
 }
 
 func TestACompletionWithNoRoomDrawsNothing(_ *testing.T) {
-	var c Completion
+	var c headless.Completion
 	offer(&c, "one", "two")
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {4, 1}} {
 		paint(size[0], size[1], c.Draw)
@@ -441,11 +444,11 @@ func TestACompletionWithNoRoomDrawsNothing(_ *testing.T) {
 }
 
 func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
-	// Which is the reason Editor.Replace exists: taking back one thing the user did
+	// Which is the reason headless.Editor.Replace exists: taking back one thing the user did
 	// should not take two.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.SetText("look at @src")
-	token, ok := TokenAt(e.Text(), len("look at @src"), file)
+	token, ok := headless.TokenAt(e.Text(), len("look at @src"), file)
 	if !ok {
 		t.Fatal("no token")
 	}
@@ -463,7 +466,7 @@ func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
 }
 
 func TestReplaceIsClampedToTheLine(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.SetText("abc")
 	e.Replace(-3, 99, "x")
 	if got := e.Text(); got != "x" {
@@ -472,7 +475,7 @@ func TestReplaceIsClampedToTheLine(t *testing.T) {
 }
 
 func TestEditorTyping(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	typeText(e, "hello")
 	if got := e.Text(); got != "hello" {
 		t.Fatalf("text = %q", got)
@@ -486,7 +489,7 @@ func TestEditorTyping(t *testing.T) {
 func TestEditorRefusesControlCharacters(t *testing.T) {
 	// A control character has no width and would be dropped at the cell, leaving a
 	// cursor position with nothing under it.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.InsertRune('\x1b')
 	e.InsertRune('\r')
 	if !e.Empty() {
@@ -499,7 +502,7 @@ func TestEditorRefusesControlCharacters(t *testing.T) {
 }
 
 func TestEditorMovesByClusterNotByByteOrRune(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("a中b")
 	e.MoveLineStart()
 	e.MoveRight()
@@ -518,7 +521,7 @@ func TestEditorMovesByClusterNotByByteOrRune(t *testing.T) {
 }
 
 func TestEditorCursorSitsOnTheColumnItsCharacterOccupies(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("中文x")
 	_, column := cursorAt(e, 20, 3)
 	// Two wide characters are four columns, so the cursor after the letter is at five.
@@ -528,7 +531,7 @@ func TestEditorCursorSitsOnTheColumnItsCharacterOccupies(t *testing.T) {
 }
 
 func TestEditorNewlineSplitsTheLine(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("hello world")
 	e.MoveLineStart()
 	for range 5 {
@@ -547,7 +550,7 @@ func TestEditorNewlineSplitsTheLine(t *testing.T) {
 func TestEditorPasteArrivesAsText(t *testing.T) {
 	// The point of a bracketed paste: what was pasted goes in as it was, newlines and
 	// all, rather than being interpreted a keystroke at a time.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Handle(input.Paste{Text: "func main() {\n\tprintln(1)\n}"})
 	if got := e.Text(); got != "func main() {\n\tprintln(1)\n}" {
 		t.Fatalf("text = %q", got)
@@ -559,7 +562,7 @@ func TestEditorPasteArrivesAsText(t *testing.T) {
 }
 
 func TestEditorBackspaceJoinsLines(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("one\ntwo")
 	e.MoveLineStart()
 	e.DeleteBack()
@@ -572,7 +575,7 @@ func TestEditorBackspaceJoinsLines(t *testing.T) {
 }
 
 func TestEditorBackspaceAtTheVeryStartDoesNothing(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("x")
 	e.MoveLineStart()
 	e.DeleteBack()
@@ -582,7 +585,7 @@ func TestEditorBackspaceAtTheVeryStartDoesNothing(t *testing.T) {
 }
 
 func TestEditorDeleteForwardJoinsTheLineBelow(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("one\ntwo")
 	e.MoveLineStart()
 	e.MoveUp()
@@ -594,7 +597,7 @@ func TestEditorDeleteForwardJoinsTheLineBelow(t *testing.T) {
 }
 
 func TestEditorWordMotions(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("alpha beta_two  gamma")
 	e.MoveLineEnd()
 
@@ -615,7 +618,7 @@ func TestEditorWordMotions(t *testing.T) {
 }
 
 func TestEditorDeleteWordBack(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("one two three")
 	e.Handle(ctrlKey('w'))
 	if got := e.Text(); got != "one two " {
@@ -629,7 +632,7 @@ func TestEditorDeleteWordBack(t *testing.T) {
 }
 
 func TestEditorKillToEndAndBack(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("keep this away")
 	e.MoveLineStart()
 	for range len("keep this ") {
@@ -647,7 +650,7 @@ func TestEditorKillToEndAndBack(t *testing.T) {
 
 func TestEditorKillToEndSwallowsTheLineBreakWhenThereIsNothingElse(t *testing.T) {
 	// What makes repeated presses take a paragraph rather than stop at the first line.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("one\ntwo")
 	e.MoveLineStart()
 	e.MoveUp()
@@ -659,7 +662,7 @@ func TestEditorKillToEndSwallowsTheLineBreakWhenThereIsNothingElse(t *testing.T)
 }
 
 func TestEditorKillToStart(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("drop this keep")
 	e.MoveLineStart()
 	for range len("drop this ") {
@@ -676,7 +679,7 @@ func TestEditorKillToStart(t *testing.T) {
 
 func TestEditorUndoStepsOverAPhraseNotALetter(t *testing.T) {
 	// One undo per keystroke would make undo useless in a composer.
-	e := NewEditor()
+	e := headless.NewEditor()
 	typeText(e, "hello world")
 	e.Undo()
 	if !e.Empty() {
@@ -685,7 +688,7 @@ func TestEditorUndoStepsOverAPhraseNotALetter(t *testing.T) {
 }
 
 func TestEditorUndoAndRedo(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	typeText(e, "first")
 	e.Newline()
 	typeText(e, "second")
@@ -711,23 +714,10 @@ func TestEditorUndoAndRedo(t *testing.T) {
 	}
 }
 
-func TestEditorUndoHistoryIsBounded(t *testing.T) {
-	// An unbounded history in a long-lived process is a leak with a friendly name.
-	e := NewEditor()
-	for i := range maxUndo + 50 {
-		e.Insert("x")
-		e.MoveLeft()
-		_ = i
-	}
-	if len(e.undo) > maxUndo {
-		t.Fatalf("history holds %d steps, want at most %d", len(e.undo), maxUndo)
-	}
-}
-
 func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 	// A field that wraps has to move down the screen. Jumping to the next paragraph
 	// would move the cursor somewhere the user cannot see the reason for.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("aaa bbb ccc ddd")
 	if got := e.Measure(8); got != 2 {
 		t.Fatalf("height at width 8 = %d, want the text wrapped onto 2 rows", got)
@@ -750,10 +740,10 @@ func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
 	// Travelling down through a short line and out the other side has to come back to
 	// the column it went in at, or the cursor drifts left and stays there.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("aaaaaaaa\nbb\ncccccccc")
 	e.MoveLineStart()
-	e.line, e.col = 0, 6
+	e.SetCursor(0, 6)
 	cursorAt(e, 20, 5)
 
 	e.MoveDown()
@@ -767,7 +757,7 @@ func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
 }
 
 func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("one\ntwo")
 	cursorAt(e, 20, 5)
 	e.MoveUp()
@@ -784,7 +774,7 @@ func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
 }
 
 func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("one two three four five six seven")
 	wide := e.Measure(40)
 	narrow := e.Measure(10)
@@ -799,13 +789,13 @@ func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
 
 func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 	// A field that jumped to the end would lose the line the user is typing on.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("l1\nl2\nl3\nl4\nl5\nl6")
 	row, _ := cursorAt(e, 20, 3)
 	if row < 0 || row > 2 {
 		t.Fatalf("cursor is on visible row %d of a 3-row field", row)
 	}
-	e.line, e.col = 0, 0
+	e.SetCursor(0, 0)
 	row, _ = cursorAt(e, 20, 3)
 	if row != 0 {
 		t.Fatalf("after moving to the top the cursor is on row %d", row)
@@ -813,7 +803,7 @@ func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 }
 
 func TestEditorPlaceholderIsNotText(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Placeholder = "Ask anything"
 	rows := paint(20, 1, func(v grid.View) { e.Draw(v) })
 	if !strings.Contains(rows[0], "Ask anything") {
@@ -832,7 +822,7 @@ func TestEditorPlaceholderIsNotText(t *testing.T) {
 func TestEditorLeavesEnterToItsContainer(t *testing.T) {
 	// Whether Enter sends or breaks the line is the container's decision. An editor
 	// that swallowed it would take that decision away from every container.
-	e := NewEditor()
+	e := headless.NewEditor()
 	if e.Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("the editor consumed Enter")
 	}
@@ -849,7 +839,7 @@ func TestEditorLeavesEnterToItsContainer(t *testing.T) {
 }
 
 func TestEditorLeavesChordsItHasNoUseForAlone(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	for _, ev := range []input.Event{
 		ctrlKey('g'),
 		ctrlKey('c'),
@@ -867,7 +857,7 @@ func TestEditorLeavesChordsItHasNoUseForAlone(t *testing.T) {
 }
 
 func TestEditorAcceptsShiftedCharacters(t *testing.T) {
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Handle(input.Key{Code: input.Character, Rune: 'A', Mods: input.Shift})
 	if got := e.Text(); got != "A" {
 		t.Fatalf("text = %q", got)
@@ -878,7 +868,7 @@ func TestEditorPrefersTheTextTheTerminalReported(t *testing.T) {
 	// The key's own code is the unshifted key on the physical keyboard. On a layout
 	// where the key beside "1" produces "@", inserting the code would type "2", so
 	// what the terminal says the key produced has to win.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Handle(input.Key{Code: input.Character, Rune: '2', Text: "@"})
 	if got := e.Text(); got != "@" {
 		t.Fatalf("text = %q, want what the terminal reported", got)
@@ -891,7 +881,7 @@ func TestEditorPrefersTheTextTheTerminalReported(t *testing.T) {
 }
 
 func TestTheZeroEditorIsUsable(t *testing.T) {
-	var e Editor
+	var e headless.Editor
 	if !e.Empty() {
 		t.Fatal("the zero editor is not empty")
 	}
@@ -909,7 +899,7 @@ func TestTheZeroEditorIsUsable(t *testing.T) {
 
 func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 	// The invariant the cursor rests on: what the layout says is what is drawn.
-	e := NewEditor()
+	e := headless.NewEditor()
 	e.Insert("alpha beta gamma delta")
 	const width = 12
 	rows := paint(width, e.Measure(width), func(v grid.View) { e.Draw(v) })
@@ -923,7 +913,7 @@ func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 
 func TestAFreshScrollShowsTheStart(t *testing.T) {
 	// Which is what a list of items wants. Following is asked for, not assumed.
-	var s Scroll
+	var s headless.Scroll
 	s.Layout(10, 5)
 	if s.AtBottom() || s.Offset() != 0 {
 		t.Fatalf("offset = %d, following = %v, want the start", s.Offset(), s.AtBottom())
@@ -931,7 +921,7 @@ func TestAFreshScrollShowsTheStart(t *testing.T) {
 }
 
 func TestAFollowingScrollStaysAtTheEndAsContentArrives(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	s.Layout(10, 5)
 	s.ToBottom()
 	if got := s.Offset(); got != 5 {
@@ -944,7 +934,7 @@ func TestAFollowingScrollStaysAtTheEndAsContentArrives(t *testing.T) {
 }
 
 func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	s.Layout(100, 10)
 	s.ToBottom()
 	s.By(-20)
@@ -960,7 +950,7 @@ func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
 }
 
 func TestScrollClampsToTheContent(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	s.Layout(10, 5)
 	s.ToBottom()
 	s.By(-1000)
@@ -980,7 +970,7 @@ func TestScrollClampsToTheContent(t *testing.T) {
 }
 
 func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	s.Layout(3, 10)
 	if got := s.Offset(); got != 0 {
 		t.Fatalf("offset = %d, want nothing hidden", got)
@@ -992,7 +982,7 @@ func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
 }
 
 func TestScrollPagesKeepOneRowOfOverlap(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	s.Layout(100, 10)
 	s.ToTop()
 	s.Pages(1)
@@ -1004,15 +994,15 @@ func TestScrollPagesKeepOneRowOfOverlap(t *testing.T) {
 }
 
 func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
-	keys := DefaultScrollKeys()
-	var s Scroll
+	keys := headless.DefaultScrollKeys()
+	var s headless.Scroll
 	s.Layout(100, 10)
 	s.ToTop()
 
 	if !s.Handle(key(input.Down), keys) || s.Offset() != 1 {
 		t.Fatalf("offset after one down = %d", s.Offset())
 	}
-	if !s.Handle(wheel(input.WheelDown), keys) || s.Offset() != 1+wheelRows {
+	if !s.Handle(wheel(input.WheelDown), keys) || s.Offset() != 1+3 {
 		t.Fatalf("offset after a wheel notch = %d", s.Offset())
 	}
 	if !s.Handle(key(input.End), keys) || !s.AtBottom() {
@@ -1031,7 +1021,7 @@ func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
 }
 
 func TestScrollRowsDrawsOnlyTheVisibleSlice(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	s.ToBottom()
 	rows := paint(4, 3, func(v grid.View) {
 		s.Rows(v, 10, func(row grid.View, index int) {
@@ -1043,7 +1033,7 @@ func TestScrollRowsDrawsOnlyTheVisibleSlice(t *testing.T) {
 }
 
 func TestScrollRowsStopsAtTheEndOfShortContent(t *testing.T) {
-	var s Scroll
+	var s headless.Scroll
 	rows := paint(4, 4, func(v grid.View) {
 		s.Rows(v, 2, func(row grid.View, index int) {
 			row.Text(0, 0, strconv.Itoa(index), grid.Style{})
@@ -1139,7 +1129,7 @@ func TestListKeepsItsPlaceWhenTheItemsAreRefreshed(t *testing.T) {
 }
 
 func TestListWithNothingInIt(t *testing.T) {
-	l := &List[string]{Keys: DefaultListKeys()}
+	l := &headless.List[string]{Keys: headless.DefaultListKeys()}
 	if got := l.Selected(); got != -1 {
 		t.Fatalf("selection = %d, want none", got)
 	}
@@ -1163,7 +1153,7 @@ func TestAZeroListAnswersTheKeysItDocuments(t *testing.T) {
 	// A list is a struct a caller fills in, so its zero value has to work. One that
 	// quietly ignored the arrow keys would look finished and not be — and nothing would
 	// say so, because an unconsumed key simply carries on to whatever is around it.
-	l := List[string]{Items: []string{"a", "b", "c"}}
+	l := headless.List[string]{Items: []string{"a", "b", "c"}}
 	if !l.Handle(input.Key{Code: input.Down}) {
 		t.Fatal("a zero list ignored the down key")
 	}
@@ -1179,7 +1169,7 @@ func TestAZeroEditorAnswersTheKeysItDocuments(t *testing.T) {
 	// Same for the editor, whose ensure is already the seam that makes its zero value
 	// usable: it took text but answered no navigation, which is the worse kind of
 	// broken because it looks like it works.
-	var e Editor
+	var e headless.Editor
 	e.Insert("abc")
 	if !e.Handle(input.Key{Code: input.Left}) {
 		t.Fatal("a zero editor ignored the left key")
@@ -1190,7 +1180,7 @@ func TestAZeroEditorAnswersTheKeysItDocuments(t *testing.T) {
 }
 
 func TestPointerTracksWhereItIs(t *testing.T) {
-	var p Pointer
+	var p headless.Pointer
 	if _, inside := p.Position(); inside {
 		// A pointer that has never been reported is nowhere, not at the origin.
 		t.Fatal("a fresh pointer claims to be somewhere")
@@ -1208,7 +1198,7 @@ func TestPointerTracksWhereItIs(t *testing.T) {
 }
 
 func TestPointerHover(t *testing.T) {
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(2, 2, 4, 2)
 	p.Handle(press(3, 3, input.MouseMove, input.ButtonNone))
 	if !p.Over(box) {
@@ -1223,7 +1213,7 @@ func TestPointerHover(t *testing.T) {
 func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
 	// A control that fired on the way down fires when the user was aiming at it and
 	// changed their mind.
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
@@ -1242,7 +1232,7 @@ func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
 
 func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
 	// It follows the press, not the pointer: the press was never released.
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Claim(box)
@@ -1260,7 +1250,7 @@ func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
 
 func TestAReleaseSomewhereElseIsNotAClick(t *testing.T) {
 	// Which is how a user takes back a press they did not mean.
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Claim(box)
@@ -1275,7 +1265,7 @@ func TestAReleaseSomewhereElseIsNotAClick(t *testing.T) {
 
 func TestAPressBelongsToOneTarget(t *testing.T) {
 	// Two overlapping regions must not both answer the same press.
-	var p Pointer
+	var p headless.Pointer
 	outer := grid.Rect(0, 0, 10, 4)
 	inner := grid.Rect(1, 1, 4, 1)
 	p.Handle(press(2, 1, input.MouseDown, input.ButtonLeft))
@@ -1294,7 +1284,7 @@ func TestAPressBelongsToOneTarget(t *testing.T) {
 func TestAClickIsAnsweredOnce(t *testing.T) {
 	// A widget asking twice in one frame, or two widgets asking in turn, must not both
 	// act on the same click.
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Claim(box)
@@ -1309,7 +1299,7 @@ func TestAClickIsAnsweredOnce(t *testing.T) {
 }
 
 func TestAClickIsTheButtonThatWasPressed(t *testing.T) {
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonRight))
 	p.Claim(box)
@@ -1325,7 +1315,7 @@ func TestAClickIsTheButtonThatWasPressed(t *testing.T) {
 func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
 	// A hover left highlighted under an unfocused window looks like the interface is
 	// still live.
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Claim(box)
@@ -1342,7 +1332,7 @@ func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
 func TestAnUnclaimedPressPushesWhateverIsUnderIt(t *testing.T) {
 	// Nothing has been drawn since the press, so the first frame after it is where a
 	// control finds out it was pushed.
-	var p Pointer
+	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	if !p.Pressing(box) {

@@ -1,7 +1,9 @@
-package layout
+package layout_test
 
 import (
 	"testing"
+
+	"github.com/Tangerg/oolong/core/layout"
 
 	"github.com/Tangerg/oolong/core/grid"
 )
@@ -44,27 +46,27 @@ func equal(t *testing.T, got, want []int) {
 }
 
 func TestFixedSlotsAreHonouredBeforeAnythingElse(t *testing.T) {
-	views := Rows(grid.NewSurface(10, 10).View(),
-		Slot{Size: Fixed(2)},
-		Slot{Size: Flex(1)},
-		Slot{Size: Fixed(3)},
+	views := layout.Rows(grid.NewSurface(10, 10).View(),
+		layout.Slot{Size: layout.Fixed(2)},
+		layout.Slot{Size: layout.Flex(1)},
+		layout.Slot{Size: layout.Fixed(3)},
 	)
 	equal(t, sizes(views, true), []int{2, 5, 3})
 }
 
 func TestFlexSlotsSplitWhatIsLeftInProportion(t *testing.T) {
-	views := Rows(grid.NewSurface(4, 9).View(),
-		Slot{Size: Flex(1)},
-		Slot{Size: Flex(2)},
+	views := layout.Rows(grid.NewSurface(4, 9).View(),
+		layout.Slot{Size: layout.Flex(1)},
+		layout.Slot{Size: layout.Flex(2)},
 	)
 	equal(t, sizes(views, true), []int{3, 6})
 }
 
 func TestTheRoundingRemainderIsNotLost(t *testing.T) {
 	// A row lost to rounding is a gap the user can see.
-	views := Rows(grid.NewSurface(4, 10).View(),
-		Slot{Size: Flex(1)},
-		Slot{Size: Flex(2)},
+	views := layout.Rows(grid.NewSurface(4, 10).View(),
+		layout.Slot{Size: layout.Flex(1)},
+		layout.Slot{Size: layout.Flex(2)},
 	)
 	total := 0
 	for _, n := range sizes(views, true) {
@@ -77,9 +79,9 @@ func TestTheRoundingRemainderIsNotLost(t *testing.T) {
 
 func TestAMeasuredSlotIsAskedAcrossTheOtherAxis(t *testing.T) {
 	w := &wants{give: 3}
-	views := Rows(grid.NewSurface(12, 10).View(),
-		Slot{Size: Measured(0, 0), Of: w},
-		Slot{Size: Flex(1)},
+	views := layout.Rows(grid.NewSurface(12, 10).View(),
+		layout.Slot{Size: layout.Measured(0, 0), Of: w},
+		layout.Slot{Size: layout.Flex(1)},
 	)
 	if !w.asked {
 		t.Fatal("the measurer was never asked")
@@ -91,13 +93,13 @@ func TestAMeasuredSlotIsAskedAcrossTheOtherAxis(t *testing.T) {
 }
 
 func TestMeasuringWorksAcrossBothAxes(t *testing.T) {
-	// The reason Measure takes the axis it is not deciding: a slot in Columns is
+	// The reason Measure takes the axis it is not deciding: a slot in layout.Columns is
 	// asked for a width at a height, and one knob means the same thing in both. A
 	// measured column that silently came out zero wide is what this replaced.
 	w := &wants{give: 4}
-	views := Columns(grid.NewSurface(30, 5).View(),
-		Slot{Size: Measured(0, 0), Of: w},
-		Slot{Size: Flex(1)},
+	views := layout.Columns(grid.NewSurface(30, 5).View(),
+		layout.Slot{Size: layout.Measured(0, 0), Of: w},
+		layout.Slot{Size: layout.Flex(1)},
 	)
 	if w.across != 5 {
 		t.Fatalf("measured across %d, want the height of 5", w.across)
@@ -118,9 +120,9 @@ func TestAMeasuredSlotIsHeldBetweenItsFloorAndItsCap(t *testing.T) {
 		{"no cap at all", 9, 0, 0, 9},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			views := Rows(grid.NewSurface(10, 20).View(),
-				Slot{Size: Measured(tc.min, tc.max), Of: &wants{give: tc.give}},
-				Slot{Size: Flex(1)},
+			views := layout.Rows(grid.NewSurface(10, 20).View(),
+				layout.Slot{Size: layout.Measured(tc.min, tc.max), Of: &wants{give: tc.give}},
+				layout.Slot{Size: layout.Flex(1)},
 			)
 			if got := sizes(views, true)[0]; got != tc.wantHeight {
 				t.Fatalf("measured slot = %d rows, want %d", got, tc.wantHeight)
@@ -130,9 +132,9 @@ func TestAMeasuredSlotIsHeldBetweenItsFloorAndItsCap(t *testing.T) {
 }
 
 func TestAMeasuredSlotWithNothingToAskGetsItsFloor(t *testing.T) {
-	views := Rows(grid.NewSurface(10, 20).View(),
-		Slot{Size: Measured(2, 0)},
-		Slot{Size: Flex(1)},
+	views := layout.Rows(grid.NewSurface(10, 20).View(),
+		layout.Slot{Size: layout.Measured(2, 0)},
+		layout.Slot{Size: layout.Flex(1)},
 	)
 	equal(t, sizes(views, true), []int{2, 18})
 }
@@ -141,9 +143,9 @@ func TestNeverHandsOutMoreThanThereIs(t *testing.T) {
 	// Two floors that do not both fit. Honouring them both would tell the second
 	// slot it had eight rows while the view clipped it to two — and a widget lays
 	// out against what it was told, not against what the user can see.
-	views := Rows(grid.NewSurface(20, 10).View(),
-		Slot{Size: Sizing{Flex: 1, Min: 8}},
-		Slot{Size: Sizing{Flex: 1, Min: 8}},
+	views := layout.Rows(grid.NewSurface(20, 10).View(),
+		layout.Slot{Size: layout.Sizing{Flex: 1, Min: 8}},
+		layout.Slot{Size: layout.Sizing{Flex: 1, Min: 8}},
 	)
 	total := 0
 	for i, v := range views {
@@ -161,9 +163,9 @@ func TestNeverHandsOutMoreThanThereIs(t *testing.T) {
 func TestASlotSqueezedToNothingStillGetsAView(t *testing.T) {
 	// A caller's draw code runs every frame. Code that only breaks when it has no
 	// room breaks in front of the user.
-	views := Rows(grid.NewSurface(10, 1).View(),
-		Slot{Size: Fixed(1)},
-		Slot{Size: Fixed(5)},
+	views := layout.Rows(grid.NewSurface(10, 1).View(),
+		layout.Slot{Size: layout.Fixed(1)},
+		layout.Slot{Size: layout.Fixed(5)},
 	)
 	if len(views) != 2 {
 		t.Fatalf("got %d views, want one per slot", len(views))
@@ -175,18 +177,18 @@ func TestASlotSqueezedToNothingStillGetsAView(t *testing.T) {
 
 func TestDivideAnswersWithoutViews(t *testing.T) {
 	// A caller aligning a header over a table needs the numbers and not the views.
-	got := Divide(10, 4, []Slot{{Size: Fixed(3)}, {Size: Flex(1)}})
+	got := layout.Divide(10, 4, []layout.Slot{{Size: layout.Fixed(3)}, {Size: layout.Flex(1)}})
 	equal(t, got, []int{3, 7})
 }
 
 func TestAlignPlacesContentInASpaceWiderThanItself(t *testing.T) {
 	for _, tc := range []struct {
-		align Align
+		align layout.Align
 		want  int
 	}{
-		{Start, 0},
-		{Center, 3},
-		{End, 6},
+		{layout.Start, 0},
+		{layout.Center, 3},
+		{layout.End, 6},
 	} {
 		if got := tc.align.Offset(10, 4); got != tc.want {
 			t.Errorf("align %d: offset = %d, want %d", tc.align, got, tc.want)
@@ -195,7 +197,7 @@ func TestAlignPlacesContentInASpaceWiderThanItself(t *testing.T) {
 }
 
 func TestAlignNeverPlacesContentOutsideTheSpace(t *testing.T) {
-	for _, align := range []Align{Start, Center, End} {
+	for _, align := range []layout.Align{layout.Start, layout.Center, layout.End} {
 		if got := align.Offset(4, 10); got != 0 {
 			t.Errorf("align %d: content wider than its space starts at %d, want 0", align, got)
 		}
@@ -203,8 +205,8 @@ func TestAlignNeverPlacesContentOutsideTheSpace(t *testing.T) {
 }
 
 func TestInsetReportsWhatItTakesAndWhatItLeaves(t *testing.T) {
-	in := Symmetric(1, 2)
-	if got := in.Size(); got != (Size{W: 4, H: 2}) {
+	in := layout.Symmetric(1, 2)
+	if got := in.Size(); got != (layout.Size{W: 4, H: 2}) {
 		t.Fatalf("size = %+v, want 4 columns and 2 rows", got)
 	}
 	left := in.Apply(grid.Rect(0, 0, 10, 6))
@@ -214,29 +216,29 @@ func TestInsetReportsWhatItTakesAndWhatItLeaves(t *testing.T) {
 }
 
 func TestAnInsetBiggerThanItsRegionLeavesNothing(t *testing.T) {
-	if left := Uniform(5).Apply(grid.Rect(0, 0, 4, 4)); !left.Empty() {
+	if left := layout.Uniform(5).Apply(grid.Rect(0, 0, 4, 4)); !left.Empty() {
 		t.Fatalf("inner = %v, want nothing left", left)
 	}
 }
 
 func TestPlacementAnchors(t *testing.T) {
-	space := Size{W: 10, H: 6}
+	space := layout.Size{W: 10, H: 6}
 	for _, tc := range []struct {
-		anchor Anchor
+		anchor layout.Anchor
 		wantX  int
 		wantY  int
 	}{
-		{TopLeft, 0, 0},
-		{Top, 3, 0},
-		{TopRight, 6, 0},
-		{Left, 0, 2},
-		{Middle, 3, 2},
-		{Right, 6, 2},
-		{BottomLeft, 0, 4},
-		{Bottom, 3, 4},
-		{BottomRight, 6, 4},
+		{layout.TopLeft, 0, 0},
+		{layout.Top, 3, 0},
+		{layout.TopRight, 6, 0},
+		{layout.Left, 0, 2},
+		{layout.Middle, 3, 2},
+		{layout.Right, 6, 2},
+		{layout.BottomLeft, 0, 4},
+		{layout.Bottom, 3, 4},
+		{layout.BottomRight, 6, 4},
 	} {
-		got := Placement{Anchor: tc.anchor, Width: 4, Height: 2}.In(space)
+		got := layout.Placement{Anchor: tc.anchor, Width: 4, Height: 2}.In(space)
 		if got.Min.X != tc.wantX || got.Min.Y != tc.wantY {
 			t.Errorf("anchor %d: at (%d,%d), want (%d,%d)",
 				tc.anchor, got.Min.X, got.Min.Y, tc.wantX, tc.wantY)
@@ -246,21 +248,21 @@ func TestPlacementAnchors(t *testing.T) {
 
 func TestPlacementIsClampedToTheSpaceItFloatsOver(t *testing.T) {
 	// A dialog whose buttons are past the right margin is a dialog nobody can answer.
-	got := Placement{Anchor: Middle, Width: 100, Height: 100}.In(Size{W: 10, H: 6})
+	got := layout.Placement{Anchor: layout.Middle, Width: 100, Height: 100}.In(layout.Size{W: 10, H: 6})
 	if got != grid.Rect(0, 0, 10, 6) {
 		t.Fatalf("area = %v, want it clamped to the space", got)
 	}
 }
 
 func TestPlacementWithNoSizeFillsWhatTheMarginLeaves(t *testing.T) {
-	got := Placement{Margin: 1}.In(Size{W: 10, H: 6})
+	got := layout.Placement{Margin: 1}.In(layout.Size{W: 10, H: 6})
 	if got != grid.Rect(1, 1, 8, 4) {
 		t.Fatalf("area = %v, want the space less the margin", got)
 	}
 }
 
 func TestPlacementWithNowhereToGo(t *testing.T) {
-	if got := (Placement{Margin: 10}).In(Size{W: 4, H: 4}); !got.Empty() {
+	if got := (layout.Placement{Margin: 10}).In(layout.Size{W: 4, H: 4}); !got.Empty() {
 		t.Fatalf("area = %v, want nothing", got)
 	}
 }

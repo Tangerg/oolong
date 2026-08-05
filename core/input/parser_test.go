@@ -1,19 +1,20 @@
-package input
+package input_test
 
 import (
 	"image"
-	"strings"
 	"testing"
+
+	"github.com/Tangerg/oolong/core/input"
 )
 
 // feed decodes a whole string in one go.
-func feed(s string) []Event {
-	var p Parser
+func feed(s string) []input.Event {
+	var p input.Parser
 	return p.Feed([]byte(s))
 }
 
 // one decodes a string that must produce exactly one event.
-func one(t *testing.T, s string) Event {
+func one(t *testing.T, s string) input.Event {
 	t.Helper()
 	events := feed(s)
 	if len(events) != 1 {
@@ -24,16 +25,16 @@ func one(t *testing.T, s string) Event {
 
 func TestPlainCharacters(t *testing.T) {
 	events := feed("ab中")
-	want := []Key{
-		{Code: Character, Rune: 'a'},
-		{Code: Character, Rune: 'b'},
-		{Code: Character, Rune: '中'},
+	want := []input.Key{
+		{Code: input.Character, Rune: 'a'},
+		{Code: input.Character, Rune: 'b'},
+		{Code: input.Character, Rune: '中'},
 	}
 	if len(events) != len(want) {
 		t.Fatalf("got %d events, want %d: %+v", len(events), len(want), events)
 	}
 	for i, w := range want {
-		if got := events[i].(Key); got != w {
+		if got := events[i].(input.Key); got != w {
 			t.Errorf("event %d = %+v, want %+v", i, got, w)
 		}
 	}
@@ -42,24 +43,24 @@ func TestPlainCharacters(t *testing.T) {
 func TestNamedKeysAndControlChords(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
-		want Key
+		want input.Key
 	}{
-		{"\r", Key{Code: Enter}},
-		{"\t", Key{Code: Tab}},
-		{"\x7f", Key{Code: Backspace}},
-		{"\x08", Key{Code: Backspace}},
-		{"\x03", Key{Code: Character, Rune: 'c', Mods: Ctrl}},
-		{"\x01", Key{Code: Character, Rune: 'a', Mods: Ctrl}},
-		{"\x0a", Key{Code: Character, Rune: 'j', Mods: Ctrl}},
+		{"\r", input.Key{Code: input.Enter}},
+		{"\t", input.Key{Code: input.Tab}},
+		{"\x7f", input.Key{Code: input.Backspace}},
+		{"\x08", input.Key{Code: input.Backspace}},
+		{"\x03", input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}},
+		{"\x01", input.Key{Code: input.Character, Rune: 'a', Mods: input.Ctrl}},
+		{"\x0a", input.Key{Code: input.Character, Rune: 'j', Mods: input.Ctrl}},
 		// The C0 bytes that are not keys of their own. A decoder that dropped these
-		// would make the chords unbindable, which is how Ctrl+Space stops working.
-		{"\x00", Key{Code: Character, Rune: ' ', Mods: Ctrl}},
-		{"\x1c", Key{Code: Character, Rune: '\\', Mods: Ctrl}},
-		{"\x1d", Key{Code: Character, Rune: ']', Mods: Ctrl}},
-		{"\x1e", Key{Code: Character, Rune: '^', Mods: Ctrl}},
-		{"\x1f", Key{Code: Character, Rune: '_', Mods: Ctrl}},
+		// would make the chords unbindable, which is how input.Ctrl+Space stops working.
+		{"\x00", input.Key{Code: input.Character, Rune: ' ', Mods: input.Ctrl}},
+		{"\x1c", input.Key{Code: input.Character, Rune: '\\', Mods: input.Ctrl}},
+		{"\x1d", input.Key{Code: input.Character, Rune: ']', Mods: input.Ctrl}},
+		{"\x1e", input.Key{Code: input.Character, Rune: '^', Mods: input.Ctrl}},
+		{"\x1f", input.Key{Code: input.Character, Rune: '_', Mods: input.Ctrl}},
 	} {
-		if got := one(t, tc.in).(Key); got != tc.want {
+		if got := one(t, tc.in).(input.Key); got != tc.want {
 			t.Errorf("%q = %+v, want %+v", tc.in, got, tc.want)
 		}
 	}
@@ -68,13 +69,13 @@ func TestNamedKeysAndControlChords(t *testing.T) {
 func TestAltChords(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
-		want Key
+		want input.Key
 	}{
-		{"\x1bx", Key{Code: Character, Rune: 'x', Mods: Alt}},
-		{"\x1b中", Key{Code: Character, Rune: '中', Mods: Alt}},
-		{"\x1b\r", Key{Code: Enter, Mods: Alt}},
+		{"\x1bx", input.Key{Code: input.Character, Rune: 'x', Mods: input.Alt}},
+		{"\x1b中", input.Key{Code: input.Character, Rune: '中', Mods: input.Alt}},
+		{"\x1b\r", input.Key{Code: input.Enter, Mods: input.Alt}},
 	} {
-		if got := one(t, tc.in).(Key); got != tc.want {
+		if got := one(t, tc.in).(input.Key); got != tc.want {
 			t.Errorf("%q = %+v, want %+v", tc.in, got, tc.want)
 		}
 	}
@@ -83,34 +84,34 @@ func TestAltChords(t *testing.T) {
 func TestCursorAndFunctionKeys(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
-		want Key
+		want input.Key
 	}{
-		{"\x1b[A", Key{Code: Up}},
-		{"\x1b[B", Key{Code: Down}},
-		{"\x1b[C", Key{Code: Right}},
-		{"\x1b[D", Key{Code: Left}},
-		{"\x1b[H", Key{Code: Home}},
-		{"\x1b[F", Key{Code: End}},
-		{"\x1b[1;5A", Key{Code: Up, Mods: Ctrl}},
-		{"\x1b[1;2D", Key{Code: Left, Mods: Shift}},
-		{"\x1b[1;3B", Key{Code: Down, Mods: Alt}},
-		{"\x1b[1;8C", Key{Code: Right, Mods: Shift | Alt | Ctrl}},
-		{"\x1b[Z", Key{Code: Backtab, Mods: Shift}},
-		{"\x1b[3~", Key{Code: Delete}},
-		{"\x1b[5~", Key{Code: PageUp}},
-		{"\x1b[6~", Key{Code: PageDown}},
-		{"\x1b[2~", Key{Code: Insert}},
-		{"\x1b[1~", Key{Code: Home}},
-		{"\x1b[4~", Key{Code: End}},
-		{"\x1b[15~", Key{Code: F5}},
-		{"\x1b[24~", Key{Code: F12}},
-		{"\x1b[15;5~", Key{Code: F5, Mods: Ctrl}},
-		{"\x1bOP", Key{Code: F1}},
-		{"\x1bOA", Key{Code: Up}},
-		{"\x1b[P", Key{Code: F1}},
-		{"\x1b[S", Key{Code: F4}},
+		{"\x1b[A", input.Key{Code: input.Up}},
+		{"\x1b[B", input.Key{Code: input.Down}},
+		{"\x1b[C", input.Key{Code: input.Right}},
+		{"\x1b[D", input.Key{Code: input.Left}},
+		{"\x1b[H", input.Key{Code: input.Home}},
+		{"\x1b[F", input.Key{Code: input.End}},
+		{"\x1b[1;5A", input.Key{Code: input.Up, Mods: input.Ctrl}},
+		{"\x1b[1;2D", input.Key{Code: input.Left, Mods: input.Shift}},
+		{"\x1b[1;3B", input.Key{Code: input.Down, Mods: input.Alt}},
+		{"\x1b[1;8C", input.Key{Code: input.Right, Mods: input.Shift | input.Alt | input.Ctrl}},
+		{"\x1b[Z", input.Key{Code: input.Backtab, Mods: input.Shift}},
+		{"\x1b[3~", input.Key{Code: input.Delete}},
+		{"\x1b[5~", input.Key{Code: input.PageUp}},
+		{"\x1b[6~", input.Key{Code: input.PageDown}},
+		{"\x1b[2~", input.Key{Code: input.Insert}},
+		{"\x1b[1~", input.Key{Code: input.Home}},
+		{"\x1b[4~", input.Key{Code: input.End}},
+		{"\x1b[15~", input.Key{Code: input.F5}},
+		{"\x1b[24~", input.Key{Code: input.F12}},
+		{"\x1b[15;5~", input.Key{Code: input.F5, Mods: input.Ctrl}},
+		{"\x1bOP", input.Key{Code: input.F1}},
+		{"\x1bOA", input.Key{Code: input.Up}},
+		{"\x1b[P", input.Key{Code: input.F1}},
+		{"\x1b[S", input.Key{Code: input.F4}},
 	} {
-		if got := one(t, tc.in).(Key); got != tc.want {
+		if got := one(t, tc.in).(input.Key); got != tc.want {
 			t.Errorf("%q = %+v, want %+v", tc.in, got, tc.want)
 		}
 	}
@@ -120,20 +121,20 @@ func TestExtendedKeyReports(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		in   string
-		want Key
+		want input.Key
 	}{
-		{"plain letter", "\x1b[97u", Key{Code: Character, Rune: 'a'}},
-		{"with modifier", "\x1b[97;5u", Key{Code: Character, Rune: 'a', Mods: Ctrl}},
-		{"repeat", "\x1b[97;1:2u", Key{Code: Character, Rune: 'a', Transition: Repeat}},
-		{"release", "\x1b[97;1:3u", Key{Code: Character, Rune: 'a', Transition: Release}},
-		{"named key", "\x1b[57352u", Key{Code: Up}},
-		{"function key", "\x1b[57364u", Key{Code: F1}},
-		{"super modifier", "\x1b[97;9u", Key{Code: Character, Rune: 'a', Mods: Super}},
-		{"associated text", "\x1b[97;1;98u", Key{Code: Character, Rune: 'a', Text: "b"}},
-		{"alternate codes accepted", "\x1b[97:65:97u", Key{Code: Character, Rune: 'a'}},
+		{"plain letter", "\x1b[97u", input.Key{Code: input.Character, Rune: 'a'}},
+		{"with modifier", "\x1b[97;5u", input.Key{Code: input.Character, Rune: 'a', Mods: input.Ctrl}},
+		{"repeat", "\x1b[97;1:2u", input.Key{Code: input.Character, Rune: 'a', Transition: input.Repeat}},
+		{"release", "\x1b[97;1:3u", input.Key{Code: input.Character, Rune: 'a', Transition: input.Release}},
+		{"named key", "\x1b[57352u", input.Key{Code: input.Up}},
+		{"function key", "\x1b[57364u", input.Key{Code: input.F1}},
+		{"super modifier", "\x1b[97;9u", input.Key{Code: input.Character, Rune: 'a', Mods: input.Super}},
+		{"associated text", "\x1b[97;1;98u", input.Key{Code: input.Character, Rune: 'a', Text: "b"}},
+		{"alternate codes accepted", "\x1b[97:65:97u", input.Key{Code: input.Character, Rune: 'a'}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := one(t, tc.in).(Key); got != tc.want {
+			if got := one(t, tc.in).(input.Key); got != tc.want {
 				t.Errorf("%q = %+v, want %+v", tc.in, got, tc.want)
 			}
 		})
@@ -163,21 +164,21 @@ func TestMouseReports(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		in   string
-		want Mouse
+		want input.Mouse
 	}{
-		{"left press", "\x1b[<0;10;5M", Mouse{Pos: image.Pt(9, 4), Action: MouseDown, Button: ButtonLeft}},
-		{"left release", "\x1b[<0;10;5m", Mouse{Pos: image.Pt(9, 4), Action: MouseUp, Button: ButtonLeft}},
-		{"middle press", "\x1b[<1;1;1M", Mouse{Pos: image.Pt(0, 0), Action: MouseDown, Button: ButtonMiddle}},
-		{"right press", "\x1b[<2;1;1M", Mouse{Pos: image.Pt(0, 0), Action: MouseDown, Button: ButtonRight}},
-		{"drag", "\x1b[<32;3;4M", Mouse{Pos: image.Pt(2, 3), Action: MouseDrag, Button: ButtonLeft}},
-		{"move", "\x1b[<35;3;4M", Mouse{Pos: image.Pt(2, 3), Action: MouseMove}},
-		{"wheel up", "\x1b[<64;3;4M", Mouse{Pos: image.Pt(2, 3), Action: WheelUp}},
-		{"wheel down", "\x1b[<65;3;4M", Mouse{Pos: image.Pt(2, 3), Action: WheelDown}},
-		{"shift and ctrl", "\x1b[<20;1;1M", Mouse{Pos: image.Pt(0, 0), Action: MouseDown, Button: ButtonLeft, Mods: Shift | Ctrl}},
-		{"every modifier", "\x1b[<28;1;1M", Mouse{Pos: image.Pt(0, 0), Action: MouseDown, Button: ButtonLeft, Mods: Shift | Alt | Ctrl}},
+		{"left press", "\x1b[<0;10;5M", input.Mouse{Pos: image.Pt(9, 4), Action: input.MouseDown, Button: input.ButtonLeft}},
+		{"left release", "\x1b[<0;10;5m", input.Mouse{Pos: image.Pt(9, 4), Action: input.MouseUp, Button: input.ButtonLeft}},
+		{"middle press", "\x1b[<1;1;1M", input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonMiddle}},
+		{"right press", "\x1b[<2;1;1M", input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonRight}},
+		{"drag", "\x1b[<32;3;4M", input.Mouse{Pos: image.Pt(2, 3), Action: input.MouseDrag, Button: input.ButtonLeft}},
+		{"move", "\x1b[<35;3;4M", input.Mouse{Pos: image.Pt(2, 3), Action: input.MouseMove}},
+		{"wheel up", "\x1b[<64;3;4M", input.Mouse{Pos: image.Pt(2, 3), Action: input.WheelUp}},
+		{"wheel down", "\x1b[<65;3;4M", input.Mouse{Pos: image.Pt(2, 3), Action: input.WheelDown}},
+		{"shift and ctrl", "\x1b[<20;1;1M", input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonLeft, Mods: input.Shift | input.Ctrl}},
+		{"every modifier", "\x1b[<28;1;1M", input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonLeft, Mods: input.Shift | input.Alt | input.Ctrl}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := one(t, tc.in).(Mouse); got != tc.want {
+			if got := one(t, tc.in).(input.Mouse); got != tc.want {
 				t.Errorf("%q = %+v, want %+v", tc.in, got, tc.want)
 			}
 		})
@@ -198,19 +199,19 @@ func TestMouseReportsThatMustBeRefused(t *testing.T) {
 }
 
 func TestFocusReports(t *testing.T) {
-	if _, ok := one(t, "\x1b[I").(FocusIn); !ok {
+	if _, ok := one(t, "\x1b[I").(input.FocusIn); !ok {
 		t.Error("CSI I did not decode as focus gained")
 	}
-	if _, ok := one(t, "\x1b[O").(FocusOut); !ok {
+	if _, ok := one(t, "\x1b[O").(input.FocusOut); !ok {
 		t.Error("CSI O did not decode as focus lost")
 	}
 }
 
 func TestPaste(t *testing.T) {
 	ev := one(t, "\x1b[200~hello world\x1b[201~")
-	paste, ok := ev.(Paste)
+	paste, ok := ev.(input.Paste)
 	if !ok {
-		t.Fatalf("event = %T, want Paste", ev)
+		t.Fatalf("event = %T, want input.Paste", ev)
 	}
 	if paste.Text != "hello world" {
 		t.Fatalf("pasted %q", paste.Text)
@@ -221,14 +222,14 @@ func TestPasteKeepsWhatWouldOtherwiseBeInterpreted(t *testing.T) {
 	// The whole point of a bracketed paste: what is inside is text, even when it
 	// looks like keys. Interpreting it is how pasting code runs commands.
 	ev := one(t, "\x1b[200~line\rnext\ttab\x1b[Anot-a-key\x1b[201~")
-	paste := ev.(Paste)
+	paste := ev.(input.Paste)
 	if paste.Text != "line\rnext\ttab\x1b[Anot-a-key" {
 		t.Fatalf("pasted %q, want the bytes verbatim", paste.Text)
 	}
 }
 
 func TestPasteSplitAcrossReads(t *testing.T) {
-	var p Parser
+	var p input.Parser
 	if events := p.Feed([]byte("\x1b[200~part one ")); len(events) != 0 {
 		t.Fatalf("an unfinished paste produced %+v", events)
 	}
@@ -241,39 +242,21 @@ func TestPasteSplitAcrossReads(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %+v, want the completed paste", events)
 	}
-	if got := events[0].(Paste).Text; got != "part one part two" {
+	if got := events[0].(input.Paste).Text; got != "part one part two" {
 		t.Fatalf("pasted %q", got)
 	}
 }
 
 func TestFlushDoesNotCutAPasteShort(t *testing.T) {
-	var p Parser
+	var p input.Parser
 	p.Feed([]byte("\x1b[200~half"))
 	// A paste is incomplete, not ambiguous: forcing it would corrupt the text.
 	if events := p.Flush(); len(events) != 0 {
 		t.Fatalf("Flush produced %+v mid-paste", events)
 	}
 	events := p.Feed([]byte(" whole\x1b[201~"))
-	if got := events[0].(Paste).Text; got != "half whole" {
+	if got := events[0].(input.Paste).Text; got != "half whole" {
 		t.Fatalf("pasted %q", got)
-	}
-}
-
-func TestAnUnclosedPasteIsBounded(t *testing.T) {
-	// A terminal that opens a paste and never closes it would otherwise swallow
-	// everything typed afterwards into a buffer that only grows.
-	var p Parser
-	p.Feed([]byte("\x1b[200~"))
-	var events []Event
-	chunk := []byte(strings.Repeat("x", 1<<16))
-	for range (maxPaste / len(chunk)) + 2 {
-		events = append(events, p.Feed(chunk)...)
-	}
-	if len(events) == 0 {
-		t.Fatal("an unbounded paste never delivered anything")
-	}
-	if p.pasting {
-		t.Fatal("still pasting after the bound was reached")
 	}
 }
 
@@ -284,7 +267,7 @@ func TestStrayPasteTerminatorIsIgnored(t *testing.T) {
 }
 
 func TestLoneEscapeResolvesOnlyOnFlush(t *testing.T) {
-	var p Parser
+	var p input.Parser
 	if events := p.Feed([]byte("\x1b")); len(events) != 0 {
 		t.Fatalf("a lone escape decoded immediately as %+v", events)
 	}
@@ -292,7 +275,7 @@ func TestLoneEscapeResolvesOnlyOnFlush(t *testing.T) {
 		t.Fatal("Pending does not report the buffered escape, so no timer would be armed")
 	}
 	events := p.Flush()
-	if len(events) != 1 || events[0].(Key).Code != Esc {
+	if len(events) != 1 || events[0].(input.Key).Code != input.Esc {
 		t.Fatalf("Flush produced %+v, want the Escape key", events)
 	}
 	if p.Pending() {
@@ -303,23 +286,23 @@ func TestLoneEscapeResolvesOnlyOnFlush(t *testing.T) {
 func TestFlushBetweenEscapeAndItsSequence(t *testing.T) {
 	// The user pressed Escape and then typed a bracket. Waiting made it ambiguous;
 	// the flush says the waiting is over, so it is two keystrokes.
-	var p Parser
+	var p input.Parser
 	p.Feed([]byte("\x1b["))
 	events := p.Flush()
 	if len(events) != 2 {
 		t.Fatalf("got %+v, want the Escape key and the bracket", events)
 	}
-	if got := events[0].(Key).Code; got != Esc {
+	if got := events[0].(input.Key).Code; got != input.Esc {
 		t.Fatalf("first = %v, want Escape", got)
 	}
-	if got := events[1].(Key); !got.IsRune('[', 0) {
+	if got := events[1].(input.Key); !got.IsRune('[', 0) {
 		t.Fatalf("second = %+v, want the bracket", got)
 	}
 }
 
 func TestTwoEscapesInARow(t *testing.T) {
 	events := feed("\x1b\x1b")
-	if len(events) != 1 || events[0].(Key).Code != Esc {
+	if len(events) != 1 || events[0].(input.Key).Code != input.Esc {
 		t.Fatalf("got %+v, want one Escape with the second still buffered", events)
 	}
 }
@@ -329,12 +312,12 @@ func TestSequencesSplitAtEveryBoundary(t *testing.T) {
 	// same event as the whole, or keys are lost under load.
 	const seq = "\x1b[1;5A"
 	for split := 1; split < len(seq); split++ {
-		var p Parser
+		var p input.Parser
 		events := append(p.Feed([]byte(seq[:split])), p.Feed([]byte(seq[split:]))...)
 		if len(events) != 1 {
 			t.Fatalf("split at %d produced %+v, want one event", split, events)
 		}
-		if got := events[0].(Key); got != (Key{Code: Up, Mods: Ctrl}) {
+		if got := events[0].(input.Key); got != (input.Key{Code: input.Up, Mods: input.Ctrl}) {
 			t.Fatalf("split at %d produced %+v", split, got)
 		}
 	}
@@ -342,8 +325,8 @@ func TestSequencesSplitAtEveryBoundary(t *testing.T) {
 
 func TestOneByteAtATime(t *testing.T) {
 	const in = "a\x1b[B\x1b[<0;2;3M\x1b[200~p\x1b[201~"
-	var p Parser
-	var events []Event
+	var p input.Parser
+	var events []input.Event
 	for i := range len(in) {
 		events = append(events, p.Feed([]byte{in[i]})...)
 	}
@@ -351,34 +334,34 @@ func TestOneByteAtATime(t *testing.T) {
 	if len(events) != 4 {
 		t.Fatalf("got %d events, want 4: %+v", len(events), events)
 	}
-	if got := events[0].(Key); !got.IsRune('a', 0) {
+	if got := events[0].(input.Key); !got.IsRune('a', 0) {
 		t.Fatalf("first = %+v", got)
 	}
-	if got := events[1].(Key).Code; got != Down {
+	if got := events[1].(input.Key).Code; got != input.Down {
 		t.Fatalf("second = %v", got)
 	}
-	if got := events[2].(Mouse).Pos; got != image.Pt(1, 2) {
+	if got := events[2].(input.Mouse).Pos; got != image.Pt(1, 2) {
 		t.Fatalf("third = %v", got)
 	}
-	if got := events[3].(Paste).Text; got != "p" {
+	if got := events[3].(input.Paste).Text; got != "p" {
 		t.Fatalf("fourth = %q", got)
 	}
 }
 
 func TestCharacterSplitAcrossReads(t *testing.T) {
 	multi := []byte("中")
-	var p Parser
+	var p input.Parser
 	if events := p.Feed(multi[:1]); len(events) != 0 {
 		t.Fatalf("half a character decoded as %+v", events)
 	}
 	events := p.Feed(multi[1:])
-	if len(events) != 1 || events[0].(Key).Rune != '中' {
+	if len(events) != 1 || events[0].(input.Key).Rune != '中' {
 		t.Fatalf("got %+v, want the reassembled character", events)
 	}
 }
 
 func TestABrokenCharacterIsDroppedWithoutTakingTheNextOneWithIt(t *testing.T) {
-	var p Parser
+	var p input.Parser
 	// The leading byte of a three-byte character, followed by something that cannot
 	// continue it. The pair is already known to be invalid — it does not wait for a
 	// flush — and the letter after it still has to arrive.
@@ -391,7 +374,7 @@ func TestABrokenCharacterIsDroppedWithoutTakingTheNextOneWithIt(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %+v, want only the letter", events)
 	}
-	if got := events[0].(Key); !got.IsRune('x', 0) {
+	if got := events[0].(input.Key); !got.IsRune('x', 0) {
 		t.Fatalf("got %+v, want the letter", got)
 	}
 }
@@ -401,49 +384,8 @@ func TestInvalidUTF8IsDropped(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %+v, want only the letter", events)
 	}
-	if got := events[0].(Key); !got.IsRune('a', 0) {
+	if got := events[0].(input.Key); !got.IsRune('a', 0) {
 		t.Fatalf("got %+v", got)
-	}
-}
-
-func TestRunawaySequenceIsDiscarded(t *testing.T) {
-	// A stream that opens a sequence and never ends it must not grow the buffer
-	// without limit.
-	var p Parser
-	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxSequenceBody)))
-	if len(p.buf) > 0 {
-		t.Fatal("a runaway sequence is still buffered")
-	}
-
-	// The sequence is still open, though, and the parser says so: something is
-	// waiting on time rather than on more bytes. A byte that could end a control
-	// sequence ends this one, because in the terminal's own stream that is what it
-	// is — the keystroke it looks like never happened.
-	if !p.Pending() {
-		t.Fatal("the runaway sequence was forgotten before it ended")
-	}
-	if events := p.Feed([]byte("a")); len(events) != 0 {
-		t.Fatalf("got %+v, want the final byte taken as the end of the sequence", events)
-	}
-
-	// And the parser works normally from the next byte on.
-	events := p.Feed([]byte("a"))
-	if len(events) != 1 {
-		t.Fatalf("got %+v, want the parser to have recovered", events)
-	}
-}
-
-func TestAFlushEndsARunawaySequence(t *testing.T) {
-	// Otherwise the state outlives the stream that caused it, and the next
-	// keystroke that happened to be a parameter byte would vanish into it.
-	var p Parser
-	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxSequenceBody)))
-	p.Flush()
-	if p.Pending() {
-		t.Fatal("a flush left the runaway sequence open")
-	}
-	if events := p.Feed([]byte("0")); len(events) != 1 {
-		t.Fatalf("got %+v, want an ordinary keystroke", events)
 	}
 }
 
@@ -454,10 +396,10 @@ func TestMalformedSequenceRecoversAtTheOffendingByte(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("got %+v, want the control chord and the letter", events)
 	}
-	if got := events[0].(Key); !got.IsRune('a', Ctrl) {
-		t.Fatalf("first = %+v, want Ctrl+A", got)
+	if got := events[0].(input.Key); !got.IsRune('a', input.Ctrl) {
+		t.Fatalf("first = %+v, want input.Ctrl+A", got)
 	}
-	if got := events[1].(Key); !got.IsRune('a', 0) {
+	if got := events[1].(input.Key); !got.IsRune('a', 0) {
 		t.Fatalf("second = %+v, want the letter", got)
 	}
 }
@@ -471,34 +413,34 @@ func TestUnknownSequencesProduceNothing(t *testing.T) {
 }
 
 func TestKeyMatching(t *testing.T) {
-	k := Key{Code: Character, Rune: 'c', Mods: Ctrl}
-	if !k.IsRune('c', Ctrl) {
-		t.Error("Ctrl+C does not match itself")
+	k := input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}
+	if !k.IsRune('c', input.Ctrl) {
+		t.Error("input.Ctrl+C does not match itself")
 	}
-	// Exactly, not at least: a binding on Ctrl+C that also fired for Ctrl+Shift+C
+	// Exactly, not at least: a binding on input.Ctrl+C that also fired for input.Ctrl+input.Shift+C
 	// would swallow a keystroke it never claimed.
-	withShift := Key{Code: Character, Rune: 'c', Mods: Ctrl | Shift}
-	if withShift.IsRune('c', Ctrl) {
-		t.Error("Ctrl+Shift+C matched a binding on Ctrl+C")
+	withShift := input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl | input.Shift}
+	if withShift.IsRune('c', input.Ctrl) {
+		t.Error("input.Ctrl+input.Shift+C matched a binding on input.Ctrl+C")
 	}
-	enter := Key{Code: Enter}
-	if !enter.Is(Enter, 0) {
-		t.Error("Enter does not match itself")
+	enter := input.Key{Code: input.Enter}
+	if !enter.Is(input.Enter, 0) {
+		t.Error("input.Enter does not match itself")
 	}
-	altEnter := Key{Code: Enter, Mods: Alt}
-	if altEnter.Is(Enter, 0) {
-		t.Error("Alt+Enter matched a binding on Enter")
+	altEnter := input.Key{Code: input.Enter, Mods: input.Alt}
+	if altEnter.Is(input.Enter, 0) {
+		t.Error("input.Alt+input.Enter matched a binding on input.Enter")
 	}
 }
 
 func TestKeyDownCoversRepeats(t *testing.T) {
 	// Most handlers want this: holding a key stops working on terminals that report
 	// repeats if only a press counts.
-	repeat := Key{Transition: Repeat}
+	repeat := input.Key{Transition: input.Repeat}
 	if !repeat.Down() {
 		t.Error("a repeat does not count as going down")
 	}
-	release := Key{Transition: Release}
+	release := input.Key{Transition: input.Release}
 	if release.Down() {
 		t.Error("a release counts as going down")
 	}
@@ -506,60 +448,20 @@ func TestKeyDownCoversRepeats(t *testing.T) {
 
 func TestKeyString(t *testing.T) {
 	for _, tc := range []struct {
-		key  Key
+		key  input.Key
 		want string
 	}{
-		{Key{Code: Character, Rune: 'c', Mods: Ctrl}, "ctrl+c"},
-		{Key{Code: Character, Rune: ' '}, "space"},
-		{Key{Code: Character, Rune: ' ', Mods: Ctrl}, "ctrl+space"},
-		{Key{Code: Enter}, "enter"},
-		{Key{Code: Backtab}, "shift+tab"},
-		{Key{Code: F5}, "f5"},
-		{Key{Code: Up, Mods: Ctrl | Shift}, "ctrl+shift+up"},
-		{Key{Code: Character, Rune: 'x', Mods: Alt | Super}, "alt+super+x"},
+		{input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}, "ctrl+c"},
+		{input.Key{Code: input.Character, Rune: ' '}, "space"},
+		{input.Key{Code: input.Character, Rune: ' ', Mods: input.Ctrl}, "ctrl+space"},
+		{input.Key{Code: input.Enter}, "enter"},
+		{input.Key{Code: input.Backtab}, "shift+tab"},
+		{input.Key{Code: input.F5}, "f5"},
+		{input.Key{Code: input.Up, Mods: input.Ctrl | input.Shift}, "ctrl+shift+up"},
+		{input.Key{Code: input.Character, Rune: 'x', Mods: input.Alt | input.Super}, "alt+super+x"},
 	} {
 		if got := tc.key.String(); got != tc.want {
 			t.Errorf("%+v = %q, want %q", tc.key, got, tc.want)
-		}
-	}
-}
-
-func TestAnIdleParserHoldsNothing(t *testing.T) {
-	var p Parser
-	p.Feed([]byte("abc"))
-	if p.buf != nil {
-		t.Fatal("the buffer is still allocated after everything decoded")
-	}
-}
-
-func TestACodePointTooLargeToBeOneIsRefused(t *testing.T) {
-	// A rune is 32 bits and a parsed number is not, so a conversion made before the
-	// range is checked turns 0x100000041 into "A" — a key nobody pressed, arriving
-	// because an integer wrapped.
-	//
-	// Two things stop it, and this pins both: parseParams refuses a number past
-	// paramLimit, and codePoint refuses one past the last real code point. The first
-	// is three functions away from the conversion, which is why the second exists —
-	// an invariant nobody can see at the point that depends on it is an invariant
-	// waiting to be moved.
-	for _, seq := range []string{
-		"\x1b[4294967361u",      // 0x100000041: narrows to 'A'
-		"\x1b[4294967392u",      // 0x100000060: narrows to '`'
-		"\x1b[1114112u",         // one past the last real code point
-		"\x1b[97;1;4294967361u", // the same, in the associated-text group
-	} {
-		var p Parser
-		for _, ev := range append(p.Feed([]byte(seq)), p.Flush()...) {
-			key, ok := ev.(Key)
-			if !ok {
-				continue
-			}
-			if key.Rune == 'A' || key.Rune == '`' {
-				t.Errorf("%q produced %q, which is what the number narrows to rather than what it says", seq, key.Rune)
-			}
-			if key.Text == "A" || key.Text == "`" {
-				t.Errorf("%q produced text %q from a code point that is not one", seq, key.Text)
-			}
 		}
 	}
 }

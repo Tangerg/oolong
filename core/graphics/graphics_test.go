@@ -1,4 +1,4 @@
-package graphics
+package graphics_test
 
 import (
 	"bytes"
@@ -8,13 +8,15 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/oolong/core/graphics"
 )
 
 // png builds the first 24 bytes of a PNG — the part this package reads — padded
 // to total, with the given dimensions.
 func png(w, h uint32, total int) []byte {
 	buf := make([]byte, max(total, 24))
-	copy(buf, pngSignature[:])
+	copy(buf, []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
 	binary.BigEndian.PutUint32(buf[8:12], 13) // the IHDR chunk's length
 	copy(buf[12:16], "IHDR")
 	binary.BigEndian.PutUint32(buf[16:20], w)
@@ -30,26 +32,26 @@ func TestDetection(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
-		want Protocol
+		want graphics.Protocol
 	}{
-		{"nothing at all", map[string]string{}, None},
-		{"a plain xterm", map[string]string{"TERM": "xterm-256color"}, None},
-		{"kitty by window id", map[string]string{"KITTY_WINDOW_ID": "1"}, Kitty},
-		{"kitty by TERM", map[string]string{"TERM": "xterm-kitty"}, Kitty},
-		{"ghostty by program", map[string]string{"TERM_PROGRAM": "Ghostty"}, Kitty},
-		{"ghostty by resources", map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, Kitty},
-		{"wezterm", map[string]string{"TERM_PROGRAM": "WezTerm"}, Kitty},
-		{"warp", map[string]string{"TERM_PROGRAM": "WarpTerminal"}, Kitty},
-		{"iterm2 speaks its own", map[string]string{"TERM_PROGRAM": "iTerm.app"}, None},
-		{"apple terminal", map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, None},
-		{"vscode", map[string]string{"TERM_PROGRAM": "vscode"}, None},
+		{"nothing at all", map[string]string{}, graphics.None},
+		{"a plain xterm", map[string]string{"TERM": "xterm-256color"}, graphics.None},
+		{"kitty by window id", map[string]string{"KITTY_WINDOW_ID": "1"}, graphics.Kitty},
+		{"kitty by TERM", map[string]string{"TERM": "xterm-kitty"}, graphics.Kitty},
+		{"ghostty by program", map[string]string{"TERM_PROGRAM": "Ghostty"}, graphics.Kitty},
+		{"ghostty by resources", map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, graphics.Kitty},
+		{"wezterm", map[string]string{"TERM_PROGRAM": "WezTerm"}, graphics.Kitty},
+		{"warp", map[string]string{"TERM_PROGRAM": "WarpTerminal"}, graphics.Kitty},
+		{"iterm2 speaks its own", map[string]string{"TERM_PROGRAM": "iTerm.app"}, graphics.None},
+		{"apple terminal", map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, graphics.None},
+		{"vscode", map[string]string{"TERM_PROGRAM": "vscode"}, graphics.None},
 		{
 			"a window id outranks a plain TERM",
 			map[string]string{"KITTY_WINDOW_ID": "3", "TERM": "xterm-256color"},
-			Kitty,
+			graphics.Kitty,
 		},
 	} {
-		if got := DetectIn(env(tc.env)); got != tc.want {
+		if got := graphics.DetectIn(env(tc.env)); got != tc.want {
 			t.Errorf("%s: = %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -58,14 +60,14 @@ func TestDetection(t *testing.T) {
 func TestTheZeroProtocolShowsNothing(t *testing.T) {
 	// Anything that has not been told what it is talking to must draw no images
 	// rather than print escape sequences at the user.
-	var p Protocol
-	if p != None {
-		t.Fatalf("the zero protocol is %v, want None", p)
+	var p graphics.Protocol
+	if p != graphics.None {
+		t.Fatalf("the zero protocol is %v, want graphics.None", p)
 	}
 }
 
 func TestPNGSizeReadsTheHeader(t *testing.T) {
-	w, h, err := PNGSize(png(640, 480, 64))
+	w, h, err := graphics.PNGSize(png(640, 480, 64))
 	if err != nil || w != 640 || h != 480 {
 		t.Fatalf("= %dx%d, %v; want 640x480", w, h, err)
 	}
@@ -87,15 +89,15 @@ func TestPNGSizeRefusesWhatItCannotSize(t *testing.T) {
 		"no width":           png(0, 480, 64),
 		"no height":          png(640, 0, 64),
 	} {
-		if _, _, err := PNGSize(bad); !errors.Is(err, ErrNotPNG) {
-			t.Errorf("%s: accepted, want ErrNotPNG", name)
+		if _, _, err := graphics.PNGSize(bad); !errors.Is(err, graphics.ErrNotPNG) {
+			t.Errorf("%s: accepted, want graphics.ErrNotPNG", name)
 		}
 	}
 }
 
 func TestTransmitWritesNothingForDataItCannotSize(t *testing.T) {
 	var buf bytes.Buffer
-	if _, err := Transmit(&buf, 1, []byte("hello")); err == nil {
+	if _, err := graphics.Transmit(&buf, 1, []byte("hello")); err == nil {
 		t.Fatal("transmitted something that is not a PNG")
 	}
 	if buf.Len() != 0 {
@@ -106,11 +108,11 @@ func TestTransmitWritesNothingForDataItCannotSize(t *testing.T) {
 func TestTransmitSendsOneEscapeWhenItFits(t *testing.T) {
 	image := png(12, 34, 64)
 	var buf bytes.Buffer
-	got, err := Transmit(&buf, 7, image)
+	got, err := graphics.Transmit(&buf, 7, image)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (Image{ID: 7, Width: 12, Height: 34}) {
+	if got != (graphics.Image{ID: 7, Width: 12, Height: 34}) {
 		t.Fatalf("= %+v, want id 7 at 12x34", got)
 	}
 	want := fmt.Sprintf("\x1b_Ga=T,f=100,i=7,q=2,m=0;%s\x1b\\",
@@ -125,7 +127,7 @@ func TestTransmitChunksWhatDoesNotFit(t *testing.T) {
 	// arrive in pieces with every piece but the last saying more is coming.
 	image := png(1, 1, 8000)
 	var buf bytes.Buffer
-	if _, err := Transmit(&buf, 1, image); err != nil {
+	if _, err := graphics.Transmit(&buf, 1, image); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -155,7 +157,7 @@ func TestTransmitChunksWhatDoesNotFit(t *testing.T) {
 
 func TestPlaceAndDeleteNameTheImage(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Place(&buf, 9, 20, 10); err != nil {
+	if err := graphics.Place(&buf, 9, 20, 10); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "i=9") ||
@@ -163,7 +165,7 @@ func TestPlaceAndDeleteNameTheImage(t *testing.T) {
 		t.Fatalf("place = %q, want the id and the cell box in it", got)
 	}
 	buf.Reset()
-	if err := Delete(&buf, 9); err != nil {
+	if err := graphics.Delete(&buf, 9); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "a=d") || !strings.Contains(got, "i=9") {
@@ -185,7 +187,7 @@ func TestFit(t *testing.T) {
 		{"no cell size gives one cell", 100, 100, 0, 0, 80, 24, 1, 1},
 		{"a zero cap is still one cell", 100, 100, 10, 20, 0, 0, 1, 1},
 	} {
-		c, r := Fit(tc.pxW, tc.pxH, tc.cellW, tc.cellH, tc.maxCols, tc.maxRows)
+		c, r := graphics.Fit(tc.pxW, tc.pxH, tc.cellW, tc.cellH, tc.maxCols, tc.maxRows)
 		if c != tc.wantC || r != tc.wantR {
 			t.Errorf("%s: = %dx%d cells, want %dx%d", tc.name, c, r, tc.wantC, tc.wantR)
 		}
@@ -195,7 +197,7 @@ func TestFit(t *testing.T) {
 func TestFitKeepsTheProportionsItWasGiven(t *testing.T) {
 	// A box that squashed the image against one edge would be worse than one that
 	// left space beside it.
-	cols, rows := Fit(1000, 500, 10, 20, 40, 40)
+	cols, rows := graphics.Fit(1000, 500, 10, 20, 40, 40)
 	if cols != 40 {
 		t.Fatalf("cols = %d, want the cap", cols)
 	}
