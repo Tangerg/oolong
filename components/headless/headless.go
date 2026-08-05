@@ -36,8 +36,13 @@ import (
 // The view is already positioned and clipped. A widget that draws outside it is not
 // a bug that shows on screen — the drawing is simply discarded — which is what makes
 // the box a boundary rather than a convention.
+//
+// It is [grid.Drawer] under a name this layer uses. Naming it again here rather than
+// coining a second method is deliberate: a layer takes its vocabulary from below,
+// so "drawable" means one thing across the whole repository and everything that is
+// drawable is drawable everywhere.
 type Widget interface {
-	Draw(v grid.View)
+	grid.Drawer
 }
 
 // Sized is a widget whose size along the axis being divided follows from the room it
@@ -62,17 +67,15 @@ type Sized interface {
 
 // Interactive is a widget that answers input.
 //
-// Handle reports whether the event was consumed. An unconsumed event carries on to
-// whatever else might want it, which is how a key can mean one thing inside a text
-// field and another outside it without either side knowing about the other.
-//
-// It is the same method set as [github.com/Tangerg/oolong/core/program.Component], so
-// anything here runs as a program's root without an adapter. The two are stated
-// separately because the loop must not depend on the widgets, and a widget must not
-// depend on there being a loop.
+// Both halves are named from below — [grid.Drawer] through [Widget], and
+// [input.Handler] — which is why this is the same method set as
+// [github.com/Tangerg/oolong/core/program.Component] and why anything here runs as a
+// program's root without an adapter. Neither copied the other: they are both spelled
+// in the substrate's language, which is what lets the loop stay ignorant of the
+// widgets and the widgets stay ignorant of there being a loop.
 type Interactive interface {
 	Widget
-	Handle(ev input.Event) bool
+	input.Handler
 }
 
 // Binding is a key and what it does.

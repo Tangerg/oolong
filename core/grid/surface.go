@@ -106,6 +106,17 @@ func (s *Surface) repairPair(x, y int) {
 	}
 }
 
+// Drawer is anything that draws itself into a view.
+//
+// It is one method and it lives here because a view is this package's, and the
+// vocabulary a layer speaks should come from below it rather than from beside it.
+// Everything further up that means "something drawable" says so by embedding this,
+// so a widget, a printed message and a program's root are the same idea named
+// three times rather than three ideas that happen to match.
+type Drawer interface {
+	Draw(v View)
+}
+
 // View is a clipped window onto a [Surface], addressed in its own coordinates.
 //
 // A view is how everything above this package draws. Handing a widget a view

@@ -37,6 +37,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/present"
 	"github.com/Tangerg/oolong/core/term"
 )
@@ -52,8 +53,8 @@ const DefaultFrameRate = 16 * time.Millisecond
 // its own. An event it does not consume is dropped by the program — a component is the
 // root of its own tree and there is nobody above it to pass one on to.
 type Component interface {
-	Draw(v grid.View)
-	Handle(ev input.Event) bool
+	grid.Drawer
+	input.Handler
 }
 
 // Loop is what a component may ask of the program running it.
@@ -95,14 +96,40 @@ type Loop interface {
 type InlineLoop interface {
 	Loop
 
-	// Print draws rows that become part of the terminal's own output, above the
-	// interface, and stay there after the program exits.
+	// Print draws something that can size itself into the terminal's own output,
+	// above the interface, where it stays after the program exits.
 	//
 	// It is how a streaming interface says something final: the interface itself is
 	// what is still changing, and everything it has finished with belongs to the
-	// terminal. draw is given a view rows tall and as wide as the interface, and
-	// runs on the program's goroutine like anything else posted to it.
-	Print(rows int, draw func(grid.View))
+	// terminal.
+	//
+	// The width is the program's to know and not the caller's. Measuring happens
+	// here, on the goroutine that owns the interface, which is both why a caller
+	// does not have to remember how wide the last frame was and why measuring a
+	// widget from somewhere else — a mutable object, on another goroutine — is not
+	// something this can be made to do by accident.
+	Print(p Printable)
+
+	// PrintRows is the same for a caller that has already worked out the height:
+	// rows it composed by hand, or content whose shape it knows better than any
+	// measurement would. draw is given a view rows tall and as wide as the
+	// interface.
+	PrintRows(rows int, draw func(grid.View))
+}
+
+// Printable is something that can say how tall it is at a width and then draw
+// itself into that space.
+//
+// Both halves are named from below rather than invented here: [grid.Drawer] and
+// [layout.Measurer] are what the substrate already calls these, and a loop that
+// coined its own words for them would be a lower layer taking its vocabulary from
+// an upper one. It is the same reason components' own Sized is built from the same
+// two — not because either copied the other, but because both are spelled in the
+// language underneath them, which is what lets everything in components satisfy
+// this without an adapter and without the loop knowing components exists.
+type Printable interface {
+	grid.Drawer
+	layout.Measurer
 }
 
 // Host is where a program's input comes from and its frames go.
@@ -433,7 +460,17 @@ func (f *frameBuffer) Write(b []byte) (int, error) {
 // method that quietly does nothing half the time.
 type inlineLoop struct{ loop }
 
-func (l inlineLoop) Print(rows int, draw func(grid.View)) {
+func (l inlineLoop) Print(p Printable) {
+	if p == nil {
+		return
+	}
+	l.Post(func() {
+		width, _ := l.p.inline.Size()
+		l.p.inline.Print(p.Measure(width), p.Draw)
+	})
+}
+
+func (l inlineLoop) PrintRows(rows int, draw func(grid.View)) {
 	l.Post(func() { l.p.inline.Print(rows, draw) })
 }
 

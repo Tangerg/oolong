@@ -48,10 +48,6 @@ type chat struct {
 	answering []string
 	said      int
 	stop      func()
-
-	// width is what the last frame was drawn at. Printing needs it before there is a
-	// view to ask, because a printed block is measured before it is drawn.
-	width int
 }
 
 var quit = headless.Binding{Key: input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}, Does: "quit"}
@@ -74,10 +70,8 @@ func newChat(loop program.InlineLoop) *chat {
 	return c
 }
 
-// Draw stacks the status line over the composer, and remembers the width so that
-// printing can measure against it.
+// Draw stacks the status line over the composer.
 func (c *chat) Draw(v grid.View) {
-	c.width, _ = v.Size()
 	rows := layout.Rows(v,
 		layout.Slot{Size: layout.Fixed(c.statusRows())},
 		layout.Slot{Size: layout.Measured(1, 0), Of: &c.composer},
@@ -115,7 +109,7 @@ func (c *chat) send() {
 		return
 	}
 	c.composer.Reset()
-	c.print(kit.Message{Theme: c.theme, Speaker: "you", Body: asked, Own: true})
+	c.loop.Print(kit.Message{Theme: c.theme, Speaker: "you", Body: asked, Own: true})
 
 	c.answering = strings.Fields(reply(asked))
 	c.said = 0
@@ -133,14 +127,9 @@ func (c *chat) advance() {
 	if c.said < len(c.answering) {
 		return
 	}
-	c.print(kit.Message{Theme: c.theme, Speaker: "assistant", Body: strings.Join(c.answering, " ")})
+	c.loop.Print(kit.Message{Theme: c.theme, Speaker: "assistant", Body: strings.Join(c.answering, " ")})
 	c.stop()
 	c.answering, c.stop = nil, nil
-}
-
-// print puts a finished message into the terminal's scrollback, above the block.
-func (c *chat) print(m kit.Message) {
-	c.loop.Print(m.Measure(c.width), m.Draw)
 }
 
 // reply is the canned answer. A real one would arrive over a network; what this

@@ -625,7 +625,7 @@ func TestAnInlineInterfaceNeverNamesARowOfTheTerminal(t *testing.T) {
 
 func TestPrintedOutputReachesTheTerminalAboveTheInterface(t *testing.T) {
 	h, root, done := startInline(t)
-	root.loop.Print(1, func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) })
+	root.loop.PrintRows(1, func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) })
 	waitFor(t, done, h, "the printed row", func() bool {
 		return strings.Contains(h.frames.String(), "finished")
 	})
@@ -647,7 +647,7 @@ func TestPrintedOutputIsNotLostToTheExit(t *testing.T) {
 	// Printing and then quitting in the same breath is what a one-shot run does: say
 	// the answer, then stop. Pacing must not be able to swallow the answer.
 	h, root, done := startInline(t)
-	root.loop.Print(1, func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) })
+	root.loop.PrintRows(1, func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) })
 	root.loop.Quit()
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
@@ -673,4 +673,46 @@ func TestTheLastStateOfAnInlineInterfaceIsWhatStays(t *testing.T) {
 	if !strings.HasSuffix(got, "\r\n\x1b[0m\x1b[?25h") {
 		t.Fatalf("the terminal was not handed back below the interface: %q", got)
 	}
+}
+
+// measurer is a Printable built from two functions.
+type measurer struct {
+	measure func(width int) int
+	draw    func(v grid.View)
+}
+
+func (m measurer) Measure(width int) int { return m.measure(width) }
+func (m measurer) Draw(v grid.View)      { m.draw(v) }
+
+func TestPrintingMeasuresAgainstTheBlocksOwnWidth(t *testing.T) {
+	// The width is the program's to know. A caller that had to remember how wide the
+	// last frame was would be keeping a copy of state the loop already has — and
+	// measuring a mutable widget from their own goroutine while they were at it.
+	h, root, done := startInline(t)
+
+	measured := make(chan int, 1)
+	root.loop.Print(measurer{
+		measure: func(width int) int { measured <- width; return 1 },
+		draw:    func(v grid.View) { v.Text(0, 0, "printed", grid.Style{}) },
+	})
+	waitFor(t, done, h, "the printed row", func() bool {
+		return strings.Contains(h.frames.String(), "printed")
+	})
+	root.loop.Quit()
+	if err := <-done; err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	if got := <-measured; got != h.w {
+		t.Fatalf("measured against width %d, want the block's own %d", got, h.w)
+	}
+}
+
+func TestPrintingNothingIsIgnored(t *testing.T) {
+	h, root, done := startInline(t)
+	root.loop.Print(nil) // must not reach the loop's goroutine and panic there
+	root.loop.Quit()
+	if err := <-done; err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	_ = h
 }
