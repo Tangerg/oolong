@@ -120,6 +120,23 @@ func ExampleForm() {
 	// |enter submit          |
 }
 
+func ExampleProgress() {
+	// Work with a total gets a bar; work without one gets a Spinner. The cell the bar
+	// ends in is drawn as a fraction of itself, so it moves by eighths of a column
+	// rather than in jumps of a whole one.
+	p := kit.Progress{
+		Glyphs:  kit.Unicode(),
+		Label:   "fetching",
+		Done:    3,
+		Total:   8,
+		Percent: true,
+	}
+	show(28, p.Measure(28), p.Draw)
+
+	// Output:
+	// |fetching █████▎░░░░░░░░  38%|
+}
+
 func ExampleDiff() {
 	before := strings.Split("keep\nold\nkeep", "\n")
 	after := strings.Split("keep\nnew\nkeep", "\n")

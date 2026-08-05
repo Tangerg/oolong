@@ -256,3 +256,44 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 		}
 	}
 }
+
+func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
+	// The three that are one sequence each and are ignored by a terminal that does
+	// not implement them, which is what makes them safe to send without asking.
+	tty, watch := open(t, term.Options{})
+	read(t, watch, 200*time.Millisecond)
+
+	// With an escape byte in the text, because the text is a file name or a model's
+	// answer as often as it is a constant. One that survived would end the sequence
+	// and leave the rest to be read as commands.
+	tty.SetTitle("building \x1b]0;oolong")
+	tty.Bell()
+	tty.Notify("tests passed")
+	if !tty.Writer().Drain(2 * time.Second) {
+		t.Fatal("what was said never reached the terminal")
+	}
+
+	seen := read(t, watch, 500*time.Millisecond)
+	if !strings.Contains(seen, "\x1b[22;0t") {
+		t.Errorf("the title the terminal had was not kept: %q", seen)
+	}
+	if !strings.Contains(seen, "\x1b]0;building ]0;oolong\x07") {
+		t.Errorf("the title was sent as %q", seen)
+	}
+	if !strings.Contains(seen, "\x1b]9;tests passed\x07") {
+		t.Errorf("the notification was sent as %q", seen)
+	}
+	if !strings.Contains(seen, "\x07") {
+		t.Errorf("the bell was not rung: %q", seen)
+	}
+
+	// And put back on the way out, for the same reason a mode is: a shell whose
+	// window is still called "building oolong" an hour later is a program that left
+	// something behind.
+	if err := tty.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+	if seen := read(t, watch, 500*time.Millisecond); !strings.Contains(seen, "\x1b[23;0t") {
+		t.Errorf("the terminal was given back as %q, want its own title with it", seen)
+	}
+}

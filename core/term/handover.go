@@ -149,7 +149,7 @@ func (t *Terminal) resume() error {
 	if _, err := xterm.MakeRaw(int(t.in.Fd())); err != nil {
 		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
 	}
-	if _, err := t.out.WriteString(t.modes.enter()); err != nil {
+	if _, err := t.out.WriteString(t.modes.enter() + t.title.enter()); err != nil {
 		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
 	}
 	t.handed.release()

@@ -160,6 +160,21 @@ type Loop interface {
 	// reports [errors.ErrUnsupported] and run is not called.
 	Hand(run func() error) error
 
+	// SetTitle names the terminal's window — see [term.Terminal.SetTitle]. It is
+	// where a program says what it is doing to somebody who is looking at another
+	// window, which is the one thing an interface cannot say by drawing.
+	SetTitle(s string)
+
+	// Bell asks the terminal for the user's attention, and leaves it to the terminal
+	// and the user to have agreed what that means.
+	Bell()
+
+	// Notify asks for a desktop notification, for the thing that finished while the
+	// user was looking at something else. A terminal that does not implement it
+	// ignores it and says nothing, so anything worth notifying about is worth saying
+	// in the interface as well.
+	Notify(text string)
+
 	// Suspend gives the terminal back and stops this process, the way Ctrl+Z does in
 	// a shell, returning when it is continued.
 	//
@@ -272,6 +287,12 @@ type Host interface {
 	// see [term.Terminal.Hand]. A host that is not a terminal has nothing to give
 	// away and simply runs it.
 	Hand(run func() error) error
+	// SetTitle names the window, Bell asks for attention, and Notify asks for a
+	// desktop notification. A host that is not a terminal has nobody to tell and does
+	// nothing, which is the same answer ReportDirectory gives and for the same reason.
+	SetTitle(s string)
+	Bell()
+	Notify(text string)
 }
 
 // Config is what a program needs to run.
@@ -712,6 +733,15 @@ func (l loop) Hand(run func() error) error {
 }
 
 func (l loop) Suspend() error { return l.Hand(term.Suspend) }
+
+// SetTitle, Bell and Notify read through to the host. None of them touches the
+// interface, so none of them needs the program's goroutine: they are things said to
+// the terminal beside the frames rather than things drawn in one.
+func (l loop) SetTitle(s string) { l.p.host.SetTitle(s) }
+
+func (l loop) Bell() { l.p.host.Bell() }
+
+func (l loop) Notify(text string) { l.p.host.Notify(text) }
 
 func (l loop) Every(d time.Duration, fn func()) (stop func()) {
 	if d <= 0 || fn == nil {

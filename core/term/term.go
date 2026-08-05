@@ -84,6 +84,9 @@ type Terminal struct {
 	// pasting is set between asking for the clipboard and the answer arriving. It is
 	// atomic because Paste may be called from anywhere and the pump reads it.
 	pasting atomic.Bool
+	// title is what this session called the window, and what it owes the terminal
+	// when it gives it back.
+	title title
 
 	winch    chan os.Signal
 	resized  chan struct{}
@@ -430,7 +433,9 @@ func (t *Terminal) Close() error {
 // terminal the user has to close.
 func (t *Terminal) giveBack() []error {
 	var errs []error
-	if _, err := t.out.WriteString(t.modes.leave()); err != nil {
+	// The title first, because it was set last: the unwinding is the taking over
+	// backwards, all the way through.
+	if _, err := t.out.WriteString(t.title.leave() + t.modes.leave()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
 	}
 	if err := xterm.Restore(int(t.in.Fd()), t.oldState); err != nil {

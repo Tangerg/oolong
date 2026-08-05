@@ -39,6 +39,10 @@ func (h *host) Ground() grid.Ground        { return grid.Ground{} }
 func (h *host) Copy(string) bool           { return false }
 func (h *host) Paste()                     {}
 
+func (h *host) SetTitle(string) {}
+func (h *host) Bell()           {}
+func (h *host) Notify(string)   {}
+
 // Hand runs it. There is no terminal here to give away, which is the whole point
 // of this host: what the demonstration does is testable without one.
 func (h *host) Hand(run func() error) error {

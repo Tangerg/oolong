@@ -35,6 +35,13 @@ type Glyphs struct {
 	Taken, Free string
 	// ScrollTrack and ScrollThumb are the two halves of a scrollbar.
 	ScrollTrack, ScrollThumb string
+	// BarFull and BarEmpty are the two halves of a progress bar, and BarSteps are the
+	// pieces of a cell it is part way through — from the narrowest to the widest, in
+	// order, with as many of them as the set has. A set with none draws the last cell
+	// whole or not at all, which is what an eight-step bar degrades to and not a
+	// separate design.
+	BarFull, BarEmpty string
+	BarSteps          []string
 	// Spinner is the frames of a busy indicator, in order.
 	Spinner []string
 }
@@ -52,7 +59,9 @@ func Unicode() Glyphs {
 		Taken:       "●",
 		Free:        "○",
 		ScrollTrack: "│", ScrollThumb: "█",
-		Spinner: []string{"·", "•", "●", "•"},
+		BarFull: "█", BarEmpty: "░",
+		BarSteps: []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
+		Spinner:  []string{"·", "•", "●", "•"},
 	}
 }
 
@@ -75,6 +84,7 @@ func ASCII() Glyphs {
 		Taken:       "x",
 		Free:        "-",
 		ScrollTrack: "|", ScrollThumb: "#",
+		BarFull: "#", BarEmpty: "-",
 		Spinner: []string{".", "o", "O", "o"},
 	}
 }

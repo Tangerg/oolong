@@ -45,6 +45,9 @@ type host struct {
 	pasteFor string
 	asked    int
 	handed   int
+	title    string
+	rang     int
+	notified []string
 }
 
 func newHost() *host {
@@ -100,6 +103,32 @@ func (h *host) Hand(run func() error) error {
 		return nil
 	}
 	return run()
+}
+
+// SetTitle, Bell and Notify record rather than send. What a host with no terminal
+// does with them is nothing; what a test wants to know is that they were said.
+func (h *host) SetTitle(s string) {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	h.title = s
+}
+
+func (h *host) Bell() {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	h.rang++
+}
+
+func (h *host) Notify(text string) {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	h.notified = append(h.notified, text)
+}
+
+func (h *host) said() (title string, rang int, notified []string) {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	return h.title, h.rang, slices.Clone(h.notified)
 }
 
 func (h *host) timesHanded() int {
@@ -1192,6 +1221,28 @@ func TestTheBlockIsLeftBehindBeforeAnythingElseGetsTheTerminal(t *testing.T) {
 
 	root.loop.Quit()
 	if err := <-done; err != nil {
+		t.Fatalf("the program ended with %v", err)
+	}
+}
+
+func TestAnInterfaceCanSayThingsThatAreNotDrawn(t *testing.T) {
+	// A window title, a bell, a notification. All three reach somebody who is looking
+	// at another window, which is the one thing an interface cannot do by drawing —
+	// and all three are the host's, because what they mean depends entirely on what
+	// is at the other end.
+	r := start(t, nil)
+	r.until("the first frame", func() bool { return r.root.drawn.Load() > 0 })
+
+	r.root.loop.SetTitle("building oolong")
+	r.root.loop.Bell()
+	r.root.loop.Notify("tests passed")
+	r.until("what was said to reach the terminal", func() bool {
+		title, rang, notified := r.host.said()
+		return title == "building oolong" && rang == 1 && len(notified) == 1
+	})
+
+	r.root.loop.Quit()
+	if err := r.wait(); err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}
 }
