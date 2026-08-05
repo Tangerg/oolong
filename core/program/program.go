@@ -173,6 +173,17 @@ type InlineLoop interface {
 	// measurement would. draw is given a view rows tall and as wide as the
 	// interface.
 	PrintRows(rows int, draw func(grid.View))
+
+	// Append puts output onto the end of what was printed last rather than onto a
+	// row of its own, which is what output arriving in pieces needs: a reply
+	// streaming in three words at a time is one paragraph, not three rows.
+	//
+	// draw is given what is left of the open row and says whether there is more to
+	// come. When there is, it is called again with a whole row, and again until it
+	// says there is not — which is what lets a caller lay text out against room it
+	// has no way of knowing until the loop tells it. A round with a whole row to
+	// itself that draws nothing ends it, because asking again would never end.
+	Append(draw func(v grid.View) (more bool))
 }
 
 // Printable is something that can say how tall it is at a width and then draw
@@ -564,6 +575,38 @@ func (l inlineLoop) Print(p Printable) {
 
 func (l inlineLoop) PrintRows(rows int, draw func(grid.View)) {
 	l.Post(func() { l.p.inline.Print(rows, draw) })
+}
+
+func (l inlineLoop) Append(draw func(grid.View) bool) {
+	if draw == nil {
+		return
+	}
+	l.Post(func() {
+		for {
+			before := l.room()
+			more := false
+			l.p.inline.Append(func(v grid.View) { more = draw(v) })
+			if !more {
+				return
+			}
+			if l.room() == before && before == 0 {
+				// A whole row to itself and nothing drawn into it. No amount of room
+				// would help, so asking again is asking forever.
+				return
+			}
+			l.p.inline.Break()
+		}
+	})
+}
+
+// room is how much of the open row has been taken, or zero when the next thing
+// published starts a row of its own.
+func (l inlineLoop) room() int {
+	col, open := l.p.inline.Tail()
+	if !open {
+		return 0
+	}
+	return col
 }
 
 // loop is the program's side of [Loop]. It is a value so a component can copy it

@@ -762,6 +762,61 @@ func TestPrintingMeasuresAgainstTheBlocksOwnWidth(t *testing.T) {
 	}
 }
 
+func TestAppendedOutputIsFedRowsUntilItSaysItIsDone(t *testing.T) {
+	// A caller laying text out has no way to know how much of the row is left until
+	// the loop tells it, and no way to ask from its own goroutine without racing the
+	// interface. So the loop asks, with what is left, and keeps asking with whole rows
+	// until the caller says there is no more.
+	h, root, done := startInline(t)
+
+	offered := make(chan int, 4)
+	rest := "one two three four five six seven eight nine"
+	root.loop.Append(func(v grid.View) bool {
+		w, _ := v.Size()
+		offered <- w
+		take := min(len(rest), w)
+		v.Text(0, 0, rest[:take], grid.Style{})
+		rest = rest[take:]
+		return rest != ""
+	})
+	waitFor(t, done, h, "the appended output", func() bool {
+		return strings.Contains(h.frames.String(), "nine")
+	})
+	root.loop.Quit()
+	if err := <-done; err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	close(offered)
+	first := <-offered
+	if first != h.w {
+		t.Fatalf("the first piece was offered %d columns, want the whole row %d", first, h.w)
+	}
+	for w := range offered {
+		if w != h.w {
+			t.Fatalf("a later piece was offered %d columns, want a whole row", w)
+		}
+	}
+}
+
+func TestAppendingNothingForeverStillEnds(t *testing.T) {
+	// A caller that says there is more and draws nothing into a whole row is asking
+	// for room that would not help. The loop stops rather than spinning on it, because
+	// it is the goroutine the interface is drawn on.
+	h, root, done := startInline(t)
+	rounds := make(chan struct{}, 8)
+	root.loop.Append(func(grid.View) bool {
+		rounds <- struct{}{}
+		return true
+	})
+	root.loop.Post(func() {}) // work queued behind it, which only runs if the loop got free
+	waitFor(t, done, h, "the append to give up", func() bool { return len(rounds) > 0 })
+	root.loop.Quit()
+	if err := <-done; err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	_ = h
+}
+
 func TestPrintingNothingIsIgnored(t *testing.T) {
 	h, root, done := startInline(t)
 	root.loop.Print(nil) // must not reach the loop's goroutine and panic there

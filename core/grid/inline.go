@@ -54,7 +54,20 @@ type Inline struct {
 
 	// pending is output that has been printed but not yet written, already encoded.
 	// A printed row never changes again, so keeping its cells would buy nothing.
-	pending []string
+	pending []printed
+
+	// open says the last row published has not been finished, and tail is how far
+	// along it the output got — the column a continuation of it starts at.
+	//
+	// Streaming output does not arrive on line boundaries. Without these, every print
+	// would begin a row of its own, and a sentence delivered three words at a time
+	// would come out three rows tall.
+	open bool
+	tail int
+	// flushed is tail as the terminal has it. It differs from tail while there is
+	// output pending, and it is where a continuation of the row the terminal already
+	// has open has to start.
+	flushed int
 
 	// rows is how tall the block was after the last flush, and at is where that
 	// flush left the terminal's cursor, in the block's own coordinates. Together
@@ -75,6 +88,15 @@ type Inline struct {
 
 	// buf is one frame's payload and out the same wrapped for atomic application.
 	buf, out []byte
+}
+
+// printed is one piece of published output on its way to the terminal, encoded.
+type printed struct {
+	row string
+	// after says this goes onto the end of what was published before it rather than
+	// onto a row of its own. It is what a block that does not begin at a column is:
+	// the cells go where the last ones stopped.
+	after bool
 }
 
 // NewInline returns an inline block that may grow to h rows of w columns, whose
@@ -156,6 +178,10 @@ func (i *Inline) Frame() View {
 // the terminal — a long answer printed into the scrollback is the ordinary case —
 // and a caller that has laid its content out already knows how tall it is. Every
 // row asked for is printed, so a blank row is a blank row and not slack.
+//
+// Whole rows, each on a row of its own: a row left open by [Inline.Append] is finished
+// first, because what follows it is not part of it. Output arriving in pieces that do
+// not stop at a line boundary is that other method's business.
 func (i *Inline) Print(rows int, draw func(View)) {
 	if rows <= 0 {
 		return
@@ -166,9 +192,58 @@ func (i *Inline) Print(rows int, draw func(View)) {
 		draw(i.scratch.View())
 	}
 	for y := range rows {
-		i.pending = append(i.pending, EncodeRow(i.scratch.Row(y), i.depth))
+		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.Row(y), i.depth)})
 	}
+	i.open, i.tail = false, 0
 }
+
+// Append publishes cells onto the end of the row the last one left open, and leaves it
+// open for the next.
+//
+// It is what output that does not arrive on line boundaries needs. A reply streaming in
+// three words at a time is one paragraph and not three rows, and a caller with no way
+// to say so has to hold everything back until a newline turns up — which for a program
+// that never prints one means holding everything back for good.
+//
+// The view is one row tall and as wide as what is left of the open row, so what is
+// drawn into it cannot run past the edge and take the block's anchor with it. A row
+// with no room left is finished and the cells go onto the next one: appending means
+// putting something after what is there, not squeezing it in beside it.
+//
+// Drawing nothing publishes nothing, so an empty chunk costs no row.
+func (i *Inline) Append(draw func(View)) {
+	if draw == nil {
+		return
+	}
+	w, _ := i.back.Size()
+	at := 0
+	if i.open {
+		at = i.tail
+	}
+	if at >= w {
+		at, i.open = 0, false
+	}
+	i.scratch.Resize(w-at, 1)
+	draw(i.scratch.View())
+	cells := trimBlankTail(i.scratch.Row(0))
+	if len(cells) == 0 {
+		return
+	}
+	i.pending = append(i.pending, printed{row: EncodeRow(cells, i.depth), after: i.open})
+	i.open, i.tail = true, at+len(cells)
+}
+
+// Tail is how far along its row the published output has got, and whether the row is
+// open at all. A caller laying text out for [Inline.Append] asks how much of the row is
+// already spoken for; one deciding whether it owes a line break asks the second answer.
+func (i *Inline) Tail() (col int, open bool) { return i.tail, i.open }
+
+// Break finishes the open row, so that what is published next begins one of its own.
+//
+// It writes nothing. The row was published with the block underneath it already, so
+// ending it is only a matter of not carrying it on — which is why a caller can break a
+// row it has changed its mind about at no cost.
+func (i *Inline) Break() { i.open, i.tail = false, 0 }
 
 // Cursor is where the last frame asked for the terminal's cursor to go, in the
 // block's own coordinates. See [Screen.Cursor].
@@ -198,6 +273,8 @@ func (i *Inline) Flush(w io.Writer) error {
 		return err
 	}
 	i.pending = i.pending[:0]
+	// What the terminal now has open is what was pending a moment ago.
+	i.flushed = i.tail
 	i.settle(used)
 	return nil
 }
@@ -220,6 +297,9 @@ func (i *Inline) Finish(w io.Writer) error {
 	i.buf = append(i.buf, sgrReset...)
 	i.buf = append(i.buf, showCursor...)
 	i.rows, i.at = 0, image.Point{}
+	// Whatever was left open stays as it is — it is the terminal's output now — but
+	// nothing further belongs on it: the cursor has moved below the block.
+	i.open, i.tail, i.flushed = false, 0, 0
 	i.Invalidate()
 	_, err := w.Write(i.buf)
 	return err
@@ -246,18 +326,25 @@ func (i *Inline) used() int {
 // already showing this frame.
 func (i *Inline) compose(used int) {
 	// Printing rewrites the rows the block's first rows were on and moves the block
-	// down past them, so nothing the block is showing survives it.
-	printed := len(i.pending)
-	full := i.full || printed > 0
+	// down past them, so nothing the block is showing survives it. A piece that goes
+	// onto the end of a row already published moves nothing: the row it goes on is
+	// above the block already.
+	advance := 0
+	for _, p := range i.pending {
+		if !p.after {
+			advance++
+		}
+	}
+	full := i.full || advance > 0
 
 	changed := func(y int) bool { return full || !rowEqual(i.front, y, i.back, y) }
 
 	// The rows the block is giving up. They are erased where they are rather than
 	// deleted, which leaves the block shorter with blank rows below it and moves
 	// nothing that is above it.
-	extra := max(i.rows-printed-used, 0)
+	extra := max(i.rows-advance-used, 0)
 
-	work := full || extra > 0
+	work := full || extra > 0 || len(i.pending) > 0
 	for y := 0; y < used && !work; y++ {
 		work = changed(y)
 	}
@@ -275,9 +362,23 @@ func (i *Inline) compose(used int) {
 		i.csi(i.at.Y, 'A')
 	}
 
-	for _, line := range i.pending {
-		i.buf = append(i.buf, line...)
+	for k, p := range i.pending {
+		switch {
+		case k == 0 && p.after:
+			// The row being carried on is the one above the block: it was published
+			// before the block was drawn underneath it.
+			i.csi(1, 'A')
+			if i.flushed > 0 {
+				i.csi(i.flushed, 'C')
+			}
+		case k > 0 && !p.after:
+			i.buf = append(i.buf, "\r\n"...)
+		}
+		i.buf = append(i.buf, p.row...)
 		i.buf = append(i.buf, eraseLine...)
+	}
+	if len(i.pending) > 0 {
+		// Below everything published, which is where the block goes.
 		i.buf = append(i.buf, "\r\n"...)
 	}
 

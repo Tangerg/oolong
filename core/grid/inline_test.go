@@ -291,6 +291,125 @@ func TestEveryPrintedRowIsPrinted(t *testing.T) {
 	}
 }
 
+func TestOutputThatDidNotStopAtALineBoundaryCarriesOn(t *testing.T) {
+	// Streaming output does not arrive on line boundaries. A reply delivered three
+	// words at a time is one paragraph, and a printer that began every piece at column
+	// zero would make it three rows tall.
+	i := grid.NewInline(10, 6)
+	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
+	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
+
+	got := inline(t, i, grid.Cursor{}, lines("prompt"))
+	want := "\x1b[0m" + "\r" +
+		"Hel" + "\x1b[K" + "lo" + "\x1b[K" + "\r\n" +
+		"prompt" + "\x1b[K" + "\r" + "\x1b[?25l"
+	if got != want {
+		t.Fatalf("frame  = %q\nwant   = %q", got, want)
+	}
+	if col, open := i.Tail(); col != 5 || !open {
+		t.Fatalf("tail = %d (open=%v), want the row open five columns along", col, open)
+	}
+}
+
+func TestCarryingOnReachesBackOverTheBlock(t *testing.T) {
+	// The row being carried on was published with the block drawn underneath it, so
+	// continuing it means going back up past the block and along to where it stopped.
+	// Nothing about the block itself has changed, and nothing about it is rewritten.
+	i := grid.NewInline(10, 6)
+	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
+	inline(t, i, grid.Cursor{}, lines("prompt"))
+
+	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
+	got := inline(t, i, grid.Cursor{}, lines("prompt"))
+	want := "\x1b[0m" + "\r" + "\x1b[1A" + "\x1b[3C" + "lo" + "\x1b[K" + "\r\n"
+	if got != want {
+		t.Fatalf("frame  = %q\nwant   = %q", got, want)
+	}
+}
+
+func TestAWholeRowWillNotShareOneWithAnythingElse(t *testing.T) {
+	// Print is whole rows. What was left open is not part of them, and squeezing the
+	// next block onto the end of it would put two unrelated things on one line.
+	i := grid.NewInline(10, 6)
+	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
+	i.Print(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) })
+
+	got := inline(t, i, grid.Cursor{}, nil)
+	want := "\x1b[0m" + "\r" +
+		"Hel" + "\x1b[K" + "\r\n" +
+		"done" + "\x1b[K" + "\r\n" + "\x1b[?25l"
+	if got != want {
+		t.Fatalf("frame  = %q\nwant   = %q", got, want)
+	}
+	if _, open := i.Tail(); open {
+		t.Fatal("a whole row left the one before it open")
+	}
+}
+
+func TestAppendingToAFullRowStartsTheNextOne(t *testing.T) {
+	// Appending means putting something after what is there, not squeezing it in
+	// beside it — and a row with no room left would wrap, which moves the block.
+	i := grid.NewInline(4, 6)
+	i.Append(func(v grid.View) { v.Text(0, 0, "abcd", grid.Style{}) })
+	i.Append(func(v grid.View) {
+		if w, _ := v.Size(); w != 4 {
+			t.Errorf("the second piece was offered %d columns, want a whole row", w)
+		}
+		v.Text(0, 0, "ef", grid.Style{})
+	})
+
+	got := inline(t, i, grid.Cursor{}, nil)
+	want := "\x1b[0m" + "\r" +
+		"abcd" + "\x1b[K" + "\r\n" +
+		"ef" + "\x1b[K" + "\r\n" + "\x1b[?25l"
+	if got != want {
+		t.Fatalf("frame  = %q\nwant   = %q", got, want)
+	}
+}
+
+func TestWhatIsAppendedIsOfferedWhatIsLeftOfTheRow(t *testing.T) {
+	// Which is what stops it running past the edge and taking the block's anchor with
+	// it: a caller cannot draw outside the view it was handed.
+	i := grid.NewInline(10, 6)
+	i.Append(func(v grid.View) { v.Text(0, 0, "abc", grid.Style{}) })
+	i.Append(func(v grid.View) {
+		if w, _ := v.Size(); w != 7 {
+			t.Fatalf("offered %d columns, want what is left of the row", w)
+		}
+	})
+}
+
+func TestBreakingARowCostsNothingAndIsNotAFrame(t *testing.T) {
+	// The row was published with the block underneath it already, so ending it is only
+	// a matter of not carrying it on.
+	i := grid.NewInline(10, 6)
+	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
+	inline(t, i, grid.Cursor{}, lines("prompt"))
+
+	i.Break()
+	if got := inline(t, i, grid.Cursor{}, lines("prompt")); got != "" {
+		t.Fatalf("ending a row wrote %q", got)
+	}
+	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
+	got := inline(t, i, grid.Cursor{}, lines("prompt"))
+	if strings.Contains(got, "\x1b[1A") {
+		t.Fatalf("frame = %q, want the next piece on a row of its own", got)
+	}
+}
+
+func TestAppendingNothingCostsNoRow(t *testing.T) {
+	// A chunk that came to nothing is not a blank line: it is nothing.
+	i := grid.NewInline(10, 4)
+	inline(t, i, grid.Cursor{}, lines("ab"))
+	i.Append(func(grid.View) {})
+	if got := inline(t, i, grid.Cursor{}, lines("ab")); got != "" {
+		t.Fatalf("appending nothing wrote %q", got)
+	}
+	if _, open := i.Tail(); open {
+		t.Fatal("appending nothing opened a row")
+	}
+}
+
 func TestPrintingNothingIsNotAFrame(t *testing.T) {
 	i := grid.NewInline(10, 4)
 	inline(t, i, grid.Cursor{}, lines("ab"))

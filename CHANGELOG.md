@@ -136,6 +136,14 @@ point of tagging them low rather than not at all.
 - `core/input.Key.At`, stamped by the terminal's reader as `Mouse.At` already was. Two
   chords in one burst are a sequence and a terminal never says so; the same two with a
   pause between them are two keystrokes that happen to be adjacent.
+- **`core/grid.Inline.Append`, `Tail` and `Break`, and `InlineLoop.Append`.** Printed
+  output no longer has to begin at column zero. Streaming output does not arrive on
+  line boundaries, and a printer that started every piece on a row of its own turned a
+  reply delivered three words at a time into three rows. What is appended is offered
+  what is left of the open row and no more, so it cannot wrap and take the block's
+  anchor with it, and the loop keeps offering whole rows until the caller says it has
+  finished — which is the only way to lay text out against room that is not knowable
+  from another goroutine.
 
 ### Changed
 
