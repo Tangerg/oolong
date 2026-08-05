@@ -315,3 +315,21 @@ func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
 		t.Fatalf("watermark = %d, want %d", got, seq)
 	}
 }
+
+func TestQueuedCountsWhatWasHandedOver(t *testing.T) {
+	// The sequence is reserved before the goroutine can see the frame, so the count
+	// already accounts for it by the time Queue returns.
+	w := term.NewWriter(&recorder{})
+	defer func() { _ = w.Close() }()
+	if got := w.Queued(); got != 0 {
+		t.Fatalf("= %d before anything was queued", got)
+	}
+	for i := 1; i <= 3; i++ {
+		if got := w.Queue([]byte("x")); got != uint64(i) {
+			t.Fatalf("frame %d was given sequence %d", i, got)
+		}
+		if got := w.Queued(); got != uint64(i) {
+			t.Fatalf("after %d frames the count is %d", i, got)
+		}
+	}
+}

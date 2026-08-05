@@ -74,7 +74,21 @@ type Terminal struct {
 // case a caller has to handle rather than force: a program whose output is being
 // piped wants to write text, not frames.
 func Open(opts Options) (*Terminal, error) {
-	in, out := os.Stdin, os.Stdout
+	return OpenOn(os.Stdin, os.Stdout, opts)
+}
+
+// OpenOn takes over a terminal that is not this process's own.
+//
+// Standard input and output are the ordinary answer and [Open] is the ordinary
+// call. This exists because they are not the only answer: a program serving a
+// session over a pty holds one at each end, and everything below this line worked
+// on whatever files it was handed long before anything could hand it any.
+//
+// It is also what makes this package testable at all. A terminal that could only
+// ever be the process's own is one whose lifecycle — raw mode, the modes it turns
+// on, the order it puts them back in — could be checked only by running a second
+// program and reading what came out of it.
+func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	fd := int(in.Fd())
 	if !xterm.IsTerminal(fd) {
 		return nil, fmt.Errorf("%w: standard input is fd %d", ErrNotTerminal, fd)
