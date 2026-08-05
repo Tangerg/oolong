@@ -14,9 +14,6 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 )
-
-// See the note in components/go.mod: sibling checkouts stand in for versions
-// until there are versions.
 replace (
 	github.com/Tangerg/oolong/components => ../components
 	github.com/Tangerg/oolong/core => ../core
