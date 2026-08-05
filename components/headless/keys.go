@@ -71,6 +71,16 @@ const (
 // Close is what dismisses the top layer of a [Stack].
 const Close input.Action = "close"
 
+// The actions a form and its fields answer to, on top of the list movement a choice
+// uses and the editing a line of text uses.
+const (
+	// Toggle takes the choice under the cursor, or gives it back.
+	Toggle input.Action = "toggle"
+	// Submit finishes a [Form], and Cancel abandons it.
+	Submit input.Action = "submit"
+	Cancel input.Action = "cancel"
+)
+
 // The actions a [Container] answers to: which of its children has the keyboard.
 const (
 	FocusNext input.Action = "focus-next"
@@ -172,6 +182,40 @@ func DefaultContainerKeys() *input.Keymap {
 	return m
 }
 
+// DefaultMultiSelectKeys are the keystrokes a list of choices answers: the movement any
+// list has, and the one that takes what is under the cursor.
+func DefaultMultiSelectKeys() *input.Keymap {
+	m := DefaultListKeys()
+	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})
+	return m
+}
+
+// DefaultConfirmKeys are the keystrokes a yes or no answers.
+//
+// Left and right rather than up and down, because the two answers are drawn side by
+// side and a key that moved the other way would be pointing at nothing.
+func DefaultConfirmKeys() *input.Keymap {
+	m := &input.Keymap{}
+	m.Bind(SelectPrev, input.Chord{Code: input.Left})
+	m.Bind(SelectNext, input.Chord{Code: input.Right})
+	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})
+	m.Bind(Toggle, input.Chord{Code: input.Tab})
+	return m
+}
+
+// DefaultFormKeys are the keystrokes a form answers: the two that walk between its
+// fields, and the two that finish with it.
+//
+// Enter submits rather than moving on, because a form is finished by saying so and a
+// field that took enter to mean "next" would leave nothing to mean "done". A field with
+// its own use for enter keeps it, since a field is asked first.
+func DefaultFormKeys() *input.Keymap {
+	m := DefaultContainerKeys()
+	m.Bind(Submit, input.Chord{Code: input.Enter})
+	m.Bind(Cancel, input.Chord{Code: input.Esc})
+	return m
+}
+
 // The maps a widget reads through when its caller set none.
 //
 // One apiece for the whole program rather than one per widget: a default map is a
@@ -184,10 +228,13 @@ func DefaultContainerKeys() *input.Keymap {
 // first keystroke, and a widget compared, copied or logged after that would not be the
 // one they wrote.
 var (
-	editorKeys     = sync.OnceValue(DefaultEditorKeys)
-	listKeys       = sync.OnceValue(DefaultListKeys)
-	scrollKeys     = sync.OnceValue(DefaultScrollKeys)
-	completionKeys = sync.OnceValue(DefaultCompletionKeys)
-	stackKeys      = sync.OnceValue(DefaultStackKeys)
-	containerKeys  = sync.OnceValue(DefaultContainerKeys)
+	editorKeys      = sync.OnceValue(DefaultEditorKeys)
+	listKeys        = sync.OnceValue(DefaultListKeys)
+	scrollKeys      = sync.OnceValue(DefaultScrollKeys)
+	completionKeys  = sync.OnceValue(DefaultCompletionKeys)
+	stackKeys       = sync.OnceValue(DefaultStackKeys)
+	containerKeys   = sync.OnceValue(DefaultContainerKeys)
+	multiSelectKeys = sync.OnceValue(DefaultMultiSelectKeys)
+	confirmKeys     = sync.OnceValue(DefaultConfirmKeys)
+	formKeys        = sync.OnceValue(DefaultFormKeys)
 )

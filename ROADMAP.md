@@ -6,9 +6,9 @@ not used). It is ordered by what blocks what, not by what is most wanted.
 
 Three findings gate everything else, so they come first.
 
-**Done so far:** all of section 1, and 2.1 and 2.4 of section 2. What each turned out
-to mean in practice is recorded under the item. What is left is 2.2, 2.3, 2.5 and
-section 3, in the order at the end.
+**Done:** all of it. What each turned out to mean in practice is recorded under the
+item, including the three places the implementation contradicted the analysis. What is
+left is at the end, under *What this turned up*.
 
 ---
 
@@ -117,6 +117,23 @@ The mechanism belongs in `core/input`; the default maps belong in `headless`, th
 split `Glyphs` has. Sequence timeouts need the arrival time of a key, which is the
 change already made for `Mouse.At` extended to `Key`.
 
+**What it turned out to need.** A third piece: `Do`. A widget that names what it can do
+has to answer to the name, or the name is only ever a label on a `switch` inside its own
+`Handle` — and then a completion driving the list inside it has to hand the list the raw
+event, which resolves the same keystroke against the same map twice. `Editor`, `List`,
+`Scroll`, `Completion`, `Stack` and `Container` each answer to a name now, which also
+makes every one of them reachable from a menu, from a command typed by name, and from a
+test that presses nothing.
+
+**What it turned up.** `Backtab`. The legacy sequence and the Kitty protocol report
+shift+tab as two different keys, the container was bound to one of them, and walking the
+keyboard backwards did not work on half the terminals there are. One keystroke, one
+spelling: `Backtab` is gone and `CSI Z` decodes as tab with shift held.
+
+The description a hint row shows turned out not to need a field. An action's name is
+what there is to say about it, and words kept beside a name drift from it — so
+`Binding.Does` and `Binding.Hidden` are both gone, and hiding a hint is not listing it.
+
 ### 2.3 Forms, in `headless`
 
 `huh` sits above `bubbles`. Stripped of appearance its core is behaviour:
@@ -130,6 +147,19 @@ That is `headless`, and `kit` renders it. **No new ring is needed.**
 This corrects an earlier misjudgement: `agentui`'s blocking question interaction was
 filed as application code. It is an instance of a form. The mechanism is the library's;
 which questions to ask is the product's.
+
+**Where the rendering turned out to have to go.** Into the fields. A field is generic
+over what it holds, and `*Select[T]` for an unknown `T` is not something a renderer can
+name — so a renderer that drew every kind of field cannot be written down. The look
+therefore travels the other way: `kit.Form` turns a theme and a glyph set into a
+`headless.Look`, the form hands it to its fields, and each field draws itself. That is
+one way to dress a field and it is the form it is in, which is why a single input is a
+form of one field rather than a widget with styles on it.
+
+A form turned out to be a `Container` with two things added — an answer checked when the
+keyboard leaves it, and the set checked on submission. Which field has the keyboard,
+what tab does, and which field a click landed in are the same questions there as
+anywhere else, and were already answered.
 
 ### 2.4 Blending, in `core/grid`
 
@@ -159,6 +189,17 @@ because printed output does not always stop at a line boundary. `Inline.Print` a
 every printed block begins at column zero. Streaming output does not arrive on line
 boundaries.
 
+**What it turned out to be.** Two methods and two fields. `Append` puts cells on the end
+of the row the last one left open — reaching back up over the block to the column it
+stopped at — and `Break` ends one. What is appended is handed what is left of the row
+and nothing more, because a printed row that wrapped would move the block and the block
+has no way to find itself again.
+
+The awkward part was above, not below: the room left is not knowable from another
+goroutine, so `InlineLoop.Append` asks the caller with what is left and keeps asking
+with whole rows until it says it has finished. Wrapping text into it cannot live in
+`core/grid` at all — `core/text` depends on `grid` and not the other way round.
+
 ---
 
 ## 3. Components that are missing
@@ -167,16 +208,37 @@ Ordered by value. What this library has and the others do not — a transcript, 
 sticky headers, a command registry, history, completion — follows from being built for
 streaming output, and is not an accident.
 
-1. **A scrollable container.** `bubbles` has `viewport`, `opentui` has `ScrollBox`.
+*All four are done.*
+
+1. ~~**A scrollable container.**~~ `bubbles` has `viewport`, `opentui` has `ScrollBox`.
    There is a scroll position (`headless.Scroll`) and something that draws a bar
    (`kit.Scrollbar`), and nothing that puts arbitrary content in a box and scrolls it.
    `Transcript` is a special case of it.
-2. **Select, multi-select, confirm.** `List` highlights a row; nothing collects a choice
-   and hands it back. These are a form's fields — see 2.3.
-3. **A single-line input.** `Editor` is multi-line and `Composer` wraps it. A one-line
-   field with validation, a placeholder and masking is a different thing.
-4. **A diff view.** `Theme` carries `Added`, `Removed` and `Context`, and nothing draws a
-   diff. Three styles with no consumer.
+
+   **`headless.Viewport` came to forty lines**, because a view is already a clipped
+   window onto a surface: content drawn into one that begins above the box lays itself
+   out at its full height and loses what is outside. Nothing has to be taught about
+   being scrolled, and a cursor placed off-screen is discarded rather than drawn
+   somewhere wrong. `Transcript` is *not* built on it, and that is right: it measures
+   incrementally because a session's output is too tall to re-measure every frame, and
+   two things with an opinion about one position would fight.
+2. ~~**Select, multi-select, confirm.**~~ `List` highlights a row; nothing collects a
+   choice and hands it back. These are a form's fields — see 2.3.
+3. ~~**A single-line input.**~~ `Editor` is multi-line and `Composer` wraps it. A
+   one-line field with validation, a placeholder and masking is a different thing.
+
+   **It turned out not to be a different thing.** The difference is two rules — no line
+   breaks go in, and text wider than the box slides sideways instead of wrapping — and
+   everything else is the same field: what a cursor is, what selecting means, what undo
+   undoes, where a click lands. So it is `Editor.SingleLine` and `Editor.Mask`, and the
+   validation is the form's, where the analysis already said it belonged. A separate
+   type would have been three hundred lines of the same logic written a second time.
+4. ~~**A diff view.**~~ `Theme` carries `Added`, `Removed` and `Context`, and nothing
+   draws a diff. Three styles with no consumer.
+
+   **A view needs something to view**, so `core/diff` says what changed as well —
+   beside `core/fuzzy`, for the same reason that is there. `kit.Diff` is sized, so a
+   change taller than its pane goes in a `Viewport` and needs nothing further.
 
 Deliberately not taken, with reasons: syntax-highlighted code and line numbers belong
 wherever markdown ends up; images wait on the frame pipeline; a file picker is product
@@ -197,25 +259,47 @@ shaped; timers and stopwatches are application logic rather than components.
 
 ## 5. Order
 
-By dependency, not by value:
+By dependency, not by value. All of it is done, in this order:
 
-1. ~~**Blending** (2.4)~~ — done. Depended on nothing new, and proved the probe's
-   answer end to end.
-2. ~~**Container and focus** (1.1, 1.2)~~ — done, and 1.3 with them.
-3. ~~**Marks and edits** (2.1)~~ — done.
-4. **Keys** (2.2) — needs an arrival time on a key; otherwise independent.
-5. **Components** (3) — after the container, or each one adds another hand-wiring.
-6. **Forms** (2.3) — needs keys for navigation and the components above.
+1. ~~**Blending** (2.4)~~ — depended on nothing new, and proved the probe's answer end
+   to end.
+2. ~~**Container and focus** (1.1, 1.2)~~ — and 1.3 with them.
+3. ~~**Marks and edits** (2.1)~~
+4. ~~**Keys** (2.2)~~ — one change and not four, for the reason below.
+5. ~~**Components** (3)~~ — after the container, or each one adds another hand-wiring.
+6. ~~**Forms** (2.3)~~ — needs keys for navigation and the components above.
+7. ~~**A printed block that does not start at a column** (2.5)~~ — independent of all
+   of it, which is why it went whenever there was room.
 
-The editor's flat buffer is not in this list. It is a separate change, best judged after
-3, when the shifting logic is in one place.
+### Why 4 was one change and not four
 
-### Why 4 is one change and not four
+Every widget owned both halves of its own key handling, so separating them separated
+them everywhere at once: `EditorKeys`, `List`, `Completion`, `Scroll`, `Stack.Escape`
+and `Container.Next` all named keystrokes where they meant commands, and `kit.Help`,
+`Composer.Hints` and `Dialog.Hints` all read the same `Binding` back out to draw a hint
+row. Doing half of it would have left two ways to bind a key, which is the defect 1.3
+was — and this time a defect a caller could see from outside.
 
-Every widget here owns both halves of its own key handling, so separating them
-separates them everywhere at once: `EditorKeys`, `List`, `Completion`, `Scroll`,
-`History`, `Commands`, `Stack.Escape` and `Container.Next` all name keystrokes where
-they mean commands, and `kit.Help`, `Composer.Hints` and `Dialog.Hints` all read the
-same `Binding` back out to draw a hint row. Doing half of it would leave two ways to
-bind a key, which is the defect 1.3 was — and this time it would be a defect a caller
-could see from outside.
+---
+
+## 6. What this turned up
+
+Not a plan. These are the things the work above put in view, kept here so they are not
+rediscovered from scratch.
+
+- **The editor's flat buffer.** Still not proposed, and now cheaper to judge: the
+  shifting logic is one call in one place, and the single-line field already ignores the
+  wrap. What is left is the forty-odd cursor assignments and the caret affinity, which
+  are the reason to want it.
+- **A sequence that is a prefix of another cannot fire.** `input.Keymap` says so plainly:
+  nothing can wake an interface after a pause, so a chord that might still be the start
+  of something longer can only be decided by what comes next. Giving the loop a way to
+  be woken at a deadline would fix it, and would also be what an idle timeout, a toast
+  that dismisses itself, and a spinner that stops need.
+- **Wrapping text into `Inline.Append`.** The primitive is there and `core/grid` cannot
+  wrap, because `core/text` depends on it and not the other way round. Whatever ends up
+  turning a stream of text into rows belongs above both.
+- **`headless.Transcript` is not a `Measurer`,** so it cannot go in a `Viewport`. That is
+  deliberate today — it keeps its own position for a good reason — but the two now
+  answer overlapping questions, and one of them should probably be named as a special
+  case of the other rather than left to look like a coincidence.

@@ -1,0 +1,118 @@
+package headless
+
+import (
+	"image"
+
+	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
+)
+
+// Viewport shows a window onto content taller than the room there is for it.
+//
+// There was a scroll position and something that draws a bar, and nothing that put
+// content in a box and scrolled it. Every interface that wanted one wrote the same
+// three things by hand: measure the content, keep an offset, and hand the content a
+// view starting above the window so the rows off the top fall away.
+//
+// That last part is the whole trick, and it is why this is so short. A view is already
+// a clipped window onto a surface, and a widget drawn into one that begins above the
+// box lays itself out at its full height and simply loses what is outside — so nothing
+// has to be taught about being scrolled. The content does not know, and the cursor it
+// places while it is off-screen is discarded rather than drawn in the wrong place.
+//
+// # What it is not
+//
+// It does not scroll content that scrolls itself. A [Transcript] measures incrementally
+// and keeps its own position, because a session's output is too tall to re-measure
+// every frame; a field taller than its box scrolls to keep its own cursor in view. Both
+// would fight a window that also had an opinion.
+//
+// The zero Viewport is empty and shows nothing.
+type Viewport struct {
+	// Content is what is shown through the window. It is asked how tall it wants to be
+	// at the window's width, and drawn at that height however little of it fits.
+	Content Sized
+	// Keys say which keystrokes scroll — see [Scroll]. Nil reads through
+	// [DefaultScrollKeys], and they are tried only after the content has declined the
+	// keystroke, so content with arrow keys of its own keeps them.
+	Keys *input.Keymap
+
+	scroll Scroll
+	// blurred says the window has been told it does not have the keyboard, which it
+	// passes on to whatever is inside it.
+	blurred bool
+}
+
+// Scroll is the window's position, for a scrollbar drawn beside it.
+func (p *Viewport) Scroll() *Scroll { return &p.scroll }
+
+// Measure is how tall the content wants to be, which is what a window inside a
+// measured slot asks for: a window that is never scrolled is a window nobody notices.
+func (p *Viewport) Measure(across int) int {
+	if p.Content == nil {
+		return 0
+	}
+	return p.Content.Measure(across)
+}
+
+// Draw paints as much of the content as fits.
+func (p *Viewport) Draw(v grid.View) {
+	w, h := v.Size()
+	if p.Content == nil || w <= 0 || h <= 0 {
+		return
+	}
+	total := p.Content.Measure(w)
+	p.scroll.Layout(total, h)
+	// Above the window by however far it is scrolled. The content is given its whole
+	// height and draws into it as though nothing were in the way, which is what keeps
+	// the scrolling out of everything that is ever put in here.
+	top := -p.scroll.Offset()
+	p.Content.Draw(v.Sub(image.Rect(0, top, w, top+total)))
+}
+
+// Handle scrolls, and gives the content whatever is not about scrolling.
+//
+// The wheel is the window's: content that answered it as well would scroll twice as
+// far as the reader asked. Everything else a pointer does belongs to the content, in
+// the content's own coordinates, which here means the row it is over rather than the
+// row on screen.
+func (p *Viewport) Handle(ev input.Event) bool {
+	if p.Content == nil {
+		// A window with nothing in it is not a window. Scrolling it would be consuming
+		// keystrokes on behalf of something that is not there.
+		return false
+	}
+	if mouse, ok := ev.(input.Mouse); ok {
+		switch mouse.Action {
+		case input.WheelUp, input.WheelDown:
+			return p.scroll.Handle(mouse, p.Keys)
+		default:
+		}
+		handler, ok := p.Content.(input.Handler)
+		if !ok {
+			return false
+		}
+		local := mouse
+		local.Pos.Y += p.scroll.Offset()
+		return handler.Handle(local)
+	}
+	if handler, ok := p.Content.(input.Handler); ok && !p.blurred && handler.Handle(ev) {
+		return true
+	}
+	return p.scroll.Handle(ev, p.Keys)
+}
+
+// Do runs an action, the content's first and then the window's own. See [Doer].
+func (p *Viewport) Do(action input.Action) bool {
+	if doer, ok := p.Content.(Doer); ok && doer.Do(action) {
+		return true
+	}
+	return p.scroll.Do(action)
+}
+
+// Focus takes the keyboard, or gives it up, and passes the news to the content. A
+// window is a widget like any other, so one goes in a [Container] beside anything else.
+func (p *Viewport) Focus(has bool) {
+	p.blurred = !has
+	tell(p.Content, has)
+}

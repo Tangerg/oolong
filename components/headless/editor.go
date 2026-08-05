@@ -48,6 +48,21 @@ type Editor struct {
 	// the cursor in view. Zero means it grows without limit, which only suits a
 	// field that owns its whole pane.
 	MaxRows int
+	// SingleLine keeps the field to one line. Nothing puts a line break in — a pasted
+	// one becomes a space, because that is what the text meant and dropping it would
+	// join two words — and text wider than the box slides sideways instead of wrapping.
+	//
+	// It is a mode of this field rather than a field of its own because the difference
+	// is those two rules and nothing else: what a cursor is, what selecting means, what
+	// undo undoes and where a click lands are the same questions with the same answers.
+	SingleLine bool
+	// Mask is what each cluster is drawn as, for a field holding something the screen
+	// should not show. Empty draws the text.
+	//
+	// A masked field holds one line whether or not [Editor.SingleLine] says so: a
+	// secret is one value, and where to break a line nobody can read is not a question
+	// worth an answer.
+	Mask string
 
 	lines []string
 	// line is the cursor's logical line; col is its byte offset within that line.
@@ -97,6 +112,9 @@ type Editor struct {
 
 	scroll Scroll
 	layout editorLayout
+	// left is the first column shown by a field holding one line, which slides
+	// sideways rather than wrapping.
+	left int
 }
 
 // editorState is a whole snapshot for undo.
@@ -128,7 +146,7 @@ func (e *Editor) Text() string {
 func (e *Editor) SetText(s string) {
 	e.endTyping()
 	e.snapshot()
-	e.lines = strings.Split(s, "\n")
+	e.lines = strings.Split(e.flatten(s), "\n")
 	e.line = len(e.lines) - 1
 	e.col = len(e.lines[e.line])
 	e.invalidate()
@@ -218,8 +236,25 @@ func (e *Editor) Replace(start, end int, s string) {
 	e.splice(s)
 }
 
+// flatten turns line breaks into spaces for a field that holds one line, and leaves
+// text alone for one that does not.
+//
+// It is here rather than at each way text arrives because there are five of them —
+// typing, pasting, setting the text, replacing a range, putting an element in — and a
+// rule enforced in four places is a rule with a way round it.
+func (e *Editor) flatten(s string) string {
+	if !e.oneLine() || !strings.ContainsAny(s, "\n\r") {
+		return s
+	}
+	return strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
+}
+
+// oneLine reports whether the field holds a single line.
+func (e *Editor) oneLine() bool { return e.SingleLine || e.Mask != "" }
+
 // splice puts text in at the cursor, assuming the undo step has been opened already.
 func (e *Editor) splice(s string) {
+	s = e.flatten(s)
 	// The marks are moved before anything else is, because an edit is described
 	// against the document as it was.
 	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
@@ -265,8 +300,12 @@ func (e *Editor) InsertRune(r rune) {
 	e.typing = true
 }
 
-// Newline splits the line at the cursor.
+// Newline splits the line at the cursor, and does nothing at all in a field that holds
+// one line.
 func (e *Editor) Newline() {
+	if e.oneLine() {
+		return
+	}
 	e.endTyping()
 	e.snapshot()
 	e.ensure()

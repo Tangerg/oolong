@@ -37,7 +37,7 @@ func (e *Editor) Spans(from, to Caret, width int) []RowSpan {
 	if to.Before(from) {
 		from, to = to, from
 	}
-	rows := e.layout.rowsFor(e.lines, width)
+	rows := e.rows(width)
 
 	var out []RowSpan
 	for i, r := range rows {
@@ -86,7 +86,10 @@ func (e *Editor) At(x, y, width int) (Caret, bool) {
 		return Caret{}, false
 	}
 	e.ensure()
-	rows := e.layout.rowsFor(e.lines, width)
+	if e.oneLine() {
+		return e.atLine(x), true
+	}
+	rows := e.rows(width)
 	index := e.scroll.Offset() + y
 	if index >= len(rows) {
 		// Below the text. The end is where a click there means, the way it does in
@@ -161,7 +164,7 @@ func (e *Editor) HandleMouse(ev input.Mouse, width int) bool {
 // pastRowEnd reports whether a point is beyond the text of a row that the width broke,
 // which is the only place a cursor can belong to the earlier side of a break.
 func (e *Editor) pastRowEnd(x, y, width int) bool {
-	rows := e.layout.rowsFor(e.lines, width)
+	rows := e.rows(width)
 	index := e.scroll.Offset() + y
 	if index < 0 || index >= len(rows) || lastRowOfLine(rows, index) {
 		return false

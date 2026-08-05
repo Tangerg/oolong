@@ -136,6 +136,32 @@ point of tagging them low rather than not at all.
 - `core/input.Key.At`, stamped by the terminal's reader as `Mouse.At` already was. Two
   chords in one burst are a sequence and a terminal never says so; the same two with a
   pause between them are two keystrokes that happen to be adjacent.
+- **`components/headless.Viewport`** — content in a box, scrolled. There was a scroll
+  position and something that drew a bar, and nothing that put the two together. It is
+  short because a view is already a clipped window onto a surface: content drawn into
+  one that begins above the box lays itself out at its full height and loses what is
+  outside, so nothing has to be taught about being scrolled.
+- **A field that holds one line**, as `Editor.SingleLine`: nothing puts a line break in,
+  and text wider than the box slides sideways instead of wrapping. `Editor.Mask` is what
+  each cluster is drawn as for something the screen should not show, and it holds one
+  line whether it was asked to or not — a secret is one value. It is a mode of the field
+  rather than a field of its own because that is the whole difference: what a cursor is,
+  what selecting means and where a click lands are the same questions with the same
+  answers.
+- **`core/diff`** — what changed between two texts, line by line, and the hunks worth
+  showing. It is beside `core/fuzzy` for the same reason that is: what changed is a fact
+  about two strings and has nothing to do with a terminal.
+- **`components/kit.Diff`** draws one, which is what `Theme.Added`, `Removed` and
+  `Context` were waiting for. It is sized, so a change taller than its pane goes in a
+  `Viewport` and scrolls with no further arrangement.
+- **Forms, in `components/headless`.** `Field` is one thing a form collects — it holds a
+  value, says whether it is valid and answers input; `Form` is the walk between fields
+  and the check across them; `Accessor` is where the value lives, which is the caller's
+  own variable and not a copy the field keeps. `Text`, `Select`, `MultiSelect` and
+  `Confirm` are the four of them, and `kit.Form` is the look: a theme becomes the
+  handful of roles a field draws itself in, and a glyph set becomes the marks beside a
+  choice. A field draws itself because a field is generic over what it holds, and
+  nothing could name every kind of one — so the look travels down instead.
 - **`core/grid.Inline.Append`, `Tail` and `Break`, and `InlineLoop.Append`.** Printed
   output no longer has to begin at column zero. Streaming output does not arrive on
   line boundaries, and a printer that started every piece on a row of its own turned a

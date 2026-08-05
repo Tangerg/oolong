@@ -145,7 +145,7 @@ func (e *Editor) moveRow(delta int) {
 		e.col = min(e.col, len(e.lines[e.line]))
 		return
 	}
-	rows := e.layout.rowsFor(e.lines, width)
+	rows := e.rows(width)
 	row, column := rowOf(rows, e.lines, e.line, e.col, e.prefersRowEnd())
 	if e.wantColumn >= 0 {
 		column = e.wantColumn
@@ -161,7 +161,10 @@ func (e *Editor) moveRow(delta int) {
 // Measure is how many rows the field needs at a width, within its cap.
 func (e *Editor) Measure(width int) int {
 	e.ensure()
-	rows := len(e.layout.rowsFor(e.lines, width))
+	if e.oneLine() {
+		return 1
+	}
+	rows := len(e.rows(width))
 	if e.MaxRows > 0 {
 		return min(rows, e.MaxRows)
 	}
@@ -175,6 +178,10 @@ func (e *Editor) Draw(v grid.View) {
 		return
 	}
 	e.ensure()
+	if e.oneLine() {
+		e.drawLine(v)
+		return
+	}
 
 	if e.Empty() && e.Placeholder != "" {
 		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.PlaceholderStyle)
@@ -182,7 +189,7 @@ func (e *Editor) Draw(v grid.View) {
 		return
 	}
 
-	rows := e.layout.rowsFor(e.lines, width)
+	rows := e.rows(width)
 	cursorRow, cursorColumn := rowOf(rows, e.lines, e.line, e.col, e.prefersRowEnd())
 
 	// The field scrolls only when it is taller than its box, and then only as far as

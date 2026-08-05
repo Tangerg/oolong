@@ -29,6 +29,10 @@ type Glyphs struct {
 	Ellipsis string
 	// Bullet marks an item in a list, and Marker the one under the cursor.
 	Bullet, Marker string
+	// Taken and Free are the two states of a choice: one that has been made, and one
+	// that is still on offer. They are a pair and are drawn in the same column, so
+	// they have to be the same width or the labels beside them do not line up.
+	Taken, Free string
 	// ScrollTrack and ScrollThumb are the two halves of a scrollbar.
 	ScrollTrack, ScrollThumb string
 	// Spinner is the frames of a busy indicator, in order.
@@ -45,6 +49,8 @@ func Unicode() Glyphs {
 		Ellipsis:    "…",
 		Bullet:      "•",
 		Marker:      "▸",
+		Taken:       "●",
+		Free:        "○",
 		ScrollTrack: "│", ScrollThumb: "█",
 		Spinner: []string{"·", "•", "●", "•"},
 	}
@@ -66,6 +72,8 @@ func ASCII() Glyphs {
 		Ellipsis:    "...",
 		Bullet:      "*",
 		Marker:      ">",
+		Taken:       "x",
+		Free:        "-",
 		ScrollTrack: "|", ScrollThumb: "#",
 		Spinner: []string{".", "o", "O", "o"},
 	}
