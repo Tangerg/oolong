@@ -55,7 +55,37 @@ func start(t *testing.T) *ptytest.Session {
 	return session
 }
 
-const settle = 5 * time.Second
+// settle is how long to wait for something to reach the terminal.
+//
+// Generous on purpose. A test that passes does not wait, and the machine running
+// this is often building the rest of the suite at the same time — a real pty
+// under a loaded runner is the one place in this repository where being patient
+// costs nothing and being brisk costs a false failure.
+const settle = 30 * time.Second
+
+// quiesce waits until the interface has stopped writing, and returns how much it
+// had written by then.
+//
+// Waiting for a fixed interval instead would be the flaky version: on a loaded
+// machine the opening frames can still be arriving when the measurement starts,
+// and what that measures is the machine rather than the interface.
+func quiesce(t *testing.T, s *ptytest.Session) int {
+	t.Helper()
+	const still = 250 * time.Millisecond
+	deadline := time.Now().Add(settle)
+	last, quietSince := -1, time.Now()
+	for time.Now().Before(deadline) {
+		switch n := len(s.Transcript().Bytes()); {
+		case n != last:
+			last, quietSince = n, time.Now()
+		case time.Since(quietSince) >= still:
+			return n
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the interface was still writing after %v", settle)
+	return 0
+}
 
 func TestTheInterfaceIsUpBeforeAnybodyTypes(t *testing.T) {
 	s := start(t)
@@ -120,8 +150,7 @@ func TestAnIdleInterfaceGoesQuiet(t *testing.T) {
 	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
-	settled := len(s.Transcript().Bytes())
+	settled := quiesce(t, s)
 	time.Sleep(700 * time.Millisecond)
 	if grew := len(s.Transcript().Bytes()) - settled; grew != 0 {
 		t.Fatalf("an idle interface wrote %d more bytes, want silence", grew)
@@ -133,7 +162,7 @@ func TestResizingRepaintsRatherThanCorrupting(t *testing.T) {
 	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
 		t.Fatal(err)
 	}
-	before := len(s.Transcript().Bytes())
+	before := quiesce(t, s)
 	if err := s.Resize(ptytest.Size{Cols: 40, Rows: 20}); err != nil {
 		t.Fatal(err)
 	}

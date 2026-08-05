@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/headless"
 	"github.com/Tangerg/oolong/primitives/grid"
 	"github.com/Tangerg/oolong/primitives/input"
+	"github.com/Tangerg/oolong/primitives/layout"
 )
 
 func typeInto(c *Composer, s string) {
@@ -198,5 +199,105 @@ func TestAMessageWrapsToTheWidthItIsGiven(t *testing.T) {
 	wide, narrow := m.Measure(40), m.Measure(12)
 	if narrow <= wide {
 		t.Fatalf("narrow = %d rows and wide = %d, want the narrow one taller", narrow, wide)
+	}
+}
+
+func TestADialogIsAModalTheStackCanDrive(t *testing.T) {
+	// The contract is the point: the appearance half has to satisfy the interface
+	// the behaviour half drives, or neither is any use.
+	var _ headless.Modal = (*Dialog)(nil)
+	var _ headless.Backdrop = (*Dialog)(nil)
+}
+
+func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
+	d := &Dialog{Title: "Confirm", Body: Label{Text: "really?"}}
+	rows := paint(20, 5, func(v grid.View) { d.Draw(v) })
+	if !strings.Contains(rows[0], "Confirm") {
+		t.Fatalf("top row = %q, want the title in the border", rows[0])
+	}
+	if !strings.Contains(strings.Join(rows, "\n"), "really?") {
+		t.Fatalf("drew\n%s\nwant the body inside the frame", strings.Join(rows, "\n"))
+	}
+	if !strings.HasPrefix(rows[0], "╭") {
+		t.Fatalf("top row = %q, want the rounded border it defaults to", rows[0])
+	}
+}
+
+func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
+	// Where they do not cost a row, which is the whole reason to put them there.
+	d := &Dialog{
+		Title: "Confirm",
+		Body:  Label{Text: "x"},
+		Hints: []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "ok"}},
+	}
+	rows := paint(24, 4, func(v grid.View) { d.Draw(v) })
+	if !strings.Contains(rows[3], "ok") {
+		t.Fatalf("bottom row = %q, want the hints in the border", rows[3])
+	}
+}
+
+func TestADialogBackdropDimsWhatIsBehindWithoutErasingIt(t *testing.T) {
+	// What is behind stays legible and simply recedes, which is what says it is
+	// still there rather than gone.
+	s := grid.NewSurface(10, 2)
+	s.View().Text(0, 0, "behind", grid.Style{})
+	(&Dialog{}).Backdrop(s.View())
+
+	if got := s.CellAt(0, 0).Content; got != "b" {
+		t.Fatalf("cell = %q, want what was behind still there", got)
+	}
+	if !s.CellAt(0, 0).Style.Attr.Has(grid.Dim) {
+		t.Fatal("what is behind was not dimmed")
+	}
+}
+
+func TestADialogCanBeToldToDimNothing(t *testing.T) {
+	s := grid.NewSurface(10, 2)
+	s.View().Text(0, 0, "behind", grid.Style{})
+	(&Dialog{Shade: &grid.Style{}}).Backdrop(s.View())
+
+	if s.CellAt(0, 0).Style.Attr.Has(grid.Dim) {
+		t.Fatal("an explicitly empty shade dimmed what it covers")
+	}
+}
+
+func TestADialogPassesInputToABodyThatWantsIt(t *testing.T) {
+	editor := &headless.Editor{}
+	d := &Dialog{Body: editor}
+	if !d.Handle(input.Key{Code: input.Character, Rune: 'q'}) {
+		t.Fatal("the dialog did not offer the key to its body")
+	}
+	if got := editor.Text(); got != "q" {
+		t.Fatalf("the body has %q, want the key it was given", got)
+	}
+}
+
+func TestADialogWithABodyThatIgnoresInputConsumesNothing(t *testing.T) {
+	// So the stack can decide what an unconsumed key meant — closing, usually.
+	d := &Dialog{Body: Label{Text: "just words"}}
+	if d.Handle(input.Key{Code: input.Esc}) {
+		t.Fatal("a dialog whose body cannot answer input consumed a key anyway")
+	}
+}
+
+func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
+	d := &Dialog{Title: "Empty"}
+	rows := paint(14, 3, func(v grid.View) { d.Draw(v) })
+	if !strings.Contains(rows[0], "Empty") {
+		t.Fatalf("top row = %q, want the frame drawn anyway", rows[0])
+	}
+}
+
+func TestADialogWithNoRoomDrawsNothing(t *testing.T) {
+	d := &Dialog{Title: "Squeezed", Body: Label{Text: "x"}}
+	d.Draw(grid.NewSurface(0, 0).View())
+	d.Backdrop(grid.NewSurface(0, 0).View())
+}
+
+func TestADialogGoesWhereItWasPlaced(t *testing.T) {
+	where := layout.Placement{Anchor: layout.Middle, Width: 8, Height: 3}
+	d := &Dialog{Where: where}
+	if got := d.Place(layout.Size{W: 40, H: 20}); got != where {
+		t.Fatalf("= %+v, want the placement it was given", got)
 	}
 }
