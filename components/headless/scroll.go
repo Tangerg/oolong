@@ -29,6 +29,8 @@ type Scroll struct {
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
 	wheel input.Advance
+	// pending is how far into a multi-chord binding the keys typed so far have got.
+	pending input.Pending
 }
 
 // Layout tells the scroll how much content there is and how much of it is shown.
@@ -130,32 +132,14 @@ func (s *Scroll) max() int { return max(s.total-s.window, 0) }
 
 func (s *Scroll) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
 
-// ScrollKeys are the keystrokes [Scroll.Handle] answers.
-//
-// They are a field rather than a constant so a container can re-bind them: the same
-// widget appears in places where Escape means "back" and places where it means
-// "close", and a widget that owned its keys would have to be told about both.
-type ScrollKeys struct {
-	Up, Down       Binding
-	PageUp, PageDn Binding
-	Top, Bottom    Binding
-}
-
-// DefaultScrollKeys are the bindings a terminal reader expects.
-func DefaultScrollKeys() ScrollKeys {
-	return ScrollKeys{
-		Up:     Binding{Key: input.Key{Code: input.Up}, Does: "up"},
-		Down:   Binding{Key: input.Key{Code: input.Down}, Does: "down"},
-		PageUp: Binding{Key: input.Key{Code: input.PageUp}, Does: "page up"},
-		PageDn: Binding{Key: input.Key{Code: input.PageDown}, Does: "page down"},
-		Top:    Binding{Key: input.Key{Code: input.Home}, Does: "top"},
-		Bottom: Binding{Key: input.Key{Code: input.End}, Does: "bottom"},
-	}
-}
-
 // Handle scrolls in response to keys and the mouse wheel, reporting whether it
 // consumed the event.
-func (s *Scroll) Handle(ev input.Event, keys ScrollKeys) bool {
+//
+// The map is a parameter rather than a field because a scroll is a part rather than a
+// widget: it is what a transcript, a list and a viewport each keep inside themselves,
+// and each of them already has a map of its own to read through. Nil reads through
+// [DefaultScrollKeys].
+func (s *Scroll) Handle(ev input.Event, keys *input.Keymap) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp:
@@ -168,18 +152,38 @@ func (s *Scroll) Handle(ev input.Event, keys ScrollKeys) bool {
 			return false
 		}
 	}
+	key, ok := ev.(input.Key)
+	if !ok {
+		return false
+	}
+	if keys == nil {
+		keys = scrollKeys()
+	}
+	action, mine := keys.Lookup(key, &s.pending)
 	switch {
-	case keys.Up.Matches(ev):
+	case !mine:
+		return false
+	case action == "":
+		return true // the start of a binding more than one chord long
+	}
+	return s.Do(action)
+}
+
+// Do runs one of the scroll's actions by name, reporting whether it was one a scroll
+// knows. See [Doer].
+func (s *Scroll) Do(action input.Action) bool {
+	switch action {
+	case ScrollUp:
 		s.By(-1)
-	case keys.Down.Matches(ev):
+	case ScrollDown:
 		s.By(1)
-	case keys.PageUp.Matches(ev):
+	case ScrollPageUp:
 		s.Pages(-1)
-	case keys.PageDn.Matches(ev):
+	case ScrollPageDown:
 		s.Pages(1)
-	case keys.Top.Matches(ev):
+	case ScrollTop:
 		s.ToTop()
-	case keys.Bottom.Matches(ev):
+	case ScrollBottom:
 		s.ToBottom()
 	default:
 		return false

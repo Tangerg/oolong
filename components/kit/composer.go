@@ -26,8 +26,14 @@ type Composer struct {
 	Prompt string
 	// Placeholder is shown while the field is empty.
 	Placeholder string
-	// Hints are drawn under the field, in the order they matter. Empty draws no row.
-	Hints []headless.Binding
+	// Keys say which keystrokes produce which actions. It is the field's map as well
+	// as the hint row's, which is what lets a program bind its own send key and the
+	// field's own editing keys in one table and have the hints tell the truth about
+	// both. Nil leaves the field on [headless.DefaultEditorKeys].
+	Keys *input.Keymap
+	// Hints are the actions drawn under the field, in the order they matter. An action
+	// with nothing bound to it is not shown, so an empty row costs nothing to ask for.
+	Hints []input.Action
 	// MaxRows caps how tall the field grows before it scrolls. Zero uses
 	// [DefaultComposerRows].
 	MaxRows int
@@ -69,6 +75,7 @@ func (c *Composer) Focus(has bool) { c.editor.Focus(has) }
 // on screen means nothing to it. The width is remembered from the last frame, because
 // a click can only be about a frame that has already been drawn.
 func (c *Composer) Handle(ev input.Event) bool {
+	c.editor.Keys = c.Keys
 	if mouse, ok := ev.(input.Mouse); ok {
 		if c.width <= 0 {
 			return false
@@ -93,6 +100,7 @@ func (c *Composer) Draw(v grid.View) {
 		return
 	}
 	c.editor.MaxRows = c.rows()
+	c.editor.Keys = c.Keys
 	c.width = max(width-c.markerWidth(), 0)
 	c.editor.Style = c.Theme.Text
 	c.editor.PlaceholderStyle = c.Theme.Subtle
@@ -105,7 +113,7 @@ func (c *Composer) Draw(v grid.View) {
 	)
 	c.drawField(rows[0])
 	if c.hintRows() > 0 {
-		Help{Theme: c.Theme, Bindings: c.Hints}.Draw(rows[1])
+		Help{Theme: c.Theme, Keys: c.Keys, Show: c.Hints}.Draw(rows[1])
 	}
 }
 
@@ -121,9 +129,12 @@ func (c *Composer) drawField(v grid.View) {
 
 func (c *Composer) markerWidth() int { return text.Width(c.Prompt) }
 
+// hintRows is whether there is a hint row: one, if any of the actions asked for is
+// bound to something. A row of hints nobody can press is a row of nothing, and the
+// space is the field's.
 func (c *Composer) hintRows() int {
-	for _, b := range c.Hints {
-		if !b.Hidden {
+	for _, action := range c.Hints {
+		if len(c.Keys.Keys(action)) > 0 {
 			return 1
 		}
 	}

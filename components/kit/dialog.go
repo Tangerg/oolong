@@ -28,8 +28,11 @@ type Dialog struct {
 	// Border draws the frame. The zero value takes the rounded one from the glyph
 	// set, which reads as a panel.
 	Border Border
-	// Hints are drawn along the bottom border, where they do not cost a row.
-	Hints []headless.Binding
+	// Keys is where the hints' keystrokes are read from, and Hints are the actions to
+	// show along the bottom border, where they do not cost a row. An action with
+	// nothing bound to it is not shown.
+	Keys  *input.Keymap
+	Hints []input.Action
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
@@ -78,14 +81,15 @@ func (d *Dialog) Draw(v grid.View) {
 // footer is the hints, spelled the way a border can hold them.
 func (d *Dialog) footer() string {
 	out := ""
-	for _, b := range d.Hints {
-		if b.Hidden {
+	for _, action := range d.Hints {
+		bound := d.Keys.Keys(action)
+		if len(bound) == 0 {
 			continue
 		}
 		if out != "" {
 			out += "  "
 		}
-		out += b.Key.String() + " " + b.Does
+		out += bound[0].String() + " " + action.Does()
 	}
 	return out
 }

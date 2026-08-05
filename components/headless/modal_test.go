@@ -307,7 +307,9 @@ func TestPushingNothingIsIgnored(t *testing.T) {
 
 func TestTheEscapeBindingCanBeRebound(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	s := headless.Stack{Escape: headless.Binding{Key: input.Key{Code: input.Character, Rune: 'q'}, Does: "close"}}
+	keys := &input.Keymap{}
+	keys.Bind(headless.Close, input.Chord{Rune: 'q'})
+	s := headless.Stack{Keys: keys}
 	s.Push(p)
 	draw(&s, 20, 10)
 

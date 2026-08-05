@@ -112,21 +112,6 @@ func (c Candidate) shown() string {
 	return c.Text
 }
 
-// CompletionKeys are the keystrokes a completion answers, beyond the list movement it
-// passes to the list inside it.
-type CompletionKeys struct {
-	Accept  Binding
-	Dismiss Binding
-}
-
-// DefaultCompletionKeys are what a terminal completion is expected to answer.
-func DefaultCompletionKeys() CompletionKeys {
-	return CompletionKeys{
-		Accept:  Binding{Key: input.Key{Code: input.Tab}, Does: "accept"},
-		Dismiss: Binding{Key: input.Key{Code: input.Esc}, Does: "dismiss"},
-	}
-}
-
 // Completion offers candidates for a token someone is typing.
 //
 // It is the list and the keys, not the source: what the candidates are, where they
@@ -148,8 +133,10 @@ type Completion struct {
 	// MaxRows caps how tall the list gets, so a thousand files do not become a
 	// thousand rows. Zero uses [DefaultCompletionRows].
 	MaxRows int
-	// Keys are the bindings answered on top of the list's own.
-	Keys CompletionKeys
+	// Keys say which keystrokes produce which of the actions a completion answers to —
+	// its own two, and the list movement inside it. Nil reads through
+	// [DefaultCompletionKeys].
+	Keys *input.Keymap
 	// Accept is called when the user takes a candidate, with the token it replaces.
 	// The completion has closed itself by then, so this is free to change the text the
 	// token came from.
@@ -161,6 +148,8 @@ type Completion struct {
 	list  List[Candidate]
 	token Token
 	open  bool
+	// pending is how far into a multi-chord binding the keys typed so far have got.
+	pending input.Pending
 }
 
 // DefaultCompletionRows is how many candidates are shown at once when nothing says
@@ -217,13 +206,40 @@ func (c *Completion) Handle(ev input.Event) bool {
 	if !c.Open() {
 		return false
 	}
-	keys := c.keys()
+	key, ok := ev.(input.Key)
+	if !ok {
+		// The wheel over an open completion is the list's, and nothing else about a
+		// pointer is.
+		return c.list.Handle(ev)
+	}
+	action, mine := c.keys().Lookup(key, &c.pending)
 	switch {
-	case keys.Dismiss.Matches(ev):
+	case !mine:
+		return false
+	case action == "":
+		return true // the start of a binding more than one chord long
+	}
+	return c.Do(action)
+}
+
+// Do runs one of the completion's actions by name, or the list's, reporting whether it
+// was one either of them knows. See [Doer].
+//
+// The list is driven by name rather than handed the event, because both read through
+// the same map: an event offered twice would be resolved twice, and the second lookup
+// would know nothing about the first.
+func (c *Completion) Do(action input.Action) bool {
+	if !c.Open() {
+		return false
+	}
+	switch action {
+	case Dismiss:
 		c.Dismiss()
 		return true
-	case keys.Accept.Matches(ev):
+	case Accept:
 		if c.Accept == nil {
+			// Nothing accepting could do, so the keystroke is left for whatever else
+			// might want it rather than swallowed.
 			return false
 		}
 		candidate, ok := c.list.Current()
@@ -237,7 +253,7 @@ func (c *Completion) Handle(ev input.Event) bool {
 		c.Accept(candidate, token)
 		return true
 	}
-	return c.list.Handle(ev)
+	return c.list.Do(action)
 }
 
 // Measure is how tall the list wants to be: a row per candidate, capped.
@@ -326,11 +342,10 @@ func (c *Completion) rows() int {
 	return DefaultCompletionRows
 }
 
-// keys are the bindings to answer, standing in the defaults for a caller who left
-// them unset, without recording the answer. See [List.keys].
-func (c *Completion) keys() CompletionKeys {
-	if c.Keys == (CompletionKeys{}) {
-		return DefaultCompletionKeys()
+// keys is the map to read through, standing in the default for a caller who set none.
+func (c *Completion) keys() *input.Keymap {
+	if c.Keys != nil {
+		return c.Keys
 	}
-	return c.Keys
+	return completionKeys()
 }

@@ -55,8 +55,10 @@ type pump struct {
 	size func() (w, h int, err error)
 	// grace overrides escGrace, for tests.
 	grace time.Duration
-	// now overrides the clock, for tests. It stamps mouse reports with when they
-	// arrived, which is a fact only the reader has and which two things above need.
+	// now overrides the clock, for tests. It stamps keystrokes and mouse reports with
+	// when they arrived, which is a fact only the reader has: a double-click, a
+	// trackpad's run of wheel reports and a two-chord keybinding are all questions
+	// about when something came rather than about what it was.
 	now func() time.Time
 }
 
@@ -155,9 +157,17 @@ func (p *pump) deliver(events []input.Event) bool {
 		if pasted, ok := p.pasted(ev); ok {
 			ev = pasted
 		}
-		if mouse, ok := ev.(input.Mouse); ok && mouse.At.IsZero() {
-			mouse.At = p.clock()
-			ev = mouse
+		switch timed := ev.(type) {
+		case input.Mouse:
+			if timed.At.IsZero() {
+				timed.At = p.clock()
+				ev = timed
+			}
+		case input.Key:
+			if timed.At.IsZero() {
+				timed.At = p.clock()
+				ev = timed
+			}
 		}
 		select {
 		case p.out <- ev:

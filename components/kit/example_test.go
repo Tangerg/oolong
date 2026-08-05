@@ -31,10 +31,16 @@ func show(w, h int, draw func(grid.View)) {
 }
 
 func ExampleComposer() {
+	// One table for what the field does and what the program does. The hint row reads
+	// the keystroke back out of it rather than being told it a second time.
+	keys := headless.DefaultEditorKeys()
+	keys.Bind("send", input.Chord{Code: input.Enter})
+
 	c := kit.Composer{
 		Prompt:      "› ",
 		Placeholder: "Ask something",
-		Hints:       []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "send"}},
+		Keys:        keys,
+		Hints:       []input.Action{"send"},
 	}
 	show(28, c.Measure(28), c.Draw)
 

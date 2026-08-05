@@ -95,13 +95,13 @@ type Container struct {
 	// identity, so a child that is still there keeps it and one that is gone gives it
 	// up to the first child that will take it.
 	Items []Item
-	// Next and Prev move the keyboard along the ring. Their zero values are tab and
-	// shift+tab.
+	// Keys say which keystrokes move the keyboard along the ring. Nil reads through
+	// [DefaultContainerKeys], which is tab and shift+tab.
 	//
 	// They are tried only after the focused child has declined the event, so a widget
 	// that means something by tab — a completion, a field with columns in it — keeps
 	// it.
-	Next, Prev Binding
+	Keys *input.Keymap
 
 	// focused is the child with the keyboard, held by identity rather than by index
 	// so that rebuilding the items does not silently move it.
@@ -122,6 +122,8 @@ type Container struct {
 	held Widget
 	// slots is rebuilt every frame from the items and kept to save the allocation.
 	slots []layout.Slot
+	// pending is how far into a multi-chord binding the keys typed so far have got.
+	pending input.Pending
 }
 
 // Rows is a container that stacks its children down the region.
@@ -211,10 +213,27 @@ func (c *Container) Handle(ev input.Event) bool {
 	if handler, ok := c.focused.(input.Handler); ok && handler.Handle(ev) {
 		return true
 	}
+	key, ok := ev.(input.Key)
+	if !ok {
+		return false
+	}
+	action, mine := c.keys().Lookup(key, &c.pending)
 	switch {
-	case c.next().Matches(ev):
+	case !mine:
+		return false
+	case action == "":
+		return true // the start of a binding more than one chord long
+	}
+	return c.Do(action)
+}
+
+// Do runs one of the container's actions by name, reporting whether it was one a
+// container knows and whether it changed anything. See [Doer].
+func (c *Container) Do(action input.Action) bool {
+	switch action {
+	case FocusNext:
 		return c.FocusNext()
-	case c.prev().Matches(ev):
+	case FocusPrev:
 		return c.FocusPrev()
 	}
 	return false
@@ -381,20 +400,12 @@ func (c *Container) indexOf(w Widget) int {
 	return -1
 }
 
-// next and prev stand in the defaults for a caller who left them unset, without
-// recording the answer. See [List.keys].
-func (c *Container) next() Binding {
-	if c.Next == (Binding{}) {
-		return Binding{Key: input.Key{Code: input.Tab}, Does: "next field"}
+// keys is the map to read through, standing in the default for a caller who set none.
+func (c *Container) keys() *input.Keymap {
+	if c.Keys != nil {
+		return c.Keys
 	}
-	return c.Next
-}
-
-func (c *Container) prev() Binding {
-	if c.Prev == (Binding{}) {
-		return Binding{Key: input.Key{Code: input.Tab, Mods: input.Shift}, Does: "previous field"}
-	}
-	return c.Prev
+	return containerKeys()
 }
 
 // tell says whether a widget has the keyboard, if it is the kind that wants to know.

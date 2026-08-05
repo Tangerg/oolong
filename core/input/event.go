@@ -85,7 +85,6 @@ const (
 	Esc
 	Backspace
 	Tab
-	Backtab
 	Up
 	Down
 	Left
@@ -127,7 +126,6 @@ var codeNames = map[Code]string{
 	Esc:       "esc",
 	Backspace: "backspace",
 	Tab:       "tab",
-	Backtab:   "shift+tab",
 	Up:        "up",
 	Down:      "down",
 	Left:      "left",
@@ -170,6 +168,16 @@ type Key struct {
 	// hold more than one code point, and is empty on terminals that do not report
 	// it — Rune is the fallback and the common case.
 	Text string
+	// At is when the keystroke arrived, as whatever read it saw. It is zero when
+	// nothing timed it, which is what a parser fed bytes directly produces.
+	//
+	// It is here for the same reason it is on [Mouse]: a key means different things
+	// depending on when it came. Two chords typed in one burst are a sequence and a
+	// terminal never says so; the same two with a pause between them are two
+	// keystrokes that happen to be adjacent. Only the goroutine that did the reading
+	// knows, so it is stamped there rather than left for every caller to supply a
+	// clock for a fact the library already had — see [Keymap.Lookup].
+	At time.Time
 }
 
 func (Key) terminalEvent() {}
@@ -193,23 +201,10 @@ func (k Key) IsRune(r rune, mods Mods) bool {
 func (k Key) Down() bool { return k.Transition != Release }
 
 // String names the keystroke the way a help line or a keybinding file writes it.
-func (k Key) String() string {
-	var b strings.Builder
-	if mods := k.Mods.String(); mods != "" {
-		b.WriteString(mods)
-		b.WriteByte('+')
-	}
-	if k.Code == Character {
-		if k.Rune == ' ' {
-			b.WriteString("space")
-		} else {
-			b.WriteRune(k.Rune)
-		}
-		return b.String()
-	}
-	b.WriteString(k.Code.String())
-	return b.String()
-}
+//
+// It is [Chord.String]: what a key event is called is what was pressed, and nothing
+// about this particular occurrence of it.
+func (k Key) String() string { return k.Chord().String() }
 
 // MouseAction is what the mouse did.
 type MouseAction uint8

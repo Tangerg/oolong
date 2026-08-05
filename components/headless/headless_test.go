@@ -138,21 +138,56 @@ func press(x, y int, action input.MouseAction, button input.Button) input.Event 
 	return input.Mouse{Pos: image.Pt(x, y), Action: action, Button: button}
 }
 
-func TestBindingMatchesTheKeystrokeItDescribes(t *testing.T) {
-	// The hint and the handler have to be talking about the same thing, which is the
-	// whole reason they are one value.
-	b := headless.Binding{Key: input.Key{Code: input.Character, Rune: 's', Mods: input.Ctrl}, Does: "save"}
-	if !b.Matches(input.Key{Code: input.Character, Rune: 's', Mods: input.Ctrl}) {
-		t.Error("a binding does not match its own keystroke")
+func TestAWidgetAnswersToTheNameOfWhatItDoes(t *testing.T) {
+	// The other half of a keymap. A widget names what it can do and answers to the
+	// name, which is what lets an action be reached from somewhere that is not the
+	// keyboard — a menu, a command typed by name, or a test that presses nothing.
+	e := headless.NewEditor()
+	e.Insert("hello world")
+	if !e.Do(headless.MoveLineStart) {
+		t.Fatal("the editor did not know an action it documents")
 	}
-	if b.Matches(input.Key{Code: input.Character, Rune: 's'}) {
-		t.Error("a binding matched the same letter without its modifier")
+	if _, col := e.Cursor(); col != 0 {
+		t.Fatalf("cursor at %d, want the start of the line", col)
 	}
-	if b.Matches(input.Key{Code: input.Character, Rune: 's', Mods: input.Ctrl, Transition: input.Release}) {
-		t.Error("a binding fired on the key coming back up")
+	if e.Do("fly") {
+		t.Fatal("the editor claimed an action nobody taught it")
 	}
-	if got := b.Key.String(); got != "ctrl+s" {
-		t.Fatalf("hint text = %q", got)
+}
+
+func TestOneKeyCanBeReboundWithoutReplacingTheRest(t *testing.T) {
+	// The whole point of the split: what a field can do and what produces it are two
+	// tables, and moving one keystroke leaves the other twenty alone.
+	keys := headless.DefaultEditorKeys()
+	keys.Bind(headless.DeleteWordBack, input.Ctrl.Rune('q'))
+
+	e := headless.Editor{Keys: keys}
+	e.Insert("one two")
+	if !e.Handle(input.Key{Code: input.Character, Rune: 'q', Mods: input.Ctrl}) {
+		t.Fatal("the rebound key did nothing")
+	}
+	if got := e.Text(); got != "one " {
+		t.Fatalf("text = %q, want the last word gone", got)
+	}
+	// And everything that was not rebound still works.
+	if !e.Handle(input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl}) || e.Text() != "" {
+		t.Fatalf("text = %q, want the original binding untouched", e.Text())
+	}
+}
+
+func TestAHintReadsTheKeyOutOfTheMapThatBoundIt(t *testing.T) {
+	// A hint and a handler that are told the same fact twice are a hint that goes
+	// stale. There is one table, and the hint row asks it.
+	keys := headless.DefaultEditorKeys()
+	bound := keys.Keys(headless.DeleteWordBack)
+	if len(bound) != 2 {
+		t.Fatalf("delete-word-back has %d bindings, want the two a terminal sends", len(bound))
+	}
+	if got := bound[0].String(); got != "ctrl+w" {
+		t.Errorf("first binding = %q, want the one that works everywhere", got)
+	}
+	if got := headless.DeleteWordBack.Does(); got != "delete word back" {
+		t.Errorf("what it does = %q", got)
 	}
 }
 

@@ -44,6 +44,11 @@ type chat struct {
 	loop  program.InlineLoop
 	theme kit.Theme
 
+	// keys is one table for the whole interface: what the field does with a keystroke,
+	// and what this program does with one. A widget reading through it answers the
+	// actions it knows and lets the rest past, which is why there is one and not three.
+	keys *input.Keymap
+
 	// body is the two of them arranged, and the thing that decides which of them an
 	// event is for. Laying them out by hand would mean translating a click into the
 	// composer's own box by hand too — and getting it wrong on exactly the frames
@@ -60,7 +65,13 @@ type chat struct {
 	stop      func()
 }
 
-var quit = headless.Binding{Key: input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}, Does: "quit"}
+// What this program can be asked to do, on top of what a text field can. A name and
+// not a keystroke: what produces one is the keymap's business, and the hint row reads
+// the answer back out of the same table rather than being told it again here.
+const (
+	send input.Action = "send"
+	quit input.Action = "quit"
+)
 
 // Loop is what an editor wants for its clipboard, which is worth saying out loud:
 // the interface is declared in components and satisfied in core, and neither knows
@@ -74,16 +85,18 @@ func newChat(loop program.InlineLoop) *chat {
 	// The furniture follows the locale, because a terminal that is not in UTF-8 draws
 	// a box character as mojibake and there is no way to ask it.
 	glyphs := kit.GlyphsFor(os.Getenv)
-	c := &chat{loop: loop, theme: theme}
+	// The field's own keys, and this program's two on top of them.
+	keys := headless.DefaultEditorKeys()
+	keys.Bind(send, input.Chord{Code: input.Enter})
+	keys.Bind(quit, input.Ctrl.Rune('c'))
+
+	c := &chat{loop: loop, theme: theme, keys: keys}
 	c.composer = kit.Composer{
 		Theme:       theme,
 		Prompt:      glyphs.Marker + " ",
 		Placeholder: "Ask something, or press ctrl+c to leave",
-		Hints: []headless.Binding{
-			{Key: input.Key{Code: input.Enter}, Does: "send"},
-			{Key: input.Key{Code: input.Enter, Mods: input.Alt}, Does: "newline"},
-			quit,
-		},
+		Keys:        keys,
+		Hints:       []input.Action{send, headless.InsertNewline, quit},
 	}
 	c.status = kit.Status{Theme: theme}
 	// Copy and cut go to the terminal, which over ssh or through a multiplexer is the
@@ -113,16 +126,24 @@ func (c *chat) statusRows() int {
 	return 1
 }
 
-// Handle sends on Enter and leaves on ctrl+c. Everything else belongs to whichever
+// Handle runs this program's own two actions. Everything else belongs to whichever
 // part of the interface it is for, which is the container's to work out.
+//
+// The map is asked what a chord names rather than read through, because these two
+// keys are one chord each and the reading is done further down by the field. Asking is
+// a question about the table; reading is a thing with a memory, and two of those over
+// one table would each know half of what was typed.
 func (c *chat) Handle(ev input.Event) bool {
-	if quit.Matches(ev) {
-		c.loop.Quit()
-		return true
-	}
-	if key, ok := ev.(input.Key); ok && key.Down() && key.Is(input.Enter, 0) {
-		c.send()
-		return true
+	if key, ok := ev.(input.Key); ok && key.Down() {
+		action, _ := c.keys.Action(key.Chord())
+		switch action {
+		case send:
+			c.send()
+			return true
+		case quit:
+			c.loop.Quit()
+			return true
+		}
 	}
 	return c.body.Handle(ev)
 }

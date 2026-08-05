@@ -23,6 +23,23 @@
 // Measurement is separate from drawing because a container has to know how much its
 // children want before it can decide where they go. A widget whose size along one
 // axis follows from the other says so by implementing [Sized].
+//
+// # How a key reaches a widget
+//
+// A widget names what it can do and answers to the name — see [Doer] — and an
+// [input.Keymap] says which keystrokes produce which name. Nothing here owns a
+// keystroke. That is what makes every key reboundable without replacing anything, what
+// makes a binding several chords long expressible at all, and what lets the same action
+// be reached from a menu or from a command typed by name.
+//
+// Each widget kind has a map of its own, because the same key means different things
+// in different places: the down arrow moves a cursor in a field, a selection in a list
+// and a window in a reader, and one table cannot say all three. Within a kind, one map
+// can serve a whole interface — a widget answers the actions it knows and lets the rest
+// past — which is how a program binds its own keys alongside a field's:
+//
+//	keys := headless.DefaultEditorKeys()
+//	keys.Bind("send", input.Chord{Code: input.Enter})
 package headless
 
 import (
@@ -78,23 +95,17 @@ type Interactive interface {
 	input.Handler
 }
 
-// Binding is a key and what it does.
+// Doer is a widget that can be asked for one of its actions by name.
 //
-// It pairs the two on purpose. A keystroke handled in one place and described in
-// another drift apart, and the version the user reads is the one that is wrong.
-type Binding struct {
-	// Key is the keystroke, as the parser reports it, so the hint and the handler
-	// are talking about the same thing.
-	Key input.Key
-	// Does is what it does, in as few words as fit.
-	Does string
-	// Hidden keeps a binding out of a hint row without making it any less real — for
-	// a chord that works but that nobody needs told about.
-	Hidden bool
-}
-
-// Matches reports whether ev is this binding's keystroke.
-func (b Binding) Matches(ev input.Event) bool {
-	key, ok := ev.(input.Key)
-	return ok && key.Down() && key.Is(b.Key.Code, b.Key.Mods) && key.Rune == b.Key.Rune
+// It is the other half of [input.Keymap]. A widget names what it can do and answers to
+// the name; the map says which keystrokes produce which name. Neither knows the other,
+// which is what lets a program rebind every key without touching a widget, and what
+// lets the same action be reached from somewhere that is not the keyboard at all — a
+// menu, a command typed by name, a test that presses nothing.
+//
+// Do reports whether the action was one this widget knows. An action it does not know
+// is not an error: one keymap often drives a whole interface, and every widget reading
+// through it answers what it recognises and lets the rest past.
+type Doer interface {
+	Do(action input.Action) bool
 }

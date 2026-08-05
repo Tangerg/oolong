@@ -121,6 +121,21 @@ point of tagging them low rather than not at all.
   it — a chip in a prompt, a highlight, a search result, a diff region.
   `headless.Element` is now a mark, and the editor's two shifting routines are one
   call to `text.Shift`.
+- **`core/input.Keymap`, and an action is a name.** A widget names what it can do —
+  `delete-word-back`, `select-all` — and a map says which keystrokes produce which
+  name. A widget owning both could express neither: there was nowhere to put a binding
+  two chords long, rebinding one key meant replacing a whole struct, and the same
+  widget in two interfaces could not mean two things by escape. `Chord`, `Keys`,
+  `Pending` and `ParseChord` are the rest of it, and a keybinding now survives being
+  written to a file and read back.
+- **`Do` on everything that reads a key.** `Editor`, `List`, `Scroll`, `Completion`,
+  `Stack` and `Container` answer to the name of an action, which is what makes one
+  reachable from somewhere that is not the keyboard — a menu, a command typed by name,
+  a test that presses nothing. It is also what lets a completion drive the list inside
+  it without offering the same keystroke to the same map twice.
+- `core/input.Key.At`, stamped by the terminal's reader as `Mouse.At` already was. Two
+  chords in one burst are a sequence and a terminal never says so; the same two with a
+  pause between them are two keystrokes that happen to be adjacent.
 
 ### Changed
 
@@ -145,6 +160,17 @@ point of tagging them low rather than not at all.
 - `kit.Transcript.Handle` takes an `input.Event` like every other widget, and the
   click counter it used to be handed lives on `headless.Selection`, which is the only
   thing that asks.
+- **`headless.Binding` is gone, and with it every `…Keys` struct.** A widget's `Keys`
+  field is an `*input.Keymap`, and one map can serve a whole interface: a program binds
+  its own send key alongside the field's editing keys and hands the same table to both.
+  `kit.Help`, `Composer.Hints` and `Dialog.Hints` name actions and read the keystroke
+  back out of the map, so a hint cannot disagree with what the key does. There is no
+  `Hidden` flag any more: hiding a hint is not listing it. There is no description
+  field either — an action's name is what there is to say about it, and a description
+  kept beside the name is one that drifts from it.
+- **Shift and tab are one keystroke.** `input.Backtab` is gone. A terminal sending the
+  legacy sequence and a terminal speaking the Kitty protocol reported the same physical
+  key two different ways, so a binding could only ever match one of them.
 - `headless.Stack` owns the interface its layers float over, as `Base`. Owning it is
   what lets the stack say who has the keyboard.
 - **An escape sequence that never completed is now read as a chord.** It used to
@@ -177,6 +203,9 @@ point of tagging them low rather than not at all.
 - `core/term.Writer.Drain` took the wake-up the loop was owed, which hung a
   program on a machine slow enough for Drain to reach the channel first.
 - A layout gave out more rows than it had when several floors did not fit.
+- **Shift+Tab did not walk the keyboard backwards.** The container was bound to tab
+  with shift held and terminals that do not speak the Kitty protocol send a key of
+  their own for it, which nothing matched. One keystroke, one spelling.
 
 ## [0.0.1] — 2026-08-05
 

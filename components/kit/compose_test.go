@@ -77,20 +77,25 @@ func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 	if got := c.Measure(20); got != 1 {
 		t.Fatalf("an empty composer with no hints = %d rows, want 1", got)
 	}
-	c.Hints = []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "send"}}
+	c.Keys, c.Hints = sendKeys(), []input.Action{"send"}
 	if got := c.Measure(20); got != 2 {
 		t.Fatalf("with a hint row = %d rows, want the field and the hints", got)
 	}
 }
 
-func TestComposerHintsThatAreAllHiddenTakeNoRow(t *testing.T) {
+func TestComposerHintsNobodyCanPressTakeNoRow(t *testing.T) {
 	// A hint row with nothing in it is a blank line the user cannot account for.
-	c := kit.Composer{Hints: []headless.Binding{
-		{Key: input.Key{Code: input.Enter}, Does: "send", Hidden: true},
-	}}
+	c := kit.Composer{Keys: sendKeys(), Hints: []input.Action{"unbound"}}
 	if got := c.Measure(20); got != 1 {
 		t.Fatalf("= %d rows, want no room given to hints nobody is shown", got)
 	}
+}
+
+// sendKeys is a map with one action in it, which is all a hint row needs.
+func sendKeys() *input.Keymap {
+	keys := &input.Keymap{}
+	keys.Bind("send", input.Chord{Code: input.Enter})
+	return keys
 }
 
 func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
@@ -104,7 +109,8 @@ func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
 func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 	c := kit.Composer{
 		Prompt: "› ",
-		Hints:  []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "send"}},
+		Keys:   sendKeys(),
+		Hints:  []input.Action{"send"},
 	}
 	rows := paint(20, 2, func(v grid.View) { c.Draw(v) })
 	if !strings.Contains(rows[1], "send") {
@@ -227,11 +233,14 @@ func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
 
 func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 	// Where they do not cost a row, which is the whole reason to put them there.
+	keys := &input.Keymap{}
+	keys.Bind("ok", input.Chord{Code: input.Enter})
 	d := &kit.Dialog{
 		Glyphs: kit.Unicode(),
 		Title:  "Confirm",
 		Body:   kit.Label{Text: "x"},
-		Hints:  []headless.Binding{{Key: input.Key{Code: input.Enter}, Does: "ok"}},
+		Keys:   keys,
+		Hints:  []input.Action{"ok"},
 	}
 	rows := paint(24, 4, func(v grid.View) { d.Draw(v) })
 	if !strings.Contains(rows[3], "ok") {

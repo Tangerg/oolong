@@ -448,7 +448,11 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		if !ok {
 			return n, nil, true
 		}
-		return n, Key{Code: Backtab, Mods: mods | Shift, Transition: transition}, true
+		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
+		// reports the same keystroke as tab with shift held, and one keystroke that
+		// arrives under two names is one nothing can be bound to: whichever of the two
+		// a binding names, it misses on half the terminals there are.
+		return n, Key{Code: Tab, Mods: mods | Shift, Transition: transition}, true
 	default:
 		code, ok := cursorKey(final)
 		if !ok {

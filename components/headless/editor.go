@@ -30,8 +30,13 @@ type Editor struct {
 	// selection, which is what a field that never selects wants — and which is what
 	// this had before there was one, when a selection could be made and not seen.
 	SelectionStyle grid.Style
-	// Keys are the bindings the editor answers.
-	Keys EditorKeys
+	// Keys say which keystrokes produce which of the actions this field answers to —
+	// see [Editor.Do]. Nil reads through [DefaultEditorKeys].
+	//
+	// It is a map and not a struct of one field per action, so a program can hand the
+	// same map to a field, to the container around it and to its own keys, and rebind
+	// any of them without replacing anything.
+	Keys *input.Keymap
 	// Clipboard is where copy and cut send text and where paste asks for it. Nil
 	// leaves those keys doing nothing, which is the right answer for a field in a
 	// program that has no terminal to ask.
@@ -76,6 +81,10 @@ type Editor struct {
 	// killed is the last text cut, for putting back. One entry, like a terminal's.
 	killed string
 
+	// pending is how far into a multi-chord binding the keys typed so far have got.
+	// It is the field's own and not the map's — see [input.Pending].
+	pending input.Pending
+
 	// blurred says the field has been told it does not have the keyboard, so it
 	// draws no cursor. Inverted, because a field that has never been told anything
 	// is the whole interface and does have it — see [Focusable].
@@ -103,72 +112,9 @@ type editorState struct {
 	marks []text.Mark
 }
 
-// EditorKeys are the keystrokes an editor answers.
-//
-// The control chords are the ones a terminal has always had, because they are the
-// ones a reader's fingers already know and the ones that work when the terminal
-// cannot report anything richer.
-type EditorKeys struct {
-	Left, Right, Up, Down     Binding
-	WordLeft, WordRight       Binding
-	LineStart, LineEnd        Binding
-	DeleteBack, DeleteForward Binding
-	DeleteWordBack            Binding
-	KillToEnd, KillToStart    Binding
-	Yank                      Binding
-	Newline                   Binding
-	Undo                      Binding
-	// SelectAll, Copy, Cut and PasteFrom work on a selection. There is deliberately
-	// no binding for selecting in a direction: shift with any way of moving is what
-	// selects, so every movement selects and none of them was taught to.
-	SelectAll            Binding
-	Copy, Cut, PasteFrom Binding
-}
-
-// DefaultEditorKeys are the bindings a terminal text field is expected to have.
-func DefaultEditorKeys() EditorKeys {
-	ctrl := func(r rune, does string) Binding {
-		return Binding{Key: input.Key{Code: input.Character, Rune: r, Mods: input.Ctrl}, Does: does}
-	}
-	alt := func(r rune, does string) Binding {
-		return Binding{Key: input.Key{Code: input.Character, Rune: r, Mods: input.Alt}, Does: does}
-	}
-	plain := func(code input.Code, does string) Binding {
-		return Binding{Key: input.Key{Code: code}, Does: does}
-	}
-	return EditorKeys{
-		Left:       plain(input.Left, "left"),
-		Right:      plain(input.Right, "right"),
-		Up:         plain(input.Up, "up"),
-		Down:       plain(input.Down, "down"),
-		WordLeft:   alt('b', "word left"),
-		WordRight:  alt('f', "word right"),
-		LineStart:  ctrl('a', "line start"),
-		LineEnd:    ctrl('e', "line end"),
-		DeleteBack: plain(input.Backspace, "delete"),
-		// Alt+Backspace is what a terminal sends for deleting a word, and Ctrl+W is
-		// what it has always sent.
-		DeleteWordBack: ctrl('w', "delete word"),
-		DeleteForward:  plain(input.Delete, "delete forward"),
-		KillToEnd:      ctrl('k', "cut to end"),
-		KillToStart:    ctrl('u', "cut to start"),
-		Yank:           ctrl('y', "put back"),
-		Newline:        Binding{Key: input.Key{Code: input.Enter, Mods: input.Alt}, Does: "newline"},
-		Undo:           ctrl('_', "undo"),
-		// The chords a terminal leaves alone. Ctrl+C is the interrupt, Ctrl+V is the
-		// literal-next escape, and Ctrl+A is where readline has always put the start
-		// of the line — taking any of them would break something every terminal user
-		// already relies on.
-		SelectAll: alt('a', "select all"),
-		Copy:      alt('c', "copy"),
-		Cut:       alt('x', "cut"),
-		PasteFrom: alt('v', "paste"),
-	}
-}
-
-// NewEditor returns an empty editor with the usual bindings.
+// NewEditor returns an empty editor.
 func NewEditor() *Editor {
-	return &Editor{lines: []string{""}, Keys: DefaultEditorKeys(), wantColumn: -1}
+	return &Editor{lines: []string{""}, wantColumn: -1}
 }
 
 // Text is the whole content, lines joined by newlines.
@@ -578,82 +524,112 @@ func (e *Editor) Handle(ev input.Event) bool {
 	}
 	e.ensure()
 
-	k := e.keys()
-
-	// Shift turns any way of moving into a way of selecting. The anchor is dropped
-	// first and taken back if the key was not a movement after all, which is what
-	// keeps this to one rule instead of a second binding for every direction.
+	// Shift turns any way of moving into a way of selecting. The chord is looked up
+	// with the shift taken off it, and the anchor is dropped first and taken back if
+	// what it named was not a movement after all — which is what keeps this to one
+	// rule instead of a second binding for every direction.
 	if key.Mods&input.Shift != 0 {
-		unshifted := key
+		unshifted := key.Chord()
 		unshifted.Mods &^= input.Shift
-		had := e.selecting
-		e.Anchor()
-		if e.move(k, unshifted) {
-			return true
+		if action, bound := e.keys().Action(unshifted); bound {
+			had := e.selecting
+			e.Anchor()
+			if e.move(action) {
+				return true
+			}
+			e.selecting = had
 		}
-		e.selecting = had
 	}
-	if e.selectionKey(k, ev) {
+
+	action, mine := e.keys().Lookup(key, &e.pending)
+	switch {
+	case !mine:
+		return e.typed(key)
+	case action == "":
+		// The start of a binding more than one chord long. Consumed and nothing done,
+		// which is what waiting for the rest of it looks like.
 		return true
 	}
-	if e.move(k, ev) {
-		// Moving without shift is how a selection is let go of, which is what every
-		// other editor does and what an arrow key means.
+	return e.Do(action)
+}
+
+// Do runs one of the field's actions by name, reporting whether it was one this field
+// knows. See [Doer] for why a widget answers to a name at all.
+func (e *Editor) Do(action input.Action) bool {
+	e.ensure()
+	if e.move(action) {
+		// Moving is how a selection is let go of, which is what every other editor does
+		// and what an arrow key means. Selecting is the same movement with the anchor
+		// put down first — see [Editor.Handle].
 		e.SelectNone()
 		return true
 	}
-
-	switch {
-	case k.DeleteBack.Matches(ev):
+	switch action {
+	case DeleteBack:
 		if !e.DeleteSelection() {
 			e.DeleteBack()
 		}
-	case k.DeleteForward.Matches(ev):
+	case DeleteForward:
 		if !e.DeleteSelection() {
 			e.DeleteForward()
 		}
-	case k.DeleteWordBack.Matches(ev):
+	case DeleteWordBack:
 		e.DeleteWordBack()
-	case k.KillToEnd.Matches(ev):
+	case KillToEnd:
 		e.KillToEnd()
-	case k.KillToStart.Matches(ev):
+	case KillToStart:
 		e.KillToStart()
-	case k.Yank.Matches(ev):
+	case Yank:
 		e.Yank()
-	case k.Newline.Matches(ev):
+	case InsertNewline:
 		e.Newline()
-	case k.Undo.Matches(ev):
+	case Undo:
 		e.Undo()
+	case Redo:
+		e.Redo()
+	case SelectAll:
+		e.SelectAll()
+	case Copy:
+		e.Copy()
+	case Cut:
+		e.Cut()
+	case Paste:
+		e.Paste()
 	default:
-		// Text, and only text. A chord this editor has no use for belongs to whatever
-		// is around it, and swallowing it would break that.
-		if key.Mods&^input.Shift != 0 {
-			return false
-		}
-		// What the terminal says the key produced wins over the key's own code. The
-		// code is the unshifted key on the physical keyboard: on a layout where the
-		// key beside "1" produces "@", inserting the code would type "2".
-		if key.Text != "" {
-			e.Insert(key.Text)
-			e.typing = true
-			return true
-		}
-		if key.Code == input.Character && key.Rune != 0 {
-			e.InsertRune(key.Rune)
-			return true
-		}
 		return false
 	}
 	return true
 }
 
-// keys are the bindings to answer, standing in the defaults for a caller who left
-// them unset, without recording the answer. See [List.keys].
-func (e *Editor) keys() EditorKeys {
-	if e.Keys == (EditorKeys{}) {
-		return DefaultEditorKeys()
+// typed puts a keystroke in as text, when it is text.
+//
+// Text, and only text. A chord this field has no use for belongs to whatever is around
+// it, and swallowing it would break that.
+func (e *Editor) typed(key input.Key) bool {
+	if key.Mods&^input.Shift != 0 {
+		return false
 	}
-	return e.Keys
+	// What the terminal says the key produced wins over the key's own code. The code is
+	// the unshifted key on the physical keyboard: on a layout where the key beside "1"
+	// produces "@", inserting the code would type "2".
+	if key.Text != "" {
+		e.Insert(key.Text)
+		e.typing = true
+		return true
+	}
+	if key.Code == input.Character && key.Rune != 0 {
+		e.InsertRune(key.Rune)
+		return true
+	}
+	return false
+}
+
+// keys is the map to read through, standing in the default for a caller who set none.
+func (e *Editor) keys() *input.Keymap {
+	if e.Keys != nil {
+		return e.Keys
+	}
+	return editorKeys()
 }
 
 // ensure makes the zero editor usable: one empty line, with a cursor in it. An

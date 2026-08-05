@@ -244,11 +244,11 @@ func TestScrollbarKnowsWhenItIsPointless(t *testing.T) {
 }
 
 func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
-	help := kit.Help{Bindings: []headless.Binding{
-		{Key: input.Key{Code: input.Enter}, Does: "send"},
-		{Key: input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl}, Does: "quit"},
-		{Key: input.Key{Code: input.Character, Rune: 'g', Mods: input.Ctrl}, Does: "tasks"},
-	}}
+	keys := &input.Keymap{}
+	keys.Bind("send", input.Chord{Code: input.Enter})
+	keys.Bind("quit", input.Ctrl.Rune('c'))
+	keys.Bind("tasks", input.Ctrl.Rune('g'))
+	help := kit.Help{Keys: keys, Show: []input.Action{"send", "quit", "tasks"}}
 	full := paint(40, 1, func(v grid.View) { help.Draw(v) })
 	for _, want := range []string{"enter send", "ctrl+c quit", "ctrl+g tasks"} {
 		if !strings.Contains(full[0], want) {
@@ -266,14 +266,19 @@ func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
 	}
 }
 
-func TestHelpSkipsHiddenBindings(t *testing.T) {
-	help := kit.Help{Bindings: []headless.Binding{
-		{Key: input.Key{Code: input.Enter}, Does: "send"},
-		{Key: input.Key{Code: input.F5}, Does: "secret", Hidden: true},
-	}}
+func TestHelpSkipsAnActionNobodyCanPress(t *testing.T) {
+	// A hint for a key that is not bound is a hint that is wrong. There is no flag for
+	// hiding one either: an action that works and that nobody needs told about is
+	// simply not listed.
+	keys := &input.Keymap{}
+	keys.Bind("send", input.Chord{Code: input.Enter})
+	help := kit.Help{Keys: keys, Show: []input.Action{"send", "secret"}}
 	rows := paint(40, 1, func(v grid.View) { help.Draw(v) })
 	if strings.Contains(rows[0], "secret") {
-		t.Fatalf("row = %q, want the hidden binding left out", rows[0])
+		t.Fatalf("row = %q, want the unbound action left out", rows[0])
+	}
+	if !strings.Contains(rows[0], "enter send") {
+		t.Fatalf("row = %q, want the bound one shown", rows[0])
 	}
 }
 

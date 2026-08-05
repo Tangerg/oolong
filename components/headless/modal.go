@@ -88,10 +88,14 @@ type Stack struct {
 	// under a dialog that has one of its own.
 	Base Widget
 
-	// Escape is the key that pops the top layer when the layer did not consume it.
-	// The zero value is the escape key. A layer that must be answered rather than
-	// dismissed implements [Insistent].
-	Escape Binding
+	// Keys say which keystrokes produce which of the actions a stack answers to, which
+	// is the one that closes the top layer. Nil reads through [DefaultStackKeys].
+	//
+	// A map rather than one field for the one key, because the same layer appears in
+	// interfaces where escape means "back" and interfaces where it means "close", and
+	// which it is here is the program's to say. A layer that must be answered rather
+	// than dismissed implements [Insistent].
+	Keys *input.Keymap
 	// KeepOnClickOutside stops a press outside the top layer from popping it.
 	// Off by default, because a click on what a modal is covering means the user
 	// is finished with the modal, and every interface they already use agrees.
@@ -111,6 +115,8 @@ type Stack struct {
 	// blurred says the stack itself has been told it does not have the keyboard,
 	// which is what a stack inside something larger is told.
 	blurred bool
+	// pending is how far into a multi-chord binding the keys typed so far have got.
+	pending input.Pending
 }
 
 // Push puts a layer on top, and gives it the keyboard.
@@ -202,11 +208,25 @@ func (s *Stack) Handle(ev input.Event) bool {
 	if top.Handle(ev) {
 		return true
 	}
-	if s.escape().Matches(ev) && !sticky(top) {
-		s.Pop()
+	if key, ok := ev.(input.Key); ok {
+		if action, mine := s.keys().Lookup(key, &s.pending); mine && action != "" {
+			s.Do(action)
+		}
 	}
 	// Consumed either way: what is underneath is covered, and a key that fell
 	// through to it would act somewhere the user is not looking.
+	return true
+}
+
+// Do runs one of the stack's actions by name, reporting whether it was one a stack
+// knows. See [Doer].
+func (s *Stack) Do(action input.Action) bool {
+	if action != Close {
+		return false
+	}
+	if top := s.Top(); top != nil && !sticky(top) {
+		s.Pop()
+	}
 	return true
 }
 
@@ -279,13 +299,12 @@ func (s *Stack) settle() {
 	tell(want, !s.blurred)
 }
 
-// escape is the binding to pop on, standing in the default for a caller who left
-// it unset, without recording the answer. See [List.keys].
-func (s *Stack) escape() Binding {
-	if s.Escape == (Binding{}) {
-		return Binding{Key: input.Key{Code: input.Esc}, Does: "close"}
+// keys is the map to read through, standing in the default for a caller who set none.
+func (s *Stack) keys() *input.Keymap {
+	if s.Keys != nil {
+		return s.Keys
 	}
-	return s.Escape
+	return stackKeys()
 }
 
 // sticky reports whether a layer currently refuses to be dismissed.

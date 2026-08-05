@@ -160,46 +160,29 @@ func (e *Editor) Paste() {
 	}
 }
 
-// selectionKey answers the keys that work on a selection, reporting whether it took
-// the event.
-func (e *Editor) selectionKey(k EditorKeys, ev input.Event) bool {
-	switch {
-	case k.SelectAll.Matches(ev):
-		e.SelectAll()
-	case k.Copy.Matches(ev):
-		e.Copy()
-	case k.Cut.Matches(ev):
-		e.Cut()
-	case k.PasteFrom.Matches(ev):
-		e.Paste()
-	default:
-		return false
-	}
-	return true
-}
-
-// move runs whichever movement binding ev is, reporting whether it was one.
+// move runs an action if it is a way of moving, reporting whether it was one.
 //
-// It is one function rather than cases in [Editor.Handle] because it is asked twice:
-// once for the key as it arrived, and once with shift taken off, which is what makes
-// every movement a way of selecting.
-func (e *Editor) move(k EditorKeys, ev input.Event) bool {
-	switch {
-	case k.Left.Matches(ev):
+// It is separate from the rest of [Editor.Do] because it is asked twice: once for what
+// the keystroke named, and once for what it named with the shift taken off it, which is
+// what makes every movement a way of selecting. Selecting is this without the selection
+// being let go of first.
+func (e *Editor) move(action input.Action) bool {
+	switch action {
+	case MoveLeft:
 		e.MoveLeft()
-	case k.Right.Matches(ev):
+	case MoveRight:
 		e.MoveRight()
-	case k.Up.Matches(ev):
+	case MoveUp:
 		e.MoveUp()
-	case k.Down.Matches(ev):
+	case MoveDown:
 		e.MoveDown()
-	case k.WordLeft.Matches(ev):
+	case MoveWordLeft:
 		e.MoveWordLeft()
-	case k.WordRight.Matches(ev):
+	case MoveWordRight:
 		e.MoveWordRight()
-	case k.LineStart.Matches(ev):
+	case MoveLineStart:
 		e.MoveLineStart()
-	case k.LineEnd.Matches(ev):
+	case MoveLineEnd:
 		e.MoveLineEnd()
 	default:
 		return false

@@ -22,8 +22,9 @@ type List[T any] struct {
 	// which the caller renders however it likes — a list does not know what
 	// selected looks like in its surroundings.
 	Row func(v grid.View, item T, selected bool)
-	// Keys are the bindings the list answers.
-	Keys ListKeys
+	// Keys say which keystrokes produce which of the actions the list answers to —
+	// see [List.Do]. Nil reads through [DefaultListKeys].
+	Keys *input.Keymap
 	// Wrap moves the selection from the last item to the first and back. Off by
 	// default: in a long list, wrapping loses the user's place.
 	Wrap bool
@@ -33,26 +34,8 @@ type List[T any] struct {
 	// window is the last drawn height, which is what a page-sized move needs and
 	// what only drawing can know.
 	window int
-}
-
-// ListKeys are the keystrokes a list answers.
-type ListKeys struct {
-	Up, Down       Binding
-	PageUp, PageDn Binding
-	First, Last    Binding
-}
-
-// DefaultListKeys are the bindings a terminal list expects, including the pair of
-// letters every reader's fingers already know.
-func DefaultListKeys() ListKeys {
-	return ListKeys{
-		Up:     Binding{Key: input.Key{Code: input.Up}, Does: "up"},
-		Down:   Binding{Key: input.Key{Code: input.Down}, Does: "down"},
-		PageUp: Binding{Key: input.Key{Code: input.PageUp}, Does: "page up"},
-		PageDn: Binding{Key: input.Key{Code: input.PageDown}, Does: "page down"},
-		First:  Binding{Key: input.Key{Code: input.Home}, Does: "first"},
-		Last:   Binding{Key: input.Key{Code: input.End}, Does: "last"},
-	}
+	// pending is how far into a multi-chord binding the keys typed so far have got.
+	pending input.Pending
 }
 
 // Selected is the index under the cursor, or -1 for an empty list.
@@ -118,20 +101,36 @@ func (l *List[T]) Handle(ev input.Event) bool {
 			return false
 		}
 	}
-	keys := l.keys()
-	page := max(l.window-1, 1)
+	key, ok := ev.(input.Key)
+	if !ok {
+		return false
+	}
+	action, mine := l.keys().Lookup(key, &l.pending)
 	switch {
-	case keys.Up.Matches(ev):
+	case !mine:
+		return false
+	case action == "":
+		return true // the start of a binding more than one chord long
+	}
+	return l.Do(action)
+}
+
+// Do runs one of the list's actions by name, reporting whether it was one this list
+// knows. See [Doer].
+func (l *List[T]) Do(action input.Action) bool {
+	page := max(l.window-1, 1)
+	switch action {
+	case SelectPrev:
 		l.Move(-1)
-	case keys.Down.Matches(ev):
+	case SelectNext:
 		l.Move(1)
-	case keys.PageUp.Matches(ev):
+	case SelectPageUp:
 		l.Move(-page)
-	case keys.PageDn.Matches(ev):
+	case SelectPageDown:
 		l.Move(page)
-	case keys.First.Matches(ev):
+	case SelectFirst:
 		l.Select(0)
-	case keys.Last.Matches(ev):
+	case SelectLast:
 		l.Select(len(l.Items) - 1)
 	default:
 		return false
@@ -139,19 +138,14 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	return true
 }
 
-// keys are the bindings to answer, standing in the defaults for a caller who left
-// them unset. A list is a struct a caller fills in, so its zero value has to work:
-// one that quietly ignored the arrow keys would look finished and not be.
-//
-// It answers without recording the answer. Writing the defaults back would make a
-// read path change an exported field, so the zero value a caller set up would
-// survive only until the first keystroke — and a list compared, copied or logged
-// after that would not be the one they wrote.
-func (l *List[T]) keys() ListKeys {
-	if l.Keys == (ListKeys{}) {
-		return DefaultListKeys()
+// keys is the map to read through, standing in the default for a caller who set none.
+// A list is a struct a caller fills in, so its zero value has to work: one that quietly
+// ignored the arrow keys would look finished and not be.
+func (l *List[T]) keys() *input.Keymap {
+	if l.Keys != nil {
+		return l.Keys
 	}
-	return l.Keys
+	return listKeys()
 }
 
 // Measure is one row per item, which is what a container needs to decide whether the
