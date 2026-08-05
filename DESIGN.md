@@ -214,8 +214,11 @@ in place.
   a session turns on and the reverse order they are put back in, the goroutines reading
   input, and a frame writer with its own goroutine so that a slow terminal cannot stop
   the loop from reading input. It also asks: what colour the terminal draws on and what
-  it claims to support, in one round trip during startup, ended by a device attributes
-  query because that is the only answer every terminal gives. And it starts the program
+  it claims to support, what it calls itself, and which keyboard enhancements
+  actually took — in one round trip during startup, ended by a device attributes
+  query because that is the only answer every terminal gives. What it says outranks
+  the environment, which describes the terminal a shell started in rather than the
+  one on the other end of an ssh connection. And it starts the program
   again in place of itself, keeping the terminal, which is the only way to move an
   interface between the alternate screen and the terminal's own.
 - **`clipboard`** — the sequences that carry text to and from the terminal's

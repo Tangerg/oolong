@@ -64,6 +64,19 @@ point of tagging them low rather than not at all.
   match could be found and not reached.
 - `headless.Editor.SelectionStyle`, and `Spans`, which is what draws a selection
   in a wrapped field.
+- **A terminal is asked what it is.** The startup probe now sends the version
+  query and the secondary attributes query, and `core/input` decodes device
+  control strings and the two private-marker reports. What the terminal said
+  outranks the environment everywhere it is used, because environment variables
+  describe the terminal a shell started in and not the one on the other end of an
+  ssh connection.
+- **`Terminal.Keyboard`** reads back which of the Kitty keyboard enhancements
+  actually took. Asking for them is not the same as getting them, and a terminal
+  that accepts unambiguous codes and gives nothing for releases is
+  indistinguishable from a user who has not lifted a key.
+- **`Terminal.ReportDirectory`** tells the terminal where the program is working,
+  which is what lets its own path handling resolve relative paths in the output.
+- `Loop.Wheel` and `Host.Wheel` carry the wheel profile to a component.
 
 - `core/term.OpenOn` takes over a terminal that is not the process's own, which
   a program serving a session over a pty needs and which makes the package's
@@ -81,6 +94,8 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- `core/input.WheelFor` and `core/graphics.DetectIn` take what the terminal called
+  itself, which outranks the environment.
 - **An escape sequence that never completed is now read as a chord.** It used to
   become the Escape key plus the character, which made Alt+[, Alt+] and
   Alt+Shift+O unbindable. An escape pressed on its own is followed by a human
@@ -100,6 +115,11 @@ point of tagging them low rather than not at all.
 
 ### Fixed
 
+- **A terminal's answers were being read as keystrokes.** A control sequence
+  carrying a private marker is a report and never a key, and dispatch was looking
+  only at the final byte: the Kitty keyboard flags reply arrived as an invisible
+  control character, and the version string as fifteen keystrokes. Both are now
+  covered by one rule rather than two special cases.
 - The input parser's cap on a control sequence's parameter section depended on
   where a read happened to split, so the same bytes could decode differently.
 - Bracketed paste could carry text that was not valid UTF-8.
