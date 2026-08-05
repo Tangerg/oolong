@@ -17,10 +17,16 @@ at the bottom is about a hundred lines: [`examples/streaming`](examples/streamin
 
 Underneath that: a transcript the output can be selected, searched and scrolled
 back over; an editor with undo, selection, the system clipboard and atomic
-elements, in one line or many; forms with the four fields anything ever asks for;
-a diff and something to scroll it in; prompt history and a slash-command registry;
-a theme that follows the colour the terminal says it draws on, and box glyphs that
-fall back to ASCII when the locale says they must.
+elements, in one line or many; forms with the four fields anything ever asks for,
+answerable on a grid or a question at a time in words; lists, trees, tabs, tables
+with a cursor and a filter over any of them; a diff and something to scroll it in;
+prompt history and a slash-command registry; a theme that follows the colour the
+terminal says it draws on, and box glyphs that fall back to ASCII when the locale
+says they must.
+
+It reads the terminal's own language in both directions: the colours a command
+wrote into its output come back as styled text, and the terminal can be handed to
+an editor and taken back with every mode it was holding put back in order.
 
 Every key is a name in a table rather than a keystroke in a widget, so all of it
 can be rebound without replacing anything — and every widget answers to the name,
@@ -32,20 +38,21 @@ go run ./examples/streaming        # from the repository root, which is a Go wor
 ```
 
 [`ROADMAP.md`](ROADMAP.md) was what was missing and in what order, read against the
-libraries this one was lifted from and the ones it was compared with. That list is
-done, and what each item turned out to mean — including the three places the
-implementation contradicted the analysis — is recorded under it. At the end is the
-same reading done again: what the work put in view, and what is still missing when
-this is held against `opentui` and the `bubbletea` family.
+libraries this one was lifted from and the ones it was compared with, and then read
+again against `opentui` and the `bubbletea` family. Both lists are done, and what
+each item turned out to mean — including the places the implementation contradicted
+the analysis — is recorded under it. One thing on the second list is not done and
+says why: a cell holds a grapheme and a style, and an image is neither.
 
 ## What it is
 
-Four modules in one repository.
+Five modules in one repository.
 
 | module | what it is | dependencies |
 | --- | --- | --- |
 | **`core`** | the engine: cells, text, input, layout, the terminal, frame pacing, and the loop that drives them | `uniseg`, `go-runewidth`, `x/term`, `x/sys` |
 | **`components`** | widgets built on it, split into behaviour and appearance | **none of its own** — everything comes through `core` |
+| **`markdown`** | markdown into terminal rows, including markdown that has not finished arriving | `goldmark` |
 | **`ptytest`** | a harness that runs a terminal program on a real pty and says what reached the terminal | `x/sys` |
 | **`examples`** | demonstrations, which nothing may import | — |
 
@@ -53,9 +60,8 @@ A module boundary costs version skew and buys an independent dependency set, so
 there is one wherever the dependencies genuinely differ and nowhere else. That is
 why `core` is not split further into a cell buffer, a styling layer and a runtime:
 everyone who wants one wants all three, and three modules would buy nothing but a
-version dance. It is also why markdown, when it arrives, has to be its own — it
-wants goldmark and a syntax highlighter, and neither of the two modules above
-should ever hear about them.
+version dance. It is also why markdown is its own — it wants a parser, and the two
+modules above promise a dependency list a terminal library can be adopted for.
 
 ### Inside them, a ladder
 
@@ -65,6 +71,7 @@ should ever hear about them.
 | `components/headless` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
 | `components/kit` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
 | `core/program`, `core/present` | the loop and its frame schedule. The only goroutine that touches the interface's state, and the one ring that must never know the widgets exist. | the browser |
+| `markdown` | beside the ladder rather than on it: it turns text into the substrate's own lines, so anything that can draw those can draw a document without either of them knowing about the other. | — |
 
 The layering is not a convention. `internal/arch` parses every import in every
 module and fails the build if one points the wrong way, if a module appears whose
@@ -86,9 +93,6 @@ eventually disagrees with, so the way out is built in: stop importing `kit`, kee
 
 That is the whole reason `headless.List` has no style fields and takes a `Row`
 function instead.
-
-[`ROADMAP.md`](ROADMAP.md) is what is missing and in what order, read against the
-libraries this one was lifted from and the ones it was compared with.
 
 ## What it is for
 
@@ -115,8 +119,8 @@ everything a widget needs is already down there.
 Both lists are a promise, and a test fails when either grows — a terminal library
 that drags a tree behind it is one people work around instead of using. Splitting
 into modules made the promise sharper rather than looser: the list belongs to a
-module now, so a future markdown module can carry goldmark without either of these
-two noticing.
+module now, which is what lets `markdown` carry goldmark without either of these two
+noticing, and a program that does not render markdown never hear about it.
 
 ## Testing an interface
 

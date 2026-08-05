@@ -203,7 +203,14 @@ in place.
 - **`text`** — grapheme clusters, column measurement, wrapping, truncation, tab
   expansion. One width authority shared by everything that measures or draws, because
   measuring text one way and drawing it another is the cause of every misaligned
-  terminal UI.
+  terminal UI. And the other direction: a decoder that reads the escape sequences a
+  command wrote into its output back into styled spans, a chunk at a time, because
+  output arrives in whatever pieces a read produced and a sequence split down the
+  middle must not be printed.
+- **`ansi`** — what a control sequence is made of: which bytes are parameters, which
+  byte ends one, what an empty field means, where a sequence stops. It exists because
+  two packages read sequences for opposite reasons — one reads what a terminal sends,
+  the other what a program was handed — and two parsers over one syntax drift.
 - **`input`** — an incremental parser for what a terminal sends: CSI and SS3 keys, the
   Kitty keyboard protocol including release and repeat and associated text, SGR mouse
   reporting with movement, bracketed paste, focus, and the two shapes an *answer*
@@ -223,6 +230,13 @@ in place.
   one on the other end of an ssh connection. And it starts the program
   again in place of itself, keeping the terminal, which is the only way to move an
   interface between the alternate screen and the terminal's own.
+
+  It also gives the terminal away and takes it back — an editor, a pager, Ctrl+Z —
+  which is the same unwinding as closing a session, done twice, plus the half nothing
+  else can do for a caller: the reader comes off the terminal first and goes back on
+  last, so a byte typed at a child is a byte this process never took. The window
+  title, the bell and a desktop notification are one sequence each, and the title is
+  put back on the way out for the same reason a mode is.
 - **`clipboard`** — the sequences that carry text to and from the terminal's
   clipboard. The terminal does the copying because over ssh, in a container, or
   through a multiplexer running elsewhere it is the only end of the connection the
@@ -234,9 +248,13 @@ in place.
 - **`diff`** — what changed between two texts, line by line, and the hunks worth
   showing. Beside `fuzzy` for the same reason: what changed is a fact about two
   strings and has nothing to do with a terminal.
-- **`anim`** — easing, a shimmer sweep, a running wave, and a transition counted in
-  ticks rather than measured in wall-clock time, because a widget that asks what
-  time it is cannot be stepped by a test or paused by a loop that parked.
+- **`anim`** — easing, a shimmer sweep, a running wave, a transition, a spring and a
+  timeline, all counted in ticks rather than measured in wall-clock time, because a
+  widget that asks what time it is cannot be stepped by a test or paused by a loop
+  that parked. A spring keeps the speed it had when its target moves, which is the
+  whole difference from a transition, and steps by the exact solution rather than a
+  small step of it — stepping a stiff spring approximately at a frame rate is how one
+  turns into an oscillation that grows.
 - **`link`** — the URLs in a piece of text, as byte ranges, plus a record of where
   they were drawn so a click can be answered from the same pass that wrote the cells.
   Turning a byte range into the columns it covers is `text`'s, because that is the
@@ -247,7 +265,8 @@ in place.
   written; sixel is detected and not produced, because producing it means decoding the
   image and a decoder would be a dependency. PNG only, for the same reason.
 
-- **`layout`** — dividing a region: fixed, flexible and measured slots, insets,
+- **`layout`** — dividing a region: fixed, flexible, measured and fraction-of-the-whole
+  slots, a gap between them, where a child narrower than its slot sits, insets,
   alignment, and the placement a floating layer is clamped into. It hands back views
   and never draws, which is what lets the same rules place a widget, a string, or a
   hole left deliberately empty. A measured slot is asked about the axis being divided
@@ -263,12 +282,23 @@ that took the press, a generic list, an editor with a kill ring and coalesced un
 one line or many, masked or not — a completion offered against a token, and a window
 that shows a slice of anything taller than the room it has.
 
+Three of the things that show rows are that list with something added, and saying so
+is the design rather than a shortcut: a **tree** is a list of the rows it is showing,
+so opening and closing is all it has to do itself; a **table** is a list with an order,
+and sorting carries the cursor with the row it was on by sorting a permutation rather
+than the rows; a **filter** is a list of what answered a pattern, with where the pattern
+is typed left to the caller. **Tabs** are the fourth, and they draw only the pane
+showing — the strip of names is appearance.
+
 What decides which of several widgets an event is for is a **container**: a key goes to
 the one that has the keyboard, a mouse event to the one it is over, in that widget's own
 coordinates, with a press captured until the release. A **form** is that container with
 an answer checked when the keyboard leaves a field and the set checked on submission,
 and the four fields anything ever asks for — a line of text, one choice, several, and a
-yes or no — each binding what it collects to a variable of the caller's own.
+yes or no — each binding what it collects to a variable of the caller's own. Each of
+them can also be asked and answered in words, for somebody who is not looking at a
+grid: the question is the field's, because only the field knows what an answer means,
+and reading a line is left to whoever has the reader.
 
 None of it owns a keystroke. A widget names what it can do and answers to the name; an
 `input.Keymap` says which keystrokes produce which name, sequences included. That is why
@@ -289,11 +319,13 @@ whoever does, which is the one design decision that makes the ring above it opti
 
 ### kit
 
-One set of answers: box and border, label, wrapped paragraph, spinner, scrollbar, help
-row, table, a floating layer with shading, a transcript view that lays selection and
-search results over what was drawn, a command palette that picks out the characters a
-query matched, a diff, a dressed form, and the three pieces a streaming interface is
-actually made of — a composer, a status line, and a printed message. Plus a semantic palette, `Theme`, whose
+One set of answers: box and border, label, wrapped paragraph, spinner, progress bar,
+scrollbar, help row, table with a sortable header, tab strip, tree, a floating layer
+with shading, a transcript view that lays selection and search results over what was
+drawn, a command palette that picks out the characters a query matched, a diff, a
+dressed form, the same form as a conversation in words, and the three pieces a
+streaming interface is actually made of — a composer, a status line, and a printed
+message. Plus a semantic palette, `Theme`, whose
 names are roles rather than colours and which follows what the terminal said it draws
 on, and a glyph set with an ASCII fallback for a terminal whose locale says it cannot
 draw the other one.
@@ -317,6 +349,26 @@ decides the rendering model. `InlineLoop` is a separate interface precisely so t
 program on a screen of its own cannot be handed a component that prints: there is no
 scrollback there, and the alternative was a method that quietly did nothing half the
 time.
+
+### markdown
+
+A module of its own, and the one the boundary was drawn for: rendering markdown needs
+a parser, and a parser is a tree of somebody else's code.
+
+The hard part is not the parser. Every renderer takes a document and gives back a
+rendering; a program showing a model's answer has a prefix of one, growing a few words
+at a time, and re-rendering the whole of it on every chunk is quadratic in exactly the
+case where answers are long. So a stream splits what has arrived into the part that is
+certainly finished — published once, never looked at again — and the part that is not,
+which is short by construction. Where it cuts is written down, and so is what the rule
+costs.
+
+What comes out is `core/text` lines, so wrapping happens where the width is known, and
+the drawable form is a `Drawer` and a `Measurer` and nothing else — which is what lets
+a document go into a slot, a container or a viewport belonging to a package this module
+has never heard of. It does not highlight code: a highlighter is several megabytes of
+lexers and a matter of taste, which is the same argument that keeps one appearance out
+of the behaviour a widget has, so there is a seam for one and no dependency on one.
 
 ### How it is kept honest
 
@@ -358,27 +410,24 @@ Not "later" — these are decisions:
 
 Ordered by what would be built next.
 
-1. **Markdown, as a sibling module.** Rendering a model's answer is the single most
-   common thing a streaming interface does, and doing it properly wants a parser and a
-   syntax highlighter. Those are exactly the dependencies the core promise excludes, so
-   this is a separate module in this repository — the same relationship glamour has to
-   bubbletea. Not started, and deliberately so: streaming markdown is an incremental
-   parse of text that is still arriving, which no off-the-shelf parser does.
-2. **Markdown's siblings.** Syntax highlighting, and mermaid. Both are in
-   grok-build's renderer and both want dependencies the core promise excludes, so
-   they belong wherever markdown ends up.
-3. **Images through the frame pipeline.** `core/graphics` knows the protocols and
+1. **Images through the frame pipeline.** `core/graphics` knows the protocols and
    which of them can be used where — kitty has handles and can be placed in a region
    that redraws, iTerm2 and sixel can only be printed once. What is missing is the
    other half: `core/grid` has no notion of an image, so nothing can put one in a
    drawn frame. Sixel is reported and not written, because producing it means
    decoding the image and a decoder is the dependency the package exists without.
-4. **A worked example of the whole surface.** The example is a chat that streams,
+2. **Syntax highlighting, and mermaid.** Both are in grok-build's renderer, and the
+   markdown module now has the seam for the first: a function from a language and a
+   block of source to styled lines. What is missing is a chroma-backed one, and it is
+   deliberately not in this repository yet — a highlighter is several megabytes of
+   lexers, and the module carries a parser because a parser is unavoidable and a
+   highlighter is a choice.
+3. **A worked example of the whole surface.** The example is a chat that streams,
    and it now proves the probe, the theme that follows it, the clipboard and the
    glyph fallback. The transcript, selection, search, sticky headers and the command
    palette are proved by their own tests and by `kit`, not by a program anyone can
    run. A second example that puts them together is worth having.
-5. **A trackpad scrolling differently from a wheel.** A mouse report now carries
+4. **A trackpad scrolling differently from a wheel.** A mouse report now carries
    when it arrived, so the two can be told apart by rate — what is missing is not
    the mechanism but the number. How far a trackpad report should scroll relative
    to a wheel report is a feel decision, the prior art's table points the opposite
@@ -415,6 +464,23 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   rather than detected. What remains is that an unrecognised TERM is treated as
   truecolor, which is the right bet for the terminals people actually use and the
   wrong one for a genuinely old terminal that does not say so.
+- **Handing the terminal to a child is Unix-only.** Doing it correctly means taking
+  the reader off the terminal first, which means a read that can be interrupted, which
+  means waiting on the terminal and on a pipe this process can write to. On Windows
+  that is `CancelIoEx` and a different reader; until then, handing over reports
+  `ErrUnsupported` rather than shipping a child that drops every other keystroke.
+- **Output is read, not emulated.** The decoder turns the escape sequences a command
+  wrote into styled text, and drops the rest — a carriage return is dropped rather
+  than obeyed. Output that redrew a line in place therefore reads as the several
+  versions of it. Obeying cursor movement and erasure is a terminal emulator, which is
+  another product; the decoder is the ten-per-cent of it that is worth having on its
+  own.
+- **Streaming markdown cuts at a blank line.** A block is published once a line has
+  arrived after it that does not begin with a space, and never inside a fenced block
+  of code. A list with blank lines between its items is therefore published in pieces,
+  which reads the same, and a link written as a reference is published before its
+  address arrives, which comes out as the words without the link. Both are the price
+  of showing an answer as it is written instead of after it is finished.
 - **Windows has no resize events.** The console reports resizing through its own input
   API rather than a signal. A session gets its opening size and nothing after, unless a
   host delivers sizes itself. Everything else is portable.

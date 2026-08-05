@@ -10,8 +10,11 @@ Three findings gate everything else, so they come first.
 item, including the three places the implementation contradicted the analysis.
 
 With that list finished, the same reading was done again. Sections 6 and 7 are the
-result: what the work itself put in view, and what is still missing when this is held
-against what a Go program would otherwise be built on.
+result: what the work itself put in view, and what was still missing when this was
+held against what a Go program would otherwise be built on.
+
+**Section 7 is done as well**, in the order it gave, and what each item turned out to
+mean is recorded under it. Section 8 is what that round turned up.
 
 ---
 
@@ -319,6 +322,9 @@ reading, held this time against the two a Go program would otherwise be built on
 Ordered by what blocks what. Section 4 already says what is refused on purpose, and
 nothing here contradicts it.
 
+*All of it is done except the one thing it names as waiting on something else: images
+in a frame, which is still waiting on the same thing.*
+
 ### 7.1 What stops an interface being built on this today
 
 1. **Text that arrives with escape sequences in it.** An interface that runs commands
@@ -336,6 +342,24 @@ nothing here contradicts it.
 
    The first one is the largest thing missing for the price.
 
+   **What it turned out to need.** A third package, and it is the smaller half.
+   `core/ansi` is what a sequence is made of — which bytes are parameters, which byte
+   ends one, what an empty field means, where a sequence stops — and `core/input`
+   reads its own reports through it now. Two parsers over one syntax drift, which is
+   what the parameter parser said about itself the day it was written; this is that
+   sentence acted on.
+
+   The decoder itself is `core/text.Decoder`, and it is a decoder rather than a
+   function because of what the library is for. Output arrives in whatever pieces a
+   read produced: the style in force has to carry from one chunk to the next, a
+   sequence split down the middle has to be held rather than printed, and the line no
+   newline has ended yet has to be drawable while the rest is still coming.
+
+   What it refuses is written down. A carriage return is dropped rather than obeyed,
+   because obeying it — and the cursor movement and erasure beside it — is the
+   terminal emulator this deliberately is not. Output that redrew a line in place
+   reads as the several versions of it, and that is the whole cost.
+
 2. **Handing the terminal to a child and taking it back.** Opening an editor, a pager,
    or anything that wants the terminal for itself. `core/term.Relaunch` replaces this
    process; there is no "let go, wait, and resume". The machinery for it is already
@@ -343,6 +367,22 @@ nothing here contradicts it.
    and unwinds them in the reverse order, which is the same thing giving the terminal
    up and taking it back has to do, twice. Suspend on Ctrl+Z is the same mechanism with
    a signal in front of it.
+
+   **What the analysis missed.** The reader. The modes were exactly as ready as this
+   says, and giving them back is now one routine shared by closing a session and
+   handing it over — but a session that only restored the modes would still be reading
+   the terminal, and every other keystroke would go to this process instead of to the
+   child. So the reader no longer blocks in a read it cannot be called out of: it
+   waits first, on the terminal and on a pipe this process can write a byte to, and
+   parks *before* the read rather than after it. That is what makes "a byte taken here
+   is a byte the child never sees" true rather than hopeful.
+
+   It also answers a wart the package had documented about itself: closing a session
+   now takes the reader off the terminal at once instead of on the next byte.
+
+   Where a reader cannot be interrupted — anywhere that is not Unix — handing over
+   reports `ErrUnsupported` and does nothing. Handing over while still reading is not
+   a lesser version of this; it is a child that drops every other keystroke.
 
 3. **Markdown.** Section 3 puts it off to wherever markdown ends up, and `DESIGN.md`
    says why that is a module of its own: it wants a parser and a highlighter, which are
@@ -353,27 +393,51 @@ nothing here contradicts it.
    `glamour` is what a `bubbletea` program reaches for, and it renders a finished
    document.
 
+   **What it turned out to be.** A module, `markdown`, carrying goldmark and nothing
+   else — and the hard part was where the analysis said it was. `Stream` splits what
+   has arrived into the part that is certainly finished, published once and never
+   looked at again, and the part that is not, which is short by construction and
+   re-rendered as often as anybody asks. Where it cuts is written down in the package,
+   and so is what the rule costs.
+
+   Two things it turned out not to want. A widget: what comes out is `core/text`
+   lines, and `Doc` is a `Drawer` and a `Measurer` and nothing else, so a document
+   goes into a slot, a container or a viewport belonging to a package this module has
+   never heard of. And a highlighter: several megabytes of lexers is a matter of
+   taste, which is the argument that keeps one appearance out of the behaviour a
+   widget has, so `Look.Highlight` is where one plugs in and chroma is nobody's
+   dependency until somebody wants it.
+
 4. **Images in a frame.** `core/graphics` knows the protocols and which of them survive
    a redraw; `core/grid` has no notion of an image, so nothing can put one in a drawn
    frame. Section 3 calls this waiting on the frame pipeline, which is exactly what it
    is waiting on.
+
+   **Still waiting, and still on that.** It is the one item on this list not done, and
+   it is not done because a cell is a grapheme and a style: an image is neither, and
+   what it needs is a decision about what a frame is made of rather than another
+   package beside one. `markdown` says the same thing in the small — a picture in a
+   document comes out as its description and where it is — which is what a row of
+   cells can honestly do today.
 
 ### 7.2 Widgets that are simply absent
 
 Nothing here is hard. They are listed because "the library has no progress bar" is a
 sentence somebody says out loud.
 
-| missing | there | why it matters |
+*All of them are built. What each turned out to be is in the last column.*
+
+| was missing | there | what it turned out to be |
 | --- | --- | --- |
-| **A progress bar** | `bubbles/progress` | Anything with a total. `kit` has a spinner for work with no total and nothing for work with one. |
-| **A tree** | `lipgloss/tree`, `opentui` | Files, and nested output. |
-| **Tabs** | both | More panes than fit. |
-| **A table with a cursor** | `bubbles/table` | `kit.Table` draws; nothing in `headless` selects a row, scrolls one into view, or sorts. `List` is the one-column case of it. |
-| **A list with a filter** | `bubbles/list` | The parts are here — `List`, `core/fuzzy`, `Viewport` — and nothing puts them together. |
-| **The window title, the bell, a notification** | OSC 0/2, OSC 9 | The library already speaks OSC 7, 8, 10, 11 and 52. These three are a dozen lines and their absence is arbitrary. |
-| **Somewhere to log while the terminal is taken** | `charmbracelet/log`, `tea.LogToFile` | Printing to stdout during a frame corrupts it, so debugging an interface needs somewhere else to write. |
-| **Springs, and a timeline** | `harmonica`, `opentui` | `core/anim` eases and counts ticks. Neither an overshoot nor a sequence of steps can be said. |
-| **A form that can be answered without a screen** | `huh`'s accessible mode | A prompt at a time, for a reader that is not looking at a grid. |
+| **A progress bar** | `bubbles/progress` | `kit.Progress`, and the question that tells it from a spinner: is there a total? The cell the bar ends in is drawn as a fraction of itself, and the percentage beside it gets a fixed field — a bar that shrinks by a column between 9% and 10% goes backwards while the work goes forwards. |
+| **A tree** | `lipgloss/tree`, `opentui` | `headless.Tree`, which *is* a list of the rows it is showing: the selection, the scrolling, the wheel and the click are the list's, and only opening and closing are the tree's. Which branches are open is remembered by position, so a file tree refreshed under the reader keeps the shape they gave it. |
+| **Tabs** | both | `headless.Tabs` draws only the pane showing; the strip of names is appearance, so `kit.Tabs` draws it, turns a press into a selection, and hands everything else to the pane in the pane's own coordinates. |
+| **A table with a cursor** | `bubbles/table` | `headless.Table` is a `List` with an order. Sorting carries the cursor with the row it was on by sorting a permutation rather than the rows, so where the selected one went is known exactly instead of guessed at by comparing rows only the caller knows how to tell apart. `kit.Table` hands out its header and one row of cells separately, so the geometry stays in one place. |
+| **A list with a filter** | `bubbles/list` | `headless.Filter`: a list, a fuzzy match, and deliberately no text field. Where the pattern is typed stays the caller's, or it would be two widgets in a trench coat and would decide where the field goes for everybody. |
+| **The window title, the bell, a notification** | OSC 0/2, OSC 9 | One sequence each, on the terminal and on the loop. The title is pushed before it is replaced and popped on the way out — a shell whose window is still called "building oolong" an hour later is a program that left something behind — and every one of them strips what cannot go inside a sequence first, because the text is a file name or a model's answer as often as it is a constant. |
+| **Somewhere to log while the terminal is taken** | `charmbracelet/log`, `tea.LogToFile` | `term.LogTo`: a file opened for appending, and nothing else. Pointing the standard logger at it is one line and is deliberately the caller's line. |
+| **Springs, and a timeline** | `harmonica`, `opentui` | `anim.Spring` keeps the speed it already had when its target moves, which is the whole difference from a transition, and steps by the exact solution rather than a small step of it — stepping a stiff spring approximately at a terminal's frame rate is how one turns into an oscillation that grows. `anim.Timeline` is the sequence neither of the other two can say. |
+| **A form that can be answered without a screen** | `huh`'s accessible mode | `headless.Spoken`: a question in one line and a line back, on the four fields. A label that is a prefix of two choices is refused rather than guessed at, because somebody answering in words cannot see which one was taken. `kit.Ask` is the conversation, and it is thirty lines — which is the point of having put the hard half in the fields. |
 
 ### 7.3 Where `layout` actually falls short
 
@@ -386,6 +450,15 @@ things, and one of them has already been written twice:
   a child narrower than it should sit.
 - **A share expressed as a fraction of the whole.** `Flex` is a share of what is left,
   which is not the same thing and cannot express "half of this, whatever else happens".
+
+**All three are `layout.Flow`, `Slot.Cross` and `layout.Part`.** Taking the table's
+copy of the arithmetic out fixed a defect in it: a floor on a flexible column was
+handed out even when there was no room for it, so a narrow table returned widths
+adding up to more than it had and the last column drew past its own right edge.
+`layout.Divide` has always honoured a floor only while there is room, because a widget
+cannot see the clip and lays out against the size it was told. The form's copy was a
+blank child between every pair of fields, which put things in the focus ring that are
+not children; a `Container` has a `Gap` now.
 
 ### 7.4 What the comparison says not to build
 
@@ -417,21 +490,53 @@ answered.
 
 ### 7.5 Order
 
-By what blocks what, as before:
+By what blocks what, as before. All of it is done, in this order:
 
-1. **The SGR decoder** — smallest of the four in 7.1 and the one whose absence is hit
-   daily.
-2. **Handing over the terminal, and suspend** — the mechanism is already here.
-3. **A progress bar, the window title, the bell** — an afternoon, and they stop being
-   sentences people say out loud.
-4. **The gap and the alignment in `layout`** — a thing written twice is a thing that
-   belongs lower down.
-5. **Markdown, as its own module** — the largest, and the one that should be started
-   only with room to finish it.
-6. **A tree, tabs, a table with a cursor, a list with a filter** — as they are wanted.
+1. ~~**The SGR decoder**~~ — smallest of the four in 7.1 and the one whose absence is
+   hit daily.
+2. ~~**Handing over the terminal, and suspend**~~ — the mechanism was already here, and
+   the reader was not.
+3. ~~**A progress bar, the window title, the bell**~~ — an afternoon, and they stopped
+   being sentences people say out loud.
+4. ~~**The gap and the alignment in `layout`**~~ — a thing written twice is a thing that
+   belongs lower down, and the copy that came out had a bug in it.
+5. ~~**Markdown, as its own module**~~ — the largest, and the one the module boundary
+   was drawn for.
+6. ~~**A tree, tabs, a table with a cursor, a list with a filter**~~ — three of the four
+   turned out to be a list with something added.
 
 Three things are not on this list and are not omissions. A terminal emulator, for the
 reason given in 7.1. Framework bindings of the kind `opentui` ships for React, Solid and
 Vue, which Go does not have the same need for. And serving an interface over ssh, as
 `wish` does: `core/term.OpenOn` is the primitive that makes it possible, and everything
 above it — the server, the keys, the sessions — is a program rather than a library.
+
+---
+
+## 8. What the second round turned up
+
+Kept for the same reason section 6 is: so it is not rediscovered from scratch.
+
+- **A cell cannot hold an image, and that is now the only thing on the list.** Every
+  other gap in section 7 came down to a package that was not written; this one comes
+  down to what a cell is. Both halves of the answer exist — `core/graphics` knows the
+  protocols, and `core/grid` owns the frame — and what is between them is a decision
+  about what a frame is made of, not a package.
+- **`text.Span` carries a style and not a destination.** So a decoder cannot read an
+  OSC 8 hyperlink out of a command's output, and markdown writes a link's address out
+  in words rather than making the words clickable. `core/link` and `text.StampLink`
+  stamp one onto cells that have already been drawn, which is the other half of the
+  answer; what is missing is a way for a line to carry the link until it is drawn.
+- **Handing the terminal over is Unix-only, and says so.** What Windows needs is a
+  console read that can be cancelled, which is `CancelIoEx` and a different reader
+  rather than a flag on this one.
+- **`headless.Table` is a `List`, `Tree` is a list of its shown rows, and `Filter` is a
+  list of what matched.** Three of the four widgets in 7.2 came out as a list with
+  something added, which is worth noticing before the fifth is written: the question to
+  ask of anything that shows rows is what it adds to a list, and the answer is usually
+  one field.
+- **A block of markdown and a printed block of output are the same shape.** Both are
+  lines with an indent that a caller wraps at the width it has. `Inline.Append` wants
+  text wrapped into what is left of a row, section 6 says the wrapping cannot live in
+  `core/grid`, and `markdown.Doc` now does exactly that job one layer up. Whatever
+  finally turns a stream of text into rows should be one thing and not two.

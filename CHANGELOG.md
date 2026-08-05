@@ -1,7 +1,8 @@
 # Changelog
 
 All notable changes to this repository. Modules are versioned and tagged
-separately (`core/vX.Y.Z`, `components/vX.Y.Z`, `ptytest/vX.Y.Z`).
+separately (`core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`,
+`ptytest/vX.Y.Z`).
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
@@ -10,6 +11,44 @@ point of tagging them low rather than not at all.
 ## [Unreleased]
 
 ### Added
+
+- **Output read back into styled text.** `core/text.Decoder` turns the escape
+  sequences a command wrote into spans, a chunk at a time: the style in force carries
+  across chunks, a sequence split down the middle is held rather than printed, and the
+  line no newline has ended yet is there to be drawn. `core/ansi` is the syntax the
+  two readers now share, so `core/input` and this cannot come to disagree about what a
+  sequence is made of.
+- **Handing the terminal to a child, and suspend.** `term.Terminal.Hand` gives the
+  terminal away and takes it back — the modes off in the opposite order, then cooked
+  mode, then the whole of it again in reverse — with the reader off the terminal
+  first, so a byte typed at the child is a byte this process never took.
+  `term.Suspend` and `Loop.Suspend` are Ctrl+Z. The reader now waits before it reads
+  rather than blocking in a read nothing can interrupt, which also means closing a
+  session takes it off the terminal at once instead of on the next byte. Unix only,
+  and it says so rather than dropping keystrokes elsewhere.
+- **What a session says beside its frames.** `SetTitle`, `Bell` and `Notify` on the
+  terminal, the host and the loop. The title is pushed before it is replaced and
+  popped on the way out; every one of them strips what cannot go inside a sequence
+  first. And `term.LogTo`, which is somewhere to write while the terminal is taken.
+- **`kit.Progress`** — a bar for work with a total, with the cell it ends in drawn as
+  a fraction of itself and a fixed field for the percentage.
+- **`layout.Flow`, `Slot.Cross` and `layout.Part`** — room between slots, where content
+  narrower than its slot sits, and a share of the whole division rather than of what is
+  left. `kit.Table` and `headless.Container` use the first instead of each having their
+  own; taking the table's copy out fixed a floor that was handed out when there was no
+  room for it.
+- **A tree, tabs, a table with a cursor, and a list with a filter**, in `headless` with
+  appearances in `kit`. Three of the four are a list with something added, which is
+  what keeps the selection, the scrolling, the wheel and the click in one place.
+- **`anim.Spring` and `anim.Timeline`** — movement that keeps the speed it had when its
+  target moves, stepped by the exact solution rather than a small step of it; and a
+  sequence of keyframes, which neither of the other two can say.
+- **A form answerable without a screen.** `headless.Spoken` is a question in one line
+  and a line back, on all four fields; `kit.Ask` is the conversation.
+- **`markdown`, a module of its own**, carrying goldmark. `Stream` publishes what is
+  certainly finished once and re-renders only what is still arriving; what comes out is
+  `core/text` lines, and the drawable form is a `Drawer` and a `Measurer` and nothing
+  else. Code highlighting is a seam rather than a dependency.
 
 - **A terminal can now be asked things.** `core/input` decodes the two shapes an
   answer arrives in — operating system commands and device attributes — and

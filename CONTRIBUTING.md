@@ -23,14 +23,14 @@ While iterating:
 
 ```sh
 gofumpt -w .
-for m in core components internal ptytest examples; do (cd "$m" && go test ./...); done
+for m in core components markdown internal ptytest examples; do (cd "$m" && go test ./...); done
 ```
 
 Before opening a pull request, the whole gate CI runs:
 
 ```sh
 test -z "$(gofumpt -l .)"
-for m in core components internal ptytest examples; do (cd "$m" && \
+for m in core components markdown internal ptytest examples; do (cd "$m" && \
   go mod tidy -diff && go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done
 go work sync && git diff --quiet -- go.work
@@ -50,6 +50,8 @@ version skew and buys an independent dependency set:
 
 - `core` carries the whole third-party list and everything the engine is.
 - `components` imports nothing outside `core` and the standard library.
+- `markdown` is where a parser is allowed to be, and nothing imports it: that is
+  what the two modules above buy by refusing one.
 - `ptytest` depends on neither and nothing depends on it.
 - Anything wanting a heavy dependency — markdown, syntax highlighting — becomes
   a module of its own so that neither of the first two hears about it.
