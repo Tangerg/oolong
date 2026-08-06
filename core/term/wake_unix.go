@@ -10,12 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// interruptible says whether a reader here can be taken off the terminal without
-// waiting for a keystroke. Everything that depends on that — handing the terminal
-// to a child, suspending, a session that stops reading the moment it is closed —
-// asks this rather than the operating system's name.
-const interruptible = true
-
 // waker is a wait for the terminal to have something to say that this process can
 // end on its own.
 //
@@ -34,6 +28,16 @@ type waker struct {
 	mu     sync.Mutex
 	closed bool
 }
+
+// interruptible reports whether the reader can be taken off the terminal without
+// waiting for a keystroke. Here it always can: the wait is on the terminal and on a
+// pipe this process writes to, and neither depends on what was opened.
+//
+// It is a question about the session rather than about the platform, because on one
+// of them it is: a Windows console can be waited on and a Windows pipe cannot.
+// Everything that depends on it — handing the terminal to a child, suspending —
+// asks the session it has rather than the operating system's name.
+func (w *waker) interruptible() bool { return true }
 
 func newWaker(fd int) (*waker, error) {
 	var pipe [2]int

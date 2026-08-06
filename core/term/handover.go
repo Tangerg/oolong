@@ -106,15 +106,16 @@ func (h *handover) park(stop <-chan struct{}) {
 // the signal went to whichever process group was in the foreground. A fresh size is
 // asked for and delivered on [Terminal.Events], the same way a resize is.
 //
-// Where a reader cannot be taken off the terminal — which is anywhere that is not
-// Unix — this reports [errors.ErrUnsupported] and does nothing. Handing over while
-// still reading is not a lesser version of this; it is a child that drops every
-// other keystroke.
+// Where the reader cannot be taken off the terminal this reports
+// [errors.ErrUnsupported] and does nothing. Handing over while still reading is not
+// a lesser version of this; it is a child that drops every other keystroke. Whether
+// it can is a question about the session and not about the platform: a console can
+// be waited on, and a pipe pretending to be one cannot.
 func (t *Terminal) Hand(run func() error) error {
 	if run == nil {
 		return nil
 	}
-	if !interruptible {
+	if !t.waker.interruptible() {
 		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
 	}
 	if err := t.release(); err != nil {

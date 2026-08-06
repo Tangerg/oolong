@@ -11,6 +11,28 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Added
+
+- **A frame can keep room for what a cell cannot hold.** `grid.Painter` and
+  `View.Paint`: a region something else writes into, with one rule — a painter must
+  leave the cursor where it found it, which is what makes it possible in a block
+  whose whole position is relative and is exactly the property an image protocol
+  needs to be usable in a region that redraws. Regions are named by what is in them,
+  so an unchanged one writes nothing, a moved one is erased before it is painted, and
+  a full repaint says both again. `graphics.Image` is a painter; `term.Transmit`
+  sends one and `term.CellSize` says how big a cell is; `kit.Image` places it and
+  draws the alternative text where there is no picture, no cell size, or no terminal
+  that draws them.
+- **A span carries where it points.** `text.Span.Link` survives wrapping, truncation
+  and drawing, which byte offsets into the original text cannot — so the decoder
+  keeps a command's hyperlinks and markdown puts an address on the words rather than
+  in brackets after them.
+- **`grid.Render`** turns a drawing into rows of text, for a program with no
+  terminal: output being piped, a run under a build server, a transcript in a file.
+- **Handing the terminal over works on Windows**, over a wait on the console and an
+  event. Whether it can is now a question about the session rather than the platform:
+  a console can be waited on, and a pipe pretending to be a terminal cannot.
+
 ## [0.0.2] — 2026-08-06
 
 First tagged version of `markdown`, which starts at this repository's version

@@ -198,7 +198,10 @@ in place.
   escape stream that turns one frame into the next (with a terminal-side scroll
   shortcut taken only when it beats a measured floor on what the plain diff must cost);
   and **`Inline`**, which draws a block in the terminal's own screen and prints finished
-  output above it. A flush that would change nothing writes nothing, so an idle
+  output above it. A frame is cells and regions that something else writes into — a
+  picture, a plot in pixels — which are named by what is in them, so an unchanged one
+  is silent, a moved one is erased before it is painted, and one that stopped being
+  asked for is taken away. A flush that would change nothing writes nothing, so an idle
   interface is silent on the wire and the cursor keeps blinking.
 - **`text`** — grapheme clusters, column measurement, wrapping, truncation, tab
   expansion. One width authority shared by everything that measures or draws, because
@@ -259,7 +262,10 @@ in place.
   they were drawn so a click can be answered from the same pass that wrote the cells.
   Turning a byte range into the columns it covers is `text`'s, because that is the
   package that already owns the relationship between the two counts.
-- **`graphics`** — inline images, and which protocol can be used where. Kitty's gives
+- **`graphics`** — inline images, and which protocol can be used where. A transmitted
+  image is also a `grid.Painter`, which is what puts one in a frame; the two packages
+  do not import each other, one says what a region needs and the other happens to be
+  able to do it. Kitty's gives
   a program a handle and can therefore be used in a region that redraws; iTerm2's and
   sixel put pixels at the cursor and can only be printed once. Kitty and iTerm2 are
   written; sixel is detected and not produced, because producing it means decoding the
@@ -414,18 +420,14 @@ Not "later" — these are decisions:
 
 Ordered by what would be built next.
 
-1. **Images through the frame pipeline.** `core/graphics` knows the protocols and
-   which of them can be used where — kitty has handles and can be placed in a region
-   that redraws, iTerm2 and sixel can only be printed once. What is missing is the
-   other half: `core/grid` has no notion of an image, so nothing can put one in a
-   drawn frame. Sixel is reported and not written, because producing it means
-   decoding the image and a decoder is the dependency the package exists without.
-2. **Syntax highlighting, and mermaid.** Both are in grok-build's renderer, and the
-   markdown module now has the seam for the first: a function from a language and a
-   block of source to styled lines. What is missing is a chroma-backed one, and it is
-   deliberately not in this repository yet — a highlighter is several megabytes of
-   lexers, and the module carries a parser because a parser is unavoidable and a
-   highlighter is a choice.
+1. **Sixel, and mermaid.** Sixel is reported and not written, because producing it
+   means decoding an image into pixels and a decoder is the dependency
+   `core/graphics` exists without — a caller holding an encoder of its own is told
+   the terminal will take what it makes. Mermaid is a renderer for a diagram
+   language, which is somebody else's parser again and belongs wherever it lands.
+2. **Syntax highlighting.** The markdown module has the seam — a function from a
+   language and a block of source to styled lines — and what plugs into it is its own
+   module, for the reason markdown is one.
 3. **A worked example of the whole surface.** The example is a chat that streams,
    and it now proves the probe, the theme that follows it, the clipboard and the
    glyph fallback. The transcript, selection, search, sticky headers and the command
@@ -468,11 +470,15 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   rather than detected. What remains is that an unrecognised TERM is treated as
   truecolor, which is the right bet for the terminals people actually use and the
   wrong one for a genuinely old terminal that does not say so.
-- **Handing the terminal to a child is Unix-only.** Doing it correctly means taking
-  the reader off the terminal first, which means a read that can be interrupted, which
-  means waiting on the terminal and on a pipe this process can write to. On Windows
-  that is `CancelIoEx` and a different reader; until then, handing over reports
-  `ErrUnsupported` rather than shipping a child that drops every other keystroke.
+- **Handing the terminal to a child needs something to wait on.** Doing it correctly
+  means taking the reader off the terminal first, which means a read that can be
+  interrupted: on Unix that is a poll over the terminal and a pipe, on Windows a wait
+  over the console and an event. Where there is neither — a session whose input is a
+  pipe pretending to be a terminal, a platform with no answer at all — handing over
+  reports `ErrUnsupported` rather than shipping a child that drops every other
+  keystroke. On Windows a console is signalled by records that are not keystrokes, so
+  a wait can still fall into a blocking read; the handover waits a moment for the
+  reader to park and goes ahead without it, which is where that platform always was.
 - **Output is read, not emulated.** The decoder turns the escape sequences a command
   wrote into styled text, and drops the rest — a carriage return is dropped rather
   than obeyed. Output that redrew a line in place therefore reads as the several
