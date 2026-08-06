@@ -11,7 +11,14 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.0.4] — 2026-08-06
+
 Nothing exported changed. This is the tests and the inside of four functions.
+
+`markdown` and `highlight` did not change and stay at `0.0.3`, still asking for
+`core v0.0.3` — which is the version they were built against and which has not gone
+anywhere. `ptytest` changed only in its own tests and takes `0.0.4` anyway: a tag
+names a state of a module, and its files are not the same ones `0.0.1` named.
 
 ### Fixed
 
