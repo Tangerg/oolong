@@ -810,3 +810,39 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 		}
 	}
 }
+
+func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
+	// The two halves meeting: the geometry is the table's, the order is the rows',
+	// and a press is turned into a column by the one that knows where the columns
+	// went.
+	rows := &headless.Table[[2]string]{
+		Less: func(a, b [2]string, column int) bool { return a[column] < b[column] },
+	}
+	rows.SetItems([][2]string{{"b", "2"}, {"a", "1"}})
+
+	view := kit.Table{
+		Theme:   kit.Dark(),
+		Glyphs:  kit.ASCII(),
+		Columns: []kit.Column{{Title: "name"}, {Title: "size"}},
+		Rows:    len(rows.Items),
+		Sorted:  rows.Sorted,
+		Header:  true,
+		Cell: func(v grid.View, row, column int, base grid.Style) {
+			kit.Label{Text: rows.Items[row][column], Style: base}.Draw(v)
+		},
+	}
+
+	column, on := view.ColumnAt(2, 20)
+	if !on || column != 0 {
+		t.Fatalf("a press at column 2 landed on column %d, on a heading %v", column, on)
+	}
+	rows.SortBy(column)
+	if rows.Items[0][0] != "a" {
+		t.Fatalf("after sorting by the pressed column the first row is %q", rows.Items[0][0])
+	}
+	// And the heading says so, which is the only way a reader can tell an order from
+	// a coincidence.
+	if drawn := paint(20, 1, view.Titles); !strings.Contains(drawn[0], "name^") {
+		t.Fatalf("the heading reads %q, want the mark beside the sorted column", drawn[0])
+	}
+}

@@ -36,6 +36,9 @@ func TestAPatternNarrowsTheListAndRanksWhatIsLeft(t *testing.T) {
 	if got := matches(f); got != "core/grid/inline.go" {
 		t.Fatalf("the matches are %q", got)
 	}
+	if got := f.Pattern(); got != "inline" {
+		t.Fatalf("the filter says it is narrowed by %q", got)
+	}
 
 	f.SetPattern("go")
 	if f.Matched() != 2 {

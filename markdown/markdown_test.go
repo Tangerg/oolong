@@ -25,7 +25,10 @@ func look() markdown.Look {
 // trailing blanks cut so a test can state the shape rather than the padding.
 func rows(t *testing.T, width int, blocks []markdown.Block) []string {
 	t.Helper()
-	doc := &markdown.Doc{Blocks: blocks}
+	// Through SetBlocks rather than the field, because the wrap is remembered and a
+	// document given new blocks under it would draw what it used to say.
+	doc := &markdown.Doc{}
+	doc.SetBlocks(blocks)
 	height := doc.Measure(width)
 	surface := grid.NewSurface(width, height)
 	doc.Draw(surface.View())

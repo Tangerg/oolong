@@ -3,6 +3,7 @@ package term_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -295,5 +296,32 @@ func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	}
 	if seen := read(t, watch, 500*time.Millisecond); !strings.Contains(seen, "\x1b[23;0t") {
 		t.Errorf("the terminal was given back as %q, want its own title with it", seen)
+	}
+}
+
+func TestSomewhereToWriteWhileTheTerminalIsTaken(t *testing.T) {
+	// A line printed to standard output lands in the middle of a frame and is gone by
+	// the next repaint, so a program being debugged writes here instead.
+	path := filepath.Join(t.TempDir(), "debug.log")
+	for _, line := range []string{"first\n", "second\n"} {
+		f, err := term.LogTo(path)
+		if err != nil {
+			t.Fatalf("opening a log: %v", err)
+		}
+		if _, err := f.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Appending, so a run does not lose the run before it.
+	//nolint:gosec // G304: the path is this test's own temporary directory.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "first\nsecond\n" {
+		t.Fatalf("the log holds %q", got)
 	}
 }
