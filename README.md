@@ -46,13 +46,14 @@ says why: a cell holds a grapheme and a style, and an image is neither.
 
 ## What it is
 
-Five modules in one repository.
+Six modules in one repository.
 
 | module | what it is | dependencies |
 | --- | --- | --- |
 | **`core`** | the engine: cells, text, input, layout, the terminal, frame pacing, and the loop that drives them | `uniseg`, `go-runewidth`, `x/term`, `x/sys` |
 | **`components`** | widgets built on it, split into behaviour and appearance | **none of its own** — everything comes through `core` |
 | **`markdown`** | markdown into terminal rows, including markdown that has not finished arriving | `goldmark` |
+| **`highlight`** | source code into styled lines, which is what a markdown look asks for | `chroma` |
 | **`ptytest`** | a harness that runs a terminal program on a real pty and says what reached the terminal | `x/sys` |
 | **`examples`** | demonstrations, which nothing may import | — |
 
@@ -60,8 +61,11 @@ A module boundary costs version skew and buys an independent dependency set, so
 there is one wherever the dependencies genuinely differ and nowhere else. That is
 why `core` is not split further into a cell buffer, a styling layer and a runtime:
 everyone who wants one wants all three, and three modules would buy nothing but a
-version dance. It is also why markdown is its own — it wants a parser, and the two
-modules above promise a dependency list a terminal library can be adopted for.
+version dance. It is also why markdown and highlighting are their own — one wants a
+parser and the other a lexer per language, and the two modules above promise a
+dependency list a terminal library can be adopted for. They do not depend on each
+other either: a document with no highlighter draws code in one style, and a program
+that wants one says so in a line.
 
 ### Inside them, a ladder
 
@@ -71,7 +75,7 @@ modules above promise a dependency list a terminal library can be adopted for.
 | `components/headless` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
 | `components/kit` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
 | `core/program`, `core/present` | the loop and its frame schedule. The only goroutine that touches the interface's state, and the one ring that must never know the widgets exist. | the browser |
-| `markdown` | beside the ladder rather than on it: it turns text into the substrate's own lines, so anything that can draw those can draw a document without either of them knowing about the other. | — |
+| `markdown`, `highlight` | beside the ladder rather than on it: they turn text into the substrate's own lines, so anything that can draw those can draw a document or a block of code without either of them knowing about the other. | — |
 
 The layering is not a convention. `internal/arch` parses every import in every
 module and fails the build if one points the wrong way, if a module appears whose

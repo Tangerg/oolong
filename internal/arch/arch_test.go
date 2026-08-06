@@ -52,13 +52,15 @@ var modules = map[string][]string{
 		"golang.org/x/sys",
 	},
 	"components": nil,
-	// The module the boundary was drawn for. Markdown needs a parser, a parser is a
-	// tree of somebody else's code, and this is where it is allowed to be — which is
-	// what the two modules above buy by refusing it.
-	"markdown": {"github.com/yuin/goldmark"},
-	"internal": nil,
-	"ptytest":  {"golang.org/x/sys"},
-	"examples": nil,
+	// The modules the boundary was drawn for. Markdown needs a parser and highlighting
+	// needs a lexer per language and a palette per theme; both are trees of somebody
+	// else's code, and this is where they are allowed to be — which is what the two
+	// modules above buy by refusing them.
+	"markdown":  {"github.com/yuin/goldmark"},
+	"highlight": {"github.com/alecthomas/chroma"},
+	"internal":  nil,
+	"ptytest":   {"golang.org/x/sys"},
+	"examples":  nil,
 }
 
 // The repository root is deliberately not a module. A module is a unit of
@@ -80,6 +82,7 @@ var rings = []struct {
 	{"components/headless/", "headless"},
 	{"components/kit/", "kit"},
 	{"markdown/", "markdown"},
+	{"highlight/", "highlight"},
 	{"ptytest/", "harness"},
 	{"examples/", "examples"},
 	{"internal/", "internal"},
@@ -90,7 +93,7 @@ var forbidden = map[string][]string{
 	// Cells, graphemes, input, layout and the terminal. The most general layer
 	// there is: it knows what a terminal is made of and nothing about what anyone
 	// builds from it — including the loop that drives it.
-	"substrate": {"host", "headless", "kit", "harness", "examples", "markdown"},
+	"substrate": {"host", "headless", "kit", "harness", "examples", "markdown", "highlight"},
 
 	// The loop, the frame schedule, the one goroutine. It is beside the ladder
 	// rather than on top of it, and it must never know the widgets exist: it drives
@@ -100,37 +103,47 @@ var forbidden = map[string][]string{
 	// The module graph does not catch this on its own — core could require
 	// components and Go would allow it — so this is the rule this file exists for
 	// above all the others.
-	"host": {"headless", "kit", "harness", "examples", "markdown"},
+	"host": {"headless", "kit", "harness", "examples", "markdown", "highlight"},
 
 	// Behaviour with no appearance: a list knows what the arrow keys do and not
 	// what a selected row looks like. It may not depend on the one set of answers
 	// kit gives, or walking away from kit would mean walking away from the
 	// behaviour too — and it may not depend on the host, because a widget that
 	// needed a loop to exist could not be tested without starting one.
-	"headless": {"host", "kit", "harness", "examples", "markdown"},
+	"headless": {"host", "kit", "harness", "examples", "markdown", "highlight"},
 
 	// One appearance for that behaviour, and the only ring anybody is expected to
 	// replace. It may not reach for markdown either: kit is part of a module that
 	// promises no dependencies at all, and importing the module that carries a parser
 	// would make that promise everyone else's problem.
-	"kit": {"host", "harness", "examples", "markdown"},
+	"kit": {"host", "harness", "examples", "markdown", "highlight"},
 
 	// Markdown, which is a module of its own because it carries a parser. It is
 	// beside the ladder rather than on it: it turns text into the substrate's own
 	// lines, so anything that can draw those can draw a document without either of
 	// them knowing about the other.
-	"markdown": {"host", "headless", "kit", "harness", "examples"},
+	//
+	// It may not import the highlighter either, and that is the point of the seam it
+	// has instead: a document with no highlighter draws code in one style, and a
+	// program that wants one pays for it deliberately.
+	"markdown": {"host", "headless", "kit", "harness", "examples", "highlight"},
+
+	// Highlighting, which is a module of its own for the same reason and produces the
+	// same thing: the substrate's own lines.
+	"highlight": {"host", "headless", "kit", "harness", "examples", "markdown"},
 
 	// The harness. Nothing here may lean on it: a harness that the thing it tests
 	// depends on is a harness nobody can change.
-	"harness": {"substrate", "host", "headless", "kit", "examples", "markdown"},
+	"harness": {"substrate", "host", "headless", "kit", "examples", "markdown", "highlight"},
 
 	// The demonstrations. Everything may be imported here and nothing may import
 	// them, which is what keeps an example from quietly becoming a dependency.
 	"examples": {},
 
 	// The tests that guard the rings. They import nothing.
-	"internal": {"substrate", "host", "headless", "kit", "harness", "examples", "markdown"},
+	"internal": {
+		"substrate", "host", "headless", "kit", "harness", "examples", "markdown", "highlight",
+	},
 }
 
 func TestEveryImportPointsDown(t *testing.T) {
@@ -315,6 +328,9 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"markdown", "components/headless", true},
 		{"markdown", "core/program", true},
 		{"markdown", "core/text", false},
+		{"markdown", "highlight", true},
+		{"highlight", "markdown", true},
+		{"highlight", "core/text", false},
 
 		// Nothing leans on the harness, and nothing imports a demonstration.
 		{"core/program", "ptytest", true},

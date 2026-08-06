@@ -380,6 +380,17 @@ has never heard of. It does not highlight code: a highlighter is several megabyt
 lexers and a matter of taste, which is the same argument that keeps one appearance out
 of the behaviour a widget has, so there is a seam for one and no dependency on one.
 
+### highlight
+
+Source code into styled lines, and a module of its own for the reason markdown is: a
+lexer per language and a palette per theme is several megabytes of somebody else's
+tree. It is what plugs into markdown's seam, in one line, and neither module knows
+the other exists.
+
+Nothing of the highlighter reaches its API. A style is its name, a language is its
+name, and what comes back is text — the same boundary markdown keeps around its
+parser, and what lets either be replaced without anything above noticing.
+
 ### How it is kept honest
 
 - The arch tests above, each with a counter-example.
@@ -425,15 +436,12 @@ Ordered by what would be built next.
    `core/graphics` exists without — a caller holding an encoder of its own is told
    the terminal will take what it makes. Mermaid is a renderer for a diagram
    language, which is somebody else's parser again and belongs wherever it lands.
-2. **Syntax highlighting.** The markdown module has the seam — a function from a
-   language and a block of source to styled lines — and what plugs into it is its own
-   module, for the reason markdown is one.
-3. **A worked example of the whole surface.** The example is a chat that streams,
+2. **A worked example of the whole surface.** The example is a chat that streams,
    and it now proves the probe, the theme that follows it, the clipboard and the
    glyph fallback. The transcript, selection, search, sticky headers and the command
    palette are proved by their own tests and by `kit`, not by a program anyone can
    run. A second example that puts them together is worth having.
-4. **A trackpad scrolling differently from a wheel.** A mouse report now carries
+3. **A trackpad scrolling differently from a wheel.** A mouse report now carries
    when it arrived, so the two can be told apart by rate — what is missing is not
    the mechanism but the number. How far a trackpad report should scroll relative
    to a wheel report is a feel decision, the prior art's table points the opposite

@@ -29,6 +29,10 @@ point of tagging them low rather than not at all.
   in brackets after them.
 - **`grid.Render`** turns a drawing into rows of text, for a program with no
   terminal: output being piped, a run under a build server, a transcript in a file.
+- **`highlight`, a module of its own**, carrying chroma: source code into styled
+  lines, which is exactly the function a markdown look asks for. One line plugs it
+  in, and nothing of the highlighter reaches its API — a style is its name, a
+  language is its name, and what comes back is text.
 - **Handing the terminal over works on Windows**, over a wait on the console and an
   event. Whether it can is now a question about the session rather than the platform:
   a console can be waited on, and a pipe pretending to be a terminal cannot.
