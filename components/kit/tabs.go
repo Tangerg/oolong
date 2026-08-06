@@ -99,7 +99,7 @@ func (t Tabs) Handle(ev input.Event) bool {
 // the room between two names is in neither.
 func (t Tabs) At(x int) (int, bool) {
 	for i, box := range t.boxes() {
-		if x >= box.Min && x < box.Max {
+		if x >= box.from && x < box.to {
 			return i, true
 		}
 	}
@@ -115,12 +115,12 @@ func (t Tabs) strip(v grid.View) {
 			style = t.Theme.Accent
 		}
 		Label{Text: t.Of.Items[i].Title, Style: style, Ellipsis: t.Glyphs.Ellipsis}.
-			Draw(v.Sub(grid.Rect(box.Min, 0, box.Max-box.Min, 1)))
+			Draw(v.Sub(grid.Rect(box.from, 0, box.to-box.from, 1)))
 	}
 }
 
 // span is where one name sits along the strip.
-type span struct{ Min, Max int }
+type span struct{ from, to int }
 
 // boxes is where each name goes, which the strip and a press both need — and need
 // to agree about, which is why neither works it out for itself.
@@ -132,7 +132,7 @@ func (t Tabs) boxes() []span {
 	at := 0
 	for _, tab := range t.Of.Items {
 		width := text.Width(tab.Title)
-		out = append(out, span{Min: at, Max: at + width})
+		out = append(out, span{from: at, to: at + width})
 		at += width + tabGap
 	}
 	return out

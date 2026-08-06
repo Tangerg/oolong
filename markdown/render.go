@@ -9,14 +9,14 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	east "github.com/yuin/goldmark/extension/ast"
-	"github.com/yuin/goldmark/parser"
+	gparser "github.com/yuin/goldmark/parser"
 	gtext "github.com/yuin/goldmark/text"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// reader is the parser everything here goes through, built once.
+// parse reads a document into the tree the renderer walks.
 //
 // One parser rather than one per call: building it walks a list of extensions and
 // their priorities, and doing that for every chunk of a streaming answer would be
@@ -27,7 +27,9 @@ import (
 // written, whatever the specification says is core; a renderer that showed a table
 // as the pipes it was typed with would be one nobody could use for the thing this
 // module exists for.
-var reader = sync.OnceValue(func() parser.Parser {
+func parse(source []byte) ast.Node { return parser().Parse(gtext.NewReader(source)) }
+
+var parser = sync.OnceValue(func() gparser.Parser {
 	return goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
 })
 
@@ -41,7 +43,7 @@ func Render(source string, look Look) []Block {
 		return nil
 	}
 	r := &renderer{look: look, source: []byte(source)}
-	root := reader().Parse(gtext.NewReader(r.source))
+	root := parse(r.source)
 	r.children(root, frame{body: look.Text})
 	return r.blocks
 }
@@ -153,10 +155,10 @@ func (r *renderer) block(n ast.Node, in frame) {
 // A look with no divider still gets a row, because that is what a break is for: it
 // separates, and a separator that vanished would join the two things it was between.
 func (r *renderer) rule() []text.Line {
-	if r.look.Divider == "" {
+	if r.look.Glyphs.Divider == "" {
 		return []text.Line{nil}
 	}
-	return []text.Line{text.Of(r.look.Divider, r.look.Rule)}
+	return []text.Line{text.Of(r.look.Glyphs.Divider, r.look.Rule)}
 }
 
 // list renders a list, one item at a time, with the item's mark waiting for the
@@ -196,17 +198,17 @@ func (r *renderer) bullet(n *ast.List, number int) text.Line {
 	if n.IsOrdered() {
 		return text.Of(strconv.Itoa(number)+". ", r.look.Marker)
 	}
-	if r.look.Bullet == "" {
+	if r.look.Glyphs.Bullet == "" {
 		// No bullet to draw, and the indent still has to happen or a list reads as a
 		// paragraph with odd line breaks.
 		return text.Of("  ", r.look.Marker)
 	}
-	return text.Of(r.look.Bullet+" ", r.look.Marker)
+	return text.Of(r.look.Glyphs.Bullet+" ", r.look.Marker)
 }
 
 // bar is the rail inside a quotation: whatever was already there, and one more.
 func (r *renderer) bar(rail text.Line) text.Line {
-	bar := r.look.Bar
+	bar := r.look.Glyphs.Bar
 	if bar == "" {
 		bar = " "
 	}
@@ -318,9 +320,9 @@ func (r *renderer) target(add func(string, grid.Style), destination, shown strin
 
 // box is what marks a task, and nothing when the look has no marks for one.
 func (r *renderer) box(checked bool) string {
-	mark := r.look.Unchecked
+	mark := r.look.Glyphs.Unchecked
 	if checked {
-		mark = r.look.Checked
+		mark = r.look.Glyphs.Checked
 	}
 	if mark == "" {
 		return ""

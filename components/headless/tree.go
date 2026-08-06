@@ -1,8 +1,8 @@
 package headless
 
 import (
+	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -34,6 +34,10 @@ type Shown[T any] struct {
 	// fourth child of the first item. It is what remembers which branches are open
 	// across a rebuild of the tree, and it follows position rather than identity
 	// because identity is something only the caller has.
+	//
+	// It stays inside: a row carries the item, and where the item came from is the
+	// caller's to know from the item. Handing out a decoded path would be handing out
+	// this key, and then it could not be changed.
 	path string
 }
 
@@ -64,15 +68,21 @@ type Tree[T any] struct {
 	pending input.Pending
 }
 
-// Rows are the rows the tree is showing, top to bottom.
+// Rows are the rows the tree is showing, top to bottom, as a copy.
 //
-// They are rebuilt from the nodes every time, because the nodes are the caller's and
-// may have changed between two frames. Which branches are open is remembered here,
-// so a tree that is refreshed keeps the shape the reader gave it.
+// A copy because this is the only way out of the tree and the tree rebuilds its own
+// rows on every call: handing out the buffer it builds them in would hand out
+// something that changes under the caller the next time anything is drawn. Nothing
+// inside asks for this — see [Tree.rows], which is the same answer without the copy
+// — so the allocation happens only when somebody outside wants to look.
+func (t *Tree[T]) Rows() []Shown[T] { return slices.Clone(t.rows()) }
+
+// rows rebuilds what the tree is showing.
 //
-// The slice is the tree's own and is built again in place, so anything keeping it
-// past the next call keeps a copy.
-func (t *Tree[T]) Rows() []Shown[T] {
+// From the nodes every time, because the nodes are the caller's and may have changed
+// between two frames. Which branches are open is remembered here, so a tree that is
+// refreshed keeps the shape the reader gave it.
+func (t *Tree[T]) rows() []Shown[T] {
 	rows := t.list.Items[:0]
 	var walk func(nodes []Node[T], depth int, prefix string)
 	walk = func(nodes []Node[T], depth int, prefix string) {
@@ -109,26 +119,26 @@ func (t *Tree[T]) Current() (T, bool) {
 // caller asks when it needs more than the item — whether it can be opened, how deep
 // it sits, where it came from.
 func (t *Tree[T]) CurrentRow() (Shown[T], bool) {
-	t.Rows()
+	t.rows()
 	return t.list.Current()
 }
 
 // Select moves the cursor to a row, clamped to what is showing.
 func (t *Tree[T]) Select(at int) {
-	t.Rows()
+	t.rows()
 	t.list.Select(at)
 }
 
-// Open shows what is under the row the cursor is on, and reports whether that
-// changed anything: a leaf, or a branch that was already open, changes nothing.
+// Open shows what is under the row at, and reports whether that changed anything:
+// a leaf, or a branch that was already open, changes nothing.
 func (t *Tree[T]) Open(at int) bool { return t.set(at, true) }
 
-// Close hides it again.
+// Close hides it again, and reports the same.
 func (t *Tree[T]) Close(at int) bool { return t.set(at, false) }
 
 // set opens or closes a row.
 func (t *Tree[T]) set(at int, open bool) bool {
-	rows := t.Rows()
+	rows := t.rows()
 	if at < 0 || at >= len(rows) || !rows[at].Branch || rows[at].Open == open {
 		return false
 	}
@@ -136,14 +146,14 @@ func (t *Tree[T]) set(at int, open bool) bool {
 		t.open = map[string]bool{}
 	}
 	t.open[rows[at].path] = open
-	t.Rows()
+	t.rows()
 	return true
 }
 
 // Handle answers keys, the wheel and a press, reporting whether it consumed the
 // event.
 func (t *Tree[T]) Handle(ev input.Event) bool {
-	t.Rows()
+	t.rows()
 	if _, ok := ev.(input.Mouse); ok {
 		return t.list.Handle(ev)
 	}
@@ -195,7 +205,7 @@ func (t *Tree[T]) Do(action input.Action) bool {
 
 // into steps to the first row under an open branch.
 func (t *Tree[T]) into(at int) bool {
-	rows := t.Rows()
+	rows := t.rows()
 	if at < 0 || at+1 >= len(rows) || rows[at+1].Depth <= rows[at].Depth {
 		return false
 	}
@@ -208,7 +218,7 @@ func (t *Tree[T]) into(at int) bool {
 // It is found by walking back to the first row less deep, which is what the rows
 // already say: the parent of a row is the nearest one above it with a smaller depth.
 func (t *Tree[T]) upToParent(at int) bool {
-	rows := t.Rows()
+	rows := t.rows()
 	if at < 0 || at >= len(rows) || rows[at].Depth == 0 {
 		return false
 	}
@@ -223,20 +233,23 @@ func (t *Tree[T]) upToParent(at int) bool {
 
 // Measure is one row per row showing, which is what a container needs to decide how
 // much room to give it.
-func (t *Tree[T]) Measure(int) int { return len(t.Rows()) }
+func (t *Tree[T]) Measure(int) int { return len(t.rows()) }
 
 // Scroll exposes the position, for a scrollbar drawn beside the tree.
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
 
 // Draw paints the rows that fit.
 func (t *Tree[T]) Draw(v grid.View) {
-	t.Rows()
-	t.list.Row = func(row grid.View, at int, item Shown[T], selected bool) {
-		if t.Row != nil {
-			t.Row(row, at, item, selected)
-		}
-	}
+	t.rows()
+	t.list.Row = t.row
 	t.list.Draw(v)
+}
+
+// row hands one row to whoever knows what a row looks like.
+func (t *Tree[T]) row(v grid.View, at int, shown Shown[T], selected bool) {
+	if t.Row != nil {
+		t.Row(v, at, shown, selected)
+	}
 }
 
 // keys is the map to read through, standing in the default for a caller who set
@@ -246,25 +259,4 @@ func (t *Tree[T]) keys() *input.Keymap {
 		return t.Keys
 	}
 	return treeKeys()
-}
-
-// Path is where a row sits in the tree: the index of each item to walk through to
-// reach it, from the top.
-//
-// It is what a caller uses to find the node a row came from, since a row carries the
-// item and not where it was. Nothing else needs it.
-func (s Shown[T]) Path() []int {
-	if s.path == "" {
-		return nil
-	}
-	parts := strings.Split(s.path, ".")
-	out := make([]int, 0, len(parts))
-	for _, part := range parts {
-		n, err := strconv.Atoi(part)
-		if err != nil {
-			return nil
-		}
-		out = append(out, n)
-	}
-	return out
 }

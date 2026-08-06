@@ -11,12 +11,12 @@ import "strings"
 // case where answers are long.
 //
 // So a stream splits what has arrived into the part that is certainly finished and
-// the part that is not. [Stream.Write] hands back blocks for the first, once, and
+// the part that is not. [Stream.Feed] hands back blocks for the first, once, and
 // never looks at that text again; [Stream.Open] renders the second, which is short
 // by construction and is re-rendered as often as anybody likes.
 //
 //	for chunk := range answer {
-//	    doc.Append(stream.Write(chunk)...)
+//	    doc.Append(stream.Feed(chunk)...)
 //	    live = stream.Open()
 //	}
 //	doc.Append(stream.Flush()...)
@@ -50,7 +50,9 @@ type Stream struct {
 	fenced bool
 	fence  string
 	// blank is the offset just past the most recent run of blank lines, which is a
-	// cut waiting to be confirmed by whatever comes next. Negative when there is none.
+	// cut waiting to be confirmed by whatever comes next. Zero is none of them: a cut
+	// at the very start of the held text would be a cut with nothing before it, so the
+	// one value that cannot mean a cut is the one that means there is not one.
 	blank int
 
 	// open is the last rendering of what is still arriving, kept so that asking for it
@@ -59,19 +61,23 @@ type Stream struct {
 	fresh bool
 }
 
-// Write takes another piece of the answer and returns the blocks it finished.
+// Feed takes another piece of the answer and returns the blocks it finished.
 //
 // Nothing is lost by a chunk that finishes nothing: what it added is held, and the
 // blocks it eventually becomes are returned by a later call or by [Stream.Flush].
-func (s *Stream) Write(chunk string) []Block {
+//
+// It is [github.com/Tangerg/oolong/core/input.Parser.Feed] under the same name for
+// the same reason [github.com/Tangerg/oolong/core/text.Decoder.Feed] is: hand over
+// the next piece of a stream, take back what is now decidable, and let Flush settle
+// what only the end can. It is deliberately not Write — this is not an io.Writer,
+// and something wired to a command's output is written to from a goroutine that may
+// not touch what is on screen.
+func (s *Stream) Feed(chunk string) []Block {
 	if chunk == "" {
 		return nil
 	}
 	s.held += chunk
 	s.fresh = false
-	if s.blank == 0 {
-		s.blank = -1
-	}
 
 	cut := s.scan()
 	if cut <= 0 {
@@ -80,7 +86,7 @@ func (s *Stream) Write(chunk string) []Block {
 	done := Render(s.held[:cut], s.Look)
 	s.held = s.held[cut:]
 	s.scanned -= cut
-	s.blank = -1
+	s.blank = 0
 	return done
 }
 
@@ -99,20 +105,14 @@ func (s *Stream) Open() []Block {
 
 // Flush publishes whatever is left, which is what the end of an answer is.
 func (s *Stream) Flush() []Block {
-	if s.held == "" {
-		s.reset()
-		return nil
-	}
 	done := Render(s.held, s.Look)
-	s.reset()
+	s.Reset()
 	return done
 }
 
 // Reset forgets everything, for a stream about to be given a different answer.
-func (s *Stream) Reset() { s.reset() }
-
-func (s *Stream) reset() {
-	s.held, s.scanned, s.blank = "", 0, -1
+func (s *Stream) Reset() {
+	s.held, s.scanned, s.blank = "", 0, 0
 	s.fenced, s.fence = false, ""
 	s.open, s.fresh = nil, false
 }
@@ -143,18 +143,18 @@ func (s *Stream) scan() int {
 			}
 		case fenceOf(trimmed) != "":
 			s.fenced, s.fence = true, fenceOf(trimmed)
-			s.blank = -1
+			s.blank = 0
 		case trimmed == "":
 			// A cut, if what follows says so. The whole run of blank lines goes with
 			// what came before it: they are what ended it.
 			s.blank = s.scanned
 		default:
-			if s.blank >= 0 && !indented(line) {
+			if s.blank > 0 && !indented(line) {
 				// A line at the left margin after a blank one begins something new, and
 				// nothing before it can still be added to.
 				cut = s.blank
 			}
-			s.blank = -1
+			s.blank = 0
 		}
 	}
 }

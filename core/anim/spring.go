@@ -65,10 +65,10 @@ func (s *Spring) Value() float64 { return s.position }
 // Velocity is how fast the value is changing, per tick.
 func (s *Spring) Velocity() float64 { return s.velocity }
 
-// Settled reports whether the spring has arrived: near enough its target and slow
+// Done reports whether the spring has arrived: near enough its target and slow
 // enough that nothing further would be visible. It is what tells a loop it can stop
-// the clock driving this.
-func (s *Spring) Settled() bool {
+// the clock driving this, and it is the same question [Transition.Done] answers.
+func (s *Spring) Done() bool {
 	return math.Abs(s.position-s.target) < settledDistance && math.Abs(s.velocity) < settledSpeed
 }
 
@@ -88,7 +88,7 @@ func (s *Spring) Tick() {
 	if damping <= 0 {
 		damping = defaultDamping
 	}
-	if s.Settled() {
+	if s.Done() {
 		s.position, s.velocity = s.target, 0
 		return
 	}
@@ -106,7 +106,7 @@ func (s *Spring) Tick() {
 		u, v = creep(u, v, frequency, damping)
 	}
 	s.position, s.velocity = s.target+u, v
-	if s.Settled() {
+	if s.Done() {
 		// Put exactly there. The maths never quite arrives, and a value that stays at
 		// 9.9996 for ever is one that whoever rounds it draws as nine.
 		s.position, s.velocity = s.target, 0

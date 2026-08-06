@@ -21,6 +21,10 @@ import (
 // The zero Filter shows everything, in the order it was given.
 type Filter[T any] struct {
 	// Items are everything there is to choose from, matched or not.
+	//
+	// They are replaced through [Filter.SetItems], because what matched is remembered:
+	// a list changed under it goes on showing what the pattern found in the old one
+	// until something says it changed.
 	Items []T
 	// Text is what an item reads as, which is what the pattern is matched against. A
 	// filter with none matches nothing, because there is nothing to match: an item is
@@ -119,13 +123,16 @@ func (f *Filter[T]) Measure(int) int { return f.Matched() }
 // Draw paints the matches that fit.
 func (f *Filter[T]) Draw(v grid.View) {
 	f.match()
-	f.list.Keys = f.Keys
-	f.list.Row = func(row grid.View, at int, got hit[T], selected bool) {
-		if f.Row != nil {
-			f.Row(row, at, got.item, got.match, selected)
-		}
-	}
+	f.list.Row = f.row
 	f.list.Draw(v)
+}
+
+// row hands one match to whoever knows what a row looks like, with the characters
+// that answered the pattern.
+func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
+	if f.Row != nil {
+		f.Row(v, at, got.item, got.match, selected)
+	}
 }
 
 // match works out what answers the pattern, once per change.

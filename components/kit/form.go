@@ -15,8 +15,10 @@ import (
 // becomes the handful of roles a field has, and a glyph set becomes the marks beside a
 // choice.
 type Form struct {
-	// Form is what is being collected.
-	Form *headless.Form
+	// Of is the form being collected. It is spelled the way a slot names what goes in
+	// it — see [github.com/Tangerg/oolong/core/layout.Slot] — because that is what
+	// this is: one widget wrapped in the look it is drawn with.
+	Of *headless.Form
 	// Theme is the look, and Glyphs the characters the marks beside a choice are drawn
 	// with.
 	Theme  Theme
@@ -31,18 +33,18 @@ type Form struct {
 
 // Measure is the title, the fields, and the hints.
 func (f Form) Measure(across int) int {
-	if f.Form == nil {
+	if f.Of == nil {
 		return 0
 	}
-	return f.rows() + f.Form.Measure(across)
+	return f.rows() + f.Of.Measure(across)
 }
 
 // Draw dresses the form and paints it.
 func (f Form) Draw(v grid.View) {
-	if f.Form == nil {
+	if f.Of == nil {
 		return
 	}
-	f.Form.Look = f.look()
+	f.Of.Look = f.look()
 
 	bands := layout.Rows(v,
 		layout.Slot{Size: layout.Fixed(f.titleRows())},
@@ -52,7 +54,7 @@ func (f Form) Draw(v grid.View) {
 	if f.titleRows() > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0])
 	}
-	f.Form.Draw(bands[1])
+	f.Of.Draw(bands[1])
 	if f.hintRows() > 0 {
 		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2])
 	}

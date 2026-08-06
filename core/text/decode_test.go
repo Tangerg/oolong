@@ -164,7 +164,7 @@ func TestAStreamIsReadTheSameWayHoweverItArrives(t *testing.T) {
 		var d text.Decoder
 		var got []text.Line
 		for i := 0; i < len(whole); i += size {
-			got = append(got, d.Decode(whole[i:min(i+size, len(whole))])...)
+			got = append(got, d.Feed(whole[i:min(i+size, len(whole))])...)
 		}
 		got = append(got, d.Flush()...)
 		if len(got) != len(want) {
@@ -181,13 +181,13 @@ func TestAStreamIsReadTheSameWayHoweverItArrives(t *testing.T) {
 
 func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 	var d text.Decoder
-	if lines := d.Decode("half a li"); len(lines) != 0 {
+	if lines := d.Feed("half a li"); len(lines) != 0 {
 		t.Fatalf("a line nothing ended was handed over: %q", lines)
 	}
 	if got := d.Open().String(); got != "half a li" {
 		t.Fatalf("the open line is %q", got)
 	}
-	if lines := d.Decode("ne\n"); len(lines) != 1 || lines[0].String() != "half a line" {
+	if lines := d.Feed("ne\n"); len(lines) != 1 || lines[0].String() != "half a line" {
 		t.Fatalf("the line finished as %q", lines)
 	}
 	if got := d.Open(); len(got) != 0 {
@@ -196,7 +196,7 @@ func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 
 	// Output that stopped without a newline is still output, and Flush is what says
 	// nothing more is coming.
-	d.Decode("no newline")
+	d.Feed("no newline")
 	if lines := d.Flush(); len(lines) != 1 || lines[0].String() != "no newline" {
 		t.Fatalf("flushed %q", lines)
 	}
@@ -207,10 +207,10 @@ func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 
 func TestASequenceThatNeverEndsIsNotHeldForEver(t *testing.T) {
 	var d text.Decoder
-	d.Decode("\x1b]0;" + strings.Repeat("x", 1<<17))
+	d.Feed("\x1b]0;" + strings.Repeat("x", 1<<17))
 	// Dropped, and the decoder is reading again rather than sitting on a buffer
 	// that only grows.
-	if lines := d.Decode("after\n"); len(lines) != 1 || lines[0].String() != "after" {
+	if lines := d.Feed("after\n"); len(lines) != 1 || lines[0].String() != "after" {
 		t.Fatalf("after a runaway sequence the stream read as %q", lines)
 	}
 }

@@ -59,7 +59,7 @@ func ask(field headless.Spoken, lines *bufio.Scanner, out io.Writer) error {
 			}
 			// The input ended part way through. What has been answered stays answered,
 			// and saying so is better than submitting a form nobody finished.
-			return io.ErrUnexpectedEOF
+			return fmt.Errorf("kit: %q was left unanswered: %w", field.Prompt(), io.ErrUnexpectedEOF)
 		}
 		if err := field.Reply(lines.Text()); err == nil {
 			return nil

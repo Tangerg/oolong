@@ -12,13 +12,13 @@ import (
 // look is a set of marks a test can read back out of the rows. The styles are left
 // alone: what a heading is drawn in is a decision, and what it says is not.
 func look() markdown.Look {
-	return markdown.Look{
+	return markdown.Look{Glyphs: markdown.Glyphs{
 		Bullet:    "•",
 		Bar:       "│",
 		Divider:   "─",
 		Checked:   "[x]",
 		Unchecked: "[ ]",
-	}
+	}}
 }
 
 // rows draws a document and returns what it came to, one string per row, with
@@ -164,7 +164,7 @@ func TestAStreamComesToTheSameThingHoweverItArrives(t *testing.T) {
 		stream.Look = look()
 		var blocks []markdown.Block
 		for i := 0; i < len(source); i += size {
-			blocks = append(blocks, stream.Write(source[i:min(i+size, len(source))])...)
+			blocks = append(blocks, stream.Feed(source[i:min(i+size, len(source))])...)
 		}
 		blocks = append(blocks, stream.Flush()...)
 		if got := rows(t, 28, blocks); !slices.Equal(got, want) {
@@ -180,15 +180,15 @@ func TestAStreamPublishesWhatIsFinishedAndHoldsWhatIsNot(t *testing.T) {
 
 	// A paragraph is not finished by a blank line alone: a list, and a block of code
 	// written with an indent, both carry on across one.
-	if got := stream.Write("- one\n\n"); len(got) != 0 {
+	if got := stream.Feed("- one\n\n"); len(got) != 0 {
 		t.Fatalf("a blank line published %d blocks before anything followed it", len(got))
 	}
-	if got := stream.Write("  more of one\n\nnext\n"); len(got) == 0 {
+	if got := stream.Feed("  more of one\n\nnext\n"); len(got) == 0 {
 		t.Fatal("a line at the left margin published nothing")
 	}
 	// What is still arriving is rendered as what it says so far, which is what a
 	// reader sees while it is being written.
-	stream.Write("## a heading half w")
+	stream.Feed("## a heading half w")
 	if got := rows(t, 30, stream.Open()); len(got) == 0 || got[len(got)-1] != "a heading half w" {
 		t.Fatalf("the open part reads as %q", got)
 	}
@@ -199,10 +199,10 @@ func TestAStreamNeverCutsInsideCode(t *testing.T) {
 	// there would publish half a function and render the rest as prose.
 	var stream markdown.Stream
 	stream.Look = look()
-	if got := stream.Write("```\none\n\ntwo\n\nthree\n"); len(got) != 0 {
+	if got := stream.Feed("```\none\n\ntwo\n\nthree\n"); len(got) != 0 {
 		t.Fatalf("%d blocks were published from inside a fence", len(got))
 	}
-	if got := stream.Write("```\n\nafter\n"); len(got) == 0 {
+	if got := stream.Feed("```\n\nafter\n"); len(got) == 0 {
 		t.Fatal("a closed fence published nothing")
 	}
 }

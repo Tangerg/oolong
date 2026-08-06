@@ -64,7 +64,11 @@ func (h *handover) release() {
 func (h *handover) park(stop <-chan struct{}) {
 	h.mu.Lock()
 	resume, parked := h.resume, h.parked
-	h.parked = nil
+	if resume != nil {
+		// Answered once: the signal is what a handover waits on, and closing it twice
+		// would be a panic on the second read of the terminal.
+		h.parked = nil
+	}
 	h.mu.Unlock()
 
 	if resume == nil {

@@ -85,6 +85,10 @@ type Block struct {
 // module needs no widget of its own and imports none.
 type Doc struct {
 	// Blocks are what the document came to.
+	//
+	// They are replaced through [Doc.SetBlocks] and added to through [Doc.Append],
+	// because the wrap is remembered: a document changed under it draws what it used
+	// to say until something says it changed. Reading them is free.
 	Blocks []Block
 
 	// rows memoises the wrap, which is asked for twice per frame — once to measure and
@@ -190,13 +194,14 @@ func stretch(lines []text.Line, room int) text.Line {
 // package that has one, and that is the dependency this whole boundary exists to
 // avoid.
 type Look struct {
-	// Text is body text, and Heading is a heading of any level. Levels are told apart
-	// by [Look.Headings] where a caller wants them to be.
-	Text    grid.Style
-	Heading grid.Style
-	// Headings, when it has an entry for a level, overrides Heading for that level —
-	// index zero is a level-one heading. A caller that wants every heading to look the
-	// same leaves it nil.
+	// Text is body text.
+	Text grid.Style
+	// Headings are the levels, from one: the first entry is a level-one heading, and a
+	// level deeper than the list gets the last entry.
+	//
+	// One field rather than a style for headings and a list that overrides it. Two
+	// ways to say one thing is a thing to be inconsistent about, and "every heading
+	// alike" is already sayable — it is a list of one.
 	Headings []grid.Style
 
 	// Strong and Emphasis are bold and italic, or whatever a look prefers them to be.
@@ -217,16 +222,12 @@ type Look struct {
 	Marker grid.Style
 	Rule   grid.Style
 
-	// Bullet is what an unordered list item is marked with, Rail what a quotation is
-	// barred with, and Divider what a thematic break is drawn with. A look that leaves
-	// them empty gets no furniture at all, which is the right answer for a terminal
-	// that cannot draw the characters and a poor one everywhere else — see the glyph
-	// set in the kit package for how a program decides which it is.
-	Bullet  string
-	Bar     string
-	Divider string
-	// Checked and Unchecked mark a task list's items.
-	Checked, Unchecked string
+	// Glyphs are the characters the furniture is drawn with, kept apart from the
+	// styles for the reason the two are different questions: which grey a quotation
+	// is drawn in is taste, and whether the terminal can draw the bar beside it is a
+	// fact about the terminal. It is the same division the kit package makes between
+	// a theme and a glyph set, and a caller with one of those builds this from it.
+	Glyphs Glyphs
 
 	// Highlight turns a block of code into styled lines, and is where a syntax
 	// highlighter plugs in. Nil draws the code in [Look.Block], which is what a
@@ -238,12 +239,30 @@ type Look struct {
 	Highlight func(language, source string) []text.Line
 }
 
-// heading is the style for a heading of a level, counting from one.
+// Glyphs are the characters a document's furniture is drawn with.
+//
+// The zero value draws none of it, which is legible and plain: a list is still
+// indented, a quotation is still inset, and a rule is still a row of its own. That
+// is the right answer for a terminal that cannot draw the characters, and the
+// caller is the one who knows whether it can.
+type Glyphs struct {
+	// Bullet marks an item of an unordered list.
+	Bullet string
+	// Bar is what a quotation is barred with, on every row of it.
+	Bar string
+	// Divider is what a thematic break and a table's heading rule are drawn with.
+	Divider string
+	// Checked and Unchecked mark a task list's items.
+	Checked, Unchecked string
+}
+
+// heading is the style for a heading of a level, counting from one. A level deeper
+// than the look has entries for is drawn as the deepest one it has.
 func (l Look) heading(level int) grid.Style {
-	if level >= 1 && level <= len(l.Headings) {
-		return l.Headings[level-1]
+	if len(l.Headings) == 0 {
+		return l.Text
 	}
-	return l.Heading
+	return l.Headings[min(max(level, 1), len(l.Headings))-1]
 }
 
 // A Doc is a Measurer, which is what lets it go in a slot without an adapter. The

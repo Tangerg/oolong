@@ -64,13 +64,14 @@ func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 // calls when it has replaced the rows with something whose order means something.
 func (t *Table[T]) Unsorted() { t.sorted = false }
 
-// SetRows replaces the rows, keeping the order the table is sorted by.
+// SetItems replaces the rows, keeping the order the table is sorted by.
 //
-// It is [List.SetItems] with the sort applied, because a table that lost its order
-// every time its rows were refreshed would be a table nobody could read while it was
-// updating.
-func (t *Table[T]) SetRows(items []T) {
-	t.SetItems(items)
+// It is [List.SetItems] with the sort applied, under the same name on purpose:
+// there is one way to give a table its rows, and it cannot be the one that quietly
+// throws the order away. A table that lost its order every time its rows were
+// refreshed would be a table nobody could read while it was updating.
+func (t *Table[T]) SetItems(items []T) {
+	t.List.SetItems(items)
 	t.reorder()
 }
 

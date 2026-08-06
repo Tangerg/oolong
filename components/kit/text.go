@@ -44,6 +44,9 @@ func (l Label) Draw(v grid.View) {
 // to give.
 type Paragraph struct {
 	// Lines are the logical lines. A line's own styling survives wrapping.
+	//
+	// They are replaced through [Paragraph.SetText], because the wrap is remembered:
+	// text changed under it draws what it used to say until something says it changed.
 	Lines []text.Line
 	// Indent is held clear on the left of every row, including continuations, so a
 	// wrapped paragraph reads as one block rather than as several.

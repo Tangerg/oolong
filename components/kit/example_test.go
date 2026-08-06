@@ -101,7 +101,7 @@ func ExampleForm() {
 	}}
 	keys := headless.DefaultFormKeys()
 	view := kit.Form{
-		Form:   form,
+		Of:     form,
 		Theme:  kit.Dark(),
 		Glyphs: kit.ASCII(),
 		Title:  "New session",

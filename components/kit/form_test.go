@@ -26,7 +26,7 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 	}}
 	keys := headless.DefaultFormKeys()
 	view := kit.Form{
-		Form:   form,
+		Of:     form,
 		Theme:  kit.Dark(),
 		Glyphs: kit.Unicode(),
 		Title:  "New session",
@@ -52,7 +52,7 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	theme := kit.Dark()
 	field := &headless.Text{Label: "Name", Check: func(string) error { return errors.New("required") }}
 	form := &headless.Form{Fields: []headless.Field{field}}
-	view := kit.Form{Form: form, Theme: theme}
+	view := kit.Form{Of: form, Theme: theme}
 	form.Submit()
 
 	s := grid.NewSurface(20, view.Measure(20))

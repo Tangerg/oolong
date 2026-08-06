@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"strings"
+
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/text"
@@ -77,22 +79,10 @@ func (t Tree[T]) mark(row headless.Shown[T]) string {
 	case !row.Branch:
 		// A leaf beside a branch has to start in the same column, or a tree of files
 		// reads as a tree of two different things.
-		return blanks(text.Width(t.Glyphs.Collapsed))
+		return strings.Repeat(" ", max(text.Width(t.Glyphs.Collapsed), 0))
 	case row.Open:
 		return t.Glyphs.Expanded
 	default:
 		return t.Glyphs.Collapsed
 	}
-}
-
-// blanks is n columns of nothing, and nothing at all for a set with no marks in it.
-func blanks(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = ' '
-	}
-	return string(out)
 }

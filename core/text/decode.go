@@ -19,7 +19,7 @@ import (
 // # Reading a stream
 //
 // Output arrives in whatever pieces a read produced, and neither a line nor a
-// sequence respects those boundaries. [Decoder.Decode] answers with the lines a
+// sequence respects those boundaries. [Decoder.Feed] answers with the lines a
 // newline has finished, holds the rest, and carries the style in force from one
 // piece to the next — so a colour opened in one chunk still applies in the next,
 // and a sequence split down the middle is not read as text. [Decoder.Open] is the
@@ -77,12 +77,16 @@ type Decoder struct {
 // its own address space.
 const maxHeld = 1 << 16
 
-// Decode reads a chunk of output and returns the lines a newline finished.
+// Feed takes another piece of the output and returns the lines a newline finished.
 //
 // What is left over stays in the decoder: the line no newline has ended yet — see
 // [Decoder.Open] — and a sequence that arrived only in part. Nothing is lost by
 // stopping in the middle of either.
-func (d *Decoder) Decode(chunk string) []Line {
+//
+// It is [github.com/Tangerg/oolong/core/input.Parser.Feed] under the same name
+// because it is the same shape: hand over the next piece of a stream, take back
+// what is now decidable, and let [Decoder.Flush] settle what only the end can.
+func (d *Decoder) Feed(chunk string) []Line {
 	if chunk == "" {
 		return nil
 	}
@@ -118,9 +122,9 @@ func (d *Decoder) Open() Line { return d.open }
 
 // Flush ends the stream: the open line, if there is one, and nothing else.
 //
-// A sequence that never finished is dropped rather than shown, which is the same
-// answer [ansi.Trailing] gives and for the same reason — half of a sequence is not
-// text, and printing it would print the introducer.
+// A sequence that never finished is dropped rather than shown, for the reason a
+// cell drops a control character — half of a sequence is not text, and printing it
+// would print the introducer.
 func (d *Decoder) Flush() []Line {
 	d.held = ""
 	if len(d.open) == 0 {
@@ -146,7 +150,7 @@ func (d *Decoder) Reset() {
 // between pieces.
 func Decode(s string, base grid.Style) []Line {
 	d := Decoder{Base: base}
-	return append(d.Decode(s), d.Flush()...)
+	return append(d.Feed(s), d.Flush()...)
 }
 
 // piece deals with one scanned piece of the stream.

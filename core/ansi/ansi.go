@@ -32,18 +32,20 @@ const (
 	Bell = 0x07
 )
 
-// Intermediate reports whether b is an intermediate byte — the part of a sequence
-// that selects a variant of it, as the "(" does in a charset selection.
-func Intermediate(b byte) bool { return b >= 0x20 && b <= 0x2f }
-
-// Parameter reports whether b belongs to a sequence's parameter section: a digit,
-// one of the two separators, or one of the private markers a sequence may open
-// with.
-func Parameter(b byte) bool { return b >= 0x30 && b <= 0x3f }
-
 // Body reports whether b may appear between a control sequence's introducer and
-// the byte that ends it.
-func Body(b byte) bool { return Intermediate(b) || Parameter(b) }
+// the byte that ends it: an intermediate byte, which selects a variant of the
+// sequence, or a parameter byte, which is a digit, a separator, or the marker a
+// private sequence opens with.
+//
+// The two halves are not separately exported. Nothing outside this package has
+// ever needed to tell them apart — what a reader asks is "is this still the body"
+// and then "is this the end" — and a predicate nobody calls is a predicate nobody
+// keeps true.
+func Body(b byte) bool { return intermediate(b) || parameter(b) }
+
+func intermediate(b byte) bool { return b >= 0x20 && b <= 0x2f }
+
+func parameter(b byte) bool { return b >= 0x30 && b <= 0x3f }
 
 // Final reports whether b ends a control sequence and says what it was.
 func Final(b byte) bool { return b >= 0x40 && b <= 0x7e }
@@ -91,8 +93,9 @@ type Piece struct {
 // It reports the piece and how many bytes it took. The false case is the one that
 // matters for anything reading a stream: what is at the front of s could still
 // become a longer sequence, nothing about it can be decided until more arrives,
-// and no bytes were consumed. A caller with no more to come calls [Trailing]
-// instead of waiting for ever.
+// and no bytes were consumed. What is left over then always begins with an escape
+// byte, which is what tells a caller at the end of its input that the remainder is
+// half a sequence rather than text.
 //
 // Text runs up to the next escape byte and no further, so a caller is handed the
 // largest run it can treat as one thing.
@@ -122,23 +125,6 @@ func Next(s string) (p Piece, n int, ok bool) {
 	default:
 		return escape(s)
 	}
-}
-
-// Trailing is what to do with bytes that never became a sequence: the piece they
-// amount to, once it is known that nothing more is coming.
-//
-// It is [Malformed] whenever s begins with an escape, because an unfinished
-// sequence is not text and printing what arrived of it would print the introducer.
-// A caller that only ever reads whole strings can ignore this and let [Next] run
-// out; a caller reading a stream needs it at the end.
-func Trailing(s string) (Piece, bool) {
-	if s == "" {
-		return Piece{}, false
-	}
-	if s[0] != Escape {
-		return Piece{Kind: Plain, Raw: s}, true
-	}
-	return Piece{Kind: Malformed, Raw: s}, true
 }
 
 // introduces reports whether b introduces a string command.
@@ -204,7 +190,7 @@ func command(s string) (Piece, int, bool) {
 // escape reads an escape with intermediates and a final byte.
 func escape(s string) (Piece, int, bool) {
 	i := 1
-	for i < len(s) && Intermediate(s[i]) {
+	for i < len(s) && intermediate(s[i]) {
 		i++
 	}
 	if i >= len(s) {

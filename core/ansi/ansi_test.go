@@ -102,15 +102,21 @@ func TestAnEscapeWithIntermediatesIsOnePiece(t *testing.T) {
 	equal(t, pieces, []string{"escape(\x1b(B)", "text(plain)", "escape(\x1b=)"})
 }
 
-func TestWhatNeverBecameASequenceIsNotTextAtTheEnd(t *testing.T) {
-	if p, ok := ansi.Trailing("\x1b[3"); !ok || p.Kind != ansi.Malformed {
-		t.Fatalf("a sequence that never arrived is %v", name(p.Kind))
-	}
-	if p, ok := ansi.Trailing("tail"); !ok || p.Kind != ansi.Plain || p.Raw != "tail" {
-		t.Fatalf("trailing text is %v %q", name(p.Kind), p.Raw)
-	}
-	if _, ok := ansi.Trailing(""); ok {
-		t.Fatal("nothing at all became a piece")
+func TestWhatIsLeftOverIsAlwaysHalfASequence(t *testing.T) {
+	// Which is what tells a reader at the end of its input that the remainder is not
+	// text: text is always taken, and only a sequence can be incomplete.
+	for _, s := range []string{"tail \x1b[3", "\x1b]0;ti"} {
+		left := s
+		for left != "" {
+			_, n, ok := ansi.Next(left)
+			if !ok {
+				break
+			}
+			left = left[n:]
+		}
+		if left == "" || left[0] != ansi.Escape {
+			t.Fatalf("%q left %q over", s, left)
+		}
 	}
 }
 
@@ -155,7 +161,7 @@ func TestTheBytesOfASequenceAreOneDefinition(t *testing.T) {
 	if !ansi.Final('m') || !ansi.Final('~') || ansi.Final(0x1b) {
 		t.Error("the final byte is not the one that ends a sequence")
 	}
-	if !ansi.Intermediate('(') || ansi.Intermediate('3') || !ansi.Parameter('3') {
-		t.Error("intermediates and parameters were confused")
+	if !ansi.Body('(') || !ansi.Body(':') {
+		t.Error("an intermediate byte or a subparameter separator was not part of a body")
 	}
 }

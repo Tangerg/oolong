@@ -11,11 +11,11 @@ func ExampleStream() {
 	// from Write and is never looked at again; what is still being written is
 	// re-rendered as often as anybody asks.
 	var stream markdown.Stream
-	stream.Look = markdown.Look{Bullet: "•"}
+	stream.Look = markdown.Look{Glyphs: markdown.Glyphs{Bullet: "•"}}
 
 	var doc markdown.Doc
 	for _, chunk := range []string{"Two things:\n\n- th", "e first\n- the second\n\nAnd a l", "ast word."} {
-		doc.Append(stream.Write(chunk)...)
+		doc.Append(stream.Feed(chunk)...)
 		fmt.Printf("published %d, open %d\n", len(doc.Blocks), len(stream.Open()))
 	}
 	doc.Append(stream.Flush()...)

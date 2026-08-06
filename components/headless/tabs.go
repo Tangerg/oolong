@@ -30,8 +30,9 @@ type Tabs struct {
 	// Keys say which keystrokes move between panes — see [Tabs.Do]. Nil reads through
 	// [DefaultTabsKeys].
 	Keys *input.Keymap
-	// Wrap moves from the last pane to the first and back. On by default, unlike a
-	// list, because tabs are few and are usually walked in a ring.
+	// NoWrap stops the walk at either end. Wrapping is on by default, which is the
+	// other way round from a list: tabs are few and are walked in a ring, where a
+	// long list wrapped is a reader who has lost their place.
 	NoWrap bool
 
 	selected int

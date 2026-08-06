@@ -22,7 +22,7 @@ func table() *headless.Table[row] {
 			return a.name < b.name
 		},
 	}
-	t.SetRows([]row{{"gamma", 2}, {"alpha", 30}, {"beta", 1}})
+	t.SetItems([]row{{"gamma", 2}, {"alpha", 30}, {"beta", 1}})
 	return t
 }
 
@@ -72,12 +72,24 @@ func TestTheCursorStaysOnTheRowItWasOnThroughASort(t *testing.T) {
 
 func TestReplacingTheRowsKeepsTheOrder(t *testing.T) {
 	// A table refreshed while it is being read must not jump back into the order the
-	// rows happened to arrive in.
+	// rows happened to arrive in — and it is the list's own method that does it, so
+	// there is no second way to set the rows that forgets.
 	tbl := table()
 	tbl.SortBy(0)
-	tbl.SetRows([]row{{"delta", 9}, {"charlie", 8}})
+	tbl.SetItems([]row{{"delta", 9}, {"charlie", 8}})
 	if got := ordered(tbl); got != "charlie delta" {
 		t.Fatalf("the replaced rows are %q", got)
+	}
+
+	// Until the order is given up, which is what a caller does when the rows arrive
+	// in an order that means something.
+	tbl.Unsorted()
+	tbl.SetItems([]row{{"delta", 9}, {"charlie", 8}})
+	if got := ordered(tbl); got != "delta charlie" {
+		t.Fatalf("after giving up the order the rows are %q", got)
+	}
+	if _, _, ok := tbl.Sorted(); ok {
+		t.Error("a table that gave up its order still says it has one")
 	}
 }
 
@@ -85,7 +97,7 @@ func TestATableWithNoComparisonCannotBeSorted(t *testing.T) {
 	// Rows that arrive in an order that means something — a log, a queue — are left
 	// exactly as they came.
 	var tbl headless.Table[row]
-	tbl.SetRows([]row{{"b", 1}, {"a", 2}})
+	tbl.SetItems([]row{{"b", 1}, {"a", 2}})
 	if tbl.SortBy(0) {
 		t.Fatal("a table with nothing to compare with sorted itself")
 	}

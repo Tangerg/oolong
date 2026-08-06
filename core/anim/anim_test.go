@@ -163,7 +163,7 @@ func TestASpringArrivesAndStops(t *testing.T) {
 		s := anim.Spring{Frequency: 0.4, Damping: damping}
 		s.To(10)
 		steps := 0
-		for ; !s.Settled() && steps < 1000; steps++ {
+		for ; !s.Done() && steps < 1000; steps++ {
 			s.Tick()
 		}
 		if steps >= 1000 {

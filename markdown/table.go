@@ -85,7 +85,7 @@ func (r *renderer) tableRow(row []text.Line, widths []int, aligns []east.Alignme
 
 // tableRule is the line under the heading.
 func (r *renderer) tableRule(widths []int) text.Line {
-	divider := r.look.Divider
+	divider := r.look.Glyphs.Divider
 	if divider == "" {
 		divider = " "
 	}
@@ -103,10 +103,10 @@ func (r *renderer) tableRule(widths []int) text.Line {
 // where it does not — because two columns run together is worse than a table with no
 // lines in it.
 func (r *renderer) column() string {
-	if r.look.Bar == "" {
+	if r.look.Glyphs.Bar == "" {
 		return "  "
 	}
-	return " " + r.look.Bar + " "
+	return " " + r.look.Glyphs.Bar + " "
 }
 
 // align is a column's alignment, or none for a column the table said nothing about.
