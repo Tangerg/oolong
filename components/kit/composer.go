@@ -102,9 +102,9 @@ func (c *Composer) Draw(v grid.View) {
 	c.editor.MaxRows = c.rows()
 	c.editor.Keys = c.Keys
 	c.width = max(width-c.markerWidth(), 0)
-	c.editor.Style = c.Theme.Text
-	c.editor.PlaceholderStyle = c.Theme.Subtle
-	c.editor.SelectionStyle = c.Theme.Selection
+	// No glyph set: the marks beside a choice are the only part of a look that comes
+	// from one, and an editor has no choices.
+	c.editor.Look = c.Theme.Look(Glyphs{})
 	c.editor.Placeholder = c.Placeholder
 
 	rows := layout.Rows(v,

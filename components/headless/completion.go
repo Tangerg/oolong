@@ -124,12 +124,10 @@ func (c Candidate) shown() string {
 // caller that wants it over the text puts it in an [Overlay], which is the piece that
 // owns placement.
 type Completion struct {
-	// RowStyle is how a row looks, and SelectedStyle the one under the cursor.
-	RowStyle, SelectedStyle grid.Style
-	// MatchStyle emphasises the characters the query matched, and DetailStyle draws a
-	// row's detail. Both are laid over the row's own style, so a selected row keeps its
-	// background under them.
-	MatchStyle, DetailStyle grid.Style
+	// Look is how the rows are drawn: the text, the row under the cursor, the
+	// characters the query matched, and the detail beside a candidate. It is the one
+	// way anything here that draws itself is dressed — see [Look].
+	Look Look
 	// MaxRows caps how tall the list gets, so a thousand files do not become a
 	// thousand rows. Zero uses [DefaultCompletionRows].
 	MaxRows int
@@ -294,9 +292,9 @@ func (c *Completion) Draw(v grid.View) {
 // its detail pushed to the right.
 func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected bool) {
 	width, _ := v.Size()
-	base := c.RowStyle
+	base := c.Look.Text
 	if selected {
-		base = c.SelectedStyle
+		base = base.Merge(c.Look.Selection)
 		v.Fill(v.Bounds(), base)
 	}
 	at := c.drawMatched(v, candidate.shown(), candidate.Matched, base)
@@ -304,7 +302,7 @@ func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected b
 	if candidate.Detail == "" {
 		return
 	}
-	detail := base.Merge(c.DetailStyle)
+	detail := base.Merge(c.Look.Subtle)
 	room := width - at - detailGap
 	if room <= 0 {
 		return
@@ -320,7 +318,7 @@ func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected b
 // when it contains one rather than when it begins at one: a pattern character that
 // matched a combining mark is still that cluster being matched.
 func (c *Completion) drawMatched(v grid.View, label string, matched []int, base grid.Style) int {
-	hit := base.Merge(c.MatchStyle)
+	hit := base.Merge(c.Look.Accent)
 	next, at := 0, 0
 	for off, cluster := range text.Clusters(label) {
 		for next < len(matched) && matched[next] < off {

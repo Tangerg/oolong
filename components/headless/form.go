@@ -53,19 +53,24 @@ type Field interface {
 	Error() error
 }
 
-// Look is how a field draws itself.
+// Look is how a widget here draws itself, for the few that draw themselves at all.
 //
-// It is the handful of roles a field's own drawing has and nothing more. A field is
-// given one by the form it is in, and a form is given one by whatever dressed it — see
-// [github.com/Tangerg/oolong/components/kit.Form], which builds one from a theme.
+// Most of this package draws nothing: a list calls back to whoever knows what a row
+// looks like, and that is what makes the ring above it optional. The exceptions are
+// the widgets whose drawing cannot be handed out — a field is generic over what it
+// holds, so nothing above could name every kind of one; an editor lays a selection
+// over text it alone knows the shape of; a completion picks out the characters a
+// query matched. They take this, and there is one of it rather than a style field
+// per part, which is the same rule the kit package keeps for the same reason.
 //
-// There is one way a field is dressed and it is the form it is in, which is why a field
-// has no look of its own to set. A single field is a [Form] with one field in it: that
-// is a widget like any other, it goes wherever a widget goes, and it is the whole of
-// the wiring.
+// A field is given one by the form it is in, and a form is given one by whatever
+// dressed it — see [github.com/Tangerg/oolong/components/kit.Theme.Look], which
+// builds one from a palette. A single field is a [Form] with one field in it: that is
+// a widget like any other, it goes wherever a widget goes, and it is the whole of the
+// wiring.
 //
 // The zero value draws in the terminal's own colours with no marks beside a choice,
-// which is legible and plain, and is what a form nobody dressed gets.
+// which is legible and plain, and is what a widget nobody dressed gets.
 type Look struct {
 	// Text is the answer, Label what the field is asking for, and Subtle a placeholder
 	// or a hint.

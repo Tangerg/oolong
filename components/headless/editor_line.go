@@ -29,7 +29,7 @@ func (e *Editor) rows(width int) []editorRow {
 func (e *Editor) drawLine(v grid.View) {
 	width, _ := v.Size()
 	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.PlaceholderStyle)
+		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
 		e.placeCursor(v, 0, 0)
 		return
 	}
@@ -38,13 +38,13 @@ func (e *Editor) drawLine(v grid.View) {
 	cursor := text.ColumnOf(shown, e.shownAt(e.col))
 	e.slide(cursor, text.Width(shown), width)
 
-	text.Of(shown, e.Style).Draw(v, -e.left, 0)
+	text.Of(shown, e.Look.Text).Draw(v, -e.left, 0)
 	if start, end, ok := e.Selection(); ok {
 		from := text.ColumnOf(shown, e.shownAt(start.Col)) - e.left
 		to := text.ColumnOf(shown, e.shownAt(end.Col)) - e.left
 		for x := max(from, 0); x < min(to, width); x++ {
 			if c := v.CellAt(x, 0); c != nil {
-				c.Style = c.Style.Merge(e.SelectionStyle)
+				c.Style = c.Style.Merge(e.Look.Selection)
 			}
 		}
 	}

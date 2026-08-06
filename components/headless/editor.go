@@ -5,7 +5,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -23,13 +22,12 @@ import (
 // see the reason for.
 type Editor struct {
 	// Placeholder is shown while the field is empty, and is not part of the text.
-	Placeholder      string
-	Style            grid.Style
-	PlaceholderStyle grid.Style
-	// SelectionStyle is laid over the selected text. The zero value draws no
-	// selection, which is what a field that never selects wants — and which is what
-	// this had before there was one, when a selection could be made and not seen.
-	SelectionStyle grid.Style
+	Placeholder string
+	// Look is how the text, the placeholder and the selection are drawn — see [Look],
+	// which is the one way anything here that draws itself is dressed. The zero value
+	// draws in the terminal's own colours and lays nothing over a selection, which is
+	// what a field that never selects wants.
+	Look Look
 	// Keys say which keystrokes produce which of the actions this field answers to —
 	// see [Editor.Do]. Nil reads through [DefaultEditorKeys].
 	//

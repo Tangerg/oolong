@@ -413,7 +413,7 @@ func TestARowWithNoLabelShowsWhatItWouldInsert(t *testing.T) {
 
 func TestTheMatchedCharactersArePickedOut(t *testing.T) {
 	var c headless.Completion
-	c.MatchStyle = grid.Style{Attr: grid.Bold}
+	c.Look.Accent = grid.Style{Attr: grid.Bold}
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "status", Matched: []int{0, 1}}})
 
 	s := grid.NewSurface(20, 1)
@@ -430,7 +430,7 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 	// cluster rather than at its start. Testing for equality there would leave the
 	// character the reader sees unhighlighted.
 	var c headless.Completion
-	c.MatchStyle = grid.Style{Attr: grid.Bold}
+	c.Look.Accent = grid.Style{Attr: grid.Bold}
 	// "e" plus a combining acute: one cluster, two runes, the mark at offset 1.
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "éx", Matched: []int{1}}})
 
@@ -446,7 +446,7 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 
 func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
 	var c headless.Completion
-	c.SelectedStyle = grid.Style{Attr: grid.Reverse}
+	c.Look.Selection = grid.Style{Attr: grid.Reverse}
 	offer(&c, "one", "two")
 	c.Handle(input.Key{Code: input.Down})
 

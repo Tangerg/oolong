@@ -28,7 +28,7 @@ func selected(v grid.View, w, h int, style grid.Style) [][2]int {
 func TestASelectionCanBeSeen(t *testing.T) {
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("hello world")
-	e.SelectionStyle = mark
+	e.Look.Selection = mark
 	for range 5 {
 		e.Handle(shift(input.Right))
 	}
@@ -50,7 +50,7 @@ func TestASelectionCanBeSeen(t *testing.T) {
 func TestNoSelectionMarksNothing(t *testing.T) {
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("hello world")
-	e.SelectionStyle = mark
+	e.Look.Selection = mark
 
 	s := grid.NewSurface(20, 2)
 	e.Draw(s.View())
@@ -154,7 +154,7 @@ func TestSpansOfNothing(t *testing.T) {
 func TestTheSelectionAndTheCursorAgree(t *testing.T) {
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("the quick brown fox jumps over")
-	e.SelectionStyle = mark
+	e.Look.Selection = mark
 	e.SetCursor(0, 0)
 	for range 25 {
 		e.Handle(shift(input.Right))

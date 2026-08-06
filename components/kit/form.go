@@ -44,7 +44,7 @@ func (f Form) Draw(v grid.View) {
 	if f.Of == nil {
 		return
 	}
-	f.Of.Look = f.look()
+	f.Of.Look = f.Theme.Look(f.Glyphs)
 
 	bands := layout.Rows(v,
 		layout.Slot{Size: layout.Fixed(f.titleRows())},
@@ -65,18 +65,6 @@ func (f Form) Draw(v grid.View) {
 // A field asks for a role and never for a colour, exactly as a widget here does. The
 // translation is one place, which is what keeps a form looking like the rest of the
 // interface without a field ever having heard of a theme.
-func (f Form) look() headless.Look {
-	return headless.Look{
-		Text:      f.Theme.Text,
-		Label:     f.Theme.Strong,
-		Subtle:    f.Theme.Subtle,
-		Selection: f.Theme.Selection,
-		Accent:    f.Theme.Accent,
-		Danger:    f.Theme.Danger,
-		Taken:     f.Glyphs.Taken,
-		Free:      f.Glyphs.Free,
-	}
-}
 
 func (f Form) rows() int { return f.titleRows() + f.hintRows() }
 

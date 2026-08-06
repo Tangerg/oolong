@@ -1,6 +1,9 @@
 package kit
 
-import "github.com/Tangerg/oolong/core/grid"
+import (
+	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/core/grid"
+)
 
 // Theme is the palette an interface is drawn with.
 //
@@ -77,6 +80,27 @@ type Scrim struct {
 // to know that, which is why this is one line and lives at the bottom of the layer
 // rather than in every widget that floats something.
 func (s Scrim) Over(v grid.View) { v.Blend(v.Bounds(), s.Color, s.Opacity) }
+
+// Look is what a headless widget that draws itself is dressed with — see
+// [headless.Look] — built from this palette and a glyph set.
+//
+// It is here rather than in each widget that needs one because it is one mapping:
+// the answer is a heading, a label is strong, a hint is subtle, the row under the
+// keyboard is the selection. A second copy of it somewhere else would be a second
+// place for a form and the editor inside it to disagree about what a placeholder
+// looks like.
+func (t Theme) Look(g Glyphs) headless.Look {
+	return headless.Look{
+		Text:      t.Text,
+		Label:     t.Strong,
+		Subtle:    t.Subtle,
+		Selection: t.Selection,
+		Accent:    t.Accent,
+		Danger:    t.Danger,
+		Taken:     g.Taken,
+		Free:      g.Free,
+	}
+}
 
 // Suited is the theme for what the terminal said its own colours were — see the
 // loop a program hands its component.

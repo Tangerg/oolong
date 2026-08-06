@@ -186,7 +186,7 @@ func (e *Editor) Draw(v grid.View) {
 	}
 
 	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.PlaceholderStyle)
+		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
 		e.placeCursor(v, 0, 0)
 		return
 	}
@@ -211,7 +211,7 @@ func (e *Editor) Draw(v grid.View) {
 			break
 		}
 		r := rows[index]
-		text.Of(e.lines[r.line][r.start:r.end], e.Style).Draw(v, 0, y)
+		text.Of(e.lines[r.line][r.start:r.end], e.Look.Text).Draw(v, 0, y)
 	}
 	// The selection is laid over the text rather than drawn into it, so a run that
 	// crosses a style boundary keeps whatever was underneath — and so that the rows
@@ -223,7 +223,7 @@ func (e *Editor) Draw(v grid.View) {
 		}
 		for x := span.Col; x < span.Col+span.Width && x < width; x++ {
 			if c := v.CellAt(x, y); c != nil {
-				c.Style = c.Style.Merge(e.SelectionStyle)
+				c.Style = c.Style.Merge(e.Look.Selection)
 			}
 		}
 	}

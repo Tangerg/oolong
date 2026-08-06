@@ -50,9 +50,7 @@ func (t *Text) Measure(int) int { return 1 + t.rows(t.Label) }
 // Draw paints the label, the field and whatever was wrong with the answer.
 func (t *Text) Draw(v grid.View) {
 	t.ensure()
-	t.editor.Style = t.look.Text
-	t.editor.PlaceholderStyle = t.look.Subtle
-	t.editor.SelectionStyle = t.look.Selection
+	t.editor.Look = t.look
 	t.editor.Draw(t.frame(v, t.Label))
 }
 

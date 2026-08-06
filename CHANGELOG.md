@@ -45,6 +45,12 @@ point of tagging them low rather than not at all.
   sequence of keyframes, which neither of the other two can say.
 - **A form answerable without a screen.** `headless.Spoken` is a question in one line
   and a line back, on all four fields; `kit.Ask` is the conversation.
+- **One way to dress a widget that draws itself.** `headless.Look` is it, and the
+  three that draw themselves take it: a field, the editor inside one, and a
+  completion. `kit.Theme.Look` builds one from a palette, so a form and the editor
+  in it cannot disagree about what a placeholder looks like. The style fields those
+  widgets carried — `Editor.Style`, `PlaceholderStyle`, `SelectionStyle`,
+  `Completion.RowStyle`, `SelectedStyle`, `MatchStyle`, `DetailStyle` — are gone.
 - **`markdown`, a module of its own**, carrying goldmark. `Stream` publishes what is
   certainly finished once and re-renders only what is still arriving; what comes out is
   `core/text` lines, and the drawable form is a `Drawer` and a `Measurer` and nothing
@@ -101,8 +107,8 @@ point of tagging them low rather than not at all.
   the terminal, in order and once each.
 - `headless.Scroll.Reveal` brings a row into the window, without which a search
   match could be found and not reached.
-- `headless.Editor.SelectionStyle`, and `Spans`, which is what draws a selection
-  in a wrapped field.
+- A style for the selection in a text field, and `Spans`, which is what draws one
+  in a wrapped field. (It is `Editor.Look.Selection` now — see the polish below.)
 - **A terminal is asked what it is.** The startup probe now sends the version
   query and the secondary attributes query, and `core/input` decodes device
   control strings and the two private-marker reports. What the terminal said

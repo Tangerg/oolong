@@ -316,6 +316,10 @@ halves of a prompt: **history** that gives back the draft it interrupted, and a
 
 Nothing here decides what any of it looks like. A list draws a row by calling back to
 whoever does, which is the one design decision that makes the ring above it optional.
+Three things cannot hand their drawing out — a field is generic over what it holds, an
+editor lays a selection over text only it knows the shape of, and a completion picks
+out the characters a query matched — and those three take a `Look`, which is one value
+with a handful of roles in it rather than a style field per part. A theme builds one.
 
 ### kit
 
