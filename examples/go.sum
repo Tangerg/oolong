@@ -1,7 +1,7 @@
-github.com/Tangerg/oolong/components v0.0.1 h1:yEZdK1rjkvDtungx+4YLChuGON1JopkC41u0qAMWXuI=
-github.com/Tangerg/oolong/components v0.0.1/go.mod h1:cQexP5xRBGetge7FFTCP7PzOTgutEhe4fp0NdGnU6q8=
-github.com/Tangerg/oolong/core v0.0.1 h1:e1gNPwWqgiu+Cze4YVqDivMfo00erYbWRuRrFkntOS4=
-github.com/Tangerg/oolong/core v0.0.1/go.mod h1:v0j97OQRN3r45ZB8xDdVUW0HhKWMASfPZudwBGkE/rU=
+github.com/Tangerg/oolong/components v0.0.2 h1:e0sMde5vVTdfD4OOdre6LCxl82Z1l9vZtWVk+bdyrCM=
+github.com/Tangerg/oolong/components v0.0.2/go.mod h1:X+zbMaWHQ9ZSH7taPIdyAq4t1l2zEygnIuRjaWi2lHE=
+github.com/Tangerg/oolong/core v0.0.2 h1:pjME3rVcIWTi2sDoTiJQ3qNsXkYgpvdCNIDKjk7PT+k=
+github.com/Tangerg/oolong/core v0.0.2/go.mod h1:GTB/96EIyxbDLwmYbvq3h32bBqyEbh48lpF+lTvqRu0=
 github.com/Tangerg/oolong/ptytest v0.0.1 h1:UAHhTi05XVQ6R45b5fW5YJrQ18fSJNVADC1cTbbb3pM=
 github.com/Tangerg/oolong/ptytest v0.0.1/go.mod h1:7NcUtUuCwH3yDALHxxEJsK2dlvmY14EHWO/mCda3+pY=
 github.com/clipperhouse/uax29/v2 v2.2.0 h1:ChwIKnQN3kcZteTXMgb1wztSgaU+ZemkgWdohwgs8tY=
