@@ -40,9 +40,11 @@ point of tagging them low rather than not at all.
   a test that drives it without a terminal, which is what `program.Config.Host` is
   for.
 - **A list can hold the keyboard**, so it can be one of a container's children —
-  which is what a two-pane interface is made of. A dressed tree, tabs and form pass
-  the keyboard and the events through as well, so a widget with a look on it is a
-  widget like any other.
+  which is what a two-pane interface is made of. A dressed tree, tabs, form and
+  dialog pass the keyboard and the events through as well, so a widget with a look on
+  it is a widget like any other. Without the last of those the news stopped at a
+  dialog's frame: a stack hands the keyboard to the layer on top, and a form inside
+  one took every keystroke while drawing no caret.
 - **Handing the terminal over works on Windows**, over a wait on the console and an
   event. Whether it can is now a question about the session rather than the platform:
   a console can be waited on, and a pipe pretending to be a terminal cannot.

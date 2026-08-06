@@ -46,6 +46,18 @@ func (d *Dialog) Handle(ev input.Event) bool {
 	return false
 }
 
+// Focus passes the keyboard to the body, if the body can hold it.
+//
+// A stack hands the keyboard to the layer on top and expects the layer to pass it
+// on. Without this the news stops at the frame: the dialog is the layer, so a form
+// inside one would never be told it is being typed at, and a field would draw no
+// caret while taking every keystroke.
+func (d *Dialog) Focus(has bool) {
+	if body, ok := d.Body.(headless.Focusable); ok {
+		body.Focus(has)
+	}
+}
+
 // Backdrop shades what the dialog covers.
 //
 // It is a separate step from Draw because a layer is handed a view of its own

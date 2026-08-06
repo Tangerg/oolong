@@ -871,3 +871,28 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 	}
 	equalRows(t, paint(8, 2, shown.Draw), []string{"........", "........"})
 }
+
+// spy is a body that records whether it was told it has the keyboard.
+type spy struct{ focused bool }
+
+func (s *spy) Draw(grid.View)          {}
+func (s *spy) Focus(has bool)          { s.focused = has }
+func (s *spy) Handle(input.Event) bool { return false }
+
+func TestALayerPassesTheKeyboardToWhatIsInIt(t *testing.T) {
+	// A stack hands the keyboard to the layer on top and expects the layer to pass it
+	// on. A dialog is the layer, so without this the news stops at the frame and a
+	// form inside one takes every keystroke while drawing no caret.
+	body := &spy{}
+	stack := &headless.Stack{}
+	stack.Push(&kit.Dialog{Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: body})
+	stack.Focus(true)
+
+	if !body.focused {
+		t.Fatal("what is inside the dialog was not told it has the keyboard")
+	}
+	stack.Focus(false)
+	if body.focused {
+		t.Fatal("what is inside the dialog was not told it lost the keyboard")
+	}
+}
