@@ -1,14 +1,21 @@
 # Changelog
 
-All notable changes to this repository. Modules are versioned and tagged
-separately (`core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`,
-`ptytest/vX.Y.Z`).
+All notable changes to this repository. Modules are tagged separately —
+`core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `ptytest/vX.Y.Z` — and
+share one version number: a release is a state of the repository, and a module
+that did not change in one keeps the tag it already had.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
 ## [Unreleased]
+
+## [0.0.2] — 2026-08-06
+
+First tagged version of `markdown`, which starts at this repository's version
+rather than at its own: the changelog is one list and a module's tag says which
+entry of it a checkout is. `ptytest` did not change and stays at `0.0.1`.
 
 ### Added
 
