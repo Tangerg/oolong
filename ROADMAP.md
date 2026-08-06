@@ -413,12 +413,24 @@ in a frame, which is still waiting on the same thing.*
    frame. Section 3 calls this waiting on the frame pipeline, which is exactly what it
    is waiting on.
 
-   **Still waiting, and still on that.** It is the one item on this list not done, and
-   it is not done because a cell is a grapheme and a style: an image is neither, and
-   what it needs is a decision about what a frame is made of rather than another
-   package beside one. `markdown` says the same thing in the small — a picture in a
-   document comes out as its description and where it is — which is what a row of
-   cells can honestly do today.
+   **What the decision turned out to be.** A frame is cells, and regions that
+   something else writes into. `grid.Painter` is that something: a frame keeps room
+   for one, writes the cells around it, and hands it the writer with the cursor
+   already at the region's corner.
+
+   One rule, and it is the whole design — a painter must leave the cursor where it
+   found it. Every position in a frame is a movement from the last known one and an
+   inline block's whole position is relative, so a painter that moved it would move
+   everything after it; and that same rule is exactly what makes an image protocol
+   usable in a region that redraws, because the one that can be told not to move the
+   cursor is the one that can be told to take an image away again.
+
+   So the lifecycle was the work rather than the drawing. A region is named by what
+   is in it: an unchanged one writes nothing, a moved one is erased before it is
+   painted — a terminal that remembers what it was shown would otherwise hold both —
+   and a full repaint says all of it again, because what a terminal remembers being
+   shown is not a cell. `core/graphics` needed two methods and one parameter, and the
+   two packages still do not import each other.
 
 ### 7.2 Widgets that are simply absent
 
@@ -517,19 +529,26 @@ above it — the server, the keys, the sessions — is a program rather than a l
 
 Kept for the same reason section 6 is: so it is not rediscovered from scratch.
 
-- **A cell cannot hold an image, and that is now the only thing on the list.** Every
-  other gap in section 7 came down to a package that was not written; this one comes
-  down to what a cell is. Both halves of the answer exist — `core/graphics` knows the
-  protocols, and `core/grid` owns the frame — and what is between them is a decision
-  about what a frame is made of, not a package.
-- **`text.Span` carries a style and not a destination.** So a decoder cannot read an
-  OSC 8 hyperlink out of a command's output, and markdown writes a link's address out
-  in words rather than making the words clickable. `core/link` and `text.StampLink`
-  stamp one onto cells that have already been drawn, which is the other half of the
-  answer; what is missing is a way for a line to carry the link until it is drawn.
-- **Handing the terminal over is Unix-only, and says so.** What Windows needs is a
-  console read that can be cancelled, which is `CancelIoEx` and a different reader
-  rather than a flag on this one.
+- ~~**A cell cannot hold an image.**~~ Done, and section 7.1 records what the answer
+  turned out to be: a frame is cells and regions something else paints.
+- ~~**`text.Span` carries a style and not a destination.**~~ Done. It carries one now,
+  and it has to be there rather than stamped on afterwards: by the time cells exist
+  the columns are gone, and something holding byte offsets into the text it was made
+  from cannot say which cells the third word ended up on. A span survives wrapping,
+  truncation and drawing, so the address survives with it — which is what lets the
+  decoder keep a command's hyperlinks and markdown put an address on the words
+  instead of in brackets after them.
+- ~~**Handing the terminal over is Unix-only.**~~ Done, and not with `CancelIoEx`: a
+  console is a waitable object, so the wait that already existed on Unix is the same
+  wait there. What changed is that it stopped being a question about the platform and
+  became one about the session — a console can be waited on and a pipe pretending to
+  be a terminal cannot, which is the case that has to say so.
+- ~~**There was no way out of the grid without a terminal.**~~ Not on any list, and
+  found by asking what an interface does when its output is a pipe: everything above
+  `core/grid` draws into a view and could not be asked for text, so every test in this
+  repository had written the same walk over the cells. `grid.Render` is that walk.
+- ~~**Code was not highlighted.**~~ Done, as its own module, which is what the
+  seam in markdown was for.
 - **`headless.Table` is a `List`, `Tree` is a list of its shown rows, and `Filter` is a
   list of what matched.** Three of the four widgets in 7.2 came out as a list with
   something added, which is worth noticing before the fifth is written: the question to
@@ -540,3 +559,25 @@ Kept for the same reason section 6 is: so it is not rediscovered from scratch.
   text wrapped into what is left of a row, section 6 says the wrapping cannot live in
   `core/grid`, and `markdown.Doc` now does exactly that job one layer up. Whatever
   finally turns a stream of text into rows should be one thing and not two.
+
+---
+
+## 9. What is left
+
+Two things, and neither is a gap in the library.
+
+- **A picture that is not a PNG, and a terminal that only speaks sixel.**
+  `core/graphics` reads a PNG's size out of its header, which is why it needs no
+  decoder and therefore no dependency; producing sixel means decoding an image into
+  pixels, which needs one. A caller holding an encoder is told the terminal will take
+  what it makes, and that is the honest place for the boundary.
+- **A second worked example.** The one there is streams an answer and proves the
+  probe, the theme, the clipboard and the glyph fallback. Everything added since —
+  the tree, the tabs, the table, the filter, the images, the handover — is proved by
+  its own tests and by nothing anybody can run. That is the next thing worth doing,
+  and it is a program rather than a library.
+
+Everything else this was read against is either built, refused on purpose in section
+4 and 7.4, or an application's: what a tool call looks like, what an `@` refers to,
+how a session is persisted. Those are the things a library that meant to be general
+must not decide.
