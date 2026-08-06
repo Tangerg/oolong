@@ -8,8 +8,10 @@
 package term
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -87,6 +89,10 @@ type Terminal struct {
 	// title is what this session called the window, and what it owes the terminal
 	// when it gives it back.
 	title title
+	// pictures numbers the images this session has sent, so that two of them cannot
+	// arrive under one name. It is atomic because sending one is not the interface's
+	// goroutine's business — a picture is usually fetched from somewhere else.
+	pictures atomic.Uint32
 
 	winch    chan os.Signal
 	resized  chan struct{}
@@ -391,6 +397,46 @@ func pathEscape(path string) string {
 // Size is the terminal's size in cells.
 func (t *Terminal) Size() (w, h int, err error) {
 	return xterm.GetSize(int(t.out.Fd()))
+}
+
+// CellSize is how many pixels one cell is, and whether the terminal said.
+//
+// It is what a picture has to be fitted with — see [graphics.Fit] — and it is the
+// one number about a terminal that cannot be worked out from the others. Plenty of
+// terminals do not report it, which is what the false is for: a picture scaled by an
+// invented cell size is a picture the wrong shape, and not showing one is the better
+// answer.
+func (t *Terminal) CellSize() (image.Point, bool) {
+	pxW, pxH, ok := windowPixels(int(t.out.Fd()))
+	if !ok {
+		return image.Point{}, false
+	}
+	cols, rows, err := t.Size()
+	if err != nil || cols <= 0 || rows <= 0 {
+		return image.Point{}, false
+	}
+	return image.Pt(pxW/cols, pxH/rows), true
+}
+
+// Transmit sends a picture to the terminal and returns the handle it now knows it
+// by, which is what puts one in a frame — see [graphics.Image.Paint].
+//
+// The number is this session's to allocate, because two pictures under one name are
+// one picture: nothing above this can know what else has been sent. It is sent
+// beside the frames, so it lands between two of them and never inside one, and it
+// happens once — placing it again on every frame that shows it costs nothing more.
+//
+// A terminal that cannot show pictures is not asked. Whether this one can is
+// [Terminal.Graphics], and a caller that sends without asking has written a
+// megabyte of base64 to something that will print it.
+func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
+	var payload bytes.Buffer
+	img, err := graphics.Transmit(&payload, t.pictures.Add(1), png)
+	if err != nil {
+		return graphics.Image{}, err
+	}
+	t.writer.Queue(payload.Bytes())
+	return img, nil
 }
 
 // Close gives the terminal back.

@@ -193,11 +193,34 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 // The cursor is positioned by the caller, and the escape belongs after the cell
 // diff of the frame it appears in: the diff would otherwise write over the image
 // with the blanks it thinks are underneath it.
+//
+// The cursor is left where it was found. That is what lets an image go in a frame
+// at all — every position in a frame is a movement from the last known one, and an
+// inline block's whole position is relative — and it is the property the protocols
+// that cannot be told to move an image also lack. See [Image.Paint], which is this
+// under the name a frame asks for.
 func Place(w io.Writer, id uint32, cols, rows int) error {
-	// z=-1 puts the image behind the text, so a caller can still write over it.
-	_, err := fmt.Fprintf(w, "\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,q=2;\x1b\\", id, cols, rows)
+	// z=-1 puts the image behind the text, so a caller can still write over it, and
+	// C=1 keeps the cursor where it is.
+	_, err := fmt.Fprintf(w, "\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", id, cols, rows)
 	return err
 }
+
+// Paint puts the image in a region of a frame, and Erase takes it away again.
+//
+// The two of them are what a frame asks of anything that writes itself onto the
+// terminal rather than into cells — see
+// [github.com/Tangerg/oolong/core/grid.Painter], which this satisfies without either
+// package knowing about the other: one says what a region needs, the other happens
+// to be able to do it.
+//
+// Only an image that was transmitted has them, which is the same distinction the
+// package comment draws. An image put on the screen with [Inline] has no name to
+// place again or take away, so there is nothing here for it to be.
+func (i Image) Paint(w io.Writer, cols, rows int) error { return Place(w, i.ID, cols, rows) }
+
+// Erase removes every placement of the image and forgets it.
+func (i Image) Erase(w io.Writer) error { return Delete(w, i.ID) }
 
 // Delete removes every placement of an image and forgets it.
 func Delete(w io.Writer, id uint32) error {

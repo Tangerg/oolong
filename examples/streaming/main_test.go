@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"image"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Tangerg/oolong/core/graphics"
 
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
@@ -38,6 +42,13 @@ func (h *host) Size() (int, int, error)    { return 60, 12, nil }
 func (h *host) Ground() grid.Ground        { return grid.Ground{} }
 func (h *host) Copy(string) bool           { return false }
 func (h *host) Paste()                     {}
+
+func (h *host) Graphics() graphics.Protocol   { return graphics.None }
+func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
+
+func (h *host) Transmit([]byte) (graphics.Image, error) {
+	return graphics.Image{}, errors.ErrUnsupported
+}
 
 func (h *host) SetTitle(string) {}
 func (h *host) Bell()           {}

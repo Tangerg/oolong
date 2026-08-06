@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/components/kit"
 
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
@@ -845,4 +846,28 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 	if drawn := paint(20, 1, view.Titles); !strings.Contains(drawn[0], "name^") {
 		t.Fatalf("the heading reads %q, want the mark beside the sorted column", drawn[0])
 	}
+}
+
+func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
+	// The three ways there is nothing to show — no picture, no cell size, no terminal
+	// that draws them — all end in the same place, and the alternative text is what
+	// was written for exactly that.
+	var none kit.Image
+	none.Alt = "a diagram"
+	none.Theme = kit.Dark()
+	equalRows(t, paint(12, 1, none.Draw), []string{"a diagram..."})
+	if none.Measure(12) != 1 {
+		t.Fatalf("a picture that cannot be shown asked for %d rows", none.Measure(12))
+	}
+
+	// With a handle and a cell size it keeps the room, and the cells stay blank: what
+	// goes there is written by the frame, not drawn into it.
+	shown := kit.Image{
+		Of:   graphics.Image{ID: 3, Width: 200, Height: 100},
+		Cell: image.Pt(10, 20),
+	}
+	if got := shown.Measure(40); got != 5 {
+		t.Fatalf("a 200x100 picture in 10x20 cells took %d rows, want five", got)
+	}
+	equalRows(t, paint(8, 2, shown.Draw), []string{"........", "........"})
 }

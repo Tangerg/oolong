@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/program"
 
+	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/term"
@@ -129,6 +131,17 @@ func (h *host) said() (title string, rang int, notified []string) {
 	h.clipMu.Lock()
 	defer h.clipMu.Unlock()
 	return h.title, h.rang, slices.Clone(h.notified)
+}
+
+// Graphics, CellSize and Transmit answer the way a host with no terminal has to:
+// there is nowhere to put a picture, and saying so is what lets an interface draw
+// something else instead.
+func (h *host) Graphics() graphics.Protocol { return graphics.None }
+
+func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
+
+func (h *host) Transmit([]byte) (graphics.Image, error) {
+	return graphics.Image{}, errors.ErrUnsupported
 }
 
 func (h *host) timesHanded() int {

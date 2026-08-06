@@ -19,6 +19,10 @@ type Surface struct {
 	// of the cells' meaning, not of one view onto them: every view derived from a
 	// surface is looking at the same terminal.
 	ground Ground
+	// paints are the regions of this frame that something else writes into — see
+	// [Painter]. They belong to the surface for the same reason the cells do: they
+	// are what this frame is, and a frame is drawn from nothing every time.
+	paints []painted
 }
 
 // NewSurface returns a blank surface of the given size.
@@ -42,8 +46,11 @@ func (s *Surface) Resize(w, h int) {
 	s.Reset()
 }
 
-// Reset blanks every cell.
-func (s *Surface) Reset() { clear(s.cells) }
+// Reset blanks every cell and forgets the regions something else was to paint.
+func (s *Surface) Reset() {
+	clear(s.cells)
+	s.paints = s.paints[:0]
+}
 
 // Size returns the surface's width and height.
 func (s *Surface) Size() (w, h int) { return s.w, s.h }

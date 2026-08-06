@@ -31,10 +31,12 @@ package program
 import (
 	"context"
 	"errors"
+	"image"
 	"io"
 	"sync"
 	"time"
 
+	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
@@ -175,6 +177,23 @@ type Loop interface {
 	// in the interface as well.
 	Notify(text string)
 
+	// Graphics is the richest way this terminal will take a picture, and CellSize how
+	// many pixels one cell is — the two questions that have to be answered before an
+	// interface can show one. A terminal that cannot show pictures reports
+	// [graphics.None], and one that never said how big a cell is reports false, which
+	// is not the same thing: the first cannot show a picture at all, and the second
+	// cannot be told what shape to draw it.
+	Graphics() graphics.Protocol
+	CellSize() (image.Point, bool)
+
+	// Transmit sends a picture to the terminal and returns the handle it now knows it
+	// by, which is what puts one in a frame — see [grid.View.Paint].
+	//
+	// Once per picture rather than once per frame: what a frame does with it after
+	// that is place it, which is a dozen bytes. A host that is not a terminal has
+	// nowhere to send one and reports [errors.ErrUnsupported].
+	Transmit(png []byte) (graphics.Image, error)
+
 	// Suspend gives the terminal back and stops this process, the way Ctrl+Z does in
 	// a shell, returning when it is continued.
 	//
@@ -293,6 +312,12 @@ type Host interface {
 	SetTitle(s string)
 	Bell()
 	Notify(text string)
+	// Graphics is how this host will take a picture, CellSize how many pixels a cell
+	// is, and Transmit sends one — see [term.Terminal.Transmit]. A host that is not a
+	// terminal shows no pictures and says so.
+	Graphics() graphics.Protocol
+	CellSize() (image.Point, bool)
+	Transmit(png []byte) (graphics.Image, error)
 }
 
 // Config is what a program needs to run.
@@ -742,6 +767,15 @@ func (l loop) SetTitle(s string) { l.p.host.SetTitle(s) }
 func (l loop) Bell() { l.p.host.Bell() }
 
 func (l loop) Notify(text string) { l.p.host.Notify(text) }
+
+// Graphics, CellSize and Transmit read through to the host as well. Sending a
+// picture is not the interface's goroutine's business — it is usually fetched from
+// somewhere else — and what comes back is a handle a frame places, which is.
+func (l loop) Graphics() graphics.Protocol { return l.p.host.Graphics() }
+
+func (l loop) CellSize() (image.Point, bool) { return l.p.host.CellSize() }
+
+func (l loop) Transmit(png []byte) (graphics.Image, error) { return l.p.host.Transmit(png) }
 
 func (l loop) Every(d time.Duration, fn func()) (stop func()) {
 	if d <= 0 || fn == nil {

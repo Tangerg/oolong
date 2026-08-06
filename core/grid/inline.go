@@ -80,8 +80,11 @@ type Inline struct {
 	known bool
 	shown bool
 
-	// full forces the next flush to rewrite every row of the block.
-	full bool
+	// full forces the next flush to rewrite every row of the block, and repaintAll
+	// says the same about the regions something else painted — which the rows say
+	// nothing about, because what a terminal remembers being shown is not a row.
+	full       bool
+	repaintAll bool
 
 	// depth is how much colour the terminal is being asked to show.
 	depth Depth
@@ -152,6 +155,7 @@ func (i *Inline) SetGround(g Ground) {
 // whole block.
 func (i *Inline) Invalidate() {
 	i.full = true
+	i.repaintAll = true
 	i.known = false
 }
 
@@ -319,6 +323,13 @@ func (i *Inline) used() int {
 	if i.placed.Visible {
 		last = max(last, i.placed.Pos.Y)
 	}
+	// A region something else paints has no cells in it, and the block still has to
+	// be tall enough to hold it: a picture below the block's last written row would
+	// be drawn outside it, and the next frame would move up over rows it does not
+	// own.
+	for _, region := range i.back.regions() {
+		last = max(last, region.rect.Max.Y-1)
+	}
 	return last + 1
 }
 
@@ -409,11 +420,59 @@ func (i *Inline) compose(used int) {
 		i.buf = append(i.buf, '\r')
 	}
 
+	// The regions something else paints, from where the rows left the cursor. They
+	// go after the rows for the reason they do on a screen — the rows would write the
+	// blanks they think are underneath over what was painted — and before the cursor,
+	// which has to end up where this frame asked whatever a painter did on the way.
+	cur := i.paintRegions(image.Pt(0, max(total-1, 0)), full)
+
 	at := image.Pt(0, max(used-1, 0))
-	if up := max(total-1, 0) - at.Y; up > 0 {
+	if up := cur.Y - at.Y; up > 0 {
 		i.csi(up, 'A')
 	}
+	if down := at.Y - cur.Y; down > 0 {
+		i.csi(down, 'B')
+	}
+	if cur.X > 0 {
+		i.buf = append(i.buf, '\r')
+	}
 	i.placeCursor(at)
+}
+
+// paintRegions writes what turns the regions the terminal is showing into the ones
+// this frame asked for, and reports where it left the cursor.
+//
+// Everything is relative, like every other movement in an inline block. A frame that
+// published output moved the block down past it, which moved what the terminal is
+// showing with it, so that frame paints its regions again from nothing — the same
+// answer a full repaint gives, and for the same reason.
+func (i *Inline) paintRegions(cur image.Point, full bool) image.Point {
+	was, now := i.front.regions(), i.back.regions()
+	if len(was) == 0 && len(now) == 0 {
+		return cur
+	}
+	out := bytesTo{&i.buf}
+	move := func(to image.Point) {
+		if up := cur.Y - to.Y; up > 0 {
+			i.csi(up, 'A')
+		}
+		if down := to.Y - cur.Y; down > 0 {
+			i.csi(down, 'B')
+		}
+		i.buf = append(i.buf, '\r')
+		if to.X > 0 {
+			i.csi(to.X, 'C')
+		}
+		cur = to
+	}
+	if full || i.repaintAll {
+		i.repaintAll = false
+		// Nothing here can fail: the destination is memory.
+		_ = repaint(out, was, nil, move)
+		was = nil
+	}
+	_ = repaint(out, was, now, move)
+	return cur
 }
 
 // cursorPending reports whether the terminal has to be told something about its

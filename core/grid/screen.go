@@ -40,6 +40,10 @@ type Screen struct {
 	// contents are no longer known: after a resize, or after something else has
 	// written to the terminal.
 	full bool
+	// repaintAll says the same about the regions something else painted, which the
+	// cells say nothing about. It is a second flag because the cell repaint happens
+	// before them and clears the first one.
+	repaintAll bool
 }
 
 // NewScreen returns a screen of the given size whose first flush repaints
@@ -93,6 +97,7 @@ func (s *Screen) SetGround(g Ground) {
 // full. It is what to call after handing the terminal to another program.
 func (s *Screen) Invalidate() {
 	s.full = true
+	s.repaintAll = true
 	s.cursor.forget()
 }
 
@@ -122,6 +127,15 @@ func (s *Screen) Flush(w io.Writer) error {
 	s.frame.restart()
 	s.paintCells()
 	s.frame.end()
+
+	// The regions something else paints go after the cells and before the cursor: the
+	// diff would otherwise write the blanks it thinks are underneath them over what
+	// was painted, and the cursor has to end up where the frame asked whatever a
+	// painter did with it.
+	if err := s.paintRegions(); err != nil {
+		s.Invalidate()
+		return err
+	}
 	// A frame that began is a frame that wrote cells, which is also what tells the
 	// cursor it has to re-anchor.
 	s.cursor.emit(&s.frame, s.placed, s.frame.begun)
@@ -141,6 +155,34 @@ func (s *Screen) Flush(w io.Writer) error {
 		return err
 	}
 	s.swap()
+	return nil
+}
+
+// paintRegions writes what turns the regions the terminal is showing into the ones
+// this frame asked for.
+//
+// A full repaint says nothing about them: what the terminal remembers being shown is
+// not a cell and is not undone by writing over the cells. So a frame that repainted
+// everything erases every region it knew about and paints them again, which is also
+// what makes a resize and a handover come back right.
+func (s *Screen) paintRegions() error {
+	was := s.front.regions()
+	out := bytesTo{&s.frame.out}
+	if s.repaintAll {
+		s.repaintAll = false
+		if err := repaint(out, was, nil, s.frame.moveToPoint); err != nil {
+			return err
+		}
+		was = nil
+	}
+	if err := repaint(out, was, s.back.regions(), s.frame.moveToPoint); err != nil {
+		return err
+	}
+	if len(s.back.regions()) > 0 || len(was) > 0 {
+		// A painter was handed the writer, and what it wrote is not something this
+		// package can read: where the cursor ended up is no longer known.
+		s.frame.forcePos()
+	}
 	return nil
 }
 

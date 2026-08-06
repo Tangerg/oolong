@@ -2,6 +2,7 @@ package grid_test
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"io"
 	"strings"
@@ -786,5 +787,122 @@ func TestASurfaceCanBeReadAsText(t *testing.T) {
 	}
 	if len(rows) != 3 {
 		t.Fatalf("%d rows, want one per row of the surface", len(rows))
+	}
+}
+
+// picture is something that writes itself into a region of a frame, recording what
+// it was asked to do so a test can state the lifecycle rather than the bytes.
+type picture struct {
+	name string
+	log  *[]string
+}
+
+func (p picture) Paint(w io.Writer, cols, rows int) error {
+	*p.log = append(*p.log, fmt.Sprintf("paint %s %dx%d", p.name, cols, rows))
+	_, err := io.WriteString(w, "<"+p.name+">")
+	return err
+}
+
+func (p picture) Erase(w io.Writer) error {
+	*p.log = append(*p.log, "erase "+p.name)
+	_, err := io.WriteString(w, "</"+p.name+">")
+	return err
+}
+
+func TestAFrameKeepsRoomForSomethingItCannotDraw(t *testing.T) {
+	// What a cell cannot hold: a picture, a plot in pixels, anything whose contents
+	// are bytes the terminal understands and the grid does not.
+	var log []string
+	s := grid.NewScreen(10, 4)
+	var out bytes.Buffer
+
+	draw := func(at image.Rectangle, id uint64, name string) {
+		v := s.Frame()
+		v.Text(0, 0, "caption", grid.Style{})
+		v.Paint(at, id, picture{name: name, log: &log})
+		if err := s.Flush(&out); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	box := grid.Rect(1, 1, 6, 3)
+	draw(box, 1, "a")
+	if len(log) != 1 || log[0] != "paint a 6x3" {
+		t.Fatalf("the first frame did %v", log)
+	}
+	if !strings.Contains(out.String(), "<a>") {
+		t.Fatalf("what it painted never reached the terminal: %q", out.String())
+	}
+
+	// The same thing in the same place is not painted again: an unchanged frame is
+	// silent about its regions as it is about its cells.
+	log = nil
+	draw(box, 1, "a")
+	if len(log) != 0 {
+		t.Fatalf("an unchanged region did %v", log)
+	}
+
+	// Moved is erased and painted again, in that order: a terminal that remembers
+	// what it was shown would otherwise hold both until the old one was taken away.
+	log = nil
+	draw(grid.Rect(2, 1, 6, 3), 1, "a")
+	if len(log) != 2 || log[0] != "erase a" || log[1] != "paint a 6x3" {
+		t.Fatalf("a region that moved did %v", log)
+	}
+
+	// A different picture in the same place replaces it, and a frame that asks for
+	// none takes it away.
+	log = nil
+	draw(grid.Rect(2, 1, 6, 3), 2, "b")
+	if len(log) != 2 || log[0] != "erase a" || log[1] != "paint b 6x3" {
+		t.Fatalf("a region that changed did %v", log)
+	}
+	log = nil
+	v := s.Frame()
+	v.Text(0, 0, "caption", grid.Style{})
+	if err := s.Flush(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(log) != 1 || log[0] != "erase b" {
+		t.Fatalf("a region that went away did %v", log)
+	}
+}
+
+func TestARegionThatDoesNotFitIsNotPainted(t *testing.T) {
+	// Half a picture squashed into the part that fits is worse than none: this layer
+	// knows how many cells a region has and nothing about what is in it.
+	var log []string
+	s := grid.NewScreen(10, 4)
+	var out bytes.Buffer
+	v := s.Frame()
+	v.Paint(grid.Rect(6, 2, 8, 4), 1, picture{name: "a", log: &log})
+	if err := s.Flush(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(log) != 0 {
+		t.Fatalf("a region hanging off the edge did %v", log)
+	}
+}
+
+func TestWhatWasPaintedIsSaidAgainAfterAFullRepaint(t *testing.T) {
+	// A repaint says nothing about a region: what a terminal remembers being shown is
+	// not a cell, and writing over the cells does not undo it. So a resize, or a
+	// terminal handed to something else and taken back, starts the region again.
+	var log []string
+	s := grid.NewScreen(10, 4)
+	var out bytes.Buffer
+	paint := func() {
+		v := s.Frame()
+		v.Paint(grid.Rect(0, 0, 4, 2), 7, picture{name: "a", log: &log})
+		if err := s.Flush(&out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paint()
+	log = nil
+	s.Invalidate()
+	paint()
+	if len(log) != 2 || log[0] != "erase a" || log[1] != "paint a 4x2" {
+		t.Fatalf("after a full repaint the region did %v", log)
 	}
 }

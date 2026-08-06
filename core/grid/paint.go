@@ -93,6 +93,10 @@ func (p *painter) adopt(other *painter) {
 // scrolling-region change, for one — leave that belief unfounded.
 func (p *painter) forcePos() { p.known = false }
 
+// moveToPoint positions the cursor at a point, for a caller that has one — which is
+// what a region something else paints is placed by.
+func (p *painter) moveToPoint(at image.Point) { p.moveTo(at.X, at.Y) }
+
 // moveTo positions the cursor unless it is already there.
 func (p *painter) moveTo(x, y int) {
 	if p.known && p.at.X == x && p.at.Y == y {
