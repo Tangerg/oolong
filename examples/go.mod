@@ -3,9 +3,9 @@ module github.com/Tangerg/oolong/examples
 go 1.26.0
 
 require (
-	github.com/Tangerg/oolong/components v0.0.2
-	github.com/Tangerg/oolong/core v0.0.2
-	github.com/Tangerg/oolong/markdown v0.0.2
+	github.com/Tangerg/oolong/components v0.0.3
+	github.com/Tangerg/oolong/core v0.0.3
+	github.com/Tangerg/oolong/markdown v0.0.3
 	github.com/Tangerg/oolong/ptytest v0.0.1
 )
 
