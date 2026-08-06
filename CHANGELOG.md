@@ -1,15 +1,107 @@
 # Changelog
 
 All notable changes to this repository. Modules are tagged separately —
-`core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `ptytest/vX.Y.Z` — and
-share one version number: a release is a state of the repository, and a module
-that did not change in one keeps the tag it already had.
+`core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `highlight/vX.Y.Z`,
+`ptytest/vX.Y.Z` — and share one version number: a release is a state of the
+repository, and a module that did not change in one keeps the tag it already had.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
 ## [Unreleased]
+
+## [0.0.5] — 2026-08-06
+
+Every module moves. The shape of what a program is handed changed, so this is the
+release that breaks most: `Loop` is gone, `Host` is three methods and a set of
+optional ones, and layout speaks `image` rather than `grid`.
+
+### Changed
+
+- **Runtime is a concrete resource, not a provider-owned wide interface.** `Loop` and
+  `InlineLoop` are replaced by `*program.Runtime` and `*program.InlineRuntime`.
+  Background work keeps the concrete, zero-safe `Runtime.Dispatcher()` handle and
+  posts only its state transition back; consumers needing fewer runtime operations
+  declare that interface locally. Terminal facts, clipboard, session control and
+  image transport are concrete `Environment`, `Clipboard`, `Session` and `Images`
+  subresources instead of a flat capability catalogue.
+- **A host is transport plus optional capabilities.** A `program.Host` now implements
+  only `Events`, `Size` and `Writer`. The last returns the consumer-defined
+  `program.FrameWriter` interface instead of exposing `*term.Writer`. Terminal
+  independently useful services are named by single-method consumer interfaces:
+  `GroundHost`, `WheelHost`, `KeyboardHost`, `DirectoryHost`, `CopyHost`,
+  `PasteHost`, `HandoverHost`, `TitleHost`, `BellHost` and `NotifyHost`. Implementing
+  one never silently depends on implementing its neighbours. `ImageHost` remains a
+  coherent group because image transport and its placement geometry form one
+  protocol.
+- **Layout is pure standard-library geometry.** `layout.Size`, `layout.Rows`,
+  `layout.Columns` and every `grid.View` dependency are removed. Layout accepts
+  `image.Point`, produces `image.Rectangle` through `Axis` and `Flow` objects, and a
+  `grid.View` projects those results with `View.Subs`. Flex weights are normalized to
+  an architecture-safe relative range, so allocation stays in bounded integer
+  arithmetic even for hostile values.
+- **Protocol packages no longer prescribe widget contracts.** The unused
+  provider-owned `grid.Drawer` and `input.Handler` interfaces are removed. Drawing
+  and event method sets now live in `program` and `headless`, where they are consumed.
+- **Input decoding and interaction policy are separate layers.** `core/input` retains
+  terminal events plus serializable `Chord` and `Keys` values; actions, bindings,
+  sequence progress and timeout policy move from `input.Keymap` to `keymap.Map`.
+  `Action.Does` is removed because turning identifiers into labels is appearance
+  policy, now owned by `kit`. The provider-owned `headless.Spoken` interface is also
+  removed; the spoken-form adapter declares the smaller method set it consumes.
+- **Link hits retain their domain value.** `Paragraph.LinkAt` returns a complete
+  `link.Link` instead of flattening it to a string, preserving file line and column.
+  Absolute file hyperlinks are encoded with `net/url`, so paths containing spaces or
+  reserved characters remain valid OSC 8 targets. Detection returns the rich
+  `link.Links` collection, whose `At` method replaces the detached package function.
+- **Grid inspection cannot mutate storage.** `Surface.CellAt`, `View.CellAt` and
+  `Surface.Row` return copies. `CellAt` uses the standard `(Cell, bool)` lookup shape
+  instead of returning a misleading pointer to a detached copy. Code that only
+  changes appearance uses `View.MergeStyle`; content and links continue to go through
+  drawing operations that preserve wide-grapheme pairs.
+- **The `core`, `internal` and `ptytest` Go floor is 1.25.** It is the lowest version
+  required by the current `x/sys` and `x/term` dependencies; using a Go 1.26-only
+  error helper on Windows no longer makes those modules claim a higher floor. The
+  complete workspace remains on 1.26 until a coordinated release lets higher modules
+  replace their existing 1.26-tagged Oolong dependencies.
+
+### Fixed
+
+- **A slow terminal cannot fill a hidden fixed-size queue and stop its UI.** The
+  program dispatcher and terminal writer use concurrency-safe FIFO storage with
+  coalesced wake-ups. Sequence assignment and frame insertion are one operation, and
+  closing concurrently with producers cannot reorder frames or make `Drain` skip an
+  older blocked write. `Runtime.Every` also keeps at most one tick pending while the
+  interface is busy instead of growing a catch-up queue.
+- **Display ownership never changes behind an unwritten frame.** Shutdown and
+  `Session.Hand` now report `program.ErrFrameTimeout` when the frame writer cannot
+  drain; handover does not run its callback in that state. `Session.Suspend` also
+  requires a real `HandoverHost` instead of suspending while a custom host remains
+  active, and a component builder returning nil is rejected at startup.
+- **Geometry has defined boundary behaviour.** Negative extents and gaps normalize to
+  zero, oversized insets and margins produce an empty rectangle, and aggregate sizes,
+  fractions, flex weights and rectangle endpoints saturate instead of wrapping.
+  Surface allocation reports an overflowing area explicitly rather than reaching an
+  accidental slice panic.
+- **Ambiguous interaction is refused instead of guessed.** A key binding that is also
+  a prefix waits for its longer sequence, including stateless lookup. Spoken choices
+  accept a unique exact label before prefixes, while duplicate labels and yes/no words
+  sharing a prefix are reported as ambiguous.
+- **Repository checks cover module boundaries without the workspace.** CI also tests
+  each module with `GOWORK=off` and explicit local replacements, exposing undeclared
+  or upward dependencies that `go.work` would otherwise mask. The Go 1.25 floor also
+  compiles Linux, Windows and Darwin source and test sets, so platform-specific files
+  cannot silently raise a module's declared floor.
+- **The architecture rules say which way a dependency may point, not which ways it
+  may not.** Each ring now declares its immediate dependencies and the rest is
+  computed: the transitive closure decides whether an import is allowed, and two more
+  checks refuse a ring nobody declared and a graph with a cycle in it. The rules
+  themselves went from fourteen lists of everything a ring must avoid — which had to
+  be edited in thirteen places to add a ring — to seventeen edges, which have to be
+  edited in one.
+- **A compiled example is no longer source.** The tracked `streaming` Mach-O binary is
+  removed and root-level example binaries are ignored.
 
 ## [0.0.4] — 2026-08-06
 

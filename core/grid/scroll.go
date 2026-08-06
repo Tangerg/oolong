@@ -183,7 +183,7 @@ func diffable(a, b *Surface) bool {
 
 // rowEqual reports whether row ay of a matches row by of b.
 func rowEqual(a *Surface, ay int, b *Surface, by int) bool {
-	return slices.Equal(a.Row(ay), b.Row(by))
+	return slices.Equal(a.row(ay), b.row(by))
 }
 
 // rowsEqual reports whether n rows of a starting at aTop match n rows of b

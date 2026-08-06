@@ -15,10 +15,13 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Inline: func(loop program.InlineLoop) program.Component {
+			Inline: func(runtime *program.InlineRuntime) program.Component {
 				// Not newRunner: that one starts a process, and what is being tested is
 				// what happens to what it says.
-				r = &runner{loop: loop, command: []string{"a", "command"}, status: "running"}
+				r = &runner{
+					runtime: runtime, dispatch: runtime.Dispatcher(),
+					command: []string{"a", "command"}, status: "running",
+				}
 				return r
 			},
 		})
@@ -26,8 +29,8 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	host.Shows(t, "ctrl+e: editor")
 
 	// A chunk boundary can fall anywhere, including inside an escape sequence.
-	r.loop.Post(func() { r.output("plain \x1b[3") })
-	r.loop.Post(func() { r.output("1mred\x1b[0m and more\nsecond line\nhalf a li") })
+	r.dispatch.Post(func() { r.output("plain \x1b[3") })
+	r.dispatch.Post(func() { r.output("1mred\x1b[0m and more\nsecond line\nhalf a li") })
 
 	// What a newline finished is printed into the terminal's own output; what is left
 	// is still being drawn.
@@ -41,7 +44,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 		return contains(host.Frames(), "128;0;0") || contains(host.Frames(), "red")
 	})
 
-	r.loop.Post(func() { r.finish(nil) })
+	r.dispatch.Post(func() { r.finish(nil) })
 	host.Until(t, "the run to be said to be over", func() bool {
 		_, rang, notified, _ := host.Said()
 		return rang == 1 && len(notified) == 1

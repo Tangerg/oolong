@@ -33,12 +33,12 @@ func TestADiffColoursTheWholeRowAndNotJustTheText(t *testing.T) {
 	s := grid.NewSurface(10, d.Measure(10))
 	d.Draw(s.View())
 
-	removed := s.CellAt(9, 0)
-	if removed == nil || removed.Style.BG != theme.Removed.BG {
+	removed := cellAt(s, 9, 0)
+	if removed.Style.BG != theme.Removed.BG {
 		t.Fatalf("the far end of a removed line is %+v, want the removed background", removed)
 	}
-	added := s.CellAt(9, 1)
-	if added == nil || added.Style.BG != theme.Added.BG {
+	added := cellAt(s, 9, 1)
+	if added.Style.BG != theme.Added.BG {
 		t.Fatalf("the far end of an added line is %+v, want the added background", added)
 	}
 }

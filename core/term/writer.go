@@ -25,31 +25,38 @@ const DrainGrace = 250 * time.Millisecond
 // Writer writes frames to the terminal from a goroutine of its own.
 //
 // The reason it exists is that a terminal write can block for a long time — a
-// remote session, a suspended emulator, a scrolled-back pager — and a UI loop that
-// waits for one stops reading input, which is what an unresponsive terminal
-// program actually is.
+// remote session, a suspended emulator, a scrolled-back pager — so producers must
+// not perform those writes synchronously.
 //
 // Progress is reported as a watermark rather than as a stream of results: the only
 // question anyone asks is how far the terminal has got, and a counter answers it
 // without a queue to keep in order or a consumer to keep up. [Writer.Progress]
-// wakes the loop when the watermark moves, and [Writer.Written] says where it is.
+// signals its consumer when the watermark moves, and [Writer.Written] says where it is.
 //
-// Concurrency: [Writer.Queue], [Writer.Drain] and [Writer.Close] belong to the
-// goroutine that owns the terminal. The writer's own goroutine is the only other
-// participant, and the counters it publishes are read safely from anywhere.
+// Every method is safe for concurrent use. Frames are assigned a sequence while
+// they are appended to one FIFO, so sequence order and write order cannot diverge
+// when several goroutines queue terminal commands at once.
 type Writer struct {
 	dst io.Writer
 
-	frames chan frame
-	// progress holds at most one pending wake-up: a loop that has not yet noticed
+	// queue is an unbounded FIFO rather than a buffered channel. Queue must never
+	// stop the interface because a terminal stopped accepting bytes, and a channel
+	// large enough for every possible burst does not exist. wake says the FIFO
+	// changed; the contents and the closed transition live under queueMu.
+	queueMu sync.Mutex
+	queue   []frame
+	wake    chan struct{}
+	closed  bool
+
+	// progress holds at most one pending wake-up: a consumer that has not yet noticed
 	// the last advance does not need to be told twice. It has exactly one consumer,
-	// the loop that owns the terminal, and a wake-up taken from it is gone.
+	// and a wake-up taken from it is gone.
 	progress chan struct{}
 
 	// advanced is closed and replaced every time the watermark moves.
 	//
 	// It exists because [Writer.Drain] also waits for the watermark, and a second
-	// consumer of progress would take wake-ups the loop is owed. A closed channel
+	// consumer of progress would take wake-ups the primary consumer is owed. A closed channel
 	// is a broadcast: every waiter sees it, and none can take it from another.
 	// Waiting on progress from two places was a hang that only appeared on a
 	// machine slow enough for Drain to reach the channel first.
@@ -59,13 +66,16 @@ type Writer struct {
 	queued    atomic.Uint64
 	written   atomic.Uint64
 	processed atomic.Uint64
+	// settleMu turns completions back into a contiguous watermark. Writes finish in
+	// sequence, but Queue calls made after Close are refused by their callers and can
+	// therefore finish out of order with a write already in progress.
+	settleMu sync.Mutex
+	settled  map[uint64]struct{}
 
-	// discarding tells the write goroutine to fail frames instead of writing them,
-	// once the grace period has passed.
+	// discarding tells the write goroutine to fail queued frames instead of writing
+	// them once the grace period has passed. A write already in dst cannot be
+	// interrupted, but everything still in the FIFO can be abandoned deterministically.
 	discarding atomic.Bool
-	// closed guards the frame channel against a send after close. Owner-goroutine
-	// state, like the frames it guards.
-	closed bool
 
 	mu      sync.Mutex
 	failure error
@@ -85,7 +95,7 @@ type frame struct {
 func NewWriter(dst io.Writer) *Writer {
 	w := &Writer{
 		dst:      dst,
-		frames:   make(chan frame, 8),
+		wake:     make(chan struct{}, 1),
 		progress: make(chan struct{}, 1),
 		advanced: make(chan struct{}),
 		loopDone: make(chan struct{}),
@@ -98,18 +108,30 @@ func NewWriter(dst io.Writer) *Writer {
 // it. The sequence is reserved before the goroutine can see the frame, so
 // [Writer.Queued] already accounts for it when Queue returns.
 //
-// Queue returns without waiting unless the terminal has fallen further behind than
-// the channel can hold. A frame handed over after [Writer.Close] is failed rather
-// than written, which is not an error to the caller: shutting down while a frame
-// was in flight is ordinary.
+// Queue does not wait for the terminal. A frame handed over after [Writer.Close] is
+// failed rather than written, which is not an error to the caller: shutting down
+// while a frame was in flight is ordinary.
 func (w *Writer) Queue(data []byte) uint64 {
+	w.queueMu.Lock()
 	seq := w.queued.Add(1)
 	if w.closed {
+		w.queueMu.Unlock()
 		w.finish(seq, ErrClosed)
 		return seq
 	}
-	w.frames <- frame{seq: seq, data: data}
+	w.queue = append(w.queue, frame{seq: seq, data: data})
+	w.queueMu.Unlock()
+	w.signal()
 	return seq
+}
+
+// signal wakes the writer without accumulating notifications for changes it has
+// not observed yet.
+func (w *Writer) signal() {
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Progress wakes its receiver when the write watermark has moved. It carries no
@@ -140,10 +162,13 @@ func (w *Writer) Err() error {
 // program does not find half a frame in front of it. A failed frame counts as
 // drained: a broken terminal must not be able to wedge a shutdown.
 //
-// It takes nothing from [Writer.Progress]. Waiting here must not cost the loop a
+// It takes nothing from [Writer.Progress]. Waiting here must not cost its consumer a
 // wake-up it is owed, which is what the broadcast channel is for.
 func (w *Writer) Drain(timeout time.Duration) bool {
-	target := w.queued.Load()
+	return w.drain(w.queued.Load(), timeout)
+}
+
+func (w *Writer) drain(target uint64, timeout time.Duration) bool {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	for {
@@ -175,15 +200,23 @@ func (w *Writer) Drain(timeout time.Duration) bool {
 // finishes on its own, discarding what is left rather than writing it.
 func (w *Writer) Close() error {
 	w.closeOnce.Do(func() {
-		drained := w.Drain(DrainGrace)
-		w.discarding.Store(true)
+		// Closing the admission edge and taking its watermark are one transition.
+		// Otherwise a producer can append after Drain's snapshot and have its frame
+		// abandoned by a Close that still reports success.
+		w.queueMu.Lock()
 		w.closed = true
-		close(w.frames)
+		target := w.queued.Load()
+		w.queueMu.Unlock()
+		w.signal()
+
+		drained := w.drain(target, DrainGrace)
 		if drained {
 			<-w.loopDone
 		} else {
+			w.discarding.Store(true)
+			w.signal()
 			w.closeErr = fmt.Errorf("term: %d frame(s) never reached the terminal: %w",
-				w.queued.Load()-w.written.Load(), ErrClosed)
+				target-min(target, w.written.Load()), ErrClosed)
 		}
 	})
 	return w.closeErr
@@ -192,7 +225,11 @@ func (w *Writer) Close() error {
 // run is the write goroutine.
 func (w *Writer) run() {
 	defer close(w.loopDone)
-	for f := range w.frames {
+	for {
+		f, ok := w.next()
+		if !ok {
+			return
+		}
 		err := ErrClosed
 		if !w.discarding.Load() {
 			err = w.writeAll(f.data)
@@ -201,6 +238,31 @@ func (w *Writer) run() {
 			w.written.Store(f.seq)
 		}
 		w.finish(f.seq, err)
+	}
+}
+
+// next waits for the next frame. Once closed, it drains the FIFO before stopping.
+// If the grace period expires, Close turns on discarding and the remaining frames
+// are accounted for without being written.
+func (w *Writer) next() (frame, bool) {
+	for {
+		w.queueMu.Lock()
+		if len(w.queue) > 0 {
+			f := w.queue[0]
+			w.queue[0] = frame{}
+			w.queue = w.queue[1:]
+			if len(w.queue) == 0 {
+				w.queue = nil
+			}
+			w.queueMu.Unlock()
+			return f, true
+		}
+		closed := w.closed
+		w.queueMu.Unlock()
+		if closed {
+			return frame{}, false
+		}
+		<-w.wake
 	}
 }
 
@@ -240,10 +302,9 @@ func (w *Writer) finish(seq uint64, err error) {
 	case w.progress <- struct{}{}:
 	default:
 	}
-	for {
-		if seen := w.processed.Load(); seen >= seq || w.processed.CompareAndSwap(seen, seq) {
-			break
-		}
+	advanced := w.settle(seq)
+	if !advanced {
+		return
 	}
 	// And the broadcast, which anything else waiting on the watermark observes
 	// without taking the wake-up above.
@@ -252,4 +313,32 @@ func (w *Writer) finish(seq uint64, err error) {
 	w.advanced = make(chan struct{})
 	w.advanceMu.Unlock()
 	close(settled)
+}
+
+// settle records one completion and advances processed only across an unbroken
+// prefix. Treating processed as the largest sequence seen would let a refused frame
+// overtake an older blocked write and make Drain return before that write settled.
+func (w *Writer) settle(seq uint64) bool {
+	w.settleMu.Lock()
+	defer w.settleMu.Unlock()
+
+	if w.settled == nil {
+		w.settled = make(map[uint64]struct{})
+	}
+	w.settled[seq] = struct{}{}
+	previous := w.processed.Load()
+	processed := previous
+	for {
+		next := processed + 1
+		if _, ok := w.settled[next]; !ok {
+			break
+		}
+		delete(w.settled, next)
+		processed = next
+	}
+	if processed != previous {
+		w.processed.Store(processed)
+		return true
+	}
+	return false
 }

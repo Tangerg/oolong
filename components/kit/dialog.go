@@ -1,9 +1,12 @@
 package kit
 
 import (
+	"image"
+
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -31,12 +34,12 @@ type Dialog struct {
 	// Keys is where the hints' keystrokes are read from, and Hints are the actions to
 	// show along the bottom border, where they do not cost a row. An action with
 	// nothing bound to it is not shown.
-	Keys  *input.Keymap
-	Hints []input.Action
+	Keys  *keymap.Map
+	Hints []keymap.Action
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
-func (d *Dialog) Place(layout.Size) layout.Placement { return d.Where }
+func (d *Dialog) Place(image.Point) layout.Placement { return d.Where }
 
 // Handle passes the event to the body, if the body answers input at all.
 func (d *Dialog) Handle(ev input.Event) bool {
@@ -101,7 +104,7 @@ func (d *Dialog) footer() string {
 		if out != "" {
 			out += "  "
 		}
-		out += bound[0].String() + " " + action.Does()
+		out += bound[0].String() + " " + actionLabel(action)
 	}
 	return out
 }

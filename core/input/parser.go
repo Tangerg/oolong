@@ -95,7 +95,7 @@ func (p *Parser) Flush() []Event { return p.drain(true) }
 
 // Pending reports whether anything is waiting for more input to make sense of it:
 // bytes that might yet become a sequence, or a runaway one still being dropped. It
-// is what tells a loop to arm the timer that will call [Parser.Flush], and the
+// is what tells a caller to arm the timer that will call [Parser.Flush], and the
 // runaway counts because the state has to end somewhere — otherwise the next
 // keystroke that happened to be a parameter byte would vanish into it.
 func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.dropping != droppingNothing }
@@ -460,7 +460,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	default:
 		code, ok := cursorKey(final)
 		if !ok {
-			return n, nil, true // a sequence this program has no use for
+			return n, nil, true // a sequence this decoder does not recognize
 		}
 		mods, transition, ok := ps.keyMeta()
 		if !ok {

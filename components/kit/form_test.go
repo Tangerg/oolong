@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
@@ -31,7 +31,7 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 		Glyphs: kit.Unicode(),
 		Title:  "New session",
 		Keys:   keys,
-		Hints:  []input.Action{headless.Submit, headless.Cancel},
+		Hints:  []keymap.Action{headless.Submit, headless.Cancel},
 	}
 
 	rows := paint(24, view.Measure(24), func(v grid.View) { view.Draw(v) })
@@ -59,7 +59,7 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	view.Draw(s.View())
 	// The row under the field is the problem, drawn in the one style a theme has for
 	// saying something is wrong.
-	if c := s.CellAt(0, 2); c == nil || c.Style.FG != theme.Danger.FG {
+	if c := cellAt(s, 0, 2); c.Style.FG != theme.Danger.FG {
 		t.Fatalf("the problem is drawn %+v, want the danger style", c)
 	}
 }

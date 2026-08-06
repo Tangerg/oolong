@@ -3,6 +3,7 @@ package headless
 import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // List is a vertical list of one-row items with a selection.
@@ -29,7 +30,7 @@ type List[T any] struct {
 	Row func(v grid.View, at int, item T, selected bool)
 	// Keys say which keystrokes produce which of the actions the list answers to —
 	// see [List.Do]. Nil reads through [DefaultListKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// Wrap moves the selection from the last item to the first and back. Off by
 	// default: in a long list, wrapping loses the user's place.
 	Wrap bool
@@ -41,7 +42,7 @@ type List[T any] struct {
 	// what only drawing can know.
 	window int
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // Selected is the index under the cursor, or -1 for an empty list.
@@ -114,7 +115,7 @@ func (l *List[T]) Handle(ev input.Event) bool {
 
 // Do runs one of the list's actions by name, reporting whether it was one this list
 // knows. See [Doer].
-func (l *List[T]) Do(action input.Action) bool {
+func (l *List[T]) Do(action keymap.Action) bool {
 	page := max(l.window-1, 1)
 	switch action {
 	case SelectPrev:
@@ -180,7 +181,7 @@ func (l *List[T]) reach(y int) bool {
 // keys is the map to read through, standing in the default for a caller who set none.
 // A list is a struct a caller fills in, so its zero value has to work: one that quietly
 // ignored the arrow keys would look finished and not be.
-func (l *List[T]) keys() *input.Keymap {
+func (l *List[T]) keys() *keymap.Map {
 	if l.Keys != nil {
 		return l.Keys
 	}

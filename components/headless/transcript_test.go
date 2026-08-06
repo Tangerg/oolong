@@ -344,7 +344,7 @@ func rowText(v grid.View, y int) string {
 	var b strings.Builder
 	width, _ := v.Size()
 	for x := range width {
-		if c := v.CellAt(x, y); c != nil && c.Content != "" {
+		if c := cellAt(v, x, y); c.Content != "" {
 			b.WriteString(c.Content)
 		}
 	}

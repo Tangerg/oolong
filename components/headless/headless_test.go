@@ -13,6 +13,18 @@ import (
 	"github.com/Tangerg/oolong/core/program"
 )
 
+type cellReader interface {
+	CellAt(x, y int) (grid.Cell, bool)
+}
+
+func cellAt(r cellReader, x, y int) grid.Cell {
+	cell, ok := r.CellAt(x, y)
+	if !ok {
+		panic("test read outside grid")
+	}
+	return cell
+}
+
 // Anything interactive here runs as a program's root without an adapter. The two
 // interfaces are declared separately so the loop does not depend on the widgets;
 // that they stay the same method set is a promise, and this is where it is kept.
@@ -40,7 +52,7 @@ func paint(w, h int, draw func(grid.View)) []string {
 	for y := range h {
 		var b strings.Builder
 		for x := range w {
-			c := s.CellAt(x, y)
+			c := cellAt(s, x, y)
 			switch {
 			case c.Width() == 0:
 			case c.Content == "":
@@ -186,7 +198,7 @@ func TestAHintReadsTheKeyOutOfTheMapThatBoundIt(t *testing.T) {
 	if got := bound[0].String(); got != "ctrl+w" {
 		t.Errorf("first binding = %q, want the one that works everywhere", got)
 	}
-	if got := headless.DeleteWordBack.Does(); got != "delete word back" {
+	if got := headless.DeleteWordBack.String(); got != "delete-word-back" {
 		t.Errorf("what it does = %q", got)
 	}
 }
@@ -419,7 +431,7 @@ func TestTheMatchedCharactersArePickedOut(t *testing.T) {
 	s := grid.NewSurface(20, 1)
 	c.Draw(s.View())
 	for x, want := range []bool{true, true, false, false, false, false} {
-		if got := s.CellAt(x, 0).Style.Attr.Has(grid.Bold); got != want {
+		if got := cellAt(s, x, 0).Style.Attr.Has(grid.Bold); got != want {
 			t.Errorf("column %d emphasised = %v, want %v", x, got, want)
 		}
 	}
@@ -436,10 +448,10 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 
 	s := grid.NewSurface(10, 1)
 	c.Draw(s.View())
-	if !s.CellAt(0, 0).Style.Attr.Has(grid.Bold) {
+	if !cellAt(s, 0, 0).Style.Attr.Has(grid.Bold) {
 		t.Fatal("the matched cluster was not emphasised")
 	}
-	if s.CellAt(1, 0).Style.Attr.Has(grid.Bold) {
+	if cellAt(s, 1, 0).Style.Attr.Has(grid.Bold) {
 		t.Fatal("the cluster after the match was emphasised")
 	}
 }
@@ -452,10 +464,10 @@ func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
 
 	s := grid.NewSurface(20, 2)
 	c.Draw(s.View())
-	if s.CellAt(0, 0).Style.Attr.Has(grid.Reverse) {
+	if cellAt(s, 0, 0).Style.Attr.Has(grid.Reverse) {
 		t.Error("the row that is not selected is drawn as selected")
 	}
-	if !s.CellAt(0, 1).Style.Attr.Has(grid.Reverse) {
+	if !cellAt(s, 0, 1).Style.Attr.Has(grid.Reverse) {
 		t.Error("the selected row is not drawn as selected")
 	}
 }

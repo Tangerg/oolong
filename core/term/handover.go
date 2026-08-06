@@ -99,8 +99,7 @@ func (h *handover) park(stop <-chan struct{}) {
 // It runs on the caller's goroutine and does not return until run does, which is
 // the point — an interface that drew a frame while a child owned the terminal would
 // draw it over the child. The caller is responsible for there being nothing else
-// writing meanwhile; a program run by [github.com/Tangerg/oolong/core/program] gets
-// that by calling this from the goroutine that owns the interface.
+// writing meanwhile, usually by calling this from its single owner goroutine.
 //
 // The window may be a different size afterwards, and nothing will have reported it:
 // the signal went to whichever process group was in the foreground. A fresh size is

@@ -49,8 +49,7 @@ type Style string
 // what [Of] will accept.
 func Styles() []string { return styles.Names() }
 
-// Of is a function that highlights, for a caller that has one place to put it —
-// [github.com/Tangerg/oolong/markdown.Look.Highlight], above all.
+// Of returns a highlighting function suitable for any consumer of styled lines.
 //
 // The style is resolved once here rather than on every block, which is what makes
 // the returned function cheap enough to call for every fenced block of a streaming

@@ -15,7 +15,7 @@ var Dots = []string{"·", "•", "●", "•"}
 
 // Spinner shows that something is happening.
 //
-// It holds a frame number rather than a clock. Whoever runs the loop decides when
+// It holds a frame number rather than a clock. The caller decides when
 // time passes, which is what lets a test step it deterministically and what keeps an
 // idle UI from waking up to animate something nobody is waiting for.
 type Spinner struct {

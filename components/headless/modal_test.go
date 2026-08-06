@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -33,7 +34,7 @@ func (p *panel) Handle(ev input.Event) bool {
 	return ok && p.takes != 0 && key.Code == p.takes
 }
 
-func (p *panel) Place(layout.Size) layout.Placement { return p.place }
+func (p *panel) Place(image.Point) layout.Placement { return p.place }
 
 func (p *panel) Closed() { p.closed++ }
 
@@ -307,7 +308,7 @@ func TestPushingNothingIsIgnored(t *testing.T) {
 
 func TestTheEscapeBindingCanBeRebound(t *testing.T) {
 	p := &panel{name: "p", place: middle(4, 2)}
-	keys := &input.Keymap{}
+	keys := &keymap.Map{}
 	keys.Bind(headless.Close, input.Chord{Rune: 'q'})
 	s := headless.Stack{Keys: keys}
 	s.Push(p)

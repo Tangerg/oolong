@@ -18,7 +18,7 @@ func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Root: func(loop program.Loop) program.Component { return dress(loop, form) },
+			Root: func(runtime *program.Runtime) program.Component { return dress(runtime, form) },
 		})
 	}()
 

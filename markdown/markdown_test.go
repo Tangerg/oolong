@@ -9,6 +9,18 @@ import (
 	"github.com/Tangerg/oolong/markdown"
 )
 
+type cellReader interface {
+	CellAt(x, y int) (grid.Cell, bool)
+}
+
+func cellAt(r cellReader, x, y int) grid.Cell {
+	cell, ok := r.CellAt(x, y)
+	if !ok {
+		panic("test read outside grid")
+	}
+	return cell
+}
+
 // look is a set of marks a test can read back out of the rows. The styles are left
 // alone: what a heading is drawn in is a decision, and what it says is not.
 func look() markdown.Look {
@@ -37,7 +49,7 @@ func rows(t *testing.T, width int, blocks []markdown.Block) []string {
 	for y := range height {
 		var b strings.Builder
 		for x := range width {
-			c := surface.CellAt(x, y)
+			c := cellAt(surface, x, y)
 			if c.Width() == 0 {
 				continue
 			}
@@ -139,10 +151,10 @@ func TestTheWordsCarryWhereTheyPoint(t *testing.T) {
 	doc.SetBlocks(blocks)
 	s := grid.NewSurface(40, doc.Measure(40))
 	doc.Draw(s.View())
-	if got := s.CellAt(4, 0).Link; got != "http://x/y" {
+	if got := cellAt(s, 4, 0).Link; got != "http://x/y" {
 		t.Fatalf("the cell under the linked words points at %q", got)
 	}
-	if got := s.CellAt(0, 0).Link; got != "" {
+	if got := cellAt(s, 0, 0).Link; got != "" {
 		t.Fatalf("a cell outside the link points at %q", got)
 	}
 

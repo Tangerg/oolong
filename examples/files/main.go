@@ -35,8 +35,8 @@ func main() {
 		root = os.Args[1]
 	}
 	if err := program.Run(context.Background(), program.Config{
-		Root: func(loop program.Loop) program.Component {
-			return newBrowser(loop, read(root, 2))
+		Root: func(runtime *program.Runtime) program.Component {
+			return newBrowser(runtime, read(root, 2))
 		},
 		Terminal: term.Options{Probe: true, Mouse: true},
 	}); err != nil {
@@ -55,8 +55,8 @@ type entry struct {
 // browser is a tree, a preview, and the container that decides which of them an
 // event is for.
 type browser struct {
-	loop  program.Loop
-	theme kit.Theme
+	runtime *program.Runtime
+	theme   kit.Theme
 
 	tree    *headless.Tree[entry]
 	dressed *kit.Tree[entry]
@@ -67,10 +67,10 @@ type browser struct {
 	showing string
 }
 
-func newBrowser(loop program.Loop, nodes []headless.Node[entry]) *browser {
-	theme := kit.Suited(loop.Ground())
+func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser {
+	theme := kit.Suited(runtime.Environment().Ground())
 	b := &browser{
-		loop:    loop,
+		runtime: runtime,
 		theme:   theme,
 		tree:    &headless.Tree[entry]{Nodes: nodes},
 		preview: &kit.Paragraph{},
@@ -103,10 +103,10 @@ func newBrowser(loop program.Loop, nodes []headless.Node[entry]) *browser {
 // Draw paints the two panes, and a hint row under them.
 func (b *browser) Draw(v grid.View) {
 	b.show()
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(1)},
-	)
+	))
 	b.body.Draw(rows[0])
 
 	kit.Label{
@@ -128,7 +128,7 @@ func (b *browser) show() {
 
 func (b *browser) Handle(ev input.Event) bool {
 	if key, ok := ev.(input.Key); ok && key.Down() && key.Rune == 'q' {
-		b.loop.Quit()
+		b.runtime.Quit()
 		return true
 	}
 	return b.body.Handle(ev)

@@ -78,11 +78,9 @@ type Block struct {
 
 // Doc is a rendered document, ready to be measured and drawn.
 //
-// It is a [github.com/Tangerg/oolong/core/grid.Drawer] and a
-// [github.com/Tangerg/oolong/core/layout.Measurer] and nothing else, which is what
-// lets it go into a slot, a container or a viewport belonging to a package this one
-// has never heard of. Everything above the substrate speaks those two, so this
-// module needs no widget of its own and imports none.
+// It draws into a grid view and is a
+// [github.com/Tangerg/oolong/core/layout.Measurer], which is what lets it go into a
+// slot, container or viewport belonging to a package this one has never heard of.
 type Doc struct {
 	// Blocks are what the document came to.
 	//
@@ -273,7 +271,4 @@ func (l Look) heading(level int) grid.Style {
 // A Doc is a Measurer, which is what lets it go in a slot without an adapter. The
 // assertion is here so that a change to either side is a build failure rather than a
 // surprise at a call site in somebody else's program.
-var (
-	_ layout.Measurer = (*Doc)(nil)
-	_ grid.Drawer     = (*Doc)(nil)
-)
+var _ layout.Measurer = (*Doc)(nil)

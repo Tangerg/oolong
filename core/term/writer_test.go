@@ -3,6 +3,7 @@ package term_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -110,11 +111,17 @@ func TestQueueDoesNotWaitForTheTerminal(t *testing.T) {
 	// The whole reason this type exists: a terminal that is not accepting bytes must
 	// not stop the loop that draws.
 	done := make(chan uint64, 1)
-	go func() { done <- w.Queue([]byte("frame")) }()
+	go func() {
+		var last uint64
+		for range 100 {
+			last = w.Queue([]byte("frame"))
+		}
+		done <- last
+	}()
 	select {
 	case seq := <-done:
-		if seq != 1 {
-			t.Fatalf("sequence = %d, want 1", seq)
+		if seq != 100 {
+			t.Fatalf("sequence = %d, want 100", seq)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Queue blocked on a terminal that was not accepting bytes")
@@ -273,23 +280,89 @@ func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
 	}
 }
 
+func TestARefusedFrameCannotOvertakeABlockedWriteInDrain(t *testing.T) {
+	dst := newBlocker()
+	w := term.NewWriter(dst)
+	w.Queue([]byte("blocked"))
+	if err := w.Close(); !errors.Is(err, term.ErrClosed) {
+		t.Fatalf("Close error = %v, want term.ErrClosed", err)
+	}
+
+	// This frame completes immediately because the writer is closed. Its higher
+	// sequence must not move the processed watermark past the older write that is
+	// still inside the terminal.
+	w.Queue([]byte("too late"))
+	if w.Drain(30 * time.Millisecond) {
+		t.Fatal("Drain let a refused frame overtake an older blocked write")
+	}
+
+	dst.releaseAll()
+	if !w.Drain(time.Second) {
+		t.Fatal("Drain did not advance after the older write settled")
+	}
+}
+
 func TestManyProducersKeepSequenceAndWriteOrderTogether(t *testing.T) {
 	// Sequence order and write order have to agree, or the watermark would release a
 	// frame that has not landed.
 	dst := &recorder{}
 	w := term.NewWriter(dst)
 	const frames = 50
-	for i := range frames {
-		w.Queue([]byte(strings.Repeat("x", i%7+1)))
+	type queued struct {
+		seq  uint64
+		data string
 	}
+	start := make(chan struct{})
+	results := make(chan queued, frames)
+	var wg sync.WaitGroup
+	for i := range frames {
+		data := fmt.Sprintf("%02d", i)
+		wg.Go(func() {
+			<-start
+			results <- queued{seq: w.Queue([]byte(data)), data: data}
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
 	if !w.Drain(2 * time.Second) {
 		t.Fatal("never drained")
 	}
 	if got := w.Written(); got != frames {
 		t.Fatalf("watermark = %d, want %d", got, frames)
 	}
+	ordered := make([]string, frames)
+	for result := range results {
+		ordered[result.seq-1] = result.data
+	}
+	if got, want := dst.String(), strings.Join(ordered, ""); got != want {
+		t.Fatalf("terminal received %q, want sequence order %q", got, want)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestQueueAndCloseAreSafeTogether(t *testing.T) {
+	for range 100 {
+		w := term.NewWriter(&recorder{})
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for range 20 {
+			wg.Go(func() {
+				<-start
+				w.Queue([]byte("frame"))
+			})
+		}
+		wg.Go(func() {
+			<-start
+			_ = w.Close()
+		})
+		close(start)
+		wg.Wait()
+		if !w.Drain(time.Second) {
+			t.Fatal("frames queued around Close were not accounted for")
+		}
 	}
 }
 

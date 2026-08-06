@@ -48,7 +48,7 @@ type Inline struct {
 	// row may be without the terminal wrapping it and moving the block.
 	scratch *Surface
 
-	// placed is where this frame's widgets asked the cursor to go, reset by every
+	// placed is where this frame's drawing asked the cursor to go, reset by every
 	// [Inline.Frame] and read by [Inline.Flush].
 	placed Cursor
 
@@ -196,7 +196,7 @@ func (i *Inline) Print(rows int, draw func(View)) {
 		draw(i.scratch.View())
 	}
 	for y := range rows {
-		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.Row(y), i.depth)})
+		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.row(y), i.depth)})
 	}
 	i.open, i.tail = false, 0
 }
@@ -229,7 +229,7 @@ func (i *Inline) Append(draw func(View)) {
 	}
 	i.scratch.Resize(w-at, 1)
 	draw(i.scratch.View())
-	cells := trimBlankTail(i.scratch.Row(0))
+	cells := trimBlankTail(i.scratch.row(0))
 	if len(cells) == 0 {
 		return
 	}
@@ -310,12 +310,12 @@ func (i *Inline) Finish(w io.Writer) error {
 }
 
 // used is how many rows the block needs: the rows up to the last one with anything
-// on it, and enough to hold the cursor if a widget placed one.
+// on it, and enough to hold the cursor if drawing placed one.
 func (i *Inline) used() int {
 	_, h := i.back.Size()
 	last := -1
 	for y := h - 1; y >= 0; y-- {
-		if len(trimBlankTail(i.back.Row(y))) > 0 {
+		if len(trimBlankTail(i.back.row(y))) > 0 {
 			last = y
 			break
 		}
@@ -410,7 +410,7 @@ func (i *Inline) compose(used int) {
 			// Erasing leaves the cursor where it is, which is already column zero.
 			i.buf = append(i.buf, eraseLine...)
 		case changed(y):
-			row := EncodeRow(i.back.Row(y), i.depth)
+			row := EncodeRow(i.back.row(y), i.depth)
 			i.buf = append(i.buf, row...)
 			i.buf = append(i.buf, eraseLine...)
 			moved = len(row) > 0
@@ -485,7 +485,7 @@ func (i *Inline) cursorPending() bool {
 }
 
 // placeCursor moves the cursor from at, where writing the rows left it, to where
-// this frame's widgets asked for it.
+// this frame's drawing asked for it.
 func (i *Inline) placeCursor(at image.Point) {
 	i.at = at
 	defer func() { i.known, i.shown = true, i.placed.Visible }()

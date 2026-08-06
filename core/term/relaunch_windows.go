@@ -41,7 +41,8 @@ func relaunch(path string, argv, env []string) (int, error) {
 	if err == nil {
 		return 0, nil
 	}
-	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
 		// The program ran and decided how it ended, which is not this function
 		// failing.
 		return exit.ExitCode(), nil

@@ -1,6 +1,7 @@
 package kit_test
 
 import (
+	"image"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -77,7 +79,7 @@ func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 	if got := c.Measure(20); got != 1 {
 		t.Fatalf("an empty composer with no hints = %d rows, want 1", got)
 	}
-	c.Keys, c.Hints = sendKeys(), []input.Action{"send"}
+	c.Keys, c.Hints = sendKeys(), []keymap.Action{"send"}
 	if got := c.Measure(20); got != 2 {
 		t.Fatalf("with a hint row = %d rows, want the field and the hints", got)
 	}
@@ -85,15 +87,15 @@ func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 
 func TestComposerHintsNobodyCanPressTakeNoRow(t *testing.T) {
 	// A hint row with nothing in it is a blank line the user cannot account for.
-	c := kit.Composer{Keys: sendKeys(), Hints: []input.Action{"unbound"}}
+	c := kit.Composer{Keys: sendKeys(), Hints: []keymap.Action{"unbound"}}
 	if got := c.Measure(20); got != 1 {
 		t.Fatalf("= %d rows, want no room given to hints nobody is shown", got)
 	}
 }
 
 // sendKeys is a map with one action in it, which is all a hint row needs.
-func sendKeys() *input.Keymap {
-	keys := &input.Keymap{}
+func sendKeys() *keymap.Map {
+	keys := &keymap.Map{}
 	keys.Bind("send", input.Chord{Code: input.Enter})
 	return keys
 }
@@ -110,7 +112,7 @@ func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 	c := kit.Composer{
 		Prompt: "› ",
 		Keys:   sendKeys(),
-		Hints:  []input.Action{"send"},
+		Hints:  []keymap.Action{"send"},
 	}
 	rows := paint(20, 2, func(v grid.View) { c.Draw(v) })
 	if !strings.Contains(rows[1], "send") {
@@ -233,14 +235,14 @@ func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
 
 func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 	// Where they do not cost a row, which is the whole reason to put them there.
-	keys := &input.Keymap{}
+	keys := &keymap.Map{}
 	keys.Bind("ok", input.Chord{Code: input.Enter})
 	d := &kit.Dialog{
 		Glyphs: kit.Unicode(),
 		Title:  "Confirm",
 		Body:   kit.Label{Text: "x"},
 		Keys:   keys,
-		Hints:  []input.Action{"ok"},
+		Hints:  []keymap.Action{"ok"},
 	}
 	rows := paint(24, 4, func(v grid.View) { d.Draw(v) })
 	if !strings.Contains(rows[3], "ok") {
@@ -256,10 +258,10 @@ func TestADialogBackdropDimsWhatIsBehindWithoutErasingIt(t *testing.T) {
 	s.View().Text(0, 0, "behind", theme.Text)
 	(&kit.Dialog{Theme: theme}).Backdrop(s.View())
 
-	if got := s.CellAt(0, 0).Content; got != "b" {
+	if got := cellAt(s, 0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
 	}
-	dimmed := s.CellAt(0, 0).Style.FG.RGB()
+	dimmed := cellAt(s, 0, 0).Style.FG.RGB()
 	if dimmed == theme.Text.FG.RGB() {
 		t.Fatal("what is behind was not dimmed")
 	}
@@ -278,7 +280,7 @@ func TestADialogDimsWithTheThemeAndNotWithAnOpinionOfItsOwn(t *testing.T) {
 	s.View().Text(0, 0, "behind", before)
 	(&kit.Dialog{}).Backdrop(s.View())
 
-	if got := s.CellAt(0, 0).Style; got != before {
+	if got := cellAt(s, 0, 0).Style; got != before {
 		t.Fatalf("a dialog with no theme dimmed what it covers to %+v", got)
 	}
 }
@@ -319,7 +321,7 @@ func TestADialogWithNoRoomDrawsNothing(_ *testing.T) {
 func TestADialogGoesWhereItWasPlaced(t *testing.T) {
 	where := layout.Placement{Anchor: layout.Middle, Width: 8, Height: 3}
 	d := &kit.Dialog{Where: where}
-	if got := d.Place(layout.Size{W: 40, H: 20}); got != where {
+	if got := d.Place(image.Pt(40, 20)); got != where {
 		t.Fatalf("= %+v, want the placement it was given", got)
 	}
 }

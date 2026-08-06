@@ -51,11 +51,11 @@ func (t Tabs) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	views := layout.Rows(v,
+	views := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Fixed(t.rows() - 1)},
 		layout.Slot{Size: layout.Flex(1)},
-	)
+	))
 	t.strip(views[0])
 	if t.Rule && t.Glyphs.Horizontal != "" {
 		for x := range width {

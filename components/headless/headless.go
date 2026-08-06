@@ -8,13 +8,12 @@
 //
 // That division is the whole point. Appearance is where every interface differs and
 // behaviour is where they are all the same, so the part worth sharing is the part
-// with no appearance in it. [github.com/Tangerg/oolong/components/kit] is one set of answers to
-// what these should look like; it is a default rather than a destination, and an
-// interface with its own ideas builds on this package and never imports it.
+// with no appearance in it. An appearance layer supplies those decisions through
+// callbacks and styles without this package knowing which one was chosen.
 //
 // # How a widget works
 //
-// A widget is a mutable object owned by one loop. It is asked to draw itself into
+// A widget is a mutable object owned by one event goroutine. It is asked to draw itself into
 // the space it was given, and asked whether it wants an event. It does not return a
 // new copy of itself, and it does not know where on the screen it is: the view it is
 // handed is already positioned and already clipped, so a widget's coordinates are
@@ -27,7 +26,7 @@
 // # How a key reaches a widget
 //
 // A widget names what it can do and answers to the name — see [Doer] — and an
-// [input.Keymap] says which keystrokes produce which name. Nothing here owns a
+// [keymap.Map] says which keystrokes produce which name. Nothing here owns a
 // keystroke. That is what makes every key reboundable without replacing anything, what
 // makes a binding several chords long expressible at all, and what lets the same action
 // be reached from a menu or from a command typed by name.
@@ -45,6 +44,7 @@ package headless
 import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -53,13 +53,8 @@ import (
 // The view is already positioned and clipped. A widget that draws outside it is not
 // a bug that shows on screen — the drawing is simply discarded — which is what makes
 // the box a boundary rather than a convention.
-//
-// It is [grid.Drawer] under a name this layer uses. Naming it again here rather than
-// coining a second method is deliberate: a layer takes its vocabulary from below,
-// so "drawable" means one thing across the whole repository and everything that is
-// drawable is drawable everywhere.
 type Widget interface {
-	grid.Drawer
+	Draw(view grid.View)
 }
 
 // Sized is a widget whose size along the axis being divided follows from the room it
@@ -69,7 +64,7 @@ type Widget interface {
 // It is [layout.Measurer] and nothing more, so a sized widget goes straight into a
 // [layout.Slot]:
 //
-//	views := layout.Rows(v,
+//	rects := layout.Down.Rects(v.Bounds().Size(),
 //		layout.Slot{Size: layout.Measured(0, 3), Of: header},
 //		layout.Slot{Size: layout.Flex(1)},
 //	)
@@ -84,20 +79,16 @@ type Sized interface {
 
 // Interactive is a widget that answers input.
 //
-// Both halves are named from below — [grid.Drawer] through [Widget], and
-// [input.Handler] — which is why this is the same method set as
-// [github.com/Tangerg/oolong/core/program.Component] and why anything here runs as a
-// program's root without an adapter. Neither copied the other: they are both spelled
-// in the substrate's language, which is what lets the loop stay ignorant of the
-// widgets and the widgets stay ignorant of there being a loop.
+// Any consumer of the same drawing and event method set can use an Interactive
+// without an adapter, while neither side knows the other exists.
 type Interactive interface {
 	Widget
-	input.Handler
+	Handle(event input.Event) bool
 }
 
 // Doer is a widget that can be asked for one of its actions by name.
 //
-// It is the other half of [input.Keymap]. A widget names what it can do and answers to
+// It is the other half of [keymap.Map]. A widget names what it can do and answers to
 // the name; the map says which keystrokes produce which name. Neither knows the other,
 // which is what lets a program rebind every key without touching a widget, and what
 // lets the same action be reached from somewhere that is not the keyboard at all — a
@@ -107,5 +98,5 @@ type Interactive interface {
 // is not an error: one keymap often drives a whole interface, and every widget reading
 // through it answers what it recognises and lets the rest past.
 type Doer interface {
-	Do(action input.Action) bool
+	Do(action keymap.Action) bool
 }

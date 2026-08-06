@@ -16,7 +16,7 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Root: func(loop program.Loop) program.Component { return newDashboard(loop) },
+			Root: func(runtime *program.Runtime) program.Component { return newDashboard(runtime) },
 		})
 	}()
 

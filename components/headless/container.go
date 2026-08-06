@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -95,9 +96,8 @@ type Container struct {
 	// identity, so a child that is still there keeps it and one that is gone gives it
 	// up to the first child that will take it.
 	//
-	// Held by identity means held as a pointer. A child that is a struct with a
-	// function in it — which most of the ones in the kit package are — cannot be
-	// compared at all, and comparing one is a panic rather than a false.
+	// Held by identity means held as a pointer. A child value containing a function
+	// cannot be compared at all, and comparing one is a panic rather than a false.
 	Items []Item
 	// Gap is how many blank rows or columns go between one child and the next. Zero
 	// puts them against each other.
@@ -113,7 +113,7 @@ type Container struct {
 	// They are tried only after the focused child has declined the event, so a widget
 	// that means something by tab — a completion, a field with columns in it — keeps
 	// it.
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	// focused is the child with the keyboard, held by identity rather than by index
 	// so that rebuilding the items does not silently move it.
@@ -135,7 +135,7 @@ type Container struct {
 	// slots is rebuilt every frame from the items and kept to save the allocation.
 	slots []layout.Slot
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // Rows is a container that stacks its children down the region.
@@ -197,8 +197,7 @@ func (c *Container) Focus(has bool) {
 // Draw arranges the children and draws each into the room it got.
 func (c *Container) Draw(v grid.View) {
 	c.settle()
-	width, height := v.Size()
-	c.areas = c.flow().Rects(layout.Size{W: width, H: height}, c.arrange())
+	c.areas = c.flow().Rects(v.Bounds().Size(), c.arrange())
 	for i, item := range c.Items {
 		if item.Of != nil {
 			item.Of.Draw(v.Sub(c.areas[i]))
@@ -228,7 +227,7 @@ func (c *Container) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		return c.mouse(mouse)
 	}
-	if handler, ok := c.focused.(input.Handler); ok && handler.Handle(ev) {
+	if handler, ok := c.focused.(Interactive); ok && handler.Handle(ev) {
 		return true
 	}
 	key, ok := ev.(input.Key)
@@ -247,7 +246,7 @@ func (c *Container) Handle(ev input.Event) bool {
 
 // Do runs one of the container's actions by name, reporting whether it was one a
 // container knows and whether it changed anything. See [Doer].
-func (c *Container) Do(action input.Action) bool {
+func (c *Container) Do(action keymap.Action) bool {
 	switch action {
 	case FocusNext:
 		return c.FocusNext()
@@ -299,7 +298,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 // widget is handed a view whose origin is its own and reasons in it, so a position
 // that arrived in anybody else's coordinates would be a position it cannot use.
 func (c *Container) deliver(i int, ev input.Mouse) bool {
-	handler, ok := c.Items[i].Of.(input.Handler)
+	handler, ok := c.Items[i].Of.(Interactive)
 	if !ok {
 		return false
 	}
@@ -419,7 +418,7 @@ func (c *Container) indexOf(w Widget) int {
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.
-func (c *Container) keys() *input.Keymap {
+func (c *Container) keys() *keymap.Map {
 	if c.Keys != nil {
 		return c.Keys
 	}

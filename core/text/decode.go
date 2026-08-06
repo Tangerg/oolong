@@ -86,9 +86,9 @@ const maxHeld = 1 << 16
 // [Decoder.Open] — and a sequence that arrived only in part. Nothing is lost by
 // stopping in the middle of either.
 //
-// It is [github.com/Tangerg/oolong/core/input.Parser.Feed] under the same name
-// because it is the same shape: hand over the next piece of a stream, take back
-// what is now decidable, and let [Decoder.Flush] settle what only the end can.
+// Feed follows the ordinary streaming-decoder shape: hand over the next piece,
+// take back what is now decidable, and let [Decoder.Flush] settle what only the
+// end of the stream can.
 func (d *Decoder) Feed(chunk string) []Line {
 	if chunk == "" {
 		return nil

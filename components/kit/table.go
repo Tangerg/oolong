@@ -147,7 +147,7 @@ func (t Table) Draw(v grid.View) {
 // separately instead of making a second table that agrees with this one by hand.
 func (t Table) Titles(v grid.View) {
 	width, _ := v.Size()
-	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
+	boxes := t.flow().Rects(image.Pt(width, 1), t.slots())
 	t.drawRow(v, 0, boxes, func(col int, cell grid.View) {
 		c := t.Columns[col]
 		Label{Text: c.Title + t.mark(col), Style: t.Theme.Heading, Align: c.Align, Ellipsis: "…"}.
@@ -165,7 +165,7 @@ func (t Table) Cells(v grid.View, row int, base grid.Style) {
 	if t.Cell == nil || width <= 0 {
 		return
 	}
-	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
+	boxes := t.flow().Rects(image.Pt(width, 1), t.slots())
 	t.drawRow(v, 0, boxes, func(col int, cell grid.View) {
 		t.Cell(cell, row, col, base)
 	})
@@ -179,7 +179,7 @@ func (t Table) Cells(v grid.View, row int, base grid.Style) {
 // be doing the same arithmetic a second time, against a table that may since have
 // been given a different width.
 func (t Table) ColumnAt(x, width int) (int, bool) {
-	boxes := t.flow().Rects(layout.Size{W: width, H: 1}, t.slots())
+	boxes := t.flow().Rects(image.Pt(width, 1), t.slots())
 	for i, box := range boxes {
 		if x >= box.Min.X && x < box.Max.X {
 			return i, true

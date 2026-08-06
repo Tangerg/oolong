@@ -20,6 +20,7 @@ import (
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
@@ -27,7 +28,7 @@ import (
 
 func main() {
 	if err := program.Run(context.Background(), program.Config{
-		Inline: func(loop program.InlineLoop) program.Component { return newChat(loop) },
+		Inline: func(runtime *program.InlineRuntime) program.Component { return newChat(runtime) },
 		// Asking costs one round trip and is the only way to learn two things a
 		// program cannot work out for itself: what colour the terminal draws on, and
 		// what it will do with an image.
@@ -41,13 +42,13 @@ func main() {
 // chat is the whole interface: a composer, and a status line while a reply is
 // arriving.
 type chat struct {
-	loop  program.InlineLoop
-	theme kit.Theme
+	runtime *program.InlineRuntime
+	theme   kit.Theme
 
 	// keys is one table for the whole interface: what the field does with a keystroke,
 	// and what this program does with one. A widget reading through it answers the
 	// actions it knows and lets the rest past, which is why there is one and not three.
-	keys *input.Keymap
+	keys *keymap.Map
 
 	// body is the two of them arranged, and the thing that decides which of them an
 	// event is for. Laying them out by hand would mean translating a click into the
@@ -69,19 +70,18 @@ type chat struct {
 // not a keystroke: what produces one is the keymap's business, and the hint row reads
 // the answer back out of the same table rather than being told it again here.
 const (
-	send input.Action = "send"
-	quit input.Action = "quit"
+	send keymap.Action = "send"
+	quit keymap.Action = "quit"
 )
 
-// Loop is what an editor wants for its clipboard, which is worth saying out loud:
-// the interface is declared in components and satisfied in core, and neither knows
-// about the other.
-var _ headless.Clipboard = program.Loop(nil)
+// Clipboard is what an editor wants, which is worth saying out loud: the interface
+// is declared by the consumer and satisfied by a concrete runtime capability.
+var _ headless.Clipboard = program.Clipboard{}
 
-func newChat(loop program.InlineLoop) *chat {
+func newChat(runtime *program.InlineRuntime) *chat {
 	// The look follows what the terminal said. A theme that has to be told whether the
 	// terminal is light is a theme that is wrong for half the people who run it.
-	theme := kit.Suited(loop.Ground())
+	theme := kit.Suited(runtime.Environment().Ground())
 	// The furniture follows the locale, because a terminal that is not in UTF-8 draws
 	// a box character as mojibake and there is no way to ask it.
 	glyphs := kit.GlyphsFor(os.Getenv)
@@ -90,18 +90,18 @@ func newChat(loop program.InlineLoop) *chat {
 	keys.Bind(send, input.Chord{Code: input.Enter})
 	keys.Bind(quit, input.Ctrl.Rune('c'))
 
-	c := &chat{loop: loop, theme: theme, keys: keys}
+	c := &chat{runtime: runtime, theme: theme, keys: keys}
 	c.composer = kit.Composer{
 		Theme:       theme,
 		Prompt:      glyphs.Marker + " ",
 		Placeholder: "Ask something, or press ctrl+c to leave",
 		Keys:        keys,
-		Hints:       []input.Action{send, headless.InsertNewline, quit},
+		Hints:       []keymap.Action{send, headless.InsertNewline, quit},
 	}
 	c.status = kit.Status{Theme: theme}
 	// Copy and cut go to the terminal, which over ssh or through a multiplexer is the
 	// only end of the connection the user is at.
-	c.composer.Editor().Clipboard = loop
+	c.composer.Editor().Clipboard = runtime.Clipboard()
 	c.body = headless.Rows(
 		headless.Item{Size: layout.Fixed(0), Of: &c.status},
 		headless.Item{Size: layout.Measured(1, 0), Of: &c.composer},
@@ -141,7 +141,7 @@ func (c *chat) Handle(ev input.Event) bool {
 			c.send()
 			return true
 		case quit:
-			c.loop.Quit()
+			c.runtime.Quit()
 			return true
 		}
 	}
@@ -155,14 +155,14 @@ func (c *chat) send() {
 		return
 	}
 	c.composer.Reset()
-	c.loop.Print(kit.Message{Theme: c.theme, Speaker: "you", Body: asked, Own: true})
+	c.runtime.Print(kit.Message{Theme: c.theme, Speaker: "you", Body: asked, Own: true})
 
 	c.answering = strings.Fields(reply(asked))
 	c.said = 0
 	c.status.Doing = "thinking"
 	// The clock exists only while something is animating. An interface with nothing
 	// happening asks for no frames at all.
-	c.stop = c.loop.Every(90*time.Millisecond, c.advance)
+	c.stop = c.runtime.Every(90*time.Millisecond, c.advance)
 }
 
 // advance adds a word to the reply, and prints the whole thing once it is done.
@@ -173,7 +173,7 @@ func (c *chat) advance() {
 	if c.said < len(c.answering) {
 		return
 	}
-	c.loop.Print(kit.Message{Theme: c.theme, Speaker: "assistant", Body: strings.Join(c.answering, " ")})
+	c.runtime.Print(kit.Message{Theme: c.theme, Speaker: "assistant", Body: strings.Join(c.answering, " ")})
 	c.stop()
 	c.answering, c.stop = nil, nil
 }

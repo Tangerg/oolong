@@ -1,11 +1,11 @@
 package layout_test
 
 import (
+	"image"
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/layout"
-
-	"github.com/Tangerg/oolong/core/grid"
 )
 
 // wants is a measurer that asks for a fixed amount, remembering what it was asked.
@@ -20,14 +20,13 @@ func (w *wants) Measure(across int) int {
 	return w.give
 }
 
-func sizes(views []grid.View, vertical bool) []int {
-	out := make([]int, len(views))
-	for i, v := range views {
-		w, h := v.Size()
+func sizes(rects []image.Rectangle, vertical bool) []int {
+	out := make([]int, len(rects))
+	for i, r := range rects {
 		if vertical {
-			out[i] = h
+			out[i] = r.Dy()
 		} else {
-			out[i] = w
+			out[i] = r.Dx()
 		}
 	}
 	return out
@@ -46,7 +45,7 @@ func equal(t *testing.T, got, want []int) {
 }
 
 func TestFixedSlotsAreHonouredBeforeAnythingElse(t *testing.T) {
-	views := layout.Rows(grid.NewSurface(10, 10).View(),
+	views := layout.Down.Rects(image.Pt(10, 10),
 		layout.Slot{Size: layout.Fixed(2)},
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(3)},
@@ -55,7 +54,7 @@ func TestFixedSlotsAreHonouredBeforeAnythingElse(t *testing.T) {
 }
 
 func TestFlexSlotsSplitWhatIsLeftInProportion(t *testing.T) {
-	views := layout.Rows(grid.NewSurface(4, 9).View(),
+	views := layout.Down.Rects(image.Pt(4, 9),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Flex(2)},
 	)
@@ -63,8 +62,8 @@ func TestFlexSlotsSplitWhatIsLeftInProportion(t *testing.T) {
 }
 
 func TestTheRoundingRemainderIsNotLost(t *testing.T) {
-	// A row lost to rounding is a gap the user can see.
-	views := layout.Rows(grid.NewSurface(4, 10).View(),
+	// A unit lost to rounding makes the allocation smaller than its input.
+	views := layout.Down.Rects(image.Pt(4, 10),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Flex(2)},
 	)
@@ -73,13 +72,13 @@ func TestTheRoundingRemainderIsNotLost(t *testing.T) {
 		total += n
 	}
 	if total != 10 {
-		t.Fatalf("slots add up to %d rows, want all 10", total)
+		t.Fatalf("slots add up to %d units, want all 10", total)
 	}
 }
 
 func TestAMeasuredSlotIsAskedAcrossTheOtherAxis(t *testing.T) {
 	w := &wants{give: 3}
-	views := layout.Rows(grid.NewSurface(12, 10).View(),
+	views := layout.Down.Rects(image.Pt(12, 10),
 		layout.Slot{Size: layout.Measured(0, 0), Of: w},
 		layout.Slot{Size: layout.Flex(1)},
 	)
@@ -93,11 +92,10 @@ func TestAMeasuredSlotIsAskedAcrossTheOtherAxis(t *testing.T) {
 }
 
 func TestMeasuringWorksAcrossBothAxes(t *testing.T) {
-	// The reason Measure takes the axis it is not deciding: a slot in layout.Columns is
-	// asked for a width at a height, and one knob means the same thing in both. A
-	// measured column that silently came out zero wide is what this replaced.
+	// The reason Measure takes the axis it is not deciding: a slot divided Across is
+	// asked for a width at a height, and one method means the same thing in both.
 	w := &wants{give: 4}
-	views := layout.Columns(grid.NewSurface(30, 5).View(),
+	views := layout.Across.Rects(image.Pt(30, 5),
 		layout.Slot{Size: layout.Measured(0, 0), Of: w},
 		layout.Slot{Size: layout.Flex(1)},
 	)
@@ -120,19 +118,19 @@ func TestAMeasuredSlotIsHeldBetweenItsFloorAndItsCap(t *testing.T) {
 		{"no cap at all", 9, 0, 0, 9},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			views := layout.Rows(grid.NewSurface(10, 20).View(),
+			views := layout.Down.Rects(image.Pt(10, 20),
 				layout.Slot{Size: layout.Measured(tc.min, tc.max), Of: &wants{give: tc.give}},
 				layout.Slot{Size: layout.Flex(1)},
 			)
 			if got := sizes(views, true)[0]; got != tc.wantHeight {
-				t.Fatalf("measured slot = %d rows, want %d", got, tc.wantHeight)
+				t.Fatalf("measured slot = %d units, want %d", got, tc.wantHeight)
 			}
 		})
 	}
 }
 
 func TestAMeasuredSlotWithNothingToAskGetsItsFloor(t *testing.T) {
-	views := layout.Rows(grid.NewSurface(10, 20).View(),
+	views := layout.Down.Rects(image.Pt(10, 20),
 		layout.Slot{Size: layout.Measured(2, 0)},
 		layout.Slot{Size: layout.Flex(1)},
 	)
@@ -140,43 +138,36 @@ func TestAMeasuredSlotWithNothingToAskGetsItsFloor(t *testing.T) {
 }
 
 func TestNeverHandsOutMoreThanThereIs(t *testing.T) {
-	// Two floors that do not both fit. Honouring them both would tell the second
-	// slot it had eight rows while the view clipped it to two — and a widget lays
-	// out against what it was told, not against what the user can see.
-	views := layout.Rows(grid.NewSurface(20, 10).View(),
+	// Two floors that do not both fit. Honouring them both would make the reported
+	// allocation larger than the space it divides.
+	views := layout.Down.Rects(image.Pt(20, 10),
 		layout.Slot{Size: layout.Sizing{Flex: 1, Min: 8}},
 		layout.Slot{Size: layout.Sizing{Flex: 1, Min: 8}},
 	)
 	total := 0
-	for i, v := range views {
-		_, h := v.Size()
-		if visible := v.Visible().Dy(); h != visible {
-			t.Errorf("slot %d was laid out into %d rows but only %d are on screen", i, h, visible)
-		}
-		total += h
+	for _, r := range views {
+		total += r.Dy()
 	}
 	if total != 10 {
-		t.Fatalf("slots add up to %d rows, want the 10 there are", total)
+		t.Fatalf("slots add up to %d units, want the 10 there are", total)
 	}
 }
 
-func TestASlotSqueezedToNothingStillGetsAView(t *testing.T) {
-	// A caller's draw code runs every frame. Code that only breaks when it has no
-	// room breaks in front of the user.
-	views := layout.Rows(grid.NewSurface(10, 1).View(),
+func TestASlotSqueezedToNothingStillGetsARectangle(t *testing.T) {
+	rects := layout.Down.Rects(image.Pt(10, 1),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Fixed(5)},
 	)
-	if len(views) != 2 {
-		t.Fatalf("got %d views, want one per slot", len(views))
+	if len(rects) != 2 {
+		t.Fatalf("got %d rectangles, want one per slot", len(rects))
 	}
-	if _, h := views[1].Size(); h != 0 {
-		t.Fatalf("the squeezed slot got %d rows, want none", h)
+	if h := rects[1].Dy(); h != 0 {
+		t.Fatalf("the squeezed slot got %d units, want none", h)
 	}
 }
 
-func TestDivideAnswersWithoutViews(t *testing.T) {
-	// A caller aligning a header over a table needs the numbers and not the views.
+func TestDivideAnswersWithoutRectangles(t *testing.T) {
+	// Related geometry can use the allocation without constructing rectangles.
 	got := layout.Divide(10, 4, []layout.Slot{{Size: layout.Fixed(3)}, {Size: layout.Flex(1)}})
 	equal(t, got, []int{3, 7})
 }
@@ -204,25 +195,44 @@ func TestAlignNeverPlacesContentOutsideTheSpace(t *testing.T) {
 	}
 }
 
+func TestAlignTreatsNegativeExtentsAsEmpty(t *testing.T) {
+	for _, align := range []layout.Align{layout.Start, layout.Center, layout.End} {
+		if got := align.Offset(-4, -2); got != 0 {
+			t.Errorf("align %d: offset = %d, want 0", align, got)
+		}
+	}
+}
+
 func TestInsetReportsWhatItTakesAndWhatItLeaves(t *testing.T) {
 	in := layout.Symmetric(1, 2)
-	if got := in.Size(); got != (layout.Size{W: 4, H: 2}) {
-		t.Fatalf("size = %+v, want 4 columns and 2 rows", got)
+	if got := in.Size(); got != image.Pt(4, 2) {
+		t.Fatalf("size = %+v, want horizontal 4 and vertical 2", got)
 	}
-	left := in.Apply(grid.Rect(0, 0, 10, 6))
-	if left != grid.Rect(2, 1, 6, 4) {
+	left := in.Apply(image.Rect(0, 0, 10, 6))
+	if left != image.Rect(2, 1, 8, 5) {
 		t.Fatalf("inner = %v, want the region less the inset", left)
 	}
 }
 
 func TestAnInsetBiggerThanItsRegionLeavesNothing(t *testing.T) {
-	if left := layout.Uniform(5).Apply(grid.Rect(0, 0, 4, 4)); !left.Empty() {
+	if left := layout.Uniform(5).Apply(image.Rect(0, 0, 4, 4)); !left.Empty() {
 		t.Fatalf("inner = %v, want nothing left", left)
 	}
 }
 
+func TestNegativeInsetsDoNotExpandARegion(t *testing.T) {
+	inset := layout.Inset{Top: -1, Right: -2, Bottom: -3, Left: -4}
+	region := image.Rect(2, 3, 8, 9)
+	if got := inset.Apply(region); got != region {
+		t.Fatalf("inner = %v, want the original region", got)
+	}
+	if got := inset.Size(); got != (image.Point{}) {
+		t.Fatalf("size = %v, want zero", got)
+	}
+}
+
 func TestPlacementAnchors(t *testing.T) {
-	space := layout.Size{W: 10, H: 6}
+	space := image.Pt(10, 6)
 	for _, tc := range []struct {
 		anchor layout.Anchor
 		wantX  int
@@ -246,24 +256,32 @@ func TestPlacementAnchors(t *testing.T) {
 	}
 }
 
-func TestPlacementIsClampedToTheSpaceItFloatsOver(t *testing.T) {
-	// A dialog whose buttons are past the right margin is a dialog nobody can answer.
-	got := layout.Placement{Anchor: layout.Middle, Width: 100, Height: 100}.In(layout.Size{W: 10, H: 6})
-	if got != grid.Rect(0, 0, 10, 6) {
+func TestPlacementIsClampedToItsSpace(t *testing.T) {
+	got := layout.Placement{Anchor: layout.Middle, Width: 100, Height: 100}.In(image.Pt(10, 6))
+	if got != image.Rect(0, 0, 10, 6) {
 		t.Fatalf("area = %v, want it clamped to the space", got)
 	}
 }
 
 func TestPlacementWithNoSizeFillsWhatTheMarginLeaves(t *testing.T) {
-	got := layout.Placement{Margin: 1}.In(layout.Size{W: 10, H: 6})
-	if got != grid.Rect(1, 1, 8, 4) {
+	got := layout.Placement{Margin: 1}.In(image.Pt(10, 6))
+	if got != image.Rect(1, 1, 9, 5) {
 		t.Fatalf("area = %v, want the space less the margin", got)
 	}
 }
 
 func TestPlacementWithNowhereToGo(t *testing.T) {
-	if got := (layout.Placement{Margin: 10}).In(layout.Size{W: 4, H: 4}); !got.Empty() {
+	if got := (layout.Placement{Margin: 10}).In(image.Pt(4, 4)); !got.Empty() {
 		t.Fatalf("area = %v, want nothing", got)
+	}
+}
+
+func TestPlacementNormalizesNegativeSpaceAndMargin(t *testing.T) {
+	if got := (layout.Placement{Margin: -4, Width: 2, Height: 2}).In(image.Pt(5, 5)); got != image.Rect(1, 1, 3, 3) {
+		t.Fatalf("negative margin placed at %v, want the zero-margin placement", got)
+	}
+	if got := (layout.Placement{}).In(image.Pt(-5, -5)); !got.Empty() {
+		t.Fatalf("negative space produced %v, want an empty rectangle", got)
 	}
 }
 
@@ -271,7 +289,7 @@ func TestARowOfSlotsCanHaveRoomBetweenThem(t *testing.T) {
 	// Written once for the whole division rather than as padding on every slot but
 	// the last — which is the version where the last one is wrong.
 	flow := layout.Flow{Axis: layout.Across, Gap: 2}
-	rects := flow.Rects(layout.Size{W: 13, H: 1}, []layout.Slot{
+	rects := flow.Rects(image.Pt(13, 1), []layout.Slot{
 		{Size: layout.Flex(1)}, {Size: layout.Flex(1)}, {Size: layout.Flex(1)},
 	})
 	if len(rects) != 3 {
@@ -279,7 +297,7 @@ func TestARowOfSlotsCanHaveRoomBetweenThem(t *testing.T) {
 	}
 	for i, want := range []int{0, 5, 10} {
 		if rects[i].Min.X != want || rects[i].Dx() != 3 {
-			t.Fatalf("slot %d is %v, want 3 columns at %d", i, rects[i], want)
+			t.Fatalf("slot %d is %v, want width 3 at %d", i, rects[i], want)
 		}
 	}
 
@@ -292,13 +310,13 @@ func TestARowOfSlotsCanHaveRoomBetweenThem(t *testing.T) {
 }
 
 func TestTheRoomBetweenSlotsDoesNotDependOnWhatIsInThem(t *testing.T) {
-	// A gap that appeared and disappeared with its neighbour's contents would move
-	// every column after it whenever a value happened to be empty.
+	// A gap that appeared and disappeared with its neighbour's extent would move
+	// every following slot whenever an item happened to be empty.
 	flow := layout.Flow{Axis: layout.Across, Gap: 1}
-	full := flow.Rects(layout.Size{W: 12, H: 1}, []layout.Slot{
+	full := flow.Rects(image.Pt(12, 1), []layout.Slot{
 		{Size: layout.Fixed(4)}, {Size: layout.Fixed(3)}, {Size: layout.Fixed(2)},
 	})
-	empty := flow.Rects(layout.Size{W: 12, H: 1}, []layout.Slot{
+	empty := flow.Rects(image.Pt(12, 1), []layout.Slot{
 		{Size: layout.Fixed(4)}, {Size: layout.Fixed(0)}, {Size: layout.Fixed(2)},
 	})
 	if full[2].Min.X != 9 {
@@ -309,12 +327,45 @@ func TestTheRoomBetweenSlotsDoesNotDependOnWhatIsInThem(t *testing.T) {
 	}
 }
 
+func TestFlowNormalizesNegativeAndOversizedGaps(t *testing.T) {
+	slots := []layout.Slot{{Size: layout.Flex(1)}, {Size: layout.Flex(1)}}
+	without := (layout.Flow{Axis: layout.Across}).Rects(image.Pt(10, 1), slots)
+	negative := (layout.Flow{Axis: layout.Across, Gap: -3}).Rects(image.Pt(10, 1), slots)
+	if negative[0] != without[0] || negative[1] != without[1] {
+		t.Fatalf("negative gap produced %v, want %v", negative, without)
+	}
+
+	bounded := (layout.Flow{Axis: layout.Across, Gap: 10}).Rects(image.Pt(3, 1), slots)
+	for i, rect := range bounded {
+		if rect.Min.X < 0 || rect.Max.X > 3 || rect.Min.Y < 0 || rect.Max.Y > 1 {
+			t.Errorf("slot %d escaped its space: %v", i, rect)
+		}
+	}
+	empty := layout.Down.Rects(image.Pt(-3, -2), slots...)
+	for i, rect := range empty {
+		if !rect.Empty() {
+			t.Errorf("slot %d in negative space is %v, want empty", i, rect)
+		}
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	huge := layout.Flow{Axis: layout.Across, Gap: maxInt}
+	for i, rect := range huge.Rects(image.Pt(3, 1), append(slots, layout.Slot{})) {
+		if rect.Min.X < 0 || rect.Max.X > 3 {
+			t.Errorf("slot %d escaped with a huge gap: %v", i, rect)
+		}
+	}
+	if got := huge.Wanted(1, []layout.Slot{{Size: layout.Fixed(1)}, {Size: layout.Fixed(1)}, {Size: layout.Fixed(1)}}); got != maxInt {
+		t.Errorf("wanted = %d, want saturation at %d", got, maxInt)
+	}
+}
+
 func TestASlotSaysWhereContentNarrowerThanItSits(t *testing.T) {
-	rects := layout.Down.Rects(layout.Size{W: 10, H: 3}, []layout.Slot{
+	rects := layout.Down.Rects(image.Pt(10, 3), []layout.Slot{
 		{Size: layout.Fixed(1), Cross: layout.Cross{Size: 4, Align: layout.Center}},
 		{Size: layout.Fixed(1), Cross: layout.Cross{Size: 4, Align: layout.End}},
 		{Size: layout.Fixed(1)},
-	})
+	}...)
 	if got := rects[0]; got.Min.X != 3 || got.Dx() != 4 {
 		t.Fatalf("centred content is at %v", got)
 	}
@@ -328,9 +379,9 @@ func TestASlotSaysWhereContentNarrowerThanItSits(t *testing.T) {
 	}
 
 	// The same question the other way round: dividing width, a slot says how tall.
-	across := layout.Across.Rects(layout.Size{W: 3, H: 8}, []layout.Slot{
+	across := layout.Across.Rects(image.Pt(3, 8), []layout.Slot{
 		{Size: layout.Fixed(1), Cross: layout.Cross{Size: 2, Align: layout.Center}},
-	})
+	}...)
 	if got := across[0]; got.Min.Y != 3 || got.Dy() != 2 {
 		t.Fatalf("centred content is at %v", got)
 	}
@@ -344,11 +395,84 @@ func TestAShareOfTheWholeIsNotAShareOfWhatIsLeft(t *testing.T) {
 	rest := layout.Slot{Size: layout.Flex(1)}
 	equal(t, layout.Divide(20, 1, []layout.Slot{half, rest}), []int{10, 10})
 
-	// A status bar appears above it, and the half is still a half.
-	bar := layout.Slot{Size: layout.Fixed(4)}
-	equal(t, layout.Divide(20, 1, []layout.Slot{bar, half, rest}), []int{4, 10, 6})
+	// Another fixed slot appears before it, and the half is still a half.
+	fixed := layout.Slot{Size: layout.Fixed(4)}
+	equal(t, layout.Divide(20, 1, []layout.Slot{fixed, half, rest}), []int{4, 10, 6})
 
 	// Where a share of what is left would have been six and then four.
 	third := layout.Slot{Size: layout.Flex(1)}
-	equal(t, layout.Divide(20, 1, []layout.Slot{bar, third, rest}), []int{4, 8, 8})
+	equal(t, layout.Divide(20, 1, []layout.Slot{fixed, third, rest}), []int{4, 8, 8})
+}
+
+func TestArithmeticSaturatesInsteadOfWrapping(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+
+	if got := layout.Wanted(1, []layout.Slot{{Size: layout.Fixed(maxInt)}, {Size: layout.Fixed(1)}}); got != maxInt {
+		t.Fatalf("wanted = %d, want saturation at %d", got, maxInt)
+	}
+	if got := (layout.Inset{Left: maxInt, Right: maxInt}).Size().X; got != maxInt {
+		t.Fatalf("inset width = %d, want saturation at %d", got, maxInt)
+	}
+	extreme := image.Rectangle{Min: image.Pt(minInt, minInt), Max: image.Pt(maxInt, maxInt)}
+	if got := (layout.Inset{Top: 1, Right: 1, Bottom: 1, Left: 1}).Apply(extreme); got != (image.Rectangle{Min: image.Pt(minInt+1, minInt+1), Max: image.Pt(maxInt-1, maxInt-1)}) {
+		t.Fatalf("inset extreme rectangle = %v", got)
+	}
+	if got := (layout.Placement{Margin: maxInt}).In(image.Pt(maxInt, maxInt)); got != (image.Rectangle{}) {
+		t.Fatalf("huge margin produced %v, want an empty rectangle", got)
+	}
+
+	nearWhole := layout.Divide(maxInt, 1, []layout.Slot{{Size: layout.Part(maxInt-1, maxInt)}})
+	if nearWhole[0] != maxInt-1 {
+		t.Fatalf("near-whole fraction = %d, want %d", nearWhole[0], maxInt-1)
+	}
+	// Three weights past the cap all saturate to the same value, so the ratio between
+	// them is still one to one to one and the rounding remainder still goes to the
+	// last of them. That is what saturating buys: weights nobody can tell apart
+	// behave like the smallest weights that say the same thing.
+	weighted := layout.Divide(10, 1, []layout.Slot{
+		{Size: layout.Flex(maxInt)},
+		{Size: layout.Flex(maxInt)},
+		{Size: layout.Flex(maxInt)},
+	})
+	equal(t, weighted, []int{3, 3, 4})
+	if plain := layout.Divide(10, 1, []layout.Slot{
+		{Size: layout.Flex(1)},
+		{Size: layout.Flex(1)},
+		{Size: layout.Flex(1)},
+	}); !slices.Equal(weighted, plain) {
+		t.Fatalf("saturated weights divided %v, want the same as %v", weighted, plain)
+	}
+}
+
+func BenchmarkDivide(b *testing.B) {
+	for _, tc := range []struct {
+		name  string
+		slots []layout.Slot
+	}{
+		{
+			name: "ordinary weights",
+			slots: []layout.Slot{
+				{Size: layout.Fixed(4)},
+				{Size: layout.Flex(1)},
+				{Size: layout.Flex(2)},
+				{Size: layout.Measured(2, 20), Of: layout.MeasureFunc(func(int) int { return 8 })},
+			},
+		},
+		{
+			name: "saturated weights",
+			slots: []layout.Slot{
+				{Size: layout.Flex(int(^uint(0) >> 1))},
+				{Size: layout.Flex(int(^uint(0) >> 1))},
+				{Size: layout.Flex(int(^uint(0) >> 1))},
+			},
+		},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				layout.Divide(160, 40, tc.slots)
+			}
+		})
+	}
 }

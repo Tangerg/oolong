@@ -26,6 +26,7 @@ import (
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
 )
@@ -44,13 +45,13 @@ func main() {
 	form := ask(&got)
 
 	err := program.Run(context.Background(), program.Config{
-		Root:     func(loop program.Loop) program.Component { return dress(loop, form) },
+		Root:     func(runtime *program.Runtime) program.Component { return dress(runtime, form) },
 		Terminal: term.Options{Probe: true},
 	})
 	switch {
 	case errors.Is(err, term.ErrNotTerminal):
-		// No screen to draw on. The same form, one question at a time — see
-		// headless.Spoken, which is where a field says what it is asking.
+		// No screen to draw on. The same fields already know how to ask and parse
+		// their answers; kit.Ask supplies the line-oriented conversation.
 		if said := askInWords(form, os.Stdin, os.Stdout); said != nil {
 			fmt.Fprintln(os.Stderr, "form:", said)
 			os.Exit(1)
@@ -104,23 +105,23 @@ func askInWords(form *headless.Form, in io.Reader, out io.Writer) error {
 	return kit.Ask(form, in, out)
 }
 
-// dress is the same form with a look on it, as a component the loop can run.
-func dress(loop program.Loop, form *headless.Form) program.Component {
+// dress is the same form with a look on it, as a component the runtime can run.
+func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	keys := headless.DefaultFormKeys()
 	form.Keys = keys
 	// Finishing with the form is what ends the program, either way. The form knows
 	// nothing about there being one.
-	form.Done = loop.Quit
-	form.GaveUp = loop.Quit
+	form.Done = runtime.Quit
+	form.GaveUp = runtime.Quit
 	form.Focus(true)
 
 	return &screen{view: kit.Form{
 		Of:     form,
-		Theme:  kit.Suited(loop.Ground()),
+		Theme:  kit.Suited(runtime.Environment().Ground()),
 		Glyphs: kit.GlyphsFor(os.Getenv),
 		Title:  "New session",
 		Keys:   keys,
-		Hints:  []input.Action{headless.FocusNext, headless.Submit, headless.Cancel},
+		Hints:  []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel},
 	}}
 }
 

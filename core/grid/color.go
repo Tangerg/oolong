@@ -5,7 +5,7 @@ package grid
 // A frame is always built in truecolor — a [Color] is either the terminal's
 // default or a 24-bit value, and nothing above this package thinks about anything
 // else. The depth is applied at the very last step, where a style becomes bytes,
-// so a widget never has to know what it is drawing onto and a palette never has to
+// so a drawing caller never has to know what it is drawing onto and a palette never has to
 // be authored twice.
 //
 // The zero value is [Auto], which leaves the choice to whoever opened the

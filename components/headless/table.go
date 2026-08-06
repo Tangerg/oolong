@@ -12,8 +12,7 @@ import "slices"
 // that is all this adds.
 //
 // Where the columns are is not here either. A row is drawn by [List.Row] into a view
-// of the whole row, and how that row is divided is the business of whatever draws
-// it — see the table in the kit package, which takes the geometry and the header.
+// of the whole row, and how that row is divided belongs to its appearance layer.
 //
 // The zero Table is an empty list in no particular order.
 type Table[T any] struct {

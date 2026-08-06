@@ -1,6 +1,6 @@
 # Examples
 
-Seven programs, shallowest first. Each one is a single file and is meant to be read
+Eight programs, shallowest first. Each one is a single file and is meant to be read
 as much as run.
 
 ```sh
@@ -16,12 +16,13 @@ go run ./examples/hello        # from the repository root, which is a Go workspa
 | [`dashboard`](dashboard) | Tabs, a table with a cursor whose header sorts it when pressed, progress bars for work with a total and a spinner for work without one. |
 | [`run`](run) | Driving another program: its coloured output read back into styled text, every finished line printed into the terminal's own scrollback, and the terminal handed to `$EDITOR` and taken back. |
 | [`read`](read) | An answer arriving a few characters at a time. What is certainly finished is published once and never redrawn; what is still being written is re-rendered every chunk. |
+| [`streaming`](streaming) | The complete inline chat shape: composer, live status, a word-at-a-time reply, and finished messages moved permanently into terminal scrollback. |
 
 ## Two things they are all doing
 
 **Nothing draws itself twice.** A program says what to run and where — a screen of
 its own, or a block in the terminal's own screen with finished output printed above
-it — and the loop decides when a frame is worth drawing. An interface with nothing
+it — and the runtime decides when a frame is worth drawing. An interface with nothing
 happening costs nothing.
 
 **Every one of them is testable without a terminal.** Beside each program is a test

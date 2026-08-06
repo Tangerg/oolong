@@ -185,44 +185,6 @@ func TestLinksComeBackInOrderAndDoNotOverlap(t *testing.T) {
 	}
 }
 
-// TestHyperlinkRefusesWhatTheTerminalFindsBetter. A terminal knows the directory the
-// program runs in and offers to open a path in the editor the user actually uses;
-// wrapping it in a link replaces all of that with something to hand a browser.
-func TestHyperlinkRefusesWhatTheTerminalFindsBetter(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		l    link.Link
-		want string
-		give bool
-	}{
-		{
-			name: "a url is given as it is",
-			l:    link.Link{Kind: link.URL, Target: "https://example.com"},
-			want: "https://example.com", give: true,
-		},
-		{
-			name: "an absolute path says exactly what it means",
-			l:    link.Link{Kind: link.File, Target: "/usr/local/bin/go"},
-			want: "file:///usr/local/bin/go", give: true,
-		},
-		{
-			name: "a relative path is left to the terminal",
-			l:    link.Link{Kind: link.File, Target: "src/main.go"},
-		},
-		{
-			name: "and so is a home-relative one, which the terminal can expand",
-			l:    link.Link{Kind: link.File, Target: "~/notes.md"},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := tc.l.Hyperlink()
-			if ok != tc.give || got != tc.want {
-				t.Errorf("= %q, %v; want %q, %v", got, ok, tc.want, tc.give)
-			}
-		})
-	}
-}
-
 func TestKindNames(t *testing.T) {
 	if got := link.URL.String(); got != "url" {
 		t.Errorf("= %q", got)

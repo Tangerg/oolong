@@ -1,13 +1,9 @@
 // Package ansi is what an escape sequence is made of.
 //
-// Two things in this library read escape sequences, and they read them for
-// opposite reasons. [github.com/Tangerg/oolong/core/input] reads what a terminal
-// sends — keys, mouse reports, answers to questions — one byte at a time as they
-// arrive. [github.com/Tangerg/oolong/core/text] reads what a program was handed:
-// the output of a command it ran, which arrives already coloured. What the two
-// share is the syntax, and it is here so that they cannot come to disagree about
-// it: about which bytes are parameters, which byte ends a sequence, what an empty
-// field means, and where a sequence stops.
+// Escape sequences travel in both directions and carry many meanings. What their
+// readers share is syntax: which bytes are parameters, which byte ends a sequence,
+// what an empty field means, and where a sequence stops. This package owns only
+// that syntax so every semantic decoder can build on the same byte-level rules.
 //
 // Nothing here decides what a sequence means. A final byte of 'm' is a style to
 // one reader and nothing at all to the other, and this package has no opinion

@@ -222,9 +222,7 @@ func (e *Editor) Draw(v grid.View) {
 			continue
 		}
 		for x := span.Col; x < span.Col+span.Width && x < width; x++ {
-			if c := v.CellAt(x, y); c != nil {
-				c.Style = c.Style.Merge(e.Look.Selection)
-			}
+			v.MergeStyle(x, y, e.Look.Selection)
 		}
 	}
 	if y := cursorRow - first; y >= 0 && y < height {

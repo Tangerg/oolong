@@ -4,72 +4,73 @@ import (
 	"sync"
 
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // The actions an [Editor] answers to.
 //
-// Nothing about a keystroke is here. What produces one of these is a [input.Keymap]'s
+// Nothing about a keystroke is here. What produces one of these is a [keymap.Map]'s
 // business, which is what lets the same field be driven by a key, by a menu, or by a
 // command typed by name — see [Editor.Do].
 //
 // There is deliberately no action for selecting in a direction. Shift with any way of
 // moving is what selects, so every movement selects and none of them was taught to.
 const (
-	MoveLeft      input.Action = "move-left"
-	MoveRight     input.Action = "move-right"
-	MoveUp        input.Action = "move-up"
-	MoveDown      input.Action = "move-down"
-	MoveWordLeft  input.Action = "move-word-left"
-	MoveWordRight input.Action = "move-word-right"
-	MoveLineStart input.Action = "move-line-start"
-	MoveLineEnd   input.Action = "move-line-end"
+	MoveLeft      keymap.Action = "move-left"
+	MoveRight     keymap.Action = "move-right"
+	MoveUp        keymap.Action = "move-up"
+	MoveDown      keymap.Action = "move-down"
+	MoveWordLeft  keymap.Action = "move-word-left"
+	MoveWordRight keymap.Action = "move-word-right"
+	MoveLineStart keymap.Action = "move-line-start"
+	MoveLineEnd   keymap.Action = "move-line-end"
 
-	DeleteBack     input.Action = "delete-back"
-	DeleteForward  input.Action = "delete-forward"
-	DeleteWordBack input.Action = "delete-word-back"
-	KillToEnd      input.Action = "kill-to-end"
-	KillToStart    input.Action = "kill-to-start"
-	Yank           input.Action = "yank"
-	InsertNewline  input.Action = "newline"
-	Undo           input.Action = "undo"
-	Redo           input.Action = "redo"
+	DeleteBack     keymap.Action = "delete-back"
+	DeleteForward  keymap.Action = "delete-forward"
+	DeleteWordBack keymap.Action = "delete-word-back"
+	KillToEnd      keymap.Action = "kill-to-end"
+	KillToStart    keymap.Action = "kill-to-start"
+	Yank           keymap.Action = "yank"
+	InsertNewline  keymap.Action = "newline"
+	Undo           keymap.Action = "undo"
+	Redo           keymap.Action = "redo"
 
-	SelectAll input.Action = "select-all"
-	Copy      input.Action = "copy"
-	Cut       input.Action = "cut"
-	Paste     input.Action = "paste"
+	SelectAll keymap.Action = "select-all"
+	Copy      keymap.Action = "copy"
+	Cut       keymap.Action = "cut"
+	Paste     keymap.Action = "paste"
 )
 
 // The actions a [List] answers to. They are the list's own and not the editor's or a
 // scroll's, because moving a selection, moving a cursor and moving a window are three
 // things a reader can tell apart and would be dismayed to find bound together.
 const (
-	SelectPrev     input.Action = "select-prev"
-	SelectNext     input.Action = "select-next"
-	SelectPageUp   input.Action = "select-page-up"
-	SelectPageDown input.Action = "select-page-down"
-	SelectFirst    input.Action = "select-first"
-	SelectLast     input.Action = "select-last"
+	SelectPrev     keymap.Action = "select-prev"
+	SelectNext     keymap.Action = "select-next"
+	SelectPageUp   keymap.Action = "select-page-up"
+	SelectPageDown keymap.Action = "select-page-down"
+	SelectFirst    keymap.Action = "select-first"
+	SelectLast     keymap.Action = "select-last"
 )
 
 // The actions a [Scroll] answers to.
 const (
-	ScrollUp       input.Action = "scroll-up"
-	ScrollDown     input.Action = "scroll-down"
-	ScrollPageUp   input.Action = "scroll-page-up"
-	ScrollPageDown input.Action = "scroll-page-down"
-	ScrollTop      input.Action = "scroll-top"
-	ScrollBottom   input.Action = "scroll-bottom"
+	ScrollUp       keymap.Action = "scroll-up"
+	ScrollDown     keymap.Action = "scroll-down"
+	ScrollPageUp   keymap.Action = "scroll-page-up"
+	ScrollPageDown keymap.Action = "scroll-page-down"
+	ScrollTop      keymap.Action = "scroll-top"
+	ScrollBottom   keymap.Action = "scroll-bottom"
 )
 
 // The actions a [Completion] answers to, on top of the list movement inside it.
 const (
-	Accept  input.Action = "accept"
-	Dismiss input.Action = "dismiss"
+	Accept  keymap.Action = "accept"
+	Dismiss keymap.Action = "dismiss"
 )
 
 // Close is what dismisses the top layer of a [Stack].
-const Close input.Action = "close"
+const Close keymap.Action = "close"
 
 // The actions a [Tree] answers to, on top of the list movement through its rows.
 //
@@ -78,30 +79,30 @@ const Close input.Action = "close"
 // something already closed is "go up" — which is a tree behaving like a tree and not
 // two names for one thing.
 const (
-	Expand   input.Action = "expand"
-	Collapse input.Action = "collapse"
+	Expand   keymap.Action = "expand"
+	Collapse keymap.Action = "collapse"
 )
 
 // The actions a [Tabs] answers to.
 const (
-	NextTab input.Action = "next-tab"
-	PrevTab input.Action = "prev-tab"
+	NextTab keymap.Action = "next-tab"
+	PrevTab keymap.Action = "prev-tab"
 )
 
 // The actions a form and its fields answer to, on top of the list movement a choice
 // uses and the editing a line of text uses.
 const (
 	// Toggle takes the choice under the cursor, or gives it back.
-	Toggle input.Action = "toggle"
+	Toggle keymap.Action = "toggle"
 	// Submit finishes a [Form], and Cancel abandons it.
-	Submit input.Action = "submit"
-	Cancel input.Action = "cancel"
+	Submit keymap.Action = "submit"
+	Cancel keymap.Action = "cancel"
 )
 
 // The actions a [Container] answers to: which of its children has the keyboard.
 const (
-	FocusNext input.Action = "focus-next"
-	FocusPrev input.Action = "focus-prev"
+	FocusNext keymap.Action = "focus-next"
+	FocusPrev keymap.Action = "focus-prev"
 )
 
 // DefaultEditorKeys are the keystrokes a terminal text field is expected to answer.
@@ -113,8 +114,8 @@ const (
 // Enter is deliberately unbound. Whether it sends or breaks the line is the interface's
 // decision, and a field that took it would take that decision away from every interface
 // that has one.
-func DefaultEditorKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultEditorKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(MoveLeft, input.Chord{Code: input.Left})
 	m.Bind(MoveRight, input.Chord{Code: input.Right})
 	m.Bind(MoveUp, input.Chord{Code: input.Up})
@@ -127,8 +128,8 @@ func DefaultEditorKeys() *input.Keymap {
 	m.Bind(DeleteBack, input.Chord{Code: input.Backspace})
 	m.Bind(DeleteForward, input.Chord{Code: input.Delete})
 	// Ctrl+W is what a terminal has always sent for this, and Alt+Backspace is what
-	// the keyboard in front of the user says. Both, in that order, so the hint row
-	// shows the one that works everywhere.
+	// the keyboard in front of the user says. Both are kept in portability-first
+	// order.
 	m.Bind(DeleteWordBack, input.Ctrl.Rune('w'))
 	m.Bind(DeleteWordBack, input.Alt.With(input.Backspace))
 	m.Bind(KillToEnd, input.Ctrl.Rune('k'))
@@ -149,8 +150,8 @@ func DefaultEditorKeys() *input.Keymap {
 }
 
 // DefaultListKeys are the keystrokes a terminal list is expected to answer.
-func DefaultListKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultListKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(SelectPrev, input.Chord{Code: input.Up})
 	m.Bind(SelectNext, input.Chord{Code: input.Down})
 	m.Bind(SelectPageUp, input.Chord{Code: input.PageUp})
@@ -161,8 +162,8 @@ func DefaultListKeys() *input.Keymap {
 }
 
 // DefaultScrollKeys are the keystrokes a terminal reader is expected to answer.
-func DefaultScrollKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultScrollKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(ScrollUp, input.Chord{Code: input.Up})
 	m.Bind(ScrollDown, input.Chord{Code: input.Down})
 	m.Bind(ScrollPageUp, input.Chord{Code: input.PageUp})
@@ -174,7 +175,7 @@ func DefaultScrollKeys() *input.Keymap {
 
 // DefaultCompletionKeys are the keystrokes a terminal completion is expected to answer:
 // the list's, because the candidates are a list, and the two of its own.
-func DefaultCompletionKeys() *input.Keymap {
+func DefaultCompletionKeys() *keymap.Map {
 	m := DefaultListKeys()
 	m.Bind(Accept, input.Chord{Code: input.Tab})
 	m.Bind(Dismiss, input.Chord{Code: input.Esc})
@@ -182,8 +183,8 @@ func DefaultCompletionKeys() *input.Keymap {
 }
 
 // DefaultStackKeys are the keystrokes a layered interface is expected to answer.
-func DefaultStackKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultStackKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(Close, input.Chord{Code: input.Esc})
 	return m
 }
@@ -192,8 +193,8 @@ func DefaultStackKeys() *input.Keymap {
 //
 // Shift+Tab and not backtab: they are one keystroke, and [input] reports them as one —
 // tab with shift held, whichever way the terminal spelled it.
-func DefaultContainerKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultContainerKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(FocusNext, input.Chord{Code: input.Tab})
 	m.Bind(FocusPrev, input.Shift.With(input.Tab))
 	return m
@@ -201,7 +202,7 @@ func DefaultContainerKeys() *input.Keymap {
 
 // DefaultTreeKeys are the keystrokes a tree is expected to answer: the movement any
 // list has, and the two that open and close a branch.
-func DefaultTreeKeys() *input.Keymap {
+func DefaultTreeKeys() *keymap.Map {
 	m := DefaultListKeys()
 	m.Bind(Expand, input.Chord{Code: input.Right})
 	m.Bind(Collapse, input.Chord{Code: input.Left})
@@ -215,8 +216,8 @@ func DefaultTreeKeys() *input.Keymap {
 // application binds and what a terminal cannot report: the two are the same byte
 // there unless the terminal speaks the Kitty protocol, so a binding on it works on
 // some terminals and silently does nothing on the rest.
-func DefaultTabsKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultTabsKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(NextTab, input.Alt.With(input.Right))
 	m.Bind(PrevTab, input.Alt.With(input.Left))
 	return m
@@ -224,7 +225,7 @@ func DefaultTabsKeys() *input.Keymap {
 
 // DefaultMultiSelectKeys are the keystrokes a list of choices answers: the movement any
 // list has, and the one that takes what is under the cursor.
-func DefaultMultiSelectKeys() *input.Keymap {
+func DefaultMultiSelectKeys() *keymap.Map {
 	m := DefaultListKeys()
 	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})
 	return m
@@ -234,8 +235,8 @@ func DefaultMultiSelectKeys() *input.Keymap {
 //
 // Left and right rather than up and down, because the two answers are drawn side by
 // side and a key that moved the other way would be pointing at nothing.
-func DefaultConfirmKeys() *input.Keymap {
-	m := &input.Keymap{}
+func DefaultConfirmKeys() *keymap.Map {
+	m := &keymap.Map{}
 	m.Bind(SelectPrev, input.Chord{Code: input.Left})
 	m.Bind(SelectNext, input.Chord{Code: input.Right})
 	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})
@@ -249,7 +250,7 @@ func DefaultConfirmKeys() *input.Keymap {
 // Enter submits rather than moving on, because a form is finished by saying so and a
 // field that took enter to mean "next" would leave nothing to mean "done". A field with
 // its own use for enter keeps it, since a field is asked first.
-func DefaultFormKeys() *input.Keymap {
+func DefaultFormKeys() *keymap.Map {
 	m := DefaultContainerKeys()
 	m.Bind(Submit, input.Chord{Code: input.Enter})
 	m.Bind(Cancel, input.Chord{Code: input.Esc})

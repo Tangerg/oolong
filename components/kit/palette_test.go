@@ -36,7 +36,7 @@ func TestThePaletteShowsWhyEachCommandIsThere(t *testing.T) {
 	picked := th.Selection.Merge(th.Accent)
 	accented := 0
 	for x := range 40 {
-		if c := s.View().CellAt(x, 0); c != nil && c.Style == picked {
+		if c := cellAt(s.View(), x, 0); c.Style == picked {
 			accented++
 		}
 	}
@@ -111,7 +111,7 @@ func TestThePaletteDrawsIntoWhateverItIsGiven(t *testing.T) {
 func TestAWidgetWithNoLookDrawsNoLook(t *testing.T) {
 	s := grid.NewSurface(40, 2)
 	kit.Palette{Found: commands(t).Find(""), Selected: 0}.Draw(s.View())
-	if got := s.View().CellAt(0, 0).Style; got != (grid.Style{}) {
+	if got := cellAt(s.View(), 0, 0).Style; got != (grid.Style{}) {
 		t.Errorf("an undressed palette drew %+v", got)
 	}
 }

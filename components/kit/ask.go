@@ -14,8 +14,8 @@ import (
 // It is the same form answered without a screen: for somebody reading with a screen
 // reader, for a program whose output is a pipe, and for a script that would rather
 // say "good" than press the down arrow twice. Every field asks what it is asking and
-// says what is wrong with an answer — see [headless.Spoken] — so what is here is only
-// the conversation: write the question, read the line, say what was wrong, ask again.
+// says what is wrong with an answer, so what is here is only the conversation: write
+// the question, read the line, say what was wrong, ask again.
 //
 // A field that has no words for itself stops the conversation rather than being
 // skipped. Skipping it would collect a form with an answer missing and submit it
@@ -30,7 +30,7 @@ func Ask(form *headless.Form, in io.Reader, out io.Writer) error {
 	}
 	lines := bufio.NewScanner(in)
 	for _, field := range form.Fields {
-		spoken, ok := field.(headless.Spoken)
+		spoken, ok := field.(spokenField)
 		if !ok {
 			return fmt.Errorf("kit: %q cannot be answered in words", field.Prompt())
 		}
@@ -47,8 +47,16 @@ func Ask(form *headless.Form, in io.Reader, out io.Writer) error {
 	return nil
 }
 
-// ask puts one question until it is answered.
-func ask(field headless.Spoken, lines *bufio.Scanner, out io.Writer) error {
+// spokenField is the capability Ask consumes from a field.
+type spokenField interface {
+	headless.Field
+	Ask() string
+	Reply(said string) error
+}
+
+// ask puts one question until it is answered. The method set is defined here because
+// this is the consumer of the optional spoken-field capability.
+func ask(field spokenField, lines *bufio.Scanner, out io.Writer) error {
 	for {
 		if _, err := fmt.Fprintf(out, "%s\n> ", field.Ask()); err != nil {
 			return err

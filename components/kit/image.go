@@ -11,8 +11,8 @@ import (
 
 // Image shows a picture the terminal has already been given.
 //
-// The sending happens once, somewhere else — see [term.Terminal.Transmit], which
-// hands back the handle that goes in [Image.Of] — and this places it: it works out
+// The sending happens once in the host adapter, which hands back the handle that
+// goes in [Image.Of]. This value places it: it works out
 // how many cells the picture should have at the width it is drawn in, keeps the room
 // for it, and lets the frame do the rest.
 //
@@ -30,7 +30,7 @@ type Image struct {
 	// Of is the picture, as the terminal knows it. The zero value is no picture,
 	// which draws the alternative text.
 	Of graphics.Image
-	// Cell is how many pixels one terminal cell is — see [term.Terminal.CellSize].
+	// Cell is how many pixels one terminal cell is, as reported by the host.
 	// The zero value is a terminal that never said, which draws the alternative text:
 	// a picture scaled by an invented cell size is a picture the wrong shape.
 	Cell image.Point

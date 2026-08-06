@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // show draws something into a surface and prints it, so an example can state what
@@ -19,7 +20,7 @@ func show(w, h int, draw func(grid.View)) {
 	for y := range h {
 		var line strings.Builder
 		for x := range w {
-			c := s.CellAt(x, y)
+			c := cellAt(s, x, y)
 			switch {
 			case c.Width() == 0:
 			case c.Content == "":
@@ -42,7 +43,7 @@ func ExampleComposer() {
 		Prompt:      "› ",
 		Placeholder: "Ask something",
 		Keys:        keys,
-		Hints:       []input.Action{"send"},
+		Hints:       []keymap.Action{"send"},
 	}
 	show(28, c.Measure(28), c.Draw)
 
@@ -106,7 +107,7 @@ func ExampleForm() {
 		Glyphs: kit.ASCII(),
 		Title:  "New session",
 		Keys:   keys,
-		Hints:  []input.Action{headless.Submit},
+		Hints:  []keymap.Action{headless.Submit},
 	}
 	show(22, view.Measure(22), view.Draw)
 

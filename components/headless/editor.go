@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -34,13 +35,13 @@ type Editor struct {
 	// It is a map and not a struct of one field per action, so a program can hand the
 	// same map to a field, to the container around it and to its own keys, and rebind
 	// any of them without replacing anything.
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// Clipboard is where copy and cut send text and where paste asks for it. Nil
 	// leaves those keys doing nothing, which is the right answer for a field in a
 	// program that has no terminal to ask.
 	//
-	// A program's loop already offers exactly this, so wiring a field to the system
-	// clipboard is one assignment.
+	// A runtime adapter can satisfy this directly; an editor depends only on these
+	// two operations.
 	Clipboard Clipboard
 	// MaxRows caps how tall the field grows. Beyond it the field scrolls and keeps
 	// the cursor in view. Zero means it grows without limit, which only suits a
@@ -95,8 +96,8 @@ type Editor struct {
 	killed string
 
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	// It is the field's own and not the map's — see [input.Pending].
-	pending input.Pending
+	// It is the field's own and not the map's — see [keymap.Pending].
+	pending keymap.Pending
 
 	// blurred says the field has been told it does not have the keyboard, so it
 	// draws no cursor. Inverted, because a field that has never been told anything
@@ -592,7 +593,7 @@ func (e *Editor) Handle(ev input.Event) bool {
 
 // Do runs one of the field's actions by name, reporting whether it was one this field
 // knows. See [Doer] for why a widget answers to a name at all.
-func (e *Editor) Do(action input.Action) bool {
+func (e *Editor) Do(action keymap.Action) bool {
 	e.ensure()
 	if e.move(action) {
 		// Moving is how a selection is let go of, which is what every other editor does
@@ -662,7 +663,7 @@ func (e *Editor) typed(key input.Key) bool {
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.
-func (e *Editor) keys() *input.Keymap {
+func (e *Editor) keys() *keymap.Map {
 	if e.Keys != nil {
 		return e.Keys
 	}

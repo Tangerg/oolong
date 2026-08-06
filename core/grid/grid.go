@@ -23,9 +23,23 @@ import (
 )
 
 // Rect builds a rectangle from a terminal-natural origin and size. The result is
-// half-open: it covers columns [x, x+w) and rows [y, y+h).
+// half-open: it covers columns [x, x+w) and rows [y, y+h). Negative sizes become
+// zero and endpoints that exceed int range saturate.
 func Rect(x, y, w, h int) image.Rectangle {
-	return image.Rect(x, y, x+w, y+h)
+	w, h = max(w, 0), max(h, 0)
+	return image.Rectangle{
+		Min: image.Pt(x, y),
+		Max: image.Pt(addExtent(x, w), addExtent(y, h)),
+	}
+}
+
+const maxInt = int(^uint(0) >> 1)
+
+func addExtent(origin, extent int) int {
+	if origin > maxInt-extent {
+		return maxInt
+	}
+	return origin + extent
 }
 
 // RGB is a 24-bit colour.
@@ -128,7 +142,7 @@ func (s Style) Merge(over Style) Style {
 // terminal recoloured while a program is running follows along. The price is that
 // "the terminal's own" is not a value, and anything that has to mix with what is
 // underneath needs one. This is where the answer is kept, once the terminal has been
-// asked — see the startup probe in the term package, which asks with OSC 10 and 11.
+// asked through the terminal colour-query protocol.
 //
 // The zero value is two defaults, which is what a terminal that was not asked or
 // did not answer leaves behind. Blending through it resolves nothing and changes

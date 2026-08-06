@@ -1,4 +1,4 @@
-package input_test
+package keymap_test
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // at is a keystroke that arrived at a given moment, which is what a sequence is judged
@@ -82,29 +83,29 @@ func TestASequenceIsWrittenWithSpacesBetweenTheChords(t *testing.T) {
 }
 
 func TestAKeystrokeNamesTheActionItIsBoundTo(t *testing.T) {
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	m.Bind("delete-word-back", input.Ctrl.Rune('w'))
 
-	action, mine := m.Lookup(input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl}, &input.Pending{})
+	action, mine := m.Lookup(input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl}, &keymap.Pending{})
 	if !mine || action != "delete-word-back" {
 		t.Fatalf("ctrl+w = %q (mine=%v)", action, mine)
 	}
 	// A keystroke the map says nothing about is not the map's, which is what lets it
 	// carry on to whatever else might want it.
-	if _, mine := m.Lookup(input.Key{Code: input.Character, Rune: 'q'}, &input.Pending{}); mine {
+	if _, mine := m.Lookup(input.Key{Code: input.Character, Rune: 'q'}, &keymap.Pending{}); mine {
 		t.Error("the map claimed a keystroke nothing was bound to")
 	}
 	// A key coming back up is not a keystroke.
 	up := input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl, Transition: input.Release}
-	if _, mine := m.Lookup(up, &input.Pending{}); mine {
+	if _, mine := m.Lookup(up, &keymap.Pending{}); mine {
 		t.Error("the map answered a key being let go of")
 	}
 }
 
 func TestASequenceIsFinishedByItsLastChord(t *testing.T) {
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	var pending input.Pending
+	var pending keymap.Pending
 	now := time.Unix(1700000000, 0)
 
 	// The first chord is the map's and names nothing yet. Consumed all the same: a
@@ -128,10 +129,10 @@ func TestASequenceIsFinishedByItsLastChord(t *testing.T) {
 func TestASequenceLeftTooLongIsOver(t *testing.T) {
 	// The pause is the whole difference between a sequence and two keystrokes that
 	// happen to be adjacent, and only the arrival time can tell them apart.
-	m := &input.Keymap{Timeout: 100 * time.Millisecond}
+	m := &keymap.Map{Timeout: 100 * time.Millisecond}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	m.Bind("quit", input.Chord{Rune: 'q'})
-	var pending input.Pending
+	var pending keymap.Pending
 	now := time.Unix(1700000000, 0)
 
 	m.Lookup(at(input.Chord{Rune: 'g'}, now), &pending)
@@ -152,11 +153,11 @@ func TestASequenceLeftTooLongIsOver(t *testing.T) {
 }
 
 func TestAKeystrokeNothingTimedNeverGoesStale(t *testing.T) {
-	// A caller feeding a widget events it made up itself has no clock in them, and a
+	// A caller feeding synthetic events has no clock in them, and a
 	// sequence that could never be completed would be worse than one with no deadline.
-	m := &input.Keymap{Timeout: time.Nanosecond}
+	m := &keymap.Map{Timeout: time.Nanosecond}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	var pending input.Pending
+	var pending keymap.Pending
 
 	m.Lookup(input.Key{Rune: 'g'}, &pending)
 	if action, _ := m.Lookup(input.Key{Rune: 'g'}, &pending); action != "go-to-top" {
@@ -165,7 +166,7 @@ func TestAKeystrokeNothingTimedNeverGoesStale(t *testing.T) {
 }
 
 func TestWithNowhereToRememberOnlySingleChordsAreReachable(t *testing.T) {
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	m.Bind("quit", input.Chord{Rune: 'q'})
 
@@ -177,8 +178,25 @@ func TestWithNowhereToRememberOnlySingleChordsAreReachable(t *testing.T) {
 	}
 }
 
+func TestAPrefixBindingNeverShadowsALongerSequence(t *testing.T) {
+	m := &keymap.Map{}
+	m.Bind("short", input.Chord{Rune: 'g'})
+	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+
+	var pending keymap.Pending
+	if action, mine := m.Lookup(input.Key{Rune: 'g'}, &pending); !mine || action != "" {
+		t.Fatalf("prefix = %q (mine=%v), want it held for the longer sequence", action, mine)
+	}
+	if action, mine := m.Lookup(input.Key{Rune: 'g'}, &pending); !mine || action != "long" {
+		t.Fatalf("completed sequence = %q (mine=%v), want long", action, mine)
+	}
+	if action, mine := m.Lookup(input.Key{Rune: 'g'}, nil); mine || action != "" {
+		t.Fatalf("stateless prefix = %q (mine=%v), want unreachable", action, mine)
+	}
+}
+
 func TestBindingTheSameKeysAgainReplacesWhatTheyDid(t *testing.T) {
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	m.Bind("first", input.Ctrl.Rune('k'))
 	m.Bind("second", input.Ctrl.Rune('k'))
 
@@ -194,12 +212,12 @@ func TestUnbindingLeavesNothingBehindToSwallowAKeystroke(t *testing.T) {
 	// A tree pruned in place keeps the node the sequence went through, and a node with
 	// nothing under it takes the keystroke and names nothing — a key that stops working
 	// for a reason nobody can see.
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	if !m.Unbind(input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'}) {
 		t.Fatal("unbinding said there was nothing there")
 	}
-	if _, mine := m.Lookup(input.Key{Rune: 'g'}, &input.Pending{}); mine {
+	if _, mine := m.Lookup(input.Key{Rune: 'g'}, &keymap.Pending{}); mine {
 		t.Fatal("the first chord of the sequence is still being taken")
 	}
 	if m.Unbind(input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'}) {
@@ -208,9 +226,8 @@ func TestUnbindingLeavesNothingBehindToSwallowAKeystroke(t *testing.T) {
 }
 
 func TestAnActionListsItsKeysInTheOrderTheyWereBound(t *testing.T) {
-	// A hint row shows the first, so the order is a decision and not an accident: the
-	// chord that works on every terminal goes first.
-	m := &input.Keymap{}
+	// Order is part of the binding model rather than an iteration accident.
+	m := &keymap.Map{}
 	m.Bind("delete-word-back", input.Ctrl.Rune('w'))
 	m.Bind("delete-word-back", input.Alt.With(input.Backspace))
 
@@ -227,12 +244,12 @@ func TestAnActionListsItsKeysInTheOrderTheyWereBound(t *testing.T) {
 }
 
 func TestAnEmptyMapAndANilOneAnswerNothingRatherThanPanicking(t *testing.T) {
-	var zero input.Keymap
-	if _, mine := zero.Lookup(input.Key{Code: input.Enter}, &input.Pending{}); mine {
+	var zero keymap.Map
+	if _, mine := zero.Lookup(input.Key{Code: input.Enter}, &keymap.Pending{}); mine {
 		t.Error("an empty map claimed a keystroke")
 	}
-	var missing *input.Keymap
-	if _, mine := missing.Lookup(input.Key{Code: input.Enter}, &input.Pending{}); mine {
+	var missing *keymap.Map
+	if _, mine := missing.Lookup(input.Key{Code: input.Enter}, &keymap.Pending{}); mine {
 		t.Error("a map nobody made claimed a keystroke")
 	}
 	if keys := missing.Keys("anything"); keys != nil {
@@ -243,13 +260,8 @@ func TestAnEmptyMapAndANilOneAnswerNothingRatherThanPanicking(t *testing.T) {
 	}
 }
 
-func TestAnActionSaysWhatItDoes(t *testing.T) {
-	// There is no second field for a description. The name is what there is to say,
-	// which is what stops the two from disagreeing.
-	if got := input.Action("delete-word-back").Does(); got != "delete word back" {
-		t.Fatalf("= %q", got)
-	}
-	if got := input.Action("send").Does(); got != "send" {
+func TestAnActionRetainsItsIdentifier(t *testing.T) {
+	if got := keymap.Action("delete-word-back").String(); got != "delete-word-back" {
 		t.Fatalf("= %q", got)
 	}
 }
@@ -258,15 +270,20 @@ func TestShiftAndTabAreOneKeystrokeHoweverTheTerminalSpelledIt(t *testing.T) {
 	// The legacy sequence and the Kitty protocol report the same physical keystroke
 	// two different ways. A binding can only name one of them, so the two are decoded
 	// into one — or shift+tab moves the keyboard on half the terminals there are.
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	m.Bind("focus-prev", input.Shift.With(input.Tab))
 
 	for _, bytes := range []string{"\x1b[Z", "\x1b[9;2u"} {
-		key, ok := one(t, bytes).(input.Key)
+		var parser input.Parser
+		events := parser.Feed([]byte(bytes))
+		if len(events) != 1 {
+			t.Fatalf("%q decoded as %d events", bytes, len(events))
+		}
+		key, ok := events[0].(input.Key)
 		if !ok {
 			t.Fatalf("%q did not decode as a keystroke", bytes)
 		}
-		if action, _ := m.Lookup(key, &input.Pending{}); action != "focus-prev" {
+		if action, _ := m.Lookup(key, &keymap.Pending{}); action != "focus-prev" {
 			t.Errorf("%q decoded as %v, which the binding does not match", bytes, key)
 		}
 	}
@@ -276,14 +293,14 @@ func TestAKeybindingSurvivesAConfigurationFile(t *testing.T) {
 	// The reason the round trip has to be exact: a keybinding written to a file and
 	// read back has to be the same keystroke. Implementing the text encoding is what
 	// lets any of the usual decoders fill a map in without being told how.
-	var keys map[input.Action]input.Keys
+	var keys map[keymap.Action]input.Keys
 	if err := json.Unmarshal([]byte(`{
 		"delete-word-back": "ctrl+w",
 		"go-to-top":        "g g"
 	}`), &keys); err != nil {
 		t.Fatalf("reading a keybinding file: %v", err)
 	}
-	m := &input.Keymap{}
+	m := &keymap.Map{}
 	for action, seq := range keys {
 		m.Bind(action, seq...)
 	}

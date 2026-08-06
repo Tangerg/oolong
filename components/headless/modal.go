@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -28,7 +29,7 @@ type Modal interface {
 	Handle(ev input.Event) bool
 
 	// Place says where the modal goes in the space it floats over.
-	Place(space layout.Size) layout.Placement
+	Place(space image.Point) layout.Placement
 }
 
 // Insistent is a modal that the escape key does not close.
@@ -95,7 +96,7 @@ type Stack struct {
 	// interfaces where escape means "back" and interfaces where it means "close", and
 	// which it is here is the program's to say. A layer that must be answered rather
 	// than dismissed implements [Insistent].
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// KeepOnClickOutside stops a press outside the top layer from popping it.
 	// Off by default, because a click on what a modal is covering means the user
 	// is finished with the modal, and every interface they already use agrees.
@@ -116,7 +117,7 @@ type Stack struct {
 	// which is what a stack inside something larger is told.
 	blurred bool
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // Push puts a layer on top, and gives it the keyboard.
@@ -186,7 +187,7 @@ func (s *Stack) Handle(ev input.Event) bool {
 	s.settle()
 	top := s.Top()
 	if top == nil {
-		if handler, ok := s.Base.(input.Handler); ok {
+		if handler, ok := s.Base.(Interactive); ok {
 			return handler.Handle(ev)
 		}
 		return false
@@ -220,7 +221,7 @@ func (s *Stack) Handle(ev input.Event) bool {
 
 // Do runs one of the stack's actions by name, reporting whether it was one a stack
 // knows. See [Doer].
-func (s *Stack) Do(action input.Action) bool {
+func (s *Stack) Do(action keymap.Action) bool {
 	if action != Close {
 		return false
 	}
@@ -248,8 +249,7 @@ func (s *Stack) Draw(v grid.View) {
 	if s.Base != nil {
 		s.Base.Draw(v)
 	}
-	width, height := v.Size()
-	space := layout.Size{W: width, H: height}
+	space := v.Bounds().Size()
 	for i, m := range s.layers {
 		if backdrop, ok := m.(Backdrop); ok {
 			backdrop.Backdrop(v)
@@ -300,7 +300,7 @@ func (s *Stack) settle() {
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.
-func (s *Stack) keys() *input.Keymap {
+func (s *Stack) keys() *keymap.Map {
 	if s.Keys != nil {
 		return s.Keys
 	}

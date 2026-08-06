@@ -3,6 +3,7 @@ package headless
 import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Tab is one pane of a [Tabs] and what it is called.
@@ -29,7 +30,7 @@ type Tabs struct {
 	Items []Tab
 	// Keys say which keystrokes move between panes — see [Tabs.Do]. Nil reads through
 	// [DefaultTabsKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// NoWrap stops the walk at either end. Wrapping is on by default, which is the
 	// other way round from a list: tabs are few and are walked in a ring, where a
 	// long list wrapped is a reader who has lost their place.
@@ -37,7 +38,7 @@ type Tabs struct {
 
 	selected int
 	blurred  bool
-	pending  input.Pending
+	pending  keymap.Pending
 }
 
 // Selected is which pane is showing, or -1 when there are none.
@@ -91,7 +92,7 @@ func (t *Tabs) Move(n int) bool {
 // a window keeps with what is in it.
 func (t *Tabs) Handle(ev input.Event) bool {
 	if pane, ok := t.Current(); ok {
-		if handler, can := pane.Of.(input.Handler); can && handler.Handle(ev) {
+		if handler, can := pane.Of.(Interactive); can && handler.Handle(ev) {
 			return true
 		}
 	}
@@ -114,7 +115,7 @@ func (t *Tabs) Handle(ev input.Event) bool {
 //
 // What the pane knows is tried first, for the same reason it gets an event first: a
 // pane driven from a menu should answer for itself before the thing holding it does.
-func (t *Tabs) Do(action input.Action) bool {
+func (t *Tabs) Do(action keymap.Action) bool {
 	if pane, ok := t.Current(); ok {
 		if doer, can := pane.Of.(Doer); can && doer.Do(action) {
 			return true
@@ -167,7 +168,7 @@ func (t *Tabs) Draw(v grid.View) {
 
 // keys is the map to read through, standing in the default for a caller who set
 // none.
-func (t *Tabs) keys() *input.Keymap {
+func (t *Tabs) keys() *keymap.Map {
 	if t.Keys != nil {
 		return t.Keys
 	}

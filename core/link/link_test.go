@@ -155,7 +155,7 @@ func TestAt(t *testing.T) {
 		{"past everything", len(s) - 1, ""},
 		{"negative", -1, ""},
 	} {
-		got, ok := link.At(links, tc.offset)
+		got, ok := links.At(tc.offset)
 		switch {
 		case tc.want == "" && ok:
 			t.Errorf("%s: found %q", tc.name, got.Target)
@@ -164,75 +164,6 @@ func TestAt(t *testing.T) {
 		case tc.want != "" && got.Target != tc.want:
 			t.Errorf("%s: found %q, want %q", tc.name, got.Target, tc.want)
 		}
-	}
-}
-
-func TestMapAnswersAClick(t *testing.T) {
-	var m link.Map
-	m.Add(4, 1, 19, "https://example.com")
-	m.Add(2, 3, 5, "https://other.test")
-
-	for _, tc := range []struct {
-		name string
-		x, y int
-		want string
-	}{
-		{"the first column of a run", 4, 1, "https://example.com"},
-		{"the middle of a run", 10, 1, "https://example.com"},
-		{"the last column of a run", 22, 1, "https://example.com"},
-		{"one column past a run", 23, 1, ""},
-		{"one column before a run", 3, 1, ""},
-		{"the right column on the wrong row", 4, 0, ""},
-		{"the other run", 3, 3, "https://other.test"},
-		{"negative", -1, -1, ""},
-	} {
-		got, ok := m.At(tc.x, tc.y)
-		if tc.want == "" && ok {
-			t.Errorf("%s: found %q", tc.name, got)
-		}
-		if tc.want != "" && got != tc.want {
-			t.Errorf("%s: found %q, want %q", tc.name, got, tc.want)
-		}
-	}
-}
-
-func TestMapIgnoresRunsWithNothingInThem(t *testing.T) {
-	// What a link scrolled off the edge comes to, and what a caller passes when it
-	// has no target.
-	var m link.Map
-	m.Add(0, 0, 0, "https://example.com")
-	m.Add(0, 0, -3, "https://example.com")
-	m.Add(0, 0, 5, "")
-	if m.Len() != 0 {
-		t.Errorf("the map holds %d runs, want none", m.Len())
-	}
-}
-
-func TestMapPrefersWhatWasDrawnLast(t *testing.T) {
-	// Overlapping draws mean something was drawn over something else, and a click
-	// lands on what is in front.
-	var m link.Map
-	m.Add(0, 0, 10, "https://behind.test")
-	m.Add(3, 0, 4, "https://in-front.test")
-	if got, _ := m.At(4, 0); got != "https://in-front.test" {
-		t.Errorf("got %q, want the run drawn last", got)
-	}
-	if got, _ := m.At(8, 0); got != "https://behind.test" {
-		t.Errorf("outside the overlap: got %q", got)
-	}
-}
-
-func TestMapResetKeepsItsRoom(t *testing.T) {
-	var m link.Map
-	for i := range 10 {
-		m.Add(0, i, 3, "https://example.com")
-	}
-	m.Reset()
-	if m.Len() != 0 {
-		t.Errorf("the map holds %d runs after a reset", m.Len())
-	}
-	if _, ok := m.At(1, 1); ok {
-		t.Error("a click was answered from a map that was reset")
 	}
 }
 

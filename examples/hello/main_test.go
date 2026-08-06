@@ -13,7 +13,7 @@ func TestItDrawsAndAnswersAndStops(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Root: func(loop program.Loop) program.Component { return &hello{loop: loop} },
+			Root: func(runtime *program.Runtime) program.Component { return &hello{runtime: runtime} },
 		})
 	}()
 

@@ -16,11 +16,11 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			// The same reader, with the answer arriving as fast as the loop will take
+			// The same reader, with the answer arriving as fast as the runtime will take
 			// it: what is being tested is where the pieces end up, not how long they
 			// take.
-			Inline: func(loop program.InlineLoop) program.Component {
-				return read(loop, 64, time.Millisecond)
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				return read(runtime, 64, time.Millisecond)
 			},
 		})
 	}()

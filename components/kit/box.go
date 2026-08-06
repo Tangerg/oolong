@@ -51,13 +51,13 @@ func (b Box) border() Border {
 
 // Overhead is how many columns and rows the frame and padding take, which is what a
 // caller subtracts to know what is left for the content.
-func (b Box) Overhead() layout.Size {
+func (b Box) Overhead() image.Point {
 	edge := 0
 	if b.border().drawn() {
 		edge = 2
 	}
 	pad := b.Padding.Size()
-	return layout.Size{W: edge + pad.W, H: edge + pad.H}
+	return image.Pt(edge+pad.X, edge+pad.Y)
 }
 
 // Inner is the region left for content, in v's coordinates.
@@ -70,7 +70,7 @@ func (b Box) Inner(v grid.View) grid.View {
 	over := b.Overhead()
 	x := edge + b.Padding.Left
 	y := edge + b.Padding.Top
-	return v.Sub(grid.Rect(x, y, max(w-over.W, 0), max(h-over.H, 0)))
+	return v.Sub(grid.Rect(x, y, max(w-over.X, 0), max(h-over.Y, 0)))
 }
 
 // Draw paints the frame and returns the region left for content, so the common use

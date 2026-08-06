@@ -66,10 +66,9 @@ type Stream struct {
 // Nothing is lost by a chunk that finishes nothing: what it added is held, and the
 // blocks it eventually becomes are returned by a later call or by [Stream.Flush].
 //
-// It is [github.com/Tangerg/oolong/core/input.Parser.Feed] under the same name for
-// the same reason [github.com/Tangerg/oolong/core/text.Decoder.Feed] is: hand over
-// the next piece of a stream, take back what is now decidable, and let Flush settle
-// what only the end can. It is deliberately not Write — this is not an io.Writer,
+// It follows the ordinary streaming-decoder shape: hand over the next piece, take
+// back what is now decidable, and let Flush settle what only the end can. It is
+// deliberately not Write — this is not an io.Writer,
 // and something wired to a command's output is written to from a goroutine that may
 // not touch what is on screen.
 func (s *Stream) Feed(chunk string) []Block {

@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -72,7 +73,7 @@ type Paragraph struct {
 	atWidth int
 	fresh   bool
 	// found is where the links went in the last frame drawn.
-	found link.Map
+	found linkMap
 }
 
 // row is a wrapped row and which of the paragraph's lines it came from.
@@ -137,13 +138,52 @@ func (p *Paragraph) stamp(v grid.View, y int, r row) {
 		if start >= end {
 			continue
 		}
-		// A link the terminal is better off finding for itself gets no OSC 8, and is
-		// still recorded so that a click on it can be answered here — see
-		// [link.Link.Hyperlink].
-		target, _ := l.Hyperlink()
+		// A relative path is still recorded for hit testing, but left without OSC 8 so
+		// the terminal can resolve it against its reported directory.
+		target := hyperlinkTarget(l)
 		col, width := text.StampLink(v, p.Indent, y, part, start, end, target)
-		p.found.Add(p.Indent+col, y, width, l.Target)
+		p.found.Add(p.Indent+col, y, width, l)
 	}
+}
+
+// hyperlinkTarget is the presentation policy for terminal cells. Link detection
+// remains independent of OSC 8; this appearance layer decides which destinations
+// are safe to stamp onto a frame.
+func hyperlinkTarget(l link.Link) string {
+	if l.Kind == link.URL {
+		return l.Target
+	}
+	if strings.HasPrefix(l.Target, "/") {
+		return (&url.URL{Scheme: "file", Path: l.Target}).String()
+	}
+	return ""
+}
+
+// linkMap is the hit geometry produced by one paragraph frame.
+type linkMap struct{ regions []linkRegion }
+
+type linkRegion struct {
+	y, x, w int
+	link    link.Link
+}
+
+func (m *linkMap) Reset() { m.regions = m.regions[:0] }
+
+func (m *linkMap) Add(x, y, width int, destination link.Link) {
+	if width <= 0 || destination.Target == "" {
+		return
+	}
+	m.regions = append(m.regions, linkRegion{x: x, y: y, w: width, link: destination})
+}
+
+func (m *linkMap) At(x, y int) (link.Link, bool) {
+	for i := len(m.regions) - 1; i >= 0; i-- {
+		r := m.regions[i]
+		if r.y == y && x >= r.x && x < r.x+r.w {
+			return r.link, true
+		}
+	}
+	return link.Link{}, false
 }
 
 // Rows is what the paragraph says, one entry per drawn row, so a selection over it
@@ -172,13 +212,14 @@ func (p *Paragraph) Rows(width int) []headless.Row {
 	return out
 }
 
-// LinkAt is the URL at a position in the space the paragraph was last drawn into,
-// and whether there is one.
+// LinkAt is the complete destination at a position in the space the paragraph was
+// last drawn into, and whether there is one. File line and column information is
+// retained rather than flattened into the target string.
 //
 // It answers a click from what was drawn rather than by looking again: the record
 // comes out of the same pass that wrote the cells, so there is nothing to keep in
 // step and no chance of answering about text that has since changed.
-func (p *Paragraph) LinkAt(x, y int) (string, bool) { return p.found.At(x, y) }
+func (p *Paragraph) LinkAt(x, y int) (link.Link, bool) { return p.found.At(x, y) }
 
 // rows is the wrap at this width, computed once per width.
 //

@@ -2,14 +2,13 @@ package layout
 
 import "image"
 
-// Anchor is where a floating layer sits in the space it floats over.
+// Anchor is where a rectangle sits inside a larger space.
 type Anchor uint8
 
-// Where a layer can sit: the centre, then the eight edges and corners clockwise
+// Where a rectangle can sit: the centre, then the eight edges and corners clockwise
 // from the top left. Middle is first because it is the zero value.
 const (
-	// Middle is the centre, which is where a modal belongs: it is the one position
-	// that does not imply the thing it covers is still reachable.
+	// Middle is the centre and the zero value.
 	Middle Anchor = iota
 	TopLeft
 	Top
@@ -21,28 +20,29 @@ const (
 	BottomRight
 )
 
-// Placement is where a floating layer goes in the space it floats over.
+// Placement is where a rectangle goes inside a larger space.
 //
-// It is placement and nothing else — no drawing, no dimming, no idea what is going
-// to be put there. Keeping it that way is what lets a hit test a frame later ask
-// exactly the question the frame asked, and get exactly the same answer.
-//
-// The layer is clamped to the space rather than allowed to hang off the edge. A
-// dialog whose buttons are past the right margin is a dialog nobody can answer.
+// It is geometry and has no knowledge of what occupies the returned rectangle. The
+// result is clamped to the space rather than allowed to hang off an edge.
 type Placement struct {
 	Anchor Anchor
-	// Width and Height are the layer's size in cells. Zero means as large as the
+	// Width and Height are the rectangle's size. Zero means as large as the
 	// space allows, less Margin.
 	Width, Height int
-	// Margin is kept clear between the layer and the edges of the space, so a layer
-	// anchored to a corner does not look stuck to it.
+	// Margin is kept clear between the rectangle and the edges of the space, so one
+	// anchored to a corner remains separated from it.
 	Margin int
 }
 
-// In is where the layer goes inside a space of the given size, in that space's own
+// In is where the rectangle goes inside a space of the given size, in that space's own
 // coordinates.
-func (p Placement) In(space Size) image.Rectangle {
-	room := image.Pt(max(space.W-2*p.Margin, 0), max(space.H-2*p.Margin, 0))
+func (p Placement) In(space image.Point) image.Rectangle {
+	space.X, space.Y = max(space.X, 0), max(space.Y, 0)
+	margin := max(p.Margin, 0)
+	room := image.Pt(afterInsets(space.X, margin, margin), afterInsets(space.Y, margin, margin))
+	if room.X == 0 || room.Y == 0 {
+		return image.Rectangle{}
+	}
 	size := image.Pt(p.Width, p.Height)
 	if size.X <= 0 || size.X > room.X {
 		size.X = room.X
@@ -50,8 +50,15 @@ func (p Placement) In(space Size) image.Rectangle {
 	if size.Y <= 0 || size.Y > room.Y {
 		size.Y = room.Y
 	}
-	at := p.Anchor.place(room, size).Add(image.Pt(p.Margin, p.Margin))
+	at := p.Anchor.place(room, size).Add(image.Pt(margin, margin))
 	return image.Rect(at.X, at.Y, at.X+size.X, at.Y+size.Y)
+}
+
+func afterInsets(total, before, after int) int {
+	if total <= 0 || uint(max(before, 0))+uint(max(after, 0)) >= uint(total) {
+		return 0
+	}
+	return total - max(before, 0) - max(after, 0)
 }
 
 // place works out where a box of size sits inside space.

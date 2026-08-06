@@ -102,8 +102,7 @@ func (t Theme) Look(g Glyphs) headless.Look {
 	}
 }
 
-// Suited is the theme for what the terminal said its own colours were — see the
-// loop a program hands its component.
+// Suited chooses a theme from the surrounding terminal colours.
 //
 // Only the background decides, because that is what everything is read against. A
 // terminal that said nothing gets the dark theme, because dark is the commoner

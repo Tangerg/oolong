@@ -60,8 +60,8 @@ one. Everything else here follows from it.
 Two kinds of boundary, enforced two different ways.
 
 A **module** boundary is where the dependencies differ. `core` carries the whole
-third-party list; `components` carries none; a future markdown module will carry
-goldmark and a highlighter, and neither of the first two will hear about it. That
+third-party list; `components` carries none; `markdown` and `highlight` carry their
+parser and lexer independently, and neither of the first two hears about them. That
 is the only thing a module boundary is worth paying for — it costs version skew,
 and the Charm ecosystem's own v2 migration is the standing demonstration of what
 that costs when bubbletea, bubbles and lipgloss all have to move together.
@@ -77,10 +77,13 @@ shape is what people already know:
 
 | ring | knows about | must never touch | the analogy |
 | --- | --- | --- | --- |
-| `core/grid`, `text`, `input`, `layout`, `term`, … | cells, graphemes, columns, escape sequences, layout, the terminal, pacing, ranking | anything built from them, including the loop | HTML, CSS |
+| foundations: `ansi`, `grid`, `layout`, … | byte syntax, cells, pure geometry and algorithms | decoded protocols, models, adapters, runtime | HTML/CSS primitives |
+| derived core: `input`, `text`, `present` | decoded events, styled text, frame coordination | host infrastructure and runtime policy | DOM and scheduling |
+| interaction: `keymap` | decoded keystrokes and caller-defined action identifiers | terminal adapters, runtime and components | event bindings |
+| infrastructure: `term` | the operating-system terminal adapter | text models, runtime and widgets | browser platform adapter |
 | `components/headless` | what a list does, what a press means, where a cursor goes | what any of it looks like; goroutines; programs | Radix |
 | `components/kit` | what all that should look like, and a palette | goroutines, programs | shadcn |
-| `core/program`, `core/present` | the loop, the frame schedule, the goroutine that owns the interface | the widgets | the browser |
+| runtime: `program` | composition and the goroutine that owns the interface | the widgets | the browser |
 
 The last row is the one that is easy to get wrong, and the first version of this
 library did. `core/program` is not the top of the ladder — it is orthogonal to it.
@@ -99,12 +102,14 @@ eventually disagrees with, so the exit is designed in — stop importing `kit`, 
 fields and takes a `Row` function instead, and it is the difference between a library
 people adopt and a library people fork.
 
-The layering is not a convention anyone is trusted to keep. `internal/arch` parses
-every import in every module and fails when one points the wrong way, when a directory
-appears that no rule governs, when a dependency nothing declared is added, when anything
-above the substrate reaches for what draws the terminal, or when the rules themselves
-would no longer refuse anything. The last one is the counter-example: a guard never
-shown to fail is a guard nobody knows is wired up.
+The layering is not a convention anyone is trusted to keep. `internal/arch` declares
+the direct lower dependencies as a DAG, computes its transitive closure, and parses
+every production import and API comment in every module. It fails when code or
+documentation has no path downward, when a directory has no rule, when an undeclared
+dependency is added, or when the graph is incomplete or cyclic. Adding a ring changes
+one node rather than the forbidden list of every existing one. Counter-examples keep
+the final claim honest: a guard never shown to fail is a guard nobody knows is wired
+up.
 
 ### The dependency promise
 
@@ -219,9 +224,11 @@ in place.
   reporting with movement, bracketed paste, focus, and the two shapes an *answer*
   comes in — operating system commands and device attributes. Events are a sealed
   interface. The introducer of an answer is also the bytes a terminal sends for a
-  chord, so a command is recognised only when what follows looks like one. And the
-  table that turns a keystroke into the name of what it does, which is what lets a
-  binding be several chords long and be written to a file and read back.
+  chord, so a command is recognised only when what follows looks like one.
+- **`keymap`** — the table that turns decoded keystrokes into caller-defined action
+  names, which is what lets a binding be several chords long and be written to a file
+  and read back. It depends on decoded input; neither the terminal adapter nor the
+  runtime depends on application interaction policy.
 - **`term`** — the only package that touches the operating system. Raw mode, the modes
   a session turns on and the reverse order they are put back in, the goroutines reading
   input, and a frame writer with its own goroutine so that a slow terminal cannot stop
@@ -273,12 +280,18 @@ in place.
 
 - **`layout`** — dividing a region: fixed, flexible, measured and fraction-of-the-whole
   slots, a gap between them, where a child narrower than its slot sits, insets,
-  alignment, and the placement a floating layer is clamped into. It hands back views
-  and never draws, which is what lets the same rules place a widget, a string, or a
-  hole left deliberately empty. A measured slot is asked about the axis being divided
-  given the room across the other one, so `Measured` means the same thing in a row and
-  in a column — the earlier version could only answer for height, and a measured
-  column silently came out zero wide.
+  alignment, and the placement a floating layer is clamped into. It hands back
+  rectangles and never draws, which lets drawing, placement and hit testing share one
+  geometric answer without making the allocator depend on any of them. A measured
+  slot is asked about the axis being divided given the room across the other one, so
+  `Measured` means the same thing in a row and in a column — the earlier version could
+  only answer for height, and a measured column silently came out zero wide.
+
+  Terminal cells are commonly about twice as tall as they are wide, so visually even
+  padding often needs different vertical and horizontal extents. That is why
+  terminal-facing code uses `Symmetric` instead of pretending one coordinate unit has
+  the same physical shape on both axes; `layout` states the general reason and remains
+  usable in any coordinate model.
 
 ### headless
 
@@ -306,8 +319,8 @@ them can also be asked and answered in words, for somebody who is not looking at
 grid: the question is the field's, because only the field knows what an answer means,
 and reading a line is left to whoever has the reader.
 
-None of it owns a keystroke. A widget names what it can do and answers to the name; an
-`input.Keymap` says which keystrokes produce which name, sequences included. That is why
+None of it owns a keystroke. A widget names what it can do and answers to the name; a
+`keymap.Map` says which keystrokes produce which name, sequences included. That is why
 every key can be rebound without replacing anything, and why every action is reachable
 from a menu, from a command typed out, or from a test that presses nothing.
 
@@ -346,19 +359,30 @@ away from.
 ### program
 
 One goroutine draws and handles input. Anything that happens elsewhere reaches the
-interface through `Loop.Post` and runs there. That is the whole concurrency model, and
-it is why every widget below this ring is an ordinary mutable object with no lock in it.
+interface through the small concrete `Dispatcher` returned by `Runtime.Dispatcher`
+and runs there. `Runtime` itself is a concrete resource owned by the interface
+goroutine; a consumer needing fewer operations declares that interface locally.
+Background work receives no terminal or component-tree operations. That is the
+whole concurrency model: state reached only from that goroutine is an ordinary mutable
+object with no internal lock.
 
-The loop parks when there is nothing to do — it wakes for input, for posted work, and
+Host-facing operations are not a flat service locator. `Runtime.Environment()`,
+`Clipboard()`, `Session()` and `Images()` return concrete, zero-safe domain values
+whose methods own their fallback and ordering rules. Those values can be passed
+independently to the consumer that needs them.
+
+The runtime parks when there is nothing to do — it wakes for input, for posted work, and
 for the terminal reporting progress, never on a clock that runs regardless. A component
-that wants a clock starts one with `Loop.Every`, built on `Post`, so the loop itself
-contains no timer logic and an interface with nothing animating costs nothing.
+that wants a clock starts one with `Runtime.Every`, built on the same dispatcher edge,
+so the event driver itself contains no timer logic and an interface with nothing animating
+costs nothing. A clock keeps at most one call waiting, so a busy interface resumes at
+the current tick rather than replaying every interval it missed.
 
 `Config.Root` and `Config.Inline` are the two modes, and which one is set is what
-decides the rendering model. `InlineLoop` is a separate interface precisely so that a
-program on a screen of its own cannot be handed a component that prints: there is no
-scrollback there, and the alternative was a method that quietly did nothing half the
-time.
+decides the rendering model. `InlineRuntime` is a distinct concrete resource so a
+program on a screen of its own cannot be handed printing methods: there is no
+scrollback there, and the alternative was an operation that quietly did nothing
+half the time.
 
 ### markdown
 
@@ -523,14 +547,15 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   because it flattens a line into one unit per grapheme cluster. That is why
   `kit.Paragraph` memoises its wrap, and it is the first place worth looking if
   any of this ever needs to be faster.
-- **`Loop.Post` must not be called from the loop's own goroutine while its queue is
-  full.** The buffer absorbs a burst, and a component that posted from inside `Draw`
-  or `Handle` faster than the loop drains would block the only consumer there is. It
-  takes 256 outstanding posts to reach, and `InlineLoop.Print` is the realistic way in.
+- **A producer can outrun the interface.** `Dispatcher.Post` never waits on the
+  interface or the terminal, so it cannot deadlock behind work only the interface
+  goroutine can consume. The corresponding cost is explicit: a producer that creates
+  work without bound creates a FIFO without bound. Frame requests still coalesce,
+  but state transitions do not — dropping those would silently change the program.
 - **Tagged low, on purpose.** The modules are versioned and built on every push, and
-  they are tagged at `v0.0.1` because everything about the public API is still cheap to
-  change and should be changed while that is true. A pre-1.0 tag is a promise about
-  what will break, not the absence of one.
+  they remain pre-1.0 because everything about the public API is still cheap to change
+  and should be changed while that is true. A pre-1.0 tag is a promise about what will
+  break, not the absence of one.
 
 ---
 

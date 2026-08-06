@@ -1,15 +1,13 @@
 // Package fuzzy ranks candidates against what someone has typed.
 //
-// The matching is what people expect from a command palette: every character of the
-// pattern has to appear in the candidate, in order, and how well it scores depends on
+// Every character of the pattern has to appear in the candidate, in order, and the score depends on
 // where. A match at the start of a word counts for more than one in the middle of
 // one, characters that run together count for more than characters spread out, and a
 // pattern typed in the same case as the candidate counts for a little more than one
 // that was not.
 //
-// It answers in byte offsets rather than character counts, because what asks is
-// almost always about to draw the candidate with the matched characters picked out,
-// and drawing walks a string by offset.
+// It answers in byte offsets rather than character counts so callers can address the
+// original UTF-8 string without converting between coordinate systems.
 package fuzzy
 
 import (

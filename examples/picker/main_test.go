@@ -15,8 +15,8 @@ func TestTypingNarrowsAndEnterPicks(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Root: func(loop program.Loop) program.Component {
-				return newPicker(loop, files(), &chosen)
+			Root: func(runtime *program.Runtime) program.Component {
+				return newPicker(runtime, files(), &chosen)
 			},
 		})
 	}()

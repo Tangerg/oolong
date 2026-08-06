@@ -20,8 +20,7 @@ import (
 // was between two events. That is what this type is for, and it is why hover and press
 // cannot be answered by a widget looking at one event on its own.
 //
-// It belongs to the loop that draws, like everything else at this layer, and holds no
-// lock.
+// It belongs to the goroutine that draws and holds no lock.
 type Pointer struct {
 	// at is where the pointer is, and inside says whether it is anywhere at all: a
 	// pointer that has never been reported is not at the origin, it is nowhere.

@@ -2,16 +2,16 @@
 //
 // It is pure functions of a tick and an eased value that advances one step at a
 // time. Nothing here holds a clock, opens anything, or knows what a cell is: the
-// loop decides when time passes, and what these numbers are then used for —
+// caller decides when time passes, and what these numbers are then used for —
 // brightening a colour, growing a pane — is the caller's.
 //
 // # Why ticks rather than durations
 //
 // A transition measured in wall-clock time has to ask what time it is, and a
-// widget that asks what time it is cannot be stepped by a test or paused by a loop
+// animation that asks what time it is cannot be stepped by a test or paused by its owner
 // that parked because nothing was happening. Everything here counts ticks instead,
-// and a tick is whatever the caller decided one is when they started a clock with
-// Loop.Every. That makes an animation exactly as deterministic as the thing
+// and a tick is whatever the caller's scheduler decided one is. That makes an
+// animation exactly as deterministic as the thing
 // driving it, which is the property the rest of this library is built on.
 package anim
 
@@ -112,6 +112,6 @@ func (t *Transition) Value() float64 {
 	return t.from + (t.to-t.from)*EaseOutCubic(float64(t.at)/float64(t.span))
 }
 
-// Done reports whether the transition has arrived, which is what tells a loop it
+// Done reports whether the transition has arrived, which is what tells its owner it
 // can stop the clock driving it.
 func (t *Transition) Done() bool { return t.at >= t.span }

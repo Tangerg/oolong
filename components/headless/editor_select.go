@@ -3,7 +3,7 @@ package headless
 import (
 	"strings"
 
-	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Caret is a position in an editor's text: a logical line, and a byte offset into it.
@@ -22,11 +22,8 @@ func (c Caret) Before(d Caret) bool {
 
 // Clipboard is where an editor's copy and cut go.
 //
-// It is what the program's loop already offers, so an editor is wired to the system
-// clipboard by being handed the loop and nothing else. The interface is declared here
-// rather than taken from there because this package is not allowed to know that a
-// program exists — and because a caller with somewhere else to put text is entitled
-// to say so.
+// A runtime adapter commonly provides it, but the interface is declared here where
+// it is consumed. A caller with somewhere else to put text is equally valid.
 type Clipboard interface {
 	// Copy puts text where a paste would find it, reporting false for text it will
 	// not carry.
@@ -166,7 +163,7 @@ func (e *Editor) Paste() {
 // the keystroke named, and once for what it named with the shift taken off it, which is
 // what makes every movement a way of selecting. Selecting is this without the selection
 // being let go of first.
-func (e *Editor) move(action input.Action) bool {
+func (e *Editor) move(action keymap.Action) bool {
 	switch action {
 	case MoveLeft:
 		e.MoveLeft()

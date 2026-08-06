@@ -41,6 +41,5 @@ func (o Overlay) Draw(v grid.View) grid.View {
 // Area is where the layer goes, in the space's own coordinates. It is separate from
 // drawing so that a hit test a frame later asks the same question.
 func (o Overlay) Area(v grid.View) image.Rectangle {
-	width, height := v.Size()
-	return o.In(layout.Size{W: width, H: height})
+	return o.In(v.Bounds().Size())
 }

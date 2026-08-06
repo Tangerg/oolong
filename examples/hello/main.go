@@ -3,7 +3,7 @@
 //
 // Everything in the library is optional except these three things. A program says
 // what to run and where; a component draws itself into the space it is given and
-// says whether it wants an event; the loop does the rest — one goroutine, a frame
+// says whether it wants an event; the runtime does the rest — one goroutine, a frame
 // when something changed, and nothing at all when nothing did.
 //
 // Press any key. Press q or Ctrl+C to leave.
@@ -28,7 +28,7 @@ func main() {
 		// Root takes a screen of its own and gives it back on the way out. The other
 		// mode, Inline, draws a block in the terminal's own screen — see the streaming
 		// example, which is what that is for.
-		Root: func(loop program.Loop) program.Component { return &hello{loop: loop} },
+		Root: func(runtime *program.Runtime) program.Component { return &hello{runtime: runtime} },
 		// One round trip at startup, and the only way to learn what colour the
 		// terminal draws on. A theme that has to be told is wrong for half the people
 		// who run it.
@@ -41,10 +41,10 @@ func main() {
 
 // hello counts what it has been given.
 type hello struct {
-	loop  program.Loop
-	keys  int
-	theme kit.Theme
-	set   bool
+	runtime *program.Runtime
+	keys    int
+	theme   kit.Theme
+	set     bool
 }
 
 // Draw puts a box in the middle of the screen with a line in it.
@@ -56,7 +56,7 @@ func (h *hello) Draw(v grid.View) {
 	if !h.set {
 		// The look follows what the terminal said about itself, which is known by the
 		// time anything is drawn.
-		h.theme, h.set = kit.Suited(h.loop.Ground()), true
+		h.theme, h.set = kit.Suited(h.runtime.Environment().Ground()), true
 	}
 	width, height := v.Size()
 	box := kit.Box{
@@ -67,14 +67,14 @@ func (h *hello) Draw(v grid.View) {
 	}
 	// Half the width, three rows, in the middle: a slot says how much of an axis it
 	// wants and where it sits across the other one.
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{
 			Size:  layout.Fixed(min(5, height)),
 			Cross: layout.Cross{Size: min(40, width), Align: layout.Center},
 		},
 		layout.Slot{Size: layout.Flex(1)},
-	)
+	))
 	inner := box.Draw(rows[1])
 
 	said := "press a key"
@@ -98,7 +98,7 @@ func (h *hello) Handle(ev input.Event) bool {
 		return false
 	}
 	if key.Rune == 'q' || (key.Rune == 'c' && key.Mods.Has(input.Ctrl)) {
-		h.loop.Quit()
+		h.runtime.Quit()
 		return true
 	}
 	h.keys++

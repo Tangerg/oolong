@@ -27,7 +27,7 @@ import (
 
 func main() {
 	if err := program.Run(context.Background(), program.Config{
-		Root:     func(loop program.Loop) program.Component { return newDashboard(loop) },
+		Root:     func(runtime *program.Runtime) program.Component { return newDashboard(runtime) },
 		Terminal: term.Options{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "dashboard:", err)
@@ -54,8 +54,8 @@ type task struct {
 
 // dashboard is the strip and the panes under it.
 type dashboard struct {
-	loop  program.Loop
-	theme kit.Theme
+	runtime *program.Runtime
+	theme   kit.Theme
 
 	tabs  *headless.Tabs
 	strip kit.Tabs
@@ -63,11 +63,11 @@ type dashboard struct {
 	watch *activity
 }
 
-func newDashboard(loop program.Loop) *dashboard {
-	theme := kit.Suited(loop.Ground())
+func newDashboard(runtime *program.Runtime) *dashboard {
+	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(os.Getenv)
 
-	d := &dashboard{loop: loop, theme: theme}
+	d := &dashboard{runtime: runtime, theme: theme}
 	d.work = newQueue(theme, glyphs)
 	d.watch = &activity{theme: theme, glyphs: glyphs, of: d.work}
 
@@ -80,16 +80,16 @@ func newDashboard(loop program.Loop) *dashboard {
 
 	// Something to watch: the work advances on a clock this program started, and an
 	// interface with nothing animating asks for no frames at all.
-	loop.Every(120*time.Millisecond, d.advance)
+	runtime.Every(120*time.Millisecond, d.advance)
 	return d
 }
 
 // Draw is the strip, whichever pane it says, and a hint row under both.
 func (d *dashboard) Draw(v grid.View) {
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(1)},
-	)
+	))
 	d.strip.Draw(rows[0])
 	kit.Label{
 		Text:  "alt+←/→: pane   ↑/↓: row   click a heading to sort   q: quit",
@@ -99,7 +99,7 @@ func (d *dashboard) Draw(v grid.View) {
 
 func (d *dashboard) Handle(ev input.Event) bool {
 	if key, ok := ev.(input.Key); ok && key.Down() && key.Rune == 'q' {
-		d.loop.Quit()
+		d.runtime.Quit()
 		return true
 	}
 	return d.strip.Handle(ev)
@@ -165,10 +165,10 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 // would own the cursor and the scrolling as well.
 func (q *queue) Draw(v grid.View) {
 	q.width, _ = v.Size()
-	bands := layout.Rows(v,
+	bands := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
-	)
+	))
 	q.view.Titles(bands[0])
 	q.rows.Draw(bands[1])
 }
@@ -280,11 +280,11 @@ func (a *activity) Measure(int) int { return 3 }
 
 func (a *activity) Draw(v grid.View) {
 	finished, total := a.of.remaining()
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
-	)
+	))
 	kit.Progress{
 		Theme:   a.theme,
 		Glyphs:  a.glyphs,

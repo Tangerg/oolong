@@ -43,9 +43,7 @@ func (e *Editor) drawLine(v grid.View) {
 		from := text.ColumnOf(shown, e.shownAt(start.Col)) - e.left
 		to := text.ColumnOf(shown, e.shownAt(end.Col)) - e.left
 		for x := max(from, 0); x < min(to, width); x++ {
-			if c := v.CellAt(x, 0); c != nil {
-				c.Style = c.Style.Merge(e.Look.Selection)
-			}
+			v.MergeStyle(x, 0, e.Look.Selection)
 		}
 	}
 	e.placeCursor(v, cursor-e.left, 0)

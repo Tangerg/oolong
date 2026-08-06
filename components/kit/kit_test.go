@@ -12,9 +12,22 @@ import (
 	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
+
+type cellReader interface {
+	CellAt(x, y int) (grid.Cell, bool)
+}
+
+func cellAt(r cellReader, x, y int) grid.Cell {
+	cell, ok := r.CellAt(x, y)
+	if !ok {
+		panic("test read outside grid")
+	}
+	return cell
+}
 
 // paint draws a widget into a surface of the given size and returns what it looks
 // like, one string per row with a dot for a blank cell.
@@ -25,7 +38,7 @@ func paint(w, h int, draw func(grid.View)) []string {
 	for y := range h {
 		var b strings.Builder
 		for x := range w {
-			c := s.CellAt(x, y)
+			c := cellAt(s, x, y)
 			switch {
 			case c.Width() == 0:
 			case c.Content == "":
@@ -78,7 +91,7 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 		s := grid.NewSurface(20, 10)
 		inner := box.Inner(s.View())
 		iw, ih := inner.Size()
-		if iw != 20-over.W || ih != 10-over.H {
+		if iw != 20-over.X || ih != 10-over.Y {
 			t.Errorf("box %+v: inner %dx%d does not match overhead %+v", box, iw, ih, over)
 		}
 	}
@@ -246,11 +259,11 @@ func TestScrollbarKnowsWhenItIsPointless(t *testing.T) {
 }
 
 func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
-	keys := &input.Keymap{}
+	keys := &keymap.Map{}
 	keys.Bind("send", input.Chord{Code: input.Enter})
 	keys.Bind("quit", input.Ctrl.Rune('c'))
 	keys.Bind("tasks", input.Ctrl.Rune('g'))
-	help := kit.Help{Keys: keys, Show: []input.Action{"send", "quit", "tasks"}}
+	help := kit.Help{Keys: keys, Show: []keymap.Action{"send", "quit", "tasks"}}
 	full := paint(40, 1, func(v grid.View) { help.Draw(v) })
 	for _, want := range []string{"enter send", "ctrl+c quit", "ctrl+g tasks"} {
 		if !strings.Contains(full[0], want) {
@@ -272,9 +285,9 @@ func TestHelpSkipsAnActionNobodyCanPress(t *testing.T) {
 	// A hint for a key that is not bound is a hint that is wrong. There is no flag for
 	// hiding one either: an action that works and that nobody needs told about is
 	// simply not listed.
-	keys := &input.Keymap{}
+	keys := &keymap.Map{}
 	keys.Bind("send", input.Chord{Code: input.Enter})
-	help := kit.Help{Keys: keys, Show: []input.Action{"send", "secret"}}
+	help := kit.Help{Keys: keys, Show: []keymap.Action{"send", "secret"}}
 	rows := paint(40, 1, func(v grid.View) { help.Draw(v) })
 	if strings.Contains(rows[0], "secret") {
 		t.Fatalf("row = %q, want the unbound action left out", rows[0])
@@ -381,7 +394,7 @@ func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 	s := grid.NewSurface(6, 2)
 	table.Draw(s.View())
 	for x := range 6 {
-		if got := s.CellAt(x, 1).Style.BG; got != selected.BG {
+		if got := cellAt(s, x, 1).Style.BG; got != selected.BG {
 			t.Fatalf("column %d of the banded row = %+v, want the row style across the whole row", x, got)
 		}
 	}
@@ -415,10 +428,10 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 	theme := kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}}
 	kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Theme: theme}.Draw(s.View())
 
-	if got := s.CellAt(0, 0).Content; got != "b" {
+	if got := cellAt(s, 0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
 	}
-	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+	if got := cellAt(s, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
 		t.Fatalf("what is behind is %+v, want it half way to the shade", got)
 	}
 }
@@ -434,7 +447,7 @@ func TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn(t *testing.T) {
 	unasked := grid.NewSurface(8, 2)
 	unasked.View().Text(0, 0, "behind", grid.Style{})
 	overlay.Draw(unasked.View())
-	if got := unasked.CellAt(0, 0).Style; got != (grid.Style{}) {
+	if got := cellAt(unasked, 0, 0).Style; got != (grid.Style{}) {
 		t.Errorf("a cell over an unknown terminal became %+v, want it left alone", got)
 	}
 
@@ -445,10 +458,10 @@ func TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn(t *testing.T) {
 	})
 	asked.View().Text(0, 0, "behind", grid.Style{})
 	overlay.Draw(asked.View())
-	if got := asked.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+	if got := cellAt(asked, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
 		t.Errorf("text over a known terminal is %+v, want it half way to the shade", got)
 	}
-	if got := asked.CellAt(0, 0).Style.BG.RGB(); got != (grid.RGB{R: 16, G: 16, B: 16}) {
+	if got := cellAt(asked, 0, 0).Style.BG.RGB(); got != (grid.RGB{R: 16, G: 16, B: 16}) {
 		t.Errorf("the background is %+v, want it half way to the shade", got)
 	}
 }
@@ -458,9 +471,7 @@ func TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn(t *testing.T) {
 func linkedCells(v grid.View, y, width int) []string {
 	out := make([]string, width)
 	for x := range width {
-		if c := v.CellAt(x, y); c != nil {
-			out[x] = c.Link
-		}
+		out[x] = cellAt(v, x, y).Link
 	}
 	return out
 }
@@ -536,8 +547,8 @@ func TestParagraphAnswersAClick(t *testing.T) {
 	p.Links = true
 	p.Draw(s.View())
 
-	if got, ok := p.LinkAt(8, 0); !ok || got != "https://a.test" {
-		t.Errorf("a click inside the URL found %q (%v)", got, ok)
+	if got, ok := p.LinkAt(8, 0); !ok || got.Target != "https://a.test" {
+		t.Errorf("a click inside the URL found %+v (%v)", got, ok)
 	}
 	if _, ok := p.LinkAt(1, 0); ok {
 		t.Error("a click before the URL found one")
@@ -561,7 +572,7 @@ func TestParagraphForgetsLinksItNoLongerDraws(t *testing.T) {
 	p.SetText(nil)
 	p.Draw(grid.NewSurface(30, 3).View())
 	if got, ok := p.LinkAt(8, 0); ok {
-		t.Errorf("a click still finds %q after the text was replaced", got)
+		t.Errorf("a click still finds %+v after the text was replaced", got)
 	}
 }
 
@@ -581,7 +592,7 @@ func TestParagraphDoesNotLinkATruncatedRow(t *testing.T) {
 			if target == "" {
 				continue
 			}
-			if c := v.CellAt(x, y); c != nil && c.Content == "…" {
+			if c := cellAt(v, x, y); c.Content == "…" {
 				t.Errorf("the ellipsis at (%d,%d) is linked to %q", x, y, target)
 			}
 		}
@@ -646,7 +657,7 @@ func TestTheComposerShowsASelection(t *testing.T) {
 	marked := 0
 	for y := range 3 {
 		for x := range 30 {
-			if cell := s.View().CellAt(x, y); cell != nil && cell.Style == th.Text.Merge(th.Selection) {
+			if cell := cellAt(s.View(), x, y); cell.Style == th.Text.Merge(th.Selection) {
 				marked++
 			}
 		}
@@ -665,20 +676,42 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 	p.Exists = func(path string) bool { return path == "src/main.go" }
 	p.Draw(s.View())
 
-	target, ok := p.LinkAt(len("edited "), 0)
+	destination, ok := p.LinkAt(len("edited "), 0)
 	if !ok {
 		t.Fatal("the path was not recorded")
 	}
-	if target != "src/main.go" {
-		t.Errorf("a click found %q, want the path", target)
+	if destination.Target != "src/main.go" || destination.Line != 42 {
+		t.Errorf("a click found %+v, want the path at line 42", destination)
 	}
 	// A relative path gets no OSC 8: the terminal knows the directory and offers to
 	// open it in the editor the user actually uses.
 	for x := range 40 {
-		if c := s.View().CellAt(x, 0); c != nil && c.Link != "" {
+		if c := cellAt(s.View(), x, 0); c.Link != "" {
 			t.Errorf("column %d carries the hyperlink %q", x, c.Link)
 			break
 		}
+	}
+}
+
+func TestParagraphEscapesAbsoluteFileHyperlinks(t *testing.T) {
+	s := grid.NewSurface(50, 1)
+	p := kit.NewParagraph(`open "/Applications/Demo App.app"`, grid.Style{})
+	p.Links = true
+	p.Draw(s.View())
+
+	want := "file:///Applications/Demo%20App.app"
+	found := false
+	for _, target := range linkedCells(s.View(), 0, 50) {
+		if target == "" {
+			continue
+		}
+		found = true
+		if target != want {
+			t.Fatalf("file hyperlink = %q, want %q", target, want)
+		}
+	}
+	if !found {
+		t.Fatal("absolute file path was not hyperlinked")
 	}
 }
 
@@ -688,7 +721,7 @@ func TestParagraphStillHyperlinksAURL(t *testing.T) {
 	p.Links = true
 	p.Draw(s.View())
 
-	if c := s.View().CellAt(len("see "), 0); c == nil || c.Link != "https://a.test" {
+	if c := cellAt(s.View(), len("see "), 0); c.Link != "https://a.test" {
 		t.Errorf("the first column of the URL carries %+v", c)
 	}
 }

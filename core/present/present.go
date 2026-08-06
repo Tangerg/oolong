@@ -7,7 +7,7 @@
 // swallowing the last frame.
 //
 // It is state, not machinery: it owns no goroutine, opens nothing, and writes
-// nothing. The loop asks it what to do and it answers. That is what makes the
+// nothing. Its driver asks what to do and it answers. That is what makes the
 // pacing rules testable without a terminal.
 package present
 
@@ -16,7 +16,7 @@ import "time"
 // Presenter tracks whether a frame is owed, whether one is still in flight, and
 // when the next one may go.
 //
-// Not safe for concurrent use. It belongs to the loop that draws, and the whole
+// Not safe for concurrent use. It belongs to the driver that draws, and the whole
 // point of a single owner is that "is a frame in flight" has one answer.
 type Presenter struct {
 	// owed is set by every request and cleared by the draw that satisfies them
@@ -56,7 +56,7 @@ func (p *Presenter) RequestFull() {
 //
 // It is for sources that fire faster than a terminal can usefully be redrawn — a token
 // stream, a scroll wheel held down. A request too soon still owes a frame: the interval
-// decides when it is drawn, not whether. It arms [Presenter.DueAt] so a loop that parks
+// decides when it is drawn, not whether. It arms [Presenter.DueAt] so a driver that parks
 // knows when to wake, and [Presenter.Present] holds the frame until then.
 func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 	p.owed = true
@@ -104,7 +104,7 @@ func (p *Presenter) Wrote(seq uint64) {
 
 // DueAt is when a turned-away throttled request becomes allowed, if one is pending.
 //
-// A loop that parks until something happens has to know to wake then, or the last
+// A driver that parks until something happens has to know to wake then, or the last
 // update of a burst is never drawn.
 func (p *Presenter) DueAt() (time.Time, bool) {
 	return p.dueAt, !p.dueAt.IsZero()

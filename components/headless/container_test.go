@@ -356,7 +356,7 @@ type layer struct {
 	where layout.Placement
 }
 
-func (l *layer) Place(layout.Size) layout.Placement { return l.where }
+func (l *layer) Place(image.Point) layout.Placement { return l.where }
 
 // TestALayerTakesTheKeyboardFromWhatItCovers, and gives it back. Without it the
 // interface underneath goes on drawing a cursor into the frame's one cursor, under a

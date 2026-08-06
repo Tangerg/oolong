@@ -46,9 +46,7 @@ func session(t *testing.T, width int, blocks ...[]string) *headless.Transcript {
 func styles(v grid.View, y, width int) []grid.Style {
 	out := make([]grid.Style, width)
 	for x := range width {
-		if c := v.CellAt(x, y); c != nil {
-			out[x] = c.Style
-		}
+		out[x] = cellAt(v, x, y).Style
 	}
 	return out
 }
@@ -174,7 +172,7 @@ func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
 		sc.Layout(tr.Height(), 4)
 		sc.By(scrollBy)
 		kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky}.Draw(s.View())
-		return s.CellAt(0, 0).Style
+		return cellAt(s, 0, 0).Style
 	}
 
 	// Two rows down the first header is pinned and sitting still; four rows down the

@@ -3,19 +3,18 @@
 // It owns the terminal, the frame schedule, and the one goroutine that is allowed to
 // touch the interface's state. It knows nothing about what the interface is for: what
 // it drives is a [Component], which draws itself and answers input, and everything a
-// component needs from the program it asks for through a [Loop].
+// component needs from the program it asks for through a [Runtime].
 //
 // # The concurrency model, in full
 //
 // One goroutine draws and handles input. Anything that happens elsewhere — a request
-// finishing, a file changing, a timer firing — reaches the interface by being posted
-// to that goroutine with [Loop.Post], and runs there. That is the whole of it, and it
-// is why every widget below this package is an ordinary mutable object with no lock in
-// it.
+// finishing, a file changing, a timer firing — reaches the interface through a
+// [Dispatcher] obtained from [Runtime.Dispatcher], and runs there. That is the whole of
+// it, and it is why state reached only from that goroutine needs no internal lock.
 //
 // The program parks when there is nothing to do. It wakes for input, for posted work,
 // and for the terminal reporting progress — never on a clock that runs regardless. A
-// component that wants a clock starts one with [Loop.Every], and an interface with
+// component that wants a clock starts one with [Runtime.Every], and an interface with
 // nothing animating costs nothing.
 //
 // # The two places an interface can be
@@ -24,19 +23,18 @@
 // draws in the terminal's own screen as a block with the session's output above it.
 // The second is what [Config.Inline] asks for, and it is the difference between a
 // program the user enters and leaves and one that is part of their session: what an
-// inline interface has finished with is printed with [InlineLoop.Print] and belongs to
+// inline interface has finished with is printed with [InlineRuntime.Print] and belongs to
 // the terminal from then on — scrollable, selectable, and still there afterwards.
 package program
 
 import (
 	"context"
 	"errors"
-	"image"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
@@ -48,6 +46,11 @@ import (
 // more, and a stream of updates would otherwise ask for a frame each.
 const DefaultFrameRate = 16 * time.Millisecond
 
+// ErrFrameTimeout means a frame writer did not account for its pending frames
+// before display ownership had to change. The program refuses the transition: a
+// late frame would otherwise be written into the next owner's output.
+var ErrFrameTimeout = errors.New("program: frame writer did not drain")
+
 // Component is an interface a program can run: it draws itself into the space it is
 // given, and says whether it wants an event.
 //
@@ -55,211 +58,36 @@ const DefaultFrameRate = 16 * time.Millisecond
 // its own. An event it does not consume is dropped by the program — a component is the
 // root of its own tree and there is nobody above it to pass one on to.
 type Component interface {
-	grid.Drawer
-	input.Handler
+	Draw(view grid.View)
+	Handle(event input.Event) bool
 }
 
-// Loop is what a component may ask of the program running it.
+// Dispatcher is a copyable, concurrency-safe handle into a running program.
+// Its zero value drops work. It deliberately exposes no owner-only operation.
+type Dispatcher struct{ tasks *taskQueue }
+
+// Runtime is the program resource owned by the interface goroutine.
 //
-// Every method is safe from any goroutine, which is the point: a component holds one of
-// these and hands it to whatever fetches, watches or waits on its behalf, and the
-// answers come back on the goroutine that owns the state.
-type Loop interface {
-	// Refresh asks for a frame.
-	Refresh()
+// It is concrete rather than a provider-defined interface: consumers that need
+// only a subset declare that interface where they use it. Background work receives
+// only [Runtime.Dispatcher], preserving ownership in the type system. Host features
+// are grouped into the concrete [Environment], [Clipboard], [Session] and [Images]
+// values rather than flattened into one capability catalogue. The zero value is
+// inert; it is safe to embed in an object that has not been attached to a program.
+type Runtime struct{ p *program }
 
-	// Post runs fn on the program's goroutine and asks for a frame afterwards.
-	//
-	// This is the only safe way to change what a component holds from anywhere else.
-	// Work posted after the program has stopped is dropped rather than run: there is
-	// nothing left to show it, and blocking the caller for ever would be worse.
-	Post(fn func())
-
-	// Every calls fn on the program's goroutine at an interval until the returned
-	// function is called, or until the program stops.
-	//
-	// It is how anything animated advances. Nothing ticks unless something asked for
-	// it, which is what lets an idle interface be silent.
-	Every(d time.Duration, fn func()) (stop func())
-
-	// Quit asks the program to stop. The program returns from Run once the frame in
-	// hand has been dealt with.
-	Quit()
-
-	// Ground is what the terminal's own two colours are, as far as anyone knows.
-	//
-	// They are known when the terminal was asked and answered — see
-	// [term.Options.Probe]. The background is the one a look is usually built on, and
-	// [grid.RGB.Dark] turns it into the only question a theme has; a component given
-	// no answer has to choose for itself, and there is no safe guess, because dark is
-	// the commoner choice and light is the one that becomes unreadable when it is
-	// guessed wrong.
-	//
-	// The colours are here rather than the conclusion because the conclusion is not
-	// the only use for them. A component drawing a gradient, or floating a layer over
-	// what is behind it, needs the numbers — and a lower layer that only ever answered
-	// "dark?" would have decided for everyone above it. The frame already carries the
-	// same answer for drawing's sake, which is why a widget with a view in hand asks
-	// [grid.View.Ground] instead of coming back here.
-	Ground() grid.Ground
-
-	// Copy asks for text to be put on the system clipboard, reporting false for
-	// text too large to carry — see [term.Terminal.Copy].
-	//
-	// Who does the copying is the host's business and not a component's. A terminal
-	// asks the terminal, because over ssh or through a multiplexer that is the only
-	// end of the connection the user is at; a host that knows better can do it
-	// another way without anything above having to hear about it.
-	Copy(text string) bool
-
-	// Wheel is what this terminal's wheel reports are worth, which is not a constant:
-	// terminals send between one and three of them for one notch, and there is no way
-	// to tell from a report. A component holding a scroll passes it on once — see
-	// [headless.Scroll.Wheel].
-	Wheel() input.Wheel
-
-	// Keyboard is which of the Kitty keyboard protocol's enhancements the terminal
-	// actually turned on, and whether it said.
-	//
-	// A component that waits for a key to be let go needs it. Asking for the
-	// enhancements is not the same as getting them: a terminal can accept unambiguous
-	// key codes and give nothing for releases, and then every key is held for ever as
-	// far as this program can tell. Nothing in the events distinguishes that from a
-	// user who has not lifted a key, so a component that cannot ask has no way to
-	// choose a different interaction — which is what this is for.
-	Keyboard() (input.KeyboardFlags, bool)
-
-	// ReportDirectory tells the terminal which directory the program is working in.
-	//
-	// It is what lets a terminal resolve the relative paths in a program's own output
-	// — which is why [link.Link.Hyperlink] declines to make one a hyperlink and leaves
-	// it to the terminal. A host that is not a terminal does nothing.
-	ReportDirectory(path string) error
-
-	// Paste asks for the system clipboard's contents.
-	//
-	// The answer arrives as an ordinary [input.Paste], which is what makes this
-	// worth having: a component that already inserts what the user pasted needs
-	// nothing further to insert what they copied somewhere else. It may never
-	// arrive — most terminals refuse to be read — so nothing should wait on one.
-	Paste()
-
-	// Hand gives the terminal to something else — an editor, a pager, a shell — and
-	// takes it back when run returns.
-	//
-	// It runs on the goroutine that owns the interface and does not return until run
-	// does, which is the point rather than a limitation: nothing may draw while a
-	// child owns the screen, and the simplest way to guarantee that is for the one
-	// goroutine that draws to be inside this call. Everything posted meanwhile waits
-	// its turn, and the interface is redrawn in full afterwards, because what a child
-	// did to the screen is not knowable.
-	//
-	// An inline interface is left in the terminal first, with the cursor below it, so
-	// the child starts on a line of its own and the block is not written over. It is
-	// drawn again where the cursor ends up.
-	//
-	// Where a terminal cannot be handed over — see [term.Terminal.Hand] — this
-	// reports [errors.ErrUnsupported] and run is not called.
-	Hand(run func() error) error
-
-	// SetTitle names the terminal's window — see [term.Terminal.SetTitle]. It is
-	// where a program says what it is doing to somebody who is looking at another
-	// window, which is the one thing an interface cannot say by drawing.
-	SetTitle(s string)
-
-	// Bell asks the terminal for the user's attention, and leaves it to the terminal
-	// and the user to have agreed what that means.
-	Bell()
-
-	// Notify asks for a desktop notification, for the thing that finished while the
-	// user was looking at something else. A terminal that does not implement it
-	// ignores it and says nothing, so anything worth notifying about is worth saying
-	// in the interface as well.
-	Notify(text string)
-
-	// Graphics is the richest way this terminal will take a picture, and CellSize how
-	// many pixels one cell is — the two questions that have to be answered before an
-	// interface can show one. A terminal that cannot show pictures reports
-	// [graphics.None], and one that never said how big a cell is reports false, which
-	// is not the same thing: the first cannot show a picture at all, and the second
-	// cannot be told what shape to draw it.
-	Graphics() graphics.Protocol
-	CellSize() (image.Point, bool)
-
-	// Transmit sends a picture to the terminal and returns the handle it now knows it
-	// by, which is what puts one in a frame — see [grid.View.Paint].
-	//
-	// Once per picture rather than once per frame: what a frame does with it after
-	// that is place it, which is a dozen bytes. A host that is not a terminal has
-	// nowhere to send one and reports [errors.ErrUnsupported].
-	Transmit(png []byte) (graphics.Image, error)
-
-	// Suspend gives the terminal back and stops this process, the way Ctrl+Z does in
-	// a shell, returning when it is continued.
-	//
-	// In raw mode the terminal does not do this for the user: Ctrl+Z arrives as a
-	// keystroke like any other, so a program that wants the shell's behaviour binds
-	// it to this. It is [Loop.Hand] around [term.Suspend], and the terminal is given
-	// back before the process stops rather than after, or the user is left looking at
-	// half an interface they cannot type into.
-	Suspend() error
-}
-
-// InlineLoop is what an inline program's component may ask of it: everything a
-// [Loop] offers, and somewhere to put output that is finished.
-//
-// It is a separate interface rather than two more methods on [Loop] because a
-// program drawing on a screen of its own has nowhere to print: that screen has no
-// scrollback, and output written above the interface would be scrolled away and
-// gone. A component that means to print says so by asking for this, and a program
-// that cannot offer it cannot be given such a component.
-type InlineLoop interface {
-	Loop
-
-	// Print draws something that can size itself into the terminal's own output,
-	// above the interface, where it stays after the program exits.
-	//
-	// It is how a streaming interface says something final: the interface itself is
-	// what is still changing, and everything it has finished with belongs to the
-	// terminal.
-	//
-	// The width is the program's to know and not the caller's. Measuring happens
-	// here, on the goroutine that owns the interface, which is both why a caller
-	// does not have to remember how wide the last frame was and why measuring a
-	// widget from somewhere else — a mutable object, on another goroutine — is not
-	// something this can be made to do by accident.
-	Print(p Printable)
-
-	// PrintRows is the same for a caller that has already worked out the height:
-	// rows it composed by hand, or content whose shape it knows better than any
-	// measurement would. draw is given a view rows tall and as wide as the
-	// interface.
-	PrintRows(rows int, draw func(grid.View))
-
-	// Append puts output onto the end of what was printed last rather than onto a
-	// row of its own, which is what output arriving in pieces needs: a reply
-	// streaming in three words at a time is one paragraph, not three rows.
-	//
-	// draw is given what is left of the open row and says whether there is more to
-	// come. When there is, it is called again with a whole row, and again until it
-	// says there is not — which is what lets a caller lay text out against room it
-	// has no way of knowing until the loop tells it. A round with a whole row to
-	// itself that draws nothing ends it, because asking again would never end.
-	Append(draw func(v grid.View) (more bool))
-}
+// InlineRuntime is a [Runtime] that can publish completed output into terminal
+// scrollback. It is only constructed for [Config.Inline], and its zero value is
+// inert.
+type InlineRuntime struct{ *Runtime }
 
 // Printable is something that can say how tall it is at a width and then draw
 // itself into that space.
 //
-// Both halves are named from below rather than invented here: [grid.Drawer] and
-// [layout.Measurer] are what the substrate already calls these, and a loop that
-// coined its own words for them would be a lower layer taking its vocabulary from
-// an upper one. It is the same reason components' own Sized is built from the same
-// two — not because either copied the other, but because both are spelled in the
-// language underneath them, which is what lets everything in components satisfy
-// this without an adapter and without the loop knowing components exists.
+// The interface is defined here where printing consumes it. Any higher-level value
+// with the same drawing and measuring behaviour satisfies it without an adapter.
 type Printable interface {
-	grid.Drawer
+	Draw(view grid.View)
 	layout.Measurer
 }
 
@@ -268,56 +96,33 @@ type Printable interface {
 // A program opens the real terminal unless it is given one of these. Being able to
 // supply it is what lets an interface be driven and inspected in a test, with no
 // terminal in sight.
+//
+// Everything beyond transport is optional. Each independently useful operation is
+// represented by a small consumer interface such as [GroundHost], [CopyHost] or
+// [NotifyHost], so implementing one never silently depends on implementing its
+// neighbours. [ImageHost] is the exception because its transport and geometry form
+// one protocol. Absent capabilities receive harmless defaults.
 type Host interface {
 	// Events is the input, closed when the input ends.
 	Events() <-chan input.Event
-	// Writer is where frames go.
-	Writer() *term.Writer
+	// Writer is where frames go. The interface is defined here, where it is used;
+	// a host is not coupled to the terminal package's concrete writer.
+	Writer() FrameWriter
 	// Size is the terminal's size in cells.
 	Size() (w, h int, err error)
-	// Ground is the terminal's own two colours. A host that is not a terminal answers
-	// the zero value, and so does a terminal nobody asked.
-	//
-	// It is here rather than in [Config] because it is a fact about the thing being
-	// drawn on, and this is what stands for that thing. A test host that can say it
-	// is light is a test that can check a look both ways round.
-	Ground() grid.Ground
-	// Wheel is what the terminal's wheel reports are worth. A host that is not a
-	// terminal answers the zero value, which is the common arrangement.
-	Wheel() input.Wheel
-	// Keyboard is which Kitty keyboard enhancements are on, and whether the terminal
-	// said. A host that cannot ask reports false.
-	Keyboard() (input.KeyboardFlags, bool)
-	// ReportDirectory tells the terminal where the program is working. A host that is
-	// not a terminal does nothing and reports no error: there is nobody to tell.
-	ReportDirectory(path string) error
-	// Copy puts text on the system clipboard, reporting false for text it will not
-	// carry.
-	Copy(text string) bool
-	// Paste asks for the system clipboard, whose contents arrive later on Events as
-	// an [input.Paste]. A host that cannot read a clipboard does nothing.
-	//
-	// Copying and pasting are the host's because how they are done depends entirely
-	// on what is at the other end. A terminal asks the terminal, over a protocol it
-	// may refuse; a host somewhere else can shell out to the local tools and be
-	// right for that case, which asking the terminal would not be.
-	Paste()
-	// Hand gives the terminal to something else and takes it back when run returns —
-	// see [term.Terminal.Hand]. A host that is not a terminal has nothing to give
-	// away and simply runs it.
-	Hand(run func() error) error
-	// SetTitle names the window, Bell asks for attention, and Notify asks for a
-	// desktop notification. A host that is not a terminal has nobody to tell and does
-	// nothing, which is the same answer ReportDirectory gives and for the same reason.
-	SetTitle(s string)
-	Bell()
-	Notify(text string)
-	// Graphics is how this host will take a picture, CellSize how many pixels a cell
-	// is, and Transmit sends one — see [term.Terminal.Transmit]. A host that is not a
-	// terminal shows no pictures and says so.
-	Graphics() graphics.Protocol
-	CellSize() (image.Point, bool)
-	Transmit(png []byte) (graphics.Image, error)
+}
+
+// FrameWriter is the part of a frame queue the program needs.
+//
+// It is defined by the consumer rather than exposing [term.Writer] through [Host].
+// Implementations must preserve queue order, report progress as a watermark and be
+// safe for concurrent use. [term.Writer] is the standard implementation.
+type FrameWriter interface {
+	Queue(frame []byte) uint64
+	Progress() <-chan struct{}
+	Written() uint64
+	Err() error
+	Drain(timeout time.Duration) bool
 }
 
 // Config is what a program needs to run.
@@ -326,14 +131,16 @@ type Host interface {
 // where the interface is drawn: Root takes a screen of its own, Inline draws in the
 // terminal's own screen and prints finished output into its scrollback.
 type Config struct {
-	// Root builds the component to run on a screen of its own. It is given the loop
-	// first, so the component can hold it from the moment it exists.
-	Root func(Loop) Component
+	// Root builds the component to run on a screen of its own. It is given the runtime
+	// first, so the component can hold it from the moment it exists. Returning nil is
+	// an error.
+	Root func(*Runtime) Component
 
 	// Inline builds the component to run as a block in the terminal's own screen,
 	// with output that is finished printed above it. Its component is given an
-	// [InlineLoop], which is a [Loop] that can also print.
-	Inline func(InlineLoop) Component
+	// [InlineRuntime], which is a [Runtime] that can also print.
+	// Returning nil is an error.
+	Inline func(*InlineRuntime) Component
 
 	// Terminal says which of the terminal's optional behaviours to ask for. Ignored
 	// when Host is set.
@@ -387,7 +194,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		// Giving the terminal back matters more than anything that could go wrong while
 		// using it: a terminal left in raw mode is one the user has to close.
 		defer func() { err = errors.Join(err, terminal.Close()) }()
-		host = terminal
+		host = terminalHost{Terminal: terminal}
 	}
 
 	// The size is asked for once, here, rather than waited for. A program draws before
@@ -398,17 +205,21 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		return err
 	}
 
+	frames := host.Writer()
+	if frames == nil {
+		return errors.New("program: host returned no frame writer")
+	}
 	p := &program{
-		host:      host,
-		writer:    host.Writer(),
+		host:      hostServicesFor(host),
+		events:    host.Events(),
+		writer:    frames,
 		frameRate: cfg.FrameRate,
-		tasks:     make(chan func(), 256),
-		done:      make(chan struct{}),
+		tasks:     newTaskQueue(),
 	}
 	if p.frameRate <= 0 {
 		p.frameRate = DefaultFrameRate
 	}
-	defer close(p.done)
+	defer p.tasks.stop()
 	depth := cfg.Color
 	if depth == grid.Auto {
 		depth = term.DetectDepth()
@@ -417,21 +228,32 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		p.inline = grid.NewInline(width, height)
 		p.inline.SetDepth(depth)
 		p.canvas = p.inline
-		p.root = cfg.Inline(inlineLoop{loop{p}})
+		p.root = cfg.Inline(&InlineRuntime{Runtime: &Runtime{p: p}})
 	} else {
 		screen := grid.NewScreen(width, height)
 		screen.SetDepth(depth)
 		p.canvas = screen
-		p.root = cfg.Root(loop{p})
+		p.root = cfg.Root(&Runtime{p: p})
+	}
+	if p.root == nil {
+		return errors.New("program: component builder returned nil")
 	}
 	// What the terminal draws with and on goes to the canvas, not just to the
 	// component: a cell left at the terminal's own colours has no numbers of its own,
 	// and a layer floating over one has to mix with something. This is the only place
 	// that knows both the answer and the surface, so it is the only place that can
 	// join them — see [grid.Ground].
-	p.canvas.SetGround(host.Ground())
+	p.canvas.SetGround(p.host.ground())
 	return p.run(ctx)
 }
+
+// terminalHost adapts the concrete terminal to the consumer-defined Host without
+// making the substrate import this package. Every optional host capability is
+// promoted from Terminal; only the frame writer needs an adapter because Go method
+// results are not covariant.
+type terminalHost struct{ *term.Terminal }
+
+func (h terminalHost) Writer() FrameWriter { return h.Terminal.Writer() }
 
 // canvas is somewhere frames go: a screen of the program's own, or a block in the
 // terminal's. The program drives both the same way, and the difference between them
@@ -448,33 +270,32 @@ type canvas interface {
 // program is one running interface.
 type program struct {
 	root   Component
-	host   Host
+	host   hostServices
+	events <-chan input.Event
 	canvas canvas
 	// inline is the canvas again when the interface is drawn in the terminal's own
 	// screen, and nil when it has a screen to itself. It is what printing needs and
 	// a screen cannot offer.
 	inline *grid.Inline
-	writer *term.Writer
+	writer FrameWriter
 
 	present   present.Presenter
 	frameRate time.Duration
 
-	// tasks carries work to be run on this goroutine. Its buffer is what absorbs a
-	// burst without making the producer wait.
-	tasks chan func()
-	// done closes when the program stops, so anything waiting to post gives up and
-	// anything ticking exits.
-	done chan struct{}
+	// tasks is the concurrency-safe edge into this goroutine. It is a FIFO plus one
+	// wake-up rather than a bounded channel, so the owner can never deadlock behind
+	// work only it can consume.
+	tasks *taskQueue
 
-	quit bool
+	quit atomic.Bool
 }
 
 // run is the event loop.
-func (p *program) run(ctx context.Context) error {
+func (p *program) run(ctx context.Context) (err error) {
 	// However this ends — asked to stop, input gone, terminal broken — an inline
 	// interface has one more frame to draw and a cursor to leave in a sane place.
-	defer p.finish()
-	events := p.host.Events()
+	defer func() { err = errors.Join(err, p.finish()) }()
+	events := p.events
 
 	// due fires when a frame that was turned away for arriving too soon becomes
 	// allowed. Without it the last update of a burst would sit undrawn until something
@@ -486,7 +307,7 @@ func (p *program) run(ctx context.Context) error {
 	armed := false
 
 	p.present.RequestFull()
-	for !p.quit {
+	for !p.quit.Load() {
 		p.draw()
 
 		if armed && !due.Stop() {
@@ -510,11 +331,15 @@ func (p *program) run(ctx context.Context) error {
 			}
 			p.handle(ev)
 
-		case task := <-p.tasks:
-			p.apply(task)
-			// Whatever else arrived without waiting is applied before drawing, so a
-			// burst is one frame rather than one frame each.
-			p.drain()
+		case <-p.tasks.wake:
+			// Take one snapshot. Work posted while it runs leaves another wake-up, so a
+			// producer that never stops cannot keep input out of the select forever.
+			for _, task := range p.tasks.take() {
+				p.apply(task)
+				if p.quit.Load() {
+					break
+				}
+			}
 
 		case <-p.writer.Progress():
 			p.present.Wrote(p.writer.Written())
@@ -537,18 +362,6 @@ func (p *program) apply(task func()) {
 		task()
 	}
 	p.present.RequestBy(time.Now(), p.frameRate)
-}
-
-// drain runs whatever else is already waiting.
-func (p *program) drain() {
-	for {
-		select {
-		case task := <-p.tasks:
-			p.apply(task)
-		default:
-			return
-		}
-	}
 }
 
 // handle deals with one terminal event.
@@ -614,11 +427,18 @@ func (p *program) flush() uint64 {
 // Both wait for the terminal to catch up, so that Run returning means what the
 // program drew has been written. Without it a caller printing its own output next
 // would find the program's last frame arriving in the middle of it.
-func (p *program) finish() {
+func (p *program) finish() error {
 	if p.inline != nil {
 		p.leaveBlock()
 	}
-	p.writer.Drain(term.DrainGrace)
+	if !p.writer.Drain(term.DrainGrace) {
+		return frameDrainError(p.writer)
+	}
+	return nil
+}
+
+func frameDrainError(writer FrameWriter) error {
+	return errors.Join(ErrFrameTimeout, writer.Err())
 }
 
 // leaveBlock draws the interface one last time and leaves it in the terminal's own
@@ -648,157 +468,126 @@ func (f *frameBuffer) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// inlineLoop is the program's side of [InlineLoop]. It exists only when there is a
-// terminal screen to print into, which is what keeps [InlineLoop.Print] from being a
-// method that quietly does nothing half the time.
-type inlineLoop struct{ loop }
-
-func (l inlineLoop) Print(p Printable) {
-	if p == nil {
+// Print publishes a measured drawable above an inline interface.
+func (r *InlineRuntime) Print(p Printable) {
+	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil || p == nil {
 		return
 	}
-	l.Post(func() {
-		width, _ := l.p.inline.Size()
-		l.p.inline.Print(p.Measure(width), p.Draw)
-	})
+	width, _ := r.p.inline.Size()
+	r.p.inline.Print(p.Measure(width), p.Draw)
 }
 
-func (l inlineLoop) PrintRows(rows int, draw func(grid.View)) {
-	l.Post(func() { l.p.inline.Print(rows, draw) })
-}
-
-func (l inlineLoop) Append(draw func(grid.View) bool) {
-	if draw == nil {
+// PrintRows publishes a caller-sized drawing above an inline interface.
+func (r *InlineRuntime) PrintRows(rows int, draw func(grid.View)) {
+	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil || draw == nil {
 		return
 	}
-	l.Post(func() {
-		for {
-			before := l.room()
-			more := false
-			l.p.inline.Append(func(v grid.View) { more = draw(v) })
-			if !more {
-				return
-			}
-			if l.room() == before && before == 0 {
-				// A whole row to itself and nothing drawn into it. No amount of room
-				// would help, so asking again is asking forever.
-				return
-			}
-			l.p.inline.Break()
+	r.p.inline.Print(rows, draw)
+}
+
+// Append continues the last published row until draw reports completion.
+func (r *InlineRuntime) Append(draw func(grid.View) bool) {
+	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil || draw == nil {
+		return
+	}
+	for {
+		before := r.room()
+		more := false
+		r.p.inline.Append(func(v grid.View) { more = draw(v) })
+		if !more {
+			return
 		}
-	})
+		if r.room() == before && before == 0 {
+			// A whole row to itself and nothing drawn into it. No amount of room
+			// would help, so asking again is asking forever.
+			return
+		}
+		r.p.inline.Break()
+	}
 }
 
 // room is how much of the open row has been taken, or zero when the next thing
 // published starts a row of its own.
-func (l inlineLoop) room() int {
-	col, open := l.p.inline.Tail()
+func (r *InlineRuntime) room() int {
+	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil {
+		return 0
+	}
+	col, open := r.p.inline.Tail()
 	if !open {
 		return 0
 	}
 	return col
 }
 
-// loop is the program's side of [Loop]. It is a value so a component can copy it
-// freely and hand it to whatever needs it.
-type loop struct{ p *program }
+// Dispatcher returns the concurrency-safe handle for background work.
+func (r *Runtime) Dispatcher() Dispatcher {
+	if r == nil || r.p == nil {
+		return Dispatcher{}
+	}
+	return Dispatcher{tasks: r.p.tasks}
+}
 
-func (l loop) Refresh() { l.Post(nil) }
-
-func (l loop) Post(fn func()) {
-	select {
-	case l.p.tasks <- fn:
-	case <-l.p.done:
-		// The program has stopped. There is nothing left to show the work on, and
-		// blocking the caller for ever would be worse than dropping it.
+// Refresh requests a frame without changing component state.
+func (r *Runtime) Refresh() {
+	if r != nil && r.p != nil {
+		r.p.tasks.post(nil)
 	}
 }
 
-func (l loop) Quit() {
-	l.Post(func() { l.p.quit = true })
+// Quit asks the program to stop.
+func (r *Runtime) Quit() {
+	if r == nil || r.p == nil {
+		return
+	}
+	r.p.quit.Store(true)
+	// Wake a parked loop so it can observe the transition. The signal carries no
+	// task and coalesces with any wake-up already waiting.
+	r.p.tasks.signal()
 }
 
-// Ground reads through to the host rather than caching the answer. What the
-// terminal said its colours were was settled before the program started and cannot
-// change under it, so there is nothing to keep in step.
-func (l loop) Ground() grid.Ground { return l.p.host.Ground() }
-
-// Copy and Paste read through to the host. Neither needs the program's goroutine:
-// nothing about the interface changes, and the answer to a paste comes back the way
-// every other event does.
-func (l loop) Copy(text string) bool { return l.p.host.Copy(text) }
-
-func (l loop) Wheel() input.Wheel { return l.p.host.Wheel() }
-
-func (l loop) Keyboard() (input.KeyboardFlags, bool) { return l.p.host.Keyboard() }
-
-func (l loop) ReportDirectory(path string) error { return l.p.host.ReportDirectory(path) }
-
-func (l loop) Paste() { l.p.host.Paste() }
-
-// Hand runs on the goroutine that owns the interface, and everything it does is in
-// that order: the block is left in the terminal, the terminal is given away, the
-// child has it, and what comes back is a screen nothing knows anything about — so
-// the next frame is drawn in full.
-func (l loop) Hand(run func() error) error {
-	if run == nil {
-		return nil
-	}
-	if l.p.inline != nil {
-		l.p.leaveBlock()
-	}
-	// What was queued has to be on the wire before anything else owns the terminal,
-	// including the frame that was just drawn to leave the block behind. It is done
-	// here rather than left to the host because every host needs it and only this
-	// knows a frame was queued a line ago.
-	l.p.writer.Drain(term.DrainGrace)
-	err := l.p.host.Hand(run)
-	l.p.present.RequestFull()
-	return err
-}
-
-func (l loop) Suspend() error { return l.Hand(term.Suspend) }
-
-// SetTitle, Bell and Notify read through to the host. None of them touches the
-// interface, so none of them needs the program's goroutine: they are things said to
-// the terminal beside the frames rather than things drawn in one.
-func (l loop) SetTitle(s string) { l.p.host.SetTitle(s) }
-
-func (l loop) Bell() { l.p.host.Bell() }
-
-func (l loop) Notify(text string) { l.p.host.Notify(text) }
-
-// Graphics, CellSize and Transmit read through to the host as well. Sending a
-// picture is not the interface's goroutine's business — it is usually fetched from
-// somewhere else — and what comes back is a handle a frame places, which is.
-func (l loop) Graphics() graphics.Protocol { return l.p.host.Graphics() }
-
-func (l loop) CellSize() (image.Point, bool) { return l.p.host.CellSize() }
-
-func (l loop) Transmit(png []byte) (graphics.Image, error) { return l.p.host.Transmit(png) }
-
-func (l loop) Every(d time.Duration, fn func()) (stop func()) {
-	if d <= 0 || fn == nil {
+// Every schedules coalesced ticks on the interface goroutine.
+func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
+	if r == nil || r.p == nil || d <= 0 || fn == nil {
 		return func() {}
 	}
 	stopped := make(chan struct{})
+	dispatch := r.Dispatcher()
+	var pending, cancelled atomic.Bool
+	// sync.Once rather than a bool: stop is handed out to a caller who may keep it
+	// anywhere, and two goroutines reaching a plain flag at once would both close
+	// the channel and one would panic. cancelled is published before the close so a
+	// tick already selectable at that instant cannot enqueue one last stale call.
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			cancelled.Store(true)
+			close(stopped)
+		})
+	}
 	go func() {
 		ticker := time.NewTicker(d)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				l.Post(fn)
+				if cancelled.Load() {
+					return
+				}
+				if pending.CompareAndSwap(false, true) {
+					dispatch.Post(func() {
+						defer pending.Store(false)
+						if cancelled.Load() {
+							return
+						}
+						fn()
+					})
+				}
 			case <-stopped:
 				return
-			case <-l.p.done:
+			case <-r.p.tasks.done:
 				return
 			}
 		}
 	}()
-	// sync.Once rather than a bool: stop is handed out to a caller who may keep it
-	// anywhere, and two goroutines reaching a plain flag at once would both close
-	// the channel and one would panic.
-	var once sync.Once
-	return func() { once.Do(func() { close(stopped) }) }
+	return stop
 }

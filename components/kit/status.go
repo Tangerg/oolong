@@ -8,7 +8,7 @@ import (
 // Status is the line that says something is happening: a spinner, what it is doing,
 // and how long it has been at it.
 //
-// It holds no clock. Whoever runs the loop advances it with [Status.Tick], which is
+// It holds no clock. The caller advances it with [Status.Tick], which is
 // what lets a test step it deterministically and what keeps an idle interface from
 // waking up to animate something nobody is waiting for.
 type Status struct {

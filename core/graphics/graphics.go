@@ -301,12 +301,11 @@ var iterm2Programs = []string{"iterm", "mintty"}
 // which is how kitty's protocol and iTerm2's are found; nothing in the environment
 // names sixel, so a terminal that supports sixel and nothing else is
 // indistinguishable from a terminal that supports nothing. That answer only comes
-// from asking the terminal — see [input.DeviceAttributes] and [term.Options.Probe] —
-// and sixel says what it said.
+// from a device-attribute response, and sixel says what it said.
 //
 // The lookup is passed in rather than read, which is what makes this a function of
-// its inputs: [term.Terminal.Graphics] passes os.Getenv and its own answers, and a
-// test passes whatever it wants the terminal to be. There is no cached global and no
+// its inputs: an adapter passes its environment lookup and negotiated answers, and
+// a test passes whatever facts it wants. There is no cached global and no
 // override hook, for the same reason there is no global palette — a program with two
 // terminals could not have two answers, and a test could not pin either.
 func DetectIn(getenv func(string) string, name string, sixel bool) Protocol {

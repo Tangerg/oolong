@@ -1,27 +1,19 @@
 // Package link finds the things in a piece of text that point somewhere.
 //
-// A terminal that speaks OSC 8 will make a range of cells clickable, and
-// [grid.Cell] carries the target for exactly that. What it cannot do is work out
-// which part of a line points somewhere in the first place — that is this package,
-// and it is a surprising amount of care for what looks like two regular expressions.
+// It reports byte ranges and normalized destinations without deciding how a caller
+// presents or opens them. Detection is a surprising amount of care for what looks
+// like two regular expressions.
 //
 // # Two kinds, because they are two things
 //
 // A URL and a file path are not one destination with two spellings. A URL is opened
-// by a browser and can be handed to a terminal as an OSC 8 target; a file is opened by
-// an editor, at a line, and handing the terminal a file:// for it is usually worse
-// than saying nothing — see [Link.Hyperlink].
-//
-// In an agent's output the file is the commoner one. A model saying which file it
-// changed, and where, is the thing a reader most wants to click.
+// by a browser; a file is opened by an editor, potentially at a line and column.
 //
 // # What is not here
 //
 // Opening one. Which browser, which editor, whether the process is sandboxed, whether
-// a path from tool output should be opened at all — none of that is a terminal
-// library's to decide, and a library that decided would be a framework for one
-// program. The answer is a byte range and a destination; what happens on a click is
-// the caller's.
+// a detected path should be opened at all — none of that belongs to detection. The
+// answer is a byte range and a destination; what happens next is the caller's.
 //
 // Nor is the filesystem. This package reads text and nothing else, which is why the
 // one rule that needs the filesystem takes it as an argument — see [DetectIn].
@@ -40,7 +32,7 @@ const (
 	// URL is a web address. It is the zero value because it is the kind that needs no
 	// confirmation from anywhere: a thing shaped like a URL is a URL.
 	URL Kind = iota
-	// File is a path on the machine the program is running on.
+	// File is a path in the local filesystem.
 	File
 )
 
@@ -54,8 +46,8 @@ func (k Kind) String() string {
 
 // Link is one thing in a piece of text that points somewhere.
 type Link struct {
-	// Start and End are the byte range of the text that was matched, which is what a
-	// caller stamps onto cells with [text.StampLink].
+	// Start and End are the byte range of the text that was matched, so a caller can
+	// attach the destination to its own representation of that range.
 	Start, End int
 	// Kind says which sort of destination Target is.
 	Kind Kind
@@ -72,6 +64,9 @@ type Link struct {
 	Line, Column int
 }
 
+// Links is an ordered, non-overlapping set of links detected in one text.
+type Links []Link
+
 // Text is the matched range of s, which is what was actually written.
 func (l Link) Text(s string) string {
 	if l.Start < 0 || l.End > len(s) || l.Start > l.End {
@@ -80,25 +75,17 @@ func (l Link) Text(s string) string {
 	return s[l.Start:l.End]
 }
 
-// Hyperlink is what to give a terminal as an OSC 8 target, and whether to give it one
-// at all.
+// At returns the link covering a byte offset.
 //
-// A URL is given as it is. A relative path is not given at all, and that refusal is the
-// interesting half: terminals find paths in their own output, know the directory the
-// program is running in, and offer to open one in the editor the user actually uses.
-// Wrapping a path in a link takes all of that away and replaces it with a destination
-// the terminal will hand to a browser.
-//
-// An absolute path is the exception. There a file:// target says exactly what it means,
-// and a terminal that does nothing with it is no worse off than before.
-func (l Link) Hyperlink() (string, bool) {
-	if l.Kind == URL {
-		return l.Target, true
+// Start is inclusive and End exclusive, so the character after a link is not part
+// of it. The scan is linear because a line normally holds only a handful of links.
+func (links Links) At(offset int) (Link, bool) {
+	for _, link := range links {
+		if offset >= link.Start && offset < link.End {
+			return link, true
+		}
 	}
-	if strings.HasPrefix(l.Target, "/") {
-		return "file://" + l.Target, true
-	}
-	return "", false
+	return Link{}, false
 }
 
 // urlPattern finds http(s) URLs and bare www. hosts in one pass.
@@ -153,7 +140,7 @@ const trailing = ".,;:!?)]}"
 //
 // Only what can be recognised from the text alone. A bare filename cannot be — see
 // [DetectIn], which is this with the one question this package cannot answer handed in.
-func Detect(s string) []Link { return DetectIn(s, nil) }
+func Detect(s string) Links { return DetectIn(s, nil) }
 
 // DetectIn finds every link in s, asking exists about the shapes that cannot be told
 // from prose by looking at them.
@@ -166,7 +153,7 @@ func Detect(s string) []Link { return DetectIn(s, nil) }
 // It is an argument rather than a call into the operating system because this package
 // reads text. A library that quietly stat'd every word of a model's output would be
 // doing something no reader of its documentation had reason to expect.
-func DetectIn(s string, exists func(path string) bool) []Link {
+func DetectIn(s string, exists func(path string) bool) Links {
 	found := detectURLs(s)
 	found = append(found, detectPaths(s, exists)...)
 	if exists != nil {
@@ -305,7 +292,7 @@ func within(s string, at int) bool {
 // Overlap is possible because the shapes are looked for separately, and two links over
 // the same cells would stamp one target on top of the other — leaving whichever ran
 // last, which is not a rule anybody could predict from the text.
-func inOrder(found []Link) []Link {
+func inOrder(found []Link) Links {
 	for i := 1; i < len(found); i++ {
 		for j := i; j > 0 && found[j].Start < found[j-1].Start; j-- {
 			found[j-1], found[j] = found[j], found[j-1]
@@ -320,21 +307,7 @@ func inOrder(found []Link) []Link {
 		out = append(out, l)
 		end = l.End
 	}
-	return out
-}
-
-// At is the link covering a byte offset, and whether there is one.
-//
-// Start is inclusive and End exclusive, so a click on the character after a link is
-// not a click on the link. The scan is linear because a line holds a handful of these
-// and an index over them would cost more to build than to skip.
-func At(links []Link, offset int) (Link, bool) {
-	for _, l := range links {
-		if offset >= l.Start && offset < l.End {
-			return l, true
-		}
-	}
-	return Link{}, false
+	return Links(out)
 }
 
 // trimTrailing strips the sentence punctuation off the end of a match.

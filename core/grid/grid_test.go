@@ -11,13 +11,25 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 )
 
+type cellReader interface {
+	CellAt(x, y int) (grid.Cell, bool)
+}
+
+func cellAt(r cellReader, x, y int) grid.Cell {
+	cell, ok := r.CellAt(x, y)
+	if !ok {
+		panic("test read outside grid")
+	}
+	return cell
+}
+
 // text reads back a row as plain characters, with a dot for a blank cell, so a
 // test can state what the grid looks like instead of what it contains.
 func text(s *grid.Surface, y int) string {
 	var b strings.Builder
 	w, _ := s.Size()
 	for x := range w {
-		c := s.CellAt(x, y)
+		c := cellAt(s, x, y)
 		switch {
 		case c.Width() == 0:
 		case c.Content == "":
@@ -69,6 +81,25 @@ func TestZeroCellIsABlankSingleColumn(t *testing.T) {
 	}
 }
 
+func TestRectNormalizesInvalidAndOverflowingExtents(t *testing.T) {
+	if got := grid.Rect(4, 5, -2, -3); got != (image.Rectangle{Min: image.Pt(4, 5), Max: image.Pt(4, 5)}) {
+		t.Fatalf("negative extent = %v, want an empty rectangle at the origin", got)
+	}
+	maxInt := int(^uint(0) >> 1)
+	if got := grid.Rect(maxInt-1, 0, 10, 1); got.Max.X != maxInt || got.Min.X != maxInt-1 {
+		t.Fatalf("overflowing extent = %v, want it saturated", got)
+	}
+}
+
+func TestSurfaceRejectsAnOverflowingAreaClearly(t *testing.T) {
+	defer func() {
+		if got := recover(); got != "grid: surface dimensions overflow" {
+			t.Fatalf("panic = %v", got)
+		}
+	}()
+	grid.NewSurface(int(^uint(0)>>1), 2)
+}
+
 func TestTextWritesAndClips(t *testing.T) {
 	s := grid.NewSurface(6, 2)
 	v := s.View()
@@ -96,11 +127,47 @@ func TestWideClustersOccupyTwoColumns(t *testing.T) {
 	if got := s.View().Text(0, 0, "中文", grid.Style{}); got != 4 {
 		t.Fatalf("advance = %d, want 4 columns for two wide clusters", got)
 	}
-	if s.CellAt(0, 0).Width() != 2 || s.CellAt(1, 0).Width() != 0 {
+	if cellAt(s, 0, 0).Width() != 2 || cellAt(s, 1, 0).Width() != 0 {
 		t.Fatal("a wide cluster did not claim a head and a trailing cell")
 	}
 	if got := text(s, 0); got != "中文.." {
 		t.Fatalf("row = %q", got)
+	}
+}
+
+func TestInspectionCannotMutateTheSurface(t *testing.T) {
+	s := grid.NewSurface(3, 1)
+	s.View().Text(0, 0, "中x", grid.Style{})
+
+	cell := cellAt(s, 0, 0)
+	cell.Content = "broken"
+	if cell.Content != "broken" {
+		t.Fatal("the detached inspection value could not be changed")
+	}
+	row := s.Row(0)
+	row[0], row[1] = grid.Cell{}, grid.Cell{}
+
+	if got := text(s, 0); got != "中x" {
+		t.Fatalf("mutating inspection results changed the surface to %q", got)
+	}
+	if cellAt(s, 0, 0).Width() != 2 || cellAt(s, 1, 0).Width() != 0 {
+		t.Fatal("mutating inspection results broke a wide-cell pair")
+	}
+}
+
+func TestMergeStyleCannotBreakTheCellPair(t *testing.T) {
+	s := grid.NewSurface(2, 1)
+	v := s.View()
+	v.Text(0, 0, "中", grid.Style{})
+	over := grid.Style{Attr: grid.Bold}
+	if !v.MergeStyle(0, 0, over) || !v.MergeStyle(1, 0, over) {
+		t.Fatal("visible cells were not restyled")
+	}
+	if cellAt(s, 0, 0).Width() != 2 || cellAt(s, 1, 0).Width() != 0 {
+		t.Fatal("restyling broke a wide-cell pair")
+	}
+	if !cellAt(s, 0, 0).Style.Attr.Has(grid.Bold) || !cellAt(s, 1, 0).Style.Attr.Has(grid.Bold) {
+		t.Fatal("style was not merged onto both cells")
 	}
 }
 
@@ -112,7 +179,7 @@ func TestWideClusterIsNeverSplitAtTheRightEdge(t *testing.T) {
 	if got := text(s, 0); got != "a." {
 		t.Fatalf("row = %q, want the wide cluster dropped and its column blanked", got)
 	}
-	if c := s.CellAt(1, 0); c.Width() != 1 || !c.Blank() {
+	if c := cellAt(s, 1, 0); c.Width() != 1 || !c.Blank() {
 		t.Fatalf("cell 1 = %+v, want a blank single cell", c)
 	}
 	// One more column and it does fit, exactly.
@@ -141,7 +208,7 @@ func TestOverwritingHalfOfAWidePairBlanksTheOther(t *testing.T) {
 				t.Fatalf("row = %q, want %q", got, tc.want)
 			}
 			for x := range 2 {
-				if w := s.CellAt(x, 0).Width(); w == 0 || w == 2 {
+				if w := cellAt(s, x, 0).Width(); w == 0 || w == 2 {
 					t.Fatalf("cell %d is still half of a pair (width %d)", x, w)
 				}
 			}
@@ -153,10 +220,10 @@ func TestZeroWidthClusterJoinsTheCellToItsLeft(t *testing.T) {
 	s := grid.NewSurface(3, 1)
 	// A combining acute arriving on its own after the letter it modifies.
 	s.View().Text(0, 0, "éx", grid.Style{})
-	if got := s.CellAt(0, 0).Content; got != "é" {
+	if got := cellAt(s, 0, 0).Content; got != "é" {
 		t.Fatalf("cell 0 = %q, want the mark folded into the letter", got)
 	}
-	if got := s.CellAt(1, 0).Content; got != "x" {
+	if got := cellAt(s, 1, 0).Content; got != "x" {
 		t.Fatalf("cell 1 = %q, want the next letter to have kept its column", got)
 	}
 }
@@ -170,7 +237,7 @@ func TestFillStylesAndBlanks(t *testing.T) {
 	if got := text(s, 0); got != "a..d" {
 		t.Fatalf("row = %q, want the filled span blanked", got)
 	}
-	if got := s.CellAt(1, 0).Style; got != style {
+	if got := cellAt(s, 1, 0).Style; got != style {
 		t.Fatalf("style = %+v, want the fill's", got)
 	}
 }
@@ -217,7 +284,7 @@ func TestZeroViewDrawsNowhere(t *testing.T) {
 	if got := v.Text(0, 0, "hello", grid.Style{}); got != 0 {
 		t.Fatalf("advance = %d, want 0", got)
 	}
-	if v.CellAt(0, 0) != nil {
+	if _, ok := v.CellAt(0, 0); ok {
 		t.Fatal("the zero grid.View handed out a cell")
 	}
 	if w, h := v.Size(); w != 0 || h != 0 {
@@ -289,15 +356,15 @@ func TestBlendMixesEveryCellItCoversAndKeepsTheContent(t *testing.T) {
 	v.Text(0, 0, "ab", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0, 0, 0)})
 	v.Blend(grid.Rect(0, 0, 1, 1), grid.RGBColor(0, 0, 0), 0.5)
 
-	if got := s.CellAt(0, 0).Content; got != "a" {
+	if got := cellAt(s, 0, 0).Content; got != "a" {
 		t.Errorf("content = %q, want the cell mixed rather than erased", got)
 	}
-	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+	if got := cellAt(s, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
 		t.Errorf("foreground = %+v, want it half way to the sheet", got)
 	}
 	// Only what it covers. A sheet is a rectangle, and a cell outside it is not part
 	// of the thing receding.
-	if got := s.CellAt(1, 0).Style.FG.RGB(); got != (grid.RGB{R: 255, G: 255, B: 255}) {
+	if got := cellAt(s, 1, 0).Style.FG.RGB(); got != (grid.RGB{R: 255, G: 255, B: 255}) {
 		t.Errorf("the cell beside the sheet became %+v", got)
 	}
 }
@@ -309,16 +376,16 @@ func TestBlendResolvesThroughTheSurfacesGround(t *testing.T) {
 	s := grid.NewSurface(2, 1)
 	s.View().Text(0, 0, "ab", grid.Style{})
 	s.View().Blend(s.Bounds(), grid.RGBColor(0, 0, 0), 0.5)
-	if got := s.CellAt(0, 0).Style; got != (grid.Style{}) {
+	if got := cellAt(s, 0, 0).Style; got != (grid.Style{}) {
 		t.Fatalf("an unstyled cell over an unknown terminal became %+v", got)
 	}
 
 	s.SetGround(grid.Ground{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0x20, 0x20, 0x20)})
 	s.View().Blend(s.Bounds(), grid.RGBColor(0, 0, 0), 0.5)
-	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+	if got := cellAt(s, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
 		t.Errorf("foreground = %+v, want the terminal's own colour half way to the sheet", got)
 	}
-	if got := s.CellAt(0, 0).Style.BG.RGB(); got != (grid.RGB{R: 16, G: 16, B: 16}) {
+	if got := cellAt(s, 0, 0).Style.BG.RGB(); got != (grid.RGB{R: 16, G: 16, B: 16}) {
 		t.Errorf("background = %+v, want the terminal's own colour half way to the sheet", got)
 	}
 }
@@ -334,27 +401,27 @@ func TestFadeDissolvesEachCellIntoWhateverItIsDrawnOn(t *testing.T) {
 	v.Text(2, 0, "c", grid.Style{FG: white})
 	v.Fade(s.Bounds(), 0.5)
 
-	if got := s.CellAt(0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
+	if got := cellAt(s, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
 		t.Errorf("over black the text is %+v", got)
 	}
-	if got := s.CellAt(1, 0).Style.FG.RGB(); got != (grid.RGB{R: 160, G: 160, B: 160}) {
+	if got := cellAt(s, 1, 0).Style.FG.RGB(); got != (grid.RGB{R: 160, G: 160, B: 160}) {
 		t.Errorf("over a lighter cell the text is %+v, want it to have gone a shorter way", got)
 	}
 	// The background is what the text dissolves into, so it is not itself moved.
-	if got := s.CellAt(1, 0).Style.BG.RGB(); got != (grid.RGB{R: 0x40, G: 0x40, B: 0x40}) {
+	if got := cellAt(s, 1, 0).Style.BG.RGB(); got != (grid.RGB{R: 0x40, G: 0x40, B: 0x40}) {
 		t.Errorf("the background moved to %+v", got)
 	}
 	// A cell on the terminal's own background over a terminal that never said what
 	// that is has nothing to dissolve into, and keeps what it had.
-	if got := s.CellAt(2, 0).Style.FG; got != white {
+	if got := cellAt(s, 2, 0).Style.FG; got != white {
 		t.Errorf("over an unknown terminal the text became %+v", got.RGB())
 	}
 
 	// Nothing asked for is nothing done, which is what keeps a header that is not
 	// moving from being rewritten every frame.
-	before := *s.CellAt(0, 0)
+	before := cellAt(s, 0, 0)
 	v.Fade(s.Bounds(), 0)
-	if got := *s.CellAt(0, 0); got != before {
+	if got := cellAt(s, 0, 0); got != before {
 		t.Errorf("fading by nothing changed the cell to %+v", got)
 	}
 }
@@ -369,10 +436,10 @@ func TestBlendClipsToTheViewBecauseADrawingViewIsABox(t *testing.T) {
 	inner := s.View().Sub(grid.Rect(0, 0, 2, 1))
 	inner.Blend(grid.Rect(0, 0, 100, 100), grid.RGBColor(0, 0, 0), 1)
 
-	if got := s.CellAt(1, 0).Style.FG.RGB(); got != (grid.RGB{}) {
+	if got := cellAt(s, 1, 0).Style.FG.RGB(); got != (grid.RGB{}) {
 		t.Errorf("a cell inside the view is %+v, want it painted", got)
 	}
-	if got := s.CellAt(2, 0).Style; got != white {
+	if got := cellAt(s, 2, 0).Style; got != white {
 		t.Errorf("a cell outside the view is %+v, want it untouched", got)
 	}
 }
@@ -690,7 +757,7 @@ func TestCopyRowsLiftsRowsBetweenSurfaces(t *testing.T) {
 
 func TestSurfaceMethodsTolerateANilReceiver(t *testing.T) {
 	var s *grid.Surface
-	if s.CellAt(0, 0) != nil || s.Row(0) != nil {
+	if _, ok := s.CellAt(0, 0); ok || s.Row(0) != nil {
 		t.Fatal("a nil surface handed out cells")
 	}
 	if !s.View().Empty() {
@@ -707,7 +774,7 @@ func TestControlCharactersNeverReachACell(t *testing.T) {
 	s.View().Text(0, 0, "a\x1b]0;title\x07b\tc\rd", grid.Style{})
 
 	for x := range 20 {
-		if c := s.CellAt(x, 0); strings.ContainsAny(c.Content, "\x1b\x07\t\r") {
+		if c := cellAt(s, x, 0); strings.ContainsAny(c.Content, "\x1b\x07\t\r") {
 			t.Fatalf("cell %d holds a control character: %q", x, c.Content)
 		}
 	}
@@ -722,7 +789,7 @@ func TestControlCharactersAreNotFoldedIntoTheCellBefore(t *testing.T) {
 	// printable.
 	s := grid.NewSurface(4, 1)
 	s.View().Text(0, 0, "a\x1b", grid.Style{})
-	if got := s.CellAt(0, 0).Content; got != "a" {
+	if got := cellAt(s, 0, 0).Content; got != "a" {
 		t.Fatalf("cell 0 = %q, want the escape dropped rather than appended", got)
 	}
 }

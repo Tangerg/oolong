@@ -7,8 +7,9 @@ exported API, read the module and ring boundaries in the
 
 ## Requirements
 
-- Go 1.26 or newer. The `go` directive is a floor, not the version anyone
-  happens to have.
+- Go 1.26 or newer for the complete workspace. `core`, `internal` and `ptytest`
+  also test their declared Go 1.25 floor without the workspace; higher modules
+  still depend on existing Oolong tags whose own directives require 1.26.
 - `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `govulncheck`
   (v1.6.0).
 - Node.js 22 or newer when changing Markdown.
@@ -31,11 +32,17 @@ Before opening a pull request, the whole gate CI runs:
 ```sh
 test -z "$(gofumpt -l .)"
 for m in core components markdown highlight internal ptytest examples; do (cd "$m" && \
-  go mod tidy -diff && go vet ./... && go test -race -count=1 ./... && \
+  go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done
 go work sync && git diff --quiet -- go.work
 npx --yes markdownlint-cli2
 ```
+
+CI additionally copies the repository, turns `go.work` off, and checks every module
+with local replacements for its declared Oolong dependencies. It runs both tests and
+`go mod tidy -diff` in that disposable graph. The replacements are never committed:
+they let a coordinated change be checked before the lower module has a tag, while a
+missing `require` still fails.
 
 Fuzz targets run in CI on every push. Run one locally with:
 
@@ -60,14 +67,19 @@ version skew and buys an independent dependency set:
 
 A **ring** boundary is inside a module, where the compiler cannot see it:
 
-- The substrate must not reach for the loop that drives it.
+- Foundations (`ansi`, `grid`, `layout`, algorithms) know no decoded protocol,
+  derived model, OS adapter or runtime.
+- `input` and `text` derive from foundations; `term` adapts protocols to the OS;
+  `program` composes those layers. Those directions are one-way in code and docs.
 - `core/program` must never know the widgets exist. The module graph does not
   catch this — `core` could require `components` and Go would allow it.
 - `components/headless` must not depend on `components/kit`, or walking away
   from one appearance would mean walking away from the behaviour too.
 
-`internal/arch` enforces both and fails when a rule would no longer refuse
-anything. Adding a module or a package means adding a rule for it.
+`internal/arch` enforces both from a direct dependency DAG. It fails if the graph is
+incomplete or cyclic, and computes every permitted transitive edge rather than
+maintaining a forbidden matrix. Adding a module or package means declaring its one
+node and immediate lower dependencies.
 
 ## Public API changes
 
@@ -83,6 +95,23 @@ Any exported change must include:
 Adding a method to an exported interface is breaking. Raising the `go` directive
 raises every dependent's toolchain floor. Both are compatibility decisions rather
 than routine cleanup.
+
+## Coordinated releases
+
+Tags are immutable dependency promises; never move or recreate one that has been
+published. A change spanning modules is released from the bottom upward:
+
+1. Verify and tag `core/vX.Y.Z`.
+2. Update `components` and `markdown` to that published core version, run with
+   `GOWORK=off`, then tag the changed modules. Independent changed modules such as
+   `highlight` and `ptytest` can be tagged in the same release once their own graphs
+   pass.
+3. Update `examples` to the published module versions and require a plain
+   `GOWORK=off go mod tidy -diff` plus `go test ./...` to pass.
+
+No release tag may contain a `replace` directive. Until step 1 exists, failure to
+resolve a newly added core package from the previous tag is expected published-graph
+state, not a reason to commit a local replacement.
 
 ## Tests
 

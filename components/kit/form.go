@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -29,8 +30,8 @@ type Form struct {
 	Title string
 	// Keys is where the hints' keystrokes are read from, and Hints are the actions to
 	// show under the fields. An action with nothing bound to it is not shown.
-	Keys  *input.Keymap
-	Hints []input.Action
+	Keys  *keymap.Map
+	Hints []keymap.Action
 }
 
 // Measure is the title, the fields, and the hints.
@@ -48,11 +49,11 @@ func (f Form) Draw(v grid.View) {
 	}
 	f.Of.Look = f.Theme.Look(f.Glyphs)
 
-	bands := layout.Rows(v,
+	bands := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(f.titleRows())},
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(f.hintRows())},
-	)
+	))
 	if f.titleRows() > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0])
 	}

@@ -4,6 +4,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -30,10 +31,10 @@ type Composer struct {
 	// as the hint row's, which is what lets a program bind its own send key and the
 	// field's own editing keys in one table and have the hints tell the truth about
 	// both. Nil leaves the field on [headless.DefaultEditorKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// Hints are the actions drawn under the field, in the order they matter. An action
 	// with nothing bound to it is not shown, so an empty row costs nothing to ask for.
-	Hints []input.Action
+	Hints []keymap.Action
 	// MaxRows caps how tall the field grows before it scrolls. Zero uses
 	// [DefaultComposerRows].
 	MaxRows int
@@ -107,10 +108,10 @@ func (c *Composer) Draw(v grid.View) {
 	c.editor.Look = c.Theme.Look(Glyphs{})
 	c.editor.Placeholder = c.Placeholder
 
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(c.hintRows())},
-	)
+	))
 	c.drawField(rows[0])
 	if c.hintRows() > 0 {
 		Help{Theme: c.Theme, Keys: c.Keys, Show: c.Hints}.Draw(rows[1])

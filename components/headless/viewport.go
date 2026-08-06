@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Viewport shows a window onto content taller than the room there is for it.
@@ -35,7 +36,7 @@ type Viewport struct {
 	// Keys say which keystrokes scroll — see [Scroll]. Nil reads through
 	// [DefaultScrollKeys], and they are tried only after the content has declined the
 	// keystroke, so content with arrow keys of its own keeps them.
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	scroll Scroll
 	// blurred says the window has been told it does not have the keyboard, which it
@@ -88,7 +89,7 @@ func (p *Viewport) Handle(ev input.Event) bool {
 			return p.scroll.Handle(mouse, p.Keys)
 		default:
 		}
-		handler, ok := p.Content.(input.Handler)
+		handler, ok := p.Content.(Interactive)
 		if !ok {
 			return false
 		}
@@ -96,14 +97,14 @@ func (p *Viewport) Handle(ev input.Event) bool {
 		local.Pos.Y += p.scroll.Offset()
 		return handler.Handle(local)
 	}
-	if handler, ok := p.Content.(input.Handler); ok && !p.blurred && handler.Handle(ev) {
+	if handler, ok := p.Content.(Interactive); ok && !p.blurred && handler.Handle(ev) {
 		return true
 	}
 	return p.scroll.Handle(ev, p.Keys)
 }
 
 // Do runs an action, the content's first and then the window's own. See [Doer].
-func (p *Viewport) Do(action input.Action) bool {
+func (p *Viewport) Do(action keymap.Action) bool {
 	if doer, ok := p.Content.(Doer); ok && doer.Do(action) {
 		return true
 	}

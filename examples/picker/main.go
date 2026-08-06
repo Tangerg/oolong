@@ -29,8 +29,8 @@ import (
 func main() {
 	chosen := ""
 	err := program.Run(context.Background(), program.Config{
-		Root: func(loop program.Loop) program.Component {
-			return newPicker(loop, files(), &chosen)
+		Root: func(runtime *program.Runtime) program.Component {
+			return newPicker(runtime, files(), &chosen)
 		},
 		Terminal: term.Options{Probe: true},
 	})
@@ -45,18 +45,18 @@ func main() {
 
 // picker is a query and the matches under it.
 type picker struct {
-	loop   program.Loop
-	theme  kit.Theme
-	query  kit.Composer
-	list   *headless.Filter[string]
-	chosen *string
+	runtime *program.Runtime
+	theme   kit.Theme
+	query   kit.Composer
+	list    *headless.Filter[string]
+	chosen  *string
 }
 
-func newPicker(loop program.Loop, items []string, chosen *string) *picker {
-	theme := kit.Suited(loop.Ground())
+func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker {
+	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(os.Getenv)
 
-	p := &picker{loop: loop, theme: theme, chosen: chosen}
+	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
 	p.query = kit.Composer{
 		Theme:       theme,
 		Prompt:      glyphs.Marker + " ",
@@ -74,11 +74,11 @@ func newPicker(loop program.Loop, items []string, chosen *string) *picker {
 
 // Draw stacks the query over the matches, with a count where there is room.
 func (p *picker) Draw(v grid.View) {
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(1)},
-	)
+	))
 	p.query.Draw(rows[0])
 	p.list.Draw(rows[1])
 	kit.Label{
@@ -124,7 +124,7 @@ func (p *picker) Handle(ev input.Event) bool {
 			p.pick()
 			return true
 		case key.Code == input.Esc:
-			p.loop.Quit()
+			p.runtime.Quit()
 			return true
 		case moves(key.Code):
 			// The field would take these too — it has a cursor of its own — so the list
@@ -160,7 +160,7 @@ func (p *picker) pick() {
 	if got, ok := p.list.Current(); ok {
 		*p.chosen = got
 	}
-	p.loop.Quit()
+	p.runtime.Quit()
 }
 
 // files is what there is to choose from. A real one would read a directory or a

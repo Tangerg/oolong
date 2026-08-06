@@ -3,6 +3,7 @@ package headless
 import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Scroll shows a window onto something taller than the space available.
@@ -30,7 +31,7 @@ type Scroll struct {
 	// report was worth but did not fill.
 	wheel input.Advance
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // Layout tells the scroll how much content there is and how much of it is shown.
@@ -139,7 +140,7 @@ func (s *Scroll) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
 // widget: it is what a transcript, a list and a viewport each keep inside themselves,
 // and each of them already has a map of its own to read through. Nil reads through
 // [DefaultScrollKeys].
-func (s *Scroll) Handle(ev input.Event, keys *input.Keymap) bool {
+func (s *Scroll) Handle(ev input.Event, keys *keymap.Map) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp:
@@ -171,7 +172,7 @@ func (s *Scroll) Handle(ev input.Event, keys *input.Keymap) bool {
 
 // Do runs one of the scroll's actions by name, reporting whether it was one a scroll
 // knows. See [Doer].
-func (s *Scroll) Do(action input.Action) bool {
+func (s *Scroll) Do(action keymap.Action) bool {
 	switch action {
 	case ScrollUp:
 		s.By(-1)

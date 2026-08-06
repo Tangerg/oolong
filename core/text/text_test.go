@@ -9,6 +9,18 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 )
 
+type cellReader interface {
+	CellAt(x, y int) (grid.Cell, bool)
+}
+
+func cellAt(r cellReader, x int) grid.Cell {
+	cell, ok := r.CellAt(x, 0)
+	if !ok {
+		panic("test read outside grid")
+	}
+	return cell
+}
+
 // rows renders wrapped rows as plain strings, one per row, so a test can state
 // the shape of the wrap.
 func rows(wrapped []text.Wrapped) []string {
@@ -173,10 +185,10 @@ func TestDrawPlacesTextOnTheView(t *testing.T) {
 	if got := line.Draw(s.View(), 1, 0); got != 4 {
 		t.Fatalf("advance = %d, want 4", got)
 	}
-	if got := s.CellAt(1, 0).Content; got != "a" {
+	if got := cellAt(s, 1).Content; got != "a" {
 		t.Fatalf("cell 1 = %q", got)
 	}
-	if got := s.CellAt(3, 0); got.Content != "c" || got.Style != red {
+	if got := cellAt(s, 3); got.Content != "c" || got.Style != red {
 		t.Fatalf("cell 3 = %+v, want the styled span", got)
 	}
 }
@@ -187,16 +199,16 @@ func TestDrawExpandsTabsIntoColumns(t *testing.T) {
 	if got := line.Draw(s.View(), 0, 0); got != 9 {
 		t.Fatalf("advance = %d, want 9", got)
 	}
-	if got := s.CellAt(0, 0).Content; got != "a" {
+	if got := cellAt(s, 0).Content; got != "a" {
 		t.Fatalf("cell 0 = %q", got)
 	}
 	// The tab is a gap, not a byte: the next letter lands on the tab stop.
 	for x := 1; x < 8; x++ {
-		if c := s.CellAt(x, 0); !c.Blank() {
+		if c := cellAt(s, x); !c.Blank() {
 			t.Fatalf("cell %d = %+v, want the tab to have left it blank", x, c)
 		}
 	}
-	if got := s.CellAt(8, 0).Content; got != "b" {
+	if got := cellAt(s, 8).Content; got != "b" {
 		t.Fatalf("cell 8 = %q, want the letter on the tab stop", got)
 	}
 }
@@ -530,16 +542,16 @@ func TestStampLinkConvertsBytesToColumns(t *testing.T) {
 			// And the cells it named actually carry it, which is the part a reader
 			// of the arithmetic alone cannot check.
 			v := surface.View()
-			if c := v.CellAt(col, 0); c == nil || c.Link != url {
+			if c := cellAt(v, col); c.Link != url {
 				t.Errorf("the first column of the run carries %+v", c)
 			}
-			if c := v.CellAt(col+width-1, 0); c == nil || c.Link != url {
+			if c := cellAt(v, col+width-1); c.Link != url {
 				t.Errorf("the last column of the run carries %+v", c)
 			}
-			if c := v.CellAt(col-1, 0); c != nil && c.Link != "" {
+			if c := cellAt(v, col-1); c.Link != "" {
 				t.Errorf("the column before the run carries %q", c.Link)
 			}
-			if c := v.CellAt(col+width, 0); c != nil && c.Link != "" {
+			if c := cellAt(v, col+width); c.Link != "" {
 				t.Errorf("the column after the run carries %q", c.Link)
 			}
 		})

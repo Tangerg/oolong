@@ -10,16 +10,16 @@
 // version skew and buys an independent dependency set, and nothing inside `core`
 // has one.
 //
-// A **ring** boundary is enforced here, because the compiler cannot see it. Inside
-// `core` the substrate must not reach for the loop that drives it. Inside
-// `components` the behaviour must not reach for the one appearance this repository
-// happens to ship, or walking away from that appearance would mean walking away
-// from the behaviour too.
+// A **ring** boundary is enforced here, because the compiler cannot see semantic
+// direction inside a module. Core is a partial order: foundations, decoded
+// protocols, interaction policy, derived models, host infrastructure and runtime
+// orchestration. Inside `components`, behaviour must not reach for the one appearance
+// this repository happens to ship.
 //
-// Each ring declares the rings it must never import, rather than the ones it may. A
-// list of wrong directions stays short and stays true; a matrix of allowed edges has
-// to be edited every time a legitimate one appears, which teaches people to edit the
-// test instead of the code.
+// Each ring declares only its direct dependencies. Imports may follow that DAG
+// transitively and every other direction is refused. The graph is both the design
+// and the check: adding a ring means adding one node and its immediate lower edges,
+// not teaching every existing ring the new name.
 package arch
 
 import (
@@ -73,12 +73,13 @@ var rings = []struct {
 	prefix string
 	name   string
 }{
-	{"core/program/", "host"},
-	// Frame pacing is the loop's business and not the terminal's: nothing else
-	// uses it, and "when to draw" is a question about what someone is building
-	// rather than about what a terminal is made of.
-	{"core/present/", "host"},
-	{"core/", "substrate"},
+	{"core/program/", "runtime"},
+	{"core/term/", "infrastructure"},
+	{"core/text/", "model"},
+	{"core/keymap/", "interaction"},
+	{"core/input/", "protocol"},
+	{"core/present/", "coordination"},
+	{"core/", "foundation"},
 	{"components/headless/", "headless"},
 	{"components/kit/", "kit"},
 	{"markdown/", "markdown"},
@@ -88,62 +89,72 @@ var rings = []struct {
 	{"internal/", "internal"},
 }
 
-// forbidden is, for each ring, the rings it may never import.
-var forbidden = map[string][]string{
-	// Cells, graphemes, input, layout and the terminal. The most general layer
-	// there is: it knows what a terminal is made of and nothing about what anyone
-	// builds from it — including the loop that drives it.
-	"substrate": {"host", "headless", "kit", "harness", "examples", "markdown", "highlight"},
+// dependencies is the repository's semantic DAG. Each entry names immediate
+// dependencies only; mayImport computes the transitive closure. An empty entry is
+// an explicit promise that the ring imports no repository code.
+var dependencies = map[string][]string{
+	// Algorithms, escape encodings, geometry and cell values know nothing above
+	// them.
+	"foundation": nil,
 
-	// The loop, the frame schedule, the one goroutine. It is beside the ladder
-	// rather than on top of it, and it must never know the widgets exist: it drives
-	// a Component, which is a method set, and a loop that imported the widgets
-	// would make every interface built on it inherit this repository's taste.
-	//
-	// The module graph does not catch this on its own — core could require
-	// components and Go would allow it — so this is the rule this file exists for
-	// above all the others.
-	"host": {"headless", "kit", "harness", "examples", "markdown", "highlight"},
+	// Decoded input is built from foundational byte protocols. Key maps add caller
+	// policy, but terminal adapters and runtime orchestration never acquire it.
+	"protocol":    {"foundation"},
+	"interaction": {"protocol"},
 
-	// Behaviour with no appearance: a list knows what the arrow keys do and not
-	// what a selected row looks like. It may not depend on the one set of answers
-	// kit gives, or walking away from kit would mean walking away from the
-	// behaviour too — and it may not depend on the host, because a widget that
-	// needed a loop to exist could not be tested without starting one.
-	"headless": {"host", "kit", "harness", "examples", "markdown", "highlight"},
+	// Styled text and frame coordination are independent derivations over the
+	// foundation, not vocabulary for one another.
+	"model":        {"foundation"},
+	"coordination": {"foundation"},
 
-	// One appearance for that behaviour, and the only ring anybody is expected to
-	// replace. It may not reach for markdown either: kit is part of a module that
-	// promises no dependencies at all, and importing the module that carries a parser
-	// would make that promise everyone else's problem.
-	"kit": {"host", "harness", "examples", "markdown", "highlight"},
+	// The OS terminal adapts decoded protocols. Runtime composes that adapter with
+	// frame coordination, without learning application interaction policy or styled
+	// content.
+	"infrastructure": {"protocol"},
+	"runtime":        {"infrastructure", "coordination"},
 
-	// Markdown, which is a module of its own because it carries a parser. It is
-	// beside the ladder rather than on it: it turns text into the substrate's own
-	// lines, so anything that can draw those can draw a document without either of
-	// them knowing about the other.
-	//
-	// It may not import the highlighter either, and that is the point of the seam it
-	// has instead: a document with no highlighter draws code in one style, and a
-	// program that wants one pays for it deliberately.
-	"markdown": {"host", "headless", "kit", "harness", "examples", "highlight"},
+	// Headless components combine interaction policy with derived text. Kit adds one
+	// appearance and nothing about the host that eventually runs it.
+	"headless": {"interaction", "model"},
+	"kit":      {"headless"},
 
-	// Highlighting, which is a module of its own for the same reason and produces the
-	// same thing: the substrate's own lines.
-	"highlight": {"host", "headless", "kit", "harness", "examples", "markdown"},
+	// Optional content modules terminate at the common text model and remain peers:
+	// neither parser nor highlighter owns the other.
+	"markdown":  {"model"},
+	"highlight": {"model"},
 
-	// The harness. Nothing here may lean on it: a harness that the thing it tests
-	// depends on is a harness nobody can change.
-	"harness": {"substrate", "host", "headless", "kit", "examples", "markdown", "highlight"},
+	// A harness is outside the product graph. Demonstrations are the composition
+	// root and may use every public branch, but nothing depends on them.
+	"harness":  nil,
+	"examples": {"runtime", "kit", "markdown", "highlight", "harness"},
 
-	// The demonstrations. Everything may be imported here and nothing may import
-	// them, which is what keeps an example from quietly becoming a dependency.
-	"examples": {},
+	// The architecture module contains only tests and imports no production ring.
+	"internal": nil,
+}
 
-	// The tests that guard the rings. They import nothing.
-	"internal": {
-		"substrate", "host", "headless", "kit", "harness", "examples", "markdown", "highlight",
-	},
+// mayImport reports whether from can reach to by following dependency edges.
+func mayImport(from, to string) bool {
+	if from == to {
+		return true
+	}
+	seen := map[string]bool{from: true}
+	var reaches func(string) bool
+	reaches = func(ring string) bool {
+		for _, dependency := range dependencies[ring] {
+			if dependency == to {
+				return true
+			}
+			if seen[dependency] {
+				continue
+			}
+			seen[dependency] = true
+			if reaches(dependency) {
+				return true
+			}
+		}
+		return false
+	}
+	return reaches(from)
 }
 
 func TestEveryImportPointsDown(t *testing.T) {
@@ -166,8 +177,8 @@ func TestEveryImportPointsDown(t *testing.T) {
 			if to == "" || to == from {
 				continue
 			}
-			if slices.Contains(forbidden[from], to) {
-				t.Errorf("%s (%s) imports %s (%s): %s must never depend on %s",
+			if !mayImport(from, to) {
+				t.Errorf("%s (%s) imports %s (%s): %s has no dependency path to %s",
 					dir, from, rest, to, from, to)
 			}
 		}
@@ -175,6 +186,39 @@ func TestEveryImportPointsDown(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no files were checked, so this test proves nothing")
 	}
+}
+
+// TestDocumentationPointsDown applies the same knowledge rule to API prose. An
+// import cycle is not required for a lower package to become coupled to an upper
+// concrete type: naming that type in its contract makes renames and replacements
+// flow downward just as surely.
+func TestDocumentationPointsDown(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+	targets := []string{
+		"core/anim", "core/ansi", "core/clipboard", "core/diff", "core/fuzzy",
+		"core/graphics", "core/grid", "core/input", "core/layout", "core/link",
+		"core/keymap", "core/present", "core/program", "core/term", "core/text",
+		"components/headless", "components/kit", "markdown", "highlight", "ptytest",
+	}
+
+	walk(t, root, func(dir, path string) {
+		from := ringOf(dir)
+		for _, comment := range comments(t, fset, path) {
+			for _, target := range targets {
+				to := ringOf(target)
+				if to == "" || mayImport(from, to) {
+					continue
+				}
+				name := filepath.Base(target)
+				if strings.Contains(comment, "["+name+".") ||
+					strings.Contains(comment, modulePath+"/"+target) {
+					t.Errorf("%s documents %s (%s -> %s): lower contracts must not name upper packages",
+						dir, target, from, to)
+				}
+			}
+		}
+	})
 }
 
 // TestEachModuleDependsOnWhatItSaidItWould is the promise that makes this usable.
@@ -208,13 +252,13 @@ func TestEachModuleDependsOnWhatItSaidItWould(t *testing.T) {
 	})
 }
 
-// TestOnlyTheSubstrateKnowsWhatDrawsTheTerminal keeps the rendering layer
-// replaceable.
+// TestOnlyCoreOwnsCoreDependencies keeps implementation dependencies below the
+// public component and extension modules.
 //
 // The day it is worth changing what draws — a different width table, a different
 // terminal package — the work is one ring's rather than the whole repository's.
 // That stays true only while nothing above that ring has quietly reached for it.
-func TestOnlyTheSubstrateKnowsWhatDrawsTheTerminal(t *testing.T) {
+func TestOnlyCoreOwnsCoreDependencies(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()
 
@@ -224,13 +268,13 @@ func TestOnlyTheSubstrateKnowsWhatDrawsTheTerminal(t *testing.T) {
 		// allocates a pty and spawns a process into it, which is the operating
 		// system's business and not the renderer's.
 		switch ringOf(dir) {
-		case "substrate", "harness", "":
+		case "foundation", "protocol", "interaction", "model", "coordination", "infrastructure", "runtime", "harness", "":
 			return
 		}
 		for _, imported := range imports(t, fset, path) {
 			for _, dep := range modules["core"] {
 				if imported == dep || strings.HasPrefix(imported, dep+"/") {
-					t.Errorf("%s imports %s: only the substrate may know what draws the terminal",
+					t.Errorf("%s imports %s: only core may own a core implementation dependency",
 						dir, imported)
 				}
 			}
@@ -290,6 +334,52 @@ func TestEveryDirectoryBelongsToARing(t *testing.T) {
 	})
 }
 
+func TestDependencyGraphIsCompleteAndAcyclic(t *testing.T) {
+	known := make(map[string]bool, len(rings))
+	for _, ring := range rings {
+		known[ring.name] = true
+	}
+	for ring := range known {
+		if _, declared := dependencies[ring]; !declared {
+			t.Errorf("ring %s has no dependency declaration", ring)
+		}
+	}
+	for ring, direct := range dependencies {
+		if !known[ring] {
+			t.Errorf("dependency graph declares unknown ring %s", ring)
+		}
+		for _, dependency := range direct {
+			if !known[dependency] {
+				t.Errorf("%s depends on unknown ring %s", ring, dependency)
+			}
+		}
+	}
+
+	const (
+		visiting = 1
+		visited  = 2
+	)
+	state := make(map[string]uint8, len(dependencies))
+	var visit func(string)
+	visit = func(ring string) {
+		switch state[ring] {
+		case visiting:
+			t.Errorf("dependency graph contains a cycle through %s", ring)
+			return
+		case visited:
+			return
+		}
+		state[ring] = visiting
+		for _, dependency := range dependencies[ring] {
+			visit(dependency)
+		}
+		state[ring] = visited
+	}
+	for ring := range dependencies {
+		visit(ring)
+	}
+}
+
 // TestTheRulesWouldActuallyRefuseSomething is the counter-example. A guard never
 // shown to fail is a guard nobody knows is wired up: were the ring table empty, or
 // its names out of step with what ringOf produces, every check above would pass by
@@ -304,18 +394,22 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"core/layout", "components/kit", true},
 		{"components/headless", "components/kit", true},
 
-		// The rule the host exists under: the loop must not know the widgets. The
+		// The rule the host exists under: the runtime must not know the widgets. The
 		// module graph would not catch it — core could require components and Go
 		// would allow it — so this is the one that has to be checked here.
 		{"core/program", "components/headless", true},
 		{"core/program", "components/kit", true},
 
-		// And the substrate must not reach for the loop that drives it.
+		// And the substrate must not reach for the runtime that drives it.
 		{"core/grid", "core/program", true},
 		{"core/text", "core/program", true},
 		{"core/grid", "core/present", true},
+		{"core/input", "core/keymap", true},
+		{"core/keymap", "core/input", false},
+		{"core/term", "core/keymap", true},
+		{"core/program", "core/keymap", true},
 
-		// Nor may a widget: one that needed a loop to exist could not be tested
+		// Nor may a widget: one that needed a runtime to exist could not be tested
 		// without starting one, and this is the edge the table used to allow.
 		{"components/headless", "core/program", true},
 		{"components/kit", "core/program", true},
@@ -354,7 +448,7 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		if to == "" {
 			t.Fatalf("%s belongs to no ring, so importing it is unguarded", tc.to)
 		}
-		if got := slices.Contains(forbidden[from], to); got != tc.refused {
+		if got := !mayImport(from, to); got != tc.refused {
 			verb := map[bool]string{true: "refused", false: "allowed"}
 			t.Errorf("%s -> %s (%s -> %s) is %s, want it %s",
 				tc.from, tc.to, from, to, verb[got], verb[tc.refused])
@@ -442,6 +536,21 @@ func imports(t *testing.T, fset *token.FileSet, path string) []string {
 	out := make([]string, 0, len(file.Imports))
 	for _, spec := range file.Imports {
 		out = append(out, strings.Trim(spec.Path.Value, `"`))
+	}
+	return out
+}
+
+// comments returns each comment group in a production file without code or string
+// literals, so architectural prose checks do not mistake examples for imports.
+func comments(t *testing.T, fset *token.FileSet, path string) []string {
+	t.Helper()
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	out := make([]string, len(file.Comments))
+	for i, group := range file.Comments {
+		out[i] = group.Text()
 	}
 	return out
 }

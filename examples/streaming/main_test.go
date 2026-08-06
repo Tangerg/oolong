@@ -36,12 +36,12 @@ func newHost() *host {
 	return &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(b)}
 }
 
-func (h *host) Events() <-chan input.Event { return h.events }
-func (h *host) Writer() *term.Writer       { return h.writer }
-func (h *host) Size() (int, int, error)    { return 60, 12, nil }
-func (h *host) Ground() grid.Ground        { return grid.Ground{} }
-func (h *host) Copy(string) bool           { return false }
-func (h *host) Paste()                     {}
+func (h *host) Events() <-chan input.Event  { return h.events }
+func (h *host) Writer() program.FrameWriter { return h.writer }
+func (h *host) Size() (int, int, error)     { return 60, 12, nil }
+func (h *host) Ground() grid.Ground         { return grid.Ground{} }
+func (h *host) Copy(string) bool            { return false }
+func (h *host) Paste()                      {}
 
 func (h *host) Graphics() graphics.Protocol   { return graphics.None }
 func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
@@ -108,7 +108,7 @@ func run(t *testing.T, h *host) func() {
 	go func() {
 		done <- program.Run(ctx, program.Config{
 			Host:   h,
-			Inline: func(loop program.InlineLoop) program.Component { return newChat(loop) },
+			Inline: func(runtime *program.InlineRuntime) program.Component { return newChat(runtime) },
 		})
 	}()
 	return func() {
@@ -171,8 +171,8 @@ func TestAnEmptyMessageIsNotSent(t *testing.T) {
 
 // TestTheLoopCanPrintForATranscript is the seam between the two modules, asserted
 // where both are visible: what commits finished output is declared in components and
-// satisfied by the loop in core, and neither knows about the other.
-var _ kit.Printer = program.InlineLoop(nil)
+// satisfied by the runtime in core, and neither knows about the other.
+var _ kit.Printer = (*program.InlineRuntime)(nil)
 
 func (h *host) Wheel() input.Wheel                    { return input.Wheel{} }
 func (h *host) Keyboard() (input.KeyboardFlags, bool) { return input.KeyboardFlags{}, false }

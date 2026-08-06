@@ -1,8 +1,11 @@
 package headless
 
 import (
+	"image"
+
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -61,11 +64,10 @@ type Field interface {
 // holds, so nothing above could name every kind of one; an editor lays a selection
 // over text it alone knows the shape of; a completion picks out the characters a
 // query matched. They take this, and there is one of it rather than a style field
-// per part, which is the same rule the kit package keeps for the same reason.
+// per part, keeping one coherent appearance value for the whole field.
 //
 // A field is given one by the form it is in, and a form is given one by whatever
-// dressed it — see [github.com/Tangerg/oolong/components/kit.Theme.Look], which
-// builds one from a palette. A single field is a [Form] with one field in it: that is
+// appearance layer dressed it. A single field is a [Form] with one field in it: that is
 // a widget like any other, it goes wherever a widget goes, and it is the whole of the
 // wiring.
 //
@@ -148,7 +150,7 @@ type field struct {
 	// field itself was drawn in. A press arrives between two frames and has to be
 	// answered against the one on screen.
 	top   int
-	inner layout.Size
+	inner image.Point
 }
 
 // Error is what checking the answer last found.
@@ -187,7 +189,7 @@ func (f *field) frame(v grid.View, label string) grid.View {
 	}
 	inner := v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
 	f.top = top
-	f.inner.W, f.inner.H = inner.Size()
+	f.inner.X, f.inner.Y = inner.Size()
 	return inner
 }
 
@@ -199,12 +201,12 @@ func (f *field) frame(v grid.View, label string) grid.View {
 // container does for its children and for the same reason: a widget reasons in its own
 // coordinates, and a position that arrived in anybody else's is one it cannot use.
 func (f *field) within(ev input.Mouse) (input.Mouse, bool) {
-	if f.inner.H <= 0 {
+	if f.inner.Y <= 0 {
 		// Nothing has been drawn, so there is no frame for the press to be about.
 		return ev, false
 	}
 	ev.Pos.Y -= f.top
-	return ev, ev.Pos.Y >= 0 && ev.Pos.Y < f.inner.H
+	return ev, ev.Pos.Y >= 0 && ev.Pos.Y < f.inner.Y
 }
 
 // check records what is wrong with an answer and reports it.
@@ -242,7 +244,7 @@ type Form struct {
 	Fields []Field
 	// Keys say which keystrokes submit and abandon the form, and which walk between
 	// its fields. Nil reads through [DefaultFormKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// Look is how the fields draw themselves. It is handed to each of them as the form
 	// draws, so changing it changes them.
 	Look Look
@@ -259,7 +261,7 @@ type Form struct {
 
 	body    Container
 	problem error
-	pending input.Pending
+	pending keymap.Pending
 	blurred bool
 }
 
@@ -343,7 +345,7 @@ func (f *Form) Handle(ev input.Event) bool {
 }
 
 // Do runs one of the form's actions by name. See [Doer].
-func (f *Form) Do(action input.Action) bool {
+func (f *Form) Do(action keymap.Action) bool {
 	switch action {
 	case Submit:
 		f.Submit()
@@ -382,7 +384,7 @@ func (f *Form) arrange() {
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.
-func (f *Form) keys() *input.Keymap {
+func (f *Form) keys() *keymap.Map {
 	if f.Keys != nil {
 		return f.Keys
 	}

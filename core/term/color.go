@@ -30,7 +30,7 @@ import (
 // That last line is a decision worth stating. Plenty of terminals handle 24-bit
 // colour and describe themselves as plain "xterm", so treating an unrecognised
 // TERM as sixteen colours would make the common case worse to fix the rare one. A
-// caller who knows better says so, and [program.Config] carries that through.
+// caller that knows better can use its own answer instead.
 func DetectDepth() grid.Depth {
 	if _, set := os.LookupEnv("NO_COLOR"); set {
 		return grid.NoColor

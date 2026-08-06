@@ -1,5 +1,14 @@
 # Binaries built from the examples and from any local scratch command.
 /bin/
+# `go build ./examples/name` writes a root-level binary named after the command.
+/dashboard
+/files
+/form
+/hello
+/picker
+/read
+/run
+/streaming
 *.exe
 *.test
 

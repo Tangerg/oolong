@@ -24,21 +24,6 @@ type Event interface {
 	terminalEvent()
 }
 
-// Handler is anything that answers an event, reporting whether it consumed it.
-//
-// It lives here for the same reason [grid.Drawer] lives with the view: the word
-// belongs to the layer that owns the thing being handled. Everything further up
-// that answers input says so by embedding this, so "consumed" means one thing
-// across the whole repository rather than one thing per layer that happens to
-// line up.
-//
-// An unconsumed event carries on to whatever else might want it, which is how a
-// key can mean one thing inside a text field and another outside it without
-// either side knowing about the other.
-type Handler interface {
-	Handle(ev Event) bool
-}
-
 // Mods is the set of modifier keys held during an event.
 type Mods uint8
 
@@ -176,7 +161,8 @@ type Key struct {
 	// terminal never says so; the same two with a pause between them are two
 	// keystrokes that happen to be adjacent. Only the goroutine that did the reading
 	// knows, so it is stamped there rather than left for every caller to supply a
-	// clock for a fact the library already had — see [Keymap.Lookup].
+	// clock for a fact the library already had. Sequence matchers can therefore judge
+	// elapsed time without inventing a second clock at the call site.
 	At time.Time
 }
 

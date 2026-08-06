@@ -2,6 +2,7 @@ package grid
 
 import (
 	"image"
+	"slices"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -25,7 +26,8 @@ type Surface struct {
 	paints []painted
 }
 
-// NewSurface returns a blank surface of the given size.
+// NewSurface returns a blank surface of the given size. It panics with a grid error
+// when the dimensions' product cannot be represented by int.
 func NewSurface(w, h int) *Surface {
 	s := &Surface{}
 	s.Resize(w, h)
@@ -34,16 +36,24 @@ func NewSurface(w, h int) *Surface {
 
 // Resize changes the surface's size and blanks it. Content is not preserved:
 // every resize is followed by a full redraw, so carrying stale cells across one
-// would only make the first frame after it wrong in a subtler way.
+// would only make the first frame after it wrong in a subtler way. Resize panics with
+// a grid error when the dimensions' product cannot be represented by int.
 func (s *Surface) Resize(w, h int) {
 	w, h = max(w, 0), max(h, 0)
 	s.w, s.h = w, h
-	if n := w * h; cap(s.cells) >= n {
+	if n := surfaceArea(w, h); cap(s.cells) >= n {
 		s.cells = s.cells[:n]
 	} else {
 		s.cells = make([]Cell, n)
 	}
 	s.Reset()
+}
+
+func surfaceArea(w, h int) int {
+	if h > 0 && w > maxInt/h {
+		panic("grid: surface dimensions overflow")
+	}
+	return w * h
 }
 
 // Reset blanks every cell and forgets the regions something else was to paint.
@@ -78,18 +88,33 @@ func (s *Surface) View() View {
 	return View{surface: s, size: image.Pt(s.w, s.h), clip: s.Bounds()}
 }
 
-// CellAt returns the cell at (x, y), or nil when the coordinates are outside the
-// surface. The cell is addressable so a reader can inspect what was drawn;
-// writing through it bypasses the wide-pair invariant and is a bug.
-func (s *Surface) CellAt(x, y int) *Cell {
+// CellAt returns a copy of the cell at (x, y) and whether the coordinates are
+// inside the surface. Content can only be changed by drawing through a [View],
+// which preserves wide grapheme pairs.
+func (s *Surface) CellAt(x, y int) (Cell, bool) {
+	c := s.cellAt(x, y)
+	if c == nil {
+		return Cell{}, false
+	}
+	return *c, true
+}
+
+// cellAt is the package's mutable access to one cell.
+func (s *Surface) cellAt(x, y int) *Cell {
 	if s == nil || x < 0 || x >= s.w || y < 0 || y >= s.h {
 		return nil
 	}
 	return &s.cells[y*s.w+x]
 }
 
-// Row returns the cells of one row, or nil when y is outside the surface.
+// Row returns a copy of one row, or nil when y is outside the surface. A row is an
+// inspection result, not a mutable view into the grid.
 func (s *Surface) Row(y int) []Cell {
+	return slices.Clone(s.row(y))
+}
+
+// row is the package's mutable access to one row.
+func (s *Surface) row(y int) []Cell {
 	if s == nil || y < 0 || y >= s.h {
 		return nil
 	}
@@ -109,7 +134,7 @@ func (s *Surface) CopyRows(src *Surface, srcTop, dstTop, n int) {
 		if sy < 0 || sy >= src.h || dy < 0 || dy >= s.h {
 			continue
 		}
-		copy(s.Row(dy), src.Row(sy))
+		copy(s.row(dy), src.row(sy))
 	}
 }
 
@@ -131,31 +156,20 @@ func (s *Surface) repairPair(x, y int) {
 	}
 }
 
-// Drawer is anything that draws itself into a view.
-//
-// It is one method and it lives here because a view is this package's, and the
-// vocabulary a layer speaks should come from below it rather than from beside it.
-// Everything further up that means "something drawable" says so by embedding this,
-// so a widget, a printed message and a program's root are the same idea named
-// three times rather than three ideas that happen to match.
-type Drawer interface {
-	Draw(v View)
-}
-
 // View is a clipped window onto a [Surface], addressed in its own coordinates.
 //
-// A view is how everything above this package draws. Handing a widget a view
-// sized to its box means it cannot draw outside that box: coordinates are local,
+// A view is a drawing capability bounded to one box. A caller cannot draw outside
+// that box: coordinates are local,
 // and anything landing beyond the clip is discarded rather than trusted.
 //
 // The zero View draws nowhere and reports a size of zero, which is the right
-// answer for a widget laid out into no space at all.
+// answer for content laid out into no space at all.
 type View struct {
 	surface *Surface
 	// origin is where this view's (0, 0) sits on the surface.
 	origin image.Point
 	// size is the box the view was laid out into, which is not the same as what
-	// it may draw on: a widget half scrolled off the screen still lays out for
+	// it may draw on: content half scrolled off the screen still lays out for
 	// its whole size and simply loses the part outside the clip.
 	size image.Point
 	// clip is the region of the surface this view may touch, in surface
@@ -186,7 +200,7 @@ func (v View) Visible() image.Rectangle {
 func (v View) Empty() bool { return v.surface == nil || v.clip.Empty() }
 
 // Sub returns a view onto r, expressed in this view's coordinates. Clipping only
-// ever narrows: a widget cannot hand a child room it does not have itself.
+// ever narrows: a caller cannot hand a child room it does not have itself.
 func (v View) Sub(r image.Rectangle) View {
 	if v.surface == nil {
 		return View{}
@@ -200,14 +214,27 @@ func (v View) Sub(r image.Rectangle) View {
 	}
 }
 
+// Subs returns child views for rects expressed in this view's coordinates.
+//
+// It performs projection, not layout: the rectangles may come from any geometry
+// model. Keeping that distinction lets geometry remain independent of the cell
+// store while callers turn a complete arrangement into views in one operation.
+func (v View) Subs(rects []image.Rectangle) []View {
+	views := make([]View, len(rects))
+	for i, r := range rects {
+		views[i] = v.Sub(r)
+	}
+	return views
+}
+
 // PlaceCursor asks for the terminal's cursor to sit at local (x, y).
 //
-// It is how the one widget that owns the cursor says so, without anyone in between
+// It is how the drawing owner places the cursor without anyone in between
 // having to carry the answer: the view already knows where it sits on the screen,
-// so the widget speaks in its own coordinates and the translation is nobody's job.
+// so the caller speaks in local coordinates and the translation is nobody's job.
 //
 // A position outside what the view may draw on is ignored, for the same reason a
-// glyph there would be: a widget scrolled off the screen does not get to move the
+// glyph there would be: content scrolled off the screen does not get to move the
 // cursor. A frame in which nobody places the cursor is a frame with no cursor,
 // which is the right answer when nothing is being typed into.
 func (v View) PlaceCursor(x, y int) {
@@ -221,18 +248,43 @@ func (v View) PlaceCursor(x, y int) {
 	*v.cursor = Cursor{Visible: true, Pos: p}
 }
 
-// CellAt returns the cell at local (x, y), or nil when it is outside the clip.
-func (v View) CellAt(x, y int) *Cell {
+// CellAt returns a copy of the cell at local (x, y) and whether it is inside the
+// clip. Use drawing operations such as [View.Text], [View.Fill], [View.MergeStyle]
+// and [View.Link] to change content.
+func (v View) CellAt(x, y int) (Cell, bool) {
+	c := v.cellAt(x, y)
+	if c == nil {
+		return Cell{}, false
+	}
+	return *c, true
+}
+
+// cellAt is the package's mutable access through a view's clip.
+func (v View) cellAt(x, y int) *Cell {
 	p := image.Pt(x, y).Add(v.origin)
 	if v.surface == nil || !p.In(v.clip) {
 		return nil
 	}
-	return v.surface.CellAt(p.X, p.Y)
+	return v.surface.cellAt(p.X, p.Y)
+}
+
+// MergeStyle lays style over the cell at local (x, y), preserving any roles the
+// cell already carries. It reports whether the cell was inside the view.
+//
+// Styling is an operation rather than a mutable Cell pointer so changing appearance
+// cannot also replace one half of a wide grapheme.
+func (v View) MergeStyle(x, y int, style Style) bool {
+	c := v.cellAt(x, y)
+	if c == nil {
+		return false
+	}
+	c.Style = c.Style.Merge(style)
+	return true
 }
 
 // Ground is what a default colour in this view's cells resolves to.
 //
-// A widget that has to mix its own colours with what it is drawn onto asks here.
+// A caller that mixes colours with what is underneath asks here.
 // Nothing above this package carries the answer around: the view is already where
 // drawing happens, and it already knows which terminal it is bound for.
 func (v View) Ground() Ground { return v.surface.Ground() }
@@ -260,7 +312,7 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	}
 	ground := v.surface.ground
 	for y := area.Min.Y; y < area.Max.Y; y++ {
-		row := v.surface.Row(y)
+		row := v.surface.row(y)
 		for x := area.Min.X; x < area.Max.X; x++ {
 			style := ground.Resolve(row[x].Style)
 			row[x].Style.FG = style.FG.Blend(over, opacity)
@@ -291,7 +343,7 @@ func (v View) Fade(r image.Rectangle, amount float64) {
 	}
 	ground := v.surface.ground
 	for y := area.Min.Y; y < area.Max.Y; y++ {
-		row := v.surface.Row(y)
+		row := v.surface.row(y)
 		for x := area.Min.X; x < area.Max.X; x++ {
 			style := ground.Resolve(row[x].Style)
 			row[x].Style.FG = style.FG.Blend(style.BG, amount)
@@ -314,7 +366,7 @@ func (v View) Fill(r image.Rectangle, style Style) {
 		// edges first keeps the half left outside the fill from being orphaned.
 		s.repairPair(area.Min.X, y)
 		s.repairPair(area.Max.X-1, y)
-		row := s.Row(y)
+		row := s.row(y)
 		for x := area.Min.X; x < area.Max.X; x++ {
 			row[x] = Cell{Style: style}
 		}
@@ -362,20 +414,20 @@ func (v View) Text(x, y int, s string, style Style) int {
 			// A wide cluster straddling the left edge: blank the column that is
 			// inside rather than print a glyph the terminal would place wrong.
 			surf.repairPair(v.clip.Min.X, p.Y)
-			*surf.CellAt(v.clip.Min.X, p.Y) = Cell{Style: style}
+			*surf.cellAt(v.clip.Min.X, p.Y) = Cell{Style: style}
 		case w == 2 && cx+2 > v.clip.Max.X:
 			surf.repairPair(cx, p.Y)
-			*surf.CellAt(cx, p.Y) = Cell{Style: style}
+			*surf.cellAt(cx, p.Y) = Cell{Style: style}
 			// Nothing wider than one column can follow on this row.
 			return cx + 1 - p.X
 		case w == 2:
 			surf.repairPair(cx, p.Y)
 			surf.repairPair(cx+1, p.Y)
-			*surf.CellAt(cx, p.Y) = Cell{Content: cluster, Style: style, span: spanWide}
-			*surf.CellAt(cx+1, p.Y) = Cell{Style: style, span: spanTrail}
+			*surf.cellAt(cx, p.Y) = Cell{Content: cluster, Style: style, span: spanWide}
+			*surf.cellAt(cx+1, p.Y) = Cell{Style: style, span: spanTrail}
 		default:
 			surf.repairPair(cx, p.Y)
-			*surf.CellAt(cx, p.Y) = Cell{Content: cluster, Style: style}
+			*surf.cellAt(cx, p.Y) = Cell{Content: cluster, Style: style}
 		}
 		cx += w
 	}
@@ -385,9 +437,9 @@ func (v View) Text(x, y int, s string, style Style) int {
 // combine appends a zero-width cluster to the cell that owns the column to the
 // left, stepping over a trailing cell to reach its head.
 func (v View) combine(cx, y int, cluster string) {
-	prev := v.surface.CellAt(cx-1, y)
+	prev := v.surface.cellAt(cx-1, y)
 	if prev != nil && prev.span == spanTrail {
-		prev = v.surface.CellAt(cx-2, y)
+		prev = v.surface.cellAt(cx-2, y)
 	}
 	if prev == nil || prev.span == spanTrail {
 		return
@@ -400,7 +452,7 @@ func (v View) combine(cx, y int, cluster string) {
 // because a link usually spans a run that was drawn in several pieces.
 func (v View) Link(x, y, w int, target string) {
 	for i := range w {
-		if c := v.CellAt(x+i, y); c != nil {
+		if c := v.cellAt(x+i, y); c != nil {
 			c.Link = target
 		}
 	}
@@ -488,7 +540,7 @@ func (s *Surface) Rows() []string {
 	out := make([]string, 0, s.h)
 	for y := range s.h {
 		var b strings.Builder
-		for _, c := range s.Row(y) {
+		for _, c := range s.row(y) {
 			switch {
 			case c.span == spanTrail:
 				// The second column of a wide cluster, which the head already wrote.

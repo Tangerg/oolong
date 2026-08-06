@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -134,7 +135,7 @@ type Completion struct {
 	// Keys say which keystrokes produce which of the actions a completion answers to —
 	// its own two, and the list movement inside it. Nil reads through
 	// [DefaultCompletionKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// Accept is called when the user takes a candidate, with the token it replaces.
 	// The completion has closed itself by then, so this is free to change the text the
 	// token came from.
@@ -147,7 +148,7 @@ type Completion struct {
 	token Token
 	open  bool
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // DefaultCompletionRows is how many candidates are shown at once when nothing says
@@ -226,7 +227,7 @@ func (c *Completion) Handle(ev input.Event) bool {
 // The list is driven by name rather than handed the event, because both read through
 // the same map: an event offered twice would be resolved twice, and the second lookup
 // would know nothing about the first.
-func (c *Completion) Do(action input.Action) bool {
+func (c *Completion) Do(action keymap.Action) bool {
 	if !c.Open() {
 		return false
 	}
@@ -341,7 +342,7 @@ func (c *Completion) rows() int {
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.
-func (c *Completion) keys() *input.Keymap {
+func (c *Completion) keys() *keymap.Map {
 	if c.Keys != nil {
 		return c.Keys
 	}

@@ -4,8 +4,8 @@ import "math"
 
 // The numbers a spring falls back on when it was given none.
 //
-// A frequency in radians per tick, which at the frame rate a program draws at
-// settles in about a second, and the damping that arrives without going past —
+// A frequency in radians per tick, which at a conventional 60 Hz tick rate settles
+// in about a second, and the damping that arrives without going past —
 // because overshooting is a decision and not a default.
 const (
 	defaultFrequency = 0.35
@@ -26,8 +26,7 @@ const (
 // happens when the target changes half way. A transition restarts, easing from
 // wherever it was, and the change reads as a stop and a fresh start. A spring keeps
 // the speed it already had, so a target that moves twice reads as one continuous
-// movement — which is what makes it the right thing for anything the user is
-// dragging, resizing or scrolling.
+// movement, which is useful whenever a target can change while motion is under way.
 //
 // Like everything here it is stepped in ticks rather than in seconds, so a test
 // steps it and gets the same numbers every time.
@@ -66,7 +65,7 @@ func (s *Spring) Value() float64 { return s.position }
 func (s *Spring) Velocity() float64 { return s.velocity }
 
 // Done reports whether the spring has arrived: near enough its target and slow
-// enough that nothing further would be visible. It is what tells a loop it can stop
+// enough that nothing further would be visible. It is what tells its owner it can stop
 // the clock driving this, and it is the same question [Transition.Done] answers.
 func (s *Spring) Done() bool {
 	return math.Abs(s.position-s.target) < settledDistance && math.Abs(s.velocity) < settledSpeed
@@ -75,8 +74,8 @@ func (s *Spring) Done() bool {
 // Tick advances the spring by one step.
 //
 // The step is the exact solution of the equation rather than a small step of it,
-// which matters at a terminal's frame rate: stepping a stiff spring approximately,
-// sixty times a second, is how a spring turns into an oscillation that grows instead
+// which matters at ordinary tick rates: stepping a stiff spring approximately is how
+// a spring turns into an oscillation that grows instead
 // of one that dies away. There are three solutions and which one applies is decided
 // by the damping — under one it rings, at one it just arrives, above one it creeps —
 // so all three are here rather than the one that is usually enough.

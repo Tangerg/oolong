@@ -1,8 +1,8 @@
 // Package ptytest drives a terminal program on a real pty and says what reached
 // the terminal.
 //
-// It is the harness for the tests a [program.Host] cannot write. A host proves
-// that an interface draws the frame it meant to; only a pty proves that the bytes
+// It is the harness for tests an in-process fake cannot write. A fake proves that
+// an interface draws the frame it meant to; only a pty proves that the bytes
 // of that frame do to a terminal what they were supposed to — that the block
 // shrank without leaving debris, that the caret is on the row the cursor was
 // placed on, that every mode the session turned on was turned off again.

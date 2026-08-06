@@ -1,13 +1,8 @@
 // Package diff says what changed between two texts, line by line.
 //
-// It is here rather than beside the thing that draws a diff for the same reason
-// [github.com/Tangerg/oolong/core/fuzzy] is: what changed is a fact about two strings
-// and has nothing to do with a terminal. Something that only knew how to draw a diff
-// would leave every caller to work out what the diff was, and there is one answer.
-//
-// Lines and not characters. A terminal shows a diff a line at a time, a reader reads it
-// a line at a time, and the line is the unit every tool that produces one already
-// speaks in.
+// It computes a line-oriented edit script without deciding how that script is stored,
+// rendered or applied. Lines are the unit because line-oriented producers and formats
+// can consume the result without reconstructing their boundaries.
 package diff
 
 import (
@@ -109,8 +104,7 @@ func (s Script) String() string {
 // Hunks is the changed parts of the script with context lines around them, and
 // everything else left out.
 //
-// A file that changed in two places is two hundred lines of which six matter, and a
-// view that shows all two hundred is a view nobody reads. Overlapping runs of context
+// A file that changed in two places may have hundreds of unchanged lines. Overlapping runs of context
 // are one hunk rather than two, because a gap of one unchanged line is not a gap worth
 // drawing a break across.
 //

@@ -4,6 +4,7 @@ import (
 	"github.com/Tangerg/oolong/core/fuzzy"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Filter is a list narrowed by a pattern: the items that match it, best first, with
@@ -35,7 +36,7 @@ type Filter[T any] struct {
 	// selected says whether it is the one under the cursor.
 	Row func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	pattern string
 	// list is what matched. It owns the cursor and the scroll.
@@ -112,7 +113,7 @@ func (f *Filter[T]) Handle(ev input.Event) bool {
 }
 
 // Do runs one of the list's actions by name. See [Doer].
-func (f *Filter[T]) Do(action input.Action) bool {
+func (f *Filter[T]) Do(action keymap.Action) bool {
 	f.match()
 	return f.list.Do(action)
 }

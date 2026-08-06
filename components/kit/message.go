@@ -14,7 +14,8 @@ import (
 // row count:
 //
 //	m := kit.Message{Theme: th, Speaker: "you", Body: line}
-//	loop.Print(m.Measure(width), m.Draw)
+//	rows := m.Measure(width)
+//	output.PrintRows(rows, m.Draw)
 //
 // Nothing here is retained. Once printed, the rows are the terminal's, which is why
 // this is a value and not a widget with state.

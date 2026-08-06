@@ -50,7 +50,7 @@ type Options struct {
 	// implement it ignore the request.
 	Keyboard bool
 	// Probe asks the terminal about itself while [Open] is still running: the
-	// colour it draws on, and the extensions it claims. See [Terminal.Background]
+	// colour it draws on, and the extensions it claims. See [Terminal.Ground]
 	// and [Terminal.Attributes].
 	//
 	// It is the only option that costs anything — one round trip to the terminal,

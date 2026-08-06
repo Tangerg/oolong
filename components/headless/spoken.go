@@ -7,37 +7,6 @@ import (
 	"strings"
 )
 
-// Spoken is a field that can be asked and answered in words.
-//
-// It is the same field, answered without a grid: a question in one line, and a line
-// back. That is what somebody reading with a screen reader has, what a program has
-// when its output is a pipe, and what a test has when it would rather say "good"
-// than press the down arrow twice.
-//
-// The questions are the field's because only the field knows what it is asking and
-// what an answer means. Reading a line and writing one is nobody's business here —
-// see the conversation in the kit package for one way to do it, and note that it is
-// thirty lines, which is the point of putting the hard half in the fields.
-type Spoken interface {
-	Field
-
-	// Ask is the question, in one line: what the field wants, and what may be said in
-	// reply.
-	Ask() string
-	// Reply takes what was said and reports what was wrong with it — the same
-	// complaint the field would have shown on screen, which is why a form answered
-	// this way ends up in exactly the state one answered the other way does.
-	Reply(said string) error
-}
-
-// The four fields answer in words as well as on screen.
-var (
-	_ Spoken = (*Text)(nil)
-	_ Spoken = (*Confirm)(nil)
-	_ Spoken = (*Select[string])(nil)
-	_ Spoken = (*MultiSelect[string])(nil)
-)
-
 // Ask is the label, with the placeholder as the hint it already is.
 func (t *Text) Ask() string {
 	if t.Placeholder == "" {
@@ -116,12 +85,15 @@ func (c *Confirm) Reply(said string) error {
 	c.ensure()
 	said = strings.ToLower(strings.TrimSpace(said))
 	yes, no := strings.ToLower(c.word(true)), strings.ToLower(c.word(false))
+	yesMatch, noMatch := strings.HasPrefix(yes, said), strings.HasPrefix(no, said)
 	switch {
 	case said == "":
 		return c.check(fmt.Errorf("say %s or %s", yes, no))
-	case strings.HasPrefix(yes, said):
+	case yesMatch && noMatch:
+		return c.check(fmt.Errorf("%q could mean either %s or %s", said, yes, no))
+	case yesMatch:
 		c.Say(true)
-	case strings.HasPrefix(no, said):
+	case noMatch:
 		c.Say(false)
 	default:
 		return c.check(fmt.Errorf("say %s or %s", yes, no))
@@ -163,22 +135,38 @@ func choose[T any](said string, options []Option[T]) (int, error) {
 	}
 
 	folded := strings.ToLower(said)
-	found := -1
+	exact, prefix := -1, -1
+	ambiguousExact, ambiguousPrefix := false, false
 	for i, option := range options {
 		label := strings.ToLower(option.Label)
 		if label == folded {
-			return i, nil
+			if exact >= 0 {
+				ambiguousExact = true
+			} else {
+				exact = i
+			}
+			continue
 		}
 		if !strings.HasPrefix(label, folded) {
 			continue
 		}
-		if found >= 0 {
-			return 0, fmt.Errorf("%q could be more than one of them", said)
+		if prefix >= 0 {
+			ambiguousPrefix = true
+		} else {
+			prefix = i
 		}
-		found = i
 	}
-	if found < 0 {
+	if ambiguousExact {
+		return 0, fmt.Errorf("%q names more than one choice", said)
+	}
+	if exact >= 0 {
+		return exact, nil
+	}
+	if ambiguousPrefix {
+		return 0, fmt.Errorf("%q could be more than one of them", said)
+	}
+	if prefix < 0 {
 		return 0, fmt.Errorf("%q is not one of the choices", said)
 	}
-	return found, nil
+	return prefix, nil
 }

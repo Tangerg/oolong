@@ -1,8 +1,10 @@
 package kit
 
 import (
+	"strings"
+
 	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -18,13 +20,13 @@ type Help struct {
 	// to choose between.
 	Theme Theme
 	// Keys is where the keystrokes come from.
-	Keys *input.Keymap
+	Keys *keymap.Map
 	// Show are the actions to show, in the order they matter. Hiding one is leaving it
 	// out: an action that works and that nobody needs told about is simply not listed.
 	//
-	// What each is called is [input.Action.Does] — the action's own name, which is what
-	// there is to say about it and what cannot drift from what it does.
-	Show []input.Action
+	// Each identifier is shown as words by this appearance layer; the key map carries
+	// only identity and binding policy.
+	Show []keymap.Action
 	// Separator sits between hints. Empty uses two spaces, which separates without
 	// adding another thing to look at.
 	Separator string
@@ -57,7 +59,7 @@ func (h Help) Draw(v grid.View) {
 		}
 		// The first sequence bound to it, which is the one a caller put first.
 		key := bound[0].String()
-		does := action.Does()
+		does := actionLabel(action)
 		need := text.Width(key) + 1 + text.Width(does)
 		if x > 0 {
 			need += sepWidth
@@ -72,4 +74,10 @@ func (h Help) Draw(v grid.View) {
 		x += v.Text(x, 0, " ", h.Theme.Muted)
 		x += v.Text(x, 0, does, h.Theme.Muted)
 	}
+}
+
+// actionLabel is presentation policy: action identifiers use hyphens, while this
+// appearance renders them as words. It deliberately does not live in keymap.
+func actionLabel(action keymap.Action) string {
+	return strings.ReplaceAll(action.String(), "-", " ")
 }

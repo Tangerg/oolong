@@ -24,7 +24,7 @@ import (
 // Everything here is asserted against the bytes that reached the terminal, or against
 // state the test itself owns behind a lock.
 //
-// Nothing reads what the component holds without going through the loop. That state
+// Nothing reads what the component holds without going through the runtime. That state
 // belongs to the program's goroutine, and a test that reached into it would be a data
 // race dressed up as a test — the very thing this package exists to make unnecessary.
 
@@ -53,6 +53,67 @@ type host struct {
 	notified []string
 }
 
+// minimalHost is the transport boundary and nothing else. Optional terminal
+// services must not be implementation requirements for an in-memory or remote host.
+type minimalHost struct {
+	events chan input.Event
+	writer *term.Writer
+	w, h   int
+}
+
+func (h *minimalHost) Events() <-chan input.Event  { return h.events }
+func (h *minimalHost) Writer() program.FrameWriter { return h.writer }
+func (h *minimalHost) Size() (int, int, error)     { return h.w, h.h, nil }
+
+// partialHost deliberately implements one operation from each of three unrelated
+// capability families. If capabilities are grouped by convenience, all three
+// disappear behind failed type assertions.
+type partialHost struct {
+	*minimalHost
+	groundAnswer grid.Ground
+	copied       []string
+	notified     []string
+}
+
+func (h *partialHost) Ground() grid.Ground { return h.groundAnswer }
+
+func (h *partialHost) Copy(text string) bool {
+	h.copied = append(h.copied, text)
+	return true
+}
+
+func (h *partialHost) Notify(text string) { h.notified = append(h.notified, text) }
+
+// stalledWriter models transport that accepted frames but cannot account for them
+// before its deadline. It lets handover and shutdown be tested without a real blocked
+// goroutine surviving the test.
+type stalledWriter struct {
+	queued   atomic.Uint64
+	progress chan struct{}
+}
+
+func newStalledWriter() *stalledWriter { return &stalledWriter{progress: make(chan struct{})} }
+
+func (w *stalledWriter) Queue([]byte) uint64       { return w.queued.Add(1) }
+func (w *stalledWriter) Progress() <-chan struct{} { return w.progress }
+func (w *stalledWriter) Written() uint64           { return 0 }
+func (w *stalledWriter) Err() error                { return nil }
+func (w *stalledWriter) Drain(time.Duration) bool  { return false }
+
+type stalledHost struct {
+	events chan input.Event
+	writer *stalledWriter
+	handed atomic.Bool
+}
+
+func (h *stalledHost) Events() <-chan input.Event  { return h.events }
+func (h *stalledHost) Writer() program.FrameWriter { return h.writer }
+func (h *stalledHost) Size() (int, int, error)     { return 20, 4, nil }
+func (h *stalledHost) Hand(run func() error) error {
+	h.handed.Store(true)
+	return run()
+}
+
 // newHost is somewhere for a program to run that is not a terminal.
 //
 // The test is asked for so the host can put itself away: a [term.Writer] has a
@@ -73,9 +134,9 @@ func newHost(t *testing.T) *host {
 	return h
 }
 
-func (h *host) Events() <-chan input.Event { return h.events }
-func (h *host) Writer() *term.Writer       { return h.writer }
-func (h *host) Size() (int, int, error)    { return h.w, h.h, nil }
+func (h *host) Events() <-chan input.Event  { return h.events }
+func (h *host) Writer() program.FrameWriter { return h.writer }
+func (h *host) Size() (int, int, error)     { return h.w, h.h, nil }
 
 // Ground says what a real terminal would only say if it were asked. A host that
 // can answer this is a host that can put an interface's look under test both ways
@@ -204,13 +265,31 @@ func (f *frames) size() int {
 // Its counters are atomic because a test reads them; the text it draws is only ever
 // touched on the program's goroutine, which is the rule this package promises.
 type component struct {
-	loop program.Loop
+	runtime *program.Runtime
 
 	text    string
 	handled atomic.Int64
 	drawn   atomic.Int64
 	// consume decides whether Handle claims what it is given.
 	consume bool
+}
+
+type blockingComponent struct {
+	runtime *program.Runtime
+	entered chan struct{}
+	release chan struct{}
+	quit    bool
+}
+
+func (c *blockingComponent) Draw(v grid.View) { v.Text(0, 0, "ready", grid.Style{}) }
+
+func (c *blockingComponent) Handle(input.Event) bool {
+	close(c.entered)
+	<-c.release
+	if c.quit {
+		c.runtime.Quit()
+	}
+	return true
 }
 
 func (c *component) Draw(v grid.View) {
@@ -243,8 +322,8 @@ func start(t *testing.T, prepare func(*component)) *running {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: h,
-			Root: func(loop program.Loop) program.Component {
-				root.loop = loop
+			Root: func(runtime *program.Runtime) program.Component {
+				root.runtime = runtime
 				if prepare != nil {
 					prepare(root)
 				}
@@ -283,6 +362,38 @@ func (r *running) wait() error {
 	}
 }
 
+// onLoop runs one test action where a component would run it. Tests are background
+// observers too; using Dispatcher here keeps them from teaching callers that the
+// owner-only Runtime may be driven directly from another goroutine.
+type dispatching interface {
+	Dispatcher() program.Dispatcher
+}
+
+func onLoop(t *testing.T, runtime dispatching, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	runtime.Dispatcher().Post(func() {
+		fn()
+		close(done)
+	})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for work on the interface goroutine")
+	}
+}
+
+func fromLoop[T any](t *testing.T, runtime dispatching, fn func() T) T {
+	t.Helper()
+	result := make(chan T, 1)
+	onLoop(t, runtime, func() { result <- fn() })
+	return <-result
+}
+
+func (r *running) onLoop(fn func()) { onLoop(r.t, r.root.runtime, fn) }
+
+func (r *running) quit() { r.onLoop(r.root.runtime.Quit) }
+
 func TestTheInterfaceIsDrawnBeforeAnythingHappens(t *testing.T) {
 	// A program draws before it selects. Waiting for the user to press something would
 	// leave a blank terminal in front of them.
@@ -290,7 +401,7 @@ func TestTheInterfaceIsDrawnBeforeAnythingHappens(t *testing.T) {
 	r.until("the opening frame", func() bool {
 		return strings.Contains(r.host.frames.String(), "ready")
 	})
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -301,7 +412,7 @@ func TestInputReachesTheComponent(t *testing.T) {
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 	r.host.rune('!')
 	r.until("the keystroke to be handled", func() bool { return r.root.handled.Load() == 1 })
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -315,7 +426,7 @@ func TestAnEventTheComponentDeclinesIsDropped(t *testing.T) {
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 	r.host.rune('x')
 	r.until("the keystroke to be offered", func() bool { return r.root.handled.Load() == 1 })
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -328,7 +439,7 @@ func TestPostRunsOnTheProgramsGoroutineAndThenDraws(t *testing.T) {
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
 	done := make(chan struct{})
-	r.root.loop.Post(func() {
+	r.root.runtime.Dispatcher().Post(func() {
 		r.root.text = "posted"
 		close(done)
 	})
@@ -336,19 +447,209 @@ func TestPostRunsOnTheProgramsGoroutineAndThenDraws(t *testing.T) {
 	r.until("the posted change to be drawn", func() bool {
 		return strings.Contains(r.host.frames.String(), "posted")
 	})
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
+}
+
+func TestABurstCannotBlockTheInterfaceBehindItsOwnQueue(t *testing.T) {
+	h := newHost(t)
+	root := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{}), quit: true}
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: h,
+			Root: func(runtime *program.Runtime) program.Component {
+				root.runtime = runtime
+				return root
+			},
+		})
+	}()
+	defer func() { _ = h.writer.Close() }()
+
+	h.rune('q')
+	<-root.entered
+	posted := make(chan struct{})
+	go func() {
+		defer close(posted)
+		for range 10_000 {
+			root.runtime.Dispatcher().Post(func() {})
+		}
+	}()
+	select {
+	case <-posted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a burst blocked behind work only the interface goroutine could consume")
+	}
+	close(root.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Quit deadlocked behind the queued burst")
+	}
+}
+
+func TestQuitDoesNotRunLaterWorkFromTheSameBatch(t *testing.T) {
+	h := newHost(t)
+	root := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: h,
+			Root: func(runtime *program.Runtime) program.Component {
+				root.runtime = runtime
+				return root
+			},
+		})
+	}()
+
+	h.rune('q')
+	<-root.entered
+	dispatch := root.runtime.Dispatcher()
+	dispatch.Post(root.runtime.Quit)
+	var ran atomic.Int64
+	for range 100 {
+		dispatch.Post(func() { ran.Add(1) })
+	}
+	close(root.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the program did not stop at Quit")
+	}
+	if got := ran.Load(); got != 0 {
+		t.Fatalf("%d queued task(s) ran after Quit", got)
+	}
+}
+
+func TestAHostOnlyImplementsTransport(t *testing.T) {
+	h := &minimalHost{
+		events: make(chan input.Event),
+		writer: term.NewWriter(&frames{}),
+		w:      20,
+		h:      4,
+	}
+	defer func() { _ = h.writer.Close() }()
+
+	err := program.Run(t.Context(), program.Config{
+		Host: h,
+		Root: func(runtime *program.Runtime) program.Component {
+			if !runtime.Environment().Ground().BG.Default() || runtime.Environment().Wheel() != (input.Wheel{}) {
+				t.Error("a missing observation capability did not return its zero answer")
+			}
+			if runtime.Clipboard().Copy("text") {
+				t.Error("a host with no clipboard accepted a copy")
+			}
+			if runtime.Images().Protocol() != graphics.None {
+				t.Error("a host with no graphics reported a protocol")
+			}
+			if _, err := runtime.Images().Transmit([]byte("png")); !errors.Is(err, errors.ErrUnsupported) {
+				t.Errorf("Transmit error = %v, want errors.ErrUnsupported", err)
+			}
+			runtime.Dispatcher().Post(runtime.Quit)
+			return &component{text: "ready", consume: true, runtime: runtime}
+		},
+	})
+	if err != nil {
+		t.Fatalf("program: %v", err)
+	}
+}
+
+func TestOptionalHostOperationsAreIndependent(t *testing.T) {
+	transport := &minimalHost{
+		events: make(chan input.Event),
+		writer: term.NewWriter(&frames{}),
+		w:      20,
+		h:      4,
+	}
+	defer func() { _ = transport.writer.Close() }()
+
+	wantGround := grid.Ground{BG: grid.RGBColor(0x12, 0x34, 0x56)}
+	h := &partialHost{minimalHost: transport, groundAnswer: wantGround}
+	err := program.Run(t.Context(), program.Config{
+		Host: h,
+		Root: func(runtime *program.Runtime) program.Component {
+			if got := runtime.Environment().Ground(); got != wantGround {
+				t.Errorf("Ground = %v, want %v", got, wantGround)
+			}
+			if got := runtime.Environment().Wheel(); got != (input.Wheel{}) {
+				t.Errorf("missing Wheel = %v, want zero", got)
+			}
+			if _, ok := runtime.Environment().Keyboard(); ok {
+				t.Error("missing Keyboard reported negotiated features")
+			}
+			if !runtime.Clipboard().Copy("copied") {
+				t.Error("independent Copy capability was hidden")
+			}
+			runtime.Clipboard().Paste()
+			runtime.Session().SetTitle("ignored")
+			runtime.Session().Bell()
+			runtime.Session().Notify("noticed")
+			runtime.Dispatcher().Post(runtime.Quit)
+			return &component{text: "ready", consume: true, runtime: runtime}
+		},
+	})
+	if err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	if !slices.Equal(h.copied, []string{"copied"}) {
+		t.Errorf("copied = %q, want [copied]", h.copied)
+	}
+	if !slices.Equal(h.notified, []string{"noticed"}) {
+		t.Errorf("notified = %q, want [noticed]", h.notified)
+	}
+}
+
+func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
+	var environment program.Environment
+	if !environment.Ground().BG.Default() || environment.Wheel() != (input.Wheel{}) {
+		t.Fatal("zero Environment reported host facts")
+	}
+	if _, ok := environment.Keyboard(); ok {
+		t.Fatal("zero Environment reported a keyboard negotiation")
+	}
+
+	var clipboard program.Clipboard
+	if clipboard.Copy("text") {
+		t.Fatal("zero Clipboard accepted a copy")
+	}
+	clipboard.Paste()
+
+	var images program.Images
+	if images.Protocol() != graphics.None {
+		t.Fatal("zero Images reported a protocol")
+	}
+	if _, err := images.Transmit([]byte("png")); !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("zero Images.Transmit error = %v, want errors.ErrUnsupported", err)
+	}
+
+	var session program.Session
+	called := false
+	if err := session.Hand(func() error { called = true; return nil }); err != nil || !called {
+		t.Fatalf("zero Session.Hand = %v, called %v", err, called)
+	}
+	if err := session.Suspend(); !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("zero Session.Suspend error = %v, want errors.ErrUnsupported", err)
+	}
+	session.SetTitle("ignored")
+	session.Bell()
+	session.Notify("ignored")
 }
 
 func TestRefreshAsksForAFrame(t *testing.T) {
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 	settled := r.root.drawn.Load()
-	r.root.loop.Refresh()
+	r.onLoop(r.root.runtime.Refresh)
 	r.until("another frame", func() bool { return r.root.drawn.Load() > settled })
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -369,10 +670,11 @@ func TestEveryTicksUntilItIsStopped(t *testing.T) {
 		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
 		var ticks atomic.Int64
-		stop := r.root.loop.Every(5*time.Millisecond, func() { ticks.Add(1) })
+		var stop func()
+		r.onLoop(func() { stop = r.root.runtime.Every(5*time.Millisecond, func() { ticks.Add(1) }) })
 		r.until("the clock to tick", func() bool { return ticks.Load() >= 3 })
 
-		stop()
+		r.onLoop(stop)
 		time.Sleep(30 * time.Millisecond)
 		settled := ticks.Load()
 		time.Sleep(60 * time.Millisecond)
@@ -381,9 +683,9 @@ func TestEveryTicksUntilItIsStopped(t *testing.T) {
 		}
 		// Stopping twice is not an error: an owner that stops a clock on more than one
 		// path should not have to remember which one ran.
-		stop()
+		r.onLoop(stop)
 
-		r.root.loop.Quit()
+		r.quit()
 		if err := r.wait(); err != nil {
 			t.Fatalf("program: %v", err)
 		}
@@ -397,10 +699,10 @@ func TestEveryStopsWhenTheProgramDoes(t *testing.T) {
 		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
 		var ticks atomic.Int64
-		r.root.loop.Every(5*time.Millisecond, func() { ticks.Add(1) })
+		r.onLoop(func() { r.root.runtime.Every(5*time.Millisecond, func() { ticks.Add(1) }) })
 		r.until("the clock to tick", func() bool { return ticks.Load() >= 2 })
 
-		r.root.loop.Quit()
+		r.quit()
 		if err := r.wait(); err != nil {
 			t.Fatalf("program: %v", err)
 		}
@@ -413,22 +715,66 @@ func TestEveryStopsWhenTheProgramDoes(t *testing.T) {
 	})
 }
 
+func TestEveryDoesNotReplayTicksMissedWhileTheInterfaceIsBusy(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHost(t)
+		root := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{})}
+		done := make(chan error, 1)
+		go func() {
+			done <- program.Run(t.Context(), program.Config{
+				Host: h,
+				Root: func(runtime *program.Runtime) program.Component {
+					root.runtime = runtime
+					return root
+				},
+			})
+		}()
+		waitFor(t, done, h, "the opening frame", func() bool { return h.frames.size() > 0 })
+
+		var ticks atomic.Int64
+		var stop func()
+		onLoop(t, root.runtime, func() {
+			stop = root.runtime.Every(time.Millisecond, func() {
+				ticks.Add(1)
+				stop()
+			})
+		})
+		h.rune('b')
+		<-root.entered
+		time.Sleep(100 * time.Millisecond)
+		close(root.release)
+		waitFor(t, done, h, "the current tick", func() bool { return ticks.Load() > 0 })
+		time.Sleep(20 * time.Millisecond)
+		if got := ticks.Load(); got != 1 {
+			t.Fatalf("the clock replayed %d missed ticks, want one current advance", got)
+		}
+		onLoop(t, root.runtime, root.runtime.Quit)
+		if err := <-done; err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
+}
+
 func TestAnIntervalOfNothingIsNotAClock(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r := start(t, nil)
 		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
 		var ticks atomic.Int64
-		stop := r.root.loop.Every(0, func() { ticks.Add(1) })
-		stop()
-		if r.root.loop.Every(time.Millisecond, nil) == nil {
+		var stop, empty func()
+		r.onLoop(func() {
+			stop = r.root.runtime.Every(0, func() { ticks.Add(1) })
+			stop()
+			empty = r.root.runtime.Every(time.Millisecond, nil)
+		})
+		if empty == nil {
 			t.Fatal("a clock with nothing to call returned no way to stop it")
 		}
 		time.Sleep(20 * time.Millisecond)
 		if ticks.Load() != 0 {
 			t.Fatal("a clock with no interval ticked anyway")
 		}
-		r.root.loop.Quit()
+		r.quit()
 		if err := r.wait(); err != nil {
 			t.Fatalf("program: %v", err)
 		}
@@ -440,8 +786,9 @@ func TestPostAfterTheProgramHasStoppedIsDropped(t *testing.T) {
 	// to show.
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	loop := r.root.loop
-	loop.Quit()
+	runtime := r.root.runtime
+	dispatch := runtime.Dispatcher()
+	onLoop(t, runtime, runtime.Quit)
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -450,9 +797,9 @@ func TestPostAfterTheProgramHasStoppedIsDropped(t *testing.T) {
 	go func() {
 		defer close(settled)
 		for range 100 {
-			loop.Post(func() {})
+			dispatch.Post(func() {})
 		}
-		loop.Refresh()
+		dispatch.Post(nil)
 	}()
 	select {
 	case <-settled:
@@ -477,7 +824,7 @@ func TestACancelledContextEndsTheProgramWithoutAnError(t *testing.T) {
 	done := make(chan error, 1)
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
-		done <- program.Run(ctx, program.Config{Host: h, Root: func(program.Loop) program.Component { return root }})
+		done <- program.Run(ctx, program.Config{Host: h, Root: func(*program.Runtime) program.Component { return root }})
 	}()
 	cancel()
 	select {
@@ -504,7 +851,7 @@ func TestAResizeChangesTheGeometryAndRepaints(t *testing.T) {
 	if got := r.root.handled.Load(); got != 0 {
 		t.Fatalf("the component was offered %d events, want none", got)
 	}
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -521,7 +868,7 @@ func TestRegainingFocusRepaints(t *testing.T) {
 	if got := r.root.handled.Load(); got != 0 {
 		t.Fatalf("the component was offered %d events, want none", got)
 	}
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -543,7 +890,7 @@ func TestAnIdleProgramStopsWriting(t *testing.T) {
 		if grown := r.host.frames.size() - settled; grown != 0 {
 			t.Fatalf("an idle program wrote %d more bytes", grown)
 		}
-		r.root.loop.Quit()
+		r.quit()
 		if err := r.wait(); err != nil {
 			t.Fatalf("program: %v", err)
 		}
@@ -561,7 +908,7 @@ func TestABurstOfUpdatesIsCoalescedIntoFewerFrames(t *testing.T) {
 		const updates = 200
 		settled := make(chan struct{})
 		for i := range updates {
-			r.root.loop.Post(func() {
+			r.root.runtime.Dispatcher().Post(func() {
 				r.root.text = strings.Repeat(".", i%20)
 				if i == updates-1 {
 					close(settled)
@@ -575,7 +922,7 @@ func TestABurstOfUpdatesIsCoalescedIntoFewerFrames(t *testing.T) {
 		if frames := r.root.drawn.Load() - before; frames >= updates {
 			t.Fatalf("%d updates produced %d frames, want them coalesced", updates, frames)
 		}
-		r.root.loop.Quit()
+		r.quit()
 		if err := r.wait(); err != nil {
 			t.Fatalf("program: %v", err)
 		}
@@ -588,20 +935,20 @@ func TestTheLastUpdateOfABurstIsStillDrawn(t *testing.T) {
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 	for range 20 {
-		r.root.loop.Post(func() { r.root.text = "middle" })
+		r.root.runtime.Dispatcher().Post(func() { r.root.text = "middle" })
 	}
-	r.root.loop.Post(func() { r.root.text = "final" })
+	r.root.runtime.Dispatcher().Post(func() { r.root.text = "final" })
 	r.until("the last update to be drawn", func() bool {
 		return strings.Contains(r.host.frames.String(), "final")
 	})
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
 	}
 }
 
 func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
-	// An interface that cannot reach its terminal has nothing left to do, and a loop
+	// An interface that cannot reach its terminal has nothing left to do, and a runtime
 	// that kept going would spin on the same error for ever.
 	h := newHost(t)
 	h.writer = term.NewWriter(brokenTerminal{})
@@ -609,7 +956,7 @@ func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: h,
-			Root: func(program.Loop) program.Component { return &component{text: "ready"} },
+			Root: func(*program.Runtime) program.Component { return &component{text: "ready"} },
 		})
 	}()
 	select {
@@ -626,27 +973,95 @@ func TestAProgramWithNoComponentIsRefused(t *testing.T) {
 	if err := program.Run(t.Context(), program.Config{Host: newHost(t)}); err == nil {
 		t.Fatal("a program with nothing to draw was accepted")
 	}
+	if err := program.Run(t.Context(), program.Config{
+		Host: newHost(t),
+		Root: func(*program.Runtime) program.Component { return nil },
+	}); err == nil {
+		t.Fatal("a builder that returned no component was accepted")
+	}
+}
+
+func TestZeroRuntimesAreInert(t *testing.T) {
+	var runtime program.Runtime
+	runtime.Refresh()
+	runtime.Quit()
+	runtime.Dispatcher().Post(func() { t.Fatal("zero dispatcher ran work") })
+	stop := runtime.Every(time.Nanosecond, func() { t.Fatal("zero runtime ticked") })
+	stop()
+
+	var inline program.InlineRuntime
+	inline.Print(nil)
+	inline.PrintRows(1, func(grid.View) { t.Fatal("zero inline runtime drew") })
+	inline.Append(func(grid.View) bool {
+		t.Fatal("zero inline runtime appended")
+		return false
+	})
+}
+
+func TestSuspendRequiresAHandoverHost(t *testing.T) {
+	host := newHost(t)
+	result := make(chan error, 1)
+	err := program.Run(t.Context(), program.Config{
+		Host: &minimalHost{events: host.events, writer: host.writer, w: host.w, h: host.h},
+		Root: func(runtime *program.Runtime) program.Component {
+			result <- runtime.Session().Suspend()
+			runtime.Quit()
+			return &component{text: "ready"}
+		},
+	})
+	if err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	if err := <-result; !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("Suspend = %v, want errors.ErrUnsupported", err)
+	}
+}
+
+func TestDisplayOwnershipDoesNotChangeBeforeFramesDrain(t *testing.T) {
+	host := &stalledHost{events: make(chan input.Event), writer: newStalledWriter()}
+	called := false
+	var handErr error
+	err := program.Run(t.Context(), program.Config{
+		Host: host,
+		Root: func(runtime *program.Runtime) program.Component {
+			handErr = runtime.Session().Hand(func() error {
+				called = true
+				return nil
+			})
+			runtime.Quit()
+			return &component{text: "ready"}
+		},
+	})
+	if !errors.Is(handErr, program.ErrFrameTimeout) {
+		t.Fatalf("Hand error = %v, want ErrFrameTimeout", handErr)
+	}
+	if called || host.handed.Load() {
+		t.Fatal("display ownership changed while an earlier frame was still pending")
+	}
+	if !errors.Is(err, program.ErrFrameTimeout) {
+		t.Fatalf("Run error = %v, want the final undrained frame reported", err)
+	}
 }
 
 func TestTheComponentIsGivenItsLoopBeforeItIsDrawn(t *testing.T) {
-	// So that a component can hand the loop to whatever fetches on its behalf from the
+	// So that a component can hand the runtime to whatever fetches on its behalf from the
 	// moment it exists, rather than having to wait for a first frame.
 	h := newHost(t)
 	done := make(chan error, 1)
-	// The loop comes back over a channel rather than through a variable the test
+	// The runtime comes back over a channel rather than through a variable the test
 	// watches: the claim is that the component was handed one when it was built, and
 	// a channel says exactly that, at the moment it happened.
-	built := make(chan program.Loop, 1)
+	built := make(chan *program.Runtime, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: h,
-			Root: func(loop program.Loop) program.Component {
-				built <- loop
+			Root: func(runtime *program.Runtime) program.Component {
+				built <- runtime
 				return &component{text: "ready"}
 			},
 		})
 	}()
-	var quit program.Loop
+	var quit *program.Runtime
 	select {
 	case quit = <-built:
 	case err := <-done:
@@ -655,9 +1070,9 @@ func TestTheComponentIsGivenItsLoopBeforeItIsDrawn(t *testing.T) {
 		t.Fatal("the component was never built")
 	}
 	if quit == nil {
-		t.Fatal("the component was built without a loop")
+		t.Fatal("the component was built without a runtime")
 	}
-	quit.Quit()
+	onLoop(t, quit, quit.Quit)
 	select {
 	case err := <-done:
 		if err != nil {
@@ -681,7 +1096,7 @@ func (brokenTerminal) Write([]byte) (int, error) { return 0, errBrokenTerminal }
 
 // printer is a component that draws a line and can send finished output above itself.
 type printer struct {
-	loop program.InlineLoop
+	runtime *program.InlineRuntime
 
 	text  string
 	drawn atomic.Int64
@@ -700,7 +1115,7 @@ func (p *printer) Handle(input.Event) bool {
 	if p.hand != nil {
 		run := p.hand
 		p.hand = nil
-		err := p.loop.Hand(run)
+		err := p.runtime.Session().Hand(run)
 		p.handErr.Store(&err)
 	}
 	return true
@@ -715,8 +1130,8 @@ func startInline(t *testing.T) (*host, *printer, chan error) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: h,
-			Inline: func(loop program.InlineLoop) program.Component {
-				root.loop = loop
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				root.runtime = runtime
 				return root
 			},
 		})
@@ -747,8 +1162,8 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 	// Which of the two is set decides the rendering model, so neither and both are
 	// equally unanswerable.
 	both := program.Config{
-		Root:   func(program.Loop) program.Component { return &component{} },
-		Inline: func(program.InlineLoop) program.Component { return &printer{} },
+		Root:   func(*program.Runtime) program.Component { return &component{} },
+		Inline: func(*program.InlineRuntime) program.Component { return &printer{} },
 	}
 	for what, cfg := range map[string]program.Config{"neither": {}, "both": both} {
 		if err := program.Run(t.Context(), cfg); err == nil {
@@ -761,7 +1176,7 @@ func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
 	// A caller who asked for both believes something false: an interface on a screen
 	// of its own has no session output to sit among, and nowhere to print.
 	err := program.Run(t.Context(), program.Config{
-		Inline:   func(program.InlineLoop) program.Component { return &printer{} },
+		Inline:   func(*program.InlineRuntime) program.Component { return &printer{} },
 		Terminal: term.Options{AltScreen: true},
 		Host:     newHost(t),
 	})
@@ -774,11 +1189,11 @@ func TestAnInlineInterfaceNeverNamesARowOfTheTerminal(t *testing.T) {
 	// The program's rows are wherever the session's output left them, and nothing here
 	// is allowed to assume otherwise.
 	h, root, done := startInline(t)
-	root.loop.Post(func() { root.text = "typing" })
+	root.runtime.Dispatcher().Post(func() { root.text = "typing" })
 	waitFor(t, done, h, "the next frame", func() bool {
 		return strings.Contains(h.frames.String(), "typing")
 	})
-	root.loop.Quit()
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -789,11 +1204,13 @@ func TestAnInlineInterfaceNeverNamesARowOfTheTerminal(t *testing.T) {
 
 func TestPrintedOutputReachesTheTerminalAboveTheInterface(t *testing.T) {
 	h, root, done := startInline(t)
-	root.loop.PrintRows(1, func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) })
+	root.runtime.Dispatcher().Post(func() {
+		root.runtime.PrintRows(1, func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) })
+	})
 	waitFor(t, done, h, "the printed row", func() bool {
 		return strings.Contains(h.frames.String(), "finished")
 	})
-	root.loop.Quit()
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -811,8 +1228,10 @@ func TestPrintedOutputIsNotLostToTheExit(t *testing.T) {
 	// Printing and then quitting in the same breath is what a one-shot run does: say
 	// the answer, then stop. Pacing must not be able to swallow the answer.
 	h, root, done := startInline(t)
-	root.loop.PrintRows(1, func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) })
-	root.loop.Quit()
+	root.runtime.Dispatcher().Post(func() {
+		root.runtime.PrintRows(1, func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) })
+		root.runtime.Quit()
+	})
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -825,8 +1244,8 @@ func TestTheLastStateOfAnInlineInterfaceIsWhatStays(t *testing.T) {
 	// It is not taken down on the way out — it is the last thing the session said, and
 	// the cursor has to end up below it so the next prompt does not land on top.
 	h, root, done := startInline(t)
-	root.loop.Post(func() { root.text = "goodbye" })
-	root.loop.Quit()
+	root.runtime.Dispatcher().Post(func() { root.text = "goodbye" })
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -850,19 +1269,21 @@ func (m measurer) Draw(v grid.View)      { m.draw(v) }
 
 func TestPrintingMeasuresAgainstTheBlocksOwnWidth(t *testing.T) {
 	// The width is the program's to know. A caller that had to remember how wide the
-	// last frame was would be keeping a copy of state the loop already has — and
+	// last frame was would be keeping a copy of state the runtime already has — and
 	// measuring a mutable widget from their own goroutine while they were at it.
 	h, root, done := startInline(t)
 
 	measured := make(chan int, 1)
-	root.loop.Print(measurer{
-		measure: func(width int) int { measured <- width; return 1 },
-		draw:    func(v grid.View) { v.Text(0, 0, "printed", grid.Style{}) },
+	root.runtime.Dispatcher().Post(func() {
+		root.runtime.Print(measurer{
+			measure: func(width int) int { measured <- width; return 1 },
+			draw:    func(v grid.View) { v.Text(0, 0, "printed", grid.Style{}) },
+		})
 	})
 	waitFor(t, done, h, "the printed row", func() bool {
 		return strings.Contains(h.frames.String(), "printed")
 	})
-	root.loop.Quit()
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -873,25 +1294,27 @@ func TestPrintingMeasuresAgainstTheBlocksOwnWidth(t *testing.T) {
 
 func TestAppendedOutputIsFedRowsUntilItSaysItIsDone(t *testing.T) {
 	// A caller laying text out has no way to know how much of the row is left until
-	// the loop tells it, and no way to ask from its own goroutine without racing the
-	// interface. So the loop asks, with what is left, and keeps asking with whole rows
+	// the runtime tells it, and no way to ask from its own goroutine without racing the
+	// interface. So the runtime asks, with what is left, and keeps asking with whole rows
 	// until the caller says there is no more.
 	h, root, done := startInline(t)
 
 	offered := make(chan int, 4)
 	rest := "one two three four five six seven eight nine"
-	root.loop.Append(func(v grid.View) bool {
-		w, _ := v.Size()
-		offered <- w
-		take := min(len(rest), w)
-		v.Text(0, 0, rest[:take], grid.Style{})
-		rest = rest[take:]
-		return rest != ""
+	root.runtime.Dispatcher().Post(func() {
+		root.runtime.Append(func(v grid.View) bool {
+			w, _ := v.Size()
+			offered <- w
+			take := min(len(rest), w)
+			v.Text(0, 0, rest[:take], grid.Style{})
+			rest = rest[take:]
+			return rest != ""
+		})
 	})
 	waitFor(t, done, h, "the appended output", func() bool {
 		return strings.Contains(h.frames.String(), "nine")
 	})
-	root.loop.Quit()
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -909,17 +1332,19 @@ func TestAppendedOutputIsFedRowsUntilItSaysItIsDone(t *testing.T) {
 
 func TestAppendingNothingForeverStillEnds(t *testing.T) {
 	// A caller that says there is more and draws nothing into a whole row is asking
-	// for room that would not help. The loop stops rather than spinning on it, because
+	// for room that would not help. The runtime stops rather than spinning on it, because
 	// it is the goroutine the interface is drawn on.
 	h, root, done := startInline(t)
 	rounds := make(chan struct{}, 8)
-	root.loop.Append(func(grid.View) bool {
-		rounds <- struct{}{}
-		return true
+	root.runtime.Dispatcher().Post(func() {
+		root.runtime.Append(func(grid.View) bool {
+			rounds <- struct{}{}
+			return true
+		})
 	})
-	root.loop.Post(func() {}) // work queued behind it, which only runs if the loop got free
+	root.runtime.Dispatcher().Post(func() {}) // work queued behind it, which only runs if the runtime got free
 	waitFor(t, done, h, "the append to give up", func() bool { return len(rounds) > 0 })
-	root.loop.Quit()
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -928,8 +1353,8 @@ func TestAppendingNothingForeverStillEnds(t *testing.T) {
 
 func TestPrintingNothingIsIgnored(t *testing.T) {
 	h, root, done := startInline(t)
-	root.loop.Print(nil) // must not reach the loop's goroutine and panic there
-	root.loop.Quit()
+	onLoop(t, root.runtime, func() { root.runtime.Print(nil) })
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)
 	}
@@ -938,7 +1363,7 @@ func TestPrintingNothingIsIgnored(t *testing.T) {
 
 // startOn runs a program over a host the caller prepared, so a test can say what
 // the terminal would have answered. The program is stopped when the test ends.
-func startOn(t *testing.T, h *host, root func(program.Loop) program.Component) *running {
+func startOn(t *testing.T, h *host, root func(*program.Runtime) program.Component) *running {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -956,14 +1381,14 @@ func startOn(t *testing.T, h *host, root func(program.Loop) program.Component) *
 
 func TestAComponentLearnsWhatTheTerminalDrawsOn(t *testing.T) {
 	// The one fact a look cannot be built without and cannot work out for itself.
-	// A component reads it from the loop it already holds.
+	// A component reads it from the runtime it already holds.
 	h := newHost(t)
 	h.ground = grid.Ground{BG: grid.RGBColor(0xfd, 0xf6, 0xe3)}
 
 	learned := make(chan grid.Ground, 1)
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		learned <- l.Ground()
-		return &component{text: "ready", consume: true, loop: l}
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		learned <- l.Environment().Ground()
+		return &component{text: "ready", consume: true, runtime: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
@@ -989,8 +1414,8 @@ func TestTheFrameIsDrawnAgainstWhatTheTerminalSaid(t *testing.T) {
 	h.ground = grid.Ground{FG: grid.RGBColor(0xC0, 0xCA, 0xF5), BG: grid.RGBColor(0x1A, 0x1B, 0x26)}
 
 	drawnAgainst := make(chan grid.Ground, 1)
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		return &drawer{loop: l, seen: drawnAgainst}
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		return &drawer{runtime: l, seen: drawnAgainst}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
@@ -1001,8 +1426,8 @@ func TestTheFrameIsDrawnAgainstWhatTheTerminalSaid(t *testing.T) {
 
 // drawer reports the ground the frame it was handed resolves defaults against.
 type drawer struct {
-	loop program.Loop
-	seen chan grid.Ground
+	runtime *program.Runtime
+	seen    chan grid.Ground
 }
 
 func (d *drawer) Draw(v grid.View) {
@@ -1022,11 +1447,11 @@ func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
 	h := newHost(t)
 
 	known, dark := make(chan bool, 1), make(chan bool, 1)
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		ground := l.Ground()
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		ground := l.Environment().Ground()
 		known <- !ground.BG.Default()
 		dark <- ground.BG.RGB().Dark()
-		return &component{text: "ready", consume: true, loop: l}
+		return &component{text: "ready", consume: true, runtime: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
@@ -1041,7 +1466,7 @@ func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
 // recorder is a component that keeps what it was handed, so a test can assert on
 // which event a reply turned into.
 type recorder struct {
-	loop    program.Loop
+	runtime *program.Runtime
 	handled atomic.Int64
 	mu      sync.Mutex
 	pastes  []string
@@ -1070,8 +1495,8 @@ func startRecording(t *testing.T) (*running, *recorder) {
 	t.Helper()
 	h := newHost(t)
 	rec := &recorder{}
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		rec.loop = l
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		rec.runtime = l
 		return rec
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
@@ -1082,7 +1507,7 @@ func TestCopyGoesToTheHost(t *testing.T) {
 	// Who does the copying is the host's business. A component asks, and what it
 	// asked for is observable without anyone parsing an escape sequence.
 	r, rec := startRecording(t)
-	if !rec.loop.Copy("hello") {
+	if !fromLoop(t, rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
 		t.Fatal("a copy the host accepts was reported as refused")
 	}
 	if got := r.host.copies(); len(got) != 1 || got[0] != "hello" {
@@ -1096,7 +1521,7 @@ func TestCopyReportsAHostThatWillNotTakeIt(t *testing.T) {
 	r.host.refuse = true
 	r.host.clipMu.Unlock()
 
-	if rec.loop.Copy("hello") {
+	if fromLoop(t, rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
 		t.Error("a refused copy was reported as asked for")
 	}
 	if got := r.host.copies(); len(got) != 0 {
@@ -1113,7 +1538,7 @@ func TestPasteComesBackAsAPaste(t *testing.T) {
 	r.host.pasteFor = "copied"
 	r.host.clipMu.Unlock()
 
-	rec.loop.Paste()
+	onLoop(t, rec.runtime, rec.runtime.Clipboard().Paste)
 	r.until("the answer to arrive as a paste", func() bool { return len(rec.pasted()) == 1 })
 	if got := rec.pasted()[0]; got != "copied" {
 		t.Errorf("pasted %q, want %q", got, "copied")
@@ -1124,7 +1549,7 @@ func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
 	// Most terminals refuse to be read, and a refusal has no reply. Asking has to
 	// be safe and silent.
 	r, rec := startRecording(t)
-	rec.loop.Paste()
+	onLoop(t, rec.runtime, rec.runtime.Clipboard().Paste)
 	r.until("the host to be asked", func() bool { return r.host.timesAsked() == 1 })
 
 	// Followed by something observable, so the absence of a paste is waited for
@@ -1156,9 +1581,9 @@ func TestAComponentLearnsWhatANotchIs(t *testing.T) {
 	h.wheel = input.Wheel{Reports: 1, Rows: 3}
 
 	got := make(chan input.Wheel, 1)
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		got <- l.Wheel()
-		return &component{text: "ready", consume: true, loop: l}
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		got <- l.Environment().Wheel()
+		return &component{text: "ready", consume: true, runtime: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
@@ -1176,11 +1601,11 @@ func TestAComponentLearnsWhatTheKeyboardActuallyDoes(t *testing.T) {
 
 	got := make(chan input.KeyboardFlags, 1)
 	said := make(chan bool, 1)
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		flags, ok := l.Keyboard()
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		flags, ok := l.Environment().Keyboard()
 		got <- flags
 		said <- ok
-		return &component{text: "ready", consume: true, loop: l}
+		return &component{text: "ready", consume: true, runtime: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
@@ -1201,9 +1626,9 @@ func TestAComponentCanTellTheTerminalWhereItIs(t *testing.T) {
 	// one against a directory it knows.
 	h := newHost(t)
 	done := make(chan error, 1)
-	r := startOn(t, h, func(l program.Loop) program.Component {
-		done <- l.ReportDirectory("/tmp/work")
-		return &component{text: "ready", consume: true, loop: l}
+	r := startOn(t, h, func(l *program.Runtime) program.Component {
+		done <- l.Session().ReportDirectory("/tmp/work")
+		return &component{text: "ready", consume: true, runtime: l}
 	})
 	r.until("the opening frame", func() bool { return h.frames.size() > 0 })
 
@@ -1267,7 +1692,7 @@ func TestTheBlockIsLeftBehindBeforeAnythingElseGetsTheTerminal(t *testing.T) {
 		return root.drawn.Load() > drawnBy.Load()
 	})
 
-	root.loop.Quit()
+	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}
@@ -1281,15 +1706,17 @@ func TestAnInterfaceCanSayThingsThatAreNotDrawn(t *testing.T) {
 	r := start(t, nil)
 	r.until("the first frame", func() bool { return r.root.drawn.Load() > 0 })
 
-	r.root.loop.SetTitle("building oolong")
-	r.root.loop.Bell()
-	r.root.loop.Notify("tests passed")
+	r.onLoop(func() {
+		r.root.runtime.Session().SetTitle("building oolong")
+		r.root.runtime.Session().Bell()
+		r.root.runtime.Session().Notify("tests passed")
+	})
 	r.until("what was said to reach the terminal", func() bool {
 		title, rang, notified := r.host.said()
 		return title == "building oolong" && rang == 1 && len(notified) == 1
 	})
 
-	r.root.loop.Quit()
+	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}

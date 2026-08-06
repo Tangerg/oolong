@@ -1,57 +1,54 @@
-// Package layout divides a region among the things that go in it.
+// Package layout divides a region among rectangular items.
 //
-// It is geometry and nothing else: it decides where boxes go and hands back the
-// views to draw them in, and it never draws. That is what lets the same rules place
-// a widget, a string, or a hole left deliberately empty — and what keeps the sizing
-// rules testable by asking for numbers rather than by reading a screen.
+// It is geometry and nothing else: it allocates rectangles without knowing how
+// callers will use them. That keeps the same rules useful in any coordinate model
+// and makes sizing testable as arithmetic.
 //
 // # Measuring
 //
-// A slot whose size follows from its content says so with [Measured] and supplies a
+// A slot whose size follows from its item says so with [Measured] and supplies a
 // [Measurer]. The measurer is asked about the axis being divided, given how much
-// room there is across the other one: a row of text asked how tall it is at a width,
-// a column of labels asked how wide it is at a height. One question, either axis,
-// which is why [Measured] means the same thing in [Rows] and in [Columns].
+// room there is across the other one: an item asked for one dimension given the
+// available other dimension. One question, either axis,
+// which is why [Measured] means the same thing for [Down] and [Across].
 //
 // # The other axis, and the room between
 //
 // Dividing an axis leaves two questions it cannot ask, and both were being answered
 // by hand above this package before they were answered here. [Flow] is an axis with
-// a gap between the things it divides. [Slot.Cross] is where a slot's content sits
-// when it is narrower than the slot — a centred row of buttons, a hint row against
-// the right edge.
+// a gap between the things it divides. [Slot.Cross] says where an item sits when it
+// takes less than the available cross-axis extent.
 //
-// This is not the beginning of a flexbox. Deeply nested layout is refused on
-// purpose, and a caller who wants it will outgrow this: what is here is the three
-// things a terminal interface asks for often enough that everyone writes them again.
+// This is intentionally a small one-dimensional allocator, not the beginning of a
+// flexbox implementation. It does not own a tree, wrapping or reflow: callers
+// compose its rectangles when they need nesting, and callers needing a layout engine
+// should use one above this package rather than making this allocator know their
+// item lifecycle.
 package layout
 
 import (
 	"image"
-
-	"github.com/Tangerg/oolong/core/grid"
+	"math/bits"
 )
 
-// Size is a width and a height in cells.
-type Size struct{ W, H int }
-
-// Align is how content sits in a space wider than itself.
+// Align is how an extent sits in a larger space.
 type Align uint8
 
-// Where content sits when it is narrower than its space.
+// Where an extent sits within its space.
 const (
 	Start Align = iota
 	Center
 	End
 )
 
-// Offset is where content of the given width starts inside space columns.
-func (a Align) Offset(space, width int) int {
+// Offset is where an extent starts inside a space of the given size.
+func (a Align) Offset(space, extent int) int {
+	space, extent = max(space, 0), max(extent, 0)
 	switch a {
 	case Center:
-		return max((space-width)/2, 0)
+		return max((space-extent)/2, 0)
 	case End:
-		return max(space-width, 0)
+		return max(space-extent, 0)
 	default:
 		return 0
 	}
@@ -61,18 +58,24 @@ func (a Align) Offset(space, width int) int {
 type Inset struct{ Top, Right, Bottom, Left int }
 
 // Uniform is the same inset on every side.
-func Uniform(n int) Inset { return Inset{Top: n, Right: n, Bottom: n, Left: n} }
+func Uniform(n int) Inset {
+	n = max(n, 0)
+	return Inset{Top: n, Right: n, Bottom: n, Left: n}
+}
 
-// Symmetric is one inset above and below, another to the left and right — the
-// common case, because a terminal cell is about twice as tall as it is wide and
-// even padding does not look even.
+// Symmetric is one inset above and below, and another to the left and right. The
+// two axes are separate because equal coordinate extents need not occupy equal
+// physical space; naming both pairs also avoids repeating four values at every
+// call site.
 func Symmetric(vertical, horizontal int) Inset {
+	vertical, horizontal = max(vertical, 0), max(horizontal, 0)
 	return Inset{Top: vertical, Right: horizontal, Bottom: vertical, Left: horizontal}
 }
 
-// Size is how many columns and rows the inset takes.
-func (i Inset) Size() Size {
-	return Size{W: i.Left + i.Right, H: i.Top + i.Bottom}
+// Size is the horizontal and vertical extent the inset takes.
+func (i Inset) Size() image.Point {
+	i = i.normalized()
+	return image.Pt(saturatingAdd(i.Left, i.Right), saturatingAdd(i.Top, i.Bottom))
 }
 
 // Apply is what is left of r after the inset is held clear, and nothing at all when
@@ -82,21 +85,31 @@ func (i Inset) Size() Size {
 // backwards rectangle the right way round: an inset that overran its region would
 // come back as a real region somewhere else instead of as no region at all.
 func (i Inset) Apply(r image.Rectangle) image.Rectangle {
+	i = i.normalized()
+	if r.Empty() || uint(i.Left)+uint(i.Right) >= uint(r.Max.X)-uint(r.Min.X) ||
+		uint(i.Top)+uint(i.Bottom) >= uint(r.Max.Y)-uint(r.Min.Y) {
+		return image.Rectangle{}
+	}
 	out := image.Rectangle{
 		Min: image.Pt(r.Min.X+i.Left, r.Min.Y+i.Top),
 		Max: image.Pt(r.Max.X-i.Right, r.Max.Y-i.Bottom),
 	}
-	if out.Min.X >= out.Max.X || out.Min.Y >= out.Max.Y {
-		return image.Rectangle{}
-	}
 	return out
+}
+
+func (i Inset) normalized() Inset {
+	i.Top = max(i.Top, 0)
+	i.Right = max(i.Right, 0)
+	i.Bottom = max(i.Bottom, 0)
+	i.Left = max(i.Left, 0)
+	return i
 }
 
 // Measurer reports how much of one axis something wants, given how much room it has
 // across the other.
 //
-// Which axis is which is decided by whoever is asking: [Rows] divides height and
-// asks for a height at a width, [Columns] divides width and asks for a width at a
+// Which axis is which is decided by whoever is asking: [Down] divides height and
+// asks for a height at a width, [Across] divides width and asks for a width at a
 // height. A type that can only answer for one axis is a type that belongs in only
 // one of them, and saying so is the caller's business rather than this package's.
 type Measurer interface {
@@ -111,29 +124,29 @@ func (f MeasureFunc) Measure(across int) int { return f(across) }
 
 // Sizing says how much of an axis a slot wants.
 type Sizing struct {
-	// Fixed is an exact number of rows or columns. It wins over everything else.
+	// Fixed is an exact number of units. It wins over everything else.
 	Fixed int
 	// Part and Whole are a share of the whole division: Part 1 of Whole 2 is half of
 	// it, whatever else is being divided and whatever those others ask for. The whole
 	// is what there is to divide, which is the region less the gaps in it.
 	//
 	// It is not [Flex] and cannot be written as one. A share of what is left changes
-	// when anything beside it changes, which is what makes it right for panes that
-	// divide the slack and wrong for "this pane is half the screen" — a sentence a
-	// caller means literally, and one whose answer must not move when a status bar
-	// appears above it.
+	// when anything beside it changes. Part expresses a fraction of the original
+	// extent, so its answer does not move when another slot changes.
 	Part, Whole int
 	// Flex is a share of what is left after the fixed, measured and part slots have
 	// taken theirs. Two slots with flex 1 and 2 split the remainder one third to two
-	// thirds.
+	// thirds. Only the ratio between weights carries meaning. Before adding them,
+	// Divide caps each weight at an equal part of the largest representable total;
+	// ordinary small ratios stay exact and weights beyond the cap are deliberately
+	// indistinguishable from it on every architecture.
 	Flex int
 	// Measured asks the slot's [Measurer] how much it wants.
 	Measured bool
-	// Min is a floor on a flex or measured slot, so a pane cannot be squeezed into a
-	// size where it shows nothing useful. It is honoured while there is room for it:
+	// Min is a floor on a flex or measured slot. It is honoured while there is room:
 	// several floors can add up to more than the space there is.
 	Min int
-	// Max caps a measured slot, so content that grew without bound does not take the
+	// Max caps a measured slot, so a result that grew without bound does not take the
 	// whole region.
 	Max int
 }
@@ -147,6 +160,13 @@ func Fixed(n int) Sizing { return Sizing{Fixed: n} }
 func Part(part, whole int) Sizing { return Sizing{Part: part, Whole: whole} }
 
 // Flex is a slot taking a share of what is left.
+//
+// A weight is a ratio and nothing else: doubling every weight in a division changes
+// no result. Each one is therefore capped at an equal part of the largest
+// representable total, which is what lets the weights be added in ordinary
+// arithmetic with no case for the sum running past it. Weights above the cap
+// saturate to it and become indistinguishable — which costs a caller nothing that a
+// smaller pair of weights could not have said.
 func Flex(share int) Sizing { return Sizing{Flex: share} }
 
 // Measured is a slot as big as its [Measurer] asks to be, within bounds. A zero
@@ -156,34 +176,30 @@ func Measured(minimum, maximum int) Sizing {
 }
 
 // Slot is one division of a region: how much room it gets, and what to ask when
-// that follows from its content.
+// that follows from its item.
 type Slot struct {
 	Size Sizing
 	// Of is asked how much of the divided axis this slot wants, and is only
 	// consulted when Size says the slot is measured. A measured slot with nothing to
 	// ask gets its floor, which is zero unless one was set.
 	Of Measurer
-	// Cross is where the slot's content sits across the other axis. The zero value
-	// fills it, which is what a band across a pane means and what every slot did
-	// before there was a way to say otherwise.
+	// Cross is where the slot's item sits across the other axis. The zero value
+	// fills it.
 	Cross Cross
 }
 
-// Cross is how much of the other axis a slot's content takes, and where in the slot
+// Cross is how much of the other axis a slot's item takes, and where in the slot
 // it sits when that is less than all of it.
 //
-// It is the answer to the one question dividing an axis cannot ask: a row of buttons
-// centred in a dialog, a hint row against the right edge, a title over a pane that is
-// wider than the title. Without it a caller has to take the view it was given and
-// narrow it by hand, which is arithmetic every caller writes and one of them gets
-// wrong.
+// It is the answer to the one question dividing an axis cannot ask: how a smaller
+// cross-axis extent is aligned within the rectangle allocated to its slot.
 //
-// The size is a number rather than a [Measurer] on purpose. A widget answers about
-// one axis — [Rows] asks how tall at a width, [Columns] how wide at a height — and a
-// slot that asked the other way round would be asking most widgets a question they
+// The size is a number rather than a [Measurer] on purpose. An item answers about
+// one axis — [Down] asks how tall at a width, [Across] how wide at a height — and a
+// slot that asked the other way round would be asking most values a question they
 // cannot answer.
 type Cross struct {
-	// Size is how many cells across the other axis the content takes. Zero, and
+	// Size is how many units across the other axis the item takes. Zero, and
 	// anything larger than the region, is all of it.
 	Size int
 	// Align is where it sits when it is less than all of it.
@@ -206,80 +222,70 @@ func (c Cross) place(r image.Rectangle, a Axis, across int) image.Rectangle {
 // Axis is which way a region is divided.
 //
 // It exists so that something arranging its contents can be told which way round it
-// goes instead of being written twice. [Rows] and [Columns] are the two values of it
-// under the names a caller usually wants.
+// goes instead of being written twice. [Down] and [Across] are its two values.
 type Axis uint8
 
 const (
 	// Down stacks bands one above another, dividing height.
 	Down Axis = iota
-	// Across puts panes side by side, dividing width.
+	// Across puts regions side by side, dividing width.
 	Across
 )
 
 // Flow is an axis with room between the things it divides.
 //
 // The gap is here rather than in [Slot] because it is one answer for the whole
-// division: a caller says "these, with a column between them" once, instead of
-// padding every slot but the last and getting the last one wrong. [Rows] and
-// [Columns] are this with no gap, which is why they are still the ordinary call.
+// division: a caller specifies the spacing once, instead of padding every slot but
+// the last and getting the last one wrong. Calling
+// [Axis.Rects] is the same arrangement with no gap.
 type Flow struct {
 	Axis Axis
-	// Gap is how many cells go between one slot and the next.
+	// Gap is how many units go between one slot and the next.
 	//
 	// It is reserved for every join, including the ones beside a slot that ended up
 	// with no room. A gap that appeared and disappeared with its neighbour's contents
-	// would move every column after it whenever a value happened to be empty, and a
-	// table whose columns shift as its rows change is worse than one with a wider
-	// margin than it needed.
+	// would move every following slot whenever a value happened to be empty.
 	Gap int
 }
 
 // Rects is where each slot goes when a space is divided, in the space's own
 // coordinates.
-func (f Flow) Rects(space Size, slots []Slot) []image.Rectangle {
-	total, across := space.H, space.W
+func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
+	space.X, space.Y = max(space.X, 0), max(space.Y, 0)
+	total, across := space.Y, space.X
 	if f.Axis == Across {
-		total, across = space.W, space.H
+		total, across = space.X, space.Y
 	}
 	sizes := f.Divide(total, across, slots)
 
 	rects := make([]image.Rectangle, len(slots))
 	at := 0
+	gap := max(f.Gap, 0)
 	for i, size := range sizes {
 		var r image.Rectangle
 		if f.Axis == Across {
-			r = grid.Rect(at, 0, size, space.H)
+			r = image.Rect(at, 0, at+size, space.Y)
 		} else {
-			r = grid.Rect(0, at, space.W, size)
+			r = image.Rect(0, at, space.X, at+size)
 		}
 		rects[i] = slots[i].Cross.place(r, f.Axis, across)
-		at += size + f.Gap
+		at = min(saturatingAdd(at, size), total)
+		at += min(gap, total-at)
 	}
 	return rects
 }
 
-// Views divides v and returns the view for each slot, in order.
-func (f Flow) Views(v grid.View, slots ...Slot) []grid.View {
-	width, height := v.Size()
-	rects := f.Rects(Size{W: width, H: height}, slots)
-
-	views := make([]grid.View, len(rects))
-	for i, r := range rects {
-		views[i] = v.Sub(r)
-	}
-	return views
-}
-
 // Divide splits total among the slots, holding back the gaps between them first.
 func (f Flow) Divide(total, across int, slots []Slot) []int {
-	return Divide(total-f.gaps(len(slots)), across, slots)
+	available := max(total, 0)
+	return Divide(max(available-f.gaps(len(slots)), 0), across, slots)
 }
 
 // Wanted is how much of the divided axis the slots ask for altogether, the gaps
 // between them included.
 func (f Flow) Wanted(across int, slots []Slot) int {
-	return Wanted(across, slots) + f.gaps(len(slots))
+	wanted, gaps := Wanted(across, slots), f.gaps(len(slots))
+	return saturatingAdd(wanted, gaps)
 }
 
 // gaps is how much of the axis the joins take.
@@ -287,59 +293,45 @@ func (f Flow) gaps(slots int) int {
 	if f.Gap <= 0 || slots < 2 {
 		return 0
 	}
+	if f.Gap > maxInt/(slots-1) {
+		return maxInt
+	}
 	return f.Gap * (slots - 1)
 }
 
 // Rects is where each slot goes when a space is divided along the axis, in the
 // space's own coordinates.
 //
-// It is the geometry on its own, without a view to draw into, because working out
-// where something went and drawing it there happen at different times: a click
-// arrives between two frames and has to be answered against the frame that is on
-// screen. Anything routing input by position asks this and keeps the answer.
+// The result is geometry only and can be projected into any coordinate model. Keeping
+// allocation separate lets independent consumers share one answer instead of
+// reconstructing it according to their own rules.
 //
 // The order of business is measure, then arrange: the only order that works when one
-// slot's size depends on its content and another's depends on what is left. Slots
-// that end up with no room still get a rectangle — an empty one — because a caller's
-// code runs every frame, and code that only breaks when it is squeezed to nothing
-// breaks in front of the user.
-func (a Axis) Rects(space Size, slots []Slot) []image.Rectangle {
+// slot's size depends on its item and another's depends on what is left. Slots
+// that end up with no room still get a rectangle — an empty one — so result indexes
+// always correspond to input slot indexes.
+func (a Axis) Rects(space image.Point, slots ...Slot) []image.Rectangle {
 	return Flow{Axis: a}.Rects(space, slots)
 }
-
-// Views divides v along the axis and returns the view for each slot, in order.
-//
-// Nothing is drawn. The caller draws into the views it is given, which is what lets
-// a slot be left empty, be drawn conditionally, or be measured now and drawn later.
-func (a Axis) Views(v grid.View, slots ...Slot) []grid.View {
-	return Flow{Axis: a}.Views(v, slots...)
-}
-
-// Rows divides v into horizontal bands down the region and returns the view for
-// each, in order.
-func Rows(v grid.View, slots ...Slot) []grid.View { return Down.Views(v, slots...) }
-
-// Columns is [Rows] across, for panes side by side.
-func Columns(v grid.View, slots ...Slot) []grid.View { return Across.Views(v, slots...) }
 
 // Wanted is how much of the divided axis a set of slots asks for altogether,
 // measured against across.
 //
-// It is what something made of slots answers when it is itself in a measured slot: a
-// column of widgets inside a pane that grows to fit its contents. A flexible slot has
+// It is what a group made of slots answers when it is itself measured. A flexible slot has
 // nothing to ask for — a share is a share of a total, and there is no total yet — so
 // it counts as its floor.
 func Wanted(across int, slots []Slot) int {
+	across = max(across, 0)
 	total := 0
 	for _, slot := range slots {
 		switch {
 		case slot.Size.Fixed > 0:
-			total += slot.Size.Fixed
+			total = saturatingAdd(total, slot.Size.Fixed)
 		case slot.Size.Whole > 0:
 			// A fraction of a region nobody has named yet. There is no total to take a
 			// part of, so it counts as its floor — the same answer a flexible slot
 			// gives, and for the same reason.
-			total += max(slot.Size.Min, 0)
+			total = saturatingAdd(total, max(slot.Size.Min, 0))
 		case slot.Size.Measured:
 			want := slot.Size.Min
 			if slot.Of != nil {
@@ -348,9 +340,9 @@ func Wanted(across int, slots []Slot) int {
 			if slot.Size.Max > 0 {
 				want = min(want, slot.Size.Max)
 			}
-			total += max(want, 0)
+			total = saturatingAdd(total, max(want, 0))
 		default:
-			total += max(slot.Size.Min, 0)
+			total = saturatingAdd(total, max(slot.Size.Min, 0))
 		}
 	}
 	return total
@@ -359,12 +351,17 @@ func Wanted(across int, slots []Slot) int {
 // Divide splits total among slots, measuring against across, and returns each
 // slot's size. The sizes always add up to at most total.
 //
-// It is exported because a caller aligning something to the same grid — a header
-// over a table, a ruler beside a pane — needs the numbers without the views.
+// It is exported because related geometry may need the same allocation without
+// constructing rectangles.
 func Divide(total, across int, slots []Slot) []int {
 	sizes := make([]int, len(slots))
 	left := max(total, 0)
+	across = max(across, 0)
 	flex := 0
+	// Every slot contributes at most this much, so the sum cannot overflow an int,
+	// including on 32-bit architectures. The cap changes only ratios made from
+	// weights too large to carry additional useful precision.
+	maxFlex := maxInt / max(len(slots), 1)
 
 	// Fixed and measured slots take theirs first: both are stating a need, and the
 	// flexible ones exist to absorb whatever is left over.
@@ -376,7 +373,7 @@ func Divide(total, across int, slots []Slot) []int {
 			// Of the whole region rather than of what is left, which is the whole
 			// difference between this and a share: it is worked out from the total the
 			// division began with, so nothing else in the region can move it.
-			want := max(total, 0) * max(slot.Size.Part, 0) / slot.Size.Whole
+			want := fraction(max(total, 0), max(slot.Size.Part, 0), slot.Size.Whole)
 			sizes[i] = min(max(want, slot.Size.Min), left)
 		case slot.Size.Measured:
 			want := slot.Size.Min
@@ -388,7 +385,8 @@ func Divide(total, across int, slots []Slot) []int {
 			}
 			sizes[i] = min(max(want, 0), left)
 		default:
-			flex += max(slot.Size.Flex, 0)
+			share := min(max(slot.Size.Flex, 0), maxFlex)
+			flex += share
 			continue
 		}
 		left -= sizes[i]
@@ -399,24 +397,54 @@ func Divide(total, across int, slots []Slot) []int {
 
 	// Shares of what is left, with each slot's floor honoured only while there is
 	// room for it. Several floors can add up to more than the space there is, and a
-	// layout that handed them out anyway would tell a widget it had a size the view
-	// then clipped — which the widget cannot see, and lays out against.
+	// layout that handed them out anyway would report more than it allocated, making
+	// measurement and placement disagree.
 	remainder := left
 	lastFlex := -1
 	for i, slot := range slots {
-		share := max(slot.Size.Flex, 0)
+		share := min(max(slot.Size.Flex, 0), maxFlex)
 		if share == 0 {
 			continue
 		}
-		want := max(remainder*share/flex, slot.Size.Min)
+		want := fraction(remainder, share, flex)
+		want = max(want, slot.Size.Min)
 		sizes[i] = min(want, left)
 		left -= sizes[i]
 		lastFlex = i
 	}
-	// The rounding remainder goes to the last flexible slot rather than being lost:
-	// a row that vanished would leave a gap the user can see.
+	// The rounding remainder goes to the last flexible slot rather than being lost.
 	if lastFlex >= 0 && left > 0 {
 		sizes[lastFlex] += left
 	}
 	return sizes
+}
+
+const maxInt = int(^uint(0) >> 1)
+
+// saturatingAdd adds non-negative extents without turning an overflow into a
+// negative size.
+func saturatingAdd(a, b int) int {
+	a, b = max(a, 0), max(b, 0)
+	if b > maxInt-a {
+		return maxInt
+	}
+	return a + b
+}
+
+// fraction returns total*part/whole, capped at total, without overflowing the
+// intermediate product. Callers allocate from total, so a part larger than the
+// whole can ask for all of it but never for more.
+func fraction(total, part, whole int) int {
+	if total <= 0 || part <= 0 || whole <= 0 {
+		return 0
+	}
+	if part >= whole {
+		return total
+	}
+	hi, lo := bits.Mul64(uint64(total), uint64(part))
+	quotient, _ := bits.Div64(hi, lo, uint64(whole))
+	if quotient > uint64(maxInt) {
+		return maxInt
+	}
+	return int(quotient)
 }

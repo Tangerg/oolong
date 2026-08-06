@@ -15,7 +15,7 @@ func selected(v grid.View, w, h int, style grid.Style) [][2]int {
 	var out [][2]int
 	for y := range h {
 		for x := range w {
-			if c := v.CellAt(x, y); c != nil && c.Style == style {
+			if c := cellAt(v, x, y); c.Style == style {
 				out = append(out, [2]int{x, y})
 			}
 		}

@@ -182,9 +182,7 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 	if style == (grid.Style{}) {
 		return
 	}
-	if c := v.CellAt(x, y); c != nil {
-		c.Style = c.Style.Merge(style)
-	}
+	v.MergeStyle(x, y, style)
 }
 
 // Commit gives the transcript's finished leading blocks to a printer, which is what
@@ -195,9 +193,9 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 // rule — leading, in order, once each — is [headless.Transcript.Commit]'s, and this
 // only supplies the drawing.
 //
-// A program's inline loop satisfies Printer, so committing is one call a frame:
+// Any output sink with the small Printer method set can receive committed blocks:
 //
-//	view.Commit(loop)
+//	view.Commit(output)
 //
 // Nothing is committed unless this is called. A block given to the terminal is no
 // longer selectable, searchable, or re-wrapped when the window changes, so the choice
@@ -213,11 +211,10 @@ func (t Transcript) Commit(p Printer) int {
 	})
 }
 
-// Printer is somewhere finished output can be put permanently, which is what an inline
-// program's loop offers.
+// Printer is somewhere finished output can be put permanently.
 //
-// It is declared here rather than taken from there for the reason everything in these
-// two packages is: they are not allowed to know that a program exists.
+// It is declared here because Commit is its consumer. Concrete output transports can
+// satisfy it without this package depending on them.
 type Printer interface {
 	// PrintRows draws rows into the terminal's own output, above the interface, where
 	// they stay after the program exits.

@@ -245,10 +245,10 @@ func TestWhereTheOutputSaidItsWordsPointIsKept(t *testing.T) {
 	// And it reaches the cells, which is what a terminal is actually told.
 	s := grid.NewSurface(20, 1)
 	line.Draw(s.View(), 0, 0)
-	if got := s.CellAt(4, 0).Link; got != "http://x/y" {
+	if got := cellAt(s, 4).Link; got != "http://x/y" {
 		t.Fatalf("the cell under the linked words points at %q", got)
 	}
-	if got := s.CellAt(0, 0).Link; got != "" {
+	if got := cellAt(s, 0).Link; got != "" {
 		t.Fatalf("a cell outside the link points at %q", got)
 	}
 }

@@ -55,8 +55,8 @@ type Result struct {
 // on every keystroke affordable.
 //
 // Results arrive on [Search.Results]. A caller reads that from a goroutine of its own
-// and posts what it gets back to the interface's loop, which is how everything else
-// that happens elsewhere reaches it.
+// and posts what it gets back to the event owner. This package does not prescribe the
+// dispatcher used to cross that boundary.
 type Search struct {
 	jobs    chan job
 	results chan Result

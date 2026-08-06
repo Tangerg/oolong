@@ -3,6 +3,7 @@ package headless
 import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // The fields a form is made of: a line of text, one choice, several, and a yes or no.
@@ -32,7 +33,7 @@ type Text struct {
 	// drawn as for something the screen should not show.
 	Placeholder, Mask string
 	// Keys say which keystrokes edit. Nil reads through [DefaultEditorKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	editor Editor
 	seeded bool
@@ -62,7 +63,7 @@ func (t *Text) Handle(ev input.Event) bool {
 		if !in {
 			return false
 		}
-		return t.editor.HandleMouse(local, t.inner.W)
+		return t.editor.HandleMouse(local, t.inner.X)
 	}
 	if !t.editor.Handle(ev) {
 		return false
@@ -72,7 +73,7 @@ func (t *Text) Handle(ev input.Event) bool {
 }
 
 // Do runs one of the field's actions by name. See [Doer].
-func (t *Text) Do(action input.Action) bool {
+func (t *Text) Do(action keymap.Action) bool {
 	t.ensure()
 	if !t.editor.Do(action) {
 		return false
@@ -186,7 +187,7 @@ type Select[T any] struct {
 	// Rows caps how many options are shown at once. Zero shows them all.
 	Rows int
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	list   List[Option[T]]
 	seeded bool
@@ -235,7 +236,7 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 }
 
 // Do runs one of the field's actions by name. See [Doer].
-func (s *Select[T]) Do(action input.Action) bool {
+func (s *Select[T]) Do(action keymap.Action) bool {
 	s.ensure()
 	if !s.list.Do(action) {
 		return false
@@ -327,12 +328,12 @@ type MultiSelect[T any] struct {
 	Rows int
 	// Keys say which keystrokes move and take. Nil reads through
 	// [DefaultMultiSelectKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	list    List[Option[T]]
 	taken   []bool
 	seeded  bool
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // Prompt is what the field is asking for.
@@ -406,7 +407,7 @@ func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 }
 
 // Do runs one of the field's actions by name. See [Doer].
-func (m *MultiSelect[T]) Do(action input.Action) bool {
+func (m *MultiSelect[T]) Do(action keymap.Action) bool {
 	m.ensure()
 	if action == Toggle {
 		m.Toggle()
@@ -470,7 +471,7 @@ func (m *MultiSelect[T]) store() {
 	}
 }
 
-func (m *MultiSelect[T]) keys() *input.Keymap {
+func (m *MultiSelect[T]) keys() *keymap.Map {
 	if m.Keys != nil {
 		return m.Keys
 	}
@@ -489,11 +490,11 @@ type Confirm struct {
 	// Check says what is wrong with the answer, or nil.
 	Check func(v bool) error
 	// Keys say which keystrokes answer. Nil reads through [DefaultConfirmKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	yes     bool
 	seeded  bool
-	pending input.Pending
+	pending keymap.Pending
 	// split is the column the second answer begins at in the last frame, which is what
 	// a press has to be answered against.
 	split int
@@ -574,7 +575,7 @@ func (c *Confirm) Handle(ev input.Event) bool {
 }
 
 // Do runs one of the field's actions by name. See [Doer].
-func (c *Confirm) Do(action input.Action) bool {
+func (c *Confirm) Do(action keymap.Action) bool {
 	c.ensure()
 	switch action {
 	case SelectPrev:
@@ -629,7 +630,7 @@ func (c *Confirm) word(yes bool) string {
 	}
 }
 
-func (c *Confirm) keys() *input.Keymap {
+func (c *Confirm) keys() *keymap.Map {
 	if c.Keys != nil {
 		return c.Keys
 	}

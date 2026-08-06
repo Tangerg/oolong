@@ -33,7 +33,7 @@ import (
 
 func main() {
 	if err := program.Run(context.Background(), program.Config{
-		Inline:   func(loop program.InlineLoop) program.Component { return newReader(loop) },
+		Inline:   func(runtime *program.InlineRuntime) program.Component { return newReader(runtime) },
 		Terminal: term.Options{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "read:", err)
@@ -44,8 +44,8 @@ func main() {
 // reader is the live part: the block still being written, and a line saying what is
 // happening.
 type reader struct {
-	loop  program.InlineLoop
-	theme kit.Theme
+	runtime *program.InlineRuntime
+	theme   kit.Theme
 
 	stream  markdown.Stream
 	open    markdown.Doc
@@ -62,14 +62,14 @@ const (
 	pace  = 60 * time.Millisecond
 )
 
-func newReader(loop program.InlineLoop) *reader { return read(loop, piece, pace) }
+func newReader(runtime *program.InlineRuntime) *reader { return read(runtime, piece, pace) }
 
-func read(loop program.InlineLoop, size int, every time.Duration) *reader {
-	theme := kit.Suited(loop.Ground())
+func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader {
+	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(os.Getenv)
 
 	r := &reader{
-		loop:    loop,
+		runtime: runtime,
 		theme:   theme,
 		pieces:  pieces(answer(), size),
 		spinner: kit.Spinner{Theme: theme, Label: "writing"},
@@ -103,8 +103,8 @@ func read(loop program.InlineLoop, size int, every time.Duration) *reader {
 	//
 	//	r.stream.Look.Highlight = highlight.Of("github-dark")
 
-	loop.SetTitle("reading")
-	r.stop = loop.Every(every, r.advance)
+	runtime.Session().SetTitle("reading")
+	r.stop = runtime.Every(every, r.advance)
 	return r
 }
 
@@ -117,9 +117,9 @@ func (r *reader) advance() {
 	}
 	// Everything the stream calls finished is printed, once, and is the terminal's
 	// from then on. A document is a Drawer and a Measurer and nothing else, which is
-	// what lets the loop print one without either of them knowing about the other.
+	// what lets the runtime print one without either of them knowing about the other.
 	if blocks := r.stream.Feed(r.pieces[r.at]); len(blocks) > 0 {
-		r.loop.Print(&markdown.Doc{Blocks: blocks})
+		r.runtime.Print(&markdown.Doc{Blocks: blocks})
 	}
 	r.at++
 	r.open.SetBlocks(r.stream.Open())
@@ -127,20 +127,20 @@ func (r *reader) advance() {
 
 func (r *reader) finish() {
 	if blocks := r.stream.Flush(); len(blocks) > 0 {
-		r.loop.Print(&markdown.Doc{Blocks: blocks})
+		r.runtime.Print(&markdown.Doc{Blocks: blocks})
 	}
 	r.open.SetBlocks(nil)
 	r.stop()
-	r.loop.SetTitle("")
-	r.loop.Notify("the answer is finished")
+	r.runtime.Session().SetTitle("")
+	r.runtime.Session().Notify("the answer is finished")
 }
 
 // Draw is what is still being written, and a row under it.
 func (r *reader) Draw(v grid.View) {
-	rows := layout.Rows(v,
+	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Measured(0, 0), Of: layout.MeasureFunc(r.open.Measure)},
 		layout.Slot{Size: layout.Fixed(1)},
-	)
+	))
 	r.open.Draw(rows[0])
 	if r.at >= len(r.pieces) {
 		kit.Label{
@@ -158,7 +158,7 @@ func (r *reader) Handle(ev input.Event) bool {
 		return false
 	}
 	if key.Rune == 'c' && key.Mods.Has(input.Ctrl) {
-		r.loop.Quit()
+		r.runtime.Quit()
 		return true
 	}
 	return false

@@ -34,9 +34,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # The declared floor and the current patch release. A module that only
-        # builds on the newest toolchain has a floor it is not honouring, and the
-        # people it breaks are the ones who read the go directive and believed it.
+        # The workspace floor and the current patch release. Modules with a lower
+        # declared floor are exercised separately, without this workspace.
         go: ["1.26.0", "1.26.x"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -78,6 +77,67 @@ jobs:
         shell: bash
         run: for m in $MODULES; do (cd "$m" && go test -race -count=1 ./...) || exit 1; done
 
+  standalone:
+    name: modules without workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+
+      # A workspace can make an undeclared local dependency look healthy. Work in a
+      # disposable checkout with the workspace off and local versions of declared
+      # Oolong dependencies. A replacement does not add a requirement, so an
+      # undeclared dependency still fails; a coordinated unreleased change can be
+      # checked before its lower module has a tag.
+      - name: Test each module with GOWORK off
+        shell: bash
+        run: |
+          set -euo pipefail
+          standalone_root="$RUNNER_TEMP/oolong-standalone"
+          cp -R . "$standalone_root"
+          for m in $MODULES; do
+            (
+              cd "$standalone_root/$m"
+              go mod edit \
+                -replace=github.com/Tangerg/oolong/core="$standalone_root/core" \
+                -replace=github.com/Tangerg/oolong/components="$standalone_root/components" \
+                -replace=github.com/Tangerg/oolong/markdown="$standalone_root/markdown" \
+                -replace=github.com/Tangerg/oolong/highlight="$standalone_root/highlight" \
+                -replace=github.com/Tangerg/oolong/ptytest="$standalone_root/ptytest"
+              GOWORK=off go test -count=1 ./...
+            )
+          done
+
+  floor:
+    name: Go 1.25 floor
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # These modules have no dependency on an older Oolong tag whose own go.mod
+        # still declares 1.26. The higher modules can move down after the next
+        # coordinated release gives them a 1.25-compatible core tag to require.
+        module: [core, internal, ptytest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.0"
+          cache: false
+      - name: Test declared floor on every supported source set
+        working-directory: ${{ matrix.module }}
+        env:
+          GOTOOLCHAIN: local
+          GOWORK: "off"
+        run: |
+          go test -count=1 ./...
+          for os in windows darwin; do
+            GOOS="$os" CGO_ENABLED=0 \
+              go test -run '^$' -exec /usr/bin/true ./...
+          done
+
   quality:
     name: lint and vulnerabilities
     runs-on: ubuntu-latest
@@ -85,7 +145,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: core/go.mod
+          go-version: "1.26.x"
           check-latest: true
 
       # Pinned rather than floating: a linter that changes under a repository is
@@ -118,7 +178,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: core/go.mod
+          go-version: "1.26.x"
           check-latest: true
       - name: Fuzz every target
         run: |
@@ -151,7 +211,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: core/go.mod
+          go-version: "1.26.x"
           check-latest: true
 
       # gofumpt rather than gofmt: it is gofmt plus the decisions gofmt left open,
@@ -167,11 +227,35 @@ jobs:
             exit 1
           fi
 
-      # Each module's go.mod is part of its dependency promise: the arch test
-      # fails when an import appears that its module does not declare, and this
-      # fails when the declaration and the imports have drifted the other way.
+      # Each module's go.mod is part of its dependency promise. Use a disposable
+      # checkout with local replacements because a coordinated, unreleased change
+      # may consume a package that does not exist in the previous published tag.
+      # The replacements are added before the comparison, so tidy still reports any
+      # drift in requirements, sums or Go versions without polluting published mods.
       - name: go mod tidy is a no-op everywhere
-        run: for m in $MODULES; do (cd "$m" && go mod tidy -diff) || exit 1; done
+        shell: bash
+        run: |
+          set -euo pipefail
+          tidy_root="$RUNNER_TEMP/oolong-tidy"
+          cp -R . "$tidy_root"
+          for m in $MODULES; do
+            (
+              cd "$tidy_root/$m"
+              go mod edit \
+                -replace=github.com/Tangerg/oolong/core="$tidy_root/core" \
+                -replace=github.com/Tangerg/oolong/components="$tidy_root/components" \
+                -replace=github.com/Tangerg/oolong/markdown="$tidy_root/markdown" \
+                -replace=github.com/Tangerg/oolong/highlight="$tidy_root/highlight" \
+                -replace=github.com/Tangerg/oolong/ptytest="$tidy_root/ptytest"
+              # A local replacement legitimately needs no checksum for the published
+              # module it replaces. Normalize only those lines before comparing.
+              if [ -f go.sum ]; then
+                sed -i.bak '\#^github.com/Tangerg/oolong/#d' go.sum
+                rm go.sum.bak
+              fi
+              GOWORK=off go mod tidy -diff
+            )
+          done
 
       # A workspace that has fallen out of step with the modules in it is a
       # checkout that builds for the person who wrote it and nobody else.
@@ -203,7 +287,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: core/go.mod
+          go-version: "1.26.x"
           check-latest: true
 
       # Vet rather than build, because vet type-checks the tests too. A test file

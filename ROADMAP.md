@@ -26,7 +26,7 @@ focus came with it, and only then did "how is a widget dressed" have one answer.
 ### 1.1 Components do not compose
 
 Every widget here is an independent object that knows nothing about any other. A caller
-places them by hand with `layout.Rows` and forwards events by hand. `kit.Composer` has
+places them by hand with `layout.Down.Rects` and forwards events by hand. `kit.Composer` has
 to subtract its own marker width from a mouse position before handing it to the field —
 work a parent container would do, if there were one.
 
@@ -119,8 +119,9 @@ The abstraction is not "move `Binding` somewhere". It is to separate:
 Today a widget owns both, which is why a sequence like `g g` cannot be expressed and why
 rebinding at run time means replacing a whole struct.
 
-The mechanism belongs in `core/input`; the default maps belong in `headless`, the same
-split `Glyphs` has. Sequence timeouts need the arrival time of a key, which is the
+The mechanism belongs in `core/keymap`; `core/input` stops at decoded keystrokes and
+their serializable chord representation. The default maps belong in `headless`, the
+same split `Glyphs` has. Sequence timeouts need the arrival time of a key, which is the
 change already made for `Mouse.At` extended to `Key`.
 
 **What it turned out to need.** A third piece: `Do`. A widget that names what it can do
@@ -182,7 +183,8 @@ Smallest of the four, and the one that proves the probe's answer end to end.
 **What it turned out to need.** Both of the terminal's colours, not one. A cell left at
 the terminal's own is the commonest cell there is, and dimming one needs to know what
 its foreground resolves to as well — so the probe asks OSC 10 alongside 11, and
-`Background()` on the terminal, the host and the loop became `Ground()`. There are two
+`Background()` became `Ground()` on the terminal and its host capability, and is exposed
+through `Runtime.Environment()`. There are two
 compositing operations and not one: `View.Blend` paints a sheet of colour over a
 region, and `View.Fade` dissolves what is in one into whatever it is already drawn on.
 The second cannot be the first, because the colour to fade toward is different in every
@@ -202,7 +204,7 @@ and nothing more, because a printed row that wrapped would move the block and th
 has no way to find itself again.
 
 The awkward part was above, not below: the room left is not knowable from another
-goroutine, so `InlineLoop.Append` asks the caller with what is left and keeps asking
+goroutine, so `InlineRuntime.Append` asks the caller with what is left and keeps asking
 with whole rows until it says it has finished. Wrapping text into it cannot live in
 `core/grid` at all — `core/text` depends on `grid` and not the other way round.
 
@@ -297,7 +299,7 @@ rediscovered from scratch.
   shifting logic is one call in one place, and the single-line field already ignores the
   wrap. What is left is the forty-odd cursor assignments and the caret affinity, which
   are the reason to want it.
-- **A sequence that is a prefix of another cannot fire.** `input.Keymap` says so plainly:
+- **A sequence that is a prefix of another cannot fire.** `keymap.Map` says so plainly:
   nothing can wake an interface after a pause, so a chord that might still be the start
   of something longer can only be decided by what comes next. Giving the loop a way to
   be woken at a deadline would fix it, and would also be what an idle timeout, a toast
@@ -446,10 +448,10 @@ sentence somebody says out loud.
 | **Tabs** | both | `headless.Tabs` draws only the pane showing; the strip of names is appearance, so `kit.Tabs` draws it, turns a press into a selection, and hands everything else to the pane in the pane's own coordinates. |
 | **A table with a cursor** | `bubbles/table` | `headless.Table` is a `List` with an order. Sorting carries the cursor with the row it was on by sorting a permutation rather than the rows, so where the selected one went is known exactly instead of guessed at by comparing rows only the caller knows how to tell apart. `kit.Table` hands out its header and one row of cells separately, so the geometry stays in one place. |
 | **A list with a filter** | `bubbles/list` | `headless.Filter`: a list, a fuzzy match, and deliberately no text field. Where the pattern is typed stays the caller's, or it would be two widgets in a trench coat and would decide where the field goes for everybody. |
-| **The window title, the bell, a notification** | OSC 0/2, OSC 9 | One sequence each, on the terminal and on the loop. The title is pushed before it is replaced and popped on the way out — a shell whose window is still called "building oolong" an hour later is a program that left something behind — and every one of them strips what cannot go inside a sequence first, because the text is a file name or a model's answer as often as it is a constant. |
+| **The window title, the bell, a notification** | OSC 0/2, OSC 9 | One sequence each on the terminal, exposed together by `Runtime.Session()`. The title is pushed before it is replaced and popped on the way out — a shell whose window is still called "building oolong" an hour later is a program that left something behind — and every one of them strips what cannot go inside a sequence first, because the text is a file name or a model's answer as often as it is a constant. |
 | **Somewhere to log while the terminal is taken** | `charmbracelet/log`, `tea.LogToFile` | `term.LogTo`: a file opened for appending, and nothing else. Pointing the standard logger at it is one line and is deliberately the caller's line. |
 | **Springs, and a timeline** | `harmonica`, `opentui` | `anim.Spring` keeps the speed it already had when its target moves, which is the whole difference from a transition, and steps by the exact solution rather than a small step of it — stepping a stiff spring approximately at a terminal's frame rate is how one turns into an oscillation that grows. `anim.Timeline` is the sequence neither of the other two can say. |
-| **A form that can be answered without a screen** | `huh`'s accessible mode | `headless.Spoken`: a question in one line and a line back, on the four fields. A label that is a prefix of two choices is refused rather than guessed at, because somebody answering in words cannot see which one was taken. `kit.Ask` is the conversation, and it is thirty lines — which is the point of having put the hard half in the fields. |
+| **A form that can be answered without a screen** | `huh`'s accessible mode | The four fields expose `Ask` and `Reply`; `kit.Ask` declares and consumes that optional method set locally instead of making `headless` prescribe an adapter contract. A label that is a prefix of two choices is refused rather than guessed at, because somebody answering in words cannot see which one was taken. The conversation stays small because the hard half lives in the fields. |
 
 ### 7.3 Where `layout` actually falls short
 

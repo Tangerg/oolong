@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Node is one item of a [Tree] and whatever is under it.
@@ -57,7 +58,7 @@ type Tree[T any] struct {
 	Row func(v grid.View, at int, row Shown[T], selected bool)
 	// Keys say which keystrokes produce which of the actions the tree answers to —
 	// see [Tree.Do]. Nil reads through [DefaultTreeKeys].
-	Keys *input.Keymap
+	Keys *keymap.Map
 
 	// list is the rows the tree is showing. It owns the selection and the scroll,
 	// and this type owns which rows there are.
@@ -65,7 +66,7 @@ type Tree[T any] struct {
 	// open is which branches are showing what is under them, by path.
 	open map[string]bool
 	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending input.Pending
+	pending keymap.Pending
 }
 
 // Rows are the rows the tree is showing, top to bottom, as a copy.
@@ -178,7 +179,7 @@ func (t *Tree[T]) Handle(ev input.Event) bool {
 // is. What is the tree's is opening and closing — and the two edges that make a
 // tree feel like a tree: opening a leaf does nothing, and closing something already
 // closed goes up to whatever it is under.
-func (t *Tree[T]) Do(action input.Action) bool {
+func (t *Tree[T]) Do(action keymap.Action) bool {
 	at := t.Selected()
 	switch action {
 	case Expand:
@@ -261,7 +262,7 @@ func (t *Tree[T]) row(v grid.View, at int, shown Shown[T], selected bool) {
 
 // keys is the map to read through, standing in the default for a caller who set
 // none.
-func (t *Tree[T]) keys() *input.Keymap {
+func (t *Tree[T]) keys() *keymap.Map {
 	if t.Keys != nil {
 		return t.Keys
 	}

@@ -1,7 +1,7 @@
 // Package fake is a terminal that is not one, so the demonstrations beside it can
 // be driven and read without opening a real terminal.
 //
-// It is here rather than in each example's tests because there are seven of them and
+// It is here rather than in each example's tests because there are eight of them and
 // the interesting part of each is the program, not the harness. It is also the answer
 // to a question the examples raise by existing: a program built on this library can
 // be tested without a terminal, and this is what that looks like from the outside —
@@ -20,6 +20,7 @@ import (
 	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
 )
 
@@ -67,7 +68,7 @@ func New(t *testing.T, w, h int) *Host {
 func (h *Host) Events() <-chan input.Event { return h.events }
 
 // Writer is where frames go.
-func (h *Host) Writer() *term.Writer { return h.writer }
+func (h *Host) Writer() program.FrameWriter { return h.writer }
 
 // Size is how big this pretends to be.
 func (h *Host) Size() (int, int, error) { return h.w, h.h, nil }

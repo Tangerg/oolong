@@ -25,7 +25,7 @@ type Cursor struct {
 type Screen struct {
 	front, back *Surface
 	cursor      cursorState
-	// placed is where this frame's widgets asked the cursor to go, reset by every
+	// placed is where this frame's drawing asked the cursor to go, reset by every
 	// Frame and read by Flush.
 	placed Cursor
 
@@ -118,7 +118,7 @@ func (s *Screen) Frame() View {
 //
 // It reads back what [View.PlaceCursor] recorded, which is otherwise only
 // observable by decoding the escape stream. A caller that has to know where the
-// caret is — to place something beside it, or to check that a widget put it where
+// caret is — to place something beside it, or to check that drawing put it where
 // it meant to — had no way to ask before this.
 func (s *Screen) Cursor() Cursor { return s.placed }
 
