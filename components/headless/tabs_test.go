@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 func TestOnePaneShowsAndTheRestWait(t *testing.T) {
@@ -58,5 +59,29 @@ func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 	tabs.Select(1)
 	if second.told != 1 {
 		t.Fatal("the pane moved to was not told it has the keyboard")
+	}
+}
+
+func TestAListCanHoldTheKeyboard(t *testing.T) {
+	// Without it a list could not be one of a container's children, which is what a
+	// two-pane interface is made of. It draws no differently for it — that is the
+	// caller's — and this is how a row asks.
+	var list headless.List[string]
+	list.Items = []string{"one", "two"}
+	if !list.Focused() {
+		t.Fatal("a list nobody has said anything to does not have the keyboard")
+	}
+	list.Focus(false)
+	if list.Focused() {
+		t.Fatal("a list told it lost the keyboard still has it")
+	}
+
+	// A container can therefore hold one, which is the point.
+	body := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: &list})
+	if !body.Give(&list) {
+		t.Fatal("a container would not hand the keyboard to a list")
+	}
+	if !list.Focused() {
+		t.Fatal("the list was not told it has the keyboard")
 	}
 }

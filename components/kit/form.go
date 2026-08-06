@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"image"
+
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -57,6 +59,35 @@ func (f Form) Draw(v grid.View) {
 	f.Of.Draw(bands[1])
 	if f.hintRows() > 0 {
 		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2])
+	}
+}
+
+// Handle gives the event to the form, with a press moved up by the rows this drew
+// above it.
+//
+// That translation is the whole reason this answers events at all. A field told a
+// press was two rows further down than it was is a field that puts the caret in the
+// wrong place, and it is the sort of mistake that only shows as "clicking the second
+// field selects the first".
+func (f Form) Handle(ev input.Event) bool {
+	if f.Of == nil {
+		return false
+	}
+	if mouse, ok := ev.(input.Mouse); ok {
+		if mouse.Pos.Y < f.titleRows() {
+			// The title is not part of the form and answers nothing.
+			return false
+		}
+		mouse.Pos = mouse.Pos.Sub(image.Pt(0, f.titleRows()))
+		return f.Of.Handle(mouse)
+	}
+	return f.Of.Handle(ev)
+}
+
+// Focus passes the keyboard to the form — see [headless.Form.Focus].
+func (f Form) Focus(has bool) {
+	if f.Of != nil {
+		f.Of.Focus(has)
 	}
 }
 

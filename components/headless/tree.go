@@ -231,6 +231,13 @@ func (t *Tree[T]) upToParent(at int) bool {
 	return false
 }
 
+// Focus takes the keyboard, or gives it up — see [List.Focus], which is where the
+// rows this is made of hold it.
+func (t *Tree[T]) Focus(has bool) { t.list.Focus(has) }
+
+// Focused reports whether this tree has the keyboard.
+func (t *Tree[T]) Focused() bool { return t.list.Focused() }
+
 // Measure is one row per row showing, which is what a container needs to decide how
 // much room to give it.
 func (t *Tree[T]) Measure(int) int { return len(t.rows()) }

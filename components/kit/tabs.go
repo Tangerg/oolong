@@ -95,6 +95,14 @@ func (t Tabs) Handle(ev input.Event) bool {
 	return t.Of.Handle(mouse)
 }
 
+// Focus passes the keyboard to the panes — see [headless.Tabs.Focus] — so that a
+// dressed strip is a widget a container can hold like any other.
+func (t Tabs) Focus(has bool) {
+	if t.Of != nil {
+		t.Of.Focus(has)
+	}
+}
+
 // At is which tab a column of the strip belongs to, and whether it belongs to one:
 // the room between two names is in neither.
 func (t Tabs) At(x int) (int, bool) {

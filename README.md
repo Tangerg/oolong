@@ -14,6 +14,9 @@ program.Run(ctx, program.Config{
 
 A chat interface that prints into your terminal's scrollback and keeps a live block
 at the bottom is about a hundred lines: [`examples/streaming`](examples/streaming).
+There are [seven more](examples), shallowest first — a key count, a form, a picker,
+a file browser, a dashboard, a command runner, and an answer arriving a few
+characters at a time.
 
 Underneath that: a transcript the output can be selected, searched and scrolled
 back over; an editor with undo, selection, the system clipboard and atomic

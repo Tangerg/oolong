@@ -33,6 +33,16 @@ point of tagging them low rather than not at all.
   lines, which is exactly the function a markdown look asks for. One line plugs it
   in, and nothing of the highlighter reaches its API — a style is its name, a
   language is its name, and what comes back is text.
+- **Seven more examples**, shallowest first: a key count, a form that is also
+  answerable in words, a picker, a two-pane file browser, a dashboard of tabs and a
+  sortable table, a command runner that reads its child's colours and hands the
+  terminal to `$EDITOR`, and an answer arriving a few characters at a time. Each has
+  a test that drives it without a terminal, which is what `program.Config.Host` is
+  for.
+- **A list can hold the keyboard**, so it can be one of a container's children —
+  which is what a two-pane interface is made of. A dressed tree, tabs and form pass
+  the keyboard and the events through as well, so a widget with a look on it is a
+  widget like any other.
 - **Handing the terminal over works on Windows**, over a wait on the console and an
   event. Whether it can is now a question about the session rather than the platform:
   a console can be waited on, and a pipe pretending to be a terminal cannot.

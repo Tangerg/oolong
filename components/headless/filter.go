@@ -117,6 +117,12 @@ func (f *Filter[T]) Do(action input.Action) bool {
 	return f.list.Do(action)
 }
 
+// Focus takes the keyboard, or gives it up — see [List.Focus].
+func (f *Filter[T]) Focus(has bool) { f.list.Focus(has) }
+
+// Focused reports whether this list has the keyboard.
+func (f *Filter[T]) Focused() bool { return f.list.Focused() }
+
 // Measure is one row per match.
 func (f *Filter[T]) Measure(int) int { return f.Matched() }
 

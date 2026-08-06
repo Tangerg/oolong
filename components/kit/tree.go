@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -31,6 +32,30 @@ type Tree[T any] struct {
 	// Indent is how many columns a level is worth. Zero uses two.
 	Indent int
 }
+
+// Handle passes the event to the tree — see [headless.Tree.Handle].
+//
+// This and the two below are here so that a dressed tree is a widget like any other:
+// something that can go in a container, take the keyboard from it, and answer what
+// the container hands it. A look that could only be drawn would have to be wired up
+// by hand wherever it was used.
+func (t Tree[T]) Handle(ev input.Event) bool {
+	if t.Of == nil {
+		return false
+	}
+	return t.Of.Handle(ev)
+}
+
+// Focus takes the keyboard, or gives it up.
+func (t Tree[T]) Focus(has bool) {
+	if t.Of != nil {
+		t.Of.Focus(has)
+	}
+}
+
+// Focused reports whether the tree has the keyboard, which is what a row asks to
+// decide how a selection nobody is typing at should look.
+func (t Tree[T]) Focused() bool { return t.Of != nil && t.Of.Focused() }
 
 // Measure is one row per row the tree is showing.
 func (t Tree[T]) Measure(across int) int {

@@ -436,11 +436,11 @@ Ordered by what would be built next.
    `core/graphics` exists without — a caller holding an encoder of its own is told
    the terminal will take what it makes. Mermaid is a renderer for a diagram
    language, which is somebody else's parser again and belongs wherever it lands.
-2. **A worked example of the whole surface.** The example is a chat that streams,
-   and it now proves the probe, the theme that follows it, the clipboard and the
-   glyph fallback. The transcript, selection, search, sticky headers and the command
-   palette are proved by their own tests and by `kit`, not by a program anyone can
-   run. A second example that puts them together is worth having.
+2. **A worked example of the transcript.** There are eight programs now, shallowest
+   first, and between them they run nearly the whole surface — see
+   `examples/README.md`. What none of them puts together is the transcript with
+   selection, search and sticky headers over it, which is proved by its own tests and
+   by `kit` rather than by anything anybody can run.
 3. **A trackpad scrolling differently from a wheel.** A mouse report now carries
    when it arrived, so the two can be told apart by rate — what is missing is not
    the mechanism but the number. How far a trackpad report should scroll relative

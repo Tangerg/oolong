@@ -94,6 +94,10 @@ type Container struct {
 	// keyboard walks them. It may be rebuilt between frames: focus is held by
 	// identity, so a child that is still there keeps it and one that is gone gives it
 	// up to the first child that will take it.
+	//
+	// Held by identity means held as a pointer. A child that is a struct with a
+	// function in it — which most of the ones in the kit package are — cannot be
+	// compared at all, and comparing one is a panic rather than a false.
 	Items []Item
 	// Gap is how many blank rows or columns go between one child and the next. Zero
 	// puts them against each other.

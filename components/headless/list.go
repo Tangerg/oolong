@@ -35,6 +35,7 @@ type List[T any] struct {
 	Wrap bool
 
 	selected int
+	blurred  bool
 	scroll   Scroll
 	// window is the last drawn height, which is what a page-sized move needs and
 	// what only drawing can know.
@@ -189,6 +190,18 @@ func (l *List[T]) keys() *input.Keymap {
 // Measure is one row per item, which is what a container needs to decide whether the
 // list can have all the room it wants.
 func (l *List[T]) Measure(int) int { return len(l.Items) }
+
+// Focus takes the keyboard, or gives it up.
+//
+// A list draws no differently for it: what a selection looks like in a list nobody
+// is typing at is a matter of taste, and taste is what this layer refuses. It is here
+// because a container hands the keyboard to its children by asking for this, so a
+// list without it could not be one of them — and because [List.Focused] is how a row
+// asks, which is where the answer belongs.
+func (l *List[T]) Focus(has bool) { l.blurred = !has }
+
+// Focused reports whether this list has the keyboard.
+func (l *List[T]) Focused() bool { return !l.blurred }
 
 // Scroll exposes the position, for a scrollbar drawn beside the list.
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }
