@@ -11,6 +11,11 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.0.3] — 2026-08-06
+
+First tagged version of `highlight`, which starts at this repository's version for
+the reason `markdown` did. `ptytest` did not change and stays at `0.0.1`.
+
 ### Added
 
 - **A frame can keep room for what a cell cannot hold.** `grid.Painter` and
