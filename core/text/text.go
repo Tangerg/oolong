@@ -33,10 +33,22 @@ import (
 // its columns up means agreeing with the assumption it made.
 const TabStop = 8
 
-// Span is a run of text sharing one style.
+// Span is a run of text sharing one style, and — where it points at something —
+// one address.
 type Span struct {
 	Text  string
 	Style grid.Style
+	// Link is where the run points: a URL, a file, whatever a terminal will open.
+	// Empty is text that points nowhere, which is nearly all text.
+	//
+	// It is carried here rather than stamped onto cells afterwards because by then
+	// the columns are gone: a line is wrapped, truncated and drawn wherever it fits,
+	// and something holding byte offsets into the text it was made from cannot say
+	// which cells the third word ended up on. A span survives all three, so the
+	// address survives with it — see [Line.Draw], which is where it reaches the
+	// cells, and [github.com/Tangerg/oolong/core/grid.Cell.Link], which is what a
+	// terminal is told.
+	Link string
 }
 
 // Line is one logical line of styled text — logical in that it has no width yet.
@@ -75,11 +87,18 @@ func (l Line) Width() int {
 // Draw writes the line onto v at (x, y) and returns how many columns it advanced.
 // Tabs are expanded from the line's own start, not from the view's, so a line
 // drawn at an indent keeps the column relationships it was written with.
+//
+// A span that points somewhere is stamped onto the columns it took, so the text a
+// terminal shows is the text a terminal will open — and a link that a wrap broke in
+// two is stamped on both halves, which is how one hyperlink covers two rows.
 func (l Line) Draw(v grid.View, x, y int) int {
 	col := 0
 	for _, s := range l {
 		for _, piece := range expand(s.Text, &col) {
-			v.Text(x+piece.at, y, piece.text, s.Style)
+			width := v.Text(x+piece.at, y, piece.text, s.Style)
+			if s.Link != "" {
+				v.Link(x+piece.at, y, width, s.Link)
+			}
 		}
 	}
 	return col
@@ -302,7 +321,10 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 	if ellipsis == "" {
 		return out
 	}
-	if n := len(out); n > 0 && out[n-1].Style == style {
+	// The ellipsis takes the style of what survived and none of its address: it
+	// stands for the text that was cut, and a hyperlink over "…" opens something the
+	// reader was never shown.
+	if n := len(out); n > 0 && out[n-1].Style == style && out[n-1].Link == "" {
 		out[n-1].Text += ellipsis
 		return out
 	}
@@ -331,6 +353,7 @@ func Truncate(s string, width int, ellipsis string) string {
 type unit struct {
 	cluster string
 	style   grid.Style
+	link    string
 	width   int
 	// space marks a break opportunity. A tab is one, and is also the reason a
 	// unit's width is not derivable from its cluster alone.
@@ -368,14 +391,14 @@ func (l Line) units() []unit {
 				// reaching a cell.
 			case cluster == " ":
 				units = append(units, unit{
-					cluster: " ", style: s.Style, width: 1, space: true,
+					cluster: " ", style: s.Style, link: s.Link, width: 1, space: true,
 					at: at, size: len(cluster),
 				})
 				col++
 			default:
 				w := clusterWidth(cluster)
 				units = append(units, unit{
-					cluster: cluster, style: s.Style, width: w,
+					cluster: cluster, style: s.Style, link: s.Link, width: w,
 					at: at, size: len(cluster),
 				})
 				col += w
@@ -395,15 +418,16 @@ func (l Line) bytes() int {
 	return n
 }
 
-// line rebuilds a line from units, merging neighbours that share a style.
+// line rebuilds a line from units, merging neighbours that share a style and point
+// at the same thing.
 func line(units []unit) Line {
 	var out Line
 	for _, u := range units {
-		if n := len(out); n > 0 && out[n-1].Style == u.style {
+		if n := len(out); n > 0 && out[n-1].Style == u.style && out[n-1].Link == u.link {
 			out[n-1].Text += u.cluster
 			continue
 		}
-		out = append(out, Span{Text: u.cluster, Style: u.style})
+		out = append(out, Span{Text: u.cluster, Style: u.style, Link: u.link})
 	}
 	return out
 }

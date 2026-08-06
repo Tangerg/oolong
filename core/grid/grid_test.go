@@ -765,3 +765,26 @@ func TestPlacingTheCursorOnAPlainSurfaceIsHarmless(_ *testing.T) {
 	// meaning nothing is not the same as being an error.
 	grid.NewSurface(4, 1).View().PlaceCursor(1, 0)
 }
+
+func TestASurfaceCanBeReadAsText(t *testing.T) {
+	// The way out for a program with no terminal: output being piped, a run under a
+	// build server, a transcript written to a file.
+	rows := grid.Render(12, 3, func(v grid.View) {
+		v.Text(0, 0, "hello 世界", grid.Style{FG: grid.RGBColor(255, 0, 0)})
+		v.Text(2, 2, "indented", grid.Style{})
+	})
+	want := []string{"hello 世界", "", "  indented"}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Fatalf("row %d is %q, want %q", i, rows[i], want[i])
+		}
+	}
+	// A wide cluster is written once and not twice: it is one thing that takes two
+	// columns, and text has no columns.
+	if got := len([]rune(rows[0])); got != 8 {
+		t.Fatalf("the row came to %d runes, want the text back as it was written", got)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("%d rows, want one per row of the surface", len(rows))
+	}
+}

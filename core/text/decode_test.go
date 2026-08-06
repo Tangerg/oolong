@@ -225,3 +225,30 @@ func TestATabIsLaidOutAndEverythingElseInItsBlockIsNot(t *testing.T) {
 		t.Fatalf("the line measured %d columns", got)
 	}
 }
+
+func TestWhereTheOutputSaidItsWordsPointIsKept(t *testing.T) {
+	// The one thing in the stream that is about the text rather than about the
+	// terminal. Without it a command's own hyperlinks are lost between the pipe and
+	// the screen, which is the whole point of them.
+	lines := text.Decode("see \x1b]8;;http://x/y\x1b\\the docs\x1b]8;;\x1b\\ now", grid.Style{})
+	line := lines[0]
+	if len(line) != 3 {
+		t.Fatalf("read %d spans, want three: %s", len(line), styled(line))
+	}
+	if line[0].Link != "" || line[2].Link != "" {
+		t.Fatalf("text outside the link points at %q and %q", line[0].Link, line[2].Link)
+	}
+	if line[1].Text != "the docs" || line[1].Link != "http://x/y" {
+		t.Fatalf("the linked words are %q pointing at %q", line[1].Text, line[1].Link)
+	}
+
+	// And it reaches the cells, which is what a terminal is actually told.
+	s := grid.NewSurface(20, 1)
+	line.Draw(s.View(), 0, 0)
+	if got := s.CellAt(4, 0).Link; got != "http://x/y" {
+		t.Fatalf("the cell under the linked words points at %q", got)
+	}
+	if got := s.CellAt(0, 0).Link; got != "" {
+		t.Fatalf("a cell outside the link points at %q", got)
+	}
+}

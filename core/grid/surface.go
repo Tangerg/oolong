@@ -2,6 +2,7 @@ package grid
 
 import (
 	"image"
+	"strings"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
@@ -449,4 +450,48 @@ func control(cluster string) bool {
 	}
 	b := cluster[0]
 	return b < 0x20 || b == 0x7f
+}
+
+// Render draws something at a size and returns what it came to, one string per
+// row, with the styling dropped and trailing blanks cut.
+//
+// It is the way out of the grid for a program that has no terminal: output being
+// piped, a run under a build server, a transcript written to a file. Everything
+// above this package draws into a [View] and cannot be asked for text any other
+// way, so without this every caller writes the same walk over the cells — which is
+// exactly what every test in this repository had done.
+//
+// The styling is dropped rather than encoded because that is what "as text" means.
+// A caller that wants the colours as well already has [EncodeRow], which is what a
+// frame is made of.
+func Render(w, h int, draw func(View)) []string {
+	s := NewSurface(w, h)
+	if draw != nil {
+		draw(s.View())
+	}
+	return s.Rows()
+}
+
+// Rows is what the surface says, one string per row, with the styling dropped and
+// trailing blanks cut.
+func (s *Surface) Rows() []string {
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, s.h)
+	for y := range s.h {
+		var b strings.Builder
+		for _, c := range s.Row(y) {
+			switch {
+			case c.span == spanTrail:
+				// The second column of a wide cluster, which the head already wrote.
+			case c.Content == "":
+				b.WriteByte(' ')
+			default:
+				b.WriteString(c.Content)
+			}
+		}
+		out = append(out, strings.TrimRight(b.String(), " "))
+	}
+	return out
 }

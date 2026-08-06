@@ -34,10 +34,11 @@ import (
 //
 // # What is read and what is not
 //
-// Colour and the six attributes a cell can carry, which is all a cell has. Every
-// other sequence is consumed and dropped, and dropped is the point: it neither
-// reaches a cell, where it would be obeyed on the next repaint, nor shows up as
-// its own text.
+// Colour and the six attributes a cell can carry, which is all a cell has — and the
+// hyperlink a terminal was told about, which is the one thing in the stream that
+// says where a piece of text points. Every other sequence is consumed and dropped,
+// and dropped is the point: it neither reaches a cell, where it would be obeyed on
+// the next repaint, nor shows up as its own text.
 //
 // A carriage return is dropped rather than obeyed. Obeying it — and the cursor
 // movement and erasure beside it, which is what a progress bar rewriting its line
@@ -62,6 +63,8 @@ type Decoder struct {
 	// merged into it. Keeping the two apart is what lets "default foreground" mean
 	// the base's foreground rather than the terminal's.
 	state grid.Style
+	// link is the address the output last opened, and "" between them.
+	link string
 	// held is a sequence that has begun and not ended, waiting for the rest of it.
 	held string
 	// open is the line no newline has ended yet.
@@ -139,6 +142,7 @@ func (d *Decoder) Flush() []Line {
 // a component reuses one for a second command rather than allocating another.
 func (d *Decoder) Reset() {
 	d.state = grid.Style{}
+	d.link = ""
 	d.held, d.open = "", nil
 }
 
@@ -162,10 +166,34 @@ func (d *Decoder) piece(p ansi.Piece) []Line {
 		if p.Final == 'm' {
 			d.sgr(ansi.Parse(p.Body))
 		}
-	case ansi.String, ansi.Other, ansi.Malformed:
+	case ansi.String:
+		if p.Final == ']' {
+			d.osc(p.Body)
+		}
+	case ansi.Other, ansi.Malformed:
 		// Understood well enough to know where it ended, and nothing this can show.
 	}
 	return nil
+}
+
+// osc reads the one operating system command that says something about the text:
+// the hyperlink, which is "8", its parameters, and the address.
+//
+// An empty address closes the link, which is how the protocol says "the words after
+// this point go nowhere". Everything else a command could say — the window title,
+// the working directory — is about the terminal rather than about the text, and a
+// program's output has no business saying it through here.
+func (d *Decoder) osc(body string) {
+	command, rest, found := strings.Cut(body, ";")
+	if !found || command != "8" {
+		return
+	}
+	// Then the link's own parameters, which nothing here reads, and the address.
+	_, target, found := strings.Cut(rest, ";")
+	if !found {
+		return
+	}
+	d.link = printable(target)
 }
 
 // write adds text to the open line, breaking a line at every newline.
@@ -192,11 +220,11 @@ func (d *Decoder) append(s string) {
 		return
 	}
 	style := d.Base.Merge(d.state)
-	if n := len(d.open); n > 0 && d.open[n-1].Style == style {
+	if n := len(d.open); n > 0 && d.open[n-1].Style == style && d.open[n-1].Link == d.link {
 		d.open[n-1].Text += s
 		return
 	}
-	d.open = append(d.open, Span{Text: s, Style: style})
+	d.open = append(d.open, Span{Text: s, Style: style, Link: d.link})
 }
 
 // printable drops the control characters that survived the scan.

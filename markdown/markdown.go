@@ -212,8 +212,13 @@ type Look struct {
 	// Code is a span of code in a sentence, and Block is a block of it.
 	Code  grid.Style
 	Block grid.Style
-	// Link is the text of a link, and Target the address after it.
-	Link   grid.Style
+	// Link is the text of a link. The words carry the address themselves — see
+	// [github.com/Tangerg/oolong/core/text.Span.Link] — so a terminal that shows
+	// hyperlinks opens what was written.
+	Link grid.Style
+	// Target is the address written out after the words, for output going somewhere
+	// that cannot show a hyperlink. A look with no style for it does not write one,
+	// which is the shorter reading and the one worth having on a terminal.
 	Target grid.Style
 	// Quote is quoted text and Rail the bar beside it.
 	Quote grid.Style

@@ -131,15 +131,35 @@ func TestATableIsPaddedToItsWidestCell(t *testing.T) {
 	})
 }
 
-func TestWhatCannotBeShownIsSaidRatherThanDropped(t *testing.T) {
-	// A link cannot be followed from a row of cells and a picture cannot be drawn in
-	// one, so both are written out: the words, and where they point.
+func TestTheWordsCarryWhereTheyPoint(t *testing.T) {
+	// A hyperlink survives the wrap and reaches the cells, which is what a terminal
+	// is told and what makes the words themselves clickable.
+	blocks := markdown.Render("see [the docs](http://x/y) for more", look())
+	doc := &markdown.Doc{}
+	doc.SetBlocks(blocks)
+	s := grid.NewSurface(40, doc.Measure(40))
+	doc.Draw(s.View())
+	if got := s.CellAt(4, 0).Link; got != "http://x/y" {
+		t.Fatalf("the cell under the linked words points at %q", got)
+	}
+	if got := s.CellAt(0, 0).Link; got != "" {
+		t.Fatalf("a cell outside the link points at %q", got)
+	}
+
+	// And the address is not written out beside them, because the words are the
+	// link. A look with a style for an address gets it written as well, for output
+	// going somewhere that cannot show one.
 	equal(t, render(t, 40, "see [the docs](http://x/y) for more"), []string{
+		"see the docs for more",
+	})
+	spelled := look()
+	spelled.Target = grid.Style{Attr: grid.Dim}
+	equal(t, rows(t, 40, markdown.Render("see [the docs](http://x/y) for more", spelled)), []string{
 		"see the docs (http://x/y) for more",
 	})
-	equal(t, render(t, 40, "![a diagram](d.png)"), []string{
-		"[a diagram] (d.png)",
-	})
+
+	// A picture is what it was called and where it is, and the name points at it.
+	equal(t, render(t, 40, "![a diagram](d.png)"), []string{"[a diagram]"})
 	// A bare address is its own text, and saying it twice would be noise.
 	equal(t, render(t, 40, "at <http://x/y> now"), []string{"at http://x/y now"})
 }

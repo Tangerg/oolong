@@ -245,77 +245,86 @@ func (r *renderer) code(n ast.Node, language string, in frame) {
 // A hard break is a line break, because it was asked for.
 func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 	lines := []text.Line{nil}
-	add := func(s string, st grid.Style) {
+	add := func(s string, st grid.Style, link string) {
 		if s == "" {
 			return
 		}
 		last := len(lines) - 1
-		if k := len(lines[last]); k > 0 && lines[last][k-1].Style == st {
+		if k := len(lines[last]); k > 0 && lines[last][k-1].Style == st && lines[last][k-1].Link == link {
 			lines[last][k-1].Text += s
 			return
 		}
-		lines[last] = append(lines[last], text.Span{Text: s, Style: st})
+		lines[last] = append(lines[last], text.Span{Text: s, Style: st, Link: link})
 	}
 
-	var walk func(n ast.Node, style grid.Style)
-	walk = func(n ast.Node, style grid.Style) {
+	var walk func(n ast.Node, style grid.Style, link string)
+	walk = func(n ast.Node, style grid.Style, link string) {
 		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 			switch node := c.(type) {
 			case *ast.Text:
-				add(string(node.Segment.Value(r.source)), style)
+				add(string(node.Segment.Value(r.source)), style, link)
 				switch {
 				case node.HardLineBreak():
 					lines = append(lines, nil)
 				case node.SoftLineBreak():
-					add(" ", style)
+					add(" ", style, link)
 				}
 			case *ast.String:
-				add(string(node.Value), style)
+				add(string(node.Value), style, link)
 			case *ast.CodeSpan:
-				add(r.plain(node), style.Merge(r.look.Code))
+				add(r.plain(node), style.Merge(r.look.Code), link)
 			case *ast.Emphasis:
 				if node.Level >= 2 {
-					walk(node, style.Merge(r.look.Strong))
+					walk(node, style.Merge(r.look.Strong), link)
 					continue
 				}
-				walk(node, style.Merge(r.look.Emphasis))
+				walk(node, style.Merge(r.look.Emphasis), link)
 			case *east.Strikethrough:
-				walk(node, style.Merge(r.look.Struck))
+				walk(node, style.Merge(r.look.Struck), link)
 			case *ast.Link:
-				walk(node, style.Merge(r.look.Link))
-				r.target(add, string(node.Destination), r.plain(node), style)
+				// The words carry the address, so a terminal that shows hyperlinks opens
+				// what was written rather than what was printed beside it.
+				target := string(node.Destination)
+				walk(node, style.Merge(r.look.Link), target)
+				r.target(add, target, r.plain(node), style)
 			case *ast.AutoLink:
-				add(string(node.URL(r.source)), style.Merge(r.look.Link))
+				url := string(node.URL(r.source))
+				add(url, style.Merge(r.look.Link), url)
 			case *ast.Image:
 				// A picture is not something a row of cells can hold — see the graphics
 				// package for what a terminal will take — so what is left is what it was
 				// called and where it is.
-				add("["+r.plain(node)+"]", style.Merge(r.look.Link))
-				r.target(add, string(node.Destination), "", style)
+				target := string(node.Destination)
+				add("["+r.plain(node)+"]", style.Merge(r.look.Link), target)
+				r.target(add, target, "", style)
 			case *east.TaskCheckBox:
-				add(r.box(node.IsChecked), style.Merge(r.look.Marker))
+				add(r.box(node.IsChecked), style.Merge(r.look.Marker), link)
 			case *ast.RawHTML:
 				// Dropped, like a block of it.
 			default:
-				walk(c, style)
+				walk(c, style, link)
 			}
 		}
 	}
-	walk(n, style)
+	walk(n, style, "")
 	return lines
 }
 
 // target writes where a link points, after the words that point there.
 //
-// A terminal cannot be clicked through here — a span carries a style and not a
-// destination — so the address is written out, which is the only way a reader can
-// follow it. It is left out when it says nothing the text did not: a bare URL as its
+// Only when the look has a style for it. The words themselves carry the address
+// now, so a terminal that shows hyperlinks needs nothing written out — and a
+// document full of parenthesised URLs is what that costs. A look that has no style
+// for an address says it wants the shorter reading, which is the same rule the
+// glyphs keep: what a look does not describe, it does not draw.
+//
+// It is left out either way when it says nothing the text did not: a bare URL as its
 // own link text is the commonest link there is.
-func (r *renderer) target(add func(string, grid.Style), destination, shown string, style grid.Style) {
-	if destination == "" || destination == shown {
+func (r *renderer) target(add func(string, grid.Style, string), destination, shown string, style grid.Style) {
+	if destination == "" || destination == shown || r.look.Target == (grid.Style{}) {
 		return
 	}
-	add(" ("+destination+")", style.Merge(r.look.Target))
+	add(" ("+destination+")", style.Merge(r.look.Target), destination)
 }
 
 // box is what marks a task, and nothing when the look has no marks for one.
