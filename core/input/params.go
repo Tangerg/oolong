@@ -27,10 +27,7 @@ func parseParams(body string) params { return params{ansi.Parse(body)} }
 // is simply a claim nobody can act on — and the rest of the list is still worth
 // having.
 func (ps params) deviceAttributes() DeviceAttributes {
-	class := ps.First()
-	if class < 0 {
-		class = 0
-	}
+	class := max(ps.First(), 0)
 	features := make([]int, 0, max(ps.Count()-1, 0))
 	for i := 1; i < ps.Count(); i++ {
 		if group := ps.Group(i); len(group) > 0 {

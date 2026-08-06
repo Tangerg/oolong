@@ -248,8 +248,17 @@ func TestSearchReplacesAnAnswerNobodyRead(t *testing.T) {
 	s := searching(t)
 
 	s.Submit(tr, "cat", false)
-	// Let it finish and sit unread.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the answer to be waiting rather than for a length of time. What this
+	// test is about is the second query arriving while the first answer is sitting in
+	// the channel unread, and the channel itself says when that is true.
+	deadline := time.After(5 * time.Second)
+	for len(s.Results()) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("the first answer never arrived")
+		case <-time.After(time.Millisecond):
+		}
+	}
 	s.Submit(tr, "mat", false)
 
 	if got := found(t, s, "mat"); len(got.Matches) != 1 {

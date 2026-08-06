@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -14,10 +13,10 @@ func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
 	var got answers
 	form := ask(&got)
 
-	host := fake.New(50, 20)
+	host := fake.New(t, 50, 20)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: host,
 			Root: func(loop program.Loop) program.Component { return dress(loop, form) },
 		})

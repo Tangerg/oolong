@@ -84,7 +84,7 @@ func (m *MultiSelect[T]) Reply(said string) error {
 	m.ensure()
 	taken := make([]bool, len(m.Options))
 	count := 0
-	for _, part := range strings.Split(said, ",") {
+	for part := range strings.SplitSeq(said, ",") {
 		if strings.TrimSpace(part) == "" {
 			continue
 		}

@@ -11,6 +11,40 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+Nothing exported changed. This is the tests and the inside of four functions.
+
+### Fixed
+
+- **The test hosts put their writer away.** `term.NewWriter` has a goroutine behind
+  it, and neither the `program` package's fake host nor the demonstrations'
+  `fake.Host` ever closed theirs, so every test left one running. Both are now given
+  the test and close the writer when it ends — a test's context is cancelled before
+  its cleanups run, so whatever was drawing has been told to stop by then.
+
+### Changed
+
+- **A test drives the clock instead of waiting on it.** The tests that have to prove
+  a negative — a stopped clock ticks no more, an idle program writes nothing, a burst
+  of updates does not become a frame each — run inside a `testing/synctest` bubble.
+  Waiting a while and looking again only ever proved that nothing had happened *yet*,
+  and it cost the wait every run; a bubble's clock moves only when every goroutine in
+  it has nothing left to do, so the same sentence is now about the program rather than
+  about the machine it ran on. It also holds the program to a claim nobody had written
+  down, which is how the leak above was found: a bubble does not end until the
+  goroutines inside it do.
+- **Three hand-rolled waiting loops are gone.** The one that watched a variable until
+  a component had been built is a channel, which says the same thing at the moment it
+  becomes true; the one that waited for an inline interface to draw is the `waitFor`
+  that was already there; and the one in the search tests waits for the answer to be
+  sitting unread, which is what that test is about, rather than for fifty
+  milliseconds.
+- **Current Go where it was not.** `slices.SortStableFunc` sorts a table's permutation
+  rather than `sort.SliceStable`, which sorted it through reflection; `errors.Is` and
+  `errors.AsType` where a bare comparison and an out-parameter were; `strings.SplitSeq`
+  where a slice was allocated only to be ranged over; `t.Context()` in every test that
+  had reached for `context.Background()`. `go fix -diff` reports nothing across all
+  seven modules.
+
 ## [0.0.3] — 2026-08-06
 
 First tagged version of `highlight`, which starts at this repository's version for

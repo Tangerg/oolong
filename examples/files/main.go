@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -165,11 +165,14 @@ func read(root string, depth int) []headless.Node[entry] {
 	if err != nil {
 		return nil
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].IsDir() != items[j].IsDir() {
-			return items[i].IsDir()
+	slices.SortFunc(items, func(a, b os.DirEntry) int {
+		if a.IsDir() != b.IsDir() {
+			if a.IsDir() {
+				return -1
+			}
+			return 1
 		}
-		return items[i].Name() < items[j].Name()
+		return strings.Compare(a.Name(), b.Name())
 	})
 
 	var nodes []headless.Node[entry]

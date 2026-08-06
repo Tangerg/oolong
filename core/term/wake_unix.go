@@ -3,6 +3,7 @@
 package term
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -71,7 +72,7 @@ func (w *waker) wait() (bool, error) {
 	fds := []unix.PollFd{terminal, wake}
 	for {
 		if _, err := unix.Poll(fds, -1); err != nil {
-			if err == unix.EINTR {
+			if errors.Is(err, unix.EINTR) {
 				// A signal arrived — a resize, most often. Nothing was decided, so ask
 				// again rather than reporting an end of input that did not happen.
 				continue

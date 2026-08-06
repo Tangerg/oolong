@@ -17,18 +17,18 @@ func show(w, h int, draw func(grid.View)) {
 	s := grid.NewSurface(w, h)
 	draw(s.View())
 	for y := range h {
-		line := ""
+		var line strings.Builder
 		for x := range w {
 			c := s.CellAt(x, y)
 			switch {
 			case c.Width() == 0:
 			case c.Content == "":
-				line += " "
+				line.WriteString(" ")
 			default:
-				line += c.Content
+				line.WriteString(c.Content)
 			}
 		}
-		fmt.Printf("|%s|\n", line)
+		fmt.Printf("|%s|\n", line.String())
 	}
 }
 

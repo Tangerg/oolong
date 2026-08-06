@@ -30,7 +30,7 @@ func TestASessionCapturesWhatTheCommandWrote(t *testing.T) {
 	if err := s.Transcript().WaitWithin(10*time.Second, "hello from a pty"); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	if err := s.Wait(ctx); err != nil {
 		t.Fatalf("waiting for a command that exits cleanly: %v", err)
@@ -129,7 +129,7 @@ func TestWaitGivesUpWhenItsContextDoes(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
 	defer cancel()
 	if err := s.Wait(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("waiting on a program that never exits gave %v, want a deadline", err)

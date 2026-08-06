@@ -1,6 +1,6 @@
 package headless
 
-import "sort"
+import "slices"
 
 // Table is a list of rows with more than one column: a cursor, a window onto more
 // rows than fit, and an order.
@@ -91,12 +91,23 @@ func (t *Table[T]) reorder() {
 	}
 	// A stable sort, so rows the column cannot tell apart keep the order they were
 	// given — which is where the caller's own idea of importance lives.
-	sort.SliceStable(order, func(a, b int) bool {
-		x, y := t.Items[order[a]], t.Items[order[b]]
+	//
+	// The comparison is asked both ways round because [Table.Less] answers one of
+	// them and a sort needs all three: rows it cannot separate must compare equal,
+	// or the sort has no ties to keep the order of.
+	slices.SortStableFunc(order, func(a, b int) int {
+		x, y := t.Items[a], t.Items[b]
 		if t.descending {
-			return t.Less(y, x, t.column)
+			x, y = y, x
 		}
-		return t.Less(x, y, t.column)
+		switch {
+		case t.Less(x, y, t.column):
+			return -1
+		case t.Less(y, x, t.column):
+			return 1
+		default:
+			return 0
+		}
 	})
 
 	was := t.Selected()

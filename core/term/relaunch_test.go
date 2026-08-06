@@ -59,7 +59,7 @@ func TestRelaunchStartsTheProgramAgain(t *testing.T) {
 	}
 
 	var stages, pids []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		rest, ok := strings.CutPrefix(line, "stage=")
 		if !ok {
 			continue

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/input"
@@ -10,11 +9,11 @@ import (
 )
 
 func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) {
-	host := fake.New(60, 8)
+	host := fake.New(t, 60, 8)
 	var r *runner
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: host,
 			Inline: func(loop program.InlineLoop) program.Component {
 				// Not newRunner: that one starts a process, and what is being tested is

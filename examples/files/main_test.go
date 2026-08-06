@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -25,10 +24,10 @@ func tree() []headless.Node[entry] {
 }
 
 func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
-	host := fake.New(70, 14)
+	host := fake.New(t, 70, 14)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: host,
 			Root: func(loop program.Loop) program.Component { return newBrowser(loop, tree()) },
 		})

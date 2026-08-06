@@ -38,15 +38,25 @@ type Host struct {
 }
 
 // New is a host of a given size, with room for a burst of events.
-func New(w, h int) *Host {
+//
+// The test is asked for so the host can put itself away: a [term.Writer] has a
+// goroutine behind it, and one that is never closed outlives the test that made it.
+// Closing it here rather than leaving it to each caller is the difference between a
+// rule everybody has to remember and one nobody can break.
+func New(t *testing.T, w, h int) *Host {
+	t.Helper()
 	out := &sink{}
-	return &Host{
+	host := &Host{
 		events: make(chan input.Event, 128),
 		writer: term.NewWriter(out),
 		out:    out,
 		w:      w,
 		h:      h,
 	}
+	// After the program: a test's context is cancelled before its cleanups run, so
+	// whatever was drawing has been told to stop by the time the writer is closed.
+	t.Cleanup(func() { _ = host.writer.Close() })
+	return host
 }
 
 // The rest is a host answering questions about a terminal there is not. What it

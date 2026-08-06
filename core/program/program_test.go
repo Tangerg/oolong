@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/core/program"
@@ -52,15 +53,24 @@ type host struct {
 	notified []string
 }
 
-func newHost() *host {
+// newHost is somewhere for a program to run that is not a terminal.
+//
+// The test is asked for so the host can put itself away: a [term.Writer] has a
+// goroutine behind it, and one that is never closed outlives the test that made it.
+// A test's context is cancelled before its cleanups run, so whatever was drawing has
+// been told to stop by the time the writer is closed.
+func newHost(t *testing.T) *host {
+	t.Helper()
 	f := &frames{}
-	return &host{
+	h := &host{
 		events: make(chan input.Event, 64),
 		frames: f,
 		writer: term.NewWriter(f),
 		w:      40,
 		h:      10,
 	}
+	t.Cleanup(func() { _ = h.writer.Close() })
+	return h
 }
 
 func (h *host) Events() <-chan input.Event { return h.events }
@@ -227,11 +237,11 @@ type running struct {
 // start runs a program over a fake host.
 func start(t *testing.T, prepare func(*component)) *running {
 	t.Helper()
-	h := newHost()
+	h := newHost(t)
 	root := &component{text: "ready", consume: true}
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: h,
 			Root: func(loop program.Loop) program.Component {
 				root.loop = loop
@@ -344,70 +354,85 @@ func TestRefreshAsksForAFrame(t *testing.T) {
 	}
 }
 
+// The tests about a clock are the ones that have to prove a negative: that nothing
+// ticked after it was stopped, that an idle program wrote nothing more. Waiting a
+// while and looking again only ever proves that nothing happened *yet*, and it costs
+// the wait every run. Inside a bubble the clock is this test's own — it moves only
+// when every goroutine in here has nothing left to do — so "and then nothing happened
+// for sixty milliseconds" is a statement about the program rather than about the
+// machine it ran on, and it is instant. It also holds the program to a second claim
+// nobody had written down: a bubble does not end until the goroutines inside it do.
+
 func TestEveryTicksUntilItIsStopped(t *testing.T) {
-	r := start(t, nil)
-	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
-	var ticks atomic.Int64
-	stop := r.root.loop.Every(5*time.Millisecond, func() { ticks.Add(1) })
-	r.until("the clock to tick", func() bool { return ticks.Load() >= 3 })
+		var ticks atomic.Int64
+		stop := r.root.loop.Every(5*time.Millisecond, func() { ticks.Add(1) })
+		r.until("the clock to tick", func() bool { return ticks.Load() >= 3 })
 
-	stop()
-	time.Sleep(30 * time.Millisecond)
-	settled := ticks.Load()
-	time.Sleep(60 * time.Millisecond)
-	if grown := ticks.Load() - settled; grown != 0 {
-		t.Fatalf("the clock ticked %d more times after being stopped", grown)
-	}
-	// Stopping twice is not an error: an owner that stops a clock on more than one path
-	// should not have to remember which one ran.
-	stop()
+		stop()
+		time.Sleep(30 * time.Millisecond)
+		settled := ticks.Load()
+		time.Sleep(60 * time.Millisecond)
+		if grown := ticks.Load() - settled; grown != 0 {
+			t.Fatalf("the clock ticked %d more times after being stopped", grown)
+		}
+		// Stopping twice is not an error: an owner that stops a clock on more than one
+		// path should not have to remember which one ran.
+		stop()
 
-	r.root.loop.Quit()
-	if err := r.wait(); err != nil {
-		t.Fatalf("program: %v", err)
-	}
+		r.root.loop.Quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
 }
 
 func TestEveryStopsWhenTheProgramDoes(t *testing.T) {
 	// A clock nobody stopped must not outlive the program it was drawing for.
-	r := start(t, nil)
-	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
-	var ticks atomic.Int64
-	r.root.loop.Every(5*time.Millisecond, func() { ticks.Add(1) })
-	r.until("the clock to tick", func() bool { return ticks.Load() >= 2 })
+		var ticks atomic.Int64
+		r.root.loop.Every(5*time.Millisecond, func() { ticks.Add(1) })
+		r.until("the clock to tick", func() bool { return ticks.Load() >= 2 })
 
-	r.root.loop.Quit()
-	if err := r.wait(); err != nil {
-		t.Fatalf("program: %v", err)
-	}
-	time.Sleep(30 * time.Millisecond)
-	settled := ticks.Load()
-	time.Sleep(60 * time.Millisecond)
-	if grown := ticks.Load() - settled; grown != 0 {
-		t.Fatalf("the clock ticked %d more times after the program ended", grown)
-	}
+		r.root.loop.Quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+		time.Sleep(30 * time.Millisecond)
+		settled := ticks.Load()
+		time.Sleep(60 * time.Millisecond)
+		if grown := ticks.Load() - settled; grown != 0 {
+			t.Fatalf("the clock ticked %d more times after the program ended", grown)
+		}
+	})
 }
 
 func TestAnIntervalOfNothingIsNotAClock(t *testing.T) {
-	r := start(t, nil)
-	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 
-	var ticks atomic.Int64
-	stop := r.root.loop.Every(0, func() { ticks.Add(1) })
-	stop()
-	if r.root.loop.Every(time.Millisecond, nil) == nil {
-		t.Fatal("a clock with nothing to call returned no way to stop it")
-	}
-	time.Sleep(20 * time.Millisecond)
-	if ticks.Load() != 0 {
-		t.Fatal("a clock with no interval ticked anyway")
-	}
-	r.root.loop.Quit()
-	if err := r.wait(); err != nil {
-		t.Fatalf("program: %v", err)
-	}
+		var ticks atomic.Int64
+		stop := r.root.loop.Every(0, func() { ticks.Add(1) })
+		stop()
+		if r.root.loop.Every(time.Millisecond, nil) == nil {
+			t.Fatal("a clock with nothing to call returned no way to stop it")
+		}
+		time.Sleep(20 * time.Millisecond)
+		if ticks.Load() != 0 {
+			t.Fatal("a clock with no interval ticked anyway")
+		}
+		r.root.loop.Quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
 }
 
 func TestPostAfterTheProgramHasStoppedIsDropped(t *testing.T) {
@@ -447,10 +472,10 @@ func TestTheInputEndingEndsTheProgram(t *testing.T) {
 
 func TestACancelledContextEndsTheProgramWithoutAnError(t *testing.T) {
 	// Being asked to stop is not a failure.
-	h := newHost()
+	h := newHost(t)
 	root := &component{text: "ready", consume: true}
 	done := make(chan error, 1)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
 		done <- program.Run(ctx, program.Config{Host: h, Root: func(program.Loop) program.Component { return root }})
 	}()
@@ -505,46 +530,56 @@ func TestRegainingFocusRepaints(t *testing.T) {
 func TestAnIdleProgramStopsWriting(t *testing.T) {
 	// The reason the presenter exists: a terminal written to on every pass is a terminal
 	// whose cursor never blinks and whose remote session never settles.
-	r := start(t, nil)
-	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	time.Sleep(150 * time.Millisecond)
-	settled := r.host.frames.size()
-	time.Sleep(400 * time.Millisecond)
-	if grown := r.host.frames.size() - settled; grown != 0 {
-		t.Fatalf("an idle program wrote %d more bytes", grown)
-	}
-	r.root.loop.Quit()
-	if err := r.wait(); err != nil {
-		t.Fatalf("program: %v", err)
-	}
+	//
+	// Four hundred milliseconds of a bubble's clock, which pass the moment there is
+	// nothing left for the program to do — so this asks whether an idle program has
+	// anything to do at all, rather than whether it managed to stay quiet for a while.
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+		time.Sleep(150 * time.Millisecond)
+		settled := r.host.frames.size()
+		time.Sleep(400 * time.Millisecond)
+		if grown := r.host.frames.size() - settled; grown != 0 {
+			t.Fatalf("an idle program wrote %d more bytes", grown)
+		}
+		r.root.loop.Quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
 }
 
 func TestABurstOfUpdatesIsCoalescedIntoFewerFrames(t *testing.T) {
 	// A stream of updates arriving faster than a terminal can be redrawn must not become
 	// a frame each, or the interface spends its time drawing instead of keeping up.
-	r := start(t, nil)
-	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	before := r.root.drawn.Load()
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+		before := r.root.drawn.Load()
 
-	const updates = 200
-	settled := make(chan struct{})
-	for i := range updates {
-		r.root.loop.Post(func() {
-			r.root.text = strings.Repeat(".", i%20)
-			if i == updates-1 {
-				close(settled)
-			}
-		})
-	}
-	<-settled
-	time.Sleep(100 * time.Millisecond)
-	if frames := r.root.drawn.Load() - before; frames >= updates {
-		t.Fatalf("%d updates produced %d frames, want them coalesced", updates, frames)
-	}
-	r.root.loop.Quit()
-	if err := r.wait(); err != nil {
-		t.Fatalf("program: %v", err)
-	}
+		const updates = 200
+		settled := make(chan struct{})
+		for i := range updates {
+			r.root.loop.Post(func() {
+				r.root.text = strings.Repeat(".", i%20)
+				if i == updates-1 {
+					close(settled)
+				}
+			})
+		}
+		<-settled
+		// Long enough for every frame the throttle held back to come due, which in a
+		// bubble is however long the program still has something waiting to happen.
+		time.Sleep(100 * time.Millisecond)
+		if frames := r.root.drawn.Load() - before; frames >= updates {
+			t.Fatalf("%d updates produced %d frames, want them coalesced", updates, frames)
+		}
+		r.root.loop.Quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
 }
 
 func TestTheLastUpdateOfABurstIsStillDrawn(t *testing.T) {
@@ -568,11 +603,11 @@ func TestTheLastUpdateOfABurstIsStillDrawn(t *testing.T) {
 func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 	// An interface that cannot reach its terminal has nothing left to do, and a loop
 	// that kept going would spin on the same error for ever.
-	h := newHost()
+	h := newHost(t)
 	h.writer = term.NewWriter(brokenTerminal{})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: h,
 			Root: func(program.Loop) program.Component { return &component{text: "ready"} },
 		})
@@ -588,7 +623,7 @@ func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 }
 
 func TestAProgramWithNoComponentIsRefused(t *testing.T) {
-	if err := program.Run(context.Background(), program.Config{Host: newHost()}); err == nil {
+	if err := program.Run(t.Context(), program.Config{Host: newHost(t)}); err == nil {
 		t.Fatal("a program with nothing to draw was accepted")
 	}
 }
@@ -596,25 +631,30 @@ func TestAProgramWithNoComponentIsRefused(t *testing.T) {
 func TestTheComponentIsGivenItsLoopBeforeItIsDrawn(t *testing.T) {
 	// So that a component can hand the loop to whatever fetches on its behalf from the
 	// moment it exists, rather than having to wait for a first frame.
-	h := newHost()
-	var hadLoop atomic.Bool
+	h := newHost(t)
 	done := make(chan error, 1)
-	var quit program.Loop
+	// The loop comes back over a channel rather than through a variable the test
+	// watches: the claim is that the component was handed one when it was built, and
+	// a channel says exactly that, at the moment it happened.
+	built := make(chan program.Loop, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: h,
 			Root: func(loop program.Loop) program.Component {
-				quit = loop
-				hadLoop.Store(loop != nil)
+				built <- loop
 				return &component{text: "ready"}
 			},
 		})
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for !hadLoop.Load() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	var quit program.Loop
+	select {
+	case quit = <-built:
+	case err := <-done:
+		t.Fatalf("the program ended before it built anything: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the component was never built")
 	}
-	if !hadLoop.Load() {
+	if quit == nil {
 		t.Fatal("the component was built without a loop")
 	}
 	quit.Quit()
@@ -669,11 +709,11 @@ func (p *printer) Handle(input.Event) bool {
 // startInline runs an inline program over a fake host.
 func startInline(t *testing.T) (*host, *printer, chan error) {
 	t.Helper()
-	h := newHost()
+	h := newHost(t)
 	root := &printer{text: "prompt"}
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: h,
 			Inline: func(loop program.InlineLoop) program.Component {
 				root.loop = loop
@@ -681,15 +721,10 @@ func startInline(t *testing.T) (*host, *printer, chan error) {
 			},
 		})
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if strings.Contains(h.frames.String(), "prompt") {
-			return h, root, done
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("the inline interface never drew")
-	return nil, nil, nil
+	waitFor(t, done, h, "the inline interface to draw", func() bool {
+		return strings.Contains(h.frames.String(), "prompt")
+	})
+	return h, root, done
 }
 
 func waitFor(t *testing.T, done chan error, h *host, what string, cond func() bool) {
@@ -716,7 +751,7 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 		Inline: func(program.InlineLoop) program.Component { return &printer{} },
 	}
 	for what, cfg := range map[string]program.Config{"neither": {}, "both": both} {
-		if err := program.Run(context.Background(), cfg); err == nil {
+		if err := program.Run(t.Context(), cfg); err == nil {
 			t.Errorf("%s root was accepted", what)
 		}
 	}
@@ -725,10 +760,10 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
 	// A caller who asked for both believes something false: an interface on a screen
 	// of its own has no session output to sit among, and nowhere to print.
-	err := program.Run(context.Background(), program.Config{
+	err := program.Run(t.Context(), program.Config{
 		Inline:   func(program.InlineLoop) program.Component { return &printer{} },
 		Terminal: term.Options{AltScreen: true},
-		Host:     newHost(),
+		Host:     newHost(t),
 	})
 	if err == nil {
 		t.Fatal("asking for an inline interface on the alternate screen was accepted")
@@ -905,7 +940,7 @@ func TestPrintingNothingIsIgnored(t *testing.T) {
 // the terminal would have answered. The program is stopped when the test ends.
 func startOn(t *testing.T, h *host, root func(program.Loop) program.Component) *running {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- program.Run(ctx, program.Config{Host: h, Root: root}) }()
 	t.Cleanup(func() {
@@ -922,7 +957,7 @@ func startOn(t *testing.T, h *host, root func(program.Loop) program.Component) *
 func TestAComponentLearnsWhatTheTerminalDrawsOn(t *testing.T) {
 	// The one fact a look cannot be built without and cannot work out for itself.
 	// A component reads it from the loop it already holds.
-	h := newHost()
+	h := newHost(t)
 	h.ground = grid.Ground{BG: grid.RGBColor(0xfd, 0xf6, 0xe3)}
 
 	learned := make(chan grid.Ground, 1)
@@ -950,7 +985,7 @@ func TestAComponentLearnsWhatTheTerminalDrawsOn(t *testing.T) {
 // has to reach the surface being drawn on, not only the component. Nothing above
 // this carries it: the view already knows which terminal it is bound for.
 func TestTheFrameIsDrawnAgainstWhatTheTerminalSaid(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	h.ground = grid.Ground{FG: grid.RGBColor(0xC0, 0xCA, 0xF5), BG: grid.RGBColor(0x1A, 0x1B, 0x26)}
 
 	drawnAgainst := make(chan grid.Ground, 1)
@@ -984,7 +1019,7 @@ func TestAComponentIsToldWhenTheTerminalNeverSaid(t *testing.T) {
 	// There is no safe guess, so the unknown has to be reportable as unknown rather
 	// than as the zero colour — which is black, and would silently mean "dark" to
 	// everything above it.
-	h := newHost()
+	h := newHost(t)
 
 	known, dark := make(chan bool, 1), make(chan bool, 1)
 	r := startOn(t, h, func(l program.Loop) program.Component {
@@ -1033,7 +1068,7 @@ func (r *recorder) pasted() []string {
 // startRecording runs a program whose component keeps what it was handed.
 func startRecording(t *testing.T) (*running, *recorder) {
 	t.Helper()
-	h := newHost()
+	h := newHost(t)
 	rec := &recorder{}
 	r := startOn(t, h, func(l program.Loop) program.Component {
 		rec.loop = l
@@ -1117,7 +1152,7 @@ func (h *host) ReportDirectory(path string) error {
 func TestAComponentLearnsWhatANotchIs(t *testing.T) {
 	// The fact a scroll cannot work out for itself and a component cannot read from
 	// anywhere else.
-	h := newHost()
+	h := newHost(t)
 	h.wheel = input.Wheel{Reports: 1, Rows: 3}
 
 	got := make(chan input.Wheel, 1)
@@ -1136,7 +1171,7 @@ func TestAComponentLearnsWhatTheKeyboardActuallyDoes(t *testing.T) {
 	// The case this exists for: the protocol is live and no release will ever arrive.
 	// Nothing in the events says so, so a component that cannot ask cannot choose a
 	// different interaction.
-	h := newHost()
+	h := newHost(t)
 	h.keys, h.saidKeys = input.KeyboardFlags{Flags: input.KittyDisambiguate}, true
 
 	got := make(chan input.KeyboardFlags, 1)
@@ -1164,7 +1199,7 @@ func TestAComponentLearnsWhatTheKeyboardActuallyDoes(t *testing.T) {
 func TestAComponentCanTellTheTerminalWhereItIs(t *testing.T) {
 	// The other half of leaving a relative path to the terminal: it can only resolve
 	// one against a directory it knows.
-	h := newHost()
+	h := newHost(t)
 	done := make(chan error, 1)
 	r := startOn(t, h, func(l program.Loop) program.Component {
 		done <- l.ReportDirectory("/tmp/work")

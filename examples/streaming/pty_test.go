@@ -128,7 +128,7 @@ func TestTheSessionGivesTheTerminalBack(t *testing.T) {
 	if err := s.Type("\x03"); err != nil { // ctrl+c, which the example binds to quit
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), settle)
+	ctx, cancel := context.WithTimeout(t.Context(), settle)
 	defer cancel()
 	if err := s.Wait(ctx); err != nil {
 		t.Fatalf("the program did not exit: %v", err)
@@ -197,7 +197,7 @@ func TestWhatWasPrintedSurvivesTheProgram(t *testing.T) {
 	if err := s.Type("\x03"); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), settle)
+	ctx, cancel := context.WithTimeout(t.Context(), settle)
 	defer cancel()
 	if err := s.Wait(ctx); err != nil {
 		t.Fatal(err)

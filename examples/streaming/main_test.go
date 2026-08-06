@@ -103,7 +103,7 @@ func awaitText(t *testing.T, h *host, want string) {
 // run starts the example against a host and returns a function that stops it.
 func run(t *testing.T, h *host) func() {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(ctx, program.Config{

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/program"
@@ -9,10 +8,10 @@ import (
 )
 
 func TestItDrawsAndAnswersAndStops(t *testing.T) {
-	host := fake.New(60, 12)
+	host := fake.New(t, 60, 12)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: host,
 			Root: func(loop program.Loop) program.Component { return &hello{loop: loop} },
 		})

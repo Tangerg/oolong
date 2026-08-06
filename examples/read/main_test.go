@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -12,10 +11,10 @@ import (
 )
 
 func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
-	host := fake.New(72, 10)
+	host := fake.New(t, 72, 10)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: host,
 			// The same reader, with the answer arriving as fast as the loop will take
 			// it: what is being tested is where the pieces end up, not how long they

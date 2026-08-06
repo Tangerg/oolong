@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"image"
 	"strings"
 	"testing"
@@ -12,10 +11,10 @@ import (
 )
 
 func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
-	host := fake.New(70, 14)
+	host := fake.New(t, 70, 14)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(context.Background(), program.Config{
+		done <- program.Run(t.Context(), program.Config{
 			Host: host,
 			Root: func(loop program.Loop) program.Component { return newDashboard(loop) },
 		})
