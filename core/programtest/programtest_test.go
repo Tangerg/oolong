@@ -62,3 +62,12 @@ func TestHostDoesNotInventOptionalCapabilities(t *testing.T) {
 		t.Fatal("test host implements NotifyHost; capability absence cannot be tested")
 	}
 }
+
+func TestEventsCanBeQueuedBeforeTheProgramStarts(t *testing.T) {
+	host := programtest.New(t, 20, 3)
+	for range 1_000 {
+		if !host.Send(input.Key{Code: input.Down}) {
+			t.Fatal("open host refused an event")
+		}
+	}
+}

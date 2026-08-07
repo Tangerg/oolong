@@ -34,7 +34,7 @@ const assertionTimeout = 5 * time.Second
 // program goroutine. New arranges cleanup; Close is also available when a test wants
 // to settle the frame writer earlier. The zero Host is inert and refuses events.
 type Host struct {
-	events chan input.Event
+	input  *eventSource
 	writer *term.Writer
 	out    *sink
 
@@ -54,7 +54,7 @@ func New(tb testing.TB, width, height int) *Host {
 	}
 	out := newSink()
 	host := &Host{
-		events: make(chan input.Event, 128),
+		input:  newEventSource(),
 		writer: term.NewWriter(out),
 		out:    out,
 		w:      width,
@@ -73,10 +73,10 @@ func (h *Host) Input() program.EventSource { return h }
 
 // Events is the ordered input channel.
 func (h *Host) Events() <-chan input.Event {
-	if h == nil {
+	if h == nil || h.input == nil {
 		return nil
 	}
-	return h.events
+	return h.input.events
 }
 
 // Err reports a clean input end. Tests normally stop a program through their
@@ -101,18 +101,18 @@ func (h *Host) Size() (width, height int, err error) {
 	return h.w, h.h, nil
 }
 
-// Send puts an event in front of the program and reports whether the host was open.
+// Send queues an event for the program and reports whether the host was open.
+// It does not wait for the program to receive earlier events.
 func (h *Host) Send(event input.Event) bool {
-	if h == nil || h.events == nil || h.closed.Load() {
+	if h == nil || h.input == nil || h.closed.Load() {
 		return false
 	}
-	h.events <- event
-	return true
+	return h.input.post(event)
 }
 
 // Type sends text one character key at a time.
 func (h *Host) Type(text string) bool {
-	if h == nil || h.events == nil || h.closed.Load() {
+	if h == nil || h.input == nil || h.closed.Load() {
 		return false
 	}
 	for _, r := range text {
@@ -131,7 +131,7 @@ func (h *Host) Press(code input.Code) bool {
 // Resize changes the reported size and sends the corresponding event.
 // Non-positive dimensions are rejected.
 func (h *Host) Resize(width, height int) bool {
-	if width <= 0 || height <= 0 || h == nil || h.events == nil || h.closed.Load() {
+	if width <= 0 || height <= 0 || h == nil || h.input == nil || h.closed.Load() {
 		return false
 	}
 	h.sizeMu.Lock()
@@ -142,7 +142,7 @@ func (h *Host) Resize(width, height int) bool {
 
 // Repaint asks the program for a full frame at its current size.
 func (h *Host) Repaint() bool {
-	if h == nil || h.events == nil {
+	if h == nil || h.input == nil {
 		return false
 	}
 	width, height, _ := h.Size()
@@ -224,10 +224,103 @@ func (h *Host) Close() error {
 	if h.writer == nil {
 		return nil
 	}
+	h.input.close()
 	if err := h.writer.Close(); err != nil {
 		return fmt.Errorf("programtest: close frame writer: %w", err)
 	}
 	return nil
+}
+
+// eventSource is an ordered input FIFO with one coalesced wake-up.
+//
+// A fixed-capacity event channel would make Send block behind work only a program
+// that may not have started yet can consume. The queue has no arbitrary burst limit;
+// tests choose how many events they retain by how many they send.
+type eventSource struct {
+	mu     sync.Mutex
+	queue  []input.Event
+	closed bool
+
+	events chan input.Event
+	wake   chan struct{}
+	done   chan struct{}
+	ended  chan struct{}
+}
+
+func newEventSource() *eventSource {
+	source := &eventSource{
+		events: make(chan input.Event),
+		wake:   make(chan struct{}, 1),
+		done:   make(chan struct{}),
+		ended:  make(chan struct{}),
+	}
+	go source.run()
+	return source
+}
+
+func (s *eventSource) post(event input.Event) bool {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return false
+	}
+	s.queue = append(s.queue, event)
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (s *eventSource) run() {
+	defer close(s.ended)
+	defer close(s.events)
+	for {
+		event, ok := s.take()
+		if ok {
+			select {
+			case s.events <- event:
+			case <-s.done:
+				return
+			}
+			continue
+		}
+		select {
+		case <-s.wake:
+		case <-s.done:
+			return
+		}
+	}
+}
+
+func (s *eventSource) take() (input.Event, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.queue) == 0 {
+		return nil, false
+	}
+	event := s.queue[0]
+	s.queue[0] = nil
+	s.queue = s.queue[1:]
+	if len(s.queue) == 0 {
+		s.queue = nil
+	}
+	return event, true
+}
+
+func (s *eventSource) close() {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.closed = true
+	clear(s.queue)
+	s.queue = nil
+	close(s.done)
+	s.mu.Unlock()
+	<-s.ended
 }
 
 // sink accumulates terminal output and broadcasts each frame write to every waiter.
