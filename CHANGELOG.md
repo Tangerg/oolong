@@ -18,6 +18,12 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-08-07
+
+Additive. Nothing exported was removed or changed shape, so an application on 0.1.0
+compiles unchanged; the two additions are the supported way to test a program and the
+live counterpart to `Box`.
+
 ### Added
 
 - **A public in-process program harness.** `core/programtest.Host` replaces the
