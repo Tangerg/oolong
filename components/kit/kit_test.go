@@ -105,6 +105,9 @@ type panelChild struct {
 	focused bool
 	across  int
 	event   input.Event
+	// deaf refuses every event, which is how a press that begins no interaction is
+	// told apart from one that does.
+	deaf bool
 }
 
 func (c *panelChild) Draw(frame headless.Frame) {
@@ -119,6 +122,9 @@ func (c *panelChild) Measure(across int) int {
 func (c *panelChild) Focus(has bool) { c.focused = has }
 
 func (c *panelChild) Handle(event input.Event) bool {
+	if c.deaf {
+		return false
+	}
 	c.event = event
 	return true
 }
@@ -161,6 +167,54 @@ func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 	got, ok := child.event.(input.Mouse)
 	if !ok || got.Pos != image.Pt(1, 0) {
 		t.Fatalf("child received %#v, want a pointer at its local coordinate (1,0)", child.event)
+	}
+}
+
+// TestPanelKeepsAGestureThatLeavesItsInterior is the rule a panel inherits rather
+// than invents: a press decides who owns the interaction, and the drag and release
+// that follow belong to that owner wherever the pointer goes. Testing the interior
+// on every event would stop a selection at the frame and, worse, never deliver the
+// release, leaving the child believing it is still being dragged.
+func TestPanelKeepsAGestureThatLeavesItsInterior(t *testing.T) {
+	child := &panelChild{}
+	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	headless.NewRoot(panel).Draw(grid.NewSurface(10, 6).View())
+
+	press := input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}
+	if !panel.Handle(press) {
+		t.Fatal("panel declined a press inside its content")
+	}
+	for _, away := range []input.Mouse{
+		{Pos: image.Pt(0, 3), Action: input.MouseDrag}, // onto the frame
+		{Pos: image.Pt(4, 0), Action: input.MouseDrag}, // past it
+	} {
+		if !panel.Handle(away) {
+			t.Fatalf("panel dropped a drag at %v that began inside it", away.Pos)
+		}
+	}
+	release := input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseUp}
+	if !panel.Handle(release) {
+		t.Fatal("panel dropped the release that ends the gesture")
+	}
+	// The gesture is over, so the interior decides again.
+	if panel.Handle(input.Mouse{Pos: image.Pt(0, 3), Action: input.MouseDrag}) {
+		t.Fatal("panel kept the gesture after its release")
+	}
+}
+
+// TestPanelDoesNotTakeAGestureItsChildRefused keeps the hold honest: a press the
+// child declined is not an interaction, and holding one would swallow the release
+// belonging to whatever the pointer is really over.
+func TestPanelDoesNotTakeAGestureItsChildRefused(t *testing.T) {
+	child := &panelChild{deaf: true}
+	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	headless.NewRoot(panel).Draw(grid.NewSurface(10, 6).View())
+
+	if panel.Handle(input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}) {
+		t.Fatal("panel claimed a press its child refused")
+	}
+	if panel.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag}) {
+		t.Fatal("panel held a gesture its child never took")
 	}
 }
 

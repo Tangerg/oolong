@@ -29,7 +29,10 @@ point of tagging them low rather than not at all.
 
 - **A live framed panel composition.** `kit.Panel` owns one focusable child, measures
   through its `Box` overhead, commits its inner routing rectangle with the root frame,
-  translates pointer coordinates, and forwards keyboard ownership. `Box` remains the
+  translates pointer coordinates, and forwards keyboard ownership. A press its child
+  takes owns the gesture until release, wherever the pointer then goes, which is the
+  rule `headless.Container` and `headless.Stack` already keep and which a panel has to
+  keep again because it is another place a gesture is handed through. `Box` remains the
   passive chrome for strings, blocks, widgets, or empty regions. The file-browser
   example proves the new composition with two framed, independently focusable panes.
 

@@ -28,6 +28,9 @@ type Panel struct {
 	Of headless.Focusable
 
 	content headless.Snapshot[image.Rectangle]
+	// held says the child took a press and therefore owns the gesture until it is
+	// released, wherever the pointer goes in the meantime.
+	held bool
 }
 
 // NewPanel returns a rounded panel around of.
@@ -70,18 +73,45 @@ func (p *Panel) Focus(has bool) {
 }
 
 // Handle passes keys to the child and translates pointer events into the
-// interior's coordinates. Pointer events over the frame itself are declined.
+// interior's coordinates. A press over the frame itself is declined.
 func (p *Panel) Handle(event input.Event) bool {
 	if p == nil || p.Of == nil {
 		return false
 	}
 	if pointer, ok := event.(input.Mouse); ok {
-		content := p.content.Value()
-		if content.Empty() || !pointer.Pos.In(content) {
-			return false
-		}
-		pointer.Pos = pointer.Pos.Sub(content.Min)
-		event = pointer
+		return p.mouse(pointer)
 	}
 	return p.Of.Handle(event)
+}
+
+// mouse routes a pointer event into the interior, keeping a gesture that began
+// there after the pointer has left it.
+//
+// This is the rule [headless.Container] and [headless.Stack] already keep, and it
+// has to be kept again here because a panel is another place a gesture is handed
+// through. A press decides who owns the interaction; the drag and release that
+// follow belong to that owner wherever the pointer wanders. Testing the interior on
+// every event instead would stop a selection at the frame and never deliver the
+// release that ends it, leaving the child believing it is still being dragged.
+func (p *Panel) mouse(pointer input.Mouse) bool {
+	content := p.content.Value()
+	if content.Empty() {
+		p.held = false
+		return false
+	}
+	held := p.held && (pointer.Action == input.MouseDrag || pointer.Action == input.MouseUp)
+	if !held && !pointer.Pos.In(content) {
+		return false
+	}
+	if pointer.Action == input.MouseUp {
+		p.held = false
+	}
+	pointer.Pos = pointer.Pos.Sub(content.Min)
+	handled := p.Of.Handle(pointer)
+	if pointer.Action == input.MouseDown {
+		// Only a press the child wanted takes the gesture. A press it declined is
+		// not an interaction, and holding one would swallow the release as well.
+		p.held = handled
+	}
+	return handled
 }
