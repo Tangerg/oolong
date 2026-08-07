@@ -1,7 +1,7 @@
 github.com/Tangerg/oolong/components v0.1.1-0.20260807101048-a56cd288052b h1:Ug7MlPHZFTb98UV5O2Kkb7bmPcX7x4dCu9ihih9oO0E=
 github.com/Tangerg/oolong/components v0.1.1-0.20260807101048-a56cd288052b/go.mod h1:nVz+snJ+O5uLu0/+GR16aXzHz0T0GhmMCsI/EndFgyQ=
-github.com/Tangerg/oolong/core v0.1.1-0.20260807101048-a56cd288052b h1:d7pMEOv73J2BLiph768lBWvk8R8peh91oYDz2gclPvQ=
-github.com/Tangerg/oolong/core v0.1.1-0.20260807101048-a56cd288052b/go.mod h1:zUZzUfvUNAedDusXlkkN1tC67ejzFOdFk7Kt854rOKc=
+github.com/Tangerg/oolong/core v0.1.1-0.20260807101728-4a5f92cc476a h1:71lgmgIVCH4A7O65ORtIcE74tOlpVeecYKilR6AF1Cs=
+github.com/Tangerg/oolong/core v0.1.1-0.20260807101728-4a5f92cc476a/go.mod h1:zUZzUfvUNAedDusXlkkN1tC67ejzFOdFk7Kt854rOKc=
 github.com/Tangerg/oolong/markdown v0.1.0 h1:q7SVzU3f853E3WPuOvTw+pfEWH62dpRF4g0z8smY3oY=
 github.com/Tangerg/oolong/markdown v0.1.0/go.mod h1:809keCdMqb6hFHQtCJYXw7O7kzFbjwabUSzDmkBWM4A=
 github.com/Tangerg/oolong/ptytest v0.1.0 h1:xsogNNfgNBUnwYZuNSzzQAhflecH8B7MBYCq7yZWldg=
