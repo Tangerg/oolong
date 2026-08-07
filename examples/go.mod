@@ -3,10 +3,10 @@ module github.com/Tangerg/oolong/examples
 go 1.26.0
 
 require (
-	github.com/Tangerg/oolong/components v0.1.1-0.20260807101048-a56cd288052b
-	github.com/Tangerg/oolong/core v0.1.1-0.20260807101728-4a5f92cc476a
-	github.com/Tangerg/oolong/markdown v0.1.0
-	github.com/Tangerg/oolong/ptytest v0.1.0
+	github.com/Tangerg/oolong/components v0.1.1
+	github.com/Tangerg/oolong/core v0.1.1
+	github.com/Tangerg/oolong/markdown v0.1.1
+	github.com/Tangerg/oolong/ptytest v0.1.1
 )
 
 require (
