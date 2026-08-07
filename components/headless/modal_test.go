@@ -14,12 +14,13 @@ import (
 
 // panel is a test modal that records what it was given.
 type panel struct {
-	name      string
-	place     layout.Placement
-	takes     input.Code
-	seen      []input.Event
-	drawnInto []int
-	closed    int
+	name       string
+	place      layout.Placement
+	takes      input.Code
+	takesMouse bool
+	seen       []input.Event
+	drawnInto  []int
+	closed     int
 }
 
 func (p *panel) Draw(v headless.Frame) {
@@ -30,6 +31,9 @@ func (p *panel) Draw(v headless.Frame) {
 
 func (p *panel) Handle(ev input.Event) bool {
 	p.seen = append(p.seen, ev)
+	if _, ok := ev.(input.Mouse); ok {
+		return p.takesMouse
+	}
 	key, ok := ev.(input.Key)
 	return ok && p.takes != 0 && key.Code == p.takes
 }
@@ -216,6 +220,53 @@ func TestTheWheelOutsideTheLayerBelongsToWhatIsUnderIt(t *testing.T) {
 	}
 	if s.Empty() {
 		t.Fatal("scrolling outside the layer dismissed it")
+	}
+}
+
+func TestTheWheelOutsideALayerReachesTheOwnedBase(t *testing.T) {
+	base := &panel{name: "base", takesMouse: true}
+	p := &panel{name: "p", place: middle(4, 2)}
+	s := headless.Stack{Base: base}
+	s.Push(p)
+	draw(&s, 20, 10)
+
+	area, _ := s.Area()
+	wheel := input.Mouse{Pos: image.Pt(area.Min.X-2, area.Min.Y), Action: input.WheelDown}
+	if !s.Handle(wheel) {
+		t.Fatal("the base declined the wheel event routed to it")
+	}
+	if len(base.seen) != 1 || base.seen[0] != wheel {
+		t.Fatalf("the base saw %v, want the wheel in base coordinates", base.seen)
+	}
+	if len(p.seen) != 0 {
+		t.Fatal("the layer saw a wheel outside its area")
+	}
+}
+
+func TestALayerKeepsAPointerGestureOutsideItsArea(t *testing.T) {
+	p := &panel{name: "p", place: middle(4, 2), takesMouse: true}
+	var s headless.Stack
+	s.Push(p)
+	draw(&s, 20, 10)
+
+	area, _ := s.Area()
+	s.Handle(input.Mouse{Pos: area.Min, Action: input.MouseDown, Button: input.ButtonLeft})
+	outside := image.Pt(area.Min.X-2, area.Min.Y)
+	s.Handle(input.Mouse{Pos: outside, Action: input.MouseDrag, Button: input.ButtonLeft})
+	s.Handle(input.Mouse{Pos: outside, Action: input.MouseUp, Button: input.ButtonLeft})
+
+	if len(p.seen) != 3 {
+		t.Fatalf("the layer saw %d events, want the complete gesture", len(p.seen))
+	}
+	drag := p.seen[1].(input.Mouse)
+	if drag.Pos != image.Pt(-2, 0) {
+		t.Fatalf("drag arrived at %v, want the layer-local point (-2,0)", drag.Pos)
+	}
+
+	// Capture ends at release. A later drag outside is not part of the old gesture.
+	s.Handle(input.Mouse{Pos: outside, Action: input.MouseDrag, Button: input.ButtonLeft})
+	if len(p.seen) != 3 {
+		t.Fatal("the layer kept capture after release")
 	}
 }
 

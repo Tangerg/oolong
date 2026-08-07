@@ -70,6 +70,22 @@ func TestTranscriptDrawsTheWindow(t *testing.T) {
 	}
 }
 
+func TestTranscriptRoutesWheelToItsScroll(t *testing.T) {
+	tr := session(t, 20, []string{"one", "two", "three", "four"})
+	var sc headless.Scroll
+	s := grid.NewSurface(20, 2)
+	view := &kit.Transcript{Content: tr, Scroll: &sc}
+	drawTranscript(s.View(), view)
+
+	if !view.Handle(input.Mouse{Action: input.WheelDown}) {
+		t.Fatal("the transcript declined its own wheel event")
+	}
+	drawTranscript(s.View(), view)
+	if got := rowOf(s.View(), 0, 20); !strings.HasPrefix(got, "two") {
+		t.Errorf("the first row after scrolling is %q, want two", got)
+	}
+}
+
 // TestSelectionIsLaidOverWhatWasDrawn, not drawn into it. What is selected is a
 // property of the cells and not of the content, so a block never has to be told.
 func TestSelectionIsLaidOverWhatWasDrawn(t *testing.T) {
@@ -259,6 +275,25 @@ func TestCommittingGivesTheFinishedBlocksToThePrinter(t *testing.T) {
 	}
 	if len(p.rows) != 1 || p.rows[0] != 2 {
 		t.Errorf("printed %v, want one block of two rows", p.rows)
+	}
+}
+
+func TestCommitNTransfersOnlyTheExcessStablePrefix(t *testing.T) {
+	tr := session(t, 20, []string{"one"}, []string{"two"}, []string{"three"})
+	for id := range headless.BlockID(3) {
+		tr.Finish(id)
+	}
+
+	var printer recordingPrinter
+	view := kit.Transcript{Content: tr}
+	if got := view.CommitN(&printer, 1); got != 1 {
+		t.Fatalf("committed %d blocks, want one", got)
+	}
+	if tr.Len() != 2 || tr.FirstBlock() != 1 || len(printer.rows) != 1 {
+		t.Fatalf("live=%d first=%d printed=%v", tr.Len(), tr.FirstBlock(), printer.rows)
+	}
+	if got := view.CommitN(&printer, 0); got != 0 || tr.Len() != 2 {
+		t.Fatal("a zero limit transferred retained blocks")
 	}
 }
 

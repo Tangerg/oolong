@@ -18,6 +18,13 @@ point of tagging them low rather than not at all.
   orders a final error after accepted bytes, and cancels with its dispatcher. The
   subprocess example now uses it instead of posting one unbounded closure per read.
 
+- **The canonical streaming interface now closes the first architecture slice.**
+  `examples/streaming` combines approval, focus restoration, bounded background
+  ingress, an open markdown tail, stable publication, a selectable recent window,
+  cancellation, failure, resize and real-PTY coverage in one path. The new
+  `kit.Transcript.CommitN` transfers only an excess finished prefix, and transcript
+  input now routes wheel and configurable scrolling actions to its owned scroll state.
+
 ### Changed
 
 - **Copyable rows are now lower-level text values.** The old
@@ -58,6 +65,11 @@ point of tagging them low rather than not at all.
   `Committed`, `CommittedRows`, and row-cache `Generation` model is removed.
 
 ### Fixed
+
+- **Modal pointer ownership now follows the visible stack.** A layer that accepts a
+  press keeps its drag and release after the pointer leaves its box. Wheel and move
+  events outside the top layer route through visible lower layers to the Stack-owned
+  base, so a dialog no longer makes the transcript behind it silently unscrollable.
 
 - **Partial output failures now have an end-to-end ownership proof.** A writer that
   accepts an unknown frame prefix and fails is never retried and no later frame is

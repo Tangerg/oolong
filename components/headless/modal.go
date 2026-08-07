@@ -72,11 +72,12 @@ type Backdrop interface {
 // Stack is an interface with layers floating over it, and the answer to which of
 // them the keyboard belongs to.
 //
-// Only the top layer sees input; with nothing on it, the interface underneath has
-// its input back. That is the whole of the focus model between layers, and it is
-// enough for what a streaming interface actually does — a dialog over a composer, a
-// palette over both. Within a layer, or within the interface underneath, a
-// [Container] is what decides.
+// The top layer owns keyboard input and pointer input inside its area; with nothing on
+// it, the interface underneath has its input back. Wheel and move reports outside a
+// layer follow the visible stack downward, while a press outside is consumed as the
+// dismissal gesture. A layer that accepts a press captures its drag and release. That
+// is the whole focus and pointer model between layers. Within a layer, or within the
+// interface underneath, a [Container] is what decides.
 //
 // The zero Stack is empty and ready.
 type Stack struct {
@@ -119,6 +120,9 @@ type Stack struct {
 	blurred bool
 	// pending is how far into a multi-chord binding the keys typed so far have got.
 	pending keymap.Pending
+	// held is the layer that accepted a pointer press. Drag and release stay with it
+	// even after the pointer leaves its rectangle, matching capture inside containers.
+	held Modal
 }
 
 // Push puts a layer on top, and gives it the keyboard.
@@ -205,18 +209,9 @@ func (s *Stack) Handle(ev input.Event) bool {
 		return false
 	}
 	top := presented.layers[len(presented.layers)-1]
-	area := top.area
 
 	if mouse, ok := ev.(input.Mouse); ok {
-		if !mouse.Pos.In(area) {
-			return s.outside(mouse, top.layer)
-		}
-		// The layer is drawn into a view whose origin is its own, so it reasons in
-		// its own coordinates and the position has to arrive in them too.
-		local := mouse
-		local.Pos = mouse.Pos.Sub(area.Min)
-		top.layer.Handle(local)
-		return true
+		return s.mouse(presented, mouse)
 	}
 
 	if top.layer.Handle(ev) {
@@ -234,6 +229,66 @@ func (s *Stack) Handle(ev input.Event) bool {
 	return true
 }
 
+// mouse routes pointer input through modal capture and the visible layer geometry.
+func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
+	if s.held != nil && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
+		held, found := presented.placed(s.held)
+		if mouse.Action == input.MouseUp {
+			s.held = nil
+		}
+		if !found {
+			// The owner of the gesture is gone. Do not hand its remainder to whatever
+			// replaced it and accidentally begin a different interaction halfway through.
+			return true
+		}
+		s.deliver(held, mouse)
+		return true
+	}
+
+	top := len(presented.layers) - 1
+	if top < 0 {
+		return s.deliverBase(presented.base, mouse)
+	}
+	placed := presented.layers[top]
+	if !mouse.Pos.In(placed.area) {
+		switch mouse.Action {
+		case input.WheelUp, input.WheelDown, input.MouseMove:
+			return s.below(presented, top, mouse)
+		default:
+			return s.outside(mouse, placed.layer)
+		}
+	}
+
+	handled := s.deliver(placed, mouse)
+	if mouse.Action == input.MouseDown && handled {
+		s.held = placed.layer
+	}
+	// A pointer event inside a modal never activates what the modal covers, even when
+	// its content had no behavior for this particular event.
+	return true
+}
+
+func (s *Stack) below(presented stackPresentation, before int, mouse input.Mouse) bool {
+	for i := before - 1; i >= 0; i-- {
+		placed := presented.layers[i]
+		if mouse.Pos.In(placed.area) && s.deliver(placed, mouse) {
+			return true
+		}
+	}
+	return s.deliverBase(presented.base, mouse)
+}
+
+func (s *Stack) deliver(placed layerPlacement, mouse input.Mouse) bool {
+	local := mouse
+	local.Pos = mouse.Pos.Sub(placed.area.Min)
+	return placed.layer.Handle(local)
+}
+
+func (s *Stack) deliverBase(base Widget, mouse input.Mouse) bool {
+	handler, ok := base.(Interactive)
+	return ok && handler.Handle(mouse)
+}
+
 // Do runs one of the stack's actions by name, reporting whether it was one a stack
 // knows. See [Doer].
 func (s *Stack) Do(action keymap.Action) bool {
@@ -248,13 +303,15 @@ func (s *Stack) Do(action keymap.Action) bool {
 
 // outside deals with a mouse event beyond the top layer.
 func (s *Stack) outside(mouse input.Mouse, top Modal) bool {
-	if mouse.Action == input.MouseDown && !s.KeepOnClickOutside && !sticky(top) {
-		s.dismiss(top)
+	if mouse.Action == input.MouseDown {
+		if !s.KeepOnClickOutside && !sticky(top) {
+			s.dismiss(top)
+		}
+		// The press either dismissed the modal or was explicitly kept from doing so.
+		// In neither case may it activate something behind the modal as well.
 		return true
 	}
-	// A wheel or a move outside the layer belongs to whatever is under it: a modal
-	// does not stop the transcript behind it from scrolling.
-	return mouse.Action == input.MouseUp
+	return mouse.Action == input.MouseUp || mouse.Action == input.MouseDrag
 }
 
 // dismiss removes layer only while it is still the semantic top. An event routed
@@ -271,6 +328,9 @@ func (s *Stack) remove(at int) bool {
 		return false
 	}
 	layer := s.layers[at]
+	if s.held == layer {
+		s.held = nil
+	}
 	copy(s.layers[at:], s.layers[at+1:])
 	s.layers[len(s.layers)-1] = nil
 	s.layers = s.layers[:len(s.layers)-1]
@@ -307,6 +367,15 @@ func (s *Stack) Draw(v Frame) {
 type stackPresentation struct {
 	base   Widget
 	layers []layerPlacement
+}
+
+func (p stackPresentation) placed(layer Modal) (layerPlacement, bool) {
+	for _, placed := range p.layers {
+		if placed.layer == layer {
+			return placed, true
+		}
+	}
+	return layerPlacement{}, false
 }
 
 type layerPlacement struct {

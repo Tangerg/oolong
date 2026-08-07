@@ -6,21 +6,21 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Message is one finished thing somebody said, drawn into the terminal's own
-// scrollback.
+// Message is one finished thing somebody said, ready for a transcript or the
+// terminal's own scrollback.
 //
-// It is the other half of a streaming interface. What is still happening is the
-// block at the bottom; what is finished belongs to the terminal, where it can be
-// scrolled back to, selected, and read after the program has exited. A message is
-// what goes there, and it is measured before it is drawn because printing takes a
-// row count:
+// It is the stable half of a streaming interface. A recent message may remain in a
+// selectable transcript while interaction is worth its cost; an older one may be
+// committed to the terminal, where it survives the program. The same passive Block
+// works in both places and is measured before it is drawn because publication needs
+// a row count:
 //
 //	m := kit.Message{Theme: th, Speaker: "you", Body: line}
 //	rows := m.Measure(width)
 //	output.PrintRows(rows, m.Draw)
 //
-// Nothing here is retained. Once printed, the rows are the terminal's, which is why
-// this is a value and not a widget with state.
+// The value owns no lifecycle or routing state. Its transcript or printer decides
+// how long it remains live, which is why Message is a value and not a widget.
 type Message struct {
 	Theme Theme
 	// Speaker is who said it. Empty draws no label and no gutter.

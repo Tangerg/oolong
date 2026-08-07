@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
 
 // Transcript draws a session's output: the window of it that fits, the header pinned
@@ -19,6 +20,9 @@ type Transcript struct {
 	Content *headless.Transcript
 	// Scroll is where in it the window sits.
 	Scroll *headless.Scroll
+	// Keys maps scrolling actions. Nil reads through
+	// [headless.DefaultScrollKeys]. It is used only when Scroll is non-nil.
+	Keys *keymap.Map
 	// Selection picks out cells the user dragged over. Nil selects nothing.
 	Selection *headless.Selection
 	// Sticky pins a header above the window. Nil pins nothing.
@@ -216,12 +220,33 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 // is the program's and is made block by block with
 // [headless.Transcript.Finish].
 func (t *Transcript) Commit(p Printer) int {
+	return t.commit(p, -1)
+}
+
+// CommitN gives at most n finished leading blocks to p.
+//
+// It is the bounded-retention form: an application can keep a small recent window
+// selectable and searchable while transferring only the excess stable prefix. A
+// non-positive n commits nothing. [Transcript.Commit] remains the all-finished form.
+func (t *Transcript) CommitN(p Printer, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return t.commit(p, n)
+}
+
+func (t *Transcript) commit(p Printer, limit int) int {
 	if t.Content == nil || p == nil {
 		return 0
 	}
 	before := t.Content.StartRow()
+	committed := 0
 	gone := t.Content.Commit(func(b headless.Block, rows int) bool {
+		if limit >= 0 && committed >= limit {
+			return false
+		}
 		p.PrintRows(rows, b.Draw)
+		committed++
 		return true
 	})
 	if gone == 0 {
@@ -249,7 +274,8 @@ type Printer interface {
 	PrintRows(rows int, draw func(grid.View))
 }
 
-// Handle answers a mouse event over the transcript, reporting whether it took it.
+// Handle answers scrolling and selection over the transcript, reporting whether it
+// took the event.
 //
 // A press starts a selection, a drag moves its far end, a second press in the same
 // place takes the word and a third takes the row. That is what selecting text means
@@ -269,6 +295,9 @@ type Printer interface {
 // is handed. Whoever drew it is responsible for that, which for anything inside a
 // [headless.Container] is the container.
 func (t *Transcript) Handle(event input.Event) bool {
+	if t.Scroll != nil && t.Scroll.Handle(event, t.Keys) {
+		return true
+	}
 	ev, ok := event.(input.Mouse)
 	presented := t.presentation.Value()
 	if !ok || presented.content == nil || presented.selection == nil {

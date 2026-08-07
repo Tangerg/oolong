@@ -111,9 +111,13 @@ func TestTypingAndSendingReachesTheTerminal(t *testing.T) {
 	if err := s.Type("\r"); err != nil {
 		t.Fatal(err)
 	}
-	// The speaker label is only ever drawn by a printed message, so seeing it is
-	// seeing the transcript land in the terminal's own scrollback.
-	if err := s.Transcript().WaitWithin(settle, "you", "You said"); err != nil {
+	if err := s.Transcript().WaitWithin(settle, "Approve prompt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Type("\r"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transcript().WaitWithin(settle, "you", "Streaming first"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -191,7 +195,15 @@ func TestWhatWasPrintedSurvivesTheProgram(t *testing.T) {
 	if err := s.Type("hello there\r"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transcript().WaitWithin(settle, "hello there"); err != nil {
+	if err := s.Transcript().WaitWithin(settle, "Approve prompt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Type("\r"); err != nil {
+		t.Fatal(err)
+	}
+	// Waiting for the final retained paragraph also means earlier stable blocks have
+	// crossed the bounded window into terminal-owned scrollback.
+	if err := s.Transcript().WaitWithin(settle, "complete", "When this paragraph finishes"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Type("\x03"); err != nil {

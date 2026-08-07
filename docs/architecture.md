@@ -819,10 +819,8 @@ These contradict a `must` in this document and must be empty before v1:
 These are not current invariant violations. They are capabilities or end-to-end proof
 the system still needs:
 
-- **The canonical interface has not combined every required path yet.** The underlying
-  retention, ingestion, input, presentation and failure contracts have independent
-  proofs. Slice 1 still has to exercise them together with retained interaction, an
-  overlay, resize, cancellation and a real PTY path.
+- None currently known. Optional slices remain conditional; they are not missing v1
+  foundations until their stated evidence demonstrates the need.
 
 These are not invitations to independent framework-building refactors. Each item is
 owned by a named slice below so that the fix lands with its real caller, tests, and
@@ -836,9 +834,9 @@ to justify.
 
 | slice | closes or proves | completion evidence | v1 status |
 | --- | --- | --- | --- |
-| 1 | committed-payload retention, input failure, bounded stream ingress, end-to-end failure semantics | canonical stream, retention gates, fault host, PTY | required |
-| 2 | atomic committed geometry and presentation-state ownership | old/pending/new routing snapshot test across nested components | required |
-| 3 | compound headless ownership, shared semantics, and polished `kit` composition | the same pattern proven by two controls | required |
+| 1 | committed-payload retention, input failure, bounded stream ingress, end-to-end failure semantics | canonical stream, retention gates, fault host, PTY | complete (required) |
+| 2 | atomic committed geometry and presentation-state ownership | old/pending/new routing snapshot test across nested components | complete (required) |
+| 3 | compound headless ownership, shared semantics, and polished `kit` composition | the same pattern proven by two controls | complete (required) |
 | 4 | typed computed appearance, only if fixed themes stop scaling | two unrelated controls and one application override | optional and additive |
 | 5 | declarative authoring, only if real synchronization bugs justify it | two real applications, identity and lifetime specification, benchmarks | optional and additive |
 
@@ -861,7 +859,7 @@ Build or extend a worked interface that combines:
 This is the architecture probe. Any new abstraction must make this interface simpler
 without teaching lower packages what a chat, model, approval, or command is.
 
-`Host.Input` already returns one causal `EventSource`: channel closure is followed by
+`Host.Input` returns one causal `EventSource`: channel closure is followed by
 an `Err` result, so clean EOF and known transport failure stay distinct without
 coupling `program` to a concrete host. `ByteIngress` now supplies the lossless byte
 policy: its subprocess caller proves batching, a pending-byte bound, producer
@@ -869,12 +867,24 @@ backpressure, ordered completion and failure, and owner cancellation without cha
 general dispatch.
 `Transcript.Commit` already physically releases committed payload and per-block
 placement records while preserving an aggregate live coordinate base; its deterministic
-retention test and fresh-process `N` versus `2N` GC test are gates the rest of this
-slice must keep green. Fault injection now covers source and input failure, an
+retention test and fresh-process `N` versus `2N` GC test are gates this slice must
+keep green. Fault injection covers source and input failure, an
 ambiguous partial output write, no writes after failure, drain timeout, capability
-absence, bounded close, and best-effort real-terminal teardown. The remaining work in
-this slice is the combined interface above. A demonstration that merely renders the
-right final screen while retaining the session is not complete.
+absence, bounded close, and best-effort real-terminal teardown.
+
+This slice is complete. [`examples/streaming`](../examples/streaming) is the single
+canonical path rather than a parallel showcase: approval transfers focus before the
+source starts; the source writes only through `ByteIngress`; `markdown.Stream` turns
+the changing suffix into stable blocks; and `Transcript.CommitN` transfers only the
+excess finished prefix while retaining a fixed recent window for selection, pointer
+and scroll interaction. Cancellation is a distinct domain result from source failure,
+and teardown cancels the source through ingress ownership. Deterministic example tests
+prove approval ordering, stable/open transitions, the retention bound, accepted bytes
+before failure, and cancellation. Component tests prove wheel and selection routing;
+the real-PTY suite proves resize, idle silence, mode restoration, scrollback survival
+and the complete approval-to-publication path. The program and terminal fault suites
+remain the executable evidence for input close, ambiguous partial writes, drain
+timeout, missing optional capabilities and independent teardown attempts.
 
 ### Slice 2: remove presentation-state leakage
 

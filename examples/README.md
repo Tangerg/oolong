@@ -16,7 +16,7 @@ go run ./examples/hello        # from the repository root, which is a Go workspa
 | [`dashboard`](dashboard) | Tabs, a table with a cursor whose header sorts it when pressed, progress bars for work with a total and a spinner for work without one. |
 | [`run`](run) | Driving another program: its coloured output read back into styled text, every finished line printed into the terminal's own scrollback, and the terminal handed to `$EDITOR` and taken back. |
 | [`read`](read) | An answer arriving a few characters at a time. What is certainly finished is published once and never redrawn; what is still being written is re-rendered every chunk. |
-| [`streaming`](streaming) | The complete inline chat shape: composer, live status, a word-at-a-time reply, and finished messages moved permanently into terminal scrollback. |
+| [`streaming`](streaming) | The canonical inline shape: bounded background ingress, an open markdown tail, a selectable recent transcript, stable publication to terminal scrollback, approval, cancellation, failure, resize, and real-PTY proof. |
 
 ## Two things they are all doing
 
