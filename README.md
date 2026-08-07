@@ -180,6 +180,15 @@ not replay time that has already passed.
 was taken from whom and what was left, what is built, what is deliberately not here,
 what is missing, and what its known limits are.
 
+[docs/architecture.md](docs/architecture.md) ([简体中文](docs/architecture.zh-CN.md)) is
+the target architecture: the streaming lifetime and ownership model, dependency and
+API rules, the parts taken from frontend and Flutter systems, and the executable gates
+future abstractions have to pass on the way to v1.
+
+[docs/brand.md](docs/brand.md) ([简体中文](docs/brand.zh-CN.md)) records the name,
+positioning, voice, visual direction, and the boundary that keeps brand metaphors out
+of the Go API.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
