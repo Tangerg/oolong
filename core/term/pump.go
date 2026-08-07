@@ -29,8 +29,9 @@ type pump struct {
 	raw <-chan []byte
 	// readErr carries the end of the input, by error or by end of file.
 	readErr <-chan error
-	// resized fires when the terminal's size may have changed.
-	resized <-chan struct{}
+	// resized carries the newest measured terminal geometry. Discovery belongs to
+	// the platform watcher; the pump owns only its place in the ordered event stream.
+	resized <-chan input.Resize
 	// stop asks the pump to return.
 	stop <-chan struct{}
 
@@ -53,8 +54,6 @@ type pump struct {
 	// is why it is atomic and why it is a pointer: the flag belongs to the terminal
 	// and the reading of it belongs here.
 	pasting *atomic.Bool
-	// size reports the terminal's current size.
-	size func() (w, h int, err error)
 	// grace overrides escGrace, for tests.
 	grace time.Duration
 	// now overrides the clock, for tests. It stamps keystrokes and mouse reports with
@@ -114,11 +113,9 @@ func (p *pump) run() error {
 			if !p.deliver(parser.Flush()) {
 				return nil
 			}
-		case <-p.resized:
-			if w, h, err := p.size(); err == nil {
-				if !p.deliver([]input.Event{input.Resize{Width: w, Height: h}}) {
-					return nil
-				}
+		case resized := <-p.resized:
+			if !p.deliver([]input.Event{resized}) {
+				return nil
 			}
 		case err := <-p.readErr:
 			// The input is over. Bytes that arrived before it ended are still the

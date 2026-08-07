@@ -11,7 +11,8 @@ exported API, read the module and ring boundaries in the
   also test their declared Go 1.25 floor without the workspace; higher modules
   still depend on existing Oolong tags whose own directives require 1.26.
 - `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `govulncheck`
-  (v1.6.0).
+  (v1.6.0). Release checks pin
+  `golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743`.
 - Node.js 22 or newer when changing Markdown.
 - Tests written with the standard `testing` package.
 
@@ -87,7 +88,7 @@ Any exported change must include:
 
 - A comment that defines behaviour and edge cases, not just restates the name.
 - A test in the external package (`foo_test`) showing it from a caller's side.
-  Tests go inside a package only in `internals_test.go`, and only for properties
+  Tests go inside a package only in `*_internals_test.go`, and only for properties
   with no public form.
 - Cancellation and concurrency semantics where they apply.
 - A [CHANGELOG.md](./CHANGELOG.md) entry when existing callers must change.
@@ -101,17 +102,21 @@ than routine cleanup.
 Tags are immutable dependency promises; never move or recreate one that has been
 published. A change spanning modules is released from the bottom upward:
 
-1. Verify and tag `core/vX.Y.Z`.
-2. Update `components` and `markdown` to that published core version, run with
+1. Before each tag, dispatch the `ci` workflow with the public module and proposed
+   canonical version. Its pinned `gorelease` compares the checkout with that module's
+   preceding immutable tag. Pre-1.0 changes are reported; from v1 onward an
+   incompatible proposal fails. A pushed public-module tag runs the same check again.
+2. Verify and tag `core/vX.Y.Z`.
+3. Update `components` and `markdown` to that published core version, run with
    `GOWORK=off`, then tag the changed modules. Independent changed modules such as
    `highlight` and `ptytest` can be tagged in the same release once their own graphs
    pass.
-3. Update `examples` to the published module versions and require a plain
+4. Update `examples` to the published module versions and require a plain
    `GOWORK=off go mod tidy -diff` plus `go test ./...` to pass.
 
-No release tag may contain a `replace` directive. Until step 1 exists, failure to
-resolve a newly added core package from the previous tag is expected published-graph
-state, not a reason to commit a local replacement.
+No release tag may contain a `replace` directive. Until the lower module's new tag
+exists, failure to resolve one of its newly added packages from the previous tag is
+expected published-graph state, not a reason to commit a local replacement.
 
 ## Tests
 

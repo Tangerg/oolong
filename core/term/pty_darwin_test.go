@@ -5,6 +5,7 @@ package term_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"unsafe"
 
@@ -52,4 +53,19 @@ func openPTY() (primary, replica *os.File, err error) {
 		return nil, nil, err
 	}
 	return os.NewFile(uintptr(fd), "/dev/ptmx"), os.NewFile(uintptr(rfd), path), nil
+}
+
+func resizePTY(replica *os.File, width, height int) error {
+	const maxDimension = int(^uint16(0))
+	if width < 0 || width > maxDimension || height < 0 || height > maxDimension {
+		return fmt.Errorf("pty size %dx%d is outside uint16", width, height)
+	}
+	size := &unix.Winsize{Col: uint16(width), Row: uint16(height)}
+	if err := unix.IoctlSetWinsize(int(replica.Fd()), unix.TIOCSWINSZ, size); err != nil {
+		return err
+	}
+	// The test replica is deliberately not this process's controlling terminal, so
+	// the kernel has no foreground process group to notify. Deliver the same signal
+	// a real controlling terminal would send after the ioctl.
+	return unix.Kill(os.Getpid(), unix.SIGWINCH)
 }

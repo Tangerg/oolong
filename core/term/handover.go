@@ -158,12 +158,12 @@ func (t *Terminal) resume() error {
 	}
 	t.handed.release()
 
-	// The same path a window resize takes, rather than an event pushed onto the
-	// queue from here: the pump owns that channel and closes it, and a session whose
-	// input ended while it was handed over would be sent to on a closed one.
-	select {
-	case t.resized <- struct{}{}:
-	default:
+	// The same latest-value mailbox a window resize uses, rather than the public
+	// event queue: the pump owns and closes that queue. Report even an unchanged size
+	// because foreground signals belonged to the child while it held the terminal,
+	// and the program must rebuild the screen whose contents the child replaced.
+	if width, height, err := t.Size(); err == nil {
+		t.reportResize(width, height)
 	}
 	return errors.Join(errs...)
 }

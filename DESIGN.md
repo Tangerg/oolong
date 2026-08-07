@@ -523,9 +523,12 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   which reads the same, and a link written as a reference is published before its
   address arrives, which comes out as the words without the link. Both are the price
   of showing an answer as it is written instead of after it is finished.
-- **Windows has no resize events.** The console reports resizing through its own input
-  API rather than a signal. A session gets its opening size and nothing after, unless a
-  host delivers sizes itself. Everything else is portable.
+- **Windows resize observation is sampled.** The console reports resizing through the
+  input handle rather than a signal, and that handle already has one VT-byte reader.
+  A second record reader would split input ownership, so the terminal adapter samples
+  console geometry every 100 milliseconds, coalesces unchanged sizes, and stops the
+  observer with the session. Unix still uses `SIGWINCH`; both paths produce the same
+  `input.Resize` stream.
 - **`fuzzy` is not a full alignment search.** It tries the first placement and every
   placement that begins a word, and keeps the best. A better placement in a candidate
   with no word boundary to hint at it can be missed. Palette-sized candidate lists make

@@ -29,10 +29,9 @@ func TestOpenWithoutATerminal(t *testing.T) {
 type driver struct {
 	raw     chan []byte
 	readErr chan error
-	resized chan struct{}
+	resized chan input.Resize
 	stop    chan struct{}
 	events  chan input.Event
-	size    func() (int, int, error)
 	result  chan error
 	done    chan struct{}
 }
@@ -41,16 +40,15 @@ func newDriver(grace time.Duration) *driver {
 	d := &driver{
 		raw:     make(chan []byte, 4),
 		readErr: make(chan error, 1),
-		resized: make(chan struct{}, 1),
+		resized: make(chan input.Resize, 1),
 		stop:    make(chan struct{}),
 		events:  make(chan input.Event, 64),
-		size:    func() (int, int, error) { return 80, 24, nil },
 		result:  make(chan error, 1),
 		done:    make(chan struct{}),
 	}
 	p := &pump{
 		raw: d.raw, readErr: d.readErr, resized: d.resized, stop: d.stop,
-		out: d.events, size: func() (int, int, error) { return d.size() }, grace: grace,
+		out: d.events, grace: grace,
 	}
 	go func() {
 		defer close(d.done)
@@ -129,22 +127,11 @@ func TestPumpReportsResizes(t *testing.T) {
 	d := newDriver(10 * time.Millisecond)
 	defer close(d.stop)
 
-	d.size = func() (int, int, error) { return 120, 40, nil }
-	d.resized <- struct{}{}
+	d.resized <- input.Resize{Width: 120, Height: 40}
 	got := d.next(t).(input.Resize)
 	if got.Width != 120 || got.Height != 40 {
 		t.Fatalf("resize = %+v, want 120x40", got)
 	}
-}
-
-func TestPumpIgnoresAResizeItCannotMeasure(t *testing.T) {
-	d := newDriver(10 * time.Millisecond)
-	defer close(d.stop)
-
-	d.size = func() (int, int, error) { return 0, 0, errors.New("no size") }
-	d.resized <- struct{}{}
-	// Reporting a size of zero would have every widget lay out into nothing.
-	d.silent(t, 40*time.Millisecond)
 }
 
 func TestEveryModeTurnedOnIsTurnedBackOff(t *testing.T) {

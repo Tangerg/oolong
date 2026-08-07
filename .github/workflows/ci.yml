@@ -3,7 +3,24 @@ name: ci
 on:
   push:
     branches: [main]
+    tags:
+      - "core/v*"
+      - "components/v*"
+      - "markdown/v*"
+      - "highlight/v*"
+      - "ptytest/v*"
   pull_request:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: Public module to validate before tagging
+        required: true
+        type: choice
+        options: [core, components, markdown, highlight, ptytest]
+      version:
+        description: Proposed canonical version, for example v1.2.3
+        required: true
+        type: string
   # A library nobody has touched for a month can still be broken by a new Go
   # release or a dependency's. Finding that out on a schedule is cheaper than
   # finding it out from the first person who tries to use it.
@@ -23,13 +40,14 @@ concurrency:
 # workspace is a module CI never sees, which the arch test also refuses.
 env:
   MODULES: core components markdown highlight internal ptytest examples
+  PUBLIC_MODULES: core components markdown highlight ptytest
 
 jobs:
   test:
     # All three, because the library claims to be portable and a claim nothing
-    # checks is a claim that stops being true quietly. Windows has no resize
-    # events and no pty here — both are documented limits, not reasons to stop
-    # building there.
+    # checks is a claim that stops being true quietly. Windows observes resize by
+    # polling rather than SIGWINCH and has no pty here; both source paths still need
+    # to build and their deterministic contracts still need to run.
     strategy:
       fail-fast: false
       matrix:
@@ -110,6 +128,75 @@ jobs:
               GOWORK=off go test -count=1 ./...
             )
           done
+
+  compatibility:
+    name: public API release contract
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A release-tag check compares with the preceding immutable module tag.
+          # A shallow checkout cannot know which tag that is.
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+
+      # gorelease owns both halves of this promise: exported Go API compatibility
+      # and the module/dependency facts that make a release usable. Pinning the
+      # x/exp revision keeps that interpretation from changing under an unrelated
+      # pull request.
+      - name: Install gorelease
+        run: go install golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743
+
+      - name: Compare the proposed module with its released baseline
+        shell: bash
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          module="${{ inputs.module }}"
+          version="${{ inputs.version }}"
+          current_tag=""
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            module="${GITHUB_REF_NAME%%/v*}"
+            version="v${GITHUB_REF_NAME#*/v}"
+            current_tag="$GITHUB_REF_NAME"
+          fi
+
+          case " $PUBLIC_MODULES " in
+            *" $module "*) ;;
+            *) echo "unknown public module: $module" >&2; exit 2 ;;
+          esac
+
+          previous=""
+          while IFS= read -r candidate; do
+            if [[ "$candidate" == "$current_tag" ]]; then
+              continue
+            fi
+            previous="$candidate"
+            break
+          done < <(git tag --list "$module/v*" --sort=-v:refname)
+          base=none
+          if [[ -n "$previous" ]]; then
+            base="v${previous#*/v}"
+          fi
+
+          cd "$module"
+          # Major zero is the explicitly unstable development period: report
+          # every API change, but do not pretend patch-number compatibility is
+          # promised. From v1 onward the proposed tag must satisfy Go's
+          # compatibility rules against the preceding immutable release.
+          if [[ "$version" == v0.* ]]; then
+            # With no baseline gorelease validates the proposed canonical version
+            # without applying stable-series compatibility policy.
+            gorelease -base=none -version="$version" >/dev/null
+            gorelease -base="$base"
+          else
+            gorelease -base="$base" -version="$version"
+          fi
 
   floor:
     name: Go 1.25 floor

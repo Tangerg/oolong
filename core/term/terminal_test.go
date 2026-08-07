@@ -149,6 +149,38 @@ func TestATerminalReportsItsSizeAndItsOpeningResize(t *testing.T) {
 	}
 }
 
+func TestATerminalReportsALaterResize(t *testing.T) {
+	_, replica := pty(t)
+	tty, err := term.OpenOn(replica, replica, term.Options{})
+	if err != nil {
+		t.Fatalf("opening a pty as a terminal: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+	<-tty.Events() // opening geometry
+
+	width, height, err := tty.Size()
+	if err != nil {
+		t.Fatalf("asking the opening size: %v", err)
+	}
+	wantWidth, wantHeight := width+1, height+1
+	if err := resizePTY(replica, wantWidth, wantHeight); err != nil {
+		t.Skipf("no later resize source here: %v", err)
+	}
+
+	select {
+	case event := <-tty.Events():
+		resized, ok := event.(input.Resize)
+		if !ok {
+			t.Fatalf("event after resize = %#v, want input.Resize", event)
+		}
+		if resized.Width != wantWidth || resized.Height != wantHeight {
+			t.Fatalf("resize = %dx%d, want %dx%d", resized.Width, resized.Height, wantWidth, wantHeight)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a later terminal resize never reached the event stream")
+	}
+}
+
 func TestATerminalsWriterReachesIt(t *testing.T) {
 	tty, watch := open(t, term.Options{})
 	read(t, watch, 200*time.Millisecond)

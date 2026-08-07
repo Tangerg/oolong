@@ -13,6 +13,13 @@ point of tagging them low rather than not at all.
 
 ### Added
 
+- **Architecture invariants now have complete executable gates.** Every production
+  `Draw` receiver in `headless` and `kit` is classified as a stateful contract or an
+  immutable presentation value; stateful cases draw twice, preserve their semantic
+  projection, and emit identical styled cells and cursor state. The release workflow
+  now pins `gorelease`, compares a proposed public module with its preceding immutable
+  tag, reports pre-1.0 changes, and rejects incompatible v1+ proposals.
+
 - **Bounded lossless byte ingress.** `program.ByteIngress` batches adjacent writes
   behind at most one owner task, bounds pending producer data, applies backpressure,
   orders a final error after accepted bytes, and cancels with its dispatcher. The
@@ -65,6 +72,12 @@ point of tagging them low rather than not at all.
   `Committed`, `CommittedRows`, and row-cache `Generation` model is removed.
 
 ### Fixed
+
+- **Windows sessions now receive later resize events.** Unix retains its owned
+  `SIGWINCH` subscription; Windows samples console geometry inside the terminal
+  adapter, coalesces unchanged observations, and stops the observer with the session.
+  Both paths feed the same ordered `input.Resize` stream without splitting ownership
+  of the console input handle.
 
 - **Modal pointer ownership now follows the visible stack.** A layer that accepts a
   press keeps its drag and release after the pointer leaves its box. Wheel and move

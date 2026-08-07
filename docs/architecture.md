@@ -628,6 +628,15 @@ Degradation may reduce fidelity, never correctness:
 Fallbacks must be local and explicit. A lower package reports the fact it knows; it
 does not guess the product-level substitute.
 
+Window size is session-critical input, not optional discovery. On every supported
+platform, a size change after opening must eventually enter the same ordered input
+stream as the opening `Resize`. A native signal is preferred. Where the platform has
+no independent signal, the terminal adapter must poll or synthesize changes without
+creating a second owner of the input handle. Observations may be coalesced because
+dimensions are replaceable state, but the newest observed size must not be lost. A
+platform with neither a reliable signal nor a bounded, stoppable observer is not a
+supported terminal host.
+
 ## 10. Executable architecture
 
 An invariant that code can violate needs an executable guard. Prose explains the
@@ -640,11 +649,12 @@ invariant it makes enforceable.
 | dependency direction and vocabulary | `internal/arch` derives forbidden imports from the declared DAG and checks module promises, documentation references, completeness, and cycles | every CI run |
 | bounded live lifetime, section 3.2 | a deterministic component test proves that commit removes strong payload references and per-block placement records; a fresh-process stress test compares `N` and `2N` large committed streams after GC and rejects retained-heap growth proportional to `N` | required by slice 1 and every transcript implementation |
 | incremental lossless ingress | burst, cancellation, close, partial-tail, and producer-faster-than-consumer tests prove ordering, batching, the declared bound, and the absence of drops | required by slice 1 |
-| observationally pure measurement and drawing | every stateful component draws twice from the same meaningful state; semantic state is unchanged and the produced frame is identical, apart from explicitly inspected private cache state | component test suites |
+| observationally pure measurement and drawing | [`headless`](../components/headless/draw_purity_internals_test.go) and [`kit`](../components/kit/draw_purity_internals_test.go) classify every production `Draw` receiver; every stateful receiver draws twice from the same meaningful state, preserves its semantic projection, and produces identical terminal bytes, styles, and cursor state | every component test run; an unclassified receiver fails |
 | one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
-| idle work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes | every CI run |
+| supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
+| idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
 | failure and ownership settlement | [`program` fault tests](../core/program/program_test.go) cover input cause, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](../core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](../core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
-| public module compatibility | every module builds without `go.work`; release CI compares each public API with its v1 baseline and checks the declared Go floor on every supported source set | required before and after v1 |
+| public module compatibility | every module builds without `go.work`; the release workflow runs the pinned `golang.org/x/exp/cmd/gorelease` against the preceding immutable module tag, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | manual release check before tagging and every public module tag |
 
 The bounded-memory gate deliberately has two parts. Internal reference and record
 counts are deterministic and are the primary proof. The black-box heap test runs in
@@ -669,7 +679,10 @@ The desired complexity is:
 - amortized work proportional to each incoming chunk plus the short open tail;
 - drawing proportional to the active viewport and visible components, not session age;
 - resize proportional to active retained content, never terminal-owned history;
-- an idle interface parked, writing no bytes and running no unconditional frame clock;
+- an idle interface doing no drawing or publication work, writing no bytes, and
+  running no unconditional frame clock; a platform that cannot signal required
+  external state may use one bounded observer that emits only changes and stops with
+  the session;
 - at most one pending tick per timer;
 - repeated measurement or wrapping avoided when the inputs have not changed.
 
@@ -789,7 +802,8 @@ Pre-1.0 ends only when all of the following are true:
    an incompatible contract change during its stabilization.
 4. Every exported identifier in every public module has an ownership, zero-value,
    error, concurrency, and dependency-direction review. Public API baselines are
-   recorded and release CI compares against them.
+   established by the immutable module tags, and the pinned `gorelease` release check
+   compares every proposal against its preceding baseline.
 5. Each module builds and tests at its declared Go floor with `GOWORK=off`, release
    order is rehearsed from dependency leaves upward, and the upgrade set is documented.
 
@@ -804,8 +818,9 @@ bounded transcript release, causal input streams, bounded byte ingress, fault-in
 ownership settlement, atomic component-side presentation snapshots, transactional
 scroll and transcript reflow, the live-widget/passive-block distinction, the one-owner
 runtime, compound dialog and tabs controllers, structural component semantics,
-incremental markdown, clipped cell views, consumer-defined capabilities, and the
-enforced dependency DAG are assets to preserve.
+incremental markdown, clipped cell views, cross-platform resize observation,
+consumer-defined capabilities, executable drawing-purity classification, release API
+checks, and the enforced dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 

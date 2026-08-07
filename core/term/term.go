@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"image"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -94,11 +93,11 @@ type Terminal struct {
 	// goroutine's business — a picture is usually fetched from somewhere else.
 	pictures atomic.Uint32
 
-	winch    chan os.Signal
-	resized  chan struct{}
-	stop     chan struct{}
-	pumpDone chan struct{}
-	fanDone  chan struct{}
+	resized    chan input.Resize
+	resizeMu   sync.Mutex
+	stop       chan struct{}
+	pumpDone   chan struct{}
+	resizeDone chan struct{}
 
 	closeOnce sync.Once
 	closeErr  error
@@ -147,13 +146,12 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 			focus:     opts.Focus,
 			keyboard:  opts.Keyboard,
 		},
-		oldState: oldState,
-		events:   make(chan input.Event, 64),
-		winch:    make(chan os.Signal, 1),
-		resized:  make(chan struct{}, 1),
-		stop:     make(chan struct{}),
-		pumpDone: make(chan struct{}),
-		fanDone:  make(chan struct{}),
+		oldState:   oldState,
+		events:     make(chan input.Event, 64),
+		resized:    make(chan input.Resize, 1),
+		stop:       make(chan struct{}),
+		pumpDone:   make(chan struct{}),
+		resizeDone: make(chan struct{}),
 	}
 
 	if _, err := out.WriteString(t.modes.enter()); err != nil {
@@ -169,11 +167,12 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 		return nil, wakeErr
 	}
 	t.waker = waker
-	notifyResize(t.winch)
 
 	// The size is delivered as an event rather than left to be asked for, so a
 	// session learns its size the same way it learns about every later change.
+	var opening dimensions
 	if w, h, err := t.Size(); err == nil {
+		opening = knownDimensions(w, h)
 		t.events <- input.Resize{Width: w, Height: h}
 	}
 
@@ -194,9 +193,9 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
-		out: t.events, parser: parser, early: early, pasting: &t.pasting, size: t.Size,
+		out: t.events, parser: parser, early: early, pasting: &t.pasting,
 	}
-	go t.fanResize()
+	t.startResizeWatcher(opening)
 	go func() {
 		defer close(t.pumpDone)
 		t.inputErr = p.run()
@@ -455,14 +454,13 @@ func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
 // write the restore sequences must not be a reason to skip leaving raw mode.
 func (t *Terminal) Close() error {
 	t.closeOnce.Do(func() {
-		signal.Stop(t.winch)
 		close(t.stop)
 		// The reader is waiting for the terminal to say something, and nothing will:
 		// waking it is what lets it see that the session is over. It is also what
 		// releases a reader parked mid-handover, so a session closed while the
 		// terminal is somebody else's still ends.
 		t.waker.wake()
-		<-t.fanDone
+		<-t.resizeDone
 
 		// Frames first: the writer may still hold one, and writing it after the
 		// modes have been put back would draw onto the user's restored screen.
@@ -551,24 +549,6 @@ func (t *Terminal) read(raw chan<- []byte, readErr chan<- error) {
 		case <-t.stop:
 			return
 		default:
-		}
-	}
-}
-
-// fanResize turns resize signals into wake-ups the pump can select on, collapsing
-// a burst of them into one. A drag of the window edge produces dozens; the size is
-// read once, after.
-func (t *Terminal) fanResize() {
-	defer close(t.fanDone)
-	for {
-		select {
-		case <-t.winch:
-			select {
-			case t.resized <- struct{}{}:
-			default:
-			}
-		case <-t.stop:
-			return
 		}
 	}
 }

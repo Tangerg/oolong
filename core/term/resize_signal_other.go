@@ -1,12 +1,13 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package term
 
-import "os"
-
-// notifyResize does nothing where the operating system has no resize signal.
-//
-// Windows reports console resizing through its own input API rather than through a
-// signal. A session there still gets its opening size event, and a host that owns
-// the console can deliver later sizes itself.
-func notifyResize(chan<- os.Signal) {}
+// startResizeWatcher has no platform source outside the supported Unix and Windows
+// families. It still participates in the terminal lifetime so Close has one
+// shutdown protocol on every source set.
+func (t *Terminal) startResizeWatcher(dimensions) {
+	go func() {
+		defer close(t.resizeDone)
+		<-t.stop
+	}()
+}
