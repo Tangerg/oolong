@@ -20,6 +20,15 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Dialog and tabs are controller-owned compound controls.** `headless.Dialog`
+  now owns open state, stack membership and focus restoration through distinct
+  content and trigger parts; `headless.Tabs` owns an encapsulated set of tab parts
+  and selection. Both have explicit controlled and uncontrolled constructors and
+  expose typed structural semantics. `kit.NewDialog` and `kit.NewTabs` provide the
+  polished, themeable short path while leaving their headless controller and
+  appearance parts reachable. The old direct `kit.Dialog` modal and public
+  `headless.Tabs.Items` mutation paths are removed.
+
 - **Live components now commit presentation state atomically.** `headless.Widget`
   draws into a transactional `Frame`, and `headless.Root` is the program boundary
   that commits every nested `Snapshot` only after a complete logical draw. Containers,

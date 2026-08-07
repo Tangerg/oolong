@@ -10,16 +10,72 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
-// Dialog is a framed layer for a [headless.Stack]: a titled box with something
-// inside it, dimming what it covers.
+// Dialog is the polished composition of a [headless.Dialog] controller and its
+// appearance part.
 //
-// It is the appearance half of the modal. The behaviour — which layer has the
-// keyboard, what escape does, what a click outside means — is the stack's, and
-// none of it is here. What is here is a border, a palette and a shade, which is
-// exactly the set of decisions a product eventually has its own opinion about.
+// The common call site needs only a stack, theme, glyphs, title and body. Controller
+// and Panel stay public so an application can extend behavior or appearance without
+// forking this composition.
 type Dialog struct {
+	Controller *headless.Dialog
+	Panel      *DialogPanel
+}
+
+// NewDialog constructs an uncontrolled dialog with kit defaults.
+func NewDialog(
+	stack *headless.Stack,
+	theme Theme,
+	glyphs Glyphs,
+	title string,
+	body headless.Widget,
+) *Dialog {
+	panel := &DialogPanel{Theme: theme, Glyphs: glyphs, Body: body}
+	controller := headless.NewDialog(stack, title, panel)
+	panel.Of = controller
+	return &Dialog{Controller: controller, Panel: panel}
+}
+
+// NewControlledDialog constructs a kit dialog whose open state is caller-owned.
+func NewControlledDialog(
+	stack *headless.Stack,
+	open headless.Accessor[bool],
+	theme Theme,
+	glyphs Glyphs,
+	title string,
+	body headless.Widget,
+) *Dialog {
+	panel := &DialogPanel{Theme: theme, Glyphs: glyphs, Body: body}
+	controller := headless.NewControlledDialog(stack, open, title, panel)
+	panel.Of = controller
+	return &Dialog{Controller: controller, Panel: panel}
+}
+
+// Show opens the dialog.
+func (d *Dialog) Show() { d.Controller.Show() }
+
+// Dismiss closes the dialog and restores focus below it.
+func (d *Dialog) Dismiss() { d.Controller.Dismiss() }
+
+// Open reports whether the dialog is open.
+func (d *Dialog) Open() bool { return d.Controller.Open() }
+
+// Trigger constructs a headless activation part for this dialog.
+func (d *Dialog) Trigger(label string, of headless.Widget) *headless.DialogTrigger {
+	return d.Controller.Trigger(label, of)
+}
+
+// Semantics returns the underlying structural semantic projection.
+func (d *Dialog) Semantics() headless.SemanticNode { return d.Controller.Semantics() }
+
+// DialogPanel is the kit appearance part of a [headless.Dialog].
+//
+// The behavior — open state, focus restoration, escape and outside-click policy — is
+// owned below by the controller and stack. This part owns only border, palette,
+// placement and body composition.
+type DialogPanel struct {
+	// Of supplies the semantic title. [NewDialog] wires it automatically.
+	Of    *headless.Dialog
 	Theme Theme
-	Title string
 	// Where the dialog goes. The zero value centres it and fills what the margin
 	// leaves, which is what a dialog with a lot in it wants.
 	Where layout.Placement
@@ -41,10 +97,10 @@ type Dialog struct {
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
-func (d *Dialog) Place(image.Point) layout.Placement { return d.Where }
+func (d *DialogPanel) Place(image.Point) layout.Placement { return d.Where }
 
 // Handle passes the event to the body, if the body answers input at all.
-func (d *Dialog) Handle(ev input.Event) bool {
+func (d *DialogPanel) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		content := d.content.Value()
 		if content.Empty() || !mouse.Pos.In(content) {
@@ -65,7 +121,7 @@ func (d *Dialog) Handle(ev input.Event) bool {
 // on. Without this the news stops at the frame: the dialog is the layer, so a form
 // inside one would never be told it is being typed at, and a field would draw no
 // caret while taking every keystroke.
-func (d *Dialog) Focus(has bool) {
+func (d *DialogPanel) Focus(has bool) {
 	if body, ok := d.Body.(headless.Focusable); ok {
 		body.Focus(has)
 	}
@@ -80,10 +136,10 @@ func (d *Dialog) Focus(has bool) {
 // What it paints is the theme's, not the dialog's. Dimming is part of a look and
 // varies with it — a light interface takes less of it than a dark one — so it is
 // held where the rest of the look is, and a dialog given no theme dims nothing.
-func (d *Dialog) Backdrop(v grid.View) { d.Theme.Scrim.Over(v) }
+func (d *DialogPanel) Backdrop(v grid.View) { d.Theme.Scrim.Over(v) }
 
 // Draw paints the frame and the body.
-func (d *Dialog) Draw(v headless.Frame) {
+func (d *DialogPanel) Draw(v headless.Frame) {
 	d.content.Stage(v, image.Rectangle{})
 	if w, h := v.Size(); w <= 0 || h <= 0 {
 		return
@@ -93,7 +149,7 @@ func (d *Dialog) Draw(v headless.Frame) {
 		Glyphs:      d.Glyphs,
 		Border:      d.Border,
 		Padding:     layout.Symmetric(0, 1),
-		Title:       d.Title,
+		Title:       d.title(),
 		TitleAlign:  layout.Start,
 		Footer:      d.footer(),
 		FooterAlign: layout.End,
@@ -107,7 +163,7 @@ func (d *Dialog) Draw(v headless.Frame) {
 }
 
 // footer is the hints, spelled the way a border can hold them.
-func (d *Dialog) footer() string {
+func (d *DialogPanel) footer() string {
 	out := ""
 	for _, action := range d.Hints {
 		bound := d.Keys.Keys(action)
@@ -120,4 +176,11 @@ func (d *Dialog) footer() string {
 		out += bound[0].String() + " " + actionLabel(action)
 	}
 	return out
+}
+
+func (d *DialogPanel) title() string {
+	if d.Of == nil {
+		return ""
+	}
+	return d.Of.Title()
 }

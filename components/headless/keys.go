@@ -72,6 +72,9 @@ const (
 // Close is what dismisses the top layer of a [Stack].
 const Close keymap.Action = "close"
 
+// Activate invokes a button-like control such as a [DialogTrigger].
+const Activate keymap.Action = "activate"
+
 // The actions a [Tree] answers to, on top of the list movement through its rows.
 //
 // They are a pair rather than one "toggle", because what a reader means by the right
@@ -189,6 +192,14 @@ func DefaultStackKeys() *keymap.Map {
 	return m
 }
 
+// DefaultActivationKeys are the two conventional ways to invoke a focused control.
+func DefaultActivationKeys() *keymap.Map {
+	m := &keymap.Map{}
+	m.Bind(Activate, input.Chord{Code: input.Enter})
+	m.Bind(Activate, input.Chord{Code: input.Character, Rune: ' '})
+	return m
+}
+
 // DefaultContainerKeys are the keystrokes that walk the keyboard around an interface.
 //
 // Shift+Tab and not backtab: they are one keystroke, and [input] reports them as one —
@@ -274,6 +285,7 @@ var (
 	scrollKeys      = sync.OnceValue(DefaultScrollKeys)
 	completionKeys  = sync.OnceValue(DefaultCompletionKeys)
 	stackKeys       = sync.OnceValue(DefaultStackKeys)
+	activationKeys  = sync.OnceValue(DefaultActivationKeys)
 	containerKeys   = sync.OnceValue(DefaultContainerKeys)
 	treeKeys        = sync.OnceValue(DefaultTreeKeys)
 	tabsKeys        = sync.OnceValue(DefaultTabsKeys)

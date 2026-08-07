@@ -797,8 +797,9 @@ Most of the existing foundation already points in this direction: inline publica
 bounded transcript release, causal input streams, bounded byte ingress, fault-injected
 ownership settlement, atomic component-side presentation snapshots, transactional
 scroll and transcript reflow, the live-widget/passive-block distinction, the one-owner
-runtime, incremental markdown, clipped cell views, consumer-defined capabilities, and
-the enforced dependency DAG are assets to preserve.
+runtime, compound dialog and tabs controllers, structural component semantics,
+incremental markdown, clipped cell views, consumer-defined capabilities, and the
+enforced dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 
@@ -812,10 +813,10 @@ These contradict a `must` in this document and must be empty before v1:
 These are not current invariant violations. They are capabilities or end-to-end proof
 the system still needs:
 
-- **Complex controls expose behavior and appearance, but little shared semantics.** The
-  current headless/kit split is sound. Compound parts, explicit controlled ownership,
-  and a structural semantic projection have not yet been established across multiple
-  controls.
+- **The canonical interface has not combined every required path yet.** The underlying
+  retention, ingestion, input, presentation and failure contracts have independent
+  proofs. Slice 1 still has to exercise them together with retained interaction, an
+  overlay, resize, cancellation and a real PTY path.
 
 These are not invitations to independent framework-building refactors. Each item is
 owned by a named slice below so that the fix lands with its real caller, tests, and
@@ -905,6 +906,17 @@ Then apply the pattern to a second control. Only the shared result is generalize
 For each control, `kit` must also provide one polished, themeable, short-call-site
 composition over the headless parts. This is where the shadcn lesson is proven: better
 defaults and ergonomics, not source copying and not product-specific behavior.
+
+This slice is complete. `headless.Dialog` owns one modal state machine; its content and
+trigger are compound parts, every close path settles controlled or local open state,
+and `Stack.Remove` can close a covered dialog without dismissing a newer layer. Focus
+tests prove that opening removes keyboard ownership from the base and every dismissal
+restores it. `headless.Tabs` owns its tab parts and controlled or local selection;
+owner-written controlled state is applied through an explicit `Sync`, so drawing never
+performs a hidden focus transition. Both controls project the same typed `SemanticNode`
+tree without exposing visual boxes. `kit.NewDialog` and `kit.NewTabs` are the polished,
+themeable short path while their controller and appearance parts remain reachable.
+Structural tests cover roles, selected/open/focused state and the two ownership modes.
 
 ### Slice 4: computed appearance and semantics
 

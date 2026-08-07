@@ -73,11 +73,13 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	d.work = newQueue(theme, glyphs)
 	d.watch = &activity{theme: theme, glyphs: glyphs, of: d.work}
 
-	d.tabs = &headless.Tabs{Items: []headless.Tab{
-		{Title: "tasks", Of: d.work},
-		{Title: "activity", Of: d.watch},
-	}}
-	d.strip = kit.Tabs{Of: d.tabs, Theme: theme, Glyphs: glyphs, Rule: true}
+	d.strip = *kit.NewTabs(
+		theme,
+		glyphs,
+		headless.Tab{Title: "tasks", Of: d.work},
+		headless.Tab{Title: "activity", Of: d.watch},
+	)
+	d.tabs = d.strip.Of
 	d.tabs.Focus(true)
 
 	// Something to watch: the work advances on a clock this program started, and an

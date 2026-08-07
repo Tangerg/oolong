@@ -36,6 +36,28 @@ type Tabs struct {
 	presentation headless.Snapshot[tabsPresentation]
 }
 
+// NewTabs composes an uncontrolled headless controller with the kit's finished tab
+// strip. The controller remains available through Of for custom behavior or semantic
+// inspection.
+func NewTabs(theme Theme, glyphs Glyphs, items ...headless.Tab) *Tabs {
+	return &Tabs{
+		Of: headless.NewTabs(items...), Theme: theme, Glyphs: glyphs, Rule: true,
+	}
+}
+
+// NewControlledTabs composes a kit strip around caller-owned selection state.
+func NewControlledTabs(
+	theme Theme,
+	glyphs Glyphs,
+	selection headless.Accessor[int],
+	items ...headless.Tab,
+) *Tabs {
+	return &Tabs{
+		Of:    headless.NewControlledTabs(selection, items...),
+		Theme: theme, Glyphs: glyphs, Rule: true,
+	}
+}
+
 // Measure is the strip, the rule, and whatever the pane showing asks for.
 func (t *Tabs) Measure(across int) int {
 	if t.Of == nil {
@@ -132,7 +154,8 @@ func (t *Tabs) strip(v grid.View, presented tabsPresentation) {
 		if i == selected {
 			style = t.Theme.Accent
 		}
-		Label{Text: presented.of.Items[i].Title, Style: style, Ellipsis: t.Glyphs.Ellipsis}.
+		tab, _ := presented.of.At(i)
+		Label{Text: tab.Title, Style: style, Ellipsis: t.Glyphs.Ellipsis}.
 			Draw(v.Sub(grid.Rect(box.from, 0, box.to-box.from, 1)))
 	}
 }
@@ -146,9 +169,10 @@ func (t *Tabs) boxes() []span {
 	if t.Of == nil {
 		return nil
 	}
-	out := make([]span, 0, len(t.Of.Items))
+	out := make([]span, 0, t.Of.Len())
 	at := 0
-	for _, tab := range t.Of.Items {
+	for i := range t.Of.Len() {
+		tab, _ := t.Of.At(i)
 		width := text.Width(tab.Title)
 		out = append(out, span{from: at, to: at + width})
 		at += width + tabGap

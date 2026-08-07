@@ -10,11 +10,11 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Accessor is where a field's value lives.
+// Accessor is caller-owned readable and writable state.
 //
-// A field does not own what it collects. Somebody asked for a name because they have
-// somewhere to put a name, and a field that kept it and made them ask for it back
-// would be a copy of their state that has to be kept in step with theirs.
+// Fields use one because a form is collecting into an application value. Controlled
+// controllers use the same small contract so their operations update the caller's
+// single source of truth instead of maintaining a private shadow copy.
 //
 // [Bind] is the one every caller wants: a variable of their own. Anything else that can
 // be read and written — a setting, a row of a record, a channel of one — is an accessor

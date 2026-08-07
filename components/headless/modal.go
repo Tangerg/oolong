@@ -2,6 +2,7 @@ package headless
 
 import (
 	"image"
+	"slices"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -136,13 +137,26 @@ func (s *Stack) Pop() bool {
 	if n == 0 {
 		return false
 	}
-	top := s.layers[n-1]
-	s.layers = s.layers[:n-1]
-	s.settle()
-	if closer, ok := top.(Closer); ok {
-		closer.Closed()
+	return s.remove(n - 1)
+}
+
+// Remove takes layer out of the stack and reports whether it was present.
+//
+// A controller uses this when its state closes a layer while another layer is above
+// it. Popping the top in that case would dismiss a different control from the one that
+// changed. Layer identity is the same pointer identity Stack uses for focus.
+func (s *Stack) Remove(layer Modal) bool {
+	for i := len(s.layers) - 1; i >= 0; i-- {
+		if s.layers[i] == layer {
+			return s.remove(i)
+		}
 	}
-	return true
+	return false
+}
+
+// Contains reports whether layer is currently in the stack.
+func (s *Stack) Contains(layer Modal) bool {
+	return slices.Contains(s.layers, layer)
 }
 
 // Clear pops every layer, from the top down, so each is told in the order it
@@ -250,6 +264,21 @@ func (s *Stack) dismiss(layer Modal) {
 		return
 	}
 	s.Pop()
+}
+
+func (s *Stack) remove(at int) bool {
+	if at < 0 || at >= len(s.layers) {
+		return false
+	}
+	layer := s.layers[at]
+	copy(s.layers[at:], s.layers[at+1:])
+	s.layers[len(s.layers)-1] = nil
+	s.layers = s.layers[:len(s.layers)-1]
+	s.settle()
+	if closer, ok := layer.(Closer); ok {
+		closer.Closed()
+	}
+	return true
 }
 
 // Draw paints the interface and then the layers from the bottom up, each into the

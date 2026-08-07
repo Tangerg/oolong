@@ -10,10 +10,10 @@ import (
 
 func TestOnePaneShowsAndTheRestWait(t *testing.T) {
 	first, second := &tall{rows: 2}, &tall{rows: 3}
-	tabs := &headless.Tabs{Items: []headless.Tab{
-		{Title: "one", Of: first},
-		{Title: "two", Of: second},
-	}}
+	tabs := headless.NewTabs(
+		headless.Tab{Title: "one", Of: first},
+		headless.Tab{Title: "two", Of: second},
+	)
 
 	if got := paintWidget(6, 2, tabs); got[0] != "row 0." {
 		t.Fatalf("the first pane drew %q", got)
@@ -39,7 +39,7 @@ func TestThePaneShowingAnswersBeforeTheTabsDo(t *testing.T) {
 	// A pane that took the arrow keys keeps them. Tabs that took them first would
 	// make a list inside one impossible to move through.
 	pane := &tall{rows: 4}
-	tabs := &headless.Tabs{Items: []headless.Tab{{Title: "one", Of: pane}, {Title: "two"}}}
+	tabs := headless.NewTabs(headless.Tab{Title: "one", Of: pane}, headless.Tab{Title: "two"})
 
 	if !tabs.Handle(input.Mouse{Action: input.MouseDown}) {
 		t.Fatal("the pane was not offered the event")
@@ -51,7 +51,7 @@ func TestThePaneShowingAnswersBeforeTheTabsDo(t *testing.T) {
 
 func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 	first, second := &tall{rows: 1}, &tall{rows: 1}
-	tabs := &headless.Tabs{Items: []headless.Tab{{Of: first}, {Of: second}}}
+	tabs := headless.NewTabs(headless.Tab{Of: first}, headless.Tab{Of: second})
 	tabs.Focus(true)
 	if first.told != 1 {
 		t.Fatal("the pane showing was not told it has the keyboard")
@@ -59,6 +59,50 @@ func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 	tabs.Select(1)
 	if second.told != 1 {
 		t.Fatal("the pane moved to was not told it has the keyboard")
+	}
+}
+
+func TestControlledTabsUseOneSelectionAndSyncExternalTransitions(t *testing.T) {
+	selected := 1
+	first, second := &focusProbe{}, &focusProbe{}
+	tabs := headless.NewControlledTabs(
+		headless.Bind(&selected),
+		headless.Tab{Title: "one", Of: first},
+		headless.Tab{Title: "two", Of: second},
+	)
+	if tabs.Selected() != 1 || !second.focused {
+		t.Fatalf("controlled tabs started selected=%d first=%v second=%v",
+			tabs.Selected(), first.changes, second.changes)
+	}
+	tabs.Select(0)
+	if selected != 0 || !first.focused || second.focused {
+		t.Fatal("select did not write state and transfer focus")
+	}
+
+	selected = 1
+	tabs.Sync()
+	if !second.focused || first.focused {
+		t.Fatal("sync did not transfer focus after an owner-written selection")
+	}
+}
+
+func TestTabsExposeStructuralSemanticsIndependentOfTheStrip(t *testing.T) {
+	tabs := headless.NewTabs(
+		headless.Tab{Title: "chat", Of: &focusProbe{}},
+		headless.Tab{Title: "files", Of: &focusProbe{}},
+	)
+	tabs.Select(1)
+	node := tabs.Semantics()
+	if node.Role != headless.RoleTabList || !node.State.Has(headless.StateFocused) {
+		t.Fatalf("tab-list semantics = %+v", node)
+	}
+	if len(node.Children) != 3 {
+		t.Fatalf("semantic children = %d, want two tabs and one panel", len(node.Children))
+	}
+	if node.Children[0].State.Has(headless.StateSelected) ||
+		!node.Children[1].State.Has(headless.StateSelected) ||
+		node.Children[2].Role != headless.RoleTabPanel || node.Children[2].Label != "files" {
+		t.Fatalf("semantic parts = %+v", node.Children)
 	}
 }
 

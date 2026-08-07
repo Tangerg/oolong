@@ -5,47 +5,110 @@ import (
 	"github.com/Tangerg/oolong/core/keymap"
 )
 
-// Tab is one pane of a [Tabs] and what it is called.
+// Tab is one compound part of [Tabs]: a named pane.
 type Tab struct {
 	// Title is what the tab is called. It is here rather than beside whatever draws
-	// the bar because the name belongs to the pane: a tab strip built from a separate
-	// list of titles is a list that goes out of step with the panes it names.
+	// the strip because the name belongs to the pane: an appearance built from a
+	// separate list of titles is a list that can drift out of step with the panes it
+	// names. Semantics reads the same value for the same reason.
 	Title string
 	// Of is the pane. It may be nil, which is a tab with nothing in it yet.
 	Of Widget
 }
 
-// Tabs is more panes than fit, with one of them showing.
+// Tabs is the behavior and semantic owner of a set of named panes.
 //
-// It draws only the pane that is showing. The strip of names is appearance — where
-// it sits, what marks the one selected, whether there is a rule under it — and a
-// behaviour that drew one would have decided all of that for everybody. Whatever
-// draws the strip asks which tab is selected and calls [Tabs.Select] when one is
-// clicked, which is the same division a list and its rows already have.
+// It draws only the selected pane. The strip of names is appearance — where it sits,
+// what marks the one selected, whether there is a rule under it — and a behavior that
+// drew one would have decided all of that for everybody. Whatever draws the strip asks
+// which tab is selected and calls [Tabs.Select] when one is clicked, the same division
+// a list keeps between selection and rows. [SemanticNode] describes the tab list and
+// panel without coupling either to those cells.
 //
-// The zero Tabs has no panes and answers nothing.
+// Construct it with [NewTabs] or [NewControlledTabs] so selection ownership is
+// explicit. The zero value is an empty uncontrolled controller and is safe, but Set is
+// the only way to give it parts.
 type Tabs struct {
-	// Items are the panes, in the order they are shown and walked through.
-	Items []Tab
-	// Keys say which keystrokes move between panes — see [Tabs.Do]. Nil reads through
+	items     []Tab
+	selection ownedValue[int]
+
+	// Keys say which keystrokes move between panes. Nil reads through
 	// [DefaultTabsKeys].
 	Keys *keymap.Map
-	// NoWrap stops the walk at either end. Wrapping is on by default, which is the
-	// other way round from a list: tabs are few and are walked in a ring, where a
-	// long list wrapped is a reader who has lost their place.
+	// NoWrap stops the walk at either end. Wrapping is on by default because tabs are
+	// few and walked as a ring, unlike a long list where wrapping loses the reader's
+	// place.
 	NoWrap bool
 
-	selected int
-	blurred  bool
-	pending  keymap.Pending
+	holder  Widget
+	settled bool
+	blurred bool
+	pending keymap.Pending
+}
+
+// NewTabs constructs an uncontrolled tabs controller with locally owned selection.
+func NewTabs(items ...Tab) *Tabs {
+	tabs := &Tabs{selection: localValue(0)}
+	tabs.Set(items...)
+	return tabs
+}
+
+// NewControlledTabs constructs a tabs controller whose selection lives in binding.
+//
+// Selection operations write binding directly. When the owner writes binding itself,
+// it calls [Tabs.Sync] so focus moves as the same semantic transition.
+func NewControlledTabs(binding Accessor[int], items ...Tab) *Tabs {
+	tabs := &Tabs{selection: controlledValue(binding)}
+	tabs.Set(items...)
+	return tabs
+}
+
+// Set replaces the tab parts and preserves a valid selected index.
+func (t *Tabs) Set(items ...Tab) {
+	if t == nil {
+		return
+	}
+	t.items = append(t.items[:0], items...)
+	if len(t.items) == 0 {
+		t.selection.set(0)
+	} else {
+		t.selection.set(min(max(t.selection.get(), 0), len(t.items)-1))
+	}
+	t.settled = false
+	t.settle()
+}
+
+// Items returns a copy of the current tab parts. Replacing the returned slice cannot
+// bypass selection clamping or focus settlement; use [Tabs.Set] to change the parts.
+func (t *Tabs) Items() []Tab {
+	if t == nil {
+		return nil
+	}
+	return append([]Tab(nil), t.items...)
+}
+
+// Len returns the number of tab parts.
+func (t *Tabs) Len() int {
+	if t == nil {
+		return 0
+	}
+	return len(t.items)
+}
+
+// At returns one tab part and whether index exists.
+func (t *Tabs) At(index int) (Tab, bool) {
+	if t == nil || index < 0 || index >= len(t.items) {
+		return Tab{}, false
+	}
+	return t.items[index], true
 }
 
 // Selected is which pane is showing, or -1 when there are none.
 func (t *Tabs) Selected() int {
-	if len(t.Items) == 0 {
+	if t == nil || len(t.items) == 0 {
 		return -1
 	}
-	return min(max(t.selected, 0), len(t.Items)-1)
+	return min(max(t.selection.get(), 0), len(t.items)-1)
 }
 
 // Current is the pane that is showing, and whether there is one.
@@ -54,28 +117,37 @@ func (t *Tabs) Current() (Tab, bool) {
 	if at < 0 {
 		return Tab{}, false
 	}
-	return t.Items[at], true
+	return t.items[at], true
 }
 
-// Select shows a pane, clamped to the ones there are, and hands it the keyboard if
-// this has it.
+// Select shows a pane, clamped to the parts present, and transfers focus with it.
 func (t *Tabs) Select(at int) {
-	was := t.Selected()
-	t.selected = min(max(at, 0), max(len(t.Items)-1, 0))
-	if now := t.Selected(); now != was {
-		t.tell(was, false)
-		t.tell(now, !t.blurred)
+	if t == nil {
+		return
 	}
+	t.selection.set(min(max(at, 0), max(len(t.items)-1, 0)))
+	t.settle()
+}
+
+// Sync applies a caller-written controlled selection to pane focus.
+//
+// Accessors are not observable. Keeping this explicit prevents Draw from performing a
+// hidden semantic transition merely because external storage changed.
+func (t *Tabs) Sync() {
+	if t == nil {
+		return
+	}
+	t.settle()
 }
 
 // Move steps by n panes, wrapping unless told not to.
 func (t *Tabs) Move(n int) bool {
-	if len(t.Items) < 2 {
+	if t == nil || len(t.items) < 2 {
 		return false
 	}
 	next := t.Selected() + n
 	if !t.NoWrap {
-		size := len(t.Items)
+		size := len(t.items)
 		next = ((next % size) + size) % size
 	}
 	was := t.Selected()
@@ -83,19 +155,21 @@ func (t *Tabs) Move(n int) bool {
 	return t.Selected() != was
 }
 
-// Handle gives the event to the pane that is showing, and answers the keys that
-// move between panes with whatever it declined.
+// Handle offers an event to the selected pane before answering tab movement.
 //
-// The pane is asked first. A tab strip that took its keys before its contents did
-// would be a strip that stole a key from an editor inside it, which is the same rule
-// a window keeps with what is in it.
-func (t *Tabs) Handle(ev input.Event) bool {
+// The pane is first because a strip that took keys before its contents would steal an
+// arrow from an editor or list inside it. This is the same rule a viewport keeps with
+// the content it is showing.
+func (t *Tabs) Handle(event input.Event) bool {
+	if t == nil {
+		return false
+	}
 	if pane, ok := t.Current(); ok {
-		if handler, can := pane.Of.(Interactive); can && handler.Handle(ev) {
+		if handler, can := pane.Of.(Interactive); can && handler.Handle(event) {
 			return true
 		}
 	}
-	key, ok := ev.(input.Key)
+	key, ok := event.(input.Key)
 	if !ok {
 		return false
 	}
@@ -109,12 +183,12 @@ func (t *Tabs) Handle(ev input.Event) bool {
 	return t.Do(action)
 }
 
-// Do runs one of the actions this answers to by name, reporting whether it was one
-// it knows. See [Doer].
-//
-// What the pane knows is tried first, for the same reason it gets an event first: a
-// pane driven from a menu should answer for itself before the thing holding it does.
+// Do offers an action to the selected pane before answering tab movement by name.
+// A pane driven from a menu keeps the same priority it has for key events.
 func (t *Tabs) Do(action keymap.Action) bool {
+	if t == nil {
+		return false
+	}
 	if pane, ok := t.Current(); ok {
 		if doer, can := pane.Of.(Doer); can && doer.Do(action) {
 			return true
@@ -130,23 +204,21 @@ func (t *Tabs) Do(action keymap.Action) bool {
 	}
 }
 
-// Focus takes the keyboard, or gives it up, and passes the news to the pane showing.
+// Focus takes or releases keyboard ownership and settles it on the selected pane.
 func (t *Tabs) Focus(has bool) {
-	t.blurred = !has
-	t.tell(t.Selected(), has)
-}
-
-// tell hands the keyboard to a pane, or takes it away, when the pane can hold it.
-func (t *Tabs) tell(at int, has bool) {
-	if at < 0 || at >= len(t.Items) {
+	if t == nil {
 		return
 	}
-	if focusable, ok := t.Items[at].Of.(Focusable); ok {
-		focusable.Focus(has)
+	blurred := !has
+	if t.blurred == blurred && t.settled {
+		return
 	}
+	t.blurred = blurred
+	t.settled = false
+	t.settle()
 }
 
-// Measure is what the pane showing asks for.
+// Measure is what the selected pane asks for.
 func (t *Tabs) Measure(across int) int {
 	pane, ok := t.Current()
 	if !ok {
@@ -158,15 +230,64 @@ func (t *Tabs) Measure(across int) int {
 	return 0
 }
 
-// Draw paints the pane that is showing into the whole of v.
-func (t *Tabs) Draw(v Frame) {
+// Draw paints the selected pane into the whole frame.
+func (t *Tabs) Draw(frame Frame) {
 	if pane, ok := t.Current(); ok && pane.Of != nil {
-		pane.Of.Draw(v)
+		pane.Of.Draw(frame)
 	}
 }
 
-// keys is the map to read through, standing in the default for a caller who set
-// none.
+// Semantics returns a tab list, its tab parts and the selected panel.
+func (t *Tabs) Semantics() SemanticNode {
+	root := SemanticNode{Role: RoleTabList}
+	if t == nil {
+		return root
+	}
+	if len(t.items) > 0 && !t.blurred {
+		root.State |= StateFocused
+	}
+	selected := t.Selected()
+	root.Children = make([]SemanticNode, 0, len(t.items)+1)
+	for i, tab := range t.items {
+		state := SemanticState(0)
+		if i == selected {
+			state |= StateSelected
+		}
+		root.Children = append(root.Children, SemanticNode{
+			Role: RoleTab, Label: tab.Title, State: state,
+		})
+	}
+	if selected >= 0 {
+		panel := SemanticNode{Role: RoleTabPanel, Label: t.items[selected].Title, State: StateSelected}
+		if semantic, ok := t.items[selected].Of.(Semantic); ok {
+			panel.Children = []SemanticNode{semantic.Semantics()}
+		}
+		root.Children = append(root.Children, panel)
+	}
+	return root
+}
+
+func (t *Tabs) settle() {
+	want := Widget(nil)
+	if pane, ok := t.Current(); ok {
+		want = pane.Of
+	}
+	if t.settled && want == t.holder {
+		return
+	}
+	from := t.holder
+	t.holder, t.settled = want, true
+	if from != nil && from != want {
+		tell(from, false)
+	}
+	for _, tab := range t.items {
+		if tab.Of != want && tab.Of != from {
+			tell(tab.Of, false)
+		}
+	}
+	tell(want, !t.blurred)
+}
+
 func (t *Tabs) keys() *keymap.Map {
 	if t.Keys != nil {
 		return t.Keys

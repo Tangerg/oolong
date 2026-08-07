@@ -759,10 +759,10 @@ func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
 }
 
 func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
-	panes := &headless.Tabs{Items: []headless.Tab{
-		{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
-		{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
-	}}
+	panes := headless.NewTabs(
+		headless.Tab{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
+		headless.Tab{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
+	)
 	tabs := kit.Tabs{Of: panes, Theme: kit.Dark(), Glyphs: kit.ASCII(), Rule: true}
 	equalRows(t, paintWidget(14, 4, &tabs), []string{
 		"chat..files...",
@@ -781,6 +781,21 @@ func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
 	}
 	if _, on := tabs.At(5); on {
 		t.Fatal("the room between two names belongs to one of them")
+	}
+}
+
+func TestNewTabsProvidesTheFinishedStripAndItsController(t *testing.T) {
+	tabs := kit.NewTabs(
+		kit.Dark(), kit.ASCII(),
+		headless.Tab{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
+		headless.Tab{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
+	)
+	if tabs.Of == nil || !tabs.Rule {
+		t.Fatal("the short constructor omitted its controller or finished default rule")
+	}
+	tabs.Of.Select(1)
+	if got := paintWidget(14, 4, tabs); !strings.Contains(strings.Join(got, "\n"), "two") {
+		t.Fatalf("composed tabs drew %v", got)
 	}
 }
 
@@ -921,7 +936,8 @@ func TestALayerPassesTheKeyboardToWhatIsInIt(t *testing.T) {
 	// form inside one takes every keystroke while drawing no caret.
 	body := &spy{}
 	stack := &headless.Stack{}
-	stack.Push(&kit.Dialog{Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: body})
+	dialog := kit.NewDialog(stack, kit.Dark(), kit.ASCII(), "sure?", body)
+	dialog.Show()
 	stack.Focus(true)
 
 	if !body.focused {
