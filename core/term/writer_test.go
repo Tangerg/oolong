@@ -102,8 +102,8 @@ func TestFramesReachTheTerminalInOrder(t *testing.T) {
 		}
 		last = seq
 	}
-	if !w.Drain(time.Second) {
-		t.Fatal("frames never drained")
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("frames never drained: %v", err)
 	}
 	if got := dst.String(); got != "onetwothree" {
 		t.Fatalf("terminal received %q", got)
@@ -181,7 +181,9 @@ func TestProgressCoalesces(t *testing.T) {
 	for range 5 {
 		w.Queue([]byte("x"))
 	}
-	w.Drain(time.Second)
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("frames never drained: %v", err)
+	}
 	<-w.Progress()
 	select {
 	case <-w.Progress():
@@ -194,8 +196,8 @@ func TestShortWritesAreCompleted(t *testing.T) {
 	dst := &short{}
 	w := term.NewWriter(dst)
 	w.Queue([]byte("hello"))
-	if !w.Drain(time.Second) {
-		t.Fatal("never drained")
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("never drained: %v", err)
 	}
 	if got := dst.b.String(); got != "hello" {
 		t.Fatalf("terminal received %q, want the whole frame", got)
@@ -209,7 +211,9 @@ func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	w.Queue([]byte("first"))
 	w.Queue([]byte("second"))
 	w.Queue([]byte("third"))
-	w.Drain(time.Second)
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("failed frames never settled: %v", err)
+	}
 
 	if err := w.Err(); !errors.Is(err, errBroken) {
 		t.Fatalf("Err = %v, want the write failure", err)
@@ -224,12 +228,34 @@ func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	}
 }
 
+func TestFramesQueuedAfterFailureAreRefusedAndAccountedFor(t *testing.T) {
+	dst := &failing{}
+	w := term.NewWriter(dst)
+	w.Queue([]byte("doomed"))
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("failed frame never settled: %v", err)
+	}
+
+	for range 100 {
+		w.Queue([]byte("too late"))
+	}
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("refused frames were not accounted for: %v", err)
+	}
+	if dst.calls != 1 {
+		t.Fatalf("terminal Write called %d times, want no calls after the first failure", dst.calls)
+	}
+	if err := w.Err(); !errors.Is(err, errBroken) {
+		t.Fatalf("Err = %v, want original terminal failure", err)
+	}
+}
+
 func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 	// A broken terminal must not be able to wedge a shutdown.
 	w := term.NewWriter(&failing{})
 	w.Queue([]byte("doomed"))
-	if !w.Drain(time.Second) {
-		t.Fatal("Drain waited for a frame that had already failed")
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("Drain waited for a frame that had already failed: %v", err)
 	}
 }
 
@@ -238,8 +264,8 @@ func TestAPartialWriteFailsTheFrameAndStopsLaterWrites(t *testing.T) {
 	w := term.NewWriter(dst)
 	w.Queue([]byte("first frame"))
 	w.Queue([]byte("second frame"))
-	if !w.Drain(time.Second) {
-		t.Fatal("partially failed frames were not accounted for")
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("partially failed frames were not accounted for: %v", err)
 	}
 	if err := w.Err(); !errors.Is(err, errBroken) {
 		t.Fatalf("Err = %v, want partial-write cause", err)
@@ -264,8 +290,8 @@ func TestDrainGivesUpOnATerminalThatNeverAccepts(t *testing.T) {
 	defer dst.releaseAll()
 
 	w.Queue([]byte("frame"))
-	if w.Drain(30 * time.Millisecond) {
-		t.Fatal("Drain claimed a frame landed that never did")
+	if err := w.Drain(30 * time.Millisecond); !errors.Is(err, term.ErrDrainTimeout) {
+		t.Fatalf("Drain error = %v, want ErrDrainTimeout", err)
 	}
 }
 
@@ -313,8 +339,8 @@ func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
 	if seq == 0 {
 		t.Fatal("a refused frame got no sequence")
 	}
-	if !w.Drain(time.Second) {
-		t.Fatal("a refused frame was never accounted for")
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("a refused frame was never accounted for: %v", err)
 	}
 }
 
@@ -330,13 +356,13 @@ func TestARefusedFrameCannotOvertakeABlockedWriteInDrain(t *testing.T) {
 	// sequence must not move the processed watermark past the older write that is
 	// still inside the terminal.
 	w.Queue([]byte("too late"))
-	if w.Drain(30 * time.Millisecond) {
-		t.Fatal("Drain let a refused frame overtake an older blocked write")
+	if err := w.Drain(30 * time.Millisecond); !errors.Is(err, term.ErrDrainTimeout) {
+		t.Fatalf("Drain error = %v, want ErrDrainTimeout while the older write is blocked", err)
 	}
 
 	dst.releaseAll()
-	if !w.Drain(time.Second) {
-		t.Fatal("Drain did not advance after the older write settled")
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("Drain did not advance after the older write settled: %v", err)
 	}
 }
 
@@ -363,8 +389,8 @@ func TestManyProducersKeepSequenceAndWriteOrderTogether(t *testing.T) {
 	close(start)
 	wg.Wait()
 	close(results)
-	if !w.Drain(2 * time.Second) {
-		t.Fatal("never drained")
+	if err := w.Drain(2 * time.Second); err != nil {
+		t.Fatalf("never drained: %v", err)
 	}
 	if got := w.Written(); got != frames {
 		t.Fatalf("watermark = %d, want %d", got, frames)
@@ -398,8 +424,8 @@ func TestQueueAndCloseAreSafeTogether(t *testing.T) {
 		})
 		close(start)
 		wg.Wait()
-		if !w.Drain(time.Second) {
-			t.Fatal("frames queued around Close were not accounted for")
+		if err := w.Drain(time.Second); err != nil {
+			t.Fatalf("frames queued around Close were not accounted for: %v", err)
 		}
 	}
 }
@@ -415,13 +441,13 @@ func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
 
 	// Drain is waiting before anything has been written, which is the ordering the
 	// fast path never takes.
-	drained := make(chan bool, 1)
+	drained := make(chan error, 1)
 	go func() { drained <- w.Drain(2 * time.Second) }()
 	time.Sleep(20 * time.Millisecond)
 	dst.releaseAll()
 
-	if !<-drained {
-		t.Fatal("never drained")
+	if err := <-drained; err != nil {
+		t.Fatalf("never drained: %v", err)
 	}
 	select {
 	case <-w.Progress():

@@ -236,8 +236,9 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	selectedValue := "two"
 	selectField := &Select[string]{
-		Label: "choice", Options: Options("one", "two", "three"), Value: Bind(&selectedValue),
+		Label: "choice", Value: Bind(&selectedValue),
 	}
+	selectField.SetOptions(Options("one", "two", "three"))
 	selectField.ensure()
 	selectField.Focus(true)
 	cases = append(cases, widgetPurityCase("*Select", selectField, func() any {
@@ -252,8 +253,9 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	takenValue := []string{"two"}
 	multiField := &MultiSelect[string]{
-		Label: "many", Options: Options("one", "two", "three"), Value: Bind(&takenValue),
+		Label: "many", Value: Bind(&takenValue),
 	}
+	multiField.SetOptions(Options("one", "two", "three"))
 	multiField.ensure()
 	multiField.Focus(true)
 	multiField.list.Select(2)
@@ -291,11 +293,11 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}))
 
 	list := &List[string]{
-		Items: []string{"one", "two", "three"},
 		Row: func(view grid.View, _ int, item string, _ bool) {
 			view.Text(0, 0, item, grid.Style{})
 		},
 	}
+	list.SetItems([]string{"one", "two", "three"})
 	list.Select(1)
 	list.Focus(true)
 	list.Scroll().Layout(3, 2)
@@ -340,11 +342,11 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}))
 
 	filter := &Filter[string]{
-		Text: func(item string) string { return item },
 		Row: func(view grid.View, _ int, item string, _ fuzzy.Match, _ bool) {
 			view.Text(0, 0, item, grid.Style{})
 		},
 	}
+	filter.SetText(func(item string) string { return item })
 	filter.SetItems([]string{"alpha", "beta", "alphabet"})
 	filter.SetPattern("alp")
 	filter.Select(1)
@@ -409,7 +411,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	oldChild := &purityWidget{text: "old"}
 	newChild := &purityWidget{text: "new"}
 	container := Rows(Item{Size: layout.Flex(1), Of: oldChild})
-	container.Items = []Item{{Size: layout.Flex(1), Of: newChild}}
+	container.Set(Item{Size: layout.Flex(1), Of: newChild})
 	cases = append(cases, widgetPurityCase("*Container", container, func() any {
 		return struct {
 			focused            Widget

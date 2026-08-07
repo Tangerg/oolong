@@ -65,6 +65,17 @@ func main() {
 // ask builds the form. Nothing about it is a look: what it asks, what it will accept
 // and where the answers go, and no more.
 func ask(into *answers) *headless.Form {
+	model := &headless.Select[string]{
+		Label: "Which model?",
+		Value: headless.Bind(&into.model),
+	}
+	model.SetOptions(headless.Options("fast", "balanced", "careful"))
+	tools := &headless.MultiSelect[string]{
+		Label: "Which tools may it use?",
+		Value: headless.Bind(&into.tools),
+		Limit: 2,
+	}
+	tools.SetOptions(headless.Options("read", "write", "run"))
 	return &headless.Form{
 		Gap: 1,
 		Fields: []headless.Field{
@@ -79,17 +90,8 @@ func ask(into *answers) *headless.Form {
 					return nil
 				},
 			},
-			&headless.Select[string]{
-				Label:   "Which model?",
-				Options: headless.Options("fast", "balanced", "careful"),
-				Value:   headless.Bind(&into.model),
-			},
-			&headless.MultiSelect[string]{
-				Label:   "Which tools may it use?",
-				Options: headless.Options("read", "write", "run"),
-				Value:   headless.Bind(&into.tools),
-				Limit:   2,
-			},
+			model,
+			tools,
 			&headless.Confirm{
 				Label: "Stream the answer?",
 				Value: headless.Bind(&into.stream),

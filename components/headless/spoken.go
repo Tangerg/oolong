@@ -26,13 +26,13 @@ func (t *Text) Reply(said string) error {
 // Ask is the label and the choices, numbered.
 func (s *Select[T]) Ask() string {
 	s.ensure()
-	return s.Label + choices(s.Options)
+	return s.Label + choices(s.options)
 }
 
 // Reply takes a number or one of the labels.
 func (s *Select[T]) Reply(said string) error {
 	s.ensure()
-	at, err := choose(said, s.Options)
+	at, err := choose(said, s.options)
 	if err != nil {
 		return s.check(err)
 	}
@@ -44,20 +44,20 @@ func (s *Select[T]) Reply(said string) error {
 // Ask is the label and the choices, numbered, with a word about giving several.
 func (m *MultiSelect[T]) Ask() string {
 	m.ensure()
-	return m.Label + choices(m.Options) + " — several, separated by commas"
+	return m.Label + choices(m.options) + " — several, separated by commas"
 }
 
 // Reply takes numbers or labels, separated by commas. Nothing at all takes nothing,
 // which is how a reader says they want none of them.
 func (m *MultiSelect[T]) Reply(said string) error {
 	m.ensure()
-	taken := make([]bool, len(m.Options))
+	taken := make([]bool, len(m.options))
 	count := 0
 	for part := range strings.SplitSeq(said, ",") {
 		if strings.TrimSpace(part) == "" {
 			continue
 		}
-		at, err := choose(part, m.Options)
+		at, err := choose(part, m.options)
 		if err != nil {
 			return m.check(err)
 		}

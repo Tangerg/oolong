@@ -26,6 +26,22 @@ point of tagging them low rather than not at all.
   results. A fixed viewport with 100,000 earlier matches fell from roughly 174 µs to
   18 ns in the repository benchmark, with zero allocations in both cases.
 
+- **Presentation and frame-drain failures are explicit API results.**
+  `present.Presenter.Present` now preserves an owed request when frame construction
+  fails, and `term.Writer.Drain` returns an error with `ErrDrainTimeout` rather than
+  collapsing transport state into a boolean. `program.FrameWriter` follows the same
+  contract, so custom hosts cannot silently turn a failed logical frame into an
+  accepted one.
+
+- **Cached component models now own every input that controls their derivations.**
+  Documents, paragraphs, lists, filters, containers, sticky headers and form choices
+  accept content through mutation methods and return snapshots; multi-choice
+  selection migrates by value rather than stale position. Filter text projections,
+  table ordering and streaming-markdown looks now change through
+  invariant-preserving methods. The exported mutable spinner slices are gone:
+  `kit.Braille()` returns an owned set and `Unicode().Spinner` is the coverage-aware
+  fallback set.
+
 ### Fixed
 
 - **Presented identity and pointer ownership are now transactional at every
@@ -46,6 +62,25 @@ point of tagging them low rather than not at all.
   slots. Streaming markdown, terminal input, and ANSI text decoders clone only their
   small undecided tails at ownership cuts, so published or consumed prefixes cannot
   remain alive through a substring or subslice.
+
+- **Frame output is transactional through the writer boundary.** Screen and inline
+  canvases include paint-region identity in their frame diff, propagate painter
+  failures, complete short writes before settling, and leave failed frames pending
+  instead of diffing from terminal state that never existed. Programs preserve those
+  causes, stop queuing after a known output failure, and never retry a failed painter
+  during teardown or handover.
+
+- **Transport and display ownership now close as one causal lifecycle.** Programs
+  capture each event and progress stream exactly once, reject missing or prematurely
+  closed protocol channels, and preserve asynchronous writer failures during
+  cancellation. Terminal open rolls back every acquired mode on partial failure;
+  handover refuses undrained output, restores ownership even when a child panics, and
+  never runs the child after a failed release.
+
+- **Long-lived collection storage follows live state rather than peak state.**
+  Owned component slices clear removed references and release disproportionate
+  backing arrays after large contractions. A final byte-ingress consumer that panics
+  can no longer leave producers waiting forever for its `Done` signal.
 
 ## [0.1.1] — 2026-08-07
 

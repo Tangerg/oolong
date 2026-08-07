@@ -8,6 +8,7 @@ package term
 import (
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,15 @@ func TestOpenWithoutATerminal(t *testing.T) {
 	// wants text, not frames.
 	if _, err := Open(Options{}); !errors.Is(err, ErrNotTerminal) {
 		t.Fatalf("Open error = %v, want ErrNotTerminal", err)
+	}
+}
+
+func TestOpenRequiresBothTerminalFiles(t *testing.T) {
+	if _, err := OpenOn(nil, nil, Options{}); err == nil || !strings.Contains(err.Error(), "input file") {
+		t.Fatalf("nil input returned %v", err)
+	}
+	if _, err := OpenOn(os.Stdin, nil, Options{}); err == nil || !strings.Contains(err.Error(), "output file") {
+		t.Fatalf("nil output returned %v", err)
 	}
 }
 

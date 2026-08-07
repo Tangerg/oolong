@@ -104,5 +104,5 @@ func (m Message) trailing() int {
 func (m Message) wrapWidth(width int) int { return max(width-gutter, 1) }
 
 func (m Message) body(int) *Paragraph {
-	return &Paragraph{Lines: linesOf(m.Body, m.Theme.Text)}
+	return NewParagraph(m.Body, m.Theme.Text)
 }

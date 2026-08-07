@@ -136,9 +136,8 @@ func items(n int) []string {
 
 // newList builds a list that draws each item as its text, marking the selected one.
 func newList(n int) *headless.List[string] {
-	return &headless.List[string]{
-		Items: items(n),
-		Keys:  headless.DefaultListKeys(),
+	list := &headless.List[string]{
+		Keys: headless.DefaultListKeys(),
 		Row: func(v grid.View, _ int, item string, selected bool) {
 			prefix := " "
 			if selected {
@@ -147,6 +146,8 @@ func newList(n int) *headless.List[string] {
 			v.Text(0, 0, prefix+item, grid.Style{})
 		},
 	}
+	list.SetItems(items(n))
+	return list
 }
 
 // press builds a mouse event.
@@ -1201,6 +1202,22 @@ func TestListWithNothingInIt(t *testing.T) {
 	paintWidget(10, 3, l)
 }
 
+func TestListOwnsItsItemsAndReturnsSnapshots(t *testing.T) {
+	items := []string{"one", "two"}
+	var list headless.List[string]
+	list.SetItems(items)
+	items[0] = "changed input"
+	if got, _ := list.At(0); got != "one" {
+		t.Fatalf("first item = %q after caller mutation", got)
+	}
+
+	snapshot := list.Items()
+	snapshot[0] = "changed snapshot"
+	if got, _ := list.At(0); got != "one" {
+		t.Fatalf("first item = %q after snapshot mutation", got)
+	}
+}
+
 func TestListIgnoresKeysItHasNoUseFor(t *testing.T) {
 	l := newList(3)
 	if l.Handle(key(input.Enter)) {
@@ -1212,7 +1229,8 @@ func TestAZeroListAnswersTheKeysItDocuments(t *testing.T) {
 	// A list is a struct a caller fills in, so its zero value has to work. One that
 	// quietly ignored the arrow keys would look finished and not be — and nothing would
 	// say so, because an unconsumed key simply carries on to whatever is around it.
-	l := headless.List[string]{Items: []string{"a", "b", "c"}}
+	var l headless.List[string]
+	l.SetItems([]string{"a", "b", "c"})
 	if !l.Handle(input.Key{Code: input.Down}) {
 		t.Fatal("a zero list ignored the down key")
 	}

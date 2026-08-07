@@ -2,6 +2,7 @@ package grid_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"io"
@@ -862,6 +863,173 @@ func TestASurfaceCanBeReadAsText(t *testing.T) {
 type picture struct {
 	name string
 	log  *[]string
+}
+
+type falliblePicture struct {
+	paintErr error
+	eraseErr error
+}
+
+func (p *falliblePicture) Paint(w io.Writer, _, _ int) error {
+	if p.paintErr != nil {
+		return p.paintErr
+	}
+	_, err := io.WriteString(w, "<picture>")
+	return err
+}
+
+func (p *falliblePicture) Erase(w io.Writer) error {
+	if p.eraseErr != nil {
+		return p.eraseErr
+	}
+	_, err := io.WriteString(w, "</picture>")
+	return err
+}
+
+type regionCanvas interface {
+	Frame() grid.View
+	Flush(w io.Writer) error
+}
+
+type shortWriter struct {
+	bytes.Buffer
+	limit int
+}
+
+func (w *shortWriter) Write(p []byte) (int, error) {
+	return w.Buffer.Write(p[:min(len(p), w.limit)])
+}
+
+func TestCanvasesCompleteShortWritesBeforeSettling(t *testing.T) {
+	for name, makeCanvas := range map[string]func() regionCanvas{
+		"screen": func() regionCanvas { return grid.NewScreen(10, 4) },
+		"inline": func() regionCanvas { return grid.NewInline(10, 4) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			canvas := makeCanvas()
+			canvas.Frame().Text(0, 0, "complete", grid.Style{})
+			out := &shortWriter{limit: 3}
+			if err := canvas.Flush(out); err != nil {
+				t.Fatalf("Flush: %v", err)
+			}
+			if !strings.Contains(out.String(), "complete") {
+				t.Fatalf("short writer received %q", out.String())
+			}
+
+			out.Reset()
+			canvas.Frame().Text(0, 0, "complete", grid.Style{})
+			if err := canvas.Flush(out); err != nil {
+				t.Fatalf("unchanged Flush: %v", err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("frame was not settled after complete transfer: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestAPainterFailureDoesNotPublishOrSettleTheFrame(t *testing.T) {
+	cause := errors.New("picture transport failed")
+	for name, makeCanvas := range map[string]func() regionCanvas{
+		"screen": func() regionCanvas { return grid.NewScreen(10, 4) },
+		"inline": func() regionCanvas { return grid.NewInline(10, 4) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			canvas := makeCanvas()
+			picture := &falliblePicture{paintErr: cause}
+			var out bytes.Buffer
+			draw := func() {
+				canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 1, picture)
+			}
+
+			draw()
+			if err := canvas.Flush(&out); !errors.Is(err, cause) {
+				t.Fatalf("Flush error = %v, want painter cause", err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("failed logical frame reached the terminal: %q", out.String())
+			}
+
+			picture.paintErr = nil
+			draw()
+			if err := canvas.Flush(&out); err != nil {
+				t.Fatalf("retry: %v", err)
+			}
+			if !strings.Contains(out.String(), "<picture>") {
+				t.Fatalf("the unsettled picture was not painted by the next frame: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestAPainterEraseFailureKeepsTheOldRegionUnsettled(t *testing.T) {
+	cause := errors.New("picture erase failed")
+	for name, makeCanvas := range map[string]func() regionCanvas{
+		"screen": func() regionCanvas { return grid.NewScreen(10, 4) },
+		"inline": func() regionCanvas { return grid.NewInline(10, 4) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			canvas := makeCanvas()
+			picture := &falliblePicture{}
+			var out bytes.Buffer
+
+			canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 1, picture)
+			if err := canvas.Flush(&out); err != nil {
+				t.Fatalf("opening frame: %v", err)
+			}
+			out.Reset()
+
+			picture.eraseErr = cause
+			canvas.Frame()
+			if err := canvas.Flush(&out); !errors.Is(err, cause) {
+				t.Fatalf("Flush error = %v, want erase cause", err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("failed erase frame reached the terminal: %q", out.String())
+			}
+
+			picture.eraseErr = nil
+			canvas.Frame()
+			if err := canvas.Flush(&out); err != nil {
+				t.Fatalf("retry: %v", err)
+			}
+			if !strings.Contains(out.String(), "</picture>") {
+				t.Fatalf("the unsettled region was not erased by the next frame: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestChangingOnlyAPaintRegionStillProducesAFrame(t *testing.T) {
+	for name, makeCanvas := range map[string]func() regionCanvas{
+		"screen": func() regionCanvas { return grid.NewScreen(10, 4) },
+		"inline": func() regionCanvas { return grid.NewInline(10, 4) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var log []string
+			first := picture{name: "first", log: &log}
+			second := picture{name: "second", log: &log}
+			canvas := makeCanvas()
+			var out bytes.Buffer
+
+			canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 1, first)
+			if err := canvas.Flush(&out); err != nil {
+				t.Fatal(err)
+			}
+			log = nil
+			out.Reset()
+
+			// The cells, bounds and cursor are unchanged; identity is the only
+			// difference and is still enough to replace what the terminal remembers.
+			canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 2, second)
+			if err := canvas.Flush(&out); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(log, ","); got != "erase first,paint second 4x2" {
+				t.Fatalf("region operations = %q", got)
+			}
+		})
+	}
 }
 
 func (p picture) Paint(w io.Writer, cols, rows int) error {

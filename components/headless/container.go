@@ -2,6 +2,7 @@ package headless
 
 import (
 	"image"
+	"slices"
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -90,14 +91,13 @@ type Container struct {
 	// Axis is which way the children are arranged. The zero value stacks them down
 	// the region.
 	Axis layout.Axis
-	// Items are the children, in the order they are arranged and in the order the
-	// keyboard walks them. It may be rebuilt between frames: focus is held by
-	// identity, so a child that is still there keeps it and one that is gone gives it
-	// up to the first child that will take it.
+	// items are the children, in arrangement and keyboard order. They are private so
+	// replacing them cannot bypass focus settlement or leave pointer capture owned by
+	// a child that is no longer present.
 	//
 	// Held by identity means held as a pointer. A child value containing a function
 	// cannot be compared at all, and comparing one is a panic rather than a false.
-	Items []Item
+	items []Item
 	// Gap is how many blank rows or columns go between one child and the next. Zero
 	// puts them against each other.
 	//
@@ -153,17 +153,32 @@ func Columns(items ...Item) *Container {
 
 // Set replaces the children, preserving focus by identity where possible.
 func (c *Container) Set(items ...Item) {
-	clear(c.Items)
-	c.Items = append(c.Items[:0], items...)
+	c.items = own(c.items, items)
 	c.settle()
 }
 
 // Add appends a child and returns the container, so a tree can be built in one
 // expression.
 func (c *Container) Add(items ...Item) *Container {
-	c.Items = append(c.Items, items...)
+	c.items = append(c.items, items...)
 	c.settle()
 	return c
+}
+
+// Items returns a copy of the children in arrangement and keyboard order.
+func (c *Container) Items() []Item {
+	if c == nil {
+		return nil
+	}
+	return slices.Clone(c.items)
+}
+
+// Len reports how many children the container owns.
+func (c *Container) Len() int {
+	if c == nil {
+		return 0
+	}
+	return len(c.items)
 }
 
 // Focused is the child with the keyboard, or nil when no child will take it.
@@ -178,7 +193,7 @@ func (c *Container) Give(w Widget) bool {
 	if _, ok := w.(Focusable); !ok {
 		return false
 	}
-	for _, item := range c.Items {
+	for _, item := range c.items {
 		if item.Of == w {
 			c.settle()
 			c.move(w)
@@ -207,7 +222,7 @@ func (c *Container) Focus(has bool) {
 
 // Draw arranges the children and draws each into the room it got.
 func (c *Container) Draw(v Frame) {
-	items := append([]Item(nil), c.Items...)
+	items := slices.Clone(c.items)
 	rects := c.flow().Rects(v.Bounds().Size(), c.arrangeItems(items))
 	placed := make([]childPlacement, len(items))
 	for i, item := range items {
@@ -352,7 +367,7 @@ func (c *Container) placed(w Widget) (childPlacement, bool) {
 // arrange rebuilds the slots from the items, asking each child that can measure
 // itself to do so.
 func (c *Container) arrange() []layout.Slot {
-	return c.arrangeItems(c.Items)
+	return c.arrangeItems(c.items)
 }
 
 func (c *Container) arrangeItems(items []Item) []layout.Slot {
@@ -365,6 +380,7 @@ func (c *Container) arrangeItems(items []Item) []layout.Slot {
 		}
 		c.slots = append(c.slots, slot)
 	}
+	c.slots = trim(c.slots)
 	return c.slots
 }
 
@@ -404,7 +420,7 @@ func (c *Container) move(to Widget) {
 	if from != nil && from != to {
 		tell(from, false)
 	}
-	for _, item := range c.Items {
+	for _, item := range c.items {
 		if item.Of != to && item.Of != from {
 			tell(item.Of, false)
 		}
@@ -415,14 +431,14 @@ func (c *Container) move(to Widget) {
 // step moves the keyboard along the ring by one, in the given direction.
 func (c *Container) step(by int) bool {
 	c.settle()
-	n := len(c.Items)
+	n := len(c.items)
 	if n == 0 {
 		return false
 	}
 	from := c.indexOf(c.focused)
 	for offset := 1; offset <= n; offset++ {
 		i := ((from+by*offset)%n + n) % n
-		if w, ok := c.Items[i].Of.(Focusable); ok {
+		if w, ok := c.items[i].Of.(Focusable); ok {
 			if Widget(w) == c.focused {
 				return false
 			}
@@ -435,7 +451,7 @@ func (c *Container) step(by int) bool {
 
 // first is the earliest child that will take the keyboard, or nil.
 func (c *Container) first() Widget {
-	for _, item := range c.Items {
+	for _, item := range c.items {
 		if w, ok := item.Of.(Focusable); ok {
 			return w
 		}
@@ -451,7 +467,7 @@ func (c *Container) indexOf(w Widget) int {
 	if w == nil {
 		return -1
 	}
-	for i, item := range c.Items {
+	for i, item := range c.items {
 		if item.Of == w {
 			return i
 		}

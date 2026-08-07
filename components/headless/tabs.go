@@ -1,6 +1,8 @@
 package headless
 
 import (
+	"slices"
+
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 )
@@ -68,8 +70,7 @@ func (t *Tabs) Set(items ...Tab) {
 	if t == nil {
 		return
 	}
-	clear(t.items)
-	t.items = append(t.items[:0], items...)
+	t.items = own(t.items, items)
 	if len(t.items) == 0 {
 		t.selection.set(0)
 	} else {
@@ -85,7 +86,7 @@ func (t *Tabs) Items() []Tab {
 	if t == nil {
 		return nil
 	}
-	return append([]Tab(nil), t.items...)
+	return slices.Clone(t.items)
 }
 
 // Len returns the number of tab parts.

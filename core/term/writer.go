@@ -9,10 +9,16 @@ import (
 	"time"
 )
 
-// ErrClosed marks a frame that was handed over after the writer began shutting
-// down, or that was still queued when its grace period ran out. Such a frame is
-// abandoned rather than written.
+// ErrClosed marks a frame that was handed over after the writer became unusable,
+// or that was still queued when its shutdown grace period ran out. Such a frame is
+// abandoned rather than written. When a terminal write caused the transition,
+// [Writer.Err] preserves that original failure.
 var ErrClosed = errors.New("term: writer closed")
+
+// ErrDrainTimeout means accepted frames did not settle before their caller's
+// deadline. The caller still owns the display: handing it elsewhere would let a
+// late frame arrive in the next owner's output.
+var ErrDrainTimeout = errors.New("term: writer did not drain")
 
 // DrainGrace is how long to wait for queued frames to reach the terminal before
 // abandoning them. A terminal that has stopped accepting bytes must not be able to
@@ -108,13 +114,13 @@ func NewWriter(dst io.Writer) *Writer {
 // it. The sequence is reserved before the goroutine can see the frame, so
 // [Writer.Queued] already accounts for it when Queue returns.
 //
-// Queue does not wait for the terminal. A frame handed over after [Writer.Close] is
-// failed rather than written, which is not an error to the caller: shutting down
-// while a frame was in flight is ordinary.
+// Queue does not wait for the terminal. A frame handed over after [Writer.Close] or
+// a terminal failure is accounted for but not retained or written. The failure that
+// made the writer unusable remains available from [Writer.Err].
 func (w *Writer) Queue(data []byte) uint64 {
 	w.queueMu.Lock()
 	seq := w.queued.Add(1)
-	if w.closed {
+	if w.closed || w.discarding.Load() {
 		w.queueMu.Unlock()
 		w.finish(seq, ErrClosed)
 		return seq
@@ -156,7 +162,7 @@ func (w *Writer) Err() error {
 }
 
 // Drain waits until every frame queued so far has been written or failed, or
-// until the timeout passes, and reports whether everything was accounted for.
+// until the timeout passes.
 //
 // It is what to call before handing the terminal to another program, so that
 // program does not find half a frame in front of it. A failed frame counts as
@@ -164,8 +170,11 @@ func (w *Writer) Err() error {
 //
 // It takes nothing from [Writer.Progress]. Waiting here must not cost its consumer a
 // wake-up it is owed, which is what the broadcast channel is for.
-func (w *Writer) Drain(timeout time.Duration) bool {
-	return w.drain(w.queued.Load(), timeout)
+func (w *Writer) Drain(timeout time.Duration) error {
+	if !w.drain(w.queued.Load(), timeout) {
+		return ErrDrainTimeout
+	}
+	return nil
 }
 
 func (w *Writer) drain(target uint64, timeout time.Duration) bool {
@@ -270,6 +279,9 @@ func (w *Writer) next() (frame, bool) {
 func (w *Writer) writeAll(data []byte) error {
 	for len(data) > 0 {
 		n, err := w.dst.Write(data)
+		if n < 0 || n > len(data) {
+			return io.ErrShortWrite
+		}
 		if err != nil {
 			return err
 		}

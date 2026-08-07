@@ -166,7 +166,7 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 		return
 	}
 	c.token, c.open = t, true
-	c.list.Items = candidates
+	c.list.SetItems(candidates)
 	// The row renderer is wired here rather than while drawing: a Draw that assigns
 	// to the thing it is about to draw is a Draw with a side effect, and this is the
 	// one place the list's contents change anyway.
@@ -177,13 +177,13 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 // Dismiss closes the completion.
 func (c *Completion) Dismiss() {
 	c.open = false
-	c.list.Items = nil
+	c.list.SetItems(nil)
 	c.list.Select(0)
 }
 
 // Open reports whether anything is being offered, which is what tells the interface
 // around it to make room and to offer it keys first.
-func (c *Completion) Open() bool { return c.open && len(c.list.Items) > 0 }
+func (c *Completion) Open() bool { return c.open && c.list.Len() > 0 }
 
 // Token is what is being completed, and whether anything is.
 func (c *Completion) Token() (Token, bool) { return c.token, c.Open() }
@@ -260,14 +260,14 @@ func (c *Completion) Measure(int) int {
 	if !c.Open() {
 		return 0
 	}
-	return min(len(c.list.Items), c.rows())
+	return min(c.list.Len(), c.rows())
 }
 
 // Width is how wide the widest row wants to be, so a caller sizing a layer around it
 // does not have to measure the candidates itself.
 func (c *Completion) Width() int {
 	widest := 0
-	for _, candidate := range c.list.Items {
+	for _, candidate := range c.list.items {
 		w := text.Width(candidate.shown())
 		if candidate.Detail != "" {
 			w += detailGap + text.Width(candidate.Detail)

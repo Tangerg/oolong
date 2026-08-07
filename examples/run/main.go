@@ -157,14 +157,18 @@ func (r *runner) accept(batch program.ByteBatch) {
 // belongs to the terminal from here on; what is left is still being written.
 func (r *runner) output(chunk string) {
 	for _, line := range r.out.Feed(chunk) {
-		r.runtime.Print(&kit.Paragraph{Lines: []text.Line{line}})
+		paragraph := &kit.Paragraph{}
+		paragraph.SetText([]text.Line{line})
+		r.runtime.Print(paragraph)
 	}
 }
 
 // finish prints whatever was left, says how it went, and asks for attention.
 func (r *runner) finish(err error) {
 	for _, line := range r.out.Flush() {
-		r.runtime.Print(&kit.Paragraph{Lines: []text.Line{line}})
+		paragraph := &kit.Paragraph{}
+		paragraph.SetText([]text.Line{line})
+		r.runtime.Print(paragraph)
 	}
 	r.done = true
 	r.status = "done"

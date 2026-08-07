@@ -36,6 +36,7 @@
 package markdown
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
@@ -82,12 +83,10 @@ type Block struct {
 // [github.com/Tangerg/oolong/core/layout.Measurer], which is what lets it go into a
 // slot, container or viewport belonging to a package this one has never heard of.
 type Doc struct {
-	// Blocks are what the document came to.
-	//
-	// They are replaced through [Doc.SetBlocks] and added to through [Doc.Append],
-	// because the wrap is remembered: a document changed under it draws what it used
-	// to say until something says it changed. Reading them is free.
-	Blocks []Block
+	// blocks are private because every mutation must invalidate rows. Exposing this
+	// slice made it possible to change the document while its cached wrap still
+	// described the old one.
+	blocks []Block
 
 	// rows memoises the wrap, which is asked for twice per frame — once to measure and
 	// once to draw — and is the most expensive thing this does.
@@ -104,15 +103,50 @@ type row struct {
 	gap    string
 }
 
-// SetBlocks replaces the document.
+// SetBlocks replaces the document. Doc copies blocks and their lines; the caller may
+// reuse or change its input after this returns.
 func (d *Doc) SetBlocks(blocks []Block) {
-	d.Blocks, d.fresh = blocks, false
+	d.blocks, d.fresh = cloneBlocks(blocks), false
 }
 
 // Append adds blocks to the end, which is what a stream does as they are finished.
+// Doc copies what it retains.
 func (d *Doc) Append(blocks ...Block) {
-	d.Blocks = append(d.Blocks, blocks...)
+	d.blocks = append(d.blocks, cloneBlocks(blocks)...)
 	d.fresh = false
+}
+
+// Len reports how many rendered blocks the document owns.
+func (d *Doc) Len() int {
+	if d == nil {
+		return 0
+	}
+	return len(d.blocks)
+}
+
+// Blocks returns a deep copy of the rendered blocks in document order.
+func (d *Doc) Blocks() []Block {
+	if d == nil {
+		return nil
+	}
+	return cloneBlocks(d.blocks)
+}
+
+func cloneBlocks(blocks []Block) []Block {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]Block, len(blocks))
+	for i, block := range blocks {
+		out[i] = block
+		out[i].Lines = make([]text.Line, len(block.Lines))
+		for j, line := range block.Lines {
+			out[i].Lines[j] = slices.Clone(line)
+		}
+		out[i].Marker = slices.Clone(block.Marker)
+		out[i].Rail = slices.Clone(block.Rail)
+	}
+	return out
 }
 
 // Measure is how many rows the document needs at this width.
@@ -157,7 +191,7 @@ func (d *Doc) wrap(width int) []row {
 	}
 	clear(d.rows)
 	rows := d.rows[:0]
-	for _, block := range d.Blocks {
+	for _, block := range d.blocks {
 		if block.Gap && len(rows) > 0 {
 			rows = append(rows, row{})
 		}
@@ -193,6 +227,11 @@ func (d *Doc) wrap(width int) []row {
 				previous = wrapped.To
 			}
 		}
+	}
+	if len(rows) == 0 {
+		rows = nil
+	} else if cap(rows) > 2*len(rows)+16 {
+		rows = slices.Clone(rows)
 	}
 	d.rows, d.atWidth, d.fresh = rows, width, true
 	return rows

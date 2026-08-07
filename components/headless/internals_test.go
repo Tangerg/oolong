@@ -59,8 +59,8 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	container.Measure(10)
 	container.Set(Item{Size: layout.Measured(1, 0), Of: children[0]})
 	container.Measure(10)
-	for i, item := range container.Items[:cap(container.Items)] {
-		if i >= len(container.Items) && item.Of != nil {
+	for i, item := range container.items[:cap(container.items)] {
+		if i >= len(container.items) && item.Of != nil {
 			t.Fatalf("container item %d retained a removed child", i)
 		}
 	}
@@ -87,8 +87,8 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	form.Measure(10)
 	form.Fields = []Field{fields[0]}
 	form.Measure(10)
-	for i, item := range form.body.Items[:cap(form.body.Items)] {
-		if i >= len(form.body.Items) && item.Of != nil {
+	for i, item := range form.body.items[:cap(form.body.items)] {
+		if i >= len(form.body.items) && item.Of != nil {
 			t.Fatalf("form item %d retained a removed field", i)
 		}
 	}
@@ -98,11 +98,89 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	tree.Rows()
 	tree.Nodes = tree.Nodes[:1]
 	tree.Rows()
-	for i, row := range tree.list.Items[:cap(tree.list.Items)] {
-		if i >= len(tree.list.Items) && (row.Item != nil || row.path != "") {
+	for i, row := range tree.list.items[:cap(tree.list.items)] {
+		if i >= len(tree.list.items) && (row.Item != nil || row.path != "") {
 			t.Fatalf("tree row %d retained a removed node", i)
 		}
 	}
+}
+
+func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
+	children := make([]*retainedWidget, 1024)
+	items := make([]Item, len(children))
+	for i := range children {
+		children[i] = &retainedWidget{payload: []byte{byte(i)}}
+		items[i] = Item{Size: layout.Fixed(1), Of: children[i]}
+	}
+	one := items[:1]
+
+	var container Container
+	container.Set(items...)
+	container.Measure(10)
+	container.Set(one...)
+	container.Measure(10)
+	if cap(container.items) > 2*len(container.items)+16 {
+		t.Fatalf("container retains capacity %d for %d child", cap(container.items), len(container.items))
+	}
+	if cap(container.slots) > 2*len(container.slots)+16 {
+		t.Fatalf("container retains capacity %d for %d slot", cap(container.slots), len(container.slots))
+	}
+
+	tabs := NewTabs(makeTabs(children)...)
+	tabs.Set(Tab{Title: "one", Of: children[0]})
+	if cap(tabs.items) > 2*len(tabs.items)+16 {
+		t.Fatalf("tabs retain capacity %d for %d item", cap(tabs.items), len(tabs.items))
+	}
+
+	var list List[*retainedWidget]
+	list.SetItems(children)
+	list.SetItems(children[:1])
+	if cap(list.items) > 2*len(list.items)+16 {
+		t.Fatalf("list retains capacity %d for %d item", cap(list.items), len(list.items))
+	}
+
+	var filter Filter[*retainedWidget]
+	filter.SetText(func(*retainedWidget) string { return "item" })
+	filter.SetItems(children)
+	filter.SetItems(children[:1])
+	if cap(filter.items) > 2*len(filter.items)+16 {
+		t.Fatalf("filter retains capacity %d for %d item", cap(filter.items), len(filter.items))
+	}
+	if cap(filter.list.items) > 2*len(filter.list.items)+16 {
+		t.Fatalf("filtered list retains capacity %d for %d hit", cap(filter.list.items), len(filter.list.items))
+	}
+
+	fields := make([]Field, len(children))
+	for i := range fields {
+		fields[i] = &retainedField{retainedWidget{payload: []byte{byte(i)}}}
+	}
+	form := Form{Fields: fields}
+	form.Measure(10)
+	form.Fields = fields[:1]
+	form.Measure(10)
+	if cap(form.body.items) > 2*len(form.body.items)+16 {
+		t.Fatalf("form retains capacity %d for %d field", cap(form.body.items), len(form.body.items))
+	}
+
+	nodes := make([]Node[*retainedWidget], len(children))
+	for i, child := range children {
+		nodes[i] = Node[*retainedWidget]{Item: child}
+	}
+	tree := Tree[*retainedWidget]{Nodes: nodes}
+	tree.Rows()
+	tree.Nodes = nodes[:1]
+	tree.Rows()
+	if cap(tree.list.items) > 2*len(tree.list.items)+16 {
+		t.Fatalf("tree retains capacity %d for %d row", cap(tree.list.items), len(tree.list.items))
+	}
+}
+
+func makeTabs(children []*retainedWidget) []Tab {
+	tabs := make([]Tab, len(children))
+	for i, child := range children {
+		tabs[i] = Tab{Title: strconv.Itoa(i), Of: child}
+	}
+	return tabs
 }
 
 type retainedBlock struct{ payload []byte }

@@ -266,7 +266,7 @@ func kitDrawPurityCases() []drawPurityCase {
 				lines         any
 				indent, limit int
 				links         bool
-			}{paragraph.Lines, paragraph.Indent, paragraph.MaxRows, paragraph.Links}
+			}{paragraph.lines, paragraph.Indent, paragraph.MaxRows, paragraph.Links}
 		},
 	})
 

@@ -18,7 +18,7 @@ func pinnable(t *testing.T, pairs int) (*headless.Transcript, *headless.Sticky) 
 	s := &headless.Sticky{Gap: 1}
 	for i := range pairs {
 		id := tr.Append(&block{name: fmt.Sprintf("prompt%d", i), lines: prompt})
-		s.Blocks = append(s.Blocks, id)
+		s.Add(id)
 		tr.Append(&block{name: fmt.Sprintf("answer%d", i), lines: answer})
 	}
 	return &tr, s
@@ -103,7 +103,8 @@ func TestTheHeaderGoesWhenItIsFullyPushed(t *testing.T) {
 func TestATallPromptCollapses(t *testing.T) {
 	tr := &headless.Transcript{}
 	tr.Resize(40)
-	s := &headless.Sticky{Blocks: []headless.BlockID{0}, MinHeight: 2, Gap: 1}
+	s := &headless.Sticky{MinHeight: 2, Gap: 1}
+	s.SetBlocks([]headless.BlockID{0})
 	tr.Append(&block{name: "tall", lines: 6})
 	tr.Append(&block{name: "answer", lines: 30})
 
@@ -126,7 +127,8 @@ func TestATallPromptCollapses(t *testing.T) {
 func TestAPromptThatDoesNotCollapseKeepsItsHeight(t *testing.T) {
 	tr := &headless.Transcript{}
 	tr.Resize(40)
-	s := &headless.Sticky{Blocks: []headless.BlockID{0}}
+	s := &headless.Sticky{}
+	s.SetBlocks([]headless.BlockID{0})
 	tr.Append(&block{name: "tall", lines: 6})
 	tr.Append(&block{name: "answer", lines: 30})
 
@@ -165,7 +167,8 @@ func TestStickyIgnoresBlocksThatAreNotThere(t *testing.T) {
 	tr.Resize(40)
 	tr.Append(&block{name: "only", lines: 2})
 	tr.Append(&block{name: "answer", lines: 20})
-	s := &headless.Sticky{Blocks: []headless.BlockID{0, 99}}
+	s := &headless.Sticky{}
+	s.SetBlocks([]headless.BlockID{0, 99})
 
 	p, ok := s.At(tr.Layout(), 5, 8)
 	if !ok || p.Block != 0 {
@@ -179,9 +182,31 @@ func TestAPinnedBlockOfNoHeightIsNotPinned(t *testing.T) {
 	tr.Append(&block{name: "first", lines: 2})
 	tr.Append(&block{name: "nothing", lines: 0})
 	tr.Append(&block{name: "answer", lines: 20})
-	s := &headless.Sticky{Blocks: []headless.BlockID{1}}
+	s := &headless.Sticky{}
+	s.SetBlocks([]headless.BlockID{1})
 
 	if _, ok := s.At(tr.Layout(), 6, 8); ok {
 		t.Error("a block with no rows was pinned")
+	}
+}
+
+func TestStickyOwnsItsBlockIdentities(t *testing.T) {
+	given := []headless.BlockID{1, 2, 3}
+	var s headless.Sticky
+	s.SetBlocks(given)
+
+	given[1] = 99
+	s.DiscardBefore(2)
+	if got := s.Blocks(); len(got) != 2 || got[0] != 2 || got[1] != 3 {
+		t.Fatalf("blocks after discard = %v, want [2 3]", got)
+	}
+	if given[0] != 1 {
+		t.Fatalf("discard cleared caller-owned input: %v", given)
+	}
+
+	got := s.Blocks()
+	got[0] = 88
+	if kept := s.Blocks(); kept[0] != 2 {
+		t.Fatalf("mutating snapshot changed sticky state: %v", kept)
 	}
 }

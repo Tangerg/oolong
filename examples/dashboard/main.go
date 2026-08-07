@@ -127,20 +127,19 @@ type queue struct {
 
 func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 	q := &queue{theme: theme}
-	q.rows = &headless.Table[task]{
-		// One comparison for every column, which is what a table sorted by a column
-		// somebody named needs.
-		Less: func(a, b task, column int) bool {
-			switch column {
-			case 1:
-				return a.state < b.state
-			case 2:
-				return a.done*b.total < b.done*a.total
-			default:
-				return a.name < b.name
-			}
-		},
-	}
+	q.rows = new(headless.Table[task])
+	// One comparison for every column, which is what a table sorted by a column
+	// somebody named needs.
+	q.rows.SetLess(func(a, b task, column int) bool {
+		switch column {
+		case 1:
+			return a.state < b.state
+		case 2:
+			return a.done*b.total < b.done*a.total
+		default:
+			return a.name < b.name
+		}
+	})
 	q.rows.SetItems(tasks())
 	q.rows.Row = q.row
 
@@ -178,7 +177,7 @@ func (q *queue) Draw(v headless.Frame) {
 	q.rows.Draw(bands[1])
 }
 
-func (q *queue) Measure(int) int { return len(q.rows.Items) + 1 }
+func (q *queue) Measure(int) int { return q.rows.Len() + 1 }
 
 // Handle sorts by a heading that was pressed, and hands everything else to the rows
 // — one row down, because the header took the first one.
@@ -214,10 +213,10 @@ func (q *queue) row(v grid.View, at int, _ task, selected bool) {
 // cell draws one cell. The row index is the table's, so what is in a cell comes from
 // this program's own rows and not from anything a widget copied.
 func (q *queue) cell(v grid.View, row, column int, base grid.Style) {
-	if row < 0 || row >= len(q.rows.Items) {
+	item, ok := q.rows.At(row)
+	if !ok {
 		return
 	}
-	item := q.rows.Items[row]
 	switch column {
 	case 0:
 		kit.Label{Text: item.name, Style: base, Ellipsis: "…"}.Draw(v)
@@ -247,8 +246,9 @@ func (q *queue) state(of task) grid.Style {
 
 // advance moves every task along by one step.
 func (q *queue) advance() {
-	for i := range q.rows.Items {
-		item := &q.rows.Items[i]
+	items := q.rows.Items()
+	for i := range items {
+		item := &items[i]
 		if item.done >= item.total {
 			continue
 		}
@@ -258,12 +258,13 @@ func (q *queue) advance() {
 			item.state = done
 		}
 	}
+	q.rows.SetItems(items)
 }
 
 // remaining is how much of the whole queue is left, which is what the other pane is
 // about.
 func (q *queue) remaining() (finished, total int) {
-	for _, item := range q.rows.Items {
+	for _, item := range q.rows.Items() {
 		finished += item.done
 		total += item.total
 	}

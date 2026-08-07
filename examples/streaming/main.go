@@ -121,7 +121,7 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 		Hints:       []keymap.Action{send, headless.InsertNewline, cancelReply, quit},
 	}
 	c.composer.Editor().Clipboard = runtime.Clipboard()
-	c.stream.Look = markdownLook(theme, glyphs)
+	c.stream.SetLook(markdownLook(theme, glyphs))
 
 	c.body = headless.Rows(
 		headless.Item{Size: layout.Flex(1), Of: &c.view},
@@ -282,7 +282,8 @@ func (c *chat) finishOpen(blocks []markdown.Block) {
 		return
 	}
 	if !c.hasOpen {
-		doc := &markdown.Doc{Blocks: blocks}
+		doc := new(markdown.Doc)
+		doc.SetBlocks(blocks)
 		id := c.content.Append(doc)
 		c.content.Finish(id)
 		return
@@ -301,7 +302,8 @@ func (c *chat) stageOpen(blocks []markdown.Block) {
 		c.open.SetBlocks(blocks)
 		c.content.Changed(c.openID)
 	} else {
-		c.open = &markdown.Doc{Blocks: blocks}
+		c.open = new(markdown.Doc)
+		c.open.SetBlocks(blocks)
 		c.openID = c.content.Append(c.open)
 		c.hasOpen = true
 	}

@@ -2,6 +2,7 @@ package kit
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -44,11 +45,10 @@ func (l Label) Draw(v grid.View) {
 // [headless.Block] measures itself: publication and a [headless.Static] viewport
 // adapter both have to ask before they can decide how much room to give.
 type Paragraph struct {
-	// Lines are the logical lines. A line's own styling survives wrapping.
-	//
-	// They are replaced through [Paragraph.SetText], because the wrap is remembered:
-	// text changed under it draws what it used to say until something says it changed.
-	Lines []text.Line
+	// lines are private because every mutation must invalidate wrapped. Exposing them
+	// made it possible to change the text while its cached rows still described the
+	// old value.
+	lines []text.Line
 	// Indent is held clear on the left of every row, including continuations, so a
 	// wrapped paragraph reads as one block rather than as several.
 	Indent int
@@ -71,6 +71,7 @@ type Paragraph struct {
 	// measure and once to draw — and is the most expensive thing this widget does.
 	wrapped []row
 	atWidth int
+	atLimit int
 	fresh   bool
 }
 
@@ -90,13 +91,35 @@ type row struct {
 // NewParagraph is a paragraph of one plain styled string. Its newlines are line
 // breaks.
 func NewParagraph(s string, style grid.Style) *Paragraph {
-	return &Paragraph{Lines: linesOf(s, style)}
+	p := &Paragraph{}
+	p.SetText(linesOf(s, style))
+	return p
 }
 
-// SetText replaces the content.
+// SetText replaces the logical lines. Paragraph copies lines and their spans; the
+// caller may reuse or change its input after this returns.
 func (p *Paragraph) SetText(lines []text.Line) {
-	p.Lines = lines
+	p.lines = cloneLines(lines)
 	p.fresh = false
+}
+
+// Lines returns a deep copy of the paragraph's logical lines.
+func (p *Paragraph) Lines() []text.Line {
+	if p == nil {
+		return nil
+	}
+	return cloneLines(p.lines)
+}
+
+func cloneLines(lines []text.Line) []text.Line {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]text.Line, len(lines))
+	for i, line := range lines {
+		out[i] = slices.Clone(line)
+	}
+	return out
 }
 
 // Measure is how many rows the paragraph needs at this width.
@@ -124,10 +147,10 @@ func (p *Paragraph) Draw(v grid.View) {
 // clipped away. A link that wrapped is stamped on each row it covers, with the same
 // target on all of them, which is how a terminal draws one hyperlink over two lines.
 func (p *Paragraph) stamp(v grid.View, y int, r row) {
-	if r.line >= len(p.Lines) || r.To <= r.From {
+	if r.line >= len(p.lines) || r.To <= r.From {
 		return
 	}
-	whole := p.Lines[r.line].String()
+	whole := p.lines[r.line].String()
 	if r.To > len(whole) {
 		return
 	}
@@ -171,8 +194,8 @@ func (p *Paragraph) Rows(width int) []text.Row {
 	prevTo, prevLine := 0, -1
 	for _, r := range rows {
 		row := text.Row{Text: r.Line.String(), Offset: p.Indent, Joined: r.Joined}
-		if r.Joined && r.line == prevLine && r.line < len(p.Lines) {
-			whole := p.Lines[r.line].String()
+		if r.Joined && r.line == prevLine && r.line < len(p.lines) {
+			whole := p.lines[r.line].String()
 			if prevTo <= r.From && r.From <= len(whole) {
 				row.Gap = whole[prevTo:r.From]
 			}
@@ -199,10 +222,10 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 		return link.Link{}, false
 	}
 	r := rows[y]
-	if r.line >= len(p.Lines) || r.To <= r.From {
+	if r.line >= len(p.lines) || r.To <= r.From {
 		return link.Link{}, false
 	}
-	whole := p.Lines[r.line].String()
+	whole := p.lines[r.line].String()
 	if r.To > len(whole) {
 		return link.Link{}, false
 	}
@@ -232,11 +255,11 @@ func (p *Paragraph) rows(width int) []row {
 	if room <= 0 {
 		return nil
 	}
-	if p.fresh && p.atWidth == room {
+	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows {
 		return p.wrapped
 	}
 	var rows []row
-	for i, line := range p.Lines {
+	for i, line := range p.lines {
 		for _, wrapped := range line.Wrap(room) {
 			rows = append(rows, row{Wrapped: wrapped, line: i})
 		}
@@ -251,7 +274,7 @@ func (p *Paragraph) rows(width int) []row {
 		// ellipsis, and a hyperlink over "…" is worse than none.
 		rows[last].From, rows[last].To = 0, 0
 	}
-	p.wrapped, p.atWidth, p.fresh = rows, room, true
+	p.wrapped, p.atWidth, p.atLimit, p.fresh = rows, room, p.MaxRows, true
 	return rows
 }
 

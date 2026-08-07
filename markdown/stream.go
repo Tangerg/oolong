@@ -1,6 +1,9 @@
 package markdown
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Stream renders markdown that is still arriving.
 //
@@ -35,10 +38,10 @@ import "strings"
 // its address arrives, and comes out as the words without the link. Both are the
 // price of showing an answer as it is written instead of after it is finished.
 type Stream struct {
-	// Look is how the blocks are drawn. Changing it affects what is published after
+	// look is how the blocks are drawn. Changing it affects what is published after
 	// the change and not what was published before it, which is the one thing a
 	// stream cannot go back on.
-	Look Look
+	look Look
 
 	// held is the source that has not been published.
 	held string
@@ -59,6 +62,23 @@ type Stream struct {
 	// twice in one frame — to measure and to draw — parses once.
 	open  []Block
 	fresh bool
+}
+
+// SetLook changes how unpublished text is rendered. Blocks already returned by
+// Feed cannot change; the open tail and everything published afterwards use look.
+// Stream owns the heading styles so later caller mutation cannot silently change
+// its rendering without invalidating the open cache.
+func (s *Stream) SetLook(look Look) {
+	s.look = cloneLook(look)
+	s.fresh = false
+}
+
+// Look returns a snapshot of the stream's current appearance.
+func (s *Stream) Look() Look { return cloneLook(s.look) }
+
+func cloneLook(look Look) Look {
+	look.Headings = slices.Clone(look.Headings)
+	return look
 }
 
 // Feed takes another piece of the answer and returns the blocks it finished.
@@ -82,7 +102,7 @@ func (s *Stream) Feed(chunk string) []Block {
 	if cut <= 0 {
 		return nil
 	}
-	done := Render(s.held[:cut], s.Look)
+	done := Render(s.held[:cut], s.look)
 	// A substring shares the complete source allocation. Clone at the ownership
 	// boundary so a short open tail cannot retain the finished prefix that was just
 	// published and handed away.
@@ -100,14 +120,14 @@ func (s *Stream) Feed(chunk string) []Block {
 // is written, and it is what they would see if it stopped there.
 func (s *Stream) Open() []Block {
 	if !s.fresh {
-		s.open, s.fresh = Render(s.held, s.Look), true
+		s.open, s.fresh = Render(s.held, s.look), true
 	}
-	return s.open
+	return cloneBlocks(s.open)
 }
 
 // Flush publishes whatever is left, which is what the end of an answer is.
 func (s *Stream) Flush() []Block {
-	done := Render(s.held, s.Look)
+	done := Render(s.held, s.look)
 	s.Reset()
 	return done
 }

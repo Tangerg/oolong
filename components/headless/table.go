@@ -18,7 +18,7 @@ import "slices"
 type Table[T any] struct {
 	List[T]
 
-	// Less orders two rows by a column: true when a comes before b. Nil means the
+	// less orders two rows by a column: true when a comes before b. Nil means the
 	// table cannot be sorted, which is the right answer for rows that arrive in an
 	// order that means something.
 	//
@@ -26,11 +26,24 @@ type Table[T any] struct {
 	// sorted by a column the caller has already named is a table whose comparison is
 	// a switch — and a switch written once beats a slice of functions that has to be
 	// kept the same length as the columns.
-	Less func(a, b T, column int) bool
+	less func(a, b T, column int) bool
 
 	column     int
 	descending bool
 	sorted     bool
+}
+
+// SetLess changes how columns order rows. A table already in a sorted state is
+// immediately reordered by the new comparison; nil leaves the current row order in
+// place and marks it unsorted. Keeping this transition inside Table prevents its
+// reported order from getting out of step with its rows.
+func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
+	t.less = less
+	if less == nil {
+		t.sorted = false
+		return
+	}
+	t.reorder()
 }
 
 // SortBy orders the rows by a column, and reports whether anything changed.
@@ -38,7 +51,7 @@ type Table[T any] struct {
 // Asking for the column it is already sorted by turns the order round, which is what
 // a reader means by pressing the same header twice.
 func (t *Table[T]) SortBy(column int) bool {
-	if t.Less == nil || column < 0 || len(t.Items) == 0 {
+	if t.less == nil || column < 0 || len(t.items) == 0 {
 		return false
 	}
 	if t.sorted && t.column == column {
@@ -81,28 +94,28 @@ func (t *Table[T]) SetItems(items []T) {
 // type to know how to tell two of them apart, which is knowledge only the caller
 // has — and would land on the wrong row whenever two of them were alike.
 func (t *Table[T]) reorder() {
-	if !t.sorted || t.Less == nil || len(t.Items) < 2 {
+	if !t.sorted || t.less == nil || len(t.items) < 2 {
 		return
 	}
-	order := make([]int, len(t.Items))
+	order := make([]int, len(t.items))
 	for i := range order {
 		order[i] = i
 	}
 	// A stable sort, so rows the column cannot tell apart keep the order they were
 	// given — which is where the caller's own idea of importance lives.
 	//
-	// The comparison is asked both ways round because [Table.Less] answers one of
+	// The comparison is asked both ways round because the predicate answers one of
 	// them and a sort needs all three: rows it cannot separate must compare equal,
 	// or the sort has no ties to keep the order of.
 	slices.SortStableFunc(order, func(a, b int) int {
-		x, y := t.Items[a], t.Items[b]
+		x, y := t.items[a], t.items[b]
 		if t.descending {
 			x, y = y, x
 		}
 		switch {
-		case t.Less(x, y, t.column):
+		case t.less(x, y, t.column):
 			return -1
-		case t.Less(y, x, t.column):
+		case t.less(y, x, t.column):
 			return 1
 		default:
 			return 0
@@ -113,12 +126,12 @@ func (t *Table[T]) reorder() {
 	moved := was
 	items := make([]T, len(order))
 	for at, from := range order {
-		items[at] = t.Items[from]
+		items[at] = t.items[from]
 		if from == was {
 			moved = at
 		}
 	}
-	t.Items = items
+	t.items = items
 	if moved >= 0 {
 		t.Select(moved)
 	}

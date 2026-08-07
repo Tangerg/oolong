@@ -261,7 +261,13 @@ func (i *Inline) Cursor() Cursor { return i.placed }
 func (i *Inline) Flush(w io.Writer) error {
 	used := i.used()
 	i.buf = i.buf[:0]
-	i.compose(used)
+	if err := i.compose(used); err != nil {
+		// The frame never reached w, but a painter may have emitted a partial private
+		// payload before failing. Forget all terminal assumptions and preserve pending
+		// output so the caller may either report the failure or deliberately retry.
+		i.Invalidate()
+		return err
+	}
 	if len(i.buf) == 0 {
 		i.settle(used)
 		return nil
@@ -269,7 +275,7 @@ func (i *Inline) Flush(w io.Writer) error {
 	i.out = append(i.out[:0], beginSync...)
 	i.out = append(i.out, i.buf...)
 	i.out = append(i.out, endSync...)
-	if _, err := w.Write(i.out); err != nil {
+	if err := writeAll(w, i.out); err != nil {
 		// Some prefix of the frame may have landed, so what the terminal is showing
 		// is no longer known. The printed rows are kept rather than dropped: output
 		// the caller asked for is worth writing twice and not worth losing.
@@ -306,8 +312,7 @@ func (i *Inline) Finish(w io.Writer) error {
 	// nothing further belongs on it: the cursor has moved below the block.
 	i.open, i.tail, i.flushed = false, 0, 0
 	i.Invalidate()
-	_, err := w.Write(i.buf)
-	return err
+	return writeAll(w, i.buf)
 }
 
 // used is how many rows the block needs: the rows up to the last one with anything
@@ -336,7 +341,7 @@ func (i *Inline) used() int {
 
 // compose builds this frame's payload, or leaves it empty when the terminal is
 // already showing this frame.
-func (i *Inline) compose(used int) {
+func (i *Inline) compose(used int) error {
 	// Printing rewrites the rows the block's first rows were on and moves the block
 	// down past them, so nothing the block is showing survives it. A piece that goes
 	// onto the end of a row already published moves nothing: the row it goes on is
@@ -356,12 +361,13 @@ func (i *Inline) compose(used int) {
 	// nothing that is above it.
 	extra := max(i.rows-advance-used, 0)
 
-	work := full || extra > 0 || len(i.pending) > 0
+	work := full || extra > 0 || len(i.pending) > 0 ||
+		!sameRegions(i.front.regions(), i.back.regions())
 	for y := 0; y < used && !work; y++ {
 		work = changed(y)
 	}
 	if !work && !i.cursorPending() {
-		return
+		return nil
 	}
 
 	// The terminal's style at the start of a frame is not knowable — another program
@@ -425,7 +431,10 @@ func (i *Inline) compose(used int) {
 	// go after the rows for the reason they do on a screen — the rows would write the
 	// blanks they think are underneath over what was painted — and before the cursor,
 	// which has to end up where this frame asked whatever a painter did on the way.
-	cur := i.paintRegions(image.Pt(0, max(total-1, 0)), full)
+	cur, err := i.paintRegions(image.Pt(0, max(total-1, 0)), full)
+	if err != nil {
+		return err
+	}
 
 	at := image.Pt(0, max(used-1, 0))
 	if up := cur.Y - at.Y; up > 0 {
@@ -438,6 +447,7 @@ func (i *Inline) compose(used int) {
 		i.buf = append(i.buf, '\r')
 	}
 	i.placeCursor(at)
+	return nil
 }
 
 // paintRegions writes what turns the regions the terminal is showing into the ones
@@ -447,10 +457,10 @@ func (i *Inline) compose(used int) {
 // published output moved the block down past it, which moved what the terminal is
 // showing with it, so that frame paints its regions again from nothing — the same
 // answer a full repaint gives, and for the same reason.
-func (i *Inline) paintRegions(cur image.Point, full bool) image.Point {
+func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 	was, now := i.front.regions(), i.back.regions()
 	if len(was) == 0 && len(now) == 0 {
-		return cur
+		return cur, nil
 	}
 	out := bytesTo{&i.buf}
 	move := func(to image.Point) {
@@ -468,12 +478,15 @@ func (i *Inline) paintRegions(cur image.Point, full bool) image.Point {
 	}
 	if full || i.repaintAll {
 		i.repaintAll = false
-		// Nothing here can fail: the destination is memory.
-		_ = repaint(out, was, nil, move)
+		if err := repaint(out, was, nil, move); err != nil {
+			return cur, err
+		}
 		was = nil
 	}
-	_ = repaint(out, was, now, move)
-	return cur
+	if err := repaint(out, was, now, move); err != nil {
+		return cur, err
+	}
+	return cur, nil
 }
 
 // cursorPending reports whether the terminal has to be told something about its

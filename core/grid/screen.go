@@ -147,7 +147,7 @@ func (s *Screen) Flush(w io.Writer) error {
 	s.out = append(s.out[:0], beginSync...)
 	s.out = append(s.out, s.frame.out...)
 	s.out = append(s.out, endSync...)
-	if _, err := w.Write(s.out); err != nil {
+	if err := writeAll(w, s.out); err != nil {
 		// The terminal's contents are now unknown: some prefix of the frame may
 		// have landed. The next flush starts over rather than diffing against a
 		// front surface the terminal never fully received.

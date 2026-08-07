@@ -88,16 +88,25 @@ func (s Session) Hand(run func() error) error {
 		return run()
 	}
 	p := s.runtime.p
-	if p.inline != nil {
-		p.leaveBlock()
+	// Repaint is part of settling the handover, including when the child panics and
+	// the host restores terminal ownership from a defer.
+	defer p.present.RequestFull()
+	if p.inline != nil && p.root != nil {
+		if err := p.leaveBlock(); err != nil {
+			p.frameFailed = true
+			p.failure = err
+			return err
+		}
 	}
-	if !p.writer.Drain(term.DrainGrace) {
-		p.present.RequestFull()
-		return frameDrainError(p.writer)
+	if err := p.writer.Drain(term.DrainGrace); err != nil {
+		return frameDrainError(p.writer, err)
 	}
-	err := p.host.hand(run)
-	p.present.RequestFull()
-	return err
+	if err := p.writer.Err(); err != nil {
+		p.outputFailed = true
+		p.failure = err
+		return err
+	}
+	return p.host.hand(run)
 }
 
 // Suspend restores the terminal and stops the process until it is continued.

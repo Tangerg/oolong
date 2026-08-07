@@ -1,17 +1,19 @@
 package kit
 
 import (
+	"slices"
+
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Braille is the spinner every terminal renders and nobody has to think about: it
-// occupies one cell, it is the same width in every frame, and it reads as motion
-// rather than as characters changing.
-var Braille = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var braille = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// Dots is the fallback for terminals without Braille coverage.
-var Dots = []string{"·", "•", "●", "•"}
+// Braille returns the spinner every terminal renders and nobody has to think about: it
+// occupies one cell, it is the same width in every frame, and it reads as motion
+// rather than as characters changing. Each call returns an independent slice; use
+// [Unicode] or [ASCII] when the terminal's character coverage decides the frames.
+func Braille() []string { return slices.Clone(braille[:]) }
 
 // Spinner shows that something is happening.
 //
@@ -22,7 +24,7 @@ type Spinner struct {
 	// Theme is the look: the glyph is what the interface is waiting on, and the
 	// label is a note about it.
 	Theme Theme
-	// Frames are the glyphs cycled through. Empty means [Braille].
+	// Frames are the glyphs cycled through. Empty uses [Braille].
 	Frames []string
 	// Label follows the glyph, if there is room.
 	Label string
@@ -44,7 +46,7 @@ func (s *Spinner) Draw(v grid.View) {
 	}
 	frames := s.Frames
 	if len(frames) == 0 {
-		frames = Braille
+		frames = braille[:]
 	}
 	glyph := frames[((s.frame%len(frames))+len(frames))%len(frames)]
 	x := v.Text(0, 0, glyph, s.Theme.Accent)

@@ -40,6 +40,12 @@ type Timeline struct {
 func (t *Timeline) Tick() {
 	if t.Loop {
 		if span := t.Span(); span > 0 {
+			if span == ^uint64(0) {
+				// The cycle has every uint64 tick in it. Natural overflow is exactly
+				// its wrap; span+1 would itself overflow and make the modulus zero.
+				t.tick++
+				return
+			}
 			t.tick = (t.tick + 1) % (span + 1)
 			return
 		}

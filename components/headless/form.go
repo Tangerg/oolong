@@ -379,14 +379,15 @@ func (f *Form) arrange() {
 	f.body.Axis = layout.Down
 	f.body.Gap = f.Gap
 	f.body.Keys = f.keys()
-	clear(f.body.Items)
-	f.body.Items = f.body.Items[:0]
+	clear(f.body.items)
+	f.body.items = f.body.items[:0]
 	for _, field := range f.Fields {
 		if takes, ok := field.(dressed); ok {
 			takes.dress(f.Look)
 		}
-		f.body.Items = append(f.body.Items, Item{Size: layout.Measured(1, 0), Of: field})
+		f.body.items = append(f.body.items, Item{Size: layout.Measured(1, 0), Of: field})
 	}
+	f.body.items = trim(f.body.items)
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.

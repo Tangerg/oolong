@@ -8,10 +8,8 @@ import (
 
 func TestAnExactSpokenChoiceWinsOverLongerPrefixes(t *testing.T) {
 	var chosen string
-	field := &headless.Select[string]{
-		Options: headless.Options("good", "goose", "go"),
-		Value:   headless.Bind(&chosen),
-	}
+	field := selectWith(headless.Options("good", "goose", "go"))
+	field.Value = headless.Bind(&chosen)
 	if err := field.Reply("go"); err != nil {
 		t.Fatalf("Reply: %v", err)
 	}
@@ -21,7 +19,7 @@ func TestAnExactSpokenChoiceWinsOverLongerPrefixes(t *testing.T) {
 }
 
 func TestDuplicateSpokenChoicesAreRefused(t *testing.T) {
-	field := &headless.Select[string]{Options: headless.Options("same", "same")}
+	field := selectWith(headless.Options("same", "same"))
 	if err := field.Reply("same"); err == nil {
 		t.Fatal("two choices with the same spoken label were guessed between")
 	}

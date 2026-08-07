@@ -1,6 +1,8 @@
 package headless
 
 import (
+	"slices"
+
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -17,8 +19,9 @@ import (
 // selection past the edge of the window scrolls to keep it visible, because a
 // selection the user cannot see is a selection they will act on by mistake.
 type List[T any] struct {
-	// Items are what the list shows.
-	Items []T
+	// items are private so replacing them cannot bypass selection clamping or leave
+	// committed routing totals describing a collection the list no longer owns.
+	items []T
 	// Row draws one item. at is where it sits among the items and selected says
 	// whether it is the one under the cursor, which the caller renders however it
 	// likes — a list does not know what selected looks like in its surroundings.
@@ -47,7 +50,7 @@ type List[T any] struct {
 
 // Selected is the index under the cursor, or -1 for an empty list.
 func (l *List[T]) Selected() int {
-	if len(l.Items) == 0 {
+	if len(l.items) == 0 {
 		return -1
 	}
 	return l.clampIndex(l.selected)
@@ -60,7 +63,7 @@ func (l *List[T]) Current() (T, bool) {
 		var zero T
 		return zero, false
 	}
-	return l.Items[i], true
+	return l.items[i], true
 }
 
 // Select moves the cursor to an index, clamped to the list.
@@ -71,27 +74,53 @@ func (l *List[T]) Select(i int) {
 
 // Move shifts the selection by n items, wrapping only if asked to.
 func (l *List[T]) Move(n int) {
-	if len(l.Items) == 0 {
+	if len(l.items) == 0 {
 		return
 	}
 	next := l.selected + n
 	if l.Wrap {
-		size := len(l.Items)
+		size := len(l.items)
 		next = ((next % size) + size) % size
 	}
 	l.Select(next)
 }
 
 // SetItems replaces the contents, keeping the selection on the same index where
-// that still exists.
+// that still exists. The list copies the slice; the caller may reuse or change its
+// input after this returns.
 //
 // Keeping the index rather than the item: a list that is refreshed while the user is
 // reading it should not jump, and following an item by identity would need this
 // widget to know how to compare items, which is knowledge it has no business
 // holding.
 func (l *List[T]) SetItems(items []T) {
-	l.Items = items
+	l.items = own(l.items, items)
 	l.selected = l.clampIndex(l.selected)
+}
+
+// Items returns a copy of the items in list order.
+func (l *List[T]) Items() []T {
+	if l == nil {
+		return nil
+	}
+	return slices.Clone(l.items)
+}
+
+// Len reports how many items the list owns.
+func (l *List[T]) Len() int {
+	if l == nil {
+		return 0
+	}
+	return len(l.items)
+}
+
+// At returns the item at index and whether it exists.
+func (l *List[T]) At(index int) (T, bool) {
+	if l != nil && index >= 0 && index < len(l.items) {
+		return l.items[index], true
+	}
+	var zero T
+	return zero, false
 }
 
 // Handle answers keys, the wheel and a press, reporting whether it consumed the event.
@@ -129,7 +158,7 @@ func (l *List[T]) Do(action keymap.Action) bool {
 	case SelectFirst:
 		l.Select(0)
 	case SelectLast:
-		l.Select(len(l.Items) - 1)
+		l.Select(len(l.items) - 1)
 	default:
 		return false
 	}
@@ -172,7 +201,7 @@ func (l *List[T]) reach(y int) bool {
 		return false
 	}
 	at := presented.first + y
-	if at >= presented.total || at >= len(l.Items) {
+	if at >= presented.total || at >= len(l.items) {
 		return false
 	}
 	l.Select(at)
@@ -191,7 +220,7 @@ func (l *List[T]) keys() *keymap.Map {
 
 // Measure is one row per item, which is what a container needs to decide whether the
 // list can have all the room it wants.
-func (l *List[T]) Measure(int) int { return len(l.Items) }
+func (l *List[T]) Measure(int) int { return len(l.items) }
 
 // Focus takes the keyboard, or gives it up.
 //
@@ -211,7 +240,7 @@ func (l *List[T]) Scroll() *Scroll { return &l.scroll }
 // Draw paints the visible items.
 func (l *List[T]) Draw(v Frame) {
 	width, height := v.Size()
-	total := len(l.Items)
+	total := len(l.items)
 	selected := l.Selected()
 	scroll := l.scroll.Stage(v, total, height)
 	if selected >= 0 {
@@ -228,17 +257,17 @@ func (l *List[T]) Draw(v Frame) {
 			break
 		}
 		row := v.Sub(grid.Rect(0, y, width, 1)).View
-		l.Row(row, index, l.Items[index], index == selected)
+		l.Row(row, index, l.items[index], index == selected)
 	}
 }
 
 // reveal scrolls the least amount that brings the selection into the window.
 func (l *List[T]) reveal() {
 	window := l.presentation.Value().window
-	if window <= 0 || len(l.Items) == 0 {
+	if window <= 0 || len(l.items) == 0 {
 		return
 	}
-	l.scroll.Layout(len(l.Items), window)
+	l.scroll.Layout(len(l.items), window)
 	first := l.scroll.Offset()
 	switch last := first + window - 1; {
 	case l.selected < first:
@@ -253,8 +282,8 @@ type listPresentation struct {
 }
 
 func (l *List[T]) clampIndex(i int) int {
-	if len(l.Items) == 0 {
+	if len(l.items) == 0 {
 		return 0
 	}
-	return min(max(i, 0), len(l.Items)-1)
+	return min(max(i, 0), len(l.items)-1)
 }

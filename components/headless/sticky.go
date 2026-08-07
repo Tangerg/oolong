@@ -1,6 +1,10 @@
 package headless
 
-import "github.com/Tangerg/oolong/core/anim"
+import (
+	"slices"
+
+	"github.com/Tangerg/oolong/core/anim"
+)
 
 // Sticky pins a block to the top of the view once it has been scrolled past.
 //
@@ -24,13 +28,14 @@ import "github.com/Tangerg/oolong/core/anim"
 // left, and how far along the push is. None of that needs a cell, so none of it is
 // here. What draws a header takes these numbers and draws.
 type Sticky struct {
-	// Blocks are the identities of the blocks that can be pinned, in order. Everything
-	// else scrolls normally.
+	// blocks are the identities of the blocks that can be pinned, in order. They are
+	// private because discarding a committed prefix mutates this collection; retaining
+	// a caller-owned slice would clear the caller's data while reclaiming ours.
 	//
-	// It is the caller's list because only the caller knows which blocks mean
-	// anything: in a session the prompts are worth pinning and the answers are not,
-	// and nothing here can tell one from the other.
-	Blocks []BlockID
+	// Only the caller knows which blocks mean anything: in a session the prompts are
+	// worth pinning and the answers are not, and nothing here can tell one from the
+	// other.
+	blocks []BlockID
 	// MinHeight is how far a header may be collapsed before it stops shrinking and
 	// starts scrolling off instead. Zero means it does not collapse.
 	//
@@ -39,6 +44,29 @@ type Sticky struct {
 	// Gap is the rows kept clear between a pinned header and the content below it,
 	// so that the two do not read as one block.
 	Gap int
+}
+
+// SetBlocks replaces the identities that can be pinned. Sticky owns the slice; the
+// caller may reuse or change its input afterwards.
+func (s *Sticky) SetBlocks(blocks []BlockID) { s.blocks = own(s.blocks, blocks) }
+
+// Add appends pinnable block identities in transcript order.
+func (s *Sticky) Add(blocks ...BlockID) { s.blocks = append(s.blocks, blocks...) }
+
+// Blocks returns a copy of the pinnable identities in transcript order.
+func (s *Sticky) Blocks() []BlockID {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.blocks)
+}
+
+// Len reports how many pinnable identities Sticky owns.
+func (s *Sticky) Len() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.blocks)
 }
 
 // Pinned is the header for one frame.
@@ -69,7 +97,7 @@ func (p Pinned) Visible() int { return max(p.Height-p.ClipTop, 0) }
 // header repeating something already visible two rows below is noise, and the moment
 // it stops being visible is exactly the moment it starts being worth showing.
 func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
-	if rows <= 0 || len(s.Blocks) == 0 ||
+	if rows <= 0 || len(s.blocks) == 0 ||
 		from < t.StartRow() || from >= t.EndRow() {
 		// A view scrolled past everything has nothing below the header for the header
 		// to give context to.
@@ -117,7 +145,7 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 	var found BlockID
 	ok := false
-	for _, id := range s.Blocks {
+	for _, id := range s.blocks {
 		top, _, exists := t.Extent(id)
 		if !exists {
 			continue
@@ -132,7 +160,7 @@ func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 
 // nextAfter is the row the next pinnable block after i begins on.
 func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
-	for _, candidate := range s.Blocks {
+	for _, candidate := range s.blocks {
 		if candidate <= id {
 			continue
 		}
@@ -150,22 +178,13 @@ func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
 // age even though the transcript itself had released the payload.
 func (s *Sticky) DiscardBefore(first BlockID) {
 	n := 0
-	for n < len(s.Blocks) && s.Blocks[n] < first {
+	for n < len(s.blocks) && s.blocks[n] < first {
 		n++
 	}
 	if n == 0 {
 		return
 	}
-	clear(s.Blocks[:n])
-	s.Blocks = s.Blocks[n:]
-	if len(s.Blocks) == 0 {
-		s.Blocks = nil
-		return
-	}
-	if cap(s.Blocks) <= 2*len(s.Blocks)+16 {
-		return
-	}
-	blocks := make([]BlockID, len(s.Blocks))
-	copy(blocks, s.Blocks)
-	s.Blocks = blocks
+	clear(s.blocks[:n])
+	s.blocks = s.blocks[n:]
+	s.blocks = trim(s.blocks)
 }

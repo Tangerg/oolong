@@ -77,21 +77,30 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 // writer sequence its bytes were queued under — zero when it queued nothing. A
 // frame that reached the writer becomes the one being waited for, so the next
 // request coalesces instead of piling a second frame behind the first.
-func (p *Presenter) Present(now time.Time, draw func(full bool) uint64) bool {
+//
+// A failed draw does not satisfy the request. Its full-repaint requirement and due
+// time remain pending so a caller that can recover may try again; a caller for which
+// frame construction is fatal can return the error without the presenter recording a
+// frame that never existed.
+func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error)) (bool, error) {
 	if p.inFlight != 0 || !p.owed {
-		return false
+		return false, nil
 	}
 	if !p.dueAt.IsZero() && now.Before(p.dueAt) {
-		return false
+		return false, nil
 	}
 	full := p.full
+	seq, err := draw(full)
+	if err != nil {
+		return false, err
+	}
 	p.owed, p.full = false, false
-	if seq := draw(full); seq != 0 {
+	if seq != 0 {
 		p.inFlight = seq
 	}
 	p.drawnAt = now
 	p.dueAt = time.Time{}
-	return true
+	return true, nil
 }
 
 // Wrote reports that the writer has finished with everything up to seq. The frame

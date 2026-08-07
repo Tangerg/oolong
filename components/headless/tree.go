@@ -84,8 +84,8 @@ func (t *Tree[T]) Rows() []Shown[T] { return slices.Clone(t.rows()) }
 // between two frames. Which branches are open is remembered here, so a tree that is
 // refreshed keeps the shape the reader gave it.
 func (t *Tree[T]) rows() []Shown[T] {
-	clear(t.list.Items)
-	rows := t.list.Items[:0]
+	clear(t.list.items)
+	rows := t.list.items[:0]
 	var walk func(nodes []Node[T], depth int, prefix string)
 	walk = func(nodes []Node[T], depth int, prefix string) {
 		for i, node := range nodes {
@@ -104,8 +104,9 @@ func (t *Tree[T]) rows() []Shown[T] {
 		}
 	}
 	walk(t.Nodes, 0, "")
-	t.list.SetItems(rows)
-	return rows
+	t.list.items = trim(rows)
+	t.list.selected = t.list.clampIndex(t.list.selected)
+	return t.list.items
 }
 
 // Selected is the row the cursor is on, or -1 when the tree is showing nothing.

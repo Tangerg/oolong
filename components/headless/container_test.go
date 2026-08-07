@@ -292,10 +292,10 @@ func TestTheKeyboardIsHeldByIdentityAndNotByPosition(t *testing.T) {
 	c := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: composer})
 	drawn(c, 2)
 
-	c.Items = []headless.Item{
-		{Size: layout.Fixed(1), Of: status},
-		{Size: layout.Fixed(1), Of: composer},
-	}
+	c.Set(
+		headless.Item{Size: layout.Fixed(1), Of: status},
+		headless.Item{Size: layout.Fixed(1), Of: composer},
+	)
 	drawn(c, 2)
 	if c.Focused() != headless.Widget(composer) {
 		t.Fatal("inserting a child above moved the keyboard")
@@ -303,13 +303,29 @@ func TestTheKeyboardIsHeldByIdentityAndNotByPosition(t *testing.T) {
 
 	// And a child that is taken away gives it up rather than holding it from
 	// nowhere.
-	c.Items = []headless.Item{{Size: layout.Fixed(1), Of: status}}
+	c.Set(headless.Item{Size: layout.Fixed(1), Of: status})
 	drawn(c, 2)
 	if c.Focused() != headless.Widget(status) {
 		t.Fatal("the keyboard stayed with a child that is no longer there")
 	}
 	if composer.focused {
 		t.Error("a child that was taken away still believes it has the keyboard")
+	}
+}
+
+func TestContainerOwnsItsChildListAndReturnsSnapshots(t *testing.T) {
+	one, two := &field{name: "one"}, &field{name: "two"}
+	items := []headless.Item{{Size: layout.Fixed(1), Of: one}}
+	container := headless.Rows(items...)
+	items[0].Of = two
+	if got := container.Items()[0].Of; got != headless.Widget(one) {
+		t.Fatal("caller mutation replaced the container's child")
+	}
+
+	snapshot := container.Items()
+	snapshot[0].Of = two
+	if got := container.Items()[0].Of; got != headless.Widget(one) {
+		t.Fatal("snapshot mutation replaced the container's child")
 	}
 }
 

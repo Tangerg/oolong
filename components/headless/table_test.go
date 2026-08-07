@@ -14,21 +14,37 @@ type row struct {
 }
 
 func table() *headless.Table[row] {
-	t := &headless.Table[row]{
-		Less: func(a, b row, column int) bool {
-			if column == 1 {
-				return a.size < b.size
-			}
-			return a.name < b.name
-		},
-	}
+	t := new(headless.Table[row])
+	t.SetLess(func(a, b row, column int) bool {
+		if column == 1 {
+			return a.size < b.size
+		}
+		return a.name < b.name
+	})
 	t.SetItems([]row{{"gamma", 2}, {"alpha", 30}, {"beta", 1}})
 	return t
 }
 
+func TestChangingTheComparisonKeepsTheReportedOrderTrue(t *testing.T) {
+	tbl := table()
+	tbl.SortBy(0)
+	tbl.SetLess(func(a, b row, _ int) bool { return a.size < b.size })
+	if got := ordered(tbl); got != "beta gamma alpha" {
+		t.Fatalf("rows after changing the comparison are %q", got)
+	}
+	if column, descending, ok := tbl.Sorted(); !ok || column != 0 || descending {
+		t.Fatalf("table reports column %d, descending %v, sorted %v", column, descending, ok)
+	}
+
+	tbl.SetLess(nil)
+	if _, _, ok := tbl.Sorted(); ok {
+		t.Fatal("table without a comparison still reports a sorted order")
+	}
+}
+
 func ordered(t *headless.Table[row]) string {
-	out := make([]string, 0, len(t.Items))
-	for _, r := range t.Items {
+	out := make([]string, 0, t.Len())
+	for _, r := range t.Items() {
 		out = append(out, r.name)
 	}
 	return strings.Join(out, " ")

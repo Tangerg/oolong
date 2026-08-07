@@ -254,3 +254,14 @@ func TestALoopingTimelineIsNeverDone(t *testing.T) {
 		t.Error("a timeline that goes round for ever said it had finished")
 	}
 }
+
+func TestALoopingTimelineMaySpanEveryUint64Tick(t *testing.T) {
+	line := anim.Timeline{Loop: true, Frames: []anim.Keyframe{
+		{At: 0, Value: 0},
+		{At: ^uint64(0), Value: 1},
+	}}
+	line.Tick()
+	if got := line.At(); got != 1 {
+		t.Fatalf("tick after the full-width span = %d, want 1", got)
+	}
+}

@@ -24,6 +24,21 @@ func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 	}
 }
 
+func TestWrappingReleasesOversizedRowStorage(t *testing.T) {
+	blocks := make([]Block, 1024)
+	for i := range blocks {
+		blocks[i].Lines = []text.Line{text.Of("row", grid.Style{})}
+	}
+	var doc Doc
+	doc.SetBlocks(blocks)
+	doc.wrap(10)
+	doc.SetBlocks(blocks[:1])
+	doc.wrap(10)
+	if cap(doc.rows) > 2*len(doc.rows)+16 {
+		t.Fatalf("document retains capacity %d for %d row", cap(doc.rows), len(doc.rows))
+	}
+}
+
 func TestStreamCutReleasesThePublishedSourceStorage(t *testing.T) {
 	prefix := strings.Repeat("published ", 1<<16)
 	source := prefix + "\n\nopen tail\n"

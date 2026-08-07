@@ -79,3 +79,31 @@ func TestByteIngressStopReleasesPendingBytes(t *testing.T) {
 		t.Fatalf("Write after owner stop = %v, want ErrStopped", err)
 	}
 }
+
+func TestByteIngressOwnerShutdownSettlesAPanickingFinalConsumer(t *testing.T) {
+	tasks := newTaskQueue()
+	ingress, err := NewByteIngress(Dispatcher{tasks: tasks}, 16, func(ByteBatch) {
+		panic("consumer failed")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Close(); err != nil {
+		t.Fatal(err)
+	}
+	queued := tasks.take()
+	if len(queued) != 1 {
+		t.Fatalf("close queued %d tasks, want 1", len(queued))
+	}
+	func() {
+		defer func() { _ = recover() }()
+		queued[0]()
+	}()
+
+	tasks.stop()
+	select {
+	case <-ingress.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("panicking final consumer left Done open after owner shutdown")
+	}
+}

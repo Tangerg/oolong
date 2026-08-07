@@ -110,19 +110,20 @@ func (h *handover) park(stop <-chan struct{}) {
 // a lesser version of this; it is a child that drops every other keystroke. Whether
 // it can is a question about the session and not about the platform: a console can
 // be waited on, and a pipe pretending to be one cannot.
-func (t *Terminal) Hand(run func() error) error {
+func (t *Terminal) Hand(run func() error) (err error) {
 	if run == nil {
 		return nil
 	}
 	if !t.waker.interruptible() {
 		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
 	}
-	if err := t.release(); err != nil {
-		// Nothing ran, so nothing of the child's is lost by taking it straight back —
-		// and a terminal left half given away is worse than either state.
-		return errors.Join(err, t.resume())
+	if releaseErr := t.release(); releaseErr != nil {
+		return releaseErr
 	}
-	return errors.Join(run(), t.resume())
+	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
+	// with its terminal still parked. The panic continues after ownership is restored.
+	defer func() { err = errors.Join(err, t.resume()) }()
+	return run()
 }
 
 // Suspend hands the terminal back and stops this process, the way Ctrl+Z does in a
@@ -136,15 +137,27 @@ func (t *Terminal) Suspend() error { return t.Hand(Suspend) }
 
 // release gives the terminal up without ending the session.
 func (t *Terminal) release() error {
-	// The reader first, and everything else after: from here on, what the terminal
-	// says belongs to whoever it was handed to.
-	t.park()
-
 	// Whatever the interface drew has to reach the terminal before the modes go
 	// back, for the same reason it does on the way out: a frame written after the
-	// alternate screen was given up is a frame drawn onto the user's own screen.
-	t.writer.Drain(DrainGrace)
-	return errors.Join(t.giveBack()...)
+	// alternate screen was given up is a frame drawn onto the user's own screen. Do
+	// this before changing any state, so a timeout leaves ownership exactly where it
+	// was and needs no compensating transition.
+	if err := t.writer.Drain(DrainGrace); err != nil {
+		return fmt.Errorf("term: drain before handover: %w", err)
+	}
+	if err := t.writer.Err(); err != nil {
+		return fmt.Errorf("term: drain before handover: %w", err)
+	}
+
+	// The reader comes off only after output has settled. From here on, what the
+	// terminal says belongs to whoever it is being handed to.
+	t.park()
+	if err := errors.Join(t.giveBack()...); err != nil {
+		// release is transactional: on failure no child runs and the session is made
+		// live again before the error reaches the caller.
+		return errors.Join(err, t.resume())
+	}
+	return nil
 }
 
 // resume takes the terminal back.

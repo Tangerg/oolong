@@ -139,3 +139,20 @@ func held(set []painted, region painted) bool {
 	}
 	return false
 }
+
+// sameRegions reports whether repaint would leave every region alone. Regions are
+// a set for this purpose: drawing the same identity twice does not make two terminal
+// objects, and order does not change what is on screen.
+func sameRegions(a, b []painted) bool {
+	for _, region := range a {
+		if !held(b, region) {
+			return false
+		}
+	}
+	for _, region := range b {
+		if !held(a, region) {
+			return false
+		}
+	}
+	return true
+}

@@ -84,6 +84,7 @@ func (p *pump) run() error {
 	// A stopped timer with a drained channel, so arming and disarming it is a
 	// matter of Reset and Stop and never of a stale tick arriving late.
 	timer := time.NewTimer(0)
+	defer timer.Stop()
 	if !timer.Stop() {
 		<-timer.C
 	}

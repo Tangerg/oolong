@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"image"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -101,13 +102,100 @@ func (w *stalledWriter) Queue([]byte) uint64       { return w.queued.Add(1) }
 func (w *stalledWriter) Progress() <-chan struct{} { return w.progress }
 func (w *stalledWriter) Written() uint64           { return 0 }
 func (w *stalledWriter) Err() error                { return nil }
-func (w *stalledWriter) Drain(time.Duration) bool  { return false }
+func (w *stalledWriter) Drain(time.Duration) error { return term.ErrDrainTimeout }
 
 type stalledHost struct {
 	events chan input.Event
 	writer *stalledWriter
 	handed atomic.Bool
 }
+
+type protocolWriter struct {
+	progress <-chan struct{}
+	queued   atomic.Uint64
+	err      error
+}
+
+func (w *protocolWriter) Queue([]byte) uint64       { return w.queued.Add(1) }
+func (w *protocolWriter) Progress() <-chan struct{} { return w.progress }
+func (w *protocolWriter) Written() uint64           { return 0 }
+func (w *protocolWriter) Err() error                { return w.err }
+func (w *protocolWriter) Drain(time.Duration) error { return nil }
+
+type protocolHost struct {
+	events chan input.Event
+	writer program.FrameWriter
+}
+
+type handoverProtocolHost struct {
+	*protocolHost
+	handed atomic.Bool
+}
+
+func (h *handoverProtocolHost) Hand(run func() error) error {
+	h.handed.Store(true)
+	return run()
+}
+
+type brokenPainter struct {
+	cause error
+	calls int
+}
+
+func (p *brokenPainter) Paint(io.Writer, int, int) error {
+	p.calls++
+	return p.cause
+}
+
+func (*brokenPainter) Erase(io.Writer) error { return nil }
+
+type paintedComponent struct{ painter grid.Painter }
+
+func (c paintedComponent) Draw(v grid.View) {
+	v.Paint(grid.Rect(0, 0, 2, 1), 1, c.painter)
+}
+
+func (paintedComponent) Handle(input.Event) bool { return false }
+
+type handoverPainter struct {
+	cause      error
+	paintCalls int
+	eraseCalls int
+}
+
+func (p *handoverPainter) Paint(w io.Writer, _, _ int) error {
+	p.paintCalls++
+	_, err := io.WriteString(w, "<picture>")
+	return err
+}
+
+func (p *handoverPainter) Erase(io.Writer) error {
+	p.eraseCalls++
+	return p.cause
+}
+
+type paintedHandover struct {
+	runtime *program.InlineRuntime
+	painter *handoverPainter
+	id      uint64
+	handErr error
+}
+
+func (c *paintedHandover) Draw(v grid.View) {
+	v.Paint(grid.Rect(0, 0, 2, 1), c.id, c.painter)
+}
+
+func (c *paintedHandover) Handle(input.Event) bool {
+	c.id++
+	c.handErr = c.runtime.Session().Hand(func() error { return nil })
+	return true
+}
+
+func (h *protocolHost) Input() program.EventSource  { return h }
+func (h *protocolHost) Events() <-chan input.Event  { return h.events }
+func (h *protocolHost) Err() error                  { return nil }
+func (h *protocolHost) Writer() program.FrameWriter { return h.writer }
+func (h *protocolHost) Size() (int, int, error)     { return 20, 4, nil }
 
 func (h *stalledHost) Input() program.EventSource  { return h }
 func (h *stalledHost) Events() <-chan input.Event  { return h.events }
@@ -1034,6 +1122,129 @@ func TestAProgramWithNoComponentIsRefused(t *testing.T) {
 	}
 }
 
+func TestAFrameWriterMustProvideALiveProgressStream(t *testing.T) {
+	root := func(*program.Runtime) program.Component { return &component{text: "ready"} }
+	withoutProgress := &protocolHost{
+		events: make(chan input.Event), writer: &protocolWriter{},
+	}
+	if err := program.Run(t.Context(), program.Config{Host: withoutProgress, Root: root}); err == nil || !strings.Contains(err.Error(), "no progress channel") {
+		t.Fatalf("nil progress stream returned %v", err)
+	}
+
+	closed := make(chan struct{})
+	close(closed)
+	closedProgress := &protocolHost{
+		events: make(chan input.Event), writer: &protocolWriter{progress: closed},
+	}
+	if err := program.Run(t.Context(), program.Config{Host: closedProgress, Root: root}); err == nil || !strings.Contains(err.Error(), "progress channel closed") {
+		t.Fatalf("closed progress stream returned %v", err)
+	}
+
+	cause := errors.New("writer transport ended")
+	failedProgress := &protocolHost{
+		events: make(chan input.Event), writer: &protocolWriter{progress: closed, err: cause},
+	}
+	if err := program.Run(t.Context(), program.Config{Host: failedProgress, Root: root}); !errors.Is(err, cause) {
+		t.Fatalf("closed failed progress stream returned %v, want its cause", err)
+	}
+}
+
+func TestShutdownPreservesAFrameFailureNotYetReportedByProgress(t *testing.T) {
+	cause := errors.New("frame failed during shutdown")
+	progress := make(chan struct{})
+	host := &protocolHost{
+		events: make(chan input.Event),
+		writer: &protocolWriter{progress: progress, err: cause},
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := program.Run(ctx, program.Config{
+		Host: host,
+		Root: func(*program.Runtime) program.Component {
+			return &component{text: "last frame"}
+		},
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("shutdown returned %v, want pending writer failure", err)
+	}
+}
+
+func TestAFrameConstructionFailureNeverBecomesAPresentedFrame(t *testing.T) {
+	cause := errors.New("image encoder failed")
+	for _, inline := range []bool{false, true} {
+		name := "screen"
+		if inline {
+			name = "inline"
+		}
+		t.Run(name, func(t *testing.T) {
+			writer := &protocolWriter{progress: make(chan struct{})}
+			host := &protocolHost{events: make(chan input.Event), writer: writer}
+			painter := &brokenPainter{cause: cause}
+			cfg := program.Config{Host: host}
+			if inline {
+				cfg.Inline = func(*program.InlineRuntime) program.Component {
+					return paintedComponent{painter: painter}
+				}
+			} else {
+				cfg.Root = func(*program.Runtime) program.Component {
+					return paintedComponent{painter: painter}
+				}
+			}
+
+			err := program.Run(t.Context(), cfg)
+			if !errors.Is(err, cause) {
+				t.Fatalf("Run error = %v, want painter cause", err)
+			}
+			if painter.calls != 1 {
+				t.Fatalf("painter called %d times, want no teardown retry after failure", painter.calls)
+			}
+			wantFrames := uint64(0)
+			if inline {
+				// The failed logical frame is absent; only the independent cursor-restoring
+				// tail that gives the terminal back is accepted.
+				wantFrames = 1
+			}
+			if got := writer.queued.Load(); got != wantFrames {
+				t.Fatalf("writer accepted %d frame(s), want %d", got, wantFrames)
+			}
+		})
+	}
+}
+
+func TestAFrameFailureDuringHandoverEndsTheSameProgramState(t *testing.T) {
+	cause := errors.New("image erase failed")
+	host := newHost(t)
+	root := &paintedHandover{painter: &handoverPainter{cause: cause}, id: 1}
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: host,
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				root.runtime = runtime
+				return root
+			},
+		})
+	}()
+	waitFor(t, done, host, "the opening picture", func() bool {
+		return strings.Contains(host.frames.String(), "<picture>")
+	})
+
+	host.send(input.Key{Code: input.Character, Rune: 'h'})
+	if err := <-done; !errors.Is(err, cause) {
+		t.Fatalf("Run error = %v, want handover frame cause", err)
+	}
+	if !errors.Is(root.handErr, cause) {
+		t.Fatalf("Hand error = %v, want frame cause", root.handErr)
+	}
+	if root.painter.paintCalls != 1 || root.painter.eraseCalls != 1 {
+		t.Fatalf("painter calls = paint %d erase %d, want no retry after handover failure",
+			root.painter.paintCalls, root.painter.eraseCalls)
+	}
+	if host.timesHanded() != 0 {
+		t.Fatal("host received ownership after the handover frame failed")
+	}
+}
+
 func TestZeroRuntimesAreInert(t *testing.T) {
 	var runtime program.Runtime
 	runtime.Refresh()
@@ -1096,6 +1307,36 @@ func TestDisplayOwnershipDoesNotChangeBeforeFramesDrain(t *testing.T) {
 	}
 }
 
+func TestDisplayOwnershipDoesNotChangeAfterAWriterFailure(t *testing.T) {
+	cause := errors.New("terminal output failed")
+	host := &handoverProtocolHost{protocolHost: &protocolHost{
+		events: make(chan input.Event),
+		writer: &protocolWriter{progress: make(chan struct{}), err: cause},
+	}}
+	called := false
+	var handErr error
+	err := program.Run(t.Context(), program.Config{
+		Host: host,
+		Root: func(runtime *program.Runtime) program.Component {
+			handErr = runtime.Session().Hand(func() error {
+				called = true
+				return nil
+			})
+			runtime.Quit()
+			return &component{text: "ready"}
+		},
+	})
+	if !errors.Is(handErr, cause) {
+		t.Fatalf("Hand error = %v, want writer failure", handErr)
+	}
+	if called || host.handed.Load() {
+		t.Fatal("display ownership changed after the output transport had failed")
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("Run error = %v, want writer failure", err)
+	}
+}
+
 func TestTheComponentIsGivenItsLoopBeforeItIsDrawn(t *testing.T) {
 	// So that a component can hand the runtime to whatever fetches on its behalf from the
 	// moment it exists, rather than having to wait for a first frame.
@@ -1133,6 +1374,30 @@ func TestTheComponentIsGivenItsLoopBeforeItIsDrawn(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the program never returned")
+	}
+}
+
+func TestAnInlineBuilderMayUseTheSessionBeforeItsRootExists(t *testing.T) {
+	host := newHost(t)
+	called := false
+	err := program.Run(t.Context(), program.Config{
+		Host: host,
+		Inline: func(runtime *program.InlineRuntime) program.Component {
+			if err := runtime.Session().Hand(func() error {
+				called = true
+				return nil
+			}); err != nil {
+				t.Fatalf("Hand during construction: %v", err)
+			}
+			runtime.Quit()
+			return &printer{text: "ready", runtime: runtime}
+		},
+	})
+	if err != nil {
+		t.Fatalf("program: %v", err)
+	}
+	if !called || host.timesHanded() != 1 {
+		t.Fatal("the session was not handed over during component construction")
 	}
 }
 

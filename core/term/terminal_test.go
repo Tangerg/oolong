@@ -60,6 +60,19 @@ func TestOpeningSomethingThatIsNotATerminal(t *testing.T) {
 	}
 }
 
+func TestOpeningRefusesRedirectedOutputEvenWithTerminalInput(t *testing.T) {
+	_, replica := pty(t)
+	out, err := os.CreateTemp(t.TempDir(), "redirected-output")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := term.OpenOn(replica, out, term.Options{}); !errors.Is(err, term.ErrNotTerminal) {
+		t.Fatalf("OpenOn error = %v, want redirected output rejected", err)
+	}
+}
+
 func TestASessionSaysWhatItIsTurningOn(t *testing.T) {
 	tty, watch := open(t, term.Options{Mouse: true, Focus: true, Keyboard: true})
 
@@ -192,8 +205,8 @@ func TestATerminalsWriterReachesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	tty.Writer().Queue(frame.b)
-	if !tty.Writer().Drain(2 * time.Second) {
-		t.Fatal("the frame never reached the terminal")
+	if err := tty.Writer().Drain(2 * time.Second); err != nil {
+		t.Fatalf("the frame never reached the terminal: %v", err)
 	}
 	if seen := read(t, watch, 500*time.Millisecond); !strings.Contains(seen, "hi") {
 		t.Fatalf("the terminal was sent %q, want the frame in it", seen)
@@ -316,6 +329,54 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	}
 }
 
+func TestAPanickingChildStillReturnsTerminalOwnership(t *testing.T) {
+	primary, replica := pty(t)
+	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true})
+	if err != nil {
+		t.Fatalf("opening a pty as a terminal: %v", err)
+	}
+	defer func() { _ = tty.Close() }()
+	<-tty.Events()
+	read(t, primary, 200*time.Millisecond)
+
+	panicked := false
+	var handErr error
+	func() {
+		defer func() { panicked = recover() != nil }()
+		handErr = tty.Hand(func() error { panic("child failed") })
+	}()
+	if errors.Is(handErr, errors.ErrUnsupported) {
+		t.Skip("a reader cannot be taken off the terminal here")
+	}
+	if handErr != nil {
+		t.Fatalf("handing the terminal over: %v", handErr)
+	}
+	if !panicked {
+		t.Fatal("child panic did not continue through Hand")
+	}
+	if seen := read(t, primary, time.Second); !strings.Contains(seen, "\x1b[?1049h") {
+		t.Fatalf("terminal was not taken back after panic; output %q", seen)
+	}
+
+	if _, err := primary.WriteString("k"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event := <-tty.Events():
+			if key, ok := event.(input.Key); ok {
+				if key.Rune != 'k' {
+					t.Fatalf("event after panic = %#v", event)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("terminal reader remained parked after panic")
+		}
+	}
+}
+
 func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	// The three that are one sequence each and are ignored by a terminal that does
 	// not implement them, which is what makes them safe to send without asking.
@@ -328,8 +389,8 @@ func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	tty.SetTitle("building \x1b]0;oolong")
 	tty.Bell()
 	tty.Notify("tests passed")
-	if !tty.Writer().Drain(2 * time.Second) {
-		t.Fatal("what was said never reached the terminal")
+	if err := tty.Writer().Drain(2 * time.Second); err != nil {
+		t.Fatalf("what was said never reached the terminal: %v", err)
 	}
 
 	seen := read(t, watch, 500*time.Millisecond)

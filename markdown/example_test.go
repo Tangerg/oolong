@@ -8,18 +8,18 @@ import (
 
 func ExampleStream() {
 	// An answer arriving a few words at a time. What is certainly finished comes back
-	// from Write and is never looked at again; what is still being written is
+	// from Feed and is never looked at again; what is still being written is
 	// re-rendered as often as anybody asks.
 	var stream markdown.Stream
-	stream.Look = markdown.Look{Glyphs: markdown.Glyphs{Bullet: "•"}}
+	stream.SetLook(markdown.Look{Glyphs: markdown.Glyphs{Bullet: "•"}})
 
 	var doc markdown.Doc
 	for _, chunk := range []string{"Two things:\n\n- th", "e first\n- the second\n\nAnd a l", "ast word."} {
 		doc.Append(stream.Feed(chunk)...)
-		fmt.Printf("published %d, open %d\n", len(doc.Blocks), len(stream.Open()))
+		fmt.Printf("published %d, open %d\n", doc.Len(), len(stream.Open()))
 	}
 	doc.Append(stream.Flush()...)
-	fmt.Printf("published %d, %d rows at 20 columns\n", len(doc.Blocks), doc.Measure(20))
+	fmt.Printf("published %d, %d rows at 20 columns\n", doc.Len(), doc.Measure(20))
 
 	// Output:
 	// published 0, open 2

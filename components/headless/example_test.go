@@ -30,6 +30,8 @@ func ExampleForm() {
 		model string
 		sure  bool
 	)
+	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField.SetOptions(headless.Options("fast", "good"))
 	form := &headless.Form{
 		Look: headless.Look{Taken: "x", Free: "-"},
 		Fields: []headless.Field{
@@ -43,11 +45,7 @@ func ExampleForm() {
 					return nil
 				},
 			},
-			&headless.Select[string]{
-				Label:   "Model",
-				Options: headless.Options("fast", "good"),
-				Value:   headless.Bind(&model),
-			},
+			modelField,
 			&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
 		},
 		Done: func() { fmt.Println("collected:", name, model, sure) },

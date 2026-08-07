@@ -148,7 +148,8 @@ func TestAPinnedHeaderTakesRoomFromTheBody(t *testing.T) {
 		[]string{"a1", "a2", "a3", "a4", "a5", "a6"},
 	)
 	var sc headless.Scroll
-	sticky := &headless.Sticky{Blocks: []headless.BlockID{0}, Gap: 1}
+	sticky := &headless.Sticky{Gap: 1}
+	sticky.SetBlocks([]headless.BlockID{0})
 	s := grid.NewSurface(20, 4)
 
 	view := kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}
@@ -184,7 +185,8 @@ func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
 			[]string{"b1", "b2", "b3"},
 		)
 		var sc headless.Scroll
-		sticky := &headless.Sticky{Blocks: []headless.BlockID{0, 2}}
+		sticky := &headless.Sticky{}
+		sticky.SetBlocks([]headless.BlockID{0, 2})
 		s := grid.NewSurface(20, 4)
 		s.SetGround(grid.Ground{
 			FG: grid.RGBColor(0xFF, 0xFF, 0xFF),
@@ -245,7 +247,8 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 	)
 	var sc headless.Scroll
 	sc.ToBottom()
-	sticky := &headless.Sticky{Blocks: []headless.BlockID{0}, Gap: 1}
+	sticky := &headless.Sticky{Gap: 1}
+	sticky.SetBlocks([]headless.BlockID{0})
 	s := grid.NewSurface(20, 4)
 
 	drawTranscript(s.View(), &kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}})
@@ -307,7 +310,8 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 	var selection headless.Selection
 	selection.Begin(headless.Point{Row: 1, Col: 2})
 	selection.Extend(headless.Point{Row: 3, Col: 3})
-	sticky := &headless.Sticky{Blocks: []headless.BlockID{0, 1}}
+	sticky := &headless.Sticky{}
+	sticky.SetBlocks([]headless.BlockID{0, 1})
 	view := kit.Transcript{
 		Content:   tr,
 		Scroll:    &scroll,
@@ -325,7 +329,7 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 	if got := scroll.Offset(); got != 0 {
 		t.Errorf("scroll offset is %d after its prefix left, want 0", got)
 	}
-	if got := sticky.Blocks; len(got) != 1 || got[0] != 1 {
+	if got := sticky.Blocks(); len(got) != 1 || got[0] != 1 {
 		t.Errorf("sticky blocks are %v, want only live block 1", got)
 	}
 	start, end := selection.Range()

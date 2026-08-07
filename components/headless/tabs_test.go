@@ -111,7 +111,7 @@ func TestAListCanHoldTheKeyboard(t *testing.T) {
 	// two-pane interface is made of. It draws no differently for it — that is the
 	// caller's — and this is how a row asks.
 	var list headless.List[string]
-	list.Items = []string{"one", "two"}
+	list.SetItems([]string{"one", "two"})
 	if !list.Focused() {
 		t.Fatal("a list nobody has said anything to does not have the keyboard")
 	}

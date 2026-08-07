@@ -202,15 +202,16 @@ func (i *ByteIngress) waitForOwner() {
 
 func (i *ByteIngress) stop() {
 	i.mu.Lock()
-	if i.stopped {
-		i.mu.Unlock()
-		return
+	if !i.stopped {
+		i.stopped = true
+		clear(i.pending)
+		i.pending = nil
 	}
-	i.stopped = true
-	clear(i.pending)
-	i.pending = nil
 	i.mu.Unlock()
 
+	// stopped and settled are deliberately not the same bit. A final consumer runs
+	// after stopped is published; if it panics, the dispatcher shutdown path arrives
+	// here with stopped already true and must still release every Done waiter.
 	i.signalRoom()
 	i.settle()
 }

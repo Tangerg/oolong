@@ -306,6 +306,17 @@ func TestParagraphCapsItsHeight(t *testing.T) {
 	}
 }
 
+func TestParagraphRewrapsWhenItsRowCapChanges(t *testing.T) {
+	p := kit.NewParagraph("one two three four five", grid.Style{})
+	if got := p.Measure(6); got <= 2 {
+		t.Fatalf("uncapped height = %d, want more than two rows", got)
+	}
+	p.MaxRows = 2
+	if got := p.Measure(6); got != 2 {
+		t.Fatalf("height after changing the cap = %d, want 2", got)
+	}
+}
+
 func TestParagraphRewrapsWhenItsTextChanges(t *testing.T) {
 	// The wrap is memoised because it is asked for twice a frame. A memo that
 	// outlived its content would show the old text forever.
@@ -313,9 +324,25 @@ func TestParagraphRewrapsWhenItsTextChanges(t *testing.T) {
 	if got := p.Measure(20); got != 1 {
 		t.Fatalf("height = %d", got)
 	}
-	p.SetText(kit.NewParagraph("one\ntwo\nthree", grid.Style{}).Lines)
+	p.SetText(kit.NewParagraph("one\ntwo\nthree", grid.Style{}).Lines())
 	if got := p.Measure(20); got != 3 {
 		t.Fatalf("height after the text changed = %d, want 3", got)
+	}
+}
+
+func TestParagraphOwnsItsTextAndReturnsSnapshots(t *testing.T) {
+	lines := []text.Line{text.Of("original", grid.Style{})}
+	var paragraph kit.Paragraph
+	paragraph.SetText(lines)
+	lines[0][0].Text = "changed input"
+	if got := paragraph.Lines()[0].String(); got != "original" {
+		t.Fatalf("paragraph text = %q after caller mutation", got)
+	}
+
+	snapshot := paragraph.Lines()
+	snapshot[0][0].Text = "changed snapshot"
+	if got := paragraph.Lines()[0].String(); got != "original" {
+		t.Fatalf("paragraph text = %q after snapshot mutation", got)
 	}
 }
 
@@ -334,6 +361,14 @@ func TestSpinnerAdvancesOnlyWhenTold(t *testing.T) {
 	}
 	if !strings.Contains(next[0], "working") {
 		t.Fatalf("row = %q, want the label", next[0])
+	}
+}
+
+func TestBrailleFramesAreIndependent(t *testing.T) {
+	first := kit.Braille()
+	first[0] = "changed"
+	if got := kit.Braille()[0]; got == "changed" {
+		t.Fatal("mutating one Braille result changed the package default")
 	}
 }
 
@@ -946,6 +981,8 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 		model string
 		sure  bool
 	)
+	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField.SetOptions(headless.Options("fast", "good"))
 	form := &headless.Form{Fields: []headless.Field{
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Check: func(s string) error {
 			if s == "" {
@@ -953,11 +990,7 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 			}
 			return nil
 		}},
-		&headless.Select[string]{
-			Label:   "Model",
-			Options: headless.Options("fast", "good"),
-			Value:   headless.Bind(&model),
-		},
+		modelField,
 		&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
 	}}
 
@@ -984,20 +1017,20 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 	// The two halves meeting: the geometry is the table's, the order is the rows',
 	// and a press is turned into a column by the one that knows where the columns
 	// went.
-	rows := &headless.Table[[2]string]{
-		Less: func(a, b [2]string, column int) bool { return a[column] < b[column] },
-	}
+	rows := new(headless.Table[[2]string])
+	rows.SetLess(func(a, b [2]string, column int) bool { return a[column] < b[column] })
 	rows.SetItems([][2]string{{"b", "2"}, {"a", "1"}})
 
 	view := kit.Table{
 		Theme:   kit.Dark(),
 		Glyphs:  kit.ASCII(),
 		Columns: []kit.Column{{Title: "name"}, {Title: "size"}},
-		Rows:    len(rows.Items),
+		Rows:    rows.Len(),
 		Sorted:  rows.Sorted,
 		Header:  true,
 		Cell: func(v grid.View, row, column int, base grid.Style) {
-			kit.Label{Text: rows.Items[row][column], Style: base}.Draw(v)
+			item, _ := rows.At(row)
+			kit.Label{Text: item[column], Style: base}.Draw(v)
 		},
 	}
 
@@ -1006,8 +1039,9 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 		t.Fatalf("a press at column 2 landed on column %d, on a heading %v", column, on)
 	}
 	rows.SortBy(column)
-	if rows.Items[0][0] != "a" {
-		t.Fatalf("after sorting by the pressed column the first row is %q", rows.Items[0][0])
+	first, _ := rows.At(0)
+	if first[0] != "a" {
+		t.Fatalf("after sorting by the pressed column the first row is %q", first[0])
 	}
 	// And the heading says so, which is the only way a reader can tell an order from
 	// a coincidence.

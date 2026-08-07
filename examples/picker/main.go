@@ -65,12 +65,12 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 		Placeholder: "type to narrow",
 	}
 	p.list = &headless.Filter[string]{
-		Items: items,
-		// What an item reads as. An item is whatever the caller says it is, so this is
-		// the one thing the filter cannot work out for itself.
-		Text: func(s string) string { return s },
-		Row:  p.row,
+		Row: p.row,
 	}
+	// What an item reads as. An item is whatever the caller says it is, so this is
+	// the one thing the filter cannot work out for itself.
+	p.list.SetText(func(s string) string { return s })
+	p.list.SetItems(items)
 	return p
 }
 
@@ -87,7 +87,7 @@ func (p *picker) Draw(v headless.Frame) {
 	p.query.Draw(rows[0])
 	p.list.Draw(rows[1])
 	kit.Label{
-		Text:  fmt.Sprintf("%d of %d", p.list.Matched(), len(p.list.Items)),
+		Text:  fmt.Sprintf("%d of %d", p.list.Matched(), p.list.Len()),
 		Style: p.theme.Subtle,
 		Align: layout.End,
 	}.Draw(rows[2].View)

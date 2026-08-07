@@ -1,6 +1,8 @@
 package headless
 
 import (
+	"slices"
+
 	"github.com/Tangerg/oolong/core/fuzzy"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -21,16 +23,14 @@ import (
 //
 // The zero Filter shows everything, in the order it was given.
 type Filter[T any] struct {
-	// Items are everything there is to choose from, matched or not.
-	//
-	// They are replaced through [Filter.SetItems], because what matched is remembered:
-	// a list changed under it goes on showing what the pattern found in the old one
-	// until something says it changed.
-	Items []T
-	// Text is what an item reads as, which is what the pattern is matched against. A
+	// items are private because replacing them must invalidate the ranked matches.
+	// A public slice let the source change while the filter kept results from its old
+	// contents.
+	items []T
+	// text is what an item reads as, which is what the pattern is matched against. A
 	// filter with none matches nothing, because there is nothing to match: an item is
 	// whatever the caller says it is, and this cannot guess how to read one.
-	Text func(item T) string
+	text func(item T) string
 	// Row draws one of the items that matched. at is where it sits among the rows on
 	// screen, match says which characters of its text answered the pattern, and
 	// selected says whether it is the one under the cursor.
@@ -69,16 +69,42 @@ func (f *Filter[T]) SetPattern(pattern string) {
 	f.list.Select(0)
 }
 
-// SetItems replaces what there is to choose from and matches the pattern again.
+// SetItems replaces what there is to choose from and matches the pattern again. The
+// filter copies the slice; the caller may reuse or change its input afterwards.
 func (f *Filter[T]) SetItems(items []T) {
-	f.Items, f.fresh = items, false
+	f.items, f.fresh = own(f.items, items), false
 	f.match()
+}
+
+// SetText says how an item reads for matching and recalculates the ranked rows. Nil
+// makes no item match. The function is behavior rather than a field because changing
+// it must invalidate every cached match.
+func (f *Filter[T]) SetText(read func(item T) string) {
+	f.text, f.fresh = read, false
+	f.match()
+	f.list.Select(0)
+}
+
+// Items returns a copy of everything there is to choose from, matched or not.
+func (f *Filter[T]) Items() []T {
+	if f == nil {
+		return nil
+	}
+	return slices.Clone(f.items)
+}
+
+// Len reports how many unfiltered items the filter owns.
+func (f *Filter[T]) Len() int {
+	if f == nil {
+		return 0
+	}
+	return len(f.items)
 }
 
 // Matched is how many items answered the pattern.
 func (f *Filter[T]) Matched() int {
 	f.match()
-	return len(f.list.Items)
+	return f.list.Len()
 }
 
 // Selected is the row the cursor is on among the matches, or -1 when nothing
@@ -149,33 +175,37 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 // everything with nothing marked, and keeps the order the caller gave — which is the
 // order they meant when they had nothing to rank by.
 func (f *Filter[T]) match() {
+	// Keys do not change which items match, but they are still live configuration of
+	// the inner list and must not wait for an unrelated match invalidation.
+	f.list.Keys = f.Keys
 	if f.fresh {
 		return
 	}
-	f.fresh = true
-	f.list.Keys = f.Keys
 
-	if f.Text == nil {
+	if f.text == nil {
 		f.list.SetItems(nil)
+		f.fresh = true
 		return
 	}
 	if f.pattern == "" {
-		hits := make([]hit[T], 0, len(f.Items))
-		for _, item := range f.Items {
+		hits := make([]hit[T], 0, len(f.items))
+		for _, item := range f.items {
 			hits = append(hits, hit[T]{item: item})
 		}
 		f.list.SetItems(hits)
+		f.fresh = true
 		return
 	}
 
-	candidates := make([]string, 0, len(f.Items))
-	for _, item := range f.Items {
-		candidates = append(candidates, f.Text(item))
+	candidates := make([]string, 0, len(f.items))
+	for _, item := range f.items {
+		candidates = append(candidates, f.text(item))
 	}
 	ranked := fuzzy.Filter(f.pattern, candidates)
 	hits := make([]hit[T], 0, len(ranked))
 	for _, r := range ranked {
-		hits = append(hits, hit[T]{item: f.Items[r.Index], match: r.Match})
+		hits = append(hits, hit[T]{item: f.items[r.Index], match: r.Match})
 	}
 	f.list.SetItems(hits)
+	f.fresh = true
 }

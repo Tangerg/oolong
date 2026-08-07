@@ -16,13 +16,11 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 	// nothing here could name every kind of one. So this is where the look goes in.
 	var name string
 	var model string
+	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField.SetOptions(headless.Options("fast", "good"))
 	form := &headless.Form{Fields: []headless.Field{
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
-		&headless.Select[string]{
-			Label:   "Model",
-			Options: headless.Options("fast", "good"),
-			Value:   headless.Bind(&model),
-		},
+		modelField,
 	}}
 	keys := headless.DefaultFormKeys()
 	view := kit.Form{

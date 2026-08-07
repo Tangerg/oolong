@@ -10,10 +10,10 @@ import (
 )
 
 func filtered() *headless.Filter[string] {
-	return &headless.Filter[string]{
-		Items: []string{"core/term/pty.go", "core/grid/inline.go", "README.md"},
-		Text:  func(s string) string { return s },
-	}
+	f := new(headless.Filter[string])
+	f.SetText(func(s string) string { return s })
+	f.SetItems([]string{"core/term/pty.go", "core/grid/inline.go", "README.md"})
+	return f
 }
 
 func matches(f *headless.Filter[string]) string {
@@ -87,8 +87,42 @@ func TestARowIsToldWhichCharactersAnsweredThePattern(t *testing.T) {
 func TestAFilterThatCannotReadAnItemMatchesNothing(t *testing.T) {
 	// An item is whatever the caller says it is, so a filter with no way to read one
 	// says so rather than guessing.
-	f := &headless.Filter[string]{Items: []string{"a", "b"}}
+	f := &headless.Filter[string]{}
+	f.SetItems([]string{"a", "b"})
 	if f.Matched() != 0 {
 		t.Fatalf("%d items matched with no way to read them", f.Matched())
+	}
+}
+
+func TestFilterOwnsItsSourceAndReturnsSnapshots(t *testing.T) {
+	items := []string{"alpha", "beta"}
+	f := new(headless.Filter[string])
+	f.SetText(func(s string) string { return s })
+	f.SetItems(items)
+	items[0] = "changed input"
+	f.SetPattern("alpha")
+	if got, ok := f.Current(); !ok || got != "alpha" {
+		t.Fatalf("current = %q, %v after caller mutation", got, ok)
+	}
+
+	snapshot := f.Items()
+	snapshot[0] = "changed snapshot"
+	if got := f.Items()[0]; got != "alpha" {
+		t.Fatalf("first source item = %q after snapshot mutation", got)
+	}
+}
+
+func TestChangingHowItemsReadInvalidatesMatches(t *testing.T) {
+	f := new(headless.Filter[string])
+	f.SetText(func(s string) string { return s })
+	f.SetItems([]string{"alpha", "beta"})
+	f.SetPattern("alpha")
+	if f.Matched() != 1 {
+		t.Fatalf("initial matches = %d", f.Matched())
+	}
+
+	f.SetText(func(string) string { return "alpha" })
+	if f.Matched() != 2 {
+		t.Fatalf("matches after changing the projection = %d", f.Matched())
 	}
 }

@@ -21,7 +21,7 @@ import (
 // A document is the value that goes into a transcript and into terminal scrollback,
 // so drawing it is the one place where losing purity writes wrong bytes into history
 // the program can never take back. The wrap memo is deliberately absent from the
-// projection: it describes the frame just built, while [Doc.Blocks] says what the
+// projection: it describes the frame just built, while Doc.blocks says what the
 // document means.
 type drawPurityCase struct {
 	name   string
@@ -160,7 +160,7 @@ type docMeaning struct{ blocks []blockMeaning }
 // meaning into fresh strings removes that possibility.
 func meaningOfDoc(doc *Doc) docMeaning {
 	meaning := docMeaning{}
-	for _, block := range doc.Blocks {
+	for _, block := range doc.blocks {
 		var body strings.Builder
 		for _, line := range block.Lines {
 			body.WriteString(line.String())

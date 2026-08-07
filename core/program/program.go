@@ -30,6 +30,7 @@ package program
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -130,13 +131,16 @@ type Host interface {
 //
 // It is defined by the consumer rather than exposing [term.Writer] through [Host].
 // Implementations must preserve queue order, report progress as a watermark and be
-// safe for concurrent use. [term.Writer] is the standard implementation.
+// safe for concurrent use. Progress returns one stable channel for the writer's
+// lifetime; closing it means the writer has permanently stopped and Err must report
+// the cause. Drain returns nil only after every frame accepted before the call has
+// either been written or accounted for. [term.Writer] is the standard implementation.
 type FrameWriter interface {
 	Queue(frame []byte) uint64
 	Progress() <-chan struct{}
 	Written() uint64
 	Err() error
-	Drain(timeout time.Duration) bool
+	Drain(timeout time.Duration) error
 }
 
 // Config is what a program needs to run.
@@ -223,17 +227,24 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	if frames == nil {
 		return errors.New("program: host returned no frame writer")
 	}
+	progress := frames.Progress()
+	if progress == nil {
+		return errors.New("program: frame writer returned no progress channel")
+	}
 	source := host.Input()
 	if source == nil {
 		return errors.New("program: host returned no input source")
 	}
-	if source.Events() == nil {
+	events := source.Events()
+	if events == nil {
 		return errors.New("program: host returned an input source with no event channel")
 	}
 	p := &program{
 		host:      hostServicesFor(host),
 		input:     source,
+		events:    events,
 		writer:    frames,
+		progress:  progress,
 		frameRate: cfg.FrameRate,
 		tasks:     newTaskQueue(),
 	}
@@ -300,12 +311,16 @@ type program struct {
 	root   Component
 	host   hostServices
 	input  EventSource
+	events <-chan input.Event
 	canvas canvas
 	// inline is the canvas again when the interface is drawn in the terminal's own
 	// screen, and nil when it has a screen to itself. It is what printing needs and
 	// a screen cannot offer.
 	inline *grid.Inline
 	writer FrameWriter
+	// progress is read once and then owned by the event loop. A writer returning a
+	// different channel per call would split one watermark into unrelated streams.
+	progress <-chan struct{}
 
 	present   present.Presenter
 	frameRate time.Duration
@@ -316,6 +331,16 @@ type program struct {
 	tasks *taskQueue
 
 	quit atomic.Bool
+
+	// frameFailed prevents shutdown from invoking a painter that has already failed;
+	// outputFailed prevents any further frame from being queued after the transport
+	// is known to be unusable. Both belong to the single interface owner.
+	frameFailed  bool
+	outputFailed bool
+	// failure is a fatal frame or transport result discovered through an owner-side
+	// capability call. The next loop turn returns it before drawing again, so the
+	// same failure has one meaning whether it arose in Present or Session.Hand.
+	failure error
 }
 
 // run is the event loop.
@@ -323,12 +348,11 @@ func (p *program) run(ctx context.Context) (err error) {
 	// However this ends — asked to stop, input gone, terminal broken — an inline
 	// interface has one more frame to draw and a cursor to leave in a sane place.
 	defer func() { err = errors.Join(err, p.finish()) }()
-	events := p.input.Events()
-
 	// due fires when a frame that was turned away for arriving too soon becomes
 	// allowed. Without it the last update of a burst would sit undrawn until something
 	// else happened to wake the loop.
 	due := time.NewTimer(0)
+	defer due.Stop()
 	if !due.Stop() {
 		<-due.C
 	}
@@ -336,7 +360,10 @@ func (p *program) run(ctx context.Context) (err error) {
 
 	p.present.RequestFull()
 	for !p.quit.Load() {
-		p.draw()
+		if err := p.draw(); err != nil {
+			p.frameFailed = true
+			return err
+		}
 
 		if armed && !due.Stop() {
 			<-due.C
@@ -351,7 +378,7 @@ func (p *program) run(ctx context.Context) (err error) {
 		case <-ctx.Done():
 			return nil
 
-		case ev, ok := <-events:
+		case ev, ok := <-p.events:
 			if !ok {
 				// A clean end closes the session normally. A transport that knows it
 				// failed keeps that cause on the source instead of making channel closure
@@ -370,9 +397,17 @@ func (p *program) run(ctx context.Context) (err error) {
 				}
 			}
 
-		case <-p.writer.Progress():
+		case _, ok := <-p.progress:
+			if !ok {
+				p.outputFailed = true
+				if err := p.writer.Err(); err != nil {
+					return err
+				}
+				return errors.New("program: frame writer progress channel closed")
+			}
 			p.present.Wrote(p.writer.Written())
 			if err := p.writer.Err(); err != nil {
+				p.outputFailed = true
 				// A terminal that has failed a write does not recover, and an interface
 				// that cannot reach its terminal has nothing left to do.
 				return err
@@ -415,29 +450,33 @@ func (p *program) handle(ev input.Event) {
 }
 
 // draw renders a frame, if one is owed and the terminal is keeping up.
-func (p *program) draw() {
-	p.present.Present(time.Now(), func(full bool) uint64 {
+func (p *program) draw() error {
+	if p.failure != nil {
+		return p.failure
+	}
+	_, err := p.present.Present(time.Now(), func(full bool) (uint64, error) {
 		if full {
 			p.canvas.Invalidate()
 		}
 		p.root.Draw(p.canvas.Frame())
 		return p.flush()
 	})
+	return err
 }
 
 // flush hands the frame to the writer and returns the sequence it was queued under.
 //
 // The canvas writes into a buffer rather than straight to the terminal, because the
 // write has to happen on the writer's goroutine: that is the whole reason there is one.
-func (p *program) flush() uint64 {
+func (p *program) flush() (uint64, error) {
 	var frame frameBuffer
-	// Nothing here can fail — the destination is memory — so the error is the compiler's
-	// concern and not this program's.
-	_ = p.canvas.Flush(&frame)
-	if len(frame.bytes) == 0 {
-		return 0
+	if err := p.canvas.Flush(&frame); err != nil {
+		return 0, fmt.Errorf("program: construct frame: %w", err)
 	}
-	return p.writer.Queue(frame.bytes)
+	if len(frame.bytes) == 0 {
+		return 0, nil
+	}
+	return p.writer.Queue(frame.bytes), nil
 }
 
 // finish settles what the program leaves behind.
@@ -457,17 +496,30 @@ func (p *program) flush() uint64 {
 // program drew has been written. Without it a caller printing its own output next
 // would find the program's last frame arriving in the middle of it.
 func (p *program) finish() error {
-	if p.inline != nil {
-		p.leaveBlock()
+	var err error
+	if p.writer.Err() != nil {
+		p.outputFailed = true
 	}
-	if !p.writer.Drain(term.DrainGrace) {
-		return frameDrainError(p.writer)
+	if p.inline != nil && !p.outputFailed {
+		// A painter failure means the pending logical frame never existed. Repeating
+		// the same construction during teardown would only duplicate the failure, but
+		// the last successfully delivered block still needs its cursor moved below it.
+		if !p.frameFailed {
+			err = p.renderBlock()
+		}
+		err = errors.Join(err, p.finishBlock())
 	}
-	return nil
+	if drainErr := p.writer.Drain(term.DrainGrace); drainErr != nil {
+		return errors.Join(err, frameDrainError(p.writer, drainErr))
+	}
+	// Failed frames count as drained because retrying a partly written terminal
+	// stream is unsound. They are still failures, and may not have reached the event
+	// loop's progress case before cancellation or Quit ended the loop.
+	return errors.Join(err, p.writer.Err())
 }
 
-func frameDrainError(writer FrameWriter) error {
-	return errors.Join(ErrFrameTimeout, writer.Err())
+func frameDrainError(writer FrameWriter, drainErr error) error {
+	return errors.Join(ErrFrameTimeout, drainErr, writer.Err())
 }
 
 // leaveBlock draws the interface one last time and leaves it in the terminal's own
@@ -478,15 +530,28 @@ func frameDrainError(writer FrameWriter) error {
 // both mean "this block is finished with, and whatever writes next starts on a line
 // of its own". After it, the block has no position to write relative to, so the next
 // frame draws wherever the cursor has ended up.
-func (p *program) leaveBlock() {
-	p.root.Draw(p.inline.Frame())
-	p.flush()
+func (p *program) leaveBlock() error {
+	if err := p.renderBlock(); err != nil {
+		return err
+	}
+	return p.finishBlock()
+}
 
+func (p *program) renderBlock() error {
+	p.root.Draw(p.inline.Frame())
+	_, err := p.flush()
+	return err
+}
+
+func (p *program) finishBlock() error {
 	var tail frameBuffer
-	_ = p.inline.Finish(&tail)
+	if err := p.inline.Finish(&tail); err != nil {
+		return fmt.Errorf("program: finish inline block: %w", err)
+	}
 	if len(tail.bytes) > 0 {
 		p.writer.Queue(tail.bytes)
 	}
+	return nil
 }
 
 // frameBuffer collects one frame's bytes.

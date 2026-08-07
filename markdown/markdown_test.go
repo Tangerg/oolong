@@ -91,10 +91,11 @@ func TestProseIsWrappedAtTheWidthItIsDrawnIn(t *testing.T) {
 }
 
 func TestDocumentRowsSeparateMeaningfulTextFromItsRenderedOffset(t *testing.T) {
-	doc := &markdown.Doc{Blocks: []markdown.Block{{
+	doc := &markdown.Doc{}
+	doc.SetBlocks([]markdown.Block{{
 		Indent: 2,
 		Lines:  []text.Line{text.Of("one two", grid.Style{})},
-	}}}
+	}})
 	got := doc.Rows(6)
 	if len(got) != 2 {
 		t.Fatalf("rows = %+v, want two wrapped rows", got)
@@ -104,6 +105,87 @@ func TestDocumentRowsSeparateMeaningfulTextFromItsRenderedOffset(t *testing.T) {
 	}
 	if got[1].Text != "two" || got[1].Offset != 2 || !got[1].Joined || got[1].Gap != " " {
 		t.Fatalf("continuation = %+v", got[1])
+	}
+}
+
+func TestDocumentOwnsItsBlocksAndReturnsSnapshots(t *testing.T) {
+	input := []markdown.Block{{
+		Lines:  []text.Line{text.Of("original", grid.Style{})},
+		Marker: text.Of("marker", grid.Style{}),
+		Rail:   text.Of("rail", grid.Style{}),
+	}}
+	var doc markdown.Doc
+	doc.SetBlocks(input)
+
+	input[0].Lines[0][0].Text = "changed input"
+	input[0].Marker[0].Text = "changed marker"
+	first := doc.Blocks()
+	if got := first[0].Lines[0].String(); got != "original" {
+		t.Fatalf("document text = %q after caller mutation", got)
+	}
+	if got := first[0].Marker.String(); got != "marker" {
+		t.Fatalf("document marker = %q after caller mutation", got)
+	}
+
+	first[0].Lines[0][0].Text = "changed snapshot"
+	first[0].Rail[0].Text = "changed rail"
+	second := doc.Blocks()
+	if got := second[0].Lines[0].String(); got != "original" {
+		t.Fatalf("document text = %q after snapshot mutation", got)
+	}
+	if got := second[0].Rail.String(); got != "rail" {
+		t.Fatalf("document rail = %q after snapshot mutation", got)
+	}
+
+	appended := []markdown.Block{{Lines: []text.Line{text.Of("appended", grid.Style{})}}}
+	doc.Append(appended...)
+	appended[0].Lines[0][0].Text = "changed append input"
+	if got := doc.Blocks()[1].Lines[0].String(); got != "appended" {
+		t.Fatalf("appended text = %q after caller mutation", got)
+	}
+}
+
+func TestStreamOpenReturnsAnOwnedSnapshot(t *testing.T) {
+	var stream markdown.Stream
+	stream.Feed("still being written")
+	first := stream.Open()
+	if len(first) == 0 || len(first[0].Lines) == 0 || len(first[0].Lines[0]) == 0 {
+		t.Fatalf("open rendering = %+v, want text", first)
+	}
+	want := first[0].Lines[0].String()
+	first[0].Lines[0][0].Text = "caller mutation"
+	if got := stream.Open()[0].Lines[0].String(); got != want {
+		t.Fatalf("cached open rendering changed to %q, want %q", got, want)
+	}
+}
+
+func TestStreamLookIsOwnedAndInvalidatesTheOpenRendering(t *testing.T) {
+	headings := []grid.Style{{Attr: grid.Bold}}
+	var stream markdown.Stream
+	stream.SetLook(markdown.Look{Headings: headings})
+	stream.Feed("# heading")
+
+	style := func() grid.Style {
+		blocks := stream.Open()
+		if len(blocks) == 0 || len(blocks[0].Lines) == 0 || len(blocks[0].Lines[0]) == 0 {
+			t.Fatalf("open heading = %+v", blocks)
+		}
+		return blocks[0].Lines[0][0].Style
+	}
+	if got := style(); !got.Attr.Has(grid.Bold) {
+		t.Fatalf("initial heading style = %+v", got)
+	}
+
+	headings[0] = grid.Style{Attr: grid.Italic}
+	snapshot := stream.Look()
+	snapshot.Headings[0] = grid.Style{Attr: grid.Strike}
+	if got := style(); !got.Attr.Has(grid.Bold) {
+		t.Fatalf("heading style after external mutation = %+v", got)
+	}
+
+	stream.SetLook(markdown.Look{Headings: []grid.Style{{Attr: grid.Italic}}})
+	if got := style(); !got.Attr.Has(grid.Italic) || got.Attr.Has(grid.Bold) {
+		t.Fatalf("heading style after SetLook = %+v", got)
 	}
 }
 
@@ -214,7 +296,7 @@ func TestAStreamComesToTheSameThingHoweverItArrives(t *testing.T) {
 
 	for size := 1; size <= len(source); size++ {
 		var stream markdown.Stream
-		stream.Look = look()
+		stream.SetLook(look())
 		var blocks []markdown.Block
 		for i := 0; i < len(source); i += size {
 			blocks = append(blocks, stream.Feed(source[i:min(i+size, len(source))])...)
@@ -229,7 +311,7 @@ func TestAStreamComesToTheSameThingHoweverItArrives(t *testing.T) {
 
 func TestAStreamPublishesWhatIsFinishedAndHoldsWhatIsNot(t *testing.T) {
 	var stream markdown.Stream
-	stream.Look = look()
+	stream.SetLook(look())
 
 	// A paragraph is not finished by a blank line alone: a list, and a block of code
 	// written with an indent, both carry on across one.
@@ -251,7 +333,7 @@ func TestAStreamNeverCutsInsideCode(t *testing.T) {
 	// A blank line in a block of code is a blank line in a block of code. Cutting
 	// there would publish half a function and render the rest as prose.
 	var stream markdown.Stream
-	stream.Look = look()
+	stream.SetLook(look())
 	if got := stream.Feed("```\none\n\ntwo\n\nthree\n"); len(got) != 0 {
 		t.Fatalf("%d blocks were published from inside a fence", len(got))
 	}

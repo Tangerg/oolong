@@ -77,7 +77,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	// A look is styles and the characters the furniture is drawn with, kept apart for
 	// the reason the kit keeps them apart: which grey a quotation is drawn in is
 	// taste, and whether the terminal can draw the bar beside it is a fact.
-	r.stream.Look = markdown.Look{
+	r.stream.SetLook(markdown.Look{
 		Text:     theme.Text,
 		Headings: []grid.Style{theme.Heading, theme.Strong},
 		Strong:   theme.Strong,
@@ -97,11 +97,13 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 			Checked:   glyphs.Taken,
 			Unchecked: glyphs.Free,
 		},
-	}
+	})
 	// A code highlighter would go here, in one line, and would be the only thing that
 	// pulls a lexer for every language into a program:
 	//
-	//	r.stream.Look.Highlight = highlight.Of("github-dark")
+	//	look := r.stream.Look()
+	//	look.Highlight = highlight.Of("github-dark")
+	//	r.stream.SetLook(look)
 
 	runtime.Session().SetTitle("reading")
 	r.stop = runtime.Every(every, r.advance)
@@ -119,7 +121,9 @@ func (r *reader) advance() {
 	// from then on. A document is a Drawer and a Measurer and nothing else, which is
 	// what lets the runtime print one without either of them knowing about the other.
 	if blocks := r.stream.Feed(r.pieces[r.at]); len(blocks) > 0 {
-		r.runtime.Print(&markdown.Doc{Blocks: blocks})
+		doc := new(markdown.Doc)
+		doc.SetBlocks(blocks)
+		r.runtime.Print(doc)
 	}
 	r.at++
 	r.open.SetBlocks(r.stream.Open())
@@ -127,7 +131,9 @@ func (r *reader) advance() {
 
 func (r *reader) finish() {
 	if blocks := r.stream.Flush(); len(blocks) > 0 {
-		r.runtime.Print(&markdown.Doc{Blocks: blocks})
+		doc := new(markdown.Doc)
+		doc.SetBlocks(blocks)
+		r.runtime.Print(doc)
 	}
 	r.open.SetBlocks(nil)
 	r.stop()

@@ -15,6 +15,18 @@ import (
 // read off a surface.
 func bare() headless.Look { return headless.Look{Taken: "x", Free: "-"} }
 
+func selectWith[T any](options []headless.Option[T]) *headless.Select[T] {
+	field := new(headless.Select[T])
+	field.SetOptions(options)
+	return field
+}
+
+func multiWith[T any](options []headless.Option[T]) *headless.MultiSelect[T] {
+	field := new(headless.MultiSelect[T])
+	field.SetOptions(options)
+	return field
+}
+
 // typeInto types a string into a field, one keystroke at a time.
 func typeInto(f headless.Field, s string) {
 	for _, r := range s {
@@ -77,11 +89,9 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 	// There is nothing to press. A list that made somebody move to a row and then take
 	// it is a list that can be left on a row nobody took.
 	var picked string
-	field := &headless.Select[string]{
-		Label:   "Model",
-		Options: headless.Options("fast", "good", "cheap"),
-		Value:   headless.Bind(&picked),
-	}
+	field := selectWith(headless.Options("fast", "good", "cheap"))
+	field.Label = "Model"
+	field.Value = headless.Bind(&picked)
 	headless.NewRoot(field).Draw(grid.NewSurface(12, 4).View())
 	if picked != "fast" {
 		t.Fatalf("value = %q, want the first option", picked)
@@ -94,13 +104,45 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 
 func TestAChoiceStartsOnWhatWasAlreadyChosen(t *testing.T) {
 	picked := "cheap"
-	field := &headless.Select[string]{
-		Options: headless.Options("fast", "good", "cheap"),
-		Value:   headless.Bind(&picked),
-	}
+	field := selectWith(headless.Options("fast", "good", "cheap"))
+	field.Value = headless.Bind(&picked)
 	chosen, ok := field.Chosen()
 	if !ok || chosen.Value != "cheap" {
 		t.Fatalf("cursor on %+v (ok=%v), want the choice already made", chosen, ok)
+	}
+}
+
+func TestReplacingChoicesPreservesTheChosenValueRatherThanItsOldPosition(t *testing.T) {
+	picked := "b"
+	field := selectWith(headless.Options("a", "b", "c"))
+	field.Value = headless.Bind(&picked)
+	if chosen, ok := field.Chosen(); !ok || chosen.Value != "b" {
+		t.Fatalf("initial choice = %+v, %v", chosen, ok)
+	}
+
+	field.SetOptions(headless.Options("c", "a", "b"))
+	if chosen, ok := field.Chosen(); !ok || chosen.Value != "b" || picked != "b" {
+		t.Fatalf("choice after moving options = %+v, %v; bound value %q", chosen, ok, picked)
+	}
+
+	field.SetOptions(headless.Options("c", "a"))
+	if chosen, ok := field.Chosen(); !ok || chosen.Value != "a" || picked != "a" {
+		t.Fatalf("choice after removal = %+v, %v; bound value %q", chosen, ok, picked)
+	}
+}
+
+func TestAChoiceOwnsItsOptionsAndReturnsSnapshots(t *testing.T) {
+	options := headless.Options("a", "b")
+	field := new(headless.Select[string])
+	field.SetOptions(options)
+	options[0].Label = "changed input"
+	if got := field.Options()[0].Label; got != "a" {
+		t.Fatalf("first label after input mutation = %q", got)
+	}
+	snapshot := field.Options()
+	snapshot[0].Label = "changed snapshot"
+	if got := field.Options()[0].Label; got != "a" {
+		t.Fatalf("first label after snapshot mutation = %q", got)
 	}
 }
 
@@ -108,11 +150,9 @@ func TestPickingSeveralIsMovingAndThenTaking(t *testing.T) {
 	// The whole difference between picking one and picking some: here the cursor and
 	// the choice are two things.
 	var picked []string
-	field := &headless.MultiSelect[string]{
-		Label:   "Files",
-		Options: headless.Options("a", "b", "c"),
-		Value:   headless.Bind(&picked),
-	}
+	field := multiWith(headless.Options("a", "b", "c"))
+	field.Label = "Files"
+	field.Value = headless.Bind(&picked)
 	field.Handle(input.Key{Code: input.Down})
 	if len(picked) != 0 {
 		t.Fatalf("moving took a choice: %v", picked)
@@ -129,11 +169,9 @@ func TestPickingSeveralIsMovingAndThenTaking(t *testing.T) {
 
 func TestPickingSeveralStopsAtItsLimit(t *testing.T) {
 	var picked []string
-	field := &headless.MultiSelect[string]{
-		Options: headless.Options("a", "b", "c"),
-		Value:   headless.Bind(&picked),
-		Limit:   1,
-	}
+	field := multiWith(headless.Options("a", "b", "c"))
+	field.Value = headless.Bind(&picked)
+	field.Limit = 1
 	field.Do(headless.Toggle)
 	field.Do(headless.SelectNext)
 	field.Do(headless.Toggle)
@@ -142,12 +180,32 @@ func TestPickingSeveralStopsAtItsLimit(t *testing.T) {
 	}
 }
 
+func TestReplacingMultipleChoicesMovesTheTakenSetByValue(t *testing.T) {
+	picked := []string{"b"}
+	field := multiWith(headless.Options("a", "b", "c"))
+	field.Value = headless.Bind(&picked)
+	if got := field.Taken(); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("initially taken = %v", got)
+	}
+
+	field.SetOptions(headless.Options("c", "a", "b"))
+	if got := field.Taken(); len(got) != 1 || got[0] != "b" {
+		t.Fatalf("taken after moving options = %v", got)
+	}
+	if len(picked) != 1 || picked[0] != "b" {
+		t.Fatalf("bound values after moving options = %v", picked)
+	}
+
+	field.SetOptions(headless.Options("c", "a"))
+	if got := field.Taken(); len(got) != 0 || len(picked) != 0 {
+		t.Fatalf("taken after removal = %v; bound values %v", got, picked)
+	}
+}
+
 func TestAChoiceIsMarkedAsTaken(t *testing.T) {
 	var picked []string
-	field := &headless.MultiSelect[string]{
-		Options: headless.Options("a", "b"),
-		Value:   headless.Bind(&picked),
-	}
+	field := multiWith(headless.Options("a", "b"))
+	field.Value = headless.Bind(&picked)
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
 	headless.NewRoot(form).Draw(grid.NewSurface(8, 4).View())
 	field.Do(headless.Toggle)
@@ -192,9 +250,8 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 			return nil
 		},
 	}
-	modelField := &headless.Select[string]{
-		Label: "Model", Options: headless.Options("fast", "good"), Value: headless.Bind(&model),
-	}
+	modelField := selectWith(headless.Options("fast", "good"))
+	modelField.Label, modelField.Value = "Model", headless.Bind(&model)
 	done := 0
 	form := &headless.Form{
 		Fields: []headless.Field{nameField, modelField},
@@ -300,11 +357,8 @@ func TestAChoiceCanBePressed(t *testing.T) {
 	// of the field and not part of what it holds, so a press under it means a row lower
 	// than the position says — the same translation a container does for its children.
 	var picked string
-	field := &headless.Select[string]{
-		Label:   "Model",
-		Options: headless.Options("fast", "good", "cheap"),
-		Value:   headless.Bind(&picked),
-	}
+	field := selectWith(headless.Options("fast", "good", "cheap"))
+	field.Label, field.Value = "Model", headless.Bind(&picked)
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
 	headless.NewRoot(form).Draw(grid.NewSurface(12, 4).View())
 
@@ -325,11 +379,8 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 	// The label's own row belongs to the label. A field that read it as the first
 	// option would answer a press nobody made.
 	var picked string
-	field := &headless.Select[string]{
-		Label:   "Model",
-		Options: headless.Options("fast", "good"),
-		Value:   headless.Bind(&picked),
-	}
+	field := selectWith(headless.Options("fast", "good"))
+	field.Label, field.Value = "Model", headless.Bind(&picked)
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
 	headless.NewRoot(form).Draw(grid.NewSurface(12, 3).View())
 	field.Do(headless.SelectNext)
@@ -382,21 +433,17 @@ func TestAChoiceOfSomethingThatIsNotAStringFindsWhatWasAlreadyChosen(t *testing.
 	// Go will not compare two values of a type parameter, so with no rule the labels
 	// are compared — which is right whenever what is shown is what it means.
 	picked := kind(1)
-	shown := &headless.Select[kind]{
-		Options: []headless.Option[kind]{{Label: "file", Value: 0}, {Label: "folder", Value: 1}},
-		Value:   headless.Bind(&picked),
-	}
+	shown := selectWith([]headless.Option[kind]{{Label: "file", Value: 0}, {Label: "folder", Value: 1}})
+	shown.Value = headless.Bind(&picked)
 	if chosen, _ := shown.Chosen(); chosen.Value != 1 {
 		t.Fatalf("cursor on %+v, want what the value is shown as", chosen)
 	}
 
 	// And a rule of the caller's wins, which is the only thing that works when two
 	// options are shown the same way or when the type is one Go cannot compare.
-	byValue := &headless.Select[kind]{
-		Options: []headless.Option[kind]{{Label: "one", Value: 0}, {Label: "two", Value: 1}},
-		Value:   headless.Bind(&picked),
-		Same:    func(a, b kind) bool { return a == b },
-	}
+	byValue := selectWith([]headless.Option[kind]{{Label: "one", Value: 0}, {Label: "two", Value: 1}})
+	byValue.Value = headless.Bind(&picked)
+	byValue.Same = func(a, b kind) bool { return a == b }
 	if chosen, _ := byValue.Chosen(); chosen.Value != 1 {
 		t.Fatalf("cursor on %+v, want the caller's rule to have found it", chosen)
 	}
@@ -424,14 +471,12 @@ func TestEveryFieldAnswersToTheNameOfWhatItDoes(t *testing.T) {
 
 func TestEveryFieldChecksWhatItHolds(t *testing.T) {
 	tooMany := errors.New("too many")
-	multi := &headless.MultiSelect[string]{
-		Options: headless.Options("a", "b"),
-		Check: func(v []string) error {
-			if len(v) > 1 {
-				return tooMany
-			}
-			return nil
-		},
+	multi := multiWith(headless.Options("a", "b"))
+	multi.Check = func(v []string) error {
+		if len(v) > 1 {
+			return tooMany
+		}
+		return nil
 	}
 	multi.Do(headless.Toggle)
 	multi.Do(headless.SelectNext)

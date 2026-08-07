@@ -125,14 +125,24 @@ func Open(opts Options) (*Terminal, error) {
 // on, the order it puts them back in — could be checked only by running a second
 // program and reading what came out of it.
 func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
-	fd := int(in.Fd())
-	if !xterm.IsTerminal(fd) {
-		return nil, fmt.Errorf("%w: standard input is fd %d", ErrNotTerminal, fd)
+	if in == nil {
+		return nil, errors.New("term: input file is required")
+	}
+	if out == nil {
+		return nil, errors.New("term: output file is required")
+	}
+	inFD := int(in.Fd())
+	if !xterm.IsTerminal(inFD) {
+		return nil, fmt.Errorf("%w: input is fd %d", ErrNotTerminal, inFD)
+	}
+	outFD := int(out.Fd())
+	if !xterm.IsTerminal(outFD) {
+		return nil, fmt.Errorf("%w: output is fd %d", ErrNotTerminal, outFD)
 	}
 
 	// Raw mode first: it is what stops the terminal from interpreting keys on the
 	// program's behalf, and everything below assumes it.
-	oldState, err := xterm.MakeRaw(fd)
+	oldState, err := xterm.MakeRaw(inFD)
 	if err != nil {
 		return nil, fmt.Errorf("term: enter raw mode: %w", err)
 	}
@@ -155,16 +165,20 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	}
 
 	if _, err := out.WriteString(t.modes.enter()); err != nil {
-		_ = xterm.Restore(fd, oldState)
-		return nil, fmt.Errorf("term: take over the terminal: %w", err)
+		errs := []error{fmt.Errorf("term: take over the terminal: %w", err)}
+		errs = append(errs, t.giveBack()...)
+		return nil, errors.Join(errs...)
 	}
 
 	t.writer = NewWriter(out)
-	waker, wakeErr := newWaker(fd)
+	waker, wakeErr := newWaker(inFD)
 	if wakeErr != nil {
-		_, _ = out.WriteString(t.modes.leave())
-		_ = xterm.Restore(fd, oldState)
-		return nil, wakeErr
+		errs := []error{wakeErr}
+		if err := t.writer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("term: stop frame writer after open failed: %w", err))
+		}
+		errs = append(errs, t.giveBack()...)
+		return nil, errors.Join(errs...)
 	}
 	t.waker = waker
 

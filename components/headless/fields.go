@@ -1,6 +1,8 @@
 package headless
 
 import (
+	"slices"
+
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -172,8 +174,9 @@ type Select[T any] struct {
 	field
 	// Label is what the field is asking for.
 	Label string
-	// Options are what is on offer.
-	Options []Option[T]
+	// options are private because replacing them has to reconcile the selected value
+	// with the list cursor and its bound accessor.
+	options []Option[T]
 	// Value is where the choice goes. It is read once, to put the cursor on what is
 	// already chosen, and written whenever the cursor moves.
 	Value Accessor[T]
@@ -196,6 +199,31 @@ type Select[T any] struct {
 // Prompt is what the field is asking for.
 func (s *Select[T]) Prompt() string { return s.Label }
 
+// SetOptions replaces what is on offer. Select owns the slice. If the selected
+// value still exists it follows that value to its new position; otherwise the list
+// clamps its cursor and the bound value follows the resulting choice.
+func (s *Select[T]) SetOptions(options []Option[T]) {
+	previous, hadPrevious := s.list.Current()
+	s.options = own(s.options, options)
+	s.list.SetItems(s.options)
+	if !s.seeded {
+		return
+	}
+	if hadPrevious {
+		for i, option := range s.options {
+			if option.holds(previous.Value, s.Same) {
+				s.list.Select(i)
+				s.store()
+				return
+			}
+		}
+	}
+	s.store()
+}
+
+// Options returns a copy of what is on offer.
+func (s *Select[T]) Options() []Option[T] { return slices.Clone(s.options) }
+
 // Chosen is the option under the cursor, and whether there is one.
 func (s *Select[T]) Chosen() (Option[T], bool) {
 	s.ensure()
@@ -205,7 +233,7 @@ func (s *Select[T]) Chosen() (Option[T], bool) {
 // Measure is the label, the options within their cap, and the problem if there is one.
 func (s *Select[T]) Measure(int) int {
 	s.ensure()
-	rows := len(s.Options)
+	rows := len(s.options)
 	if s.Rows > 0 {
 		rows = min(rows, s.Rows)
 	}
@@ -268,7 +296,6 @@ func (s *Select[T]) Focus(has bool) {
 }
 
 func (s *Select[T]) ensure() {
-	s.list.Items = s.Options
 	s.list.Keys = s.Keys
 	if s.seeded {
 		return
@@ -287,7 +314,7 @@ func (s *Select[T]) ensure() {
 	// The cursor starts on the choice already made, which is what makes a form somebody
 	// is coming back to show what they said last time.
 	want := s.Value.Get()
-	for i, option := range s.Options {
+	for i, option := range s.options {
 		if option.holds(want, s.Same) {
 			s.list.Select(i)
 			break
@@ -314,8 +341,9 @@ type MultiSelect[T any] struct {
 	field
 	// Label is what the field is asking for.
 	Label string
-	// Options are what is on offer.
-	Options []Option[T]
+	// options are private because replacing them has to move the taken set by value,
+	// not attach old boolean positions to unrelated new choices.
+	options []Option[T]
 	// Value is where the choices go, in the order the options are listed.
 	Value Accessor[[]T]
 	// Same says whether two values are the same one — see [Select.Same].
@@ -339,11 +367,42 @@ type MultiSelect[T any] struct {
 // Prompt is what the field is asking for.
 func (m *MultiSelect[T]) Prompt() string { return m.Label }
 
+// SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
+// each taken value that remains available, wherever it moved.
+func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
+	var previous []T
+	if m.seeded {
+		previous = m.takenValues()
+	}
+	m.options = own(m.options, options)
+	m.list.SetItems(m.options)
+	m.taken = make([]bool, len(m.options))
+	if !m.seeded {
+		return
+	}
+	for _, want := range previous {
+		for i, option := range m.options {
+			if !m.taken[i] && option.holds(want, m.Same) {
+				m.taken[i] = true
+				break
+			}
+		}
+	}
+	m.store()
+}
+
+// Options returns a copy of what is on offer.
+func (m *MultiSelect[T]) Options() []Option[T] { return slices.Clone(m.options) }
+
 // Taken is what has been chosen, in the order the options are listed.
 func (m *MultiSelect[T]) Taken() []T {
 	m.ensure()
+	return m.takenValues()
+}
+
+func (m *MultiSelect[T]) takenValues() []T {
 	var out []T
-	for i, option := range m.Options {
+	for i, option := range m.options {
 		if i < len(m.taken) && m.taken[i] {
 			out = append(out, option.Value)
 		}
@@ -370,7 +429,7 @@ func (m *MultiSelect[T]) Toggle() bool {
 // Measure is the label, the options within their cap, and the problem if there is one.
 func (m *MultiSelect[T]) Measure(int) int {
 	m.ensure()
-	rows := len(m.Options)
+	rows := len(m.options)
 	if m.Rows > 0 {
 		rows = min(rows, m.Rows)
 	}
@@ -434,7 +493,6 @@ func (m *MultiSelect[T]) Focus(has bool) {
 }
 
 func (m *MultiSelect[T]) ensure() {
-	m.list.Items = m.Options
 	// The list inside has no map of its own: this field resolves every keystroke
 	// against one that has the movement and the key that takes a choice in it, and
 	// drives the list by name. Offering the event to both would resolve it twice.
@@ -443,8 +501,8 @@ func (m *MultiSelect[T]) ensure() {
 			m.look.choice(v, option.Label, under, at < len(m.taken) && m.taken[at])
 		}
 	}
-	if len(m.taken) != len(m.Options) {
-		taken := make([]bool, len(m.Options))
+	if len(m.taken) != len(m.options) {
+		taken := make([]bool, len(m.options))
 		copy(taken, m.taken)
 		m.taken = taken
 	}
@@ -456,7 +514,7 @@ func (m *MultiSelect[T]) ensure() {
 		return
 	}
 	for _, want := range m.Value.Get() {
-		for i, option := range m.Options {
+		for i, option := range m.options {
 			if option.holds(want, m.Same) {
 				m.taken[i] = true
 				break
