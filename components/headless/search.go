@@ -86,11 +86,23 @@ func NewSearch() *Search {
 	return s
 }
 
-// Results is where finished scans arrive.
-func (s *Search) Results() <-chan Result { return s.results }
+// Results is where finished scans arrive. It closes after [Search.Close] stops the
+// scanner, so a consumer may range over it without another lifetime signal. The nil
+// and zero Search return an already-closed stream.
+func (s *Search) Results() <-chan Result {
+	if s == nil || s.results == nil {
+		return stoppedResults
+	}
+	return s.results
+}
 
 // Close stops the scanner. It is safe to call more than once.
-func (s *Search) Close() { s.once.Do(func() { close(s.stop) }) }
+func (s *Search) Close() {
+	if s == nil || s.stop == nil {
+		return
+	}
+	s.once.Do(func() { close(s.stop) })
+}
 
 // Submit schedules a scan of t for query, replacing any scan not yet finished.
 //
@@ -98,8 +110,15 @@ func (s *Search) Close() { s.once.Do(func() { close(s.stop) }) }
 // looks like before anybody has typed, and answering it with every row in the session
 // is not what was asked.
 func (s *Search) Submit(t *Transcript, query string, regex bool) {
-	if t == nil || query == "" {
+	if s == nil || s.jobs == nil || t == nil || query == "" {
 		return
+	}
+	select {
+	case <-s.stop:
+		// Do not snapshot a transcript for a worker that has already relinquished
+		// ownership. The send loop checks again for a concurrent close below.
+		return
+	default:
 	}
 	start := t.StartRow()
 	next := job{
@@ -121,8 +140,15 @@ func (s *Search) Submit(t *Transcript, query string, regex bool) {
 	}
 }
 
+var stoppedResults = func() <-chan Result {
+	done := make(chan Result)
+	close(done)
+	return done
+}()
+
 // run is the worker.
 func (s *Search) run() {
+	defer close(s.results)
 	for {
 		select {
 		case j := <-s.jobs:

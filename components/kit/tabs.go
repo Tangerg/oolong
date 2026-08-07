@@ -34,6 +34,7 @@ type Tabs struct {
 	Rule bool
 
 	presentation headless.Snapshot[tabsPresentation]
+	body         pointerRegion
 }
 
 // NewTabs composes an uncontrolled headless controller with the kit's finished tab
@@ -69,6 +70,7 @@ func (t *Tabs) Measure(across int) int {
 // Draw paints the strip, the rule under it, and the pane in what is left.
 func (t *Tabs) Draw(v headless.Frame) {
 	t.presentation.Stage(v, tabsPresentation{})
+	t.body.clear(v)
 	if t.Of == nil {
 		return
 	}
@@ -89,6 +91,7 @@ func (t *Tabs) Draw(v headless.Frame) {
 		body:  rects[2],
 	}
 	t.presentation.Stage(v, presented)
+	t.body.stageWidget(v, presented.body, presented.of)
 	t.strip(views[0].View, presented)
 	if t.Rule && t.Glyphs.Horizontal != "" {
 		for x := range width {
@@ -108,12 +111,18 @@ func (t *Tabs) Draw(v headless.Frame) {
 // the first".
 func (t *Tabs) Handle(ev input.Event) bool {
 	presented := t.presentation.Value()
-	if presented.of == nil {
-		return false
-	}
 	mouse, ok := ev.(input.Mouse)
 	if !ok {
+		if presented.of == nil {
+			return false
+		}
 		return presented.of.Handle(ev)
+	}
+	if handled, delivered := t.body.handle(mouse); delivered {
+		return handled
+	}
+	if presented.of == nil {
+		return false
 	}
 	if mouse.Pos.In(presented.strip) {
 		if mouse.Action != input.MouseDown || mouse.Button != input.ButtonLeft {
@@ -125,11 +134,7 @@ func (t *Tabs) Handle(ev input.Event) bool {
 		}
 		return false
 	}
-	if !mouse.Pos.In(presented.body) {
-		return false
-	}
-	mouse.Pos = mouse.Pos.Sub(presented.body.Min)
-	return presented.of.Handle(mouse)
+	return false
 }
 
 // Focus passes the keyboard to the panes — see [headless.Tabs.Focus] — so that a

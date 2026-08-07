@@ -1,8 +1,6 @@
 package kit
 
 import (
-	"image"
-
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -43,7 +41,7 @@ type Composer struct {
 
 	editor headless.Editor
 	// field is the editor box from the last complete root frame.
-	field headless.Snapshot[image.Rectangle]
+	field pointerRegion
 }
 
 // DefaultComposerRows is how tall a composer grows before it starts scrolling:
@@ -79,12 +77,8 @@ func (c *Composer) Focus(has bool) { c.editor.Focus(has) }
 func (c *Composer) Handle(ev input.Event) bool {
 	c.editor.Keys = c.Keys
 	if mouse, ok := ev.(input.Mouse); ok {
-		field := c.field.Value()
-		if field.Empty() || !mouse.Pos.In(field) {
-			return false
-		}
-		mouse.Pos = mouse.Pos.Sub(field.Min)
-		return c.editor.HandleMouse(mouse, field.Dx())
+		handled, _ := c.field.handle(mouse)
+		return handled
 	}
 	return c.editor.Handle(ev)
 }
@@ -98,7 +92,7 @@ func (c *Composer) Measure(width int) int {
 
 // Draw paints the marker, the field and the hints.
 func (c *Composer) Draw(v headless.Frame) {
-	c.field.Stage(v, image.Rectangle{})
+	c.field.clear(v)
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return
@@ -128,7 +122,7 @@ func (c *Composer) drawField(v headless.Frame) {
 	}
 	width, height := v.Size()
 	field := grid.Rect(marker, 0, max(width-marker, 0), height)
-	c.field.Stage(v, field)
+	c.field.stage(v, field, editorPointer{editor: &c.editor, width: field.Dx()})
 	c.editor.Draw(v.Sub(field))
 }
 

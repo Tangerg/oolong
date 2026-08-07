@@ -142,7 +142,13 @@ func (t *transaction) abort() {
 // The zero Root draws nothing and declines input.
 type Root struct {
 	Of Widget
-	tx transaction
+
+	presentation Snapshot[Widget]
+	tx           transaction
+	// held is the presented root that accepted a press. Root is itself an ownership
+	// boundary when Of is replaced, so it must not hand the rest of that gesture to
+	// the replacement.
+	held Interactive
 }
 
 // NewRoot wraps a live widget tree in its presentation transaction.
@@ -159,18 +165,47 @@ func (r *Root) Draw(view grid.View) {
 			r.tx.abort()
 		}
 	}()
+	frame := Frame{View: view, transaction: &r.tx}
+	r.presentation.Stage(frame, r.Of)
 	if r.Of != nil {
-		r.Of.Draw(Frame{View: view, transaction: &r.tx})
+		r.Of.Draw(frame)
 	}
 	r.tx.commit()
 }
 
-// Handle offers input to the current tree. Routing widgets read only Snapshots from
-// the last complete Draw.
+// Handle offers input to the last completely drawn tree. A root replaced before its
+// next frame remains the input target the user can see. A root that accepted a pointer
+// press also receives that gesture's drag and release even if it is replaced meanwhile.
 func (r *Root) Handle(event input.Event) bool {
 	if r == nil {
 		return false
 	}
-	interactive, ok := r.Of.(Interactive)
+	if mouse, ok := event.(input.Mouse); ok {
+		return r.mouse(mouse)
+	}
+	interactive, ok := r.presentation.Value().(Interactive)
 	return ok && interactive.Handle(event)
+}
+
+func (r *Root) mouse(event input.Mouse) bool {
+	if r.held != nil && (event.Action == input.MouseDrag || event.Action == input.MouseUp) {
+		target := r.held
+		if event.Action == input.MouseUp {
+			r.held = nil
+		}
+		return target.Handle(event)
+	}
+	if event.Action == input.MouseDown {
+		// A new press supersedes an incomplete old gesture, whether or not the new
+		// target accepts it.
+		r.held = nil
+	}
+	target, ok := r.presentation.Value().(Interactive)
+	if !ok || !target.Handle(event) {
+		return false
+	}
+	if event.Action == input.MouseDown {
+		r.held = target
+	}
+	return true
 }

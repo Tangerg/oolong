@@ -15,7 +15,10 @@ func found(t *testing.T, s *headless.Search, query string) headless.Result {
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
-		case r := <-s.Results():
+		case r, ok := <-s.Results():
+			if !ok {
+				t.Fatalf("search closed before answering %q", query)
+			}
 			if r.Query == query {
 				return r
 			}
@@ -262,12 +265,40 @@ func TestSearchCloseIsSafeTwice(t *testing.T) {
 	s.Close()
 	s.Close()
 
-	// And submitting to a closed search neither blocks nor answers.
+	// And submitting to a closed search neither blocks nor answers. The result stream
+	// closes with its sole producer, so consumers ranging over it can stop as well.
 	s.Submit(transcriptOf(plainRows("x")...), "x", false)
 	select {
-	case r := <-s.Results():
-		t.Errorf("a closed search answered with %+v", r)
-	case <-time.After(50 * time.Millisecond):
+	case r, ok := <-s.Results():
+		if ok {
+			t.Errorf("a closed search answered with %+v", r)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the result stream remained open after Search.Close")
+	}
+}
+
+func TestTheZeroSearchIsStopped(t *testing.T) {
+	var zero headless.Search
+	zero.Submit(transcriptOf(plainRows("x")...), "x", false)
+	zero.Close()
+	zero.Close()
+	var nilSearch *headless.Search
+	nilSearch.Submit(transcriptOf(plainRows("x")...), "x", false)
+	nilSearch.Close()
+
+	for name, results := range map[string]<-chan headless.Result{
+		"zero": zero.Results(),
+		"nil":  nilSearch.Results(),
+	} {
+		select {
+		case _, ok := <-results:
+			if ok {
+				t.Errorf("%s search produced a result", name)
+			}
+		default:
+			t.Errorf("%s search returned a live or nil result stream", name)
+		}
 	}
 }
 

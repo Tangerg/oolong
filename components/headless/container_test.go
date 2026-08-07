@@ -235,6 +235,43 @@ func TestADragStaysWithWhateverTookThePress(t *testing.T) {
 	}
 }
 
+func TestANewPressEndsAnIncompleteContainerGesture(t *testing.T) {
+	first := &field{name: "first", takes: true}
+	second := &field{name: "second"}
+	c := headless.Rows(
+		headless.Item{Size: layout.Fixed(2), Of: first},
+		headless.Item{Size: layout.Fixed(2), Of: second},
+	)
+	drawn(c, 4)
+
+	c.Handle(pressAt(0, 0))
+	if c.Handle(pressAt(0, 3)) {
+		t.Fatal("the second child accepted the replacement press")
+	}
+	// Outside every child: only stale capture could send this back to the first.
+	c.Handle(input.Mouse{Pos: image.Pt(0, 8), Action: input.MouseDrag})
+	if got := len(first.mice); got != 1 {
+		t.Fatalf("the old gesture owner received %d events after a new press, want one", got)
+	}
+}
+
+func TestRemovingThePresentedOwnerEndsContainerCapture(t *testing.T) {
+	child := &field{name: "child", takes: true}
+	c := headless.Rows(headless.Item{Size: layout.Fixed(2), Of: child})
+	drawn(c, 2)
+	c.Handle(pressAt(0, 0))
+
+	c.Set()
+	drawn(c, 2)
+	c.Handle(input.Mouse{Pos: image.Pt(0, 8), Action: input.MouseDrag})
+	c.Set(headless.Item{Size: layout.Fixed(2), Of: child})
+	drawn(c, 2)
+	c.Handle(input.Mouse{Pos: image.Pt(0, 8), Action: input.MouseDrag})
+	if got := len(child.mice); got != 1 {
+		t.Fatalf("a removed and reinserted child resumed an old gesture with %d events", got)
+	}
+}
+
 // TestAPointerEventOutsideEveryChildIsDeclined, because a container that claimed the
 // whole region would stop anything above it from ever seeing the pointer.
 func TestAPointerEventOutsideEveryChildIsDeclined(t *testing.T) {

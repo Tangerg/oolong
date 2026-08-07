@@ -307,6 +307,7 @@ func inOrder(found []Link) Links {
 		out = append(out, l)
 		end = l.End
 	}
+	clear(found[len(out):])
 	return Links(out)
 }
 

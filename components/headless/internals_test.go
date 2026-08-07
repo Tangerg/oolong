@@ -18,6 +18,8 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -31,6 +33,75 @@ func TestEditorUndoHistoryIsBounded(t *testing.T) {
 	}
 	if len(e.undo) > maxUndo {
 		t.Fatalf("history holds %d steps, want at most %d", len(e.undo), maxUndo)
+	}
+}
+
+type retainedWidget struct{ payload []byte }
+
+func (*retainedWidget) Draw(Frame)      {}
+func (*retainedWidget) Measure(int) int { return 1 }
+
+type retainedField struct{ retainedWidget }
+
+func (*retainedField) Handle(input.Event) bool { return false }
+func (*retainedField) Focus(bool)              {}
+func (*retainedField) Prompt() string          { return "" }
+func (*retainedField) Validate() error         { return nil }
+func (*retainedField) Error() error            { return nil }
+
+func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
+	children := []*retainedWidget{{payload: []byte("one")}, {payload: []byte("two")}, {payload: []byte("three")}}
+	container := Rows(
+		Item{Size: layout.Measured(1, 0), Of: children[0]},
+		Item{Size: layout.Measured(1, 0), Of: children[1]},
+		Item{Size: layout.Measured(1, 0), Of: children[2]},
+	)
+	container.Measure(10)
+	container.Set(Item{Size: layout.Measured(1, 0), Of: children[0]})
+	container.Measure(10)
+	for i, item := range container.Items[:cap(container.Items)] {
+		if i >= len(container.Items) && item.Of != nil {
+			t.Fatalf("container item %d retained a removed child", i)
+		}
+	}
+	for i, slot := range container.slots[:cap(container.slots)] {
+		if i >= len(container.slots) && slot.Of != nil {
+			t.Fatalf("container slot %d retained a removed child", i)
+		}
+	}
+
+	tabs := NewTabs(
+		Tab{Title: "one", Of: children[0]},
+		Tab{Title: "two", Of: children[1]},
+		Tab{Title: "three", Of: children[2]},
+	)
+	tabs.Set(Tab{Title: "one", Of: children[0]})
+	for i, tab := range tabs.items[:cap(tabs.items)] {
+		if i >= len(tabs.items) && tab.Of != nil {
+			t.Fatalf("tab item %d retained a removed child", i)
+		}
+	}
+
+	fields := []*retainedField{{}, {}, {}}
+	form := &Form{Fields: []Field{fields[0], fields[1], fields[2]}}
+	form.Measure(10)
+	form.Fields = []Field{fields[0]}
+	form.Measure(10)
+	for i, item := range form.body.Items[:cap(form.body.Items)] {
+		if i >= len(form.body.Items) && item.Of != nil {
+			t.Fatalf("form item %d retained a removed field", i)
+		}
+	}
+
+	values := []int{1, 2, 3}
+	tree := &Tree[*int]{Nodes: []Node[*int]{{Item: &values[0]}, {Item: &values[1]}, {Item: &values[2]}}}
+	tree.Rows()
+	tree.Nodes = tree.Nodes[:1]
+	tree.Rows()
+	for i, row := range tree.list.Items[:cap(tree.list.Items)] {
+		if i >= len(tree.list.Items) && (row.Item != nil || row.path != "") {
+			t.Fatalf("tree row %d retained a removed node", i)
+		}
 	}
 }
 

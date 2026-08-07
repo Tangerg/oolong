@@ -74,6 +74,11 @@ func (p *Pointer) Handle(ev input.Event) bool {
 func (p *Pointer) Left() {
 	p.inside = false
 	p.holding = false
+	// Leaving cancels the whole gesture, not only its pressed appearance. Keeping the
+	// claimed region would turn the next frame into a click even though no release
+	// happened in this interface.
+	p.captured = image.Rectangle{}
+	p.button = input.ButtonNone
 }
 
 // Position is where the pointer is, and whether it is anywhere.

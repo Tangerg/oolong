@@ -231,6 +231,11 @@ func (s *Stack) Handle(ev input.Event) bool {
 
 // mouse routes pointer input through modal capture and the visible layer geometry.
 func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
+	if mouse.Action == input.MouseDown {
+		// The input protocol carries one pointer gesture. A new press supersedes an
+		// incomplete old one, including when its new target declines the press.
+		s.held = nil
+	}
 	if s.held != nil && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
 		held, found := presented.placed(s.held)
 		if mouse.Action == input.MouseUp {

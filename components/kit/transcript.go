@@ -2,6 +2,7 @@ package kit
 
 import (
 	"image"
+	"sort"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
@@ -28,8 +29,10 @@ type Transcript struct {
 	// Sticky pins a header above the window. Nil pins nothing.
 	Sticky *headless.Sticky
 	// Matches are highlighted where they fall inside the window, and Current is the
-	// index of the one being stepped to, which is drawn differently. A Current
-	// outside the matches means none of them is current.
+	// index of the one being stepped to, which is drawn differently. Matches must be
+	// in row order and non-overlapping; [headless.Result.Matches] already has that
+	// shape. The order is what lets drawing depend on the visible window rather than
+	// on the age of the session. A Current outside the matches means none is current.
 	Matches []headless.Match
 	Current int
 
@@ -48,11 +51,15 @@ type Transcript struct {
 	Glyphs Glyphs
 
 	presentation headless.Snapshot[transcriptPresentation]
+	// dragged is the selection that accepted the current press. Selection may be
+	// replaced between frames; the old gesture must be settled on its old owner and
+	// never transferred to the replacement.
+	dragged *headless.Selection
 }
 
 // Draw fills v with as much of the transcript as fits.
 func (t *Transcript) Draw(v headless.Frame) {
-	t.presentation.Stage(v, transcriptPresentation{})
+	t.presentation.Stage(v, transcriptPresentation{content: t.Content, selection: t.Selection})
 	w, h := v.Size()
 	if t.Content == nil || w <= 0 || h <= 0 {
 		return
@@ -174,7 +181,9 @@ func (t *Transcript) mark(v grid.View, from int) {
 			}
 		}
 	}
-	for i, m := range t.Matches {
+	start, end := visibleMatches(t.Matches, from, from+h)
+	for i := start; i < end; i++ {
+		m := t.Matches[i]
 		style := t.Theme.Selection
 		if i == t.Current {
 			style = t.Theme.Accent
@@ -189,6 +198,24 @@ func (t *Transcript) mark(v grid.View, from int) {
 			}
 		}
 	}
+}
+
+// visibleMatches returns the matches that can touch [from, to). Matches are ordered
+// and non-overlapping, so at most the last one beginning before from can cross into
+// the window. Search already produces exactly that shape.
+func visibleMatches(matches []headless.Match, from, to int) (start, end int) {
+	if len(matches) == 0 || from >= to {
+		return 0, 0
+	}
+	start = sort.Search(len(matches), func(i int) bool { return matches[i].Row >= from })
+	if start > 0 {
+		previous := matches[start-1]
+		if previous.Row+len(previous.Spans) > from {
+			start--
+		}
+	}
+	end = sort.Search(len(matches), func(i int) bool { return matches[i].Row >= to })
+	return start, max(start, end)
 }
 
 // restyle lays a style over a cell without touching what is in it.
@@ -300,17 +327,18 @@ func (t *Transcript) Handle(event input.Event) bool {
 	}
 	ev, ok := event.(input.Mouse)
 	presented := t.presentation.Value()
-	if !ok || presented.content == nil || presented.selection == nil {
+	if !ok {
 		return false
 	}
-	row, on := presented.rowAt(ev.Pos)
-	if !on {
-		return false
-	}
-	at := headless.Point{Row: row, Col: ev.Pos.X}
 	switch ev.Action {
 	case input.MouseDown:
-		if ev.Button != input.ButtonLeft {
+		// A new press supersedes a release the terminal never reported.
+		t.dragged = nil
+		if ev.Button != input.ButtonLeft || presented.content == nil || presented.selection == nil {
+			return false
+		}
+		at, on := presented.pointAt(ev.Pos, false)
+		if !on {
 			return false
 		}
 		run := presented.selection.Clicks.Press(ev)
@@ -327,12 +355,28 @@ func (t *Transcript) Handle(event input.Event) bool {
 			}
 		}
 		presented.selection.Begin(at)
+		t.dragged = presented.selection
 		return true
 	case input.MouseDrag:
-		presented.selection.Extend(at)
+		if t.dragged == nil || !t.dragged.Dragging() {
+			return false
+		}
+		at, on := presented.pointAt(ev.Pos, true)
+		if !on {
+			return false
+		}
+		t.dragged.Extend(at)
 		return true
 	case input.MouseUp:
-		presented.selection.Done()
+		if t.dragged == nil {
+			return false
+		}
+		// A release is a lifetime transition, not a hit test. Once this selection
+		// accepted the press, it must be settled even when the pointer is now outside
+		// the transcript or the visible window has collapsed.
+		dragged := t.dragged
+		t.dragged = nil
+		dragged.Done()
 		return true
 	default:
 		return false
@@ -346,13 +390,50 @@ type transcriptPresentation struct {
 	from, headerFrom int
 }
 
-func (p transcriptPresentation) rowAt(point image.Point) (int, bool) {
+// pointAt translates a screen point to the transcript. When nearest is true, a point
+// outside the visible rows is clamped to their nearest edge. That is the continuation
+// of an existing drag, not a new hit: dragging beyond a text window extends to the
+// first or last visible cell, while a press beyond it still belongs to nobody here.
+func (p transcriptPresentation) pointAt(point image.Point, nearest bool) (headless.Point, bool) {
+	area, row, ok := p.rowAt(point)
+	if !ok && nearest {
+		area, row, ok = p.nearestRow(point.Y)
+	}
+	if !ok || area.Empty() {
+		return headless.Point{}, false
+	}
+	col := point.X - area.Min.X
+	if nearest {
+		col = min(max(col, 0), area.Dx()-1)
+	} else if col < 0 || col >= area.Dx() {
+		return headless.Point{}, false
+	}
+	return headless.Point{Row: row, Col: col}, true
+}
+
+func (p transcriptPresentation) rowAt(point image.Point) (image.Rectangle, int, bool) {
 	switch {
 	case point.In(p.header):
-		return p.headerFrom + point.Y - p.header.Min.Y, true
+		return p.header, p.headerFrom + point.Y - p.header.Min.Y, true
 	case point.In(p.body):
-		return p.from + point.Y - p.body.Min.Y, true
+		return p.body, p.from + point.Y - p.body.Min.Y, true
 	default:
-		return 0, false
+		return image.Rectangle{}, 0, false
 	}
+}
+
+func (p transcriptPresentation) nearestRow(y int) (image.Rectangle, int, bool) {
+	if !p.header.Empty() && y < p.body.Min.Y {
+		at := min(max(y, p.header.Min.Y), p.header.Max.Y-1)
+		return p.header, p.headerFrom + at - p.header.Min.Y, true
+	}
+	if !p.body.Empty() {
+		at := min(max(y, p.body.Min.Y), p.body.Max.Y-1)
+		return p.body, p.from + at - p.body.Min.Y, true
+	}
+	if !p.header.Empty() {
+		at := min(max(y, p.header.Min.Y), p.header.Max.Y-1)
+		return p.header, p.headerFrom + at - p.header.Min.Y, true
+	}
+	return image.Rectangle{}, 0, false
 }

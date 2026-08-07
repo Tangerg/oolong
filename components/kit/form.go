@@ -1,8 +1,6 @@
 package kit
 
 import (
-	"image"
-
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -32,7 +30,7 @@ type Form struct {
 	Keys  *keymap.Map
 	Hints []keymap.Action
 
-	body headless.Snapshot[image.Rectangle]
+	body pointerRegion
 }
 
 // Measure is the title, the fields, and the hints.
@@ -45,7 +43,7 @@ func (f *Form) Measure(across int) int {
 
 // Draw dresses the form and paints it.
 func (f *Form) Draw(v headless.Frame) {
-	f.body.Stage(v, image.Rectangle{})
+	f.body.clear(v)
 	if f.Of == nil {
 		return
 	}
@@ -57,7 +55,7 @@ func (f *Form) Draw(v headless.Frame) {
 		layout.Slot{Size: layout.Fixed(f.hintRows())},
 	)
 	bands := v.Subs(rects)
-	f.body.Stage(v, rects[1])
+	f.body.stageWidget(v, rects[1], f.Of)
 	if f.titleRows() > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0].View)
 	}
@@ -75,16 +73,12 @@ func (f *Form) Draw(v headless.Frame) {
 // wrong place, and it is the sort of mistake that only shows as "clicking the second
 // field selects the first".
 func (f *Form) Handle(ev input.Event) bool {
+	if mouse, ok := ev.(input.Mouse); ok {
+		handled, _ := f.body.handle(mouse)
+		return handled
+	}
 	if f.Of == nil {
 		return false
-	}
-	if mouse, ok := ev.(input.Mouse); ok {
-		body := f.body.Value()
-		if body.Empty() || !mouse.Pos.In(body) {
-			return false
-		}
-		mouse.Pos = mouse.Pos.Sub(body.Min)
-		return f.Of.Handle(mouse)
 	}
 	return f.Of.Handle(ev)
 }

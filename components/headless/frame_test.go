@@ -80,6 +80,89 @@ func TestRootPublishesNestedRoutingGeometryAtomically(t *testing.T) {
 	}
 }
 
+type rootTarget struct {
+	events int
+	panics bool
+}
+
+func (t *rootTarget) Draw(Frame) {
+	if t.panics {
+		panic("aborted root replacement")
+	}
+}
+
+func (t *rootTarget) Handle(input.Event) bool {
+	t.events++
+	return true
+}
+
+func TestRootPublishesItsOwnTargetWithTheCompleteFrame(t *testing.T) {
+	old := &rootTarget{}
+	next := &rootTarget{}
+	root := NewRoot(old)
+	view := grid.NewSurface(1, 1).View()
+
+	if root.Handle(input.Key{Code: input.Enter}) {
+		t.Fatal("a root handled input before it presented a target")
+	}
+	root.Draw(view)
+	root.Of = next
+	root.Handle(input.Key{Code: input.Enter})
+	if old.events != 1 || next.events != 0 {
+		t.Fatalf("unpublished replacement received input: old=%d next=%d", old.events, next.events)
+	}
+
+	root.Draw(view)
+	root.Handle(input.Key{Code: input.Enter})
+	if next.events != 1 {
+		t.Fatalf("published replacement received %d events, want one", next.events)
+	}
+}
+
+func TestAnAbortedRootReplacementKeepsThePresentedTarget(t *testing.T) {
+	old := &rootTarget{}
+	next := &rootTarget{panics: true}
+	root := NewRoot(old)
+	view := grid.NewSurface(1, 1).View()
+	root.Draw(view)
+	root.Of = next
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("Draw did not propagate the replacement panic")
+			}
+		}()
+		root.Draw(view)
+	}()
+
+	root.Handle(input.Key{Code: input.Enter})
+	if old.events != 1 || next.events != 0 {
+		t.Fatalf("aborted replacement received input: old=%d next=%d", old.events, next.events)
+	}
+}
+
+func TestRootDoesNotTransferAPointerGestureToItsReplacement(t *testing.T) {
+	old := &rootTarget{}
+	next := &rootTarget{}
+	root := NewRoot(old)
+	view := grid.NewSurface(1, 1).View()
+	root.Draw(view)
+
+	root.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+	root.Of = next
+	root.Draw(view)
+	root.Handle(input.Mouse{Action: input.MouseDrag, Pos: image.Pt(2, 2)})
+	root.Handle(input.Mouse{Action: input.MouseUp, Pos: image.Pt(2, 2)})
+	if old.events != 3 || next.events != 0 {
+		t.Fatalf("gesture was transferred: old=%d next=%d", old.events, next.events)
+	}
+
+	root.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+	if next.events != 1 {
+		t.Fatalf("replacement received %d events after release, want one", next.events)
+	}
+}
+
 type snapshotFixture struct {
 	value *int
 	panic bool

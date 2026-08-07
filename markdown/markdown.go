@@ -155,6 +155,7 @@ func (d *Doc) wrap(width int) []row {
 	if d.fresh && d.atWidth == width {
 		return d.rows
 	}
+	clear(d.rows)
 	rows := d.rows[:0]
 	for _, block := range d.Blocks {
 		if block.Gap && len(rows) > 0 {

@@ -276,6 +276,7 @@ func (i *Inline) Flush(w io.Writer) error {
 		i.Invalidate()
 		return err
 	}
+	clear(i.pending)
 	i.pending = i.pending[:0]
 	// What the terminal now has open is what was pending a moment ago.
 	i.flushed = i.tail

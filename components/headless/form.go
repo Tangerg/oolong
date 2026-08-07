@@ -379,6 +379,7 @@ func (f *Form) arrange() {
 	f.body.Axis = layout.Down
 	f.body.Gap = f.Gap
 	f.body.Keys = f.keys()
+	clear(f.body.Items)
 	f.body.Items = f.body.Items[:0]
 	for _, field := range f.Fields {
 		if takes, ok := field.(dressed); ok {

@@ -270,6 +270,24 @@ func TestALayerKeepsAPointerGestureOutsideItsArea(t *testing.T) {
 	}
 }
 
+func TestANewPressEndsAnIncompleteLayerGesture(t *testing.T) {
+	p := &panel{name: "p", place: middle(4, 2), takesMouse: true}
+	var s headless.Stack
+	s.Push(p)
+	draw(&s, 20, 10)
+	area, _ := s.Area()
+
+	s.Handle(input.Mouse{Pos: area.Min, Action: input.MouseDown, Button: input.ButtonLeft})
+	p.takesMouse = false
+	// The modal still consumes this press as a boundary, but its body declines it.
+	s.Handle(input.Mouse{Pos: area.Min, Action: input.MouseDown, Button: input.ButtonLeft})
+	out := image.Pt(area.Min.X-2, area.Min.Y)
+	s.Handle(input.Mouse{Pos: out, Action: input.MouseDrag, Button: input.ButtonLeft})
+	if got := len(p.seen); got != 2 {
+		t.Fatalf("the old gesture owner received %d events after a new press, want two", got)
+	}
+}
+
 func TestAMouseEventArrivesInTheLayersOwnCoordinates(t *testing.T) {
 	// The layer draws into a view whose origin is its own, so it reasons in its own
 	// coordinates and a position has to arrive in them.

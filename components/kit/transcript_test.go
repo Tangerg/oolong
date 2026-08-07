@@ -483,6 +483,56 @@ func TestSelectingAccountsForTheScroll(t *testing.T) {
 	}
 }
 
+func TestASelectionGestureSettlesOutsideTheVisibleTranscript(t *testing.T) {
+	tr := session(t, 6, []string{"abcdef", "ghijkl"})
+	var sel headless.Selection
+	view := kit.Transcript{Content: tr, Selection: &sel}
+	drawTranscript(grid.NewSurface(6, 2).View(), &view)
+
+	if !view.Handle(press(1, time.Unix(0, 0))) {
+		t.Fatal("the selection did not accept its press")
+	}
+	if !view.Handle(input.Mouse{Pos: image.Pt(20, 20), Action: input.MouseDrag}) {
+		t.Fatal("the selection dropped a drag beyond the visible rows")
+	}
+	start, end := sel.Range()
+	if start != (headless.Point{Row: 0, Col: 1}) || end != (headless.Point{Row: 1, Col: 5}) {
+		t.Fatalf("selection = %v..%v, want (0,1)..(1,5)", start, end)
+	}
+	if !view.Handle(input.Mouse{Pos: image.Pt(20, 20), Action: input.MouseUp}) {
+		t.Fatal("the selection dropped the release beyond the visible rows")
+	}
+	if sel.Dragging() {
+		t.Fatal("the selection still believes its released gesture is active")
+	}
+	if view.Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDrag}) {
+		t.Fatal("an unowned drag was consumed after release")
+	}
+}
+
+func TestASelectionReleaseReturnsToTheSelectionThatAcceptedItsPress(t *testing.T) {
+	tr := session(t, 10, []string{"first", "second"})
+	first, second := &headless.Selection{}, &headless.Selection{}
+	view := kit.Transcript{Content: tr, Selection: first}
+	root := headless.NewRoot(&view)
+	root.Draw(grid.NewSurface(10, 2).View())
+
+	view.Handle(press(1, time.Unix(0, 0)))
+	view.Selection = second
+	// Publish both the replacement and collapsed geometry. The release still belongs
+	// to the selection that took the press; there need not be a row left to hit-test.
+	root.Draw(grid.NewSurface(0, 0).View())
+	if !view.Handle(input.Mouse{Pos: image.Pt(20, 20), Action: input.MouseUp}) {
+		t.Fatal("the collapsed transcript dropped the release")
+	}
+	if first.Dragging() {
+		t.Fatal("the original selection was left dragging")
+	}
+	if second.Active() || second.Dragging() {
+		t.Fatal("the replacement inherited another selection's gesture")
+	}
+}
+
 func TestTheTranscriptLeavesAloneWhatIsNotItsToAnswer(t *testing.T) {
 	tr := session(t, 30, []string{"a"})
 	var sel headless.Selection

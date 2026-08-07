@@ -1386,6 +1386,9 @@ func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
 	if p.Pressing(box) {
 		t.Fatal("still holding a press after the pointer left")
 	}
+	if p.Clicked(box, input.ButtonLeft) {
+		t.Fatal("leaving turned an unfinished press into a click")
+	}
 }
 
 func TestAnUnclaimedPressPushesWhateverIsUnderIt(t *testing.T) {

@@ -107,7 +107,9 @@ func (d *Decoder) Feed(chunk string) []Line {
 				// else.
 				break
 			}
-			d.held = rest
+			// rest is capped, but it may be a substring at the end of a large decoded
+			// chunk. Clone the undecided tail so consumed output is actually released.
+			d.held = strings.Clone(rest)
 			return lines
 		}
 		rest = rest[n:]

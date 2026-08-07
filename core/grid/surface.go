@@ -42,7 +42,12 @@ func (s *Surface) Resize(w, h int) {
 	w, h = max(w, 0), max(h, 0)
 	s.w, s.h = w, h
 	if n := surfaceArea(w, h); cap(s.cells) >= n {
-		s.cells = s.cells[:n]
+		// Clear the whole allocation before shrinking it. Cells beyond the new length
+		// are still scanned by the garbage collector and would otherwise retain old
+		// content and hyperlink strings for as long as the smaller surface lives.
+		cells := s.cells[:cap(s.cells)]
+		clear(cells)
+		s.cells = cells[:n]
 	} else {
 		s.cells = make([]Cell, n)
 	}
@@ -59,6 +64,7 @@ func surfaceArea(w, h int) int {
 // Reset blanks every cell and forgets the regions something else was to paint.
 func (s *Surface) Reset() {
 	clear(s.cells)
+	clear(s.paints)
 	s.paints = s.paints[:0]
 }
 

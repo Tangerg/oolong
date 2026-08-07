@@ -18,6 +18,35 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Changed
+
+- **Transcript highlighting now scales with the visible window.** Match collections
+  are explicitly ordered and non-overlapping, the shape already returned by
+  `headless.Search`, so a frame locates visible matches without walking session-old
+  results. A fixed viewport with 100,000 earlier matches fell from roughly 174 µs to
+  18 ns in the repository benchmark, with zero allocations in both cases.
+
+### Fixed
+
+- **Presented identity and pointer ownership are now transactional at every
+  composition boundary.** `headless.Root` publishes its target with the complete
+  frame and retains accepted gestures across root replacement. Kit wrappers share one
+  committed child-region model, so a drag or release cannot be lost to chrome,
+  collapsed layout, or a replacement child. Transcript selection settles its original
+  owner even outside the viewport, and container, stack, and pointer cancellation now
+  clear stale gestures before they can resume.
+
+- **Search result streams now have a complete lifetime.** The worker closes
+  `Search.Results` when `Search.Close` stops it, allowing consumers to range over the
+  channel without leaking a goroutine or coordinating a second private stop signal.
+
+- **Released content no longer survives in reusable backing storage.** Shrunk
+  surfaces, paint regions, inline publication queues, component child caches,
+  filtered links, document wraps, and tree rows clear discarded pointer-bearing
+  slots. Streaming markdown, terminal input, and ANSI text decoders clone only their
+  small undecided tails at ownership cuts, so published or consumed prefixes cannot
+  remain alive through a substring or subslice.
+
 ## [0.1.1] — 2026-08-07
 
 Additive. Nothing exported was removed or changed shape, so an application on 0.1.0

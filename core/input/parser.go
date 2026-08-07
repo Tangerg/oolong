@@ -1,6 +1,7 @@
 package input
 
 import (
+	"bytes"
 	"image"
 	"strings"
 	"unicode/utf8"
@@ -102,8 +103,15 @@ func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.dropping != droppin
 
 // drain decodes as much as it can. When final, trailing ambiguity is resolved
 // rather than kept.
-func (p *Parser) drain(final bool) []Event {
-	var events []Event
+func (p *Parser) drain(final bool) (events []Event) {
+	defer func() {
+		if len(p.buf) > 0 {
+			// The undecided tail is short by construction. Clone it after draining so
+			// a lone escape or partial UTF-8 sequence cannot keep an otherwise consumed
+			// terminal read buffer alive while input is idle.
+			p.buf = bytes.Clone(p.buf)
+		}
+	}()
 	for {
 		if p.dropping != droppingNothing {
 			if !p.skipRunaway() {

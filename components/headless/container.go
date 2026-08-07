@@ -153,6 +153,7 @@ func Columns(items ...Item) *Container {
 
 // Set replaces the children, preserving focus by identity where possible.
 func (c *Container) Set(items ...Item) {
+	clear(c.Items)
 	c.Items = append(c.Items[:0], items...)
 	c.settle()
 }
@@ -273,6 +274,12 @@ func (c *Container) Do(action keymap.Action) bool {
 
 // mouse routes a pointer event by where it is, and by who took the press.
 func (c *Container) mouse(ev input.Mouse) bool {
+	if ev.Action == input.MouseDown {
+		// A new press begins a new gesture even if the terminal never reported the
+		// previous release. Clear before routing so a declined press cannot leave the
+		// old owner installed.
+		c.held = nil
+	}
 	if c.held != nil {
 		switch ev.Action {
 		case input.MouseDrag, input.MouseUp:
@@ -284,6 +291,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 				// The child that took the press is no longer here. The gesture has
 				// nowhere to go, which is not the same as it belonging to whatever
 				// took its place.
+				c.held = nil
 				return false
 			}
 			return c.deliver(held, ev)
@@ -348,6 +356,7 @@ func (c *Container) arrange() []layout.Slot {
 }
 
 func (c *Container) arrangeItems(items []Item) []layout.Slot {
+	clear(c.slots)
 	c.slots = c.slots[:0]
 	for _, item := range items {
 		slot := layout.Slot{Size: item.Size}

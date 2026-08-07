@@ -83,7 +83,10 @@ func (s *Stream) Feed(chunk string) []Block {
 		return nil
 	}
 	done := Render(s.held[:cut], s.Look)
-	s.held = s.held[cut:]
+	// A substring shares the complete source allocation. Clone at the ownership
+	// boundary so a short open tail cannot retain the finished prefix that was just
+	// published and handed away.
+	s.held = strings.Clone(s.held[cut:])
 	s.scanned -= cut
 	s.blank = 0
 	return done

@@ -68,6 +68,7 @@ func (t *Tabs) Set(items ...Tab) {
 	if t == nil {
 		return
 	}
+	clear(t.items)
 	t.items = append(t.items[:0], items...)
 	if len(t.items) == 0 {
 		t.selection.set(0)
