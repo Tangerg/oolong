@@ -637,6 +637,15 @@ dimensions are replaceable state, but the newest observed size must not be lost.
 platform with neither a reliable signal nor a bounded, stoppable observer is not a
 supported terminal host.
 
+How often an observer samples is policy owned by the platform file, not part of this
+invariant. A fixed interval is the simplest form and is the current one. An observer
+may also widen its interval while nothing changes and restore it on the first change,
+provided it stays bounded, still reports the newest size, and still stops with the
+session. What the observer must not become is a general scheduler, a shared clock, or
+a reason for the loop that reads it to learn which platform it is on: the sampling
+loop takes its clock as an argument so that this policy can change in one platform
+file and be proved with a deterministic one everywhere.
+
 ## 10. Executable architecture
 
 An invariant that code can violate needs an executable guard. Prose explains the
@@ -649,7 +658,7 @@ invariant it makes enforceable.
 | dependency direction and vocabulary | `internal/arch` derives forbidden imports from the declared DAG and checks module promises, documentation references, completeness, and cycles | every CI run |
 | bounded live lifetime, section 3.2 | a deterministic component test proves that commit removes strong payload references and per-block placement records; a fresh-process stress test compares `N` and `2N` large committed streams after GC and rejects retained-heap growth proportional to `N` | required by slice 1 and every transcript implementation |
 | incremental lossless ingress | burst, cancellation, close, partial-tail, and producer-faster-than-consumer tests prove ordering, batching, the declared bound, and the absence of drops | required by slice 1 |
-| observationally pure measurement and drawing | [`headless`](../components/headless/draw_purity_internals_test.go) and [`kit`](../components/kit/draw_purity_internals_test.go) classify every production `Draw` receiver; every stateful receiver draws twice from the same meaningful state, preserves its semantic projection, and produces identical terminal bytes, styles, and cursor state | every component test run; an unclassified receiver fails |
+| observationally pure measurement and drawing | [`headless`](../components/headless/draw_purity_internals_test.go), [`kit`](../components/kit/draw_purity_internals_test.go) and [`markdown`](../markdown/draw_purity_internals_test.go) classify every production `Draw` receiver; every stateful receiver draws twice from the same meaningful state, preserves its semantic projection, and produces identical terminal bytes, styles, and cursor state | every package that implements `Draw`; an unclassified receiver fails |
 | one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |

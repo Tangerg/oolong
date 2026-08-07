@@ -3,7 +3,14 @@
 All notable changes to this repository. Modules are tagged separately —
 `core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `highlight/vX.Y.Z`,
 `ptytest/vX.Y.Z` — and share one version number: a release is a state of the
-repository, and a module that did not change in one keeps the tag it already had.
+repository.
+
+From 0.1.0 they are also one coordinated release train, as
+[the release policy](docs/architecture.md#13-breaking-change-and-release-policy)
+requires: every public module is tagged at every release with the same version and
+these same notes, whether or not its own files changed, and users upgrade the set
+together. Before 0.1.0 an unchanged module kept the tag it already had, which is why
+some earlier versions are missing from some modules.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
@@ -11,14 +18,24 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-07
+
+The first three architecture slices are complete and every invariant this document
+can enforce now has a named executable guard. The minor version says that the shape
+of a streaming program has settled; it is still pre-1.0, so [the breaking-change
+policy](docs/architecture.md#13-breaking-change-and-release-policy) still applies and
+the modules are still one coordinated release train.
+
 ### Added
 
 - **Architecture invariants now have complete executable gates.** Every production
-  `Draw` receiver in `headless` and `kit` is classified as a stateful contract or an
-  immutable presentation value; stateful cases draw twice, preserve their semantic
-  projection, and emit identical styled cells and cursor state. The release workflow
-  now pins `gorelease`, compares a proposed public module with its preceding immutable
-  tag, reports pre-1.0 changes, and rejects incompatible v1+ proposals.
+  `Draw` receiver in `headless`, `kit` and `markdown` is classified as a stateful
+  contract or an immutable presentation value; stateful cases draw twice, preserve
+  their semantic projection, and emit identical styled cells and cursor state. The
+  classification is derived from the package's own source, so a new `Draw` fails until
+  its ownership class is named. The release workflow now pins `gorelease`, compares a
+  proposed public module with its preceding immutable tag, reports pre-1.0 changes,
+  and rejects incompatible v1+ proposals.
 
 - **Bounded lossless byte ingress.** `program.ByteIngress` batches adjacent writes
   behind at most one owner task, bounds pending producer data, applies backpressure,
