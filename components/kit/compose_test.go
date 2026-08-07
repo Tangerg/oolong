@@ -53,7 +53,7 @@ func TestComposerLeavesEnterToItsInterface(t *testing.T) {
 
 func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
 	c := kit.Composer{Prompt: "› ", Placeholder: "ask"}
-	rows := paint(12, 1, func(v grid.View) { c.Draw(v) })
+	rows := paintWidget(12, 1, &c)
 	if !strings.HasPrefix(rows[0], "› ") {
 		t.Fatalf("row = %q, want the prompt marker first", rows[0])
 	}
@@ -65,7 +65,7 @@ func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
 func TestComposerPlaceholderGivesWayToText(t *testing.T) {
 	c := kit.Composer{Prompt: "› ", Placeholder: "ask"}
 	typeInto(&c, "hi")
-	rows := paint(12, 1, func(v grid.View) { c.Draw(v) })
+	rows := paintWidget(12, 1, &c)
 	if strings.Contains(rows[0], "ask") {
 		t.Fatalf("row = %q, want the placeholder gone once there is text", rows[0])
 	}
@@ -114,7 +114,7 @@ func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 		Keys:   sendKeys(),
 		Hints:  []keymap.Action{"send"},
 	}
-	rows := paint(20, 2, func(v grid.View) { c.Draw(v) })
+	rows := paintWidget(20, 2, &c)
 	if !strings.Contains(rows[1], "send") {
 		t.Fatalf("second row = %q, want the hints under the field", rows[1])
 	}
@@ -220,8 +220,8 @@ func TestADialogIsAModalTheStackCanDrive(_ *testing.T) {
 }
 
 func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
-	d := &kit.Dialog{Glyphs: kit.Unicode(), Title: "Confirm", Body: kit.Label{Text: "really?"}}
-	rows := paint(20, 5, func(v grid.View) { d.Draw(v) })
+	d := &kit.Dialog{Glyphs: kit.Unicode(), Title: "Confirm", Body: headless.Static{Of: kit.Label{Text: "really?"}}}
+	rows := paintWidget(20, 5, d)
 	if !strings.Contains(rows[0], "Confirm") {
 		t.Fatalf("top row = %q, want the title in the border", rows[0])
 	}
@@ -240,11 +240,11 @@ func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 	d := &kit.Dialog{
 		Glyphs: kit.Unicode(),
 		Title:  "Confirm",
-		Body:   kit.Label{Text: "x"},
+		Body:   headless.Static{Of: kit.Label{Text: "x"}},
 		Keys:   keys,
 		Hints:  []keymap.Action{"ok"},
 	}
-	rows := paint(24, 4, func(v grid.View) { d.Draw(v) })
+	rows := paintWidget(24, 4, d)
 	if !strings.Contains(rows[3], "ok") {
 		t.Fatalf("bottom row = %q, want the hints in the border", rows[3])
 	}
@@ -298,7 +298,7 @@ func TestADialogPassesInputToABodyThatWantsIt(t *testing.T) {
 
 func TestADialogWithABodyThatIgnoresInputConsumesNothing(t *testing.T) {
 	// So the stack can decide what an unconsumed key meant — closing, usually.
-	d := &kit.Dialog{Body: kit.Label{Text: "just words"}}
+	d := &kit.Dialog{Body: headless.Static{Of: kit.Label{Text: "just words"}}}
 	if d.Handle(input.Key{Code: input.Esc}) {
 		t.Fatal("a dialog whose body cannot answer input consumed a key anyway")
 	}
@@ -306,15 +306,15 @@ func TestADialogWithABodyThatIgnoresInputConsumesNothing(t *testing.T) {
 
 func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
 	d := &kit.Dialog{Glyphs: kit.Unicode(), Title: "Empty"}
-	rows := paint(14, 3, func(v grid.View) { d.Draw(v) })
+	rows := paintWidget(14, 3, d)
 	if !strings.Contains(rows[0], "Empty") {
 		t.Fatalf("top row = %q, want the frame drawn anyway", rows[0])
 	}
 }
 
 func TestADialogWithNoRoomDrawsNothing(_ *testing.T) {
-	d := &kit.Dialog{Title: "Squeezed", Body: kit.Label{Text: "x"}}
-	d.Draw(grid.NewSurface(0, 0).View())
+	d := &kit.Dialog{Title: "Squeezed", Body: headless.Static{Of: kit.Label{Text: "x"}}}
+	headless.NewRoot(d).Draw(grid.NewSurface(0, 0).View())
 	d.Backdrop(grid.NewSurface(0, 0).View())
 }
 

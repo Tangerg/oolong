@@ -52,6 +52,10 @@ func paint(w, h int, draw func(grid.View)) []string {
 	return rows
 }
 
+func paintWidget(w, h int, widget headless.Widget) []string {
+	return paint(w, h, headless.NewRoot(widget).Draw)
+}
+
 func equalRows(t *testing.T, got, want []string) {
 	t.Helper()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -547,31 +551,30 @@ func TestParagraphAnswersAClick(t *testing.T) {
 	p.Links = true
 	p.Draw(s.View())
 
-	if got, ok := p.LinkAt(8, 0); !ok || got.Target != "https://a.test" {
+	if got, ok := p.LinkAt(8, 0, 30); !ok || got.Target != "https://a.test" {
 		t.Errorf("a click inside the URL found %+v (%v)", got, ok)
 	}
-	if _, ok := p.LinkAt(1, 0); ok {
+	if _, ok := p.LinkAt(1, 0, 30); ok {
 		t.Error("a click before the URL found one")
 	}
-	if _, ok := p.LinkAt(8, 1); ok {
+	if _, ok := p.LinkAt(8, 1, 30); ok {
 		t.Error("a click on an empty row found one")
 	}
 }
 
-func TestParagraphForgetsLinksItNoLongerDraws(t *testing.T) {
-	// The record comes out of the pass that drew the cells, so it cannot be left
-	// answering about text that has since changed.
+func TestParagraphHitTestingReadsCurrentTextWithoutDrawHistory(t *testing.T) {
+	// A passive block has no committed geometry cache: replacing its content changes
+	// the pure layout query immediately and does not require a clearing draw.
 	s := grid.NewSurface(30, 3)
 	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
 	p.Links = true
 	p.Draw(s.View())
-	if _, ok := p.LinkAt(8, 0); !ok {
+	if _, ok := p.LinkAt(8, 0, 30); !ok {
 		t.Fatal("no link was recorded to begin with")
 	}
 
 	p.SetText(nil)
-	p.Draw(grid.NewSurface(30, 3).View())
-	if got, ok := p.LinkAt(8, 0); ok {
+	if got, ok := p.LinkAt(8, 0, 30); ok {
 		t.Errorf("a click still finds %+v after the text was replaced", got)
 	}
 }
@@ -652,7 +655,7 @@ func TestTheComposerShowsASelection(t *testing.T) {
 	}
 
 	s := grid.NewSurface(30, 3)
-	c.Draw(s.View())
+	headless.NewRoot(c).Draw(s.View())
 
 	marked := 0
 	for y := range 3 {
@@ -676,7 +679,7 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 	p.Exists = func(path string) bool { return path == "src/main.go" }
 	p.Draw(s.View())
 
-	destination, ok := p.LinkAt(len("edited "), 0)
+	destination, ok := p.LinkAt(len("edited "), 0, 40)
 	if !ok {
 		t.Fatal("the path was not recorded")
 	}
@@ -735,7 +738,7 @@ func TestTheComposerCanBeClickedInto(t *testing.T) {
 	c.Editor().SetCursor(0, 0)
 
 	s := grid.NewSurface(30, 3)
-	c.Draw(s.View())
+	headless.NewRoot(c).Draw(s.View())
 
 	// Column 8 on screen is column 6 of the field, because the marker takes two.
 	if !c.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
@@ -757,11 +760,11 @@ func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
 
 func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
 	panes := &headless.Tabs{Items: []headless.Tab{
-		{Title: "chat", Of: kit.Label{Text: "one"}},
-		{Title: "files", Of: kit.Label{Text: "two"}},
+		{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
+		{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
 	}}
 	tabs := kit.Tabs{Of: panes, Theme: kit.Dark(), Glyphs: kit.ASCII(), Rule: true}
-	equalRows(t, paint(14, 4, tabs.Draw), []string{
+	equalRows(t, paintWidget(14, 4, &tabs), []string{
 		"chat..files...",
 		"--------------",
 		"one...........",
@@ -795,7 +798,7 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 	}
 	// A leaf starts in the same column as a branch — the mark is a blank as wide as
 	// one — so a tree of files does not read as a tree of two different things.
-	equalRows(t, paint(12, 3, view.Draw), []string{
+	equalRows(t, paintWidget(12, 3, view), []string{
 		"-.core......",
 		".. .grid....",
 		" .README....",
@@ -908,7 +911,7 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 // spy is a body that records whether it was told it has the keyboard.
 type spy struct{ focused bool }
 
-func (s *spy) Draw(grid.View)          {}
+func (s *spy) Draw(headless.Frame)     {}
 func (s *spy) Focus(has bool)          { s.focused = has }
 func (s *spy) Handle(input.Event) bool { return false }
 

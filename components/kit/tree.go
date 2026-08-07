@@ -66,7 +66,7 @@ func (t Tree[T]) Measure(across int) int {
 }
 
 // Draw paints the rows that fit.
-func (t Tree[T]) Draw(v grid.View) {
+func (t Tree[T]) Draw(v headless.Frame) {
 	if t.Of == nil {
 		return
 	}

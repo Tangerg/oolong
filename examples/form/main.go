@@ -24,7 +24,6 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/program"
@@ -115,20 +114,20 @@ func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	form.GaveUp = runtime.Quit
 	form.Focus(true)
 
-	return &screen{view: kit.Form{
+	return headless.NewRoot(&screen{view: kit.Form{
 		Of:     form,
 		Theme:  kit.Suited(runtime.Environment().Ground()),
 		Glyphs: kit.GlyphsFor(os.Getenv),
 		Title:  "New session",
 		Keys:   keys,
 		Hints:  []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel},
-	}}
+	}})
 }
 
 // screen is the form, drawn.
 type screen struct{ view kit.Form }
 
-func (s *screen) Draw(v grid.View) { s.view.Draw(v) }
+func (s *screen) Draw(v headless.Frame) { s.view.Draw(v) }
 
 func (s *screen) Handle(ev input.Event) bool { return s.view.Handle(ev) }
 

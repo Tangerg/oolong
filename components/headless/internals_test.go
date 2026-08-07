@@ -51,7 +51,7 @@ func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {
 	}
 
 	storage := transcript.blocks
-	if got := transcript.Commit(func(Sized, int) bool { return true }); got != len(ids)-1 {
+	if got := transcript.Commit(func(Block, int) bool { return true }); got != len(ids)-1 {
 		t.Fatalf("committed %d blocks, want %d", got, len(ids)-1)
 	}
 	for i := range len(ids) - 1 {
@@ -110,7 +110,7 @@ func transcriptHeap(t *testing.T, blocks int) uint64 {
 	if err != nil {
 		t.Fatalf("heap probe for %d blocks: %v\n%s", blocks, err, out)
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		if value, ok := strings.CutPrefix(line, "OOLONG_HEAP="); ok {
 			n, err := strconv.ParseUint(value, 10, 64)
 			if err != nil {
@@ -134,7 +134,7 @@ func transcriptHeapProbe(t *testing.T) {
 	for range blocks {
 		id := transcript.Append(&retainedBlock{payload: make([]byte, 64<<10)})
 		transcript.Finish(id)
-		transcript.Commit(func(Sized, int) bool { return true })
+		transcript.Commit(func(Block, int) bool { return true })
 	}
 	runtime.GC()
 	debug.FreeOSMemory()

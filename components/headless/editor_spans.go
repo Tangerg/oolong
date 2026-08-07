@@ -90,7 +90,12 @@ func (e *Editor) At(x, y, width int) (Caret, bool) {
 		return e.atLine(x), true
 	}
 	rows := e.rows(width)
-	index := e.scroll.Offset() + y
+	presented := e.presentation.Value()
+	first := 0
+	if presented.width == width {
+		first = presented.first
+	}
+	index := first + y
 	if index >= len(rows) {
 		// Below the text. The end is where a click there means, the way it does in
 		// every editor: a reader clicking past the last line means the last line.
@@ -165,7 +170,12 @@ func (e *Editor) HandleMouse(ev input.Mouse, width int) bool {
 // which is the only place a cursor can belong to the earlier side of a break.
 func (e *Editor) pastRowEnd(x, y, width int) bool {
 	rows := e.rows(width)
-	index := e.scroll.Offset() + y
+	presented := e.presentation.Value()
+	first := 0
+	if presented.width == width {
+		first = presented.first
+	}
+	index := first + y
 	if index < 0 || index >= len(rows) || e.layout.lastOfLine(index) {
 		return false
 	}

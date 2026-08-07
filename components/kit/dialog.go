@@ -36,6 +36,8 @@ type Dialog struct {
 	// nothing bound to it is not shown.
 	Keys  *keymap.Map
 	Hints []keymap.Action
+
+	content headless.Snapshot[image.Rectangle]
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
@@ -43,6 +45,14 @@ func (d *Dialog) Place(image.Point) layout.Placement { return d.Where }
 
 // Handle passes the event to the body, if the body answers input at all.
 func (d *Dialog) Handle(ev input.Event) bool {
+	if mouse, ok := ev.(input.Mouse); ok {
+		content := d.content.Value()
+		if content.Empty() || !mouse.Pos.In(content) {
+			return false
+		}
+		mouse.Pos = mouse.Pos.Sub(content.Min)
+		ev = mouse
+	}
 	if body, ok := d.Body.(headless.Interactive); ok {
 		return body.Handle(ev)
 	}
@@ -73,7 +83,8 @@ func (d *Dialog) Focus(has bool) {
 func (d *Dialog) Backdrop(v grid.View) { d.Theme.Scrim.Over(v) }
 
 // Draw paints the frame and the body.
-func (d *Dialog) Draw(v grid.View) {
+func (d *Dialog) Draw(v headless.Frame) {
+	d.content.Stage(v, image.Rectangle{})
 	if w, h := v.Size(); w <= 0 || h <= 0 {
 		return
 	}
@@ -87,9 +98,11 @@ func (d *Dialog) Draw(v grid.View) {
 		Footer:      d.footer(),
 		FooterAlign: layout.End,
 	}
-	inner := box.Draw(v)
+	_ = box.Draw(v.View)
+	inner := box.InnerRect(v.Bounds().Size())
+	d.content.Stage(v, inner)
 	if d.Body != nil {
-		d.Body.Draw(inner)
+		d.Body.Draw(v.Sub(inner))
 	}
 }
 

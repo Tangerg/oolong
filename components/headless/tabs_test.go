@@ -15,7 +15,7 @@ func TestOnePaneShowsAndTheRestWait(t *testing.T) {
 		{Title: "two", Of: second},
 	}}
 
-	if got := paint(6, 2, tabs.Draw); got[0] != "row 0." {
+	if got := paintWidget(6, 2, tabs); got[0] != "row 0." {
 		t.Fatalf("the first pane drew %q", got)
 	}
 	if !tabs.Handle(input.Key{Code: input.Right, Mods: input.Alt}) {

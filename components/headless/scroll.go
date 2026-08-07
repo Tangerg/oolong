@@ -32,6 +32,11 @@ type Scroll struct {
 	wheel input.Advance
 	// pending is how far into a multi-chord binding the keys typed so far have got.
 	pending keymap.Pending
+
+	// pendingLayout is derived during a component frame and becomes the scroll's
+	// current bounds only with the complete root frame.
+	pendingLayout scrollState
+	staged        *transaction
 }
 
 // Layout tells the scroll how much content there is and how much of it is shown.
@@ -40,12 +45,9 @@ type Scroll struct {
 // new end; a window that is not following keeps its place, clamped against content
 // that may have grown or shrunk since the last frame.
 func (s *Scroll) Layout(total, window int) {
-	s.total, s.window = max(total, 0), max(window, 0)
-	if s.following {
-		s.offset = s.max()
-		return
-	}
-	s.clamp()
+	state := s.state()
+	state.layout(total, window)
+	s.apply(state)
 }
 
 // Wheel says what the terminal's wheel reports are worth, which is not a constant:
@@ -225,3 +227,120 @@ func (s *Scroll) Rows(v grid.View, total int, row func(v grid.View, index int)) 
 		row(v.Sub(grid.Rect(0, y, width, 1)), index)
 	}
 }
+
+// Stage derives the scroll layout for a component frame.
+//
+// The returned layout is the one drawing should use. Its bounds and offset become
+// current only when the complete [Root] frame commits, so input during a nested draw
+// continues to see the previous frame. Reveal and RevealRange update this staged
+// layout rather than the committed scroll.
+func (s *Scroll) Stage(frame Frame, total, window int) ScrollLayout {
+	state := s.state()
+	if s.staged == frame.transaction {
+		state = s.pendingLayout
+	}
+	state.layout(total, window)
+	s.stageState(frame, state)
+	return ScrollLayout{scroll: s, frame: frame, state: state}
+}
+
+// ScrollLayout is the derived position of one Scroll in a component frame.
+//
+// It is a short-lived value returned by [Scroll.Stage]. Offset is used to paint the
+// frame; adjustments are staged with the same root transaction.
+type ScrollLayout struct {
+	scroll *Scroll
+	frame  Frame
+	state  scrollState
+}
+
+// Offset is the first row shown by this layout.
+func (l *ScrollLayout) Offset() int {
+	if l == nil {
+		return 0
+	}
+	return l.state.offset
+}
+
+// Reveal brings row into this staged window with the least movement.
+func (l *ScrollLayout) Reveal(row int) { l.RevealRange(row, row) }
+
+// RevealRange brings as much of [first, last] into this staged window as fits.
+func (l *ScrollLayout) RevealRange(first, last int) {
+	if l == nil || l.scroll == nil || l.state.window <= 0 {
+		return
+	}
+	if last < first {
+		first, last = last, first
+	}
+	l.state.following = false
+	switch {
+	case first < l.state.offset:
+		l.state.offset = first
+	case last >= l.state.offset+l.state.window:
+		l.state.offset = min(last-l.state.window+1, first)
+	}
+	l.state.clamp()
+	l.scroll.stageState(l.frame, l.state)
+}
+
+func (s *Scroll) stageState(frame Frame, state scrollState) {
+	if frame.transaction == nil || !frame.transaction.active {
+		panic("headless: scroll layout staged outside Root.Draw")
+	}
+	if s.staged != frame.transaction {
+		if s.staged != nil {
+			panic("headless: scroll layout staged by two roots")
+		}
+		s.staged = frame.transaction
+		frame.transaction.states = append(frame.transaction.states, s)
+	}
+	s.pendingLayout = state
+}
+
+func (s *Scroll) commit(tx *transaction) {
+	if s.staged != tx {
+		return
+	}
+	s.apply(s.pendingLayout)
+	s.pendingLayout = scrollState{}
+	s.staged = nil
+}
+
+func (s *Scroll) abort(tx *transaction) {
+	if s.staged != tx {
+		return
+	}
+	s.pendingLayout = scrollState{}
+	s.staged = nil
+}
+
+func (s *Scroll) state() scrollState {
+	return scrollState{
+		offset: s.offset, following: s.following,
+		total: s.total, window: s.window,
+	}
+}
+
+func (s *Scroll) apply(state scrollState) {
+	s.offset, s.following = state.offset, state.following
+	s.total, s.window = state.total, state.window
+}
+
+type scrollState struct {
+	offset, total, window int
+	following             bool
+}
+
+func (s *scrollState) layout(total, window int) {
+	s.total, s.window = max(total, 0), max(window, 0)
+	if s.following {
+		s.offset = s.max()
+		return
+	}
+	s.clamp()
+}
+
+func (s *scrollState) max() int { return max(s.total-s.window, 0) }
+
+func (s *scrollState) clamp() { s.offset = min(max(s.offset, 0), s.max()) }

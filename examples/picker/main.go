@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"image"
 	"os"
 	"strings"
 
@@ -30,7 +31,7 @@ func main() {
 	chosen := ""
 	err := program.Run(context.Background(), program.Config{
 		Root: func(runtime *program.Runtime) program.Component {
-			return newPicker(runtime, files(), &chosen)
+			return headless.NewRoot(newPicker(runtime, files(), &chosen))
 		},
 		Terminal: term.Options{Probe: true},
 	})
@@ -50,6 +51,7 @@ type picker struct {
 	query   kit.Composer
 	list    *headless.Filter[string]
 	chosen  *string
+	areas   headless.Snapshot[pickerAreas]
 }
 
 func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker {
@@ -73,20 +75,25 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 }
 
 // Draw stacks the query over the matches, with a count where there is room.
-func (p *picker) Draw(v grid.View) {
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
+func (p *picker) Draw(v headless.Frame) {
+	p.areas.Stage(v, pickerAreas{})
+	rects := layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(1)},
-	))
+	)
+	rows := v.Subs(rects)
+	p.areas.Stage(v, pickerAreas{query: rects[0], list: rects[1]})
 	p.query.Draw(rows[0])
 	p.list.Draw(rows[1])
 	kit.Label{
 		Text:  fmt.Sprintf("%d of %d", p.list.Matched(), len(p.list.Items)),
 		Style: p.theme.Subtle,
 		Align: layout.End,
-	}.Draw(rows[2])
+	}.Draw(rows[2].View)
 }
+
+type pickerAreas struct{ query, list image.Rectangle }
 
 // row draws one match, with the characters that answered the query picked out.
 //
@@ -133,10 +140,17 @@ func (p *picker) Handle(ev input.Event) bool {
 		}
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
-		// The list starts one row down, and a press has to arrive in the list's own
-		// coordinates or the row under the pointer is not the row it answers.
-		mouse.Pos.Y--
-		return p.list.Handle(mouse)
+		areas := p.areas.Value()
+		switch {
+		case mouse.Pos.In(areas.query):
+			mouse.Pos = mouse.Pos.Sub(areas.query.Min)
+			return p.query.Handle(mouse)
+		case mouse.Pos.In(areas.list):
+			mouse.Pos = mouse.Pos.Sub(areas.list.Min)
+			return p.list.Handle(mouse)
+		default:
+			return false
+		}
 	}
 	if p.query.Handle(ev) {
 		p.list.SetPattern(p.query.Text())

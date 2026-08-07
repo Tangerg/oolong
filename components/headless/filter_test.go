@@ -59,7 +59,7 @@ func TestTheCursorGoesToTheTopWhenThePatternChanges(t *testing.T) {
 	// third one would leave it on whatever landed there, which is how a reader picks
 	// something they did not mean.
 	f := filtered()
-	paint(30, 3, f.Draw)
+	paintWidget(30, 3, f)
 	f.Select(2)
 	f.SetPattern("o")
 	if got := f.Selected(); got != 0 {
@@ -78,7 +78,7 @@ func TestARowIsToldWhichCharactersAnsweredThePattern(t *testing.T) {
 		}
 	}
 	f.SetPattern("pty")
-	paint(30, 3, f.Draw)
+	paintWidget(30, 3, f)
 	if len(seen.At) != 3 {
 		t.Fatalf("the row was told about %v, want the three characters that matched", seen.At)
 	}

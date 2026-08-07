@@ -140,7 +140,7 @@ func (e *Editor) MoveDown() { e.moveRow(1) }
 // went in. Recomputing it each step would drag the cursor left and leave it there.
 func (e *Editor) moveRow(delta int) {
 	e.ensure()
-	width := e.layout.width
+	width := e.presentation.Value().width
 	if width <= 0 {
 		// Nothing has been drawn yet, so there are no visual rows to move through.
 		// Logical lines are the best available answer.
@@ -174,20 +174,18 @@ func (e *Editor) Measure(width int) int {
 }
 
 // Draw paints the field and places the cursor.
-func (e *Editor) Draw(v grid.View) {
+func (e *Editor) Draw(frame Frame) {
+	v := frame.View
+	e.presentation.Stage(frame, editorPresentation{})
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return
 	}
 	e.ensure()
 	if e.oneLine() {
-		e.drawLine(v)
-		return
-	}
-
-	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
-		e.placeCursor(v, 0, 0)
+		left := e.lineOffset(width)
+		e.presentation.Stage(frame, editorPresentation{width: width, left: left})
+		e.drawLine(v, left)
 		return
 	}
 
@@ -197,13 +195,16 @@ func (e *Editor) Draw(v grid.View) {
 	// The field scrolls only when it is taller than its box, and then only as far as
 	// it must to keep the cursor visible: a field that jumped to the end would lose
 	// the line the user is typing on.
-	e.scroll.Layout(len(rows), height)
-	if cursorRow < e.scroll.Offset() {
-		e.scroll.By(cursorRow - e.scroll.Offset())
-	} else if last := e.scroll.Offset() + height - 1; cursorRow > last {
-		e.scroll.By(cursorRow - last)
+	scroll := e.scroll.Stage(frame, len(rows), height)
+	scroll.Reveal(cursorRow)
+	first := scroll.Offset()
+	e.presentation.Stage(frame, editorPresentation{width: width, first: first})
+
+	if e.Empty() && e.Placeholder != "" {
+		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
+		e.placeCursor(v, 0, 0)
+		return
 	}
-	first := e.scroll.Offset()
 
 	for y := range height {
 		index := first + y

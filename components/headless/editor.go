@@ -111,9 +111,13 @@ type Editor struct {
 
 	scroll Scroll
 	layout editorLayout
-	// left is the first column shown by a field holding one line, which slides
-	// sideways rather than wrapping.
-	left int
+	// presentation is the committed wrap width and viewport origin used by pointer
+	// and vertical cursor routing.
+	presentation Snapshot[editorPresentation]
+}
+
+type editorPresentation struct {
+	width, first, left int
 }
 
 // editorState is a whole snapshot for undo.

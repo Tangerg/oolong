@@ -128,7 +128,7 @@ func (f *Filter[T]) Focused() bool { return f.list.Focused() }
 func (f *Filter[T]) Measure(int) int { return f.Matched() }
 
 // Draw paints the matches that fit.
-func (f *Filter[T]) Draw(v grid.View) {
+func (f *Filter[T]) Draw(v Frame) {
 	f.match()
 	f.list.Row = f.row
 	f.list.Draw(v)

@@ -18,6 +18,10 @@ func show(w, h int, draw func(grid.View)) {
 	}
 }
 
+func showWidget(w, h int, widget headless.Widget) {
+	show(w, h, headless.NewRoot(widget).Draw)
+}
+
 func ExampleForm() {
 	// A field does not own what it collects: these three variables do, and the form
 	// writes into them as the answers are given.
@@ -58,7 +62,7 @@ func ExampleForm() {
 	form.Handle(input.Key{Code: input.Left})  // which is yes
 	form.Handle(input.Key{Code: input.Enter}) // done
 
-	show(16, form.Measure(16), form.Draw)
+	showWidget(16, form.Measure(16), form)
 
 	// Output:
 	// collected: ada good true
@@ -75,9 +79,9 @@ func ExampleViewport() {
 	// Content is drawn at its whole height into a view that begins above the box, so
 	// the rows off the top fall away and nothing has to be told it is scrolled.
 	window := &headless.Viewport{Content: numbered(8)}
-	show(8, 3, window.Draw)
+	showWidget(8, 3, window)
 	window.Scroll().By(4)
-	show(8, 3, window.Draw)
+	showWidget(8, 3, window)
 
 	// Output:
 	// |row 0   |

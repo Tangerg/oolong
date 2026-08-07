@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"image"
+
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -40,9 +42,8 @@ type Composer struct {
 	MaxRows int
 
 	editor headless.Editor
-	// width is how wide the field was in the last frame, which is what a click has to
-	// be resolved against: a click is about a frame that has already been drawn.
-	width int
+	// field is the editor box from the last complete root frame.
+	field headless.Snapshot[image.Rectangle]
 }
 
 // DefaultComposerRows is how tall a composer grows before it starts scrolling:
@@ -78,11 +79,12 @@ func (c *Composer) Focus(has bool) { c.editor.Focus(has) }
 func (c *Composer) Handle(ev input.Event) bool {
 	c.editor.Keys = c.Keys
 	if mouse, ok := ev.(input.Mouse); ok {
-		if c.width <= 0 {
+		field := c.field.Value()
+		if field.Empty() || !mouse.Pos.In(field) {
 			return false
 		}
-		mouse.Pos.X -= c.markerWidth()
-		return c.editor.HandleMouse(mouse, c.width)
+		mouse.Pos = mouse.Pos.Sub(field.Min)
+		return c.editor.HandleMouse(mouse, field.Dx())
 	}
 	return c.editor.Handle(ev)
 }
@@ -95,14 +97,14 @@ func (c *Composer) Measure(width int) int {
 }
 
 // Draw paints the marker, the field and the hints.
-func (c *Composer) Draw(v grid.View) {
+func (c *Composer) Draw(v headless.Frame) {
+	c.field.Stage(v, image.Rectangle{})
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return
 	}
 	c.editor.MaxRows = c.rows()
 	c.editor.Keys = c.Keys
-	c.width = max(width-c.markerWidth(), 0)
 	// No glyph set: the marks beside a choice are the only part of a look that comes
 	// from one, and an editor has no choices.
 	c.editor.Look = c.Theme.Look(Glyphs{})
@@ -114,18 +116,20 @@ func (c *Composer) Draw(v grid.View) {
 	))
 	c.drawField(rows[0])
 	if c.hintRows() > 0 {
-		Help{Theme: c.Theme, Keys: c.Keys, Show: c.Hints}.Draw(rows[1])
+		Help{Theme: c.Theme, Keys: c.Keys, Show: c.Hints}.Draw(rows[1].View)
 	}
 }
 
 // drawField puts the marker on the first row and the field beside it.
-func (c *Composer) drawField(v grid.View) {
+func (c *Composer) drawField(v headless.Frame) {
 	marker := c.markerWidth()
 	if marker > 0 {
 		v.Text(0, 0, c.Prompt, c.Theme.Accent)
 	}
 	width, height := v.Size()
-	c.editor.Draw(v.Sub(grid.Rect(marker, 0, max(width-marker, 0), height)))
+	field := grid.Rect(marker, 0, max(width-marker, 0), height)
+	c.field.Stage(v, field)
+	c.editor.Draw(v.Sub(field))
 }
 
 func (c *Composer) markerWidth() int { return text.Width(c.Prompt) }

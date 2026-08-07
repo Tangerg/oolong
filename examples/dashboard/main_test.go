@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/examples/internal/fake"
@@ -16,7 +17,9 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Root: func(runtime *program.Runtime) program.Component { return newDashboard(runtime) },
+			Root: func(runtime *program.Runtime) program.Component {
+				return headless.NewRoot(newDashboard(runtime))
+			},
 		})
 	}()
 

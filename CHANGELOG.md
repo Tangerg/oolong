@@ -20,6 +20,15 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Live components now commit presentation state atomically.** `headless.Widget`
+  draws into a transactional `Frame`, and `headless.Root` is the program boundary
+  that commits every nested `Snapshot` only after a complete logical draw. Containers,
+  stacks, fields, lists, editors, viewports and dressed controls route input against
+  that committed frame; scroll bounds and transcript reflow use the same transaction.
+  Finished drawable content is now the separate passive `headless.Block` contract and
+  enters a live tree explicitly through `headless.Static`. `Paragraph.LinkAt` takes a
+  width and computes its answer instead of publishing hidden hit geometry from Draw.
+
 - **Host input is now one causal lifecycle.** `program.Host.Input` returns an
   `EventSource` whose event channel is followed by its terminal `Err` result. The old
   bare `Host.Events` contract could not distinguish clean EOF from a known terminal,

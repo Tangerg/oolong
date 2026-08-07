@@ -247,7 +247,7 @@ func (t *Tree[T]) Measure(int) int { return len(t.rows()) }
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
 
 // Draw paints the rows that fit.
-func (t *Tree[T]) Draw(v grid.View) {
+func (t *Tree[T]) Draw(v Frame) {
 	t.rows()
 	t.list.Row = t.row
 	t.list.Draw(v)

@@ -33,6 +33,10 @@ func show(w, h int, draw func(grid.View)) {
 	}
 }
 
+func showWidget(w, h int, widget headless.Widget) {
+	show(w, h, headless.NewRoot(widget).Draw)
+}
+
 func ExampleComposer() {
 	// One table for what the field does and what the program does. The hint row reads
 	// the keystroke back out of it rather than being told it a second time.
@@ -45,7 +49,7 @@ func ExampleComposer() {
 		Keys:        keys,
 		Hints:       []keymap.Action{"send"},
 	}
-	show(28, c.Measure(28), c.Draw)
+	showWidget(28, c.Measure(28), &c)
 
 	// Output:
 	// |› Ask something             |
@@ -59,7 +63,7 @@ func ExampleComposer_typing() {
 		c.Handle(input.Key{Code: input.Character, Rune: r})
 	}
 	fmt.Println(c.Text())
-	show(12, 1, c.Draw)
+	showWidget(12, 1, &c)
 
 	// Output:
 	// hello
@@ -109,7 +113,7 @@ func ExampleForm() {
 		Keys:   keys,
 		Hints:  []keymap.Action{headless.Submit},
 	}
-	show(22, view.Measure(22), view.Draw)
+	showWidget(22, view.Measure(22), &view)
 
 	// Output:
 	// |New session           |

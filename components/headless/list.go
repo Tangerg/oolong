@@ -38,9 +38,9 @@ type List[T any] struct {
 	selected int
 	blurred  bool
 	scroll   Scroll
-	// window is the last drawn height, which is what a page-sized move needs and
-	// what only drawing can know.
-	window int
+	// presentation is the committed window and first visible row. Both are routing
+	// geometry: a page and a press must refer to the same complete frame.
+	presentation Snapshot[listPresentation]
 	// pending is how far into a multi-chord binding the keys typed so far have got.
 	pending keymap.Pending
 }
@@ -116,7 +116,7 @@ func (l *List[T]) Handle(ev input.Event) bool {
 // Do runs one of the list's actions by name, reporting whether it was one this list
 // knows. See [Doer].
 func (l *List[T]) Do(action keymap.Action) bool {
-	page := max(l.window-1, 1)
+	page := max(l.presentation.Value().window-1, 1)
 	switch action {
 	case SelectPrev:
 		l.Move(-1)
@@ -167,11 +167,12 @@ func (l *List[T]) mouse(ev input.Mouse) bool {
 // Against the window the last frame drew, because a press arrives between two frames
 // and is about the one on screen.
 func (l *List[T]) reach(y int) bool {
-	if l.window <= 0 || y < 0 || y >= l.window {
+	presented := l.presentation.Value()
+	if presented.window <= 0 || y < 0 || y >= presented.window {
 		return false
 	}
-	at := l.scroll.Offset() + y
-	if at >= len(l.Items) {
+	at := presented.first + y
+	if at >= presented.total || at >= len(l.Items) {
 		return false
 	}
 	l.Select(at)
@@ -208,33 +209,47 @@ func (l *List[T]) Focused() bool { return !l.blurred }
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }
 
 // Draw paints the visible items.
-func (l *List[T]) Draw(v grid.View) {
-	_, height := v.Size()
-	l.window = height
-	l.selected = l.clampIndex(l.selected)
-	l.reveal()
+func (l *List[T]) Draw(v Frame) {
+	width, height := v.Size()
+	total := len(l.Items)
+	selected := l.Selected()
+	scroll := l.scroll.Stage(v, total, height)
+	if selected >= 0 {
+		scroll.Reveal(selected)
+	}
+	first := scroll.Offset()
+	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total})
 	if l.Row == nil {
 		return
 	}
-	selected := l.Selected()
-	l.scroll.Rows(v, len(l.Items), func(row grid.View, index int) {
+	for y := range height {
+		index := first + y
+		if index >= total {
+			break
+		}
+		row := v.Sub(grid.Rect(0, y, width, 1)).View
 		l.Row(row, index, l.Items[index], index == selected)
-	})
+	}
 }
 
 // reveal scrolls the least amount that brings the selection into the window.
 func (l *List[T]) reveal() {
-	if l.window <= 0 || len(l.Items) == 0 {
+	window := l.presentation.Value().window
+	if window <= 0 || len(l.Items) == 0 {
 		return
 	}
-	l.scroll.Layout(len(l.Items), l.window)
+	l.scroll.Layout(len(l.Items), window)
 	first := l.scroll.Offset()
-	switch last := first + l.window - 1; {
+	switch last := first + window - 1; {
 	case l.selected < first:
 		l.scroll.By(l.selected - first)
 	case l.selected > last:
 		l.scroll.By(l.selected - last)
 	}
+}
+
+type listPresentation struct {
+	window, first, total int
 }
 
 func (l *List[T]) clampIndex(i int) int {

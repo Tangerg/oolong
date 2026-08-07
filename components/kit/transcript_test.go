@@ -51,12 +51,16 @@ func styles(v grid.View, y, width int) []grid.Style {
 	return out
 }
 
+func drawTranscript(view grid.View, transcript *kit.Transcript) {
+	headless.NewRoot(transcript).Draw(view)
+}
+
 func TestTranscriptDrawsTheWindow(t *testing.T) {
 	tr := session(t, 20, []string{"one", "two", "three", "four"})
 	var sc headless.Scroll
 	s := grid.NewSurface(20, 2)
 
-	kit.Transcript{Content: tr, Scroll: &sc}.Draw(s.View())
+	drawTranscript(s.View(), &kit.Transcript{Content: tr, Scroll: &sc})
 	if got := rowOf(s.View(), 0, 20); !strings.HasPrefix(got, "one") {
 		t.Errorf("the first row is %q", got)
 	}
@@ -75,7 +79,7 @@ func TestSelectionIsLaidOverWhatWasDrawn(t *testing.T) {
 
 	th := kit.Dark()
 	s := grid.NewSurface(20, 1)
-	kit.Transcript{Content: tr, Selection: &sel, Theme: th}.Draw(s.View())
+	drawTranscript(s.View(), &kit.Transcript{Content: tr, Selection: &sel, Theme: th})
 
 	got := styles(s.View(), 0, 20)
 	for x := range 5 {
@@ -97,7 +101,7 @@ func TestMatchesArePickedOutAndTheCurrentOneDiffers(t *testing.T) {
 	th := kit.Dark()
 	s := grid.NewSurface(20, 1)
 
-	kit.Transcript{
+	drawTranscript(s.View(), &kit.Transcript{
 		Content: tr,
 		Matches: []headless.Match{
 			{Row: 0, Spans: []headless.Span{{Col: 0, Width: 3}}},
@@ -105,7 +109,7 @@ func TestMatchesArePickedOutAndTheCurrentOneDiffers(t *testing.T) {
 		},
 		Current: 1,
 		Theme:   th,
-	}.Draw(s.View())
+	})
 
 	got := styles(s.View(), 0, 20)
 	if got[0] != th.Selection {
@@ -134,7 +138,7 @@ func TestAPinnedHeaderTakesRoomFromTheBody(t *testing.T) {
 	// Scrolled two rows down, so the prompt is off the top.
 	sc.Layout(tr.Height(), 4)
 	sc.By(2)
-	view.Draw(s.View())
+	drawTranscript(s.View(), &view)
 
 	if got := rowOf(s.View(), 0, 20); !strings.HasPrefix(got, "prompt") {
 		t.Errorf("the pinned row is %q, want the prompt", got)
@@ -171,7 +175,7 @@ func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
 		})
 		sc.Layout(tr.Height(), 4)
 		sc.By(scrollBy)
-		kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky}.Draw(s.View())
+		drawTranscript(s.View(), &kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky})
 		return cellAt(s, 0, 0).Style
 	}
 
@@ -197,8 +201,8 @@ func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
 
 func TestTranscriptDrawsNothingWithoutContent(t *testing.T) {
 	s := grid.NewSurface(10, 2)
-	kit.Transcript{}.Draw(s.View())
-	kit.Transcript{Content: session(t, 10, []string{"x"})}.Draw(grid.View{})
+	drawTranscript(s.View(), &kit.Transcript{})
+	drawTranscript(grid.View{}, &kit.Transcript{Content: session(t, 10, []string{"x"})})
 	if got := rowOf(s.View(), 0, 10); strings.TrimSpace(got) != "" {
 		t.Errorf("drew %q", got)
 	}
@@ -227,7 +231,7 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 	sticky := &headless.Sticky{Blocks: []headless.BlockID{0}, Gap: 1}
 	s := grid.NewSurface(20, 4)
 
-	kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}.Draw(s.View())
+	drawTranscript(s.View(), &kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}})
 
 	// Two rows of body, and the last of them has to be the last row of content.
 	if got := rowOf(s.View(), 3, 20); !strings.HasPrefix(got, "a6") {
@@ -294,7 +298,7 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 	}
 
 	surface := grid.NewSurface(20, 2)
-	view.Draw(surface.View())
+	drawTranscript(surface.View(), &view)
 	if got := rowOf(surface.View(), 0, 20); !strings.HasPrefix(got, "live") {
 		t.Errorf("first live row is %q, want live", got)
 	}
@@ -303,10 +307,10 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 func TestCommittingNothingWhenThereIsNothingToCommitTo(t *testing.T) {
 	tr := session(t, 20, []string{"one"})
 	tr.Finish(0)
-	if got := (kit.Transcript{Content: tr}).Commit(nil); got != 0 {
+	if got := (&kit.Transcript{Content: tr}).Commit(nil); got != 0 {
 		t.Errorf("committed %d to nobody", got)
 	}
-	if got := (kit.Transcript{}).Commit(&recordingPrinter{}); got != 0 {
+	if got := (&kit.Transcript{}).Commit(&recordingPrinter{}); got != 0 {
 		t.Errorf("a view of nothing committed %d", got)
 	}
 }
@@ -332,7 +336,7 @@ func TestSteppingToAMatchScrollsToIt(t *testing.T) {
 		},
 		Current: 1,
 	}
-	view.Draw(s.View())
+	drawTranscript(s.View(), &view)
 
 	if got := sc.Offset(); got > 40 || got+5 <= 40 {
 		t.Errorf("the window starts at %d, which does not show row 40", got)
@@ -350,13 +354,13 @@ func TestSteppingToAMatchShowsTheWholeOfIt(t *testing.T) {
 	var sc headless.Scroll
 	s := grid.NewSurface(20, 5)
 
-	kit.Transcript{
+	drawTranscript(s.View(), &kit.Transcript{
 		Content: tr,
 		Scroll:  &sc,
 		Matches: []headless.Match{{Row: 30, Spans: []headless.Span{
 			{Col: 0, Width: 4}, {Col: 0, Width: 4}, {Col: 0, Width: 4},
 		}}},
-	}.Draw(s.View())
+	})
 
 	if got := sc.Offset(); got > 30 || got+5 < 33 {
 		t.Errorf("the window starts at %d, which does not show rows 30 to 32", got)
@@ -376,7 +380,7 @@ func TestNoCurrentMatchScrollsNowhere(t *testing.T) {
 		// A match with no columns to show is not somewhere to go.
 		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}},
 	} {
-		view.Draw(s.View())
+		drawTranscript(s.View(), &view)
 		if !sc.AtBottom() {
 			t.Errorf("%+v moved the view off the end", view.Matches)
 			sc.ToBottom()
@@ -397,6 +401,7 @@ func TestSelectingWithTheMouse(t *testing.T) {
 	var sel headless.Selection
 	view := kit.Transcript{Content: tr, Selection: &sel}
 	base := time.Unix(0, 0)
+	drawTranscript(grid.NewSurface(30, 2).View(), &view)
 
 	// A drag.
 	view.Handle(press(4, base))
@@ -430,9 +435,9 @@ func TestSelectingAccountsForTheScroll(t *testing.T) {
 	var sel headless.Selection
 	s := grid.NewSurface(30, 2)
 	view := kit.Transcript{Content: tr, Scroll: &sc, Selection: &sel}
-	view.Draw(s.View())
+	drawTranscript(s.View(), &view)
 	sc.By(2)
-	view.Draw(s.View())
+	drawTranscript(s.View(), &view)
 
 	// The top row on screen is now "third".
 	view.Handle(press(0, time.Unix(0, 0)))
@@ -476,6 +481,7 @@ func TestADoubleClickInTheMarginStartsASelection(t *testing.T) {
 	var sel headless.Selection
 	view := kit.Transcript{Content: tr, Selection: &sel}
 	base := time.Unix(0, 0)
+	drawTranscript(grid.NewSurface(30, 1).View(), &view)
 
 	view.Handle(press(20, base))
 	view.Handle(press(20, base.Add(80*time.Millisecond)))

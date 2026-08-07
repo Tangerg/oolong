@@ -29,7 +29,9 @@ func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
-			Root: func(runtime *program.Runtime) program.Component { return newBrowser(runtime, tree()) },
+			Root: func(runtime *program.Runtime) program.Component {
+				return headless.NewRoot(newBrowser(runtime, tree()))
+			},
 		})
 	}()
 

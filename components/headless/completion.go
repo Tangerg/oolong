@@ -281,7 +281,7 @@ func (c *Completion) Width() int {
 const detailGap = 2
 
 // Draw renders the visible candidates.
-func (c *Completion) Draw(v grid.View) {
+func (c *Completion) Draw(v Frame) {
 	if !c.Open() {
 		return
 	}

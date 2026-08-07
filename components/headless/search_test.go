@@ -235,7 +235,7 @@ func TestSearchReportsRowsInTheLiveCoordinateSpaceAfterCommit(t *testing.T) {
 	first := tr.Append(&lines{rows: plainRows("finished")})
 	tr.Append(&lines{rows: plainRows("find the needle")})
 	tr.Finish(first)
-	tr.Commit(func(headless.Sized, int) bool { return true })
+	tr.Commit(func(headless.Block, int) bool { return true })
 
 	s := searching(t)
 	s.Submit(&tr, "needle", false)

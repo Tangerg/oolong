@@ -34,7 +34,7 @@ func TestASelectionCanBeSeen(t *testing.T) {
 	}
 
 	s := grid.NewSurface(20, 2)
-	e.Draw(s.View())
+	headless.NewRoot(e).Draw(s.View())
 
 	got := selected(s.View(), 20, 2, mark)
 	if len(got) != 5 {
@@ -53,7 +53,7 @@ func TestNoSelectionMarksNothing(t *testing.T) {
 	e.Look.Selection = mark
 
 	s := grid.NewSurface(20, 2)
-	e.Draw(s.View())
+	headless.NewRoot(e).Draw(s.View())
 	if got := selected(s.View(), 20, 2, mark); len(got) != 0 {
 		t.Errorf("%v is marked with nothing selected", got)
 	}
@@ -64,7 +64,7 @@ func TestAFieldWithoutASelectionStyleDrawsNoSelection(t *testing.T) {
 	e := editorWith("hello world")
 	e.SelectAll()
 	s := grid.NewSurface(20, 2)
-	e.Draw(s.View())
+	headless.NewRoot(e).Draw(s.View())
 	if got := selected(s.View(), 20, 2, grid.Style{Attr: grid.Reverse}); len(got) != 0 {
 		t.Errorf("%v is marked without being asked", got)
 	}
@@ -164,7 +164,7 @@ func TestTheSelectionAndTheCursorAgree(t *testing.T) {
 	// through one: that is the object that carries it to the terminal.
 	screen := grid.NewScreen(10, 6)
 	frame := screen.Frame()
-	e.Draw(frame)
+	headless.NewRoot(e).Draw(frame)
 
 	// The cursor is where the selection ends, so the cell it sits on must be the one
 	// after the last marked cell on its row.
@@ -317,7 +317,7 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 		for x := range width {
 			e.HandleMouse(click(x, y), width)
 			frame := screen.Frame()
-			e.Draw(frame)
+			headless.NewRoot(e).Draw(frame)
 			cursor := screen.Cursor()
 			if !cursor.Visible {
 				continue
@@ -396,7 +396,7 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 	screen := grid.NewScreen(width, 6)
 
 	e.HandleMouse(click(11, 0), width)
-	e.Draw(screen.Frame())
+	headless.NewRoot(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 0 {
 		t.Errorf("the caret is on row %d, want the row that was clicked", got.Pos.Y)
 	}
@@ -409,7 +409,7 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 	for range len("the quick ") {
 		e.Handle(input.Key{Code: input.Right})
 	}
-	e.Draw(screen.Frame())
+	headless.NewRoot(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 1 {
 		t.Errorf("a caret that arrived by moving is on row %d, want the next row", got.Pos.Y)
 	}
@@ -423,7 +423,7 @@ func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
 	screen := grid.NewScreen(width, 6)
 
 	e.HandleMouse(click(11, 0), width)
-	e.Draw(screen.Frame())
+	headless.NewRoot(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 0 {
 		t.Fatalf("the click did not put the caret on row 0")
 	}
@@ -432,7 +432,7 @@ func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
 	// about this cursor, and a movement is where that is forgotten.
 	e.Handle(input.Key{Code: input.Right})
 	e.Handle(input.Key{Code: input.Left})
-	e.Draw(screen.Frame())
+	headless.NewRoot(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 1 {
 		t.Errorf("the caret is on row %d after moving away and back, want the next row", got.Pos.Y)
 	}

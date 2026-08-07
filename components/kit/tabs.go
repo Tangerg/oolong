@@ -32,10 +32,12 @@ type Tabs struct {
 	// Rule draws a line under the strip, which is what makes a strip of names read as
 	// tabs rather than as a row of words.
 	Rule bool
+
+	presentation headless.Snapshot[tabsPresentation]
 }
 
 // Measure is the strip, the rule, and whatever the pane showing asks for.
-func (t Tabs) Measure(across int) int {
+func (t *Tabs) Measure(across int) int {
 	if t.Of == nil {
 		return 0
 	}
@@ -43,7 +45,8 @@ func (t Tabs) Measure(across int) int {
 }
 
 // Draw paints the strip, the rule under it, and the pane in what is left.
-func (t Tabs) Draw(v grid.View) {
+func (t *Tabs) Draw(v headless.Frame) {
+	t.presentation.Stage(v, tabsPresentation{})
 	if t.Of == nil {
 		return
 	}
@@ -51,12 +54,20 @@ func (t Tabs) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	views := v.Subs(layout.Down.Rects(v.Bounds().Size(),
+	rects := layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Fixed(t.rows() - 1)},
 		layout.Slot{Size: layout.Flex(1)},
-	))
-	t.strip(views[0])
+	)
+	views := v.Subs(rects)
+	presented := tabsPresentation{
+		of:    t.Of,
+		spans: t.boxes(),
+		strip: image.Rect(0, 0, width, t.rows()),
+		body:  rects[2],
+	}
+	t.presentation.Stage(v, presented)
+	t.strip(views[0].View, presented)
 	if t.Rule && t.Glyphs.Horizontal != "" {
 		for x := range width {
 			views[1].Text(x, 0, t.Glyphs.Horizontal, t.Theme.Border)
@@ -73,31 +84,35 @@ func (t Tabs) Draw(v grid.View) {
 // a press was two rows further down than it was is a pane that answers the wrong
 // click, and it is the sort of mistake that only shows up as "the second row selects
 // the first".
-func (t Tabs) Handle(ev input.Event) bool {
-	if t.Of == nil {
+func (t *Tabs) Handle(ev input.Event) bool {
+	presented := t.presentation.Value()
+	if presented.of == nil {
 		return false
 	}
 	mouse, ok := ev.(input.Mouse)
 	if !ok {
-		return t.Of.Handle(ev)
+		return presented.of.Handle(ev)
 	}
-	if mouse.Pos.Y < t.rows() {
+	if mouse.Pos.In(presented.strip) {
 		if mouse.Action != input.MouseDown || mouse.Button != input.ButtonLeft {
 			return false
 		}
-		if at, on := t.At(mouse.Pos.X); on {
-			t.Of.Select(at)
+		if at, on := spanAt(presented.spans, mouse.Pos.X); on {
+			presented.of.Select(at)
 			return true
 		}
 		return false
 	}
-	mouse.Pos = mouse.Pos.Sub(image.Pt(0, t.rows()))
-	return t.Of.Handle(mouse)
+	if !mouse.Pos.In(presented.body) {
+		return false
+	}
+	mouse.Pos = mouse.Pos.Sub(presented.body.Min)
+	return presented.of.Handle(mouse)
 }
 
 // Focus passes the keyboard to the panes — see [headless.Tabs.Focus] — so that a
 // dressed strip is a widget a container can hold like any other.
-func (t Tabs) Focus(has bool) {
+func (t *Tabs) Focus(has bool) {
 	if t.Of != nil {
 		t.Of.Focus(has)
 	}
@@ -105,24 +120,19 @@ func (t Tabs) Focus(has bool) {
 
 // At is which tab a column of the strip belongs to, and whether it belongs to one:
 // the room between two names is in neither.
-func (t Tabs) At(x int) (int, bool) {
-	for i, box := range t.boxes() {
-		if x >= box.from && x < box.to {
-			return i, true
-		}
-	}
-	return 0, false
+func (t *Tabs) At(x int) (int, bool) {
+	return spanAt(t.presentation.Value().spans, x)
 }
 
 // strip writes the names, the one showing in the accent and the rest muted.
-func (t Tabs) strip(v grid.View) {
-	selected := t.Of.Selected()
-	for i, box := range t.boxes() {
+func (t *Tabs) strip(v grid.View, presented tabsPresentation) {
+	selected := presented.of.Selected()
+	for i, box := range presented.spans {
 		style := t.Theme.Muted
 		if i == selected {
 			style = t.Theme.Accent
 		}
-		Label{Text: t.Of.Items[i].Title, Style: style, Ellipsis: t.Glyphs.Ellipsis}.
+		Label{Text: presented.of.Items[i].Title, Style: style, Ellipsis: t.Glyphs.Ellipsis}.
 			Draw(v.Sub(grid.Rect(box.from, 0, box.to-box.from, 1)))
 	}
 }
@@ -132,7 +142,7 @@ type span struct{ from, to int }
 
 // boxes is where each name goes, which the strip and a press both need — and need
 // to agree about, which is why neither works it out for itself.
-func (t Tabs) boxes() []span {
+func (t *Tabs) boxes() []span {
 	if t.Of == nil {
 		return nil
 	}
@@ -146,8 +156,23 @@ func (t Tabs) boxes() []span {
 	return out
 }
 
+func spanAt(spans []span, x int) (int, bool) {
+	for i, box := range spans {
+		if x >= box.from && x < box.to {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+type tabsPresentation struct {
+	of          *headless.Tabs
+	spans       []span
+	strip, body image.Rectangle
+}
+
 // rows is how tall the strip is, the rule included.
-func (t Tabs) rows() int {
+func (t *Tabs) rows() int {
 	if t.Rule && t.Glyphs.Horizontal != "" {
 		return 2
 	}

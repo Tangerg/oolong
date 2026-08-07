@@ -103,10 +103,10 @@ type Stack struct {
 	KeepOnClickOutside bool
 
 	layers []Modal
-	// areas is where each layer was last drawn, in the coordinates of the view the
-	// stack was drawn into. A hit test happens between frames, so it has to ask
-	// about the frame that is on screen rather than the one being built.
-	areas []image.Rectangle
+	// presentation is the base and layers of the last complete root frame. Pairing
+	// identity with geometry keeps input on what is visible if the semantic stack is
+	// changed while another frame is being prepared.
+	presentation Snapshot[stackPresentation]
 
 	// holder is whatever was last told it has the keyboard, and settled says
 	// anything has been told at all. Until then every one of them believes it does —
@@ -126,7 +126,6 @@ func (s *Stack) Push(m Modal) {
 		return
 	}
 	s.layers = append(s.layers, m)
-	s.areas = append(s.areas, image.Rectangle{})
 	s.settle()
 }
 
@@ -139,7 +138,6 @@ func (s *Stack) Pop() bool {
 	}
 	top := s.layers[n-1]
 	s.layers = s.layers[:n-1]
-	s.areas = s.areas[:n-1]
 	s.settle()
 	if closer, ok := top.(Closer); ok {
 		closer.Closed()
@@ -170,10 +168,11 @@ func (s *Stack) Empty() bool { return len(s.layers) == 0 }
 
 // Area is where the top layer was last drawn, and whether there is one.
 func (s *Stack) Area() (image.Rectangle, bool) {
-	if len(s.areas) == 0 {
+	presented := s.presentation.Value()
+	if len(presented.layers) == 0 {
 		return image.Rectangle{}, false
 	}
-	return s.areas[len(s.areas)-1], true
+	return presented.layers[len(presented.layers)-1].area, true
 }
 
 // Handle gives the event to the top layer, and reports whether the stack dealt
@@ -184,34 +183,36 @@ func (s *Stack) Area() (image.Rectangle, bool) {
 // key, because a key reaching what a modal is covering is a keystroke going
 // somewhere the user cannot see.
 func (s *Stack) Handle(ev input.Event) bool {
-	s.settle()
-	top := s.Top()
-	if top == nil {
-		if handler, ok := s.Base.(Interactive); ok {
+	presented := s.presentation.Value()
+	if len(presented.layers) == 0 {
+		if handler, ok := presented.base.(Interactive); ok {
 			return handler.Handle(ev)
 		}
 		return false
 	}
-	area, _ := s.Area()
+	top := presented.layers[len(presented.layers)-1]
+	area := top.area
 
 	if mouse, ok := ev.(input.Mouse); ok {
 		if !mouse.Pos.In(area) {
-			return s.outside(mouse)
+			return s.outside(mouse, top.layer)
 		}
 		// The layer is drawn into a view whose origin is its own, so it reasons in
 		// its own coordinates and the position has to arrive in them too.
 		local := mouse
 		local.Pos = mouse.Pos.Sub(area.Min)
-		top.Handle(local)
+		top.layer.Handle(local)
 		return true
 	}
 
-	if top.Handle(ev) {
+	if top.layer.Handle(ev) {
 		return true
 	}
 	if key, ok := ev.(input.Key); ok {
 		if action, mine := s.keys().Lookup(key, &s.pending); mine && action != "" {
-			s.Do(action)
+			if action == Close && !sticky(top.layer) {
+				s.dismiss(top.layer)
+			}
 		}
 	}
 	// Consumed either way: what is underneath is covered, and a key that fell
@@ -232,9 +233,9 @@ func (s *Stack) Do(action keymap.Action) bool {
 }
 
 // outside deals with a mouse event beyond the top layer.
-func (s *Stack) outside(mouse input.Mouse) bool {
-	if mouse.Action == input.MouseDown && !s.KeepOnClickOutside && !sticky(s.Top()) {
-		s.Pop()
+func (s *Stack) outside(mouse input.Mouse, top Modal) bool {
+	if mouse.Action == input.MouseDown && !s.KeepOnClickOutside && !sticky(top) {
+		s.dismiss(top)
 		return true
 	}
 	// A wheel or a move outside the layer belongs to whatever is under it: a modal
@@ -242,22 +243,46 @@ func (s *Stack) outside(mouse input.Mouse) bool {
 	return mouse.Action == input.MouseUp
 }
 
+// dismiss removes layer only while it is still the semantic top. An event routed
+// against an older presented frame must never close a newer layer it did not show.
+func (s *Stack) dismiss(layer Modal) {
+	if layer == nil || s.Top() != layer {
+		return
+	}
+	s.Pop()
+}
+
 // Draw paints the interface and then the layers from the bottom up, each into the
 // space it asked for, and records where they went.
-func (s *Stack) Draw(v grid.View) {
-	s.settle()
-	if s.Base != nil {
-		s.Base.Draw(v)
-	}
+func (s *Stack) Draw(v Frame) {
+	base := s.Base
+	layers := append([]Modal(nil), s.layers...)
 	space := v.Bounds().Size()
-	for i, m := range s.layers {
-		if backdrop, ok := m.(Backdrop); ok {
-			backdrop.Backdrop(v)
-		}
-		area := m.Place(space).In(space)
-		s.areas[i] = area
-		m.Draw(v.Sub(area))
+	presented := stackPresentation{base: base, layers: make([]layerPlacement, len(layers))}
+	for i, layer := range layers {
+		presented.layers[i] = layerPlacement{layer: layer, area: layer.Place(space).In(space)}
 	}
+	s.presentation.Stage(v, presented)
+
+	if base != nil {
+		base.Draw(v)
+	}
+	for _, placed := range presented.layers {
+		if backdrop, ok := placed.layer.(Backdrop); ok {
+			backdrop.Backdrop(v.View)
+		}
+		placed.layer.Draw(v.Sub(placed.area))
+	}
+}
+
+type stackPresentation struct {
+	base   Widget
+	layers []layerPlacement
+}
+
+type layerPlacement struct {
+	layer Modal
+	area  image.Rectangle
 }
 
 // Focus takes the keyboard for the whole stack, or gives it up, and passes the news

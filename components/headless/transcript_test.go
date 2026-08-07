@@ -602,7 +602,7 @@ type printer struct {
 	refuse bool
 }
 
-func (p *printer) print(b headless.Sized, rows int) bool {
+func (p *printer) print(b headless.Block, rows int) bool {
 	if p.refuse {
 		return false
 	}

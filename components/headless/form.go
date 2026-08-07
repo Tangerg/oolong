@@ -146,11 +146,9 @@ type field struct {
 	// an answer nobody has given yet is how a form greets somebody with three errors.
 	held    bool
 	blurred bool
-	// top is how many rows the label took in the last frame, and inner the box the
-	// field itself was drawn in. A press arrives between two frames and has to be
-	// answered against the one on screen.
-	top   int
-	inner image.Point
+	// presentation is the label offset and inner size from the last complete root
+	// frame. Field drawing stages it; pointer handling never observes a partial tree.
+	presentation Snapshot[fieldPresentation]
 }
 
 // Error is what checking the answer last found.
@@ -173,9 +171,10 @@ func (f *field) rows(label string) int {
 
 // frame draws the label and the error, and returns the room left in between for the
 // field itself.
-func (f *field) frame(v grid.View, label string) grid.View {
+func (f *field) frame(v Frame, label string) Frame {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
+		f.presentation.Stage(v, fieldPresentation{})
 		return v.Sub(grid.Rect(0, 0, 0, 0))
 	}
 	top, bottom := 0, 0
@@ -188,8 +187,8 @@ func (f *field) frame(v grid.View, label string) grid.View {
 		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, "…"), f.look.Danger)
 	}
 	inner := v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
-	f.top = top
-	f.inner.X, f.inner.Y = inner.Size()
+	innerW, innerH := inner.Size()
+	f.presentation.Stage(v, fieldPresentation{top: top, inner: image.Pt(innerW, innerH)})
 	return inner
 }
 
@@ -201,12 +200,18 @@ func (f *field) frame(v grid.View, label string) grid.View {
 // container does for its children and for the same reason: a widget reasons in its own
 // coordinates, and a position that arrived in anybody else's is one it cannot use.
 func (f *field) within(ev input.Mouse) (input.Mouse, bool) {
-	if f.inner.Y <= 0 {
+	presented := f.presentation.Value()
+	if presented.inner.Y <= 0 {
 		// Nothing has been drawn, so there is no frame for the press to be about.
 		return ev, false
 	}
-	ev.Pos.Y -= f.top
-	return ev, ev.Pos.Y >= 0 && ev.Pos.Y < f.inner.Y
+	ev.Pos.Y -= presented.top
+	return ev, ev.Pos.Y >= 0 && ev.Pos.Y < presented.inner.Y
+}
+
+type fieldPresentation struct {
+	top   int
+	inner image.Point
 }
 
 // check records what is wrong with an answer and reports it.
@@ -319,7 +324,7 @@ func (f *Form) Measure(across int) int {
 }
 
 // Draw dresses the fields and lays them out down the region.
-func (f *Form) Draw(v grid.View) {
+func (f *Form) Draw(v Frame) {
 	f.arrange()
 	f.body.Draw(v)
 }

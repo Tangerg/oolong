@@ -25,16 +25,14 @@ func cellAt(r cellReader, x, y int) grid.Cell {
 	return cell
 }
 
-// Anything interactive here runs as a program's root without an adapter. The two
-// interfaces are declared separately so the loop does not depend on the widgets;
-// that they stay the same method set is a promise, and this is where it is kept.
+// A component tree reaches program through its headless root. The two interfaces
+// stay declared by their consumers; Root is the narrow composition boundary that
+// owns presentation commits without making either package depend on the other.
 //
 // A test may reach across rings where production code may not, which is the whole
 // reason this assertion can live beside the interface it is about.
 var (
-	_ program.Component    = (*headless.Editor)(nil)
-	_ program.Component    = (*headless.List[string])(nil)
-	_ program.Component    = (*headless.Completion)(nil)
+	_ program.Component    = (*headless.Root)(nil)
 	_ headless.Interactive = (*headless.Editor)(nil)
 )
 
@@ -64,6 +62,12 @@ func paint(w, h int, draw func(grid.View)) []string {
 		rows = append(rows, b.String())
 	}
 	return rows
+}
+
+// paintWidget draws one complete logical component frame through its composition
+// root, so routing snapshots are committed exactly as they are in a program.
+func paintWidget(w, h int, widget headless.Widget) []string {
+	return paint(w, h, headless.NewRoot(widget).Draw)
 }
 
 func equalRows(t *testing.T, got, want []string) {
@@ -110,7 +114,7 @@ func altKey(r rune) input.Event {
 // is the same question a caller asks and the same answer they get.
 func cursorAt(e *headless.Editor, w, h int) (int, int) {
 	screen := grid.NewScreen(w, h)
-	e.Draw(screen.Frame())
+	headless.NewRoot(e).Draw(screen.Frame())
 	at := screen.Cursor()
 	return at.Pos.Y, at.Pos.X
 }
@@ -406,7 +410,7 @@ func TestTheWidthFitsTheWidestRow(t *testing.T) {
 func TestARowShowsItsLabelAndDetail(t *testing.T) {
 	var c headless.Completion
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "src/main.go", Label: "main.go", Detail: "src"}})
-	rows := paint(20, 1, c.Draw)
+	rows := paintWidget(20, 1, &c)
 	if !strings.Contains(rows[0], "main.go") {
 		t.Fatalf("row = %q, want the label rather than the text", rows[0])
 	}
@@ -418,7 +422,7 @@ func TestARowShowsItsLabelAndDetail(t *testing.T) {
 func TestARowWithNoLabelShowsWhatItWouldInsert(t *testing.T) {
 	var c headless.Completion
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "insert-me"}})
-	if rows := paint(20, 1, c.Draw); !strings.Contains(rows[0], "insert-me") {
+	if rows := paintWidget(20, 1, &c); !strings.Contains(rows[0], "insert-me") {
 		t.Fatalf("row = %q", rows[0])
 	}
 }
@@ -429,7 +433,7 @@ func TestTheMatchedCharactersArePickedOut(t *testing.T) {
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "status", Matched: []int{0, 1}}})
 
 	s := grid.NewSurface(20, 1)
-	c.Draw(s.View())
+	headless.NewRoot(&c).Draw(s.View())
 	for x, want := range []bool{true, true, false, false, false, false} {
 		if got := cellAt(s, x, 0).Style.Attr.Has(grid.Bold); got != want {
 			t.Errorf("column %d emphasised = %v, want %v", x, got, want)
@@ -447,7 +451,7 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "éx", Matched: []int{1}}})
 
 	s := grid.NewSurface(10, 1)
-	c.Draw(s.View())
+	headless.NewRoot(&c).Draw(s.View())
 	if !cellAt(s, 0, 0).Style.Attr.Has(grid.Bold) {
 		t.Fatal("the matched cluster was not emphasised")
 	}
@@ -463,7 +467,7 @@ func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
 	c.Handle(input.Key{Code: input.Down})
 
 	s := grid.NewSurface(20, 2)
-	c.Draw(s.View())
+	headless.NewRoot(&c).Draw(s.View())
 	if cellAt(s, 0, 0).Style.Attr.Has(grid.Reverse) {
 		t.Error("the row that is not selected is drawn as selected")
 	}
@@ -476,7 +480,7 @@ func TestADetailWithNoRoomIsDropped(t *testing.T) {
 	// Half a description reads as a broken label. None of this may overflow the row.
 	var c headless.Completion
 	c.Offer(headless.Token{}, []headless.Candidate{{Text: "a-fairly-long-label", Detail: "and a description"}})
-	rows := paint(12, 1, c.Draw)
+	rows := paintWidget(12, 1, &c)
 	if len(rows[0]) != 12 {
 		t.Fatalf("row = %q, want twelve columns", rows[0])
 	}
@@ -486,7 +490,7 @@ func TestACompletionWithNoRoomDrawsNothing(_ *testing.T) {
 	var c headless.Completion
 	offer(&c, "one", "two")
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {4, 1}} {
-		paint(size[0], size[1], c.Draw)
+		paintWidget(size[0], size[1], &c)
 	}
 }
 
@@ -852,7 +856,7 @@ func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 func TestEditorPlaceholderIsNotText(t *testing.T) {
 	e := headless.NewEditor()
 	e.Placeholder = "Ask anything"
-	rows := paint(20, 1, func(v grid.View) { e.Draw(v) })
+	rows := paintWidget(20, 1, e)
 	if !strings.Contains(rows[0], "Ask anything") {
 		t.Fatalf("row = %q, want the placeholder", rows[0])
 	}
@@ -860,7 +864,7 @@ func TestEditorPlaceholderIsNotText(t *testing.T) {
 		t.Fatalf("text = %q, want the placeholder to be no part of it", e.Text())
 	}
 	typeText(e, "hi")
-	rows = paint(20, 1, func(v grid.View) { e.Draw(v) })
+	rows = paintWidget(20, 1, e)
 	if strings.Contains(rows[0], "Ask") {
 		t.Fatalf("row = %q, want the placeholder gone once there is text", rows[0])
 	}
@@ -941,7 +945,7 @@ func TestTheZeroEditorIsUsable(t *testing.T) {
 	e.MoveDown()
 	e.DeleteBack()
 	e.Handle(input.Key{Code: input.Left})
-	paint(10, 2, func(v grid.View) { e.Draw(v) })
+	paintWidget(10, 2, &e)
 }
 
 func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
@@ -949,7 +953,7 @@ func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 	e := headless.NewEditor()
 	e.Insert("alpha beta gamma delta")
 	const width = 12
-	rows := paint(width, e.Measure(width), func(v grid.View) { e.Draw(v) })
+	rows := paintWidget(width, e.Measure(width), e)
 	joined := strings.Join(rows, "")
 	for _, word := range []string{"alpha", "beta", "gamma", "delta"} {
 		if !strings.Contains(joined, word) {
@@ -1141,19 +1145,19 @@ func TestListWrapsOnlyWhenAskedTo(t *testing.T) {
 func TestListScrollsToKeepTheSelectionVisible(t *testing.T) {
 	// A selection the user cannot see is one they will act on by mistake.
 	l := newList(20)
-	rows := paint(10, 4, func(v grid.View) { l.Draw(v) })
+	rows := paintWidget(10, 4, l)
 	if !strings.Contains(rows[0], ">item0") {
 		t.Fatalf("first frame = %v, want the selection at the top", rows)
 	}
 	for range 6 {
 		l.Handle(key(input.Down))
 	}
-	rows = paint(10, 4, func(v grid.View) { l.Draw(v) })
+	rows = paintWidget(10, 4, l)
 	if !strings.Contains(rows[3], ">item6") {
 		t.Fatalf("frame = %v, want the selection scrolled into the last row", rows)
 	}
 	l.Handle(key(input.Home))
-	rows = paint(10, 4, func(v grid.View) { l.Draw(v) })
+	rows = paintWidget(10, 4, l)
 	if !strings.Contains(rows[0], ">item0") {
 		t.Fatalf("frame = %v, want the view back at the top", rows)
 	}
@@ -1161,7 +1165,7 @@ func TestListScrollsToKeepTheSelectionVisible(t *testing.T) {
 
 func TestListPageMovesByAWindow(t *testing.T) {
 	l := newList(50)
-	paint(10, 8, func(v grid.View) { l.Draw(v) })
+	paintWidget(10, 8, l)
 	l.Handle(key(input.PageDown))
 	if got := l.Selected(); got != 7 {
 		t.Fatalf("selection after a page = %d, want a window's worth less one", got)
@@ -1194,7 +1198,7 @@ func TestListWithNothingInIt(t *testing.T) {
 	// None of this may panic.
 	l.Handle(key(input.Down))
 	l.Handle(key(input.End))
-	paint(10, 3, func(v grid.View) { l.Draw(v) })
+	paintWidget(10, 3, l)
 }
 
 func TestListIgnoresKeysItHasNoUseFor(t *testing.T) {
@@ -1402,7 +1406,7 @@ func TestAListRowCanBePressed(t *testing.T) {
 	// A list could be walked with the arrow keys and not pointed at, which is not
 	// something any list anywhere does.
 	l := newList(10)
-	paint(12, 4, l.Draw)
+	paintWidget(12, 4, l)
 	if !l.Handle(press(2, 2, input.MouseDown, input.ButtonLeft)) || l.Selected() != 2 {
 		t.Fatalf("pressing the third row selected %d", l.Selected())
 	}
@@ -1420,9 +1424,9 @@ func TestAPressOnAListScrolledDownReachesTheRowUnderIt(t *testing.T) {
 	// A press arrives between two frames and is about the one on screen, which is
 	// scrolled — so the row under the pointer is not the row at that index.
 	l := newList(20)
-	paint(12, 4, l.Draw)
+	paintWidget(12, 4, l)
 	l.Select(10)
-	paint(12, 4, l.Draw)
+	paintWidget(12, 4, l)
 	first := l.Scroll().Offset()
 
 	l.Handle(press(2, 1, input.MouseDown, input.ButtonLeft))

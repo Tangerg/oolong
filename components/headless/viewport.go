@@ -3,7 +3,6 @@ package headless
 import (
 	"image"
 
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 )
@@ -39,6 +38,9 @@ type Viewport struct {
 	Keys *keymap.Map
 
 	scroll Scroll
+	// presentation identifies the content and offset shown by the last complete
+	// root frame, so pointer routing cannot observe a half-built window.
+	presentation Snapshot[viewportPresentation]
 	// blurred says the window has been told it does not have the keyboard, which it
 	// passes on to whatever is inside it.
 	blurred bool
@@ -57,18 +59,28 @@ func (p *Viewport) Measure(across int) int {
 }
 
 // Draw paints as much of the content as fits.
-func (p *Viewport) Draw(v grid.View) {
+func (p *Viewport) Draw(v Frame) {
+	p.presentation.Stage(v, viewportPresentation{})
 	w, h := v.Size()
 	if p.Content == nil || w <= 0 || h <= 0 {
 		return
 	}
 	total := p.Content.Measure(w)
-	p.scroll.Layout(total, h)
+	scroll := p.scroll.Stage(v, total, h)
+	p.presentation.Stage(v, viewportPresentation{
+		content: p.Content,
+		offset:  scroll.Offset(),
+	})
 	// Above the window by however far it is scrolled. The content is given its whole
 	// height and draws into it as though nothing were in the way, which is what keeps
 	// the scrolling out of everything that is ever put in here.
-	top := -p.scroll.Offset()
+	top := -scroll.Offset()
 	p.Content.Draw(v.Sub(image.Rect(0, top, w, top+total)))
+}
+
+type viewportPresentation struct {
+	content Sized
+	offset  int
 }
 
 // Handle scrolls, and gives the content whatever is not about scrolling.
@@ -78,7 +90,8 @@ func (p *Viewport) Draw(v grid.View) {
 // the content's own coordinates, which here means the row it is over rather than the
 // row on screen.
 func (p *Viewport) Handle(ev input.Event) bool {
-	if p.Content == nil {
+	presented := p.presentation.Value()
+	if presented.content == nil {
 		// A window with nothing in it is not a window. Scrolling it would be consuming
 		// keystrokes on behalf of something that is not there.
 		return false
@@ -89,12 +102,12 @@ func (p *Viewport) Handle(ev input.Event) bool {
 			return p.scroll.Handle(mouse, p.Keys)
 		default:
 		}
-		handler, ok := p.Content.(Interactive)
+		handler, ok := presented.content.(Interactive)
 		if !ok {
 			return false
 		}
 		local := mouse
-		local.Pos.Y += p.scroll.Offset()
+		local.Pos.Y += presented.offset
 		return handler.Handle(local)
 	}
 	if handler, ok := p.Content.(Interactive); ok && !p.blurred && handler.Handle(ev) {

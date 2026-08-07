@@ -21,7 +21,7 @@ type tall struct {
 
 func (c *tall) Measure(int) int { return c.rows }
 
-func (c *tall) Draw(v grid.View) {
+func (c *tall) Draw(v headless.Frame) {
 	for y := range c.rows {
 		v.Text(0, y, "row "+strconv.Itoa(y), grid.Style{})
 	}
@@ -45,18 +45,18 @@ func TestAWindowShowsThePartOfItsContentItIsScrolledTo(t *testing.T) {
 	// The content is drawn at its whole height into a view that begins above the box,
 	// so the rows off the top fall away and nothing had to be told it was scrolled.
 	p := &headless.Viewport{Content: &tall{rows: 10}}
-	paint(6, 3, p.Draw)
+	paintWidget(6, 3, p)
 	p.Scroll().By(3)
 
-	rows := paint(6, 3, p.Draw)
+	rows := paintWidget(6, 3, p)
 	equalRows(t, rows, []string{"row 3.", "row 4.", "row 5."})
 }
 
 func TestAWindowCannotBeScrolledPastItsContent(t *testing.T) {
 	p := &headless.Viewport{Content: &tall{rows: 4}}
-	paint(6, 3, p.Draw)
+	paintWidget(6, 3, p)
 	p.Scroll().By(100)
-	rows := paint(6, 3, p.Draw)
+	rows := paintWidget(6, 3, p)
 	equalRows(t, rows, []string{"row 1.", "row 2.", "row 3."})
 }
 
@@ -66,7 +66,7 @@ func TestAWindowTakesTheWheelAndPassesOnTheRest(t *testing.T) {
 	// coordinates — which here means the row it is over and not the row on screen.
 	content := &tall{rows: 20}
 	p := &headless.Viewport{Content: content}
-	paint(6, 4, p.Draw)
+	paintWidget(6, 4, p)
 
 	for range 3 {
 		p.Handle(input.Mouse{Action: input.WheelDown})
@@ -79,6 +79,11 @@ func TestAWindowTakesTheWheelAndPassesOnTheRest(t *testing.T) {
 	}
 
 	p.Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft})
+	if want := image.Pt(2, 1); content.mouse != want {
+		t.Fatalf("before repaint the content was told the press was at %v, want the visible %v", content.mouse, want)
+	}
+	paintWidget(6, 4, p)
+	p.Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft})
 	if want := image.Pt(2, 4); content.mouse != want {
 		t.Fatalf("the content was told the press was at %v, want %v", content.mouse, want)
 	}
@@ -89,7 +94,7 @@ func TestAWindowScrollsOnlyWhatItsContentDeclined(t *testing.T) {
 	// would make a list inside one impossible to move through.
 	content := &tall{rows: 20}
 	p := &headless.Viewport{Content: content}
-	paint(6, 4, p.Draw)
+	paintWidget(6, 4, p)
 
 	if !p.Handle(input.Key{Code: input.Down}) || p.Scroll().Offset() != 1 {
 		t.Fatalf("the window did not scroll a key its content had no use for")
@@ -113,7 +118,7 @@ func TestAWindowPassesTheKeyboardToWhatIsInIt(t *testing.T) {
 
 func TestAnEmptyWindowDrawsNothingAndAnswersNothing(t *testing.T) {
 	var p headless.Viewport
-	paint(6, 3, p.Draw) // must not panic
+	paintWidget(6, 3, &p) // must not panic
 	if p.Measure(6) != 0 {
 		t.Fatal("a window with nothing in it asked for room")
 	}
@@ -126,7 +131,7 @@ func TestAWindowAnswersToTheNameOfWhatItDoes(t *testing.T) {
 	// Its own actions and its content's, which is what lets one be driven from a menu
 	// or from a command typed by name.
 	p := &headless.Viewport{Content: &tall{rows: 20}}
-	paint(6, 4, p.Draw)
+	paintWidget(6, 4, p)
 
 	if !p.Do(headless.ScrollBottom) || !p.Scroll().AtBottom() {
 		t.Fatal("the window did not go to the end")

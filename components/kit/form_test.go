@@ -34,7 +34,7 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 		Hints:  []keymap.Action{headless.Submit, headless.Cancel},
 	}
 
-	rows := paint(24, view.Measure(24), func(v grid.View) { view.Draw(v) })
+	rows := paintWidget(24, view.Measure(24), &view)
 	drawn := strings.Join(rows, "\n")
 	for _, want := range []string{"New session", "Name", "who?", "Model", "fast", "good", "enter submit"} {
 		if !strings.Contains(drawn, want) {
@@ -56,7 +56,7 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	form.Submit()
 
 	s := grid.NewSurface(20, view.Measure(20))
-	view.Draw(s.View())
+	headless.NewRoot(&view).Draw(s.View())
 	// The row under the field is the problem, drawn in the one style a theme has for
 	// saying something is wrong.
 	if c := cellAt(s, 0, 2); c.Style.FG != theme.Danger.FG {

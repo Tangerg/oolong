@@ -26,7 +26,7 @@ func (e *Editor) rows(width int) []editorRow {
 }
 
 // drawLine paints a field that holds one line, and places the cursor.
-func (e *Editor) drawLine(v grid.View) {
+func (e *Editor) drawLine(v grid.View, left int) {
 	width, _ := v.Size()
 	if e.Empty() && e.Placeholder != "" {
 		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
@@ -36,39 +36,38 @@ func (e *Editor) drawLine(v grid.View) {
 
 	shown := e.shown()
 	cursor := text.ColumnOf(shown, e.shownAt(e.col))
-	e.slide(cursor, text.Width(shown), width)
 
-	text.Of(shown, e.Look.Text).Draw(v, -e.left, 0)
+	text.Of(shown, e.Look.Text).Draw(v, -left, 0)
 	if start, end, ok := e.Selection(); ok {
-		from := text.ColumnOf(shown, e.shownAt(start.Col)) - e.left
-		to := text.ColumnOf(shown, e.shownAt(end.Col)) - e.left
+		from := text.ColumnOf(shown, e.shownAt(start.Col)) - left
+		to := text.ColumnOf(shown, e.shownAt(end.Col)) - left
 		for x := max(from, 0); x < min(to, width); x++ {
 			v.MergeStyle(x, 0, e.Look.Selection)
 		}
 	}
-	e.placeCursor(v, cursor-e.left, 0)
+	e.placeCursor(v, cursor-left, 0)
 }
 
-// slide moves the window the least it can to keep the cursor in it, and no further
+// lineOffset moves the window the least it can to keep the cursor in it, and no further
 // than there is text to show.
 //
 // The second half is what stops a field from being left showing its end after a
 // deletion, with blank columns to the right of text that would have fitted. The cursor
 // may sit one column past the last character, which is why the window has to reach one
 // column further than the text does.
-func (e *Editor) slide(cursor, total, width int) {
+func (e *Editor) lineOffset(width int) int {
+	shown := e.shown()
+	cursor := text.ColumnOf(shown, e.shownAt(e.col))
+	total := text.Width(shown)
 	if width <= 0 {
-		e.left = 0
-		return
+		return 0
 	}
-	if cursor < e.left {
-		e.left = cursor
+	left := min(cursor, e.presentation.Value().left)
+	if cursor > left+width-1 {
+		left = cursor - width + 1
 	}
-	if cursor > e.left+width-1 {
-		e.left = cursor - width + 1
-	}
-	e.left = min(e.left, max(total-width+1, 0))
-	e.left = max(e.left, 0)
+	left = min(left, max(total-width+1, 0))
+	return max(left, 0)
 }
 
 // shown is the text as it is drawn: the line itself, or the mask once per cluster for
@@ -127,6 +126,6 @@ func (e *Editor) lineAt(at int) int {
 
 // atLine is where a point lands in a field that holds one line.
 func (e *Editor) atLine(x int) Caret {
-	col := e.lineAt(text.OffsetAt(e.shown(), x+e.left))
+	col := e.lineAt(text.OffsetAt(e.shown(), x+e.presentation.Value().left))
 	return Caret{Col: e.snapElement(0, col, true)}
 }

@@ -18,7 +18,6 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
@@ -28,7 +27,9 @@ import (
 
 func main() {
 	if err := program.Run(context.Background(), program.Config{
-		Inline: func(runtime *program.InlineRuntime) program.Component { return newChat(runtime) },
+		Inline: func(runtime *program.InlineRuntime) program.Component {
+			return headless.NewRoot(newChat(runtime))
+		},
 		// Asking costs one round trip and is the only way to learn two things a
 		// program cannot work out for itself: what colour the terminal draws on, and
 		// what it will do with an image.
@@ -103,7 +104,7 @@ func newChat(runtime *program.InlineRuntime) *chat {
 	// only end of the connection the user is at.
 	c.composer.Editor().Clipboard = runtime.Clipboard()
 	c.body = headless.Rows(
-		headless.Item{Size: layout.Fixed(0), Of: &c.status},
+		headless.Item{Size: layout.Fixed(0), Of: headless.Static{Of: &c.status}},
 		headless.Item{Size: layout.Measured(1, 0), Of: &c.composer},
 	)
 	return c
@@ -114,7 +115,7 @@ func newChat(runtime *program.InlineRuntime) *chat {
 // The status row is there only while something is happening, which is one number
 // rather than a branch around the drawing: a slot of no rows is a slot, and the
 // container works out what that leaves for everything else.
-func (c *chat) Draw(v grid.View) {
+func (c *chat) Draw(v headless.Frame) {
 	c.body.Items[0].Size = layout.Fixed(c.statusRows())
 	c.body.Draw(v)
 }

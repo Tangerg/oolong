@@ -72,7 +72,7 @@ func TestATreeKeepsItsShapeWhenTheItemsAreReplaced(t *testing.T) {
 
 func TestTheArrowsMoveThroughATreeTheWayATreeMoves(t *testing.T) {
 	tree := &headless.Tree[string]{Nodes: files()}
-	paint(12, 6, tree.Draw)
+	paintWidget(12, 6, tree)
 
 	right := input.Key{Code: input.Right}
 	left := input.Key{Code: input.Left}
@@ -112,7 +112,7 @@ func TestATreeDrawsTheRowsThatFit(t *testing.T) {
 		},
 	}
 	tree.Open(0)
-	rows := paint(10, 3, tree.Draw)
+	rows := paintWidget(10, 3, tree)
 	equalRows(t, rows, []string{">core.....", "  grid....", "  term...."})
 	if tree.Measure(10) != 4 {
 		t.Fatalf("a tree showing four rows asked for %d", tree.Measure(10))

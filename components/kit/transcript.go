@@ -42,15 +42,18 @@ type Transcript struct {
 	// Glyphs are the characters the rule under a pinned header is drawn with, which
 	// is a fact about the terminal rather than about the look.
 	Glyphs Glyphs
+
+	presentation headless.Snapshot[transcriptPresentation]
 }
 
 // Draw fills v with as much of the transcript as fits.
-func (t Transcript) Draw(v grid.View) {
+func (t *Transcript) Draw(v headless.Frame) {
+	t.presentation.Stage(v, transcriptPresentation{})
 	w, h := v.Size()
 	if t.Content == nil || w <= 0 || h <= 0 {
 		return
 	}
-	t.Content.Resize(w)
+	content := t.Content.Stage(v, w)
 
 	// Laid out twice, because the two answers depend on each other: how much room the
 	// content has depends on the header, and which block is pinned depends on where
@@ -67,18 +70,39 @@ func (t Transcript) Draw(v grid.View) {
 	// scroll, because stepping to a match that cannot be seen is not stepping to it.
 	// It is done here rather than left to a caller because the caller has no way to
 	// know how tall the window turned out to be.
-	t.reveal(h)
-
-	body, from := v, t.layout(h)
+	body := v.View
+	bodyRect := grid.Rect(0, 0, w, h)
+	from := content.StartRow()
+	if t.Scroll != nil {
+		scroll := t.Scroll.Stage(v, content.Height(), h)
+		t.reveal(content, &scroll)
+		from = content.StartRow() + scroll.Offset()
+	}
+	presented := transcriptPresentation{
+		content:   t.Content,
+		selection: t.Selection,
+		body:      bodyRect,
+		from:      from,
+	}
 	if t.Sticky != nil {
-		if pinned, ok := t.Sticky.At(t.Content, from, h); ok && pinned.Rows < h {
-			from = t.layout(h - pinned.Rows)
-			t.drawHeader(v, pinned)
-			body = v.Sub(image.Rect(0, pinned.Rows, w, h))
+		if pinned, ok := t.Sticky.At(content, from, h); ok && pinned.Rows < h {
+			if t.Scroll != nil {
+				scroll := t.Scroll.Stage(v, content.Height(), h-pinned.Rows)
+				from = content.StartRow() + scroll.Offset()
+			}
+			t.drawHeader(content, v.View, pinned)
+			bodyRect = grid.Rect(0, pinned.Rows, w, h-pinned.Rows)
+			body = v.Sub(bodyRect).View
+			presented.body, presented.from = bodyRect, from
+			if top, _, exists := content.Extent(pinned.Block); exists && pinned.Visible() > 0 {
+				presented.header = grid.Rect(0, 0, w, pinned.Visible())
+				presented.headerFrom = top + pinned.ClipTop
+			}
 		}
 	}
+	t.presentation.Stage(v, presented)
 
-	t.Content.Draw(body, from)
+	content.Draw(body, from)
 	t.mark(body, from)
 }
 
@@ -87,33 +111,22 @@ func (t Transcript) Draw(v grid.View) {
 // The whole match, when it fits: a match that crosses a break the width made covers
 // several rows, and showing the first and cutting the rest is showing half of what the
 // reader asked to see.
-func (t Transcript) reveal(rows int) {
-	if t.Scroll == nil || t.Current < 0 || t.Current >= len(t.Matches) {
+func (t *Transcript) reveal(content headless.TranscriptLayout, scroll *headless.ScrollLayout) {
+	if scroll == nil || t.Current < 0 || t.Current >= len(t.Matches) {
 		return
 	}
 	m := t.Matches[t.Current]
 	if len(m.Spans) == 0 {
 		return
 	}
-	start := t.Content.StartRow()
-	t.Scroll.Layout(t.Content.Height(), rows)
-	t.Scroll.RevealRange(m.Row-start, m.Row-start+len(m.Spans)-1)
-}
-
-// layout puts the scroll against a window of the given height and reports where it
-// starts. A transcript with no scroll shows its beginning.
-func (t Transcript) layout(rows int) int {
-	if t.Scroll == nil {
-		return t.Content.StartRow()
-	}
-	t.Scroll.Layout(t.Content.Height(), max(rows, 0))
-	return t.Content.StartRow() + t.Scroll.Offset()
+	start := content.StartRow()
+	scroll.RevealRange(m.Row-start, m.Row-start+len(m.Spans)-1)
 }
 
 // drawHeader draws the pinned block and the rule under it.
-func (t Transcript) drawHeader(v grid.View, pinned headless.Pinned) {
+func (t *Transcript) drawHeader(content headless.TranscriptLayout, v grid.View, pinned headless.Pinned) {
 	w, _ := v.Size()
-	block := t.Content.Block(pinned.Block)
+	block := content.Block(pinned.Block)
 	if block == nil {
 		return
 	}
@@ -146,7 +159,7 @@ func (t Transcript) drawHeader(v grid.View, pinned headless.Pinned) {
 // content, so it is applied after the content drew itself and without the content
 // knowing. A block that had to be told it was selected would have to be told again
 // every time the drag moved.
-func (t Transcript) mark(v grid.View, from int) {
+func (t *Transcript) mark(v grid.View, from int) {
 	w, h := v.Size()
 	if t.Selection != nil && t.Selection.Active() {
 		for y := range h {
@@ -202,12 +215,12 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 // longer selectable, searchable, or re-wrapped when the window changes, so the choice
 // is the program's and is made block by block with
 // [headless.Transcript.Finish].
-func (t Transcript) Commit(p Printer) int {
+func (t *Transcript) Commit(p Printer) int {
 	if t.Content == nil || p == nil {
 		return 0
 	}
 	before := t.Content.StartRow()
-	gone := t.Content.Commit(func(b headless.Sized, rows int) bool {
+	gone := t.Content.Commit(func(b headless.Block, rows int) bool {
 		p.PrintRows(rows, b.Draw)
 		return true
 	})
@@ -255,51 +268,62 @@ type Printer interface {
 // The position is in the transcript's own coordinates, like everything else a widget
 // is handed. Whoever drew it is responsible for that, which for anything inside a
 // [headless.Container] is the container.
-func (t Transcript) Handle(event input.Event) bool {
+func (t *Transcript) Handle(event input.Event) bool {
 	ev, ok := event.(input.Mouse)
-	if !ok || t.Content == nil || t.Selection == nil {
+	presented := t.presentation.Value()
+	if !ok || presented.content == nil || presented.selection == nil {
 		return false
 	}
-	at := headless.Point{Row: t.offset() + ev.Pos.Y, Col: ev.Pos.X}
+	row, on := presented.rowAt(ev.Pos)
+	if !on {
+		return false
+	}
+	at := headless.Point{Row: row, Col: ev.Pos.X}
 	switch ev.Action {
 	case input.MouseDown:
 		if ev.Button != input.ButtonLeft {
 			return false
 		}
-		run := t.Selection.Clicks.Press(ev)
+		run := presented.selection.Clicks.Press(ev)
 		// A word or a row, when there is one there. A double-click in the margin has
 		// nothing to take, and falls back to starting a selection like any press.
 		switch run {
 		case 2:
-			if t.Selection.SelectWord(t.Content, at) {
+			if presented.selection.SelectWord(presented.content, at) {
 				return true
 			}
 		case 3:
-			if t.Selection.SelectLine(t.Content, at) {
+			if presented.selection.SelectLine(presented.content, at) {
 				return true
 			}
 		}
-		t.Selection.Begin(at)
+		presented.selection.Begin(at)
 		return true
 	case input.MouseDrag:
-		t.Selection.Extend(at)
+		presented.selection.Extend(at)
 		return true
 	case input.MouseUp:
-		t.Selection.Done()
+		presented.selection.Done()
 		return true
 	default:
 		return false
 	}
 }
 
-// offset is the row the drawn window starts at, which a position on screen has to be
-// added to before it means anything to the content.
-func (t Transcript) offset() int {
-	if t.Content == nil {
-		return 0
+type transcriptPresentation struct {
+	content          *headless.Transcript
+	selection        *headless.Selection
+	body, header     image.Rectangle
+	from, headerFrom int
+}
+
+func (p transcriptPresentation) rowAt(point image.Point) (int, bool) {
+	switch {
+	case point.In(p.header):
+		return p.headerFrom + point.Y - p.header.Min.Y, true
+	case point.In(p.body):
+		return p.from + point.Y - p.body.Min.Y, true
+	default:
+		return 0, false
 	}
-	if t.Scroll == nil {
-		return t.Content.StartRow()
-	}
-	return t.Content.StartRow() + t.Scroll.Offset()
 }

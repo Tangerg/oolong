@@ -49,7 +49,7 @@ func (t *Text) Prompt() string { return t.Label }
 func (t *Text) Measure(int) int { return 1 + t.rows(t.Label) }
 
 // Draw paints the label, the field and whatever was wrong with the answer.
-func (t *Text) Draw(v grid.View) {
+func (t *Text) Draw(v Frame) {
 	t.ensure()
 	t.editor.Look = t.look
 	t.editor.Draw(t.frame(v, t.Label))
@@ -63,7 +63,7 @@ func (t *Text) Handle(ev input.Event) bool {
 		if !in {
 			return false
 		}
-		return t.editor.HandleMouse(local, t.inner.X)
+		return t.editor.HandleMouse(local, t.presentation.Value().inner.X)
 	}
 	if !t.editor.Handle(ev) {
 		return false
@@ -213,7 +213,7 @@ func (s *Select[T]) Measure(int) int {
 }
 
 // Draw paints the label, the options and whatever was wrong with the choice.
-func (s *Select[T]) Draw(v grid.View) {
+func (s *Select[T]) Draw(v Frame) {
 	s.ensure()
 	s.list.Draw(s.frame(v, s.Label))
 }
@@ -378,7 +378,7 @@ func (m *MultiSelect[T]) Measure(int) int {
 }
 
 // Draw paints the label, the options and whatever was wrong with the choices.
-func (m *MultiSelect[T]) Draw(v grid.View) {
+func (m *MultiSelect[T]) Draw(v Frame) {
 	m.ensure()
 	m.list.Draw(m.frame(v, m.Label))
 }
@@ -495,9 +495,8 @@ type Confirm struct {
 	yes     bool
 	seeded  bool
 	pending keymap.Pending
-	// split is the column the second answer begins at in the last frame, which is what
-	// a press has to be answered against.
-	split int
+	// split is the committed column where the second answer begins.
+	split Snapshot[int]
 }
 
 // Prompt is what the field is asking.
@@ -522,8 +521,9 @@ func (c *Confirm) Say(yes bool) {
 func (c *Confirm) Measure(int) int { return 1 + c.rows(c.Label) }
 
 // Draw paints the label and the two answers.
-func (c *Confirm) Draw(v grid.View) {
+func (c *Confirm) Draw(v Frame) {
 	c.ensure()
+	c.split.Stage(v, 0)
 	row := c.frame(v, c.Label)
 	w, h := row.Size()
 	if w <= 0 || h <= 0 {
@@ -534,7 +534,7 @@ func (c *Confirm) Draw(v grid.View) {
 		if !yes {
 			// Where one answer ends and the other begins, which is the whole of what a
 			// press needs to know.
-			c.split = x
+			c.split.Stage(v, x)
 		}
 		style := c.look.Text
 		if yes == c.yes {
@@ -557,7 +557,7 @@ func (c *Confirm) Handle(ev input.Event) bool {
 		if !in || local.Action != input.MouseDown || local.Button != input.ButtonLeft {
 			return false
 		}
-		c.Say(local.Pos.X < c.split)
+		c.Say(local.Pos.X < c.split.Value())
 		return true
 	}
 	key, ok := ev.(input.Key)

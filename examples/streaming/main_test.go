@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/graphics"
 
 	"github.com/Tangerg/oolong/components/kit"
@@ -109,8 +110,10 @@ func run(t *testing.T, h *host) func() {
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(ctx, program.Config{
-			Host:   h,
-			Inline: func(runtime *program.InlineRuntime) program.Component { return newChat(runtime) },
+			Host: h,
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				return headless.NewRoot(newChat(runtime))
+			},
 		})
 	}()
 	return func() {

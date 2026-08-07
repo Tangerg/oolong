@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/text"
@@ -16,8 +17,9 @@ import (
 // between one hunk and the next is how the reader is told they were. [diff.Hunks] is
 // what makes them.
 //
-// It is a [headless.Sized], so a change too tall for its pane goes in a
-// [headless.Viewport] and scrolls with no further arrangement.
+// It is a passive [headless.Block]. A change too tall for its pane becomes live
+// viewport content through [headless.Static], without giving finished content an
+// interaction lifecycle of its own.
 type Diff struct {
 	// Hunks are the parts of the change worth showing.
 	Hunks []diff.Hunk
@@ -31,6 +33,8 @@ type Diff struct {
 	// alone, which is what a narrow pane has room for.
 	Numbers bool
 }
+
+var _ headless.Block = Diff{}
 
 // Measure is a row per line, and one for each break between hunks.
 func (d Diff) Measure(int) int {

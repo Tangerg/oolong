@@ -37,11 +37,11 @@ func TestAFieldThatHoldsOneLineSlidesSidewaysToKeepTheCursorInView(t *testing.T)
 
 	// The cursor is at the end, so the window shows the end of the text with room for
 	// the cursor to sit past the last character.
-	rows := paint(5, 1, e.Draw)
+	rows := paintWidget(5, 1, e)
 	equalRows(t, rows, []string{"ghij."})
 
 	e.Do(headless.MoveLineStart)
-	rows = paint(5, 1, e.Draw)
+	rows = paintWidget(5, 1, e)
 	equalRows(t, rows, []string{"abcde"})
 }
 
@@ -50,18 +50,18 @@ func TestAFieldThatHoldsOneLineComesBackWhenItsTextGetsShorter(t *testing.T) {
 	// right of text that would have fitted.
 	e := &headless.Editor{SingleLine: true}
 	e.SetText("abcdefghij")
-	paint(5, 1, e.Draw)
+	paintWidget(5, 1, e)
 	for range 8 {
 		e.DeleteBack()
 	}
-	rows := paint(5, 1, e.Draw)
+	rows := paintWidget(5, 1, e)
 	equalRows(t, rows, []string{"ab..."})
 }
 
 func TestAMaskedFieldShowsNothingItHolds(t *testing.T) {
 	e := &headless.Editor{Mask: "•"}
 	e.SetText("secret")
-	rows := paint(8, 1, e.Draw)
+	rows := paintWidget(8, 1, e)
 	equalRows(t, rows, []string{"••••••.."})
 	if got := e.Text(); got != "secret" {
 		t.Fatalf("the field itself = %q, want what was typed", got)
@@ -79,7 +79,7 @@ func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
 	// A screen rather than a bare surface, because the cursor is only observable
 	// through one.
 	screen := grid.NewScreen(8, 1)
-	e.Draw(screen.Frame())
+	headless.NewRoot(e).Draw(screen.Frame())
 	if cursor := screen.Cursor(); !cursor.Visible || cursor.Pos.X != 2 {
 		t.Fatalf("cursor at %+v, want it two masked columns along", cursor)
 	}
@@ -88,7 +88,7 @@ func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
 func TestAClickInAMaskedFieldLandsOnTheClusterItIsUnder(t *testing.T) {
 	e := &headless.Editor{Mask: "••"}
 	e.SetText("abc")
-	paint(10, 1, e.Draw)
+	paintWidget(10, 1, e)
 
 	e.HandleMouse(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(4, 0)}, 10)
 	if _, col := e.Cursor(); col != 2 {

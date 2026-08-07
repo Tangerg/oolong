@@ -3,7 +3,6 @@ package headless
 import (
 	"image"
 
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
@@ -125,10 +124,10 @@ type Container struct {
 	// the child it would focus must not be told that it does.
 	blurred bool
 
-	// areas is where each child was drawn, in this container's own coordinates. A
-	// hit test happens between frames, so it asks about the frame on screen rather
-	// than the one being built.
-	areas []image.Rectangle
+	// presentation is the child identities and areas from the last complete root
+	// frame. Identity belongs in the snapshot with geometry: if Items is reordered
+	// before the next draw, input still goes to what the user can actually see.
+	presentation Snapshot[[]childPlacement]
 	// held is the child a press was given to, kept by identity for the same reason
 	// the focus is. Everything up to the release goes to it.
 	held Widget
@@ -140,18 +139,29 @@ type Container struct {
 
 // Rows is a container that stacks its children down the region.
 func Rows(items ...Item) *Container {
-	return &Container{Axis: layout.Down, Items: items}
+	c := &Container{Axis: layout.Down}
+	c.Set(items...)
+	return c
 }
 
 // Columns is a container that puts its children side by side.
 func Columns(items ...Item) *Container {
-	return &Container{Axis: layout.Across, Items: items}
+	c := &Container{Axis: layout.Across}
+	c.Set(items...)
+	return c
+}
+
+// Set replaces the children, preserving focus by identity where possible.
+func (c *Container) Set(items ...Item) {
+	c.Items = append(c.Items[:0], items...)
+	c.settle()
 }
 
 // Add appends a child and returns the container, so a tree can be built in one
 // expression.
 func (c *Container) Add(items ...Item) *Container {
 	c.Items = append(c.Items, items...)
+	c.settle()
 	return c
 }
 
@@ -195,12 +205,17 @@ func (c *Container) Focus(has bool) {
 }
 
 // Draw arranges the children and draws each into the room it got.
-func (c *Container) Draw(v grid.View) {
-	c.settle()
-	c.areas = c.flow().Rects(v.Bounds().Size(), c.arrange())
-	for i, item := range c.Items {
-		if item.Of != nil {
-			item.Of.Draw(v.Sub(c.areas[i]))
+func (c *Container) Draw(v Frame) {
+	items := append([]Item(nil), c.Items...)
+	rects := c.flow().Rects(v.Bounds().Size(), c.arrangeItems(items))
+	placed := make([]childPlacement, len(items))
+	for i, item := range items {
+		placed[i] = childPlacement{child: item.Of, area: rects[i]}
+	}
+	c.presentation.Stage(v, placed)
+	for _, child := range placed {
+		if child.child != nil {
+			child.child.Draw(v.Sub(child.area))
 		}
 	}
 }
@@ -261,11 +276,11 @@ func (c *Container) mouse(ev input.Mouse) bool {
 	if c.held != nil {
 		switch ev.Action {
 		case input.MouseDrag, input.MouseUp:
-			held := c.indexOf(c.held)
+			held, found := c.placed(c.held)
 			if ev.Action == input.MouseUp {
 				c.held = nil
 			}
-			if held < 0 {
+			if !found {
 				// The child that took the press is no longer here. The gesture has
 				// nowhere to go, which is not the same as it belonging to whatever
 				// took its place.
@@ -275,8 +290,8 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		default:
 		}
 	}
-	at := c.at(ev.Pos)
-	if at < 0 {
+	at, found := c.at(ev.Pos)
+	if !found {
 		return false
 	}
 	if ev.Action != input.MouseDown {
@@ -284,11 +299,11 @@ func (c *Container) mouse(ev input.Mouse) bool {
 	}
 	// A press moves the keyboard whether or not the child does anything with the
 	// press itself: clicking a pane is how a user says they mean that one.
-	c.Give(c.Items[at].Of)
+	c.Give(at.child)
 	if !c.deliver(at, ev) {
 		return false
 	}
-	c.held = c.Items[at].Of
+	c.held = at.child
 	return true
 }
 
@@ -297,31 +312,44 @@ func (c *Container) mouse(ev input.Mouse) bool {
 // The translation is the container's job for the same reason the clipping is: a
 // widget is handed a view whose origin is its own and reasons in it, so a position
 // that arrived in anybody else's coordinates would be a position it cannot use.
-func (c *Container) deliver(i int, ev input.Mouse) bool {
-	handler, ok := c.Items[i].Of.(Interactive)
+func (c *Container) deliver(to childPlacement, ev input.Mouse) bool {
+	handler, ok := to.child.(Interactive)
 	if !ok {
 		return false
 	}
 	local := ev
-	local.Pos = ev.Pos.Sub(c.areas[i].Min)
+	local.Pos = ev.Pos.Sub(to.area.Min)
 	return handler.Handle(local)
 }
 
 // at is the child a point is over, or -1.
-func (c *Container) at(p image.Point) int {
-	for i := range c.Items {
-		if i < len(c.areas) && p.In(c.areas[i]) {
-			return i
+func (c *Container) at(p image.Point) (childPlacement, bool) {
+	for _, child := range c.presentation.Value() {
+		if p.In(child.area) {
+			return child, true
 		}
 	}
-	return -1
+	return childPlacement{}, false
+}
+
+func (c *Container) placed(w Widget) (childPlacement, bool) {
+	for _, child := range c.presentation.Value() {
+		if child.child == w {
+			return child, true
+		}
+	}
+	return childPlacement{}, false
 }
 
 // arrange rebuilds the slots from the items, asking each child that can measure
 // itself to do so.
 func (c *Container) arrange() []layout.Slot {
+	return c.arrangeItems(c.Items)
+}
+
+func (c *Container) arrangeItems(items []Item) []layout.Slot {
 	c.slots = c.slots[:0]
-	for _, item := range c.Items {
+	for _, item := range items {
 		slot := layout.Slot{Size: item.Size}
 		if measurer, ok := item.Of.(layout.Measurer); ok {
 			slot.Of = measurer
@@ -329,6 +357,11 @@ func (c *Container) arrange() []layout.Slot {
 		c.slots = append(c.slots, slot)
 	}
 	return c.slots
+}
+
+type childPlacement struct {
+	child Widget
+	area  image.Rectangle
 }
 
 // settle makes sure the keyboard is somewhere it can be, and that every child has

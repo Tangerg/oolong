@@ -32,7 +32,7 @@ type field struct {
 	area image.Rectangle
 }
 
-func (f *field) Draw(v grid.View) {
+func (f *field) Draw(v headless.Frame) {
 	w, h := v.Size()
 	f.area = grid.Rect(0, 0, w, h)
 	v.Text(0, 0, f.name, grid.Style{})
@@ -71,7 +71,7 @@ func pressAt(x, y int) input.Mouse {
 // against: a click is about a frame that has already been drawn.
 func drawn(c *headless.Container, h int) {
 	s := grid.NewSurface(10, h)
-	c.Draw(s.View())
+	headless.NewRoot(c).Draw(s.View())
 }
 
 func TestAKeyGoesToWhicheverChildHasTheKeyboard(t *testing.T) {
@@ -311,14 +311,14 @@ func TestALoneWidgetKeepsTheKeyboardWithNobodyToGiveIt(t *testing.T) {
 	var editor headless.Editor
 	editor.SetText("hi")
 	s := grid.NewScreen(10, 1)
-	editor.Draw(s.Frame())
+	headless.NewRoot(&editor).Draw(s.Frame())
 	if !s.Cursor().Visible {
 		t.Fatal("a field that is the whole interface drew no cursor")
 	}
 
 	editor.Focus(false)
 	s.Frame()
-	editor.Draw(s.Frame())
+	headless.NewRoot(&editor).Draw(s.Frame())
 	if s.Cursor().Visible {
 		t.Fatal("a field told it does not have the keyboard drew a cursor anyway")
 	}
@@ -337,13 +337,14 @@ func TestOnlyTheFocusedFieldPlacesTheCursor(t *testing.T) {
 	)
 
 	s := grid.NewScreen(10, 2)
-	c.Draw(s.Frame())
+	root := headless.NewRoot(c)
+	root.Draw(s.Frame())
 	if got := s.Cursor(); !got.Visible || got.Pos.Y != 0 {
 		t.Fatalf("the cursor is %+v, want it in the first field", got)
 	}
 
 	c.Give(second)
-	c.Draw(s.Frame())
+	root.Draw(s.Frame())
 	if got := s.Cursor(); !got.Visible || got.Pos.Y != 1 {
 		t.Fatalf("the cursor is %+v, want it in the field with the keyboard", got)
 	}
@@ -365,8 +366,9 @@ func TestALayerTakesTheKeyboardFromWhatItCovers(t *testing.T) {
 	base := &field{name: "base"}
 	over := &layer{field: field{name: "over"}, where: layout.Placement{Width: 4, Height: 1}}
 	s := &headless.Stack{Base: base}
+	s.Focus(true)
 
-	s.Draw(grid.NewSurface(10, 4).View())
+	headless.NewRoot(s).Draw(grid.NewSurface(10, 4).View())
 	if !base.focused {
 		t.Fatal("the interface under an empty stack does not have the keyboard")
 	}
@@ -413,7 +415,7 @@ func TestASlotOfNoRowsGetsNoRows(t *testing.T) {
 		headless.Item{Size: layout.Flex(1), Of: body},
 	)
 	s := grid.NewSurface(10, 3)
-	c.Draw(s.View())
+	headless.NewRoot(c).Draw(s.View())
 
 	if got := status.area.Dy(); got != 0 {
 		t.Errorf("a slot asked for no rows got %d", got)

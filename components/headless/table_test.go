@@ -62,7 +62,7 @@ func TestTheCursorStaysOnTheRowItWasOnThroughASort(t *testing.T) {
 	// Following it by index would land on whatever moved into that position, which is
 	// how a reader acts on the wrong row.
 	tbl := table()
-	paint(20, 3, tbl.Draw)
+	paintWidget(20, 3, tbl)
 	tbl.Select(2) // beta
 	tbl.SortBy(0)
 	if got, _ := tbl.Current(); got.name != "beta" {

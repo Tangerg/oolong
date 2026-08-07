@@ -21,7 +21,6 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
@@ -36,7 +35,7 @@ func main() {
 	}
 	if err := program.Run(context.Background(), program.Config{
 		Root: func(runtime *program.Runtime) program.Component {
-			return newBrowser(runtime, read(root, 2))
+			return headless.NewRoot(newBrowser(runtime, read(root, 2)))
 		},
 		Terminal: term.Options{Probe: true, Mouse: true},
 	}); err != nil {
@@ -86,7 +85,7 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	}
 	// A window shows the part of something taller than the room there is. The preview
 	// is ordinary wrapped text and knows nothing about being scrolled.
-	b.window = &headless.Viewport{Content: b.preview}
+	b.window = &headless.Viewport{Content: headless.Static{Of: b.preview}}
 
 	// The two panes, with a column between them. Which one has the keyboard is the
 	// container's, and so is which one a press landed in — in that pane's own
@@ -101,7 +100,7 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 }
 
 // Draw paints the two panes, and a hint row under them.
-func (b *browser) Draw(v grid.View) {
+func (b *browser) Draw(v headless.Frame) {
 	b.show()
 	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
@@ -112,7 +111,7 @@ func (b *browser) Draw(v grid.View) {
 	kit.Label{
 		Text:  "tab: other pane   →/←: open, close   q: quit",
 		Style: b.theme.Subtle,
-	}.Draw(rows[1])
+	}.Draw(rows[1].View)
 }
 
 // show keeps the preview in step with what the cursor is on, once per change.

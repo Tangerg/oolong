@@ -8,7 +8,9 @@ A terminal interface library for Go, built in layers, for interfaces that stream
 
 ```go
 program.Run(ctx, program.Config{
-    Inline: func(runtime *program.InlineRuntime) program.Component { return newUI(runtime) },
+    Inline: func(runtime *program.InlineRuntime) program.Component {
+        return headless.NewRoot(newUI(runtime))
+    },
 })
 ```
 

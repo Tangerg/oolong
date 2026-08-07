@@ -27,7 +27,9 @@ import (
 
 func main() {
 	if err := program.Run(context.Background(), program.Config{
-		Root:     func(runtime *program.Runtime) program.Component { return newDashboard(runtime) },
+		Root: func(runtime *program.Runtime) program.Component {
+			return headless.NewRoot(newDashboard(runtime))
+		},
 		Terminal: term.Options{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "dashboard:", err)
@@ -85,7 +87,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 }
 
 // Draw is the strip, whichever pane it says, and a hint row under both.
-func (d *dashboard) Draw(v grid.View) {
+func (d *dashboard) Draw(v headless.Frame) {
 	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(1)},
@@ -94,7 +96,7 @@ func (d *dashboard) Draw(v grid.View) {
 	kit.Label{
 		Text:  "alt+←/→: pane   ↑/↓: row   click a heading to sort   q: quit",
 		Style: d.theme.Subtle,
-	}.Draw(rows[1])
+	}.Draw(rows[1].View)
 }
 
 func (d *dashboard) Handle(ev input.Event) bool {
@@ -118,7 +120,7 @@ type queue struct {
 	view  kit.Table
 	// width is what the last frame was drawn at, which is what turns a press into a
 	// column: a press arrives between two frames and is about the one on screen.
-	width int
+	width headless.Snapshot[int]
 }
 
 func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
@@ -163,13 +165,14 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 // The header is the kit's and the rows are the behaviour's, and they agree about
 // where the columns are because they ask the same table. A widget that owned both
 // would own the cursor and the scrolling as well.
-func (q *queue) Draw(v grid.View) {
-	q.width, _ = v.Size()
+func (q *queue) Draw(v headless.Frame) {
+	width, _ := v.Size()
+	q.width.Stage(v, width)
 	bands := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
 	))
-	q.view.Titles(bands[0])
+	q.view.Titles(bands[0].View)
 	q.rows.Draw(bands[1])
 }
 
@@ -183,7 +186,7 @@ func (q *queue) Handle(ev input.Event) bool {
 			if mouse.Action != input.MouseDown {
 				return false
 			}
-			column, on := q.view.ColumnAt(mouse.Pos.X, q.width)
+			column, on := q.view.ColumnAt(mouse.Pos.X, q.width.Value())
 			return on && q.rows.SortBy(column)
 		}
 		mouse.Pos.Y--
@@ -278,7 +281,7 @@ func (a *activity) tick() { a.spinner.Tick() }
 
 func (a *activity) Measure(int) int { return 3 }
 
-func (a *activity) Draw(v grid.View) {
+func (a *activity) Draw(v headless.Frame) {
 	finished, total := a.of.remaining()
 	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
@@ -292,18 +295,18 @@ func (a *activity) Draw(v grid.View) {
 		Done:    finished,
 		Total:   total,
 		Percent: true,
-	}.Draw(rows[0])
+	}.Draw(rows[0].View)
 
 	// A spinner is for work with no total and a bar is for work with one. Both are
 	// here because the two questions are different: how far along, and is anything
 	// happening at all.
 	if finished >= total {
-		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[2])
+		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[2].View)
 		return
 	}
 	a.spinner.Theme = a.theme
 	a.spinner.Label = "watching"
-	a.spinner.Draw(rows[2])
+	a.spinner.Draw(rows[2].View)
 }
 
 func tasks() []task {

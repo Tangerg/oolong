@@ -40,9 +40,9 @@ func (l Label) Draw(v grid.View) {
 
 // Paragraph is text that wraps to the width it is given.
 //
-// Its height is not known until its width is, which is the whole reason
-// [headless.Sized] exists: a container has to ask before it can decide how much room
-// to give.
+// Its height is not known until its width is, which is the whole reason a passive
+// [headless.Block] measures itself: publication and a [headless.Static] viewport
+// adapter both have to ask before they can decide how much room to give.
 type Paragraph struct {
 	// Lines are the logical lines. A line's own styling survives wrapping.
 	//
@@ -55,8 +55,8 @@ type Paragraph struct {
 	// MaxRows caps the height. Zero means no cap; a cap replaces the last row it
 	// keeps with one ending in an ellipsis.
 	MaxRows int
-	// Links makes what the text points at clickable, on terminals that support it, and
-	// records where they were drawn so a click can be answered — see [Paragraph.LinkAt].
+	// Links makes what the text points at clickable on terminals that support it and
+	// enables pure hit testing through [Paragraph.LinkAt].
 	//
 	// It is off by default. Text a program composed itself has nothing in it worth
 	// finding, and marking up a line nobody will click costs a scan of every line
@@ -72,9 +72,9 @@ type Paragraph struct {
 	wrapped []row
 	atWidth int
 	fresh   bool
-	// found is where the links went in the last frame drawn.
-	found linkMap
 }
+
+var _ headless.Block = (*Paragraph)(nil)
 
 // row is a wrapped row and which of the paragraph's lines it came from.
 //
@@ -106,7 +106,6 @@ func (p *Paragraph) Measure(width int) int { return len(p.rows(width)) }
 func (p *Paragraph) Draw(v grid.View) {
 	w, h := v.Size()
 	rows := p.rows(w)
-	p.found.Reset()
 	for y, r := range rows {
 		if y >= h {
 			return
@@ -138,11 +137,10 @@ func (p *Paragraph) stamp(v grid.View, y int, r row) {
 		if start >= end {
 			continue
 		}
-		// A relative path is still recorded for hit testing, but left without OSC 8 so
-		// the terminal can resolve it against its reported directory.
+		// A relative path is still found by LinkAt, but left without OSC 8 so the
+		// terminal can resolve it against its reported directory.
 		target := hyperlinkTarget(l)
-		col, width := text.StampLink(v, p.Indent, y, part, start, end, target)
-		p.found.Add(p.Indent+col, y, width, l)
+		text.StampLink(v, p.Indent, y, part, start, end, target)
 	}
 }
 
@@ -157,33 +155,6 @@ func hyperlinkTarget(l link.Link) string {
 		return (&url.URL{Scheme: "file", Path: l.Target}).String()
 	}
 	return ""
-}
-
-// linkMap is the hit geometry produced by one paragraph frame.
-type linkMap struct{ regions []linkRegion }
-
-type linkRegion struct {
-	y, x, w int
-	link    link.Link
-}
-
-func (m *linkMap) Reset() { m.regions = m.regions[:0] }
-
-func (m *linkMap) Add(x, y, width int, destination link.Link) {
-	if width <= 0 || destination.Target == "" {
-		return
-	}
-	m.regions = append(m.regions, linkRegion{x: x, y: y, w: width, link: destination})
-}
-
-func (m *linkMap) At(x, y int) (link.Link, bool) {
-	for i := len(m.regions) - 1; i >= 0; i-- {
-		r := m.regions[i]
-		if r.y == y && x >= r.x && x < r.x+r.w {
-			return r.link, true
-		}
-	}
-	return link.Link{}, false
 }
 
 // Rows is what the paragraph says, one entry per drawn row, so a selection over it
@@ -212,14 +183,44 @@ func (p *Paragraph) Rows(width int) []headless.Row {
 	return out
 }
 
-// LinkAt is the complete destination at a position in the space the paragraph was
-// last drawn into, and whether there is one. File line and column information is
-// retained rather than flattened into the target string.
+// LinkAt is the complete destination at a position when the paragraph is laid out at
+// width, and whether there is one. File line and column information is retained
+// rather than flattened into the target string.
 //
-// It answers a click from what was drawn rather than by looking again: the record
-// comes out of the same pass that wrote the cells, so there is nothing to keep in
-// step and no chance of answering about text that has since changed.
-func (p *Paragraph) LinkAt(x, y int) (link.Link, bool) { return p.found.At(x, y) }
+// Width is explicit because a passive Block has no committed routing lifecycle. The
+// answer is a pure projection of the same wrapped rows Draw uses, so measuring or
+// drawing cannot publish hidden hit-test state.
+func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
+	if !p.Links || x < p.Indent || y < 0 {
+		return link.Link{}, false
+	}
+	rows := p.rows(width)
+	if y >= len(rows) {
+		return link.Link{}, false
+	}
+	r := rows[y]
+	if r.line >= len(p.Lines) || r.To <= r.From {
+		return link.Link{}, false
+	}
+	whole := p.Lines[r.line].String()
+	if r.To > len(whole) {
+		return link.Link{}, false
+	}
+	part := whole[r.From:r.To]
+	for _, destination := range link.DetectIn(whole, p.Exists) {
+		start := max(destination.Start, r.From) - r.From
+		end := min(destination.End, r.To) - r.From
+		if start >= end {
+			continue
+		}
+		from := p.Indent + text.ColumnOf(part, start)
+		to := p.Indent + text.ColumnOf(part, end)
+		if x >= from && x < to {
+			return destination, true
+		}
+	}
+	return link.Link{}, false
+}
 
 // rows is the wrap at this width, computed once per width.
 //

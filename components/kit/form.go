@@ -4,7 +4,6 @@ import (
 	"image"
 
 	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
@@ -32,10 +31,12 @@ type Form struct {
 	// show under the fields. An action with nothing bound to it is not shown.
 	Keys  *keymap.Map
 	Hints []keymap.Action
+
+	body headless.Snapshot[image.Rectangle]
 }
 
 // Measure is the title, the fields, and the hints.
-func (f Form) Measure(across int) int {
+func (f *Form) Measure(across int) int {
 	if f.Of == nil {
 		return 0
 	}
@@ -43,23 +44,26 @@ func (f Form) Measure(across int) int {
 }
 
 // Draw dresses the form and paints it.
-func (f Form) Draw(v grid.View) {
+func (f *Form) Draw(v headless.Frame) {
+	f.body.Stage(v, image.Rectangle{})
 	if f.Of == nil {
 		return
 	}
 	f.Of.Look = f.Theme.Look(f.Glyphs)
 
-	bands := v.Subs(layout.Down.Rects(v.Bounds().Size(),
+	rects := layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(f.titleRows())},
 		layout.Slot{Size: layout.Flex(1)},
 		layout.Slot{Size: layout.Fixed(f.hintRows())},
-	))
+	)
+	bands := v.Subs(rects)
+	f.body.Stage(v, rects[1])
 	if f.titleRows() > 0 {
-		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0])
+		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0].View)
 	}
 	f.Of.Draw(bands[1])
 	if f.hintRows() > 0 {
-		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2])
+		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2].View)
 	}
 }
 
@@ -70,23 +74,23 @@ func (f Form) Draw(v grid.View) {
 // press was two rows further down than it was is a field that puts the caret in the
 // wrong place, and it is the sort of mistake that only shows as "clicking the second
 // field selects the first".
-func (f Form) Handle(ev input.Event) bool {
+func (f *Form) Handle(ev input.Event) bool {
 	if f.Of == nil {
 		return false
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
-		if mouse.Pos.Y < f.titleRows() {
-			// The title is not part of the form and answers nothing.
+		body := f.body.Value()
+		if body.Empty() || !mouse.Pos.In(body) {
 			return false
 		}
-		mouse.Pos = mouse.Pos.Sub(image.Pt(0, f.titleRows()))
+		mouse.Pos = mouse.Pos.Sub(body.Min)
 		return f.Of.Handle(mouse)
 	}
 	return f.Of.Handle(ev)
 }
 
 // Focus passes the keyboard to the form — see [headless.Form.Focus].
-func (f Form) Focus(has bool) {
+func (f *Form) Focus(has bool) {
 	if f.Of != nil {
 		f.Of.Focus(has)
 	}
@@ -98,9 +102,9 @@ func (f Form) Focus(has bool) {
 // translation is one place, which is what keeps a form looking like the rest of the
 // interface without a field ever having heard of a theme.
 
-func (f Form) rows() int { return f.titleRows() + f.hintRows() }
+func (f *Form) rows() int { return f.titleRows() + f.hintRows() }
 
-func (f Form) titleRows() int {
+func (f *Form) titleRows() int {
 	if f.Title == "" {
 		return 0
 	}
@@ -109,7 +113,7 @@ func (f Form) titleRows() int {
 
 // hintRows is whether there is a hint row: one, if any of the actions asked for is
 // bound to something.
-func (f Form) hintRows() int {
+func (f *Form) hintRows() int {
 	for _, action := range f.Hints {
 		if len(f.Keys.Keys(action)) > 0 {
 			return 1

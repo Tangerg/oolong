@@ -1,7 +1,6 @@
 package headless
 
 import (
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 )
@@ -160,7 +159,7 @@ func (t *Tabs) Measure(across int) int {
 }
 
 // Draw paints the pane that is showing into the whole of v.
-func (t *Tabs) Draw(v grid.View) {
+func (t *Tabs) Draw(v Frame) {
 	if pane, ok := t.Current(); ok && pane.Of != nil {
 		pane.Of.Draw(v)
 	}

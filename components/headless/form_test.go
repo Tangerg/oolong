@@ -38,7 +38,7 @@ func TestAFieldStartsFromWhatTheCallerAlreadyHas(t *testing.T) {
 	// time, rather than an empty one they have to fill in again.
 	name := "ada"
 	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
-	rows := paint(12, field.Measure(12), field.Draw)
+	rows := paintWidget(12, field.Measure(12), field)
 	if !strings.Contains(strings.Join(rows, "\n"), "ada") {
 		t.Fatalf("drawn:\n%s\nwant what the caller already had", strings.Join(rows, "\n"))
 	}
@@ -82,7 +82,7 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 		Options: headless.Options("fast", "good", "cheap"),
 		Value:   headless.Bind(&picked),
 	}
-	field.Draw(grid.NewSurface(12, 4).View())
+	headless.NewRoot(field).Draw(grid.NewSurface(12, 4).View())
 	if picked != "fast" {
 		t.Fatalf("value = %q, want the first option", picked)
 	}
@@ -149,10 +149,10 @@ func TestAChoiceIsMarkedAsTaken(t *testing.T) {
 		Value:   headless.Bind(&picked),
 	}
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
-	form.Draw(grid.NewSurface(8, 4).View())
+	headless.NewRoot(form).Draw(grid.NewSurface(8, 4).View())
 	field.Do(headless.Toggle)
 
-	rows := paint(8, 4, form.Draw)
+	rows := paintWidget(8, 4, form)
 	// A dot is a cell nothing was drawn into: the column between the mark and the label
 	// is a gap and not a space.
 	if !strings.HasPrefix(rows[0], "x.a") {
@@ -200,7 +200,7 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 		Fields: []headless.Field{nameField, modelField},
 		Done:   func() { done++ },
 	}
-	form.Draw(grid.NewSurface(20, 8).View())
+	headless.NewRoot(form).Draw(grid.NewSurface(20, 8).View())
 
 	// Nothing typed, so submitting says so rather than finishing.
 	if form.Handle(input.Key{Code: input.Enter}); done != 0 {
@@ -274,7 +274,7 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 	if after := field.Measure(20); after != 3 {
 		t.Fatalf("a field with a problem is %d rows, want a row for it", after)
 	}
-	rows := paint(20, field.Measure(20), func(v grid.View) { form.Draw(v) })
+	rows := paintWidget(20, field.Measure(20), form)
 	if !strings.HasPrefix(rows[0], "Name") {
 		t.Fatalf("first row = %q, want what the field is asking for", rows[0])
 	}
@@ -306,7 +306,7 @@ func TestAChoiceCanBePressed(t *testing.T) {
 		Value:   headless.Bind(&picked),
 	}
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
-	form.Draw(grid.NewSurface(12, 4).View())
+	headless.NewRoot(form).Draw(grid.NewSurface(12, 4).View())
 
 	form.Handle(input.Mouse{
 		Pos: image.Pt(2, 3), Action: input.MouseDown, Button: input.ButtonLeft,
@@ -331,7 +331,7 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 		Value:   headless.Bind(&picked),
 	}
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
-	form.Draw(grid.NewSurface(12, 3).View())
+	headless.NewRoot(form).Draw(grid.NewSurface(12, 3).View())
 	field.Do(headless.SelectNext)
 
 	form.Handle(input.Mouse{
@@ -346,7 +346,7 @@ func TestAConfirmCanBePressed(t *testing.T) {
 	var sure bool
 	field := &headless.Confirm{Label: "Delete it?", Value: headless.Bind(&sure), Yes: "yes", No: "no"}
 	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
-	form.Draw(grid.NewSurface(20, 2).View())
+	headless.NewRoot(form).Draw(grid.NewSurface(20, 2).View())
 
 	press := func(x int) {
 		form.Handle(input.Mouse{
@@ -451,7 +451,7 @@ func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
 	first := &headless.Text{Label: "One"}
 	second := &headless.Text{Label: "Two"}
 	form := &headless.Form{Fields: []headless.Field{first, second}}
-	form.Draw(grid.NewSurface(20, 6).View())
+	headless.NewRoot(form).Draw(grid.NewSurface(20, 6).View())
 
 	form.Focus(false)
 	if first.Editor().Handle(input.Key{Code: input.Character, Rune: 'x'}); first.Editor().Text() != "x" {

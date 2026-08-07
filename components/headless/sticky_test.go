@@ -29,10 +29,10 @@ func pinnable(t *testing.T, pairs int) (*headless.Transcript, *headless.Sticky) 
 // starts being worth showing.
 func TestNothingIsPinnedWhileItIsStillOnScreen(t *testing.T) {
 	tr, s := pinnable(t, 2)
-	if _, ok := s.At(tr, 0, 8); ok {
+	if _, ok := s.At(tr.Layout(), 0, 8); ok {
 		t.Error("a prompt at the top of the view was pinned as well")
 	}
-	if _, ok := s.At(tr, 2, 8); !ok {
+	if _, ok := s.At(tr.Layout(), 2, 8); !ok {
 		t.Error("a prompt scrolled off the top was not pinned")
 	}
 }
@@ -49,7 +49,7 @@ func TestThePinnedBlockIsTheOneAbove(t *testing.T) {
 		{from: 13, want: 2},
 		{from: 25, want: 4},
 	} {
-		p, ok := s.At(tr, tc.from, 8)
+		p, ok := s.At(tr.Layout(), tc.from, 8)
 		if !ok {
 			t.Errorf("from row %d nothing was pinned", tc.from)
 			continue
@@ -66,7 +66,7 @@ func TestTheNextPromptPushesTheHeaderOff(t *testing.T) {
 	tr, s := pinnable(t, 2)
 	// prompt1 begins at row 12, and the header's footprint is two rows plus a gap.
 
-	full, ok := s.At(tr, 4, 8)
+	full, ok := s.At(tr.Layout(), 4, 8)
 	if !ok || full.ClipTop != 0 || full.Rows != 3 {
 		t.Fatalf("well clear of the next prompt: %+v", full)
 	}
@@ -75,7 +75,7 @@ func TestTheNextPromptPushesTheHeaderOff(t *testing.T) {
 	}
 
 	// Close enough that the next prompt is inside the footprint.
-	pushed, ok := s.At(tr, 10, 8)
+	pushed, ok := s.At(tr.Layout(), 10, 8)
 	if !ok {
 		t.Fatal("nothing pinned while being pushed")
 	}
@@ -93,7 +93,7 @@ func TestTheNextPromptPushesTheHeaderOff(t *testing.T) {
 func TestTheHeaderGoesWhenItIsFullyPushed(t *testing.T) {
 	tr, s := pinnable(t, 2)
 	// Row 12 is where prompt1 begins, so at that point it is on screen itself.
-	if _, ok := s.At(tr, 12, 8); ok {
+	if _, ok := s.At(tr.Layout(), 12, 8); ok {
 		t.Error("the old header survived the new prompt arriving")
 	}
 }
@@ -109,7 +109,7 @@ func TestATallPromptCollapses(t *testing.T) {
 
 	heights := make([]int, 0, 6)
 	for from := 1; from <= 6; from++ {
-		p, ok := s.At(tr, from, 10)
+		p, ok := s.At(tr.Layout(), from, 10)
 		if !ok {
 			t.Fatalf("nothing pinned from row %d", from)
 		}
@@ -130,7 +130,7 @@ func TestAPromptThatDoesNotCollapseKeepsItsHeight(t *testing.T) {
 	tr.Append(&block{name: "tall", lines: 6})
 	tr.Append(&block{name: "answer", lines: 30})
 
-	p, ok := s.At(tr, 5, 10)
+	p, ok := s.At(tr.Layout(), 5, 10)
 	if !ok {
 		t.Fatal("nothing pinned")
 	}
@@ -154,7 +154,7 @@ func TestStickyAnswersNothingWhenThereIsNothingToAnswer(t *testing.T) {
 		{name: "above everything", tr: tr, s: s, from: -5, rows: 8},
 		{name: "past everything", tr: tr, s: s, from: 500, rows: 8},
 	} {
-		if _, ok := tc.s.At(tc.tr, tc.from, tc.rows); ok {
+		if _, ok := tc.s.At(tc.tr.Layout(), tc.from, tc.rows); ok {
 			t.Errorf("%s: something was pinned", tc.name)
 		}
 	}
@@ -167,7 +167,7 @@ func TestStickyIgnoresBlocksThatAreNotThere(t *testing.T) {
 	tr.Append(&block{name: "answer", lines: 20})
 	s := &headless.Sticky{Blocks: []headless.BlockID{0, 99}}
 
-	p, ok := s.At(tr, 5, 8)
+	p, ok := s.At(tr.Layout(), 5, 8)
 	if !ok || p.Block != 0 {
 		t.Errorf("pinned %+v (%v), want block 0", p, ok)
 	}
@@ -181,7 +181,7 @@ func TestAPinnedBlockOfNoHeightIsNotPinned(t *testing.T) {
 	tr.Append(&block{name: "answer", lines: 20})
 	s := &headless.Sticky{Blocks: []headless.BlockID{1}}
 
-	if _, ok := s.At(tr, 6, 8); ok {
+	if _, ok := s.At(tr.Layout(), 6, 8); ok {
 		t.Error("a block with no rows was pinned")
 	}
 }

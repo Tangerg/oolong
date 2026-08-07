@@ -54,7 +54,7 @@ import (
 // a bug that shows on screen — the drawing is simply discarded — which is what makes
 // the box a boundary rather than a convention.
 type Widget interface {
-	Draw(view grid.View)
+	Draw(frame Frame)
 }
 
 // Sized is a widget whose size along the axis being divided follows from the room it
@@ -75,6 +75,38 @@ type Widget interface {
 type Sized interface {
 	Widget
 	layout.Measurer
+}
+
+// Block is finished or deliberately retained drawable content.
+//
+// Unlike a live [Widget], a Block has no routing geometry and draws directly into a
+// grid view. This is the shape accepted by transcripts and inline publication: once a
+// block is committed, it can leave the active component tree without carrying a frame
+// transaction or interaction lifecycle with it.
+type Block interface {
+	Draw(view grid.View)
+	layout.Measurer
+}
+
+// Static adapts a passive [Block] into a measured live [Widget].
+//
+// It is the explicit bridge for a document or other finished value shown in a
+// [Viewport]. The block remains passive; the active tree owns only its placement.
+type Static struct{ Of Block }
+
+// Draw draws the passive block into frame.
+func (s Static) Draw(frame Frame) {
+	if s.Of != nil {
+		s.Of.Draw(frame.View)
+	}
+}
+
+// Measure forwards the block's measurement.
+func (s Static) Measure(across int) int {
+	if s.Of == nil {
+		return 0
+	}
+	return s.Of.Measure(across)
 }
 
 // Interactive is a widget that answers input.

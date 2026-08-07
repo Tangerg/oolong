@@ -39,6 +39,9 @@ type Transcript struct {
 	rows   int
 	start  int
 	first  BlockID
+
+	pendingLayout transcriptLayoutState
+	staged        *transaction
 }
 
 // BlockID is the stable identity of one block in a [Transcript].
@@ -56,7 +59,7 @@ type BlockID int
 // visible — is a question about tops, and a session with ten thousand blocks would
 // otherwise add ten thousand numbers to answer each one.
 type placed struct {
-	block  Sized
+	block  Block
 	height int
 	top    int
 	// finished says the block will not change again, which is what makes it eligible
@@ -86,7 +89,7 @@ func (t *Transcript) Width() int { return t.width }
 
 // Append adds a block at the end, measures it, and returns its stable identity.
 // Appending nil changes nothing and returns the next available identity.
-func (t *Transcript) Append(b Sized) BlockID {
+func (t *Transcript) Append(b Block) BlockID {
 	id := t.first + BlockID(len(t.blocks))
 	if b == nil {
 		return id
@@ -98,7 +101,7 @@ func (t *Transcript) Append(b Sized) BlockID {
 }
 
 // Block is the live block with id, or nil when there is none.
-func (t *Transcript) Block(id BlockID) Sized {
+func (t *Transcript) Block(id BlockID) Block {
 	i, ok := t.position(id)
 	if !ok {
 		return nil
@@ -108,7 +111,7 @@ func (t *Transcript) Block(id BlockID) Sized {
 
 // Last is the block most recently appended, or nil when the transcript is empty. It
 // is the one a streaming answer is still arriving into.
-func (t *Transcript) Last() Sized {
+func (t *Transcript) Last() Block {
 	if len(t.blocks) == 0 {
 		return nil
 	}
@@ -146,6 +149,186 @@ func (t *Transcript) Resize(width int) int {
 	return t.rows
 }
 
+// Layout returns the transcript's currently committed geometry.
+func (t *Transcript) Layout() TranscriptLayout {
+	if t == nil {
+		return TranscriptLayout{}
+	}
+	return TranscriptLayout{state: transcriptLayoutState{
+		blocks: t.blocks,
+		width:  t.width,
+		rows:   t.rows,
+		start:  t.start,
+		first:  t.first,
+	}}
+}
+
+// Stage lays the transcript out at width for a component frame.
+//
+// A changed width is measured into private pending placement. The new row space
+// becomes observable through Layout, Height, Extent, selection and search only when
+// the complete Root frame commits. Calling Stage at the committed width reuses the
+// existing placement without allocation.
+func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
+	if t == nil {
+		return TranscriptLayout{}
+	}
+	width = max(width, 0)
+	if t.staged == nil && width == t.width {
+		return t.Layout()
+	}
+	if frame.transaction == nil || !frame.transaction.active {
+		panic("headless: transcript layout staged outside Root.Draw")
+	}
+	if t.staged != frame.transaction {
+		if t.staged != nil {
+			panic("headless: transcript layout staged by two roots")
+		}
+		t.staged = frame.transaction
+		frame.transaction.states = append(frame.transaction.states, t)
+	}
+
+	blocks := make([]placed, len(t.blocks))
+	top := t.start
+	for i, current := range t.blocks {
+		height := 0
+		if width > 0 && current.block != nil {
+			height = max(current.block.Measure(width), 0)
+		}
+		blocks[i] = placed{
+			block: current.block, height: height, top: top, finished: current.finished,
+		}
+		top += height
+	}
+	t.pendingLayout = transcriptLayoutState{
+		blocks: blocks,
+		width:  width,
+		rows:   top - t.start,
+		start:  t.start,
+		first:  t.first,
+	}
+	return TranscriptLayout{state: t.pendingLayout}
+}
+
+func (t *Transcript) commit(tx *transaction) {
+	if t.staged != tx {
+		return
+	}
+	t.blocks = t.pendingLayout.blocks
+	t.width = t.pendingLayout.width
+	t.rows = t.pendingLayout.rows
+	t.pendingLayout = transcriptLayoutState{}
+	t.staged = nil
+}
+
+func (t *Transcript) abort(tx *transaction) {
+	if t.staged != tx {
+		return
+	}
+	t.pendingLayout = transcriptLayoutState{}
+	t.staged = nil
+}
+
+type transcriptLayoutState struct {
+	blocks []placed
+	width  int
+	rows   int
+	start  int
+	first  BlockID
+}
+
+// TranscriptLayout is the immutable placement used to draw one transcript frame.
+// It is returned by Transcript.Layout and Transcript.Stage.
+type TranscriptLayout struct{ state transcriptLayoutState }
+
+// Height is the number of live rows in this layout.
+func (l TranscriptLayout) Height() int { return l.state.rows }
+
+// StartRow is the first live row in this layout.
+func (l TranscriptLayout) StartRow() int { return l.state.start }
+
+// EndRow is the exclusive end of this layout's live rows.
+func (l TranscriptLayout) EndRow() int { return l.state.start + l.state.rows }
+
+// FirstBlock is the identity of the first live block.
+func (l TranscriptLayout) FirstBlock() BlockID { return l.state.first }
+
+// Block returns the live block with id.
+func (l TranscriptLayout) Block(id BlockID) Block {
+	i, ok := l.position(id)
+	if !ok {
+		return nil
+	}
+	return l.state.blocks[i].block
+}
+
+// Extent is the first row and height occupied by id.
+func (l TranscriptLayout) Extent(id BlockID) (top, height int, ok bool) {
+	i, ok := l.position(id)
+	if !ok {
+		return 0, 0, false
+	}
+	block := l.state.blocks[i]
+	return block.top, block.height, true
+}
+
+// Draw writes the window of rows starting at from.
+func (l TranscriptLayout) Draw(v grid.View, from int) {
+	w, h := v.Size()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	first, last := l.visible(from, h)
+	for i := first; i < last; i++ {
+		block := l.state.blocks[i]
+		if block.height == 0 {
+			continue
+		}
+		y := block.top - from
+		block.block.Draw(v.Sub(image.Rect(0, y, w, y+block.height)))
+	}
+}
+
+func (l TranscriptLayout) position(id BlockID) (int, bool) {
+	i := int(id - l.state.first)
+	return i, id >= l.state.first && i >= 0 && i < len(l.state.blocks)
+}
+
+func (l TranscriptLayout) visible(from, rows int) (first, last int) {
+	if rows <= 0 || l.state.rows == 0 || from >= l.EndRow() {
+		return len(l.state.blocks), len(l.state.blocks)
+	}
+	if from < l.state.start {
+		if l.state.start > 0 {
+			rows -= l.state.start - from
+		}
+		from = l.state.start
+	}
+	if rows <= 0 {
+		return len(l.state.blocks), len(l.state.blocks)
+	}
+	first = l.index(from)
+	end := from + rows
+	last = first
+	for last < len(l.state.blocks) && l.state.blocks[last].top < end {
+		last++
+	}
+	return first, last
+}
+
+func (l TranscriptLayout) index(row int) int {
+	lo, hi := 0, len(l.state.blocks)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if l.state.blocks[mid].top <= row {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
+}
+
 // remeasure recomputes heights and tops from i onwards.
 func (t *Transcript) remeasure(from int) {
 	top := t.start
@@ -162,7 +345,7 @@ func (t *Transcript) remeasure(from int) {
 }
 
 // measure is a block's height at the current width, never negative.
-func (t *Transcript) measure(b Sized) int {
+func (t *Transcript) measure(b Block) int {
 	if t.width <= 0 {
 		return 0
 	}
@@ -410,7 +593,7 @@ func (t *Transcript) Finished(id BlockID) bool {
 // program — that is the trade printing makes, and it is why nothing is committed
 // unless it is asked for. What it buys is that the output survives the program
 // exiting, and that a session's memory stops growing.
-func (t *Transcript) Commit(give func(b Sized, rows int) bool) int {
+func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 	if give == nil {
 		return 0
 	}

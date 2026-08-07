@@ -68,8 +68,8 @@ func (p Pinned) Visible() int { return max(p.Height-p.ClipTop, 0) }
 // There is none while the block that would be pinned is still fully on screen: a
 // header repeating something already visible two rows below is noise, and the moment
 // it stops being visible is exactly the moment it starts being worth showing.
-func (s *Sticky) At(t *Transcript, from, rows int) (Pinned, bool) {
-	if t == nil || rows <= 0 || len(s.Blocks) == 0 ||
+func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
+	if rows <= 0 || len(s.Blocks) == 0 ||
 		from < t.StartRow() || from >= t.EndRow() {
 		// A view scrolled past everything has nothing below the header for the header
 		// to give context to.
@@ -114,7 +114,7 @@ func (s *Sticky) At(t *Transcript, from, rows int) (Pinned, bool) {
 }
 
 // pinnedAt is the last pinnable block at or above a row.
-func (s *Sticky) pinnedAt(t *Transcript, row int) (BlockID, bool) {
+func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 	var found BlockID
 	ok := false
 	for _, id := range s.Blocks {
@@ -131,7 +131,7 @@ func (s *Sticky) pinnedAt(t *Transcript, row int) (BlockID, bool) {
 }
 
 // nextAfter is the row the next pinnable block after i begins on.
-func (s *Sticky) nextAfter(t *Transcript, id BlockID) (int, bool) {
+func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
 	for _, candidate := range s.Blocks {
 		if candidate <= id {
 			continue

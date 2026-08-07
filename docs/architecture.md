@@ -373,6 +373,20 @@ whole pending snapshot into committed state only after the complete root draw re
 previous frame; an event arriving after it sees the new one. No child may publish its
 new hit regions early.
 
+The implemented boundary is deliberately small. A live `headless.Widget` draws into a
+`headless.Frame`, which embeds its clipped `grid.View` and carries the root transaction
+through `Sub` and `Subs`. `headless.Root` is the only adapter to the runtime's
+consumer-defined `program.Component`; it commits every nested `Snapshot` after the
+whole tree returns and aborts pending state if drawing panics. `Scroll.Stage` and
+`Transcript.Stage` apply the same transaction to derived viewport bounds and transcript
+reflow, so those lower reusable models do not publish a new coordinate space early.
+
+Passive completed content is a different contract: a `headless.Block` draws directly
+into a `grid.View`, measures itself, and owns no routing geometry. `headless.Static` is
+the explicit bridge when a block must appear inside a live widget tree. A passive block
+that needs a geometric query takes the relevant constraint as an argument; it does not
+write an invisible hit map during drawing.
+
 This transaction belongs to the component side of the dependency graph. The runtime
 only invokes `Draw` and `Handle`; it does not call back into `headless` to announce that
 a frame was accepted, and `headless` does not import `program`, `present`, or terminal
@@ -781,18 +795,17 @@ unsettled ownership or lifetime contract may not.
 
 Most of the existing foundation already points in this direction: inline publication,
 bounded transcript release, causal input streams, bounded byte ingress, fault-injected
-ownership settlement, the one-owner runtime, incremental markdown, clipped cell views,
-consumer-defined capabilities, and the enforced dependency DAG are assets to preserve.
+ownership settlement, atomic component-side presentation snapshots, transactional
+scroll and transcript reflow, the live-widget/passive-block distinction, the one-owner
+runtime, incremental markdown, clipped cell views, consumer-defined capabilities, and
+the enforced dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 
 These contradict a `must` in this document and must be empty before v1:
 
-- **Geometry becomes observable during drawing.** Containers, stacks, fields, and
-  dressed components record hit-test geometry while they draw. The data is correctly
-  derived, but there is not yet a distinct commit point tying the routing snapshot to
-  the frame accepted for presentation. A durable fix should establish that boundary,
-  not add another cache beside the existing ones.
+- None currently known. New violations belong here immediately; this empty list is a
+  testable release condition, not a claim that future audits cannot find one.
 
 ### 14.2 Missing capabilities and proofs
 
@@ -867,6 +880,15 @@ The component composition root stages a pending routing snapshot during `Draw` a
 swaps it after the root draw completes. The runtime receives no component-specific
 callback. The old/new snapshot test in section 10 is the completion condition. This
 slice may remain inside `headless` if no independent package boundary has been earned.
+
+This slice is complete. `Root`, `Frame`, and `Snapshot` provide the component-owned
+commit boundary; containers, stacks, fields, lists, editors, viewports and dressed
+controls route through it. `Scroll.Stage` and `Transcript.Stage` keep viewport bounds
+and width-dependent transcript placement on the same transaction. The required nested
+test changes both an outer and inner layout, routes an event during drawing to the old
+pair, observes the new pair after commit, and proves that either mixed pair is
+unobservable. Panic tests prove that pending values and references are released while
+the previous frame remains current.
 
 ### Slice 3: compound headless controls
 

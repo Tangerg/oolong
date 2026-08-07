@@ -22,7 +22,7 @@ type panel struct {
 	closed    int
 }
 
-func (p *panel) Draw(v grid.View) {
+func (p *panel) Draw(v headless.Frame) {
 	w, h := v.Size()
 	p.drawnInto = []int{w, h}
 	v.Text(0, 0, p.name, grid.Style{})
@@ -52,7 +52,7 @@ func middle(w, h int) layout.Placement {
 // draw lays the stack out in a space, which is what fills in where each layer
 // went so a later hit test has something to ask about.
 func draw(s *headless.Stack, w, h int) {
-	s.Draw(grid.NewSurface(w, h).View())
+	headless.NewRoot(s).Draw(grid.NewSurface(w, h).View())
 }
 
 func esc() input.Event { return input.Key{Code: input.Esc} }
@@ -109,9 +109,32 @@ func TestEscapePopsTheTopLayer(t *testing.T) {
 	if s.Depth() != 1 {
 		t.Fatalf("depth = %d, want the top layer gone", s.Depth())
 	}
+	draw(&s, 20, 10)
 	s.Handle(esc())
 	if !s.Empty() {
 		t.Fatal("the second escape did not empty the stack")
+	}
+}
+
+func TestInputAboutAnOlderFrameDoesNotDismissANewerLayer(t *testing.T) {
+	old := &panel{name: "old", place: middle(4, 2)}
+	newer := &panel{name: "new", place: middle(6, 3)}
+	var s headless.Stack
+	s.Push(old)
+	draw(&s, 20, 10)
+
+	// The semantic stack changes before its next frame. Escape is still routed to
+	// what is visible, but must not pop the newer layer the user has never seen.
+	s.Push(newer)
+	s.Handle(esc())
+	if s.Depth() != 2 {
+		t.Fatalf("input about the old frame changed depth to %d, want both layers kept", s.Depth())
+	}
+
+	draw(&s, 20, 10)
+	s.Handle(esc())
+	if s.Depth() != 1 || s.Top() != old {
+		t.Fatal("the newer layer was not dismissible after its frame committed")
 	}
 }
 
