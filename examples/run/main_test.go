@@ -12,6 +12,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	host := fake.New(t, 60, 8)
 	var r *runner
 	done := make(chan error, 1)
+	ready := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
@@ -19,18 +20,28 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 				// Not newRunner: that one starts a process, and what is being tested is
 				// what happens to what it says.
 				r = &runner{
-					runtime: runtime, dispatch: runtime.Dispatcher(),
+					runtime: runtime,
 					command: []string{"a", "command"}, status: "running",
 				}
+				var err error
+				r.ingress, err = program.NewByteIngress(runtime.Dispatcher(), 8, r.accept)
+				ready <- err
 				return r
 			},
 		})
 	}()
+	if err := <-ready; err != nil {
+		t.Fatal(err)
+	}
 	host.Shows(t, "ctrl+e: editor")
 
 	// A chunk boundary can fall anywhere, including inside an escape sequence.
-	r.dispatch.Post(func() { r.output("plain \x1b[3") })
-	r.dispatch.Post(func() { r.output("1mred\x1b[0m and more\nsecond line\nhalf a li") })
+	if _, err := r.ingress.Write([]byte("plain \x1b[3")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ingress.Write([]byte("1mred\x1b[0m and more\nsecond line\nhalf a li")); err != nil {
+		t.Fatal(err)
+	}
 
 	// What a newline finished is printed into the terminal's own output; what is left
 	// is still being drawn.
@@ -44,7 +55,9 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 		return contains(host.Frames(), "128;0;0") || contains(host.Frames(), "red")
 	})
 
-	r.dispatch.Post(func() { r.finish(nil) })
+	if err := r.ingress.Close(); err != nil {
+		t.Fatal(err)
+	}
 	host.Until(t, "the run to be said to be over", func() bool {
 		_, rang, notified, _ := host.Said()
 		return rang == 1 && len(notified) == 1

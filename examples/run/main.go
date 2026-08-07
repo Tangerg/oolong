@@ -21,9 +21,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -56,10 +57,10 @@ func main() {
 
 // runner is the live block: what is still being written, and what is happening.
 type runner struct {
-	runtime  *program.InlineRuntime
-	dispatch program.Dispatcher
-	theme    kit.Theme
-	command  []string
+	runtime *program.InlineRuntime
+	ingress *program.ByteIngress
+	theme   kit.Theme
+	command []string
 
 	// out reads the escape sequences a command wrote back into styled text. It holds
 	// the state between chunks — the colour in force, half a sequence — which is why
@@ -72,7 +73,7 @@ type runner struct {
 
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	theme := kit.Suited(runtime.Environment().Ground())
-	r := &runner{runtime: runtime, dispatch: runtime.Dispatcher(), theme: theme, command: command}
+	r := &runner{runtime: runtime, theme: theme, command: command}
 	r.out.Base = theme.Text
 	r.spinner = kit.Spinner{Theme: theme, Label: strings.Join(command, " ")}
 	r.status = "starting"
@@ -81,44 +82,75 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	// is the one thing an interface cannot say by drawing.
 	runtime.Session().SetTitle(strings.Join(command, " "))
 	runtime.Every(120*time.Millisecond, r.spinner.Tick)
+	var err error
+	r.ingress, err = program.NewByteIngress(runtime.Dispatcher(), 64<<10, r.accept)
+	if err != nil {
+		r.finish(err)
+		return r
+	}
 	go r.start()
 	return r
 }
 
-// start runs the command and posts what it says.
+// start runs the command and writes what it says into the bounded ingress.
 //
-// The reading happens here, on a goroutine of its own, and every chunk is posted to
-// the one goroutine that owns the interface. That is the whole concurrency model:
-// nothing else may touch what is on screen.
+// The reading happens here, on a goroutine of its own. ByteIngress batches adjacent
+// reads, bounds how far this producer can lead the interface, and calls accept on the
+// one goroutine that owns the interface. Nothing here touches what is on screen.
 func (r *runner) start() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-r.ingress.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	//nolint:gosec // G204: running what the user asked for on their own command line
 	// is the whole of what this program is.
-	cmd := exec.CommandContext(context.Background(), r.command[0], r.command[1:]...)
+	cmd := exec.CommandContext(ctx, r.command[0], r.command[1:]...)
 	pipe, opened := cmd.StdoutPipe()
 	if opened != nil {
-		r.dispatch.Post(func() { r.finish(opened) })
+		_ = r.ingress.CloseWithError(opened)
 		return
 	}
 	cmd.Stderr = cmd.Stdout
 	if started := cmd.Start(); started != nil {
-		r.dispatch.Post(func() { r.finish(started) })
+		_ = r.ingress.CloseWithError(started)
 		return
 	}
 
-	reader := bufio.NewReader(pipe)
 	buf := make([]byte, 4096)
+	var readErr error
 	for {
-		n, read := reader.Read(buf)
+		n, read := pipe.Read(buf)
 		if n > 0 {
-			chunk := string(buf[:n])
-			r.dispatch.Post(func() { r.output(chunk) })
+			if _, err := r.ingress.Write(buf[:n]); err != nil {
+				_ = cmd.Wait()
+				return
+			}
 		}
 		if read != nil {
+			if !errors.Is(read, io.EOF) {
+				readErr = read
+			}
 			break
 		}
 	}
 	ended := cmd.Wait()
-	r.dispatch.Post(func() { r.finish(ended) })
+	_ = r.ingress.CloseWithError(errors.Join(readErr, ended))
+}
+
+// accept applies one ordered byte batch on the interface owner.
+func (r *runner) accept(batch program.ByteBatch) {
+	if len(batch.Data) > 0 {
+		r.output(string(batch.Data))
+	}
+	if batch.Final {
+		r.finish(batch.Err)
+	}
 }
 
 // output takes a piece of what the command said. Everything a newline finished

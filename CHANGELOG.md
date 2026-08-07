@@ -11,6 +11,13 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Added
+
+- **Bounded lossless byte ingress.** `program.ByteIngress` batches adjacent writes
+  behind at most one owner task, bounds pending producer data, applies backpressure,
+  orders a final error after accepted bytes, and cancels with its dispatcher. The
+  subprocess example now uses it instead of posting one unbounded closure per read.
+
 ### Changed
 
 - **Host input is now one causal lifecycle.** `program.Host.Input` returns an

@@ -64,10 +64,14 @@ func New(t *testing.T, w, h int) *Host {
 // cannot answer, it answers as the nothing it is — which is exactly what a program
 // has to cope with when the terminal it was given turned out to be a pipe.
 
-// Events is the input, closed when the input ends.
+// Input returns the host as one clean-ending event source.
 func (h *Host) Input() program.EventSource { return h }
+
+// Events is the input, closed when the input ends.
 func (h *Host) Events() <-chan input.Event { return h.events }
-func (h *Host) Err() error                 { return nil }
+
+// Err reports a clean input end. Tests stop this host through the program context.
+func (h *Host) Err() error { return nil }
 
 // Writer is where frames go.
 func (h *Host) Writer() program.FrameWriter { return h.writer }

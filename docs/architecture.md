@@ -508,10 +508,16 @@ it must specify:
 - which goroutine invokes the consumer;
 - whether an error or final partial chunk is delivered before close.
 
-No generic mailbox, observable, or stream framework is added until a complete
-subprocess or network-driven example demonstrates the required policy. When one is
-added, it should build on the existing dispatcher and task queue rather than creating a
-second owner loop.
+[`program.ByteIngress`](../core/program/ingress.go) is the deliberately narrow result
+proven by the subprocess example. It accepts lossless bytes, blocks the producer when
+its explicit pending-byte limit is full, batches adjacent writes behind at most one
+owner task, delivers completion or failure after accepted data, and stops with its
+dispatcher. It creates no second owner loop and does not change the non-blocking
+`Dispatcher.Post` contract.
+
+That proof does not justify a generic mailbox, observable, typed stream, or policy for
+the other two semantic classes. Those abstractions still require complete callers of
+their own.
 
 ### 8.1 Incremental transformation
 
@@ -774,9 +780,9 @@ unsettled ownership or lifetime contract may not.
 ## 14. Current conformance and capability gaps
 
 Most of the existing foundation already points in this direction: inline publication,
-bounded transcript release, causal input streams, the one-owner runtime, incremental
-markdown, clipped cell views, consumer-defined capabilities, and the enforced
-dependency DAG are assets to preserve.
+bounded transcript release, causal input streams, bounded byte ingress, the one-owner
+runtime, incremental markdown, clipped cell views, consumer-defined capabilities, and
+the enforced dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 
@@ -793,11 +799,6 @@ These contradict a `must` in this document and must be empty before v1:
 These are not current invariant violations. They are capabilities or end-to-end proof
 the system still needs:
 
-- **General dispatch has no stream backpressure policy.** `Dispatcher.Post` correctly
-  avoids blocking the owner, but a fast producer can create an unbounded FIFO of
-  closures. Streaming ingestion still needs the semantic classification and end-to-end
-  proof described in section 8. The fix belongs in a higher stream-ingress object; the
-  non-blocking dispatcher contract remains intact.
 - **Failure behavior is implemented in pieces but not proven as one contract.** Writer
   failure, drain, cancellation, terminal restoration, host EOF, and capability absence
   have tests in their own areas. The failure matrix in section 9 still needs a single
@@ -844,16 +845,18 @@ Build or extend a worked interface that combines:
 This is the architecture probe. Any new abstraction must make this interface simpler
 without teaching lower packages what a chat, model, approval, or command is.
 
-This slice owns the missing stream-ingress policy. `Host.Input` already returns one
-causal `EventSource`: channel closure is followed by an `Err` result, so clean EOF and
-known transport failure stay distinct without coupling `program` to a concrete host.
+`Host.Input` already returns one causal `EventSource`: channel closure is followed by
+an `Err` result, so clean EOF and known transport failure stay distinct without
+coupling `program` to a concrete host. `ByteIngress` now supplies the lossless byte
+policy: its subprocess caller proves batching, a pending-byte bound, producer
+backpressure, ordered completion and failure, and owner cancellation without changing
+general dispatch.
 `Transcript.Commit` already physically releases committed payload and per-block
 placement records while preserving an aggregate live coordinate base; its deterministic
 retention test and fresh-process `N` versus `2N` GC test are gates the rest of this
-slice must keep green. The stream ingress must batch lossless chunks, bound producer
-lead, preserve completion and error ordering, and cancel without leaking a goroutine.
-A demonstration that merely renders the right final screen while retaining the session
-is not complete.
+slice must keep green. The remaining work in this slice is the combined interface and
+fault-injected failure proof above. A demonstration that merely renders the right final
+screen while retaining the session is not complete.
 
 ### Slice 2: remove presentation-state leakage
 

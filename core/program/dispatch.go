@@ -27,18 +27,18 @@ func newTaskQueue() *taskQueue {
 
 // post appends one task without waiting for the interface goroutine. A nil task is
 // meaningful: applying it asks for a frame without changing state.
-func (q *taskQueue) post(fn func()) {
+func (q *taskQueue) post(fn func()) bool {
 	q.mu.Lock()
 	if q.stopped {
 		q.mu.Unlock()
-		return
+		return false
 	}
 	if fn == nil {
 		// A refresh carries no state and the loop draws only after the batch. Keeping
 		// more than one would consume memory without changing a frame.
 		if q.refresh {
 			q.mu.Unlock()
-			return
+			return true
 		}
 		q.refresh = true
 	} else {
@@ -46,6 +46,7 @@ func (q *taskQueue) post(fn func()) {
 	}
 	q.mu.Unlock()
 	q.signal()
+	return true
 }
 
 // take removes the work that was waiting at the instant it was called. Work posted
@@ -100,7 +101,25 @@ func (q *taskQueue) stop() {
 // — which is what a nil function is for, and why several of them collapse into one.
 // [Runtime.Every] is the same discipline applied to a clock.
 func (d Dispatcher) Post(fn func()) {
-	if d.tasks != nil {
-		d.tasks.post(fn)
-	}
+	_ = d.post(fn)
 }
+
+// Done is closed when the program can no longer accept or apply work. The zero
+// Dispatcher's channel is already closed. A background producer selects on Done to
+// stop work that has no remaining owner.
+func (d Dispatcher) Done() <-chan struct{} {
+	if d.tasks == nil {
+		return stoppedDispatcher
+	}
+	return d.tasks.done
+}
+
+func (d Dispatcher) post(fn func()) bool {
+	return d.tasks != nil && d.tasks.post(fn)
+}
+
+var stoppedDispatcher = func() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}()
