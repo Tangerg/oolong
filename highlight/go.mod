@@ -3,7 +3,7 @@ module github.com/Tangerg/oolong/highlight
 go 1.26.0
 
 require (
-	github.com/Tangerg/oolong/core v0.0.5
+	github.com/Tangerg/oolong/core v0.1.0
 	github.com/alecthomas/chroma/v2 v2.27.0
 )
 
