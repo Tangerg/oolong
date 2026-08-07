@@ -1,15 +1,49 @@
 package main
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/examples/internal/fake"
+	"github.com/Tangerg/oolong/core/programtest"
 )
 
+// observedHost adds exactly the session capabilities this example exercises.
+type observedHost struct {
+	*programtest.Host
+	mu       sync.Mutex
+	title    string
+	rang     int
+	notified []string
+}
+
+func (h *observedHost) SetTitle(title string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.title = title
+}
+
+func (h *observedHost) Bell() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.rang++
+}
+
+func (h *observedHost) Notify(text string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.notified = append(h.notified, text)
+}
+
+func (h *observedHost) attention() (int, int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.rang, len(h.notified)
+}
+
 func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) {
-	host := fake.New(t, 60, 8)
+	host := &observedHost{Host: programtest.New(t, 60, 8)}
 	var r *runner
 	done := make(chan error, 1)
 	ready := make(chan error, 1)
@@ -59,8 +93,8 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 		t.Fatal(err)
 	}
 	host.Until(t, "the run to be said to be over", func() bool {
-		_, rang, notified, _ := host.Said()
-		return rang == 1 && len(notified) == 1
+		rang, notified := host.attention()
+		return rang == 1 && notified == 1
 	})
 
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})

@@ -101,6 +101,69 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 	}
 }
 
+type panelChild struct {
+	focused bool
+	across  int
+	event   input.Event
+}
+
+func (c *panelChild) Draw(frame headless.Frame) {
+	frame.Text(0, 0, "inside", grid.Style{})
+}
+
+func (c *panelChild) Measure(across int) int {
+	c.across = across
+	return 2
+}
+
+func (c *panelChild) Focus(has bool) { c.focused = has }
+
+func (c *panelChild) Handle(event input.Event) bool {
+	c.event = event
+	return true
+}
+
+func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
+	child := &panelChild{}
+	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	panel.Box.Padding = layout.Uniform(1)
+	panel.Box.Title = "pane"
+
+	rows := paintWidget(12, 5, panel)
+	if !strings.Contains(rows[0], "pane") || !strings.Contains(rows[2], "inside") {
+		t.Fatalf("panel drew:\n%s\nwant its title and child inside the frame", strings.Join(rows, "\n"))
+	}
+	if got := panel.Measure(12); got != 6 {
+		t.Fatalf("Measure = %d, want child height 2 plus four rows of chrome", got)
+	}
+	if child.across != 8 {
+		t.Fatalf("child measured at width %d, want the 12 columns minus four columns of chrome", child.across)
+	}
+}
+
+func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
+	child := &panelChild{}
+	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	panel.Box.Padding = layout.Uniform(1)
+	root := headless.NewRoot(panel)
+	root.Draw(grid.NewSurface(12, 6).View())
+
+	panel.Focus(true)
+	if !child.focused {
+		t.Fatal("panel did not pass keyboard ownership to its child")
+	}
+	if panel.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown}) {
+		t.Fatal("panel passed a press on its border to its child")
+	}
+	if !panel.Handle(input.Mouse{Pos: image.Pt(3, 2), Action: input.MouseDown}) {
+		t.Fatal("panel declined a press inside its content")
+	}
+	got, ok := child.event.(input.Mouse)
+	if !ok || got.Pos != image.Pt(1, 0) {
+		t.Fatalf("child received %#v, want a pointer at its local coordinate (1,0)", child.event)
+	}
+}
+
 func TestBoxTitleSitsInTheBorder(t *testing.T) {
 	rows := paint(12, 2, func(v grid.View) {
 		kit.Box{Glyphs: kit.Unicode(), Title: "Plan"}.Draw(v)

@@ -2,16 +2,44 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/examples/internal/fake"
+	"github.com/Tangerg/oolong/core/programtest"
 )
 
+// observedHost adds only the two session capabilities this example exercises.
+// Embedding the minimal public test host keeps capability absence testable.
+type observedHost struct {
+	*programtest.Host
+	mu       sync.Mutex
+	title    string
+	notified []string
+}
+
+func (h *observedHost) SetTitle(title string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.title = title
+}
+
+func (h *observedHost) Notify(text string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.notified = append(h.notified, text)
+}
+
+func (h *observedHost) state() (string, int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.title, len(h.notified)
+}
+
 func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
-	host := fake.New(t, 72, 10)
+	host := &observedHost{Host: programtest.New(t, 72, 10)}
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
@@ -32,8 +60,8 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 	})
 	// And the whole answer arrives, ending with the row that says so.
 	host.Until(t, "the answer to finish", func() bool {
-		title, _, notified, _ := host.Said()
-		return title == "" && len(notified) == 1
+		title, notified := host.state()
+		return title == "" && notified == 1
 	})
 	host.Shows(t, "that is the whole answer")
 

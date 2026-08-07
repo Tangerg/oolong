@@ -4,11 +4,11 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/examples/internal/fake"
+	"github.com/Tangerg/oolong/core/programtest"
 )
 
 func TestItDrawsAndAnswersAndStops(t *testing.T) {
-	host := fake.New(t, 60, 12)
+	host := programtest.New(t, 60, 12)
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

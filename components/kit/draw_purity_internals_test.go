@@ -189,6 +189,15 @@ func kitDrawPurityCases() []drawPurityCase {
 		}{dialog.Semantics(), meaningOfEditor(dialogBody)}
 	}))
 
+	panelBody := headless.NewEditor()
+	panelBody.Insert("body")
+	panelBody.Focus(true)
+	panel := NewPanel(Theme{}, Unicode(), panelBody)
+	panel.Box.Title = "panel"
+	cases = append(cases, widgetPurityCase("*Panel", panel, func() any {
+		return meaningOfEditor(panelBody)
+	}))
+
 	firstPane := headless.NewEditor()
 	firstPane.Insert("first")
 	secondPane := headless.NewEditor()

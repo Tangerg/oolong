@@ -8,11 +8,11 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/examples/internal/fake"
+	"github.com/Tangerg/oolong/core/programtest"
 )
 
 func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
-	host := fake.New(t, 70, 14)
+	host := programtest.New(t, 70, 14)
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

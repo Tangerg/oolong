@@ -84,6 +84,7 @@ that wants one says so in a line.
 | `components/headless` | behaviour with no appearance. A list knows what the arrow keys do; it does not know what a selected row looks like, and draws one by calling back to whoever does. | Radix |
 | `components/kit` | one set of answers to what all that should look like, with a palette. A default, not a destination. | shadcn |
 | `core/program` | runtime composition over the terminal adapter and frame schedule. The only goroutine that touches interface state, and a ring that never knows the widgets exist. | the browser |
+| `core/programtest` | an in-process host above the runtime for application tests; its base type deliberately has no optional terminal capabilities. | browser test harness |
 | `markdown`, `highlight` | beside the ladder rather than on it: they turn text into the substrate's own lines, so anything that can draw those can draw a document or a block of code without either of them knowing about the other. | — |
 
 The layering is not a convention. `internal/arch` declares the direct dependency
@@ -140,11 +141,15 @@ noticing, and a program that does not render markdown never hear about it.
 Two ways, and the second is why the first is not enough:
 
 ```go
-program.Run(ctx, program.Config{Host: myHost, Inline: ...})   // no terminal in sight
-ptytest.Start("./my-cli")                                     // a real pty
+host := programtest.New(t, 80, 24)
+go program.Run(t.Context(), program.Config{Host: host, Inline: ...})
+host.Shows(t, "ready")
+
+session, err := ptytest.Start(t.Context(), "./my-cli") // a real pty
 ```
 
-A host proves an interface drew the frame it meant to. A pty proves the bytes of
+A `programtest.Host` proves an interface drew the frame it meant to, while remaining
+embeddable when a test needs to observe one optional capability. A pty proves the bytes of
 that frame do to a terminal what they were supposed to — that the block shrank
 without debris, that an idle interface writes nothing at all, that every mode the
 session turned on was turned off again in the reverse of the order it was set up.

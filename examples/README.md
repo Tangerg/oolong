@@ -26,7 +26,8 @@ it — and the runtime decides when a frame is worth drawing. An interface with 
 happening costs nothing.
 
 **Every one of them is testable without a terminal.** Beside each program is a test
-that starts it over [`internal/fake`](internal/fake), types at it, and reads what
-reached the screen. That is not a trick for the examples: it is
-`program.Config.Host`, and it is why the library can be used in a program that has
-tests.
+that starts it over the public [`programtest`](../core/programtest) host, types at it,
+and reads what reached the screen. The base host implements only the three required
+`program.Host` methods; a test embeds it to add exactly the optional capabilities it
+needs to observe. This is a supported application boundary, not an examples-only
+trick.

@@ -361,6 +361,15 @@ Containers may combine layout and routing because those responsibilities share t
 same committed geometry. The boundary to protect is between meaningful component
 state and derived geometry, not between two functions that always change together.
 
+Visual chrome has two legitimate composition shapes, selected by ownership rather
+than taste. Passive chrome such as `kit.Box` paints a region and returns its interior;
+it can frame a string, a block, a widget, or nothing because it owns no child and
+participates in no routing lifecycle. A live wrapper such as `kit.Panel` owns one
+focusable child, stages the interior rectangle with the root frame, translates pointer
+coordinates, and forwards keyboard ownership. The child type is deliberately narrowed
+to the capability the wrapper exposes: a general wrapper must not make a passive child
+appear focusable merely because Go cannot conditionally add methods to a type.
+
 Input must be routed against the geometry of the last completed logical frame. Here,
 "completed" means that the root `Draw` used to construct the frame has returned and the
 frame has been handed to the presentation pipeline; it does not mean that the terminal
@@ -672,6 +681,13 @@ architectural consequence without making an absolute allocation count the contra
 Benchmarks and long-running soak tests provide trend evidence, but do not replace the
 deterministic guard.
 
+Third-party program tests use [`programtest`](../core/programtest), an in-process host
+above the runtime in the enforced dependency DAG. Its base Host implements only the
+three required transport methods. Tests add optional terminal capabilities by embedding
+it in a local type, so the public harness does not make capability absence impossible
+to exercise. The examples consume this public package; no private fake is a hidden
+prerequisite for reproducing their tests.
+
 Not every semantic rule can be inferred by a repository-wide static test. Where
 enforcement is necessarily a test pattern, the slice that introduces a component or
 host must instantiate that pattern. Reviewers should reject a new `must` whose failure
@@ -828,8 +844,9 @@ ownership settlement, atomic component-side presentation snapshots, transactiona
 scroll and transcript reflow, the live-widget/passive-block distinction, the one-owner
 runtime, compound dialog and tabs controllers, structural component semantics,
 incremental markdown, clipped cell views, cross-platform resize observation,
-consumer-defined capabilities, executable drawing-purity classification, release API
-checks, and the enforced dependency DAG are assets to preserve.
+consumer-defined capabilities, a minimal public in-process program host, live framed
+single-child composition, executable drawing-purity classification, release API checks,
+and the enforced dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 
@@ -957,6 +974,10 @@ performs a hidden focus transition. Both controls project the same typed `Semant
 tree without exposing visual boxes. `kit.NewDialog` and `kit.NewTabs` are the polished,
 themeable short path while their controller and appearance parts remain reachable.
 Structural tests cover roles, selected/open/focused state and the two ownership modes.
+`kit.Panel` closes the separate composition gap between passive chrome and a live child:
+it preserves the child's focus capability, commits its inner routing geometry with the
+root frame, and is proven by both component tests and the framed panes in
+[`examples/files`](../examples/files).
 
 ### Slice 4: computed appearance and semantics
 

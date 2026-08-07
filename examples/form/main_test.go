@@ -6,14 +6,14 @@ import (
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/examples/internal/fake"
+	"github.com/Tangerg/oolong/core/programtest"
 )
 
 func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
 	var got answers
 	form := ask(&got)
 
-	host := fake.New(t, 50, 20)
+	host := programtest.New(t, 50, 20)
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

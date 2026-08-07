@@ -18,6 +18,21 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Added
+
+- **A public in-process program harness.** `core/programtest.Host` replaces the
+  examples-only fake with a supported application testing boundary. Its base type
+  implements only the three required `program.Host` transport methods, so tests can
+  still prove capability absence and can add individual optional capabilities by
+  embedding it. Frame-driven assertions avoid polling sleeps, and all examples now
+  test through this public path.
+
+- **A live framed panel composition.** `kit.Panel` owns one focusable child, measures
+  through its `Box` overhead, commits its inner routing rectangle with the root frame,
+  translates pointer coordinates, and forwards keyboard ownership. `Box` remains the
+  passive chrome for strings, blocks, widgets, or empty regions. The file-browser
+  example proves the new composition with two framed, independently focusable panes.
+
 ## [0.1.0] — 2026-08-07
 
 The first three architecture slices are complete and every invariant this document

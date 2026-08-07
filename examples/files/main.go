@@ -61,6 +61,8 @@ type browser struct {
 	dressed *kit.Tree[entry]
 	preview *kit.Paragraph
 	window  *headless.Viewport
+	treeBox *kit.Panel
+	viewBox *kit.Panel
 	body    *headless.Container
 
 	showing string
@@ -86,13 +88,18 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	// A window shows the part of something taller than the room there is. The preview
 	// is ordinary wrapped text and knows nothing about being scrolled.
 	b.window = &headless.Viewport{Content: headless.Static{Of: b.preview}}
+	glyphs := kit.GlyphsFor(os.Getenv)
+	b.treeBox = kit.NewPanel(theme, glyphs, b.dressed)
+	b.treeBox.Box.Title = "files"
+	b.viewBox = kit.NewPanel(theme, glyphs, b.window)
+	b.viewBox.Box.Title = "preview"
 
-	// The two panes, with a column between them. Which one has the keyboard is the
-	// container's, and so is which one a press landed in — in that pane's own
-	// coordinates, which is the part nobody should be writing by hand.
+	// The two framed panes, with a column between them. A panel translates from its
+	// border to its child, while the container translates from the whole row to the
+	// panel. Each object owns exactly the coordinate boundary it drew.
 	b.body = headless.Columns(
-		headless.Item{Size: layout.Part(2, 5), Of: b.dressed},
-		headless.Item{Size: layout.Flex(1), Of: b.window},
+		headless.Item{Size: layout.Part(2, 5), Of: b.treeBox},
+		headless.Item{Size: layout.Flex(1), Of: b.viewBox},
 	)
 	b.body.Gap = 1
 	b.body.Focus(true)

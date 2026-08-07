@@ -13,6 +13,8 @@ import (
 // It is not a container: it does not own a child. A caller draws the box and then
 // draws into the view the box hands back, which keeps the box out of the question
 // of what goes inside it and lets the same box frame a widget, a string, or nothing.
+// A focusable child that must participate in routing inside the frame belongs in a
+// [Panel], which owns that narrower live composition explicitly.
 type Box struct {
 	// Theme is the look. A box's parts each have a fixed role in one — the frame is
 	// a border, the interior is a surface, the title is a heading — so there is

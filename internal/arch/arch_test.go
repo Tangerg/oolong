@@ -73,6 +73,7 @@ var rings = []struct {
 	prefix string
 	name   string
 }{
+	{"core/programtest/", "testharness"},
 	{"core/program/", "runtime"},
 	{"core/term/", "infrastructure"},
 	{"core/text/", "model"},
@@ -113,6 +114,11 @@ var dependencies = map[string][]string{
 	"infrastructure": {"protocol"},
 	"runtime":        {"infrastructure", "coordination"},
 
+	// The in-process harness drives the public runtime from above. Product code has
+	// no path back to it, while the harness may use the standard terminal writer as
+	// the transport implementation hidden behind program's consumer interface.
+	"testharness": {"runtime"},
+
 	// Headless components combine interaction policy with derived text. Kit adds one
 	// appearance and nothing about the host that eventually runs it.
 	"headless": {"interaction", "model"},
@@ -126,7 +132,7 @@ var dependencies = map[string][]string{
 	// A harness is outside the product graph. Demonstrations are the composition
 	// root and may use every public branch, but nothing depends on them.
 	"harness":  nil,
-	"examples": {"runtime", "kit", "markdown", "highlight", "harness"},
+	"examples": {"testharness", "kit", "markdown", "highlight", "harness"},
 
 	// The architecture module contains only tests and imports no production ring.
 	"internal": nil,
@@ -198,7 +204,7 @@ func TestDocumentationPointsDown(t *testing.T) {
 	targets := []string{
 		"core/anim", "core/ansi", "core/clipboard", "core/diff", "core/fuzzy",
 		"core/graphics", "core/grid", "core/input", "core/layout", "core/link",
-		"core/keymap", "core/present", "core/program", "core/term", "core/text",
+		"core/keymap", "core/present", "core/program", "core/programtest", "core/term", "core/text",
 		"components/headless", "components/kit", "markdown", "highlight", "ptytest",
 	}
 
@@ -399,6 +405,7 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		// would allow it — so this is the one that has to be checked here.
 		{"core/program", "components/headless", true},
 		{"core/program", "components/kit", true},
+		{"core/program", "core/programtest", true},
 
 		// And the substrate must not reach for the runtime that drives it.
 		{"core/grid", "core/program", true},
@@ -429,6 +436,7 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		// Nothing leans on the harness, and nothing imports a demonstration.
 		{"core/program", "ptytest", true},
 		{"components/kit", "ptytest", true},
+		{"components/kit", "core/programtest", true},
 		{"components/kit", "examples/streaming", true},
 
 		// The edges the rings are made of.
@@ -436,6 +444,7 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"components/kit", "components/headless", false},
 		{"components/kit", "core/layout", false},
 		{"core/program", "core/term", false},
+		{"core/programtest", "core/program", false},
 		{"core/text", "core/grid", false},
 		{"examples/streaming", "components/kit", false},
 		{"examples/streaming", "core/program", false},
