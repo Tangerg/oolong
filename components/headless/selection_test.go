@@ -8,14 +8,15 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // lines is a block whose rows are given verbatim, so a selection test can state the
 // text it is dragging over.
-type lines struct{ rows []headless.Row }
+type lines struct{ rows []text.Row }
 
-func (l *lines) Measure(int) int         { return len(l.rows) }
-func (l *lines) Rows(int) []headless.Row { return l.rows }
+func (l *lines) Measure(int) int     { return len(l.rows) }
+func (l *lines) Rows(int) []text.Row { return l.rows }
 func (l *lines) Draw(v grid.View) {
 	for y, r := range l.rows {
 		v.Text(0, y, r.Text, grid.Style{})
@@ -23,17 +24,17 @@ func (l *lines) Draw(v grid.View) {
 }
 
 // text is a transcript of one block with the given rows.
-func transcriptOf(rows ...headless.Row) *headless.Transcript {
+func transcriptOf(rows ...text.Row) *headless.Transcript {
 	var tr headless.Transcript
 	tr.Resize(80)
 	tr.Append(&lines{rows: rows})
 	return &tr
 }
 
-func plainRows(texts ...string) []headless.Row {
-	out := make([]headless.Row, len(texts))
+func plainRows(texts ...string) []text.Row {
+	out := make([]text.Row, len(texts))
 	for i, s := range texts {
-		out[i] = headless.Row{Text: s}
+		out[i] = text.Row{Text: s}
 	}
 	return out
 }
@@ -157,6 +158,27 @@ func TestSelectionCopiesWhatItCovers(t *testing.T) {
 	}
 }
 
+func TestSelectionUsesContentOffsetWithoutCopyingTheGutter(t *testing.T) {
+	tr := transcriptOf(text.Row{Text: "indented", Offset: 4})
+	var selection headless.Selection
+	selection.Begin(headless.Point{Row: 0, Col: 4})
+	selection.Extend(headless.Point{Row: 0, Col: 11})
+	if got := selection.Text(tr); got != "indented" {
+		t.Fatalf("copied %q, want content without its four-column gutter", got)
+	}
+
+	if !selection.SelectWord(tr, headless.Point{Row: 0, Col: 6}) {
+		t.Fatal("a word at its rendered offset was not selectable")
+	}
+	start, end := selection.Range()
+	if start.Col != 4 || end.Col != 11 {
+		t.Fatalf("selected columns %d..%d, want rendered columns 4..11", start.Col, end.Col)
+	}
+	if selection.SelectWord(tr, headless.Point{Row: 0, Col: 2}) {
+		t.Fatal("a click in the decorative gutter selected the first word")
+	}
+}
+
 // TestSelectionRejoinsWhatTheWidthBroke is the difference between a copy that pastes
 // as a paragraph and one that pastes as a column of fragments hard-wrapped to
 // whatever the window happened to be.
@@ -164,11 +186,11 @@ func TestSelectionRejoinsWhatTheWidthBroke(t *testing.T) {
 	// One logical line the wrap broke between words, so the break ate a space, and
 	// then a word too long for the row, where it ate nothing.
 	tr := transcriptOf(
-		headless.Row{Text: "the quick"},
-		headless.Row{Text: "brown", Joined: true, Gap: " "},
-		headless.Row{Text: "supercalifragi", Joined: true, Gap: " "},
-		headless.Row{Text: "listic", Joined: true},
-		headless.Row{Text: "a new paragraph"},
+		text.Row{Text: "the quick"},
+		text.Row{Text: "brown", Joined: true, Gap: " "},
+		text.Row{Text: "supercalifragi", Joined: true, Gap: " "},
+		text.Row{Text: "listic", Joined: true},
+		text.Row{Text: "a new paragraph"},
 	)
 
 	var s headless.Selection
@@ -381,8 +403,8 @@ func TestSelectWordSelectsNothingOnASpace(t *testing.T) {
 // reader sees as a line; the logical line behind it holds text they cannot point at.
 func TestSelectLineTakesTheRowAndNotTheLine(t *testing.T) {
 	tr := transcriptOf(
-		headless.Row{Text: "the quick"},
-		headless.Row{Text: "brown fox", Joined: true, Gap: " "},
+		text.Row{Text: "the quick"},
+		text.Row{Text: "brown fox", Joined: true, Gap: " "},
 	)
 	var s headless.Selection
 	if !s.SelectLine(tr, headless.Point{Row: 1, Col: 3}) {
@@ -394,7 +416,7 @@ func TestSelectLineTakesTheRowAndNotTheLine(t *testing.T) {
 }
 
 func TestSelectLineOfNothing(t *testing.T) {
-	tr := transcriptOf(headless.Row{Text: ""})
+	tr := transcriptOf(text.Row{Text: ""})
 	var s headless.Selection
 	if s.SelectLine(tr, headless.Point{Row: 0}) {
 		t.Error("an empty row was selected")

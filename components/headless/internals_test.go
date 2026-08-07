@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 func TestEditorUndoHistoryIsBounded(t *testing.T) {
@@ -37,7 +38,9 @@ type retainedBlock struct{ payload []byte }
 
 func (b *retainedBlock) Measure(int) int { return 1 }
 func (b *retainedBlock) Draw(grid.View)  {}
-func (b *retainedBlock) Rows(int) []Row  { return []Row{{Text: string(b.payload)}} }
+func (b *retainedBlock) Rows(int) []text.Row {
+	return []text.Row{{Text: string(b.payload)}}
+}
 
 func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {
 	var transcript Transcript

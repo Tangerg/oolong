@@ -165,12 +165,12 @@ func hyperlinkTarget(l link.Link) string {
 // splitting a word too long for the row swallowed nothing; neither is recoverable
 // from the rows afterwards, and guessing wrong either runs two words together or
 // breaks a word in half.
-func (p *Paragraph) Rows(width int) []headless.Row {
+func (p *Paragraph) Rows(width int) []text.Row {
 	rows := p.rows(width)
-	out := make([]headless.Row, 0, len(rows))
+	out := make([]text.Row, 0, len(rows))
 	prevTo, prevLine := 0, -1
 	for _, r := range rows {
-		row := headless.Row{Text: r.Line.String(), Joined: r.Joined}
+		row := text.Row{Text: r.Line.String(), Offset: p.Indent, Joined: r.Joined}
 		if r.Joined && r.line == prevLine && r.line < len(p.Lines) {
 			whole := p.Lines[r.line].String()
 			if prevTo <= r.From && r.From <= len(whole) {

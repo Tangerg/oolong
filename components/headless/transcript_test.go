@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // block is a test block of a stated height, which can be changed to stand in for a
@@ -41,11 +42,11 @@ func (b *block) Draw(v grid.View) {
 }
 
 // Rows makes the block copyable, which is what a selection needs.
-func (b *block) Rows(width int) []headless.Row {
+func (b *block) Rows(width int) []text.Row {
 	rows := b.Measure(width)
-	out := make([]headless.Row, rows)
+	out := make([]text.Row, rows)
 	for y := range rows {
-		out[y] = headless.Row{Text: fmt.Sprintf("%s:%d", b.name, y)}
+		out[y] = text.Row{Text: fmt.Sprintf("%s:%d", b.name, y)}
 	}
 	return out
 }
@@ -460,9 +461,9 @@ func TestTranscriptStepsOverEmptyBlocksWhileDrawing(t *testing.T) {
 // a block whose content changed between measuring and copying looks like.
 type short struct{ rows int }
 
-func (s *short) Measure(int) int         { return s.rows }
-func (s *short) Draw(v grid.View)        { v.Text(0, 0, "short", grid.Style{}) }
-func (s *short) Rows(int) []headless.Row { return []headless.Row{{Text: "only one"}} }
+func (s *short) Measure(int) int     { return s.rows }
+func (s *short) Draw(v grid.View)    { v.Text(0, 0, "short", grid.Style{}) }
+func (s *short) Rows(int) []text.Row { return []text.Row{{Text: "only one"}} }
 
 func TestTranscriptTextSurvivesABlockThatSaysTooLittle(t *testing.T) {
 	var tr headless.Transcript
@@ -482,7 +483,7 @@ func TestTranscriptTextSurvivesABlockThatSaysTooLittle(t *testing.T) {
 }
 
 // rowTexts is what a row list says, so a test can state the whole of it at once.
-func rowTexts(rows []headless.Row) []string {
+func rowTexts(rows []text.Row) []string {
 	out := make([]string, len(rows))
 	for i, r := range rows {
 		out[i] = r.Text

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/text"
 	"github.com/Tangerg/oolong/markdown"
 )
 
@@ -87,6 +88,23 @@ func TestProseIsWrappedAtTheWidthItIsDrawnIn(t *testing.T) {
 		"to need two rows of a",
 		"narrow pane.",
 	})
+}
+
+func TestDocumentRowsSeparateMeaningfulTextFromItsRenderedOffset(t *testing.T) {
+	doc := &markdown.Doc{Blocks: []markdown.Block{{
+		Indent: 2,
+		Lines:  []text.Line{text.Of("one two", grid.Style{})},
+	}}}
+	got := doc.Rows(6)
+	if len(got) != 2 {
+		t.Fatalf("rows = %+v, want two wrapped rows", got)
+	}
+	if got[0].Text != "one" || got[0].Offset != 2 || got[0].Joined {
+		t.Fatalf("first row = %+v", got[0])
+	}
+	if got[1].Text != "two" || got[1].Offset != 2 || !got[1].Joined || got[1].Gap != " " {
+		t.Fatalf("continuation = %+v", got[1])
+	}
 }
 
 func TestAListIsIndentedPastItsOwnMarks(t *testing.T) {

@@ -98,9 +98,10 @@ type Doc struct {
 
 // row is one physical row: what it says, and where it starts.
 type row struct {
-	line   text.Line
+	text.Wrapped
 	at     int
 	prefix text.Line
+	gap    string
 }
 
 // SetBlocks replaces the document.
@@ -127,8 +128,26 @@ func (d *Doc) Draw(v grid.View) {
 		if len(r.prefix) > 0 {
 			r.prefix.Draw(v, r.at-r.prefix.Width(), y)
 		}
-		r.line.Draw(v, r.at, y)
+		r.Draw(v, r.at, y)
 	}
+}
+
+// Rows returns the meaningful text of each drawn row for selection and search.
+//
+// Markers and rails are decoration and stay out of Text. Offset carries the content
+// indent separately, so a selection addresses the same columns Draw used without
+// copying a bullet or quotation bar. The result uses core text vocabulary and does
+// not make markdown depend on a component package.
+func (d *Doc) Rows(width int) []text.Row {
+	wrapped := d.wrap(width)
+	out := make([]text.Row, len(wrapped))
+	for i, row := range wrapped {
+		out[i] = text.Row{
+			Text: row.Line.String(), Offset: row.at,
+			Joined: row.Joined, Gap: row.gap,
+		}
+	}
+	return out
 }
 
 // wrap lays every block out at a width, once per width.
@@ -144,11 +163,16 @@ func (d *Doc) wrap(width int) []row {
 		at := block.Indent
 		room := max(width-at, 1)
 		if block.Rule {
-			rows = append(rows, row{line: stretch(block.Lines, room), at: at, prefix: block.Rail})
+			rows = append(rows, row{
+				Wrapped: text.Wrapped{Line: stretch(block.Lines, room)},
+				at:      at, prefix: block.Rail,
+			})
 			continue
 		}
 		first := true
 		for _, line := range block.Lines {
+			whole := line.String()
+			previous := 0
 			for _, wrapped := range line.Wrap(room) {
 				prefix := block.Rail
 				if first {
@@ -160,7 +184,12 @@ func (d *Doc) wrap(width int) []row {
 					}
 					first = false
 				}
-				rows = append(rows, row{line: wrapped.Line, at: at, prefix: prefix})
+				gap := ""
+				if wrapped.Joined && previous <= wrapped.From && wrapped.From <= len(whole) {
+					gap = whole[previous:wrapped.From]
+				}
+				rows = append(rows, row{Wrapped: wrapped, at: at, prefix: prefix, gap: gap})
+				previous = wrapped.To
 			}
 		}
 	}

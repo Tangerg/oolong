@@ -70,7 +70,7 @@ type job struct {
 	query  string
 	regex  bool
 	start  int
-	corpus []Row
+	corpus []text.Row
 }
 
 // NewSearch starts a scanner. Close it when the interface it serves is done.
@@ -199,11 +199,11 @@ func compile(query string, regex bool) (*regexp.Regexp, error) {
 // join runs the rows together the way they were written and records where each one
 // starts, so a match found in the whole can be put back on the rows it covers.
 //
-// The rows are joined as a copy would join them — see [Row] — because a query is
+// The rows are joined as a copy would join them — see [text.Row] — because a query is
 // written the way the text was written and not the way the window happened to break
 // it. Searching row by row would fail to find a phrase the wrap split, which is the
 // one a user is most likely to be looking for: a long one.
-func join(rows []Row) (joined string, starts []int) {
+func join(rows []text.Row) (joined string, starts []int) {
 	var b strings.Builder
 	starts = make([]int, len(rows))
 	for i, r := range rows {
@@ -217,7 +217,7 @@ func join(rows []Row) (joined string, starts []int) {
 }
 
 // spread turns a byte range of the joined text into the columns it covers on each row.
-func spread(from, to int, rows []Row, starts []int) (Match, bool) {
+func spread(from, to int, rows []text.Row, starts []int) (Match, bool) {
 	first := rowAt(starts, rows, from)
 	if first < 0 {
 		return Match{}, false
@@ -234,8 +234,10 @@ func spread(from, to int, rows []Row, starts []int) (Match, bool) {
 			// nothing between two others produces.
 			lo, hi = 0, 0
 		}
-		col := text.ColumnOf(rows[i].Text, lo)
-		m.Spans = append(m.Spans, Span{Col: col, Width: text.ColumnOf(rows[i].Text, hi) - col})
+		startCol := text.ColumnOf(rows[i].Text, lo)
+		m.Spans = append(m.Spans, Span{
+			Col: rows[i].Offset + startCol, Width: text.ColumnOf(rows[i].Text, hi) - startCol,
+		})
 	}
 	if len(m.Spans) == 0 {
 		return Match{}, false
@@ -251,7 +253,7 @@ func spread(from, to int, rows []Row, starts []int) (Match, bool) {
 // becomes visible, which is the next one — attributing it to the row before would
 // highlight columns the match is not on, and refusing it would drop a match the text
 // really contains.
-func rowAt(starts []int, rows []Row, offset int) int {
+func rowAt(starts []int, rows []text.Row, offset int) int {
 	lo, hi := 0, len(starts)-1
 	if hi < 0 {
 		return -1

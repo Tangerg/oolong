@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // said is a block of plain rows, standing in for anything a session prints.
@@ -23,10 +24,10 @@ func (s *said) Draw(v grid.View) {
 	}
 }
 
-func (s *said) Rows(int) []headless.Row {
-	out := make([]headless.Row, len(s.rows))
+func (s *said) Rows(int) []text.Row {
+	out := make([]text.Row, len(s.rows))
 	for i, row := range s.rows {
-		out[i] = headless.Row{Text: row}
+		out[i] = text.Row{Text: row}
 	}
 	return out
 }

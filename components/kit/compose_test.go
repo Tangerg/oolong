@@ -212,6 +212,15 @@ func TestAMessageWrapsToTheWidthItIsGiven(t *testing.T) {
 	}
 }
 
+func TestAMessageCanBeCopiedWithoutCopyingItsVisualGutter(t *testing.T) {
+	m := kit.Message{Speaker: "assistant", Body: "answer", Trailing: 1}
+	rows := m.Rows(20)
+	if len(rows) != 3 || rows[0].Text != "assistant" ||
+		rows[1].Text != "answer" || rows[1].Offset != 2 || rows[2].Text != "" {
+		t.Fatalf("message rows = %+v", rows)
+	}
+}
+
 func TestADialogIsAModalTheStackCanDrive(_ *testing.T) {
 	// The contract is the point: the appearance half has to satisfy the interface
 	// the behaviour half drives, or neither is any use.

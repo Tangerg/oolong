@@ -20,6 +20,14 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Copyable rows are now lower-level text values.** The old
+  `headless.Row` leaked component vocabulary into any document that wanted to
+  support transcript selection or search. `text.Row` now carries meaningful text,
+  its rendered column offset, and reversible wrap metadata. Paragraphs, messages
+  and markdown documents implement the same copyable shape without markdown
+  depending upward on components; gutters and markers stay out of copied text while
+  hit testing and search still report screen columns.
+
 - **Dialog and tabs are controller-owned compound controls.** `headless.Dialog`
   now owns open state, stack membership and focus restoration through distinct
   content and trigger parts; `headless.Tabs` owns an encapsulated set of tab parts

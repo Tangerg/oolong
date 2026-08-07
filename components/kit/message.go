@@ -1,7 +1,9 @@
 package kit
 
 import (
+	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // Message is one finished thing somebody said, drawn into the terminal's own
@@ -33,6 +35,11 @@ type Message struct {
 	Own bool
 }
 
+var (
+	_ headless.Block    = Message{}
+	_ headless.Copyable = Message{}
+)
+
 // Measure is how many rows the message needs at this width.
 func (m Message) Measure(width int) int {
 	return m.head() + len(m.body(width).rows(m.wrapWidth(width))) + m.trailing()
@@ -56,6 +63,24 @@ func (m Message) Draw(v grid.View) {
 	body := m.body(width)
 	_, height := v.Size()
 	body.Draw(v.Sub(grid.Rect(gutter, y, m.wrapWidth(width), max(height-y, 0))))
+}
+
+// Rows returns the message without its visual gutter, with body offsets aligned to
+// where Draw places them. Speaker and trailing rows remain real text rows because a
+// selection dragged across the message includes the same vertical structure it saw.
+func (m Message) Rows(width int) []text.Row {
+	out := make([]text.Row, 0, m.Measure(width))
+	if m.head() > 0 {
+		out = append(out, text.Row{Text: m.Speaker})
+	}
+	for _, row := range m.body(width).Rows(m.wrapWidth(width)) {
+		row.Offset += gutter
+		out = append(out, row)
+	}
+	for range m.trailing() {
+		out = append(out, text.Row{})
+	}
+	return out
 }
 
 // gutter is how far the body is indented under its speaker, so the eye can find

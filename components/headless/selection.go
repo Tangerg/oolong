@@ -139,7 +139,7 @@ func (s *Selection) Covers(row, col int) bool {
 // A row the width made is rejoined to the one above it with whatever the wrap
 // consumed at that break, and a row the text made begins a new line — so a paragraph
 // copied out of a narrow window pastes as a paragraph, not as a column of fragments
-// hard-wrapped at whatever the window happened to be. See [Row].
+// hard-wrapped at whatever the window happened to be. See [text.Row].
 //
 // Columns are sliced on cluster boundaries. A wide character is taken only when it
 // lies wholly inside the selection: half of one cannot be put on a clipboard, and
@@ -162,10 +162,10 @@ func (s *Selection) Text(t *Transcript) string {
 		}
 		from, to := 0, len(row.Text)
 		if i == 0 {
-			from = clusterAtOrAfter(row.Text, start.Col)
+			from = clusterAtOrAfter(row.Text, max(start.Col-row.Offset, 0))
 		}
 		if i == len(rows)-1 {
-			to = text.OffsetAt(row.Text, end.Col+1)
+			to = text.OffsetAt(row.Text, max(end.Col-row.Offset+1, 0))
 		}
 		if from < to {
 			b.WriteString(strings.TrimRight(row.Text[from:to], " "))
@@ -269,18 +269,21 @@ func abs(n int) int {
 // selects nothing rather than selecting the gap.
 func (s *Selection) SelectWord(t *Transcript, p Point) bool {
 	row, ok := rowText(t, p.Row)
-	if !ok || p.Col < 0 {
+	if !ok || p.Col < row.Offset {
 		// A negative column is not a position in the text, which is what [Selection.Covers]
 		// already says about one. Clamping it to the start instead would make a click
 		// in the margin select the first word.
 		return false
 	}
-	at := text.OffsetAt(row, p.Col)
-	start, end, ok := text.WordAt(row, at)
+	at := text.OffsetAt(row.Text, p.Col-row.Offset)
+	start, end, ok := text.WordAt(row.Text, at)
 	if !ok {
 		return false
 	}
-	s.set(p.Row, text.ColumnOf(row, start), text.ColumnOf(row, end)-1)
+	s.set(p.Row,
+		row.Offset+text.ColumnOf(row.Text, start),
+		row.Offset+text.ColumnOf(row.Text, end)-1,
+	)
 	return true
 }
 
@@ -294,11 +297,11 @@ func (s *Selection) SelectLine(t *Transcript, p Point) bool {
 	if !ok {
 		return false
 	}
-	width := text.Width(row)
+	width := text.Width(row.Text)
 	if width == 0 {
 		return false
 	}
-	s.set(p.Row, 0, width-1)
+	s.set(p.Row, row.Offset, row.Offset+width-1)
 	return true
 }
 
@@ -311,13 +314,13 @@ func (s *Selection) set(row, from, to int) {
 }
 
 // rowText is the text of one row of a transcript, and whether there is one.
-func rowText(t *Transcript, row int) (string, bool) {
+func rowText(t *Transcript, row int) (text.Row, bool) {
 	if t == nil {
-		return "", false
+		return text.Row{}, false
 	}
 	rows := t.Rows(row, 1)
 	if len(rows) == 0 {
-		return "", false
+		return text.Row{}, false
 	}
-	return rows[0].Text, true
+	return rows[0], true
 }

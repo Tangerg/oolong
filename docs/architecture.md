@@ -488,6 +488,12 @@ not because it accepts `any`, maps of properties, or callbacks for everything it
 not decide. A generic escape hatch that merely moves upper-layer knowledge into strings
 is an abstraction leak.
 
+The copy/search boundary demonstrates the direction. A visual text row is now
+`core/text.Row`: meaningful text, its rendered column offset, and reversible wrap
+metadata. `markdown` and `components` can both produce it without either learning the
+other's vocabulary. Transcript selection and search consume that lower value; gutters,
+markers and component identity do not leak into copied text.
+
 Architecture tests continue to enforce imports, documentation references, module
 dependency promises, graph completeness, and acyclicity. A new ring is added as one
 node with its direct lower dependencies.

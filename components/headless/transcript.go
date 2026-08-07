@@ -4,6 +4,7 @@ import (
 	"image"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // Transcript is the live, retained part of output, in one coordinate space.
@@ -463,34 +464,6 @@ func (t *Transcript) Draw(v grid.View, from int) {
 	}
 }
 
-// Row is one row of a block's content, as a copy would take it.
-type Row struct {
-	// Text is what the row says, without the padding or the decoration around it,
-	// and in the same columns it was drawn in — a selection slices this by column,
-	// so it has to line up with what the user dragged over.
-	Text string
-	// Joined marks a row the width made rather than the text: it continues the row
-	// above, and a copy of both must not put a line break between them. Otherwise a
-	// paragraph copied out of a terminal arrives hard-wrapped to whatever width the
-	// window happened to be.
-	Joined bool
-	// Gap is what the break consumed, and is only read when Joined.
-	//
-	// Wrapping between words swallows the space, so rejoining without one runs two
-	// words together; splitting a word too long for the row swallows nothing, and
-	// putting a space there would break the word. Neither is derivable from the rows
-	// afterwards, which is why it is carried rather than guessed.
-	Gap string
-}
-
-// Separator is what goes between this row and the one above it in a copy.
-func (r Row) Separator() string {
-	if r.Joined {
-		return r.Gap
-	}
-	return "\n"
-}
-
 // Copyable is a block that can say what it draws, so a selection can be copied out
 // of it.
 //
@@ -503,7 +476,7 @@ func (r Row) Separator() string {
 type Copyable interface {
 	// Rows is what the block's rows say at a width, and there are as many of them as
 	// Measure reports at that width.
-	Rows(width int) []Row
+	Rows(width int) []text.Row
 }
 
 // Rows is what the transcript says over [from, from+count), one entry per row.
@@ -511,7 +484,7 @@ type Copyable interface {
 // Rows belonging to a block that cannot be copied come back empty and unjoined. The
 // count is what was asked for, clamped to what exists, so a caller can index the
 // result by row and get the row it meant.
-func (t *Transcript) Rows(from, count int) []Row {
+func (t *Transcript) Rows(from, count int) []text.Row {
 	if count <= 0 || from >= t.EndRow() {
 		return nil
 	}
@@ -525,7 +498,7 @@ func (t *Transcript) Rows(from, count int) []Row {
 	if count <= 0 {
 		return nil
 	}
-	out := make([]Row, count)
+	out := make([]text.Row, count)
 
 	first, last := t.visible(from, count)
 	for i := first; i < last; i++ {

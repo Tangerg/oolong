@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // found waits for the answer to a query, ignoring answers to older ones.
@@ -96,13 +97,24 @@ func TestSearchReportsColumnsAndNotBytes(t *testing.T) {
 	}
 }
 
+func TestSearchReportsTheRenderedContentOffset(t *testing.T) {
+	tr := transcriptOf(text.Row{Text: "find me", Offset: 3})
+	s := searching(t)
+	s.Submit(tr, "me", false)
+
+	result := found(t, s, "me")
+	if len(result.Matches) != 1 || result.Matches[0].Spans[0] != (headless.Span{Col: 8, Width: 2}) {
+		t.Fatalf("offset match = %+v, want columns 8..10", result.Matches)
+	}
+}
+
 // TestSearchFindsAPhraseTheWidthBroke is the reason the corpus is joined rather than
 // scanned row by row. A long phrase is exactly the one a user searches for, and it is
 // exactly the one the window is likeliest to have split.
 func TestSearchFindsAPhraseTheWidthBroke(t *testing.T) {
 	tr := transcriptOf(
-		headless.Row{Text: "the quick"},
-		headless.Row{Text: "brown fox", Joined: true, Gap: " "},
+		text.Row{Text: "the quick"},
+		text.Row{Text: "brown fox", Joined: true, Gap: " "},
 	)
 	s := searching(t)
 	s.Submit(tr, "quick brown", false)
@@ -288,9 +300,9 @@ func TestSearchAcrossARowWithNothingOnIt(t *testing.T) {
 	// A match that spans a break but none of the row between, which is what a blank
 	// row inside one logical line comes to.
 	tr := transcriptOf(
-		headless.Row{Text: "ab"},
-		headless.Row{Text: "", Joined: true},
-		headless.Row{Text: "cd", Joined: true},
+		text.Row{Text: "ab"},
+		text.Row{Text: "", Joined: true},
+		text.Row{Text: "cd", Joined: true},
 	)
 	s := searching(t)
 	s.Submit(tr, "abcd", false)
@@ -319,14 +331,14 @@ s`); got.Err != nil {
 
 // counting is a block that records how often its rows were asked for.
 type counting struct {
-	rows  []headless.Row
+	rows  []text.Row
 	calls int
 }
 
 func (c *counting) Measure(int) int { return len(c.rows) }
 func (c *counting) Draw(grid.View)  {}
 
-func (c *counting) Rows(int) []headless.Row {
+func (c *counting) Rows(int) []text.Row {
 	c.calls++
 	return c.rows
 }
@@ -336,8 +348,8 @@ func (c *counting) Rows(int) []headless.Row {
 // reported on the row where it becomes visible rather than dropped.
 func TestSearchFindsAMatchInsideWhatTheBreakAte(t *testing.T) {
 	tr := transcriptOf(
-		headless.Row{Text: "before"},
-		headless.Row{Text: "after", Joined: true, Gap: "    "},
+		text.Row{Text: "before"},
+		text.Row{Text: "after", Joined: true, Gap: "    "},
 	)
 	s := searching(t)
 	s.Submit(tr, "   a", false)
