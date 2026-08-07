@@ -77,6 +77,19 @@ func (s *short) Write(p []byte) (int, error) {
 	return s.b.Write(p[:1])
 }
 
+// partial accepts a visible prefix and fails in the same call.
+type partial struct {
+	b     bytes.Buffer
+	calls int
+}
+
+func (p *partial) Write(frame []byte) (int, error) {
+	p.calls++
+	n := min(3, len(frame))
+	_, _ = p.b.Write(frame[:n])
+	return n, errBroken
+}
+
 func TestFramesReachTheTerminalInOrder(t *testing.T) {
 	dst := &recorder{}
 	w := term.NewWriter(dst)
@@ -217,6 +230,31 @@ func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 	w.Queue([]byte("doomed"))
 	if !w.Drain(time.Second) {
 		t.Fatal("Drain waited for a frame that had already failed")
+	}
+}
+
+func TestAPartialWriteFailsTheFrameAndStopsLaterWrites(t *testing.T) {
+	dst := &partial{}
+	w := term.NewWriter(dst)
+	w.Queue([]byte("first frame"))
+	w.Queue([]byte("second frame"))
+	if !w.Drain(time.Second) {
+		t.Fatal("partially failed frames were not accounted for")
+	}
+	if err := w.Err(); !errors.Is(err, errBroken) {
+		t.Fatalf("Err = %v, want partial-write cause", err)
+	}
+	if got := dst.b.String(); got != "fir" {
+		t.Fatalf("terminal received %q, want only the ambiguous prefix", got)
+	}
+	if dst.calls != 1 {
+		t.Fatalf("terminal Write called %d times, want no writes after failure", dst.calls)
+	}
+	if got := w.Written(); got != 0 {
+		t.Fatalf("written watermark = %d, want no complete frame", got)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 }
 

@@ -33,6 +33,11 @@ point of tagging them low rather than not at all.
 
 ### Fixed
 
+- **Partial output failures now have an end-to-end ownership proof.** A writer that
+  accepts an unknown frame prefix and fails is never retried and no later frame is
+  written; `Run` preserves the cause. A real-PTY teardown fault also proves that a
+  failed restore sequence does not skip the independent raw-mode restoration attempt.
+
 - **Input transport failures now reach `program.Run`.** The terminal pump records its
   read result before closing the event channel; clean EOF remains a successful end,
   while a known failure is returned with its cause intact.

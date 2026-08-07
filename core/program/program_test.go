@@ -128,14 +128,15 @@ func (h *stalledHost) Hand(run func() error) error {
 func newHost(t *testing.T) *host {
 	t.Helper()
 	f := &frames{}
+	writer := term.NewWriter(f)
 	h := &host{
 		events: make(chan input.Event, 64),
 		frames: f,
-		writer: term.NewWriter(f),
+		writer: writer,
 		w:      40,
 		h:      10,
 	}
-	t.Cleanup(func() { _ = h.writer.Close() })
+	t.Cleanup(func() { _ = writer.Close() })
 	return h
 }
 
@@ -973,7 +974,9 @@ func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 	// An interface that cannot reach its terminal has nothing left to do, and a runtime
 	// that kept going would spin on the same error for ever.
 	h := newHost(t)
-	h.writer = term.NewWriter(brokenTerminal{})
+	faultWriter := term.NewWriter(brokenTerminal{})
+	t.Cleanup(func() { _ = faultWriter.Close() })
+	h.writer = faultWriter
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
@@ -988,6 +991,34 @@ func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the program kept going after the terminal failed")
+	}
+}
+
+func TestAPartialTerminalWriteStopsPublicationAndPreservesItsCause(t *testing.T) {
+	// Once an unknown prefix of a frame has reached the terminal, retrying the frame
+	// would duplicate that prefix and continuing would put later output after a frame
+	// whose state is unknown. The only sound result is to stop with the cause intact.
+	dst := &partialTerminal{}
+	faultWriter := term.NewWriter(dst)
+	t.Cleanup(func() { _ = faultWriter.Close() })
+	h := newHost(t)
+	h.writer = faultWriter
+
+	err := program.Run(t.Context(), program.Config{
+		Host: h,
+		Root: func(*program.Runtime) program.Component {
+			return &component{text: "a frame long enough to be only partly written"}
+		},
+	})
+	if !errors.Is(err, errBrokenTerminal) {
+		t.Fatalf("program error = %v, want partial-write cause", err)
+	}
+	prefix, calls := dst.result()
+	if prefix == "" {
+		t.Fatal("the injected failure did not write a visible prefix")
+	}
+	if calls != 1 {
+		t.Fatalf("terminal Write called %d times after partial failure, want 1", calls)
 	}
 }
 
@@ -1111,6 +1142,30 @@ type brokenTerminal struct{}
 var errBrokenTerminal = errors.New("the terminal went away")
 
 func (brokenTerminal) Write([]byte) (int, error) { return 0, errBrokenTerminal }
+
+// partialTerminal accepts a prefix and fails in the same Write call. That is the
+// ambiguous transport outcome: the program can know the frame did not land whole,
+// but cannot know which cells the user saw.
+type partialTerminal struct {
+	mu    sync.Mutex
+	b     bytes.Buffer
+	calls int
+}
+
+func (p *partialTerminal) Write(frame []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	n := min(7, len(frame))
+	_, _ = p.b.Write(frame[:n])
+	return n, errBrokenTerminal
+}
+
+func (p *partialTerminal) result() (string, int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.b.String(), p.calls
+}
 
 // The inline mode's own tests. What they are about is placement: an interface that
 // shares the terminal has to reach its own rows without ever naming one, and has to

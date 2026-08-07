@@ -101,6 +101,32 @@ func TestASessionGivesTheTerminalBack(t *testing.T) {
 	}
 }
 
+func TestCloseStillAttemptsRawModeRestoreAfterItsOutputFails(t *testing.T) {
+	primary, replica := pty(t)
+	tty, err := term.OpenOn(replica, replica, term.Options{Mouse: true})
+	if err != nil {
+		t.Fatalf("opening a pty as a terminal: %v", err)
+	}
+	read(t, primary, 300*time.Millisecond)
+
+	// Closing the underlying terminal injects failures into both independent teardown
+	// steps. Close must attempt both and join their errors; stopping after the failed
+	// leave sequence would strand a still-valid terminal in raw mode in the analogous
+	// real failure.
+	if closeErr := replica.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	err = tty.Close()
+	if err == nil {
+		t.Fatal("Close hid its teardown failures")
+	}
+	for _, step := range []string{"give the terminal back", "leave raw mode"} {
+		if !strings.Contains(err.Error(), step) {
+			t.Errorf("Close error %q does not include %q", err, step)
+		}
+	}
+}
+
 func TestATerminalReportsItsSizeAndItsOpeningResize(t *testing.T) {
 	tty, _ := open(t, term.Options{})
 

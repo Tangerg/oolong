@@ -623,7 +623,7 @@ invariant it makes enforceable.
 | observationally pure measurement and drawing | every stateful component draws twice from the same meaningful state; semantic state is unchanged and the produced frame is identical, apart from explicitly inspected private cache state | component test suites |
 | one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
 | idle work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes | every CI run |
-| failure and ownership settlement | fault hosts inject short writes, partial writes, disconnects, drain timeouts, unsupported capabilities, and teardown errors; assertions cover returned causes, no later writes, bounded shutdown, and best-effort restoration | required by slice 1 and each new host |
+| failure and ownership settlement | [`program` fault tests](../core/program/program_test.go) cover input cause, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](../core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](../core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
 | public module compatibility | every module builds without `go.work`; release CI compares each public API with its v1 baseline and checks the declared Go floor on every supported source set | required before and after v1 |
 
 The bounded-memory gate deliberately has two parts. Internal reference and record
@@ -780,9 +780,9 @@ unsettled ownership or lifetime contract may not.
 ## 14. Current conformance and capability gaps
 
 Most of the existing foundation already points in this direction: inline publication,
-bounded transcript release, causal input streams, bounded byte ingress, the one-owner
-runtime, incremental markdown, clipped cell views, consumer-defined capabilities, and
-the enforced dependency DAG are assets to preserve.
+bounded transcript release, causal input streams, bounded byte ingress, fault-injected
+ownership settlement, the one-owner runtime, incremental markdown, clipped cell views,
+consumer-defined capabilities, and the enforced dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 
@@ -799,10 +799,6 @@ These contradict a `must` in this document and must be empty before v1:
 These are not current invariant violations. They are capabilities or end-to-end proof
 the system still needs:
 
-- **Failure behavior is implemented in pieces but not proven as one contract.** Writer
-  failure, drain, cancellation, terminal restoration, host EOF, and capability absence
-  have tests in their own areas. The failure matrix in section 9 still needs a single
-  fault-injected vertical slice, including an ambiguous partial write.
 - **Complex controls expose behavior and appearance, but little shared semantics.** The
   current headless/kit split is sound. Compound parts, explicit controlled ownership,
   and a structural semantic projection have not yet been established across multiple
@@ -854,9 +850,11 @@ general dispatch.
 `Transcript.Commit` already physically releases committed payload and per-block
 placement records while preserving an aggregate live coordinate base; its deterministic
 retention test and fresh-process `N` versus `2N` GC test are gates the rest of this
-slice must keep green. The remaining work in this slice is the combined interface and
-fault-injected failure proof above. A demonstration that merely renders the right final
-screen while retaining the session is not complete.
+slice must keep green. Fault injection now covers source and input failure, an
+ambiguous partial output write, no writes after failure, drain timeout, capability
+absence, bounded close, and best-effort real-terminal teardown. The remaining work in
+this slice is the combined interface above. A demonstration that merely renders the
+right final screen while retaining the session is not complete.
 
 ### Slice 2: remove presentation-state leakage
 
