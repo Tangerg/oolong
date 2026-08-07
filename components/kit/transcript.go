@@ -95,18 +95,19 @@ func (t Transcript) reveal(rows int) {
 	if len(m.Spans) == 0 {
 		return
 	}
+	start := t.Content.StartRow()
 	t.Scroll.Layout(t.Content.Height(), rows)
-	t.Scroll.RevealRange(m.Row, m.Row+len(m.Spans)-1)
+	t.Scroll.RevealRange(m.Row-start, m.Row-start+len(m.Spans)-1)
 }
 
 // layout puts the scroll against a window of the given height and reports where it
 // starts. A transcript with no scroll shows its beginning.
 func (t Transcript) layout(rows int) int {
 	if t.Scroll == nil {
-		return 0
+		return t.Content.StartRow()
 	}
 	t.Scroll.Layout(t.Content.Height(), max(rows, 0))
-	return t.Scroll.Offset()
+	return t.Content.StartRow() + t.Scroll.Offset()
 }
 
 // drawHeader draws the pinned block and the rule under it.
@@ -205,10 +206,24 @@ func (t Transcript) Commit(p Printer) int {
 	if t.Content == nil || p == nil {
 		return 0
 	}
-	return t.Content.Commit(func(b headless.Sized, rows int) bool {
+	before := t.Content.StartRow()
+	gone := t.Content.Commit(func(b headless.Sized, rows int) bool {
 		p.PrintRows(rows, b.Draw)
 		return true
 	})
+	if gone == 0 {
+		return 0
+	}
+	if t.Scroll != nil {
+		t.Scroll.Discard(t.Content.StartRow() - before)
+	}
+	if t.Selection != nil {
+		t.Selection.DiscardBefore(t.Content.StartRow())
+	}
+	if t.Sticky != nil {
+		t.Sticky.DiscardBefore(t.Content.FirstBlock())
+	}
+	return gone
 }
 
 // Printer is somewhere finished output can be put permanently.
@@ -280,8 +295,11 @@ func (t Transcript) Handle(event input.Event) bool {
 // offset is the row the drawn window starts at, which a position on screen has to be
 // added to before it means anything to the content.
 func (t Transcript) offset() int {
-	if t.Scroll == nil {
+	if t.Content == nil {
 		return 0
 	}
-	return t.Scroll.Offset()
+	if t.Scroll == nil {
+		return t.Content.StartRow()
+	}
+	return t.Content.StartRow() + t.Scroll.Offset()
 }

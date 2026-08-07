@@ -70,6 +70,29 @@ func (s *Selection) Clear() {
 	*s = Selection{}
 }
 
+// DiscardBefore removes the part of a selection whose rows no longer belong to the
+// transcript. A selection wholly before row is cleared; one crossing row begins at
+// the first cell that remains.
+func (s *Selection) DiscardBefore(row int) {
+	if !s.active {
+		return
+	}
+	start, end := s.Range()
+	if end.Row < row {
+		s.Clear()
+		return
+	}
+	if start.Row >= row {
+		return
+	}
+	if s.anchor.Row < row {
+		s.anchor = Point{Row: row}
+	}
+	if s.extent.Row < row {
+		s.extent = Point{Row: row}
+	}
+}
+
 // Active reports whether anything is selected.
 func (s *Selection) Active() bool { return s.active }
 

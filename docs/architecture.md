@@ -774,19 +774,14 @@ unsettled ownership or lifetime contract may not.
 ## 14. Current conformance and capability gaps
 
 Most of the existing foundation already points in this direction: inline publication,
-the one-owner runtime, incremental markdown, clipped cell views, consumer-defined
-capabilities, and the enforced dependency DAG are assets to preserve.
+bounded transcript release, the one-owner runtime, incremental markdown, clipped cell
+views, consumer-defined capabilities, and the enforced dependency DAG are assets to
+preserve.
 
 ### 14.1 Known invariant violations
 
 These contradict a `must` in this document and must be empty before v1:
 
-- **Committed transcript payload is still retained.** `Transcript.Commit` advances a
-  committed index and stops drawing those blocks, but the slice still holds the block
-  references and all placement records. The terminal has taken presentation ownership,
-  yet application memory can still grow with session age. A durable fix must release
-  committed payload and compact or summarize obsolete placement state without making
-  live coordinates ambiguous.
 - **Geometry becomes observable during drawing.** Containers, stacks, fields, and
   dressed components record hit-test geometry while they draw. The data is correctly
   derived, but there is not yet a distinct commit point tying the routing snapshot to
@@ -854,14 +849,14 @@ Build or extend a worked interface that combines:
 This is the architecture probe. Any new abstraction must make this interface simpler
 without teaching lower packages what a chat, model, approval, or command is.
 
-This slice owns the transcript and input-failure violations as well as the missing
-stream-ingress policy.
-`Transcript.Commit` must physically release committed payload and per-block placement
-records while preserving an aggregate live coordinate base. The stream ingress must
-batch lossless chunks, bound producer lead, preserve completion and error ordering,
-and cancel without leaking a goroutine. The deterministic retention test and the
-fresh-process `N` versus `2N` GC test in section 10 become CI gates here. A demonstration
-that merely renders the right final screen while retaining the session is not complete.
+This slice owns the input-failure violation and the missing stream-ingress policy.
+`Transcript.Commit` already physically releases committed payload and per-block
+placement records while preserving an aggregate live coordinate base; its deterministic
+retention test and fresh-process `N` versus `2N` GC test are gates the rest of this
+slice must keep green. The stream ingress must batch lossless chunks, bound producer
+lead, preserve completion and error ordering, and cancel without leaking a goroutine.
+A demonstration that merely renders the right final screen while retaining the session
+is not complete.
 
 ### Slice 2: remove presentation-state leakage
 

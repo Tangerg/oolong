@@ -69,7 +69,7 @@ func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 		t.Fatalf("total rows = %d, want 8", got)
 	}
 	for i, want := range []struct{ top, height int }{{0, 3}, {3, 1}, {4, 4}} {
-		top, height, ok := tr.Extent(i)
+		top, height, ok := tr.Extent(headless.BlockID(i))
 		if !ok {
 			t.Fatalf("block %d has no extent", i)
 		}
@@ -87,8 +87,9 @@ func TestTranscriptFindsTheBlockAtARow(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		row, block, offset int
-		ok                 bool
+		row, offset int
+		block       headless.BlockID
+		ok          bool
 	}{
 		{row: 0, block: 0, offset: 0, ok: true},
 		{row: 2, block: 0, offset: 2, ok: true},
@@ -133,10 +134,11 @@ func TestTranscriptOnlyMeasuresWhatMoved(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(40)
 	var blocks []*block
+	var lastID headless.BlockID
 	for i := range 50 {
 		b := &block{name: fmt.Sprintf("b%d", i), lines: 2}
 		blocks = append(blocks, b)
-		tr.Append(b)
+		lastID = tr.Append(b)
 	}
 	for _, b := range blocks {
 		b.measure = 0
@@ -145,7 +147,7 @@ func TestTranscriptOnlyMeasuresWhatMoved(t *testing.T) {
 	// The last block grows, as a streaming answer does.
 	last := blocks[len(blocks)-1]
 	last.lines = 5
-	tr.Changed(tr.Len() - 1)
+	tr.Changed(lastID)
 
 	if got := last.measure; got != 1 {
 		t.Errorf("the changed block was measured %d times, want 1", got)
@@ -424,7 +426,7 @@ func TestTranscriptFindsRowsAcrossManyBlocks(t *testing.T) {
 		if !ok {
 			t.Fatalf("row %d belongs to nothing", row)
 		}
-		if want := row / lines; i != want {
+		if want := headless.BlockID(row / lines); i != want {
 			t.Errorf("row %d is block %d, want %d", row, i, want)
 		}
 		if want := row % lines; offset != want {
@@ -670,8 +672,8 @@ func TestARefusalStopsTheRun(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(20)
 	for i := range 3 {
-		tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 1})
-		tr.Finish(i)
+		id := tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 1})
+		tr.Finish(id)
 	}
 
 	p := printer{refuse: true}
@@ -698,7 +700,7 @@ func TestACommittedBlockIsNoLongerDrawn(t *testing.T) {
 	tr.Commit(p.print)
 
 	s := grid.NewSurface(20, 4)
-	tr.Draw(s.View(), tr.CommittedRows())
+	tr.Draw(s.View(), tr.StartRow())
 	for y, want := range []string{"here:0", "here:1"} {
 		if got := rowText(s.View(), y); got != want {
 			t.Errorf("row %d = %q, want %q", y, got, want)
@@ -706,23 +708,29 @@ func TestACommittedBlockIsNoLongerDrawn(t *testing.T) {
 	}
 }
 
-func TestCommittedRowsIsWhereWhatIsLeftBegins(t *testing.T) {
+func TestStartRowIsWhereWhatIsLeftBegins(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(20)
 	tr.Append(&block{name: "a", lines: 3})
 	tr.Append(&block{name: "b", lines: 2})
 
-	if got := tr.CommittedRows(); got != 0 {
+	if got := tr.StartRow(); got != 0 {
 		t.Errorf("nothing committed, and it begins at %d", got)
 	}
 	tr.Finish(0)
 	var p printer
 	tr.Commit(p.print)
-	if got := tr.CommittedRows(); got != 3 {
+	if got := tr.StartRow(); got != 3 {
 		t.Errorf("begins at %d, want past the three rows given away", got)
 	}
-	if got := tr.Committed(); got != 1 {
-		t.Errorf("committed = %d, want 1", got)
+	if got := tr.FirstBlock(); got != 1 {
+		t.Errorf("first live block = %d, want 1", got)
+	}
+	if got := tr.Len(); got != 1 {
+		t.Errorf("live blocks = %d, want 1", got)
+	}
+	if got := tr.Height(); got != 2 {
+		t.Errorf("live rows = %d, want 2", got)
 	}
 }
 
@@ -738,27 +746,5 @@ func TestFinishIgnoresWhatIsNotThere(t *testing.T) {
 	tr.Finish(0)
 	if !tr.Finished(0) {
 		t.Error("the block was not finished")
-	}
-}
-
-func TestCommittingChangesTheGeneration(t *testing.T) {
-	// A search holding a copy of the rows has to take another: what it holds includes
-	// text the transcript no longer draws.
-	var tr headless.Transcript
-	tr.Resize(20)
-	tr.Append(&block{name: "a", lines: 1})
-	tr.Finish(0)
-	before := tr.Generation()
-
-	var p printer
-	tr.Commit(p.print)
-	if tr.Generation() == before {
-		t.Error("the generation did not move")
-	}
-	// And a commit that gave nothing away changes nothing.
-	after := tr.Generation()
-	tr.Commit(p.print)
-	if tr.Generation() != after {
-		t.Error("a commit that gave nothing away moved the generation")
 	}
 }

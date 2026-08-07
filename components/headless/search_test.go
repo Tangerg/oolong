@@ -199,9 +199,10 @@ func TestSearchAnswersTheNewestQuery(t *testing.T) {
 	}
 }
 
-// TestSearchReusesTheRowsItAlreadyTook is what makes searching a long session on
-// every keystroke affordable. The rows are only taken again when they have changed.
-func TestSearchReusesTheRowsItAlreadyTook(t *testing.T) {
+// TestSearchDoesNotOwnTheTranscriptBetweenScans. A cached row snapshot would keep
+// committed text alive after the transcript released it. Taking the live rows for each
+// scan does not change the scan's linear complexity and leaves ownership unambiguous.
+func TestSearchDoesNotOwnTheTranscriptBetweenScans(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(80)
 	counted := &counting{rows: plainRows("the cat sat")}
@@ -210,20 +211,37 @@ func TestSearchReusesTheRowsItAlreadyTook(t *testing.T) {
 
 	s.Submit(&tr, "cat", false)
 	found(t, s, "cat")
-	after := counted.calls
+	afterFirst := counted.calls
 
 	s.Submit(&tr, "sat", false)
 	found(t, s, "sat")
-	if counted.calls != after {
-		t.Errorf("the rows were taken again for an unchanged transcript: %d then %d", after, counted.calls)
+	if counted.calls <= afterFirst {
+		t.Errorf("the second scan reused transcript storage: %d calls then %d", afterFirst, counted.calls)
 	}
 
-	// And taken again once something changes.
+	// A change is scanned from the same single-owner snapshot path.
+	afterSecond := counted.calls
 	tr.Append(&lines{rows: plainRows("another")})
 	s.Submit(&tr, "cat", false)
 	found(t, s, "cat")
-	if counted.calls == after {
+	if counted.calls <= afterSecond {
 		t.Error("the rows were not taken again after the transcript changed")
+	}
+}
+
+func TestSearchReportsRowsInTheLiveCoordinateSpaceAfterCommit(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(80)
+	first := tr.Append(&lines{rows: plainRows("finished")})
+	tr.Append(&lines{rows: plainRows("find the needle")})
+	tr.Finish(first)
+	tr.Commit(func(headless.Sized, int) bool { return true })
+
+	s := searching(t)
+	s.Submit(&tr, "needle", false)
+	r := found(t, s, "needle")
+	if len(r.Matches) != 1 || r.Matches[0].Row != tr.StartRow() {
+		t.Fatalf("matches are %+v, want one at live row %d", r.Matches, tr.StartRow())
 	}
 }
 

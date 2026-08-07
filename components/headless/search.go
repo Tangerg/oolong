@@ -48,32 +48,28 @@ type Result struct {
 // # What crosses the goroutine boundary
 //
 // Strings, and nothing else. The transcript belongs to the goroutine that draws, and
-// this never touches it: [Search.Submit] takes the rows on the caller's goroutine,
+// this never touches it: [Search.Submit] takes the live rows on the caller's goroutine,
 // where reading them is safe, and hands over what it took. The rows are already
-// strings, so taking them copies headers rather than text — and the copy is reused
-// while the transcript has not changed, which is what makes searching a long session
-// on every keystroke affordable.
+// strings, so taking them copies headers rather than text. A superseded job releases
+// that snapshot instead of turning search into a second owner of committed history.
 //
 // Results arrive on [Search.Results]. A caller reads that from a goroutine of its own
 // and posts what it gets back to the event owner. This package does not prescribe the
-// dispatcher used to cross that boundary.
+// dispatcher used to cross that boundary. Each submission owns its row snapshot until
+// it finishes or is superseded; Search does not retain an older transcript generation
+// after the work that needs it is gone.
 type Search struct {
 	jobs    chan job
 	results chan Result
 	stop    chan struct{}
 	once    sync.Once
-
-	// corpus is the last snapshot taken, and gen the transcript generation it was
-	// taken at. Both belong to whichever goroutine calls Submit.
-	corpus []Row
-	gen    uint64
-	taken  bool
 }
 
 // job is one scan, as the worker sees it.
 type job struct {
 	query  string
 	regex  bool
+	start  int
 	corpus []Row
 }
 
@@ -105,11 +101,13 @@ func (s *Search) Submit(t *Transcript, query string, regex bool) {
 	if t == nil || query == "" {
 		return
 	}
-	if !s.taken || s.gen != t.Generation() {
-		s.corpus = t.Rows(0, t.Height())
-		s.gen, s.taken = t.Generation(), true
+	start := t.StartRow()
+	next := job{
+		query:  query,
+		regex:  regex,
+		start:  start,
+		corpus: t.Rows(start, t.Height()),
 	}
-	next := job{query: query, regex: regex, corpus: s.corpus}
 	for {
 		select {
 		case s.jobs <- next:
@@ -172,6 +170,7 @@ func (s *Search) scan(j job) (Result, bool) {
 			return Result{}, true
 		}
 		if m, ok := spread(loc[0], loc[1], j.corpus, starts); ok {
+			m.Row += j.start
 			result.Matches = append(result.Matches, m)
 		}
 	}

@@ -24,13 +24,13 @@ import "github.com/Tangerg/oolong/core/anim"
 // left, and how far along the push is. None of that needs a cell, so none of it is
 // here. What draws a header takes these numbers and draws.
 type Sticky struct {
-	// Blocks are the indices of the blocks that can be pinned, in order. Everything
+	// Blocks are the identities of the blocks that can be pinned, in order. Everything
 	// else scrolls normally.
 	//
 	// It is the caller's list because only the caller knows which blocks mean
 	// anything: in a session the prompts are worth pinning and the answers are not,
 	// and nothing here can tell one from the other.
-	Blocks []int
+	Blocks []BlockID
 	// MinHeight is how far a header may be collapsed before it stops shrinking and
 	// starts scrolling off instead. Zero means it does not collapse.
 	//
@@ -43,8 +43,8 @@ type Sticky struct {
 
 // Pinned is the header for one frame.
 type Pinned struct {
-	// Block is the index of the block being pinned.
-	Block int
+	// Block is the identity of the block being pinned.
+	Block BlockID
 	// Height is how many of its rows to draw, which is fewer than it has when it is
 	// collapsed or being pushed off.
 	Height int
@@ -69,7 +69,8 @@ func (p Pinned) Visible() int { return max(p.Height-p.ClipTop, 0) }
 // header repeating something already visible two rows below is noise, and the moment
 // it stops being visible is exactly the moment it starts being worth showing.
 func (s *Sticky) At(t *Transcript, from, rows int) (Pinned, bool) {
-	if t == nil || rows <= 0 || len(s.Blocks) == 0 || from >= t.Height() {
+	if t == nil || rows <= 0 || len(s.Blocks) == 0 ||
+		from < t.StartRow() || from >= t.EndRow() {
 		// A view scrolled past everything has nothing below the header for the header
 		// to give context to.
 		return Pinned{}, false
@@ -113,22 +114,26 @@ func (s *Sticky) At(t *Transcript, from, rows int) (Pinned, bool) {
 }
 
 // pinnedAt is the last pinnable block at or above a row.
-func (s *Sticky) pinnedAt(t *Transcript, row int) (int, bool) {
-	found, ok := 0, false
-	for _, i := range s.Blocks {
-		top, _, exists := t.Extent(i)
-		if !exists || top > row {
+func (s *Sticky) pinnedAt(t *Transcript, row int) (BlockID, bool) {
+	var found BlockID
+	ok := false
+	for _, id := range s.Blocks {
+		top, _, exists := t.Extent(id)
+		if !exists {
+			continue
+		}
+		if top > row {
 			break
 		}
-		found, ok = i, true
+		found, ok = id, true
 	}
 	return found, ok
 }
 
 // nextAfter is the row the next pinnable block after i begins on.
-func (s *Sticky) nextAfter(t *Transcript, i int) (int, bool) {
+func (s *Sticky) nextAfter(t *Transcript, id BlockID) (int, bool) {
 	for _, candidate := range s.Blocks {
-		if candidate <= i {
+		if candidate <= id {
 			continue
 		}
 		if top, _, ok := t.Extent(candidate); ok {
@@ -136,4 +141,31 @@ func (s *Sticky) nextAfter(t *Transcript, i int) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// DiscardBefore forgets pinnable blocks that can no longer be addressed.
+//
+// A transcript calls for this after committing a prefix. Keeping one scalar identity
+// per terminal-owned block would otherwise make the sticky state grow with session
+// age even though the transcript itself had released the payload.
+func (s *Sticky) DiscardBefore(first BlockID) {
+	n := 0
+	for n < len(s.Blocks) && s.Blocks[n] < first {
+		n++
+	}
+	if n == 0 {
+		return
+	}
+	clear(s.Blocks[:n])
+	s.Blocks = s.Blocks[n:]
+	if len(s.Blocks) == 0 {
+		s.Blocks = nil
+		return
+	}
+	if cap(s.Blocks) <= 2*len(s.Blocks)+16 {
+		return
+	}
+	blocks := make([]BlockID, len(s.Blocks))
+	copy(blocks, s.Blocks)
+	s.Blocks = blocks
 }

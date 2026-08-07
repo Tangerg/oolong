@@ -17,8 +17,8 @@ func pinnable(t *testing.T, pairs int) (*headless.Transcript, *headless.Sticky) 
 	tr.Resize(40)
 	s := &headless.Sticky{Gap: 1}
 	for i := range pairs {
-		s.Blocks = append(s.Blocks, tr.Len())
-		tr.Append(&block{name: fmt.Sprintf("prompt%d", i), lines: prompt})
+		id := tr.Append(&block{name: fmt.Sprintf("prompt%d", i), lines: prompt})
+		s.Blocks = append(s.Blocks, id)
 		tr.Append(&block{name: fmt.Sprintf("answer%d", i), lines: answer})
 	}
 	return &tr, s
@@ -40,7 +40,10 @@ func TestNothingIsPinnedWhileItIsStillOnScreen(t *testing.T) {
 func TestThePinnedBlockIsTheOneAbove(t *testing.T) {
 	tr, s := pinnable(t, 3)
 	// Blocks: prompt0 at 0, answer0 at 2, prompt1 at 12, answer1 at 14, prompt2 at 24.
-	for _, tc := range []struct{ from, want int }{
+	for _, tc := range []struct {
+		from int
+		want headless.BlockID
+	}{
 		{from: 3, want: 0},
 		{from: 11, want: 0},
 		{from: 13, want: 2},
@@ -100,7 +103,7 @@ func TestTheHeaderGoesWhenItIsFullyPushed(t *testing.T) {
 func TestATallPromptCollapses(t *testing.T) {
 	tr := &headless.Transcript{}
 	tr.Resize(40)
-	s := &headless.Sticky{Blocks: []int{0}, MinHeight: 2, Gap: 1}
+	s := &headless.Sticky{Blocks: []headless.BlockID{0}, MinHeight: 2, Gap: 1}
 	tr.Append(&block{name: "tall", lines: 6})
 	tr.Append(&block{name: "answer", lines: 30})
 
@@ -123,7 +126,7 @@ func TestATallPromptCollapses(t *testing.T) {
 func TestAPromptThatDoesNotCollapseKeepsItsHeight(t *testing.T) {
 	tr := &headless.Transcript{}
 	tr.Resize(40)
-	s := &headless.Sticky{Blocks: []int{0}}
+	s := &headless.Sticky{Blocks: []headless.BlockID{0}}
 	tr.Append(&block{name: "tall", lines: 6})
 	tr.Append(&block{name: "answer", lines: 30})
 
@@ -162,7 +165,7 @@ func TestStickyIgnoresBlocksThatAreNotThere(t *testing.T) {
 	tr.Resize(40)
 	tr.Append(&block{name: "only", lines: 2})
 	tr.Append(&block{name: "answer", lines: 20})
-	s := &headless.Sticky{Blocks: []int{0, 99}}
+	s := &headless.Sticky{Blocks: []headless.BlockID{0, 99}}
 
 	p, ok := s.At(tr, 5, 8)
 	if !ok || p.Block != 0 {
@@ -176,7 +179,7 @@ func TestAPinnedBlockOfNoHeightIsNotPinned(t *testing.T) {
 	tr.Append(&block{name: "first", lines: 2})
 	tr.Append(&block{name: "nothing", lines: 0})
 	tr.Append(&block{name: "answer", lines: 20})
-	s := &headless.Sticky{Blocks: []int{1}}
+	s := &headless.Sticky{Blocks: []headless.BlockID{1}}
 
 	if _, ok := s.At(tr, 6, 8); ok {
 		t.Error("a block with no rows was pinned")

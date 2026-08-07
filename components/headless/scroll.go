@@ -87,6 +87,22 @@ func (s *Scroll) ToTop() {
 	s.offset = 0
 }
 
+// Discard removes rows from the start of the content while preserving the row under
+// the reader when it still exists.
+//
+// A streaming transcript uses this after publishing a prefix. A following window
+// stays at the new end; a reader above the new start lands on the first retained row.
+func (s *Scroll) Discard(rows int) {
+	rows = max(rows, 0)
+	s.total = max(s.total-rows, 0)
+	s.offset = max(s.offset-rows, 0)
+	if s.following {
+		s.offset = s.max()
+		return
+	}
+	s.clamp()
+}
+
 // Reveal scrolls as little as it can to bring a row into the window.
 //
 // As little as it can, rather than centring it: a reader stepping through search

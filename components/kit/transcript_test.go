@@ -127,7 +127,7 @@ func TestAPinnedHeaderTakesRoomFromTheBody(t *testing.T) {
 		[]string{"a1", "a2", "a3", "a4", "a5", "a6"},
 	)
 	var sc headless.Scroll
-	sticky := &headless.Sticky{Blocks: []int{0}, Gap: 1}
+	sticky := &headless.Sticky{Blocks: []headless.BlockID{0}, Gap: 1}
 	s := grid.NewSurface(20, 4)
 
 	view := kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}
@@ -163,7 +163,7 @@ func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
 			[]string{"b1", "b2", "b3"},
 		)
 		var sc headless.Scroll
-		sticky := &headless.Sticky{Blocks: []int{0, 2}}
+		sticky := &headless.Sticky{Blocks: []headless.BlockID{0, 2}}
 		s := grid.NewSurface(20, 4)
 		s.SetGround(grid.Ground{
 			FG: grid.RGBColor(0xFF, 0xFF, 0xFF),
@@ -224,7 +224,7 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 	)
 	var sc headless.Scroll
 	sc.ToBottom()
-	sticky := &headless.Sticky{Blocks: []int{0}, Gap: 1}
+	sticky := &headless.Sticky{Blocks: []headless.BlockID{0}, Gap: 1}
 	s := grid.NewSurface(20, 4)
 
 	kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}.Draw(s.View())
@@ -254,6 +254,49 @@ func TestCommittingGivesTheFinishedBlocksToThePrinter(t *testing.T) {
 	}
 	if len(p.rows) != 1 || p.rows[0] != 2 {
 		t.Errorf("printed %v, want one block of two rows", p.rows)
+	}
+}
+
+func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
+	tr := session(t, 20, []string{"old", "rows"}, []string{"live", "tail"})
+	tr.Finish(0)
+
+	var scroll headless.Scroll
+	scroll.Layout(tr.Height(), 2)
+	scroll.By(1)
+	var selection headless.Selection
+	selection.Begin(headless.Point{Row: 1, Col: 2})
+	selection.Extend(headless.Point{Row: 3, Col: 3})
+	sticky := &headless.Sticky{Blocks: []headless.BlockID{0, 1}}
+	view := kit.Transcript{
+		Content:   tr,
+		Scroll:    &scroll,
+		Selection: &selection,
+		Sticky:    sticky,
+	}
+
+	var printer recordingPrinter
+	if got := view.Commit(&printer); got != 1 {
+		t.Fatalf("committed %d blocks, want one", got)
+	}
+	if tr.StartRow() != 2 || tr.Height() != 2 {
+		t.Fatalf("live range is [%d,%d), want [2,4)", tr.StartRow(), tr.EndRow())
+	}
+	if got := scroll.Offset(); got != 0 {
+		t.Errorf("scroll offset is %d after its prefix left, want 0", got)
+	}
+	if got := sticky.Blocks; len(got) != 1 || got[0] != 1 {
+		t.Errorf("sticky blocks are %v, want only live block 1", got)
+	}
+	start, end := selection.Range()
+	if start != (headless.Point{Row: 2}) || end != (headless.Point{Row: 3, Col: 3}) {
+		t.Errorf("selection is %v..%v, want live rows 2..3", start, end)
+	}
+
+	surface := grid.NewSurface(20, 2)
+	view.Draw(surface.View())
+	if got := rowOf(surface.View(), 0, 20); !strings.HasPrefix(got, "live") {
+		t.Errorf("first live row is %q, want live", got)
 	}
 }
 

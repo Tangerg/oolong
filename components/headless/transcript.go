@@ -6,7 +6,7 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 )
 
-// Transcript is a growing record of output, in one coordinate space.
+// Transcript is the live, retained part of output, in one coordinate space.
 //
 // It is what everything that has to talk about a position in a session's output talks
 // about. A scroll offset, the ends of a selection, a search match, a prompt pinned to
@@ -36,15 +36,18 @@ import (
 type Transcript struct {
 	blocks []placed
 	width  int
-	total  int
-	// gen counts the changes, so that anything holding a copy of the rows can tell
-	// whether the copy is still the rows. It is what lets a search of a long session
-	// on every keystroke reuse the snapshot it already took.
-	gen uint64
-	// committed is how many leading blocks have been given to the terminal, and are
-	// therefore no longer this transcript's to draw.
-	committed int
+	rows   int
+	start  int
+	first  BlockID
 }
+
+// BlockID is the stable identity of one block in a [Transcript].
+//
+// IDs increase as blocks are appended and are never reused. Committing a leading
+// block invalidates its ID without changing the IDs of blocks that remain live. That
+// is what lets a sticky header or another retained part keep referring to a live block
+// while committed storage is physically removed from the transcript.
+type BlockID int
 
 // placed is a block, its height at the transcript's width, and where it sits.
 //
@@ -61,37 +64,43 @@ type placed struct {
 	finished bool
 }
 
-// Len is how many blocks the transcript holds.
+// Len is how many live blocks the transcript holds.
 func (t *Transcript) Len() int { return len(t.blocks) }
 
-// Height is the total height of everything in it, at the current width.
-func (t *Transcript) Height() int { return t.total }
+// Height is the height of the live blocks at the current width.
+func (t *Transcript) Height() int { return t.rows }
+
+// StartRow is the first row the transcript still owns. Earlier rows have been
+// committed to the terminal and cannot be drawn, searched, selected, or rewrapped.
+func (t *Transcript) StartRow() int { return t.start }
+
+// EndRow is the exclusive end of the transcript's live row range.
+func (t *Transcript) EndRow() int { return t.start + t.rows }
+
+// FirstBlock is the ID of the first live block. When the transcript is empty it is
+// the ID the next appended block will receive.
+func (t *Transcript) FirstBlock() BlockID { return t.first }
 
 // Width is the width every height in it was measured at.
 func (t *Transcript) Width() int { return t.width }
 
-// Generation is how many times the transcript has changed.
-//
-// It is for anything that took a copy of the rows and wants to know whether to take
-// another. Two calls returning the same number mean the rows are the same rows; a
-// different number means something was appended, changed, or re-measured, and says
-// nothing about how much.
-func (t *Transcript) Generation() uint64 { return t.gen }
-
-// Append adds a block at the end and measures it.
-func (t *Transcript) Append(b Sized) {
+// Append adds a block at the end, measures it, and returns its stable identity.
+// Appending nil changes nothing and returns the next available identity.
+func (t *Transcript) Append(b Sized) BlockID {
+	id := t.first + BlockID(len(t.blocks))
 	if b == nil {
-		return
+		return id
 	}
 	height := t.measure(b)
-	t.blocks = append(t.blocks, placed{block: b, height: height, top: t.total})
-	t.total += height
-	t.gen++
+	t.blocks = append(t.blocks, placed{block: b, height: height, top: t.EndRow()})
+	t.rows += height
+	return id
 }
 
-// Block is the block at index i, or nil when there is none there.
-func (t *Transcript) Block(i int) Sized {
-	if i < 0 || i >= len(t.blocks) {
+// Block is the live block with id, or nil when there is none.
+func (t *Transcript) Block(id BlockID) Sized {
+	i, ok := t.position(id)
+	if !ok {
 		return nil
 	}
 	return t.blocks[i].block
@@ -113,12 +122,12 @@ func (t *Transcript) Last() Sized {
 // block on every frame — which is the one thing this structure exists to avoid.
 //
 // Everything before i keeps the height it had, because nothing before it moved.
-func (t *Transcript) Changed(i int) {
-	if i < 0 || i >= len(t.blocks) {
+func (t *Transcript) Changed(id BlockID) {
+	i, ok := t.position(id)
+	if !ok {
 		return
 	}
 	t.remeasure(i)
-	t.gen++
 }
 
 // Resize measures everything again at a new width, and reports the new total.
@@ -130,17 +139,16 @@ func (t *Transcript) Changed(i int) {
 // window changed.
 func (t *Transcript) Resize(width int) int {
 	if width == t.width {
-		return t.total
+		return t.rows
 	}
 	t.width = width
 	t.remeasure(0)
-	t.gen++
-	return t.total
+	return t.rows
 }
 
 // remeasure recomputes heights and tops from i onwards.
 func (t *Transcript) remeasure(from int) {
-	top := 0
+	top := t.start
 	if from > 0 {
 		prev := t.blocks[from-1]
 		top = prev.top + prev.height
@@ -150,7 +158,7 @@ func (t *Transcript) remeasure(from int) {
 		t.blocks[i].top = top
 		top += t.blocks[i].height
 	}
-	t.total = top
+	t.rows = top - t.start
 }
 
 // measure is a block's height at the current width, never negative.
@@ -163,11 +171,11 @@ func (t *Transcript) measure(b Sized) int {
 
 // Extent is the rows block i covers: the first, and how many.
 //
-// It reports false for an index that is not there, which is what a caller looping
-// over indices it kept from an earlier frame needs — a transcript only grows, but a
-// caller holding an index into one it does not own has no way to know that.
-func (t *Transcript) Extent(i int) (top, height int, ok bool) {
-	if i < 0 || i >= len(t.blocks) {
+// It reports false for an identity that is not live, which is what a caller holding a
+// reference from an earlier frame needs after a commit removes a prefix.
+func (t *Transcript) Extent(id BlockID) (top, height int, ok bool) {
+	i, ok := t.position(id)
+	if !ok {
 		return 0, 0, false
 	}
 	return t.blocks[i].top, t.blocks[i].height, true
@@ -176,14 +184,20 @@ func (t *Transcript) Extent(i int) (top, height int, ok bool) {
 // At is the block covering a row, and how far into that block the row is.
 //
 // The search is a bisection over the tops rather than a walk, because this is asked
-// once per click, once per selection end, and once per frame for the top of the
-// view — and a session's transcript grows without bound while a screen does not.
-func (t *Transcript) At(row int) (i, offset int, ok bool) {
-	if row < 0 || row >= t.total {
+// once per click, once per selection end, and once per frame for the top of the view.
+// Deliberately retained content may be much taller than a screen.
+func (t *Transcript) At(row int) (id BlockID, offset int, ok bool) {
+	if row < t.start || row >= t.EndRow() {
 		return 0, 0, false
 	}
-	i = t.index(row)
-	return i, row - t.blocks[i].top, true
+	i := t.index(row)
+	return t.first + BlockID(i), row - t.blocks[i].top, true
+}
+
+// position resolves a stable identity into the current compact slice.
+func (t *Transcript) position(id BlockID) (int, bool) {
+	i := int(id - t.first)
+	return i, id >= t.first && i >= 0 && i < len(t.blocks)
 }
 
 // index is the block covering a row, which must be a row that exists.
@@ -214,13 +228,26 @@ func (t *Transcript) index(row int) int {
 
 // Visible is the range of blocks that any of the rows [from, from+rows) touch.
 //
-// The end is exclusive. An empty range comes back as two equal indices, which is what
-// a viewport scrolled past everything gives.
-func (t *Transcript) Visible(from, rows int) (first, last int) {
-	if rows <= 0 || t.total == 0 || from >= t.total {
+// The end is exclusive. An empty range comes back as two equal identities, which is
+// what a viewport scrolled past everything gives.
+func (t *Transcript) Visible(from, rows int) (first, last BlockID) {
+	a, b := t.visible(from, rows)
+	return t.first + BlockID(a), t.first + BlockID(b)
+}
+
+func (t *Transcript) visible(from, rows int) (first, last int) {
+	if rows <= 0 || t.rows == 0 || from >= t.EndRow() {
 		return len(t.blocks), len(t.blocks)
 	}
-	from = max(from, 0)
+	if from < t.start {
+		if t.start > 0 {
+			rows -= t.start - from
+		}
+		from = t.start
+	}
+	if rows <= 0 {
+		return len(t.blocks), len(t.blocks)
+	}
 	first = t.index(from)
 	end := from + rows
 	last = first
@@ -242,8 +269,8 @@ func (t *Transcript) Draw(v grid.View, from int) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	first, last := t.Visible(from, h)
-	for i := max(first, t.committed); i < last; i++ {
+	first, last := t.visible(from, h)
+	for i := first; i < last; i++ {
 		b := t.blocks[i]
 		if b.height == 0 {
 			continue
@@ -302,14 +329,22 @@ type Copyable interface {
 // count is what was asked for, clamped to what exists, so a caller can index the
 // result by row and get the row it meant.
 func (t *Transcript) Rows(from, count int) []Row {
-	if count <= 0 || from >= t.total {
+	if count <= 0 || from >= t.EndRow() {
 		return nil
 	}
-	from = max(from, 0)
-	count = min(count, t.total-from)
+	if from < t.start {
+		if t.start > 0 {
+			count -= t.start - from
+		}
+		from = t.start
+	}
+	count = min(count, t.EndRow()-from)
+	if count <= 0 {
+		return nil
+	}
 	out := make([]Row, count)
 
-	first, last := t.Visible(from, count)
+	first, last := t.visible(from, count)
 	for i := first; i < last; i++ {
 		b := t.blocks[i]
 		if b.height == 0 {
@@ -336,29 +371,18 @@ func (t *Transcript) Rows(from, count int) []Row {
 // It is what makes a block eligible to be given to the terminal, and it is the caller's
 // to say: a streaming answer is finished when whatever is streaming it says so, and
 // nothing here can tell a pause from an ending.
-func (t *Transcript) Finish(i int) {
-	if i < 0 || i >= len(t.blocks) {
+func (t *Transcript) Finish(id BlockID) {
+	i, ok := t.position(id)
+	if !ok {
 		return
 	}
 	t.blocks[i].finished = true
 }
 
 // Finished reports whether a block has been said to be finished.
-func (t *Transcript) Finished(i int) bool {
-	return i >= 0 && i < len(t.blocks) && t.blocks[i].finished
-}
-
-// Committed is how many blocks have been given to the terminal.
-func (t *Transcript) Committed() int { return t.committed }
-
-// CommittedRows is the first row the transcript still draws, which is where a view of
-// it starts and where a scroll should stop going back.
-func (t *Transcript) CommittedRows() int {
-	if t.committed == 0 {
-		return 0
-	}
-	last := t.blocks[t.committed-1]
-	return last.top + last.height
+func (t *Transcript) Finished(id BlockID) bool {
+	i, ok := t.position(id)
+	return ok && t.blocks[i].finished
 }
 
 // Commit gives the leading run of finished blocks to the terminal, in order, and
@@ -387,20 +411,46 @@ func (t *Transcript) CommittedRows() int {
 // unless it is asked for. What it buys is that the output survives the program
 // exiting, and that a session's memory stops growing.
 func (t *Transcript) Commit(give func(b Sized, rows int) bool) int {
-	gone := 0
-	for i := t.committed; i < len(t.blocks); i++ {
-		b := t.blocks[i]
+	if give == nil {
+		return 0
+	}
+	gone, rows := 0, 0
+	for _, b := range t.blocks {
 		if !b.finished {
 			break
 		}
 		if !give(b.block, b.height) {
 			break
 		}
-		t.committed = i + 1
 		gone++
+		rows += b.height
 	}
-	if gone > 0 {
-		t.gen++
+	if gone == 0 {
+		return 0
 	}
+
+	t.release(gone)
+	t.first += BlockID(gone)
+	t.start += rows
+	t.rows -= rows
 	return gone
+}
+
+// release removes n leading placements while keeping backing storage proportional to
+// the blocks that remain. Clearing drops payload references immediately. Reallocating
+// only after the unused prefix is larger than the live suffix makes repeated commits
+// amortized linear rather than copying the retained transcript on every block.
+func (t *Transcript) release(n int) {
+	clear(t.blocks[:n])
+	t.blocks = t.blocks[n:]
+	if len(t.blocks) == 0 {
+		t.blocks = nil
+		return
+	}
+	if cap(t.blocks) <= 2*len(t.blocks)+64 {
+		return
+	}
+	blocks := make([]placed, len(t.blocks))
+	copy(blocks, t.blocks)
+	t.blocks = blocks
 }

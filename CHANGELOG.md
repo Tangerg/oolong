@@ -11,6 +11,23 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Changed
+
+- **Transcript identities survive prefix release.** `headless.Transcript.Append`
+  returns a stable `BlockID`; block operations and sticky headers use that identity
+  instead of a slice index. `StartRow` and `EndRow` describe the absolute live row
+  range, while `Height` now reports only rows the program still owns. The obsolete
+  `Committed`, `CommittedRows`, and row-cache `Generation` model is removed.
+
+### Fixed
+
+- **Committing output now transfers ownership in memory as well as on screen.** A
+  committed prefix has its payload references cleared and its placement storage
+  removed with amortized compaction. Scroll, selection and sticky state advance with
+  the released prefix, and background search keeps a row snapshot only for the scan
+  using it. Deterministic storage checks and an isolated `N` versus `2N` heap test lock
+  the bounded-lifetime contract.
+
 ## [0.0.5] — 2026-08-06
 
 Every module moves. The shape of what a program is handed changed, so this is the
