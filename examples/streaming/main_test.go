@@ -36,7 +36,9 @@ func newHost() *host {
 	return &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(b)}
 }
 
+func (h *host) Input() program.EventSource  { return h }
 func (h *host) Events() <-chan input.Event  { return h.events }
+func (h *host) Err() error                  { return nil }
 func (h *host) Writer() program.FrameWriter { return h.writer }
 func (h *host) Size() (int, int, error)     { return 60, 12, nil }
 func (h *host) Ground() grid.Ground         { return grid.Ground{} }

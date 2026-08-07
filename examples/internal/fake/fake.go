@@ -65,7 +65,9 @@ func New(t *testing.T, w, h int) *Host {
 // has to cope with when the terminal it was given turned out to be a pipe.
 
 // Events is the input, closed when the input ends.
+func (h *Host) Input() program.EventSource { return h }
 func (h *Host) Events() <-chan input.Event { return h.events }
+func (h *Host) Err() error                 { return nil }
 
 // Writer is where frames go.
 func (h *Host) Writer() program.FrameWriter { return h.writer }

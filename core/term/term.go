@@ -102,6 +102,7 @@ type Terminal struct {
 
 	closeOnce sync.Once
 	closeErr  error
+	inputErr  error
 }
 
 // Open takes over the terminal on standard input and output.
@@ -198,13 +199,21 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	go t.fanResize()
 	go func() {
 		defer close(t.pumpDone)
-		p.run()
+		t.inputErr = p.run()
+		close(t.events)
 	}()
 	return t, nil
 }
 
 // Events is the terminal's input, closed when the input ends or the session does.
 func (t *Terminal) Events() <-chan input.Event { return t.events }
+
+// InputErr reports why [Terminal.Events] closed.
+//
+// It must be called only after Events has closed. A clean end of input and a session
+// stopped by [Terminal.Close] report nil; another read failure is preserved as its
+// cause. The channel close synchronizes the pump's write with this read.
+func (t *Terminal) InputErr() error { return t.inputErr }
 
 // Writer is where frames go.
 func (t *Terminal) Writer() *Writer { return t.writer }

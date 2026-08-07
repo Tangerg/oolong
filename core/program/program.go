@@ -91,6 +91,20 @@ type Printable interface {
 	layout.Measurer
 }
 
+// EventSource is one ordered input stream and its terminal result.
+//
+// Events closes after the last event. Once it has closed, Err reports why the
+// stream ended: nil means a clean end of input, while a non-nil error is the
+// transport failure that ended it. Err must not report [io.EOF] as a failure.
+//
+// The two methods form one lifecycle. Keeping the result on the source avoids a
+// race between an event channel closing and a separate error channel becoming
+// readable, and follows the same iteration-then-error shape as a scanner.
+type EventSource interface {
+	Events() <-chan input.Event
+	Err() error
+}
+
 // Host is where a program's input comes from and its frames go.
 //
 // A program opens the real terminal unless it is given one of these. Being able to
@@ -103,8 +117,8 @@ type Printable interface {
 // neighbours. [ImageHost] is the exception because its transport and geometry form
 // one protocol. Absent capabilities receive harmless defaults.
 type Host interface {
-	// Events is the input, closed when the input ends.
-	Events() <-chan input.Event
+	// Input is the ordered input stream and the reason it eventually ends.
+	Input() EventSource
 	// Writer is where frames go. The interface is defined here, where it is used;
 	// a host is not coupled to the terminal package's concrete writer.
 	Writer() FrameWriter
@@ -209,9 +223,16 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	if frames == nil {
 		return errors.New("program: host returned no frame writer")
 	}
+	source := host.Input()
+	if source == nil {
+		return errors.New("program: host returned no input source")
+	}
+	if source.Events() == nil {
+		return errors.New("program: host returned an input source with no event channel")
+	}
 	p := &program{
 		host:      hostServicesFor(host),
-		events:    host.Events(),
+		input:     source,
 		writer:    frames,
 		frameRate: cfg.FrameRate,
 		tasks:     newTaskQueue(),
@@ -254,6 +275,13 @@ func Run(ctx context.Context, cfg Config) (err error) {
 type terminalHost struct{ *term.Terminal }
 
 func (h terminalHost) Writer() FrameWriter { return h.Terminal.Writer() }
+func (h terminalHost) Input() EventSource  { return terminalInput(h) }
+
+// terminalInput adapts the terminal's concrete input result to EventSource. The
+// wrapper keeps term below program in the dependency graph.
+type terminalInput struct{ *term.Terminal }
+
+func (i terminalInput) Err() error { return i.InputErr() }
 
 // canvas is somewhere frames go: a screen of the program's own, or a block in the
 // terminal's. The program drives both the same way, and the difference between them
@@ -271,7 +299,7 @@ type canvas interface {
 type program struct {
 	root   Component
 	host   hostServices
-	events <-chan input.Event
+	input  EventSource
 	canvas canvas
 	// inline is the canvas again when the interface is drawn in the terminal's own
 	// screen, and nil when it has a screen to itself. It is what printing needs and
@@ -295,7 +323,7 @@ func (p *program) run(ctx context.Context) (err error) {
 	// However this ends — asked to stop, input gone, terminal broken — an inline
 	// interface has one more frame to draw and a cursor to leave in a sane place.
 	defer func() { err = errors.Join(err, p.finish()) }()
-	events := p.events
+	events := p.input.Events()
 
 	// due fires when a frame that was turned away for arriving too soon becomes
 	// allowed. Without it the last update of a burst would sit undrawn until something
@@ -325,9 +353,10 @@ func (p *program) run(ctx context.Context) (err error) {
 
 		case ev, ok := <-events:
 			if !ok {
-				// The input has ended, which is the session ending: a terminal that went
-				// away, a pipe that closed.
-				return nil
+				// A clean end closes the session normally. A transport that knows it
+				// failed keeps that cause on the source instead of making channel closure
+				// indistinguishable from EOF.
+				return p.input.Err()
 			}
 			p.handle(ev)
 

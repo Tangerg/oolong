@@ -1,6 +1,8 @@
 package term
 
 import (
+	"errors"
+	"io"
 	"sync/atomic"
 	"time"
 
@@ -62,16 +64,17 @@ type pump struct {
 	now func() time.Time
 }
 
-// run decodes until the input ends or the pump is asked to stop, then closes out.
-func (p *pump) run() {
-	defer close(p.out)
-
+// run decodes until the input ends or the pump is asked to stop and reports the
+// cause. Its owner records that result before closing out, so observing the channel
+// close also makes the result safe to read. EOF and an explicit stop are clean
+// endings.
+func (p *pump) run() error {
 	grace := p.grace
 	if grace <= 0 {
 		grace = escGrace
 	}
 	if !p.deliver(p.early) {
-		return
+		return nil
 	}
 	p.early = nil
 	parser := p.parser
@@ -98,7 +101,7 @@ func (p *pump) run() {
 		case chunk := <-p.raw:
 			disarm()
 			if !p.deliver(parser.Feed(chunk)) {
-				return
+				return nil
 			}
 			if parser.Pending() {
 				// Something is waiting on bytes that may never come. Only time can
@@ -109,27 +112,30 @@ func (p *pump) run() {
 		case <-timer.C:
 			armed = false
 			if !p.deliver(parser.Flush()) {
-				return
+				return nil
 			}
 		case <-p.resized:
 			if w, h, err := p.size(); err == nil {
 				if !p.deliver([]input.Event{input.Resize{Width: w, Height: h}}) {
-					return
+					return nil
 				}
 			}
-		case <-p.readErr:
+		case err := <-p.readErr:
 			// The input is over. Bytes that arrived before it ended are still the
 			// user's — they and the end arrive on separate channels, and a select
 			// cannot be told to prefer one, so whichever this pass happened to see
 			// first says nothing about which happened first. Everything already
 			// waiting is taken before anything is given up.
 			if !p.drainRaw(parser) {
-				return
+				return nil
 			}
 			p.deliver(parser.Flush())
-			return
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
 		case <-p.stop:
-			return
+			return nil
 		}
 	}
 }

@@ -774,9 +774,9 @@ unsettled ownership or lifetime contract may not.
 ## 14. Current conformance and capability gaps
 
 Most of the existing foundation already points in this direction: inline publication,
-bounded transcript release, the one-owner runtime, incremental markdown, clipped cell
-views, consumer-defined capabilities, and the enforced dependency DAG are assets to
-preserve.
+bounded transcript release, causal input streams, the one-owner runtime, incremental
+markdown, clipped cell views, consumer-defined capabilities, and the enforced
+dependency DAG are assets to preserve.
 
 ### 14.1 Known invariant violations
 
@@ -787,11 +787,6 @@ These contradict a `must` in this document and must be empty before v1:
   derived, but there is not yet a distinct commit point tying the routing snapshot to
   the frame accepted for presentation. A durable fix should establish that boundary,
   not add another cache beside the existing ones.
-- **Input transport failure has no causal path.** `Host.Events` closes, and `Run`
-  currently treats every closure as a clean session end. A host that knows an SSH,
-  pipe, or terminal read failed cannot preserve that cause. Slice 1 must make clean EOF
-  and known transport failure distinguishable without coupling `program` to a concrete
-  host.
 
 ### 14.2 Missing capabilities and proofs
 
@@ -849,7 +844,9 @@ Build or extend a worked interface that combines:
 This is the architecture probe. Any new abstraction must make this interface simpler
 without teaching lower packages what a chat, model, approval, or command is.
 
-This slice owns the input-failure violation and the missing stream-ingress policy.
+This slice owns the missing stream-ingress policy. `Host.Input` already returns one
+causal `EventSource`: channel closure is followed by an `Err` result, so clean EOF and
+known transport failure stay distinct without coupling `program` to a concrete host.
 `Transcript.Commit` already physically releases committed payload and per-block
 placement records while preserving an aggregate live coordinate base; its deterministic
 retention test and fresh-process `N` versus `2N` GC test are gates the rest of this

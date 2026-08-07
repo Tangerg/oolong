@@ -29,7 +29,8 @@ type DirectoryHost interface {
 type CopyHost interface{ Copy(text string) bool }
 
 // PasteHost requests text from the clipboard associated with the user-facing
-// host. Answers arrive asynchronously through [Host.Events] as an [input.Paste].
+// host. Answers arrive asynchronously through [EventSource.Events] as an
+// [input.Paste].
 type PasteHost interface{ Paste() }
 
 // HandoverHost temporarily gives exclusive ownership of its display to run.

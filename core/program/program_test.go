@@ -31,6 +31,7 @@ import (
 // host stands in for a terminal: a channel of events in, a buffer of frames out.
 type host struct {
 	events    chan input.Event
+	inputErr  error
 	frames    *frames
 	writer    *term.Writer
 	w, h      int
@@ -61,7 +62,9 @@ type minimalHost struct {
 	w, h   int
 }
 
+func (h *minimalHost) Input() program.EventSource  { return h }
 func (h *minimalHost) Events() <-chan input.Event  { return h.events }
+func (h *minimalHost) Err() error                  { return nil }
 func (h *minimalHost) Writer() program.FrameWriter { return h.writer }
 func (h *minimalHost) Size() (int, int, error)     { return h.w, h.h, nil }
 
@@ -106,7 +109,9 @@ type stalledHost struct {
 	handed atomic.Bool
 }
 
+func (h *stalledHost) Input() program.EventSource  { return h }
 func (h *stalledHost) Events() <-chan input.Event  { return h.events }
+func (h *stalledHost) Err() error                  { return nil }
 func (h *stalledHost) Writer() program.FrameWriter { return h.writer }
 func (h *stalledHost) Size() (int, int, error)     { return 20, 4, nil }
 func (h *stalledHost) Hand(run func() error) error {
@@ -134,7 +139,9 @@ func newHost(t *testing.T) *host {
 	return h
 }
 
+func (h *host) Input() program.EventSource  { return h }
 func (h *host) Events() <-chan input.Event  { return h.events }
+func (h *host) Err() error                  { return h.inputErr }
 func (h *host) Writer() program.FrameWriter { return h.writer }
 func (h *host) Size() (int, int, error)     { return h.w, h.h, nil }
 
@@ -235,6 +242,11 @@ func (h *host) timesAsked() int {
 
 func (h *host) send(ev input.Event) { h.events <- ev }
 func (h *host) rune(r rune)         { h.send(input.Key{Code: input.Character, Rune: r}) }
+
+func (h *host) endInput(err error) {
+	h.inputErr = err
+	close(h.events)
+}
 
 // frames collects what reached the terminal.
 type frames struct {
@@ -811,9 +823,19 @@ func TestPostAfterTheProgramHasStoppedIsDropped(t *testing.T) {
 func TestTheInputEndingEndsTheProgram(t *testing.T) {
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	close(r.host.events)
+	r.host.endInput(nil)
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
+	}
+}
+
+func TestAnInputFailureEndsTheProgramWithItsCause(t *testing.T) {
+	r := start(t, nil)
+	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+	cause := errors.New("ssh transport disconnected")
+	r.host.endInput(cause)
+	if err := r.wait(); !errors.Is(err, cause) {
+		t.Fatalf("program error = %v, want input cause", err)
 	}
 }
 

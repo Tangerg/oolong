@@ -7,6 +7,7 @@ package term
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ type driver struct {
 	stop    chan struct{}
 	events  chan input.Event
 	size    func() (int, int, error)
+	result  chan error
 	done    chan struct{}
 }
 
@@ -43,6 +45,7 @@ func newDriver(grace time.Duration) *driver {
 		stop:    make(chan struct{}),
 		events:  make(chan input.Event, 64),
 		size:    func() (int, int, error) { return 80, 24, nil },
+		result:  make(chan error, 1),
 		done:    make(chan struct{}),
 	}
 	p := &pump{
@@ -51,7 +54,8 @@ func newDriver(grace time.Duration) *driver {
 	}
 	go func() {
 		defer close(d.done)
-		p.run()
+		d.result <- p.run()
+		close(d.events)
 	}()
 	return d
 }
@@ -230,6 +234,41 @@ func TestPumpDeliversTheLastKeystrokeWhenInputEnds(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("the event channel never closed after the input ended")
+	}
+}
+
+func TestPumpPreservesTheInputFailure(t *testing.T) {
+	d := newDriver(10 * time.Millisecond)
+	cause := errors.New("terminal read failed")
+	d.readErr <- cause
+
+	select {
+	case _, ok := <-d.events:
+		if ok {
+			t.Fatal("an event arrived after a read failure")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the event channel did not close after a read failure")
+	}
+	if got := <-d.result; !errors.Is(got, cause) {
+		t.Fatalf("pump result = %v, want read failure", got)
+	}
+}
+
+func TestPumpTreatsEOFAsACleanEnd(t *testing.T) {
+	d := newDriver(10 * time.Millisecond)
+	d.readErr <- io.EOF
+
+	select {
+	case _, ok := <-d.events:
+		if ok {
+			t.Fatal("an event arrived after EOF")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the event channel did not close after EOF")
+	}
+	if got := <-d.result; got != nil {
+		t.Fatalf("pump result = %v, want a clean end", got)
 	}
 }
 

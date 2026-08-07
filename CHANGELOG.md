@@ -13,6 +13,11 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Host input is now one causal lifecycle.** `program.Host.Input` returns an
+  `EventSource` whose event channel is followed by its terminal `Err` result. The old
+  bare `Host.Events` contract could not distinguish clean EOF from a known terminal,
+  pipe, or remote transport failure and has been removed.
+
 - **Transcript identities survive prefix release.** `headless.Transcript.Append`
   returns a stable `BlockID`; block operations and sticky headers use that identity
   instead of a slice index. `StartRow` and `EndRow` describe the absolute live row
@@ -20,6 +25,10 @@ point of tagging them low rather than not at all.
   `Committed`, `CommittedRows`, and row-cache `Generation` model is removed.
 
 ### Fixed
+
+- **Input transport failures now reach `program.Run`.** The terminal pump records its
+  read result before closing the event channel; clean EOF remains a successful end,
+  while a known failure is returned with its cause intact.
 
 - **Committing output now transfers ownership in memory as well as on screen.** A
   committed prefix has its payload references cleared and its placement storage
