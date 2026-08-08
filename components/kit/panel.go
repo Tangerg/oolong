@@ -21,16 +21,41 @@ type Panel struct {
 	// Box is the panel's frame, fill, padding, title, and footer. Replacing it changes
 	// appearance and interior geometry, never the child's behavior.
 	Box Box
-	// Of is the child. Requiring a focusable child is what makes Panel's own Focus
-	// and Handle methods truthful; use Box directly for passive content.
-	Of headless.Focusable
 
+	child   headless.Focusable
+	blurred bool
 	content headless.PointerRegion
 }
 
 // NewPanel returns a rounded panel around of.
 func NewPanel(theme Theme, glyphs Glyphs, of headless.Focusable) *Panel {
-	return &Panel{Box: Box{Theme: theme, Glyphs: glyphs}, Of: of}
+	p := &Panel{Box: Box{Theme: theme, Glyphs: glyphs}}
+	p.SetContent(of)
+	return p
+}
+
+// Content returns the child inside the panel.
+func (p *Panel) Content() headless.Focusable {
+	if p == nil {
+		return nil
+	}
+	return p.child
+}
+
+// SetContent replaces the child and transfers the panel's keyboard ownership.
+// Requiring a focusable child is what makes Panel's own Focus and Handle methods
+// truthful; use [Box] directly for passive content.
+func (p *Panel) SetContent(child headless.Focusable) {
+	if p == nil {
+		return
+	}
+	if p.child != nil {
+		p.child.Focus(false)
+	}
+	p.child = child
+	if p.child != nil {
+		p.child.Focus(!p.blurred)
+	}
 }
 
 // Draw paints the box and draws the child in its interior.
@@ -40,9 +65,10 @@ func (p *Panel) Draw(frame headless.Frame) {
 	}
 	inner := p.Box.InnerRect(frame.Bounds().Size())
 	p.Box.paint(frame.View)
-	p.content.Stage(frame, inner, p.Of)
-	if p.Of != nil && !inner.Empty() {
-		p.Of.Draw(frame.Sub(inner))
+	child := p.child
+	p.content.Stage(frame, inner, child)
+	if child != nil && !inner.Empty() {
+		child.Draw(frame.Sub(inner))
 	}
 }
 
@@ -52,7 +78,7 @@ func (p *Panel) Measure(across int) int {
 		return 0
 	}
 	overhead := p.Box.Overhead()
-	measurer, ok := p.Of.(layout.Measurer)
+	measurer, ok := p.child.(layout.Measurer)
 	if !ok {
 		return overhead.Y
 	}
@@ -61,8 +87,12 @@ func (p *Panel) Measure(across int) int {
 
 // Focus passes keyboard ownership to the child.
 func (p *Panel) Focus(has bool) {
-	if p != nil && p.Of != nil {
-		p.Of.Focus(has)
+	if p == nil || p.blurred == !has {
+		return
+	}
+	p.blurred = !has
+	if p.child != nil {
+		p.child.Focus(has)
 	}
 }
 
@@ -76,8 +106,8 @@ func (p *Panel) Handle(event input.Event) bool {
 		handled, _ := p.content.Handle(pointer)
 		return handled
 	}
-	if p.Of == nil {
+	if p.child == nil {
 		return false
 	}
-	return p.Of.Handle(event)
+	return p.child.Handle(event)
 }

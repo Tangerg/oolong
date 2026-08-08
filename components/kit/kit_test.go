@@ -203,6 +203,27 @@ func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 	}
 }
 
+func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
+	first := &panelChild{}
+	second := &panelChild{}
+	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), first)
+	if panel.Content() != first || !first.focused {
+		t.Fatal("a new panel did not give its content the keyboard")
+	}
+
+	panel.Focus(false)
+	panel.SetContent(second)
+	if first.focused || second.focused {
+		t.Fatal("content installed in a blurred panel received the keyboard")
+	}
+
+	panel.Focus(true)
+	panel.SetContent(first)
+	if second.focused || !first.focused {
+		t.Fatal("replacing focused content did not transfer keyboard ownership")
+	}
+}
+
 // TestPanelKeepsAGestureThatLeavesItsInterior is the rule a panel inherits rather
 // than invents: a press decides who owns the interaction, and the drag and release
 // that follow belong to that owner wherever the pointer goes. Testing the interior
