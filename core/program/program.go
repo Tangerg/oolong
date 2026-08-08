@@ -437,8 +437,8 @@ func (p *program) run(ctx context.Context) (err error) {
 			}
 
 		case <-p.tasks.wake:
-			// Take one snapshot. Work posted while it runs leaves another wake-up, so a
-			// producer that never stops cannot keep input out of the select forever.
+			// Take one scheduling turn. Work beyond it leaves another wake-up, so a
+			// burst that is already waiting cannot keep input out of the select.
 			for _, task := range p.tasks.take() {
 				p.apply(task)
 				if p.quit.Load() {

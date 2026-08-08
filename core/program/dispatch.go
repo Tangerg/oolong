@@ -1,6 +1,14 @@
 package program
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
+
+// maxTasksPerTurn bounds how long an already queued burst may keep the owner out
+// of its event select. The queue itself remains unbounded and lossless; this is a
+// scheduling quantum, not a capacity.
+const maxTasksPerTurn = 64
 
 // taskQueue is a concurrent FIFO with a coalesced wake-up.
 //
@@ -49,18 +57,27 @@ func (q *taskQueue) post(fn func()) bool {
 	return true
 }
 
-// take removes the work that was waiting at the instant it was called. Work posted
-// while the returned batch runs queues another wake-up, preserving fairness with
-// input, writer progress and frame deadlines.
+// take removes at most one owner turn of work. It wakes the owner again when more
+// remains, giving input, writer progress and frame deadlines a chance between
+// portions of a burst whether that burst arrived before or during this call.
 func (q *taskQueue) take() []func() {
 	q.mu.Lock()
-	tasks := q.tasks
-	if q.refresh {
-		tasks = append(tasks, nil)
+	n := min(len(q.tasks), maxTasksPerTurn)
+	tasks := slices.Clone(q.tasks[:n])
+	clear(q.tasks[:n])
+	q.tasks = q.tasks[n:]
+	if len(q.tasks) == 0 {
+		q.tasks = nil
 	}
-	q.tasks = nil
-	q.refresh = false
+	if len(q.tasks) == 0 && q.refresh {
+		tasks = append(tasks, nil)
+		q.refresh = false
+	}
+	more := len(q.tasks) > 0
 	q.mu.Unlock()
+	if more {
+		q.signal()
+	}
 	return tasks
 }
 
