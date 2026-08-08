@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/Tangerg/oolong/core/anim"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // Sticky pins a block to the top of the view once it has been scrolled past.
@@ -122,7 +123,7 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 		p.Height = max(min(height, height-(from-top)), s.MinHeight)
 		p.Height = min(p.Height, height)
 	}
-	p.Rows = p.Height + s.Gap
+	p.Rows = layout.Sum(p.Height, s.Gap)
 	p.Fade = 1
 
 	// The next pinned block pushes this one off as it comes up.

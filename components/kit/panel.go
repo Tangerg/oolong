@@ -82,7 +82,7 @@ func (p *Panel) Measure(across int) int {
 	if !ok {
 		return overhead.Y
 	}
-	return overhead.Y + max(measurer.Measure(max(across-overhead.X, 0)), 0)
+	return layout.Sum(overhead.Y, measurer.Measure(layout.Remaining(across, overhead.X)))
 }
 
 // Focus passes keyboard ownership to the child.

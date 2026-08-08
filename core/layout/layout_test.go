@@ -163,6 +163,23 @@ func TestSizingConstructorsDoNotExpressNegativeExtents(t *testing.T) {
 	equal(t, got, []int{0, 0, 0, 0})
 }
 
+func TestExtentSumsStayNonnegativeAtIntegerLimits(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if got := layout.Sum(-1, 2, maxInt, 1); got != maxInt {
+		t.Fatalf("sum = %d, want saturation at %d", got, maxInt)
+	}
+	if got := layout.Sum(-1, -2); got != 0 {
+		t.Fatalf("negative extents summed to %d, want zero", got)
+	}
+	if got := layout.Remaining(minInt, maxInt); got != 0 {
+		t.Fatalf("remaining negative room = %d, want zero", got)
+	}
+	if got := layout.Remaining(maxInt, maxInt, maxInt); got != 0 {
+		t.Fatalf("overdrawn room = %d, want zero", got)
+	}
+}
+
 func TestSizingRejectsContradictoryConstraints(t *testing.T) {
 	for name, makeSizing := range map[string]func() layout.Sizing{
 		"measured bounds": func() layout.Sizing { return layout.Measured(3, 2) },

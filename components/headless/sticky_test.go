@@ -37,6 +37,19 @@ func TestNothingIsPinnedWhileItIsStillOnScreen(t *testing.T) {
 	}
 }
 
+func TestPinnedFootprintSaturatesInsteadOfTurningNegative(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	var transcript headless.Transcript
+	transcript.Resize(40)
+	id := transcript.Append(&block{lines: maxInt})
+	sticky := headless.Sticky{Gap: maxInt}
+	sticky.Add(id)
+	pinned, ok := sticky.At(transcript.Layout(), 1, 1)
+	if !ok || pinned.Rows != maxInt {
+		t.Fatalf("pinned = %+v, %t; want saturated footprint", pinned, ok)
+	}
+}
+
 func TestThePinnedBlockIsTheOneAbove(t *testing.T) {
 	tr, s := pinnable(t, 3)
 	// Blocks: prompt0 at 0, answer0 at 2, prompt1 at 12, answer1 at 14, prompt2 at 24.

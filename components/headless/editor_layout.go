@@ -2,6 +2,7 @@ package headless
 
 import (
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -184,7 +185,7 @@ func (e *Editor) Draw(frame Frame) {
 	}
 	e.ensure()
 	gutter := min(e.gutterWidth(), total)
-	width := max(total-gutter, 0)
+	width := layout.Remaining(total, gutter)
 	gutterView := v.Sub(grid.Rect(0, 0, gutter, height))
 	v = v.Sub(grid.Rect(gutter, 0, width, height))
 	if width <= 0 {
@@ -254,7 +255,7 @@ func (e *Editor) gutterWidth() int {
 }
 
 func (e *Editor) textWidth(total int) int {
-	return max(total-e.gutterWidth(), 0)
+	return layout.Remaining(total, e.gutterWidth())
 }
 
 func (e *Editor) drawGutter(view grid.View, rows []editorRow) {

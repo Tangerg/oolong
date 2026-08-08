@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // The fields a form is made of: a line of text, one choice, several, and a yes or no.
@@ -49,7 +50,7 @@ func (t *Text) Editor() *Editor { return &t.editor }
 func (t *Text) Prompt() string { return t.Label }
 
 // Measure is the label, a row of text, and the problem with it if there is one.
-func (t *Text) Measure(int) int { return 1 + t.rows(t.Label) }
+func (t *Text) Measure(int) int { return layout.Sum(1, t.rows(t.Label)) }
 
 // Draw paints the label, the field and whatever was wrong with the answer.
 func (t *Text) Draw(v Frame) {
@@ -241,7 +242,7 @@ func (s *Select[T]) Measure(int) int {
 	if s.Rows > 0 {
 		rows = min(rows, s.Rows)
 	}
-	return max(rows, 1) + s.rows(s.Label)
+	return layout.Sum(max(rows, 1), s.rows(s.Label))
 }
 
 // Draw paints the label, the options and whatever was wrong with the choice.
@@ -441,7 +442,7 @@ func (m *MultiSelect[T]) Measure(int) int {
 	if m.Rows > 0 {
 		rows = min(rows, m.Rows)
 	}
-	return max(rows, 1) + m.rows(m.Label)
+	return layout.Sum(max(rows, 1), m.rows(m.Label))
 }
 
 // Draw paints the label, the options and whatever was wrong with the choices.
@@ -584,7 +585,7 @@ func (c *Confirm) Say(yes bool) {
 }
 
 // Measure is the label, the two answers on one row, and the problem if there is one.
-func (c *Confirm) Measure(int) int { return 1 + c.rows(c.Label) }
+func (c *Confirm) Measure(int) int { return layout.Sum(1, c.rows(c.Label)) }
 
 // Draw paints the label and the two answers.
 func (c *Confirm) Draw(v Frame) {

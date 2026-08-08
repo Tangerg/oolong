@@ -196,7 +196,7 @@ func (d *Doc) wrap(width int) []row {
 			rows = append(rows, row{})
 		}
 		at := block.Indent
-		room := max(width-at, 1)
+		room := max(layout.Remaining(width, at), 1)
 		if block.Rule {
 			rows = append(rows, row{
 				Wrapped: text.Wrapped{Line: stretch(block.Lines, room)},

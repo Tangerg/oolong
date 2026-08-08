@@ -3,6 +3,7 @@ package kit
 import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -56,7 +57,7 @@ func (c *Code) Draw(view grid.View) {
 	}
 	width, height := view.Size()
 	gutter := min(c.gutterWidth(), max(width, 0))
-	contentWidth := max(width-gutter, 0)
+	contentWidth := layout.Remaining(width, gutter)
 	if gutter > 0 {
 		rows := c.body.Rows(contentWidth)
 		rows = rows[:min(len(rows), max(height, 0))]
@@ -74,7 +75,7 @@ func (c *Code) Rows(width int) []text.Row {
 		return nil
 	}
 	gutter := c.gutterWidth()
-	rows := c.body.Rows(max(width-gutter, 0))
+	rows := c.body.Rows(layout.Remaining(width, gutter))
 	for i := range rows {
 		rows[i].Offset += gutter
 	}
@@ -89,5 +90,5 @@ func (c *Code) gutterWidth() int {
 }
 
 func (c *Code) textWidth(width int) int {
-	return max(width-c.gutterWidth(), 0)
+	return layout.Remaining(width, c.gutterWidth())
 }

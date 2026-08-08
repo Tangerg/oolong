@@ -91,7 +91,7 @@ func (c *Composer) Handle(ev input.Event) bool {
 // for the hints when there are any.
 func (c *Composer) Measure(width int) int {
 	c.configure()
-	return c.editor.Measure(max(width-c.markerWidth(), 0)) + c.hintRows()
+	return layout.Sum(c.editor.Measure(layout.Remaining(width, c.markerWidth())), c.hintRows())
 }
 
 // Draw paints the marker, the field and the hints.
@@ -120,7 +120,7 @@ func (c *Composer) drawField(v headless.Frame) {
 		v.Text(0, 0, c.Prompt, c.Theme.Accent)
 	}
 	width, height := v.Size()
-	field := grid.Rect(marker, 0, max(width-marker, 0), height)
+	field := grid.Rect(marker, 0, layout.Remaining(width, marker), height)
 	c.field.Stage(v, field, &c.editor)
 	c.editor.Draw(v.Sub(field))
 }

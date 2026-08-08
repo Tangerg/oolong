@@ -2,6 +2,7 @@ package headless
 
 import (
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -33,7 +34,7 @@ type RowSpan struct {
 // character, a line that just fits.
 func (e *Editor) Spans(from, to Caret, width int) []RowSpan {
 	gutter := e.gutterWidth()
-	out := e.spans(from, to, max(width-gutter, 0))
+	out := e.spans(from, to, layout.Remaining(width, gutter))
 	for i := range out {
 		out[i].Col += gutter
 	}
@@ -105,7 +106,7 @@ func (e *Editor) At(x, y, width int) (Caret, bool) {
 	if x < gutter {
 		return Caret{}, false
 	}
-	return e.at(x-gutter, y, max(width-gutter, 0))
+	return e.at(x-gutter, y, layout.Remaining(width, gutter))
 }
 
 func (e *Editor) at(x, y, width int) (Caret, bool) {

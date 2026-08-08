@@ -3,6 +3,7 @@ package kit
 import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -42,7 +43,7 @@ var (
 
 // Measure is how many rows the message needs at this width.
 func (m Message) Measure(width int) int {
-	return m.head() + len(m.body().rows(m.wrapWidth(width))) + m.trailing()
+	return layout.Sum(m.head(), len(m.body().rows(m.wrapWidth(width))), m.trailing())
 }
 
 // Draw paints the speaker, the body and the blank rows after it.
@@ -63,7 +64,7 @@ func (m Message) Draw(v grid.View) {
 	body := m.body()
 	_, height := v.Size()
 	indent := m.indent()
-	body.Draw(v.Sub(grid.Rect(indent, y, m.wrapWidth(width), max(height-y, 0))))
+	body.Draw(v.Sub(grid.Rect(indent, y, m.wrapWidth(width), layout.Remaining(height, y))))
 }
 
 // Rows returns the message without its visual gutter, with body offsets aligned to
@@ -109,7 +110,7 @@ func (m Message) indent() int {
 	return gutter
 }
 
-func (m Message) wrapWidth(width int) int { return max(width-m.indent(), 1) }
+func (m Message) wrapWidth(width int) int { return max(layout.Remaining(width, m.indent()), 1) }
 
 func (m Message) body() *Paragraph {
 	return NewParagraph(m.Body, m.Theme.Text)

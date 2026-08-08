@@ -39,7 +39,7 @@ type Placement struct {
 func (p Placement) In(space image.Point) image.Rectangle {
 	space.X, space.Y = max(space.X, 0), max(space.Y, 0)
 	margin := max(p.Margin, 0)
-	room := image.Pt(afterInsets(space.X, margin, margin), afterInsets(space.Y, margin, margin))
+	room := image.Pt(Remaining(space.X, margin, margin), Remaining(space.Y, margin, margin))
 	if room.X == 0 || room.Y == 0 {
 		return image.Rectangle{}
 	}
@@ -52,13 +52,6 @@ func (p Placement) In(space image.Point) image.Rectangle {
 	}
 	at := p.Anchor.place(room, size).Add(image.Pt(margin, margin))
 	return image.Rect(at.X, at.Y, at.X+size.X, at.Y+size.Y)
-}
-
-func afterInsets(total, before, after int) int {
-	if total <= 0 || uint(max(before, 0))+uint(max(after, 0)) >= uint(total) {
-		return 0
-	}
-	return total - max(before, 0) - max(after, 0)
 }
 
 // place works out where a box of size sits inside space.

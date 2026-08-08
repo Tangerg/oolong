@@ -47,7 +47,7 @@ func (f *Form) Measure(across int) int {
 	if f == nil || f.controller == nil {
 		return 0
 	}
-	return f.rows() + f.controller.Measure(across)
+	return layout.Sum(f.rows(), f.controller.Measure(across))
 }
 
 // Draw dresses the form and paints it.

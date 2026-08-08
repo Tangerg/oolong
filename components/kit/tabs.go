@@ -71,7 +71,7 @@ func (t *Tabs) Measure(across int) int {
 	if t.controller == nil {
 		return 0
 	}
-	return t.rows() + t.controller.Measure(across)
+	return layout.Sum(t.rows(), t.controller.Measure(across))
 }
 
 // Draw paints the strip, the rule under it, and the pane in what is left.

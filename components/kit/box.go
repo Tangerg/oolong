@@ -59,7 +59,7 @@ func (b Box) Overhead() image.Point {
 		edge = 2
 	}
 	pad := b.Padding.Size()
-	return image.Pt(edge+pad.X, edge+pad.Y)
+	return image.Pt(layout.Sum(edge, pad.X), layout.Sum(edge, pad.Y))
 }
 
 // Inner is the region left for content, in v's coordinates.
@@ -81,9 +81,17 @@ func (b Box) InnerRect(size image.Point) image.Rectangle {
 		edge = 1
 	}
 	over := b.Overhead()
-	x := edge + b.Padding.Left
-	y := edge + b.Padding.Top
-	return grid.Rect(x, y, max(size.X-over.X, 0), max(size.Y-over.Y, 0))
+	inner := image.Pt(layout.Remaining(size.X, over.X), layout.Remaining(size.Y, over.Y))
+	x, y := 0, 0
+	if inner.X > 0 {
+		// A positive remainder proves this addition fits: Overhead already includes
+		// both sides and is strictly smaller than size on this axis.
+		x = edge + b.Padding.Left
+	}
+	if inner.Y > 0 {
+		y = edge + b.Padding.Top
+	}
+	return grid.Rect(x, y, inner.X, inner.Y)
 }
 
 // Draw paints the frame and returns the region left for content, so the common use

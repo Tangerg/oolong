@@ -43,12 +43,11 @@ const (
 
 // Offset is where an extent starts inside a space of the given size.
 func (a Align) Offset(space, extent int) int {
-	space, extent = max(space, 0), max(extent, 0)
 	switch a {
 	case Center:
-		return max((space-extent)/2, 0)
+		return Remaining(space, extent) / 2
 	case End:
-		return max(space-extent, 0)
+		return Remaining(space, extent)
 	default:
 		return 0
 	}
@@ -75,7 +74,7 @@ func Symmetric(vertical, horizontal int) Inset {
 // Size is the horizontal and vertical extent the inset takes.
 func (i Inset) Size() image.Point {
 	i = i.normalized()
-	return image.Pt(saturatingAdd(i.Left, i.Right), saturatingAdd(i.Top, i.Bottom))
+	return image.Pt(Sum(i.Left, i.Right), Sum(i.Top, i.Bottom))
 }
 
 // Apply is what is left of r after the inset is held clear, and nothing at all when
@@ -294,7 +293,7 @@ func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 			r = image.Rect(0, at, space.X, at+size)
 		}
 		rects[i] = slots[i].Cross.place(r, f.Axis, across)
-		at = min(saturatingAdd(at, size), total)
+		at = min(Sum(at, size), total)
 		at += min(gap, total-at)
 	}
 	return rects
@@ -303,14 +302,14 @@ func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 // Divide splits total among the slots, holding back the gaps between them first.
 func (f Flow) Divide(total, across int, slots []Slot) []int {
 	available := max(total, 0)
-	return Divide(max(available-f.gaps(len(slots)), 0), across, slots)
+	return Divide(Remaining(available, f.gaps(len(slots))), across, slots)
 }
 
 // Wanted is how much of the divided axis the slots ask for altogether, the gaps
 // between them included.
 func (f Flow) Wanted(across int, slots []Slot) int {
 	wanted, gaps := Wanted(across, slots), f.gaps(len(slots))
-	return saturatingAdd(wanted, gaps)
+	return Sum(wanted, gaps)
 }
 
 // gaps is how much of the axis the joins take.
@@ -351,12 +350,12 @@ func Wanted(across int, slots []Slot) int {
 	for _, slot := range slots {
 		switch slot.Size.kind {
 		case fixedSizing:
-			total = saturatingAdd(total, slot.Size.amount)
+			total = Sum(total, slot.Size.amount)
 		case partSizing:
 			// A fraction of a region nobody has named yet. There is no total to take a
 			// part of, so it counts as its floor — the same answer a flexible slot
 			// gives, and for the same reason.
-			total = saturatingAdd(total, slot.Size.minimum)
+			total = Sum(total, slot.Size.minimum)
 		case measuredSizing:
 			want := slot.Size.minimum
 			if slot.Of != nil {
@@ -365,9 +364,9 @@ func Wanted(across int, slots []Slot) int {
 			if slot.Size.maximum > 0 {
 				want = min(want, slot.Size.maximum)
 			}
-			total = saturatingAdd(total, want)
+			total = Sum(total, want)
 		case flexSizing:
-			total = saturatingAdd(total, slot.Size.minimum)
+			total = Sum(total, slot.Size.minimum)
 		case zeroSizing:
 			continue
 		}
@@ -453,14 +452,34 @@ func Divide(total, across int, slots []Slot) []int {
 
 const maxInt = int(^uint(0) >> 1)
 
-// saturatingAdd adds non-negative extents without turning an overflow into a
-// negative size.
-func saturatingAdd(a, b int) int {
-	a, b = max(a, 0), max(b, 0)
-	if b > maxInt-a {
-		return maxInt
+// Sum adds non-negative extents, saturating at the largest int instead of letting
+// overflow turn geometry negative. Negative inputs describe no extent and contribute
+// zero. It is the one addition rule for both layout internals and composed measurers.
+func Sum(extents ...int) int {
+	total := 0
+	for _, extent := range extents {
+		extent = max(extent, 0)
+		if extent > maxInt-total {
+			return maxInt
+		}
+		total += extent
 	}
-	return a + b
+	return total
+}
+
+// Remaining subtracts non-negative extents from total without underflow. Negative
+// inputs describe no room or no use. It is the subtraction counterpart to [Sum] and
+// the one rule for asking how much of a measured axis is left.
+func Remaining(total int, used ...int) int {
+	total = max(total, 0)
+	for _, extent := range used {
+		extent = max(extent, 0)
+		if extent >= total {
+			return 0
+		}
+		total -= extent
+	}
+	return total
 }
 
 // Scale returns total*part/whole, capped to [0, total], without overflowing the

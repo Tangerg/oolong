@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -30,8 +31,8 @@ var _ headless.RowGutter = LineNumbers{}
 
 // Width is the stable gutter width for this many logical lines.
 func (n LineNumbers) Width(lines int) int {
-	last := n.first() + max(lines-1, 0)
-	return decimalWidth(last) + text.Width(n.Separator) + n.gap()
+	last := layout.Sum(n.first(), max(lines-1, 0))
+	return layout.Sum(decimalWidth(last), text.Width(n.Separator), n.gap())
 }
 
 // Draw paints one number for each logical line beginning in rows.
@@ -40,7 +41,7 @@ func (n LineNumbers) Draw(view grid.View, rows []text.Row) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	digits := max(width-text.Width(n.Separator)-n.gap(), 0)
+	digits := layout.Remaining(width, text.Width(n.Separator), n.gap())
 	for y, row := range rows {
 		if y >= height {
 			return
@@ -48,7 +49,7 @@ func (n LineNumbers) Draw(view grid.View, rows []text.Row) {
 		if row.Line <= 0 || row.Joined {
 			continue
 		}
-		value := n.first() + row.Line - 1
+		value := layout.Sum(n.first(), max(row.Line-1, 0))
 		label := right(decimal(value), digits) + n.Separator
 		view.Text(0, y, text.Truncate(label, width, ""), n.Style)
 	}
@@ -68,5 +69,5 @@ func decimal(n int) string {
 func decimalWidth(n int) int { return len(decimal(max(n, 1))) }
 
 func right(s string, width int) string {
-	return strings.Repeat(" ", max(width-text.Width(s), 0)) + s
+	return strings.Repeat(" ", layout.Remaining(width, text.Width(s))) + s
 }
