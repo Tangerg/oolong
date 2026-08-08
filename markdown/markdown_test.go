@@ -219,6 +219,10 @@ func TestAQuotationKeepsItsBarDownEveryRow(t *testing.T) {
 	})
 }
 
+func TestNestedQuotationsAdvanceByOneRailPerLevel(t *testing.T) {
+	equal(t, render(t, 20, "> > quoted"), []string{"│ │ quoted"})
+}
+
 func TestCodeIsLeftExactlyAsItWasWritten(t *testing.T) {
 	source := "before\n\n```go\nfunc main() {\n\n\tprintln(\"hi\")\n}\n```\n\nafter"
 	equal(t, render(t, 30, source), []string{

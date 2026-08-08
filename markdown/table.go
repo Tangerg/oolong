@@ -37,7 +37,7 @@ func (r *renderer) table(n *east.Table, in frame) {
 			lines = append(lines, r.tableRule(widths))
 		}
 	}
-	r.push(Block{Indent: in.indent, Rail: in.rail, Gap: !in.tight, Lines: lines})
+	r.push(Block{Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight, Lines: lines})
 }
 
 // cells reads the table into lines, and says whether the first row is the heading.

@@ -44,7 +44,7 @@ func Render(source string, look Look) []Block {
 	}
 	r := &renderer{look: look, source: []byte(source)}
 	root := parse(r.source)
-	r.children(root, frame{body: look.Text})
+	r.render(root, frame{body: look.Text})
 	return r.blocks
 }
 
@@ -57,7 +57,7 @@ func Render(source string, look Look) []Block {
 // item decides whether what is inside it is spaced out.
 type frame struct {
 	indent int
-	rail   text.Line
+	rail   *railChain
 	body   grid.Style
 	// tight says no blank row goes before this block: the first block of a document,
 	// and the first block of a list item.
@@ -67,6 +67,27 @@ type frame struct {
 	// list nested under it would be two blocks with a blank row between them, and a
 	// tight list would come out loose the moment anything was nested in it.
 	dense bool
+}
+
+// railChain is a quotation prefix as persistent segments. Nested quotations share
+// their prefix and add one segment, so depth costs one allocation per level rather
+// than copying the complete rail at every level. A Block materializes the line once
+// when ownership crosses into the renderer result.
+type railChain struct {
+	previous *railChain
+	span     text.Span
+	depth    int
+}
+
+func (r *railChain) line() text.Line {
+	if r == nil {
+		return nil
+	}
+	line := make(text.Line, r.depth)
+	for current := r; current != nil; current = current.previous {
+		line[current.depth-1] = current.span
+	}
+	return line
 }
 
 // renderer walks the tree and leaves blocks behind it.
@@ -86,14 +107,50 @@ func (r *renderer) push(b Block) {
 	r.blocks = append(r.blocks, b)
 }
 
-// children renders everything under a node.
-func (r *renderer) children(n ast.Node, in frame) {
-	first := true
-	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+type renderActionKind uint8
+
+const (
+	renderNode renderActionKind = iota
+	setMarker
+	clearMarker
+)
+
+type renderAction struct {
+	kind   renderActionKind
+	node   ast.Node
+	frame  frame
+	marker text.Line
+}
+
+// render walks the block tree with explicit actions. Markdown nesting is input, not
+// trusted program structure; it therefore consumes heap storage proportional to the
+// active depth and never the goroutine call stack.
+func (r *renderer) render(root ast.Node, in frame) {
+	stack := make([]renderAction, 0, 16)
+	r.scheduleChildren(&stack, root, in)
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		action := stack[last]
+		stack = stack[:last]
+		switch action.kind {
+		case setMarker:
+			r.marker = action.marker
+		case clearMarker:
+			r.marker = nil
+		case renderNode:
+			r.block(action.node, action.frame, &stack)
+		}
+	}
+}
+
+// scheduleChildren pushes children in reverse so the action stack visits them in
+// document order. Tightness belongs to the child's position among its siblings.
+func (r *renderer) scheduleChildren(stack *[]renderAction, n ast.Node, in frame) {
+	for child := n.LastChild(); child != nil; child = child.PreviousSibling() {
 		at := in
+		first := child.PreviousSibling() == nil
 		at.tight = (in.tight && first) || (in.dense && !first)
-		r.block(c, at)
-		first = false
+		*stack = append(*stack, renderAction{kind: renderNode, node: child, frame: at})
 	}
 }
 
@@ -102,42 +159,41 @@ func (r *renderer) children(n ast.Node, in frame) {
 // What is not here is as deliberate as what is. Raw HTML is dropped: a terminal
 // cannot show a tag, printing it as text is noise, and a renderer that guessed at
 // what a tag meant would be a browser.
-func (r *renderer) block(n ast.Node, in frame) {
+func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	switch node := n.(type) {
 	case *ast.Heading:
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail, Gap: !in.tight,
+			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight,
 			Lines: r.inline(node, r.look.heading(node.Level)),
 		})
 	case *ast.Paragraph:
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail, Gap: !in.tight,
+			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight,
 			Lines: r.inline(node, in.body),
 		})
 	case *ast.TextBlock:
 		// What a list item's own text is, when the list is written without blank lines
 		// in it. It is a paragraph in everything but name.
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail, Gap: !in.tight,
+			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight,
 			Lines: r.inline(node, in.body),
 		})
 	case *ast.List:
-		r.list(node, in)
+		r.list(node, in, stack)
 	case *ast.ListItem:
-		r.children(node, in)
+		r.scheduleChildren(stack, node, in)
 	case *ast.Blockquote:
 		inner := in
-		inner.rail = r.bar(in.rail)
-		inner.indent = in.indent + inner.rail.Width()
+		inner.rail, inner.indent = r.quoted(in.rail, in.indent)
 		inner.body = r.look.Quote
-		r.children(node, inner)
+		r.scheduleChildren(stack, node, inner)
 	case *ast.FencedCodeBlock:
 		r.code(node, string(node.Language(r.source)), in)
 	case *ast.CodeBlock:
 		r.code(node, "", in)
 	case *ast.ThematicBreak:
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail, Gap: !in.tight, Rule: true,
+			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight, Rule: true,
 			Lines: r.rule(),
 		})
 	case *east.Table:
@@ -145,7 +201,7 @@ func (r *renderer) block(n ast.Node, in frame) {
 	case *ast.HTMLBlock:
 		// Dropped, and see above.
 	default:
-		r.children(n, in)
+		r.scheduleChildren(stack, n, in)
 	}
 }
 
@@ -163,18 +219,16 @@ func (r *renderer) rule() []text.Line {
 
 // list renders a list, one item at a time, with the item's mark waiting for the
 // first block inside it.
-func (r *renderer) list(n *ast.List, in frame) {
+func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 	number := n.Start
-	if number == 0 {
+	if number <= 0 {
 		number = 1
 	}
-	first := true
-	for item := n.FirstChild(); item != nil; item = item.NextSibling() {
-		marker := r.bullet(n, number)
-		number++
-
+	index := n.ChildCount() - 1
+	for item := n.LastChild(); item != nil; item = item.PreviousSibling() {
+		marker := r.bullet(n, ordinal(number, index))
 		inner := in
-		inner.indent = in.indent + marker.Width()
+		inner.indent = addExtent(in.indent, marker.Width())
 		// An item is against the one before it in a tight list and spaced from it in a
 		// loose one, which is the distinction markdown draws by whether there are blank
 		// lines between them — and the one thing about a list a reader notices.
@@ -183,13 +237,26 @@ func (r *renderer) list(n *ast.List, in frame) {
 		// what it is spaced from is whatever came before the list, which is the frame's
 		// to say. A list that took its own tightness for that would run into the
 		// paragraph above it.
-		inner.tight = (first && in.tight) || (!first && n.IsTight)
+		inner.tight = (index == 0 && in.tight) || (index > 0 && n.IsTight)
 		inner.dense = n.IsTight
-		r.marker = marker
-		r.block(item, inner)
-		r.marker = nil
-		first = false
+		*stack = append(*stack,
+			renderAction{kind: clearMarker},
+			renderAction{kind: renderNode, node: item, frame: inner},
+			renderAction{kind: setMarker, marker: marker},
+		)
+		index--
 	}
+}
+
+func ordinal(start, index int) int {
+	if index <= 0 {
+		return start
+	}
+	const maxInt = int(^uint(0) >> 1)
+	if start > maxInt-index {
+		return maxInt
+	}
+	return start + index
 }
 
 // bullet is what marks an item: a number for an ordered list, the look's bullet for
@@ -206,13 +273,29 @@ func (r *renderer) bullet(n *ast.List, number int) text.Line {
 	return text.Of(r.look.Glyphs.Bullet+" ", r.look.Marker)
 }
 
-// bar is the rail inside a quotation: whatever was already there, and one more.
-func (r *renderer) bar(rail text.Line) text.Line {
+// quoted adds one persistent rail segment and advances the content indent by this
+// segment only. Adding the complete accumulated rail at every level would move a
+// depth-n quotation by the triangular number of columns.
+func (r *renderer) quoted(previous *railChain, indent int) (*railChain, int) {
 	bar := r.look.Glyphs.Bar
 	if bar == "" {
 		bar = " "
 	}
-	return append(append(text.Line{}, rail...), text.Span{Text: bar + " ", Style: r.look.Rail})
+	span := text.Span{Text: bar + " ", Style: r.look.Rail}
+	depth := 1
+	if previous != nil {
+		depth = previous.depth + 1
+	}
+	return &railChain{previous: previous, span: span, depth: depth}, addExtent(indent, text.Width(span.Text))
+}
+
+func addExtent(a, b int) int {
+	a, b = max(a, 0), max(b, 0)
+	const maxInt = int(^uint(0) >> 1)
+	if b > maxInt-a {
+		return maxInt
+	}
+	return a + b
 }
 
 // code renders a block of code, through the look's highlighter when it has one.
@@ -234,7 +317,7 @@ func (r *renderer) code(n ast.Node, language string, in frame) {
 			out = append(out, text.Of(line, r.look.Block))
 		}
 	}
-	r.push(Block{Indent: in.indent, Rail: in.rail, Gap: !in.tight, Lines: out})
+	r.push(Block{Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight, Lines: out})
 }
 
 // inline turns the inline nodes under n into lines, splitting where the text said to
@@ -257,57 +340,80 @@ func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 		lines[last] = append(lines[last], text.Span{Text: s, Style: st, Link: link})
 	}
 
-	var walk func(n ast.Node, style grid.Style, link string)
-	walk = func(n ast.Node, style grid.Style, link string) {
-		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-			switch node := c.(type) {
-			case *ast.Text:
-				add(string(node.Segment.Value(r.source)), style, link)
-				switch {
-				case node.HardLineBreak():
-					lines = append(lines, nil)
-				case node.SoftLineBreak():
-					add(" ", style, link)
-				}
-			case *ast.String:
-				add(string(node.Value), style, link)
-			case *ast.CodeSpan:
-				add(r.plain(node), style.Merge(r.look.Code), link)
-			case *ast.Emphasis:
-				if node.Level >= 2 {
-					walk(node, style.Merge(r.look.Strong), link)
-					continue
-				}
-				walk(node, style.Merge(r.look.Emphasis), link)
-			case *east.Strikethrough:
-				walk(node, style.Merge(r.look.Struck), link)
-			case *ast.Link:
-				// The words carry the address, so a terminal that shows hyperlinks opens
-				// what was written rather than what was printed beside it.
-				target := string(node.Destination)
-				walk(node, style.Merge(r.look.Link), target)
-				r.target(add, target, r.plain(node), style)
-			case *ast.AutoLink:
-				url := string(node.URL(r.source))
-				add(url, style.Merge(r.look.Link), url)
-			case *ast.Image:
-				// A picture is not something a row of cells can hold — see the graphics
-				// package for what a terminal will take — so what is left is what it was
-				// called and where it is.
-				target := string(node.Destination)
-				add("["+r.plain(node)+"]", style.Merge(r.look.Link), target)
-				r.target(add, target, "", style)
-			case *east.TaskCheckBox:
-				add(r.box(node.IsChecked), style.Merge(r.look.Marker), link)
-			case *ast.RawHTML:
-				// Dropped, like a block of it.
-			default:
-				walk(c, style, link)
+	stack := make([]inlineAction, 0, 16)
+	pushInlineChildren(&stack, n, style, "")
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		action := stack[last]
+		stack = stack[:last]
+		if action.target {
+			r.target(add, action.destination, action.shown, action.style)
+			continue
+		}
+		switch node := action.node.(type) {
+		case *ast.Text:
+			add(string(node.Segment.Value(r.source)), action.style, action.link)
+			switch {
+			case node.HardLineBreak():
+				lines = append(lines, nil)
+			case node.SoftLineBreak():
+				add(" ", action.style, action.link)
 			}
+		case *ast.String:
+			add(string(node.Value), action.style, action.link)
+		case *ast.CodeSpan:
+			add(r.plain(node), action.style.Merge(r.look.Code), action.link)
+		case *ast.Emphasis:
+			if node.Level >= 2 {
+				pushInlineChildren(&stack, node, action.style.Merge(r.look.Strong), action.link)
+			} else {
+				pushInlineChildren(&stack, node, action.style.Merge(r.look.Emphasis), action.link)
+			}
+		case *east.Strikethrough:
+			pushInlineChildren(&stack, node, action.style.Merge(r.look.Struck), action.link)
+		case *ast.Link:
+			// Push the target before the children: the stack visits the words first and
+			// then writes the optional address, preserving document order.
+			target := string(node.Destination)
+			stack = append(stack, inlineAction{
+				target: true, destination: target, shown: r.plain(node), style: action.style,
+			})
+			pushInlineChildren(&stack, node, action.style.Merge(r.look.Link), target)
+		case *ast.AutoLink:
+			url := string(node.URL(r.source))
+			add(url, action.style.Merge(r.look.Link), url)
+		case *ast.Image:
+			// A picture is not something a row of cells can hold — see the graphics
+			// package for what a terminal will take — so what is left is what it was
+			// called and where it is.
+			target := string(node.Destination)
+			add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
+			r.target(add, target, "", action.style)
+		case *east.TaskCheckBox:
+			add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
+		case *ast.RawHTML:
+			// Dropped, like a block of it.
+		default:
+			pushInlineChildren(&stack, action.node, action.style, action.link)
 		}
 	}
-	walk(n, style, "")
 	return lines
+}
+
+type inlineAction struct {
+	node  ast.Node
+	style grid.Style
+	link  string
+
+	target      bool
+	destination string
+	shown       string
+}
+
+func pushInlineChildren(stack *[]inlineAction, n ast.Node, style grid.Style, link string) {
+	for child := n.LastChild(); child != nil; child = child.PreviousSibling() {
+		*stack = append(*stack, inlineAction{node: child, style: style, link: link})
+	}
 }
 
 // target writes where a link points, after the words that point there.
@@ -343,19 +449,25 @@ func (r *renderer) box(checked bool) string {
 // span, a link's own words and an image's description all come to.
 func (r *renderer) plain(n ast.Node) string {
 	var b strings.Builder
-	var walk func(ast.Node)
-	walk = func(n ast.Node) {
-		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-			switch node := c.(type) {
-			case *ast.Text:
-				b.Write(node.Segment.Value(r.source))
-			case *ast.String:
-				b.Write(node.Value)
-			default:
-				walk(c)
-			}
+	stack := make([]ast.Node, 0, 16)
+	pushNodes := func(n ast.Node) {
+		for child := n.LastChild(); child != nil; child = child.PreviousSibling() {
+			stack = append(stack, child)
 		}
 	}
-	walk(n)
+	pushNodes(n)
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		node := stack[last]
+		stack = stack[:last]
+		switch node := node.(type) {
+		case *ast.Text:
+			b.Write(node.Segment.Value(r.source))
+		case *ast.String:
+			b.Write(node.Value)
+		default:
+			pushNodes(node)
+		}
+	}
 	return b.String()
 }
