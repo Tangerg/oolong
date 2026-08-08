@@ -86,6 +86,11 @@ func (s *Stream) Look() Look { return cloneLook(s.look) }
 
 func cloneLook(look Look) Look {
 	look.Headings = slices.Clone(look.Headings)
+	look.Glyphs.Bullet = strings.Clone(look.Glyphs.Bullet)
+	look.Glyphs.Bar = strings.Clone(look.Glyphs.Bar)
+	look.Glyphs.Divider = strings.Clone(look.Glyphs.Divider)
+	look.Glyphs.Checked = strings.Clone(look.Glyphs.Checked)
+	look.Glyphs.Unchecked = strings.Clone(look.Glyphs.Unchecked)
 	return look
 }
 

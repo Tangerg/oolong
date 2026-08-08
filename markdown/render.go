@@ -42,6 +42,7 @@ func Render(source string, look Look) []Block {
 	if source == "" {
 		return nil
 	}
+	look = cloneLook(look)
 	r := &renderer{look: look, source: []byte(source)}
 	root := parse(r.source)
 	r.render(root, frame{body: look.Text})
@@ -309,7 +310,7 @@ func (r *renderer) code(n ast.Node, language string, in frame) {
 
 	var out []text.Line
 	if r.look.Highlight != nil {
-		out = r.look.Highlight(language, strings.Join(source, "\n"))
+		out = cloneLines(r.look.Highlight(language, strings.Join(source, "\n")))
 	}
 	if out == nil {
 		out = make([]text.Line, 0, len(source))

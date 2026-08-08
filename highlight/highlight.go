@@ -115,7 +115,9 @@ func highlight(language, source string, scheme *chroma.Style) []text.Line {
 			if value == "" {
 				continue
 			}
-			line = append(line, text.Span{Text: value, Style: styleOf(scheme.Get(token.Type))})
+			line = append(line, text.Span{
+				Text: strings.Clone(value), Style: styleOf(scheme.Get(token.Type)),
+			})
 		}
 		out = append(out, line)
 	}
@@ -174,7 +176,7 @@ func plain(source string) []text.Line {
 	rows := strings.Split(source, "\n")
 	out := make([]text.Line, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, text.Of(row, grid.Style{}))
+		out = append(out, text.Of(strings.Clone(row), grid.Style{}))
 	}
 	return out
 }

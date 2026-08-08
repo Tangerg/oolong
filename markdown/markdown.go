@@ -139,12 +139,20 @@ func cloneBlocks(blocks []Block) []Block {
 	out := make([]Block, len(blocks))
 	for i, block := range blocks {
 		out[i] = block
-		out[i].Lines = make([]text.Line, len(block.Lines))
-		for j, line := range block.Lines {
-			out[i].Lines[j] = line.Clone()
-		}
+		out[i].Lines = cloneLines(block.Lines)
 		out[i].Marker = block.Marker.Clone()
 		out[i].Rail = block.Rail.Clone()
+	}
+	return out
+}
+
+func cloneLines(lines []text.Line) []text.Line {
+	if lines == nil {
+		return nil
+	}
+	out := make([]text.Line, len(lines))
+	for i, line := range lines {
+		out[i] = line.Clone()
 	}
 	return out
 }

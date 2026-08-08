@@ -58,6 +58,40 @@ func TestStreamCutReleasesThePublishedSourceStorage(t *testing.T) {
 	}
 }
 
+func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
+	source := strings.Repeat("discarded", 1<<12) + "kept"
+	glyph := source[len(source)-len("kept"):]
+	provided := []text.Line{text.Of(glyph, grid.Style{})}
+	look := Look{
+		Glyphs: Glyphs{Divider: glyph},
+		Highlight: func(string, string) []text.Line {
+			return provided
+		},
+	}
+
+	rule := Render("---", look)
+	code := Render("```go\nx\n```", look)
+	provided[0][0].Text = "changed"
+	if got := rule[0].Lines[0].String(); got != "kept" {
+		t.Fatalf("rule glyph = %q, want owned kept", got)
+	}
+	if got := code[0].Lines[0].String(); got != "kept" {
+		t.Fatalf("highlighted code = %q after callback storage changed, want owned kept", got)
+	}
+
+	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+	sourceEnd := sourceStart + uintptr(len(source))
+	for name, value := range map[string]string{
+		"rule": rule[0].Lines[0][0].Text,
+		"code": code[0].Lines[0][0].Text,
+	} {
+		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+		if at >= sourceStart && at < sourceEnd {
+			t.Errorf("%s still shares the caller's source allocation", name)
+		}
+	}
+}
+
 func TestStreamAppendAllocationsDoNotFollowChunkCount(t *testing.T) {
 	allocations := func(chunks int) float64 {
 		return testing.AllocsPerRun(5, func() {
