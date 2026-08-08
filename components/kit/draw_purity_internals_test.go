@@ -37,17 +37,19 @@ func TestDrawIsObservationallyPure(t *testing.T) {
 	// completeness guard: every new Draw receiver must be declared passive here or
 	// be given a semantic-state contract above.
 	passive := map[string]bool{
-		"Box":       true,
-		"Diff":      true,
-		"Help":      true,
-		"Image":     true,
-		"Label":     true,
-		"Message":   true,
-		"Overlay":   true,
-		"Palette":   true,
-		"Progress":  true,
-		"Scrollbar": true,
-		"Table":     true,
+		"Box":         true,
+		"*Code":       true,
+		"Diff":        true,
+		"Help":        true,
+		"Image":       true,
+		"Label":       true,
+		"LineNumbers": true,
+		"Message":     true,
+		"Overlay":     true,
+		"Palette":     true,
+		"Progress":    true,
+		"Scrollbar":   true,
+		"Table":       true,
 	}
 	for name := range passive {
 		if dynamic[name] {

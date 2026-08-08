@@ -193,7 +193,9 @@ func (p *Paragraph) Rows(width int) []text.Row {
 	out := make([]text.Row, 0, len(rows))
 	prevTo, prevLine := 0, -1
 	for _, r := range rows {
-		row := text.Row{Text: r.Line.String(), Offset: p.Indent, Joined: r.Joined}
+		row := text.Row{
+			Text: r.Line.String(), Offset: p.Indent, Line: r.line + 1, Joined: r.Joined,
+		}
 		if r.Joined && r.line == prevLine && r.line < len(p.lines) {
 			whole := p.lines[r.line].String()
 			if prevTo <= r.From && r.From <= len(whole) {

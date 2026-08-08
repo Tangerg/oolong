@@ -1,9 +1,6 @@
 package kit
 
 import (
-	"strconv"
-	"strings"
-
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
@@ -95,7 +92,7 @@ func (d Diff) margin() margin {
 	widest := 1
 	for _, hunk := range d.Hunks {
 		for _, line := range hunk.Lines {
-			widest = max(widest, len(number(line.Old)), len(number(line.New)))
+			widest = max(widest, decimalWidth(line.Old), decimalWidth(line.New))
 		}
 	}
 	return margin{each: widest}
@@ -110,7 +107,7 @@ func (m margin) of(line diff.Line) string {
 	if m.each == 0 {
 		return ""
 	}
-	return pad(number(line.Old), m.each) + " " + pad(number(line.New), m.each) + " "
+	return right(decimal(line.Old), m.each) + " " + right(decimal(line.New), m.each) + " "
 }
 
 // gap is the break between two hunks, which is what says lines were left out.
@@ -133,18 +130,4 @@ func (d Diff) style(kind diff.Kind) grid.Style {
 	default:
 		return d.Theme.Context
 	}
-}
-
-// number is a line number as it is written, and nothing at all for a line that is not
-// in that text.
-func number(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	return strconv.Itoa(n)
-}
-
-// pad right-aligns s in w columns, which is how a column of numbers is read.
-func pad(s string, w int) string {
-	return strings.Repeat(" ", max(w-text.Width(s), 0)) + s
 }

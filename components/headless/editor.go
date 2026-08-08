@@ -62,6 +62,10 @@ type Editor struct {
 	// secret is one value, and where to break a line nobody can read is not a question
 	// worth an answer.
 	Mask string
+	// Gutter draws beside the field's visual rows. Nil gives every column to the
+	// text. The gutter is not part of selection or clipboard content, and pointer
+	// input in it is left for a containing component to interpret.
+	Gutter RowGutter
 
 	lines []string
 	// line is the cursor's logical line; col is its byte offset within that line.
@@ -117,7 +121,7 @@ type Editor struct {
 }
 
 type editorPresentation struct {
-	width, first, left int
+	width, gutter, first, left int
 }
 
 // editorState is a whole snapshot for undo.
@@ -561,11 +565,11 @@ func (e *Editor) Handle(ev input.Event) bool {
 		return true
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
-		// The width the editor last drew at, taken from its own committed
+		// The geometry the editor last drew with, taken from its own committed
 		// presentation. A press is aimed at what is on the screen, so that is the
-		// only width it can be about — and an editor that has never been drawn has a
-		// width of nothing, which is how it declines a press it was never shown for.
-		return e.handleMouse(mouse, e.presentation.Value().width)
+		// only geometry it can be about — and an editor that has never been drawn
+		// has none, which is how it declines a press it was never shown for.
+		return e.handleMouse(mouse, e.presentation.Value())
 	}
 	key, ok := ev.(input.Key)
 	if !ok || !key.Down() {

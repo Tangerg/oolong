@@ -22,7 +22,9 @@ type RowSpan struct {
 // A range in a wrapped field is not a rectangle and is rarely one run. It starts part
 // way along a row, covers whole rows, and ends part way along another — and where the
 // rows begin and end is decided by the wrap, which is decided by the width. So this
-// is a question only the field can answer, and only at a width.
+// is a question only the field can answer, and only at a width. Width is the whole
+// field, including any [Editor.Gutter], and returned columns use that same coordinate
+// space.
 //
 // It reads the same rows the cursor is placed with. That is the whole point of it
 // being here rather than being worked out by whatever draws: a selection painted from
@@ -30,6 +32,15 @@ type RowSpan struct {
 // disagreement shows up exactly when the text is interesting — a long word, a wide
 // character, a line that just fits.
 func (e *Editor) Spans(from, to Caret, width int) []RowSpan {
+	gutter := e.gutterWidth()
+	out := e.spans(from, to, max(width-gutter, 0))
+	for i := range out {
+		out[i].Col += gutter
+	}
+	return out
+}
+
+func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 	if width <= 0 {
 		return nil
 	}
@@ -72,6 +83,14 @@ func (e *Editor) SelectionSpans(width int) []RowSpan {
 	return e.Spans(start, end, width)
 }
 
+func (e *Editor) spansOfSelection(width int) []RowSpan {
+	start, end, ok := e.Selection()
+	if !ok {
+		return nil
+	}
+	return e.spans(start, end, width)
+}
+
 // At is the position in the text under a point in the field's box, and whether the
 // point is in the text at all.
 //
@@ -82,6 +101,14 @@ func (e *Editor) SelectionSpans(width int) []RowSpan {
 // which is the only way a click can land where the reader thinks they clicked: three
 // walks over three wraps agree until the text is interesting, and then they do not.
 func (e *Editor) At(x, y, width int) (Caret, bool) {
+	gutter := e.gutterWidth()
+	if x < gutter {
+		return Caret{}, false
+	}
+	return e.at(x-gutter, y, max(width-gutter, 0))
+}
+
+func (e *Editor) at(x, y, width int) (Caret, bool) {
 	if width <= 0 || x < 0 || y < 0 {
 		return Caret{}, false
 	}
@@ -125,13 +152,17 @@ func (e *Editor) At(x, y, width int) (Caret, bool) {
 // the editor last drew at, which is the only width a pointer event can be about: a
 // press is aimed at what is on the screen. Routing one against a width that was never
 // presented would answer a question nobody asked.
-func (e *Editor) handleMouse(ev input.Mouse, width int) bool {
+func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
+	if presented.width <= 0 || ev.Pos.X < presented.gutter {
+		return false
+	}
+	ev.Pos.X -= presented.gutter
 	switch ev.Action {
 	case input.MouseDown:
 		if ev.Button != input.ButtonLeft {
 			return false
 		}
-		at, ok := e.At(ev.Pos.X, ev.Pos.Y, width)
+		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
 		if !ok {
 			return false
 		}
@@ -142,13 +173,13 @@ func (e *Editor) handleMouse(ev input.Mouse, width int) bool {
 		// A click that landed past the end of a wrapped row means that row, not the
 		// start of the next. It is the only way a cursor comes to be at a soft break
 		// and belong to the earlier side.
-		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(ev.Pos.X, ev.Pos.Y, width)
+		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(ev.Pos.X, ev.Pos.Y, presented.width)
 		return true
 	case input.MouseDrag:
 		if !e.selecting {
 			return false
 		}
-		at, ok := e.At(ev.Pos.X, ev.Pos.Y, width)
+		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
 		if !ok {
 			return false
 		}

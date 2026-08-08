@@ -46,6 +46,7 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // Widget draws itself into the space it is given.
@@ -86,6 +87,22 @@ type Sized interface {
 type Block interface {
 	Draw(view grid.View)
 	layout.Measurer
+}
+
+// RowGutter draws decoration beside visual text rows.
+//
+// Width is asked with the number of logical lines before the content wraps them.
+// Draw receives only the rows visible in the current frame; [text.Row.Line] says
+// which logical line each came from and Joined distinguishes its continuations.
+// The row text is provided so a gutter can derive diagnostics from it, but the
+// content owner still owns the text and input geometry.
+//
+// This is an appearance seam rather than an appearance decision. A line-number,
+// breakpoint or diagnostic gutter can live in a higher package while the text
+// component stays independent of all of them.
+type RowGutter interface {
+	Width(lines int) int
+	Draw(view grid.View, rows []text.Row)
 }
 
 // Static adapts a passive [Block] into a measured live [Widget].

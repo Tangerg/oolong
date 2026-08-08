@@ -2,6 +2,7 @@ package kit_test
 
 import (
 	"image"
+	"strconv"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/kit"
@@ -27,6 +28,6 @@ func TestSliderComposesLabelTrackThumbAndValue(t *testing.T) {
 func TestSliderMayFormatItsValue(t *testing.T) {
 	slider := kit.NewSlider(kit.Theme{}, kit.ASCII(), "workers", 1, 8)
 	slider.Of.Set(3)
-	slider.Format = func(value int) string { return string(rune('0'+value)) + "x" }
+	slider.Format = func(value int) string { return strconv.Itoa(value) + "x" }
 	equalRows(t, paintWidget(18, 1, slider), []string{"workers.-O-----.3x"})
 }

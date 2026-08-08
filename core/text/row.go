@@ -4,12 +4,14 @@ package text
 //
 // Text excludes gutters, markers and other decoration. Offset keeps its columns
 // aligned with the rendered row without putting decoration into copied or searched
-// content. Joined and Gap make a width-induced break reversible: a copy can rejoin a
-// wrapped paragraph while preserving a consumed space and not inventing one inside a
-// long word.
+// content. Line is the one-based logical source line, when the producer has one;
+// zero means unspecified. Joined and Gap make a width-induced break reversible: a
+// copy can rejoin a wrapped paragraph while preserving a consumed space and not
+// inventing one inside a long word.
 type Row struct {
 	Text   string
 	Offset int
+	Line   int
 	Joined bool
 	Gap    string
 }

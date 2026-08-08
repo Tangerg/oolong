@@ -25,6 +25,11 @@ point of tagging them low rather than not at all.
   keyboard steps, pointer dragging, committed track geometry, focus, and typed
   semantics. `kit.Slider` supplies the polished labelled track without duplicating
   those rules, and the dashboard uses the same control to change its live work rate.
+- **Source gutters and code blocks share visual-row provenance.** `text.Row` can name
+  its logical source line, `headless.RowGutter` is the appearance seam used by the
+  editor and passive code blocks, and `kit.LineNumbers` is its reusable line-number
+  implementation. `kit.Code` assembles styled `text.Line` values without making the
+  component graph depend on a syntax highlighter.
 
 ### Changed
 
@@ -32,6 +37,10 @@ point of tagging them low rather than not at all.
   `layout.Scale` is now shared by layout allocation and slider value-to-track mapping;
   progress and slider rows likewise share one private label/track/value layout instead
   of maintaining two narrow-width policies.
+- **Editor gutters participate in measurement, scrolling, pointer routing and
+  selection geometry.** Decoration is outside copied text, clicks in the gutter are
+  not mistaken for text clicks, and a masked field exposes only its mask to an
+  appearance callback.
 
 ## [0.2.0] — 2026-08-08
 

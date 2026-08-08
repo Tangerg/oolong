@@ -163,6 +163,7 @@ func (e *Editor) moveRow(delta int) {
 // Measure is how many rows the field needs at a width, within its cap.
 func (e *Editor) Measure(width int) int {
 	e.ensure()
+	width = e.textWidth(width)
 	if e.oneLine() {
 		return 1
 	}
@@ -177,14 +178,24 @@ func (e *Editor) Measure(width int) int {
 func (e *Editor) Draw(frame Frame) {
 	v := frame.View
 	e.presentation.Stage(frame, editorPresentation{})
-	width, height := v.Size()
-	if width <= 0 || height <= 0 {
+	total, height := v.Size()
+	if total <= 0 || height <= 0 {
 		return
 	}
 	e.ensure()
+	gutter := min(e.gutterWidth(), total)
+	width := max(total-gutter, 0)
+	gutterView := v.Sub(grid.Rect(0, 0, gutter, height))
+	v = v.Sub(grid.Rect(gutter, 0, width, height))
+	if width <= 0 {
+		return
+	}
 	if e.oneLine() {
 		left := e.lineOffset(width)
-		e.presentation.Stage(frame, editorPresentation{width: width, left: left})
+		e.presentation.Stage(frame, editorPresentation{
+			width: width, gutter: gutter, left: left,
+		})
+		e.drawGutter(gutterView, e.rows(width))
 		e.drawLine(v, left)
 		return
 	}
@@ -198,7 +209,11 @@ func (e *Editor) Draw(frame Frame) {
 	scroll := e.scroll.Stage(frame, len(rows), height)
 	scroll.Reveal(cursorRow)
 	first := scroll.Offset()
-	e.presentation.Stage(frame, editorPresentation{width: width, first: first})
+	e.presentation.Stage(frame, editorPresentation{
+		width: width, gutter: gutter, first: first,
+	})
+	last := min(first+height, len(rows))
+	e.drawGutter(gutterView, rows[first:last])
 
 	if e.Empty() && e.Placeholder != "" {
 		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
@@ -217,7 +232,7 @@ func (e *Editor) Draw(frame Frame) {
 	// The selection is laid over the text rather than drawn into it, so a run that
 	// crosses a style boundary keeps whatever was underneath — and so that the rows
 	// above did not have to be told which of them was selected.
-	for _, span := range e.SelectionSpans(width) {
+	for _, span := range e.spansOfSelection(width) {
 		y := span.Row - first
 		if y < 0 || y >= height {
 			continue
@@ -229,6 +244,36 @@ func (e *Editor) Draw(frame Frame) {
 	if y := cursorRow - first; y >= 0 && y < height {
 		e.placeCursor(v, cursorColumn, y)
 	}
+}
+
+func (e *Editor) gutterWidth() int {
+	if e.Gutter == nil {
+		return 0
+	}
+	return max(e.Gutter.Width(len(e.lines)), 0)
+}
+
+func (e *Editor) textWidth(total int) int {
+	return max(total-e.gutterWidth(), 0)
+}
+
+func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
+	if e.Gutter == nil {
+		return
+	}
+	out := make([]text.Row, len(rows))
+	for i, row := range rows {
+		shown := e.lines[row.line][row.start:row.end]
+		if e.Mask != "" {
+			// A masked field must not disclose its value to an appearance callback.
+			shown = e.shown()
+		}
+		out[i] = text.Row{
+			Text: shown,
+			Line: row.line + 1, Joined: row.joined,
+		}
+	}
+	e.Gutter.Draw(view, out)
 }
 
 // Focus takes the keyboard, or gives it up. A field without it draws no cursor.
