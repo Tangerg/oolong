@@ -109,7 +109,8 @@ func awaitText(t *testing.T, h *host, want ...string) {
 
 type state struct {
 	active, open, dialog bool
-	blocks, first        int
+	blocks               int
+	first                headless.BlockID
 	status               string
 }
 
@@ -119,7 +120,7 @@ func stateOf(t *testing.T, c *chat) state {
 	c.runtime.Dispatcher().Post(func() {
 		result <- state{
 			active: c.active, open: c.hasOpen, dialog: c.dialog.Open(),
-			blocks: c.content.Len(), first: int(c.content.FirstBlock()), status: c.status.Doing,
+			blocks: c.content.Len(), first: c.content.FirstBlock(), status: c.status.Doing,
 		}
 	})
 	select {

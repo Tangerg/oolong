@@ -177,11 +177,11 @@ func (s *Screen) control(piece ansi.Piece) error {
 	case 'c', 'h', 'l', 'q', 't':
 		return nil
 	case 'u':
-		if params.Private != 0 {
+		if params.Marker() != 0 {
 			return nil
 		}
 	}
-	if params.Private != 0 {
+	if params.Marker() != 0 {
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
 	}
 	switch piece.Final {
