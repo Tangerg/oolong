@@ -1191,6 +1191,34 @@ func TestListWrapsOnlyWhenAskedTo(t *testing.T) {
 	}
 }
 
+func TestListMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	l := newList(3)
+	l.Select(1)
+
+	l.Move(maxInt)
+	if got := l.Selected(); got != 2 {
+		t.Fatalf("largest forward movement stopped at %d, want the end", got)
+	}
+	l.Move(minInt)
+	if got := l.Selected(); got != 0 {
+		t.Fatalf("largest backward movement stopped at %d, want the start", got)
+	}
+
+	l.Wrap = true
+	l.Select(1)
+	l.Move(maxInt)
+	if got := l.Selected(); got != 2 {
+		t.Fatalf("largest wrapped forward movement stopped at %d, want 2", got)
+	}
+	l.Select(1)
+	l.Move(minInt)
+	if got := l.Selected(); got != 2 {
+		t.Fatalf("largest wrapped backward movement stopped at %d, want 2", got)
+	}
+}
+
 func TestListScrollsToKeepTheSelectionVisible(t *testing.T) {
 	// A selection the user cannot see is one they will act on by mistake.
 	l := newList(20)

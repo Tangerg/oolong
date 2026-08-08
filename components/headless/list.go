@@ -77,12 +77,7 @@ func (l *List[T]) Move(n int) {
 	if len(l.items) == 0 {
 		return
 	}
-	next := l.selected + n
-	if l.Wrap {
-		size := len(l.items)
-		next = ((next % size) + size) % size
-	}
-	l.Select(next)
+	l.Select(moveIndex(l.selected, n, len(l.items), l.Wrap))
 }
 
 // SetItems replaces the contents, keeping the selection on the same index where

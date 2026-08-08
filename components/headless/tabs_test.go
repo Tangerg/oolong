@@ -35,6 +35,20 @@ func TestOnePaneShowsAndTheRestWait(t *testing.T) {
 	}
 }
 
+func TestTabMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	tabs := headless.NewTabs(headless.Tab{}, headless.Tab{}, headless.Tab{})
+	tabs.NoWrap = true
+	tabs.Select(1)
+	if !tabs.Move(maxInt) || tabs.Selected() != 2 {
+		t.Fatalf("largest forward movement left tab %d, want the end", tabs.Selected())
+	}
+	if !tabs.Move(minInt) || tabs.Selected() != 0 {
+		t.Fatalf("largest backward movement left tab %d, want the start", tabs.Selected())
+	}
+}
+
 func TestThePaneShowingAnswersBeforeTheTabsDo(t *testing.T) {
 	// A pane that took the arrow keys keeps them. Tabs that took them first would
 	// make a list inside one impossible to move through.

@@ -152,11 +152,7 @@ func (t *Tabs) Move(n int) bool {
 	if t == nil || len(t.items) < 2 {
 		return false
 	}
-	next := t.Selected() + n
-	if !t.NoWrap {
-		size := len(t.items)
-		next = ((next % size) + size) % size
-	}
+	next := moveIndex(t.Selected(), n, len(t.items), !t.NoWrap)
 	was := t.Selected()
 	t.Select(next)
 	return t.Selected() != was
