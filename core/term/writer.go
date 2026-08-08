@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Tangerg/oolong/core/internal/fifo"
 )
 
 // ErrClosed marks a frame that was handed over after the writer became unusable,
@@ -52,7 +54,7 @@ type Writer struct {
 	// large enough for every possible burst does not exist. wake says the FIFO
 	// changed; the contents and the closed transition live under queueMu.
 	queueMu sync.Mutex
-	queue   []frame
+	queue   fifo.Queue[frame]
 	wake    chan struct{}
 	closed  bool
 
@@ -138,7 +140,7 @@ func (w *Writer) Queue(data []byte) uint64 {
 		w.finish(seq, ErrClosed)
 		return seq
 	}
-	w.queue = append(w.queue, frame{seq: seq, data: data})
+	w.queue.Push(frame{seq: seq, data: data})
 	w.queueMu.Unlock()
 	w.signal()
 	return seq
@@ -269,13 +271,7 @@ func (w *Writer) run() {
 func (w *Writer) next() (frame, bool) {
 	for {
 		w.queueMu.Lock()
-		if len(w.queue) > 0 {
-			f := w.queue[0]
-			w.queue[0] = frame{}
-			w.queue = w.queue[1:]
-			if len(w.queue) == 0 {
-				w.queue = nil
-			}
+		if f, ok := w.queue.Pop(); ok {
 			w.queueMu.Unlock()
 			return f, true
 		}

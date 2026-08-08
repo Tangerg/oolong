@@ -1,8 +1,9 @@
 package program
 
 import (
-	"slices"
 	"sync"
+
+	"github.com/Tangerg/oolong/core/internal/fifo"
 )
 
 // maxTasksPerTurn bounds how long an already queued burst may keep the owner out
@@ -19,7 +20,7 @@ const maxTasksPerTurn = 64
 // only one unread notification.
 type taskQueue struct {
 	mu      sync.Mutex
-	tasks   []func()
+	tasks   fifo.Queue[func()]
 	wake    chan struct{}
 	done    chan struct{}
 	refresh bool
@@ -50,7 +51,7 @@ func (q *taskQueue) post(fn func()) bool {
 		}
 		q.refresh = true
 	} else {
-		q.tasks = append(q.tasks, fn)
+		q.tasks.Push(fn)
 	}
 	q.mu.Unlock()
 	q.signal()
@@ -62,18 +63,12 @@ func (q *taskQueue) post(fn func()) bool {
 // portions of a burst whether that burst arrived before or during this call.
 func (q *taskQueue) take() []func() {
 	q.mu.Lock()
-	n := min(len(q.tasks), maxTasksPerTurn)
-	tasks := slices.Clone(q.tasks[:n])
-	clear(q.tasks[:n])
-	q.tasks = q.tasks[n:]
-	if len(q.tasks) == 0 {
-		q.tasks = nil
-	}
-	if len(q.tasks) == 0 && q.refresh {
+	tasks := q.tasks.Take(maxTasksPerTurn)
+	if q.tasks.Len() == 0 && q.refresh {
 		tasks = append(tasks, nil)
 		q.refresh = false
 	}
-	more := len(q.tasks) > 0
+	more := q.tasks.Len() > 0
 	q.mu.Unlock()
 	if more {
 		q.signal()
@@ -97,8 +92,7 @@ func (q *taskQueue) stop() {
 		return
 	}
 	q.stopped = true
-	clear(q.tasks)
-	q.tasks = nil
+	q.tasks.Clear()
 	q.refresh = false
 	close(q.done)
 	q.mu.Unlock()

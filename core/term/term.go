@@ -459,12 +459,19 @@ func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
 		return graphics.Image{}, ErrImageIDsExhausted
 	}
 	var payload bytes.Buffer
-	img, err := graphics.Transmit(&payload, uint32(id), png)
+	img, err := graphics.Transmit(&payload, imageID(id), png)
 	if err != nil {
 		return graphics.Image{}, err
 	}
 	t.writer.Queue(payload.Bytes())
 	return img, nil
+}
+
+func imageID(id uint64) uint32 {
+	if id > math.MaxUint32 {
+		panic("term: image identity exceeds the graphics protocol")
+	}
+	return uint32(id)
 }
 
 // Close gives the terminal back.

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/internal/fifo"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
 )
@@ -238,7 +239,7 @@ func (h *Host) Close() error {
 // tests choose how many events they retain by how many they send.
 type eventSource struct {
 	mu     sync.Mutex
-	queue  []input.Event
+	queue  fifo.Queue[input.Event]
 	closed bool
 
 	events chan input.Event
@@ -264,7 +265,7 @@ func (s *eventSource) post(event input.Event) bool {
 		s.mu.Unlock()
 		return false
 	}
-	s.queue = append(s.queue, event)
+	s.queue.Push(event)
 	s.mu.Unlock()
 	select {
 	case s.wake <- struct{}{}:
@@ -297,16 +298,7 @@ func (s *eventSource) run() {
 func (s *eventSource) take() (input.Event, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.queue) == 0 {
-		return nil, false
-	}
-	event := s.queue[0]
-	s.queue[0] = nil
-	s.queue = s.queue[1:]
-	if len(s.queue) == 0 {
-		s.queue = nil
-	}
-	return event, true
+	return s.queue.Pop()
 }
 
 func (s *eventSource) close() {
@@ -316,8 +308,7 @@ func (s *eventSource) close() {
 		return
 	}
 	s.closed = true
-	clear(s.queue)
-	s.queue = nil
+	s.queue.Clear()
 	close(s.done)
 	s.mu.Unlock()
 	<-s.ended
