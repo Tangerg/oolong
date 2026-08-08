@@ -17,7 +17,7 @@ type Column struct {
 	// Size is how the shared layout allocator sizes this column. Use layout.Fixed
 	// for an exact width, layout.Flex for a share of what remains, and
 	// layout.Measured to fit the widest title or cell. The zero value defaults to
-	// layout.Flex(1), so an unsized column remains visible.
+	// layout.Flex(1), so an unsized column participates in the remaining space.
 	Size layout.Sizing
 }
 
@@ -137,8 +137,8 @@ func (l TableLayout) Widths() []int {
 	return widths
 }
 
-// slots say what each column asks for. A column with neither a width nor a share
-// gets one share, because a column nobody sized still has to be visible.
+// slots say what each column asks for. An omitted policy gets one flexible share,
+// which makes the zero Column useful without maintaining another sizing scheme here.
 func (t Table) slots() []layout.Slot {
 	slots := make([]layout.Slot, len(t.Columns))
 	for i, c := range t.Columns {
@@ -182,10 +182,13 @@ func (t Table) flow() layout.Flow {
 
 // Measure is the rows plus the header, which is what a container measures against.
 func (t Table) Measure(int) int {
+	rows := max(t.Rows, 0)
 	if t.Header {
-		return t.Rows + 1
+		if rows < int(^uint(0)>>1) {
+			rows++
+		}
 	}
-	return t.Rows
+	return rows
 }
 
 // Draw paints the header and as many rows as fit.

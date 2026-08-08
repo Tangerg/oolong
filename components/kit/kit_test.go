@@ -556,6 +556,15 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 	}
 }
 
+func TestTableMeasureNormalizesInvalidRowCounts(t *testing.T) {
+	if got := (kit.Table{Rows: -3}).Measure(10); got != 0 {
+		t.Fatalf("negative rows measured %d, want 0", got)
+	}
+	if got := (kit.Table{Rows: -3, Header: true}).Measure(10); got != 1 {
+		t.Fatalf("header over negative rows measured %d, want 1", got)
+	}
+}
+
 func TestTableLayoutOwnsTheColumnDefinitionItMeasured(t *testing.T) {
 	columns := []kit.Column{{Title: "old", Size: layout.Fixed(4)}}
 	tableLayout := (kit.Table{Columns: columns}).Layout(6)
