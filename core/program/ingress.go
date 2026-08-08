@@ -64,8 +64,9 @@ func NewByteIngress(dispatch Dispatcher, limit int, consume func(ByteBatch)) (*B
 	if consume == nil {
 		return nil, errors.New("program: byte ingress requires a consumer")
 	}
+	ownerDone := dispatch.Done()
 	select {
-	case <-dispatch.Done():
+	case <-ownerDone:
 		return nil, ErrStopped
 	default:
 	}
@@ -77,7 +78,7 @@ func NewByteIngress(dispatch Dispatcher, limit int, consume func(ByteBatch)) (*B
 		room:     make(chan struct{}, 1),
 		done:     make(chan struct{}),
 	}
-	go i.waitForOwner()
+	go i.waitForOwner(ownerDone)
 	return i, nil
 }
 
@@ -113,11 +114,12 @@ func (i *ByteIngress) Write(p []byte) (n int, err error) {
 		i.pending = append(i.pending, p[:take]...)
 		post := !i.posted
 		i.posted = true
+		dispatch := i.dispatch
 		i.mu.Unlock()
 
 		n += take
 		p = p[take:]
-		if post && !i.dispatch.post(i.drain) {
+		if post && !dispatch.post(i.drain) {
 			i.stop()
 			return n, ErrStopped
 		}
@@ -151,10 +153,11 @@ func (i *ByteIngress) CloseWithError(err error) error {
 	i.result = err
 	post := !i.posted
 	i.posted = true
+	dispatch := i.dispatch
 	i.mu.Unlock()
 
 	i.signalRoom()
-	if post && !i.dispatch.post(i.drain) {
+	if post && !dispatch.post(i.drain) {
 		i.stop()
 		return ErrStopped
 	}
@@ -176,25 +179,27 @@ func (i *ByteIngress) drain() {
 		return
 	}
 	batch := ByteBatch{Data: i.pending, Err: i.result, Final: i.closed}
+	consume := i.consume
 	i.pending = nil
 	i.posted = false
 	if batch.Final {
 		i.stopped = true
+		i.releaseTerminalReferences()
 	}
 	i.mu.Unlock()
 
 	i.signalRoom()
 	if len(batch.Data) > 0 || batch.Final {
-		i.consume(batch)
+		consume(batch)
 	}
 	if batch.Final {
 		i.settle()
 	}
 }
 
-func (i *ByteIngress) waitForOwner() {
+func (i *ByteIngress) waitForOwner(ownerDone <-chan struct{}) {
 	select {
-	case <-i.dispatch.Done():
+	case <-ownerDone:
 		i.stop()
 	case <-i.done:
 	}
@@ -207,6 +212,7 @@ func (i *ByteIngress) stop() {
 		clear(i.pending)
 		i.pending = nil
 	}
+	i.releaseTerminalReferences()
 	i.mu.Unlock()
 
 	// stopped and settled are deliberately not the same bit. A final consumer runs
@@ -214,6 +220,14 @@ func (i *ByteIngress) stop() {
 	// here with stopped already true and must still release every Done waiter.
 	i.signalRoom()
 	i.settle()
+}
+
+// releaseTerminalReferences settles the object graph crossing the ingress boundary.
+// It is called under mu only after no future delivery may be admitted.
+func (i *ByteIngress) releaseTerminalReferences() {
+	i.result = nil
+	i.consume = nil
+	i.dispatch = Dispatcher{}
 }
 
 func (i *ByteIngress) writeErr() error {
