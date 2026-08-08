@@ -221,7 +221,12 @@ jobs:
           GOTOOLCHAIN: local
           GOWORK: "off"
         run: |
-          if [ "${{ matrix.module }}" = ssh ]; then
+          # A replacement does not add a requirement. Give every downstream floor
+          # module the current core when it has declared one, so coordinated
+          # breaking changes are tested before their dependency can be tagged; an
+          # undeclared import still fails. Keeping this rule general avoids making
+          # the first downstream module to consume a new core API a CI special case.
+          if [ "${{ matrix.module }}" != core ]; then
             go mod edit -replace=github.com/Tangerg/oolong/core=../core
           fi
           go test -count=1 ./...
