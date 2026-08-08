@@ -127,13 +127,13 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	tree.SetNodes(tree.Nodes()[:1])
 	tree.Rows()
 	for i, row := range tree.list.items[:cap(tree.list.items)] {
-		if i >= len(tree.list.items) && (row.Item != nil || row.path != "") {
+		if i >= len(tree.list.items) && (row.Item != nil || row.id != 0) {
 			t.Fatalf("tree row %d retained a removed node", i)
 		}
 	}
 }
 
-func TestTreeReleasesOpenPathsRemovedFromItsHierarchy(t *testing.T) {
+func TestTreeReleasesOpenIdentitiesRemovedFromItsHierarchy(t *testing.T) {
 	tree := NewTree(Node[string]{
 		Item: "root",
 		Children: []Node[string]{{
@@ -143,12 +143,12 @@ func TestTreeReleasesOpenPathsRemovedFromItsHierarchy(t *testing.T) {
 	tree.Open(0)
 	tree.Open(1)
 	if len(tree.open) != 2 {
-		t.Fatalf("open paths = %d, want 2", len(tree.open))
+		t.Fatalf("open identities = %d, want 2", len(tree.open))
 	}
 
 	tree.SetNodes([]Node[string]{{Item: "replacement"}})
 	if len(tree.open) != 0 {
-		t.Fatalf("removed hierarchy retained open paths: %v", tree.open)
+		t.Fatalf("removed hierarchy retained open identities: %v", tree.open)
 	}
 }
 

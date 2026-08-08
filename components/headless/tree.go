@@ -2,7 +2,6 @@ package headless
 
 import (
 	"slices"
-	"strconv"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -31,15 +30,23 @@ type Shown[T any] struct {
 	// branch with nothing under it is not a branch.
 	Branch, Open bool
 
-	// path is which node this is, by position: "0.3.1" is the second child of the
-	// fourth child of the first item. It is what remembers which branches are open
-	// across a rebuild of the tree, and it follows position rather than identity
-	// because identity is something only the caller has.
+	// id is the tree-owned identity of this position. SetNodes reuses it for the node
+	// at the same position, which is how open branches survive a refresh without
+	// asking T to be comparable or retaining a path whose size grows with depth.
 	//
 	// It stays inside: a row carries the item, and where the item came from is the
-	// caller's to know from the item. Handing out a decoded path would be handing out
-	// this key, and then it could not be changed.
-	path string
+	// caller's to know from the item. Handing out this key would make an internal
+	// reconciliation mechanism part of the component contract.
+	id uint64
+}
+
+// treeNode is the hierarchy after Tree has taken ownership. Identity belongs here
+// rather than on Node: it exists only to reconcile two positional snapshots, and an
+// application cannot usefully supply or observe it.
+type treeNode[T any] struct {
+	item     T
+	children []treeNode[T]
+	id       uint64
 }
 
 // Tree is a list of items with items under them, which can be opened and closed.
@@ -52,8 +59,8 @@ type Shown[T any] struct {
 // The zero Tree shows nothing and answers nothing.
 type Tree[T any] struct {
 	// nodes are private so replacing the hierarchy cannot bypass selection
-	// settlement or retain open paths that no longer name a branch.
-	nodes []Node[T]
+	// settlement or retain open identities that no longer name a branch.
+	nodes []treeNode[T]
 	// Row draws one row. at is where it sits among the rows on screen and selected
 	// says whether it is the one under the cursor.
 	Row func(v grid.View, at int, row Shown[T], selected bool)
@@ -64,8 +71,11 @@ type Tree[T any] struct {
 	// list is the rows the tree is showing. It owns the selection and the scroll,
 	// and this type owns which rows there are.
 	list List[Shown[T]]
-	// open is which branches are showing what is under them, by path.
-	open map[string]bool
+	// open is which owned branch identities are showing what is under them.
+	open map[uint64]bool
+	// nextID is the last identity allocated. Zero is reserved for no node, which
+	// makes accidental empty identities impossible to retain as open state.
+	nextID uint64
 	// pending is how far into a multi-chord binding the keys typed so far have got.
 	pending keymap.Pending
 }
@@ -77,24 +87,29 @@ func NewTree[T any](nodes ...Node[T]) *Tree[T] {
 	return t
 }
 
-// SetNodes replaces the hierarchy. The tree recursively copies the node collection;
-// the caller may reuse or change every input slice after the call. Item values remain
-// caller-owned. Open branches follow their positional paths where those paths still
+// SetNodes replaces the hierarchy. The tree copies the entire node collection; the
+// caller may reuse or change every input slice after the call. Item values remain
+// caller-owned. Open branches follow their positions where those positions still
 // name branches, and selection stays on the same visible row when possible.
+//
+// A Node graph must be acyclic. Cyclic slice graphs are a programmer error and
+// panic here instead of making an ownership copy run until the stack or heap is
+// exhausted. Traversal itself is iterative, so valid depth is limited by available
+// storage rather than the goroutine stack.
 func (t *Tree[T]) SetNodes(nodes []Node[T]) {
 	if t == nil {
 		return
 	}
-	t.nodes = cloneNodes(nodes)
+	t.replaceNodes(nodes)
 	t.rebuild()
 }
 
-// Nodes returns a recursive copy of the hierarchy.
+// Nodes returns a complete copy of the hierarchy.
 func (t *Tree[T]) Nodes() []Node[T] {
 	if t == nil {
 		return nil
 	}
-	return cloneNodes(t.nodes)
+	return exportNodes(t.nodes)
 }
 
 // Rows are the rows the tree is showing, top to bottom, as a copy.
@@ -113,26 +128,32 @@ func (t *Tree[T]) Rows() []Shown[T] {
 // visible list. Drawing reads that settled list and therefore cannot clamp selection
 // or otherwise change semantic state.
 func (t *Tree[T]) rebuild() {
-	t.pruneOpen()
 	rows := make([]Shown[T], 0, len(t.list.items))
-	var walk func(nodes []Node[T], depth int, prefix string)
-	walk = func(nodes []Node[T], depth int, prefix string) {
-		for i, node := range nodes {
-			path := prefix + strconv.Itoa(i)
-			open := t.open[path]
-			rows = append(rows, Shown[T]{
-				Item:   node.Item,
-				Depth:  depth,
-				Branch: len(node.Children) > 0,
-				Open:   open && len(node.Children) > 0,
-				path:   path,
-			})
-			if open {
-				walk(node.Children, depth+1, path+".")
-			}
+	type pending struct {
+		node  *treeNode[T]
+		depth int
+	}
+	stack := make([]pending, 0, len(t.nodes))
+	for i := len(t.nodes) - 1; i >= 0; i-- {
+		stack = append(stack, pending{node: &t.nodes[i]})
+	}
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
+		node := current.node
+		branch := len(node.children) > 0
+		open := branch && t.open[node.id]
+		rows = append(rows, Shown[T]{
+			Item: node.item, Depth: current.depth, Branch: branch, Open: open, id: node.id,
+		})
+		if !open {
+			continue
+		}
+		for i := len(node.children) - 1; i >= 0; i-- {
+			stack = append(stack, pending{node: &node.children[i], depth: current.depth + 1})
 		}
 	}
-	walk(t.nodes, 0, "")
 	t.list.SetItems(rows)
 }
 
@@ -171,12 +192,12 @@ func (t *Tree[T]) set(at int, open bool) bool {
 		return false
 	}
 	if t.open == nil {
-		t.open = map[string]bool{}
+		t.open = map[uint64]bool{}
 	}
 	if open {
-		t.open[rows[at].path] = true
+		t.open[rows[at].id] = true
 	} else {
-		delete(t.open, rows[at].path)
+		delete(t.open, rows[at].id)
 	}
 	t.rebuild()
 	return true
@@ -290,44 +311,110 @@ func (t *Tree[T]) DrawRows(v Frame, draw func(grid.View, int, Shown[T], bool)) {
 	t.list.DrawRows(v, draw)
 }
 
-// pruneOpen bounds retained expansion state to branches the current hierarchy can
-// express. Descendants of a closed branch remain valid so reopening their parent can
-// restore the shape the reader left; paths removed from the hierarchy do not linger.
-func (t *Tree[T]) pruneOpen() {
-	if len(t.open) == 0 {
+// replaceNodes takes ownership of a hierarchy and reconciles it with the previous
+// positional snapshot. The explicit frame stack serves two purposes: arbitrary
+// valid depth cannot exhaust the call stack, and active source slices make a cycle
+// observable before it can become unbounded work.
+func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
+	if len(nodes) == 0 {
+		t.nodes = nil
+		t.open = nil
 		return
 	}
-	branches := make(map[string]struct{}, len(t.open))
-	var walk func(nodes []Node[T], prefix string)
-	walk = func(nodes []Node[T], prefix string) {
-		for i, node := range nodes {
-			path := prefix + strconv.Itoa(i)
-			if len(node.Children) > 0 {
-				branches[path] = struct{}{}
-				walk(node.Children, path+".")
-			}
-		}
+
+	nextID := t.nextID
+	owned := make([]treeNode[T], len(nodes))
+	branches := make(map[uint64]struct{}, len(t.open))
+	type frame struct {
+		source []Node[T]
+		old    []treeNode[T]
+		target []treeNode[T]
+		at     int
+		key    *Node[T]
 	}
-	walk(t.nodes, "")
-	for path := range t.open {
-		if _, ok := branches[path]; !ok {
-			delete(t.open, path)
+	rootKey := &nodes[0]
+	active := map[*Node[T]]struct{}{rootKey: {}}
+	stack := []frame{{source: nodes, old: t.nodes, target: owned, key: rootKey}}
+	for len(stack) > 0 {
+		current := &stack[len(stack)-1]
+		if current.at == len(current.source) {
+			delete(active, current.key)
+			stack = stack[:len(stack)-1]
+			continue
+		}
+
+		i := current.at
+		current.at++
+		source := current.source[i]
+		var id uint64
+		var oldChildren []treeNode[T]
+		if i < len(current.old) {
+			id = current.old[i].id
+			oldChildren = current.old[i].children
+		} else {
+			nextID++
+			if nextID == 0 {
+				panic("headless: tree exhausted node identities")
+			}
+			id = nextID
+		}
+		current.target[i] = treeNode[T]{item: source.Item, id: id}
+		if len(source.Children) == 0 {
+			continue
+		}
+		branches[id] = struct{}{}
+		key := &source.Children[0]
+		if _, cyclic := active[key]; cyclic {
+			panic("headless: cyclic tree node collection")
+		}
+		children := make([]treeNode[T], len(source.Children))
+		current.target[i].children = children
+		active[key] = struct{}{}
+		stack = append(stack, frame{
+			source: source.Children, old: oldChildren, target: children, key: key,
+		})
+	}
+
+	for id := range t.open {
+		if _, ok := branches[id]; !ok {
+			delete(t.open, id)
 		}
 	}
 	if len(t.open) == 0 {
 		t.open = nil
 	}
+	t.nodes, t.nextID = owned, nextID
 }
 
-func cloneNodes[T any](nodes []Node[T]) []Node[T] {
+// exportNodes copies the owned hierarchy without making valid depth a call-stack
+// limit. The internal graph is acyclic by construction, so no second cycle check is
+// needed at this boundary.
+func exportNodes[T any](nodes []treeNode[T]) []Node[T] {
 	if len(nodes) == 0 {
 		return nil
 	}
-	cloned := make([]Node[T], len(nodes))
-	for i, node := range nodes {
-		cloned[i] = Node[T]{Item: node.Item, Children: cloneNodes(node.Children)}
+	exported := make([]Node[T], len(nodes))
+	type frame struct {
+		source []treeNode[T]
+		target []Node[T]
 	}
-	return cloned
+	stack := []frame{{source: nodes, target: exported}}
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		current := stack[last]
+		stack = stack[:last]
+		for i := range current.source {
+			source := &current.source[i]
+			current.target[i].Item = source.item
+			if len(source.children) == 0 {
+				continue
+			}
+			children := make([]Node[T], len(source.children))
+			current.target[i].Children = children
+			stack = append(stack, frame{source: source.children, target: children})
+		}
+	}
+	return exported
 }
 
 // keys is the map to read through, standing in the default for a caller who set

@@ -99,7 +99,14 @@ func (t Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) {
 	}
 
 	indent := max(t.Indent, treeIndent)
-	x := row.Depth * indent
+	depth := max(row.Depth, 0)
+	if depth > width/indent {
+		return
+	}
+	x := depth * indent
+	if x >= width {
+		return
+	}
 	if mark := t.mark(row); mark != "" {
 		x += v.Text(x, 0, mark, t.Theme.Subtle.Merge(style)) + 1
 	}
