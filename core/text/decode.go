@@ -50,6 +50,8 @@ import (
 // [grid.PaletteRGB], because a [grid.Color] is either a number or the terminal's own
 // and there is nothing in between to hold "the user's idea of red". The values are
 // xterm's, which is what a terminal that was never themed shows.
+//
+// A Decoder must not be copied after its first use.
 type Decoder struct {
 	// Base is what text arrives in before any sequence says otherwise, and what a
 	// reset goes back to. It is how output is drawn in the interface's own body
@@ -66,9 +68,21 @@ type Decoder struct {
 	// link is the address the output last opened, and "" between them.
 	link string
 	// held is a sequence that has begun and not ended, waiting for the rest of it.
-	held string
-	// open is the line no newline has ended yet.
-	open Line
+	held strings.Builder
+	// runs own the bytes of the line no newline has ended yet. Feed grows them with
+	// amortised cost; Open materialises their immutable public form only when asked.
+	runs  []decodedRun
+	open  Line
+	dirty bool
+}
+
+// decodedRun is the mutable, decoder-owned form of a [Span]. Keeping it private
+// lets many small reads extend one run without rebuilding the immutable string a
+// caller sees.
+type decodedRun struct {
+	text  []byte
+	style grid.Style
+	link  string
 }
 
 // maxHeld bounds what an unfinished sequence may hold.
@@ -93,29 +107,55 @@ func (d *Decoder) Feed(chunk string) []Line {
 	if chunk == "" {
 		return nil
 	}
-	rest := d.held + chunk
-	d.held = ""
+
+	// A partial sequence is normally tiny, but may arrive one byte at a time. A
+	// Builder makes that a growing buffer rather than one new string per byte. Keep
+	// an offset into the stable source: mutating held while a scanner result still
+	// points into it would violate the Builder's ownership contract.
+	source := chunk
+	buffered := d.held.Len() > 0
+	if buffered {
+		d.held.WriteString(chunk)
+		source = d.held.String()
+	}
 
 	var lines []Line
-	for rest != "" {
-		piece, n, ok := ansi.Next(rest)
+	for at := 0; at < len(source); {
+		piece, n, ok := ansi.Next(source[at:])
 		if !ok {
-			if len(rest) > maxHeld {
+			tail := source[at:]
+			if len(tail) > maxHeld {
 				// It has stopped being a sequence and started being a leak. All of what
 				// is left is that one sequence — everything decodable before it has
 				// already been read — so dropping it drops the sequence and nothing
 				// else.
-				break
+				d.held.Reset()
+				return lines
 			}
-			// rest is capped, but it may be a substring at the end of a large decoded
-			// chunk. Clone the undecided tail so consumed output is actually released.
-			d.held = strings.Clone(rest)
+			if buffered && at == 0 {
+				// The Builder already owns precisely this unfinished sequence. Leaving it
+				// in place is what makes one-byte input amortised linear time.
+				return lines
+			}
+			// tail may be a substring at the end of either a caller-owned chunk or a
+			// buffer whose decoded prefix should be released. Retain exactly the tail.
+			d.hold(tail)
 			return lines
 		}
-		rest = rest[n:]
+		at += n
 		lines = append(lines, d.piece(piece)...)
 	}
+	d.held.Reset()
 	return lines
+}
+
+// hold replaces the undecided sequence with a detached copy. s is allowed to
+// refer to held's current allocation; Reset releases ownership without changing
+// those immutable bytes before WriteString reads them.
+func (d *Decoder) hold(s string) {
+	d.held.Reset()
+	d.held.Grow(len(s))
+	d.held.WriteString(s)
 }
 
 // Open is the line still being written: everything decoded since the last newline.
@@ -123,7 +163,7 @@ func (d *Decoder) Feed(chunk string) []Line {
 // It is what an interface draws while the rest is still arriving. The slice is the
 // decoder's own and is replaced as more arrives, so anything keeping it past the
 // next call keeps a copy.
-func (d *Decoder) Open() Line { return d.open }
+func (d *Decoder) Open() Line { return d.materialise() }
 
 // Flush ends the stream: the open line, if there is one, and nothing else.
 //
@@ -131,13 +171,11 @@ func (d *Decoder) Open() Line { return d.open }
 // cell drops a control character — half of a sequence is not text, and printing it
 // would print the introducer.
 func (d *Decoder) Flush() []Line {
-	d.held = ""
-	if len(d.open) == 0 {
+	d.held.Reset()
+	if len(d.runs) == 0 {
 		return nil
 	}
-	line := d.open
-	d.open = nil
-	return []Line{line}
+	return []Line{d.takeLine()}
 }
 
 // Reset returns the decoder to where it started, keeping [Decoder.Base]. It is what
@@ -145,7 +183,10 @@ func (d *Decoder) Flush() []Line {
 func (d *Decoder) Reset() {
 	d.state = grid.Style{}
 	d.link = ""
-	d.held, d.open = "", nil
+	d.held.Reset()
+	d.runs = nil
+	d.open = nil
+	d.dirty = false
 }
 
 // Decode is one string of output, whole, in one call.
@@ -195,7 +236,9 @@ func (d *Decoder) osc(body string) {
 	if !found {
 		return
 	}
-	d.link = printable(target)
+	// body may point into the temporary partial-sequence buffer or a much larger
+	// caller chunk. A live hyperlink owns only its address.
+	d.link = strings.Clone(printable(target))
 }
 
 // write adds text to the open line, breaking a line at every newline.
@@ -207,8 +250,7 @@ func (d *Decoder) write(s string) []Line {
 		if !found {
 			return lines
 		}
-		lines = append(lines, d.open)
-		d.open = nil
+		lines = append(lines, d.takeLine())
 		s = after
 	}
 }
@@ -222,11 +264,42 @@ func (d *Decoder) append(s string) {
 		return
 	}
 	style := d.Base.Merge(d.state)
-	if n := len(d.open); n > 0 && d.open[n-1].Style == style && d.open[n-1].Link == d.link {
-		d.open[n-1].Text += s
+	if n := len(d.runs); n > 0 && d.runs[n-1].style == style && d.runs[n-1].link == d.link {
+		d.runs[n-1].text = append(d.runs[n-1].text, s...)
+		d.dirty = true
 		return
 	}
-	d.open = append(d.open, Span{Text: s, Style: style, Link: d.link})
+	d.runs = append(d.runs, decodedRun{
+		text:  append([]byte(nil), s...),
+		style: style,
+		link:  d.link,
+	})
+	d.dirty = true
+}
+
+// materialise returns the immutable public view of the open runs. Repeated Open
+// calls without new input return the same view; Feed invalidates it only when it
+// adds visible text.
+func (d *Decoder) materialise() Line {
+	if !d.dirty {
+		return d.open
+	}
+	d.open = make(Line, len(d.runs))
+	for i, run := range d.runs {
+		d.open[i] = Span{Text: string(run.text), Style: run.style, Link: run.link}
+	}
+	d.dirty = false
+	return d.open
+}
+
+// takeLine transfers the current immutable line to the caller and starts a new
+// decoder-owned line. The returned line shares no mutable run storage.
+func (d *Decoder) takeLine() Line {
+	line := d.materialise()
+	d.runs = nil
+	d.open = nil
+	d.dirty = false
+	return line
 }
 
 // printable drops the control characters that survived the scan.

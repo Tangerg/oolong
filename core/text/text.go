@@ -439,13 +439,25 @@ func (l Line) bytes() int {
 // line rebuilds a line from units, merging neighbours that share a style and point
 // at the same thing.
 func line(units []unit) Line {
-	var out Line
-	for _, u := range units {
-		if n := len(out); n > 0 && out[n-1].Style == u.style && out[n-1].Link == u.link {
-			out[n-1].Text += u.cluster
-			continue
+	out := make(Line, 0, len(units))
+	for first := 0; first < len(units); {
+		last := first + 1
+		bytes := len(units[first].cluster)
+		for last < len(units) && units[last].style == units[first].style && units[last].link == units[first].link {
+			bytes += len(units[last].cluster)
+			last++
 		}
-		out = append(out, Span{Text: u.cluster, Style: u.style, Link: u.link})
+		var text strings.Builder
+		text.Grow(bytes)
+		for _, u := range units[first:last] {
+			text.WriteString(u.cluster)
+		}
+		out = append(out, Span{
+			Text:  text.String(),
+			Style: units[first].style,
+			Link:  units[first].link,
+		})
+		first = last
 	}
 	return out
 }

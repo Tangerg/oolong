@@ -11,12 +11,63 @@ func TestDecoderReleasesDecodedStorageBehindAnIncompleteSequence(t *testing.T) {
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(chunk))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	var decoder Decoder
 	decoder.Feed(chunk)
-	if decoder.held != "\x1b[" {
-		t.Fatalf("held = %q, want the incomplete sequence", decoder.held)
+	held := decoder.held.String()
+	if held != "\x1b[" {
+		t.Fatalf("held = %q, want the incomplete sequence", held)
 	}
-	tailStart := uintptr(unsafe.Pointer(unsafe.StringData(decoder.held))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+	tailStart := uintptr(unsafe.Pointer(unsafe.StringData(held))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	if tailStart >= sourceStart && tailStart < sourceStart+uintptr(len(chunk)) {
 		t.Fatal("the incomplete sequence still shares the decoded chunk allocation")
+	}
+}
+
+func TestDecoderDetachesSmallResultsFromLargeInputChunks(t *testing.T) {
+	chunk := "kept\x1b]8;;https://example.test\x07linked\x1b]8;;\x07\x1b]0;" +
+		strings.Repeat("discarded", 1<<12) + "\x07"
+	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(chunk))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+	sourceEnd := sourceStart + uintptr(len(chunk))
+
+	var decoder Decoder
+	decoder.Feed(chunk)
+	line := decoder.Open()
+	if got := line.String(); got != "keptlinked" {
+		t.Fatalf("open line = %q, want keptlinked", got)
+	}
+	for i, span := range line {
+		for name, value := range map[string]string{"text": span.Text, "link": span.Link} {
+			if value == "" {
+				continue
+			}
+			at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+			if at >= sourceStart && at < sourceEnd {
+				t.Errorf("span %d %s still shares the input chunk allocation", i, name)
+			}
+		}
+	}
+}
+
+func TestDecoderChunkingDoesNotAllocatePerChunk(t *testing.T) {
+	const chunks = 4096
+	lineAllocs := testing.AllocsPerRun(3, func() {
+		var decoder Decoder
+		for range chunks {
+			decoder.Feed("x")
+		}
+		_ = decoder.Open()
+	})
+	if lineAllocs >= 64 {
+		t.Fatalf("a %d-chunk line made %.0f allocations; want amortised growth", chunks, lineAllocs)
+	}
+
+	sequenceAllocs := testing.AllocsPerRun(3, func() {
+		var decoder Decoder
+		decoder.Feed("\x1b]")
+		for range chunks {
+			decoder.Feed("x")
+		}
+	})
+	if sequenceAllocs >= 64 {
+		t.Fatalf("a %d-chunk sequence made %.0f allocations; want amortised growth", chunks, sequenceAllocs)
 	}
 }
 
