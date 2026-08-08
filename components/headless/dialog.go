@@ -132,7 +132,9 @@ func (d *Dialog) SetDescription(description string) {
 
 // Trigger constructs an activation part for this dialog around appearance of.
 func (d *Dialog) Trigger(label string, of Widget) *DialogTrigger {
-	return &DialogTrigger{dialog: d, label: label, Of: of}
+	t := &DialogTrigger{dialog: d, label: strings.Clone(label)}
+	t.SetAppearance(of)
+	return t
 }
 
 // Semantics returns the dialog independently of its visual boxes.
@@ -246,18 +248,35 @@ func (c *DialogContent) Semantics() SemanticNode {
 // Of supplies appearance only. The trigger owns activation, pointer capture, focus and
 // semantic state, so a different appearance cannot accidentally change behavior.
 type DialogTrigger struct {
-	// Of is the trigger's appearance. It may measure and receive focus, but activation
-	// belongs to the trigger itself.
-	Of Widget
 	// Keys maps activation. Nil reads through [DefaultActivationKeys].
 	Keys *keymap.Map
 
 	dialog       *Dialog
+	appearance   Widget
 	label        string
-	focused      bool
+	blurred      bool
 	pointer      Pointer
 	presentation Snapshot[image.Rectangle]
 	pending      keymap.Pending
+}
+
+// Appearance returns the widget that paints the trigger.
+func (t *DialogTrigger) Appearance() Widget {
+	if t == nil {
+		return nil
+	}
+	return t.appearance
+}
+
+// SetAppearance replaces the trigger's visual part and transfers keyboard
+// ownership. Activation and semantics remain owned by the trigger.
+func (t *DialogTrigger) SetAppearance(appearance Widget) {
+	if t == nil {
+		return
+	}
+	tell(t.appearance, false)
+	t.appearance = appearance
+	tell(t.appearance, !t.blurred)
 }
 
 // Draw paints the appearance and claims a pending press over its committed box.
@@ -268,8 +287,8 @@ func (t *DialogTrigger) Draw(frame Frame) {
 	area := frame.Bounds()
 	t.presentation.Stage(frame, area)
 	t.pointer.Claim(area)
-	if t.Of != nil {
-		t.Of.Draw(frame)
+	if t.appearance != nil {
+		t.appearance.Draw(frame)
 	}
 }
 
@@ -278,7 +297,7 @@ func (t *DialogTrigger) Measure(across int) int {
 	if t == nil {
 		return 0
 	}
-	measurer, ok := t.Of.(layout.Measurer)
+	measurer, ok := t.appearance.(layout.Measurer)
 	if !ok {
 		return 0
 	}
@@ -322,17 +341,17 @@ func (t *DialogTrigger) Do(action keymap.Action) bool {
 
 // Focus records semantic focus and passes it to the appearance.
 func (t *DialogTrigger) Focus(has bool) {
-	if t == nil {
+	if t == nil || t.blurred == !has {
 		return
 	}
-	t.focused = has
-	tell(t.Of, has)
+	t.blurred = !has
+	tell(t.appearance, has)
 }
 
 // Semantics returns the trigger as a button associated with the dialog's open state.
 func (t *DialogTrigger) Semantics() SemanticNode {
 	state := SemanticState(0)
-	if t != nil && t.focused {
+	if t != nil && !t.blurred {
 		state |= StateFocused
 	}
 	if t != nil && t.dialog != nil && t.dialog.Open() {

@@ -280,6 +280,25 @@ func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) 
 	}
 }
 
+func TestDialogPanelTransfersFocusWithItsBody(t *testing.T) {
+	first := &panelChild{}
+	second := &panelChild{}
+	dialog := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "", first)
+	dialog.Show()
+	if dialog.Panel.Body() != first || !first.focused {
+		t.Fatal("the open dialog did not give its body the keyboard")
+	}
+
+	dialog.Panel.SetBody(second)
+	if first.focused || !second.focused {
+		t.Fatalf("focus after replacement: first=%v second=%v", first.focused, second.focused)
+	}
+	dialog.Dismiss()
+	if second.focused {
+		t.Fatal("the dialog body kept focus after dismissal")
+	}
+}
+
 func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
 	d := kit.NewDialog(
 		&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Confirm",

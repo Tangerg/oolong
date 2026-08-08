@@ -125,6 +125,25 @@ func TestDialogTriggerOwnsActivationAndSemantics(t *testing.T) {
 	}
 }
 
+func TestDialogTriggerTransfersFocusWithItsAppearance(t *testing.T) {
+	dialog := headless.NewDialog(&headless.Stack{}, "Confirm", &panel{place: middle(8, 3)})
+	first := &focusProbe{}
+	second := &focusProbe{}
+	trigger := dialog.Trigger("Open", first)
+	if trigger.Appearance() != first || !first.focused {
+		t.Fatal("a new trigger did not give its appearance the keyboard")
+	}
+
+	trigger.SetAppearance(second)
+	if first.focused || !second.focused {
+		t.Fatalf("focus after replacement: first=%v second=%v", first.focused, second.focused)
+	}
+	trigger.Focus(false)
+	if second.focused {
+		t.Fatal("the active appearance kept focus after the trigger lost it")
+	}
+}
+
 func TestDialogTriggerDeclinesAPointerBeforeItHasAFrame(t *testing.T) {
 	stack := &headless.Stack{}
 	dialog := headless.NewDialog(stack, "Confirm", &panel{place: middle(8, 3)})

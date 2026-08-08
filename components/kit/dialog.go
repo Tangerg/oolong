@@ -29,9 +29,10 @@ func NewDialog(
 	title string,
 	body headless.Widget,
 ) *Dialog {
-	panel := &DialogPanel{Theme: theme, Glyphs: glyphs, Body: body}
+	panel := &DialogPanel{Theme: theme, Glyphs: glyphs}
+	panel.SetBody(body)
 	controller := headless.NewDialog(stack, title, panel)
-	panel.Of = controller
+	panel.dialog = controller
 	return &Dialog{Controller: controller, Panel: panel}
 }
 
@@ -44,9 +45,10 @@ func NewControlledDialog(
 	title string,
 	body headless.Widget,
 ) *Dialog {
-	panel := &DialogPanel{Theme: theme, Glyphs: glyphs, Body: body}
+	panel := &DialogPanel{Theme: theme, Glyphs: glyphs}
+	panel.SetBody(body)
 	controller := headless.NewControlledDialog(stack, open, title, panel)
-	panel.Of = controller
+	panel.dialog = controller
 	return &Dialog{Controller: controller, Panel: panel}
 }
 
@@ -73,15 +75,10 @@ func (d *Dialog) Semantics() headless.SemanticNode { return d.Controller.Semanti
 // owned below by the controller and stack. This part owns only border, palette,
 // placement and body composition.
 type DialogPanel struct {
-	// Of supplies the semantic title. [NewDialog] wires it automatically.
-	Of    *headless.Dialog
 	Theme Theme
 	// Where the dialog goes. The zero value centres it and fills what the margin
 	// leaves, which is what a dialog with a lot in it wants.
 	Where layout.Placement
-	// Body is what goes inside the frame. A body that answers input gets it: the
-	// stack has already decided this is the layer with the keyboard.
-	Body headless.Widget
 	// Glyphs are the characters the frame is drawn with. See [Box.Glyphs].
 	Glyphs Glyphs
 	// Border draws the frame. The zero value takes the rounded one from the glyph
@@ -93,7 +90,33 @@ type DialogPanel struct {
 	Keys  *keymap.Map
 	Hints []keymap.Action
 
+	dialog  *headless.Dialog
+	body    headless.Widget
+	focused bool
 	content headless.PointerRegion
+}
+
+// Body returns what is inside the frame.
+func (d *DialogPanel) Body() headless.Widget {
+	if d == nil {
+		return nil
+	}
+	return d.body
+}
+
+// SetBody replaces what is inside the frame and transfers keyboard ownership. A
+// body that answers input receives it after the stack chooses this layer.
+func (d *DialogPanel) SetBody(body headless.Widget) {
+	if d == nil {
+		return
+	}
+	if old, ok := d.body.(headless.Focusable); ok {
+		old.Focus(false)
+	}
+	d.body = body
+	if next, ok := d.body.(headless.Focusable); ok {
+		next.Focus(d.focused)
+	}
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
@@ -105,7 +128,7 @@ func (d *DialogPanel) Handle(ev input.Event) bool {
 		handled, _ := d.content.Handle(mouse)
 		return handled
 	}
-	if body, ok := d.Body.(headless.Interactive); ok {
+	if body, ok := d.body.(headless.Interactive); ok {
 		return body.Handle(ev)
 	}
 	return false
@@ -118,7 +141,11 @@ func (d *DialogPanel) Handle(ev input.Event) bool {
 // inside one would never be told it is being typed at, and a field would draw no
 // caret while taking every keystroke.
 func (d *DialogPanel) Focus(has bool) {
-	if body, ok := d.Body.(headless.Focusable); ok {
+	if d == nil || d.focused == has {
+		return
+	}
+	d.focused = has
+	if body, ok := d.body.(headless.Focusable); ok {
 		body.Focus(has)
 	}
 }
@@ -152,9 +179,10 @@ func (d *DialogPanel) Draw(v headless.Frame) {
 	}
 	inner := box.InnerRect(v.Bounds().Size())
 	box.paint(v.View)
-	d.content.Stage(v, inner, d.Body)
-	if d.Body != nil {
-		d.Body.Draw(v.Sub(inner))
+	body := d.body
+	d.content.Stage(v, inner, body)
+	if body != nil {
+		body.Draw(v.Sub(inner))
 	}
 }
 
@@ -175,8 +203,8 @@ func (d *DialogPanel) footer() string {
 }
 
 func (d *DialogPanel) title() string {
-	if d.Of == nil {
+	if d.dialog == nil {
 		return ""
 	}
-	return d.Of.Title()
+	return d.dialog.Title()
 }
