@@ -433,7 +433,9 @@ func (e *Editor) KillToEnd() {
 	if e.col < len(current) {
 		e.rememberKill(current[e.col:], false, join)
 		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
-		e.lines[e.line] = current[:e.col]
+		// The remaining prefix becomes the editor's new long-lived value. Detach it
+		// from the removed tail rather than retaining the complete old line.
+		e.lines[e.line] = strings.Clone(current[:e.col])
 		e.invalidate()
 		return
 	}
@@ -457,7 +459,8 @@ func (e *Editor) KillToStart() {
 	e.snapshot()
 	e.rememberKill(e.lines[e.line][:e.col], true, join)
 	e.removed(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col}, "")
-	e.lines[e.line] = e.lines[e.line][e.col:]
+	// For the same ownership reason as KillToEnd, the survivor owns only itself.
+	e.lines[e.line] = strings.Clone(e.lines[e.line][e.col:])
 	e.col = 0
 	e.invalidate()
 }
