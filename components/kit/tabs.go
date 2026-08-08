@@ -21,8 +21,6 @@ const tabGap = 2
 // one answer to it. A press on a name selects that pane; everything else is offered
 // to the pane, in the pane's own coordinates.
 type Tabs struct {
-	// Of is what is being shown. Nil draws nothing.
-	Of *headless.Tabs
 	// Theme is the look: the name of the pane showing is the thing the interface is
 	// about, and the rest are there for reference.
 	Theme Theme
@@ -33,16 +31,17 @@ type Tabs struct {
 	// tabs rather than as a row of words.
 	Rule bool
 
+	controller   *headless.Tabs
 	presentation headless.Snapshot[tabsPresentation]
 	body         headless.PointerRegion
 }
 
 // NewTabs composes an uncontrolled headless controller with the kit's finished tab
-// strip. The controller remains available through Of for custom behavior or semantic
-// inspection.
+// strip. The controller remains available through [Tabs.Controller] for custom
+// behavior or semantic inspection.
 func NewTabs(theme Theme, glyphs Glyphs, items ...headless.Tab) *Tabs {
 	return &Tabs{
-		Of: headless.NewTabs(items...), Theme: theme, Glyphs: glyphs, Rule: true,
+		controller: headless.NewTabs(items...), Theme: theme, Glyphs: glyphs, Rule: true,
 	}
 }
 
@@ -54,24 +53,33 @@ func NewControlledTabs(
 	items ...headless.Tab,
 ) *Tabs {
 	return &Tabs{
-		Of:    headless.NewControlledTabs(selection, items...),
-		Theme: theme, Glyphs: glyphs, Rule: true,
+		controller: headless.NewControlledTabs(selection, items...),
+		Theme:      theme, Glyphs: glyphs, Rule: true,
 	}
+}
+
+// Controller returns the headless tabs that own selection and pane behavior.
+func (t *Tabs) Controller() *headless.Tabs {
+	if t == nil {
+		return nil
+	}
+	return t.controller
 }
 
 // Measure is the strip, the rule, and whatever the pane showing asks for.
 func (t *Tabs) Measure(across int) int {
-	if t.Of == nil {
+	if t.controller == nil {
 		return 0
 	}
-	return t.rows() + t.Of.Measure(across)
+	return t.rows() + t.controller.Measure(across)
 }
 
 // Draw paints the strip, the rule under it, and the pane in what is left.
 func (t *Tabs) Draw(v headless.Frame) {
 	t.presentation.Stage(v, tabsPresentation{})
 	t.body.Clear(v)
-	if t.Of == nil {
+	controller := t.controller
+	if controller == nil {
 		return
 	}
 	width, height := v.Size()
@@ -85,7 +93,7 @@ func (t *Tabs) Draw(v headless.Frame) {
 	)
 	views := v.Subs(rects)
 	presented := tabsPresentation{
-		of:    t.Of,
+		of:    controller,
 		spans: t.boxes(),
 		strip: image.Rect(0, 0, width, t.rows()),
 		body:  rects[2],
@@ -98,7 +106,7 @@ func (t *Tabs) Draw(v headless.Frame) {
 			views[1].Text(x, 0, t.Glyphs.Horizontal, t.Theme.Border)
 		}
 	}
-	t.Of.Draw(views[2])
+	controller.Draw(views[2])
 }
 
 // Handle sends a press on the strip to the tab it landed on, and everything else to
@@ -140,8 +148,8 @@ func (t *Tabs) Handle(ev input.Event) bool {
 // Focus passes the keyboard to the panes — see [headless.Tabs.Focus] — so that a
 // dressed strip is a widget a container can hold like any other.
 func (t *Tabs) Focus(has bool) {
-	if t.Of != nil {
-		t.Of.Focus(has)
+	if t.controller != nil {
+		t.controller.Focus(has)
 	}
 }
 
@@ -171,13 +179,13 @@ type span struct{ from, to int }
 // boxes is where each name goes, which the strip and a press both need — and need
 // to agree about, which is why neither works it out for itself.
 func (t *Tabs) boxes() []span {
-	if t.Of == nil {
+	if t.controller == nil {
 		return nil
 	}
-	out := make([]span, 0, t.Of.Len())
+	out := make([]span, 0, t.controller.Len())
 	at := 0
-	for i := range t.Of.Len() {
-		tab, _ := t.Of.At(i)
+	for i := range t.controller.Len() {
+		tab, _ := t.controller.At(i)
 		width := text.Width(tab.Title)
 		out = append(out, span{from: at, to: at + width})
 		at += width + tabGap

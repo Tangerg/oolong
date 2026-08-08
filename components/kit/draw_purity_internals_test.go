@@ -185,7 +185,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	dialogBody.Focus(true)
 	dialog := NewDialog(&headless.Stack{}, Theme{}, Unicode(), "title", dialogBody)
 	dialog.Show()
-	cases = append(cases, widgetPurityCase("*DialogPanel", dialog.Panel, func() any {
+	cases = append(cases, widgetPurityCase("*DialogPanel", dialog.Panel(), func() any {
 		return struct {
 			semantic headless.SemanticNode
 			editor   editorMeaning
@@ -209,18 +209,18 @@ func kitDrawPurityCases() []drawPurityCase {
 		headless.Tab{Title: "first", Of: firstPane},
 		headless.Tab{Title: "second", Of: secondPane},
 	)
-	tabs.Of.Select(1)
+	tabs.Controller().Select(1)
 	tabs.Focus(true)
 	cases = append(cases, widgetPurityCase("*Tabs", tabs, func() any {
 		return struct {
 			semantic headless.SemanticNode
 			first    editorMeaning
 			second   editorMeaning
-		}{tabs.Of.Semantics(), meaningOfEditor(firstPane), meaningOfEditor(secondPane)}
+		}{tabs.Controller().Semantics(), meaningOfEditor(firstPane), meaningOfEditor(secondPane)}
 	}))
 
 	slider := NewSlider(Theme{}, Unicode(), "speed", 0, 10)
-	slider.Of.Set(4)
+	slider.Controller().Set(4)
 	slider.Focus(true)
 	cases = append(cases, widgetPurityCase("*Slider", slider, func() any {
 		return slider.Semantics()
@@ -233,7 +233,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		func(index int) string { return settingValues[index] },
 		nil,
 	)
-	settings.Of.Select(1)
+	settings.Controller().Select(1)
 	cases = append(cases, widgetPurityCase("*Settings", settings, func() any {
 		return struct {
 			selected int
@@ -299,7 +299,8 @@ func kitDrawPurityCases() []drawPurityCase {
 	formField := &headless.Text{Label: "field", Value: headless.Bind(&formValue)}
 	formController := headless.NewForm(formField)
 	formController.Focus(true)
-	form := &Form{Of: formController, Title: "form"}
+	form := NewForm(Theme{}, Glyphs{}, formController)
+	form.Title = "form"
 	cases = append(cases, widgetPurityCase("*Form", form, func() any {
 		return struct {
 			focused headless.Field
@@ -328,7 +329,8 @@ func kitDrawPurityCases() []drawPurityCase {
 	treeController.Open(0)
 	treeController.Select(1)
 	treeController.Focus(true)
-	tree := Tree[string]{Of: treeController, Text: func(item string) string { return item }, Indent: 2}
+	tree := *NewTree(Theme{}, Glyphs{}, treeController, func(item string) string { return item })
+	tree.Indent = 2
 	cases = append(cases, widgetPurityCase("Tree", tree, func() any {
 		return struct {
 			selected int

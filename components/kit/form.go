@@ -13,10 +13,6 @@ import (
 // here could name every kind of one — see [headless.Look]. So this projects the theme
 // as the handful of roles a field has, without changing the controller's own look.
 type Form struct {
-	// Of is the form being collected. It is spelled the way a slot names what goes in
-	// it — see [github.com/Tangerg/oolong/core/layout.Slot] — because that is what
-	// this is: one widget wrapped in the look it is drawn with.
-	Of *headless.Form
 	// Theme is the look, and Glyphs the characters the marks beside a choice are drawn
 	// with.
 	Theme  Theme
@@ -28,21 +24,36 @@ type Form struct {
 	Keys  *keymap.Map
 	Hints []keymap.Action
 
-	body headless.PointerRegion
+	controller *headless.Form
+	body       headless.PointerRegion
+}
+
+// NewForm dresses controller with a theme and glyph set. The controller remains
+// available through [Form.Controller].
+func NewForm(theme Theme, glyphs Glyphs, controller *headless.Form) *Form {
+	return &Form{Theme: theme, Glyphs: glyphs, controller: controller}
+}
+
+// Controller returns the headless form that owns fields and submission behavior.
+func (f *Form) Controller() *headless.Form {
+	if f == nil {
+		return nil
+	}
+	return f.controller
 }
 
 // Measure is the title, the fields, and the hints.
 func (f *Form) Measure(across int) int {
-	if f.Of == nil {
+	if f == nil || f.controller == nil {
 		return 0
 	}
-	return f.rows() + f.Of.Measure(across)
+	return f.rows() + f.controller.Measure(across)
 }
 
 // Draw dresses the form and paints it.
 func (f *Form) Draw(v headless.Frame) {
 	f.body.Clear(v)
-	if f.Of == nil {
+	if f.controller == nil {
 		return
 	}
 	rects := layout.Down.Rects(v.Bounds().Size(),
@@ -51,11 +62,11 @@ func (f *Form) Draw(v headless.Frame) {
 		layout.Slot{Size: layout.Fixed(f.hintRows())},
 	)
 	bands := v.Subs(rects)
-	f.body.Stage(v, rects[1], f.Of)
+	f.body.Stage(v, rects[1], f.controller)
 	if f.titleRows() > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0].View)
 	}
-	f.Of.DrawWith(bands[1], f.Theme.Look(f.Glyphs))
+	f.controller.DrawWith(bands[1], f.Theme.Look(f.Glyphs))
 	if f.hintRows() > 0 {
 		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2].View)
 	}
@@ -73,16 +84,16 @@ func (f *Form) Handle(ev input.Event) bool {
 		handled, _ := f.body.Handle(mouse)
 		return handled
 	}
-	if f.Of == nil {
+	if f.controller == nil {
 		return false
 	}
-	return f.Of.Handle(ev)
+	return f.controller.Handle(ev)
 }
 
 // Focus passes the keyboard to the form — see [headless.Form.Focus].
 func (f *Form) Focus(has bool) {
-	if f.Of != nil {
-		f.Of.Focus(has)
+	if f != nil && f.controller != nil {
+		f.controller.Focus(has)
 	}
 }
 

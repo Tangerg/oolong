@@ -20,8 +20,6 @@ const treeIndent = 2
 // — and the answer is: as far in as it is deep, a mark that turns over when it
 // opens, and the row under the cursor drawn as a selection.
 type Tree[T any] struct {
-	// Of is the tree being shown. Nil draws nothing.
-	Of *headless.Tree[T]
 	// Text is what a row says. A tree given none draws nothing but its marks, which
 	// is what an item that cannot be read as text comes to.
 	Text func(item T) string
@@ -31,7 +29,22 @@ type Tree[T any] struct {
 	Glyphs Glyphs
 	// Indent is how many columns a level is worth. Zero uses two.
 	Indent int
+
+	controller *headless.Tree[T]
 }
+
+// NewTree dresses controller with the kit tree appearance.
+func NewTree[T any](
+	theme Theme,
+	glyphs Glyphs,
+	controller *headless.Tree[T],
+	read func(item T) string,
+) *Tree[T] {
+	return &Tree[T]{Theme: theme, Glyphs: glyphs, Text: read, controller: controller}
+}
+
+// Controller returns the headless tree that owns hierarchy and selection state.
+func (t Tree[T]) Controller() *headless.Tree[T] { return t.controller }
 
 // Handle passes the event to the tree — see [headless.Tree.Handle].
 //
@@ -40,37 +53,37 @@ type Tree[T any] struct {
 // the container hands it. A look that could only be drawn would have to be wired up
 // by hand wherever it was used.
 func (t Tree[T]) Handle(ev input.Event) bool {
-	if t.Of == nil {
+	if t.controller == nil {
 		return false
 	}
-	return t.Of.Handle(ev)
+	return t.controller.Handle(ev)
 }
 
 // Focus takes the keyboard, or gives it up.
 func (t Tree[T]) Focus(has bool) {
-	if t.Of != nil {
-		t.Of.Focus(has)
+	if t.controller != nil {
+		t.controller.Focus(has)
 	}
 }
 
 // Focused reports whether the tree has the keyboard, which is what a row asks to
 // decide how a selection nobody is typing at should look.
-func (t Tree[T]) Focused() bool { return t.Of != nil && t.Of.Focused() }
+func (t Tree[T]) Focused() bool { return t.controller != nil && t.controller.Focused() }
 
 // Measure is one row per row the tree is showing.
 func (t Tree[T]) Measure(across int) int {
-	if t.Of == nil {
+	if t.controller == nil {
 		return 0
 	}
-	return t.Of.Measure(across)
+	return t.controller.Measure(across)
 }
 
 // Draw paints the rows that fit.
 func (t Tree[T]) Draw(v headless.Frame) {
-	if t.Of == nil {
+	if t.controller == nil {
 		return
 	}
-	t.Of.DrawRows(v, t.row)
+	t.controller.DrawRows(v, t.row)
 }
 
 // row draws one row: the indent, the mark, and what the item says.

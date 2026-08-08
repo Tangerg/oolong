@@ -115,18 +115,17 @@ func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	form.GaveUp = runtime.Quit
 	form.Focus(true)
 
-	return headless.NewRoot(&screen{view: kit.Form{
-		Of:     form,
-		Theme:  kit.Suited(runtime.Environment().Ground()),
-		Glyphs: kit.GlyphsFor(os.Getenv),
-		Title:  "New session",
-		Keys:   keys,
-		Hints:  []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel},
-	}})
+	view := kit.NewForm(
+		kit.Suited(runtime.Environment().Ground()), kit.GlyphsFor(os.Getenv), form,
+	)
+	view.Title = "New session"
+	view.Keys = keys
+	view.Hints = []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel}
+	return headless.NewRoot(&screen{view: view})
 }
 
 // screen is the form, drawn.
-type screen struct{ view kit.Form }
+type screen struct{ view *kit.Form }
 
 func (s *screen) Draw(v headless.Frame) { s.view.Draw(v) }
 

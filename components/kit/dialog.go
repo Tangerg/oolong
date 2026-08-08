@@ -14,11 +14,10 @@ import (
 // appearance part.
 //
 // The common call site needs only a stack, theme, glyphs, title and body. Controller
-// and Panel stay public so an application can extend behavior or appearance without
-// forking this composition.
+// and Panel expose the two parts without allowing them to be replaced independently.
 type Dialog struct {
-	Controller *headless.Dialog
-	Panel      *DialogPanel
+	controller *headless.Dialog
+	panel      *DialogPanel
 }
 
 // NewDialog constructs an uncontrolled dialog with kit defaults.
@@ -33,7 +32,7 @@ func NewDialog(
 	panel.SetBody(body)
 	controller := headless.NewDialog(stack, title, panel)
 	panel.dialog = controller
-	return &Dialog{Controller: controller, Panel: panel}
+	return &Dialog{controller: controller, panel: panel}
 }
 
 // NewControlledDialog constructs a kit dialog whose open state is caller-owned.
@@ -49,25 +48,41 @@ func NewControlledDialog(
 	panel.SetBody(body)
 	controller := headless.NewControlledDialog(stack, open, title, panel)
 	panel.dialog = controller
-	return &Dialog{Controller: controller, Panel: panel}
+	return &Dialog{controller: controller, panel: panel}
+}
+
+// Controller returns the headless dialog that owns open state and semantics.
+func (d *Dialog) Controller() *headless.Dialog {
+	if d == nil {
+		return nil
+	}
+	return d.controller
+}
+
+// Panel returns the appearance part installed in the dialog controller.
+func (d *Dialog) Panel() *DialogPanel {
+	if d == nil {
+		return nil
+	}
+	return d.panel
 }
 
 // Show opens the dialog.
-func (d *Dialog) Show() { d.Controller.Show() }
+func (d *Dialog) Show() { d.controller.Show() }
 
 // Dismiss closes the dialog and restores focus below it.
-func (d *Dialog) Dismiss() { d.Controller.Dismiss() }
+func (d *Dialog) Dismiss() { d.controller.Dismiss() }
 
 // Open reports whether the dialog is open.
-func (d *Dialog) Open() bool { return d.Controller.Open() }
+func (d *Dialog) Open() bool { return d.controller.Open() }
 
 // Trigger constructs a headless activation part for this dialog.
 func (d *Dialog) Trigger(label string, of headless.Widget) *headless.DialogTrigger {
-	return d.Controller.Trigger(label, of)
+	return d.controller.Trigger(label, of)
 }
 
 // Semantics returns the underlying structural semantic projection.
-func (d *Dialog) Semantics() headless.SemanticNode { return d.Controller.Semantics() }
+func (d *Dialog) Semantics() headless.SemanticNode { return d.controller.Semantics() }
 
 // DialogPanel is the kit appearance part of a [headless.Dialog].
 //

@@ -12,25 +12,25 @@ import (
 
 // Slider is the polished one-row appearance of a [headless.Slider].
 //
-// Of owns the value and every interaction. This layer formats the label and value,
-// paints the track, and stages exactly the rectangle it painted so pointer routing and
-// appearance cannot disagree.
+// Its headless controller owns the value and every interaction. This layer formats
+// the label and value, paints the track, and stages exactly the rectangle it painted
+// so pointer routing and appearance cannot disagree.
 type Slider struct {
-	// Of is the controller. Nil draws and handles nothing.
-	Of *headless.Slider
 	// Theme and Glyphs choose the appearance of the track and thumb.
 	Theme  Theme
 	Glyphs Glyphs
 	// Format turns the integer value into its right-hand label. Nil uses strconv.Itoa;
 	// returning an empty string omits the value and leaves that room to the track.
 	Format func(int) string
+
+	controller *headless.Slider
 }
 
 // NewSlider composes an uncontrolled slider with the kit appearance.
 func NewSlider(theme Theme, glyphs Glyphs, label string, minimum, maximum int) *Slider {
 	of := headless.NewSlider(minimum, maximum)
 	of.SetLabel(label)
-	return &Slider{Of: of, Theme: theme, Glyphs: glyphs}
+	return &Slider{controller: of, Theme: theme, Glyphs: glyphs}
 }
 
 // NewControlledSlider composes a slider around caller-owned value storage.
@@ -43,12 +43,20 @@ func NewControlledSlider(
 ) *Slider {
 	of := headless.NewControlledSlider(binding, minimum, maximum)
 	of.SetLabel(label)
-	return &Slider{Of: of, Theme: theme, Glyphs: glyphs}
+	return &Slider{controller: of, Theme: theme, Glyphs: glyphs}
+}
+
+// Controller returns the headless slider that owns value and interaction state.
+func (s *Slider) Controller() *headless.Slider {
+	if s == nil {
+		return nil
+	}
+	return s.controller
 }
 
 // Measure is one row whenever a controller is present.
 func (s *Slider) Measure(int) int {
-	if s == nil || s.Of == nil {
+	if s == nil || s.controller == nil {
 		return 0
 	}
 	return 1
@@ -56,18 +64,18 @@ func (s *Slider) Measure(int) int {
 
 // Draw paints the label, track, thumb, and formatted value.
 func (s *Slider) Draw(frame headless.Frame) {
-	if s == nil || s.Of == nil {
+	if s == nil || s.controller == nil {
 		return
 	}
 	width, height := frame.Size()
 	if width <= 0 || height <= 0 {
-		s.Of.Stage(frame, grid.Rect(0, 0, 0, 0))
+		s.controller.Stage(frame, grid.Rect(0, 0, 0, 0))
 		return
 	}
-	value := s.format(s.Of.Value())
-	boxes := layoutMeter(width, text.Width(s.Of.Label()), text.Width(value))
-	s.Of.Stage(frame, boxes.track)
-	if label := s.Of.Label(); label != "" {
+	value := s.format(s.controller.Value())
+	boxes := layoutMeter(width, text.Width(s.controller.Label()), text.Width(value))
+	s.controller.Stage(frame, boxes.track)
+	if label := s.controller.Label(); label != "" {
 		Label{Text: label, Style: s.Theme.Muted, Ellipsis: s.Glyphs.Ellipsis}.
 			Draw(frame.Sub(boxes.label).View)
 	}
@@ -83,7 +91,7 @@ func (s *Slider) track(view grid.View) {
 	if width <= 0 || s.Glyphs.SliderTrack == "" || s.Glyphs.SliderThumb == "" {
 		return
 	}
-	position := s.Of.Position(width)
+	position := s.controller.Position(width)
 	for x := range width {
 		glyph, style := s.Glyphs.SliderTrack, s.Theme.Subtle
 		if x < position {
@@ -91,7 +99,7 @@ func (s *Slider) track(view grid.View) {
 		}
 		if x == position {
 			glyph, style = s.Glyphs.SliderThumb, s.Theme.Accent
-			if s.Of.Focused() {
+			if s.controller.Focused() {
 				style = style.Merge(s.Theme.Selection)
 			}
 		}
@@ -101,22 +109,22 @@ func (s *Slider) track(view grid.View) {
 
 // Handle forwards input to the controller.
 func (s *Slider) Handle(event input.Event) bool {
-	return s != nil && s.Of != nil && s.Of.Handle(event)
+	return s != nil && s.controller != nil && s.controller.Handle(event)
 }
 
 // Focus forwards keyboard ownership to the controller.
 func (s *Slider) Focus(has bool) {
-	if s != nil && s.Of != nil {
-		s.Of.Focus(has)
+	if s != nil && s.controller != nil {
+		s.controller.Focus(has)
 	}
 }
 
 // Semantics forwards the controller's structural meaning.
 func (s *Slider) Semantics() headless.SemanticNode {
-	if s == nil || s.Of == nil {
+	if s == nil || s.controller == nil {
 		return headless.SemanticNode{Role: headless.RoleSlider}
 	}
-	return s.Of.Semantics()
+	return s.controller.Semantics()
 }
 
 func (s *Slider) format(value int) string {

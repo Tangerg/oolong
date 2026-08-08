@@ -103,15 +103,11 @@ func ExampleForm() {
 		modelField,
 	)
 	keys := headless.DefaultFormKeys()
-	view := kit.Form{
-		Of:     form,
-		Theme:  kit.Dark(),
-		Glyphs: kit.ASCII(),
-		Title:  "New session",
-		Keys:   keys,
-		Hints:  []keymap.Action{headless.Submit},
-	}
-	showWidget(22, view.Measure(22), &view)
+	view := kit.NewForm(kit.Dark(), kit.ASCII(), form)
+	view.Title = "New session"
+	view.Keys = keys
+	view.Hints = []keymap.Action{headless.Submit}
+	showWidget(22, view.Measure(22), view)
 
 	// Output:
 	// |New session           |

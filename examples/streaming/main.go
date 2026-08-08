@@ -147,13 +147,12 @@ func (c *chat) buildApproval() {
 	c.form.Keys = formKeys
 	c.form.Done = c.settleApproval
 	c.form.GaveUp = c.reject
-	dressed := &kit.Form{
-		Of: c.form, Theme: c.theme, Glyphs: c.glyphs,
-		Keys: formKeys, Hints: []keymap.Action{headless.Submit, headless.Cancel},
-	}
+	dressed := kit.NewForm(c.theme, c.glyphs, c.form)
+	dressed.Keys = formKeys
+	dressed.Hints = []keymap.Action{headless.Submit, headless.Cancel}
 	c.dialog = kit.NewDialog(&c.stack, c.theme, c.glyphs, "Approve prompt", dressed)
-	c.dialog.Controller.SetDescription("The source starts only after approval.")
-	c.dialog.Panel.Where = layout.Placement{Width: 48, Height: 7, Margin: 1}
+	c.dialog.Controller().SetDescription("The source starts only after approval.")
+	c.dialog.Panel().Where = layout.Placement{Width: 48, Height: 7, Margin: 1}
 }
 
 func (c *chat) Draw(frame headless.Frame) { c.stack.Draw(frame) }
@@ -196,7 +195,7 @@ func (c *chat) requestApproval() {
 	c.pending = prompt
 	c.approval = true
 	c.confirm.Say(true)
-	c.dialog.Controller.SetDescription("Send “" + clip(prompt) + "” to the source?")
+	c.dialog.Controller().SetDescription("Send “" + clip(prompt) + "” to the source?")
 	c.dialog.Show()
 }
 

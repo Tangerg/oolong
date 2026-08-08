@@ -23,16 +23,12 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 		modelField,
 	)
 	keys := headless.DefaultFormKeys()
-	view := kit.Form{
-		Of:     form,
-		Theme:  kit.Dark(),
-		Glyphs: kit.Unicode(),
-		Title:  "New session",
-		Keys:   keys,
-		Hints:  []keymap.Action{headless.Submit, headless.Cancel},
-	}
+	view := kit.NewForm(kit.Dark(), kit.Unicode(), form)
+	view.Title = "New session"
+	view.Keys = keys
+	view.Hints = []keymap.Action{headless.Submit, headless.Cancel}
 
-	rows := paintWidget(24, view.Measure(24), &view)
+	rows := paintWidget(24, view.Measure(24), view)
 	drawn := strings.Join(rows, "\n")
 	for _, want := range []string{"New session", "Name", "who?", "Model", "fast", "good", "enter submit"} {
 		if !strings.Contains(drawn, want) {
@@ -51,9 +47,9 @@ func TestAFormAppearanceDoesNotReplaceTheControllersLook(t *testing.T) {
 	field.SetOptions(headless.Options("one", "two"))
 	form := headless.NewForm(field)
 	form.Look = headless.Look{Taken: "C", Free: "-"}
-	view := kit.Form{Of: form, Theme: kit.Dark(), Glyphs: kit.Unicode()}
+	view := kit.NewForm(kit.Dark(), kit.Unicode(), form)
 
-	_ = paintWidget(12, view.Measure(12), &view)
+	_ = paintWidget(12, view.Measure(12), view)
 	rows := paintWidget(12, field.Measure(12), field)
 	if len(rows) == 0 || !strings.HasPrefix(rows[0], "C") {
 		t.Fatalf("field after appearance draw = %q, want the controller's C mark", rows)
@@ -64,11 +60,11 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	theme := kit.Dark()
 	field := &headless.Text{Label: "Name", Check: func(string) error { return errors.New("required") }}
 	form := headless.NewForm(field)
-	view := kit.Form{Of: form, Theme: theme}
+	view := kit.NewForm(theme, kit.Glyphs{}, form)
 	form.Submit()
 
 	s := grid.NewSurface(20, view.Measure(20))
-	headless.NewRoot(&view).Draw(s.View())
+	headless.NewRoot(view).Draw(s.View())
 	// The row under the field is the problem, drawn in the one style a theme has for
 	// saying something is wrong.
 	if c := cellAt(s, 0, 2); c.Style.FG != theme.Danger.FG {

@@ -267,14 +267,14 @@ func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) 
 		stack, kit.Dark(), kit.Unicode(), "Confirm",
 		headless.Static{Of: kit.Label{Text: "really?"}},
 	)
-	dialog.Controller.SetDescription("A structural description")
+	dialog.Controller().SetDescription("A structural description")
 	dialog.Show()
 
 	rows := paintWidget(20, 5, stack)
 	if !strings.Contains(rows[0], "Confirm") || !strings.Contains(strings.Join(rows, "\n"), "really?") {
 		t.Fatalf("composed dialog drew\n%s", strings.Join(rows, "\n"))
 	}
-	if dialog.Panel == nil || dialog.Controller == nil ||
+	if dialog.Panel() == nil || dialog.Controller() == nil ||
 		!dialog.Semantics().State.Has(headless.StateOpen) {
 		t.Fatal("the short composition hid or disconnected its headless parts")
 	}
@@ -285,11 +285,11 @@ func TestDialogPanelTransfersFocusWithItsBody(t *testing.T) {
 	second := &panelChild{}
 	dialog := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "", first)
 	dialog.Show()
-	if dialog.Panel.Body() != first || !first.focused {
+	if dialog.Panel().Body() != first || !first.focused {
 		t.Fatal("the open dialog did not give its body the keyboard")
 	}
 
-	dialog.Panel.SetBody(second)
+	dialog.Panel().SetBody(second)
 	if first.focused || !second.focused {
 		t.Fatalf("focus after replacement: first=%v second=%v", first.focused, second.focused)
 	}
@@ -304,7 +304,7 @@ func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
 		&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Confirm",
 		headless.Static{Of: kit.Label{Text: "really?"}},
 	)
-	rows := paintWidget(20, 5, d.Panel)
+	rows := paintWidget(20, 5, d.Panel())
 	if !strings.Contains(rows[0], "Confirm") {
 		t.Fatalf("top row = %q, want the title in the border", rows[0])
 	}
@@ -324,9 +324,9 @@ func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 		&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Confirm",
 		headless.Static{Of: kit.Label{Text: "x"}},
 	)
-	d.Panel.Keys = keys
-	d.Panel.Hints = []keymap.Action{"ok"}
-	rows := paintWidget(24, 4, d.Panel)
+	d.Panel().Keys = keys
+	d.Panel().Hints = []keymap.Action{"ok"}
+	rows := paintWidget(24, 4, d.Panel())
 	if !strings.Contains(rows[3], "ok") {
 		t.Fatalf("bottom row = %q, want the hints in the border", rows[3])
 	}
@@ -370,7 +370,7 @@ func TestADialogDimsWithTheThemeAndNotWithAnOpinionOfItsOwn(t *testing.T) {
 func TestADialogPassesInputToABodyThatWantsIt(t *testing.T) {
 	editor := &headless.Editor{}
 	d := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "", editor)
-	if !d.Panel.Handle(input.Key{Code: input.Character, Rune: 'q'}) {
+	if !d.Panel().Handle(input.Key{Code: input.Character, Rune: 'q'}) {
 		t.Fatal("the dialog did not offer the key to its body")
 	}
 	if got := editor.Text(); got != "q" {
@@ -384,14 +384,14 @@ func TestADialogWithABodyThatIgnoresInputConsumesNothing(t *testing.T) {
 		&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "",
 		headless.Static{Of: kit.Label{Text: "just words"}},
 	)
-	if d.Panel.Handle(input.Key{Code: input.Esc}) {
+	if d.Panel().Handle(input.Key{Code: input.Esc}) {
 		t.Fatal("a dialog whose body cannot answer input consumed a key anyway")
 	}
 }
 
 func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
 	d := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Empty", nil)
-	rows := paintWidget(14, 3, d.Panel)
+	rows := paintWidget(14, 3, d.Panel())
 	if !strings.Contains(rows[0], "Empty") {
 		t.Fatalf("top row = %q, want the frame drawn anyway", rows[0])
 	}
@@ -402,15 +402,15 @@ func TestADialogWithNoRoomDrawsNothing(_ *testing.T) {
 		&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "Squeezed",
 		headless.Static{Of: kit.Label{Text: "x"}},
 	)
-	headless.NewRoot(d.Panel).Draw(grid.NewSurface(0, 0).View())
-	d.Panel.Backdrop(grid.NewSurface(0, 0).View())
+	headless.NewRoot(d.Panel()).Draw(grid.NewSurface(0, 0).View())
+	d.Panel().Backdrop(grid.NewSurface(0, 0).View())
 }
 
 func TestADialogGoesWhereItWasPlaced(t *testing.T) {
 	where := layout.Placement{Anchor: layout.Middle, Width: 8, Height: 3}
 	d := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "", nil)
-	d.Panel.Where = where
-	if got := d.Panel.Place(image.Pt(40, 20)); got != where {
+	d.Panel().Where = where
+	if got := d.Panel().Place(image.Pt(40, 20)); got != where {
 		t.Fatalf("= %+v, want the placement it was given", got)
 	}
 }

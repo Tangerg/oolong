@@ -97,7 +97,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 		headless.Tab{Title: "activity", Of: d.watch},
 		headless.Tab{Title: "settings", Of: d.prefs},
 	)
-	d.tabs = d.strip.Of
+	d.tabs = d.strip.Controller()
 	d.tabs.Focus(true)
 
 	// Something to watch: the work advances on a clock this program started, and an
@@ -128,7 +128,7 @@ func (d *dashboard) Handle(ev input.Event) bool {
 }
 
 func (d *dashboard) advance() {
-	d.work.advance(d.watch.rate.Of.Value())
+	d.work.advance(d.watch.rate.Controller().Value())
 	if d.motion {
 		d.watch.tick()
 	}
@@ -137,7 +137,7 @@ func (d *dashboard) advance() {
 func (d *dashboard) preferenceValue(item preference) string {
 	switch item {
 	case ratePreference:
-		return fmt.Sprintf("%d tasks/tick", d.watch.rate.Of.Value())
+		return fmt.Sprintf("%d tasks/tick", d.watch.rate.Controller().Value())
 	case motionPreference:
 		if d.motion {
 			return "on"
@@ -151,7 +151,7 @@ func (d *dashboard) preferenceValue(item preference) string {
 func (d *dashboard) changePreference(_ int, item preference, action keymap.Action) bool {
 	switch item {
 	case ratePreference:
-		return d.watch.rate.Of.Do(action)
+		return d.watch.rate.Controller().Do(action)
 	case motionPreference:
 		switch action {
 		case headless.Decrease:
