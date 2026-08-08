@@ -752,6 +752,23 @@ Benchmarks should answer product questions:
 - What does resize cost for a large deliberately retained transcript?
 - Do wide graphemes, combining marks, links, and images preserve their invariants?
 
+Each question has a named, reproducible observation rather than an implied future
+benchmark:
+
+| product question | executable evidence |
+| --- | --- |
+| committed stream lifetime | `BenchmarkTranscriptCommittedStream` measures steady-state transfer cost as session age grows; the deterministic release and fresh-process heap tests remain the retention proof |
+| producer burst | `BenchmarkByteIngressProducerBurst` reports throughput, allocations, and owner batches at two explicit pending-byte limits |
+| open markdown update | `BenchmarkOpenMarkdownUpdate` holds the open-tail size constant at three scales; `BenchmarkOpenMarkdownCachedRead` separates the defensive result copy from parsing |
+| unchanged frame | `BenchmarkFrameThatChangedNothing` reports wire bytes per frame as well as work and allocations |
+| retained transcript resize | `BenchmarkTranscriptRetainedResize` alternates widths through the real root-frame transaction at 100 and 10,000 retained blocks |
+| complex cell invariants | `BenchmarkComplexFrameThatChangedNothing` combines wide and combining graphemes, links, styles, and a painted region, and reports wire bytes; correctness remains in the focused grid and text tests |
+
+These benchmarks intentionally have no machine-time thresholds in CI. Their stable
+contracts are the scenario, scale, and semantic metrics such as wire bytes and batch
+counts. Nanoseconds and allocation totals are evidence to compare before and after a
+change, not portable correctness claims.
+
 Use benchmarks, allocation reports, traces, and profiles to choose optimizations. Keep
 the straightforward implementation until evidence identifies a hot path. An
 optimization that complicates a public contract needs stronger evidence than one hidden

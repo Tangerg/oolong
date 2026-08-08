@@ -432,6 +432,7 @@ import 该适配器的应用才承担它的外部依赖。
 | 不变式 | 可执行的证据 | 关卡 |
 | --- | --- | --- |
 | 依赖方向与词汇 | `internal/arch` 从声明的 DAG 推导出被禁止的 import，并检查模块承诺、文档引用、完整性与无环性 | 每次 CI |
+| 集中的 primitive 保持集中 | `dupl` 拒绝在范围、坐标、writer、身份和 ANSI framing primitive 的唯一实现旁边出现第二份结构性拷贝。它按模块运行，因此跨模块拷贝仍超出其视野，需要人工审读 | 每次 CI，在单个模块内 |
 | 有界的活动生命期（3.2） | 一个确定性组件测试证明交付移除了强载荷引用与每块的放置记录；一个在全新进程里跑的压力测试比较 `N` 与 `2N` 的大量已交付流在 GC 之后的保留堆，拒绝与 `N` 成正比的增长 | 切片 1 及每一个 transcript 实现 |
 | 无损增量摄入 | burst、取消、关闭、部分尾部、生产者快于消费者等测试，证明顺序、批量、声明的上限以及不丢数据 | 切片 1 |
 | 可观察意义上纯粹的测量与绘制 | [`headless`](../components/headless/draw_purity_internals_test.go)、[`kit`](../components/kit/draw_purity_internals_test.go) 和 [`markdown`](../markdown/draw_purity_internals_test.go) 对每一个生产用的 `Draw` 接收者做分类；每一个有状态的接收者从同样的有意义状态画两次，保持其语义投影不变，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了 `Draw` 的包；未分类的接收者直接失败 |
@@ -480,6 +481,19 @@ Benchmark 应当回答产品问题：
 - 一个没有变化的帧做了多少工作、写了多少字节？
 - 对一个大的、刻意保留的 transcript 做尺寸变化，代价是多少？
 - 宽字素、组合符、链接和图片是否保持了它们的不变式？
+
+每一个问题都有一个具名、可复现的观测，而不是一项暗示给未来的 benchmark：
+
+| 产品问题 | 可执行的证据 |
+| --- | --- |
+| 已交付流的生命期 | `BenchmarkTranscriptCommittedStream` 测量会话年龄增长时的稳定态转移成本；确定性释放测试和全新进程堆测试仍然是保留问题的证明 |
+| 生产者爆发 | `BenchmarkByteIngressProducerBurst` 在两个显式待处理字节上限下报告吞吐、分配与 owner 批次数 |
+| 开放 markdown 更新 | `BenchmarkOpenMarkdownUpdate` 在三个尺度上保持开放尾部大小不变；`BenchmarkOpenMarkdownCachedRead` 把防御性结果复制与解析分开 |
+| 未变化帧 | `BenchmarkFrameThatChangedNothing` 在工作量与分配之外，还报告每帧的线上字节数 |
+| 保留 transcript 的尺寸变化 | `BenchmarkTranscriptRetainedResize` 通过真实根帧事务，在保留 100 块和 10,000 块时交替改变宽度 |
+| 复杂 cell 不变式 | `BenchmarkComplexFrameThatChangedNothing` 组合宽字素、组合符、链接、样式和绘制区域，并报告线上字节数；正确性仍由聚焦的 grid 与 text 测试负责 |
+
+这些 benchmark 刻意不在 CI 中设置机器时间阈值。它们稳定的契约是场景、尺度，以及线上字节数和批次数这类语义指标。纳秒数与分配总量是一次变更前后比较的证据，不是可移植的正确性声明。
 
 用 benchmark、分配报告、trace 和 profile 来选择优化。在证据指出热点之前保持直白的实现。**让公开契约变复杂的优化，需要比藏在实现内部的优化更强的证据。**
 
