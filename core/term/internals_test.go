@@ -8,6 +8,7 @@ package term
 import (
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -16,6 +17,41 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
+
+func TestAtomicSequenceStopsBeforeReusingAValue(t *testing.T) {
+	var sequence atomicSequence
+	for want := uint64(1); want <= 2; want++ {
+		got, ok := sequence.next(2)
+		if !ok || got != want {
+			t.Fatalf("next = %d, %t; want %d, true", got, ok, want)
+		}
+	}
+	if got, ok := sequence.next(2); ok || got != 0 {
+		t.Fatalf("exhausted next = %d, %t; want 0, false", got, ok)
+	}
+	if got := sequence.current(); got != 2 {
+		t.Fatalf("current = %d, want 2", got)
+	}
+}
+
+func TestWriterPanicsBeforeItsSequenceCanWrap(t *testing.T) {
+	var writer Writer
+	writer.queued.last.Store(math.MaxUint64)
+	defer func() {
+		if got := recover(); got != "term: writer exhausted frame sequences" {
+			t.Fatalf("panic = %v, want the sequence-exhaustion contract", got)
+		}
+	}()
+	writer.Queue(nil)
+}
+
+func TestTerminalRefusesToReuseAnImageIdentity(t *testing.T) {
+	var terminal Terminal
+	terminal.pictures.last.Store(math.MaxUint32)
+	if _, err := terminal.Transmit(nil); !errors.Is(err, ErrImageIDsExhausted) {
+		t.Fatalf("Transmit error = %v, want ErrImageIDsExhausted", err)
+	}
+}
 
 func TestOpenWithoutATerminal(t *testing.T) {
 	// Under a test runner standard input is not a terminal, which is exactly the

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,7 +71,7 @@ type Writer struct {
 	advanceMu sync.Mutex
 	advanced  chan struct{}
 
-	queued    atomic.Uint64
+	queued    atomicSequence
 	written   atomic.Uint64
 	processed atomic.Uint64
 	// settleMu turns completions back into a contiguous watermark. Writes finish in
@@ -121,9 +122,17 @@ func NewWriter(dst io.Writer) *Writer {
 // Queue does not wait for the terminal. A frame handed over after [Writer.Close] or
 // a terminal failure is accounted for but not retained or written. The failure that
 // made the writer unusable remains available from [Writer.Err].
+//
+// Queue panics after every uint64 sequence has been used. Continuing would return
+// zero and violate the watermark protocol by making new work look older than work
+// already settled.
 func (w *Writer) Queue(data []byte) uint64 {
 	w.queueMu.Lock()
-	seq := w.queued.Add(1)
+	seq, ok := w.queued.next(math.MaxUint64)
+	if !ok {
+		w.queueMu.Unlock()
+		panic("term: writer exhausted frame sequences")
+	}
 	if w.closed || w.discarding.Load() {
 		w.queueMu.Unlock()
 		w.finish(seq, ErrClosed)
@@ -149,7 +158,7 @@ func (w *Writer) signal() {
 func (w *Writer) Progress() <-chan struct{} { return w.progress }
 
 // Queued is the highest sequence handed to the writer.
-func (w *Writer) Queued() uint64 { return w.queued.Load() }
+func (w *Writer) Queued() uint64 { return w.queued.current() }
 
 // Written is the highest sequence that reached the terminal.
 func (w *Writer) Written() uint64 { return w.written.Load() }
@@ -175,7 +184,7 @@ func (w *Writer) Err() error {
 // It takes nothing from [Writer.Progress]. Waiting here must not cost its consumer a
 // wake-up it is owed, which is what the broadcast channel is for.
 func (w *Writer) Drain(timeout time.Duration) error {
-	if !w.drain(w.queued.Load(), timeout) {
+	if !w.drain(w.queued.current(), timeout) {
 		return ErrDrainTimeout
 	}
 	return nil
@@ -218,7 +227,7 @@ func (w *Writer) Close() error {
 		// abandoned by a Close that still reports success.
 		w.queueMu.Lock()
 		w.closed = true
-		target := w.queued.Load()
+		target := w.queued.current()
 		w.queueMu.Unlock()
 		w.signal()
 

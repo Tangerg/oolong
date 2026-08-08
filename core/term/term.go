@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,11 @@ import (
 // ErrNotTerminal is reported by [Open] when the process is not attached to a
 // terminal — piped, redirected, or running under something that gave it no tty.
 var ErrNotTerminal = errors.New("term: not a terminal")
+
+// ErrImageIDsExhausted means a terminal session has used every image identity the
+// graphics protocol can represent. Reusing one would make a new image overwrite an
+// older image that can still be present, so the session refuses another transmission.
+var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
 
 // Options says which of the terminal's optional behaviours a session wants.
 //
@@ -91,7 +97,7 @@ type Terminal struct {
 	// pictures numbers the images this session has sent, so that two of them cannot
 	// arrive under one name. It is atomic because sending one is not the interface's
 	// goroutine's business — a picture is usually fetched from somewhere else.
-	pictures atomic.Uint32
+	pictures atomicSequence
 
 	resized    chan input.Resize
 	resizeMu   sync.Mutex
@@ -445,10 +451,15 @@ func (t *Terminal) CellSize() (image.Point, bool) {
 //
 // A terminal that cannot show pictures is not asked. Whether this one can is
 // [Terminal.Graphics], and a caller that sends without asking has written a
-// megabyte of base64 to something that will print it.
+// megabyte of base64 to something that will print it. It reports
+// [ErrImageIDsExhausted] rather than reusing a handle that may still name an image.
 func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
+	id, ok := t.pictures.next(math.MaxUint32)
+	if !ok {
+		return graphics.Image{}, ErrImageIDsExhausted
+	}
 	var payload bytes.Buffer
-	img, err := graphics.Transmit(&payload, t.pictures.Add(1), png)
+	img, err := graphics.Transmit(&payload, uint32(id), png)
 	if err != nil {
 		return graphics.Image{}, err
 	}
