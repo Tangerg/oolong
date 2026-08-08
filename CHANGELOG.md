@@ -18,6 +18,17 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Added
+
+- Six named benchmark families now make the architecture's performance questions
+  measurable: unchanged frames, bounded producer bursts, committed transcript age,
+  retained resize cost, open-markdown tail size, and unchanged complex frames.
+- The examples module now includes a composable prompt and a complete deterministic
+  coding-agent mock. Together they demonstrate application-owned paste attachments,
+  fuzzy completion, history, bounded streaming output, committed transcript history,
+  live plans, explicit tool review, cancellation, and failure settlement without
+  introducing product vocabulary into framework packages.
+
 ## [0.4.0] — 2026-08-09
 
 This is a repository-wide correctness and ownership pass over the foundations added

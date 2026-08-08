@@ -17,9 +17,11 @@ program.Run(ctx, program.Config{
 A canonical chat interface that combines bounded background ingress, incremental
 markdown, a selectable recent transcript, terminal-owned history, approval and
 cancellation is [`examples/streaming`](examples/streaming).
-There are [seven more](examples), shallowest first — a key count, a form, a picker,
-a file browser, a dashboard, a command runner, and an answer arriving a few
-characters at a time.
+There are [ten examples](examples), shallowest first. At the far end,
+[`examples/agent`](examples/agent) is a complete mock coding-agent session with a
+live plan, command completion, streamed markdown, bounded history and a blocking
+tool review over a diff. [`examples/composer`](examples/composer) isolates the rich
+prompt underneath it: references, history and application-owned paste chips.
 
 Underneath that: a transcript the output can be selected, searched and scrolled
 back over; an editor with undo, selection, the system clipboard and atomic
@@ -41,6 +43,7 @@ that presses nothing.
 
 ```sh
 go run ./examples/streaming        # from the repository root, which is a Go workspace
+go run ./examples/agent            # a deterministic agent mock; it changes no files
 ```
 
 [`ROADMAP.md`](ROADMAP.md) was what was missing and in what order, read against the

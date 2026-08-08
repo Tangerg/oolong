@@ -119,12 +119,11 @@ into a marker its editor treats as a single segment:
 
 > …within paste markers into single atomic segments. This makes cursor […]
 
-**This repository already has the mechanism.** `headless.Editor` elements and
-`text.Mark` exist for exactly this: "A chip in a prompt naming a file is atomic: text
-typed into the middle of it…". What is missing is not a capability; it is that nobody
-has pointed the capability at `input.Paste`. That makes it a worked example rather
-than a library change — which is where product decisions such as the threshold and
-the wording of the marker belong anyway.
+**This repository already had the mechanism; the worked example now exists.**
+`headless.Editor` elements and `text.Mark` provide the atomic behavior, while
+[`examples/composer`](../examples/composer) points it at `input.Paste`. The example
+owns the threshold, marker wording, and original pasted bytes. None became library
+policy, which is the boundary this section argued for.
 
 ### pi-tui's differential rendering, which is the interesting disagreement
 
@@ -296,6 +295,11 @@ incompatible notions of it.
 | **Completion sources** | agentui `completion` (file, shell, `@`-reference) | `Completion.Offer(token, candidates)` takes candidates from the caller. A `Source` that is asked for candidates given a context is general; the file and shell sources themselves are the application's. |
 | **A file picker** | bubbles `filepicker` | The behaviour — a tree, a filter, a selection — belongs in `headless`. Which directories may be seen is a **security decision**, and agentui puts it in a `policy` parameter rather than in the picker. That line is the right one and it is why this is not simply a widget. |
 
+`examples/composer` and `examples/agent` are now two consumers of `Completion.Offer`.
+Both can produce their small application-owned candidate sets directly, so they do
+not yet justify a `Source` abstraction. Neither has multiple active scopes, so they
+also do not answer the shared question above.
+
 `keymap` scopes, from [§1](#1-opentuikeymap-answers-a-limitation-this-repository-has-written-down),
 are the fourth hat. Whatever answers one of these should answer all four.
 
@@ -369,7 +373,8 @@ Ordered by what each is blocked on, not by appetite.
    repository ends up with four incompatible notions of scope.
 7. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
    wants two consumers for a boundary; there is currently one hypothetical.
-8. **A paste-into-chip example.** Belongs in `examples`, not in the library.
+8. **A paste-into-chip example: completed.** `examples/composer` owns the threshold,
+   label and retained source while `headless.Editor` owns only atomic editing.
 
 ## What would change this document
 

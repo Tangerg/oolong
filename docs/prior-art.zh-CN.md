@@ -104,10 +104,10 @@ yank，任何插入其间的语义动作都会结束该序列。ring 拥有自�
 
 > ……paste marker 内部成为单一原子 segment。这使 cursor ……
 
-**本仓库已经具备机制。** `headless.Editor` 的 element 与 `text.Mark` 正是为此存在：
-“prompt 里代表文件的 chip 是原子的：不能把文本键入其中……”。缺的不是能力，而是
-还没有人把它用于 `input.Paste`。因此它应当是 worked example，而不是库改动——阈值
-和 marker 文案都是产品决策，本来就属于应用。
+**本仓库原本已经具备机制；现在 worked example 也已经存在。**
+`headless.Editor` 的 element 与 `text.Mark` 提供原子行为，
+[`examples/composer`](../examples/composer) 则把它用于 `input.Paste`。阈值、marker 文案
+以及粘贴原文都由示例拥有，没有一项变成库 policy；这正是本节主张的边界。
 
 ### pi-tui 的差量渲染：最有意思的分歧
 
@@ -250,6 +250,10 @@ resize_viewport_height,
 | **completion source** | agentui `completion`（file、shell、`@` reference） | `Completion.Offer(token, candidates)` 从调用方接收候选。按 context 产出候选的 `Source` 是通用的；file 与 shell source 本身属于应用。 |
 | **file picker** | bubbles `filepicker` | 行为——tree、filter、selection——属于 `headless`；哪些目录可见是**安全决策**。agentui 把它放在 `policy` 参数，而不是 picker 内部；这条线是正确的，也正是它不能直接成为 widget 的原因。 |
 
+`examples/composer` 与 `examples/agent` 现在是 `Completion.Offer` 的两个消费方。
+两者都可以直接产生各自少量、由应用拥有的候选项，因此尚不足以证明需要 `Source`
+抽象；两者也都没有多个活动 scope，所以同样没有回答上面的共同问题。
+
 [§1](#1-opentuikeymap-回答了本仓库已经写下的一项限制)的 keymap scope 是第四顶帽子。
 无论怎样回答其中一个，都应当同时回答四个。
 
@@ -315,7 +319,8 @@ A 组完全属于前者，因此无需导入产品语法就能实现。
 7. **`core/link` 的拒绝报告。**
    [§7.1](architecture.zh-CN.md#71-一个包必须配得上它的名字)要求一个边界有两个
    消费方；目前只有一个假想消费方。
-8. **paste-to-chip 示例。** 属于 `examples`，不属于库。
+8. **paste-to-chip 示例：已完成。** `examples/composer` 拥有阈值、标签与保留的原文，
+   `headless.Editor` 只拥有原子编辑行为。
 
 ## 什么会改变本文
 
