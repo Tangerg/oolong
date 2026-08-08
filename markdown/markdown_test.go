@@ -333,6 +333,16 @@ func TestAStreamPublishesWhatIsFinishedAndHoldsWhatIsNot(t *testing.T) {
 	}
 }
 
+func TestAStreamKeepsThePendingCutInsideItsNewTail(t *testing.T) {
+	var stream markdown.Stream
+	if got := stream.Feed("one\n\ntwo\n\n"); len(got) != 1 || got[0].Lines[0].String() != "one" {
+		t.Fatalf("first publication = %+v", got)
+	}
+	if got := stream.Feed("three\n"); len(got) != 1 || got[0].Lines[0].String() != "two" {
+		t.Fatalf("second publication = %+v", got)
+	}
+}
+
 func TestAStreamNeverCutsInsideCode(t *testing.T) {
 	// A blank line in a block of code is a blank line in a block of code. Cutting
 	// there would publish half a function and render the rest as prose.

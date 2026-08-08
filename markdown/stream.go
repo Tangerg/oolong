@@ -37,17 +37,25 @@ import (
 // reference — the address on a line of its own further down — is published before
 // its address arrives, and comes out as the words without the link. Both are the
 // price of showing an answer as it is written instead of after it is finished.
+//
+// A Stream must not be copied after first use, like [strings.Builder]. It is owned
+// by the goroutine feeding and rendering one source and is not safe for concurrent
+// use. Its zero value is ready.
 type Stream struct {
 	// look is how the blocks are drawn. Changing it affects what is published after
 	// the change and not what was published before it, which is the one thing a
 	// stream cannot go back on.
 	look Look
 
-	// held is the source that has not been published.
-	held string
-	// scanned is how much of held has been looked at, so a chunk costs a scan of
-	// itself rather than of the answer so far.
-	scanned int
+	// held is the source that has not been published. A builder makes many small
+	// chunks an amortized append rather than copying the complete open tail for every
+	// byte that arrives.
+	held strings.Builder
+	// scanned is where the current incomplete line starts; searched is how far that
+	// line has already been checked for a newline. Keeping both means a long line
+	// delivered one byte at a time searches each byte once without pretending an
+	// incomplete line can already be interpreted.
+	scanned, searched int
 	// fenced says the scan is inside a block of code, and fence is what would close
 	// it.
 	fenced bool
@@ -95,20 +103,30 @@ func (s *Stream) Feed(chunk string) []Block {
 	if chunk == "" {
 		return nil
 	}
-	s.held += chunk
+	_, _ = s.held.WriteString(chunk)
 	s.fresh = false
 
 	cut := s.scan()
 	if cut <= 0 {
 		return nil
 	}
-	done := Render(s.held[:cut], s.look)
-	// A substring shares the complete source allocation. Clone at the ownership
-	// boundary so a short open tail cannot retain the finished prefix that was just
-	// published and handed away.
-	s.held = strings.Clone(s.held[cut:])
+	source := s.held.String()
+	done := Render(source[:cut], s.look)
+	// A substring shares the complete builder allocation. Copy the short tail into a
+	// fresh builder at the ownership cut so it cannot retain the published prefix.
+	// Reset releases the old buffer; tail keeps it alive only until WriteString has
+	// copied from it.
+	tail := source[cut:]
+	s.held.Reset()
+	s.held.Grow(len(tail))
+	_, _ = s.held.WriteString(tail)
 	s.scanned -= cut
-	s.blank = 0
+	s.searched -= cut
+	if s.blank > cut {
+		s.blank -= cut
+	} else {
+		s.blank = 0
+	}
 	return done
 }
 
@@ -120,21 +138,22 @@ func (s *Stream) Feed(chunk string) []Block {
 // is written, and it is what they would see if it stopped there.
 func (s *Stream) Open() []Block {
 	if !s.fresh {
-		s.open, s.fresh = Render(s.held, s.look), true
+		s.open, s.fresh = Render(s.held.String(), s.look), true
 	}
 	return cloneBlocks(s.open)
 }
 
 // Flush publishes whatever is left, which is what the end of an answer is.
 func (s *Stream) Flush() []Block {
-	done := Render(s.held, s.look)
+	done := Render(s.held.String(), s.look)
 	s.Reset()
 	return done
 }
 
 // Reset forgets everything, for a stream about to be given a different answer.
 func (s *Stream) Reset() {
-	s.held, s.scanned, s.blank = "", 0, 0
+	s.held.Reset()
+	s.scanned, s.searched, s.blank = 0, 0, 0
 	s.fenced, s.fence = false, ""
 	s.open, s.fresh = nil, false
 }
@@ -148,14 +167,18 @@ func (s *Stream) Reset() {
 // and takes up there when more arrives.
 func (s *Stream) scan() int {
 	cut := 0
+	source := s.held.String()
 	for {
-		rest := s.held[s.scanned:]
+		rest := source[s.searched:]
 		nl := strings.IndexByte(rest, '\n')
 		if nl < 0 {
+			s.searched = len(source)
 			return cut
 		}
-		line := rest[:nl]
-		s.scanned += nl + 1
+		end := s.searched + nl
+		line := source[s.scanned:end]
+		s.scanned = end + 1
+		s.searched = s.scanned
 		trimmed := strings.TrimRight(line, " \t")
 
 		switch {
