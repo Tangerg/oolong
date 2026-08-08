@@ -373,7 +373,7 @@ func Divide(total, across int, slots []Slot) []int {
 			// Of the whole region rather than of what is left, which is the whole
 			// difference between this and a share: it is worked out from the total the
 			// division began with, so nothing else in the region can move it.
-			want := fraction(max(total, 0), max(slot.Size.Part, 0), slot.Size.Whole)
+			want := Scale(max(total, 0), max(slot.Size.Part, 0), slot.Size.Whole)
 			sizes[i] = min(max(want, slot.Size.Min), left)
 		case slot.Size.Measured:
 			want := slot.Size.Min
@@ -406,7 +406,7 @@ func Divide(total, across int, slots []Slot) []int {
 		if share == 0 {
 			continue
 		}
-		want := fraction(remainder, share, flex)
+		want := Scale(remainder, share, flex)
 		want = max(want, slot.Size.Min)
 		sizes[i] = min(want, left)
 		left -= sizes[i]
@@ -431,10 +431,14 @@ func saturatingAdd(a, b int) int {
 	return a + b
 }
 
-// fraction returns total*part/whole, capped at total, without overflowing the
-// intermediate product. Callers allocate from total, so a part larger than the
-// whole can ask for all of it but never for more.
-func fraction(total, part, whole int) int {
+// Scale returns total*part/whole, capped to [0, total], without overflowing the
+// intermediate product.
+//
+// It is the one proportional-coordinate operation shared by layout allocation and
+// controls that map a bounded value onto an extent. Keeping it here gives both the
+// same endpoint, saturation, and architecture-width semantics instead of two subtly
+// different overflow workarounds.
+func Scale(total, part, whole int) int {
 	if total <= 0 || part <= 0 || whole <= 0 {
 		return 0
 	}

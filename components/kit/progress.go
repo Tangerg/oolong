@@ -68,27 +68,22 @@ func (p Progress) Draw(v grid.View) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	// The bar is what is left after the two things beside it, so it is the one that
-	// gives way on a narrow terminal: a label cut in half says nothing, and a
-	// percentage is the number the user is reading.
-	left := 0
-	if p.Label != "" {
-		room := min(text.Width(p.Label), w/2)
-		Label{Text: p.Label, Style: p.Theme.Muted, Ellipsis: p.Glyphs.Ellipsis}.
-			Draw(v.Sub(grid.Rect(0, 0, room, 1)))
-		left = room + 1
-	}
-	right := w
+	valueWidth := 0
 	if p.Percent {
-		right = w - percentWidth
+		valueWidth = percentWidth
+	}
+	boxes := layoutMeter(w, text.Width(p.Label), valueWidth)
+	if p.Label != "" {
+		Label{Text: p.Label, Style: p.Theme.Muted, Ellipsis: p.Glyphs.Ellipsis}.
+			Draw(v.Sub(boxes.label))
+	}
+	if p.Percent {
 		percent := strconv.Itoa(int(math.Round(p.Fraction()*100))) + "%"
 		Label{Text: percent, Style: p.Theme.Muted, Align: layout.End}.
-			Draw(v.Sub(grid.Rect(right, 0, percentWidth, 1)))
-		// A column of air between the bar and the number.
-		right--
+			Draw(v.Sub(boxes.value))
 	}
-	if right > left {
-		p.bar(v.Sub(grid.Rect(left, 0, right-left, 1)))
+	if !boxes.track.Empty() {
+		p.bar(v.Sub(boxes.track))
 	}
 }
 

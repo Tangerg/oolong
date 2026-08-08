@@ -92,6 +92,14 @@ const (
 	PrevTab keymap.Action = "prev-tab"
 )
 
+// The actions a [Slider] answers to.
+const (
+	Decrease  keymap.Action = "decrease"
+	Increase  keymap.Action = "increase"
+	ToMinimum keymap.Action = "to-minimum"
+	ToMaximum keymap.Action = "to-maximum"
+)
+
 // The actions a form and its fields answer to, on top of the list movement a choice
 // uses and the editing a line of text uses.
 const (
@@ -234,6 +242,20 @@ func DefaultTabsKeys() *keymap.Map {
 	return m
 }
 
+// DefaultSliderKeys are the conventional keys for a bounded value. Both axes work so
+// the same headless controller can sit behind a horizontal track or a compact setting
+// row without changing its action vocabulary.
+func DefaultSliderKeys() *keymap.Map {
+	m := &keymap.Map{}
+	m.Bind(Decrease, input.Chord{Code: input.Left})
+	m.Bind(Decrease, input.Chord{Code: input.Down})
+	m.Bind(Increase, input.Chord{Code: input.Right})
+	m.Bind(Increase, input.Chord{Code: input.Up})
+	m.Bind(ToMinimum, input.Chord{Code: input.Home})
+	m.Bind(ToMaximum, input.Chord{Code: input.End})
+	return m
+}
+
 // DefaultMultiSelectKeys are the keystrokes a list of choices answers: the movement any
 // list has, and the one that takes what is under the cursor.
 func DefaultMultiSelectKeys() *keymap.Map {
@@ -289,6 +311,7 @@ var (
 	containerKeys   = sync.OnceValue(DefaultContainerKeys)
 	treeKeys        = sync.OnceValue(DefaultTreeKeys)
 	tabsKeys        = sync.OnceValue(DefaultTabsKeys)
+	sliderKeys      = sync.OnceValue(DefaultSliderKeys)
 	multiSelectKeys = sync.OnceValue(DefaultMultiSelectKeys)
 	confirmKeys     = sync.OnceValue(DefaultConfirmKeys)
 	formKeys        = sync.OnceValue(DefaultFormKeys)

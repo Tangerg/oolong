@@ -71,7 +71,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 
 	d := &dashboard{runtime: runtime, theme: theme}
 	d.work = newQueue(theme, glyphs)
-	d.watch = &activity{theme: theme, glyphs: glyphs, of: d.work}
+	d.watch = newActivity(theme, glyphs, d.work)
 
 	d.strip = *kit.NewTabs(
 		theme,
@@ -96,7 +96,7 @@ func (d *dashboard) Draw(v headless.Frame) {
 	))
 	d.strip.Draw(rows[0])
 	kit.Label{
-		Text:  "alt+←/→: pane   ↑/↓: row   click a heading to sort   q: quit",
+		Text:  "alt+←/→: pane   arrows: row or rate   click a heading to sort   q: quit",
 		Style: d.theme.Subtle,
 	}.Draw(rows[1].View)
 }
@@ -110,7 +110,7 @@ func (d *dashboard) Handle(ev input.Event) bool {
 }
 
 func (d *dashboard) advance() {
-	d.work.advance()
+	d.work.advance(d.watch.rate.Of.Value())
 	d.watch.tick()
 }
 
@@ -245,14 +245,14 @@ func (q *queue) state(of task) grid.Style {
 }
 
 // advance moves every task along by one step.
-func (q *queue) advance() {
+func (q *queue) advance(by int) {
 	items := q.rows.Items()
 	for i := range items {
 		item := &items[i]
 		if item.done >= item.total {
 			continue
 		}
-		item.done++
+		item.done = min(item.done+max(by, 0), item.total)
 		item.state = running
 		if item.done == item.total {
 			item.state = done
@@ -278,15 +278,23 @@ type activity struct {
 	glyphs  kit.Glyphs
 	of      *queue
 	spinner kit.Spinner
+	rate    *kit.Slider
+}
+
+func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
+	rate := kit.NewSlider(theme, glyphs, "rate", 1, 4)
+	rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
+	return &activity{theme: theme, glyphs: glyphs, of: of, rate: rate}
 }
 
 func (a *activity) tick() { a.spinner.Tick() }
 
-func (a *activity) Measure(int) int { return 3 }
+func (a *activity) Measure(int) int { return 4 }
 
 func (a *activity) Draw(v headless.Frame) {
 	finished, total := a.of.remaining()
 	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
+		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
@@ -299,18 +307,23 @@ func (a *activity) Draw(v headless.Frame) {
 		Total:   total,
 		Percent: true,
 	}.Draw(rows[0].View)
+	a.rate.Draw(rows[1])
 
 	// A spinner is for work with no total and a bar is for work with one. Both are
 	// here because the two questions are different: how far along, and is anything
 	// happening at all.
 	if finished >= total {
-		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[2].View)
+		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[3].View)
 		return
 	}
 	a.spinner.Theme = a.theme
 	a.spinner.Label = "watching"
-	a.spinner.Draw(rows[2].View)
+	a.spinner.Draw(rows[3].View)
 }
+
+func (a *activity) Handle(event input.Event) bool { return a.rate.Handle(event) }
+
+func (a *activity) Focus(has bool) { a.rate.Focus(has) }
 
 func tasks() []task {
 	return []task{

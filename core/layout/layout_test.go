@@ -445,6 +445,29 @@ func TestArithmeticSaturatesInsteadOfWrapping(t *testing.T) {
 	}
 }
 
+func TestScaleIsOverflowSafeAndBounded(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	for _, tc := range []struct {
+		name               string
+		total, part, whole int
+		want               int
+	}{
+		{name: "half", total: 10, part: 1, whole: 2, want: 5},
+		{name: "rounds down", total: 10, part: 2, whole: 3, want: 6},
+		{name: "negative total", total: -1, part: 1, whole: 2},
+		{name: "negative part", total: 10, part: -1, whole: 2},
+		{name: "empty whole", total: 10, part: 1},
+		{name: "past end", total: 10, part: 3, whole: 2, want: 10},
+		{name: "near maximum", total: maxInt, part: maxInt - 1, whole: maxInt, want: maxInt - 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := layout.Scale(tc.total, tc.part, tc.whole); got != tc.want {
+				t.Fatalf("Scale(%d, %d, %d) = %d, want %d", tc.total, tc.part, tc.whole, got, tc.want)
+			}
+		})
+	}
+}
+
 func BenchmarkDivide(b *testing.B) {
 	for _, tc := range []struct {
 		name  string

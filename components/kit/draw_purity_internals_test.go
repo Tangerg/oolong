@@ -216,6 +216,13 @@ func kitDrawPurityCases() []drawPurityCase {
 		}{tabs.Of.Semantics(), meaningOfEditor(firstPane), meaningOfEditor(secondPane)}
 	}))
 
+	slider := NewSlider(Theme{}, Unicode(), "speed", 0, 10)
+	slider.Of.Set(4)
+	slider.Focus(true)
+	cases = append(cases, widgetPurityCase("*Slider", slider, func() any {
+		return slider.Semantics()
+	}))
+
 	content := &headless.Transcript{}
 	content.Resize(24)
 	content.Append(&purityBlock{text: "retained", height: 2})

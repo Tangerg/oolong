@@ -18,6 +18,21 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Added
+
+- **A bounded numeric control now has one behavior model and any number of
+  appearances.** `headless.Slider` owns inclusive bounds, controlled or local value,
+  keyboard steps, pointer dragging, committed track geometry, focus, and typed
+  semantics. `kit.Slider` supplies the polished labelled track without duplicating
+  those rules, and the dashboard uses the same control to change its live work rate.
+
+### Changed
+
+- **Proportional integer coordinates use one overflow-safe operation.**
+  `layout.Scale` is now shared by layout allocation and slider value-to-track mapping;
+  progress and slider rows likewise share one private label/track/value layout instead
+  of maintaining two narrow-width policies.
+
 ## [0.2.0] — 2026-08-08
 
 Ownership, everywhere it was still implicit: of a gesture handed through a boundary,

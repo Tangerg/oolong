@@ -35,6 +35,10 @@ type Glyphs struct {
 	Taken, Free string
 	// ScrollTrack and ScrollThumb are the two halves of a scrollbar.
 	ScrollTrack, ScrollThumb string
+	// SliderTrack is the line a bounded value moves over and SliderThumb is its current
+	// position. They are separate from a scrollbar because one is a control and the
+	// other reports a viewport.
+	SliderTrack, SliderThumb string
 	// BarFull and BarEmpty are the two halves of a progress bar, and BarSteps are the
 	// pieces of a cell it is part way through — from the narrowest to the widest, in
 	// order, with as many of them as the set has. A set with none draws the last cell
@@ -65,6 +69,7 @@ func Unicode() Glyphs {
 		Taken:       "●",
 		Free:        "○",
 		ScrollTrack: "│", ScrollThumb: "█",
+		SliderTrack: "─", SliderThumb: "●",
 		BarFull: "█", BarEmpty: "░",
 		BarSteps:  []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
 		Expanded:  "▾",
@@ -93,6 +98,7 @@ func ASCII() Glyphs {
 		Taken:       "x",
 		Free:        "-",
 		ScrollTrack: "|", ScrollThumb: "#",
+		SliderTrack: "-", SliderThumb: "O",
 		BarFull: "#", BarEmpty: "-",
 		Expanded: "-", Collapsed: "+",
 		Ascending: "^", Descending: "v",

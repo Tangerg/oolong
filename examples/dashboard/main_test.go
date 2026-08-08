@@ -49,6 +49,9 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	// Alt+right moves to the other pane, which is about the queue as one number.
 	host.Send(input.Key{Code: input.Right, Mods: input.Alt})
 	host.Shows(t, "all of it")
+	host.Shows(t, "1 tasks/tick")
+	host.Send(input.Key{Code: input.Right})
+	host.Shows(t, "2 tasks/tick")
 
 	host.Type("q")
 	if err := <-done; err != nil {
