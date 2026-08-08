@@ -150,8 +150,8 @@ func (d *DialogPanel) Draw(v headless.Frame) {
 		Footer:      d.footer(),
 		FooterAlign: layout.End,
 	}
-	_ = box.Draw(v.View)
 	inner := box.InnerRect(v.Bounds().Size())
+	box.paint(v.View)
 	d.content.Stage(v, inner, d.Body)
 	if d.Body != nil {
 		d.Body.Draw(v.Sub(inner))

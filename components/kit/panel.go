@@ -38,8 +38,8 @@ func (p *Panel) Draw(frame headless.Frame) {
 	if p == nil {
 		return
 	}
-	_ = p.Box.Draw(frame.View)
 	inner := p.Box.InnerRect(frame.Bounds().Size())
+	p.Box.paint(frame.View)
 	p.content.Stage(frame, inner, p.Of)
 	if p.Of != nil && !inner.Empty() {
 		p.Of.Draw(frame.Sub(inner))

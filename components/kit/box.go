@@ -92,9 +92,17 @@ func (b Box) InnerRect(size image.Point) image.Rectangle {
 //	inner := box.Draw(v)
 //	content.Draw(inner)
 func (b Box) Draw(v grid.View) grid.View {
+	b.paint(v)
+	return b.Inner(v)
+}
+
+// paint draws only the appearance. Live compositions use it after computing the
+// interior rectangle they must stage with a headless frame; Draw remains the public
+// one-step path for passive content.
+func (b Box) paint(v grid.View) {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
-		return v.Sub(image.Rectangle{})
+		return
 	}
 	if fill := b.Theme.Surface; fill != (grid.Style{}) {
 		v.Fill(grid.Rect(0, 0, w, h), fill)
@@ -102,7 +110,6 @@ func (b Box) Draw(v grid.View) grid.View {
 	if border := b.border(); border.drawn() {
 		b.drawBorder(v, border, w, h)
 	}
-	return b.Inner(v)
 }
 
 func (b Box) drawBorder(v grid.View, border Border, w, h int) {
