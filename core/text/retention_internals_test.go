@@ -1,10 +1,22 @@
 package text
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"unsafe"
 )
+
+func TestTextExtentArithmeticSaturates(t *testing.T) {
+	if got := advance("\t", math.MaxInt); got != math.MaxInt {
+		t.Fatalf("tab advanced the largest column to %d", got)
+	}
+	w := wrapper{rowWidth: math.MaxInt}
+	w.place(unit{width: 1})
+	if w.rowWidth != math.MaxInt {
+		t.Fatalf("placing past the largest row width wrapped to %d", w.rowWidth)
+	}
+}
 
 func TestDecoderReleasesDecodedStorageBehindAnIncompleteSequence(t *testing.T) {
 	chunk := strings.Repeat("x", 4096) + "\x1b["

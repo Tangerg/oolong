@@ -24,6 +24,7 @@ import (
 	"github.com/rivo/uniseg"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // TabStop is how far apart tab stops are.
@@ -127,9 +128,10 @@ func (l Line) Draw(v grid.View, x, y int) int {
 	col := 0
 	for _, s := range l {
 		for _, piece := range expand(s.Text, &col) {
-			width := v.Text(x+piece.at, y, piece.text, s.Style)
+			at := layout.Translate(x, piece.at)
+			width := v.Text(at, y, piece.text, s.Style)
 			if s.Link != "" {
-				v.Link(x+piece.at, y, width, s.Link)
+				v.Link(at, y, width, s.Link)
 			}
 		}
 	}
@@ -188,7 +190,7 @@ func (l Line) Wrap(width int) []Wrapped {
 		// A word is a maximal run of clusters with no break opportunity in it.
 		end, wordWidth := i, 0
 		for end < n && !units[end].space {
-			wordWidth += units[end].width
+			wordWidth = layout.Sum(wordWidth, units[end].width)
 			end++
 		}
 		i = w.word(units, i, end, wordWidth)
@@ -210,17 +212,17 @@ type wrapper struct {
 
 func (w *wrapper) hold(u unit) {
 	w.held = append(w.held, u)
-	w.heldW += u.width
+	w.heldW = layout.Sum(w.heldW, u.width)
 }
 
 func (w *wrapper) place(u unit) {
 	w.row = append(w.row, u)
-	w.rowWidth += u.width
+	w.rowWidth = layout.Sum(w.rowWidth, u.width)
 }
 
 func (w *wrapper) takeHeld() {
 	w.row = append(w.row, w.held...)
-	w.rowWidth += w.heldW
+	w.rowWidth = layout.Sum(w.rowWidth, w.heldW)
 	w.dropHeld()
 }
 
@@ -239,7 +241,7 @@ func (w *wrapper) breakRow() {
 // word places units[from:to] and returns the index to continue from.
 func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 	switch {
-	case w.rowWidth+w.heldW+wordWidth <= w.width:
+	case layout.Sum(w.rowWidth, w.heldW, wordWidth) <= w.width:
 		// Fits after the spaces that preceded it.
 		w.takeHeld()
 		for ; from < to; from++ {
@@ -263,7 +265,7 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 // hardBreak splits a word that is wider than a whole row.
 func (w *wrapper) hardBreak(units []unit, from, to int) int {
 	if len(w.held) > 0 {
-		if w.rowWidth+w.heldW+units[from].width <= w.width {
+		if layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width {
 			w.takeHeld()
 		} else {
 			w.dropHeld()
@@ -275,7 +277,7 @@ func (w *wrapper) hardBreak(units []unit, from, to int) int {
 	for from < to {
 		u := units[from]
 		switch {
-		case w.rowWidth+u.width <= w.width:
+		case layout.Sum(w.rowWidth, u.width) <= w.width:
 			w.place(u)
 			from++
 		case len(w.row) == 0:
@@ -296,7 +298,7 @@ func (w *wrapper) hardBreak(units []unit, from, to int) int {
 // finish takes whatever trailing spaces fit and closes the last row.
 func (w *wrapper) finish() []Wrapped {
 	for _, u := range w.held {
-		if w.rowWidth+u.width > w.width {
+		if layout.Sum(w.rowWidth, u.width) > w.width {
 			break
 		}
 		w.place(u)
@@ -342,11 +344,12 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 	used := 0
 	style := grid.Style{}
 	for _, u := range units {
-		if used+u.width > budget {
+		next := layout.Sum(used, u.width)
+		if next > budget {
 			break
 		}
 		kept = append(kept, u)
-		used += u.width
+		used = next
 		style = u.style
 	}
 	out := line(kept)
@@ -417,7 +420,7 @@ func (l Line) units() []unit {
 						at: at, size: len(cluster),
 					})
 				}
-				col += n
+				col = layout.Sum(col, n)
 			case dropped(cluster):
 				// A control character has no width to lay out and no business
 				// reaching a cell.
@@ -433,7 +436,7 @@ func (l Line) units() []unit {
 					cluster: cluster, style: s.Style, link: s.Link, width: w,
 					at: at, size: len(cluster),
 				})
-				col += w
+				col = layout.Sum(col, w)
 			}
 			at += len(cluster)
 		}
@@ -505,7 +508,7 @@ func expand(s string, col *int) []piece {
 		cluster := g.Str()
 		if cluster == "\t" {
 			flush()
-			*col += TabStop - *col%TabStop
+			*col = layout.Sum(*col, TabStop-*col%TabStop)
 			start = *col
 			continue
 		}
@@ -513,7 +516,7 @@ func expand(s string, col *int) []piece {
 			start = *col
 		}
 		run.WriteString(cluster)
-		*col += clusterWidth(cluster)
+		*col = layout.Sum(*col, clusterWidth(cluster))
 	}
 	flush()
 	return pieces
@@ -524,9 +527,9 @@ func advance(s string, col int) int {
 	g := uniseg.NewGraphemes(s)
 	for g.Next() {
 		if cluster := g.Str(); cluster == "\t" {
-			col += TabStop - col%TabStop
+			col = layout.Sum(col, TabStop-col%TabStop)
 		} else {
-			col += clusterWidth(cluster)
+			col = layout.Sum(col, clusterWidth(cluster))
 		}
 	}
 	return col
@@ -543,10 +546,10 @@ func prefix(s string, budget int) string {
 	g := uniseg.NewGraphemes(s)
 	for g.Next() {
 		w := clusterWidth(g.Str())
-		if col+w > budget {
+		if layout.Sum(col, w) > budget {
 			break
 		}
-		col += w
+		col = layout.Sum(col, w)
 		_, end = g.Positions()
 	}
 	return s[:end]
@@ -618,10 +621,10 @@ func ColumnOf(s string, i int) int {
 			break
 		}
 		if cluster == "\t" {
-			col += TabStop - col%TabStop
+			col = layout.Sum(col, TabStop-col%TabStop)
 			continue
 		}
-		col += clusterWidth(cluster)
+		col = layout.Sum(col, clusterWidth(cluster))
 	}
 	return col
 }
@@ -639,10 +642,11 @@ func OffsetAt(s string, col int) int {
 		if cluster == "\t" {
 			step = TabStop - width%TabStop
 		}
-		if width+step > col {
+		next := layout.Sum(width, step)
+		if next > col {
 			return offset
 		}
-		width += step
+		width = next
 		at = offset + len(cluster)
 	}
 	return at
@@ -667,7 +671,7 @@ func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col
 	}
 	col = ColumnOf(s, start)
 	width = ColumnOf(s, end) - col
-	v.Link(x+col, y, width, url)
+	v.Link(layout.Translate(x, col), y, width, url)
 	return col, width
 }
 
