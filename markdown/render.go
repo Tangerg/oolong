@@ -13,6 +13,7 @@ import (
 	gtext "github.com/yuin/goldmark/text"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -229,7 +230,7 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 	for item := n.LastChild(); item != nil; item = item.PreviousSibling() {
 		marker := r.bullet(n, ordinal(number, index))
 		inner := in
-		inner.indent = addExtent(in.indent, marker.Width())
+		inner.indent = layout.Sum(in.indent, marker.Width())
 		// An item is against the one before it in a tight list and spaced from it in a
 		// loose one, which is the distinction markdown draws by whether there are blank
 		// lines between them — and the one thing about a list a reader notices.
@@ -253,11 +254,7 @@ func ordinal(start, index int) int {
 	if index <= 0 {
 		return start
 	}
-	const maxInt = int(^uint(0) >> 1)
-	if start > maxInt-index {
-		return maxInt
-	}
-	return start + index
+	return layout.Translate(start, index)
 }
 
 // bullet is what marks an item: a number for an ordered list, the look's bullet for
@@ -287,16 +284,7 @@ func (r *renderer) quoted(previous *railChain, indent int) (*railChain, int) {
 	if previous != nil {
 		depth = previous.depth + 1
 	}
-	return &railChain{previous: previous, span: span, depth: depth}, addExtent(indent, text.Width(span.Text))
-}
-
-func addExtent(a, b int) int {
-	a, b = max(a, 0), max(b, 0)
-	const maxInt = int(^uint(0) >> 1)
-	if b > maxInt-a {
-		return maxInt
-	}
-	return a + b
+	return &railChain{previous: previous, span: span, depth: depth}, layout.Sum(indent, text.Width(span.Text))
 }
 
 // code renders a block of code, through the look's highlighter when it has one.

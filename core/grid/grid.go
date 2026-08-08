@@ -31,20 +31,13 @@ func Rect(x, y, w, h int) image.Rectangle {
 	w, h = max(w, 0), max(h, 0)
 	return image.Rectangle{
 		Min: image.Pt(x, y),
-		Max: image.Pt(addExtent(x, w), addExtent(y, h)),
+		Max: image.Pt(layout.Translate(x, w), layout.Translate(y, h)),
 	}
 }
 
 const (
 	maxInt = int(^uint(0) >> 1)
 )
-
-func addExtent(origin, extent int) int {
-	if origin > maxInt-extent {
-		return maxInt
-	}
-	return origin + extent
-}
 
 func translatePoint(point, by image.Point) image.Point {
 	return image.Pt(layout.Translate(point.X, by.X), layout.Translate(point.Y, by.Y))

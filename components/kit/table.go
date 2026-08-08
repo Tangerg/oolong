@@ -184,9 +184,7 @@ func (t Table) flow() layout.Flow {
 func (t Table) Measure(int) int {
 	rows := max(t.Rows, 0)
 	if t.Header {
-		if rows < int(^uint(0)>>1) {
-			rows++
-		}
+		rows = layout.Sum(rows, 1)
 	}
 	return rows
 }

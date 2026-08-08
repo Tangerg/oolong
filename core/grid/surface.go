@@ -423,18 +423,18 @@ func (v View) Text(x, y int, s string, style Style) int {
 			break
 		}
 		switch {
-		case addExtent(cx, w) <= v.clip.Min.X:
+		case layout.Translate(cx, w) <= v.clip.Min.X:
 			// Entirely left of the clip.
 		case cx < v.clip.Min.X:
 			// A wide cluster straddling the left edge: blank the column that is
 			// inside rather than print a glyph the terminal would place wrong.
 			surf.repairPair(v.clip.Min.X, p.Y)
 			*surf.cellAt(v.clip.Min.X, p.Y) = Cell{Style: style}
-		case w == 2 && addExtent(cx, 2) > v.clip.Max.X:
+		case w == 2 && layout.Translate(cx, 2) > v.clip.Max.X:
 			surf.repairPair(cx, p.Y)
 			*surf.cellAt(cx, p.Y) = Cell{Style: style}
 			// Nothing wider than one column can follow on this row.
-			return addExtent(advanced, 1)
+			return layout.Sum(advanced, 1)
 		case w == 2:
 			surf.repairPair(cx, p.Y)
 			surf.repairPair(layout.Translate(cx, 1), p.Y)
@@ -444,8 +444,8 @@ func (v View) Text(x, y int, s string, style Style) int {
 			surf.repairPair(cx, p.Y)
 			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style}
 		}
-		cx = addExtent(cx, w)
-		advanced = addExtent(advanced, w)
+		cx = layout.Translate(cx, w)
+		advanced = layout.Sum(advanced, w)
 	}
 	return advanced
 }
@@ -475,7 +475,7 @@ func (v View) Link(x, y, w int, target string) {
 		return
 	}
 	from := max(at.X, v.clip.Min.X)
-	to := min(addExtent(at.X, w), v.clip.Max.X)
+	to := min(layout.Translate(at.X, w), v.clip.Max.X)
 	if from >= to {
 		return
 	}
@@ -492,7 +492,7 @@ func graphemeWidth(s string) int {
 	var cluster string
 	for len(s) > 0 {
 		cluster, s, _, state = uniseg.StepString(s, state)
-		total = addExtent(total, ClusterWidth(cluster))
+		total = layout.Sum(total, ClusterWidth(cluster))
 	}
 	return total
 }
