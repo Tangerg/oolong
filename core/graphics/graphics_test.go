@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
@@ -305,6 +306,28 @@ func TestPlaceAndDeleteNameTheImage(t *testing.T) {
 	}
 	if got := buf.String(); !strings.Contains(got, "a=d") || !strings.Contains(got, "i=9") {
 		t.Fatalf("delete = %q, want it to name the image", got)
+	}
+}
+
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) { return max(len(p)-1, 0), nil }
+
+func TestGraphicsWritesRejectSilentTruncation(t *testing.T) {
+	image := png(1, 1, 24)
+	operations := map[string]func() error{
+		"transmit": func() error {
+			_, err := graphics.Transmit(shortWriter{}, 1, image)
+			return err
+		},
+		"place":  func() error { return graphics.Place(shortWriter{}, 1, 1, 1) },
+		"delete": func() error { return graphics.Delete(shortWriter{}, 1) },
+		"inline": func() error { return graphics.Inline(shortWriter{}, image, 1, 1) },
+	}
+	for name, operation := range operations {
+		if err := operation(); !errors.Is(err, io.ErrShortWrite) {
+			t.Errorf("%s error = %v, want io.ErrShortWrite", name, err)
+		}
 	}
 }
 

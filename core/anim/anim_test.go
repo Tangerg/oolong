@@ -69,6 +69,15 @@ func TestShimmerWithNoRoomIsTheBase(t *testing.T) {
 	}
 }
 
+func TestShimmerDoesNotWrapAnExtremeWidth(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	// At this tick the centre is eight columns before the end of the mathematical
+	// period. An overflowing int period would instead wrap to the minimum period.
+	if got := anim.Shimmer(uint64(maxInt), maxInt-8, maxInt); got < 0.99 {
+		t.Fatalf("brightness near the end of an extreme row = %v, want the band peak", got)
+	}
+}
+
 func TestWaveStaysInItsRangeAndOffsetsPerRow(t *testing.T) {
 	same := true
 	for tick := range uint64(100) {
@@ -253,6 +262,21 @@ func TestALoopingTimelineIsNeverDone(t *testing.T) {
 	}
 	if line.Done() {
 		t.Error("a timeline that goes round for ever said it had finished")
+	}
+}
+
+func TestAZeroSpanLoopIsAOneStateCycle(t *testing.T) {
+	for _, line := range []*anim.Timeline{
+		{Loop: true},
+		anim.NewTimeline(anim.Keyframe{At: 0, Value: 7}),
+	} {
+		line.Loop = true
+		for range 3 {
+			line.Tick()
+		}
+		if got := line.At(); got != 0 {
+			t.Fatalf("zero-span loop advanced to tick %d, want its only state", got)
+		}
 	}
 }
 

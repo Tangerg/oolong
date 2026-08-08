@@ -175,12 +175,13 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 		// a=T transmits and shows, f=100 says the payload is PNG, q=2 asks the
 		// terminal not to answer — there is nobody reading for a reply, and an
 		// unread one would arrive in the middle of the next keystroke.
+		var sequence string
 		if first {
-			_, err = fmt.Fprintf(w, "\x1b_Ga=T,f=100,i=%d,q=2,m=%d;%s\x1b\\", id, more, chunk)
+			sequence = fmt.Sprintf("\x1b_Ga=T,f=100,i=%d,q=2,m=%d;%s\x1b\\", id, more, chunk)
 		} else {
-			_, err = fmt.Fprintf(w, "\x1b_Gm=%d;%s\x1b\\", more, chunk)
+			sequence = fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
 		}
-		if err != nil {
+		if err = writeString(w, sequence); err != nil {
 			return Image{}, err
 		}
 		if more == 0 {
@@ -203,8 +204,7 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 func Place(w io.Writer, id uint32, cols, rows int) error {
 	// z=-1 puts the image behind the text, so a caller can still write over it, and
 	// C=1 keeps the cursor where it is.
-	_, err := fmt.Fprintf(w, "\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", id, cols, rows)
-	return err
+	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", id, cols, rows))
 }
 
 // Paint puts the image in a region of a frame, and Erase takes it away again.
@@ -225,8 +225,7 @@ func (i Image) Erase(w io.Writer) error { return Delete(w, i.ID) }
 
 // Delete removes every placement of an image and forgets it.
 func Delete(w io.Writer, id uint32) error {
-	_, err := fmt.Fprintf(w, "\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", id)
-	return err
+	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", id))
 }
 
 // Inline writes an image at the cursor over iTerm2's protocol.
@@ -245,8 +244,17 @@ func Inline(w io.Writer, png []byte, cols, rows int) error {
 	// The payload is base64 for the same reason a clipboard's is: the alphabet holds
 	// neither the escape byte nor the terminator, so image data cannot end the
 	// sequence early and have the rest of itself read as commands.
-	_, err := fmt.Fprintf(w, "\x1b]1337;File=inline=1;size=%d;width=%d;height=%d;preserveAspectRatio=1:%s\x07",
+	sequence := fmt.Sprintf("\x1b]1337;File=inline=1;size=%d;width=%d;height=%d;preserveAspectRatio=1:%s\x07",
 		len(png), max(cols, 1), max(rows, 1), base64.StdEncoding.EncodeToString(png))
+	return writeString(w, sequence)
+}
+
+// writeString gives every graphics sequence io.Writer's complete-write semantics.
+// io.Copy detects a writer that returns a short count without the required error;
+// formatting directly into such a writer would otherwise report a truncated escape
+// as successfully delivered.
+func writeString(w io.Writer, sequence string) error {
+	_, err := io.Copy(w, strings.NewReader(sequence))
 	return err
 }
 

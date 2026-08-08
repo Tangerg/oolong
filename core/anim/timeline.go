@@ -72,16 +72,19 @@ func (t *Timeline) Frames() []Keyframe {
 // which is what lets a caller drive several from one clock without checking each.
 func (t *Timeline) Tick() {
 	if t.Loop {
-		if span := t.Span(); span > 0 {
-			if span == ^uint64(0) {
-				// The cycle has every uint64 tick in it. Natural overflow is exactly
-				// its wrap; span+1 would itself overflow and make the modulus zero.
-				t.tick++
-				return
-			}
+		span := t.Span()
+		switch span {
+		case 0:
+			// The zero timeline and a frame at tick zero are one-state cycles.
+			t.tick = 0
+		case ^uint64(0):
+			// The cycle has every uint64 tick in it. Natural overflow is exactly
+			// its wrap; span+1 would itself overflow and make the modulus zero.
+			t.tick++
+		default:
 			t.tick = (t.tick + 1) % (span + 1)
-			return
 		}
+		return
 	}
 	if !t.Done() {
 		t.tick++

@@ -58,8 +58,10 @@ func Shimmer(tick uint64, pos, width int) float64 {
 	if width <= 0 {
 		return shimmerBase
 	}
-	period := max(width+2*shimmerLead, shimmerMinPeriod)
-	centre := float64(tick%uint64(period)) - shimmerLead
+	// The period may be wider than the largest int by the two off-screen leads,
+	// while tick already has the unsigned range that represents it exactly.
+	period := max(uint64(width)+2*shimmerLead, uint64(shimmerMinPeriod))
+	centre := float64(tick%period) - shimmerLead
 	d := float64(pos) - centre
 	return shimmerBase + (shimmerPeak-shimmerBase)*math.Exp(-(d*d)/(2*shimmerSigma*shimmerSigma))
 }
