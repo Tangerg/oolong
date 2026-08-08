@@ -31,8 +31,29 @@ func TestEditorUndoHistoryIsBounded(t *testing.T) {
 		e.MoveLeft()
 		_ = i
 	}
-	if len(e.undo) > maxUndo {
-		t.Fatalf("history holds %d steps, want at most %d", len(e.undo), maxUndo)
+	if len(e.history.undo) > maxUndo {
+		t.Fatalf("history holds %d steps, want at most %d", len(e.history.undo), maxUndo)
+	}
+}
+
+func TestEditorHistoryClearsPoppedSnapshots(t *testing.T) {
+	history := editorHistory{}
+	history.record(editorState{lines: []string{"before"}, marks: []text.Mark{{ID: 1}}})
+	if _, ok := history.back(editorState{lines: []string{"after"}}); !ok {
+		t.Fatal("undo stack reported empty")
+	}
+	for i, state := range history.undo[:cap(history.undo)] {
+		if state.lines != nil || state.marks != nil {
+			t.Fatalf("popped undo slot %d retained %+v", i, state)
+		}
+	}
+	if _, ok := history.forward(editorState{lines: []string{"current"}}); !ok {
+		t.Fatal("redo stack reported empty")
+	}
+	for i, state := range history.redo[:cap(history.redo)] {
+		if state.lines != nil || state.marks != nil {
+			t.Fatalf("popped redo slot %d retained %+v", i, state)
+		}
 	}
 }
 

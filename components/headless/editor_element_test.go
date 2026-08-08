@@ -316,6 +316,19 @@ func TestKillingALineTakesTheElementsOnIt(t *testing.T) {
 	}
 }
 
+func TestDeletingAWordTakesAnAtomicElementWhole(t *testing.T) {
+	e := editorWith("")
+	e.InsertElement(fileChip, "@main.go")
+	e.DeleteWordBack()
+
+	if got := e.Text(); got != "" {
+		t.Errorf("text = %q, want the whole element gone", got)
+	}
+	if got := e.Elements(); len(got) != 0 {
+		t.Errorf("the editor still holds %+v after the element was deleted", got)
+	}
+}
+
 func TestJoiningLinesKeepsAnElementBelow(t *testing.T) {
 	e := editorWith("first\n")
 	e.SetCursor(1, 0)

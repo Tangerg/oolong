@@ -2,6 +2,7 @@ package headless_test
 
 import (
 	"image"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -291,6 +292,28 @@ func TestAClosedCompletionAnswersNothing(t *testing.T) {
 		if c.Handle(ev) {
 			t.Errorf("a closed completion consumed %v", ev)
 		}
+	}
+}
+
+func TestCompletionOwnsCandidateMatchOffsets(t *testing.T) {
+	var completion headless.Completion
+	matched := []int{1}
+	completion.Offer(headless.Token{Query: "a"}, []headless.Candidate{{Text: "alpha", Matched: matched}})
+	matched[0] = 4
+
+	candidate, ok := completion.Current()
+	if !ok || !reflect.DeepEqual(candidate.Matched, []int{1}) {
+		t.Fatalf("current candidate has offsets %v, want the offered snapshot", candidate.Matched)
+	}
+	candidate.Matched[0] = 3
+	candidate, _ = completion.Current()
+	if !reflect.DeepEqual(candidate.Matched, []int{1}) {
+		t.Fatalf("changing Current changed the stored offsets to %v", candidate.Matched)
+	}
+
+	completion.Dismiss()
+	if _, ok := completion.Token(); ok {
+		t.Fatal("dismissed completion still reports a token")
 	}
 }
 

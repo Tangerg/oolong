@@ -141,10 +141,6 @@ func (l TableLayout) Widths() []int {
 	return widths
 }
 
-// Widths works out each column's width for a total. Code drawing more than one row
-// should keep [Table.Layout] instead of measuring the content again per row.
-func (t Table) Widths(total int) []int { return t.Layout(total).Widths() }
-
 // slots say what each column asks for. A column with neither a width nor a share
 // gets one share, because a column nobody sized still has to be visible.
 func (t Table) slots() []layout.Slot {
@@ -171,10 +167,7 @@ func (t Table) slots() []layout.Slot {
 
 func (t Table) preferred(column int) int {
 	c := t.Columns[column]
-	widest := text.Width(c.Title)
-	if t.Sorted != nil {
-		widest += max(text.Width(t.Glyphs.Ascending), text.Width(t.Glyphs.Descending))
-	}
+	widest := text.Width(c.Title + t.mark(column))
 	if t.Cell == nil {
 		return widest
 	}
@@ -230,20 +223,9 @@ func (t Table) Draw(v grid.View) {
 	}
 }
 
-// Titles draws the column headings into the first row of v, with a mark beside the
-// one the rows are sorted by.
-//
-// It is separate from [Table.Draw] because a table with a cursor draws its own rows:
-// the rows are a window onto more of them than fit, and only the thing that owns the
-// cursor knows which of them are showing. The header is still this table's, and so
-// is where every column starts — which is the whole reason to hand the two out
-// separately instead of making a second table that agrees with this one by hand.
-func (t Table) Titles(v grid.View) {
-	width, _ := v.Size()
-	t.Layout(width).Titles(v)
-}
-
-// Titles draws the headings using this layout.
+// Titles draws the headings using this layout. A table with a cursor keeps the
+// layout for its visible rows and for committed heading hit tests, so all three use
+// the same boxes.
 func (l TableLayout) Titles(v grid.View) {
 	l.drawRow(v, 0, func(col int, cell grid.View) {
 		c := l.table.Columns[col]
@@ -252,17 +234,8 @@ func (l TableLayout) Titles(v grid.View) {
 	})
 }
 
-// Cells draws one row's cells into v, which is one row of a table this wide.
-//
-// base is what the row is drawn on — a band, a selection — and is handed to every
-// cell for the reason [Table.Cell] gives: a cell that ignores it loses the row it
-// sits in.
-func (t Table) Cells(v grid.View, row int, base grid.Style) {
-	width, _ := v.Size()
-	t.Layout(width).Cells(v, row, base)
-}
-
-// Cells draws one row using this layout.
+// Cells draws one row using this layout. Base is the row's band or selection and is
+// handed to every cell for the reason [Table.Cell] gives.
 func (l TableLayout) Cells(v grid.View, row int, base grid.Style) {
 	if l.table.Cell == nil {
 		return
@@ -272,18 +245,9 @@ func (l TableLayout) Cells(v grid.View, row int, base grid.Style) {
 	})
 }
 
-// ColumnAt is which column a position in a row of this width falls in, and whether
-// it fell in one at all — a press in the gap between two columns is in neither.
-//
-// It is what turns a click on a heading into a sort. Answering it here is the point
-// of the geometry living in one place: a caller working it out from the widths would
-// be doing the same arithmetic a second time, against a table that may since have
-// been given a different width.
-func (t Table) ColumnAt(x, width int) (int, bool) {
-	return t.Layout(width).ColumnAt(x)
-}
-
-// ColumnAt reports which column contains x in this layout.
+// ColumnAt reports which column contains x in this layout. A press in a gap is in
+// neither. Keeping the accepted frame's layout makes a heading click answer about
+// the same boxes the reader saw.
 func (l TableLayout) ColumnAt(x int) (int, bool) {
 	for i, box := range l.boxes {
 		if x >= box.Min.X && x < box.Max.X {

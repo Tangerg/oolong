@@ -49,11 +49,13 @@ type Commands struct {
 	used []string
 }
 
-// Add registers a command, replacing one of the same name.
+// Add registers a command, replacing one of the same name. The registry copies the
+// command's aliases; the caller may reuse or change its input afterwards.
 func (c *Commands) Add(cmd Command) {
 	if cmd.Name == "" {
 		return
 	}
+	cmd = cloneCommand(cmd)
 	for i := range c.list {
 		if c.list[i].Name == cmd.Name {
 			c.list[i] = cmd
@@ -69,7 +71,7 @@ func (c *Commands) Remove(name string) bool {
 		if c.list[i].Name != name {
 			continue
 		}
-		c.list = append(c.list[:i], c.list[i+1:]...)
+		c.list = trim(slices.Delete(c.list, i, i+1))
 		c.used = slices.DeleteFunc(c.used, func(s string) bool { return s == name })
 		return true
 	}
@@ -79,11 +81,11 @@ func (c *Commands) Remove(name string) bool {
 // Len is how many commands are registered.
 func (c *Commands) Len() int { return len(c.list) }
 
-// Lookup is the command with exactly this name or alias.
+// Lookup is a snapshot of the command with exactly this name or alias.
 func (c *Commands) Lookup(name string) (Command, bool) {
 	for _, cmd := range c.list {
 		if cmd.Name == name || slices.Contains(cmd.Aliases, name) {
-			return cmd, true
+			return cloneCommand(cmd), true
 		}
 	}
 	return Command{}, false
@@ -123,7 +125,7 @@ func (c *Commands) Find(query string) []Found {
 	if query == "" {
 		out := make([]Found, 0, len(c.list))
 		for _, cmd := range c.byRecency() {
-			out = append(out, Found{Command: cmd})
+			out = append(out, Found{Command: cloneCommand(cmd)})
 		}
 		return out
 	}
@@ -137,7 +139,7 @@ func (c *Commands) Find(query string) []Found {
 	matched := make([]bool, len(c.list))
 	for _, r := range fuzzy.Filter(query, names) {
 		matched[r.Index] = true
-		out = append(out, Found{Command: c.list[r.Index], At: r.Match.At})
+		out = append(out, Found{Command: cloneCommand(c.list[r.Index]), At: r.Match.At})
 	}
 	// Then the aliases, for commands the name did not find. An alias match has
 	// nothing to underline in the name, which is honest: the user typed something
@@ -148,12 +150,26 @@ func (c *Commands) Find(query string) []Found {
 		}
 		for _, alias := range cmd.Aliases {
 			if _, ok := fuzzy.Score(query, alias); ok {
-				out = append(out, Found{Command: cmd})
+				out = append(out, Found{Command: cloneCommand(cmd)})
 				break
 			}
 		}
 	}
 	return out
+}
+
+// cloneCommand makes the registry the owner of its values on the way in and gives
+// callers snapshots on the way out. Aliases are the only mutable part, but cloning
+// the strings too prevents a short-lived parser buffer from being retained by a
+// long-lived registry through a small substring.
+func cloneCommand(cmd Command) Command {
+	cmd.Name = strings.Clone(cmd.Name)
+	cmd.Title = strings.Clone(cmd.Title)
+	cmd.Aliases = slices.Clone(cmd.Aliases)
+	for i := range cmd.Aliases {
+		cmd.Aliases[i] = strings.Clone(cmd.Aliases[i])
+	}
+	return cmd
 }
 
 // byRecency is every command, the recently used ones first and the rest in the order

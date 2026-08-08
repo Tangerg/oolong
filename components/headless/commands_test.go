@@ -120,6 +120,28 @@ func TestCommandsReplaceByName(t *testing.T) {
 	}
 }
 
+func TestCommandsOwnAliasesAcrossTheirBoundary(t *testing.T) {
+	aliases := []string{"old-name"}
+	var commands headless.Commands
+	commands.Add(headless.Command{Name: "current", Aliases: aliases})
+	aliases[0] = "changed-outside"
+
+	if _, ok := commands.Lookup("old-name"); !ok {
+		t.Fatal("changing the Add input changed the registered aliases")
+	}
+	command, _ := commands.Lookup("current")
+	command.Aliases[0] = "changed-result"
+	if _, ok := commands.Lookup("old-name"); !ok {
+		t.Fatal("changing a Lookup result changed the registered aliases")
+	}
+
+	found := commands.Find("")
+	found[0].Command.Aliases[0] = "changed-found"
+	if _, ok := commands.Lookup("old-name"); !ok {
+		t.Fatal("changing a Find result changed the registered aliases")
+	}
+}
+
 func TestCommandsRemove(t *testing.T) {
 	c := registry()
 	c.Used("quit")

@@ -41,6 +41,21 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **A table has one geometry API.** `Table.Layout` is now the sole operation that
+  measures columns; drawing headings and cells, reading widths, and hit-testing all
+  go through the resulting `TableLayout`. The convenience methods that silently
+  recomputed fitted columns are removed, preventing a composed table from turning a
+  linear content scan into one scan per row.
+- **Built-in themes share one semantic mapping.** Dark and light themes now differ
+  only in their raw palettes; the translation from palette colours to interface roles
+  is defined once, so adding or changing a role cannot leave one built-in theme with
+  different semantics.
+- **Long-lived registries and editor histories own their storage completely.**
+  Commands and completion candidates deep-copy nested values at their boundaries,
+  command history detaches retained strings, editor line mutations use the standard
+  slice operations that clear removed elements, and undo/redo stacks clear popped and
+  evicted snapshots instead of retaining text behind spare capacity.
+
 - **Proportional integer coordinates use one overflow-safe operation.**
   `layout.Scale` is now shared by layout allocation and slider value-to-track mapping;
   progress and slider rows likewise share one private label/track/value layout instead

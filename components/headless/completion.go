@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -160,13 +161,18 @@ const DefaultCompletionRows = 8
 // A popup with nothing in it is a popup in the way, so an empty offer is a dismissal
 // rather than an empty box. The selection returns to the first candidate: the query
 // changed, so which candidate was under the cursor is about a question nobody asked.
+// The completion copies the token and candidates, including match offsets; the caller
+// may reuse or change its inputs after this returns.
 func (c *Completion) Offer(t Token, candidates []Candidate) {
 	if len(candidates) == 0 {
 		c.Dismiss()
 		return
 	}
-	c.token, c.open = t, true
+	c.token, c.open = cloneToken(t), true
 	c.list.SetItems(candidates)
+	for i := range c.list.items {
+		c.list.items[i] = cloneCandidate(c.list.items[i])
+	}
 	// The row renderer is wired here rather than while drawing: a Draw that assigns
 	// to the thing it is about to draw is a Draw with a side effect, and this is the
 	// one place the list's contents change anyway.
@@ -177,6 +183,7 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 // Dismiss closes the completion.
 func (c *Completion) Dismiss() {
 	c.open = false
+	c.token = Token{}
 	c.list.SetItems(nil)
 	c.list.Select(0)
 }
@@ -188,12 +195,27 @@ func (c *Completion) Open() bool { return c.open && c.list.Len() > 0 }
 // Token is what is being completed, and whether anything is.
 func (c *Completion) Token() (Token, bool) { return c.token, c.Open() }
 
-// Current is the candidate under the cursor, and whether there is one.
+// Current is a snapshot of the candidate under the cursor, and whether there is one.
 func (c *Completion) Current() (Candidate, bool) {
 	if !c.Open() {
 		return Candidate{}, false
 	}
-	return c.list.Current()
+	candidate, ok := c.list.Current()
+	return cloneCandidate(candidate), ok
+}
+
+func cloneToken(token Token) Token {
+	token.Query = strings.Clone(token.Query)
+	token.Trigger.Prefix = strings.Clone(token.Trigger.Prefix)
+	return token
+}
+
+func cloneCandidate(candidate Candidate) Candidate {
+	candidate.Text = strings.Clone(candidate.Text)
+	candidate.Label = strings.Clone(candidate.Label)
+	candidate.Detail = strings.Clone(candidate.Detail)
+	candidate.Matched = slices.Clone(candidate.Matched)
+	return candidate
 }
 
 // Handle answers movement, acceptance and dismissal while the completion is open, and

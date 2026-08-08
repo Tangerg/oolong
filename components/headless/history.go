@@ -60,7 +60,7 @@ func (h *History) Add(line string) {
 	if len(h.entries) > 0 && h.entries[len(h.entries)-1] == line {
 		return
 	}
-	h.entries = append(h.entries, line)
+	h.entries = append(h.entries, strings.Clone(line))
 	h.trim()
 }
 
@@ -99,7 +99,7 @@ func (h *History) Back(current string) (string, bool) {
 		return "", false
 	}
 	if h.at == 0 {
-		h.draft = current
+		h.draft = strings.Clone(current)
 	}
 	h.at++
 	entry, _ := h.At(h.at)

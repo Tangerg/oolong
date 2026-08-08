@@ -79,7 +79,9 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 
 	// What a newline finished is printed into the terminal's own output; what is left
 	// is still being drawn.
-	host.Shows(t, "second line")
+	host.Until(t, "the terminal to receive the finished lines", func() bool {
+		return contains(host.Frames(), "second line")
+	})
 	host.Shows(t, "half a li")
 
 	// And the colour survived the chunk boundary: red is 31, which the frame carries

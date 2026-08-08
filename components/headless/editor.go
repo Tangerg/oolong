@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -108,7 +109,7 @@ type Editor struct {
 	// is the whole interface and does have it — see [Focusable].
 	blurred bool
 
-	undo, redo []editorState
+	history editorHistory
 	// typing marks a run of plain insertions, so undo steps over a phrase rather
 	// than a letter.
 	typing bool
@@ -284,11 +285,7 @@ func (e *Editor) splice(s string) {
 	col := len(inserted[last])
 	inserted[last] += tail
 
-	// The inner append extends a slice this function just built, which is the
-	// pattern makezero warns about when the slice came from elsewhere. It did not:
-	// inserted holds the replacement lines and the tail is being put after them.
-	//nolint:makezero // inserted is local and fully written above.
-	e.lines = append(e.lines[:e.line], append(inserted, e.lines[e.line+1:]...)...)
+	e.lines = slices.Replace(e.lines, e.line, e.line+1, inserted...)
 	e.line += last
 	e.col = col
 	e.invalidate()
@@ -319,7 +316,7 @@ func (e *Editor) Newline() {
 	current := e.lines[e.line]
 	head, tail := current[:e.col], current[e.col:]
 	e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}, "\n")
-	e.lines = append(e.lines[:e.line], append([]string{head, tail}, e.lines[e.line+1:]...)...)
+	e.lines = slices.Replace(e.lines, e.line, e.line+1, head, tail)
 	e.line++
 	e.col = 0
 	e.invalidate()
@@ -358,7 +355,7 @@ func (e *Editor) DeleteBack() {
 	e.col = len(above)
 	e.removed(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0}, "")
 	e.lines[e.line-1] = above + e.lines[e.line]
-	e.lines = append(e.lines[:e.line], e.lines[e.line+1:]...)
+	e.lines = slices.Delete(e.lines, e.line, e.line+1)
 	e.line--
 	e.invalidate()
 }
@@ -387,7 +384,7 @@ func (e *Editor) DeleteForward() {
 	e.snapshot()
 	e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 	e.lines[e.line] = current + e.lines[e.line+1]
-	e.lines = append(e.lines[:e.line+1], e.lines[e.line+2:]...)
+	e.lines = slices.Delete(e.lines, e.line+1, e.line+2)
 	e.invalidate()
 }
 
@@ -401,7 +398,14 @@ func (e *Editor) DeleteWordBack() {
 	}
 	e.snapshot()
 	at := wordStart(e.lines[e.line], e.col)
-	e.killed = e.lines[e.line][at:e.col]
+	// A word boundary may fall inside an atomic element (the dot in a file chip is
+	// not a word character). Once the deletion touches the element it must take the
+	// whole value, just as backspace and forward delete do.
+	if element, inside := e.insideElement(e.line, at); inside {
+		at = element.Start
+	}
+	e.killed = strings.Clone(e.lines[e.line][at:e.col])
+	e.removed(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
 	e.lines[e.line] = e.lines[e.line][:at] + e.lines[e.line][e.col:]
 	e.col = at
 	e.invalidate()
@@ -413,11 +417,14 @@ func (e *Editor) DeleteWordBack() {
 // repeated presses swallow a paragraph rather than stop at the first line.
 func (e *Editor) KillToEnd() {
 	e.ensure()
+	current := e.lines[e.line]
+	if e.col >= len(current) && e.line == len(e.lines)-1 {
+		return
+	}
 	e.endTyping()
 	e.snapshot()
-	current := e.lines[e.line]
 	if e.col < len(current) {
-		e.killed = current[e.col:]
+		e.killed = strings.Clone(current[e.col:])
 		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
 		e.lines[e.line] = current[:e.col]
 		e.invalidate()
@@ -427,7 +434,7 @@ func (e *Editor) KillToEnd() {
 		e.killed = "\n"
 		e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 		e.lines[e.line] = current + e.lines[e.line+1]
-		e.lines = append(e.lines[:e.line+1], e.lines[e.line+2:]...)
+		e.lines = slices.Delete(e.lines, e.line+1, e.line+2)
 	}
 	e.invalidate()
 }
@@ -440,7 +447,7 @@ func (e *Editor) KillToStart() {
 		return
 	}
 	e.snapshot()
-	e.killed = e.lines[e.line][:e.col]
+	e.killed = strings.Clone(e.lines[e.line][:e.col])
 	e.removed(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col}, "")
 	e.lines[e.line] = e.lines[e.line][e.col:]
 	e.col = 0
@@ -531,25 +538,27 @@ func (e *Editor) MoveLineEnd() {
 
 // Undo steps back to before the last change.
 func (e *Editor) Undo() {
-	if len(e.undo) == 0 {
+	if !e.history.canBack() {
 		return
 	}
-	e.redo = append(e.redo, e.state())
-	last := len(e.undo) - 1
-	e.restore(e.undo[last])
-	e.undo = e.undo[:last]
+	previous, ok := e.history.back(e.state())
+	if !ok {
+		return
+	}
+	e.restore(previous)
 	e.typing = false
 }
 
 // Redo steps forward again.
 func (e *Editor) Redo() {
-	if len(e.redo) == 0 {
+	if !e.history.canForward() {
 		return
 	}
-	e.undo = append(e.undo, e.state())
-	last := len(e.redo) - 1
-	e.restore(e.redo[last])
-	e.redo = e.redo[:last]
+	next, ok := e.history.forward(e.state())
+	if !ok {
+		return
+	}
+	e.restore(next)
 	e.typing = false
 }
 
@@ -710,8 +719,6 @@ func (e *Editor) invalidate() {
 	e.wantColumn = -1
 }
 
-// endTyping closes a run of typing, so the next insertion starts an undo step of its
-// own. Every movement and every structural change ends one.
 // endTyping closes a run of insertions, and with it the one thing a click could have
 // said about where the cursor belongs.
 //
@@ -728,11 +735,7 @@ func (e *Editor) endTyping() {
 // that undo steps over a phrase rather than a letter.
 func (e *Editor) snapshot() {
 	e.ensure()
-	e.undo = append(e.undo, e.state())
-	e.redo = nil
-	if len(e.undo) > maxUndo {
-		e.undo = e.undo[len(e.undo)-maxUndo:]
-	}
+	e.history.record(e.state())
 }
 
 // maxUndo bounds the history. A composer is not a document editor, and an unbounded

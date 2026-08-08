@@ -504,7 +504,7 @@ func TestTextIsMeasuredTheSameWayItIsDrawn(t *testing.T) {
 func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 	// The right edge has to line up with whatever is drawn beside it.
 	table := kit.Table{Columns: []kit.Column{{Width: 6}, {Flex: 1}, {Flex: 2}}, Gap: 1}
-	widths := table.Widths(30)
+	widths := table.Layout(30).Widths()
 	total := widths[0] + widths[1] + widths[2] + 2
 	if total != 30 {
 		t.Fatalf("widths %v plus gaps add up to %d, want 30", widths, total)
@@ -519,7 +519,7 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 
 func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 	table := kit.Table{Columns: []kit.Column{{Width: 8}, {Flex: 1, Min: 4}}, Gap: 1}
-	if widths := table.Widths(22); widths[1] < 4 {
+	if widths := table.Layout(22).Widths(); widths[1] < 4 {
 		t.Fatalf("widths %v, want the flexible column to keep its floor", widths)
 	}
 
@@ -527,7 +527,7 @@ func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 	// anyway would tell the column it had a width the view then clipped, which the
 	// column cannot see and lays its cells out against.
 	squeezed := kit.Table{Columns: []kit.Column{{Width: 20}, {Flex: 1, Min: 4}}, Gap: 1}
-	widths := squeezed.Widths(22)
+	widths := squeezed.Layout(22).Widths()
 	if total := widths[0] + widths[1] + 1; total > 22 {
 		t.Fatalf("widths %v and the gap come to %d, which is more than the table has", widths, total)
 	}
@@ -565,6 +565,22 @@ func TestTableCapsAContentFittedColumn(t *testing.T) {
 	}
 	if got := table.Layout(12).Widths(); !reflect.DeepEqual(got, []int{5, 6}) {
 		t.Fatalf("widths = %v, want the fitted column capped at five", got)
+	}
+}
+
+func TestTableFitMeasuresOnlyTheSortMarkItDraws(t *testing.T) {
+	table := kit.Table{
+		Columns: []kit.Column{{Title: "x", Fit: true}, {Flex: 1}},
+		Sorted:  func() (int, bool, bool) { return 0, false, false },
+		Glyphs:  kit.Glyphs{Ascending: "very-wide", Descending: "also-wide"},
+	}
+	if got := table.Layout(12).Widths(); !reflect.DeepEqual(got, []int{1, 10}) {
+		t.Fatalf("widths = %v, want only the visible title measured", got)
+	}
+
+	table.Sorted = func() (int, bool, bool) { return 0, false, true }
+	if got := table.Layout(20).Widths()[0]; got != len("xvery-wide") {
+		t.Fatalf("sorted fitted width = %d, want the title and its visible mark", got)
 	}
 }
 
@@ -1115,7 +1131,8 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 		},
 	}
 
-	column, on := view.ColumnAt(2, 20)
+	columns := view.Layout(20)
+	column, on := columns.ColumnAt(2)
 	if !on || column != 0 {
 		t.Fatalf("a press at column 2 landed on column %d, on a heading %v", column, on)
 	}
@@ -1126,7 +1143,7 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 	}
 	// And the heading says so, which is the only way a reader can tell an order from
 	// a coincidence.
-	if drawn := paint(20, 1, view.Titles); !strings.Contains(drawn[0], "name^") {
+	if drawn := paint(20, 1, columns.Titles); !strings.Contains(drawn[0], "name^") {
 		t.Fatalf("the heading reads %q, want the mark beside the sorted column", drawn[0])
 	}
 }

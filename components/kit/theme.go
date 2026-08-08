@@ -115,94 +115,89 @@ func Suited(g grid.Ground) Theme {
 	return Dark()
 }
 
+// themePalette is the raw colour vocabulary shared by the built-in themes. Turning
+// it into semantic styles is one mapping: dark and light differ in colours, not in
+// what a border, selection or outcome means.
+type themePalette struct {
+	text, muted, subtle, accent grid.Color
+	green, amber, red, cyan     grid.Color
+	line, surface, sunken       grid.Color
+	selected, addedBG, goneBG   grid.Color
+	scrim                       Scrim
+}
+
+func (p themePalette) theme() Theme {
+	return Theme{
+		Text:      grid.Style{FG: p.text},
+		Muted:     grid.Style{FG: p.muted},
+		Subtle:    grid.Style{FG: p.subtle},
+		Strong:    grid.Style{FG: p.text, Attr: grid.Bold},
+		Heading:   grid.Style{FG: p.text, Attr: grid.Bold},
+		Accent:    grid.Style{FG: p.accent},
+		Success:   grid.Style{FG: p.green},
+		Warning:   grid.Style{FG: p.amber},
+		Danger:    grid.Style{FG: p.red},
+		Info:      grid.Style{FG: p.cyan},
+		Border:    grid.Style{FG: p.line},
+		Divider:   grid.Style{FG: p.line},
+		Selection: grid.Style{BG: p.selected},
+		Surface:   grid.Style{BG: p.surface},
+		Sunken:    grid.Style{BG: p.sunken},
+		Added:     grid.Style{FG: p.green, BG: p.addedBG},
+		Removed:   grid.Style{FG: p.red, BG: p.goneBG},
+		Context:   grid.Style{FG: p.muted},
+		Scrim:     p.scrim,
+	}
+}
+
 // Dark is the default theme: a cool slate, the same family the desktop interface
 // uses, so the two do not look like different products.
 //
 // The greys are cool on purpose. A neutral grey beside the blue accent reads as
 // slightly yellow, and the whole interface looks dusty.
 func Dark() Theme {
-	var (
-		text     = grid.RGBColor(0xE2, 0xE6, 0xEF)
-		muted    = grid.RGBColor(0x94, 0x9C, 0xB0)
-		subtle   = grid.RGBColor(0x64, 0x6C, 0x80)
-		accent   = grid.RGBColor(0x7A, 0xA2, 0xF7)
-		green    = grid.RGBColor(0x7A, 0xC8, 0x8E)
-		amber    = grid.RGBColor(0xD7, 0xA6, 0x5C)
-		red      = grid.RGBColor(0xE8, 0x7D, 0x7D)
-		cyan     = grid.RGBColor(0x6C, 0xB6, 0xC4)
-		line     = grid.RGBColor(0x3A, 0x41, 0x52)
-		surface  = grid.RGBColor(0x16, 0x19, 0x22)
-		sunken   = grid.RGBColor(0x1D, 0x21, 0x2C)
-		selected = grid.RGBColor(0x25, 0x2B, 0x3A)
-		addedBG  = grid.RGBColor(0x18, 0x2C, 0x21)
-		goneBG   = grid.RGBColor(0x2E, 0x1C, 0x1F)
-	)
-	return Theme{
-		Text:      grid.Style{FG: text},
-		Muted:     grid.Style{FG: muted},
-		Subtle:    grid.Style{FG: subtle},
-		Strong:    grid.Style{FG: text, Attr: grid.Bold},
-		Heading:   grid.Style{FG: text, Attr: grid.Bold},
-		Accent:    grid.Style{FG: accent},
-		Success:   grid.Style{FG: green},
-		Warning:   grid.Style{FG: amber},
-		Danger:    grid.Style{FG: red},
-		Info:      grid.Style{FG: cyan},
-		Border:    grid.Style{FG: line},
-		Divider:   grid.Style{FG: line},
-		Selection: grid.Style{BG: selected},
-		Surface:   grid.Style{BG: surface},
-		Sunken:    grid.Style{BG: sunken},
-		Added:     grid.Style{FG: green, BG: addedBG},
-		Removed:   grid.Style{FG: red, BG: goneBG},
-		Context:   grid.Style{FG: muted},
+	return themePalette{
+		text:     grid.RGBColor(0xE2, 0xE6, 0xEF),
+		muted:    grid.RGBColor(0x94, 0x9C, 0xB0),
+		subtle:   grid.RGBColor(0x64, 0x6C, 0x80),
+		accent:   grid.RGBColor(0x7A, 0xA2, 0xF7),
+		green:    grid.RGBColor(0x7A, 0xC8, 0x8E),
+		amber:    grid.RGBColor(0xD7, 0xA6, 0x5C),
+		red:      grid.RGBColor(0xE8, 0x7D, 0x7D),
+		cyan:     grid.RGBColor(0x6C, 0xB6, 0xC4),
+		line:     grid.RGBColor(0x3A, 0x41, 0x52),
+		surface:  grid.RGBColor(0x16, 0x19, 0x22),
+		sunken:   grid.RGBColor(0x1D, 0x21, 0x2C),
+		selected: grid.RGBColor(0x25, 0x2B, 0x3A),
+		addedBG:  grid.RGBColor(0x18, 0x2C, 0x21),
+		goneBG:   grid.RGBColor(0x2E, 0x1C, 0x1F),
 		// Body text mixed this far toward black lands almost exactly on Subtle, which
 		// is what a covered interface should read as: still legible, plainly not the
 		// thing being asked about.
-		Scrim: Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.55},
-	}
+		scrim: Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.55},
+	}.theme()
 }
 
 // Light is the same palette turned over, for a terminal on a light background.
 func Light() Theme {
-	var (
-		text     = grid.RGBColor(0x1C, 0x21, 0x2C)
-		muted    = grid.RGBColor(0x5C, 0x65, 0x78)
-		subtle   = grid.RGBColor(0x8B, 0x93, 0xA5)
-		accent   = grid.RGBColor(0x2E, 0x5C, 0xC8)
-		green    = grid.RGBColor(0x1F, 0x7A, 0x45)
-		amber    = grid.RGBColor(0x92, 0x5F, 0x0E)
-		red      = grid.RGBColor(0xB4, 0x2D, 0x2D)
-		cyan     = grid.RGBColor(0x1B, 0x6A, 0x78)
-		line     = grid.RGBColor(0xD2, 0xD7, 0xE0)
-		surface  = grid.RGBColor(0xFA, 0xFB, 0xFD)
-		sunken   = grid.RGBColor(0xF0, 0xF2, 0xF6)
-		selected = grid.RGBColor(0xE4, 0xE8, 0xF0)
-		addedBG  = grid.RGBColor(0xE7, 0xF6, 0xEC)
-		goneBG   = grid.RGBColor(0xFB, 0xEA, 0xEA)
-	)
-	return Theme{
-		Text:      grid.Style{FG: text},
-		Muted:     grid.Style{FG: muted},
-		Subtle:    grid.Style{FG: subtle},
-		Strong:    grid.Style{FG: text, Attr: grid.Bold},
-		Heading:   grid.Style{FG: text, Attr: grid.Bold},
-		Accent:    grid.Style{FG: accent},
-		Success:   grid.Style{FG: green},
-		Warning:   grid.Style{FG: amber},
-		Danger:    grid.Style{FG: red},
-		Info:      grid.Style{FG: cyan},
-		Border:    grid.Style{FG: line},
-		Divider:   grid.Style{FG: line},
-		Selection: grid.Style{BG: selected},
-		Surface:   grid.Style{BG: surface},
-		Sunken:    grid.Style{BG: sunken},
-		Added:     grid.Style{FG: green, BG: addedBG},
-		Removed:   grid.Style{FG: red, BG: goneBG},
-		Context:   grid.Style{FG: muted},
+	return themePalette{
+		text:     grid.RGBColor(0x1C, 0x21, 0x2C),
+		muted:    grid.RGBColor(0x5C, 0x65, 0x78),
+		subtle:   grid.RGBColor(0x8B, 0x93, 0xA5),
+		accent:   grid.RGBColor(0x2E, 0x5C, 0xC8),
+		green:    grid.RGBColor(0x1F, 0x7A, 0x45),
+		amber:    grid.RGBColor(0x92, 0x5F, 0x0E),
+		red:      grid.RGBColor(0xB4, 0x2D, 0x2D),
+		cyan:     grid.RGBColor(0x1B, 0x6A, 0x78),
+		line:     grid.RGBColor(0xD2, 0xD7, 0xE0),
+		surface:  grid.RGBColor(0xFA, 0xFB, 0xFD),
+		sunken:   grid.RGBColor(0xF0, 0xF2, 0xF6),
+		selected: grid.RGBColor(0xE4, 0xE8, 0xF0),
+		addedBG:  grid.RGBColor(0xE7, 0xF6, 0xEC),
+		goneBG:   grid.RGBColor(0xFB, 0xEA, 0xEA),
 		// Less of it than the dark theme takes. A light interface is nearly all
 		// background, so the same sheet that dims a dark one turns this one into a
 		// grey panel and loses the sense that something is behind the layer.
-		Scrim: Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.4},
-	}
+		scrim: Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.4},
+	}.theme()
 }

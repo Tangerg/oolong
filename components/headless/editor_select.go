@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/core/keymap"
@@ -115,7 +116,7 @@ func (e *Editor) replaceRange(start, end Caret, s string) {
 	e.removed(start, end, "")
 	head := e.lines[start.Line][:start.Col]
 	tail := e.lines[end.Line][end.Col:]
-	e.lines = append(e.lines[:start.Line], append([]string{head + tail}, e.lines[end.Line+1:]...)...)
+	e.lines = slices.Replace(e.lines, start.Line, end.Line+1, head+tail)
 	e.line, e.col = start.Line, start.Col
 	e.wantColumn = -1
 	e.invalidate()
