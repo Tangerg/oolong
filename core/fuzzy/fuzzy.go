@@ -142,8 +142,20 @@ func scoreFrom(pattern, candidate string, from int) (Match, bool) {
 	return Match{Score: max(score, 1), At: at}, true
 }
 
-// folds reports whether two characters are the same ignoring case.
-func folds(a, b rune) bool { return a == b || unicode.ToLower(a) == unicode.ToLower(b) }
+// folds reports whether two characters are the same under Unicode's simple case
+// folding. Lowercasing both is not equivalent: some letters, such as the two forms
+// of Greek sigma, share a fold but have different lowercase forms.
+func folds(a, b rune) bool {
+	if a == b {
+		return true
+	}
+	for folded := unicode.SimpleFold(a); folded != a; folded = unicode.SimpleFold(folded) {
+		if folded == b {
+			return true
+		}
+	}
+	return false
+}
 
 // opensWord reports whether a character makes what follows it the start of a word.
 //

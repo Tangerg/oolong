@@ -101,6 +101,15 @@ func TestTheSameCaseIsWorthALittleMore(t *testing.T) {
 	}
 }
 
+func TestCaseInsensitiveMeansUnicodeCaseFolding(t *testing.T) {
+	// Capital sigma and final sigma have different lowercase forms, but Unicode
+	// defines them as members of the same case-folding class.
+	m, ok := fuzzy.Score("ς", "Σ")
+	if !ok || !slices.Equal(m.At, []int{0}) {
+		t.Fatalf("fuzzy.Score(%q, %q) = %+v, %v; want one folded match", "ς", "Σ", m, ok)
+	}
+}
+
 func TestFilterRanksBestFirst(t *testing.T) {
 	candidates := []string{"unrelated", "test_status", "status_line", "stats"}
 	got := fuzzy.Filter("st", candidates)

@@ -1,6 +1,7 @@
 package diff_test
 
 import (
+	"math"
 	"math/rand"
 	"strings"
 	"testing"
@@ -167,6 +168,17 @@ func TestNothingChangedIsNoHunks(t *testing.T) {
 	same := strings.Split("a\nb\nc", "\n")
 	if hunks := diff.Between(same, same).Hunks(3); hunks != nil {
 		t.Fatalf("got %d hunks for two texts that are the same", len(hunks))
+	}
+}
+
+func TestHunksAcceptTheLargestContext(t *testing.T) {
+	script := diff.Between(split("before\nkept"), split("after\nkept"))
+	hunks := script.Hunks(math.MaxInt)
+	if len(hunks) != 1 {
+		t.Fatalf("got %d hunks, want the complete change", len(hunks))
+	}
+	if got, want := len(hunks[0].Lines), len(script); got != want {
+		t.Fatalf("hunk has %d lines, want all %d", got, want)
 	}
 }
 

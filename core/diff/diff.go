@@ -123,7 +123,12 @@ func (s Script) Hunks(context int) []Hunk {
 			continue
 		}
 		changed = true
-		for j := max(i-context, 0); j <= min(i+context, len(s)-1); j++ {
+		// Clamp the distance before moving either endpoint. Adding an arbitrary
+		// context to i first would make the most generous valid request wrap around
+		// and hide the change it was meant to include.
+		before := min(context, i)
+		after := min(context, len(s)-1-i)
+		for j := i - before; j <= i+after; j++ {
 			keep[j] = true
 		}
 	}
@@ -231,7 +236,9 @@ func (m *myers) replaced() Script {
 // edit, and reports false when the two texts differ by more than [maxEdits].
 func (m *myers) trace() bool {
 	n, size := len(m.before), len(m.after)
-	limit := min(n+size, maxEdits)
+	// Bound each operand before adding it. The limit is deliberately tiny, while
+	// the inputs are caller-sized; their unbounded sum is neither needed nor safe.
+	limit := min(min(n, maxEdits)+min(size, maxEdits), maxEdits)
 	// v holds the furthest x reached on each diagonal k, offset so that k = 0 sits in
 	// the middle.
 	v := make([]int, 2*limit+3)
