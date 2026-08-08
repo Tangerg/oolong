@@ -1,6 +1,7 @@
 package term
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -241,7 +242,7 @@ func (w *Writer) run() {
 		}
 		err := ErrClosed
 		if !w.discarding.Load() {
-			err = w.writeAll(f.data)
+			_, err = io.Copy(w.dst, bytes.NewReader(f.data))
 		}
 		if err == nil {
 			w.written.Store(f.seq)
@@ -273,24 +274,6 @@ func (w *Writer) next() (frame, bool) {
 		}
 		<-w.wake
 	}
-}
-
-// writeAll writes every byte, looping over short writes.
-func (w *Writer) writeAll(data []byte) error {
-	for len(data) > 0 {
-		n, err := w.dst.Write(data)
-		if n < 0 || n > len(data) {
-			return io.ErrShortWrite
-		}
-		if err != nil {
-			return err
-		}
-		if n <= 0 {
-			return io.ErrShortWrite
-		}
-		data = data[n:]
-	}
-	return nil
 }
 
 // finish records a frame's outcome and wakes whoever is watching the watermark.

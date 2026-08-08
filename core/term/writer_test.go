@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -67,10 +68,10 @@ func (f *failing) Write(p []byte) (int, error) {
 	return 0, errBroken
 }
 
-// short writes one byte at a time, which is what a terminal is allowed to do.
-type short struct{ b bytes.Buffer }
+// brokenShort violates io.Writer by returning a short count without an error.
+type brokenShort struct{ b bytes.Buffer }
 
-func (s *short) Write(p []byte) (int, error) {
+func (s *brokenShort) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
@@ -192,15 +193,22 @@ func TestProgressCoalesces(t *testing.T) {
 	}
 }
 
-func TestShortWritesAreCompleted(t *testing.T) {
-	dst := &short{}
+func TestAShortWriteWithoutErrorFailsAndStopsFurtherWrites(t *testing.T) {
+	dst := &brokenShort{}
 	w := term.NewWriter(dst)
 	w.Queue([]byte("hello"))
+	w.Queue([]byte("later"))
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("never drained: %v", err)
 	}
-	if got := dst.b.String(); got != "hello" {
-		t.Fatalf("terminal received %q, want the whole frame", got)
+	if err := w.Err(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("Err = %v, want io.ErrShortWrite", err)
+	}
+	if got := dst.b.String(); got != "h" {
+		t.Fatalf("terminal received %q after the invalid write, want only its prefix", got)
+	}
+	if got := w.Written(); got != 0 {
+		t.Fatalf("watermark = %d, want no completed frames", got)
 	}
 }
 

@@ -52,7 +52,7 @@ says why: a cell holds a grapheme and a style, and an image is neither.
 
 ## What it is
 
-Seven modules in one repository.
+Eight modules in one repository.
 
 | module | what it is | dependencies |
 | --- | --- | --- |

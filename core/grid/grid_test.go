@@ -923,16 +923,16 @@ type regionCanvas interface {
 	Flush(w io.Writer) error
 }
 
-type shortWriter struct {
+type brokenShortWriter struct {
 	bytes.Buffer
 	limit int
 }
 
-func (w *shortWriter) Write(p []byte) (int, error) {
+func (w *brokenShortWriter) Write(p []byte) (int, error) {
 	return w.Buffer.Write(p[:min(len(p), w.limit)])
 }
 
-func TestCanvasesCompleteShortWritesBeforeSettling(t *testing.T) {
+func TestCanvasesRejectShortWritesWithoutSettling(t *testing.T) {
 	for name, makeCanvas := range map[string]func() regionCanvas{
 		"screen": func() regionCanvas { return grid.NewScreen(10, 4) },
 		"inline": func() regionCanvas { return grid.NewInline(10, 4) },
@@ -940,21 +940,30 @@ func TestCanvasesCompleteShortWritesBeforeSettling(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			canvas := makeCanvas()
 			canvas.Frame().Text(0, 0, "complete", grid.Style{})
-			out := &shortWriter{limit: 3}
-			if err := canvas.Flush(out); err != nil {
-				t.Fatalf("Flush: %v", err)
+			broken := &brokenShortWriter{limit: 3}
+			if err := canvas.Flush(broken); !errors.Is(err, io.ErrShortWrite) {
+				t.Fatalf("Flush error = %v, want io.ErrShortWrite", err)
+			}
+			if broken.Len() != 3 {
+				t.Fatalf("broken writer received %d bytes, want its accepted prefix", broken.Len())
+			}
+
+			var out bytes.Buffer
+			canvas.Frame().Text(0, 0, "complete", grid.Style{})
+			if err := canvas.Flush(&out); err != nil {
+				t.Fatalf("retry Flush: %v", err)
 			}
 			if !strings.Contains(out.String(), "complete") {
-				t.Fatalf("short writer received %q", out.String())
+				t.Fatalf("retry received %q", out.String())
 			}
 
 			out.Reset()
 			canvas.Frame().Text(0, 0, "complete", grid.Style{})
-			if err := canvas.Flush(out); err != nil {
+			if err := canvas.Flush(&out); err != nil {
 				t.Fatalf("unchanged Flush: %v", err)
 			}
 			if out.Len() != 0 {
-				t.Fatalf("frame was not settled after complete transfer: %q", out.String())
+				t.Fatalf("frame was not settled after successful retry: %q", out.String())
 			}
 		})
 	}
