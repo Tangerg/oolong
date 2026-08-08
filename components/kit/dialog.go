@@ -2,6 +2,7 @@ package kit
 
 import (
 	"image"
+	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
@@ -203,18 +204,20 @@ func (d *DialogPanel) Draw(v headless.Frame) {
 
 // footer is the hints, spelled the way a border can hold them.
 func (d *DialogPanel) footer() string {
-	out := ""
+	var out strings.Builder
 	for _, action := range d.Hints {
 		bound := d.Keys.Keys(action)
 		if len(bound) == 0 {
 			continue
 		}
-		if out != "" {
-			out += "  "
+		if out.Len() > 0 {
+			out.WriteString("  ")
 		}
-		out += bound[0].String() + " " + actionLabel(action)
+		out.WriteString(bound[0].String())
+		out.WriteByte(' ')
+		out.WriteString(actionLabel(action))
 	}
-	return out
+	return out.String()
 }
 
 func (d *DialogPanel) title() string {

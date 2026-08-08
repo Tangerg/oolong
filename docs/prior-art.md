@@ -281,7 +281,7 @@ They now form one completed vertical slice rather than a permanent catalogue wis
 | **A bounded numeric value** | opentui `Slider` | `headless.Slider` owns bounds, value ownership, keys and committed drag geometry; `kit.Slider` is its appearance. `Progress` remains the distinct read-only proportion. |
 | **Line numbers** | opentui `LineNumberRenderable` | `text.Row` carries logical-line provenance, `headless.RowGutter` is the shared seam, and `kit.LineNumbers` dresses both editors and code blocks. |
 | **A code block** | opentui `Code` | `kit.Code` assembles copied `text.Line` values, wrapping, copy rows and an optional gutter without depending on the optional `highlight` module. |
-| **Columns sized from their content** | opentui `TextTable` | `kit.Cell` keeps preferred width and painting together; `Column.Fit` measures the widest title or cell, and `TableLayout` reuses the result for a whole frame. |
+| **Columns sized from their content** | opentui `TextTable` | `kit.Cell` keeps preferred width and painting together; `Column.Size: layout.Measured(0, 0)` measures the widest title or cell, and `TableLayout` reuses the result for a whole frame. |
 | **A settings list** | pi-tui `settings-list`, agentui `catalog` | `headless.Settings` adds selected-value actions to `List`; `kit.Settings` supplies the fitted label/value rows while application data and mutation stay downstream. |
 
 ### B. Real, but blocked on one shared question

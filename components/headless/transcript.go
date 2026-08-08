@@ -200,12 +200,12 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 		blocks[i] = placed{
 			block: current.block, height: height, top: top, finished: current.finished,
 		}
-		top += height
+		top = layout.Sum(top, height)
 	}
 	t.pendingLayout = transcriptLayoutState{
 		blocks: blocks,
 		width:  width,
-		rows:   top - t.start,
+		rows:   layout.Remaining(top, t.start),
 		start:  t.start,
 		first:  t.first,
 	}

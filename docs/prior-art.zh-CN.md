@@ -236,7 +236,7 @@ resize_viewport_height,
 | **有界数值** | opentui `Slider` | `headless.Slider` 拥有边界、值的所有权、按键和已提交的拖动几何；`kit.Slider` 是其 appearance。`Progress` 仍是不同的只读比例。 |
 | **行号** | opentui `LineNumberRenderable` | `text.Row` 携带逻辑行来源，`headless.RowGutter` 是共享接缝，`kit.LineNumbers` 同时装饰 editor 和 code block。 |
 | **代码块** | opentui `Code` | `kit.Code` 组合复制后的 `text.Line`、换行、复制行与可选 gutter，且不依赖可选的 `highlight` 模块。 |
-| **按内容定宽的列** | opentui `TextTable` | `kit.Cell` 把首选宽度和绘制放在一起；`Column.Fit` 测量最宽标题或 cell；`TableLayout` 在整帧复用结果。 |
+| **按内容定宽的列** | opentui `TextTable` | `kit.Cell` 把首选宽度和绘制放在一起；`Column.Size: layout.Measured(0, 0)` 测量最宽标题或 cell；`TableLayout` 在整帧复用结果。 |
 | **设置列表** | pi-tui `settings-list`、agentui `catalog` | `headless.Settings` 在 `List` 上增加选中值动作；`kit.Settings` 提供按内容定宽的 label/value 行，应用数据与修改仍留在下游。 |
 
 ### B. 真实存在，但被同一个共同问题挡住

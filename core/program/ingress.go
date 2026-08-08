@@ -164,7 +164,7 @@ func (i *ByteIngress) CloseWithError(err error) error {
 // Done closes after the final batch is consumed or the interface owner stops.
 func (i *ByteIngress) Done() <-chan struct{} {
 	if i == nil || i.done == nil {
-		return stoppedDispatcher
+		return closedSignal
 	}
 	return i.done
 }

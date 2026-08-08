@@ -126,7 +126,7 @@ func (d Dispatcher) Post(fn func()) {
 // stop work that has no remaining owner.
 func (d Dispatcher) Done() <-chan struct{} {
 	if d.tasks == nil {
-		return stoppedDispatcher
+		return closedSignal
 	}
 	return d.tasks.done
 }
@@ -135,7 +135,7 @@ func (d Dispatcher) post(fn func()) bool {
 	return d.tasks != nil && d.tasks.post(fn)
 }
 
-var stoppedDispatcher = func() <-chan struct{} {
+var closedSignal = func() <-chan struct{} {
 	done := make(chan struct{})
 	close(done)
 	return done
