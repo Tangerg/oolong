@@ -56,7 +56,7 @@ func (t *title) to(s string) string {
 		out = titlePush
 		t.pushed = true
 	}
-	t.text = s
+	t.text = strings.Clone(s)
 	return out + command(titleSet, s)
 }
 
