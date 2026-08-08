@@ -110,6 +110,10 @@ func (s Script) String() string {
 //
 // A context of zero is the changed lines alone. A script with nothing changed in it has
 // no hunks at all, which is how "these are the same" is said.
+//
+// Each hunk owns its line storage and text. Retaining a small changed passage therefore
+// does not retain the complete script or the source documents its lines were sliced
+// from, and changing the script after this call cannot change an already-built hunk.
 func (s Script) Hunks(context int) []Hunk {
 	context = max(context, 0)
 	keep := make([]bool, len(s))
@@ -154,8 +158,10 @@ func (h Hunk) String() string { return h.Lines.String() }
 
 // hunkOf is one run of lines with its starting numbers worked out.
 func hunkOf(lines Script) Hunk {
-	h := Hunk{Lines: lines}
-	for _, line := range lines {
+	h := Hunk{Lines: make(Script, len(lines))}
+	for i, line := range lines {
+		line.Text = strings.Clone(line.Text)
+		h.Lines[i] = line
 		if h.Old == 0 && line.Old > 0 {
 			h.Old = line.Old
 		}

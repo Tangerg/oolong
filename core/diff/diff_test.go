@@ -141,6 +141,19 @@ func TestHunksLeaveOutWhatNobodyIsReading(t *testing.T) {
 	}
 }
 
+func TestAHunkIsAnIndependentSnapshotOfTheScript(t *testing.T) {
+	script := diff.Between(split("before"), split("after"))
+	hunks := script.Hunks(0)
+	if len(hunks) != 1 || len(hunks[0].Lines) != 2 {
+		t.Fatalf("hunks = %+v, want one replacement", hunks)
+	}
+
+	script[0].Text = "changed"
+	if got := hunks[0].Lines[0].Text; got != "before" {
+		t.Fatalf("changing the script changed its hunk to %q", got)
+	}
+}
+
 func TestTwoChangesCloseTogetherAreOneHunk(t *testing.T) {
 	// A gap of one unchanged line is not a gap worth drawing a break across.
 	before := strings.Split("1\n2\n3\n4\n5", "\n")
