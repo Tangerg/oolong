@@ -141,8 +141,8 @@ func TestNeverHandsOutMoreThanThereIs(t *testing.T) {
 	// Two floors that do not both fit. Honouring them both would make the reported
 	// allocation larger than the space it divides.
 	views := layout.Down.Rects(image.Pt(20, 10),
-		layout.Slot{Size: layout.Sizing{Flex: 1, Min: 8}},
-		layout.Slot{Size: layout.Sizing{Flex: 1, Min: 8}},
+		layout.Slot{Size: layout.Flex(1).AtLeast(8)},
+		layout.Slot{Size: layout.Flex(1).AtLeast(8)},
 	)
 	total := 0
 	for _, r := range views {
@@ -150,6 +150,34 @@ func TestNeverHandsOutMoreThanThereIs(t *testing.T) {
 	}
 	if total != 10 {
 		t.Fatalf("slots add up to %d units, want the 10 there are", total)
+	}
+}
+
+func TestSizingConstructorsDoNotExpressNegativeExtents(t *testing.T) {
+	got := layout.Divide(12, 1, []layout.Slot{
+		{Size: layout.Fixed(-1)},
+		{Size: layout.Part(-1, 2)},
+		{Size: layout.Flex(-1)},
+		{Size: layout.Measured(-1, -1)},
+	})
+	equal(t, got, []int{0, 0, 0, 0})
+}
+
+func TestSizingRejectsContradictoryConstraints(t *testing.T) {
+	for name, makeSizing := range map[string]func() layout.Sizing{
+		"measured bounds": func() layout.Sizing { return layout.Measured(3, 2) },
+		"measured floor":  func() layout.Sizing { return layout.Measured(0, 2).AtLeast(3) },
+		"fixed floor":     func() layout.Sizing { return layout.Fixed(2).AtLeast(1) },
+		"zero floor":      func() layout.Sizing { return (layout.Sizing{}).AtLeast(1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("contradictory sizing did not panic")
+				}
+			}()
+			makeSizing()
+		})
 	}
 }
 

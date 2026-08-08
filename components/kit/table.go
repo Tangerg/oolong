@@ -166,7 +166,7 @@ func (t Table) slots() []layout.Slot {
 			}
 			continue
 		}
-		slots[i] = layout.Slot{Size: layout.Sizing{Flex: max(c.Flex, 1), Min: c.Min}}
+		slots[i] = layout.Slot{Size: layout.Flex(max(c.Flex, 1)).AtLeast(c.Min)}
 	}
 	return slots
 }

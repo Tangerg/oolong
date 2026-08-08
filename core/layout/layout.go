@@ -123,41 +123,36 @@ type MeasureFunc func(across int) int
 func (f MeasureFunc) Measure(across int) int { return f(across) }
 
 // Sizing says how much of an axis a slot wants.
+//
+// Its representation is private because fixed, fractional, flexible and measured
+// are alternatives, not fields a caller should combine by priority. Construct one
+// with [Fixed], [Part], [Flex] or [Measured]; use [Sizing.AtLeast] when a fractional,
+// flexible or measured slot also has a floor. The zero value asks for no space.
 type Sizing struct {
-	// Fixed is an exact number of units. It wins over everything else.
-	Fixed int
-	// Part and Whole are a share of the whole division: Part 1 of Whole 2 is half of
-	// it, whatever else is being divided and whatever those others ask for. The whole
-	// is what there is to divide, which is the region less the gaps in it.
-	//
-	// It is not [Flex] and cannot be written as one. A share of what is left changes
-	// when anything beside it changes. Part expresses a fraction of the original
-	// extent, so its answer does not move when another slot changes.
-	Part, Whole int
-	// Flex is a share of what is left after the fixed, measured and part slots have
-	// taken theirs. Two slots with flex 1 and 2 split the remainder one third to two
-	// thirds. Only the ratio between weights carries meaning. Before adding them,
-	// Divide caps each weight at an equal part of the largest representable total;
-	// ordinary small ratios stay exact and weights beyond the cap are deliberately
-	// indistinguishable from it on every architecture.
-	Flex int
-	// Measured asks the slot's [Measurer] how much it wants.
-	Measured bool
-	// Min is a floor on a flex or measured slot. It is honoured while there is room:
-	// several floors can add up to more than the space there is.
-	Min int
-	// Max caps a measured slot, so a result that grew without bound does not take the
-	// whole region.
-	Max int
+	kind             sizingKind
+	amount, whole    int
+	minimum, maximum int
 }
 
-// Fixed is a slot of an exact size.
-func Fixed(n int) Sizing { return Sizing{Fixed: n} }
+type sizingKind uint8
+
+const (
+	zeroSizing sizingKind = iota
+	fixedSizing
+	partSizing
+	flexSizing
+	measuredSizing
+)
+
+// Fixed is a slot of an exact size. A negative size is normalized to zero.
+func Fixed(n int) Sizing { return Sizing{kind: fixedSizing, amount: max(n, 0)} }
 
 // Part is a slot taking a fraction of the whole division: Part(1, 2) is half of it,
 // whatever else is there. A whole of zero asks for nothing, which is what makes the
 // zero [Sizing] mean what it always did.
-func Part(part, whole int) Sizing { return Sizing{Part: part, Whole: whole} }
+func Part(part, whole int) Sizing {
+	return Sizing{kind: partSizing, amount: max(part, 0), whole: max(whole, 0)}
+}
 
 // Flex is a slot taking a share of what is left.
 //
@@ -167,12 +162,38 @@ func Part(part, whole int) Sizing { return Sizing{Part: part, Whole: whole} }
 // arithmetic with no case for the sum running past it. Weights above the cap
 // saturate to it and become indistinguishable — which costs a caller nothing that a
 // smaller pair of weights could not have said.
-func Flex(share int) Sizing { return Sizing{Flex: share} }
+func Flex(share int) Sizing { return Sizing{kind: flexSizing, amount: max(share, 0)} }
 
 // Measured is a slot as big as its [Measurer] asks to be, within bounds. A zero
 // maximum means no cap.
 func Measured(minimum, maximum int) Sizing {
-	return Sizing{Measured: true, Min: minimum, Max: maximum}
+	minimum, maximum = max(minimum, 0), max(maximum, 0)
+	if maximum > 0 && maximum < minimum {
+		panic("layout: measured maximum is below minimum")
+	}
+	return Sizing{
+		kind: measuredSizing, minimum: minimum, maximum: maximum,
+	}
+}
+
+// AtLeast returns s with a non-negative floor. Floors compose with fractional,
+// flexible and measured sizing. Applying one to a fixed or zero sizing is a
+// programmer error: the former is already exact, and the latter names no sizing
+// policy to constrain.
+func (s Sizing) AtLeast(minimum int) Sizing {
+	minimum = max(minimum, 0)
+	switch s.kind {
+	case partSizing, flexSizing:
+		s.minimum = minimum
+	case measuredSizing:
+		if s.maximum > 0 && s.maximum < minimum {
+			panic("layout: minimum is above measured maximum")
+		}
+		s.minimum = minimum
+	default:
+		panic("layout: minimum requires part, flex, or measured sizing")
+	}
+	return s
 }
 
 // Slot is one division of a region: how much room it gets, and what to ask when
@@ -324,25 +345,27 @@ func Wanted(across int, slots []Slot) int {
 	across = max(across, 0)
 	total := 0
 	for _, slot := range slots {
-		switch {
-		case slot.Size.Fixed > 0:
-			total = saturatingAdd(total, slot.Size.Fixed)
-		case slot.Size.Whole > 0:
+		switch slot.Size.kind {
+		case fixedSizing:
+			total = saturatingAdd(total, slot.Size.amount)
+		case partSizing:
 			// A fraction of a region nobody has named yet. There is no total to take a
 			// part of, so it counts as its floor — the same answer a flexible slot
 			// gives, and for the same reason.
-			total = saturatingAdd(total, max(slot.Size.Min, 0))
-		case slot.Size.Measured:
-			want := slot.Size.Min
+			total = saturatingAdd(total, slot.Size.minimum)
+		case measuredSizing:
+			want := slot.Size.minimum
 			if slot.Of != nil {
-				want = max(slot.Of.Measure(across), slot.Size.Min)
+				want = max(slot.Of.Measure(across), slot.Size.minimum)
 			}
-			if slot.Size.Max > 0 {
-				want = min(want, slot.Size.Max)
+			if slot.Size.maximum > 0 {
+				want = min(want, slot.Size.maximum)
 			}
-			total = saturatingAdd(total, max(want, 0))
-		default:
-			total = saturatingAdd(total, max(slot.Size.Min, 0))
+			total = saturatingAdd(total, want)
+		case flexSizing:
+			total = saturatingAdd(total, slot.Size.minimum)
+		case zeroSizing:
+			continue
 		}
 	}
 	return total
@@ -366,27 +389,29 @@ func Divide(total, across int, slots []Slot) []int {
 	// Fixed and measured slots take theirs first: both are stating a need, and the
 	// flexible ones exist to absorb whatever is left over.
 	for i, slot := range slots {
-		switch {
-		case slot.Size.Fixed > 0:
-			sizes[i] = min(slot.Size.Fixed, left)
-		case slot.Size.Whole > 0:
+		switch slot.Size.kind {
+		case fixedSizing:
+			sizes[i] = min(slot.Size.amount, left)
+		case partSizing:
 			// Of the whole region rather than of what is left, which is the whole
 			// difference between this and a share: it is worked out from the total the
 			// division began with, so nothing else in the region can move it.
-			want := Scale(max(total, 0), max(slot.Size.Part, 0), slot.Size.Whole)
-			sizes[i] = min(max(want, slot.Size.Min), left)
-		case slot.Size.Measured:
-			want := slot.Size.Min
+			want := Scale(max(total, 0), slot.Size.amount, slot.Size.whole)
+			sizes[i] = min(max(want, slot.Size.minimum), left)
+		case measuredSizing:
+			want := slot.Size.minimum
 			if slot.Of != nil {
-				want = max(slot.Of.Measure(across), slot.Size.Min)
+				want = max(slot.Of.Measure(across), slot.Size.minimum)
 			}
-			if slot.Size.Max > 0 {
-				want = min(want, slot.Size.Max)
+			if slot.Size.maximum > 0 {
+				want = min(want, slot.Size.maximum)
 			}
-			sizes[i] = min(max(want, 0), left)
-		default:
-			share := min(max(slot.Size.Flex, 0), maxFlex)
+			sizes[i] = min(want, left)
+		case flexSizing:
+			share := min(slot.Size.amount, maxFlex)
 			flex += share
+			continue
+		case zeroSizing:
 			continue
 		}
 		left -= sizes[i]
@@ -402,12 +427,15 @@ func Divide(total, across int, slots []Slot) []int {
 	remainder := left
 	lastFlex := -1
 	for i, slot := range slots {
-		share := min(max(slot.Size.Flex, 0), maxFlex)
+		if slot.Size.kind != flexSizing {
+			continue
+		}
+		share := min(slot.Size.amount, maxFlex)
 		if share == 0 {
 			continue
 		}
 		want := Scale(remainder, share, flex)
-		want = max(want, slot.Size.Min)
+		want = max(want, slot.Size.minimum)
 		sizes[i] = min(want, left)
 		left -= sizes[i]
 		lastFlex = i
