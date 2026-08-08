@@ -5,10 +5,11 @@
 // A **module** boundary is enforced by Go and by what each module is allowed to
 // depend on. `core` is the engine and carries the whole third-party dependency
 // list; `components` is built on it and carries none at all, which is a stronger
-// promise than the old one and a cheaper one to keep. `ptytest` is a harness that
-// depends on neither. Splitting further would be mimicry: a module boundary costs
-// version skew and buys an independent dependency set, and nothing inside `core`
-// has one.
+// promise than the old one and a cheaper one to keep. `ptytest` is a harness above
+// the product graph: its screen assertion reuses core's terminal-neutral ANSI and
+// text primitives, while no production package can reach back to it. Splitting
+// further would be mimicry: a module boundary costs version skew and buys an
+// independent dependency set, and nothing inside `core` has one.
 //
 // A **ring** boundary is enforced here, because the compiler cannot see semantic
 // direction inside a module. Core is a partial order: foundations, decoded
@@ -129,9 +130,10 @@ var dependencies = map[string][]string{
 	"markdown":  {"model"},
 	"highlight": {"model"},
 
-	// A harness is outside the product graph. Demonstrations are the composition
-	// root and may use every public branch, but nothing depends on them.
-	"harness":  nil,
+	// A harness is outside the product graph and may inspect terminal-neutral text
+	// and ANSI syntax from above. Demonstrations are the composition root and may use
+	// every public branch, but no production ring depends on either test layer.
+	"harness":  {"model"},
 	"examples": {"testharness", "kit", "markdown", "highlight", "harness"},
 
 	// The architecture module contains only tests and imports no production ring.
@@ -432,6 +434,7 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"markdown", "highlight", true},
 		{"highlight", "markdown", true},
 		{"highlight", "core/text", false},
+		{"ptytest", "core/text", false},
 
 		// Nothing leans on the harness, and nothing imports a demonstration.
 		{"core/program", "ptytest", true},

@@ -45,7 +45,7 @@ func start(t *testing.T) *ptytest.Session {
 	}
 	session, err := ptytest.StartWith(
 		t.Context(),
-		ptytest.Options{Size: ptytest.Size{Cols: 60, Rows: 20}},
+		ptytest.Options{Size: openingSize},
 		build(t),
 	)
 	if errors.Is(err, ptytest.ErrUnsupported) {
@@ -57,6 +57,8 @@ func start(t *testing.T) *ptytest.Session {
 	t.Cleanup(func() { _ = session.Close() })
 	return session
 }
+
+var openingSize = ptytest.Size{Cols: 60, Rows: 20}
 
 // settle is how long to wait for something to reach the terminal.
 //
@@ -94,6 +96,14 @@ func TestTheInterfaceIsUpBeforeAnybodyTypes(t *testing.T) {
 	s := start(t)
 	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
 		t.Fatal(err)
+	}
+	quiesce(t, s)
+	screen, err := s.Transcript().Screen(openingSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shown := strings.Join(screen.Rows(), "\n"); !strings.Contains(shown, "Ask something") {
+		t.Fatalf("opening screen does not contain the composer placeholder:\n%s", shown)
 	}
 }
 

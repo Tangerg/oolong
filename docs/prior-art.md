@@ -183,18 +183,22 @@ emulator:
 
 > `VirtualTerminal` - For testing (uses `@xterm/headless`)
 
-This repository can drive a program without a terminal (`core/programtest`) and can
-drive one through a real pty (`ptytest`), and neither answers *what the terminal ended
-up showing*. One asserts on frames, the other on bytes; a screen-state assertion is a
-third thing, and it is the one that reads like the question a test wants to ask.
-`core/text.Decoder` already turns SGR and OSC 8 into styled lines, which is a
-meaningful part of the distance.
+This repository could already drive a program without a terminal (`core/programtest`)
+and through a real pty (`ptytest`), but neither answered *what the terminal ended up
+showing*. One asserted on frames, the other on bytes. `ptytest.Screen` now supplies the
+third shape: it incrementally applies the cell text, movement, erasure, bounded scroll,
+SGR, OSC and mode syntax emitted by the two Oolong renderers, and exposes fixed-size
+cell text for assertions. It reuses `core/ansi` and `core/text` rather than growing a
+second escape scanner or grapheme-width implementation.
 
 The boundary needs saying at the same time, because
-[§16](architecture.md#16-designs-explicitly-rejected) declines a terminal emulator:
-decode far enough to assert what a cell shows, never far enough to emulate a cursor,
-scrolling region or alternate screen. A test helper that grows a scroll region has
-become the product §16 refused.
+[§16](architecture.md#16-designs-explicitly-rejected) declines a terminal emulator.
+The model keeps an internal write position and margins only because renderer output
+uses them to address cells; neither is public terminal state. It does not answer
+queries, decode input, own alternate buffers, preserve scrollback, expose cursor
+visibility, or interpret device-control painters. Unsupported complete sequences fail
+explicitly. That is enough to say what cell text a renderer left and deliberately not
+enough to run an arbitrary terminal program.
 
 ## 4. grok-build: a counter-example, which is more useful than a borrowing
 
@@ -331,7 +335,7 @@ where it is merely product assembly, belongs in an example.
 | --- | --- | --- |
 | opentui/keymap | disambiguation as a caller-supplied resolver; scoped priority layers; diagnostics for shadowed and unreachable bindings | a pluggable binding language, registrable schema, reactive matchers, framework bindings |
 | opentui/ssh | an SSH channel behind `program.Host` as its own module, renderer-agnostic | anything that makes `core` know a transport exists |
-| pi-tui | the implemented kill ring in `headless.Editor`; a screen-state assertion for tests, built on an emulator small enough to stay a test helper | a paste marker as a library feature — the mechanism is already here and the policy is the application's; line-string diffing and the ANSI-aware string utilities it forces |
+| pi-tui | the implemented kill ring in `headless.Editor`; the fixed-size `ptytest.Screen` assertion model | a paste marker as a library feature — the mechanism is already here and the policy is the application's; line-string diffing and the ANSI-aware string utilities it forces |
 | grok-build | a named counter-example for §3.2 | purge-and-re-emit resize |
 | agentui | the idea that a detector should report refusals with reasons | product grammar; a second transcript engine; path policy inside a detector |
 
@@ -344,11 +348,10 @@ Ordered by what each is blocked on, not by appetite.
 2. **An SSH host module.** The only candidate that is cheaper now than when it was
    first considered, carries its own caller, and moves a v1 exit condition. Must be
    its own module and must not add a dependency to `core`.
-3. **A screen-state assertion for tests.** The gap it fills is real and it has two
-   consumers already — the example suites and the pty suite both currently assert on
-   bytes because there is nothing better to assert on. It belongs in a test module,
-   never in the library, and it needs its stopping point written down before its first
-   line: enough to say what a cell shows, never a cursor or a scrolling region.
+3. **A screen-state assertion for tests: completed.** `ptytest.Screen` stays in the
+   harness module and reuses only terminal-neutral core primitives. Its stopping point
+   is enforced by behavior: fixed cell text in; terminal queries, input, buffer
+   ownership and arbitrary device-control output out.
 4. **[Group A](#a-general-behaviour-now-implemented): completed.** The five
    capabilities landed as vertical slices: bounded value; shared row provenance,
    line numbers and code; then content-fitted cells and a settings list. The settings

@@ -83,3 +83,16 @@ func TestTheTranscriptIsAStringByteForByte(t *testing.T) {
 		t.Fatal("an escape sequence did not survive the round trip")
 	}
 }
+
+func TestATranscriptScreenUsesOneConcurrentSnapshot(t *testing.T) {
+	tr := newTranscript()
+	tr.append([]byte("first"))
+	screen, err := tr.Screen(Size{Cols: 8, Rows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.append([]byte(" later"))
+	if got := strings.TrimRight(screen.Rows()[0], " "); got != "first" {
+		t.Fatalf("snapshot changed after more output arrived: %q", got)
+	}
+}

@@ -9,11 +9,12 @@
 //
 // # What it is not
 //
-// A terminal emulator. It captures a byte stream and gives you assertions over
-// it, which is enough for the questions worth asking about a renderer and far
-// short of what it would take to answer "what does the screen look like". A test
-// that needs that should say what sequence it expects instead, which is a better
-// test anyway: it fails naming the thing that changed.
+// A terminal emulator. It captures a byte stream and gives you assertions over it.
+// [Screen] can additionally answer which text an Oolong renderer left in each cell,
+// but deliberately does not model terminal queries, input, alternate-buffer ownership,
+// arbitrary painters, or the rest of a terminal's state. Tests of a particular
+// protocol sequence should still assert that sequence directly: it fails naming the
+// thing that changed.
 //
 // # Where it lives
 //

@@ -20,6 +20,11 @@ point of tagging them low rather than not at all.
 
 ### Added
 
+- **A renderer-sized screen assertion for tests.** `ptytest.Screen` incrementally
+  applies the text, movement, erasure, bounded scrolling, SGR, OSC and mode syntax
+  emitted by Oolong's cell and inline renderers. It exposes fixed cell text while
+  explicitly rejecting device-control painters and declining terminal queries,
+  input and alternate-buffer ownership.
 - **A bounded editor kill ring.** Consecutive backward and forward kills accumulate
   in reading order, `Yank` restores the newest entry, and `YankPop` cycles older
   entries only while the yank remains the immediately preceding edit. The ring owns

@@ -286,12 +286,16 @@ flowchart BT
     Term["terminal adapter"] --> Protocol
     Program["program runtime"] --> Term
     Program --> Coordination
+    ProgramTest["in-process program harness"] --> Program
+    Harness["PTY and screen assertions"] --> Model
     Headless["headless components"] --> Interaction
     Headless --> Model
     Kit["default appearance"] --> Headless
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     App["application composition"] --> Program
+    App --> ProgramTest
+    App --> Harness
     App --> Kit
     App --> Markdown
     App --> Highlight

@@ -45,6 +45,25 @@ func (t *Transcript) Bytes() []byte {
 // String is the snapshot as a string, byte for byte.
 func (t *Transcript) String() string { return string(t.Bytes()) }
 
+// Screen interprets the current transcript as cell-renderer output at size.
+//
+// It takes one byte snapshot before decoding, so output arriving concurrently belongs
+// wholly to this snapshot or the next one. See [Screen] for the intentionally narrow
+// boundary of the interpretation.
+func (t *Transcript) Screen(size Size) (*Screen, error) {
+	screen, err := NewScreen(size)
+	if err != nil {
+		return nil, err
+	}
+	if err := screen.Apply(t.Bytes()); err != nil {
+		return nil, err
+	}
+	if err := screen.Flush(); err != nil {
+		return nil, err
+	}
+	return screen, nil
+}
+
 // WaitFor blocks until every token has appeared, or until ctx is done.
 //
 // Every token, not the last one: a test waiting for a frame usually has more than
