@@ -18,6 +18,86 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+This is a repository-wide correctness and ownership pass over the foundations added
+in 0.3.0. It removes representational escape hatches, gives repeated low-level
+operations one implementation, and turns the failure cases found by the audit into
+permanent tests or lint gates.
+
+Breaking. `layout.Sizing` is now opaque and is constructed with `Fixed`, `Part`,
+`Flex`, `Measured`, and `AtLeast`; combinations that could not carry one coherent
+meaning are no longer representable. `ansi.Params.Private`, `Groups`, `Empty`, and
+`Count` are replaced by the immutable `Marker`, `Len`, `At`, and `Group` API, whose
+`Parameter` values expose read-only access and iteration. `headless.BlockID` is now an
+architecture-independent `uint64` identity. There are no compatibility aliases.
+
+### Added
+
+- **One bounded streaming ANSI scanner.** `ansi.Scanner` is now the shared framing
+  state machine for input, styled-text decoding, markdown-adjacent terminal streams,
+  and the PTY screen model. It preserves incomplete UTF-8 and escape syntax across
+  arbitrary chunks, bounds unfinished sequences, documents borrowed pieces, and has
+  chunk-invariance fuzz coverage.
+- **Structural duplication is a failing lint rule.** CI now rejects independently
+  reintroduced copies of the FIFO, extent, coordinate, writer, identity, and ANSI
+  framing primitives this pass centralized.
+- **The prior-art survey has a complete Chinese edition.** The README links the
+  English and Chinese architecture, brand, and prior-art documents as parallel entry
+  points.
+
+### Changed
+
+- **Layout owns one safe integer algebra.** `Sum`, `Remaining`, `Translate`,
+  `Relative`, and `Scale` are the shared operations for non-negative extents, signed
+  coordinates, and proportional placement. Layout sizing is a real sum type rather
+  than six public fields whose precedence callers had to infer; every component now
+  uses the same saturating boundary semantics.
+- **Retained values cross explicit ownership cuts.** Styled lines, highlights,
+  markdown blocks, diff hunks, key bindings, terminal titles, editor kill entries,
+  and text-edit metadata detach from larger caller buffers before they are retained.
+  `Decoder.Open` and `headless.Snapshot` now state their borrowed/reference-bearing
+  contracts precisely.
+- **Long-lived collections have one amortized storage model.** A private generic FIFO
+  backs dispatch, program tests, terminal frames, editor kills, and bounded history;
+  removal clears references and periodically sheds oversized backing arrays. Text
+  decoding, markdown ingress, inline assembly, and markdown rendering grow
+  iteratively instead of rebuilding per chunk or recursing with document depth.
+- **Stable identities are monotonic and architecture independent.** Transcript
+  blocks, modal layers, tree nodes, and editor elements use non-recycled `uint64`
+  namespaces and refuse exhaustion before wraparound. Arbitrary interface values are
+  compared conservatively, so non-comparable application values cannot panic routing
+  or selection.
+- **Transport settlement releases the whole boundary.** Completed byte ingresses and
+  frame writers release callbacks, dispatchers, payloads, errors, and destination
+  writers once no future work can use them. Frame sequence progress is an unbroken
+  publication watermark rather than the largest completion observed.
+- **Tables, trees, and inline rendering compute once through their owning models.**
+  Column sizing has one scan, deep trees and markdown use explicit stacks, and inline
+  composition separates measurement, frame assembly, and publication instead of
+  mixing phases.
+
+### Fixed
+
+- `io.Writer` implementations and every rendering/protocol output path now preserve
+  short-write counts and errors, returning `io.ErrShortWrite` when a writer reports
+  incomplete success instead of silently losing output.
+- Bracketed paste remains in paste mode after a bounded chunk is emitted and until
+  the actual closing sequence arrives; escape-shaped bytes across that boundary stay
+  pasted text. Malformed ANSI parameters remain malformed instead of becoming valid
+  defaults.
+- Fuzzy matching applies Unicode simple folding, diff context arithmetic cannot
+  overflow at `math.MaxInt`, and select/multiselect option replacement distinguishes
+  choice identity from a possibly non-comparable bound value.
+- Unknown graphics protocols and placements are unsupported rather than inheriting a
+  known capability. Extreme shimmer periods, zero-span looping timelines, and clocks
+  that move backwards retain monotonic, bounded state.
+- Grid projection, viewport movement, transcript ranges, editor motion, scrolling,
+  pointer capture, and click proximity no longer wrap at integer boundaries. Negative
+  table measurements and zero-sized box interiors remain empty instead of becoming
+  valid geometry elsewhere.
+- Terminal and frame identity sequences cannot reuse a live identifier; ambiguous
+  partial writes invalidate presentation state, and a later frame cannot make an
+  older unfinished frame appear published.
+
 ## [0.3.0] — 2026-08-08
 
 A seventh module, five components that could not be built here before, and a pass over
