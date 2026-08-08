@@ -79,7 +79,9 @@ func (h *History) Add(line string) {
 func (h *History) trim() {
 	limit := h.Limit()
 	if len(h.entries) > limit {
-		h.entries = slices.Clone(h.entries[len(h.entries)-limit:])
+		dropped := len(h.entries) - limit
+		clear(h.entries[:dropped])
+		h.entries = trim(h.entries[dropped:])
 	}
 }
 

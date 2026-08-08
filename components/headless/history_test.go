@@ -1,10 +1,32 @@
 package headless_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
 )
+
+func BenchmarkHistoryAtCapacity(b *testing.B) {
+	const limit = 1000
+	lines := make([]string, limit+1)
+	for i := range lines {
+		lines[i] = "command " + strconv.Itoa(i)
+	}
+	var history headless.History
+	history.SetLimit(limit)
+	for _, line := range lines[:limit] {
+		history.Add(line)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		history.Add(lines[i%len(lines)])
+	}
+	if history.Len() != limit {
+		b.Fatalf("history grew to %d entries", history.Len())
+	}
+}
 
 func historyOf(lines ...string) *headless.History {
 	var h headless.History
