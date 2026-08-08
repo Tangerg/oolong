@@ -248,7 +248,13 @@ func (w *Writer) Close() error {
 
 // run is the write goroutine.
 func (w *Writer) run() {
-	defer close(w.loopDone)
+	defer func() {
+		// The goroutine is the only reader of dst. Releasing it before publishing
+		// loopDone means a closed Writer cannot retain the terminal transport, while a
+		// timed-out Close never clears a writer still inside its Write method.
+		w.dst = nil
+		close(w.loopDone)
+	}()
 	for {
 		f, ok := w.next()
 		if !ok {

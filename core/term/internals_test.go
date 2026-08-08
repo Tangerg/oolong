@@ -53,6 +53,31 @@ func TestTerminalRefusesToReuseAnImageIdentity(t *testing.T) {
 	}
 }
 
+func TestWriterReleasesItsDestinationOnlyAfterTheWriteLoopEnds(t *testing.T) {
+	release := make(chan struct{})
+	destination := blockingDestination{release: release}
+	writer := NewWriter(destination)
+	writer.Queue([]byte("frame"))
+	if err := writer.Close(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Close error = %v, want ErrClosed while the write is blocked", err)
+	}
+	if writer.dst == nil {
+		t.Fatal("Close released a destination still being written")
+	}
+	close(release)
+	<-writer.loopDone
+	if writer.dst != nil {
+		t.Fatal("finished writer retained its destination")
+	}
+}
+
+type blockingDestination struct{ release <-chan struct{} }
+
+func (d blockingDestination) Write(p []byte) (int, error) {
+	<-d.release
+	return len(p), nil
+}
+
 func TestOpenWithoutATerminal(t *testing.T) {
 	// Under a test runner standard input is not a terminal, which is exactly the
 	// case a caller has to handle rather than force: a program whose output is piped
