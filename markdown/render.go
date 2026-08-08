@@ -298,7 +298,7 @@ func (r *renderer) code(n ast.Node, language string, in frame) {
 
 	var out []text.Line
 	if r.look.Highlight != nil {
-		out = cloneLines(r.look.Highlight(language, strings.Join(source, "\n")))
+		out = text.CloneLines(r.look.Highlight(language, strings.Join(source, "\n")))
 	}
 	if out == nil {
 		out = make([]text.Line, 0, len(source))

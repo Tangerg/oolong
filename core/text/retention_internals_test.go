@@ -95,3 +95,16 @@ func TestLineCloneDetachesRetainedStrings(t *testing.T) {
 		t.Fatalf("changing the source span changed the clone to %q", cloned[0].Text)
 	}
 }
+
+func TestCloneLinesOwnsBothCollectionLevels(t *testing.T) {
+	lines := []Line{{{Text: "first"}}, {{Text: "second"}}}
+	cloned := CloneLines(lines)
+	lines[0][0].Text = "changed"
+	lines[1] = nil
+	if len(cloned) != 2 || cloned[0].String() != "first" || cloned[1].String() != "second" {
+		t.Fatalf("clone changed with its source: %v", cloned)
+	}
+	if got := CloneLines(nil); got != nil {
+		t.Fatalf("nil clone = %v, want nil", got)
+	}
+}

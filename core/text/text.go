@@ -73,6 +73,20 @@ func (l Line) Clone() Line {
 	return out
 }
 
+// CloneLines returns an independently owned copy of lines and every line in it.
+// It is the collection counterpart to [Line.Clone]; a caller taking ownership of a
+// rendered document should not have to rebuild that deep-copy boundary itself.
+func CloneLines(lines []Line) []Line {
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]Line, len(lines))
+	for i, line := range lines {
+		out[i] = line.Clone()
+	}
+	return out
+}
+
 // Of is the one-span line for a piece of plain styled text.
 func Of(s string, style grid.Style) Line {
 	if s == "" {

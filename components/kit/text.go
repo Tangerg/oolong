@@ -98,7 +98,7 @@ func NewParagraph(s string, style grid.Style) *Paragraph {
 // SetText replaces the logical lines. Paragraph copies lines and their spans; the
 // caller may reuse or change its input after this returns.
 func (p *Paragraph) SetText(lines []text.Line) {
-	p.lines = cloneLines(lines)
+	p.lines = text.CloneLines(lines)
 	p.fresh = false
 }
 
@@ -107,18 +107,7 @@ func (p *Paragraph) Lines() []text.Line {
 	if p == nil {
 		return nil
 	}
-	return cloneLines(p.lines)
-}
-
-func cloneLines(lines []text.Line) []text.Line {
-	if len(lines) == 0 {
-		return nil
-	}
-	out := make([]text.Line, len(lines))
-	for i, line := range lines {
-		out[i] = line.Clone()
-	}
-	return out
+	return text.CloneLines(p.lines)
 }
 
 // Measure is how many rows the paragraph needs at this width.
