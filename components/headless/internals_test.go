@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -263,6 +264,34 @@ func TestTranscriptCommittedHeapDoesNotFollowSessionAge(t *testing.T) {
 	const noise = 8 << 20
 	if large > small+noise {
 		t.Fatalf("live heap grew with committed history: 512 blocks=%d bytes, 1024 blocks=%d bytes", small, large)
+	}
+}
+
+func TestSearchOwnsPendingInputAndCloseReleasesIt(t *testing.T) {
+	// There is deliberately no worker: this test is about the private ownership cut,
+	// and keeping the mailbox pending makes that cut deterministic.
+	s := &Search{
+		wake:    make(chan struct{}, 1),
+		results: make(chan Result, 1),
+		stop:    make(chan struct{}),
+	}
+	backing := strings.Repeat("discarded ", 1024) + "needle"
+	query := backing[len(backing)-len("needle"):]
+	var transcript Transcript
+	transcript.Resize(80)
+	transcript.Append(&retainedBlock{payload: []byte("needle")})
+	s.Submit(&transcript, query, false)
+	if unsafe.StringData(s.next.query) == unsafe.StringData(query) { //nolint:gosec // compare ownership; no pointer is dereferenced.
+		t.Fatal("pending query still shares the caller's backing string")
+	}
+	s.results <- Result{Query: strings.Repeat("answer", 1024)}
+
+	s.Close()
+	if !s.closed || s.hasNext || s.next.query != "" || s.next.regex || s.next.start != 0 || s.next.corpus != nil || s.next.generation != 0 {
+		t.Fatalf("closed search retained pending state: closed=%t hasNext=%t next=%+v", s.closed, s.hasNext, s.next)
+	}
+	if len(s.results) != 0 {
+		t.Fatal("closed search retained an unread result")
 	}
 }
 

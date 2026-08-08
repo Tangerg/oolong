@@ -40,10 +40,11 @@ type Result struct {
 // # Why it is not simply a function
 //
 // A search box searches on every keystroke, and the answer to a query three letters
-// old is worth nothing. So the newest query wins: a scan in progress is abandoned at
-// the next row boundary when a later one arrives, and only the last of a burst
-// finishes. Anything that ran scans to completion would spend a long transcript's
-// worth of work per keystroke to produce answers nobody would read.
+// old is worth nothing. So the newest query wins: a waiting scan and an unread result
+// are replaced, and a running scan is discarded at its next cancellation boundary.
+// The standard regexp matcher itself is not interruptible, so one in-progress match
+// pass completes before the newer scan starts. Search keeps that one matcher rather
+// than maintaining a subtly different regular-expression implementation of its own.
 //
 // # What crosses the goroutine boundary
 //
@@ -59,7 +60,15 @@ type Result struct {
 // it finishes or is superseded; Search does not retain an older transcript generation
 // after the work that needs it is gone.
 type Search struct {
-	jobs    chan job
+	mu sync.Mutex
+	// next is the one scan waiting to start. A newer submission replaces it and
+	// generation invalidates both a running scan and an unread result.
+	next       job
+	hasNext    bool
+	generation uint64
+	closed     bool
+
+	wake    chan struct{}
 	results chan Result
 	stop    chan struct{}
 	once    sync.Once
@@ -67,18 +76,19 @@ type Search struct {
 
 // job is one scan, as the worker sees it.
 type job struct {
-	query  string
-	regex  bool
-	start  int
-	corpus []text.Row
+	query      string
+	regex      bool
+	start      int
+	corpus     []text.Row
+	generation uint64
 }
 
 // NewSearch starts a scanner. Close it when the interface it serves is done.
 func NewSearch() *Search {
 	s := &Search{
-		// A job channel of one, replaced rather than queued: two waiting scans mean
-		// the first is already stale.
-		jobs:    make(chan job, 1),
+		// Wake carries no state. The mutex-protected mailbox above is the state, and
+		// several replacements before the worker wakes still need only one signal.
+		wake:    make(chan struct{}, 1),
 		results: make(chan Result, 1),
 		stop:    make(chan struct{}),
 	}
@@ -101,42 +111,77 @@ func (s *Search) Close() {
 	if s == nil || s.stop == nil {
 		return
 	}
-	s.once.Do(func() { close(s.stop) })
+	s.once.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		s.next = job{}
+		s.hasNext = false
+		// An unread answer has no owner after Close. Clear it before the sole producer
+		// closes the channel so its retained matches are released immediately.
+		select {
+		case <-s.results:
+		default:
+		}
+		close(s.stop)
+		s.mu.Unlock()
+	})
 }
 
 // Submit schedules a scan of t for query, replacing any scan not yet finished.
 //
-// An empty query schedules nothing and delivers nothing: it is what a search box
-// looks like before anybody has typed, and answering it with every row in the session
-// is not what was asked.
+// An empty query cancels an older scan and delivers nothing: it is what a search box
+// looks like after its text was cleared, and answering it with every row in the
+// session — or with the previous query — is not what was asked.
 func (s *Search) Submit(t *Transcript, query string, regex bool) {
-	if s == nil || s.jobs == nil || t == nil || query == "" {
+	if s == nil || s.wake == nil {
 		return
 	}
-	select {
-	case <-s.stop:
-		// Do not snapshot a transcript for a worker that has already relinquished
-		// ownership. The send loop checks again for a concurrent close below.
+	if query == "" {
+		s.offer(job{})
 		return
-	default:
 	}
+	if t == nil || !s.accepting() {
+		return
+	}
+
 	start := t.StartRow()
-	next := job{
-		query:  query,
+	s.offer(job{
+		query:  strings.Clone(query),
 		regex:  regex,
 		start:  start,
 		corpus: t.Rows(start, t.Height()),
+	})
+}
+
+func (s *Search) accepting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed
+}
+
+// offer replaces the question waiting to be answered. The empty job is a
+// cancellation: it advances the generation and wakes a running scan, but the worker
+// has nothing new to deliver after abandoning it.
+func (s *Search) offer(next job) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
 	}
-	for {
-		select {
-		case s.jobs <- next:
-			return
-		case <-s.jobs:
-			// Displaced a scan that had not started. Nothing is lost that anyone
-			// still wants.
-		case <-s.stop:
-			return
-		}
+	s.generation++
+	next.generation = s.generation
+	s.next, s.hasNext = next, true
+	// A result nobody read answered an older generation. Removing it here also makes
+	// an empty submission a complete cancellation rather than merely no new work.
+	select {
+	case <-s.results:
+	default:
+	}
+	s.mu.Unlock()
+
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -151,30 +196,48 @@ func (s *Search) run() {
 	defer close(s.results)
 	for {
 		select {
-		case j := <-s.jobs:
+		case <-s.wake:
+			j, ok := s.take()
+			if !ok || j.query == "" {
+				continue
+			}
 			result, superseded := s.scan(j)
 			if superseded {
 				continue
 			}
-			s.deliver(result)
+			s.deliver(j.generation, result)
 		case <-s.stop:
 			return
 		}
 	}
 }
 
-// deliver hands a result over, replacing one nobody has read yet.
-func (s *Search) deliver(r Result) {
-	for {
-		select {
-		case s.results <- r:
-			return
-		case <-s.results:
-			// The unread result answered an older query.
-		case <-s.stop:
-			return
-		}
+func (s *Search) take() (job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.hasNext {
+		return job{}, false
 	}
+	next := s.next
+	s.next = job{}
+	s.hasNext = false
+	return next, true
+}
+
+// deliver hands a result over, replacing one nobody has read yet.
+func (s *Search) deliver(generation uint64, result Result) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || generation != s.generation {
+		return
+	}
+	select {
+	case <-s.results:
+	default:
+	}
+	// Results has room for one and was just emptied while the sole producer is
+	// holding the mailbox lock, so this send cannot wait.
+	s.results <- result
 }
 
 // scan does the work, reporting whether it gave up because a newer query arrived.
@@ -183,16 +246,14 @@ func (s *Search) scan(j job) (Result, bool) {
 	if err != nil {
 		return Result{Query: j.query, Err: err}, false
 	}
+	if s.superseded(j.generation) {
+		return Result{}, true
+	}
 
 	joined, starts := join(j.corpus)
 	result := Result{Query: j.query}
 	for _, loc := range re.FindAllStringIndex(joined, -1) {
-		select {
-		case <-s.stop:
-			return Result{}, true
-		default:
-		}
-		if superseded(s.jobs) {
+		if s.superseded(j.generation) {
 			return Result{}, true
 		}
 		if m, ok := spread(loc[0], loc[1], j.corpus, starts); ok {
@@ -203,9 +264,11 @@ func (s *Search) scan(j job) (Result, bool) {
 	return result, false
 }
 
-// superseded reports whether a newer job is already waiting.
-func superseded(jobs <-chan job) bool {
-	return len(jobs) > 0
+// superseded reports whether this scan still answers the latest live submission.
+func (s *Search) superseded(generation uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed || generation != s.generation
 }
 
 // compile turns a query into the pattern that finds it.

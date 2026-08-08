@@ -36,6 +36,18 @@ func searching(t *testing.T) *headless.Search {
 	return s
 }
 
+func waitForUnreadResult(t *testing.T, s *headless.Search) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for len(s.Results()) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("the search produced no result")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func TestSearchFindsEveryOccurrence(t *testing.T) {
 	tr := transcriptOf(plainRows("the cat sat", "on the mat", "with a cat")...)
 	s := searching(t)
@@ -195,6 +207,20 @@ func TestSearchAnswersNothingWhenNothingWasAsked(t *testing.T) {
 	}
 }
 
+func TestClearingSearchCancelsAnUnreadAnswer(t *testing.T) {
+	tr := transcriptOf(plainRows("the cat sat")...)
+	s := searching(t)
+	s.Submit(tr, "cat", false)
+	waitForUnreadResult(t, s)
+
+	s.Submit(tr, "", false)
+	select {
+	case r := <-s.Results():
+		t.Errorf("clearing the query left an answer behind: %+v", r)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 // TestSearchAnswersTheNewestQuery: the answer to a query three keystrokes old is
 // worth nothing, so a burst produces one answer and it is the last one.
 func TestSearchAnswersTheNewestQuery(t *testing.T) {
@@ -312,14 +338,7 @@ func TestSearchReplacesAnAnswerNobodyRead(t *testing.T) {
 	// Wait for the answer to be waiting rather than for a length of time. What this
 	// test is about is the second query arriving while the first answer is sitting in
 	// the channel unread, and the channel itself says when that is true.
-	deadline := time.After(5 * time.Second)
-	for len(s.Results()) == 0 {
-		select {
-		case <-deadline:
-			t.Fatal("the first answer never arrived")
-		case <-time.After(time.Millisecond):
-		}
-	}
+	waitForUnreadResult(t, s)
 	s.Submit(tr, "mat", false)
 
 	if got := found(t, s, "mat"); len(got.Matches) != 1 {

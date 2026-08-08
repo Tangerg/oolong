@@ -41,6 +41,12 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Search has one explicit latest-question state machine.** A mutex-owned mailbox,
+  rather than a channel used as both storage and notification, now defines replacement,
+  cancellation, result publication and close. Clearing a query invalidates running and
+  unread work, close releases every retained snapshot, and the standard regexp engine
+  remains the sole definition of matching semantics.
+
 - **A table has one geometry API.** `Table.Layout` is now the sole operation that
   measures columns; drawing headings and cells, reading widths, and hit-testing all
   go through the resulting `TableLayout`. The convenience methods that silently
