@@ -346,34 +346,31 @@ commit it names."
 done
 
 # ---------------------------------------------------------------------------
-# Verify from the proxy — and not a moment too early.
+# Verify what this release actually controls.
 # ---------------------------------------------------------------------------
 
-step "Publication"
+step "Published"
 
-# proxy.golang.org caches a negative lookup. Asking for a version before its tag is
-# visible teaches it that the version does not exist, and that answer outlives the
-# push. So this waits before the first question rather than after the first failure.
-note "waiting for the tags to become visible before asking the proxy"
-sleep 30
-
-for attempt in 1 2 3 4 5 6; do
-	missing=()
-	for module in "${PUBLIC_MODULES[@]}"; do
-		code=$(curl -s -o /dev/null -w '%{http_code}' \
-			"https://proxy.golang.org/$MODULE_PATH/$module/@v/$version.info" || echo 000)
-		[[ "$code" == "200" ]] || missing+=("$module")
-	done
-	if [[ ${#missing[@]} -eq 0 ]]; then
-		note "all ${#PUBLIC_MODULES[@]} modules resolve at $version"
-		printf '\n\033[1mReleased %s.\033[0m\n' "$version"
-		exit 0
-	fi
-	note "still propagating: ${missing[*]} (attempt $attempt)"
-	sleep 30
+# The remote is the authority and it can be asked immediately: a tag is released when
+# it is on the remote pointing at the commit this run intended.
+#
+# The proxy is deliberately not asked. It is an eventually-consistent cache nobody
+# here owns, it caches a negative answer, and asking it early is how that negative
+# gets cached — so a check that polls it can turn a correct release into an alarming
+# report and make itself the reason. Waiting longer is not a fix either: whatever
+# interval is chosen is a guess about somebody else's crawler. A person who wants to
+# know asks once, later, with the command below.
+git fetch --quiet origin --tags
+for module in "${PUBLIC_MODULES[@]}"; do
+	tag="$module/$version"
+	remote=$(git ls-remote --tags origin "refs/tags/$tag^{}" | cut -f1)
+	[[ -n "$remote" ]] || remote=$(git ls-remote --tags origin "refs/tags/$tag" | cut -f1)
+	[[ -n "$remote" ]] || die "$tag did not reach the remote. Do not retag: check the push and cut the next version if it is half-published."
+	printf '   %-22s %s  %s\n' "$tag" "${remote:0:7}" "$(git log -1 --format=%s "$remote" 2>/dev/null || echo '(fetch to see)')"
 done
 
 printf '\n\033[1mReleased %s.\033[0m\n' "$version"
-note "The tags are pushed and correct. The proxy had not caught up with: ${missing[*]}"
-note "Propagation is eventual; re-check with:"
-note "  GOPROXY=https://proxy.golang.org go list -m $MODULE_PATH/<module>@$version"
+note "proxy.golang.org fetches on demand and takes its own time. When you want to"
+note "confirm it has caught up, once is enough:"
+note "  GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod \\"
+note "    go list -m $MODULE_PATH/core@$version"
