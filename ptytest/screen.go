@@ -321,7 +321,7 @@ func (s *Screen) eraseDisplay(mode int, raw string) error {
 }
 
 func (s *Screen) setMargins(params ansi.Params, raw string) error {
-	if params.Empty() {
+	if params.Len() == 0 {
 		s.top, s.end = 0, s.size.Rows
 		return nil
 	}

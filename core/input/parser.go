@@ -465,9 +465,9 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	}
 
 	switch {
-	case ps.Empty() && final == 'I':
+	case ps.Len() == 0 && final == 'I':
 		return n, FocusIn{}, true
-	case ps.Empty() && final == 'O':
+	case ps.Len() == 0 && final == 'O':
 		return n, FocusOut{}, true
 	}
 
@@ -530,7 +530,7 @@ const (
 // only form that distinguishes releases from presses and can say what text a key
 // produced.
 func (ps params) extendedKey() Event {
-	if ps.Empty() || ps.Count() > 3 {
+	if ps.Len() == 0 || ps.Len() > 3 {
 		return nil // a bare sequence here is a cursor report, not a key
 	}
 	primary := ps.Group(0)
@@ -602,7 +602,7 @@ var extendedKeys = map[int]Code{
 // mouse reads an SGR mouse report. down distinguishes the final byte that
 // means "went down or moved" from the one that means "came up".
 func (ps params) mouse(down bool) Event {
-	if ps.Count() < 3 {
+	if ps.Len() < 3 {
 		return nil
 	}
 	bits, x, y := ps.At(0), ps.At(1), ps.At(2)

@@ -74,9 +74,6 @@ func parseParam(s string) int {
 	return value
 }
 
-// Empty reports whether the sequence carried no parameters.
-func (ps Params) Empty() bool { return len(ps.groups) == 0 }
-
 // Marker is the byte a private sequence begins with — '<' for a mouse report, '?'
 // for a terminal's answer about a mode — or zero for an ordinary sequence.
 func (ps Params) Marker() byte { return ps.marker }
@@ -114,8 +111,8 @@ func (ps Params) Group(i int) Parameter {
 	return ps.groups[i]
 }
 
-// Count is how many parameter groups the sequence carried.
-func (ps Params) Count() int { return len(ps.groups) }
+// Len is how many parameters the sequence carried.
+func (ps Params) Len() int { return len(ps.groups) }
 
 // Len is how many fields the parameter carries, including its leading value.
 func (p Parameter) Len() int { return len(p.values) }

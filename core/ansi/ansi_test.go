@@ -133,8 +133,8 @@ func TestTheParametersAreReadOnceAndTheSameWayForEveryone(t *testing.T) {
 	if ps.Marker() != '<' {
 		t.Fatalf("the private marker is %q", string(ps.Marker()))
 	}
-	if ps.Count() != 3 || ps.At(0) != 35 || ps.At(1) != 10 || ps.At(2) != 20 {
-		t.Fatalf("read %d parameters", ps.Count())
+	if ps.Len() != 3 || ps.At(0) != 35 || ps.At(1) != 10 || ps.At(2) != 20 {
+		t.Fatalf("read %d parameters", ps.Len())
 	}
 
 	// An empty field is the protocol's own default, which is zero, and a field that
@@ -160,7 +160,7 @@ func TestTheParametersAreReadOnceAndTheSameWayForEveryone(t *testing.T) {
 	if group := ansi.Parse("38:2::1:2:3").Group(0); group.Len() != 6 || group.At(3) != 1 {
 		t.Fatalf("subparameters have length %d and fourth value %d", group.Len(), group.At(3))
 	}
-	if !ansi.Parse("").Empty() {
+	if ansi.Parse("").Len() != 0 {
 		t.Fatal("a sequence with no parameters carried some")
 	}
 }

@@ -28,8 +28,8 @@ func parseParams(body string) params { return params{ansi.Parse(body)} }
 // having.
 func (ps params) deviceAttributes() DeviceAttributes {
 	class := max(ps.First(), 0)
-	features := make([]int, 0, max(ps.Count()-1, 0))
-	for i := 1; i < ps.Count(); i++ {
+	features := make([]int, 0, max(ps.Len()-1, 0))
+	for i := 1; i < ps.Len(); i++ {
 		if group := ps.Group(i); group.Len() > 0 {
 			features = append(features, group.At(0))
 		}
@@ -81,7 +81,7 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 // text reads the associated-text group of a Kitty key report: the code points the
 // key produced, which the terminal is better placed to know than this program is.
 func (ps params) text() (string, bool) {
-	if ps.Count() < 3 {
+	if ps.Len() < 3 {
 		return "", true
 	}
 	var b strings.Builder

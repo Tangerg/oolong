@@ -287,13 +287,13 @@ func dropRune(r rune) bool { return r != '\t' && (r < 0x20 || r == 0x7f) }
 // show — blinking, an overline, a colour under the underline — says nothing about
 // the others.
 func (d *Decoder) sgr(ps ansi.Params) {
-	if ps.Empty() {
+	if ps.Len() == 0 {
 		// A bare "ESC [ m" is a reset, which is what an empty parameter defaulting to
 		// zero already means.
 		d.state = grid.Style{}
 		return
 	}
-	for i := 0; i < ps.Count(); i++ {
+	for i := 0; i < ps.Len(); i++ {
 		group := ps.Group(i)
 		if group.Len() == 0 {
 			continue
@@ -346,7 +346,7 @@ func colourAt(ps ansi.Params, i int, group ansi.Parameter) (grid.Color, int, boo
 		return c, 0, ok
 	}
 	args := make([]int, 0, 4)
-	for k := i + 1; k < ps.Count() && len(args) < cap(args); k++ {
+	for k := i + 1; k < ps.Len() && len(args) < cap(args); k++ {
 		args = append(args, ps.At(k))
 	}
 	c, used, ok := colourOf(args)
