@@ -101,6 +101,38 @@ func TestSurfaceRejectsAnOverflowingAreaClearly(t *testing.T) {
 	grid.NewSurface(int(^uint(0)>>1), 2)
 }
 
+func TestResizeValidatesBeforeChangingRendererState(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	type renderer interface {
+		Size() (int, int)
+		Resize(w, h int)
+	}
+	tests := []struct {
+		name string
+		new  func() renderer
+	}{
+		{name: "surface", new: func() renderer { return grid.NewSurface(3, 2) }},
+		{name: "screen", new: func() renderer { return grid.NewScreen(3, 2) }},
+		{name: "inline", new: func() renderer { return grid.NewInline(3, 2) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			renderer := test.new()
+			func() {
+				defer func() {
+					if got := recover(); got != "grid: surface dimensions overflow" {
+						t.Fatalf("panic = %v", got)
+					}
+				}()
+				renderer.Resize(maxInt, 2)
+			}()
+			if w, h := renderer.Size(); w != 3 || h != 2 {
+				t.Fatalf("size after rejected resize = %dx%d, want 3x2", w, h)
+			}
+		})
+	}
+}
+
 func TestTextWritesAndClips(t *testing.T) {
 	s := grid.NewSurface(6, 2)
 	v := s.View()

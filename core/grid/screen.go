@@ -63,6 +63,7 @@ func (s *Screen) Size() (w, h int) { return s.back.Size() }
 // resize the terminal has reflowed its own contents, and nothing about what it is
 // showing can be assumed.
 func (s *Screen) Resize(w, h int) {
+	w, h, _ = surfaceSize(w, h)
 	if cw, ch := s.back.Size(); cw == w && ch == h {
 		return
 	}

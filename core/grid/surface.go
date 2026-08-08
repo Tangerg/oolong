@@ -26,8 +26,9 @@ type Surface struct {
 	paints []painted
 }
 
-// NewSurface returns a blank surface of the given size. It panics with a grid error
-// when the dimensions' product cannot be represented by int.
+// NewSurface returns a blank surface of the given size. Negative dimensions
+// collapse to zero. It panics with a grid error when the dimensions' product
+// cannot be represented by int.
 func NewSurface(w, h int) *Surface {
 	s := &Surface{}
 	s.Resize(w, h)
@@ -36,12 +37,12 @@ func NewSurface(w, h int) *Surface {
 
 // Resize changes the surface's size and blanks it. Content is not preserved:
 // every resize is followed by a full redraw, so carrying stale cells across one
-// would only make the first frame after it wrong in a subtler way. Resize panics with
-// a grid error when the dimensions' product cannot be represented by int.
+// would only make the first frame after it wrong in a subtler way. Negative
+// dimensions collapse to zero. Resize panics with a grid error when the
+// dimensions' product cannot be represented by int.
 func (s *Surface) Resize(w, h int) {
-	w, h = max(w, 0), max(h, 0)
-	s.w, s.h = w, h
-	if n := surfaceArea(w, h); cap(s.cells) >= n {
+	w, h, n := surfaceSize(w, h)
+	if cap(s.cells) >= n {
 		// Clear the whole allocation before shrinking it. Cells beyond the new length
 		// are still scanned by the garbage collector and would otherwise retain old
 		// content and hyperlink strings for as long as the smaller surface lives.
@@ -51,14 +52,20 @@ func (s *Surface) Resize(w, h int) {
 	} else {
 		s.cells = make([]Cell, n)
 	}
+	s.w, s.h = w, h
 	s.Reset()
 }
 
-func surfaceArea(w, h int) int {
+// surfaceSize is the one interpretation of dimensions used by surfaces and the
+// renderers that own them. It validates before a caller changes any state, so a
+// recovered configuration panic cannot leave a renderer's two buffers at
+// different sizes.
+func surfaceSize(w, h int) (int, int, int) {
+	w, h = max(w, 0), max(h, 0)
 	if h > 0 && w > maxInt/h {
 		panic("grid: surface dimensions overflow")
 	}
-	return w * h
+	return w, h, w * h
 }
 
 // Reset blanks every cell and forgets the regions something else was to paint.

@@ -121,6 +121,7 @@ func (i *Inline) Size() (w, h int) { return i.back.Size() }
 
 // Resize changes the width and the height the block may grow to.
 func (i *Inline) Resize(w, h int) {
+	w, h, _ = surfaceSize(w, h)
 	if cw, ch := i.back.Size(); cw == w && ch == h {
 		return
 	}
