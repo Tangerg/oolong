@@ -158,6 +158,16 @@ func (o Option[T]) holds(want T, same func(a, b T) bool) bool {
 	return false
 }
 
+// sameOption reports whether two complete options are the same choice. Unlike
+// holds, this comparison has both labels available, so arbitrary values do not need
+// to become comparable merely to preserve a choice while options are reordered.
+func (o Option[T]) sameOption(other Option[T], same func(a, b T) bool) bool {
+	if same != nil {
+		return same(o.Value, other.Value)
+	}
+	return o.Label == other.Label
+}
+
 // Options is the usual case, where what is shown is what it means.
 func Options[T ~string](values ...T) []Option[T] {
 	out := make([]Option[T], len(values))
@@ -183,9 +193,10 @@ type Select[T any] struct {
 	// already chosen, and written whenever the cursor moves.
 	Value Accessor[T]
 	// Same says whether two values are the same one, which is what puts the cursor on
-	// the choice already made. Nil compares what is shown instead, which is right
-	// whenever the labels are distinct and is the only thing possible for a type Go
-	// will not compare.
+	// the choice already made. Nil matches a bound string or Stringer value against
+	// the label, and matches old and new options by label when they are replaced. A
+	// different value type whose initial bound value must identify an option supplies
+	// Same; Go cannot safely compare an arbitrary T on the field's behalf.
 	Same func(a, b T) bool
 	// Check says what is wrong with the choice, or nil.
 	Check func(v T) error
@@ -202,8 +213,9 @@ type Select[T any] struct {
 func (s *Select[T]) Prompt() string { return s.Label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
-// value still exists it follows that value to its new position; otherwise the list
-// clamps its cursor and the bound value follows the resulting choice.
+// choice still exists under Same, or has the same label when Same is nil, the cursor
+// follows it to its new position; otherwise the cursor is clamped and the bound
+// value follows the resulting choice.
 func (s *Select[T]) SetOptions(options []Option[T]) {
 	previous, hadPrevious := s.list.Current()
 	s.options = own(s.options, options)
@@ -216,7 +228,7 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 	}
 	if hadPrevious {
 		for i, option := range s.options {
-			if option.holds(previous.Value, s.Same) {
+			if option.sameOption(previous, s.Same) {
 				s.list.Select(i)
 				s.store()
 				return
@@ -374,11 +386,12 @@ type MultiSelect[T any] struct {
 func (m *MultiSelect[T]) Prompt() string { return m.Label }
 
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
-// each taken value that remains available, wherever it moved.
+// each taken choice that remains available under Same, or under its label when Same
+// is nil, wherever it moved.
 func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
-	var previous []T
+	var previous []Option[T]
 	if m.seeded {
-		previous = m.takenValues()
+		previous = m.takenOptions()
 	}
 	m.options = own(m.options, options)
 	for i := range m.options {
@@ -391,7 +404,7 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	}
 	for _, want := range previous {
 		for i, option := range m.options {
-			if !m.taken[i] && option.holds(want, m.Same) {
+			if !m.taken[i] && option.sameOption(want, m.Same) {
 				m.taken[i] = true
 				break
 			}
@@ -414,6 +427,16 @@ func (m *MultiSelect[T]) takenValues() []T {
 	for i, option := range m.options {
 		if i < len(m.taken) && m.taken[i] {
 			out = append(out, option.Value)
+		}
+	}
+	return out
+}
+
+func (m *MultiSelect[T]) takenOptions() []Option[T] {
+	var out []Option[T]
+	for i, option := range m.options {
+		if i < len(m.taken) && m.taken[i] {
+			out = append(out, option)
 		}
 	}
 	return out

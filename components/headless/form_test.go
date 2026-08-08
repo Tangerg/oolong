@@ -269,6 +269,31 @@ func TestReplacingMultipleChoicesMovesTheTakenSetByValue(t *testing.T) {
 	}
 }
 
+func TestReplacingChoicesUsesLabelsForArbitraryValues(t *testing.T) {
+	type payload []int
+	options := []headless.Option[payload]{
+		{Label: "one", Value: payload{1}},
+		{Label: "two", Value: payload{2}},
+	}
+
+	one := selectWith(options)
+	one.Do(headless.SelectNext)
+	one.SetOptions([]headless.Option[payload]{options[1], options[0]})
+	chosen, ok := one.Chosen()
+	if !ok || chosen.Label != "two" {
+		t.Fatalf("single choice after reorder = %+v, %v; want label two", chosen, ok)
+	}
+
+	many := multiWith(options)
+	many.Do(headless.SelectNext)
+	many.Do(headless.Toggle)
+	many.SetOptions([]headless.Option[payload]{options[1], options[0]})
+	taken := many.Taken()
+	if len(taken) != 1 || len(taken[0]) != 1 || taken[0][0] != 2 {
+		t.Fatalf("multiple choices after reorder = %v; want the value labelled two", taken)
+	}
+}
+
 func TestAChoiceIsMarkedAsTaken(t *testing.T) {
 	var picked []string
 	field := multiWith(headless.Options("a", "b"))
