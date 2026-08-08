@@ -3,6 +3,7 @@ package headless
 import (
 	"image"
 	"strconv"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -156,7 +157,7 @@ func (s *Slider) Label() string {
 // SetLabel changes the control's semantic label.
 func (s *Slider) SetLabel(label string) {
 	if s != nil {
-		s.label = label
+		s.label = strings.Clone(label)
 	}
 }
 

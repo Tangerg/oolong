@@ -23,6 +23,15 @@ type panel struct {
 	closed     int
 }
 
+type valuePanel struct {
+	target  *panel
+	payload []byte
+}
+
+func (p valuePanel) Draw(frame headless.Frame)                { p.target.Draw(frame) }
+func (p valuePanel) Handle(event input.Event) bool            { return p.target.Handle(event) }
+func (p valuePanel) Place(space image.Point) layout.Placement { return p.target.Place(space) }
+
 func (p *panel) Draw(v headless.Frame) {
 	w, h := v.Size()
 	p.drawnInto = []int{w, h}
@@ -72,6 +81,19 @@ func TestAnEmptyStackConsumesNothing(t *testing.T) {
 		t.Fatal("the zero stack is not empty")
 	}
 	draw(&s, 10, 10) // must not panic
+}
+
+func TestLayerHandlesDoNotRequireComparableModals(t *testing.T) {
+	target := &panel{name: "value", place: middle(4, 2)}
+	value := valuePanel{target: target, payload: []byte("not comparable")}
+	var stack headless.Stack
+	id := stack.Push(value)
+	if id == 0 || !stack.Contains(id) {
+		t.Fatal("pushed value modal has no live handle")
+	}
+	if !stack.Remove(id) || stack.Contains(id) {
+		t.Fatal("value modal was not removed by its handle")
+	}
 }
 
 func TestOnlyTheTopLayerSeesInput(t *testing.T) {
@@ -226,7 +248,7 @@ func TestTheWheelOutsideTheLayerBelongsToWhatIsUnderIt(t *testing.T) {
 func TestTheWheelOutsideALayerReachesTheOwnedBase(t *testing.T) {
 	base := &panel{name: "base", takesMouse: true}
 	p := &panel{name: "p", place: middle(4, 2)}
-	s := headless.Stack{Base: base}
+	s := *headless.NewStack(base)
 	s.Push(p)
 	draw(&s, 20, 10)
 

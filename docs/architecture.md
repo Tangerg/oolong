@@ -255,9 +255,11 @@ responsibilities:
 
 Oolong must keep those responsibilities distinguishable. It does not follow that the
 repository needs three exported interfaces, three packages, or three object graphs.
-The retained Go widget already provides stable identity and owns behavior. A separate
-Element tree is justified only if a declarative description layer creates a real need
-to reconcile disposable descriptions with persistent instances.
+A retained Go component instance owns behavior. Identity across collection rebuilds
+must be explicit — a keyed slot or an opaque handle — rather than inferred by comparing
+open interface values. A separate Element tree is justified only if a declarative
+description layer creates a real need to reconcile disposable descriptions with
+persistent instances.
 
 Until then, adding one would be speculative indirection.
 

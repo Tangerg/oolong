@@ -21,6 +21,18 @@ type Frame struct {
 	transaction *transaction
 }
 
+type frameStamp struct {
+	transaction *transaction
+	generation  uint64
+}
+
+func (f Frame) stamp() frameStamp {
+	if f.transaction == nil {
+		return frameStamp{}
+	}
+	return frameStamp{transaction: f.transaction, generation: f.transaction.generation}
+}
+
 // Sub returns a child frame over r, whose coordinates begin at zero.
 func (f Frame) Sub(r image.Rectangle) Frame {
 	return Frame{View: f.View.Sub(r), transaction: f.transaction}
@@ -102,8 +114,9 @@ type stagedState interface {
 }
 
 type transaction struct {
-	states []stagedState
-	active bool
+	states     []stagedState
+	active     bool
+	generation uint64
 }
 
 func (t *transaction) begin() {
@@ -111,6 +124,7 @@ func (t *transaction) begin() {
 		panic("headless: Root.Draw is not reentrant")
 	}
 	t.states = t.states[:0]
+	t.generation++
 	t.active = true
 }
 

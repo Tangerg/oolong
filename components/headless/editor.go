@@ -154,7 +154,7 @@ func (e *Editor) Text() string {
 func (e *Editor) SetText(s string) {
 	e.endTyping()
 	e.snapshot()
-	e.lines = strings.Split(e.flatten(s), "\n")
+	e.lines = strings.Split(strings.Clone(e.flatten(s)), "\n")
 	e.line = len(e.lines) - 1
 	e.col = len(e.lines[e.line])
 	e.invalidate()
@@ -262,7 +262,7 @@ func (e *Editor) oneLine() bool { return e.SingleLine || e.Mask != "" }
 
 // splice puts text in at the cursor, assuming the undo step has been opened already.
 func (e *Editor) splice(s string) {
-	s = e.flatten(s)
+	s = strings.Clone(e.flatten(s))
 	// The marks are moved before anything else is, because an edit is described
 	// against the document as it was.
 	at := e.offsetOf(Caret{Line: e.line, Col: e.col})

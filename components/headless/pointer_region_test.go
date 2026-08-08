@@ -14,6 +14,16 @@ type pointerTarget struct {
 	events []input.Mouse
 }
 
+type valuePointerTarget struct {
+	target  *pointerTarget
+	payload []byte
+}
+
+func (t valuePointerTarget) Draw(headless.Frame) {}
+func (t valuePointerTarget) Handle(event input.Event) bool {
+	return t.target.Handle(event)
+}
+
 func (t *pointerTarget) Draw(headless.Frame) {}
 
 func (t *pointerTarget) Handle(event input.Event) bool {
@@ -94,6 +104,22 @@ func TestPointerRegionFollowsItsChildWhenTheLayoutMoves(t *testing.T) {
 	}
 	if got := child.last(); got != image.Pt(3, 1) {
 		t.Fatalf("local drag = %v, want (3,1) measured from where the child is now", got)
+	}
+}
+
+func TestPointerRegionAcceptsANonComparableValueChild(t *testing.T) {
+	target := &pointerTarget{takes: true}
+	child := valuePointerTarget{target: target, payload: []byte("not comparable")}
+	fixture := &pointerRegionFixture{area: image.Rect(2, 1, 10, 5), child: child}
+	fixture.draw()
+
+	if !fixture.Handle(regionPress(5, 3)) ||
+		!fixture.Handle(regionDrag(6, 3)) ||
+		!fixture.Handle(regionRelease(6, 3)) {
+		t.Fatal("value child did not retain a gesture in its committed frame")
+	}
+	if len(target.events) != 3 {
+		t.Fatalf("value child received %d events, want press, drag and release", len(target.events))
 	}
 }
 

@@ -2,6 +2,7 @@ package headless
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -205,6 +206,9 @@ func (s *Select[T]) Prompt() string { return s.Label }
 func (s *Select[T]) SetOptions(options []Option[T]) {
 	previous, hadPrevious := s.list.Current()
 	s.options = own(s.options, options)
+	for i := range s.options {
+		s.options[i].Label = strings.Clone(s.options[i].Label)
+	}
 	s.list.SetItems(s.options)
 	if !s.seeded {
 		return
@@ -375,6 +379,9 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 		previous = m.takenValues()
 	}
 	m.options = own(m.options, options)
+	for i := range m.options {
+		m.options[i].Label = strings.Clone(m.options[i].Label)
+	}
 	m.list.SetItems(m.options)
 	m.taken = make([]bool, len(m.options))
 	if !m.seeded {

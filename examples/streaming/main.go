@@ -128,7 +128,7 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 		headless.Item{Size: layout.Fixed(1), Of: headless.Static{Of: &c.status}},
 		headless.Item{Size: layout.Measured(1, 0), Of: &c.composer},
 	)
-	c.stack.Base = c.body
+	c.stack.SetBase(c.body)
 	c.buildApproval()
 	runtime.Session().SetTitle("streaming")
 	return c

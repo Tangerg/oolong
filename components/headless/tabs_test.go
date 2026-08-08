@@ -62,6 +62,19 @@ func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 	}
 }
 
+func TestTabsAcceptNonComparableValuePanes(t *testing.T) {
+	first := valueField{target: &field{name: "first"}, payload: []byte("first")}
+	second := valueField{target: &field{name: "second"}, payload: []byte("second")}
+	tabs := headless.NewTabs(
+		headless.Tab{Title: "first", Of: first},
+		headless.Tab{Title: "second", Of: second},
+	)
+	tabs.Select(1)
+	if got := tabs.Selected(); got != 1 {
+		t.Fatalf("selected = %d, want 1", got)
+	}
+}
+
 func TestControlledTabsUseOneSelectionAndSyncExternalTransitions(t *testing.T) {
 	selected := 1
 	first, second := &focusProbe{}, &focusProbe{}
@@ -122,7 +135,7 @@ func TestAListCanHoldTheKeyboard(t *testing.T) {
 
 	// A container can therefore hold one, which is the point.
 	body := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: &list})
-	if !body.Give(&list) {
+	if !body.Give(0) {
 		t.Fatal("a container would not hand the keyboard to a list")
 	}
 	if !list.Focused() {

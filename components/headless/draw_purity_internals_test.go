@@ -365,7 +365,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	stackBase := &purityWidget{text: "base"}
 	stackModal := &purityModal{&purityWidget{text: "modal", height: 2}}
-	stack := &Stack{Base: stackBase}
+	stack := NewStack(stackBase)
 	stack.Push(stackModal)
 	stack.Focus(true)
 	cases = append(cases, widgetPurityCase("*Stack", stack, func() any {
@@ -416,7 +416,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 		return struct {
 			focused            Widget
 			oldFocus, newFocus bool
-		}{container.focused, oldChild.focused, newChild.focused}
+		}{container.holder, oldChild.focused, newChild.focused}
 	}))
 
 	rootChild := &purityWidget{text: "root", focused: true}

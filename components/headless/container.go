@@ -3,6 +3,7 @@ package headless
 import (
 	"image"
 	"slices"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -48,6 +49,11 @@ type Focusable interface {
 
 // Item is one child of a [Container]: what goes there, and how much room it gets.
 type Item struct {
+	// Key is the child's stable identity across [Container.Set]. Empty uses its
+	// position. Name a child when it may move: focus and an in-progress pointer
+	// gesture then follow the part rather than whichever part took its old slot.
+	// Non-empty keys must be unique within one container.
+	Key string
 	// Size is how much of the divided axis this child takes. It means exactly what
 	// it means in [layout.Slot], including the zero value, which asks for nothing —
 	// deliberately, because [layout.Fixed] of zero is that same zero value, and a
@@ -95,8 +101,6 @@ type Container struct {
 	// replacing them cannot bypass focus settlement or leave pointer capture owned by
 	// a child that is no longer present.
 	//
-	// Held by identity means held as a pointer. A child value containing a function
-	// cannot be compared at all, and comparing one is a panic rather than a false.
 	items []Item
 	// Gap is how many blank rows or columns go between one child and the next. Zero
 	// puts them against each other.
@@ -114,9 +118,13 @@ type Container struct {
 	// it.
 	Keys *keymap.Map
 
-	// focused is the child with the keyboard, held by identity rather than by index
-	// so that rebuilding the items does not silently move it.
-	focused Widget
+	// focused is the semantic item index. A named item follows its key through Set;
+	// an unnamed item follows its position, the same explicit identity rule used by
+	// retained component trees elsewhere.
+	focused int
+	// holder is the concrete child last told it had the keyboard. Keeping it beside
+	// the index lets Set release a removed child without comparing interface values.
+	holder Widget
 	// settled says whether the children have been told where they stand. Until they
 	// have, every one of them believes it has the keyboard — see [Focusable].
 	settled bool
@@ -128,9 +136,11 @@ type Container struct {
 	// frame. Identity belongs in the snapshot with geometry: if Items is reordered
 	// before the next draw, input still goes to what the user can actually see.
 	presentation Snapshot[[]childPlacement]
-	// held is the child a press was given to, kept by identity for the same reason
-	// the focus is. Everything up to the release goes to it.
-	held Widget
+	// held is the exact presented child a press was given to. Everything up to the
+	// release goes back to it; a later frame may update its geometry when its identity
+	// is still demonstrably the same.
+	held    childPlacement
+	holding bool
 	// slots is rebuilt every frame from the items and kept to save the allocation.
 	slots []layout.Slot
 	// pending is how far into a multi-chord binding the keys typed so far have got.
@@ -151,16 +161,35 @@ func Columns(items ...Item) *Container {
 	return c
 }
 
-// Set replaces the children, preserving focus by identity where possible.
+// Set replaces the children. Focus follows a non-empty [Item.Key], or the old position
+// for an unnamed item.
 func (c *Container) Set(items ...Item) {
+	checkItemKeys(items)
+	key := c.focusKey()
+	at := c.focused
 	c.items = own(c.items, items)
+	for i := range c.items {
+		c.items[i].Key = strings.Clone(c.items[i].Key)
+	}
+	if key != "" {
+		at = c.indexOfKey(key)
+	} else if len(c.items) > 0 {
+		at = min(max(at, 0), len(c.items)-1)
+	}
+	c.focused = at
+	c.settled = false
 	c.settle()
 }
 
 // Add appends a child and returns the container, so a tree can be built in one
 // expression.
 func (c *Container) Add(items ...Item) *Container {
+	checkItemKeys(append(slices.Clone(c.items), items...))
 	c.items = append(c.items, items...)
+	for i := len(c.items) - len(items); i < len(c.items); i++ {
+		c.items[i].Key = strings.Clone(c.items[i].Key)
+	}
+	c.settled = false
 	c.settle()
 	return c
 }
@@ -184,23 +213,20 @@ func (c *Container) Len() int {
 // Focused is the child with the keyboard, or nil when no child will take it.
 func (c *Container) Focused() Widget {
 	c.settle()
-	return c.focused
+	return c.widgetAt(c.focused)
 }
 
-// Give hands the keyboard to a child, reporting whether it took it. A child that is
-// not in this container, or that does not want the keyboard, does not get it.
-func (c *Container) Give(w Widget) bool {
-	if _, ok := w.(Focusable); !ok {
+// Give hands the keyboard to the child at index, reporting whether it took it. An
+// index that does not exist, or a child that does not want the keyboard, is declined.
+// Addressing the item rather than comparing Widget interface values keeps this API
+// valid for every implementation the interface permits.
+func (c *Container) Give(index int) bool {
+	if !c.focusable(index) {
 		return false
 	}
-	for _, item := range c.items {
-		if item.Of == w {
-			c.settle()
-			c.move(w)
-			return true
-		}
-	}
-	return false
+	c.settle()
+	c.move(index)
+	return true
 }
 
 // FocusNext moves the keyboard to the next child that will take it, wrapping round.
@@ -217,7 +243,7 @@ func (c *Container) FocusPrev() bool { return c.step(-1) }
 func (c *Container) Focus(has bool) {
 	c.blurred = !has
 	c.settle()
-	tell(c.focused, has)
+	tell(c.holder, has)
 }
 
 // Draw arranges the children and draws each into the room it got.
@@ -226,7 +252,9 @@ func (c *Container) Draw(v Frame) {
 	rects := c.flow().Rects(v.Bounds().Size(), c.arrangeItems(items))
 	placed := make([]childPlacement, len(items))
 	for i, item := range items {
-		placed[i] = childPlacement{child: item.Of, area: rects[i]}
+		placed[i] = childPlacement{
+			index: i, key: item.Key, child: item.Of, area: rects[i], frame: v.stamp(),
+		}
 	}
 	c.presentation.Stage(v, placed)
 	for _, child := range placed {
@@ -258,7 +286,7 @@ func (c *Container) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		return c.mouse(mouse)
 	}
-	if handler, ok := c.focused.(Interactive); ok && handler.Handle(ev) {
+	if handler, ok := c.holder.(Interactive); ok && handler.Handle(ev) {
 		return true
 	}
 	key, ok := ev.(input.Key)
@@ -293,23 +321,24 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		// A new press begins a new gesture even if the terminal never reported the
 		// previous release. Clear before routing so a declined press cannot leave the
 		// old owner installed.
-		c.held = nil
+		c.held = childPlacement{}
+		c.holding = false
 	}
-	if c.held != nil {
+	if c.holding {
 		switch ev.Action {
 		case input.MouseDrag, input.MouseUp:
-			held, found := c.placed(c.held)
+			owner := c.held
+			current, found := c.placed(owner)
 			if ev.Action == input.MouseUp {
-				c.held = nil
+				c.held = childPlacement{}
+				c.holding = false
 			}
-			if !found {
-				// The child that took the press is no longer here. The gesture has
-				// nowhere to go, which is not the same as it belonging to whatever
-				// took its place.
-				c.held = nil
+			if !found || !current.sameOwner(owner) {
+				c.held = childPlacement{}
+				c.holding = false
 				return false
 			}
-			return c.deliver(held, ev)
+			return c.deliver(current, ev)
 		default:
 		}
 	}
@@ -322,11 +351,12 @@ func (c *Container) mouse(ev input.Mouse) bool {
 	}
 	// A press moves the keyboard whether or not the child does anything with the
 	// press itself: clicking a pane is how a user says they mean that one.
-	c.Give(at.child)
+	c.Give(at.index)
 	if !c.deliver(at, ev) {
 		return false
 	}
-	c.held = at.child
+	c.held = at
+	c.holding = true
 	return true
 }
 
@@ -355,9 +385,9 @@ func (c *Container) at(p image.Point) (childPlacement, bool) {
 	return childPlacement{}, false
 }
 
-func (c *Container) placed(w Widget) (childPlacement, bool) {
+func (c *Container) placed(want childPlacement) (childPlacement, bool) {
 	for _, child := range c.presentation.Value() {
-		if child.child == w {
+		if child.sameSlot(want) {
 			return child, true
 		}
 	}
@@ -385,8 +415,28 @@ func (c *Container) arrangeItems(items []Item) []layout.Slot {
 }
 
 type childPlacement struct {
+	index int
+	key   string
 	child Widget
 	area  image.Rectangle
+	frame frameStamp
+}
+
+func (p childPlacement) sameOwner(other childPlacement) bool {
+	if p.frame == other.frame {
+		return true
+	}
+	if p.key != "" && p.key == other.key {
+		return true
+	}
+	return sameIdentity(p.child, other.child)
+}
+
+func (p childPlacement) sameSlot(other childPlacement) bool {
+	if p.key != "" || other.key != "" {
+		return p.key != "" && p.key == other.key
+	}
+	return p.index == other.index
 }
 
 // settle makes sure the keyboard is somewhere it can be, and that every child has
@@ -396,7 +446,7 @@ type childPlacement struct {
 // between frames and the child that had the keyboard may no longer be there.
 func (c *Container) settle() {
 	want := c.focused
-	if !c.has(want) {
+	if !c.focusable(want) {
 		want = c.first()
 	}
 	c.move(want)
@@ -408,24 +458,28 @@ func (c *Container) settle() {
 // Every other child is told, not just the one that had it: until a container says
 // otherwise each of them believes it has the keyboard, which is what makes a single
 // widget work with no container above it.
-func (c *Container) move(to Widget) {
+func (c *Container) move(to int) {
+	if !c.focusable(to) {
+		to = -1
+	}
 	if c.settled && to == c.focused {
 		return
 	}
-	from := c.focused
+	from := c.holder
 	c.focused = to
+	c.holder = c.widgetAt(to)
 	// The one that had it is told first and by name, because it may be the reason
 	// the keyboard moved at all: a child taken out of the items is no longer in the
 	// loop below, and would otherwise go on believing it has the keyboard.
-	if from != nil && from != to {
+	if from != nil {
 		tell(from, false)
 	}
-	for _, item := range c.items {
-		if item.Of != to && item.Of != from {
+	for i, item := range c.items {
+		if i != to {
 			tell(item.Of, false)
 		}
 	}
-	tell(to, !c.blurred)
+	tell(c.holder, !c.blurred)
 }
 
 // step moves the keyboard along the ring by one, in the given direction.
@@ -435,44 +489,72 @@ func (c *Container) step(by int) bool {
 	if n == 0 {
 		return false
 	}
-	from := c.indexOf(c.focused)
+	from := c.focused
 	for offset := 1; offset <= n; offset++ {
 		i := ((from+by*offset)%n + n) % n
-		if w, ok := c.items[i].Of.(Focusable); ok {
-			if Widget(w) == c.focused {
+		if _, ok := c.items[i].Of.(Focusable); ok {
+			if i == c.focused {
 				return false
 			}
-			c.move(w)
+			c.move(i)
 			return true
 		}
 	}
 	return false
 }
 
-// first is the earliest child that will take the keyboard, or nil.
-func (c *Container) first() Widget {
-	for _, item := range c.items {
-		if w, ok := item.Of.(Focusable); ok {
-			return w
-		}
-	}
-	return nil
-}
-
-// has reports whether a widget is one of this container's children.
-func (c *Container) has(w Widget) bool { return w != nil && c.indexOf(w) >= 0 }
-
-// indexOf is where a widget sits among the children, or -1.
-func (c *Container) indexOf(w Widget) int {
-	if w == nil {
-		return -1
-	}
+// first is the earliest child that will take the keyboard, or -1.
+func (c *Container) first() int {
 	for i, item := range c.items {
-		if item.Of == w {
+		if _, ok := item.Of.(Focusable); ok {
 			return i
 		}
 	}
 	return -1
+}
+
+func (c *Container) focusable(index int) bool {
+	if index < 0 || index >= len(c.items) {
+		return false
+	}
+	_, ok := c.items[index].Of.(Focusable)
+	return ok
+}
+
+func (c *Container) widgetAt(index int) Widget {
+	if index < 0 || index >= len(c.items) {
+		return nil
+	}
+	return c.items[index].Of
+}
+
+func (c *Container) focusKey() string {
+	if c.focused < 0 || c.focused >= len(c.items) {
+		return ""
+	}
+	return c.items[c.focused].Key
+}
+
+func (c *Container) indexOfKey(key string) int {
+	for i, item := range c.items {
+		if item.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func checkItemKeys(items []Item) {
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.Key == "" {
+			continue
+		}
+		if _, exists := seen[item.Key]; exists {
+			panic("headless: duplicate container item key")
+		}
+		seen[item.Key] = struct{}{}
+	}
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.

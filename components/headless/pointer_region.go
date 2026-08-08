@@ -37,10 +37,11 @@ import (
 // [Root.Draw] and read only from Handle.
 type PointerRegion struct {
 	presented Snapshot[pointerRegionFrame]
-	// held is the child that accepted a press. Comparing children by identity is what
-	// [Container] does too, and it carries the same requirement: a widget used as a
-	// child must be comparable, which every pointer is.
-	held Interactive
+	// held is the child that accepted a press. Identity is checked without comparing
+	// interface values directly, so an external value implementation can never turn
+	// routing into a comparability panic.
+	held      Interactive
+	heldFrame frameStamp
 }
 
 // pointerRegionFrame is one child and where it was drawn, published together so that
@@ -48,6 +49,7 @@ type PointerRegion struct {
 type pointerRegionFrame struct {
 	area  image.Rectangle
 	child Interactive
+	frame frameStamp
 }
 
 // Stage publishes where child was drawn, to take effect with the complete root frame.
@@ -62,7 +64,7 @@ func (r *PointerRegion) Stage(frame Frame, area image.Rectangle, child Widget) {
 	if target == nil {
 		area = image.Rectangle{}
 	}
-	r.presented.Stage(frame, pointerRegionFrame{area: area, child: target})
+	r.presented.Stage(frame, pointerRegionFrame{area: area, child: target, frame: frame.stamp()})
 }
 
 // Clear publishes the absence of a child, which is what a wrapper with nothing to draw
@@ -90,12 +92,14 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 	// also the last event it is owed.
 	if owner := r.held; owner != nil &&
 		(event.Action == input.MouseDrag || event.Action == input.MouseUp) {
+		ownerFrame := r.heldFrame
 		// The gesture is over once its release has been offered, whether or not the
 		// child wanted it: consuming and owning are separate questions.
 		if event.Action == input.MouseUp {
 			r.held = nil
+			r.heldFrame = frameStamp{}
 		}
-		if presented.child != owner || presented.area.Empty() {
+		if (presented.frame != ownerFrame && !sameIdentity(presented.child, owner)) || presented.area.Empty() {
 			return false, false
 		}
 		return r.deliver(presented, event), true
@@ -108,12 +112,14 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 	// the child is called is what keeps a panic or a refusal from leaving it installed.
 	if event.Action == input.MouseDown {
 		r.held = nil
+		r.heldFrame = frameStamp{}
 	}
 	handled = r.deliver(presented, event)
 	if event.Action == input.MouseDown && handled {
 		// Only a press the child wanted begins an interaction. Holding one it refused
 		// would swallow the release belonging to whatever the pointer is really over.
 		r.held = presented.child
+		r.heldFrame = presented.frame
 	}
 	return handled, true
 }

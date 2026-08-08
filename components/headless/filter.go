@@ -2,6 +2,7 @@ package headless
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/fuzzy"
 	"github.com/Tangerg/oolong/core/grid"
@@ -64,7 +65,7 @@ func (f *Filter[T]) SetPattern(pattern string) {
 	if pattern == f.pattern && f.fresh {
 		return
 	}
-	f.pattern, f.fresh = pattern, false
+	f.pattern, f.fresh = strings.Clone(pattern), false
 	f.match()
 	f.list.Select(0)
 }

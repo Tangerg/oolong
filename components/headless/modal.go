@@ -69,6 +69,18 @@ type Backdrop interface {
 	Backdrop(v grid.View)
 }
 
+// LayerID is one insertion into a [Stack].
+//
+// A handle, rather than Modal interface equality, makes duplicate insertions
+// unambiguous and lets every valid Modal implementation be removed even when its
+// concrete value is not comparable. The zero ID names no layer.
+type LayerID uint64
+
+type stackLayer struct {
+	id    LayerID
+	modal Modal
+}
+
 // Stack is an interface with layers floating over it, and the answer to which of
 // them the keyboard belongs to.
 //
@@ -81,15 +93,9 @@ type Backdrop interface {
 //
 // The zero Stack is empty and ready.
 type Stack struct {
-	// Base is the interface the layers float over. It is drawn first and has the
-	// input whenever no layer does.
-	//
-	// It is here rather than left to the caller because owning it is what lets the
-	// stack say who has the keyboard. A caller that drew the interface itself and
-	// then drew the stack over it would leave a field underneath still believing it
-	// was being typed into — still drawing a cursor, into the frame's one cursor,
-	// under a dialog that has one of its own.
-	Base Widget
+	// base is private because replacing the focused root has to release the old one.
+	// SetBase is the ownership transition; an exported field could bypass it.
+	base Widget
 
 	// Keys say which keystrokes produce which of the actions a stack answers to, which
 	// is the one that closes the top layer. Nil reads through [DefaultStackKeys].
@@ -104,7 +110,8 @@ type Stack struct {
 	// is finished with the modal, and every interface they already use agrees.
 	KeepOnClickOutside bool
 
-	layers []Modal
+	layers    []stackLayer
+	nextLayer LayerID
 	// presentation is the base and layers of the last complete root frame. Pairing
 	// identity with geometry keeps input on what is visible if the semantic stack is
 	// changed while another frame is being prepared.
@@ -113,8 +120,10 @@ type Stack struct {
 	// holder is whatever was last told it has the keyboard, and settled says
 	// anything has been told at all. Until then every one of them believes it does —
 	// see [Focusable].
-	holder  Widget
-	settled bool
+	holder     Widget
+	holderID   LayerID
+	holderBase bool
+	settled    bool
 	// blurred says the stack itself has been told it does not have the keyboard,
 	// which is what a stack inside something larger is told.
 	blurred bool
@@ -122,16 +131,47 @@ type Stack struct {
 	pending keymap.Pending
 	// held is the layer that accepted a pointer press. Drag and release stay with it
 	// even after the pointer leaves its rectangle, matching capture inside containers.
-	held Modal
+	held LayerID
 }
 
-// Push puts a layer on top, and gives it the keyboard.
-func (s *Stack) Push(m Modal) {
-	if m == nil {
+// NewStack constructs a stack over base. The zero Stack has no base and is ready.
+func NewStack(base Widget) *Stack {
+	s := &Stack{}
+	s.SetBase(base)
+	return s
+}
+
+// Base returns the interface the layers float over.
+func (s *Stack) Base() Widget {
+	if s == nil {
+		return nil
+	}
+	return s.base
+}
+
+// SetBase replaces the interface beneath the layers and settles keyboard ownership.
+func (s *Stack) SetBase(base Widget) {
+	if s == nil {
 		return
 	}
-	s.layers = append(s.layers, m)
+	s.base = base
+	s.settled = false
 	s.settle()
+}
+
+// Push puts a layer on top, gives it the keyboard, and returns its stable handle.
+func (s *Stack) Push(m Modal) LayerID {
+	if m == nil {
+		return 0
+	}
+	if s.nextLayer == ^LayerID(0) {
+		panic("headless: stack exhausted layer identities")
+	}
+	s.nextLayer++
+	id := s.nextLayer
+	s.layers = append(s.layers, stackLayer{id: id, modal: m})
+	s.settle()
+	return id
 }
 
 // Pop removes the top layer and reports whether there was one. The keyboard goes
@@ -144,23 +184,26 @@ func (s *Stack) Pop() bool {
 	return s.remove(n - 1)
 }
 
-// Remove takes layer out of the stack and reports whether it was present.
-//
-// A controller uses this when its state closes a layer while another layer is above
-// it. Popping the top in that case would dismiss a different control from the one that
-// changed. Layer identity is the same pointer identity Stack uses for focus.
-func (s *Stack) Remove(layer Modal) bool {
+// Remove takes the insertion named by id out of the stack and reports whether it was
+// present. A controller uses this when its layer closes while another is above it;
+// popping would dismiss a different control.
+func (s *Stack) Remove(id LayerID) bool {
+	if id == 0 {
+		return false
+	}
 	for i := len(s.layers) - 1; i >= 0; i-- {
-		if s.layers[i] == layer {
+		if s.layers[i].id == id {
 			return s.remove(i)
 		}
 	}
 	return false
 }
 
-// Contains reports whether layer is currently in the stack.
-func (s *Stack) Contains(layer Modal) bool {
-	return slices.Contains(s.layers, layer)
+// Contains reports whether id is currently in the stack.
+func (s *Stack) Contains(id LayerID) bool {
+	return id != 0 && slices.ContainsFunc(s.layers, func(layer stackLayer) bool {
+		return layer.id == id
+	})
 }
 
 // Clear pops every layer, from the top down, so each is told in the order it
@@ -172,10 +215,18 @@ func (s *Stack) Clear() {
 
 // Top is the layer with the input, or nil when there is none.
 func (s *Stack) Top() Modal {
-	if len(s.layers) == 0 {
+	top, ok := s.top()
+	if !ok {
 		return nil
 	}
-	return s.layers[len(s.layers)-1]
+	return top.modal
+}
+
+func (s *Stack) top() (stackLayer, bool) {
+	if len(s.layers) == 0 {
+		return stackLayer{}, false
+	}
+	return s.layers[len(s.layers)-1], true
 }
 
 // Depth is how many layers there are.
@@ -214,13 +265,13 @@ func (s *Stack) Handle(ev input.Event) bool {
 		return s.mouse(presented, mouse)
 	}
 
-	if top.layer.Handle(ev) {
+	if top.modal.Handle(ev) {
 		return true
 	}
 	if key, ok := ev.(input.Key); ok {
 		if action, mine := s.keys().Lookup(key, &s.pending); mine && action != "" {
-			if action == Close && !sticky(top.layer) {
-				s.dismiss(top.layer)
+			if action == Close && !sticky(top.modal) {
+				s.dismiss(top.id)
 			}
 		}
 	}
@@ -234,12 +285,12 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 	if mouse.Action == input.MouseDown {
 		// The input protocol carries one pointer gesture. A new press supersedes an
 		// incomplete old one, including when its new target declines the press.
-		s.held = nil
+		s.held = 0
 	}
-	if s.held != nil && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
+	if s.held != 0 && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
 		held, found := presented.placed(s.held)
 		if mouse.Action == input.MouseUp {
-			s.held = nil
+			s.held = 0
 		}
 		if !found {
 			// The owner of the gesture is gone. Do not hand its remainder to whatever
@@ -260,13 +311,13 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 		case input.WheelUp, input.WheelDown, input.MouseMove:
 			return s.below(presented, top, mouse)
 		default:
-			return s.outside(mouse, placed.layer)
+			return s.outside(mouse, placed)
 		}
 	}
 
 	handled := s.deliver(placed, mouse)
 	if mouse.Action == input.MouseDown && handled {
-		s.held = placed.layer
+		s.held = placed.id
 	}
 	// A pointer event inside a modal never activates what the modal covers, even when
 	// its content had no behavior for this particular event.
@@ -286,7 +337,7 @@ func (s *Stack) below(presented stackPresentation, before int, mouse input.Mouse
 func (s *Stack) deliver(placed layerPlacement, mouse input.Mouse) bool {
 	local := mouse
 	local.Pos = mouse.Pos.Sub(placed.area.Min)
-	return placed.layer.Handle(local)
+	return placed.modal.Handle(local)
 }
 
 func (s *Stack) deliverBase(base Widget, mouse input.Mouse) bool {
@@ -307,10 +358,10 @@ func (s *Stack) Do(action keymap.Action) bool {
 }
 
 // outside deals with a mouse event beyond the top layer.
-func (s *Stack) outside(mouse input.Mouse, top Modal) bool {
+func (s *Stack) outside(mouse input.Mouse, top layerPlacement) bool {
 	if mouse.Action == input.MouseDown {
-		if !s.KeepOnClickOutside && !sticky(top) {
-			s.dismiss(top)
+		if !s.KeepOnClickOutside && !sticky(top.modal) {
+			s.dismiss(top.id)
 		}
 		// The press either dismissed the modal or was explicitly kept from doing so.
 		// In neither case may it activate something behind the modal as well.
@@ -321,8 +372,9 @@ func (s *Stack) outside(mouse input.Mouse, top Modal) bool {
 
 // dismiss removes layer only while it is still the semantic top. An event routed
 // against an older presented frame must never close a newer layer it did not show.
-func (s *Stack) dismiss(layer Modal) {
-	if layer == nil || s.Top() != layer {
+func (s *Stack) dismiss(id LayerID) {
+	top, ok := s.top()
+	if !ok || id == 0 || top.id != id {
 		return
 	}
 	s.Pop()
@@ -333,14 +385,15 @@ func (s *Stack) remove(at int) bool {
 		return false
 	}
 	layer := s.layers[at]
-	if s.held == layer {
-		s.held = nil
+	if s.held == layer.id {
+		s.held = 0
 	}
 	copy(s.layers[at:], s.layers[at+1:])
-	s.layers[len(s.layers)-1] = nil
+	s.layers[len(s.layers)-1] = stackLayer{}
 	s.layers = s.layers[:len(s.layers)-1]
+	s.layers = trim(s.layers)
 	s.settle()
-	if closer, ok := layer.(Closer); ok {
+	if closer, ok := layer.modal.(Closer); ok {
 		closer.Closed()
 	}
 	return true
@@ -349,12 +402,14 @@ func (s *Stack) remove(at int) bool {
 // Draw paints the interface and then the layers from the bottom up, each into the
 // space it asked for, and records where they went.
 func (s *Stack) Draw(v Frame) {
-	base := s.Base
-	layers := append([]Modal(nil), s.layers...)
+	base := s.base
+	layers := slices.Clone(s.layers)
 	space := v.Bounds().Size()
 	presented := stackPresentation{base: base, layers: make([]layerPlacement, len(layers))}
 	for i, layer := range layers {
-		presented.layers[i] = layerPlacement{layer: layer, area: layer.Place(space).In(space)}
+		presented.layers[i] = layerPlacement{
+			id: layer.id, modal: layer.modal, area: layer.modal.Place(space).In(space),
+		}
 	}
 	s.presentation.Stage(v, presented)
 
@@ -362,10 +417,10 @@ func (s *Stack) Draw(v Frame) {
 		base.Draw(v)
 	}
 	for _, placed := range presented.layers {
-		if backdrop, ok := placed.layer.(Backdrop); ok {
+		if backdrop, ok := placed.modal.(Backdrop); ok {
 			backdrop.Backdrop(v.View)
 		}
-		placed.layer.Draw(v.Sub(placed.area))
+		placed.modal.Draw(v.Sub(placed.area))
 	}
 }
 
@@ -374,9 +429,9 @@ type stackPresentation struct {
 	layers []layerPlacement
 }
 
-func (p stackPresentation) placed(layer Modal) (layerPlacement, bool) {
+func (p stackPresentation) placed(id LayerID) (layerPlacement, bool) {
 	for _, placed := range p.layers {
-		if placed.layer == layer {
+		if placed.id == id {
 			return placed, true
 		}
 	}
@@ -384,7 +439,8 @@ func (p stackPresentation) placed(layer Modal) (layerPlacement, bool) {
 }
 
 type layerPlacement struct {
-	layer Modal
+	id    LayerID
+	modal Modal
 	area  image.Rectangle
 }
 
@@ -401,28 +457,30 @@ func (s *Stack) Focus(has bool) {
 // whatever had it before has been told it no longer does.
 func (s *Stack) settle() {
 	want := Widget(nil)
-	if top := s.Top(); top != nil {
-		want = top
-	} else if s.Base != nil {
-		want = s.Base
+	wantID := LayerID(0)
+	wantBase := false
+	if top, ok := s.top(); ok {
+		want, wantID = top.modal, top.id
+	} else if s.base != nil {
+		want, wantBase = s.base, true
 	}
-	if s.settled && want == s.holder {
+	if s.settled && wantID == s.holderID && wantBase == s.holderBase {
 		return
 	}
 	from := s.holder
-	s.holder, s.settled = want, true
-	if from != nil && from != want {
+	s.holder, s.holderID, s.holderBase, s.settled = want, wantID, wantBase, true
+	if from != nil {
 		tell(from, false)
 	}
 	// A layer that is no longer on top is covered by one that is, which is the same
 	// thing as not having the keyboard.
-	for _, m := range s.layers {
-		if m != want && m != from {
-			tell(m, false)
+	for _, layer := range s.layers {
+		if layer.id != wantID {
+			tell(layer.modal, false)
 		}
 	}
-	if s.Base != nil && s.Base != want && s.Base != from {
-		tell(s.Base, false)
+	if s.base != nil && !wantBase {
+		tell(s.base, false)
 	}
 	tell(want, !s.blurred)
 }

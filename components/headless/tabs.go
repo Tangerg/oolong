@@ -2,6 +2,7 @@ package headless
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -42,10 +43,11 @@ type Tabs struct {
 	// place.
 	NoWrap bool
 
-	holder  Widget
-	settled bool
-	blurred bool
-	pending keymap.Pending
+	holder      Widget
+	holderIndex int
+	settled     bool
+	blurred     bool
+	pending     keymap.Pending
 }
 
 // NewTabs constructs an uncontrolled tabs controller with locally owned selection.
@@ -71,6 +73,9 @@ func (t *Tabs) Set(items ...Tab) {
 		return
 	}
 	t.items = own(t.items, items)
+	for i := range t.items {
+		t.items[i].Title = strings.Clone(t.items[i].Title)
+	}
 	if len(t.items) == 0 {
 		t.selection.set(0)
 	} else {
@@ -270,20 +275,21 @@ func (t *Tabs) Semantics() SemanticNode {
 }
 
 func (t *Tabs) settle() {
+	wantIndex := t.Selected()
 	want := Widget(nil)
 	if pane, ok := t.Current(); ok {
 		want = pane.Of
 	}
-	if t.settled && want == t.holder {
+	if t.settled && wantIndex == t.holderIndex {
 		return
 	}
 	from := t.holder
-	t.holder, t.settled = want, true
-	if from != nil && from != want {
+	t.holder, t.holderIndex, t.settled = want, wantIndex, true
+	if from != nil {
 		tell(from, false)
 	}
-	for _, tab := range t.items {
-		if tab.Of != want && tab.Of != from {
+	for i, tab := range t.items {
+		if i != wantIndex {
 			tell(tab.Of, false)
 		}
 	}

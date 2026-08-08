@@ -41,6 +41,13 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Retained component identity is explicit and total.** `Container` addresses focus
+  by item index, optional `Item.Key` carries it across reordering, and `Stack.Push`
+  returns a `LayerID` used by `Contains` and `Remove`; replacing the stack base goes
+  through `SetBase`. Containers, tabs, pointer regions and modal stacks no longer
+  compare open `Widget` or `Modal` interface values, so valid value implementations
+  containing slices or maps cannot panic routing or become impossible to remove.
+
 - **Search has one explicit latest-question state machine.** A mutex-owned mailbox,
   rather than a channel used as both storage and notification, now defines replacement,
   cancellation, result publication and close. Clearing a query invalidates running and
@@ -60,7 +67,9 @@ point of tagging them low rather than not at all.
   Commands and completion candidates deep-copy nested values at their boundaries,
   command history detaches retained strings, editor line mutations use the standard
   slice operations that clear removed elements, and undo/redo stacks clear popped and
-  evicted snapshots instead of retaining text behind spare capacity.
+  evicted snapshots instead of retaining text behind spare capacity. Component keys,
+  tab and option labels, dialog semantics, filter patterns, slider labels, and editor
+  text likewise detach from caller backing strings at their ownership cuts.
 - **Coverage-sensitive furniture has one source.** `Spinner`, `Status`, and
   `Scrollbar` now consume `Glyphs` like every other kit component; the parallel
   `Frames`, `Track`, `Thumb`, and `Braille` paths are removed. Scrollbar geometry also

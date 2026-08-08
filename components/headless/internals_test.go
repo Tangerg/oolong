@@ -9,6 +9,7 @@ package headless
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"os/exec"
 	"runtime"
@@ -70,6 +71,11 @@ func (*retainedField) Focus(bool)              {}
 func (*retainedField) Prompt() string          { return "" }
 func (*retainedField) Validate() error         { return nil }
 func (*retainedField) Error() error            { return nil }
+
+type retainedModal struct{ retainedWidget }
+
+func (*retainedModal) Handle(input.Event) bool            { return false }
+func (*retainedModal) Place(image.Point) layout.Placement { return layout.Placement{} }
 
 func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	children := []*retainedWidget{{payload: []byte("one")}, {payload: []byte("two")}, {payload: []byte("three")}}
@@ -195,6 +201,45 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 	if cap(tree.list.items) > 2*len(tree.list.items)+16 {
 		t.Fatalf("tree retains capacity %d for %d row", cap(tree.list.items), len(tree.list.items))
 	}
+}
+
+func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
+	backing := strings.Repeat("discarded ", 1024) + "owned"
+	source := backing[len(backing)-len("owned"):]
+	assertDetached := func(name, got string) {
+		t.Helper()
+		if unsafe.StringData(got) == unsafe.StringData(source) { //nolint:gosec // compare ownership; no pointer is dereferenced.
+			t.Errorf("%s retained the caller's backing string", name)
+		}
+	}
+
+	container := Rows(Item{Key: source})
+	assertDetached("container key", container.Items()[0].Key)
+
+	tabs := NewTabs(Tab{Title: source})
+	assertDetached("tab title", tabs.Items()[0].Title)
+
+	dialog := NewDialog(&Stack{}, source, &retainedModal{})
+	assertDetached("dialog title", dialog.Title())
+	dialog.SetDescription(source)
+	assertDetached("dialog description", dialog.Description())
+
+	slider := NewSlider(0, 1)
+	slider.SetLabel(source)
+	assertDetached("slider label", slider.Label())
+
+	var filter Filter[string]
+	filter.SetText(func(item string) string { return item })
+	filter.SetPattern(source)
+	assertDetached("filter pattern", filter.Pattern())
+
+	var editor Editor
+	editor.SetText(source)
+	assertDetached("editor text", editor.Text())
+
+	var selectField Select[string]
+	selectField.SetOptions([]Option[string]{{Label: source, Value: "value"}})
+	assertDetached("option label", selectField.Options()[0].Label)
 }
 
 func makeTabs(children []*retainedWidget) []Tab {

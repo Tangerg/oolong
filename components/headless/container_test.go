@@ -32,6 +32,19 @@ type field struct {
 	area image.Rectangle
 }
 
+// valueField is intentionally not comparable. Widget never promises that external
+// implementations are pointers, so composition must not smuggle that requirement in
+// through interface equality.
+type valueField struct {
+	target  *field
+	payload []byte
+}
+
+func (f valueField) Draw(v headless.Frame)      { f.target.Draw(v) }
+func (f valueField) Handle(ev input.Event) bool { return f.target.Handle(ev) }
+func (f valueField) Focus(has bool)             { f.target.Focus(has) }
+func (valueField) Measure(int) int              { return 1 }
+
 func (f *field) Draw(v headless.Frame) {
 	w, h := v.Size()
 	f.area = grid.Rect(0, 0, w, h)
@@ -91,7 +104,7 @@ func TestAKeyGoesToWhicheverChildHasTheKeyboard(t *testing.T) {
 		t.Errorf("the second field got %d keys, and it does not have the keyboard", len(second.keys))
 	}
 
-	c.Give(second)
+	c.Give(1)
 	c.Handle(input.Key{Code: input.Character, Rune: 'b'})
 	if len(second.keys) != 1 {
 		t.Errorf("after being given the keyboard the second field got %d keys", len(second.keys))
@@ -284,17 +297,16 @@ func TestAPointerEventOutsideEveryChildIsDeclined(t *testing.T) {
 	}
 }
 
-// TestTheKeyboardIsHeldByIdentityAndNotByPosition, so a container whose items are
-// rebuilt between frames — a status row that comes and goes — does not silently move
-// the keyboard to whatever took the old index.
-func TestTheKeyboardIsHeldByIdentityAndNotByPosition(t *testing.T) {
+// TestAKeyCarriesFocusAcrossPositions, so a container whose items are rebuilt between
+// frames — a status row that comes and goes — can state which semantic part moved.
+func TestAKeyCarriesFocusAcrossPositions(t *testing.T) {
 	status, composer := &field{name: "status"}, &field{name: "composer"}
-	c := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: composer})
+	c := headless.Rows(headless.Item{Key: "composer", Size: layout.Fixed(1), Of: composer})
 	drawn(c, 2)
 
 	c.Set(
-		headless.Item{Size: layout.Fixed(1), Of: status},
-		headless.Item{Size: layout.Fixed(1), Of: composer},
+		headless.Item{Key: "status", Size: layout.Fixed(1), Of: status},
+		headless.Item{Key: "composer", Size: layout.Fixed(1), Of: composer},
 	)
 	drawn(c, 2)
 	if c.Focused() != headless.Widget(composer) {
@@ -303,7 +315,7 @@ func TestTheKeyboardIsHeldByIdentityAndNotByPosition(t *testing.T) {
 
 	// And a child that is taken away gives it up rather than holding it from
 	// nowhere.
-	c.Set(headless.Item{Size: layout.Fixed(1), Of: status})
+	c.Set(headless.Item{Key: "status", Size: layout.Fixed(1), Of: status})
 	drawn(c, 2)
 	if c.Focused() != headless.Widget(status) {
 		t.Fatal("the keyboard stayed with a child that is no longer there")
@@ -311,6 +323,35 @@ func TestTheKeyboardIsHeldByIdentityAndNotByPosition(t *testing.T) {
 	if composer.focused {
 		t.Error("a child that was taken away still believes it has the keyboard")
 	}
+}
+
+func TestContainerIdentityDoesNotRequireComparableWidgets(t *testing.T) {
+	target := &field{name: "value", takes: true}
+	value := valueField{target: target, payload: []byte("not comparable")}
+	c := headless.Rows(headless.Item{Key: "value", Size: layout.Fixed(1), Of: value})
+	drawn(c, 1)
+	if !c.Give(0) {
+		t.Fatal("container refused a valid value widget")
+	}
+	if !c.Handle(pressAt(0, 0)) {
+		t.Fatal("value widget declined its configured press")
+	}
+
+	// A keyed semantic part may be rebuilt and moved without interface comparison.
+	c.Set(headless.Item{Key: "value", Size: layout.Fixed(1), Of: value})
+	drawn(c, 1)
+	if !c.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDrag}) {
+		t.Fatal("keyed value widget lost its gesture across a frame")
+	}
+}
+
+func TestContainerRejectsDuplicateKeysAtTheOwnershipBoundary(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("duplicate item keys did not panic")
+		}
+	}()
+	headless.Rows(headless.Item{Key: "same"}, headless.Item{Key: "same"})
 }
 
 func TestContainerOwnsItsChildListAndReturnsSnapshots(t *testing.T) {
@@ -348,7 +389,7 @@ func TestAContainerInsideAContainerPassesTheAnswerDown(t *testing.T) {
 		t.Fatal("a child of an unfocused container believes it has the keyboard")
 	}
 
-	outer.Give(inner)
+	outer.Give(1)
 	if !right.focused {
 		t.Fatal("giving the inner container the keyboard did not reach the widget in it")
 	}
@@ -396,7 +437,7 @@ func TestOnlyTheFocusedFieldPlacesTheCursor(t *testing.T) {
 		t.Fatalf("the cursor is %+v, want it in the first field", got)
 	}
 
-	c.Give(second)
+	c.Give(1)
 	root.Draw(s.Frame())
 	if got := s.Cursor(); !got.Visible || got.Pos.Y != 1 {
 		t.Fatalf("the cursor is %+v, want it in the field with the keyboard", got)
@@ -418,7 +459,7 @@ func (l *layer) Place(image.Point) layout.Placement { return l.where }
 func TestALayerTakesTheKeyboardFromWhatItCovers(t *testing.T) {
 	base := &field{name: "base"}
 	over := &layer{field: field{name: "over"}, where: layout.Placement{Width: 4, Height: 1}}
-	s := &headless.Stack{Base: base}
+	s := headless.NewStack(base)
 	s.Focus(true)
 
 	headless.NewRoot(s).Draw(grid.NewSurface(10, 4).View())

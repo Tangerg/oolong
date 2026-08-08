@@ -2,6 +2,7 @@ package headless
 
 import (
 	"image"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -22,6 +23,7 @@ type Dialog struct {
 	open    ownedValue[bool]
 	title   string
 	detail  string
+	layer   LayerID
 }
 
 // NewDialog constructs an uncontrolled dialog whose open state is locally owned.
@@ -45,7 +47,7 @@ func newDialog(stack *Stack, title string, content Modal, open ownedValue[bool])
 	if content == nil {
 		panic("headless: dialog requires content")
 	}
-	dialog := &Dialog{stack: stack, open: open, title: title}
+	dialog := &Dialog{stack: stack, open: open, title: strings.Clone(title)}
 	dialog.content = &DialogContent{dialog: dialog, modal: content}
 	dialog.Sync()
 	return dialog
@@ -78,12 +80,12 @@ func (d *Dialog) Sync() {
 	if d == nil || d.stack == nil || d.content == nil {
 		return
 	}
-	shown := d.stack.Contains(d.content)
+	shown := d.stack.Contains(d.layer)
 	switch {
 	case d.open.get() && !shown:
-		d.stack.Push(d.content)
+		d.layer = d.stack.Push(d.content)
 	case !d.open.get() && shown:
-		d.stack.Remove(d.content)
+		d.stack.Remove(d.layer)
 	}
 }
 
@@ -109,7 +111,7 @@ func (d *Dialog) Title() string {
 // SetTitle changes the dialog's semantic title.
 func (d *Dialog) SetTitle(title string) {
 	if d != nil {
-		d.title = title
+		d.title = strings.Clone(title)
 	}
 }
 
@@ -124,7 +126,7 @@ func (d *Dialog) Description() string {
 // SetDescription changes the dialog's semantic description.
 func (d *Dialog) SetDescription(description string) {
 	if d != nil {
-		d.detail = description
+		d.detail = strings.Clone(description)
 	}
 }
 
@@ -155,6 +157,7 @@ func (d *Dialog) closed(content *DialogContent) {
 		return
 	}
 	d.open.set(false)
+	d.layer = 0
 }
 
 // DialogContent is the modal compound part of a [Dialog].
