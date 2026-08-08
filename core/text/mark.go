@@ -22,21 +22,21 @@ type Edit struct {
 // taken the right way round, so an edit worked out from a position that has since
 // moved cannot panic.
 func (e Edit) Apply(document string) string {
-	start, end := e.bounds(len(document))
-	return document[:start] + e.Text + document[end:]
+	e = e.within(len(document))
+	return document[:e.Start] + e.Text + document[e.End:]
 }
 
-// Delta is how much longer the document gets, which is negative when it shrinks.
-func (e Edit) Delta() int {
-	start, end := e.Start, e.End
-	if start > end {
-		start, end = end, start
-	}
-	return len(e.Text) - (end - start)
+// Delta is how much longer a document of length n gets, which is negative when it
+// shrinks. The edit is clamped to that document before the difference is measured,
+// exactly as it is by [Edit.Apply] and [Edit.Shift].
+func (e Edit) Delta(n int) int {
+	e = e.within(n)
+	return e.delta()
 }
 
 // bounds is the edit's range, put in order and held inside a document of length n.
 func (e Edit) bounds(n int) (start, end int) {
+	n = max(n, 0)
 	start, end = e.Start, e.End
 	if start > end {
 		start, end = end, start
@@ -46,13 +46,21 @@ func (e Edit) bounds(n int) (start, end int) {
 	return start, end
 }
 
+// within is the canonical edit that can be applied to a document of length n.
+func (e Edit) within(n int) Edit {
+	e.Start, e.End = e.bounds(n)
+	return e
+}
+
+func (e Edit) delta() int { return len(e.Text) - (e.End - e.Start) }
+
 // Mark is a range of a document that moves as the document is edited.
 //
 // It is how anything can be said about a piece of text without being said in the
 // text: which run of it stands for a file the user picked, which run is a search
 // result, which run somebody spelled wrong. Every one of those is a range that has
 // to still be over the same words after something is typed somewhere else, and
-// keeping them in step is the same problem each time — see [Shift].
+// keeping them in step is the same problem each time — see [Edit.Shift].
 //
 // The identity and the kind mean nothing here. A caller keeps whatever the mark
 // stands for beside it, keyed by the identity, and this only promises that the
@@ -89,7 +97,13 @@ func (m Mark) Covers(at int) bool { return at >= m.Start && at < m.End }
 // skipped straight past the mark, and nothing could be typed in front of one.
 func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 
-// Shift moves marks over an edit, in order, dropping the ones it destroyed.
+// Shift moves marks over the edit in a document of length n, in order, dropping the
+// ones it destroyed.
+//
+// The edit is clamped to the document first, by the same rule as [Edit.Apply]. The
+// length is therefore part of the operation rather than an optional validation
+// hint: without it an edit before byte zero would replace one range in the text and
+// move its metadata as though it had replaced a different one.
 //
 // # Which way a mark moves at the edges
 //
@@ -109,7 +123,8 @@ func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 // The marks are shifted in place, which is what a caller that keeps them in a slice
 // wants. The result is the slice with the destroyed ones removed, so a caller that
 // held a mark by value has to find it again by identity.
-func Shift(marks []Mark, e Edit) []Mark {
+func (e Edit) Shift(marks []Mark, n int) []Mark {
+	e = e.within(n)
 	kept := marks[:0]
 	for _, m := range marks {
 		if m.Atomic && e.reaches(m) {
@@ -129,45 +144,33 @@ func Shift(marks []Mark, e Edit) []Mark {
 // Strictly: an edit that only meets a mark at one of its ends took none of it, which
 // is what makes deleting the character before a chip leave the chip alone.
 func (e Edit) reaches(m Mark) bool {
-	start, end := e.Start, e.End
-	if start > end {
-		start, end = end, start
-	}
-	return start < m.End && end > m.Start
+	return e.Start < m.End && e.End > m.Start
 }
 
 // opens maps an offset that begins something: text inserted exactly there goes
 // before it, so the offset moves along.
 func (e Edit) opens(at int) int {
-	start, end := e.Start, e.End
-	if start > end {
-		start, end = end, start
-	}
 	switch {
-	case at < start:
+	case at < e.Start:
 		return at
-	case at >= end:
-		return at + e.Delta()
+	case at >= e.End:
+		return at + e.delta()
 	default:
 		// Inside what was replaced. What began there begins where the new text does.
-		return start + len(e.Text)
+		return e.Start + len(e.Text)
 	}
 }
 
 // closes maps an offset that ends something: text inserted exactly there goes after
 // it, so the offset stays where it is.
 func (e Edit) closes(at int) int {
-	start, end := e.Start, e.End
-	if start > end {
-		start, end = end, start
-	}
 	switch {
-	case at <= start:
+	case at <= e.Start:
 		return at
-	case at >= end:
-		return at + e.Delta()
+	case at >= e.End:
+		return at + e.delta()
 	default:
 		// Inside what was replaced. What ended there ends where the new text does.
-		return start + len(e.Text)
+		return e.Start + len(e.Text)
 	}
 }

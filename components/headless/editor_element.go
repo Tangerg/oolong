@@ -27,7 +27,7 @@ type ElementKind uint8
 //
 // It is a [text.Mark] in the coordinates this editor speaks. The rule that keeps it
 // over the same words while the text around it changes is that type's, and it is the
-// same rule a highlight or a search result would need — see [text.Shift].
+// same rule a highlight or a search result would need — see [text.Edit.Shift].
 type Element struct {
 	// ID is unique within one editor and stable for as long as the element exists.
 	// It is what a program keys its own record of the element by.
@@ -181,7 +181,18 @@ func (e *Editor) snapElement(line, col int, forward bool) int {
 // It must be called with offsets into the text as it was before the change, which is
 // why every caller works them out first.
 func (e *Editor) edited(edit text.Edit) {
-	e.marks = text.Shift(e.marks, edit)
+	e.marks = edit.Shift(e.marks, e.byteLength())
+}
+
+// byteLength is the length of the whole text without assembling it. Edits and
+// marks speak in whole-document byte offsets even though the editor owns lines.
+func (e *Editor) byteLength() int {
+	e.ensure()
+	n := len(e.lines) - 1 // the newlines between lines
+	for _, line := range e.lines {
+		n += len(line)
+	}
+	return n
 }
 
 // removed moves every element over a range of the text being replaced by s, which

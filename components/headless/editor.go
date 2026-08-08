@@ -157,7 +157,9 @@ func (e *Editor) Text() string {
 func (e *Editor) SetText(s string) {
 	e.endTyping()
 	e.snapshot()
-	e.lines = strings.Split(strings.Clone(e.flatten(s)), "\n")
+	s = strings.Clone(e.flatten(s))
+	e.edited(text.Edit{Start: 0, End: e.byteLength(), Text: s})
+	e.lines = strings.Split(s, "\n")
 	e.line = len(e.lines) - 1
 	e.col = len(e.lines[e.line])
 	e.invalidate()
@@ -173,6 +175,7 @@ func (e *Editor) Empty() bool {
 func (e *Editor) Clear() {
 	e.endTyping()
 	e.snapshot()
+	e.edited(text.Edit{Start: 0, End: e.byteLength()})
 	e.lines = []string{""}
 	e.line, e.col = 0, 0
 	e.invalidate()

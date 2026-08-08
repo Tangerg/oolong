@@ -99,7 +99,7 @@ func TestEditingAroundAnElementMovesIt(t *testing.T) {
 }
 
 // TestAnElementCoversTheSameWordsAfterEveryKindOfEdit. There is one rule for moving
-// a mark over a change — see [text.Shift] — and the way to know the editor is using
+// a mark over a change — see [text.Edit.Shift] — and the way to know the editor is using
 // it once and correctly is to state the outcome as "the same words", which no amount
 // of arithmetic on line and column numbers can be quietly wrong about.
 func TestAnElementCoversTheSameWordsAfterEveryKindOfEdit(t *testing.T) {
@@ -369,5 +369,28 @@ func TestTheCursorCanSitOnEitherSideOfAnElement(t *testing.T) {
 	}
 	if got := e.Elements(); len(got) != 1 {
 		t.Errorf("typing in front of the element disturbed it: %+v", got)
+	}
+}
+
+func TestReplacingTheWholeTextReleasesItsElements(t *testing.T) {
+	for name, replace := range map[string]func(*headless.Editor){
+		"SetText": func(e *headless.Editor) { e.SetText("@main.go ") },
+		"Clear":   func(e *headless.Editor) { e.Clear() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := editorWith("")
+			before := e.InsertElement(fileChip, "@main.go")
+
+			replace(e)
+			if got := e.Elements(); len(got) != 0 {
+				t.Fatalf("whole-text replacement retained elements: %+v", got)
+			}
+
+			e.Undo()
+			got := e.Elements()
+			if len(got) != 1 || got[0].ID != before.ID || got[0].Text(e) != "@main.go" {
+				t.Fatalf("undo restored the text without its element identity: %+v", got)
+			}
+		})
 	}
 }

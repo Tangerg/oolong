@@ -37,7 +37,7 @@ func TestAMarkStillCoversTheSameWordsAfterAnEditElsewhere(t *testing.T) {
 		{"an insertion at its end", text.Edit{Start: 15, End: 15, Text: "ish"}},
 		{"a deletion right before it", text.Edit{Start: 9, End: 10, Text: ""}},
 	} {
-		marks := text.Shift([]text.Mark{brown}, tc.edit)
+		marks := tc.edit.Shift([]text.Mark{brown}, len(document))
 		if len(marks) != 1 {
 			t.Errorf("%s: the mark was dropped", tc.name)
 			continue
@@ -64,7 +64,7 @@ func TestTextTypedAgainstAMarkStaysOutsideIt(t *testing.T) {
 		{"typed in front of it", text.Edit{Start: 4, End: 4, Text: "X"}},
 		{"typed behind it", text.Edit{Start: 11, End: 11, Text: "X"}},
 	} {
-		marks := text.Shift([]text.Mark{mark}, tc.edit)
+		marks := tc.edit.Shift([]text.Mark{mark}, len(document))
 		if len(marks) != 1 {
 			t.Fatalf("%s: the mark was dropped", tc.name)
 		}
@@ -88,7 +88,7 @@ func TestAnEditInsideAnAtomicMarkDestroysIt(t *testing.T) {
 		{"a cut that overlaps its end", text.Edit{Start: 9, End: 14}},
 		{"a cut that swallows it", text.Edit{Start: 0, End: 15}},
 	} {
-		if got := text.Shift([]text.Mark{mark}, tc.edit); len(got) != 0 {
+		if got := tc.edit.Shift([]text.Mark{mark}, len("see file.go now")); len(got) != 0 {
 			t.Errorf("%s: the mark survived as %+v", tc.name, got[0])
 		}
 	}
@@ -101,7 +101,7 @@ func TestAMarkThatIsNotAtomicStretchesOverWhatWasTypedInIt(t *testing.T) {
 	mark := text.Mark{ID: 1, Start: 4, End: 9}
 	edit := text.Edit{Start: 6, End: 6, Text: "XY"}
 
-	marks := text.Shift([]text.Mark{mark}, edit)
+	marks := edit.Shift([]text.Mark{mark}, len(document))
 	if len(marks) != 1 {
 		t.Fatal("a highlight was destroyed by text typed inside it")
 	}
@@ -115,7 +115,7 @@ func TestAMarkTheEditTookEntirelyIsGone(t *testing.T) {
 	// a caller keying a record off it would keep the record for ever.
 	for _, atomic := range []bool{false, true} {
 		mark := text.Mark{ID: 1, Start: 4, End: 9, Atomic: atomic}
-		if got := text.Shift([]text.Mark{mark}, text.Edit{Start: 4, End: 9}); len(got) != 0 {
+		if got := (text.Edit{Start: 4, End: 9}).Shift([]text.Mark{mark}, len("the quick brown fox")); len(got) != 0 {
 			t.Errorf("atomic=%v: the mark survived as %+v", atomic, got[0])
 		}
 	}
@@ -127,7 +127,7 @@ func TestShiftKeepsTheOrderAndTheIdentities(t *testing.T) {
 		{ID: 2, Start: 4, End: 9, Atomic: true},
 		{ID: 3, Start: 10, End: 15},
 	}
-	got := text.Shift(marks, text.Edit{Start: 5, End: 6, Text: "X"})
+	got := (text.Edit{Start: 5, End: 6, Text: "X"}).Shift(marks, len("the quick brown fox"))
 	if len(got) != 2 {
 		t.Fatalf("got %d marks, want the two the edit left alone", len(got))
 	}
@@ -167,5 +167,22 @@ func TestApplyIsTheThreeShapesOfAChange(t *testing.T) {
 		if got := tc.edit.Apply("abcdef"); got != tc.want {
 			t.Errorf("%s gave %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestAnOutOfRangeEditMovesMarksByTheRangeItActuallyReplaced(t *testing.T) {
+	const document = "abcdef"
+	mark := text.Mark{ID: 1, Start: 3, End: 6}
+	edit := text.Edit{Start: -5, End: 2, Text: "x"}
+
+	marks := edit.Shift([]text.Mark{mark}, len(document))
+	if len(marks) != 1 {
+		t.Fatal("an edit before the document destroyed an untouched mark")
+	}
+	if got := covered(edit.Apply(document), marks[0]); got != "def" {
+		t.Fatalf("the mark covers %q after the clamped edit, want %q", got, "def")
+	}
+	if got := edit.Delta(len(document)); got != -1 {
+		t.Fatalf("clamped edit delta = %d, want -1", got)
 	}
 }
