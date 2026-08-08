@@ -295,14 +295,14 @@ func (d *Decoder) sgr(ps ansi.Params) {
 	}
 	for i := 0; i < ps.Count(); i++ {
 		group := ps.Group(i)
-		if len(group) == 0 {
+		if group.Len() == 0 {
 			continue
 		}
-		switch code := group[0]; code {
+		switch code := group.At(0); code {
 		case 4:
 			// The one attribute with a shape of its own: "4:0" is off and every other
 			// subparameter is a style of underline a cell cannot tell apart.
-			if len(group) > 1 && group[1] == 0 {
+			if group.Len() > 1 && group.At(1) == 0 {
 				d.state.Attr &^= grid.Underline
 				continue
 			}
@@ -336,9 +336,13 @@ func (d *Decoder) sgr(ps ansi.Params) {
 // that follow it, which is what everything else writes. They are the same numbers
 // in the same order either way, so they are read once and the only difference is
 // where they were found.
-func colourAt(ps ansi.Params, i int, group []int) (grid.Color, int, bool) {
-	if len(group) > 1 {
-		c, _, ok := colourOf(group[1:])
+func colourAt(ps ansi.Params, i int, group ansi.Parameter) (grid.Color, int, bool) {
+	if group.Len() > 1 {
+		args := make([]int, 0, group.Len()-1)
+		for j := 1; j < group.Len(); j++ {
+			args = append(args, group.At(j))
+		}
+		c, _, ok := colourOf(args)
 		return c, 0, ok
 	}
 	args := make([]int, 0, 4)

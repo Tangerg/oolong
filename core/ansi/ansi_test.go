@@ -130,11 +130,11 @@ func TestAnIncompleteRuneWaitsWithoutHoldingCompleteText(t *testing.T) {
 
 func TestTheParametersAreReadOnceAndTheSameWayForEveryone(t *testing.T) {
 	ps := ansi.Parse("<35;10;20")
-	if ps.Private != '<' {
-		t.Fatalf("the private marker is %q", string(ps.Private))
+	if ps.Marker() != '<' {
+		t.Fatalf("the private marker is %q", string(ps.Marker()))
 	}
 	if ps.Count() != 3 || ps.At(0) != 35 || ps.At(1) != 10 || ps.At(2) != 20 {
-		t.Fatalf("read %v", ps.Groups)
+		t.Fatalf("read %d parameters", ps.Count())
 	}
 
 	// An empty field is the protocol's own default, which is zero, and a field that
@@ -157,8 +157,8 @@ func TestTheParametersAreReadOnceAndTheSameWayForEveryone(t *testing.T) {
 	}
 
 	// Subparameters belong to the parameter they were written under.
-	if group := ansi.Parse("38:2::1:2:3").Group(0); len(group) != 6 || group[3] != 1 {
-		t.Fatalf("read the subparameters as %v", group)
+	if group := ansi.Parse("38:2::1:2:3").Group(0); group.Len() != 6 || group.At(3) != 1 {
+		t.Fatalf("subparameters have length %d and fourth value %d", group.Len(), group.At(3))
 	}
 	if !ansi.Parse("").Empty() {
 		t.Fatal("a sequence with no parameters carried some")

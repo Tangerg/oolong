@@ -221,13 +221,13 @@ func (p *Parser) skipString() bool {
 // said into whatever had focus.
 func (ps params) report(final byte) Event {
 	switch {
-	case ps.Private == '<' && (final == 'M' || final == 'm'):
+	case ps.Marker() == '<' && (final == 'M' || final == 'm'):
 		return ps.mouse(final == 'M')
-	case ps.Private == '?' && final == 'c':
+	case ps.Marker() == '?' && final == 'c':
 		return ps.deviceAttributes()
-	case ps.Private == '?' && final == 'u':
+	case ps.Marker() == '?' && final == 'u':
 		return KeyboardFlags{Flags: max(ps.First(), 0)}
-	case ps.Private == '>' && final == 'c':
+	case ps.Marker() == '>' && final == 'c':
 		return DeviceVersion{Kind: max(ps.At(0), 0), Version: max(ps.At(1), 0), Patch: max(ps.At(2), 0)}
 	default:
 		return nil

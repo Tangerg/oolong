@@ -460,7 +460,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	// found broken. Dispatching on the final byte alone let a keyboard-flags reply —
 	// "CSI ? 31 u" — decode as a keystroke of an invisible control character, which is
 	// a defect that hides itself: printing the events showed an empty pair of brackets.
-	if ps.Private != 0 {
+	if ps.Marker() != 0 {
 		return n, ps.report(final), true
 	}
 
@@ -534,13 +534,14 @@ func (ps params) extendedKey() Event {
 		return nil // a bare sequence here is a cursor report, not a key
 	}
 	primary := ps.Group(0)
-	if len(primary) == 0 || len(primary) > 3 || primary[0] <= 0 {
+	if primary.Len() == 0 || primary.Len() > 3 || primary.At(0) <= 0 {
 		return nil
 	}
 	// Alternate key codes are accepted and then ignored: reporting the key that
 	// was pressed is this type's job, and reporting which key it would have been
 	// under another layout is not.
-	for _, alternate := range primary[1:] {
+	for i := 1; i < primary.Len(); i++ {
+		alternate := primary.At(i)
 		if _, ok := codePoint(alternate); alternate != 0 && !ok {
 			return nil
 		}
@@ -553,7 +554,7 @@ func (ps params) extendedKey() Event {
 	if !ok {
 		return nil
 	}
-	code, r, ok := extendedKeyCode(primary[0])
+	code, r, ok := extendedKeyCode(primary.At(0))
 	if !ok {
 		return nil
 	}

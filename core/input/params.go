@@ -30,8 +30,8 @@ func (ps params) deviceAttributes() DeviceAttributes {
 	class := max(ps.First(), 0)
 	features := make([]int, 0, max(ps.Count()-1, 0))
 	for i := 1; i < ps.Count(); i++ {
-		if group := ps.Group(i); len(group) > 0 {
-			features = append(features, group[0])
+		if group := ps.Group(i); group.Len() > 0 {
+			features = append(features, group.At(0))
 		}
 	}
 	return Attributes(class, features...)
@@ -45,15 +45,15 @@ func (ps params) deviceAttributes() DeviceAttributes {
 // something the user did not ask for.
 func (ps params) keyMeta() (Mods, Transition, bool) {
 	group := ps.Group(1)
-	if len(group) == 0 {
+	if group.Len() == 0 {
 		return 0, Press, true
 	}
-	if len(group) > 2 || group[0] < 0 {
+	if group.Len() > 2 || group.At(0) < 0 {
 		return 0, Press, false
 	}
 
 	var mods Mods
-	if group[0] > 1 {
+	if group.At(0) > 1 {
 		// The encoding is the modifier bits plus one, so that a parameter of one
 		// means no modifiers and the field is never empty.
 		//
@@ -61,12 +61,12 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 		// here, and narrowing first would let a large one wrap into a modifier
 		// nobody held — the same class of mistake as reading a rune out of an
 		// integer and asking afterwards whether it was one.
-		mods = Mods((group[0] - 1) & int(Shift|Alt|Ctrl|Super))
+		mods = Mods((group.At(0) - 1) & int(Shift|Alt|Ctrl|Super))
 	}
-	if len(group) < 2 {
+	if group.Len() < 2 {
 		return mods, Press, true
 	}
-	switch group[1] {
+	switch group.At(1) {
 	case 0, 1:
 		return mods, Press, true
 	case 2:
@@ -85,7 +85,7 @@ func (ps params) text() (string, bool) {
 		return "", true
 	}
 	var b strings.Builder
-	for _, cp := range ps.Group(2) {
+	for cp := range ps.Group(2).Values() {
 		if cp == 0 {
 			continue
 		}
