@@ -155,6 +155,8 @@ func (p themePalette) theme() Theme {
 //
 // The greys are cool on purpose. A neutral grey beside the blue accent reads as
 // slightly yellow, and the whole interface looks dusty.
+//
+//nolint:dupl // Dark and Light are parallel palette data; extracting field assignment would hide the complete palette each function audits.
 func Dark() Theme {
 	return themePalette{
 		text:     grid.RGBColor(0xE2, 0xE6, 0xEF),
@@ -179,6 +181,8 @@ func Dark() Theme {
 }
 
 // Light is the same palette turned over, for a terminal on a light background.
+//
+//nolint:dupl // Dark and Light are parallel palette data; extracting field assignment would hide the complete palette each function audits.
 func Light() Theme {
 	return themePalette{
 		text:     grid.RGBColor(0x1C, 0x21, 0x2C),
