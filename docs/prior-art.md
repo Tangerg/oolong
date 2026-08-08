@@ -71,17 +71,19 @@ observables framework outright, and
 [§12 rule 8](architecture.md#12-go-api-rules) asks configuration to stay proportional
 to the problem. Three of twelve is the honest share.
 
-## 2. opentui/ssh confirms the shape of a host this repository does not have
+## 2. opentui/ssh confirms the shape of the host now implemented here
 
 > `@opentui/ssh` turns an incoming SSH session into a fully-wired OpenTUI `CliRenderer`
 > whose input/output is the SSH channel and whose dimensions track the client's PTY.
 > […] the package is **renderer-agnostic**: it depends only on `@opentui/core`, never
 > on `@opentui/react` or `@opentui/solid`.
 
-That is the design already sketched for this repository — an SSH channel behind
-`program.Host`, in a module of its own, never in `core` — implemented by somebody
-else and shown to work. Its file list is a usable checklist: `auth`, `banner`,
-`connection`, `keys`, `run-session`, `server`, `safe`, `errors`, `logging`.
+That shape is now implemented here: an SSH channel behind `program.Host`, in a
+module of its own, never in `core`. The application and `charm.land/ssh` keep auth,
+banner, listening, host keys, connection policy, logging and exit status. Oolong
+owns only the accepted PTY's input decoding, window stream, frame writer and
+terminal modes. This is the narrower boundary implied by the checklist rather than
+a second SSH server implementation.
 
 What changed here is the cost. When this was first considered, `program.Host` had
 sixteen methods and most implementations answered "no" to a dozen of them. It now has
@@ -345,9 +347,11 @@ Ordered by what each is blocked on, not by appetite.
 
 1. **A named counter-example in §3.2.** One paragraph. Turns an unopposed assertion
    into a judgement with the alternative stated.
-2. **An SSH host module.** The only candidate that is cheaper now than when it was
-   first considered, carries its own caller, and moves a v1 exit condition. Must be
-   its own module and must not add a dependency to `core`.
+2. **An SSH host module: completed.** It accepts an already-authorized
+   `charm.land/ssh` session, runs the ordinary program contract, tracks the newest
+   valid PTY geometry without blocking the SSH request loop, and owns terminal
+   modes and frame settlement for the call. Its dependency is isolated in the
+   `ssh` module; `core` gains no SSH branch or dependency.
 3. **A screen-state assertion for tests: completed.** `ptytest.Screen` stays in the
    harness module and reuses only terminal-neutral core primitives. Its stopping point
    is enforced by behavior: fixed cell text in; terminal queries, input, buffer

@@ -286,6 +286,7 @@ flowchart BT
     Term["terminal adapter"] --> Protocol
     Program["program runtime"] --> Term
     Program --> Coordination
+    SSH["可选 SSH 传输适配器"] --> Program
     ProgramTest["in-process program harness"] --> Program
     Harness["PTY and screen assertions"] --> Model
     Headless["headless components"] --> Interaction
@@ -294,6 +295,7 @@ flowchart BT
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     App["application composition"] --> Program
+    App --> SSH
     App --> ProgramTest
     App --> Harness
     App --> Kit
@@ -302,6 +304,11 @@ flowchart BT
 ```
 
 `program` 与 widget 阶梯保持正交。它驱动一个由消费方定义的组件方法集，并且不得 import `components`。反过来，组件也不知道是哪个终端宿主、调度器或运行时在驱动它们。
+
+SSH 传输是位于 `program` 之上的可选模块，不是另一套运行时，也不是
+`core` 内部的一条边。它适配的是已经由应用 SSH 服务器接受的会话；认证、
+监听、主机密钥、连接策略、日志和退出状态仍由应用负责。因此，只有显式
+import 该适配器的应用才承担它的外部依赖。
 
 ### 7.1 一个包必须配得上它的名字
 

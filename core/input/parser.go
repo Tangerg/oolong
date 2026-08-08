@@ -4,10 +4,20 @@ import (
 	"bytes"
 	"image"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/ansi"
 )
+
+// DefaultEscapeTimeout is how long a byte stream waits before treating a lone
+// escape byte as the Escape key rather than the beginning of a terminal sequence.
+//
+// The parser itself has no clock: a transport feeds bytes into [Parser] and flushes
+// a pending parse after this interval. Keeping the default beside the protocol
+// makes a local terminal and a remote terminal interpret the same byte stream the
+// same way.
+const DefaultEscapeTimeout = 30 * time.Millisecond
 
 // esc is the byte every sequence begins with, under the name this package's own
 // reading of them uses.

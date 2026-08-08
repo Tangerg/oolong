@@ -8,8 +8,10 @@
 // promise than the old one and a cheaper one to keep. `ptytest` is a harness above
 // the product graph: its screen assertion reuses core's terminal-neutral ANSI and
 // text primitives, while no production package can reach back to it. Splitting
-// further would be mimicry: a module boundary costs version skew and buys an
-// independent dependency set, and nothing inside `core` has one.
+// `ssh` is an optional transport above the runtime: it isolates the server stack so
+// neither core nor applications that stay local acquire it. Splitting further would
+// be mimicry: a module boundary costs version skew and buys an independent dependency
+// set, and nothing inside `core` has one.
 //
 // A **ring** boundary is enforced here, because the compiler cannot see semantic
 // direction inside a module. Core is a partial order: foundations, decoded
@@ -61,6 +63,7 @@ var modules = map[string][]string{
 	"highlight": {"github.com/alecthomas/chroma"},
 	"internal":  nil,
 	"ptytest":   {"golang.org/x/sys"},
+	"ssh":       {"charm.land/ssh"},
 	"examples":  nil,
 }
 
@@ -87,6 +90,7 @@ var rings = []struct {
 	{"markdown/", "markdown"},
 	{"highlight/", "highlight"},
 	{"ptytest/", "harness"},
+	{"ssh/", "ssh"},
 	{"examples/", "examples"},
 	{"internal/", "internal"},
 }
@@ -134,7 +138,8 @@ var dependencies = map[string][]string{
 	// and ANSI syntax from above. Demonstrations are the composition root and may use
 	// every public branch, but no production ring depends on either test layer.
 	"harness":  {"model"},
-	"examples": {"testharness", "kit", "markdown", "highlight", "harness"},
+	"ssh":      {"runtime"},
+	"examples": {"testharness", "kit", "markdown", "highlight", "harness", "ssh"},
 
 	// The architecture module contains only tests and imports no production ring.
 	"internal": nil,
@@ -207,7 +212,7 @@ func TestDocumentationPointsDown(t *testing.T) {
 		"core/anim", "core/ansi", "core/clipboard", "core/diff", "core/fuzzy",
 		"core/graphics", "core/grid", "core/input", "core/layout", "core/link",
 		"core/keymap", "core/present", "core/program", "core/programtest", "core/term", "core/text",
-		"components/headless", "components/kit", "markdown", "highlight", "ptytest",
+		"components/headless", "components/kit", "markdown", "highlight", "ptytest", "ssh",
 	}
 
 	walk(t, root, func(dir, path string) {

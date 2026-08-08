@@ -1508,6 +1508,9 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 		Inline: func(*program.InlineRuntime) program.Component { return &printer{} },
 	}
 	for what, cfg := range map[string]program.Config{"neither": {}, "both": both} {
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s root passed validation", what)
+		}
 		if err := program.Run(t.Context(), cfg); err == nil {
 			t.Errorf("%s root was accepted", what)
 		}
@@ -1517,12 +1520,15 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
 	// A caller who asked for both believes something false: an interface on a screen
 	// of its own has no session output to sit among, and nowhere to print.
-	err := program.Run(t.Context(), program.Config{
+	cfg := program.Config{
 		Inline:   func(*program.InlineRuntime) program.Component { return &printer{} },
 		Terminal: term.Options{AltScreen: true},
 		Host:     newHost(t),
-	})
-	if err == nil {
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("asking for an inline interface on the alternate screen passed validation")
+	}
+	if err := program.Run(t.Context(), cfg); err == nil {
 		t.Fatal("asking for an inline interface on the alternate screen was accepted")
 	}
 }

@@ -10,14 +10,6 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// escGrace is how long a lone escape byte is held before it is taken to be the
-// Escape key rather than the start of a sequence whose rest has not arrived.
-//
-// Long enough that a sequence sent in one burst always arrives whole, short enough
-// that pressing Escape does not feel late. Escape sequences travel together; the
-// gap only opens when a human is typing.
-const escGrace = 30 * time.Millisecond
-
 // pump turns raw terminal bytes into events.
 //
 // It is separated from the terminal it normally reads because the interesting part
@@ -54,7 +46,7 @@ type pump struct {
 	// is why it is atomic and why it is a pointer: the flag belongs to the terminal
 	// and the reading of it belongs here.
 	pasting *atomic.Bool
-	// grace overrides escGrace, for tests.
+	// grace overrides input.DefaultEscapeTimeout for tests.
 	grace time.Duration
 	// now overrides the clock, for tests. It stamps keystrokes and mouse reports with
 	// when they arrived, which is a fact only the reader has: a double-click, a
@@ -70,7 +62,7 @@ type pump struct {
 func (p *pump) run() error {
 	grace := p.grace
 	if grace <= 0 {
-		grace = escGrace
+		grace = input.DefaultEscapeTimeout
 	}
 	if !p.deliver(p.early) {
 		return nil

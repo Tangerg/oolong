@@ -53,6 +53,21 @@ func TestDetectDepth(t *testing.T) {
 	}
 }
 
+func TestDetectDepthInUsesTheGivenEnvironment(t *testing.T) {
+	env := map[string]string{"TERM": "xterm-256color"}
+	lookup := func(name string) (string, bool) {
+		value, ok := env[name]
+		return value, ok
+	}
+	if got := term.DetectDepthIn(lookup); got != grid.Depth256 {
+		t.Fatalf("depth = %v, want %v", got, grid.Depth256)
+	}
+	env["NO_COLOR"] = ""
+	if got := term.DetectDepthIn(lookup); got != grid.NoColor {
+		t.Fatalf("NO_COLOR depth = %v, want %v", got, grid.NoColor)
+	}
+}
+
 func TestDetectGraphics(t *testing.T) {
 	for _, tc := range []struct {
 		name string

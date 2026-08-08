@@ -34,12 +34,29 @@ const (
 	cursorShow = "\x1b[?25h"
 )
 
-// modes is the set of terminal modes a session turns on.
-type modes struct {
+// Modes is the immutable set of terminal modes a session turns on and later puts
+// back. Its fields stay private so the only way to construct one is from [Options],
+// keeping the public configuration and the wire representation from drifting.
+//
+// Enter and Leave are encodings rather than writes. A local terminal writes them
+// around raw-mode ownership; a transport such as SSH queues them around its own
+// session lifecycle.
+type Modes struct {
 	altScreen bool
 	mouse     bool
 	focus     bool
 	keyboard  bool
+}
+
+// Modes returns the terminal-mode encoding selected by o. Probe is deliberately
+// absent from the result: probing is an input round trip, not an output mode.
+func (o Options) Modes() Modes {
+	return Modes{
+		altScreen: o.AltScreen,
+		mouse:     o.Mouse,
+		focus:     o.Focus,
+		keyboard:  o.Keyboard,
+	}
 }
 
 // mode pairs one mode's enable and disable sequences with whether it is wanted.
@@ -51,7 +68,7 @@ type mode struct {
 // sequence lists the modes in the order they are turned on. Bracketed paste is
 // always wanted: a terminal that cannot tell a paste from typing turns pasted code
 // into keystrokes, and there is no reason to want that.
-func (m modes) sequence() []mode {
+func (m Modes) sequence() []mode {
 	return []mode{
 		{altScreenOn, altScreenOff, m.altScreen},
 		{mouseOn, mouseOff, m.mouse},
@@ -62,7 +79,7 @@ func (m modes) sequence() []mode {
 }
 
 // enter is what to write to take the terminal over.
-func (m modes) enter() string {
+func (m Modes) enter() string {
 	var b strings.Builder
 	for _, mode := range m.sequence() {
 		if mode.wanted {
@@ -75,7 +92,7 @@ func (m modes) enter() string {
 // leave is what to write to give the terminal back: every mode that was turned on,
 // turned off in the opposite order, and then the cursor shown, because a frame may
 // have hidden it.
-func (m modes) leave() string {
+func (m Modes) leave() string {
 	seq := m.sequence()
 	var b strings.Builder
 	for i := len(seq) - 1; i >= 0; i-- {
@@ -86,3 +103,9 @@ func (m modes) leave() string {
 	b.WriteString(cursorShow)
 	return b.String()
 }
+
+// Enter encodes the modes in acquisition order.
+func (m Modes) Enter() string { return m.enter() }
+
+// Leave encodes the inverse modes in reverse order and makes the cursor visible.
+func (m Modes) Leave() string { return m.leave() }

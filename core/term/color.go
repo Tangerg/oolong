@@ -32,18 +32,31 @@ import (
 // TERM as sixteen colours would make the common case worse to fix the rare one. A
 // caller that knows better can use its own answer instead.
 func DetectDepth() grid.Depth {
-	if _, set := os.LookupEnv("NO_COLOR"); set {
+	return DetectDepthIn(os.LookupEnv)
+}
+
+// DetectDepthIn applies the same colour decision to an explicit environment.
+// It is the form for adapters whose terminal is not the process terminal — most
+// notably an SSH session. lookup follows [os.LookupEnv] so an empty NO_COLOR value
+// remains distinguishable from an absent one.
+func DetectDepthIn(lookup func(string) (string, bool)) grid.Depth {
+	if lookup == nil {
 		return grid.NoColor
 	}
-	switch strings.ToLower(os.Getenv("COLORTERM")) {
+	if _, set := lookup("NO_COLOR"); set {
+		return grid.NoColor
+	}
+	colorTerm, _ := lookup("COLORTERM")
+	switch strings.ToLower(colorTerm) {
 	case "truecolor", "24bit":
 		return grid.TrueColor
 	}
-	term := strings.ToLower(os.Getenv("TERM"))
+	termName, _ := lookup("TERM")
+	termName = strings.ToLower(termName)
 	switch {
-	case term == "" || term == "dumb":
+	case termName == "" || termName == "dumb":
 		return grid.NoColor
-	case strings.Contains(term, "256"):
+	case strings.Contains(termName, "256"):
 		return grid.Depth256
 	default:
 		return grid.TrueColor

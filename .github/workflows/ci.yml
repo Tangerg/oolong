@@ -9,6 +9,7 @@ on:
       - "markdown/v*"
       - "highlight/v*"
       - "ptytest/v*"
+      - "ssh/v*"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -16,7 +17,7 @@ on:
         description: Public module to validate before tagging
         required: true
         type: choice
-        options: [core, components, markdown, highlight, ptytest]
+        options: [core, components, markdown, highlight, ptytest, ssh]
       version:
         description: Proposed canonical version, for example v1.2.3
         required: true
@@ -39,8 +40,8 @@ concurrency:
 # and the list comes from go.work, so a module added without being wired into the
 # workspace is a module CI never sees, which the arch test also refuses.
 env:
-  MODULES: core components markdown highlight internal ptytest examples
-  PUBLIC_MODULES: core components markdown highlight ptytest
+  MODULES: core components markdown highlight internal ptytest ssh examples
+  PUBLIC_MODULES: core components markdown highlight ptytest ssh
 
 jobs:
   test:
@@ -124,7 +125,8 @@ jobs:
                 -replace=github.com/Tangerg/oolong/components="$standalone_root/components" \
                 -replace=github.com/Tangerg/oolong/markdown="$standalone_root/markdown" \
                 -replace=github.com/Tangerg/oolong/highlight="$standalone_root/highlight" \
-                -replace=github.com/Tangerg/oolong/ptytest="$standalone_root/ptytest"
+                -replace=github.com/Tangerg/oolong/ptytest="$standalone_root/ptytest" \
+                -replace=github.com/Tangerg/oolong/ssh="$standalone_root/ssh"
               GOWORK=off go test -count=1 ./...
             )
           done
@@ -203,10 +205,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # These modules have no dependency on an older Oolong tag whose own go.mod
-        # still declares 1.26. The higher modules can move down after the next
-        # coordinated release gives them a 1.25-compatible core tag to require.
-        module: [core, internal, ptytest]
+        # These modules either have no dependency on an older Oolong tag whose own
+        # go.mod still declares 1.26, or are the not-yet-released SSH module checked
+        # against the coordinated local core below.
+        module: [core, internal, ptytest, ssh]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -219,6 +221,9 @@ jobs:
           GOTOOLCHAIN: local
           GOWORK: "off"
         run: |
+          if [ "${{ matrix.module }}" = ssh ]; then
+            go mod edit -replace=github.com/Tangerg/oolong/core=../core
+          fi
           go test -count=1 ./...
           for os in windows darwin; do
             GOOS="$os" CGO_ENABLED=0 \
@@ -333,7 +338,8 @@ jobs:
                 -replace=github.com/Tangerg/oolong/components="$tidy_root/components" \
                 -replace=github.com/Tangerg/oolong/markdown="$tidy_root/markdown" \
                 -replace=github.com/Tangerg/oolong/highlight="$tidy_root/highlight" \
-                -replace=github.com/Tangerg/oolong/ptytest="$tidy_root/ptytest"
+                -replace=github.com/Tangerg/oolong/ptytest="$tidy_root/ptytest" \
+                -replace=github.com/Tangerg/oolong/ssh="$tidy_root/ssh"
               # A local replacement legitimately needs no checksum for the published
               # module it replaces. Normalize only those lines before comparing.
               if [ -f go.sum ]; then

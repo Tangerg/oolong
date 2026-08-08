@@ -68,7 +68,7 @@ type Options struct {
 // failed.
 type Terminal struct {
 	in, out  *os.File
-	modes    modes
+	modes    Modes
 	oldState *xterm.State
 
 	events chan input.Event
@@ -148,14 +148,9 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	}
 
 	t := &Terminal{
-		in:  in,
-		out: out,
-		modes: modes{
-			altScreen: opts.AltScreen,
-			mouse:     opts.Mouse,
-			focus:     opts.Focus,
-			keyboard:  opts.Keyboard,
-		},
+		in:         in,
+		out:        out,
+		modes:      opts.Modes(),
 		oldState:   oldState,
 		events:     make(chan input.Event, 64),
 		resized:    make(chan input.Resize, 1),

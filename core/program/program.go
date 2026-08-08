@@ -188,17 +188,28 @@ type Config struct {
 	FrameRate time.Duration
 }
 
+// Validate reports contradictions in c without opening a terminal or invoking a
+// component builder. Transport adapters call it before acquiring their own session
+// resources; Run calls it as well, so there is one definition of a runnable
+// configuration.
+func (c Config) Validate() error {
+	if (c.Root == nil) == (c.Inline == nil) {
+		return errors.New("program: exactly one of Root and Inline is required")
+	}
+	if c.Inline != nil && c.Terminal.AltScreen {
+		return errors.New("program: an inline interface cannot take the alternate screen")
+	}
+	return nil
+}
+
 // Run draws the interface until it is asked to stop, its input ends, or the terminal
 // fails.
 //
 // A cancelled context stops the program without being reported as a failure: being
 // asked to stop is not one.
 func Run(ctx context.Context, cfg Config) (err error) {
-	if (cfg.Root == nil) == (cfg.Inline == nil) {
-		return errors.New("program: exactly one of Root and Inline is required")
-	}
-	if cfg.Inline != nil && cfg.Terminal.AltScreen {
-		return errors.New("program: an inline interface cannot take the alternate screen")
+	if validationErr := cfg.Validate(); validationErr != nil {
+		return validationErr
 	}
 	opts := cfg.Terminal
 	opts.AltScreen = cfg.Root != nil

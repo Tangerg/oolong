@@ -415,6 +415,20 @@ Nothing of the highlighter reaches its API. A style is its name, a language is i
 name, and what comes back is text — the same boundary markdown keeps around its
 parser, and what lets either be replaced without anything above noticing.
 
+### ssh
+
+An optional transport module above `program`, not an SSH stack inside `core`. It
+takes a session the application has already accepted with `charm.land/ssh`, adapts
+its channel and PTY window changes to the ordinary three-method Host contract, and
+runs the same component tree a local terminal would.
+
+The split is as important as the feature. Authentication, host keys, listening,
+connection policy, commands, logging and exit status remain application decisions;
+the adapter owns only byte decoding, terminal modes, frame settlement, causal I/O
+failure and bounded cell geometry for the call. An application with no SSH endpoint
+therefore has no SSH dependency, while an SSH application does not maintain a second
+runtime or input model.
+
 ### How it is kept honest
 
 - The arch tests above, each with a counter-example.

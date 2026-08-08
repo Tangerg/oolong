@@ -2,7 +2,7 @@
 
 All notable changes to this repository. Modules are tagged separately —
 `core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `highlight/vX.Y.Z`,
-`ptytest/vX.Y.Z` — and share one version number: a release is a state of the
+`ptytest/vX.Y.Z`, `ssh/vX.Y.Z` — and share one version number: a release is a state of the
 repository.
 
 From 0.1.0 they are also one coordinated release train, as
@@ -19,6 +19,13 @@ point of tagging them low rather than not at all.
 ## [Unreleased]
 
 ### Added
+
+- **An SSH PTY is now a first-class optional host.** The separate `ssh` module
+  adapts an already accepted `charm.land/ssh` session into the ordinary program
+  transport without teaching `core` about servers or authentication. It owns byte
+  decoding, terminal modes, causal failures and coalesced window changes for the
+  call, resolves colour from the client environment, bounds peer-controlled cell
+  allocation, and leaves channel closure and exit status with the application.
 
 - **A renderer-sized screen assertion for tests.** `ptytest.Screen` incrementally
   applies the text, movement, erasure, bounded scrolling, SGR, OSC and mode syntax
@@ -49,6 +56,11 @@ point of tagging them low rather than not at all.
   The dashboard uses it to edit the same live rate controller shown in another pane.
 
 ### Changed
+
+- **Program configuration has one side-effect-free validator.** `Config.Validate`
+  owns the same Root/Inline contradictions enforced by `Run`, so a transport adapter
+  can reject an impossible program before it acquires input or writes terminal
+  modes instead of copying runtime rules.
 
 - **Composed controls have one configuration path.** `kit.Composer` now projects
   its settings into the enclosed editor once per public entry point, and its private

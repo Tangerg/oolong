@@ -52,7 +52,7 @@ says why: a cell holds a grapheme and a style, and an image is neither.
 
 ## What it is
 
-Six modules in one repository.
+Seven modules in one repository.
 
 | module | what it is | dependencies |
 | --- | --- | --- |
@@ -61,6 +61,7 @@ Six modules in one repository.
 | **`markdown`** | markdown into terminal rows, including markdown that has not finished arriving | `goldmark` |
 | **`highlight`** | source code into styled lines, which is what a markdown look asks for | `chroma` |
 | **`ptytest`** | a harness that runs a terminal program on a real pty and says what reached the terminal | `x/sys` |
+| **`ssh`** | an accepted SSH PTY adapted into the same program host, with ordered input, resize and output ownership | `charm.land/ssh` |
 | **`examples`** | demonstrations, which nothing may import | — |
 
 A module boundary costs version skew and buys an independent dependency set, so
@@ -72,6 +73,19 @@ parser and the other a lexer per language, and the two modules above promise a
 dependency list a terminal library can be adopted for. They do not depend on each
 other either: a document with no highlighter draws code in one style, and a program
 that wants one says so in a line.
+
+The SSH adapter follows the same rule. `core` has no SSH dependency and no SSH
+branch; an application that already accepted and authenticated a session opts into
+the separate module at its handler boundary:
+
+```go
+Handler: func(session ssh.Session) {
+    if err := oolongssh.Run(session, program.Config{Inline: build}); err != nil {
+        // The application owns logging and the SSH exit status.
+        _ = session.Exit(1)
+    }
+},
+```
 
 ### Inside them, a ladder
 

@@ -457,6 +457,7 @@ flowchart BT
     Term["terminal adapter"] --> Protocol
     Program["program runtime"] --> Term
     Program --> Coordination
+    SSH["optional SSH transport"] --> Program
     ProgramTest["in-process program harness"] --> Program
     Harness["PTY and screen assertions"] --> Model
     Headless["headless components"] --> Interaction
@@ -465,6 +466,7 @@ flowchart BT
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     App["application composition"] --> Program
+    App --> SSH
     App --> ProgramTest
     App --> Harness
     App --> Kit
@@ -475,6 +477,12 @@ flowchart BT
 `program` remains orthogonal to the widget ladder. It drives a consumer-defined
 component method set and must not import `components`. Conversely, components do not
 know which terminal host, scheduler, or runtime drives them.
+
+The SSH transport is an optional module above `program`, not another runtime and not
+an edge inside `core`. It adapts a session already accepted by the application's SSH
+server; authentication, listening, host keys, connection policy, logging and exit
+status remain application concerns. Its external dependency is therefore paid only
+by applications that import the adapter.
 
 ### 7.1 A package must earn its name
 
