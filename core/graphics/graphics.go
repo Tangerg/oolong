@@ -105,10 +105,19 @@ const (
 // output and nothing in a live view, and a caller holding one boolean can explain
 // neither.
 func (p Protocol) Supports(where Placement) bool {
-	if where == Live {
+	switch where {
+	case Live:
 		return p == Kitty
+	case Printed:
+		switch p {
+		case Kitty, ITerm2, Sixel:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
 	}
-	return p != None
 }
 
 // ErrNotPNG is reported for data that is not a PNG this package can size.

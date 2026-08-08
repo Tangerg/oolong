@@ -106,6 +106,20 @@ func TestSupportsSeparatesShowingFromPlacing(t *testing.T) {
 	}
 }
 
+func TestUnknownCapabilitiesStayDisabled(t *testing.T) {
+	unknownProtocol := graphics.Protocol(200)
+	for _, where := range []graphics.Placement{graphics.Printed, graphics.Live} {
+		if unknownProtocol.Supports(where) {
+			t.Errorf("unknown protocol supports placement %d", where)
+		}
+	}
+	for _, protocol := range []graphics.Protocol{graphics.Kitty, graphics.ITerm2, graphics.Sixel} {
+		if protocol.Supports(graphics.Placement(200)) {
+			t.Errorf("%v supports an unknown placement", protocol)
+		}
+	}
+}
+
 func TestPrintedIsTheZeroPlacement(t *testing.T) {
 	// Code that has not said where an image is going gets the answer that holds in
 	// both places, not the one that holds in neither.
