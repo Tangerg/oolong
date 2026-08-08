@@ -55,6 +55,12 @@ func (f Frame) Subs(rects []image.Rectangle) []Frame {
 // Snapshot is not application state: using it for semantic values would make Draw
 // advance meaning and violate the ownership model.
 //
+// Snapshot commits T by ordinary Go assignment; it does not clone or synchronize
+// data reachable through pointers, slices, maps or interfaces inside T. Presentation
+// data behind such references must therefore be independently owned or treated as
+// immutable by its producers and consumers. A reference deliberately used as a live
+// identity or behavior, such as a Widget, keeps that reference's normal semantics.
+//
 // The zero value contains the zero T and is ready to stage.
 type Snapshot[T any] struct {
 	current T
@@ -62,7 +68,8 @@ type Snapshot[T any] struct {
 	staged  *transaction
 }
 
-// Value returns the last completely drawn value.
+// Value returns the last completely drawn value by ordinary Go assignment. See
+// [Snapshot] for the ownership rule when T contains references.
 func (s *Snapshot[T]) Value() T {
 	if s == nil {
 		var zero T
@@ -71,7 +78,8 @@ func (s *Snapshot[T]) Value() T {
 	return s.current
 }
 
-// Stage prepares value for publication with frame's complete root draw.
+// Stage prepares value for publication with frame's complete root draw. See
+// [Snapshot] for the ownership rule when value contains references.
 func (s *Snapshot[T]) Stage(frame Frame, value T) {
 	if s == nil {
 		return

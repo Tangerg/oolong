@@ -113,9 +113,9 @@ func (d *Decoder) Feed(chunk string) []Line {
 
 // Open is the line still being written: everything decoded since the last newline.
 //
-// It is what an interface draws while the rest is still arriving. The slice is the
-// decoder's own and is replaced as more arrives, so anything keeping it past the
-// next call keeps a copy.
+// It is what an interface draws while the rest is still arriving. The returned Line
+// is a read-only view owned by the decoder and may be replaced by a later decoder
+// call. A caller that will retain or modify it uses [Line.Clone].
 func (d *Decoder) Open() Line { return d.materialise() }
 
 // Flush ends the stream: the open line, if there is one, and nothing else.
