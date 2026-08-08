@@ -18,7 +18,10 @@
 //	ESC ( B                 an escape with intermediates and a final byte
 package ansi
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 const (
 	// Escape introduces every sequence there is.
@@ -88,10 +91,9 @@ type Piece struct {
 //
 // It reports the piece and how many bytes it took. The false case is the one that
 // matters for anything reading a stream: what is at the front of s could still
-// become a longer sequence, nothing about it can be decided until more arrives,
-// and no bytes were consumed. What is left over then always begins with an escape
-// byte, which is what tells a caller at the end of its input that the remainder is
-// half a sequence rather than text.
+// become a longer sequence or UTF-8 character, nothing about it can be decided
+// until more arrives, and no bytes were consumed. [Scanner] owns that undecided
+// suffix for callers reading arbitrary chunks.
 //
 // Text runs up to the next escape byte and no further, so a caller is handed the
 // largest run it can treat as one thing.
@@ -103,6 +105,12 @@ func Next(s string) (p Piece, n int, ok bool) {
 		i := strings.IndexByte(s, Escape)
 		if i < 0 {
 			i = len(s)
+			if complete := completeText(s); complete < i {
+				i = complete
+			}
+		}
+		if i == 0 {
+			return Piece{}, 0, false
 		}
 		return Piece{Kind: Plain, Raw: s[:i]}, i, true
 	}
@@ -121,6 +129,20 @@ func Next(s string) (p Piece, n int, ok bool) {
 	default:
 		return escape(s)
 	}
+}
+
+// completeText returns the end of the complete UTF-8 prefix of s. Invalid bytes
+// are complete input and remain a semantic decoder's decision; only a valid rune
+// prefix missing its final bytes must wait for the next chunk.
+func completeText(s string) int {
+	start := len(s) - 1
+	for start > 0 && !utf8.RuneStart(s[start]) {
+		start--
+	}
+	if utf8.FullRuneInString(s[start:]) {
+		return len(s)
+	}
+	return start
 }
 
 // introduces reports whether b introduces a string command.

@@ -2,6 +2,7 @@ package text
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/ansi"
 	"github.com/Tangerg/oolong/core/grid"
@@ -67,8 +68,8 @@ type Decoder struct {
 	state grid.Style
 	// link is the address the output last opened, and "" between them.
 	link string
-	// held is a sequence that has begun and not ended, waiting for the rest of it.
-	held strings.Builder
+	// scan owns syntax split across input chunks, including incomplete UTF-8.
+	scan ansi.Scanner
 	// runs own the bytes of the line no newline has ended yet. Feed grows them with
 	// amortised cost; Open materialises their immutable public form only when asked.
 	runs  []decodedRun
@@ -85,15 +86,6 @@ type decodedRun struct {
 	link  string
 }
 
-// maxHeld bounds what an unfinished sequence may hold.
-//
-// A sequence that has not ended within this many bytes is not one, and the bytes
-// are dropped. Without a bound, output that opened a string command and never
-// closed it would grow memory for as long as it kept arriving — and the cost of
-// getting the bound wrong is one dropped sequence, against a program that fills
-// its own address space.
-const maxHeld = 1 << 16
-
 // Feed takes another piece of the output and returns the lines a newline finished.
 //
 // What is left over stays in the decoder: the line no newline has ended yet — see
@@ -107,55 +99,16 @@ func (d *Decoder) Feed(chunk string) []Line {
 	if chunk == "" {
 		return nil
 	}
-
-	// A partial sequence is normally tiny, but may arrive one byte at a time. A
-	// Builder makes that a growing buffer rather than one new string per byte. Keep
-	// an offset into the stable source: mutating held while a scanner result still
-	// points into it would violate the Builder's ownership contract.
-	source := chunk
-	buffered := d.held.Len() > 0
-	if buffered {
-		d.held.WriteString(chunk)
-		source = d.held.String()
-	}
-
 	var lines []Line
-	for at := 0; at < len(source); {
-		piece, n, ok := ansi.Next(source[at:])
-		if !ok {
-			tail := source[at:]
-			if len(tail) > maxHeld {
-				// It has stopped being a sequence and started being a leak. All of what
-				// is left is that one sequence — everything decodable before it has
-				// already been read — so dropping it drops the sequence and nothing
-				// else.
-				d.held.Reset()
-				return lines
-			}
-			if buffered && at == 0 {
-				// The Builder already owns precisely this unfinished sequence. Leaving it
-				// in place is what makes one-byte input amortised linear time.
-				return lines
-			}
-			// tail may be a substring at the end of either a caller-owned chunk or a
-			// buffer whose decoded prefix should be released. Retain exactly the tail.
-			d.hold(tail)
-			return lines
-		}
-		at += n
+	err := d.scan.Feed(chunk, func(piece ansi.Piece) error {
 		lines = append(lines, d.piece(piece)...)
-	}
-	d.held.Reset()
+		return nil
+	})
+	// Scanner bounds unfinished syntax. Decoder deliberately drops a runaway
+	// sequence: it is neither visible text nor a recoverable terminal command, and
+	// the scanner has already returned to a state that can read the next chunk.
+	_ = err
 	return lines
-}
-
-// hold replaces the undecided sequence with a detached copy. s is allowed to
-// refer to held's current allocation; Reset releases ownership without changing
-// those immutable bytes before WriteString reads them.
-func (d *Decoder) hold(s string) {
-	d.held.Reset()
-	d.held.Grow(len(s))
-	d.held.WriteString(s)
 }
 
 // Open is the line still being written: everything decoded since the last newline.
@@ -171,7 +124,7 @@ func (d *Decoder) Open() Line { return d.materialise() }
 // cell drops a control character — half of a sequence is not text, and printing it
 // would print the introducer.
 func (d *Decoder) Flush() []Line {
-	d.held.Reset()
+	d.scan.Reset()
 	if len(d.runs) == 0 {
 		return nil
 	}
@@ -183,7 +136,7 @@ func (d *Decoder) Flush() []Line {
 func (d *Decoder) Reset() {
 	d.state = grid.Style{}
 	d.link = ""
-	d.held.Reset()
+	d.scan.Reset()
 	d.runs = nil
 	d.open = nil
 	d.dirty = false
@@ -309,12 +262,12 @@ func (d *Decoder) takeLine() Line {
 // package is not. They are dropped here rather than at the cell so that measuring
 // and drawing see the same text.
 func printable(s string) string {
-	if !strings.ContainsFunc(s, dropRune) {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, dropRune) {
 		return s
 	}
 	var b strings.Builder
 	b.Grow(len(s))
-	for _, r := range s {
+	for _, r := range strings.ToValidUTF8(s, "\ufffd") {
 		if !dropRune(r) {
 			b.WriteRune(r)
 		}

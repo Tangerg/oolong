@@ -11,7 +11,7 @@ func TestDecoderReleasesDecodedStorageBehindAnIncompleteSequence(t *testing.T) {
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(chunk))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	var decoder Decoder
 	decoder.Feed(chunk)
-	held := decoder.held.String()
+	held := decoder.scan.Pending()
 	if held != "\x1b[" {
 		t.Fatalf("held = %q, want the incomplete sequence", held)
 	}

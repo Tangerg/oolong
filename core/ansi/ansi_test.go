@@ -102,10 +102,8 @@ func TestAnEscapeWithIntermediatesIsOnePiece(t *testing.T) {
 	equal(t, pieces, []string{"escape(\x1b(B)", "text(plain)", "escape(\x1b=)"})
 }
 
-func TestWhatIsLeftOverIsAlwaysHalfASequence(t *testing.T) {
-	// Which is what tells a reader at the end of its input that the remainder is not
-	// text: text is always taken, and only a sequence can be incomplete.
-	for _, s := range []string{"tail \x1b[3", "\x1b]0;ti"} {
+func TestWhatIsLeftOverIsAlwaysAnIncompleteSequenceOrRune(t *testing.T) {
+	for _, s := range []string{"tail \x1b[3", "\x1b]0;ti", "text\xe4\xb8"} {
 		left := s
 		for left != "" {
 			_, n, ok := ansi.Next(left)
@@ -114,9 +112,19 @@ func TestWhatIsLeftOverIsAlwaysHalfASequence(t *testing.T) {
 			}
 			left = left[n:]
 		}
-		if left == "" || left[0] != ansi.Escape {
-			t.Fatalf("%q left %q over", s, left)
+		if left == "" {
+			t.Fatalf("%q left nothing over", s)
 		}
+	}
+}
+
+func TestAnIncompleteRuneWaitsWithoutHoldingCompleteText(t *testing.T) {
+	p, n, ok := ansi.Next("plain \xe4\xb8")
+	if !ok || n != len("plain ") || p.Kind != ansi.Plain || p.Raw != "plain " {
+		t.Fatalf("first piece = %#v, %d, %v", p, n, ok)
+	}
+	if _, n, ok := ansi.Next("\xe4\xb8"); ok || n != 0 {
+		t.Fatalf("incomplete rune was consumed: n=%d, ok=%v", n, ok)
 	}
 }
 

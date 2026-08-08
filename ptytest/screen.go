@@ -19,8 +19,6 @@ import (
 // those would turn this test helper into the terminal emulator it is meant to avoid.
 var ErrUnsupportedOutput = errors.New("ptytest: unsupported screen output")
 
-const maxScreenHeld = 1 << 16
-
 type screenCell struct {
 	text  string
 	trail bool
@@ -43,7 +41,7 @@ type Screen struct {
 	at    image.Point
 	top   int
 	end   int
-	held  string
+	scan  ansi.Scanner
 }
 
 // NewScreen returns a blank screen-state assertion model.
@@ -80,39 +78,34 @@ func (s *Screen) Apply(chunk []byte) error {
 	if s == nil || len(chunk) == 0 {
 		return nil
 	}
-	rest := s.held + string(chunk)
-	s.held = ""
-	for rest != "" {
-		piece, n, ok := ansi.Next(rest)
-		if !ok {
-			return s.hold(rest)
-		}
+	err := s.scan.Feed(string(chunk), func(piece ansi.Piece) error {
 		if piece.Kind == ansi.Plain {
-			plain, tail, err := completeText(piece.Raw, n == len(rest))
-			if err != nil {
-				return err
+			if !utf8.ValidString(piece.Raw) {
+				return fmt.Errorf("%w: malformed UTF-8", ErrUnsupportedOutput)
 			}
-			s.writePlain(plain)
-			if tail != "" {
-				return s.hold(tail)
-			}
-		} else if err := s.applySequence(piece); err != nil {
-			return err
+			s.writePlain(piece.Raw)
+			return nil
 		}
-		rest = rest[n:]
+		return s.applySequence(piece)
+	})
+	if errors.Is(err, ansi.ErrSequenceTooLong) {
+		return fmt.Errorf("%w: %w", ErrUnsupportedOutput, err)
 	}
-	return nil
+	return err
 }
 
 // Flush rejects an unfinished UTF-8 character or escape sequence. A complete stream
 // has nothing buffered and returns nil.
 func (s *Screen) Flush() error {
-	if s == nil || s.held == "" {
+	if s == nil {
 		return nil
 	}
-	held := s.held
-	s.held = ""
-	return fmt.Errorf("%w: incomplete sequence %q", ErrUnsupportedOutput, held)
+	held := s.scan.Pending()
+	s.scan.Reset()
+	if held == "" {
+		return nil
+	}
+	return fmt.Errorf("%w: incomplete output %q", ErrUnsupportedOutput, held)
 }
 
 // At returns the grapheme whose head occupies a zero-based cell. Blank cells,
@@ -148,29 +141,6 @@ func (s *Screen) Rows() []string {
 		rows[y] = row.String()
 	}
 	return rows
-}
-
-func (s *Screen) hold(rest string) error {
-	if len(rest) > maxScreenHeld {
-		return fmt.Errorf("%w: unfinished sequence exceeds %d bytes", ErrUnsupportedOutput, maxScreenHeld)
-	}
-	s.held = strings.Clone(rest)
-	return nil
-}
-
-func completeText(raw string, mayContinue bool) (plain, tail string, err error) {
-	for at := 0; at < len(raw); {
-		_, n := utf8.DecodeRuneInString(raw[at:])
-		if n > 1 || raw[at] < utf8.RuneSelf {
-			at += n
-			continue
-		}
-		if mayContinue && !utf8.FullRuneInString(raw[at:]) {
-			return raw[:at], raw[at:], nil
-		}
-		return "", "", fmt.Errorf("%w: malformed UTF-8 at byte %d", ErrUnsupportedOutput, at)
-	}
-	return raw, "", nil
 }
 
 func (s *Screen) applySequence(piece ansi.Piece) error {

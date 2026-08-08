@@ -157,7 +157,7 @@ func TestALineEndsWhereTheOutputSaidItDoes(t *testing.T) {
 func TestAStreamIsReadTheSameWayHoweverItArrives(t *testing.T) {
 	// The whole point of the decoder over the function: a chunk boundary can fall
 	// anywhere, including inside a sequence, and none of it changes the answer.
-	whole := "\x1b[1mbold\x1b[0m and \x1b[38;5;33mblue\x1b[0m\nsecond line\n"
+	whole := "中 \x1b[1mbold\x1b[0m and \x1b[38;5;33m蓝色\x1b[0m\nsecond line\n"
 	want := text.Decode(whole, grid.Style{})
 
 	for size := 1; size <= len(whole); size++ {
@@ -176,6 +176,13 @@ func TestAStreamIsReadTheSameWayHoweverItArrives(t *testing.T) {
 					size, i, styled(got[i]), styled(want[i]))
 			}
 		}
+	}
+}
+
+func TestMalformedUTF8BecomesReplacementText(t *testing.T) {
+	lines := text.Decode("before \xff after", grid.Style{})
+	if got := lines[0].String(); got != "before \ufffd after" {
+		t.Fatalf("malformed UTF-8 decoded as %q", got)
 	}
 }
 
