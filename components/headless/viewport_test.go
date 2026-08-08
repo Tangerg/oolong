@@ -15,8 +15,9 @@ import (
 type tall struct {
 	rows int
 	// mouse is the last position it was handed, in its own coordinates.
-	mouse image.Point
-	told  int
+	mouse   image.Point
+	told    int
+	focused bool
 }
 
 func (c *tall) Measure(int) int { return c.rows }
@@ -36,6 +37,7 @@ func (c *tall) Handle(ev input.Event) bool {
 }
 
 func (c *tall) Focus(has bool) {
+	c.focused = has
 	if has {
 		c.told++
 	}
@@ -44,7 +46,7 @@ func (c *tall) Focus(has bool) {
 func TestAWindowShowsThePartOfItsContentItIsScrolledTo(t *testing.T) {
 	// The content is drawn at its whole height into a view that begins above the box,
 	// so the rows off the top fall away and nothing had to be told it was scrolled.
-	p := &headless.Viewport{Content: &tall{rows: 10}}
+	p := headless.NewViewport(&tall{rows: 10})
 	paintWidget(6, 3, p)
 	p.Scroll().By(3)
 
@@ -53,7 +55,7 @@ func TestAWindowShowsThePartOfItsContentItIsScrolledTo(t *testing.T) {
 }
 
 func TestAWindowCannotBeScrolledPastItsContent(t *testing.T) {
-	p := &headless.Viewport{Content: &tall{rows: 4}}
+	p := headless.NewViewport(&tall{rows: 4})
 	paintWidget(6, 3, p)
 	p.Scroll().By(100)
 	rows := paintWidget(6, 3, p)
@@ -65,7 +67,7 @@ func TestAWindowTakesTheWheelAndPassesOnTheRest(t *testing.T) {
 	// asked. Everything else a pointer does is the content's, in the content's own
 	// coordinates — which here means the row it is over and not the row on screen.
 	content := &tall{rows: 20}
-	p := &headless.Viewport{Content: content}
+	p := headless.NewViewport(content)
 	paintWidget(6, 4, p)
 
 	for range 3 {
@@ -93,7 +95,7 @@ func TestAWindowScrollsOnlyWhatItsContentDeclined(t *testing.T) {
 	// Content with arrow keys of its own keeps them. A window that took them first
 	// would make a list inside one impossible to move through.
 	content := &tall{rows: 20}
-	p := &headless.Viewport{Content: content}
+	p := headless.NewViewport(content)
 	paintWidget(6, 4, p)
 
 	if !p.Handle(input.Key{Code: input.Down}) || p.Scroll().Offset() != 1 {
@@ -109,10 +111,26 @@ func TestAWindowScrollsOnlyWhatItsContentDeclined(t *testing.T) {
 
 func TestAWindowPassesTheKeyboardToWhatIsInIt(t *testing.T) {
 	content := &tall{rows: 4}
-	p := &headless.Viewport{Content: content}
+	p := headless.NewViewport(content)
 	p.Focus(true)
 	if content.told != 1 {
 		t.Fatal("the content was not told it has the keyboard")
+	}
+}
+
+func TestAWindowTransfersKeyboardOwnershipWithItsContent(t *testing.T) {
+	first := &tall{rows: 4}
+	second := &tall{rows: 4}
+	p := headless.NewViewport(first)
+	p.SetContent(second)
+	if p.Content() != second || first.focused || !second.focused {
+		t.Fatalf("focus after replacement: first=%v second=%v", first.focused, second.focused)
+	}
+
+	p.Focus(false)
+	p.SetContent(first)
+	if first.focused || second.focused {
+		t.Fatalf("blurred replacement gained focus: first=%v second=%v", first.focused, second.focused)
 	}
 }
 
@@ -130,7 +148,7 @@ func TestAnEmptyWindowDrawsNothingAndAnswersNothing(t *testing.T) {
 func TestAWindowAnswersToTheNameOfWhatItDoes(t *testing.T) {
 	// Its own actions and its content's, which is what lets one be driven from a menu
 	// or from a command typed by name.
-	p := &headless.Viewport{Content: &tall{rows: 20}}
+	p := headless.NewViewport(&tall{rows: 20})
 	paintWidget(6, 4, p)
 
 	if !p.Do(headless.ScrollBottom) || !p.Scroll().AtBottom() {

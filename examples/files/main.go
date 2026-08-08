@@ -87,7 +87,7 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	}
 	// A window shows the part of something taller than the room there is. The preview
 	// is ordinary wrapped text and knows nothing about being scrolled.
-	b.window = &headless.Viewport{Content: headless.Static{Of: b.preview}}
+	b.window = headless.NewViewport(headless.Static{Of: b.preview})
 	glyphs := kit.GlyphsFor(os.Getenv)
 	b.treeBox = kit.NewPanel(theme, glyphs, b.dressed)
 	b.treeBox.Box.Title = "files"

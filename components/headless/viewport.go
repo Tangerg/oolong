@@ -29,15 +29,13 @@ import (
 //
 // The zero Viewport is empty and shows nothing.
 type Viewport struct {
-	// Content is what is shown through the window. It is asked how tall it wants to be
-	// at the window's width, and drawn at that height however little of it fits.
-	Content Sized
 	// Keys say which keystrokes scroll — see [Scroll]. Nil reads through
 	// [DefaultScrollKeys], and they are tried only after the content has declined the
 	// keystroke, so content with arrow keys of its own keeps them.
 	Keys *keymap.Map
 
-	scroll Scroll
+	content Sized
+	scroll  Scroll
 	// presentation identifies the content and offset shown by the last complete
 	// root frame, so pointer routing cannot observe a half-built window.
 	presentation Snapshot[viewportPresentation]
@@ -46,36 +44,63 @@ type Viewport struct {
 	blurred bool
 }
 
+// NewViewport constructs a window around content.
+func NewViewport(content Sized) *Viewport {
+	p := &Viewport{}
+	p.SetContent(content)
+	return p
+}
+
+// Content returns what is shown through the window.
+func (p *Viewport) Content() Sized {
+	if p == nil {
+		return nil
+	}
+	return p.content
+}
+
+// SetContent replaces what is shown and transfers keyboard ownership. The scroll
+// position is preserved and clamped to the new content on its next layout.
+func (p *Viewport) SetContent(content Sized) {
+	if p == nil {
+		return
+	}
+	tell(p.content, false)
+	p.content = content
+	tell(p.content, !p.blurred)
+}
+
 // Scroll is the window's position, for a scrollbar drawn beside it.
 func (p *Viewport) Scroll() *Scroll { return &p.scroll }
 
 // Measure is how tall the content wants to be, which is what a window inside a
 // measured slot asks for: a window that is never scrolled is a window nobody notices.
 func (p *Viewport) Measure(across int) int {
-	if p.Content == nil {
+	if p.content == nil {
 		return 0
 	}
-	return p.Content.Measure(across)
+	return p.content.Measure(across)
 }
 
 // Draw paints as much of the content as fits.
 func (p *Viewport) Draw(v Frame) {
 	p.presentation.Stage(v, viewportPresentation{})
 	w, h := v.Size()
-	if p.Content == nil || w <= 0 || h <= 0 {
+	content := p.content
+	if content == nil || w <= 0 || h <= 0 {
 		return
 	}
-	total := p.Content.Measure(w)
+	total := content.Measure(w)
 	scroll := p.scroll.Stage(v, total, h)
 	p.presentation.Stage(v, viewportPresentation{
-		content: p.Content,
+		content: content,
 		offset:  scroll.Offset(),
 	})
 	// Above the window by however far it is scrolled. The content is given its whole
 	// height and draws into it as though nothing were in the way, which is what keeps
 	// the scrolling out of everything that is ever put in here.
 	top := -scroll.Offset()
-	p.Content.Draw(v.Sub(image.Rect(0, top, w, top+total)))
+	content.Draw(v.Sub(image.Rect(0, top, w, top+total)))
 }
 
 type viewportPresentation struct {
@@ -110,7 +135,7 @@ func (p *Viewport) Handle(ev input.Event) bool {
 		local.Pos.Y += presented.offset
 		return handler.Handle(local)
 	}
-	if handler, ok := p.Content.(Interactive); ok && !p.blurred && handler.Handle(ev) {
+	if handler, ok := p.content.(Interactive); ok && !p.blurred && handler.Handle(ev) {
 		return true
 	}
 	return p.scroll.Handle(ev, p.Keys)
@@ -118,7 +143,7 @@ func (p *Viewport) Handle(ev input.Event) bool {
 
 // Do runs an action, the content's first and then the window's own. See [Doer].
 func (p *Viewport) Do(action keymap.Action) bool {
-	if doer, ok := p.Content.(Doer); ok && doer.Do(action) {
+	if doer, ok := p.content.(Doer); ok && doer.Do(action) {
 		return true
 	}
 	return p.scroll.Do(action)
@@ -127,6 +152,9 @@ func (p *Viewport) Do(action keymap.Action) bool {
 // Focus takes the keyboard, or gives it up, and passes the news to the content. A
 // window is a widget like any other, so one goes in a [Container] beside anything else.
 func (p *Viewport) Focus(has bool) {
+	if p == nil || p.blurred == !has {
+		return
+	}
 	p.blurred = !has
-	tell(p.Content, has)
+	tell(p.content, has)
 }

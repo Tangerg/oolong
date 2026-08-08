@@ -101,7 +101,7 @@ func TestADiffTallerThanItsPaneScrolls(t *testing.T) {
 	// tall it is and nothing else, and something that shows a window onto anything at
 	// all does the rest.
 	d := kit.Diff{Hunks: changed("a\nb\nc\nd", "A\nB\nC\nD"), Theme: kit.Dark()}
-	window := &headless.Viewport{Content: headless.Static{Of: d}}
+	window := headless.NewViewport(headless.Static{Of: d})
 	paintWidget(10, 3, window)
 	window.Scroll().ToBottom()
 	rows := paintWidget(10, 3, window)

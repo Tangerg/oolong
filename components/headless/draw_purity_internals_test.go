@@ -389,7 +389,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}))
 
 	viewportContent := &purityWidget{text: "tall", height: 8}
-	viewport := &Viewport{Content: viewportContent}
+	viewport := NewViewport(viewportContent)
 	viewport.Scroll().Layout(8, 3)
 	viewport.Scroll().By(2)
 	viewport.Focus(true)

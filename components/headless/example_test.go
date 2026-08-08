@@ -74,7 +74,7 @@ func ExampleForm() {
 func ExampleViewport() {
 	// Content is drawn at its whole height into a view that begins above the box, so
 	// the rows off the top fall away and nothing has to be told it is scrolled.
-	window := &headless.Viewport{Content: numbered(8)}
+	window := headless.NewViewport(numbered(8))
 	showWidget(8, 3, window)
 	window.Scroll().By(4)
 	showWidget(8, 3, window)
