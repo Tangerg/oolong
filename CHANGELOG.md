@@ -41,6 +41,15 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Composed controls have one configuration path.** `kit.Composer` now projects
+  its settings into the enclosed editor once per public entry point, and its private
+  default key map is the same map used for both editing and help. Measurement,
+  drawing and input can no longer observe different editor configurations.
+- **Drawing a select no longer chooses for the application.** Initial presentation
+  may read a bound value to position the cursor, but only an input action or semantic
+  validation writes the selected option back. Rendering is therefore observationally
+  pure even when the caller's current value is not among the options.
+
 - **Retained component identity is explicit and total.** `Container` addresses focus
   by item index, optional `Item.Key` carries it across reordering, and `Stack.Push`
   returns a `LayerID` used by `Contains` and `Remove`; replacing the stack base goes

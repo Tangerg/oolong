@@ -102,12 +102,23 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 	field.Label = "Model"
 	field.Value = headless.Bind(&picked)
 	headless.NewRoot(field).Draw(grid.NewSurface(12, 4).View())
-	if picked != "fast" {
-		t.Fatalf("value = %q, want the first option", picked)
+	if picked != "" {
+		t.Fatalf("drawing chose %q for the caller", picked)
 	}
 	field.Handle(input.Key{Code: input.Down})
 	if picked != "good" {
 		t.Fatalf("value = %q, want the option the cursor moved to", picked)
+	}
+}
+
+func TestDrawingAChoiceDoesNotChooseForTheCaller(t *testing.T) {
+	picked := "not an option"
+	field := selectWith(headless.Options("fast", "good", "cheap"))
+	field.Value = headless.Bind(&picked)
+
+	headless.NewRoot(field).Draw(grid.NewSurface(12, 4).View())
+	if picked != "not an option" {
+		t.Fatalf("Draw changed the caller's value to %q", picked)
 	}
 }
 

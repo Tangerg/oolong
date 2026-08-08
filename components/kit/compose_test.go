@@ -120,6 +120,24 @@ func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 	}
 }
 
+func TestComposerUsesOneDefaultMapForEditingAndHints(t *testing.T) {
+	c := kit.Composer{Hints: []keymap.Action{headless.Yank}}
+	c.Editor().SetText("restored")
+	c.Editor().MoveLineStart()
+	c.Editor().KillToEnd()
+
+	if !c.Handle(input.Key{Code: input.Character, Rune: 'y', Mods: input.Ctrl}) {
+		t.Fatal("the default editor binding was not active through Composer.Handle")
+	}
+	if got := c.Text(); got != "restored" {
+		t.Fatalf("text = %q, want the default yank binding to restore it", got)
+	}
+	rows := paintWidget(24, c.Measure(24), &c)
+	if !strings.Contains(rows[len(rows)-1], "y yank") {
+		t.Fatalf("hint row = %q, want the binding used by the editor", rows[len(rows)-1])
+	}
+}
+
 func TestStatusAdvancesOnlyWhenTold(t *testing.T) {
 	// It holds no clock, which is what lets a test step it and what keeps an idle
 	// interface from waking up to animate.

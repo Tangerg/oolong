@@ -42,6 +42,10 @@ type Composer struct {
 	editor headless.Editor
 	// field is the editor box from the last complete root frame.
 	field headless.PointerRegion
+	// defaults is this composer's private copy of the editor defaults. Keeping it
+	// avoids rebuilding the trie at every entry point without sharing a mutable map
+	// between independent composers.
+	defaults *keymap.Map
 }
 
 // DefaultComposerRows is how tall a composer grows before it starts scrolling:
@@ -75,7 +79,7 @@ func (c *Composer) Focus(has bool) { c.editor.Focus(has) }
 // on screen means nothing to it. The width is remembered from the last frame, because
 // a click can only be about a frame that has already been drawn.
 func (c *Composer) Handle(ev input.Event) bool {
-	c.editor.Keys = c.Keys
+	c.configure()
 	if mouse, ok := ev.(input.Mouse); ok {
 		handled, _ := c.field.Handle(mouse)
 		return handled
@@ -86,31 +90,26 @@ func (c *Composer) Handle(ev input.Event) bool {
 // Measure is how many rows the composer needs at this width: the field, and a row
 // for the hints when there are any.
 func (c *Composer) Measure(width int) int {
-	c.editor.MaxRows = c.rows()
+	c.configure()
 	return c.editor.Measure(max(width-c.markerWidth(), 0)) + c.hintRows()
 }
 
 // Draw paints the marker, the field and the hints.
 func (c *Composer) Draw(v headless.Frame) {
 	c.field.Clear(v)
+	c.configure()
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return
 	}
-	c.editor.MaxRows = c.rows()
-	c.editor.Keys = c.Keys
-	// No glyph set: the marks beside a choice are the only part of a look that comes
-	// from one, and an editor has no choices.
-	c.editor.Look = c.Theme.Look(Glyphs{})
-	c.editor.Placeholder = c.Placeholder
-
+	hints := c.hintRows()
 	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(c.hintRows())},
+		layout.Slot{Size: layout.Fixed(hints)},
 	))
 	c.drawField(rows[0])
-	if c.hintRows() > 0 {
-		Help{Theme: c.Theme, Keys: c.Keys, Show: c.Hints}.Draw(rows[1].View)
+	if hints > 0 {
+		Help{Theme: c.Theme, Keys: c.editor.Keys, Show: c.Hints}.Draw(rows[1].View)
 	}
 }
 
@@ -128,12 +127,31 @@ func (c *Composer) drawField(v headless.Frame) {
 
 func (c *Composer) markerWidth() int { return text.Width(c.Prompt) }
 
+// configure is the single ownership seam between the composition and its editor.
+// Every entry point passes through it, so changing a Composer setting cannot leave
+// measurement, drawing and input with three different versions of the same field.
+func (c *Composer) configure() {
+	c.editor.MaxRows = c.rows()
+	if c.Keys != nil {
+		c.editor.Keys = c.Keys
+	} else {
+		if c.defaults == nil {
+			c.defaults = headless.DefaultEditorKeys()
+		}
+		c.editor.Keys = c.defaults
+	}
+	// No glyph set: the marks beside a choice are the only part of a look that comes
+	// from one, and an editor has no choices.
+	c.editor.Look = c.Theme.Look(Glyphs{})
+	c.editor.Placeholder = c.Placeholder
+}
+
 // hintRows is whether there is a hint row: one, if any of the actions asked for is
 // bound to something. A row of hints nobody can press is a row of nothing, and the
 // space is the field's.
 func (c *Composer) hintRows() int {
 	for _, action := range c.Hints {
-		if len(c.Keys.Keys(action)) > 0 {
+		if len(c.editor.Keys.Keys(action)) > 0 {
 			return 1
 		}
 	}

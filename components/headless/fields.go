@@ -280,6 +280,9 @@ func (s *Select[T]) Do(action keymap.Action) bool {
 // Validate checks the choice.
 func (s *Select[T]) Validate() error {
 	s.ensure()
+	// Validation is a semantic transition: submitting or leaving the field accepts
+	// the option under the cursor. Presentation alone must not do that work.
+	s.store()
 	if s.Check == nil {
 		return s.check(nil)
 	}
@@ -312,7 +315,6 @@ func (s *Select[T]) ensure() {
 		s.look.choice(v, option.Label, under, under)
 	}
 	if s.Value == nil {
-		s.store()
 		return
 	}
 	// The cursor starts on the choice already made, which is what makes a form somebody
@@ -324,7 +326,6 @@ func (s *Select[T]) ensure() {
 			break
 		}
 	}
-	s.store()
 }
 
 func (s *Select[T]) store() {
