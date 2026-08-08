@@ -122,14 +122,33 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	}
 
 	values := []int{1, 2, 3}
-	tree := &Tree[*int]{Nodes: []Node[*int]{{Item: &values[0]}, {Item: &values[1]}, {Item: &values[2]}}}
+	tree := NewTree(Node[*int]{Item: &values[0]}, Node[*int]{Item: &values[1]}, Node[*int]{Item: &values[2]})
 	tree.Rows()
-	tree.Nodes = tree.Nodes[:1]
+	tree.SetNodes(tree.Nodes()[:1])
 	tree.Rows()
 	for i, row := range tree.list.items[:cap(tree.list.items)] {
 		if i >= len(tree.list.items) && (row.Item != nil || row.path != "") {
 			t.Fatalf("tree row %d retained a removed node", i)
 		}
+	}
+}
+
+func TestTreeReleasesOpenPathsRemovedFromItsHierarchy(t *testing.T) {
+	tree := NewTree(Node[string]{
+		Item: "root",
+		Children: []Node[string]{{
+			Item: "branch", Children: []Node[string]{{Item: "leaf"}},
+		}},
+	})
+	tree.Open(0)
+	tree.Open(1)
+	if len(tree.open) != 2 {
+		t.Fatalf("open paths = %d, want 2", len(tree.open))
+	}
+
+	tree.SetNodes([]Node[string]{{Item: "replacement"}})
+	if len(tree.open) != 0 {
+		t.Fatalf("removed hierarchy retained open paths: %v", tree.open)
 	}
 }
 
@@ -197,9 +216,9 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 	for i, child := range children {
 		nodes[i] = Node[*retainedWidget]{Item: child}
 	}
-	tree := Tree[*retainedWidget]{Nodes: nodes}
+	tree := NewTree(nodes...)
 	tree.Rows()
-	tree.Nodes = nodes[:1]
+	tree.SetNodes(nodes[:1])
 	tree.Rows()
 	if cap(tree.list.items) > 2*len(tree.list.items)+16 {
 		t.Fatalf("tree retains capacity %d for %d row", cap(tree.list.items), len(tree.list.items))

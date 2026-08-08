@@ -34,7 +34,7 @@ func shape(t *headless.Tree[string]) string {
 }
 
 func TestATreeShowsWhatHasBeenOpened(t *testing.T) {
-	tree := &headless.Tree[string]{Nodes: files()}
+	tree := headless.NewTree(files()...)
 	if got := shape(tree); got != "core/README" {
 		t.Fatalf("a tree nobody opened shows %q", got)
 	}
@@ -62,16 +62,31 @@ func TestATreeShowsWhatHasBeenOpened(t *testing.T) {
 func TestATreeKeepsItsShapeWhenTheItemsAreReplaced(t *testing.T) {
 	// A file tree is refreshed while the reader is looking at it. Everything they
 	// opened closing again is the difference between a tree and a list of paths.
-	tree := &headless.Tree[string]{Nodes: files()}
+	tree := headless.NewTree(files()...)
 	tree.Open(0)
-	tree.Nodes = files()
+	tree.SetNodes(files())
 	if got := shape(tree); got != "core/ grid/ term/README" {
 		t.Fatalf("after the items were replaced the tree shows %q", got)
 	}
 }
 
+func TestATreeOwnsItsRecursiveNodeCollection(t *testing.T) {
+	nodes := files()
+	tree := headless.NewTree(nodes...)
+	nodes[0].Children[0].Item = "changed outside"
+	if got := tree.Nodes()[0].Children[0].Item; got != "grid" {
+		t.Fatalf("input mutation changed the tree to %q", got)
+	}
+
+	snapshot := tree.Nodes()
+	snapshot[0].Children[0].Item = "changed snapshot"
+	if got := tree.Nodes()[0].Children[0].Item; got != "grid" {
+		t.Fatalf("output mutation changed the tree to %q", got)
+	}
+}
+
 func TestTheArrowsMoveThroughATreeTheWayATreeMoves(t *testing.T) {
-	tree := &headless.Tree[string]{Nodes: files()}
+	tree := headless.NewTree(files()...)
 	paintWidget(12, 6, tree)
 
 	right := input.Key{Code: input.Right}
@@ -101,15 +116,13 @@ func TestTheArrowsMoveThroughATreeTheWayATreeMoves(t *testing.T) {
 }
 
 func TestATreeDrawsTheRowsThatFit(t *testing.T) {
-	tree := &headless.Tree[string]{
-		Nodes: files(),
-		Row: func(v grid.View, _ int, row headless.Shown[string], selected bool) {
-			mark := " "
-			if selected {
-				mark = ">"
-			}
-			v.Text(0, 0, mark+strings.Repeat(" ", row.Depth)+row.Item, grid.Style{})
-		},
+	tree := headless.NewTree(files()...)
+	tree.Row = func(v grid.View, _ int, row headless.Shown[string], selected bool) {
+		mark := " "
+		if selected {
+			mark = ">"
+		}
+		v.Text(0, 0, mark+strings.Repeat(" ", row.Depth)+row.Item, grid.Style{})
 	}
 	tree.Open(0)
 	rows := paintWidget(10, 3, tree)

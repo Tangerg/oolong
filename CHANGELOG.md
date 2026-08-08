@@ -63,6 +63,16 @@ point of tagging them low rather than not at all.
   the new one through `Container`'s single settlement path; drawing no longer rebuilds
   children behind that owner's API.
 
+- **Trees own hierarchy changes instead of discovering them during drawing.**
+  `NewTree`, `SetNodes`, and `Nodes` replace the mutable `Tree.Nodes` slice, recursively
+  copy nested node collections, rebuild the visible list only at semantic transitions,
+  and release expansion paths that no longer name a branch. Drawing and measurement
+  now read one already-settled selection state.
+
+- **A table layout is an actual snapshot.** `Table.Layout` owns the column
+  definitions it measured, so later edits to the table configuration cannot pair old
+  boxes with new titles, alignment, or sort furniture.
+
 - **Every host now shares one bounded geometry contract.** `program.ValidateSize`
   guards both opening geometry and later resize events before they reach a grid
   allocation; non-positive, overflowing, and excessive peer-controlled surfaces

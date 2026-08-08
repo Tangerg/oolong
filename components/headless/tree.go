@@ -51,8 +51,9 @@ type Shown[T any] struct {
 //
 // The zero Tree shows nothing and answers nothing.
 type Tree[T any] struct {
-	// Nodes are the items at the top, in order.
-	Nodes []Node[T]
+	// nodes are private so replacing the hierarchy cannot bypass selection
+	// settlement or retain open paths that no longer name a branch.
+	nodes []Node[T]
 	// Row draws one row. at is where it sits among the rows on screen and selected
 	// says whether it is the one under the cursor.
 	Row func(v grid.View, at int, row Shown[T], selected bool)
@@ -69,23 +70,51 @@ type Tree[T any] struct {
 	pending keymap.Pending
 }
 
+// NewTree constructs a tree from top-level nodes in display order.
+func NewTree[T any](nodes ...Node[T]) *Tree[T] {
+	t := &Tree[T]{}
+	t.SetNodes(nodes)
+	return t
+}
+
+// SetNodes replaces the hierarchy. The tree recursively copies the node collection;
+// the caller may reuse or change every input slice after the call. Item values remain
+// caller-owned. Open branches follow their positional paths where those paths still
+// name branches, and selection stays on the same visible row when possible.
+func (t *Tree[T]) SetNodes(nodes []Node[T]) {
+	if t == nil {
+		return
+	}
+	t.nodes = cloneNodes(nodes)
+	t.rebuild()
+}
+
+// Nodes returns a recursive copy of the hierarchy.
+func (t *Tree[T]) Nodes() []Node[T] {
+	if t == nil {
+		return nil
+	}
+	return cloneNodes(t.nodes)
+}
+
 // Rows are the rows the tree is showing, top to bottom, as a copy.
 //
-// A copy because this is the only way out of the tree and the tree rebuilds its own
-// rows on every call: handing out the buffer it builds them in would hand out
-// something that changes under the caller the next time anything is drawn. Nothing
-// inside asks for this — see [Tree.rows], which is the same answer without the copy
-// — so the allocation happens only when somebody outside wants to look.
-func (t *Tree[T]) Rows() []Shown[T] { return slices.Clone(t.rows()) }
+// A copy because the visible-row buffer belongs to the tree and changes when nodes
+// are replaced or branches open and close. The allocation happens only when somebody
+// outside asks for a snapshot; drawing reads the owned buffer directly.
+func (t *Tree[T]) Rows() []Shown[T] {
+	if t == nil {
+		return nil
+	}
+	return slices.Clone(t.list.items)
+}
 
-// rows rebuilds what the tree is showing.
-//
-// From the nodes every time, because the nodes are the caller's and may have changed
-// between two frames. Which branches are open is remembered here, so a tree that is
-// refreshed keeps the shape the reader gave it.
-func (t *Tree[T]) rows() []Shown[T] {
-	clear(t.list.items)
-	rows := t.list.items[:0]
+// rebuild is the sole transition from the owned hierarchy and open state into the
+// visible list. Drawing reads that settled list and therefore cannot clamp selection
+// or otherwise change semantic state.
+func (t *Tree[T]) rebuild() {
+	t.pruneOpen()
+	rows := make([]Shown[T], 0, len(t.list.items))
 	var walk func(nodes []Node[T], depth int, prefix string)
 	walk = func(nodes []Node[T], depth int, prefix string) {
 		for i, node := range nodes {
@@ -103,10 +132,8 @@ func (t *Tree[T]) rows() []Shown[T] {
 			}
 		}
 	}
-	walk(t.Nodes, 0, "")
-	t.list.items = trim(rows)
-	t.list.selected = t.list.clampIndex(t.list.selected)
-	return t.list.items
+	walk(t.nodes, 0, "")
+	t.list.SetItems(rows)
 }
 
 // Selected is the row the cursor is on, or -1 when the tree is showing nothing.
@@ -122,13 +149,11 @@ func (t *Tree[T]) Current() (T, bool) {
 // caller asks when it needs more than the item — whether it can be opened, how deep
 // it sits, where it came from.
 func (t *Tree[T]) CurrentRow() (Shown[T], bool) {
-	t.rows()
 	return t.list.Current()
 }
 
 // Select moves the cursor to a row, clamped to what is showing.
 func (t *Tree[T]) Select(at int) {
-	t.rows()
 	t.list.Select(at)
 }
 
@@ -141,22 +166,25 @@ func (t *Tree[T]) Close(at int) bool { return t.set(at, false) }
 
 // set opens or closes a row.
 func (t *Tree[T]) set(at int, open bool) bool {
-	rows := t.rows()
+	rows := t.list.items
 	if at < 0 || at >= len(rows) || !rows[at].Branch || rows[at].Open == open {
 		return false
 	}
 	if t.open == nil {
 		t.open = map[string]bool{}
 	}
-	t.open[rows[at].path] = open
-	t.rows()
+	if open {
+		t.open[rows[at].path] = true
+	} else {
+		delete(t.open, rows[at].path)
+	}
+	t.rebuild()
 	return true
 }
 
 // Handle answers keys, the wheel and a press, reporting whether it consumed the
 // event.
 func (t *Tree[T]) Handle(ev input.Event) bool {
-	t.rows()
 	if _, ok := ev.(input.Mouse); ok {
 		return t.list.Handle(ev)
 	}
@@ -208,7 +236,7 @@ func (t *Tree[T]) Do(action keymap.Action) bool {
 
 // into steps to the first row under an open branch.
 func (t *Tree[T]) into(at int) bool {
-	rows := t.rows()
+	rows := t.list.items
 	if at < 0 || at+1 >= len(rows) || rows[at+1].Depth <= rows[at].Depth {
 		return false
 	}
@@ -221,7 +249,7 @@ func (t *Tree[T]) into(at int) bool {
 // It is found by walking back to the first row less deep, which is what the rows
 // already say: the parent of a row is the nearest one above it with a smaller depth.
 func (t *Tree[T]) upToParent(at int) bool {
-	rows := t.rows()
+	rows := t.list.items
 	if at < 0 || at >= len(rows) || rows[at].Depth == 0 {
 		return false
 	}
@@ -243,7 +271,7 @@ func (t *Tree[T]) Focused() bool { return t.list.Focused() }
 
 // Measure is one row per row showing, which is what a container needs to decide how
 // much room to give it.
-func (t *Tree[T]) Measure(int) int { return len(t.rows()) }
+func (t *Tree[T]) Measure(int) int { return t.list.Len() }
 
 // Scroll exposes the position, for a scrollbar drawn beside the tree.
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
@@ -259,8 +287,47 @@ func (t *Tree[T]) Draw(v Frame) {
 // replacing Row. Selection, scrolling and committed pointer geometry remain owned by
 // the tree; only the appearance of this frame is supplied by the caller.
 func (t *Tree[T]) DrawRows(v Frame, draw func(grid.View, int, Shown[T], bool)) {
-	t.rows()
 	t.list.DrawRows(v, draw)
+}
+
+// pruneOpen bounds retained expansion state to branches the current hierarchy can
+// express. Descendants of a closed branch remain valid so reopening their parent can
+// restore the shape the reader left; paths removed from the hierarchy do not linger.
+func (t *Tree[T]) pruneOpen() {
+	if len(t.open) == 0 {
+		return
+	}
+	branches := make(map[string]struct{}, len(t.open))
+	var walk func(nodes []Node[T], prefix string)
+	walk = func(nodes []Node[T], prefix string) {
+		for i, node := range nodes {
+			path := prefix + strconv.Itoa(i)
+			if len(node.Children) > 0 {
+				branches[path] = struct{}{}
+				walk(node.Children, path+".")
+			}
+		}
+	}
+	walk(t.nodes, "")
+	for path := range t.open {
+		if _, ok := branches[path]; !ok {
+			delete(t.open, path)
+		}
+	}
+	if len(t.open) == 0 {
+		t.open = nil
+	}
+}
+
+func cloneNodes[T any](nodes []Node[T]) []Node[T] {
+	if len(nodes) == 0 {
+		return nil
+	}
+	cloned := make([]Node[T], len(nodes))
+	for i, node := range nodes {
+		cloned[i] = Node[T]{Item: node.Item, Children: cloneNodes(node.Children)}
+	}
+	return cloned
 }
 
 // keys is the map to read through, standing in the default for a caller who set

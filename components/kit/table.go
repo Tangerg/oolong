@@ -2,6 +2,8 @@ package kit
 
 import (
 	"image"
+	"slices"
+	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
@@ -128,6 +130,10 @@ type TableLayout struct {
 
 // Layout measures the columns and fixes their boxes at width.
 func (t Table) Layout(width int) TableLayout {
+	t.Columns = slices.Clone(t.Columns)
+	for i := range t.Columns {
+		t.Columns[i].Title = strings.Clone(t.Columns[i].Title)
+	}
 	boxes := t.flow().Rects(image.Pt(max(width, 0), 1), t.slots())
 	return TableLayout{table: t, boxes: boxes}
 }

@@ -311,11 +311,9 @@ func headlessDrawPurityCases() []drawPurityCase {
 	listCase.height = 2
 	cases = append(cases, listCase)
 
-	tree := &Tree[string]{
-		Nodes: []Node[string]{{Item: "root", Children: []Node[string]{{Item: "leaf"}}}},
-		Row: func(view grid.View, _ int, row Shown[string], _ bool) {
-			view.Text(0, 0, row.Item, grid.Style{})
-		},
+	tree := NewTree(Node[string]{Item: "root", Children: []Node[string]{{Item: "leaf"}}})
+	tree.Row = func(view grid.View, _ int, row Shown[string], _ bool) {
+		view.Text(0, 0, row.Item, grid.Style{})
 	}
 	tree.Open(0)
 	tree.Select(1)

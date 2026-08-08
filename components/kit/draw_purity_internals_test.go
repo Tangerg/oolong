@@ -322,9 +322,9 @@ func kitDrawPurityCases() []drawPurityCase {
 		},
 	})
 
-	treeController := &headless.Tree[string]{
-		Nodes: []headless.Node[string]{{Item: "root", Children: []headless.Node[string]{{Item: "leaf"}}}},
-	}
+	treeController := headless.NewTree(
+		headless.Node[string]{Item: "root", Children: []headless.Node[string]{{Item: "leaf"}}},
+	)
 	treeController.Open(0)
 	treeController.Select(1)
 	treeController.Focus(true)

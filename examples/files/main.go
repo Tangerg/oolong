@@ -73,7 +73,7 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	b := &browser{
 		runtime: runtime,
 		theme:   theme,
-		tree:    &headless.Tree[entry]{Nodes: nodes},
+		tree:    headless.NewTree(nodes...),
 		preview: &kit.Paragraph{},
 	}
 	// The tree with a look on it. It is still a widget — it takes the keyboard and

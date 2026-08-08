@@ -533,6 +533,26 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 	}
 }
 
+func TestTableLayoutOwnsTheColumnDefinitionItMeasured(t *testing.T) {
+	columns := []kit.Column{{Title: "old", Width: 4}}
+	layout := (kit.Table{Columns: columns}).Layout(6)
+	columns[0].Title = "new"
+	columns[0].Width = 1
+
+	surface := grid.NewSurface(6, 1)
+	layout.Titles(surface.View())
+	var rendered strings.Builder
+	for x := range 6 {
+		rendered.WriteString(cellAt(surface, x, 0).Content)
+	}
+	if got := rendered.String(); !strings.HasPrefix(got, "old") || strings.Contains(got, "new") {
+		t.Fatalf("layout drew %q after its source columns changed", got)
+	}
+	if got := layout.Widths(); len(got) != 1 || got[0] != 4 {
+		t.Fatalf("layout widths after source mutation = %v, want [4]", got)
+	}
+}
+
 func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 	table := kit.Table{Columns: []kit.Column{{Width: 8}, {Flex: 1, Min: 4}}, Gap: 1}
 	if widths := table.Layout(22).Widths(); widths[1] < 4 {
@@ -1065,10 +1085,10 @@ func TestNewTabsProvidesTheFinishedStripAndItsController(t *testing.T) {
 }
 
 func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
-	tree := &headless.Tree[string]{Nodes: []headless.Node[string]{
-		{Item: "core", Children: []headless.Node[string]{{Item: "grid"}}},
-		{Item: "README"},
-	}}
+	tree := headless.NewTree(
+		headless.Node[string]{Item: "core", Children: []headless.Node[string]{{Item: "grid"}}},
+		headless.Node[string]{Item: "README"},
+	)
 	tree.Open(0)
 	view := kit.Tree[string]{
 		Of:     tree,
@@ -1087,11 +1107,9 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 
 func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	called := 0
-	controller := &headless.Tree[string]{
-		Nodes: []headless.Node[string]{{Item: "root"}},
-		Row: func(grid.View, int, headless.Shown[string], bool) {
-			called++
-		},
+	controller := headless.NewTree(headless.Node[string]{Item: "root"})
+	controller.Row = func(grid.View, int, headless.Shown[string], bool) {
+		called++
 	}
 	dressed := kit.Tree[string]{Of: controller, Text: func(item string) string { return item }}
 	paintWidget(8, 1, dressed)
