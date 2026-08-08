@@ -18,6 +18,38 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-08
+
+A seventh module, five components that could not be built here before, and a pass over
+what a component is allowed to own.
+
+`ssh` is the first host this repository ships that is not the terminal it is running
+on, and it is one exported function: an application that has already accepted and
+authenticated a session hands it over, and `core` learns nothing about servers. It is
+also the first evidence that `program.Host` at three methods is a seam somebody else
+can reach.
+
+The rest of the additions are the components the
+[prior-art survey](docs/prior-art.md#a-general-behaviour-and-it-passes-the-gates) found
+missing outright: a bounded numeric value, line numbers, an assembled code block,
+columns sized from their content, and a settings list. Each is behaviour in `headless`
+and appearance in `kit`, and the two sliders in the dashboard example drive the same
+controller.
+
+The changed half is one idea applied everywhere it was still missing: **a component
+owns what it derives from.** Forms, trees, tables, timelines, histories, registries and
+searches took their collections through exported mutable fields, which meant nobody
+could release the storage behind them, settle focus when they changed, or promise that
+drawing saw a finished state. They take them through methods now.
+
+Breaking. `Form.Fields`, `Tree.Nodes`, `Stack.Base`, `Viewport.Content`,
+`DialogTrigger.Of`, `Panel.Of`, `Spinner.Frames`, `Scrollbar.Thumb`, `kit.Braille` and
+`DefaultFrameRate` are replaced by constructors and methods; `Container.Give`,
+`Stack.Push`, `Stack.Contains`, `Stack.Remove` and `History.Limit` change shape because
+identity is an index or a `LayerID` rather than an interface value that could panic on
+comparison. There are no deprecated aliases: see the
+[breaking-change policy](docs/architecture.md#13-breaking-change-and-release-policy).
+
 ### Added
 
 - **An SSH PTY is now a first-class optional host.** The separate `ssh` module
