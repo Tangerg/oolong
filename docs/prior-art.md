@@ -244,6 +244,83 @@ observations follow, and only one of them is about a feature:
   about a particular application. agentui draws that line at a `policy` parameter, and
   it is the right line: it does not belong in a package whose job is detection.
 
+## 6. The component inventory
+
+The sections above compare mechanisms. This one compares catalogues, because "what can
+I build without writing it myself" is a fair question to ask a component library and it
+has a countable answer.
+
+| | components | notes |
+| --- | --- | --- |
+| this repository | 22 drawn (`kit`) over ~70 behaviour types (`headless`) | plus `Theme`, `Glyphs`, `Border`, `Column`, `Scrim`, `Printer` as supporting values |
+| opentui | 20 renderables | `ASCIIFont`, `Box`, `Code`, `Diff`, `EditBuffer`, `FrameBuffer`, `Image`, `Input`, `LineNumber`, `Markdown`, `ScrollBar`, `ScrollBox`, `Select`, `Slider`, `TabSelect`, `Text`, `TextNode`, `Textarea`, `TextTable`, `TimeToFirstDraw` |
+| bubbles | 14 | `cursor`, `filepicker`, `help`, `key`, `list`, `paginator`, `progress`, `spinner`, `stopwatch`, `table`, `textarea`, `textinput`, `timer`, `viewport` |
+| pi-tui | 12 | `box`, `cancellable-loader`, `editor`, `image`, `input`, `loader`, `markdown`, `select-list`, `settings-list`, `spacer`, `text`, `truncated-text` |
+| agentui | 7 interface packages | `overlay`, `palette`, `completion`, `history`, `search`, `todo`, `tasks` — the last two are product grammar |
+
+Counting is the least interesting thing about that table. What follows is the part that
+is not already covered by something here under a different name.
+
+### A. General behaviour, and it passes the gates
+
+Each of these is missing outright, is behaviour with an appearance rather than policy,
+and has at least two implementations among the projects read — which is what
+[§7.1](architecture.md#71-a-package-must-earn-its-name) asks for.
+
+| missing | who has it | why it is general, and what is actually absent here |
+| --- | --- | --- |
+| **A bounded numeric value** | opentui `Slider` | A number in a range, moved by key or drag. There is no equivalent at either layer — not a `headless` controller, not a `kit` widget. `Progress` draws a proportion and cannot be moved. |
+| **Line numbers** | opentui `LineNumberRenderable` | An editor and a code view both want a gutter of numbers aligned to wrapped rows. `kit.Message` has a gutter, but it holds a speaker's name; nothing counts lines. |
+| **A code block** | opentui `Code` | Every part exists — the `highlight` module, `text.Line`, the fenced blocks `markdown` already produces — and nothing assembles them. Showing a highlighted snippet outside a document means wiring those three by hand. |
+| **Columns sized from their content** | opentui `TextTable` | `kit.Column` offers `Width`, `Flex` and `Min`, all of them decided by the caller. There is no "as wide as the widest cell". Three of the four projects read have it. |
+| **A settings list** | pi-tui `settings-list`, agentui `catalog` | Rows of label and editable value, scrolled. `headless.Form` is a vertical form with focus traversal, which is a different shape: a form is answered once, a settings list is browsed. |
+
+### B. Real, but blocked on one shared question
+
+These three look like three components. They are one unanswered design question —
+**scope** — wearing three hats, and building them separately would produce three
+incompatible notions of it.
+
+| missing | who has it | the question |
+| --- | --- | --- |
+| **A scoped command palette** | agentui `palette` (`Scope`, `Predicate`, `Registry`) | `headless.Commands` has `Add`, `Remove`, `Lookup`, `Used` and `Find`. It cannot say a command is available only in some context; a caller filters after `Find` and every caller filters differently. |
+| **Completion sources** | agentui `completion` (file, shell, `@`-reference) | `Completion.Offer(token, candidates)` takes candidates from the caller. A `Source` that is asked for candidates given a context is general; the file and shell sources themselves are the application's. |
+| **A file picker** | bubbles `filepicker` | The behaviour — a tree, a filter, a selection — belongs in `headless`. Which directories may be seen is a **security decision**, and agentui puts it in a `policy` parameter rather than in the picker. That line is the right one and it is why this is not simply a widget. |
+
+`keymap` scopes, from [§1](#1-opentuikeymap-answers-a-limitation-this-repository-has-written-down),
+are the fourth hat. Whatever answers one of these should answer all four.
+
+### C. Count, not capability
+
+Adding these would raise a number and change nothing anyone can do.
+
+| missing | who has it | why not |
+| --- | --- | --- |
+| Paginator | bubbles | A "3 / 7" indicator. |
+| Timer, stopwatch | bubbles | A `time.Ticker` and a format string. |
+| ASCII banner font | opentui `ASCIIFont` | Decoration. |
+| Spacer | pi-tui | `layout.Flex(1)`. |
+| Truncated text | pi-tui | `kit.Label` with `Ellipsis`. |
+| ScrollBox, TabSelect, Input, Loader | opentui, pi-tui | `Viewport` with `Scroll`, `Tabs`, `Editor`, `Spinner`. |
+
+### The tension this section is under
+
+"As many components as possible" is a goal, and it is not this repository's. §15 says
+no phase creates an unused framework, §7.1 wants two real consumers before a boundary,
+and [§16](architecture.md#16-designs-explicitly-rejected) already declines timers and
+stopwatches added for the count and a file picker with a filesystem policy inside it.
+
+Those rules and a rich catalogue are not actually opposed, provided the split is kept:
+**behaviour general enough to have two consumers goes in `headless` and `kit`; the rest
+is a worked example.** A file picker's tree, filter and selection are the first kind.
+Its policy is the second. A settings list is the first kind. What the settings *are* is
+the second. Group A is entirely the first kind, which is why it is Group A.
+
+The honest sequence is A first, because five components that today cannot be built at
+all is a larger gain than any number of aliases for things that can. Then B as one
+piece of work, because scope is one question. C only if somebody asks for a specific
+one, and then as an example.
+
 ## Summary
 
 | source | adopt | do not import |
@@ -268,16 +345,21 @@ Ordered by what each is blocked on, not by appetite.
    bytes because there is nothing better to assert on. It belongs in a test module,
    never in the library, and it needs its stopping point written down before its first
    line: enough to say what a cell shows, never a cursor or a scrolling region.
-
-4. **A kill ring.** Small, behaviour-only, no new boundary. Wants one real call site
+4. **[Group A](#a-general-behaviour-and-it-passes-the-gates): the five components that
+   cannot be built here today.** A code block and line numbers first — every part
+   already exists and nothing assembles them, and a highlighted snippet is the most
+   asked-for thing a terminal agent shows. Then a bounded numeric value and
+   content-sized columns. A settings list last, because it is the one that most wants
+   an answer to scope.
+5. **A kill ring.** Small, behaviour-only, no new boundary. Wants one real call site
    before it is generalised past what `Yank` already does.
-5. **Keymap disambiguation, scopes and diagnostics.** The design is clear and the
-   deadlock is understood. It needs a real interface that suffers from the prefix
-   limitation, because the resolver's shape should be decided by a caller and not by
-   this document.
-6. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
+6. **[Group B](#b-real-but-blocked-on-one-shared-question) and keymap scope, as one
+   piece of work.** A scoped palette, completion sources, a file picker's policy seam
+   and keymap layers are four hats on one question. Answering it four times is how a
+   repository ends up with four incompatible notions of scope.
+7. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
    wants two consumers for a boundary; there is currently one hypothetical.
-7. **A paste-into-chip example.** Belongs in `examples`, not in the library.
+8. **A paste-into-chip example.** Belongs in `examples`, not in the library.
 
 ## What would change this document
 
@@ -285,7 +367,7 @@ A new reading, with a new date. Also any of these:
 
 - a real interface here that the prefix limitation actually blocks, which would move
   candidate 4 up;
-- a second consumer for refusal reporting, which would move candidate 6 from a wish to
+- a second consumer for refusal reporting, which would move candidate 7 from a wish to
   a boundary;
 - evidence that purge-and-re-emit resize buys something §3.2 did not weigh, which
   would reopen a rejection rather than merely annotate it.
