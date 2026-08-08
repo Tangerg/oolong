@@ -347,27 +347,14 @@ func (i *Inline) compose(used int) error {
 	// down past them, so nothing the block is showing survives it. A piece that goes
 	// onto the end of a row already published moves nothing: the row it goes on is
 	// above the block already.
-	advance := 0
-	for _, p := range i.pending {
-		if !p.after {
-			advance++
-		}
-	}
+	advance := i.pendingAdvance()
 	full := i.full || advance > 0
-
-	changed := func(y int) bool { return full || !rowEqual(i.front, y, i.back, y) }
 
 	// The rows the block is giving up. They are erased where they are rather than
 	// deleted, which leaves the block shorter with blank rows below it and moves
 	// nothing that is above it.
 	extra := max(i.rows-advance-used, 0)
-
-	work := full || extra > 0 || len(i.pending) > 0 ||
-		!sameRegions(i.front.regions(), i.back.regions())
-	for y := 0; y < used && !work; y++ {
-		work = changed(y)
-	}
-	if !work && !i.cursorPending() {
+	if !i.compositionNeeded(used, extra, full) {
 		return nil
 	}
 
@@ -380,7 +367,37 @@ func (i *Inline) compose(used int) error {
 	if i.at.Y > 0 {
 		i.csi(i.at.Y, 'A')
 	}
+	i.composePending()
+	total := i.composeRows(used, extra, full)
+	return i.composeEnd(used, total, full)
+}
 
+func (i *Inline) pendingAdvance() int {
+	advance := 0
+	for _, p := range i.pending {
+		if !p.after {
+			advance++
+		}
+	}
+	return advance
+}
+
+func (i *Inline) compositionNeeded(used, extra int, full bool) bool {
+	if full || extra > 0 || len(i.pending) > 0 ||
+		!sameRegions(i.front.regions(), i.back.regions()) || i.cursorPending() {
+		return true
+	}
+	for y := range used {
+		if i.rowChanged(y, false) {
+			return true
+		}
+	}
+	return false
+}
+
+// composePending writes immutable output before the live block. It leaves the
+// cursor at the start of the row where the block now begins.
+func (i *Inline) composePending() {
 	for k, p := range i.pending {
 		switch {
 		case k == 0 && p.after:
@@ -400,7 +417,11 @@ func (i *Inline) compose(used int) error {
 		// Below everything published, which is where the block goes.
 		i.buf = append(i.buf, "\r\n"...)
 	}
+}
 
+// composeRows rewrites changed live rows and erases rows the block released. It
+// returns how many rows were visited, with the cursor at column zero on the last.
+func (i *Inline) composeRows(used, extra int, full bool) int {
 	// moved tracks whether the row just visited left the cursor away from column
 	// zero, which is the only thing a carriage return is for.
 	moved := false
@@ -417,7 +438,7 @@ func (i *Inline) compose(used int) error {
 		case y >= used:
 			// Erasing leaves the cursor where it is, which is already column zero.
 			i.buf = append(i.buf, eraseLine...)
-		case changed(y):
+		case i.rowChanged(y, full):
 			row := EncodeRow(i.back.row(y), i.depth)
 			i.buf = append(i.buf, row...)
 			i.buf = append(i.buf, eraseLine...)
@@ -427,7 +448,16 @@ func (i *Inline) compose(used int) error {
 	if moved {
 		i.buf = append(i.buf, '\r')
 	}
+	return total
+}
 
+func (i *Inline) rowChanged(y int, full bool) bool {
+	return full || !rowEqual(i.front, y, i.back, y)
+}
+
+// composeEnd repaints non-cell regions and leaves the terminal cursor where the
+// frame asked, after the row encoder has returned it to a known column.
+func (i *Inline) composeEnd(used, total int, full bool) error {
 	// The regions something else paints, from where the rows left the cursor. They
 	// go after the rows for the reason they do on a screen — the rows would write the
 	// blanks they think are underneath over what was painted — and before the cursor,
