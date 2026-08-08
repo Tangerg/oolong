@@ -23,9 +23,10 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 		})
 	}()
 
-	// The strip names both panes and the first one is showing.
+	// The strip names every pane and the first one is showing.
 	host.Shows(t, "tasks")
 	host.Shows(t, "activity")
+	host.Shows(t, "settings")
 	host.Shows(t, "build")
 
 	// A press on a heading sorts by it. The geometry is the table's, so the column
@@ -52,6 +53,17 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	host.Shows(t, "1 tasks/tick")
 	host.Send(input.Key{Code: input.Right})
 	host.Shows(t, "2 tasks/tick")
+
+	// The settings list changes the same bounded value, rather than holding a second
+	// preference that only looks like it. Moving back proves both panes observe one
+	// source of truth.
+	host.Send(input.Key{Code: input.Right, Mods: input.Alt})
+	host.Shows(t, "motion")
+	host.Shows(t, "2 tasks/tick")
+	host.Send(input.Key{Code: input.Right})
+	host.Shows(t, "3 tasks/tick")
+	host.Send(input.Key{Code: input.Left, Mods: input.Alt})
+	host.Shows(t, "3 tasks/tick")
 
 	host.Type("q")
 	if err := <-done; err != nil {

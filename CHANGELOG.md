@@ -30,6 +30,14 @@ point of tagging them low rather than not at all.
   editor and passive code blocks, and `kit.LineNumbers` is its reusable line-number
   implementation. `kit.Code` assembles styled `text.Line` values without making the
   component graph depend on a syntax highlighter.
+- **Tables can fit columns to the content they actually draw.** A `kit.Cell` carries
+  its preferred width with its painter, `Column.Fit` delegates allocation to the
+  existing measured-layout path, and `TableLayout` computes the scan once and reuses
+  it for every row drawn and for committed heading hit tests.
+- **Settings are a real two-layer component.** `headless.Settings` composes list
+  selection and scrolling with actions for the selected value; `kit.Settings`
+  projects application-owned labels and values into a fitted two-column appearance.
+  The dashboard uses it to edit the same live rate controller shown in another pane.
 
 ### Changed
 
@@ -41,6 +49,12 @@ point of tagging them low rather than not at all.
   selection geometry.** Decoration is outside copied text, clicks in the gutter are
   not mistaken for text clicks, and a masked field exposes only its mask to an
   appearance callback.
+- **A table cell has one definition for measurement and drawing.** `Table.Cell` now
+  returns a behaviour-rich `kit.Cell` instead of accepting a paint-only callback;
+  custom cells use `NewCell` and text cells use `LabelCell`.
+- **Lists can accept a frame-local row renderer.** `List.DrawRows` preserves the
+  list's selection, scrolling and committed routing while a composed appearance
+  reuses geometry it computed once for the frame.
 
 ## [0.2.0] — 2026-08-08
 

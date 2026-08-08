@@ -239,6 +239,15 @@ func (l *List[T]) Scroll() *Scroll { return &l.scroll }
 
 // Draw paints the visible items.
 func (l *List[T]) Draw(v Frame) {
+	l.DrawRows(v, l.Row)
+}
+
+// DrawRows paints the visible items with row.
+//
+// Supplying the renderer for this frame lets an appearance component reuse
+// geometry it computed once at the frame's width. The list still owns selection,
+// scrolling and committed pointer routing; [List.Draw] is this method with Row.
+func (l *List[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
 	width, height := v.Size()
 	total := len(l.items)
 	selected := l.Selected()
@@ -248,7 +257,7 @@ func (l *List[T]) Draw(v Frame) {
 	}
 	first := scroll.Offset()
 	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total})
-	if l.Row == nil {
+	if draw == nil {
 		return
 	}
 	for y := range height {
@@ -257,7 +266,7 @@ func (l *List[T]) Draw(v Frame) {
 			break
 		}
 		row := v.Sub(grid.Rect(0, y, width, 1)).View
-		l.Row(row, index, l.items[index], index == selected)
+		draw(row, index, l.items[index], index == selected)
 	}
 }
 

@@ -39,6 +39,7 @@ func TestDrawIsObservationallyPure(t *testing.T) {
 	passive := map[string]bool{
 		"Box":         true,
 		"*Code":       true,
+		"Cell":        true,
 		"Diff":        true,
 		"Help":        true,
 		"Image":       true,
@@ -223,6 +224,21 @@ func kitDrawPurityCases() []drawPurityCase {
 	slider.Focus(true)
 	cases = append(cases, widgetPurityCase("*Slider", slider, func() any {
 		return slider.Semantics()
+	}))
+
+	settingValues := []string{"dark", "on"}
+	settings := NewSettings(
+		Theme{}, []int{0, 1},
+		func(index int) string { return []string{"theme", "wrap"}[index] },
+		func(index int) string { return settingValues[index] },
+		nil,
+	)
+	settings.Of.Select(1)
+	cases = append(cases, widgetPurityCase("*Settings", settings, func() any {
+		return struct {
+			selected int
+			values   []string
+		}{settings.Selected(), slices.Clone(settingValues)}
 	}))
 
 	content := &headless.Transcript{}

@@ -20,6 +20,7 @@ import (
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
@@ -59,25 +60,42 @@ type dashboard struct {
 	runtime *program.Runtime
 	theme   kit.Theme
 
-	tabs  *headless.Tabs
-	strip kit.Tabs
-	work  *queue
-	watch *activity
+	tabs   *headless.Tabs
+	strip  kit.Tabs
+	work   *queue
+	watch  *activity
+	prefs  *kit.Settings[preference]
+	motion bool
 }
+
+type preference string
+
+const (
+	ratePreference   preference = "rate"
+	motionPreference preference = "motion"
+)
 
 func newDashboard(runtime *program.Runtime) *dashboard {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(os.Getenv)
 
-	d := &dashboard{runtime: runtime, theme: theme}
+	d := &dashboard{runtime: runtime, theme: theme, motion: true}
 	d.work = newQueue(theme, glyphs)
 	d.watch = newActivity(theme, glyphs, d.work)
+	d.prefs = kit.NewSettings(
+		theme,
+		[]preference{ratePreference, motionPreference},
+		func(item preference) string { return string(item) },
+		d.preferenceValue,
+		d.changePreference,
+	)
 
 	d.strip = *kit.NewTabs(
 		theme,
 		glyphs,
 		headless.Tab{Title: "tasks", Of: d.work},
 		headless.Tab{Title: "activity", Of: d.watch},
+		headless.Tab{Title: "settings", Of: d.prefs},
 	)
 	d.tabs = d.strip.Of
 	d.tabs.Focus(true)
@@ -96,7 +114,7 @@ func (d *dashboard) Draw(v headless.Frame) {
 	))
 	d.strip.Draw(rows[0])
 	kit.Label{
-		Text:  "alt+←/→: pane   arrows: row or rate   click a heading to sort   q: quit",
+		Text:  "alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit",
 		Style: d.theme.Subtle,
 	}.Draw(rows[1].View)
 }
@@ -111,7 +129,44 @@ func (d *dashboard) Handle(ev input.Event) bool {
 
 func (d *dashboard) advance() {
 	d.work.advance(d.watch.rate.Of.Value())
-	d.watch.tick()
+	if d.motion {
+		d.watch.tick()
+	}
+}
+
+func (d *dashboard) preferenceValue(item preference) string {
+	switch item {
+	case ratePreference:
+		return fmt.Sprintf("%d tasks/tick", d.watch.rate.Of.Value())
+	case motionPreference:
+		if d.motion {
+			return "on"
+		}
+		return "off"
+	default:
+		return ""
+	}
+}
+
+func (d *dashboard) changePreference(_ int, item preference, action keymap.Action) bool {
+	switch item {
+	case ratePreference:
+		return d.watch.rate.Of.Do(action)
+	case motionPreference:
+		switch action {
+		case headless.Decrease:
+			d.motion = false
+		case headless.Increase:
+			d.motion = true
+		case headless.Activate:
+			d.motion = !d.motion
+		default:
+			return false
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // queue is the tasks pane: rows with a cursor and an order, and the geometry they
@@ -120,9 +175,9 @@ type queue struct {
 	theme kit.Theme
 	rows  *headless.Table[task]
 	view  kit.Table
-	// width is what the last frame was drawn at, which is what turns a press into a
-	// column: a press arrives between two frames and is about the one on screen.
-	width headless.Snapshot[int]
+	// columns are the complete table geometry from the last accepted frame. A press
+	// arrives between frames and can only be about the boxes it saw.
+	columns headless.Snapshot[kit.TableLayout]
 }
 
 func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
@@ -141,8 +196,6 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 		}
 	})
 	q.rows.SetItems(tasks())
-	q.rows.Row = q.row
-
 	q.view = kit.Table{
 		Theme:  theme,
 		Glyphs: glyphs,
@@ -168,13 +221,16 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 // would own the cursor and the scrolling as well.
 func (q *queue) Draw(v headless.Frame) {
 	width, _ := v.Size()
-	q.width.Stage(v, width)
+	columns := q.view.Layout(width)
+	q.columns.Stage(v, columns)
 	bands := v.Subs(layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(1)},
 		layout.Slot{Size: layout.Flex(1)},
 	))
-	q.view.Titles(bands[0].View)
-	q.rows.Draw(bands[1])
+	columns.Titles(bands[0].View)
+	q.rows.DrawRows(bands[1], func(v grid.View, at int, item task, selected bool) {
+		q.row(columns, v, at, item, selected)
+	})
 }
 
 func (q *queue) Measure(int) int { return q.rows.Len() + 1 }
@@ -187,7 +243,7 @@ func (q *queue) Handle(ev input.Event) bool {
 			if mouse.Action != input.MouseDown {
 				return false
 			}
-			column, on := q.view.ColumnAt(mouse.Pos.X, q.width.Value())
+			column, on := q.columns.Value().ColumnAt(mouse.Pos.X)
 			return on && q.rows.SortBy(column)
 		}
 		mouse.Pos.Y--
@@ -200,36 +256,38 @@ func (q *queue) Focus(has bool) { q.rows.Focus(has) }
 
 // row draws the band a row sits in, and then its cells through the geometry the
 // header used.
-func (q *queue) row(v grid.View, at int, _ task, selected bool) {
+func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, selected bool) {
 	width, _ := v.Size()
 	base := q.theme.Text
 	if selected && q.rows.Focused() {
 		base = base.Merge(q.theme.Selection)
 		v.Fill(grid.Rect(0, 0, width, 1), q.theme.Selection)
 	}
-	q.view.Cells(v, at, base)
+	columns.Cells(v, at, base)
 }
 
 // cell draws one cell. The row index is the table's, so what is in a cell comes from
 // this program's own rows and not from anything a widget copied.
-func (q *queue) cell(v grid.View, row, column int, base grid.Style) {
+func (q *queue) cell(row, column int) kit.Cell {
 	item, ok := q.rows.At(row)
 	if !ok {
-		return
+		return kit.Cell{}
 	}
 	switch column {
 	case 0:
-		kit.Label{Text: item.name, Style: base, Ellipsis: "…"}.Draw(v)
+		return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: "…"})
 	case 1:
-		kit.Label{Text: item.state, Style: base.Merge(q.state(item)), Ellipsis: "…"}.Draw(v)
+		return kit.LabelCell(kit.Label{Text: item.state, Style: q.state(item), Ellipsis: "…"})
 	default:
-		kit.Progress{
-			Theme:   q.theme,
-			Glyphs:  q.view.Glyphs,
-			Done:    item.done,
-			Total:   item.total,
-			Percent: true,
-		}.Draw(v)
+		return kit.NewCell(12, func(v grid.View, _ grid.Style) {
+			kit.Progress{
+				Theme:   q.theme,
+				Glyphs:  q.view.Glyphs,
+				Done:    item.done,
+				Total:   item.total,
+				Percent: true,
+			}.Draw(v)
+		})
 	}
 }
 

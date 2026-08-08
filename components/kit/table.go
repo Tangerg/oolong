@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 // Column is one column of a [Table].
@@ -21,6 +22,49 @@ type Column struct {
 	// Min is a floor on a flexible column, so it does not collapse to nothing on a
 	// narrow terminal.
 	Min int
+	// Fit makes the column ask for the widest title or cell. Width still wins when
+	// both are set. Without Width or Fit, the column takes a flexible share.
+	Fit bool
+	// Max caps a content-fitted column. Zero leaves it uncapped.
+	Max int
+}
+
+// Cell is one table cell's intrinsic width and drawing behaviour.
+//
+// Keeping the two together is what makes content-fitted columns trustworthy: the
+// value measured is the value later drawn. Preferred is a request rather than a
+// reservation; a narrow table may still give the cell less room.
+type Cell struct {
+	Preferred int
+	Paint     func(view grid.View, base grid.Style)
+}
+
+// NewCell builds a cell from its preferred width and painter.
+func NewCell(preferred int, paint func(view grid.View, base grid.Style)) Cell {
+	return Cell{Preferred: max(preferred, 0), Paint: paint}
+}
+
+// LabelCell adapts a [Label] into a measured table cell.
+//
+// The row's base style is merged under the label's style, so a selection or band is
+// retained unless the label deliberately replaces it.
+func LabelCell(label Label) Cell {
+	style := label.Style
+	return NewCell(text.Width(label.Text), func(view grid.View, base grid.Style) {
+		shown := label
+		shown.Style = base.Merge(style)
+		shown.Draw(view)
+	})
+}
+
+// Measure reports the cell's intrinsic width.
+func (c Cell) Measure(int) int { return max(c.Preferred, 0) }
+
+// Draw paints the cell over its row style.
+func (c Cell) Draw(view grid.View, base grid.Style) {
+	if c.Paint != nil {
+		c.Paint(view, base)
+	}
 }
 
 // Table lays out rows of cells in columns.
@@ -37,20 +81,20 @@ type Table struct {
 	Columns []Column
 	// Rows is how many rows there are.
 	Rows int
-	// Cell draws one cell into a view of exactly its box.
+	// Cell returns one cell for a row and column. The value carries both the width a
+	// fitted column measures and the painter given its final box.
 	//
-	// There is one way to fill a cell rather than two, and the plain-text case goes
-	// through the same door as every other:
+	// The plain-text case is:
 	//
-	//	Cell: func(v grid.View, row, col int, base grid.Style) {
-	//		Label{Text: data[row][col], Align: cols[col].Align,
-	//			Style: base, Ellipsis: "…"}.Draw(v)
+	//	Cell: func(row, col int) kit.Cell {
+	//		return kit.LabelCell(kit.Label{Text: data[row][col],
+	//			Align: columns[col].Align, Ellipsis: "…"})
 	//	}
 	//
-	// base is the row's own style — a band, a selection — already merged with
-	// nothing else. A cell drawn over a filled row replaces what was there,
-	// background and all, so a cell that ignores base loses the band it sits in.
-	Cell func(v grid.View, row, column int, base grid.Style)
+	// A custom cell uses [NewCell]. Its painter receives the row's base style — a
+	// band or selection — because replacing the cells over a filled row without it
+	// would erase the band.
+	Cell func(row, column int) Cell
 	// Gap is the space between columns. Zero uses one column, which is the least
 	// that still reads as two columns rather than one.
 	Gap int
@@ -72,11 +116,34 @@ type Table struct {
 	RowStyle func(row int) grid.Style
 }
 
-// Widths works out each column's width for a total, which a caller needs when it is
-// aligning something else to the same grid.
-func (t Table) Widths(total int) []int {
-	return t.flow().Divide(total, 1, t.slots())
+// TableLayout is one table's column geometry at one width.
+//
+// Computing it once matters for content-fitted columns: finding the widest cell is
+// linear in the rows, and drawing every row must not repeat that scan. A composed
+// table also keeps this value as its committed hit-test geometry.
+type TableLayout struct {
+	table Table
+	boxes []image.Rectangle
 }
+
+// Layout measures the columns and fixes their boxes at width.
+func (t Table) Layout(width int) TableLayout {
+	boxes := t.flow().Rects(image.Pt(max(width, 0), 1), t.slots())
+	return TableLayout{table: t, boxes: boxes}
+}
+
+// Widths returns the column widths. The caller owns the result.
+func (l TableLayout) Widths() []int {
+	widths := make([]int, len(l.boxes))
+	for i, box := range l.boxes {
+		widths[i] = box.Dx()
+	}
+	return widths
+}
+
+// Widths works out each column's width for a total. Code drawing more than one row
+// should keep [Table.Layout] instead of measuring the content again per row.
+func (t Table) Widths(total int) []int { return t.Layout(total).Widths() }
 
 // slots say what each column asks for. A column with neither a width nor a share
 // gets one share, because a column nobody sized still has to be visible.
@@ -87,9 +154,34 @@ func (t Table) slots() []layout.Slot {
 			slots[i] = layout.Slot{Size: layout.Fixed(c.Width)}
 			continue
 		}
+		if c.Fit {
+			column := i
+			slots[i] = layout.Slot{
+				Size: layout.Measured(c.Min, c.Max),
+				Of: layout.MeasureFunc(func(int) int {
+					return t.preferred(column)
+				}),
+			}
+			continue
+		}
 		slots[i] = layout.Slot{Size: layout.Sizing{Flex: max(c.Flex, 1), Min: c.Min}}
 	}
 	return slots
+}
+
+func (t Table) preferred(column int) int {
+	c := t.Columns[column]
+	widest := text.Width(c.Title)
+	if t.Sorted != nil {
+		widest += max(text.Width(t.Glyphs.Ascending), text.Width(t.Glyphs.Descending))
+	}
+	if t.Cell == nil {
+		return widest
+	}
+	for row := range max(t.Rows, 0) {
+		widest = max(widest, t.Cell(row, column).Measure(1))
+	}
+	return widest
 }
 
 // flow is how the columns divide the width: across, with the gap between them.
@@ -118,8 +210,9 @@ func (t Table) Draw(v grid.View) {
 		return
 	}
 	y := 0
+	columns := t.Layout(width)
 	if t.Header {
-		t.Titles(v)
+		columns.Titles(v)
 		y++
 	}
 	if t.Cell == nil {
@@ -133,7 +226,7 @@ func (t Table) Draw(v grid.View) {
 		if band != (grid.Style{}) {
 			v.Fill(grid.Rect(0, y, width, 1), band)
 		}
-		t.Cells(v.Sub(grid.Rect(0, y, width, 1)), row, band)
+		columns.Cells(v.Sub(grid.Rect(0, y, width, 1)), row, band)
 	}
 }
 
@@ -147,10 +240,14 @@ func (t Table) Draw(v grid.View) {
 // separately instead of making a second table that agrees with this one by hand.
 func (t Table) Titles(v grid.View) {
 	width, _ := v.Size()
-	boxes := t.flow().Rects(image.Pt(width, 1), t.slots())
-	t.drawRow(v, 0, boxes, func(col int, cell grid.View) {
-		c := t.Columns[col]
-		Label{Text: c.Title + t.mark(col), Style: t.Theme.Heading, Align: c.Align, Ellipsis: "…"}.
+	t.Layout(width).Titles(v)
+}
+
+// Titles draws the headings using this layout.
+func (l TableLayout) Titles(v grid.View) {
+	l.drawRow(v, 0, func(col int, cell grid.View) {
+		c := l.table.Columns[col]
+		Label{Text: c.Title + l.table.mark(col), Style: l.table.Theme.Heading, Align: c.Align, Ellipsis: "…"}.
 			Draw(cell)
 	})
 }
@@ -162,12 +259,16 @@ func (t Table) Titles(v grid.View) {
 // sits in.
 func (t Table) Cells(v grid.View, row int, base grid.Style) {
 	width, _ := v.Size()
-	if t.Cell == nil || width <= 0 {
+	t.Layout(width).Cells(v, row, base)
+}
+
+// Cells draws one row using this layout.
+func (l TableLayout) Cells(v grid.View, row int, base grid.Style) {
+	if l.table.Cell == nil {
 		return
 	}
-	boxes := t.flow().Rects(image.Pt(width, 1), t.slots())
-	t.drawRow(v, 0, boxes, func(col int, cell grid.View) {
-		t.Cell(cell, row, col, base)
+	l.drawRow(v, 0, func(col int, view grid.View) {
+		l.table.Cell(row, col).Draw(view, base)
 	})
 }
 
@@ -179,8 +280,12 @@ func (t Table) Cells(v grid.View, row int, base grid.Style) {
 // be doing the same arithmetic a second time, against a table that may since have
 // been given a different width.
 func (t Table) ColumnAt(x, width int) (int, bool) {
-	boxes := t.flow().Rects(image.Pt(width, 1), t.slots())
-	for i, box := range boxes {
+	return t.Layout(width).ColumnAt(x)
+}
+
+// ColumnAt reports which column contains x in this layout.
+func (l TableLayout) ColumnAt(x int) (int, bool) {
+	for i, box := range l.boxes {
 		if x >= box.Min.X && x < box.Max.X {
 			return i, true
 		}
@@ -209,8 +314,8 @@ func (t Table) mark(column int) string {
 // a column starts does not depend on which row is being drawn, and a table that
 // divided its width again for every row would be doing the same arithmetic once per
 // row of the terminal.
-func (t Table) drawRow(v grid.View, y int, boxes []image.Rectangle, draw func(col int, cell grid.View)) {
-	for col, box := range boxes {
+func (l TableLayout) drawRow(v grid.View, y int, draw func(col int, cell grid.View)) {
+	for col, box := range l.boxes {
 		if box.Dx() > 0 {
 			draw(col, v.Sub(grid.Rect(box.Min.X, y, box.Dx(), 1)))
 		}

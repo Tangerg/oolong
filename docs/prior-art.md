@@ -252,7 +252,7 @@ has a countable answer.
 
 | | components | notes |
 | --- | --- | --- |
-| this repository | 22 drawn (`kit`) over ~70 behaviour types (`headless`) | plus `Theme`, `Glyphs`, `Border`, `Column`, `Scrim`, `Printer` as supporting values |
+| this repository | 25 drawn (`kit`) over ~70 behaviour types (`headless`) | plus `Theme`, `Glyphs`, `Border`, `Cell`, `Column`, `LineNumbers`, `TableLayout`, `Scrim`, `Printer` as supporting values |
 | opentui | 20 renderables | `ASCIIFont`, `Box`, `Code`, `Diff`, `EditBuffer`, `FrameBuffer`, `Image`, `Input`, `LineNumber`, `Markdown`, `ScrollBar`, `ScrollBox`, `Select`, `Slider`, `TabSelect`, `Text`, `TextNode`, `Textarea`, `TextTable`, `TimeToFirstDraw` |
 | bubbles | 14 | `cursor`, `filepicker`, `help`, `key`, `list`, `paginator`, `progress`, `spinner`, `stopwatch`, `table`, `textarea`, `textinput`, `timer`, `viewport` |
 | pi-tui | 12 | `box`, `cancellable-loader`, `editor`, `image`, `input`, `loader`, `markdown`, `select-list`, `settings-list`, `spacer`, `text`, `truncated-text` |
@@ -261,19 +261,20 @@ has a countable answer.
 Counting is the least interesting thing about that table. What follows is the part that
 is not already covered by something here under a different name.
 
-### A. General behaviour, and it passes the gates
+### A. General behaviour, now implemented
 
-Each of these is missing outright, is behaviour with an appearance rather than policy,
-and has at least two implementations among the projects read — which is what
-[§7.1](architecture.md#71-a-package-must-earn-its-name) asks for.
+Each of these was missing outright when the survey was written, is behaviour with an
+appearance rather than policy, and has at least two implementations among the projects
+read — which is what [§7.1](architecture.md#71-a-package-must-earn-its-name) asks for.
+They now form one completed vertical slice rather than a permanent catalogue wish.
 
-| missing | who has it | why it is general, and what is actually absent here |
+| capability | who has it | implementation here |
 | --- | --- | --- |
-| **A bounded numeric value** | opentui `Slider` | A number in a range, moved by key or drag. There is no equivalent at either layer — not a `headless` controller, not a `kit` widget. `Progress` draws a proportion and cannot be moved. |
-| **Line numbers** | opentui `LineNumberRenderable` | An editor and a code view both want a gutter of numbers aligned to wrapped rows. `kit.Message` has a gutter, but it holds a speaker's name; nothing counts lines. |
-| **A code block** | opentui `Code` | Every part exists — the `highlight` module, `text.Line`, the fenced blocks `markdown` already produces — and nothing assembles them. Showing a highlighted snippet outside a document means wiring those three by hand. |
-| **Columns sized from their content** | opentui `TextTable` | `kit.Column` offers `Width`, `Flex` and `Min`, all of them decided by the caller. There is no "as wide as the widest cell". Three of the four projects read have it. |
-| **A settings list** | pi-tui `settings-list`, agentui `catalog` | Rows of label and editable value, scrolled. `headless.Form` is a vertical form with focus traversal, which is a different shape: a form is answered once, a settings list is browsed. |
+| **A bounded numeric value** | opentui `Slider` | `headless.Slider` owns bounds, value ownership, keys and committed drag geometry; `kit.Slider` is its appearance. `Progress` remains the distinct read-only proportion. |
+| **Line numbers** | opentui `LineNumberRenderable` | `text.Row` carries logical-line provenance, `headless.RowGutter` is the shared seam, and `kit.LineNumbers` dresses both editors and code blocks. |
+| **A code block** | opentui `Code` | `kit.Code` assembles copied `text.Line` values, wrapping, copy rows and an optional gutter without depending on the optional `highlight` module. |
+| **Columns sized from their content** | opentui `TextTable` | `kit.Cell` keeps preferred width and painting together; `Column.Fit` measures the widest title or cell, and `TableLayout` reuses the result for a whole frame. |
+| **A settings list** | pi-tui `settings-list`, agentui `catalog` | `headless.Settings` adds selected-value actions to `List`; `kit.Settings` supplies the fitted label/value rows while application data and mutation stay downstream. |
 
 ### B. Real, but blocked on one shared question
 
@@ -314,12 +315,13 @@ Those rules and a rich catalogue are not actually opposed, provided the split is
 **behaviour general enough to have two consumers goes in `headless` and `kit`; the rest
 is a worked example.** A file picker's tree, filter and selection are the first kind.
 Its policy is the second. A settings list is the first kind. What the settings *are* is
-the second. Group A is entirely the first kind, which is why it is Group A.
+the second. Group A was entirely the first kind, which is why it could be implemented
+without importing product grammar.
 
-The honest sequence is A first, because five components that today cannot be built at
-all is a larger gain than any number of aliases for things that can. Then B as one
-piece of work, because scope is one question. C only if somebody asks for a specific
-one, and then as an example.
+The sequence was A first, because five components that could not be built at all were
+a larger gain than any number of aliases for things that could. With A complete, B
+remains one piece of work because scope is one question. C remains demand-driven and,
+where it is merely product assembly, belongs in an example.
 
 ## Summary
 
@@ -345,12 +347,10 @@ Ordered by what each is blocked on, not by appetite.
    bytes because there is nothing better to assert on. It belongs in a test module,
    never in the library, and it needs its stopping point written down before its first
    line: enough to say what a cell shows, never a cursor or a scrolling region.
-4. **[Group A](#a-general-behaviour-and-it-passes-the-gates): the five components that
-   cannot be built here today.** A code block and line numbers first — every part
-   already exists and nothing assembles them, and a highlighted snippet is the most
-   asked-for thing a terminal agent shows. Then a bounded numeric value and
-   content-sized columns. A settings list last, because it is the one that most wants
-   an answer to scope.
+4. **[Group A](#a-general-behaviour-now-implemented): completed.** The five
+   capabilities landed as vertical slices: bounded value; shared row provenance,
+   line numbers and code; then content-fitted cells and a settings list. The settings
+   component routes actions but deliberately does not introduce a scope system.
 5. **A kill ring.** Small, behaviour-only, no new boundary. Wants one real call site
    before it is generalised past what `Yank` already does.
 6. **[Group B](#b-real-but-blocked-on-one-shared-question) and keymap scope, as one

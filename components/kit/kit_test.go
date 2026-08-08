@@ -3,6 +3,7 @@ package kit_test
 import (
 	"errors"
 	"image"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -532,14 +533,62 @@ func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 	}
 }
 
+func TestTableFitsAColumnToItsWidestCell(t *testing.T) {
+	data := [][]string{{"a", "one"}, {"longest", "two"}}
+	table := kit.Table{
+		Columns: []kit.Column{{Title: "name", Fit: true}, {Title: "value"}},
+		Rows:    len(data),
+		Header:  true,
+		Cell: func(row, column int) kit.Cell {
+			return kit.LabelCell(kit.Label{Text: data[row][column], Ellipsis: "…"})
+		},
+	}
+
+	layout := table.Layout(20)
+	if got := layout.Widths(); !reflect.DeepEqual(got, []int{7, 12}) {
+		t.Fatalf("widths = %v, want the first column fitted to %q", got, "longest")
+	}
+	equalRows(t, paint(20, 3, table.Draw), []string{
+		"name....value.......",
+		"a.......one.........",
+		"longest.two.........",
+	})
+}
+
+func TestTableCapsAContentFittedColumn(t *testing.T) {
+	table := kit.Table{
+		Columns: []kit.Column{{Fit: true, Max: 5}, {Flex: 1}},
+		Rows:    1,
+		Cell: func(_, column int) kit.Cell {
+			return kit.LabelCell(kit.Label{Text: []string{"far too long", "rest"}[column], Ellipsis: "…"})
+		},
+	}
+	if got := table.Layout(12).Widths(); !reflect.DeepEqual(got, []int{5, 6}) {
+		t.Fatalf("widths = %v, want the fitted column capped at five", got)
+	}
+}
+
+func TestLabelCellDoesNotRetainARowStyleBetweenDraws(t *testing.T) {
+	cell := kit.LabelCell(kit.Label{Text: "x"})
+	first := grid.NewSurface(1, 1)
+	cell.Draw(first.View(), grid.Style{BG: grid.RGBColor(1, 2, 3)})
+	secondStyle := grid.Style{BG: grid.RGBColor(4, 5, 6)}
+	second := grid.NewSurface(1, 1)
+	cell.Draw(second.View(), secondStyle)
+
+	if got := cellAt(second, 0, 0).Style.BG; got != secondStyle.BG {
+		t.Fatalf("second row kept background %+v from the first draw", got)
+	}
+}
+
 func TestTableDrawsHeaderAndRows(t *testing.T) {
 	table := kit.Table{
 		Columns: []kit.Column{{Title: "id", Width: 4}, {Title: "name", Flex: 1}},
 		Rows:    2,
 		Header:  true,
-		Cell: func(v grid.View, row, col int, base grid.Style) {
+		Cell: func(row, col int) kit.Cell {
 			data := [][]string{{"a1", "alpha"}, {"b2", "bravo"}}
-			kit.Label{Text: data[row][col], Style: base}.Draw(v)
+			return kit.LabelCell(kit.Label{Text: data[row][col]})
 		},
 	}
 	rows := paint(12, 3, func(v grid.View) { table.Draw(v) })
@@ -557,9 +606,9 @@ func TestTableCellsAreTruncatedToTheirColumn(t *testing.T) {
 	table := kit.Table{
 		Columns: []kit.Column{{Width: 5}, {Flex: 1}},
 		Rows:    1,
-		Cell: func(v grid.View, _, col int, base grid.Style) {
+		Cell: func(_, col int) kit.Cell {
 			_ = col
-			kit.Label{Text: "far too long", Style: base, Ellipsis: "…"}.Draw(v)
+			return kit.LabelCell(kit.Label{Text: "far too long", Ellipsis: "…"})
 		},
 	}
 	rows := paint(12, 1, func(v grid.View) { table.Draw(v) })
@@ -575,8 +624,8 @@ func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 		Columns:  []kit.Column{{Flex: 1}},
 		Rows:     2,
 		RowStyle: func(row int) grid.Style { return map[bool]grid.Style{true: selected}[row == 1] },
-		Cell: func(v grid.View, _, _ int, base grid.Style) {
-			kit.Label{Text: "x", Style: base}.Draw(v)
+		Cell: func(_, _ int) kit.Cell {
+			return kit.LabelCell(kit.Label{Text: "x"})
 		},
 	}
 	s := grid.NewSurface(6, 2)
@@ -1060,9 +1109,9 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 		Rows:    rows.Len(),
 		Sorted:  rows.Sorted,
 		Header:  true,
-		Cell: func(v grid.View, row, column int, base grid.Style) {
+		Cell: func(row, column int) kit.Cell {
 			item, _ := rows.At(row)
-			kit.Label{Text: item[column], Style: base}.Draw(v)
+			return kit.LabelCell(kit.Label{Text: item[column]})
 		},
 	}
 

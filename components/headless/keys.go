@@ -256,6 +256,18 @@ func DefaultSliderKeys() *keymap.Map {
 	return m
 }
 
+// DefaultSettingsKeys are the value actions in a settings row. Up and down remain
+// the embedded list's navigation; left and right adjust the current value, and the
+// conventional activation keys invoke values that open or toggle.
+func DefaultSettingsKeys() *keymap.Map {
+	m := &keymap.Map{}
+	m.Bind(Decrease, input.Chord{Code: input.Left})
+	m.Bind(Increase, input.Chord{Code: input.Right})
+	m.Bind(Activate, input.Chord{Code: input.Enter})
+	m.Bind(Activate, input.Chord{Code: input.Character, Rune: ' '})
+	return m
+}
+
 // DefaultMultiSelectKeys are the keystrokes a list of choices answers: the movement any
 // list has, and the one that takes what is under the cursor.
 func DefaultMultiSelectKeys() *keymap.Map {
@@ -312,6 +324,7 @@ var (
 	treeKeys        = sync.OnceValue(DefaultTreeKeys)
 	tabsKeys        = sync.OnceValue(DefaultTabsKeys)
 	sliderKeys      = sync.OnceValue(DefaultSliderKeys)
+	settingsKeys    = sync.OnceValue(DefaultSettingsKeys)
 	multiSelectKeys = sync.OnceValue(DefaultMultiSelectKeys)
 	confirmKeys     = sync.OnceValue(DefaultConfirmKeys)
 	formKeys        = sync.OnceValue(DefaultFormKeys)
