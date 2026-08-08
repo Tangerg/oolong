@@ -40,17 +40,22 @@ type Clipboard interface {
 // means while the shift key is held, so every way of moving a cursor selects with
 // shift and none of them had to be taught to — see [Editor.Handle].
 func (e *Editor) Anchor() {
+	e.breakContinuation()
 	if !e.selecting {
 		e.anchor, e.selecting = Caret{Line: e.line, Col: e.col}, true
 	}
 }
 
 // SelectNone drops the selection, leaving the cursor where it is.
-func (e *Editor) SelectNone() { e.selecting = false }
+func (e *Editor) SelectNone() {
+	e.breakContinuation()
+	e.selecting = false
+}
 
 // SelectAll selects the whole text.
 func (e *Editor) SelectAll() {
 	e.ensure()
+	e.endTyping()
 	e.anchor, e.selecting = Caret{}, true
 	e.line = len(e.lines) - 1
 	e.col = len(e.lines[e.line])
@@ -103,7 +108,7 @@ func (e *Editor) DeleteSelection() bool {
 		return false
 	}
 	e.snapshot()
-	e.typing = false
+	e.endTyping()
 	return e.dropSelection()
 }
 

@@ -31,6 +31,7 @@ const (
 	KillToEnd      keymap.Action = "kill-to-end"
 	KillToStart    keymap.Action = "kill-to-start"
 	Yank           keymap.Action = "yank"
+	YankPop        keymap.Action = "yank-pop"
 	InsertNewline  keymap.Action = "newline"
 	Undo           keymap.Action = "undo"
 	Redo           keymap.Action = "redo"
@@ -146,6 +147,7 @@ func DefaultEditorKeys() *keymap.Map {
 	m.Bind(KillToEnd, input.Ctrl.Rune('k'))
 	m.Bind(KillToStart, input.Ctrl.Rune('u'))
 	m.Bind(Yank, input.Ctrl.Rune('y'))
+	m.Bind(YankPop, input.Alt.Rune('y'))
 	m.Bind(InsertNewline, input.Alt.With(input.Enter))
 	m.Bind(Undo, input.Ctrl.Rune('_'))
 

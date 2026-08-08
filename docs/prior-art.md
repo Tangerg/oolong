@@ -95,16 +95,18 @@ one of those, and it is the only candidate here that is.
 
 ## 3. pi-tui: two small editor behaviours
 
-**A kill ring.** `headless.Editor.Yank` "puts back the last text cut" — one slot.
-pi-tui's is a ring:
+**A kill ring, now implemented.** `headless.Editor.Yank` originally "put back the last
+text cut" from one slot. It now owns a bounded ring with the behavior observed in
+pi-tui:
 
 > Consecutive kills can accumulate into a single entry. Supports yank (paste most
 > recent) and yank-pop (cycle through older entries).
 
-Its `push` takes `prepend` so that a backward deletion accumulates onto the front of
-the current entry and a forward deletion onto the back — which is the detail that
-makes accumulation feel right rather than merely present. This is behaviour with no
-appearance, it belongs in `headless`, and it is small.
+The private ring takes `prepend` so that a backward deletion accumulates onto the
+front of the current entry and a forward deletion onto the back — which is the detail
+that makes accumulation feel right rather than merely present. `YankPop` replaces
+only an immediately preceding yank, and any intervening semantic action ends that
+sequence. The ring owns its strings and retains at most sixteen entries.
 
 **A large paste becomes one atomic thing.** pi-tui collapses a paste past a threshold
 into a marker its editor treats as a single segment:
@@ -329,7 +331,7 @@ where it is merely product assembly, belongs in an example.
 | --- | --- | --- |
 | opentui/keymap | disambiguation as a caller-supplied resolver; scoped priority layers; diagnostics for shadowed and unreachable bindings | a pluggable binding language, registrable schema, reactive matchers, framework bindings |
 | opentui/ssh | an SSH channel behind `program.Host` as its own module, renderer-agnostic | anything that makes `core` know a transport exists |
-| pi-tui | a kill ring in `headless.Editor`; a screen-state assertion for tests, built on an emulator small enough to stay a test helper | a paste marker as a library feature — the mechanism is already here and the policy is the application's; line-string diffing and the ANSI-aware string utilities it forces |
+| pi-tui | the implemented kill ring in `headless.Editor`; a screen-state assertion for tests, built on an emulator small enough to stay a test helper | a paste marker as a library feature — the mechanism is already here and the policy is the application's; line-string diffing and the ANSI-aware string utilities it forces |
 | grok-build | a named counter-example for §3.2 | purge-and-re-emit resize |
 | agentui | the idea that a detector should report refusals with reasons | product grammar; a second transcript engine; path policy inside a detector |
 
@@ -351,8 +353,9 @@ Ordered by what each is blocked on, not by appetite.
    capabilities landed as vertical slices: bounded value; shared row provenance,
    line numbers and code; then content-fitted cells and a settings list. The settings
    component routes actions but deliberately does not introduce a scope system.
-5. **A kill ring.** Small, behaviour-only, no new boundary. Wants one real call site
-   before it is generalised past what `Yank` already does.
+5. **A kill ring: completed.** It remains private behavior inside `Editor`: bounded
+   storage, directional accumulation, `Yank`, and immediately consecutive `YankPop`,
+   with no new package or public storage abstraction.
 6. **[Group B](#b-real-but-blocked-on-one-shared-question) and keymap scope, as one
    piece of work.** A scoped palette, completion sources, a file picker's policy seam
    and keymap layers are four hats on one question. Answering it four times is how a

@@ -116,6 +116,10 @@ A component architecture that requires the entire session to remain mounted is
 incompatible with Oolong even if it renders quickly. A resize algorithm that clears
 scrollback and re-emits retained history is also incompatible: it trades the user's
 terminal history and unbounded application memory for geometric certainty.
+[grok-build's `xai-ratatui-inline`](prior-art.md#4-grok-build-a-counter-example-which-is-more-useful-than-a-borrowing)
+ships exactly that purge-and-rerender alternative. Naming a working counter-example
+does not weaken this rule; it records the real trade that Oolong has deliberately
+declined.
 
 Bounded has an operational meaning. Suppose an execution keeps `B` live or deliberately
 retained blocks containing `L` bytes of payload, plus an open tail of at most `T` bytes.

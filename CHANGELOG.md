@@ -20,6 +20,10 @@ point of tagging them low rather than not at all.
 
 ### Added
 
+- **A bounded editor kill ring.** Consecutive backward and forward kills accumulate
+  in reading order, `Yank` restores the newest entry, and `YankPop` cycles older
+  entries only while the yank remains the immediately preceding edit. The ring owns
+  its strings and retains at most sixteen entries.
 - **A bounded numeric control now has one behavior model and any number of
   appearances.** `headless.Slider` owns inclusive bounds, controlled or local value,
   keyboard steps, pointer dragging, committed track geometry, focus, and typed

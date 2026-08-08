@@ -97,8 +97,11 @@ type Editor struct {
 	marks       []text.Mark
 	nextElement uint64
 
-	// killed is the last text cut, for putting back. One entry, like a terminal's.
-	killed string
+	// kills owns bounded cut history. continuation says whether another kill may join
+	// the newest entry or a yank-pop may replace the immediately preceding yank.
+	kills        editorKillRing
+	continuation editorContinuation
+	yank         editorYank
 
 	// pending is how far into a multi-chord binding the keys typed so far have got.
 	// It is the field's own and not the map's — see [keymap.Pending].
@@ -216,6 +219,7 @@ func (e *Editor) Insert(s string) {
 		return
 	}
 	e.ensure()
+	e.breakContinuation()
 	if !e.typing {
 		e.snapshot()
 	}
@@ -326,6 +330,7 @@ func (e *Editor) Newline() {
 // above when the cursor is at the start of a line.
 func (e *Editor) DeleteBack() {
 	e.ensure()
+	e.breakContinuation()
 	if e.col > 0 {
 		if !e.typing {
 			e.snapshot()
@@ -391,6 +396,7 @@ func (e *Editor) DeleteForward() {
 // DeleteWordBack removes from the cursor back to the start of the word behind it.
 func (e *Editor) DeleteWordBack() {
 	e.ensure()
+	join := e.continuation == editorContinuationKill
 	e.endTyping()
 	if e.col == 0 {
 		e.DeleteBack()
@@ -404,7 +410,7 @@ func (e *Editor) DeleteWordBack() {
 	if element, inside := e.insideElement(e.line, at); inside {
 		at = element.Start
 	}
-	e.killed = strings.Clone(e.lines[e.line][at:e.col])
+	e.rememberKill(e.lines[e.line][at:e.col], true, join)
 	e.removed(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
 	e.lines[e.line] = e.lines[e.line][:at] + e.lines[e.line][e.col:]
 	e.col = at
@@ -417,6 +423,7 @@ func (e *Editor) DeleteWordBack() {
 // repeated presses swallow a paragraph rather than stop at the first line.
 func (e *Editor) KillToEnd() {
 	e.ensure()
+	join := e.continuation == editorContinuationKill
 	current := e.lines[e.line]
 	if e.col >= len(current) && e.line == len(e.lines)-1 {
 		return
@@ -424,14 +431,14 @@ func (e *Editor) KillToEnd() {
 	e.endTyping()
 	e.snapshot()
 	if e.col < len(current) {
-		e.killed = strings.Clone(current[e.col:])
+		e.rememberKill(current[e.col:], false, join)
 		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
 		e.lines[e.line] = current[:e.col]
 		e.invalidate()
 		return
 	}
 	if e.line < len(e.lines)-1 {
-		e.killed = "\n"
+		e.rememberKill("\n", false, join)
 		e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 		e.lines[e.line] = current + e.lines[e.line+1]
 		e.lines = slices.Delete(e.lines, e.line+1, e.line+2)
@@ -442,26 +449,59 @@ func (e *Editor) KillToEnd() {
 // KillToStart cuts from the start of the line to the cursor.
 func (e *Editor) KillToStart() {
 	e.ensure()
+	join := e.continuation == editorContinuationKill
 	e.endTyping()
 	if e.col == 0 {
 		return
 	}
 	e.snapshot()
-	e.killed = strings.Clone(e.lines[e.line][:e.col])
+	e.rememberKill(e.lines[e.line][:e.col], true, join)
 	e.removed(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col}, "")
 	e.lines[e.line] = e.lines[e.line][e.col:]
 	e.col = 0
 	e.invalidate()
 }
 
-// Yank puts back the last text cut.
+// Yank puts back the most recently killed text.
 func (e *Editor) Yank() {
-	if e.killed == "" {
+	killed, ok := e.kills.newest()
+	if !ok {
 		return
 	}
 	// Insert takes the snapshot, once, now that the run is closed.
 	e.endTyping()
-	e.Insert(e.killed)
+	start := Caret{Line: e.line, Col: e.col}
+	if selected, _, ok := e.Selection(); ok {
+		start = selected
+	}
+	e.Insert(killed)
+	e.yank = editorYank{
+		start: start,
+		end:   Caret{Line: e.line, Col: e.col},
+	}
+	e.continuation = editorContinuationYank
+}
+
+// YankPop replaces the immediately preceding yank with the next older kill, cycling
+// through the bounded ring. Any intervening edit, movement, or selection ends the
+// sequence and makes this a no-op.
+func (e *Editor) YankPop() {
+	if e.continuation != editorContinuationYank {
+		return
+	}
+	killed, next, ok := e.kills.older(e.yank.ring)
+	if !ok {
+		return
+	}
+	yank := e.yank
+	e.snapshot()
+	e.replaceRange(yank.start, yank.end, killed)
+	e.yank = editorYank{
+		start: yank.start,
+		end:   Caret{Line: e.line, Col: e.col},
+		ring:  next,
+	}
+	e.continuation = editorContinuationYank
 }
 
 // MoveLeft moves one cluster left, over a line break when there is nowhere else.
@@ -538,6 +578,7 @@ func (e *Editor) MoveLineEnd() {
 
 // Undo steps back to before the last change.
 func (e *Editor) Undo() {
+	e.breakContinuation()
 	if !e.history.canBack() {
 		return
 	}
@@ -551,6 +592,7 @@ func (e *Editor) Undo() {
 
 // Redo steps forward again.
 func (e *Editor) Redo() {
+	e.breakContinuation()
 	if !e.history.canForward() {
 		return
 	}
@@ -569,7 +611,7 @@ func (e *Editor) Redo() {
 // away from every container that embeds one.
 func (e *Editor) Handle(ev input.Event) bool {
 	if paste, ok := ev.(input.Paste); ok {
-		e.typing = false
+		e.endTyping()
 		e.Insert(paste.Text)
 		return true
 	}
@@ -643,6 +685,8 @@ func (e *Editor) Do(action keymap.Action) bool {
 		e.KillToStart()
 	case Yank:
 		e.Yank()
+	case YankPop:
+		e.YankPop()
 	case InsertNewline:
 		e.Newline()
 	case Undo:
@@ -719,8 +763,8 @@ func (e *Editor) invalidate() {
 	e.wantColumn = -1
 }
 
-// endTyping closes a run of insertions, and with it the one thing a click could have
-// said about where the cursor belongs.
+// endTyping closes a run of insertions, the one thing a click could have said about
+// where the cursor belongs, and any consecutive kill or yank operation.
 //
 // Every movement and every edit already calls this — it is the point they all pass
 // through — so the affinity is cleared in one place rather than in the forty-odd places
@@ -729,6 +773,7 @@ func (e *Editor) invalidate() {
 func (e *Editor) endTyping() {
 	e.typing = false
 	e.rowEndSet = false
+	e.breakContinuation()
 }
 
 // snapshot records the state for undo, coalescing a run of typing into one step so
