@@ -354,7 +354,7 @@ func TestTranscriptIgnoresWhatItCannotHold(t *testing.T) {
 	}
 	// Out of range on either side changes nothing rather than panicking: a caller
 	// holding an index from an earlier frame has no way to know it is stale.
-	tr.Changed(-1)
+	tr.Changed(^headless.BlockID(0))
 	tr.Changed(5)
 }
 
@@ -756,9 +756,9 @@ func TestFinishIgnoresWhatIsNotThere(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(20)
 	tr.Append(&block{name: "a", lines: 1})
-	tr.Finish(-1)
+	tr.Finish(^headless.BlockID(0))
 	tr.Finish(9)
-	if tr.Finished(-1) || tr.Finished(9) || tr.Finished(0) {
+	if tr.Finished(^headless.BlockID(0)) || tr.Finished(9) || tr.Finished(0) {
 		t.Error("something was finished that should not be")
 	}
 	tr.Finish(0)

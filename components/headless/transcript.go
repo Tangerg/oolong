@@ -1,6 +1,8 @@
 package headless
 
 import (
+	"math"
+
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
@@ -49,8 +51,12 @@ type Transcript struct {
 // IDs increase as blocks are appended and are never reused. Committing a leading
 // block invalidates its ID without changing the IDs of blocks that remain live. That
 // is what lets a sticky header or another retained part keep referring to a live block
-// while committed storage is physically removed from the transcript.
-type BlockID int
+// while committed storage is physically removed from the transcript. The maximum
+// value is reserved as the exhausted next identity; reaching it panics before an old
+// identity could be reused.
+type BlockID uint64
+
+const exhaustedBlockID = ^BlockID(0)
 
 // placed is a block, its height at the transcript's width, and where it sits.
 //
@@ -90,7 +96,11 @@ func (t *Transcript) Width() int { return t.width }
 // Append adds a block at the end, measures it, and returns its stable identity.
 // Appending nil changes nothing and returns the next available identity.
 func (t *Transcript) Append(b Block) BlockID {
-	id := t.first + BlockID(len(t.blocks))
+	live := BlockID(len(t.blocks))
+	if live >= exhaustedBlockID-t.first {
+		panic("headless: transcript exhausted block identities")
+	}
+	id := t.first + live
 	if b == nil {
 		return id
 	}
@@ -290,8 +300,7 @@ func (l TranscriptLayout) Draw(v grid.View, from int) {
 }
 
 func (l TranscriptLayout) position(id BlockID) (int, bool) {
-	i := int(id - l.state.first)
-	return i, id >= l.state.first && i >= 0 && i < len(l.state.blocks)
+	return blockPosition(l.state.first, id, len(l.state.blocks))
 }
 
 func (l TranscriptLayout) visible(from, rows int) (first, last int) {
@@ -374,13 +383,37 @@ func (t *Transcript) At(row int) (id BlockID, offset int, ok bool) {
 		return 0, 0, false
 	}
 	i := t.index(row)
-	return t.first + BlockID(i), row - t.blocks[i].top, true
+	return t.first + blockOffset(i), row - t.blocks[i].top, true
 }
 
 // position resolves a stable identity into the current compact slice.
 func (t *Transcript) position(id BlockID) (int, bool) {
-	i := int(id - t.first)
-	return i, id >= t.first && i >= 0 && i < len(t.blocks)
+	return blockPosition(t.first, id, len(t.blocks))
+}
+
+// blockPosition resolves an unsigned stable identity only after proving its distance
+// fits the architecture's slice index. Comparing before subtracting is what keeps a
+// stale earlier identity from wrapping into the live range.
+func blockPosition(first, id BlockID, count int) (int, bool) {
+	if id < first {
+		return 0, false
+	}
+	offset := id - first
+	if offset > BlockID(math.MaxInt) {
+		return 0, false
+	}
+	i := int(offset)
+	return i, i < count
+}
+
+// blockOffset converts a proven slice position into an identity offset. Keeping the
+// sign check here makes the conversion honest even if a future caller stops getting
+// its position directly from a slice operation.
+func blockOffset(index int) BlockID {
+	if index < 0 {
+		panic("headless: negative transcript block position")
+	}
+	return BlockID(index)
 }
 
 // index is the block covering a row, which must be a row that exists.
@@ -415,7 +448,7 @@ func (t *Transcript) index(row int) int {
 // what a viewport scrolled past everything gives.
 func (t *Transcript) Visible(from, rows int) (first, last BlockID) {
 	a, b := t.visible(from, rows)
-	return t.first + BlockID(a), t.first + BlockID(b)
+	return t.first + blockOffset(a), t.first + blockOffset(b)
 }
 
 func (t *Transcript) visible(from, rows int) (first, last int) {
