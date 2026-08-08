@@ -144,8 +144,16 @@ func TestTheParametersAreReadOnceAndTheSameWayForEveryone(t *testing.T) {
 	if ps.At(1) != 0 || ps.At(2) != -1 {
 		t.Fatalf("an empty field is %d and a malformed one %d", ps.At(1), ps.At(2))
 	}
+	if ps.Valid() {
+		t.Fatal("parameters with a malformed field were reported valid")
+	}
 	if n := ansi.Parse("99999999999").At(0); n != -1 {
 		t.Fatalf("a number past the limit is %d", n)
+	}
+	for _, body := range []string{"", "1;;3", "38:2::1:2:3"} {
+		if !ansi.Parse(body).Valid() {
+			t.Errorf("valid parameters %q were rejected", body)
+		}
 	}
 
 	// Subparameters belong to the parameter they were written under.

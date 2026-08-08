@@ -167,6 +167,9 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 
 func (s *Screen) control(piece ansi.Piece) error {
 	params := ansi.Parse(piece.Body)
+	if !params.Valid() {
+		return fmt.Errorf("%w: malformed parameters in %q", ErrUnsupportedOutput, piece.Raw)
+	}
 	// Queries, mode changes, cursor shape and window metadata are real session
 	// traffic but paint no cell. The model ignores the question; it never fabricates
 	// the terminal's answer.
@@ -217,7 +220,7 @@ func (s *Screen) control(piece ansi.Piece) error {
 }
 
 func defaultOne(n int) int {
-	if n <= 0 {
+	if n == 0 {
 		return 1
 	}
 	return n

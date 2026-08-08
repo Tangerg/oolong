@@ -244,6 +244,22 @@ func TestScreenRejectsInvalidErasureAndScrollMargins(t *testing.T) {
 	}
 }
 
+func TestScreenRejectsMalformedControlParametersBeforeActingOnThem(t *testing.T) {
+	for _, sequence := range []string{
+		"\x1b[xA",
+		"\x1b[99999999999C",
+		"\x1b[1:xH",
+	} {
+		shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := shown.Apply([]byte(sequence)); !errors.Is(err, ptytest.ErrUnsupportedOutput) {
+			t.Errorf("sequence %q gave %v, want ErrUnsupportedOutput", sequence, err)
+		}
+	}
+}
+
 func TestScreenRejectsOutputOutsideItsCellSubset(t *testing.T) {
 	shown, err := ptytest.NewScreen(ptytest.Size{Cols: 8, Rows: 2})
 	if err != nil {

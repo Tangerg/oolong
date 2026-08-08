@@ -73,6 +73,20 @@ func parseParam(s string) int {
 // Empty reports whether the sequence carried no parameters.
 func (ps Params) Empty() bool { return len(ps.Groups) == 0 }
 
+// Valid reports whether every parameter field was numeric and within [Limit]. Empty
+// fields are valid protocol defaults; malformed and excessive fields are represented
+// by a negative value and make the complete parameter section invalid.
+func (ps Params) Valid() bool {
+	for _, group := range ps.Groups {
+		for _, value := range group {
+			if value < 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // First is the leading parameter, or zero when there was none. Zero is the
 // protocol's own default for a missing parameter, so a caller need not distinguish.
 func (ps Params) First() int { return ps.At(0) }
