@@ -219,6 +219,13 @@ func TestPaste(t *testing.T) {
 	}
 }
 
+func TestAnEmptyPasteProducesNoInput(t *testing.T) {
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b[200~\x1b[201~")); len(events) != 0 {
+		t.Fatalf("an empty paste produced %+v", events)
+	}
+}
+
 func TestPasteKeepsWhatWouldOtherwiseBeInterpreted(t *testing.T) {
 	// The whole point of a bracketed paste: what is inside is text, even when it
 	// looks like keys. Interpreting it is how pasting code runs commands.

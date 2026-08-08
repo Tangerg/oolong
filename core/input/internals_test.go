@@ -26,8 +26,33 @@ func TestAnUnclosedPasteIsBounded(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("an unbounded paste never delivered anything")
 	}
-	if p.pasting {
-		t.Fatal("still pasting after the bound was reached")
+	if !p.pasting {
+		t.Fatal("the allocation bound ended paste mode before its closing sequence")
+	}
+	if len(p.paste) >= maxPaste {
+		t.Fatalf("the pending paste retained %d bytes, want fewer than %d", len(p.paste), maxPaste)
+	}
+}
+
+func TestALargePasteStaysTextUntilItsTerminator(t *testing.T) {
+	var p Parser
+	payload := strings.Repeat("x", maxPaste) + "\x1b[A" + strings.Repeat("y", 17)
+	encoded := "\x1b[200~" + payload + "\x1b[201~"
+	events := p.Feed([]byte(encoded))
+
+	var pasted strings.Builder
+	for i, event := range events {
+		paste, ok := event.(Paste)
+		if !ok {
+			t.Fatalf("event %d is %T, want every chunk to remain a paste", i, event)
+		}
+		pasted.WriteString(paste.Text)
+	}
+	if got := pasted.String(); got != payload {
+		t.Fatalf("joined paste has %d bytes, want the original %d", len(got), len(payload))
+	}
+	if p.pasting || p.paste != nil {
+		t.Fatal("the closing sequence did not settle paste state")
 	}
 }
 

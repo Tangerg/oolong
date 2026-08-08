@@ -33,8 +33,8 @@ const (
 	// maxPaste bounds what one paste may accumulate. A terminal that opens a
 	// paste and never closes it would otherwise swallow everything typed
 	// afterwards into a buffer that only grows. On reaching the bound the text so
-	// far is delivered and paste mode ends, so nothing is lost — a consumer
-	// inserting both halves gets what was pasted.
+	// far is delivered as one Paste event and accumulation begins again, so the
+	// allocation stays bounded without interpreting any of the payload as input.
 	maxPaste = 8 << 20
 )
 
@@ -161,7 +161,9 @@ func (p *Parser) drain(final bool) (events []Event) {
 			// put in a cell. Invalid UTF-8 is replaced rather than passed on, for
 			// the same reason a control character is dropped at the cell: this is
 			// where untrusted bytes stop being untrusted.
-			events = append(events, Paste{Text: strings.ToValidUTF8(text, "\uFFFD")})
+			if text != "" {
+				events = append(events, Paste{Text: strings.ToValidUTF8(text, "\uFFFD")})
+			}
 			continue
 		}
 		if len(p.buf) == 0 {
@@ -233,8 +235,8 @@ func (p *Parser) take(n int) {
 	}
 }
 
-// readPaste moves buffered bytes into the paste until its closing sequence is
-// found, reporting whether the paste is complete.
+// readPaste moves buffered bytes into the paste until its closing sequence or the
+// payload bound is reached, reporting whether a chunk is ready to publish.
 func (p *Parser) readPaste() (string, bool) {
 	i := 0
 	for i < len(p.buf) {
@@ -243,7 +245,7 @@ func (p *Parser) readPaste() (string, bool) {
 			i++
 			if len(p.paste) >= maxPaste {
 				p.take(i)
-				return p.endPaste(), true
+				return p.takePaste(), true
 			}
 			continue
 		}
@@ -251,7 +253,7 @@ func (p *Parser) readPaste() (string, bool) {
 		switch shared := commonPrefix(rest, pasteClose); {
 		case shared == len(pasteClose):
 			p.take(i + len(pasteClose))
-			return p.endPaste(), true
+			return p.closePaste(), true
 		case shared == len(rest):
 			// What is left could still become the closing sequence.
 			p.buf = p.buf[i:]
@@ -266,10 +268,19 @@ func (p *Parser) readPaste() (string, bool) {
 	return "", false
 }
 
-func (p *Parser) endPaste() string {
+// takePaste publishes the bounded payload accumulated so far without ending paste
+// mode. A large paste is therefore a sequence of Paste events, never text re-read as
+// keystrokes merely because it crossed an allocation bound.
+func (p *Parser) takePaste() string {
 	text := string(p.paste)
-	p.paste, p.pasting = nil, false
+	p.paste = nil
 	return text
+}
+
+// closePaste publishes the final payload and leaves paste mode.
+func (p *Parser) closePaste() string {
+	p.pasting = false
+	return p.takePaste()
 }
 
 // decode reads one event from the front of b. It reports how many bytes it
