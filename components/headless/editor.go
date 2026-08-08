@@ -92,10 +92,10 @@ type Editor struct {
 	rowEndSet bool
 
 	// marks are the runs of text that behave as one character, in the order they
-	// appear, as offsets into the whole text. nextElement is the last identity handed
-	// out. See [Editor.offsetOf] for why they are not kept in lines and columns.
-	marks       []text.Mark
-	nextElement uint64
+	// appear, as offsets into the whole text. elementIDs owns their stable identities.
+	// See [Editor.offsetOf] for why they are not kept in lines and columns.
+	marks      []text.Mark
+	elementIDs identitySequence
 
 	// kills owns bounded cut history. continuation says whether another kill may join
 	// the newest entry or a yank-pop may replace the immediately preceding yank.

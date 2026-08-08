@@ -73,9 +73,9 @@ type Tree[T any] struct {
 	list List[Shown[T]]
 	// open is which owned branch identities are showing what is under them.
 	open map[uint64]bool
-	// nextID is the last identity allocated. Zero is reserved for no node, which
+	// nodeIDs owns the stable node namespace. Zero is reserved for no node, which
 	// makes accidental empty identities impossible to retain as open state.
-	nextID uint64
+	nodeIDs identitySequence
 	// pending is how far into a multi-chord binding the keys typed so far have got.
 	pending keymap.Pending
 }
@@ -322,7 +322,7 @@ func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
 		return
 	}
 
-	nextID := t.nextID
+	nodeIDs := t.nodeIDs
 	owned := make([]treeNode[T], len(nodes))
 	branches := make(map[uint64]struct{}, len(t.open))
 	type frame struct {
@@ -352,11 +352,11 @@ func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
 			id = current.old[i].id
 			oldChildren = current.old[i].children
 		} else {
-			nextID++
-			if nextID == 0 {
+			var ok bool
+			id, ok = nodeIDs.next()
+			if !ok {
 				panic("headless: tree exhausted node identities")
 			}
-			id = nextID
 		}
 		current.target[i] = treeNode[T]{item: source.Item, id: id}
 		if len(source.Children) == 0 {
@@ -383,7 +383,7 @@ func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
 	if len(t.open) == 0 {
 		t.open = nil
 	}
-	t.nodes, t.nextID = owned, nextID
+	t.nodes, t.nodeIDs = owned, nodeIDs
 }
 
 // exportNodes copies the owned hierarchy without making valid depth a call-stack

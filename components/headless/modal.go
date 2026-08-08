@@ -110,8 +110,8 @@ type Stack struct {
 	// is finished with the modal, and every interface they already use agrees.
 	KeepOnClickOutside bool
 
-	layers    []stackLayer
-	nextLayer LayerID
+	layers   []stackLayer
+	layerIDs identitySequence
 	// presentation is the base and layers of the last complete root frame. Pairing
 	// identity with geometry keeps input on what is visible if the semantic stack is
 	// changed while another frame is being prepared.
@@ -164,14 +164,14 @@ func (s *Stack) Push(m Modal) LayerID {
 	if m == nil {
 		return 0
 	}
-	if s.nextLayer == ^LayerID(0) {
+	id, ok := s.layerIDs.next()
+	if !ok {
 		panic("headless: stack exhausted layer identities")
 	}
-	s.nextLayer++
-	id := s.nextLayer
-	s.layers = append(s.layers, stackLayer{id: id, modal: m})
+	layerID := LayerID(id)
+	s.layers = append(s.layers, stackLayer{id: layerID, modal: m})
 	s.settle()
-	return id
+	return layerID
 }
 
 // Pop removes the top layer and reports whether there was one. The keyboard goes

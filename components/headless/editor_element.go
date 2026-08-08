@@ -66,15 +66,18 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 		return Element{}
 	}
 	e.ensure()
+	id, ok := e.elementIDs.next()
+	if !ok {
+		panic("headless: editor exhausted element identities")
+	}
 	e.endTyping()
 	e.snapshot()
 	e.dropSelection()
 
 	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
 	e.splice(body + " ")
-	e.nextElement++
 	mark := text.Mark{
-		ID:     e.nextElement,
+		ID:     id,
 		Kind:   int(kind),
 		Start:  at,
 		End:    at + len(body),
