@@ -122,6 +122,32 @@ func (w *protocolWriter) Written() uint64           { return 0 }
 func (w *protocolWriter) Err() error                { return w.err }
 func (w *protocolWriter) Drain(time.Duration) error { return nil }
 
+type sequenceWriter struct {
+	sequences []uint64
+	mu        sync.Mutex
+	at        int
+	written   atomic.Uint64
+	progress  chan struct{}
+}
+
+func (w *sequenceWriter) Queue([]byte) uint64 {
+	w.mu.Lock()
+	seq := w.sequences[min(w.at, len(w.sequences)-1)]
+	w.at++
+	w.mu.Unlock()
+	w.written.Store(seq)
+	select {
+	case w.progress <- struct{}{}:
+	default:
+	}
+	return seq
+}
+
+func (w *sequenceWriter) Progress() <-chan struct{} { return w.progress }
+func (w *sequenceWriter) Written() uint64           { return w.written.Load() }
+func (w *sequenceWriter) Err() error                { return nil }
+func (w *sequenceWriter) Drain(time.Duration) error { return nil }
+
 type protocolHost struct {
 	events chan input.Event
 	writer program.FrameWriter
@@ -1188,6 +1214,31 @@ func TestAFrameWriterMustProvideALiveProgressStream(t *testing.T) {
 	}
 	if err := program.Run(t.Context(), program.Config{Host: failedProgress, Root: root}); !errors.Is(err, cause) {
 		t.Fatalf("closed failed progress stream returned %v, want its cause", err)
+	}
+}
+
+func TestAFrameWriterMustAssignMonotonicNonzeroSequences(t *testing.T) {
+	for name, sequences := range map[string][]uint64{
+		"zero":     {0},
+		"repeated": {1, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			writer := &sequenceWriter{sequences: sequences, progress: make(chan struct{}, 1)}
+			host := &protocolHost{events: make(chan input.Event), writer: writer}
+			err := program.Run(t.Context(), program.Config{
+				Host: host,
+				Root: func(runtime *program.Runtime) program.Component {
+					component := &component{text: "first", runtime: runtime}
+					if len(sequences) > 1 {
+						runtime.Dispatcher().Post(func() { component.text = "second" })
+					}
+					return component
+				},
+			})
+			if !errors.Is(err, program.ErrInvalidFrameSequence) {
+				t.Fatalf("Run error = %v, want ErrInvalidFrameSequence", err)
+			}
+		})
 	}
 }
 

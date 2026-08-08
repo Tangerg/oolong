@@ -53,6 +53,11 @@ const DefaultFrameInterval = 16 * time.Millisecond
 // late frame would otherwise be written into the next owner's output.
 var ErrFrameTimeout = errors.New("program: frame writer did not drain")
 
+// ErrInvalidFrameSequence means a host accepted a non-empty frame without assigning
+// it a usable position in its progress watermark. Continuing would allow a later
+// frame to overtake output the presenter still owns, so publication stops instead.
+var ErrInvalidFrameSequence = errors.New("program: invalid frame writer sequence")
+
 // ErrInvalidSize means a host reported geometry that cannot safely back a program
 // surface. Hosts are transport boundaries and their dimensions may come from an
 // untrusted peer, so invalid input is an error rather than a grid allocation or
@@ -190,6 +195,9 @@ type Host interface {
 type FrameWriter interface {
 	// Queue takes ownership of frame. The caller does not read or change the slice
 	// after the call; an asynchronous implementation may retain it without copying.
+	// Every accepted call returns a non-zero sequence strictly greater than earlier
+	// sequences from the same writer. Written reports a watermark in that sequence
+	// space.
 	Queue(frame []byte) uint64
 	Progress() <-chan struct{}
 	Written() uint64
@@ -390,6 +398,9 @@ type program struct {
 	// a screen cannot offer.
 	inline *grid.Inline
 	writer FrameWriter
+	// queued is the last sequence this program received. Other users of the same
+	// writer may occupy values between frames; only strict forward movement matters.
+	queued uint64
 	// progress is read once and then owned by the event loop. A writer returning a
 	// different channel per call would split one watermark into unrelated streams.
 	progress <-chan struct{}
@@ -554,7 +565,20 @@ func (p *program) flush() (uint64, error) {
 	if len(frame.bytes) == 0 {
 		return 0, nil
 	}
-	return p.writer.Queue(frame.bytes), nil
+	return p.queue(frame.bytes)
+}
+
+// queue transfers one non-empty frame and validates the watermark that now owns it.
+// Keeping this edge in one method makes ordinary frames and inline settlement obey
+// the same publication protocol.
+func (p *program) queue(frame []byte) (uint64, error) {
+	seq := p.writer.Queue(frame)
+	if seq == 0 || seq <= p.queued {
+		p.outputFailed = true
+		return 0, fmt.Errorf("%w: got %d after %d", ErrInvalidFrameSequence, seq, p.queued)
+	}
+	p.queued = seq
+	return seq, nil
 }
 
 // finish settles what the program leaves behind.
@@ -627,7 +651,9 @@ func (p *program) finishBlock() error {
 		return fmt.Errorf("program: finish inline block: %w", err)
 	}
 	if len(tail.bytes) > 0 {
-		p.writer.Queue(tail.bytes)
+		if _, err := p.queue(tail.bytes); err != nil {
+			return err
+		}
 	}
 	return nil
 }
