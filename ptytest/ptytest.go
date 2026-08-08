@@ -89,7 +89,7 @@ type Options struct {
 // waits for what it typed to come back, and types again.
 type Session struct {
 	primary    *os.File
-	cmd        *exec.Cmd
+	process    *os.Process
 	transcript *Transcript
 
 	readDone chan struct{}
@@ -151,13 +151,13 @@ func StartWith(ctx context.Context, opts Options, name string, args ...string) (
 
 	s := &Session{
 		primary:    primary,
-		cmd:        cmd,
+		process:    cmd.Process,
 		transcript: newTranscript(),
 		readDone:   make(chan struct{}),
 		waitDone:   make(chan struct{}),
 	}
 	go s.read()
-	go s.wait()
+	go s.wait(cmd)
 	return s, nil
 }
 
@@ -177,9 +177,12 @@ func (s *Session) read() {
 }
 
 // wait reaps the child once, so Wait and Close can both ask.
-func (s *Session) wait() {
+func (s *Session) wait(cmd *exec.Cmd) {
 	defer close(s.waitDone)
-	err := s.cmd.Wait()
+	// The waiting goroutine is the only owner of exec.Cmd after StartWith returns.
+	// Once Wait finishes, its arguments, environment and launch bookkeeping can be
+	// collected even while the Session remains available for transcript assertions.
+	err := cmd.Wait()
 	if err != nil && !readClosed(err) {
 		s.waitErr = err
 	}
@@ -206,7 +209,7 @@ func (s *Session) Resize(size Size) error {
 	if err := setSize(s.primary, size); err != nil {
 		return err
 	}
-	return signalResize(s.cmd.Process)
+	return signalResize(s.process)
 }
 
 // Wait blocks until the program exits, or until ctx is done.
@@ -229,8 +232,8 @@ func (s *Session) Close() error {
 		select {
 		case <-s.waitDone:
 		default:
-			if s.cmd.Process != nil {
-				_ = s.cmd.Process.Kill()
+			if s.process != nil {
+				_ = s.process.Kill()
 			}
 		}
 		// Closing the primary is what ends the read: a blocking read on a pty
