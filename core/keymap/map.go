@@ -7,6 +7,7 @@ package keymap
 
 import (
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Tangerg/oolong/core/input"
@@ -51,8 +52,11 @@ func (p *Pending) current(timeout time.Duration, now time.Time) input.Keys {
 	if p == nil || len(p.keys) == 0 {
 		return nil
 	}
-	if !p.at.IsZero() && !now.IsZero() && now.Sub(p.at) > timeout {
-		return nil
+	if !p.at.IsZero() && !now.IsZero() {
+		elapsed := now.Sub(p.at)
+		if elapsed < 0 || elapsed > timeout {
+			return nil
+		}
 	}
 	return p.keys
 }
@@ -93,7 +97,9 @@ func (m *Map) Bind(action Action, keys ...input.Chord) {
 	m.bound = slices.DeleteFunc(m.bound, func(binding Binding) bool {
 		return slices.Equal(binding.Keys, sequence)
 	})
-	m.bound = append(m.bound, Binding{Keys: sequence, Action: action})
+	m.bound = append(m.bound, Binding{
+		Keys: sequence, Action: Action(strings.Clone(action.String())),
+	})
 	m.rebuild()
 }
 
@@ -109,8 +115,22 @@ func (m *Map) Unbind(keys ...input.Chord) bool {
 	if len(m.bound) == before {
 		return false
 	}
+	m.trim()
 	m.rebuild()
 	return true
+}
+
+// trim releases a registry high-water mark once it is no longer useful. The slack
+// keeps ordinary bind/unbind edits amortized while a map reduced far below an old
+// peak stops carrying the peak for its complete lifetime.
+func (m *Map) trim() {
+	if len(m.bound) == 0 {
+		m.bound = nil
+		return
+	}
+	if cap(m.bound) > 2*len(m.bound)+16 {
+		m.bound = slices.Clone(m.bound)
+	}
 }
 
 // Keys returns copies of the sequences bound to action, in binding order.

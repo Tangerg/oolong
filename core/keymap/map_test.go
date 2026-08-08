@@ -152,6 +152,20 @@ func TestASequenceLeftTooLongIsOver(t *testing.T) {
 	}
 }
 
+func TestASequenceFromTheFutureDoesNotJoinThePresent(t *testing.T) {
+	m := &keymap.Map{}
+	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+	var pending keymap.Pending
+	now := time.Unix(1700000000, 0)
+	m.Lookup(at(input.Chord{Rune: 'g'}, now), &pending)
+
+	action, mine := m.Lookup(at(input.Chord{Rune: 'g'}, now.Add(-time.Second)), &pending)
+	if action != "" || !mine || pending.Keys().String() != "g" {
+		t.Fatalf("out-of-order chord = %q (mine=%v, pending=%q), want a fresh prefix",
+			action, mine, pending.Keys().String())
+	}
+}
+
 func TestAKeystrokeNothingTimedNeverGoesStale(t *testing.T) {
 	// A caller feeding synthetic events has no clock in them, and a
 	// sequence that could never be completed would be worse than one with no deadline.
