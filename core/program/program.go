@@ -52,6 +52,32 @@ const DefaultFrameRate = 16 * time.Millisecond
 // late frame would otherwise be written into the next owner's output.
 var ErrFrameTimeout = errors.New("program: frame writer did not drain")
 
+// ErrInvalidSize means a host reported geometry that cannot safely back a program
+// surface. Hosts are transport boundaries and their dimensions may come from an
+// untrusted peer, so invalid input is an error rather than a grid allocation or
+// panic.
+var ErrInvalidSize = errors.New("program: invalid host size")
+
+// MaxCells is the largest host-controlled program surface. A screen owns both a
+// front and back cell store, so a bound belongs at the host edge before either is
+// allocated. The limit admits terminals far larger than ordinary displays while
+// keeping one resize from becoming an open-ended memory request.
+const MaxCells = 1 << 18
+
+// ValidateSize reports whether width and height describe a safe non-empty program
+// surface. Host adapters can call it before acquiring transport resources; Run
+// applies it to both the opening size and every later resize.
+func ValidateSize(width, height int) error {
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("%w: %dx%d", ErrInvalidSize, width, height)
+	}
+	if width > MaxCells/height {
+		return fmt.Errorf("%w: %dx%d exceeds %d cells", ErrInvalidSize,
+			width, height, MaxCells)
+	}
+	return nil
+}
+
 // Component is an interface a program can run: it draws itself into the space it is
 // given, and says whether it wants an event.
 //
@@ -123,7 +149,7 @@ type Host interface {
 	// Writer is where frames go. The interface is defined here, where it is used;
 	// a host is not coupled to the terminal package's concrete writer.
 	Writer() FrameWriter
-	// Size is the terminal's size in cells.
+	// Size is the terminal's size in cells. The result must satisfy [ValidateSize].
 	Size() (w, h int, err error)
 }
 
@@ -231,6 +257,9 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	// something — and a first frame drawn onto a screen of no size is a blank terminal.
 	width, height, err := host.Size()
 	if err != nil {
+		return err
+	}
+	if err := ValidateSize(width, height); err != nil {
 		return err
 	}
 
@@ -396,7 +425,9 @@ func (p *program) run(ctx context.Context) (err error) {
 				// indistinguishable from EOF.
 				return p.input.Err()
 			}
-			p.handle(ev)
+			if eventErr := p.handle(ev); eventErr != nil {
+				return eventErr
+			}
 
 		case <-p.tasks.wake:
 			// Take one snapshot. Work posted while it runs leaves another wake-up, so a
@@ -445,19 +476,23 @@ func (p *program) apply(task func()) {
 // else is drawn against, and the second means another program may have written to the
 // terminal, so what it is showing can no longer be assumed. Everything else is the
 // component's.
-func (p *program) handle(ev input.Event) {
+func (p *program) handle(ev input.Event) error {
 	switch e := ev.(type) {
 	case input.Resize:
+		if err := ValidateSize(e.Width, e.Height); err != nil {
+			return err
+		}
 		p.canvas.Resize(e.Width, e.Height)
 		p.present.RequestFull()
-		return
+		return nil
 	case input.FocusIn:
 		p.present.RequestFull()
-		return
+		return nil
 	}
 	if p.root.Handle(ev) {
 		p.present.RequestBy(time.Now(), p.frameRate)
 	}
+	return nil
 }
 
 // draw renders a frame, if one is owed and the terminal is keeping up.

@@ -74,9 +74,8 @@ func (h *host) resize(next charmssh.Window) (input.Resize, bool, error) {
 	if next.Height > 0 {
 		window.Height = next.Height
 	}
-	if window.Width > MaxCells/window.Height {
-		return input.Resize{}, false, fmt.Errorf("%w: %dx%d exceeds %d cells",
-			ErrWindowSize, window.Width, window.Height, MaxCells)
+	if err := program.ValidateSize(window.Width, window.Height); err != nil {
+		return input.Resize{}, false, fmt.Errorf("%w: %w", ErrWindowSize, err)
 	}
 	if window.Width == h.window.Width && window.Height == h.window.Height {
 		return input.Resize{}, false, nil

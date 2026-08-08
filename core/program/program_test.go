@@ -968,6 +968,48 @@ func TestAResizeChangesTheGeometryAndRepaints(t *testing.T) {
 	}
 }
 
+func TestHostSizesAreValidatedBeforeTheyReachTheGrid(t *testing.T) {
+	for _, size := range []image.Point{
+		{},
+		image.Pt(-1, 10),
+		image.Pt(10, -1),
+		image.Pt(program.MaxCells, 2),
+	} {
+		t.Run(size.String(), func(t *testing.T) {
+			host := &minimalHost{w: size.X, h: size.Y}
+			built := false
+			err := program.Run(t.Context(), program.Config{
+				Host: host,
+				Root: func(*program.Runtime) program.Component {
+					built = true
+					return &component{}
+				},
+			})
+			if !errors.Is(err, program.ErrInvalidSize) {
+				t.Fatalf("error = %v, want ErrInvalidSize", err)
+			}
+			if built {
+				t.Fatal("component was built for an invalid surface")
+			}
+		})
+	}
+	if err := program.ValidateSize(program.MaxCells, 1); err != nil {
+		t.Fatalf("maximum bounded surface was rejected: %v", err)
+	}
+}
+
+func TestAnInvalidResizeEndsTheProgramInsteadOfAllocatingIt(t *testing.T) {
+	r := start(t, nil)
+	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+	r.host.send(input.Resize{Width: program.MaxCells, Height: 2})
+	if err := r.wait(); !errors.Is(err, program.ErrInvalidSize) {
+		t.Fatalf("program error = %v, want ErrInvalidSize", err)
+	}
+	if got := r.root.handled.Load(); got != 0 {
+		t.Fatalf("component was offered invalid host geometry %d time(s)", got)
+	}
+}
+
 func TestRegainingFocusRepaints(t *testing.T) {
 	// Another program may have written to the terminal while this one was not in front,
 	// so what it is showing can no longer be assumed.

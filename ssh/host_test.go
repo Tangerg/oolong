@@ -93,22 +93,27 @@ func TestRunValidatesTheProgramBeforeTakingTheSession(t *testing.T) {
 
 func TestRunRequiresAnAllocatedCellWindow(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		window  charmssh.Window
-		pty     bool
-		wantErr error
+		name     string
+		window   charmssh.Window
+		pty      bool
+		wantErr  error
+		wantSize bool
 	}{
-		{"no PTY", charmssh.Window{}, false, ErrNoPTY},
-		{"no columns", charmssh.Window{Height: 24}, true, ErrWindowSize},
-		{"no rows", charmssh.Window{Width: 80}, true, ErrWindowSize},
-		{"too many cells", charmssh.Window{Width: MaxCells, Height: 2}, true, ErrWindowSize},
+		{"no PTY", charmssh.Window{}, false, ErrNoPTY, false},
+		{"no columns", charmssh.Window{Height: 24}, true, ErrWindowSize, true},
+		{"no rows", charmssh.Window{Width: 80}, true, ErrWindowSize, true},
+		{"too many cells", charmssh.Window{Width: program.MaxCells, Height: 2}, true, ErrWindowSize, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			session := &fakeSession{ptyOK: tc.pty, window: tc.window}
-			if err := Run(session, program.Config{Root: func(*program.Runtime) program.Component {
+			err := Run(session, program.Config{Root: func(*program.Runtime) program.Component {
 				return quittingComponent{}
-			}}); !errors.Is(err, tc.wantErr) {
+			}})
+			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantSize && !errors.Is(err, program.ErrInvalidSize) {
+				t.Fatalf("error = %v, want underlying program.ErrInvalidSize", err)
 			}
 		})
 	}
@@ -141,7 +146,7 @@ func TestAWindowUpdateIsAtomicAndZeroKeepsItsAxis(t *testing.T) {
 
 func TestAnInvalidLaterWindowEndsInputWithoutChangingSize(t *testing.T) {
 	h := &host{window: charmssh.Window{Width: 80, Height: 24}}
-	_, changed, err := h.resize(charmssh.Window{Width: MaxCells, Height: 2})
+	_, changed, err := h.resize(charmssh.Window{Width: program.MaxCells, Height: 2})
 	if !errors.Is(err, ErrWindowSize) || changed {
 		t.Fatalf("resize = changed %t, error %v", changed, err)
 	}
@@ -213,7 +218,8 @@ func TestResizeIntakeKeepsTheLatestWindow(t *testing.T) {
 		t.Fatalf("last event = %#v", last)
 	}
 	reader <- readResult{err: io.EOF}
-	for range source.Events() {
+	for event := range source.Events() {
+		t.Errorf("unexpected event after EOF: %#v", event)
 	}
 }
 

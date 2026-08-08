@@ -49,8 +49,8 @@ type Host struct {
 // context has been cancelled, so a failed test cannot leave a goroutine behind.
 func New(tb testing.TB, width, height int) *Host {
 	tb.Helper()
-	if width <= 0 || height <= 0 {
-		tb.Fatalf("programtest: size %dx%d: both dimensions must be positive", width, height)
+	if err := program.ValidateSize(width, height); err != nil {
+		tb.Fatalf("programtest: %v", err)
 	}
 	out := newSink()
 	host := &Host{
@@ -129,9 +129,9 @@ func (h *Host) Press(code input.Code) bool {
 }
 
 // Resize changes the reported size and sends the corresponding event.
-// Non-positive dimensions are rejected.
+// Dimensions outside [program.ValidateSize] are rejected.
 func (h *Host) Resize(width, height int) bool {
-	if width <= 0 || height <= 0 || h == nil || h.input == nil || h.closed.Load() {
+	if program.ValidateSize(width, height) != nil || h == nil || h.input == nil || h.closed.Load() {
 		return false
 	}
 	h.sizeMu.Lock()

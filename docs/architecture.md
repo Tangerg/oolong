@@ -689,7 +689,7 @@ invariant it makes enforceable.
 | one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
-| failure and ownership settlement | [`program` fault tests](../core/program/program_test.go) cover input cause, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](../core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](../core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
+| failure and ownership settlement | [`program` fault tests](../core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](../core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](../core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
 | public module compatibility | every module builds without `go.work`; the release workflow runs the pinned `golang.org/x/exp/cmd/gorelease` against the preceding immutable module tag, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | manual release check before tagging and every public module tag |
 
 The bounded-memory gate deliberately has two parts. Internal reference and record
@@ -861,7 +861,8 @@ bounded transcript release, causal input streams, bounded byte ingress, fault-in
 ownership settlement, atomic component-side presentation snapshots, transactional
 scroll and transcript reflow, the live-widget/passive-block distinction, the one-owner
 runtime, compound dialog and tabs controllers, structural component semantics,
-incremental markdown, clipped cell views, cross-platform resize observation,
+incremental markdown, clipped cell views, cross-platform resize observation, bounded
+host-controlled geometry,
 consumer-defined capabilities, a minimal public in-process program host, live framed
 single-child composition, executable drawing-purity classification, release API checks,
 and the enforced dependency DAG are assets to preserve.

@@ -71,3 +71,17 @@ func TestEventsCanBeQueuedBeforeTheProgramStarts(t *testing.T) {
 		}
 	}
 }
+
+func TestResizeUsesTheProgramSurfaceBound(t *testing.T) {
+	host := programtest.New(t, 20, 3)
+	for _, size := range []struct{ width, height int }{
+		{0, 3}, {-1, 3}, {program.MaxCells, 2},
+	} {
+		if host.Resize(size.width, size.height) {
+			t.Errorf("Resize(%d, %d) accepted invalid geometry", size.width, size.height)
+		}
+	}
+	if !host.Resize(40, 6) {
+		t.Fatal("Resize rejected valid geometry")
+	}
+}

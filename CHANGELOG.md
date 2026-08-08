@@ -57,6 +57,12 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Every host now shares one bounded geometry contract.** `program.ValidateSize`
+  guards both opening geometry and later resize events before they reach a grid
+  allocation; non-positive, overflowing, and excessive peer-controlled surfaces
+  return `ErrInvalidSize` instead of drawing blank, panicking, or allocating without
+  a bound. `programtest` and the optional SSH adapter consume the same rule.
+
 - **Program configuration has one side-effect-free validator.** `Config.Validate`
   owns the same Root/Inline contradictions enforced by `Run`, so a transport adapter
   can reject an impossible program before it acquires input or writes terminal

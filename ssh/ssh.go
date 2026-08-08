@@ -23,13 +23,6 @@ var (
 	ErrWindowSize = errors.New("ssh: invalid PTY window size")
 )
 
-// MaxCells is the largest SSH-controlled surface Run will allocate. Window sizes
-// arrive from an untrusted peer; bounding their product prevents one resize request
-// from turning into an unbounded server allocation. The limit is deliberately in
-// cells rather than rows or columns so unusually wide and unusually tall terminals
-// receive the same budget.
-const MaxCells = 1 << 20
-
 // Run runs cfg on session until the program stops, the client disconnects or the
 // transport fails.
 //
@@ -74,12 +67,8 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 }
 
 func validateInitialWindow(window charmssh.Window) error {
-	if window.Width <= 0 || window.Height <= 0 {
-		return fmt.Errorf("%w: %dx%d", ErrWindowSize, window.Width, window.Height)
-	}
-	if window.Width > MaxCells/window.Height {
-		return fmt.Errorf("%w: %dx%d exceeds %d cells", ErrWindowSize,
-			window.Width, window.Height, MaxCells)
+	if err := program.ValidateSize(window.Width, window.Height); err != nil {
+		return fmt.Errorf("%w: %w", ErrWindowSize, err)
 	}
 	return nil
 }
