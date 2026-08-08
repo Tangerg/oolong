@@ -289,6 +289,8 @@ func ceilDiv(n, d int) int {
 	return quotient
 }
 
+const maxInt = int(^uint(0) >> 1)
+
 // scaleNearest returns total*part/whole rounded to the nearest integer without an
 // overflowing intermediate product. Fit needs nearest rather than layout's endpoint
 // rounding: losing a row from a two-row image visibly changes its aspect ratio.
@@ -303,6 +305,12 @@ func scaleNearest(total, part, whole int) int {
 	quotient, remainder := bits.Div64(hi, lo, uint64(whole))
 	if remainder >= uint64(whole)/2+uint64(whole)%2 {
 		quotient++
+	}
+	// part < whole proves quotient <= total, and total is an int. Keep the proof at
+	// the conversion boundary as well: a future change to the arithmetic cannot turn
+	// a representability assumption into a wrapped image dimension.
+	if quotient > uint64(maxInt) {
+		return maxInt
 	}
 	return int(quotient)
 }
