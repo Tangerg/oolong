@@ -35,7 +35,7 @@ func TestCompositeMeasurementsSaturateAtMaxInt(t *testing.T) {
 func TestExtremeBoxInsetsHaveNoInterior(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	box := Box{Padding: layout.Uniform(maxInt)}
-	if got := box.Overhead(); got != (image.Pt(maxInt, maxInt)) {
+	if got := box.Overhead(); got != image.Pt(maxInt, maxInt) {
 		t.Fatalf("overhead = %v, want saturated extents", got)
 	}
 	if got := box.InnerRect(image.Pt(80, 24)); !got.Empty() {
