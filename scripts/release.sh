@@ -22,17 +22,37 @@
 
 set -euo pipefail
 
-# Modules that carry a version tag, and the whole set including those that do not.
-# From 0.1.0 the public ones are one release train: every one is tagged at every
-# release with the same version, whether or not its own files changed.
-PUBLIC_MODULES=(core components markdown highlight ptytest)
-ALL_MODULES=(core components markdown highlight ptytest internal examples)
-
 MODULE_PATH=github.com/Tangerg/oolong
-GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
+
+# The module list is go.work's. A second copy here is a second thing to forget, and
+# forgetting it is silent: a module missing from this list is not gated, not tagged,
+# and nobody finds out until somebody cannot resolve it.
+# Read with a loop rather than mapfile: the bash on a stock macOS is 3.2, and a
+# release script that only runs where somebody installed a newer one is a release
+# script that fails on the machine that has to cut the release.
+ALL_MODULES=()
+while IFS= read -r module; do
+	[[ -n "$module" ]] && ALL_MODULES+=("$module")
+done < <(sed -n '/^use (/,/^)/p' go.work | sed -n 's|^[[:space:]]*\./||p')
+
+# Everything is published unless it is one of these. Stated as an exclusion so that a
+# new module is released by default: being tagged when it should not have been is a
+# visible mistake, and being skipped is not.
+NOT_PUBLISHED=(internal examples)
+
+PUBLIC_MODULES=()
+for module in "${ALL_MODULES[@]}"; do
+	published=true
+	for excluded in "${NOT_PUBLISHED[@]}"; do
+		[[ "$module" == "$excluded" ]] && published=false
+	done
+	$published && PUBLIC_MODULES+=("$module")
+done
+
+GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743
 
 execute=false
 version=""
@@ -208,15 +228,21 @@ note "windows, darwin and linux source sets"
 # What each module is proposing, according to the tool CI uses.
 # ---------------------------------------------------------------------------
 
-step "Compatibility"
-
 if ! command -v gorelease >/dev/null; then
-	note "installing the pinned gorelease"
 	go install "$GORELEASE"
 fi
 gorelease_bin=$(command -v gorelease || echo "$(go env GOPATH)/bin/gorelease")
 
-for module in "${PUBLIC_MODULES[@]}"; do
+# compatibility checks one module, and is called immediately before that module is
+# tagged rather than for every module up front.
+#
+# CONTRIBUTING says "before each tag", and the difference is not pedantry. gorelease
+# type-checks a module against its published dependencies, so a module using an API
+# its dependency has not released yet cannot be checked until that dependency is
+# tagged — which is the coordinated change these phases exist to make possible.
+# Checking everything first refuses exactly the releases this script was written for.
+compatibility() {
+	local module="$1" previous base suggestion
 	previous=$(git tag --list "$module/v*" --sort=-v:refname | head -1)
 	base=none
 	[[ -n "$previous" ]] && base="v${previous#*/v}"
@@ -226,19 +252,15 @@ for module in "${PUBLIC_MODULES[@]}"; do
 	if [[ "$version" == v0.* ]]; then
 		(cd "$module" && GOWORK=off "$gorelease_bin" -base=none -version="$version" >/dev/null) ||
 			die "$module: $version is not a usable version for this module."
-		suggestion=$(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" 2>&1 | grep -i 'Suggested version' || true)
-		printf '%s\n' "${suggestion:-no baseline}"
+		suggestion=$(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" 2>&1 |
+			grep -i 'Suggested version' || true)
+		printf '%s\n' "${suggestion:-reported by CI; advice only before 1.0}"
 	else
 		(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" -version="$version" >/dev/null) ||
 			die "$module: $version violates Go compatibility against $base."
 		printf 'compatible with %s\n' "$base"
 	fi
-done
-
-if [[ "$version" == v0.* ]]; then
-	note "Pre-1.0: the suggestions above are advice. A version below one of them is a"
-	note "deliberate choice, and CI will report the same thing rather than refuse it."
-fi
+}
 
 # ---------------------------------------------------------------------------
 # The plan.
@@ -276,6 +298,24 @@ for phase in $(seq 1 "$phases"); do
 	[[ ${#bump[@]} -gt 0 ]] && printf '     bump   %s\n' "${bump[*]}"
 	[[ ${#tag[@]} -gt 0 ]] && printf '     tag    %s\n' "${tag[*]}"
 done
+
+# Only the first phase can be checked before anything is tagged. A later module may
+# use an API its dependency has not published yet, which is not a fault to report but
+# the reason the phases exist — so the dry run says what it could not answer instead
+# of failing on it or pretending it passed.
+step "Compatibility, as far as it can be answered now"
+deferred=()
+for index in "${!order[@]}"; do
+	module="${order[index]}"
+	[[ " ${PUBLIC_MODULES[*]} " == *" $module "* ]] || continue
+	if [[ "${phase_of[index]}" == "1" ]]; then
+		compatibility "$module"
+	else
+		deferred+=("$module")
+	fi
+done
+[[ ${#deferred[@]} -gt 0 ]] &&
+	note "checked at their own tag, once what they depend on is published: ${deferred[*]}"
 
 if ! $execute; then
 	printf '\n\033[1mDry run.\033[0m Nothing was written. Re-run with --execute to release.\n'
@@ -336,6 +376,10 @@ commit it names."
 		[[ "${phase_of[index]}" == "$phase" ]] || continue
 		module="${order[index]}"
 		[[ " ${PUBLIC_MODULES[*]} " == *" $module "* ]] || continue
+		# Now that everything below it is published, this module can finally be
+		# type-checked against the graph its tag will promise. Before the tag, which
+		# is the last moment it is still free.
+		[[ "$phase" == "1" ]] || compatibility "$module"
 		git tag -a "$module/$version" -m "Part of the ${version#v} release train. See CHANGELOG.md." "$head"
 		pushed+=("$module/$version")
 	done
