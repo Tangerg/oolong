@@ -560,6 +560,13 @@ func (e *Editor) Handle(ev input.Event) bool {
 		e.Insert(paste.Text)
 		return true
 	}
+	if mouse, ok := ev.(input.Mouse); ok {
+		// The width the editor last drew at, taken from its own committed
+		// presentation. A press is aimed at what is on the screen, so that is the
+		// only width it can be about — and an editor that has never been drawn has a
+		// width of nothing, which is how it declines a press it was never shown for.
+		return e.handleMouse(mouse, e.presentation.Value().width)
+	}
 	key, ok := ev.(input.Key)
 	if !ok || !key.Down() {
 		return false

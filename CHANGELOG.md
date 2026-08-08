@@ -20,6 +20,29 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **One boundary owns a gesture handed to a child, and it lives with the behaviour.**
+  `headless.PointerRegion` replaces the private copy each appearance wrapper had:
+  composer, dialog, form, tabs and panel now compose the same object, and so can an
+  appearance layer this repository never ships. It keeps the rule `Container` and
+  `Stack` already keep — a press decides the owner, the drag and release follow it —
+  and it keeps it the same way they do, by remembering *which child* rather than
+  *which rectangle*. That is the substantive change: a held gesture is now translated
+  by where this frame drew its child, so a selection no longer jumps by the distance
+  a resize moved the pane under it, and a child that has stopped being presented has
+  its remainder dropped rather than measured against a rectangle it has left.
+
+- **An editor routes a pointer against the frame it drew.** `Editor.HandleMouse` is
+  gone; `Editor.Handle` answers a mouse event using the width from its own committed
+  presentation. The width was never the caller's to choose — a press is aimed at what
+  is on the screen — and asking for it was the reason wrappers needed a second way to
+  reach a child at all. `Editor.At` remains for geometry queries at an explicit width.
+
+- **A box with no room has no interior.** `Box.InnerRect` and `Box.Inner` now agree
+  with `Box.Draw` at degenerate sizes instead of reporting an origin inside a region
+  that does not exist. A collapsing layout produces those sizes, and a caller that
+  measured with one and drew with the other was laying out against a rectangle the
+  frame did not have.
+
 - **Transcript highlighting now scales with the visible window.** Match collections
   are explicitly ordered and non-overlapping, the shape already returned by
   `headless.Search`, so a frame locates visible matches without walking session-old

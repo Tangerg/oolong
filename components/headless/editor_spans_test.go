@@ -194,11 +194,23 @@ func drag(x int) input.Mouse {
 	return input.Mouse{Pos: image.Pt(x, 0), Action: input.MouseDrag, Button: input.ButtonLeft}
 }
 
+// mouseAt routes a pointer event the way an interface does: the editor is drawn at a
+// width, and the event that follows is about the frame it just produced.
+//
+// There is no public way to route one against a width that was never presented, which
+// is the point of going through Draw here rather than passing a number: a press is
+// aimed at what is on the screen. The height is generous so that these tests are
+// about horizontal geometry and never about scrolling.
+func mouseAt(e *headless.Editor, ev input.Mouse, width int) bool {
+	headless.NewRoot(e).Draw(grid.NewSurface(max(width, 0), 32).View())
+	return e.Handle(ev)
+}
+
 // TestAFieldCanBeClickedInto. Until this, a text field could be typed into and not
 // clicked into, which is the first thing anybody tries.
 func TestAFieldCanBeClickedInto(t *testing.T) {
 	e := editorWith("hello world")
-	if !e.HandleMouse(click(6, 0), 20) {
+	if !mouseAt(e, click(6, 0), 20) {
 		t.Fatal("the field ignored a click")
 	}
 	if line, col := e.Cursor(); line != 0 || col != 6 {
@@ -210,7 +222,7 @@ func TestClickingLandsOnAClusterBoundary(t *testing.T) {
 	// Column three is the second half of the second wide character, and half of one is
 	// not a place a cursor can be.
 	e := editorWith("中文ab")
-	e.HandleMouse(click(3, 0), 20)
+	mouseAt(e, click(3, 0), 20)
 	_, col := e.Cursor()
 	if col != len("中") {
 		t.Errorf("the cursor is at byte %d, want the boundary at %d", col, len("中"))
@@ -220,7 +232,7 @@ func TestClickingLandsOnAClusterBoundary(t *testing.T) {
 func TestClickingAWrappedRow(t *testing.T) {
 	e := editorWith("the quick brown fox jumps")
 	// At width 10 the second row begins at "brown".
-	e.HandleMouse(click(0, 1), 10)
+	mouseAt(e, click(0, 1), 10)
 	_, col := e.Cursor()
 	if got := e.Text()[col:]; got != "brown fox jumps" {
 		t.Errorf("the cursor landed before %q", got)
@@ -230,7 +242,7 @@ func TestClickingAWrappedRow(t *testing.T) {
 func TestClickingBelowTheTextMeansTheEnd(t *testing.T) {
 	// What a click past the last line means in every editor there is.
 	e := editorWith("one\ntwo")
-	e.HandleMouse(click(0, 8), 20)
+	mouseAt(e, click(0, 8), 20)
 	line, col := e.Cursor()
 	if line != 1 || col != len("two") {
 		t.Errorf("the cursor is at %d:%d, want the end", line, col)
@@ -239,12 +251,12 @@ func TestClickingBelowTheTextMeansTheEnd(t *testing.T) {
 
 func TestDraggingSelects(t *testing.T) {
 	e := editorWith("hello world")
-	e.HandleMouse(click(0, 0), 20)
-	e.HandleMouse(drag(5), 20)
+	mouseAt(e, click(0, 0), 20)
+	mouseAt(e, drag(5), 20)
 	if got := e.Selected(); got != "hello" {
 		t.Errorf("dragging selected %q, want %q", got, "hello")
 	}
-	e.HandleMouse(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseUp}, 20)
+	mouseAt(e, input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseUp}, 20)
 	if got := e.Selected(); got != "hello" {
 		t.Errorf("the selection did not survive the button coming up: %q", got)
 	}
@@ -254,8 +266,8 @@ func TestDraggingSelects(t *testing.T) {
 // click and not a selection.
 func TestAClickThatDidNotMoveSelectsNothing(t *testing.T) {
 	e := editorWith("hello world")
-	e.HandleMouse(click(3, 0), 20)
-	e.HandleMouse(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp}, 20)
+	mouseAt(e, click(3, 0), 20)
+	mouseAt(e, input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp}, 20)
 	if got := e.Selected(); got != "" {
 		t.Errorf("a click selected %q", got)
 	}
@@ -264,7 +276,7 @@ func TestAClickThatDidNotMoveSelectsNothing(t *testing.T) {
 func TestAClickReplacesTheSelectionBefore(t *testing.T) {
 	e := editorWith("hello world")
 	e.SelectAll()
-	e.HandleMouse(click(2, 0), 20)
+	mouseAt(e, click(2, 0), 20)
 	if got := e.Selected(); got != "" {
 		t.Errorf("the old selection survived a click: %q", got)
 	}
@@ -279,14 +291,14 @@ func TestTheFieldIgnoresWhatIsNotItsToAnswer(t *testing.T) {
 		// A drag with nothing started by a press of its own.
 		drag(3),
 	} {
-		if e.HandleMouse(ev, 20) {
+		if mouseAt(e, ev, 20) {
 			t.Errorf("the field consumed %+v", ev)
 		}
 	}
-	if e.HandleMouse(click(1, 0), 0) {
+	if mouseAt(e, click(1, 0), 0) {
 		t.Error("the field answered a click in a box of no width")
 	}
-	if e.HandleMouse(click(-1, -1), 20) {
+	if mouseAt(e, click(-1, -1), 20) {
 		t.Error("the field answered a click outside it")
 	}
 }
@@ -296,7 +308,7 @@ func TestTheFieldIgnoresWhatIsNotItsToAnswer(t *testing.T) {
 func TestClickingStepsOverAnElement(t *testing.T) {
 	e := editorWith("")
 	e.InsertElement(fileChip, "@main.go")
-	e.HandleMouse(click(3, 0), 40)
+	mouseAt(e, click(3, 0), 40)
 	_, col := e.Cursor()
 	if col != len("@main.go") {
 		t.Errorf("a click inside the element put the cursor at %d, want past it", col)
@@ -315,7 +327,7 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 	// a different promise and has its own test.
 	for y := range e.Measure(width) {
 		for x := range width {
-			e.HandleMouse(click(x, y), width)
+			mouseAt(e, click(x, y), width)
 			frame := screen.Frame()
 			headless.NewRoot(e).Draw(frame)
 			cursor := screen.Cursor()
@@ -361,8 +373,8 @@ func TestSpansOfARangeOutsideTheText(t *testing.T) {
 func TestDraggingUpwardsSelects(t *testing.T) {
 	// The other direction, which exercises the ordering the anchor is kept for.
 	e := editorWith("hello world")
-	e.HandleMouse(click(11, 0), 20)
-	e.HandleMouse(drag(6), 20)
+	mouseAt(e, click(11, 0), 20)
+	mouseAt(e, drag(6), 20)
 	if got := e.Selected(); got != "world" {
 		t.Errorf("dragging back selected %q, want %q", got, "world")
 	}
@@ -372,10 +384,10 @@ func TestDraggingOffTheFieldChangesNothing(t *testing.T) {
 	// A drag that leaves the box entirely has no position to move to, and moving the
 	// far end to a guess would select something nobody dragged over.
 	e := editorWith("hello world")
-	e.HandleMouse(click(0, 0), 20)
-	e.HandleMouse(drag(2), 20)
+	mouseAt(e, click(0, 0), 20)
+	mouseAt(e, drag(2), 20)
 	before := e.Selected()
-	if e.HandleMouse(drag(-5), 20) {
+	if mouseAt(e, drag(-5), 20) {
 		t.Error("a drag outside the field was consumed")
 	}
 	if got := e.Selected(); got != before {
@@ -395,7 +407,7 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 	e := editorWith("the quick brown fox jumps")
 	screen := grid.NewScreen(width, 6)
 
-	e.HandleMouse(click(11, 0), width)
+	mouseAt(e, click(11, 0), width)
 	headless.NewRoot(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 0 {
 		t.Errorf("the caret is on row %d, want the row that was clicked", got.Pos.Y)
@@ -422,7 +434,7 @@ func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
 	e := editorWith("the quick brown fox jumps")
 	screen := grid.NewScreen(width, 6)
 
-	e.HandleMouse(click(11, 0), width)
+	mouseAt(e, click(11, 0), width)
 	headless.NewRoot(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 0 {
 		t.Fatalf("the click did not put the caret on row 0")
@@ -442,7 +454,7 @@ func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
 // affinity: what a user clicked is where the next character appears.
 func TestTypingAfterClickingPastARowGoesWhereTheCaretIs(t *testing.T) {
 	e := editorWith("the quick brown fox")
-	e.HandleMouse(click(11, 0), 12)
+	mouseAt(e, click(11, 0), 12)
 	e.Insert("X")
 	// The row is "the quick " including the space the wrap took, so its end is after
 	// that space and the character goes there. Where the re-wrap then draws it is the

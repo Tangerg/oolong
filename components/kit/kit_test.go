@@ -82,6 +82,38 @@ func TestBoxFramesAndReportsWhatIsLeft(t *testing.T) {
 	})
 }
 
+// TestBoxGeometryAgreesWithItself sweeps every small size a collapsing layout can
+// hand a box.
+//
+// [Box.Draw] returns the interior it just framed and [Box.Inner] computes the same
+// interior without drawing, so the two must never disagree — a caller that measured
+// with one and drew with the other would be laying out against a rectangle the frame
+// does not have. Degenerate sizes are the interesting ones because that is where a
+// guard on one path and not the other stops being invisible.
+func TestBoxGeometryAgreesWithItself(t *testing.T) {
+	boxes := map[string]kit.Box{
+		"plain":  {Glyphs: kit.Unicode()},
+		"titled": {Glyphs: kit.Unicode(), Title: "title", Footer: "footer"},
+		"padded": {Glyphs: kit.Unicode(), Padding: layout.Uniform(3)},
+		"bare":   {Bare: true, Padding: layout.Symmetric(2, 5)},
+	}
+	for name, box := range boxes {
+		for w := range 15 {
+			for h := range 15 {
+				surface := grid.NewSurface(w, h)
+				dw, dh := box.Draw(surface.View()).Size()
+				iw, ih := box.Inner(surface.View()).Size()
+				if dw != iw || dh != ih {
+					t.Fatalf("%s at %dx%d: Draw gave %dx%d, Inner gave %dx%d", name, w, h, dw, dh, iw, ih)
+				}
+				if want := max(w-box.Overhead().X, 0); w > 0 && h > 0 && iw != want {
+					t.Fatalf("%s at %dx%d: interior width %d, overhead leaves %d", name, w, h, iw, want)
+				}
+			}
+		}
+	}
+}
+
 func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 	// A box that reported one overhead and drew another would have its content
 	// clipped, and the bug would look like it belonged to the content.

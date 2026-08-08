@@ -65,7 +65,7 @@ func (t *Text) Handle(ev input.Event) bool {
 		if !in {
 			return false
 		}
-		return t.editor.HandleMouse(local, t.presentation.Value().inner.X)
+		return t.editor.Handle(local)
 	}
 	if !t.editor.Handle(ev) {
 		return false

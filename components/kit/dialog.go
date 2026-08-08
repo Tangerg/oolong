@@ -93,7 +93,7 @@ type DialogPanel struct {
 	Keys  *keymap.Map
 	Hints []keymap.Action
 
-	content pointerRegion
+	content headless.PointerRegion
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
@@ -102,7 +102,7 @@ func (d *DialogPanel) Place(image.Point) layout.Placement { return d.Where }
 // Handle passes the event to the body, if the body answers input at all.
 func (d *DialogPanel) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
-		handled, _ := d.content.handle(mouse)
+		handled, _ := d.content.Handle(mouse)
 		return handled
 	}
 	if body, ok := d.Body.(headless.Interactive); ok {
@@ -136,7 +136,7 @@ func (d *DialogPanel) Backdrop(v grid.View) { d.Theme.Scrim.Over(v) }
 
 // Draw paints the frame and the body.
 func (d *DialogPanel) Draw(v headless.Frame) {
-	d.content.clear(v)
+	d.content.Clear(v)
 	if w, h := v.Size(); w <= 0 || h <= 0 {
 		return
 	}
@@ -152,7 +152,7 @@ func (d *DialogPanel) Draw(v headless.Frame) {
 	}
 	_ = box.Draw(v.View)
 	inner := box.InnerRect(v.Bounds().Size())
-	d.content.stageWidget(v, inner, d.Body)
+	d.content.Stage(v, inner, d.Body)
 	if d.Body != nil {
 		d.Body.Draw(v.Sub(inner))
 	}

@@ -30,7 +30,7 @@ type Form struct {
 	Keys  *keymap.Map
 	Hints []keymap.Action
 
-	body pointerRegion
+	body headless.PointerRegion
 }
 
 // Measure is the title, the fields, and the hints.
@@ -43,7 +43,7 @@ func (f *Form) Measure(across int) int {
 
 // Draw dresses the form and paints it.
 func (f *Form) Draw(v headless.Frame) {
-	f.body.clear(v)
+	f.body.Clear(v)
 	if f.Of == nil {
 		return
 	}
@@ -55,7 +55,7 @@ func (f *Form) Draw(v headless.Frame) {
 		layout.Slot{Size: layout.Fixed(f.hintRows())},
 	)
 	bands := v.Subs(rects)
-	f.body.stageWidget(v, rects[1], f.Of)
+	f.body.Stage(v, rects[1], f.Of)
 	if f.titleRows() > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0].View)
 	}
@@ -74,7 +74,7 @@ func (f *Form) Draw(v headless.Frame) {
 // field selects the first".
 func (f *Form) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
-		handled, _ := f.body.handle(mouse)
+		handled, _ := f.body.Handle(mouse)
 		return handled
 	}
 	if f.Of == nil {

@@ -25,7 +25,7 @@ type Panel struct {
 	// and Handle methods truthful; use Box directly for passive content.
 	Of headless.Focusable
 
-	content pointerRegion
+	content headless.PointerRegion
 }
 
 // NewPanel returns a rounded panel around of.
@@ -40,7 +40,7 @@ func (p *Panel) Draw(frame headless.Frame) {
 	}
 	_ = p.Box.Draw(frame.View)
 	inner := p.Box.InnerRect(frame.Bounds().Size())
-	p.content.stageWidget(frame, inner, p.Of)
+	p.content.Stage(frame, inner, p.Of)
 	if p.Of != nil && !inner.Empty() {
 		p.Of.Draw(frame.Sub(inner))
 	}
@@ -73,7 +73,7 @@ func (p *Panel) Handle(event input.Event) bool {
 		return false
 	}
 	if pointer, ok := event.(input.Mouse); ok {
-		handled, _ := p.content.handle(pointer)
+		handled, _ := p.content.Handle(pointer)
 		return handled
 	}
 	if p.Of == nil {

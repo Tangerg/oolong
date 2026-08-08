@@ -90,7 +90,7 @@ func TestAClickInAMaskedFieldLandsOnTheClusterItIsUnder(t *testing.T) {
 	e.SetText("abc")
 	paintWidget(10, 1, e)
 
-	e.HandleMouse(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(4, 0)}, 10)
+	e.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(4, 0)})
 	if _, col := e.Cursor(); col != 2 {
 		t.Fatalf("cursor at byte %d, want the third cluster", col)
 	}

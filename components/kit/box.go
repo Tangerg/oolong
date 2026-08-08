@@ -69,6 +69,13 @@ func (b Box) Inner(v grid.View) grid.View {
 
 // InnerRect is the region left for content within a space of size.
 func (b Box) InnerRect(size image.Point) image.Rectangle {
+	if size.X <= 0 || size.Y <= 0 {
+		// A box with no room has no interior, and saying so here is what keeps this
+		// the same answer [Box.Draw] gives. Reporting an origin inside a region that
+		// does not exist would leave the two disagreeing about a rectangle neither
+		// can draw in.
+		return image.Rectangle{}
+	}
 	edge := 0
 	if b.border().drawn() {
 		edge = 1

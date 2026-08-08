@@ -114,18 +114,18 @@ func (e *Editor) At(x, y, width int) (Caret, bool) {
 	return Caret{Line: r.line, Col: e.snapElement(r.line, col, true)}, true
 }
 
-// HandleMouse answers a mouse event, reporting whether it consumed it.
+// handleMouse answers a mouse event at a width, reporting whether it consumed it.
 //
 // A press puts the cursor where it was pressed and starts a selection there; a drag
 // with the button held moves the far end; a release ends it. That is what a text field
-// does everywhere, and until now this one did none of it — a field could be typed into
-// and not clicked into.
+// does everywhere.
 //
-// It is separate from [Editor.Handle] because a mouse position means nothing without
-// knowing where the field was drawn. Handle is given an event and no geometry; this is
-// given the point already translated into the field's own box, which whatever drew it
-// is the only thing that can do.
-func (e *Editor) HandleMouse(ev input.Mouse, width int) bool {
+// The width is a parameter rather than a field because this is where the arithmetic
+// lives, not because a caller gets to choose one. [Editor.Handle] supplies the width
+// the editor last drew at, which is the only width a pointer event can be about: a
+// press is aimed at what is on the screen. Routing one against a width that was never
+// presented would answer a question nobody asked.
+func (e *Editor) handleMouse(ev input.Mouse, width int) bool {
 	switch ev.Action {
 	case input.MouseDown:
 		if ev.Button != input.ButtonLeft {

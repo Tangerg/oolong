@@ -41,7 +41,7 @@ type Composer struct {
 
 	editor headless.Editor
 	// field is the editor box from the last complete root frame.
-	field pointerRegion
+	field headless.PointerRegion
 }
 
 // DefaultComposerRows is how tall a composer grows before it starts scrolling:
@@ -77,7 +77,7 @@ func (c *Composer) Focus(has bool) { c.editor.Focus(has) }
 func (c *Composer) Handle(ev input.Event) bool {
 	c.editor.Keys = c.Keys
 	if mouse, ok := ev.(input.Mouse); ok {
-		handled, _ := c.field.handle(mouse)
+		handled, _ := c.field.Handle(mouse)
 		return handled
 	}
 	return c.editor.Handle(ev)
@@ -92,7 +92,7 @@ func (c *Composer) Measure(width int) int {
 
 // Draw paints the marker, the field and the hints.
 func (c *Composer) Draw(v headless.Frame) {
-	c.field.clear(v)
+	c.field.Clear(v)
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return
@@ -122,7 +122,7 @@ func (c *Composer) drawField(v headless.Frame) {
 	}
 	width, height := v.Size()
 	field := grid.Rect(marker, 0, max(width-marker, 0), height)
-	c.field.stage(v, field, editorPointer{editor: &c.editor, width: field.Dx()})
+	c.field.Stage(v, field, &c.editor)
 	c.editor.Draw(v.Sub(field))
 }
 
