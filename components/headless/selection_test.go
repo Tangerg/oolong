@@ -324,6 +324,16 @@ func TestClicksCountAGesture(t *testing.T) {
 	}
 }
 
+func TestClicksStartANewRunWhenTimeMovesBackwards(t *testing.T) {
+	var clicks headless.Clicks
+	at := image.Pt(10, 4)
+	later := time.Unix(10, 0)
+	clicks.Press(input.Mouse{Pos: at, At: later})
+	if got := clicks.Press(input.Mouse{Pos: at, At: later.Add(-time.Second)}); got != 1 {
+		t.Fatalf("press in an earlier clock epoch is %d, want a new run", got)
+	}
+}
+
 func TestClicksBreakWhenThePointerMoves(t *testing.T) {
 	var c headless.Clicks
 	base := time.Unix(0, 0)

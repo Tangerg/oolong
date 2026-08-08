@@ -253,7 +253,8 @@ func (c *Clicks) press(at image.Point, when time.Time) int {
 	}
 	near := coordinatesNear(at.X, c.at.X, multiClickSlack) &&
 		coordinatesNear(at.Y, c.at.Y, multiClickSlack)
-	if c.count == 0 || !near || when.Sub(c.last) > within {
+	elapsed := when.Sub(c.last)
+	if c.count == 0 || !near || elapsed < 0 || elapsed > within {
 		c.count = 1
 	} else {
 		c.count++

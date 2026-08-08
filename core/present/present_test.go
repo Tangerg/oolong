@@ -150,6 +150,32 @@ func TestThrottledRequestsAreSpacedOut(t *testing.T) {
 	}
 }
 
+func TestClockReversalStartsANewPacingEpoch(t *testing.T) {
+	var p present.Presenter
+	d := drew{seq: 1}
+	const interval = 16 * time.Millisecond
+
+	p.RequestBy(epoch, interval)
+	presented(t, &p, epoch, d.draw)
+	p.Wrote(1)
+	if p.RequestBy(epoch.Add(time.Millisecond), interval) {
+		t.Fatal("request inside the old interval was not throttled")
+	}
+
+	earlier := epoch.Add(-time.Hour)
+	if !presented(t, &p, earlier, d.draw) {
+		t.Fatal("an old pacing deadline survived a clock reversal")
+	}
+	if _, armed := p.DueAt(); armed {
+		t.Fatal("a deadline from the old clock epoch remained armed")
+	}
+
+	p.Wrote(1)
+	if !p.RequestBy(earlier.Add(interval), interval) {
+		t.Fatal("the new clock epoch did not establish its own pacing interval")
+	}
+}
+
 func TestAFrameInFlightHoldsEverythingBehindIt(t *testing.T) {
 	// Which is the whole of the backpressure: a terminal that has not finished with the
 	// last frame is not given another.

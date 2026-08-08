@@ -59,6 +59,7 @@ func (p *Presenter) RequestFull() {
 // decides when it is drawn, not whether. It arms [Presenter.DueAt] so a driver that parks
 // knows when to wake, and [Presenter.Present] holds the frame until then.
 func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
+	p.rebaseClock(now)
 	p.owed = true
 	if now.Sub(p.drawnAt) < minInterval {
 		if p.dueAt.IsZero() {
@@ -83,6 +84,7 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 // frame construction is fatal can return the error without the presenter recording a
 // frame that never existed.
 func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error)) (bool, error) {
+	p.rebaseClock(now)
 	if p.inFlight != 0 || !p.owed {
 		return false, nil
 	}
@@ -101,6 +103,17 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 	p.drawnAt = now
 	p.dueAt = time.Time{}
 	return true, nil
+}
+
+// rebaseClock forgets pacing deadlines from a later clock epoch. Production callers
+// normally pass a monotonic time, but Presenter accepts a clock value precisely so a
+// driver can own time and a test can control it. A clock that moved backwards cannot
+// meaningfully owe a wait measured from the old epoch.
+func (p *Presenter) rebaseClock(now time.Time) {
+	if !p.drawnAt.IsZero() && now.Before(p.drawnAt) {
+		p.drawnAt = time.Time{}
+		p.dueAt = time.Time{}
+	}
 }
 
 // Wrote reports that the writer has finished with everything up to seq. The frame
