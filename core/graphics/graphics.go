@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"strings"
 )
 
@@ -262,21 +263,48 @@ func Fit(pxW, pxH, cellW, cellH, maxCols, maxRows int) (cols, rows int) {
 		return 1, 1
 	}
 
-	// Rounded up, so an image that fits is never shrunk to fit better.
-	cols = max((pxW+cellW-1)/cellW, 1)
-	rows = max((pxH+cellH-1)/cellH, 1)
+	// Rounded up, so an image that fits is never shrunk to fit better. Quotient and
+	// remainder avoid the overflowing n+d-1 spelling of ceiling division.
+	cols = max(ceilDiv(pxW, cellW), 1)
+	rows = max(ceilDiv(pxH, cellH), 1)
 
 	// Each axis is capped and the other shrinks with it, so the box keeps the
 	// image's proportions instead of squashing it against one edge.
 	if cols > maxCols {
-		rows = max((rows*maxCols+cols/2)/cols, 1)
+		rows = max(scaleNearest(rows, maxCols, cols), 1)
 		cols = maxCols
 	}
 	if rows > maxRows {
-		cols = max((cols*maxRows+rows/2)/rows, 1)
+		cols = max(scaleNearest(cols, maxRows, rows), 1)
 		rows = maxRows
 	}
 	return cols, rows
+}
+
+func ceilDiv(n, d int) int {
+	quotient := n / d
+	if n%d != 0 {
+		quotient++
+	}
+	return quotient
+}
+
+// scaleNearest returns total*part/whole rounded to the nearest integer without an
+// overflowing intermediate product. Fit needs nearest rather than layout's endpoint
+// rounding: losing a row from a two-row image visibly changes its aspect ratio.
+func scaleNearest(total, part, whole int) int {
+	if total <= 0 || part <= 0 || whole <= 0 {
+		return 0
+	}
+	if part >= whole {
+		return total
+	}
+	hi, lo := bits.Mul64(uint64(total), uint64(part))
+	quotient, remainder := bits.Div64(hi, lo, uint64(whole))
+	if remainder >= uint64(whole)/2+uint64(whole)%2 {
+		quotient++
+	}
+	return int(quotient)
 }
 
 // kittyPrograms are the TERM_PROGRAM values, matched as lowercase substrings, of

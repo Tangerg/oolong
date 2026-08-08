@@ -55,6 +55,24 @@ type Span struct {
 // Wrapping turns it into however many rows it needs.
 type Line []Span
 
+// Clone returns an independently owned copy of the line.
+//
+// It copies the span storage and detaches text and link strings from their source
+// allocations. The latter matters at long-lived ownership boundaries: a short span
+// sliced from a command's output must not keep the command's complete output alive.
+func (l Line) Clone() Line {
+	if len(l) == 0 {
+		return nil
+	}
+	out := make(Line, len(l))
+	for i, span := range l {
+		span.Text = strings.Clone(span.Text)
+		span.Link = strings.Clone(span.Link)
+		out[i] = span
+	}
+	return out
+}
+
 // Of is the one-span line for a piece of plain styled text.
 func Of(s string, style grid.Style) Line {
 	if s == "" {

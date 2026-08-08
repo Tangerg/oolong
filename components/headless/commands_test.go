@@ -95,6 +95,18 @@ func TestCommandsPutTheRecentOnesFirst(t *testing.T) {
 	}
 }
 
+func TestCommandsRecordAliasUseUnderTheCanonicalName(t *testing.T) {
+	c := registry()
+	c.Used("cls")
+	got := names(c.Find(""))
+	if len(got) != c.Len() {
+		t.Fatalf("using an alias produced %d rows for %d commands: %v", len(got), c.Len(), got)
+	}
+	if got[0] != "clear" {
+		t.Fatalf("the alias moved %q to the front, want clear: %v", got[0], got)
+	}
+}
+
 func TestCommandsIgnoreUseOfSomethingUnregistered(t *testing.T) {
 	c := registry()
 	c.Used("nonexistent")
@@ -169,6 +181,16 @@ func TestLookupTakesAnAlias(t *testing.T) {
 	}
 	if _, ok := registry().Lookup("nothing"); ok {
 		t.Error("a name nobody registered found something")
+	}
+}
+
+func TestAnExactCommandNameOutranksAnotherCommandsAlias(t *testing.T) {
+	var commands headless.Commands
+	commands.Add(headless.Command{Name: "old", Aliases: []string{"current"}})
+	commands.Add(headless.Command{Name: "current"})
+	got, ok := commands.Lookup("current")
+	if !ok || got.Name != "current" {
+		t.Fatalf("Lookup(current) = %+v, %v; want the exact command", got, ok)
 	}
 }
 

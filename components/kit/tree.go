@@ -70,8 +70,7 @@ func (t Tree[T]) Draw(v headless.Frame) {
 	if t.Of == nil {
 		return
 	}
-	t.Of.Row = t.row
-	t.Of.Draw(v)
+	t.Of.DrawRows(v, t.row)
 }
 
 // row draws one row: the indent, the mark, and what the item says.

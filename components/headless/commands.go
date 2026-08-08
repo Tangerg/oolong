@@ -81,10 +81,17 @@ func (c *Commands) Remove(name string) bool {
 // Len is how many commands are registered.
 func (c *Commands) Len() int { return len(c.list) }
 
-// Lookup is a snapshot of the command with exactly this name or alias.
+// Lookup is a snapshot of the command with exactly this name or alias. An exact name
+// wins over every alias: compatibility spelling on an older command must not shadow
+// the canonical name of another command.
 func (c *Commands) Lookup(name string) (Command, bool) {
 	for _, cmd := range c.list {
-		if cmd.Name == name || slices.Contains(cmd.Aliases, name) {
+		if cmd.Name == name {
+			return cloneCommand(cmd), true
+		}
+	}
+	for _, cmd := range c.list {
+		if slices.Contains(cmd.Aliases, name) {
 			return cloneCommand(cmd), true
 		}
 	}
@@ -93,11 +100,13 @@ func (c *Commands) Lookup(name string) (Command, bool) {
 
 // Used records that a command was run, which is what moves it up the list.
 func (c *Commands) Used(name string) {
-	if _, ok := c.Lookup(name); !ok {
+	cmd, ok := c.Lookup(name)
+	if !ok {
 		return
 	}
+	name = cmd.Name
 	c.used = slices.DeleteFunc(c.used, func(s string) bool { return s == name })
-	c.used = append([]string{name}, c.used...)
+	c.used = append([]string{strings.Clone(name)}, c.used...)
 	if len(c.used) > maxRecentCommands {
 		c.used = c.used[:maxRecentCommands]
 	}

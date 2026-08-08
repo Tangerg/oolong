@@ -2,7 +2,6 @@ package kit
 
 import (
 	"net/url"
-	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -117,7 +116,7 @@ func cloneLines(lines []text.Line) []text.Line {
 	}
 	out := make([]text.Line, len(lines))
 	for i, line := range lines {
-		out[i] = slices.Clone(line)
+		out[i] = line.Clone()
 	}
 	return out
 }

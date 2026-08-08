@@ -156,8 +156,7 @@ func (f *Filter[T]) Measure(int) int { return f.Matched() }
 // Draw paints the matches that fit.
 func (f *Filter[T]) Draw(v Frame) {
 	f.match()
-	f.list.Row = f.row
-	f.list.Draw(v)
+	f.list.DrawRows(v, f.row)
 }
 
 // row hands one match to whoever knows what a row looks like, with the characters

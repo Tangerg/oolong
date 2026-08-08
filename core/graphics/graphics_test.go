@@ -177,6 +177,21 @@ func TestInlineBoxIsNeverEmpty(t *testing.T) {
 	}
 }
 
+func TestFitDoesNotOverflowAtIntegerLimits(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+
+	cols, rows := graphics.Fit(maxInt, 1, maxInt-1, 1, maxInt, maxInt)
+	if cols != 2 || rows != 1 {
+		t.Fatalf("ceiling fit = %dx%d, want 2x1", cols, rows)
+	}
+
+	limit := maxInt / 2
+	cols, rows = graphics.Fit(maxInt, maxInt, 1, 1, limit, maxInt)
+	if cols != limit || rows != limit {
+		t.Fatalf("scaled fit = %dx%d, want %dx%d", cols, rows, limit, limit)
+	}
+}
+
 func TestTheZeroProtocolShowsNothing(t *testing.T) {
 	// Anything that has not been told what it is talking to must draw no images
 	// rather than print escape sequences at the user.

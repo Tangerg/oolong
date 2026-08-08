@@ -1085,6 +1085,25 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 	})
 }
 
+func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
+	called := 0
+	controller := &headless.Tree[string]{
+		Nodes: []headless.Node[string]{{Item: "root"}},
+		Row: func(grid.View, int, headless.Shown[string], bool) {
+			called++
+		},
+	}
+	dressed := kit.Tree[string]{Of: controller, Text: func(item string) string { return item }}
+	paintWidget(8, 1, dressed)
+	if called != 0 {
+		t.Fatal("the dressed tree used the controller's unrelated row appearance")
+	}
+	paintWidget(8, 1, controller)
+	if called != 1 {
+		t.Fatal("drawing the dressed tree replaced the controller's row appearance")
+	}
+}
+
 func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 	// The same form, the same values, the same complaints — and no grid. What a
 	// screen reader has, what a pipe has, and what a test that would rather say

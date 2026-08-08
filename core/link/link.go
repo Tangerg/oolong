@@ -186,7 +186,7 @@ func detectURLs(s string) []Link {
 func detectPaths(s string, exists func(path string) bool) []Link {
 	var found []Link
 	for _, m := range pathPattern.FindAllStringIndex(s, -1) {
-		if within(s, m[0]) || !startsWord(s, m[0]) {
+		if !startsWord(s, m[0]) {
 			continue
 		}
 		l, ok := pathAt(s, m[0], m[1])
@@ -210,7 +210,7 @@ func detectPaths(s string, exists func(path string) bool) []Link {
 func detectBare(s string, exists func(path string) bool) []Link {
 	var found []Link
 	for _, m := range barePattern.FindAllStringIndex(s, -1) {
-		if within(s, m[0]) || !startsWord(s, m[0]) {
+		if !startsWord(s, m[0]) {
 			continue
 		}
 		l, ok := pathAt(s, m[0], m[1])
@@ -276,17 +276,6 @@ func startsWord(s string, at int) bool {
 	}
 }
 
-// within reports whether an offset falls inside a web address, which is what keeps the
-// path of a URL from being reported a second time as a file.
-func within(s string, at int) bool {
-	for _, m := range urlPattern.FindAllStringIndex(s, -1) {
-		if at >= m[0] && at < m[1] {
-			return true
-		}
-	}
-	return false
-}
-
 // inOrder sorts links by where they start and drops any that overlap one already kept.
 //
 // Overlap is possible because the shapes are looked for separately, and two links over
@@ -304,6 +293,10 @@ func inOrder(found []Link) Links {
 		if l.Start < end {
 			continue
 		}
+		// Detection slices targets out of s. The result is the ownership boundary: a
+		// caller retaining one short link must not retain the complete document it was
+		// found in.
+		l.Target = strings.Clone(l.Target)
 		out = append(out, l)
 		end = l.End
 	}

@@ -250,16 +250,17 @@ func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
 
 // Draw paints the rows that fit.
 func (t *Tree[T]) Draw(v Frame) {
-	t.rows()
-	t.list.Row = t.row
-	t.list.Draw(v)
+	t.DrawRows(v, t.Row)
 }
 
-// row hands one row to whoever knows what a row looks like.
-func (t *Tree[T]) row(v grid.View, at int, shown Shown[T], selected bool) {
-	if t.Row != nil {
-		t.Row(v, at, shown, selected)
-	}
+// DrawRows paints the rows that fit with draw.
+//
+// Like [List.DrawRows], it lets an appearance compose with the controller without
+// replacing Row. Selection, scrolling and committed pointer geometry remain owned by
+// the tree; only the appearance of this frame is supplied by the caller.
+func (t *Tree[T]) DrawRows(v Frame, draw func(grid.View, int, Shown[T], bool)) {
+	t.rows()
+	t.list.DrawRows(v, draw)
 }
 
 // keys is the map to read through, standing in the default for a caller who set

@@ -74,6 +74,19 @@ point of tagging them low rather than not at all.
 - **Lists can accept a frame-local row renderer.** `List.DrawRows` preserves the
   list's selection, scrolling and committed routing while a composed appearance
   reuses geometry it computed once for the frame.
+- **Composed row appearances no longer rewrite their controllers.** `Tree.DrawRows`
+  mirrors the list contract, and trees and filters now supply a renderer for one
+  frame instead of assigning through a retained `Row` field during drawing.
+- **Styled-text ownership has one primitive.** `text.Line.Clone` deep-copies spans
+  and detaches their text and links; kit paragraphs, code blocks, and markdown
+  documents use it at their long-lived ownership boundaries.
+- **Command aliases resolve to one canonical identity.** Exact names outrank aliases,
+  and recording use through an alias moves the command itself rather than adding a
+  duplicate recent row.
+- **Detection and image sizing close their extreme-input paths.** Link targets detach
+  from source documents at the result boundary and overlapping shapes are filtered
+  once instead of rescanning URLs per path; image fitting uses overflow-safe ceiling
+  and nearest-ratio arithmetic for every positive `int` input.
 
 ## [0.2.0] — 2026-08-08
 
