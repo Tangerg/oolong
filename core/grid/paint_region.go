@@ -75,7 +75,7 @@ func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
 	if v.surface == nil || by == nil || r.Empty() {
 		return
 	}
-	area := r.Add(v.origin)
+	area := translateRect(r, v.origin)
 	if !area.In(v.clip) {
 		return
 	}

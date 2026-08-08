@@ -206,7 +206,7 @@ func (v View) Visible() image.Rectangle {
 	if v.surface == nil {
 		return image.Rectangle{}
 	}
-	return v.clip.Sub(v.origin)
+	return untranslateRect(v.clip, v.origin)
 }
 
 // Empty reports whether the view has nowhere to draw.
@@ -220,9 +220,9 @@ func (v View) Sub(r image.Rectangle) View {
 	}
 	return View{
 		surface: v.surface,
-		origin:  v.origin.Add(r.Min),
-		size:    r.Size(),
-		clip:    v.clip.Intersect(r.Add(v.origin)),
+		origin:  translatePoint(v.origin, r.Min),
+		size:    rectangleSize(r),
+		clip:    v.clip.Intersect(translateRect(r, v.origin)),
 		cursor:  v.cursor,
 	}
 }
@@ -254,7 +254,7 @@ func (v View) PlaceCursor(x, y int) {
 	if v.cursor == nil {
 		return
 	}
-	p := image.Pt(x, y).Add(v.origin)
+	p := translatePoint(image.Pt(x, y), v.origin)
 	if !p.In(v.clip) {
 		return
 	}
@@ -274,7 +274,7 @@ func (v View) CellAt(x, y int) (Cell, bool) {
 
 // cellAt is the package's mutable access through a view's clip.
 func (v View) cellAt(x, y int) *Cell {
-	p := image.Pt(x, y).Add(v.origin)
+	p := translatePoint(image.Pt(x, y), v.origin)
 	if v.surface == nil || !p.In(v.clip) {
 		return nil
 	}
@@ -319,7 +319,7 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	if v.surface == nil || over.Default() || opacity <= 0 {
 		return
 	}
-	area := v.clip.Intersect(r.Add(v.origin))
+	area := v.clip.Intersect(translateRect(r, v.origin))
 	if area.Empty() {
 		return
 	}
@@ -350,7 +350,7 @@ func (v View) Fade(r image.Rectangle, amount float64) {
 	if v.surface == nil || amount <= 0 {
 		return
 	}
-	area := v.clip.Intersect(r.Add(v.origin))
+	area := v.clip.Intersect(translateRect(r, v.origin))
 	if area.Empty() {
 		return
 	}
@@ -369,7 +369,7 @@ func (v View) Fill(r image.Rectangle, style Style) {
 	if v.surface == nil {
 		return
 	}
-	area := v.clip.Intersect(r.Add(v.origin))
+	area := v.clip.Intersect(translateRect(r, v.origin))
 	if area.Empty() {
 		return
 	}
@@ -398,13 +398,14 @@ func (v View) Text(x, y int, s string, style Style) int {
 	if v.surface == nil {
 		return 0
 	}
-	p := image.Pt(x, y).Add(v.origin)
+	p := translatePoint(image.Pt(x, y), v.origin)
 	if p.Y < v.clip.Min.Y || p.Y >= v.clip.Max.Y {
 		return graphemeWidth(s)
 	}
 
 	surf := v.surface
 	cx := p.X
+	advanced := 0
 	state := -1
 	var cluster string
 	for len(s) > 0 {
@@ -421,38 +422,39 @@ func (v View) Text(x, y int, s string, style Style) int {
 			break
 		}
 		switch {
-		case cx+w <= v.clip.Min.X:
+		case addExtent(cx, w) <= v.clip.Min.X:
 			// Entirely left of the clip.
 		case cx < v.clip.Min.X:
 			// A wide cluster straddling the left edge: blank the column that is
 			// inside rather than print a glyph the terminal would place wrong.
 			surf.repairPair(v.clip.Min.X, p.Y)
 			*surf.cellAt(v.clip.Min.X, p.Y) = Cell{Style: style}
-		case w == 2 && cx+2 > v.clip.Max.X:
+		case w == 2 && addExtent(cx, 2) > v.clip.Max.X:
 			surf.repairPair(cx, p.Y)
 			*surf.cellAt(cx, p.Y) = Cell{Style: style}
 			// Nothing wider than one column can follow on this row.
-			return cx + 1 - p.X
+			return addExtent(advanced, 1)
 		case w == 2:
 			surf.repairPair(cx, p.Y)
-			surf.repairPair(cx+1, p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Content: cluster, Style: style, span: spanWide}
-			*surf.cellAt(cx+1, p.Y) = Cell{Style: style, span: spanTrail}
+			surf.repairPair(addCoordinate(cx, 1), p.Y)
+			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style, span: spanWide}
+			*surf.cellAt(addCoordinate(cx, 1), p.Y) = Cell{Style: style, span: spanTrail}
 		default:
 			surf.repairPair(cx, p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Content: cluster, Style: style}
+			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style}
 		}
-		cx += w
+		cx = addExtent(cx, w)
+		advanced = addExtent(advanced, w)
 	}
-	return cx - p.X
+	return advanced
 }
 
 // combine appends a zero-width cluster to the cell that owns the column to the
 // left, stepping over a trailing cell to reach its head.
 func (v View) combine(cx, y int, cluster string) {
-	prev := v.surface.cellAt(cx-1, y)
+	prev := v.surface.cellAt(addCoordinate(cx, -1), y)
 	if prev != nil && prev.span == spanTrail {
-		prev = v.surface.cellAt(cx-2, y)
+		prev = v.surface.cellAt(addCoordinate(cx, -2), y)
 	}
 	if prev == nil || prev.span == spanTrail {
 		return
@@ -464,10 +466,21 @@ func (v View) combine(cx, y int, cluster string) {
 // has already been written into a hyperlink. It is separate from [View.Text]
 // because a link usually spans a run that was drawn in several pieces.
 func (v View) Link(x, y, w int, target string) {
-	for i := range w {
-		if c := v.cellAt(x+i, y); c != nil {
-			c.Link = target
-		}
+	if v.surface == nil || w <= 0 {
+		return
+	}
+	at := translatePoint(image.Pt(x, y), v.origin)
+	if at.Y < v.clip.Min.Y || at.Y >= v.clip.Max.Y {
+		return
+	}
+	from := max(at.X, v.clip.Min.X)
+	to := min(addExtent(at.X, w), v.clip.Max.X)
+	if from >= to {
+		return
+	}
+	target = strings.Clone(target)
+	for column := from; column < to; column++ {
+		v.surface.cellAt(column, at.Y).Link = target
 	}
 }
 
@@ -478,7 +491,7 @@ func graphemeWidth(s string) int {
 	var cluster string
 	for len(s) > 0 {
 		cluster, s, _, state = uniseg.StepString(s, state)
-		total += ClusterWidth(cluster)
+		total = addExtent(total, ClusterWidth(cluster))
 	}
 	return total
 }

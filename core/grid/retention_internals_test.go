@@ -2,7 +2,9 @@ package grid
 
 import (
 	"io"
+	"strings"
 	"testing"
+	"unsafe"
 )
 
 type retainedPainter struct{ payload []byte }
@@ -41,6 +43,55 @@ func TestReusableFrameStorageReleasesDiscardedPayloads(t *testing.T) {
 	for i, pending := range inline.pending[:cap(inline.pending)] {
 		if pending.row != "" {
 			t.Fatalf("printed row %d retained transferred output", i)
+		}
+	}
+}
+
+func TestCellsOwnTextAndLinksAtTheDrawingBoundary(t *testing.T) {
+	source := strings.Repeat("discarded ", 1<<12) + "kept destination"
+	textAt := strings.Index(source, "kept")
+	linkAt := strings.Index(source, "destination")
+	surface := NewSurface(4, 1)
+	view := surface.View()
+	view.Text(0, 0, source[textAt:textAt+len("kept")], Style{})
+	view.Link(0, 0, 4, source[linkAt:])
+
+	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+	sourceEnd := sourceStart + uintptr(len(source))
+	cell, _ := surface.CellAt(0, 0)
+	for name, value := range map[string]string{"content": cell.Content, "link": cell.Link} {
+		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+		if at >= sourceStart && at < sourceEnd {
+			t.Errorf("cell %s still shares the caller's source allocation", name)
+		}
+	}
+}
+
+func TestLinkWorkIsBoundedByTheVisibleSurface(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	surface := NewSurface(2, 1)
+	surface.View().Link(0, 0, maxInt, "target")
+	for x := range 2 {
+		cell, _ := surface.CellAt(x, 0)
+		if cell.Link != "target" {
+			t.Fatalf("cell %d link = %q, want target", x, cell.Link)
+		}
+	}
+}
+
+func TestCoordinateTranslationSaturatesInsteadOfWrapping(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	for _, tc := range []struct {
+		at, by, want int
+	}{
+		{maxInt, 1, maxInt},
+		{minInt, -1, minInt},
+		{maxInt, -1, maxInt - 1},
+		{minInt, 1, minInt + 1},
+	} {
+		if got := addCoordinate(tc.at, tc.by); got != tc.want {
+			t.Errorf("addCoordinate(%d, %d) = %d, want %d", tc.at, tc.by, got, tc.want)
 		}
 	}
 }

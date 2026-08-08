@@ -33,13 +33,70 @@ func Rect(x, y, w, h int) image.Rectangle {
 	}
 }
 
-const maxInt = int(^uint(0) >> 1)
+const (
+	maxInt = int(^uint(0) >> 1)
+	minInt = -maxInt - 1
+)
 
 func addExtent(origin, extent int) int {
 	if origin > maxInt-extent {
 		return maxInt
 	}
 	return origin + extent
+}
+
+// addCoordinate translates one signed coordinate without allowing an off-screen
+// origin and a local coordinate to wrap back into the visible surface.
+func addCoordinate(at, by int) int {
+	switch {
+	case by > 0 && at > maxInt-by:
+		return maxInt
+	case by < 0 && at < minInt-by:
+		return minInt
+	default:
+		return at + by
+	}
+}
+
+func subtractCoordinate(at, by int) int {
+	switch {
+	case by > 0 && at < minInt+by:
+		return minInt
+	case by < 0 && at > maxInt+by:
+		return maxInt
+	default:
+		return at - by
+	}
+}
+
+func translatePoint(point, by image.Point) image.Point {
+	return image.Pt(addCoordinate(point.X, by.X), addCoordinate(point.Y, by.Y))
+}
+
+func translateRect(rect image.Rectangle, by image.Point) image.Rectangle {
+	return image.Rectangle{Min: translatePoint(rect.Min, by), Max: translatePoint(rect.Max, by)}
+}
+
+func untranslateRect(rect image.Rectangle, by image.Point) image.Rectangle {
+	return image.Rectangle{
+		Min: image.Pt(subtractCoordinate(rect.Min.X, by.X), subtractCoordinate(rect.Min.Y, by.Y)),
+		Max: image.Pt(subtractCoordinate(rect.Max.X, by.X), subtractCoordinate(rect.Max.Y, by.Y)),
+	}
+}
+
+func rectangleSize(rect image.Rectangle) image.Point {
+	return image.Pt(coordinateExtent(rect.Min.X, rect.Max.X), coordinateExtent(rect.Min.Y, rect.Max.Y))
+}
+
+func coordinateExtent(from, to int) int {
+	if to <= from {
+		return 0
+	}
+	extent := uint(to) - uint(from)
+	if extent > uint(maxInt) {
+		return maxInt
+	}
+	return int(extent)
 }
 
 // RGB is a 24-bit colour.
