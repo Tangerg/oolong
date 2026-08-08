@@ -134,8 +134,8 @@ func (s *Settings[T]) table() Table {
 	return Table{
 		Theme: s.Theme,
 		Columns: []Column{
-			{Flex: 1, Min: 1},
-			{Align: layout.End, Fit: true, Max: s.ValueWidth},
+			{Size: layout.Flex(1).AtLeast(1)},
+			{Align: layout.End, Size: layout.Measured(0, s.ValueWidth)},
 		},
 		Rows: s.controller.Len(),
 		Cell: func(row, column int) Cell {

@@ -200,9 +200,9 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 		Theme:  theme,
 		Glyphs: glyphs,
 		Columns: []kit.Column{
-			{Title: "task", Flex: 2, Min: 8},
-			{Title: "state", Width: 9},
-			{Title: "progress", Flex: 3, Min: 12},
+			{Title: "task", Size: layout.Flex(2).AtLeast(8)},
+			{Title: "state", Size: layout.Fixed(9)},
+			{Title: "progress", Size: layout.Flex(3).AtLeast(12)},
 		},
 		Header: true,
 		// The header marks the column the rows are in the order of, which is the only

@@ -540,7 +540,9 @@ func TestTextIsMeasuredTheSameWayItIsDrawn(t *testing.T) {
 
 func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 	// The right edge has to line up with whatever is drawn beside it.
-	table := kit.Table{Columns: []kit.Column{{Width: 6}, {Flex: 1}, {Flex: 2}}, Gap: 1}
+	table := kit.Table{Columns: []kit.Column{
+		{Size: layout.Fixed(6)}, {Size: layout.Flex(1)}, {Size: layout.Flex(2)},
+	}, Gap: 1}
 	widths := table.Layout(30).Widths()
 	total := widths[0] + widths[1] + widths[2] + 2
 	if total != 30 {
@@ -555,13 +557,13 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 }
 
 func TestTableLayoutOwnsTheColumnDefinitionItMeasured(t *testing.T) {
-	columns := []kit.Column{{Title: "old", Width: 4}}
-	layout := (kit.Table{Columns: columns}).Layout(6)
+	columns := []kit.Column{{Title: "old", Size: layout.Fixed(4)}}
+	tableLayout := (kit.Table{Columns: columns}).Layout(6)
 	columns[0].Title = "new"
-	columns[0].Width = 1
+	columns[0].Size = layout.Fixed(1)
 
 	surface := grid.NewSurface(6, 1)
-	layout.Titles(surface.View())
+	tableLayout.Titles(surface.View())
 	var rendered strings.Builder
 	for x := range 6 {
 		rendered.WriteString(cellAt(surface, x, 0).Content)
@@ -569,13 +571,15 @@ func TestTableLayoutOwnsTheColumnDefinitionItMeasured(t *testing.T) {
 	if got := rendered.String(); !strings.HasPrefix(got, "old") || strings.Contains(got, "new") {
 		t.Fatalf("layout drew %q after its source columns changed", got)
 	}
-	if got := layout.Widths(); len(got) != 1 || got[0] != 4 {
+	if got := tableLayout.Widths(); len(got) != 1 || got[0] != 4 {
 		t.Fatalf("layout widths after source mutation = %v, want [4]", got)
 	}
 }
 
 func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
-	table := kit.Table{Columns: []kit.Column{{Width: 8}, {Flex: 1, Min: 4}}, Gap: 1}
+	table := kit.Table{Columns: []kit.Column{
+		{Size: layout.Fixed(8)}, {Size: layout.Flex(1).AtLeast(4)},
+	}, Gap: 1}
 	if widths := table.Layout(22).Widths(); widths[1] < 4 {
 		t.Fatalf("widths %v, want the flexible column to keep its floor", widths)
 	}
@@ -583,7 +587,9 @@ func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 	// And keeps it only while there is room for it. A floor that was handed out
 	// anyway would tell the column it had a width the view then clipped, which the
 	// column cannot see and lays its cells out against.
-	squeezed := kit.Table{Columns: []kit.Column{{Width: 20}, {Flex: 1, Min: 4}}, Gap: 1}
+	squeezed := kit.Table{Columns: []kit.Column{
+		{Size: layout.Fixed(20)}, {Size: layout.Flex(1).AtLeast(4)},
+	}, Gap: 1}
 	widths := squeezed.Layout(22).Widths()
 	if total := widths[0] + widths[1] + 1; total > 22 {
 		t.Fatalf("widths %v and the gap come to %d, which is more than the table has", widths, total)
@@ -593,7 +599,7 @@ func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 func TestTableFitsAColumnToItsWidestCell(t *testing.T) {
 	data := [][]string{{"a", "one"}, {"longest", "two"}}
 	table := kit.Table{
-		Columns: []kit.Column{{Title: "name", Fit: true}, {Title: "value"}},
+		Columns: []kit.Column{{Title: "name", Size: layout.Measured(0, 0)}, {Title: "value"}},
 		Rows:    len(data),
 		Header:  true,
 		Cell: func(row, column int) kit.Cell {
@@ -614,7 +620,7 @@ func TestTableFitsAColumnToItsWidestCell(t *testing.T) {
 
 func TestTableCapsAContentFittedColumn(t *testing.T) {
 	table := kit.Table{
-		Columns: []kit.Column{{Fit: true, Max: 5}, {Flex: 1}},
+		Columns: []kit.Column{{Size: layout.Measured(0, 5)}, {Size: layout.Flex(1)}},
 		Rows:    1,
 		Cell: func(_, column int) kit.Cell {
 			return kit.LabelCell(kit.Label{Text: []string{"far too long", "rest"}[column], Ellipsis: "…"})
@@ -627,7 +633,7 @@ func TestTableCapsAContentFittedColumn(t *testing.T) {
 
 func TestTableFitMeasuresOnlyTheSortMarkItDraws(t *testing.T) {
 	table := kit.Table{
-		Columns: []kit.Column{{Title: "x", Fit: true}, {Flex: 1}},
+		Columns: []kit.Column{{Title: "x", Size: layout.Measured(0, 0)}, {Size: layout.Flex(1)}},
 		Sorted:  func() (int, bool, bool) { return 0, false, false },
 		Glyphs:  kit.Glyphs{Ascending: "very-wide", Descending: "also-wide"},
 	}
@@ -656,7 +662,7 @@ func TestLabelCellDoesNotRetainARowStyleBetweenDraws(t *testing.T) {
 
 func TestTableDrawsHeaderAndRows(t *testing.T) {
 	table := kit.Table{
-		Columns: []kit.Column{{Title: "id", Width: 4}, {Title: "name", Flex: 1}},
+		Columns: []kit.Column{{Title: "id", Size: layout.Fixed(4)}, {Title: "name"}},
 		Rows:    2,
 		Header:  true,
 		Cell: func(row, col int) kit.Cell {
@@ -677,7 +683,7 @@ func TestTableDrawsHeaderAndRows(t *testing.T) {
 
 func TestTableCellsAreTruncatedToTheirColumn(t *testing.T) {
 	table := kit.Table{
-		Columns: []kit.Column{{Width: 5}, {Flex: 1}},
+		Columns: []kit.Column{{Size: layout.Fixed(5)}, {}},
 		Rows:    1,
 		Cell: func(_, col int) kit.Cell {
 			_ = col
@@ -694,7 +700,7 @@ func TestTableCellsAreTruncatedToTheirColumn(t *testing.T) {
 func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 	selected := grid.Style{BG: grid.RGBColor(40, 40, 40)}
 	table := kit.Table{
-		Columns:  []kit.Column{{Flex: 1}},
+		Columns:  []kit.Column{{}},
 		Rows:     2,
 		RowStyle: func(row int) grid.Style { return map[bool]grid.Style{true: selected}[row == 1] },
 		Cell: func(_, _ int) kit.Cell {

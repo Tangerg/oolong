@@ -134,6 +134,10 @@ type Sizing struct {
 	minimum, maximum int
 }
 
+// IsZero reports whether s names no sizing policy. Containers with a useful
+// default can distinguish an omitted policy without inspecting its representation.
+func (s Sizing) IsZero() bool { return s.kind == zeroSizing }
+
 type sizingKind uint8
 
 const (

@@ -14,21 +14,11 @@ import (
 type Column struct {
 	Title string
 	Align layout.Align
-	// Width is an exact number of columns. Zero lets the column take a share of what
-	// is left, weighted by Flex.
-	Width int
-	// Flex is this column's share of the space the fixed columns did not take. A
-	// column with neither a width nor a flex share gets one share, because a column
-	// nobody sized still has to be visible.
-	Flex int
-	// Min is a floor on a flexible column, so it does not collapse to nothing on a
-	// narrow terminal.
-	Min int
-	// Fit makes the column ask for the widest title or cell. Width still wins when
-	// both are set. Without Width or Fit, the column takes a flexible share.
-	Fit bool
-	// Max caps a content-fitted column. Zero leaves it uncapped.
-	Max int
+	// Size is how the shared layout allocator sizes this column. Use layout.Fixed
+	// for an exact width, layout.Flex for a share of what remains, and
+	// layout.Measured to fit the widest title or cell. The zero value defaults to
+	// layout.Flex(1), so an unsized column remains visible.
+	Size layout.Sizing
 }
 
 // Cell is one table cell's intrinsic width and drawing behaviour.
@@ -152,21 +142,17 @@ func (l TableLayout) Widths() []int {
 func (t Table) slots() []layout.Slot {
 	slots := make([]layout.Slot, len(t.Columns))
 	for i, c := range t.Columns {
-		if c.Width > 0 {
-			slots[i] = layout.Slot{Size: layout.Fixed(c.Width)}
-			continue
+		size := c.Size
+		if size.IsZero() {
+			size = layout.Flex(1)
 		}
-		if c.Fit {
-			column := i
-			slots[i] = layout.Slot{
-				Size: layout.Measured(c.Min, c.Max),
-				Of: layout.MeasureFunc(func(int) int {
-					return t.preferred(column)
-				}),
-			}
-			continue
+		column := i
+		slots[i] = layout.Slot{
+			Size: size,
+			Of: layout.MeasureFunc(func(int) int {
+				return t.preferred(column)
+			}),
 		}
-		slots[i] = layout.Slot{Size: layout.Flex(max(c.Flex, 1)).AtLeast(c.Min)}
 	}
 	return slots
 }
