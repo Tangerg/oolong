@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -257,7 +258,7 @@ func (s *Search) scan(j job) (Result, bool) {
 			return Result{}, true
 		}
 		if m, ok := spread(loc[0], loc[1], j.corpus, starts); ok {
-			m.Row += j.start
+			m.Row = layout.Sum(m.Row, j.start)
 			result.Matches = append(result.Matches, m)
 		}
 	}
@@ -325,7 +326,7 @@ func spread(from, to int, rows []text.Row, starts []int) (Match, bool) {
 		}
 		startCol := text.ColumnOf(rows[i].Text, lo)
 		m.Spans = append(m.Spans, Span{
-			Col: rows[i].Offset + startCol, Width: text.ColumnOf(rows[i].Text, hi) - startCol,
+			Col: layout.Sum(rows[i].Offset, startCol), Width: text.ColumnOf(rows[i].Text, hi) - startCol,
 		})
 	}
 	if len(m.Spans) == 0 {

@@ -187,8 +187,8 @@ func (t *Tabs) boxes() []span {
 	for i := range t.controller.Len() {
 		tab, _ := t.controller.At(i)
 		width := text.Width(tab.Title)
-		out = append(out, span{from: at, to: at + width})
-		at += width + tabGap
+		out = append(out, span{from: at, to: layout.Sum(at, width)})
+		at = layout.Sum(at, width, tabGap)
 	}
 	return out
 }

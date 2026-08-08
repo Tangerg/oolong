@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -60,19 +61,19 @@ func (h Help) Draw(v grid.View) {
 		// The first sequence bound to it, which is the one a caller put first.
 		key := bound[0].String()
 		does := actionLabel(action)
-		need := text.Width(key) + 1 + text.Width(does)
+		need := layout.Sum(text.Width(key), 1, text.Width(does))
 		if x > 0 {
-			need += sepWidth
+			need = layout.Sum(need, sepWidth)
 		}
-		if x+need > w {
+		if layout.Sum(x, need) > w {
 			return
 		}
 		if x > 0 {
-			x += v.Text(x, 0, separator, h.Theme.Subtle)
+			x = layout.Sum(x, v.Text(x, 0, separator, h.Theme.Subtle))
 		}
-		x += v.Text(x, 0, key, h.Theme.Accent)
-		x += v.Text(x, 0, " ", h.Theme.Muted)
-		x += v.Text(x, 0, does, h.Theme.Muted)
+		x = layout.Sum(x, v.Text(x, 0, key, h.Theme.Accent))
+		x = layout.Sum(x, v.Text(x, 0, " ", h.Theme.Muted))
+		x = layout.Sum(x, v.Text(x, 0, does, h.Theme.Muted))
 	}
 }
 

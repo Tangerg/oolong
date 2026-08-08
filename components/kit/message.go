@@ -76,7 +76,7 @@ func (m Message) Rows(width int) []text.Row {
 		out = append(out, text.Row{Text: m.Speaker})
 	}
 	for _, row := range m.body().Rows(m.wrapWidth(width)) {
-		row.Offset += m.indent()
+		row.Offset = layout.Sum(row.Offset, m.indent())
 		out = append(out, row)
 	}
 	for range m.trailing() {

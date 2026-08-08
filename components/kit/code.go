@@ -77,7 +77,7 @@ func (c *Code) Rows(width int) []text.Row {
 	gutter := c.gutterWidth()
 	rows := c.body.Rows(layout.Remaining(width, gutter))
 	for i := range rows {
-		rows[i].Offset += gutter
+		rows[i].Offset = layout.Sum(rows[i].Offset, gutter)
 	}
 	return rows
 }

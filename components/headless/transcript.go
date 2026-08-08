@@ -1,8 +1,6 @@
 package headless
 
 import (
-	"image"
-
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
@@ -460,8 +458,8 @@ func (t *Transcript) Draw(v grid.View, from int) {
 		if b.height == 0 {
 			continue
 		}
-		y := b.top - from
-		b.block.Draw(v.Sub(image.Rect(0, y, w, y+b.height)))
+		y := layout.Relative(b.top, from)
+		b.block.Draw(v.Sub(grid.Rect(0, y, w, b.height)))
 	}
 }
 
@@ -513,7 +511,7 @@ func (t *Transcript) Rows(from, count int) []text.Row {
 		}
 		rows := copyable.Rows(t.width)
 		for row := range b.height {
-			at := b.top + row - from
+			at := layout.Relative(layout.Sum(b.top, row), from)
 			if at < 0 || at >= count || row >= len(rows) {
 				continue
 			}

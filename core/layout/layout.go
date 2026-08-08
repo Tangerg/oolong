@@ -450,7 +450,37 @@ func Divide(total, across int, slots []Slot) []int {
 	return sizes
 }
 
-const maxInt = int(^uint(0) >> 1)
+const (
+	maxInt = int(^uint(0) >> 1)
+	minInt = -maxInt - 1
+)
+
+// Translate moves a signed coordinate by delta, saturating at the integer limits.
+// It is distinct from [Sum]: coordinates may legitimately be negative, while Sum
+// combines non-negative extents and treats a negative input as no extent.
+func Translate(at, delta int) int {
+	switch {
+	case delta > 0 && at > maxInt-delta:
+		return maxInt
+	case delta < 0 && at < minInt-delta:
+		return minInt
+	default:
+		return at + delta
+	}
+}
+
+// Relative projects an absolute coordinate into a space whose origin is origin,
+// saturating when the mathematical difference is outside the integer range.
+func Relative(at, origin int) int {
+	switch {
+	case origin > 0 && at < minInt+origin:
+		return minInt
+	case origin < 0 && at > maxInt+origin:
+		return maxInt
+	default:
+		return at - origin
+	}
+}
 
 // Sum adds non-negative extents, saturating at the largest int instead of letting
 // overflow turn geometry negative. Negative inputs describe no extent and contribute

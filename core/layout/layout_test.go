@@ -180,6 +180,42 @@ func TestExtentSumsStayNonnegativeAtIntegerLimits(t *testing.T) {
 	}
 }
 
+func TestCoordinateTranslationKeepsDirectionAtIntegerLimits(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	for _, tc := range []struct {
+		at, delta, want int
+	}{
+		{maxInt, 1, maxInt},
+		{minInt, -1, minInt},
+		{maxInt, -1, maxInt - 1},
+		{minInt, 1, minInt + 1},
+		{-3, 5, 2},
+	} {
+		if got := layout.Translate(tc.at, tc.delta); got != tc.want {
+			t.Errorf("Translate(%d, %d) = %d, want %d", tc.at, tc.delta, got, tc.want)
+		}
+	}
+}
+
+func TestRelativeCoordinateKeepsDirectionAtIntegerLimits(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	for _, tc := range []struct {
+		at, origin, want int
+	}{
+		{minInt, 1, minInt},
+		{maxInt, -1, maxInt},
+		{maxInt, maxInt, 0},
+		{minInt, minInt, 0},
+		{2, -3, 5},
+	} {
+		if got := layout.Relative(tc.at, tc.origin); got != tc.want {
+			t.Errorf("Relative(%d, %d) = %d, want %d", tc.at, tc.origin, got, tc.want)
+		}
+	}
+}
+
 func TestSizingRejectsContradictoryConstraints(t *testing.T) {
 	for name, makeSizing := range map[string]func() layout.Sizing{
 		"measured bounds": func() layout.Sizing { return layout.Measured(3, 2) },

@@ -1,11 +1,11 @@
 package kit
 
 import (
-	"image"
 	"slices"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -99,15 +99,15 @@ func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.
 			clusterStyle = style.Merge(p.Theme.Accent)
 		}
 		v.Text(x, y, cluster, clusterStyle)
-		x += text.Width(cluster)
+		x = layout.Sum(x, text.Width(cluster))
 	}
 
-	if found.Command.Title == "" || x+2 >= w {
+	if found.Command.Title == "" || layout.Sum(x, 2) >= w {
 		return
 	}
-	x += 2
+	x = layout.Sum(x, 2)
 	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: "…"}.
-		Draw(v.Sub(image.Rect(x, y, w, y+1)))
+		Draw(v.Sub(grid.Rect(x, y, layout.Remaining(w, x), 1)))
 }
 
 // matchedIn reports whether any match offset falls in a byte range.

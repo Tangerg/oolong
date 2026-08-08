@@ -1,10 +1,10 @@
 package headless
 
 import (
-	"image"
-
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // Viewport shows a window onto content taller than the room there is for it.
@@ -100,7 +100,7 @@ func (p *Viewport) Draw(v Frame) {
 	// height and draws into it as though nothing were in the way, which is what keeps
 	// the scrolling out of everything that is ever put in here.
 	top := -scroll.Offset()
-	content.Draw(v.Sub(image.Rect(0, top, w, top+total)))
+	content.Draw(v.Sub(grid.Rect(0, top, w, total)))
 }
 
 type viewportPresentation struct {
@@ -132,7 +132,7 @@ func (p *Viewport) Handle(ev input.Event) bool {
 			return false
 		}
 		local := mouse
-		local.Pos.Y += presented.offset
+		local.Pos.Y = layout.Translate(local.Pos.Y, presented.offset)
 		return handler.Handle(local)
 	}
 	if handler, ok := p.content.(Interactive); ok && !p.blurred && handler.Handle(ev) {

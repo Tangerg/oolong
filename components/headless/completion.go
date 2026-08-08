@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -292,7 +293,7 @@ func (c *Completion) Width() int {
 	for _, candidate := range c.list.items {
 		w := text.Width(candidate.shown())
 		if candidate.Detail != "" {
-			w += detailGap + text.Width(candidate.Detail)
+			w = layout.Sum(w, detailGap, text.Width(candidate.Detail))
 		}
 		widest = max(widest, w)
 	}
@@ -326,7 +327,7 @@ func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected b
 		return
 	}
 	detail := base.Merge(c.Look.Subtle)
-	room := width - at - detailGap
+	room := layout.Remaining(width, at, detailGap)
 	if room <= 0 {
 		return
 	}
@@ -348,10 +349,10 @@ func (c *Completion) drawMatched(v grid.View, label string, matched []int, base 
 			next++
 		}
 		style := base
-		if next < len(matched) && matched[next] < off+len(cluster) {
+		if next < len(matched) && matched[next] < layout.Sum(off, len(cluster)) {
 			style = hit
 		}
-		at += v.Text(at, 0, cluster, style)
+		at = layout.Sum(at, v.Text(at, 0, cluster, style))
 	}
 	return at
 }

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
 )
@@ -436,9 +437,9 @@ func (v View) Text(x, y int, s string, style Style) int {
 			return addExtent(advanced, 1)
 		case w == 2:
 			surf.repairPair(cx, p.Y)
-			surf.repairPair(addCoordinate(cx, 1), p.Y)
+			surf.repairPair(layout.Translate(cx, 1), p.Y)
 			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style, span: spanWide}
-			*surf.cellAt(addCoordinate(cx, 1), p.Y) = Cell{Style: style, span: spanTrail}
+			*surf.cellAt(layout.Translate(cx, 1), p.Y) = Cell{Style: style, span: spanTrail}
 		default:
 			surf.repairPair(cx, p.Y)
 			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style}
@@ -452,9 +453,9 @@ func (v View) Text(x, y int, s string, style Style) int {
 // combine appends a zero-width cluster to the cell that owns the column to the
 // left, stepping over a trailing cell to reach its head.
 func (v View) combine(cx, y int, cluster string) {
-	prev := v.surface.cellAt(addCoordinate(cx, -1), y)
+	prev := v.surface.cellAt(layout.Translate(cx, -1), y)
 	if prev != nil && prev.span == spanTrail {
-		prev = v.surface.cellAt(addCoordinate(cx, -2), y)
+		prev = v.surface.cellAt(layout.Translate(cx, -2), y)
 	}
 	if prev == nil || prev.span == spanTrail {
 		return

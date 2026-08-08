@@ -213,7 +213,7 @@ func (e *Editor) Draw(frame Frame) {
 	e.presentation.Stage(frame, editorPresentation{
 		width: width, gutter: gutter, first: first,
 	})
-	last := min(first+height, len(rows))
+	last := min(layout.Sum(first, height), len(rows))
 	e.drawGutter(gutterView, rows[first:last])
 
 	if e.Empty() && e.Placeholder != "" {
@@ -223,7 +223,7 @@ func (e *Editor) Draw(frame Frame) {
 	}
 
 	for y := range height {
-		index := first + y
+		index := layout.Sum(first, y)
 		if index >= len(rows) {
 			break
 		}
@@ -238,7 +238,8 @@ func (e *Editor) Draw(frame Frame) {
 		if y < 0 || y >= height {
 			continue
 		}
-		for x := span.Col; x < span.Col+span.Width && x < width; x++ {
+		end := min(layout.Sum(span.Col, span.Width), width)
+		for x := max(span.Col, 0); x < end; x++ {
 			v.MergeStyle(x, y, e.Look.Selection)
 		}
 	}

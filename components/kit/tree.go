@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -108,7 +109,7 @@ func (t Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) {
 		return
 	}
 	if mark := t.mark(row); mark != "" {
-		x += v.Text(x, 0, mark, t.Theme.Subtle.Merge(style)) + 1
+		x = layout.Sum(x, v.Text(x, 0, mark, t.Theme.Subtle.Merge(style)), 1)
 	}
 	if t.Text == nil || x >= width {
 		return

@@ -42,7 +42,7 @@ func (s *Spinner) Draw(v grid.View) {
 		glyph := frames[((s.frame%len(frames))+len(frames))%len(frames)]
 		x = v.Text(0, 0, glyph, s.Theme.Accent)
 		if x < w {
-			x++
+			x = layout.Sum(x, 1)
 		}
 	}
 	if s.Label == "" || x >= w {
@@ -98,7 +98,7 @@ func (s Scrollbar) Draw(v grid.View) {
 		top = layout.Scale(span, s.Offset, scrollable)
 	}
 	for y := range h {
-		if y >= top && y < top+size {
+		if y >= top && y < layout.Sum(top, size) {
 			if thumb != "" {
 				v.Text(0, y, thumb, s.Theme.Muted)
 			}

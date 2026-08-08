@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -63,10 +64,10 @@ func (e *Editor) lineOffset(width int) int {
 		return 0
 	}
 	left := min(cursor, e.presentation.Value().left)
-	if cursor > left+width-1 {
-		left = cursor - width + 1
+	if cursor > layout.Sum(left, width-1) {
+		left = layout.Remaining(cursor, width-1)
 	}
-	left = min(left, max(total-width+1, 0))
+	left = min(left, layout.Remaining(total, width-1))
 	return max(left, 0)
 }
 
@@ -126,6 +127,6 @@ func (e *Editor) lineAt(at int) int {
 
 // atLine is where a point lands in a field that holds one line.
 func (e *Editor) atLine(x int) Caret {
-	col := e.lineAt(text.OffsetAt(e.shown(), x+e.presentation.Value().left))
+	col := e.lineAt(text.OffsetAt(e.shown(), layout.Translate(x, e.presentation.Value().left)))
 	return Caret{Col: e.snapElement(0, col, true)}
 }

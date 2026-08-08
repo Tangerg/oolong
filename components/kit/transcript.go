@@ -99,16 +99,16 @@ func (t *Transcript) Draw(v headless.Frame) {
 	if t.Sticky != nil {
 		if pinned, ok := t.Sticky.At(content, from, h); ok && pinned.Rows < h {
 			if t.Scroll != nil {
-				scroll := t.Scroll.Stage(v, content.Height(), h-pinned.Rows)
-				from = content.StartRow() + scroll.Offset()
+				scroll := t.Scroll.Stage(v, content.Height(), layout.Remaining(h, pinned.Rows))
+				from = layout.Sum(content.StartRow(), scroll.Offset())
 			}
 			t.drawHeader(content, v.View, pinned)
-			bodyRect = grid.Rect(0, pinned.Rows, w, h-pinned.Rows)
+			bodyRect = grid.Rect(0, pinned.Rows, w, layout.Remaining(h, pinned.Rows))
 			body = v.Sub(bodyRect).View
 			presented.body, presented.from = bodyRect, from
 			if top, _, exists := content.Extent(pinned.Block); exists && pinned.Visible() > 0 {
 				presented.header = grid.Rect(0, 0, w, pinned.Visible())
-				presented.headerFrom = top + pinned.ClipTop
+				presented.headerFrom = layout.Sum(top, pinned.ClipTop)
 			}
 		}
 	}
@@ -190,7 +190,7 @@ func (t *Transcript) mark(v grid.View, from int) {
 			style = t.Theme.Accent
 		}
 		for row, span := range m.Spans {
-			y := layout.Sum(m.Row, row) - from
+			y := layout.Relative(layout.Sum(m.Row, row), from)
 			if y < 0 || y >= h {
 				continue
 			}
@@ -417,9 +417,9 @@ func (p transcriptPresentation) pointAt(point image.Point, nearest bool) (headle
 func (p transcriptPresentation) rowAt(point image.Point) (image.Rectangle, int, bool) {
 	switch {
 	case point.In(p.header):
-		return p.header, p.headerFrom + point.Y - p.header.Min.Y, true
+		return p.header, layout.Sum(p.headerFrom, layout.Relative(point.Y, p.header.Min.Y)), true
 	case point.In(p.body):
-		return p.body, p.from + point.Y - p.body.Min.Y, true
+		return p.body, layout.Sum(p.from, layout.Relative(point.Y, p.body.Min.Y)), true
 	default:
 		return image.Rectangle{}, 0, false
 	}
@@ -428,15 +428,15 @@ func (p transcriptPresentation) rowAt(point image.Point) (image.Rectangle, int, 
 func (p transcriptPresentation) nearestRow(y int) (image.Rectangle, int, bool) {
 	if !p.header.Empty() && y < p.body.Min.Y {
 		at := min(max(y, p.header.Min.Y), p.header.Max.Y-1)
-		return p.header, p.headerFrom + at - p.header.Min.Y, true
+		return p.header, layout.Sum(p.headerFrom, layout.Relative(at, p.header.Min.Y)), true
 	}
 	if !p.body.Empty() {
 		at := min(max(y, p.body.Min.Y), p.body.Max.Y-1)
-		return p.body, p.from + at - p.body.Min.Y, true
+		return p.body, layout.Sum(p.from, layout.Relative(at, p.body.Min.Y)), true
 	}
 	if !p.header.Empty() {
 		at := min(max(y, p.header.Min.Y), p.header.Max.Y-1)
-		return p.header, p.headerFrom + at - p.header.Min.Y, true
+		return p.header, layout.Sum(p.headerFrom, layout.Relative(at, p.header.Min.Y)), true
 	}
 	return image.Rectangle{}, 0, false
 }

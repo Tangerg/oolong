@@ -608,11 +608,10 @@ func (c *Confirm) Draw(v Frame) {
 			style = c.look.Selection.Merge(c.look.Accent)
 		}
 		if mark, width := c.look.mark(yes == c.yes); width > 0 {
-			x += row.Text(x, 0, mark, style)
-			x++
+			x = layout.Sum(x, row.Text(x, 0, mark, style), 1)
 		}
-		x += row.Text(x, 0, c.word(yes), style)
-		x += row.Text(x, 0, "  ", c.look.Text)
+		x = layout.Sum(x, row.Text(x, 0, c.word(yes), style))
+		x = layout.Sum(x, row.Text(x, 0, "  ", c.look.Text))
 	}
 }
 

@@ -20,6 +20,8 @@ package grid
 import (
 	"image"
 	"math"
+
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // Rect builds a rectangle from a terminal-natural origin and size. The result is
@@ -35,7 +37,6 @@ func Rect(x, y, w, h int) image.Rectangle {
 
 const (
 	maxInt = int(^uint(0) >> 1)
-	minInt = -maxInt - 1
 )
 
 func addExtent(origin, extent int) int {
@@ -45,32 +46,8 @@ func addExtent(origin, extent int) int {
 	return origin + extent
 }
 
-// addCoordinate translates one signed coordinate without allowing an off-screen
-// origin and a local coordinate to wrap back into the visible surface.
-func addCoordinate(at, by int) int {
-	switch {
-	case by > 0 && at > maxInt-by:
-		return maxInt
-	case by < 0 && at < minInt-by:
-		return minInt
-	default:
-		return at + by
-	}
-}
-
-func subtractCoordinate(at, by int) int {
-	switch {
-	case by > 0 && at < minInt+by:
-		return minInt
-	case by < 0 && at > maxInt+by:
-		return maxInt
-	default:
-		return at - by
-	}
-}
-
 func translatePoint(point, by image.Point) image.Point {
-	return image.Pt(addCoordinate(point.X, by.X), addCoordinate(point.Y, by.Y))
+	return image.Pt(layout.Translate(point.X, by.X), layout.Translate(point.Y, by.Y))
 }
 
 func translateRect(rect image.Rectangle, by image.Point) image.Rectangle {
@@ -79,8 +56,8 @@ func translateRect(rect image.Rectangle, by image.Point) image.Rectangle {
 
 func untranslateRect(rect image.Rectangle, by image.Point) image.Rectangle {
 	return image.Rectangle{
-		Min: image.Pt(subtractCoordinate(rect.Min.X, by.X), subtractCoordinate(rect.Min.Y, by.Y)),
-		Max: image.Pt(subtractCoordinate(rect.Max.X, by.X), subtractCoordinate(rect.Max.Y, by.Y)),
+		Min: image.Pt(layout.Relative(rect.Min.X, by.X), layout.Relative(rect.Min.Y, by.Y)),
+		Max: image.Pt(layout.Relative(rect.Max.X, by.X), layout.Relative(rect.Max.Y, by.Y)),
 	}
 }
 

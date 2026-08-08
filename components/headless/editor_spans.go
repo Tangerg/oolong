@@ -36,7 +36,7 @@ func (e *Editor) Spans(from, to Caret, width int) []RowSpan {
 	gutter := e.gutterWidth()
 	out := e.spans(from, to, layout.Remaining(width, gutter))
 	for i := range out {
-		out[i].Col += gutter
+		out[i].Col = layout.Sum(out[i].Col, gutter)
 	}
 	return out
 }
@@ -123,7 +123,7 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 	if presented.width == width {
 		first = presented.first
 	}
-	index := first + y
+	index := layout.Sum(first, y)
 	if index >= len(rows) {
 		// Below the text. The end is where a click there means, the way it does in
 		// every editor: a reader clicking past the last line means the last line.
@@ -157,7 +157,7 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 	if presented.width <= 0 || ev.Pos.X < presented.gutter {
 		return false
 	}
-	ev.Pos.X -= presented.gutter
+	ev.Pos.X = layout.Relative(ev.Pos.X, presented.gutter)
 	switch ev.Action {
 	case input.MouseDown:
 		if ev.Button != input.ButtonLeft {
@@ -207,7 +207,7 @@ func (e *Editor) pastRowEnd(x, y, width int) bool {
 	if presented.width == width {
 		first = presented.first
 	}
-	index := first + y
+	index := layout.Sum(first, y)
 	if index < 0 || index >= len(rows) || e.layout.lastOfLine(index) {
 		return false
 	}

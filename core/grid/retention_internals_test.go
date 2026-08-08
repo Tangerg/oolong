@@ -78,20 +78,3 @@ func TestLinkWorkIsBoundedByTheVisibleSurface(t *testing.T) {
 		}
 	}
 }
-
-func TestCoordinateTranslationSaturatesInsteadOfWrapping(t *testing.T) {
-	maxInt := int(^uint(0) >> 1)
-	minInt := -maxInt - 1
-	for _, tc := range []struct {
-		at, by, want int
-	}{
-		{maxInt, 1, maxInt},
-		{minInt, -1, minInt},
-		{maxInt, -1, maxInt - 1},
-		{minInt, 1, minInt + 1},
-	} {
-		if got := addCoordinate(tc.at, tc.by); got != tc.want {
-			t.Errorf("addCoordinate(%d, %d) = %d, want %d", tc.at, tc.by, got, tc.want)
-		}
-	}
-}

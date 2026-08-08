@@ -4,6 +4,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -76,7 +77,7 @@ func (d Diff) line(v grid.View, y, w int, numbers margin, line diff.Line) {
 	v.Fill(grid.Rect(0, y, w, 1), style)
 
 	x := v.Text(0, y, numbers.of(line), style.Merge(d.Theme.Subtle))
-	x += v.Text(x, y, line.Kind.String(), style)
+	x = layout.Sum(x, v.Text(x, y, line.Kind.String(), style))
 	v.Text(x, y, text.Truncate(line.Text, max(w-x, 0), "…"), style)
 }
 
