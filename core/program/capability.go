@@ -18,10 +18,11 @@ type Environment struct{ host hostServices }
 // operations that need the live owner still check it explicitly; a missing owner
 // and a host with no optional services are equivalent only here.
 func (r *Runtime) services() hostServices {
-	if r == nil || r.p == nil {
+	p := r.owner()
+	if p == nil {
 		return hostServices{}
 	}
-	return r.p.host
+	return p.host
 }
 
 // Environment returns the host facts available to this runtime.
@@ -84,10 +85,10 @@ func (s Session) Hand(run func() error) error {
 	if run == nil {
 		return nil
 	}
-	if s.runtime == nil || s.runtime.p == nil {
+	p := s.runtime.owner()
+	if p == nil {
 		return run()
 	}
-	p := s.runtime.p
 	// Repaint is part of settling the handover, including when the child panics and
 	// the host restores terminal ownership from a defer.
 	defer p.present.RequestFull()

@@ -104,10 +104,35 @@ type Dispatcher struct{ tasks *taskQueue }
 // inert; it is safe to embed in an object that has not been attached to a program.
 type Runtime struct{ p *program }
 
+// owner centralizes the inert zero-value contract for operations that need the
+// live interface goroutine. It deliberately returns the concrete internal owner:
+// callers stay inside this package, while capability consumers receive the narrow
+// values exposed below.
+func (r *Runtime) owner() *program {
+	if r == nil {
+		return nil
+	}
+	return r.p
+}
+
 // InlineRuntime is a [Runtime] that can publish completed output into terminal
 // scrollback. It is only constructed for [Config.Inline], and its zero value is
 // inert.
 type InlineRuntime struct{ *Runtime }
+
+// inlineCanvas is the publication surface when this is a live inline runtime.
+// Keeping the embedded-runtime and mode checks together makes every publishing
+// operation share the same zero-value semantics.
+func (r *InlineRuntime) inlineCanvas() *grid.Inline {
+	if r == nil {
+		return nil
+	}
+	p := r.owner()
+	if p == nil {
+		return nil
+	}
+	return p.inline
+}
 
 // Printable is something that can say how tall it is at a width and then draw
 // itself into that space.
@@ -617,49 +642,49 @@ func (f *frameBuffer) Write(b []byte) (int, error) {
 
 // Print publishes a measured drawable above an inline interface.
 func (r *InlineRuntime) Print(p Printable) {
-	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil || p == nil {
+	inline := r.inlineCanvas()
+	if inline == nil || p == nil {
 		return
 	}
-	width, _ := r.p.inline.Size()
-	r.p.inline.Print(p.Measure(width), p.Draw)
+	width, _ := inline.Size()
+	inline.Print(p.Measure(width), p.Draw)
 }
 
 // PrintRows publishes a caller-sized drawing above an inline interface.
 func (r *InlineRuntime) PrintRows(rows int, draw func(grid.View)) {
-	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil || draw == nil {
+	inline := r.inlineCanvas()
+	if inline == nil || draw == nil {
 		return
 	}
-	r.p.inline.Print(rows, draw)
+	inline.Print(rows, draw)
 }
 
 // Append continues the last published row until draw reports completion.
 func (r *InlineRuntime) Append(draw func(grid.View) bool) {
-	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil || draw == nil {
+	inline := r.inlineCanvas()
+	if inline == nil || draw == nil {
 		return
 	}
 	for {
-		before := r.room()
+		before := inlineRoom(inline)
 		more := false
-		r.p.inline.Append(func(v grid.View) { more = draw(v) })
+		inline.Append(func(v grid.View) { more = draw(v) })
 		if !more {
 			return
 		}
-		if r.room() == before && before == 0 {
+		if inlineRoom(inline) == before && before == 0 {
 			// A whole row to itself and nothing drawn into it. No amount of room
 			// would help, so asking again is asking forever.
 			return
 		}
-		r.p.inline.Break()
+		inline.Break()
 	}
 }
 
-// room is how much of the open row has been taken, or zero when the next thing
-// published starts a row of its own.
-func (r *InlineRuntime) room() int {
-	if r == nil || r.Runtime == nil || r.p == nil || r.p.inline == nil {
-		return 0
-	}
-	col, open := r.p.inline.Tail()
+// inlineRoom is how much of the open row has been taken, or zero when the next
+// thing published starts a row of its own.
+func inlineRoom(inline *grid.Inline) int {
+	col, open := inline.Tail()
 	if !open {
 		return 0
 	}
@@ -668,33 +693,36 @@ func (r *InlineRuntime) room() int {
 
 // Dispatcher returns the concurrency-safe handle for background work.
 func (r *Runtime) Dispatcher() Dispatcher {
-	if r == nil || r.p == nil {
+	p := r.owner()
+	if p == nil {
 		return Dispatcher{}
 	}
-	return Dispatcher{tasks: r.p.tasks}
+	return Dispatcher{tasks: p.tasks}
 }
 
 // Refresh requests a frame without changing component state.
 func (r *Runtime) Refresh() {
-	if r != nil && r.p != nil {
-		r.p.tasks.post(nil)
+	if p := r.owner(); p != nil {
+		p.tasks.post(nil)
 	}
 }
 
 // Quit asks the program to stop.
 func (r *Runtime) Quit() {
-	if r == nil || r.p == nil {
+	p := r.owner()
+	if p == nil {
 		return
 	}
-	r.p.quit.Store(true)
+	p.quit.Store(true)
 	// Wake a parked loop so it can observe the transition. The signal carries no
 	// task and coalesces with any wake-up already waiting.
-	r.p.tasks.signal()
+	p.tasks.signal()
 }
 
 // Every schedules coalesced ticks on the interface goroutine.
 func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
-	if r == nil || r.p == nil || d <= 0 || fn == nil {
+	p := r.owner()
+	if p == nil || d <= 0 || fn == nil {
 		return func() {}
 	}
 	stopped := make(chan struct{})
@@ -731,7 +759,7 @@ func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
 				}
 			case <-stopped:
 				return
-			case <-r.p.tasks.done:
+			case <-p.tasks.done:
 				return
 			}
 		}

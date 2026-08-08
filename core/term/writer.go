@@ -100,6 +100,9 @@ type frame struct {
 
 // NewWriter starts a writer over dst.
 func NewWriter(dst io.Writer) *Writer {
+	if dst == nil {
+		panic("term: nil writer")
+	}
 	w := &Writer{
 		dst:      dst,
 		wake:     make(chan struct{}, 1),
