@@ -18,6 +18,8 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-09
+
 This is a repository-wide correctness and ownership pass over the foundations added
 in 0.3.0. It removes representational escape hatches, gives repeated low-level
 operations one implementation, and turns the failure cases found by the audit into
@@ -32,14 +34,19 @@ architecture-independent `uint64` identity. There are no compatibility aliases.
 
 ### Added
 
-- **One bounded streaming ANSI scanner.** `ansi.Scanner` is now the shared framing
-  state machine for input, styled-text decoding, markdown-adjacent terminal streams,
-  and the PTY screen model. It preserves incomplete UTF-8 and escape syntax across
-  arbitrary chunks, bounds unfinished sequences, documents borrowed pieces, and has
-  chunk-invariance fuzz coverage.
+- **One bounded streaming ANSI scanner.** `ansi.Scanner` is the shared framing state
+  machine wherever a terminal byte stream arrives in arbitrary chunks: styled-text
+  decoding and the pty screen model. It preserves incomplete UTF-8 and escape syntax
+  across chunk boundaries, bounds unfinished sequences, documents borrowed pieces, and
+  has chunk-invariance fuzz coverage. The input parser keeps its own framing, because
+  it consumes bytes against a reusable buffer and carries drop state that a chunk
+  visitor cannot express; what it shares is `ansi.Escape`, `Body` and `Final`, so the
+  two cannot disagree about where a sequence ends.
 - **Structural duplication is a failing lint rule.** CI now rejects independently
-  reintroduced copies of the FIFO, extent, coordinate, writer, identity, and ANSI
-  framing primitives this pass centralized.
+  reintroduced copies of the extent, coordinate, writer, identity and ANSI framing
+  primitives this pass centralized. It runs per module, so it catches a second copy
+  beside the first and not one in another module; the module boundary is still read
+  by people.
 - **The prior-art survey has a complete Chinese edition.** The README links the
   English and Chinese architecture, brand, and prior-art documents as parallel entry
   points.
@@ -56,9 +63,12 @@ architecture-independent `uint64` identity. There are no compatibility aliases.
   and text-edit metadata detach from larger caller buffers before they are retained.
   `Decoder.Open` and `headless.Snapshot` now state their borrowed/reference-bearing
   contracts precisely.
-- **Long-lived collections have one amortized storage model.** A private generic FIFO
-  backs dispatch, program tests, terminal frames, editor kills, and bounded history;
-  removal clears references and periodically sheds oversized backing arrays. Text
+- **Long-lived collections have one amortized storage model.** A generic FIFO private
+  to `core` backs dispatch, program tests and terminal frames; removal clears
+  references and periodically sheds oversized backing arrays. An editor's kills and a
+  prompt history keep their own small bounded slices, because `core/internal` is not
+  reachable from `components` and a sixteen-entry ring does not earn a boundary
+  crossing a module. Text
   decoding, markdown ingress, inline assembly, and markdown rendering grow
   iteratively instead of rebuilding per chunk or recursing with document depth.
 - **Stable identities are monotonic and architecture independent.** Transcript
