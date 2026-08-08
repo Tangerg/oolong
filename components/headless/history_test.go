@@ -100,7 +100,7 @@ func TestHistoryKeepsNothingNotWorthKeeping(t *testing.T) {
 
 func TestHistoryDropsTheOldest(t *testing.T) {
 	var h headless.History
-	h.Limit(3)
+	h.SetLimit(3)
 	for _, line := range []string{"a", "b", "c", "d", "e"} {
 		h.Add(line)
 	}
@@ -110,6 +110,28 @@ func TestHistoryDropsTheOldest(t *testing.T) {
 	if got, _ := h.At(3); got != "c" {
 		t.Errorf("the oldest kept entry is %q, want %q", got, "c")
 	}
+}
+
+func TestHistoryLimitHasOneValidatedConfigurationPath(t *testing.T) {
+	var h headless.History
+	if got := h.Limit(); got != headless.DefaultHistoryLimit {
+		t.Fatalf("zero history limit = %d, want %d", got, headless.DefaultHistoryLimit)
+	}
+	h.SetLimit(3)
+	if got := h.Limit(); got != 3 {
+		t.Fatalf("configured history limit = %d, want 3", got)
+	}
+	h.SetLimit(0)
+	if got := h.Limit(); got != headless.DefaultHistoryLimit {
+		t.Fatalf("restored history limit = %d, want %d", got, headless.DefaultHistoryLimit)
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("SetLimit accepted a negative limit")
+		}
+	}()
+	h.SetLimit(-1)
 }
 
 func TestHistoryAtOutOfRange(t *testing.T) {

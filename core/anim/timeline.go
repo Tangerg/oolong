@@ -1,5 +1,7 @@
 package anim
 
+import "slices"
+
 // Keyframe is a value a [Timeline] passes through, and when.
 type Keyframe struct {
 	// At is how many ticks into the timeline this value is reached.
@@ -20,10 +22,9 @@ type Keyframe struct {
 // The zero Timeline holds zero for ever, which is what a caller who never set any
 // frames should get.
 type Timeline struct {
-	// Frames are the values it passes through, in the order their ticks say. They are
-	// read as given: frames out of order are the caller's mistake and are left as
-	// such, because sorting them would hide it.
-	Frames []Keyframe
+	// frames are owned and strictly ordered so interpolation cannot observe a
+	// different sequence from the one Span and Done describe.
+	frames []Keyframe
 	// Ease shapes the movement between two frames. Nil is linear, which is what a
 	// sequence of steps usually wants — each step already says how long it takes, and
 	// easing every one of them separately reads as a stutter.
@@ -33,6 +34,38 @@ type Timeline struct {
 	Loop bool
 
 	tick uint64
+}
+
+// NewTimeline constructs a timeline from frames in strictly increasing tick order.
+func NewTimeline(frames ...Keyframe) *Timeline {
+	t := &Timeline{}
+	t.SetFrames(frames)
+	return t
+}
+
+// SetFrames replaces the sequence and resets the timeline to its beginning. The
+// frames are copied; the caller may reuse or change its input after the call. Ticks
+// must be strictly increasing. A duplicate or decreasing tick is a programmer error
+// and panics here rather than producing an unsigned interpolation span later.
+func (t *Timeline) SetFrames(frames []Keyframe) {
+	if t == nil {
+		return
+	}
+	for i := 1; i < len(frames); i++ {
+		if frames[i].At <= frames[i-1].At {
+			panic("anim: timeline frames are not strictly increasing")
+		}
+	}
+	t.frames = slices.Clone(frames)
+	t.tick = 0
+}
+
+// Frames returns a copy of the keyframes in tick order.
+func (t *Timeline) Frames() []Keyframe {
+	if t == nil {
+		return nil
+	}
+	return slices.Clone(t.frames)
 }
 
 // Tick advances the timeline by one step. It is safe to keep calling after the end,
@@ -63,10 +96,10 @@ func (t *Timeline) At() uint64 { return t.tick }
 
 // Span is how long the whole timeline is, which is when its last frame is reached.
 func (t *Timeline) Span() uint64 {
-	if len(t.Frames) == 0 {
+	if len(t.frames) == 0 {
 		return 0
 	}
-	return t.Frames[len(t.Frames)-1].At
+	return t.frames[len(t.frames)-1].At
 }
 
 // Done reports whether the last frame has been reached. A looping timeline is never
@@ -79,27 +112,24 @@ func (t *Timeline) Done() bool { return !t.Loop && t.tick >= t.Span() }
 // last one's — a timeline holds its ends rather than running off them, so a caller
 // that draws one tick late draws the end state instead of nothing.
 func (t *Timeline) Value() float64 {
-	if len(t.Frames) == 0 {
+	if len(t.frames) == 0 {
 		return 0
 	}
-	first := t.Frames[0]
+	first := t.frames[0]
 	if t.tick <= first.At {
 		return first.Value
 	}
-	for i := 1; i < len(t.Frames); i++ {
-		to := t.Frames[i]
+	for i := 1; i < len(t.frames); i++ {
+		to := t.frames[i]
 		if t.tick > to.At {
 			continue
 		}
-		from := t.Frames[i-1]
+		from := t.frames[i-1]
 		span := to.At - from.At
-		if span == 0 {
-			return to.Value
-		}
 		at := float64(t.tick-from.At) / float64(span)
 		return from.Value + (to.Value-from.Value)*t.shape(at)
 	}
-	return t.Frames[len(t.Frames)-1].Value
+	return t.frames[len(t.frames)-1].Value
 }
 
 // shape is the easing, which is linear when none was given.

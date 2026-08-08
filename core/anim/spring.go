@@ -34,12 +34,12 @@ const (
 // The zero Spring is settled at zero and moves nothing. Given a target it uses the
 // defaults above, which arrive without overshooting.
 type Spring struct {
-	// Frequency is how fast it moves, in radians per tick: higher is stiffer. Zero
-	// uses the default.
+	// Frequency is how fast it moves, in radians per tick: higher is stiffer. A
+	// non-positive value uses the default.
 	Frequency float64
 	// Damping is how much it overshoots. One arrives and stops; below one it goes
 	// past and comes back, and the further below, the more it bounces; above one it
-	// creeps in slowly. Zero uses the default, which is one.
+	// creeps in slowly. A non-positive value uses the default, which is one.
 	Damping float64
 
 	target   float64

@@ -34,17 +34,29 @@ type History struct {
 	at int
 	// draft is what was being typed when the walk began.
 	draft string
-	// maxEntries bounds the list. Zero uses DefaultHistory.
-	maxEntries int
+	// limit bounds the list. Zero uses DefaultHistoryLimit.
+	limit int
 }
 
-// DefaultHistory is how many entries a history keeps when it is not told.
-const DefaultHistory = 1000
+// DefaultHistoryLimit is how many entries a history keeps when it is not told.
+const DefaultHistoryLimit = 1000
 
-// Limit sets how many entries to keep, dropping the oldest if there are already more.
-func (h *History) Limit(n int) {
-	h.maxEntries = max(n, 0)
+// SetLimit changes how many entries to keep, dropping the oldest if there are already
+// more. Zero restores [DefaultHistoryLimit]. A negative limit is a programmer error.
+func (h *History) SetLimit(n int) {
+	if n < 0 {
+		panic("headless: history limit cannot be negative")
+	}
+	h.limit = n
 	h.trim()
+}
+
+// Limit reports the effective entry limit.
+func (h *History) Limit() int {
+	if h.limit == 0 {
+		return DefaultHistoryLimit
+	}
+	return h.limit
 }
 
 // Add records a line, unless it is empty or the same as the newest entry.
@@ -65,10 +77,7 @@ func (h *History) Add(line string) {
 }
 
 func (h *History) trim() {
-	limit := h.maxEntries
-	if limit == 0 {
-		limit = DefaultHistory
-	}
+	limit := h.Limit()
 	if len(h.entries) > limit {
 		h.entries = slices.Clone(h.entries[len(h.entries)-limit:])
 	}

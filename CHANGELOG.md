@@ -73,6 +73,12 @@ point of tagging them low rather than not at all.
   definitions it measured, so later edits to the table configuration cannot pair old
   boxes with new titles, alignment, or sort furniture.
 
+- **Stateful value sequences own and validate their configuration.** `Timeline`
+  keyframes now enter through `NewTimeline` or `SetFrames`, are copied, and must be
+  strictly ordered; `Frames` returns a snapshot. History capacity now has the
+  conventional `SetLimit`/`Limit` pair, a clearly named `DefaultHistoryLimit`, and
+  rejects negative limits instead of silently treating them as defaults.
+
 - **Every host now shares one bounded geometry contract.** `program.ValidateSize`
   guards both opening geometry and later resize events before they reach a grid
   allocation; non-positive, overflowing, and excessive peer-controlled surfaces

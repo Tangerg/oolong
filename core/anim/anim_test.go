@@ -217,12 +217,12 @@ func TestASpringKeepsTheSpeedItHadWhenTheTargetMoves(t *testing.T) {
 }
 
 func TestATimelineHoldsItsEndsAndPassesThroughItsFrames(t *testing.T) {
-	line := anim.Timeline{Frames: []anim.Keyframe{
-		{At: 0, Value: 0},
-		{At: 4, Value: 1},
-		{At: 8, Value: 1},
-		{At: 12, Value: 0},
-	}}
+	line := anim.NewTimeline(
+		anim.Keyframe{At: 0, Value: 0},
+		anim.Keyframe{At: 4, Value: 1},
+		anim.Keyframe{At: 8, Value: 1},
+		anim.Keyframe{At: 12, Value: 0},
+	)
 	want := []float64{0, 0.25, 0.5, 0.75, 1, 1, 1, 1, 1, 0.75, 0.5, 0.25, 0}
 	for i, w := range want {
 		if got := line.Value(); got != w {
@@ -239,7 +239,8 @@ func TestATimelineHoldsItsEndsAndPassesThroughItsFrames(t *testing.T) {
 }
 
 func TestALoopingTimelineIsNeverDone(t *testing.T) {
-	line := anim.Timeline{Loop: true, Frames: []anim.Keyframe{{At: 0, Value: 0}, {At: 2, Value: 1}}}
+	line := anim.NewTimeline(anim.Keyframe{At: 0, Value: 0}, anim.Keyframe{At: 2, Value: 1})
+	line.Loop = true
 	seen := make([]float64, 0, 8)
 	for range 8 {
 		seen = append(seen, line.Value())
@@ -256,12 +257,50 @@ func TestALoopingTimelineIsNeverDone(t *testing.T) {
 }
 
 func TestALoopingTimelineMaySpanEveryUint64Tick(t *testing.T) {
-	line := anim.Timeline{Loop: true, Frames: []anim.Keyframe{
-		{At: 0, Value: 0},
-		{At: ^uint64(0), Value: 1},
-	}}
+	line := anim.NewTimeline(
+		anim.Keyframe{At: 0, Value: 0},
+		anim.Keyframe{At: ^uint64(0), Value: 1},
+	)
+	line.Loop = true
 	line.Tick()
 	if got := line.At(); got != 1 {
 		t.Fatalf("tick after the full-width span = %d, want 1", got)
+	}
+}
+
+func TestATimelineOwnsAndValidatesItsFrames(t *testing.T) {
+	frames := []anim.Keyframe{{At: 1, Value: 1}, {At: 2, Value: 2}}
+	line := anim.NewTimeline(frames...)
+	frames[0].Value = 99
+	if got := line.Frames()[0].Value; got != 1 {
+		t.Fatalf("input mutation changed the first value to %v", got)
+	}
+
+	snapshot := line.Frames()
+	snapshot[0].Value = 98
+	if got := line.Frames()[0].Value; got != 1 {
+		t.Fatalf("output mutation changed the first value to %v", got)
+	}
+
+	line.Tick()
+	line.SetFrames([]anim.Keyframe{{At: 3, Value: 3}})
+	if line.At() != 0 {
+		t.Fatalf("replacing frames left the timeline at tick %d", line.At())
+	}
+}
+
+func TestATimelineRejectsAmbiguousFrameOrder(t *testing.T) {
+	for _, frames := range [][]anim.Keyframe{
+		{{At: 2}, {At: 1}},
+		{{At: 1}, {At: 1}},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("NewTimeline accepted ticks %d then %d", frames[0].At, frames[1].At)
+				}
+			}()
+			anim.NewTimeline(frames...)
+		}()
 	}
 }
