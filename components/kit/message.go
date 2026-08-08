@@ -42,7 +42,7 @@ var (
 
 // Measure is how many rows the message needs at this width.
 func (m Message) Measure(width int) int {
-	return m.head() + len(m.body(width).rows(m.wrapWidth(width))) + m.trailing()
+	return m.head() + len(m.body().rows(m.wrapWidth(width))) + m.trailing()
 }
 
 // Draw paints the speaker, the body and the blank rows after it.
@@ -60,9 +60,10 @@ func (m Message) Draw(v grid.View) {
 		v.Text(0, 0, m.Speaker, style)
 		y = 1
 	}
-	body := m.body(width)
+	body := m.body()
 	_, height := v.Size()
-	body.Draw(v.Sub(grid.Rect(gutter, y, m.wrapWidth(width), max(height-y, 0))))
+	indent := m.indent()
+	body.Draw(v.Sub(grid.Rect(indent, y, m.wrapWidth(width), max(height-y, 0))))
 }
 
 // Rows returns the message without its visual gutter, with body offsets aligned to
@@ -73,8 +74,8 @@ func (m Message) Rows(width int) []text.Row {
 	if m.head() > 0 {
 		out = append(out, text.Row{Text: m.Speaker})
 	}
-	for _, row := range m.body(width).Rows(m.wrapWidth(width)) {
-		row.Offset += gutter
+	for _, row := range m.body().Rows(m.wrapWidth(width)) {
+		row.Offset += m.indent()
 		out = append(out, row)
 	}
 	for range m.trailing() {
@@ -101,8 +102,15 @@ func (m Message) trailing() int {
 	return 1
 }
 
-func (m Message) wrapWidth(width int) int { return max(width-gutter, 1) }
+func (m Message) indent() int {
+	if m.Speaker == "" {
+		return 0
+	}
+	return gutter
+}
 
-func (m Message) body(int) *Paragraph {
+func (m Message) wrapWidth(width int) int { return max(width-m.indent(), 1) }
+
+func (m Message) body() *Paragraph {
 	return NewParagraph(m.Body, m.Theme.Text)
 }

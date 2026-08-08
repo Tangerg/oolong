@@ -3,6 +3,7 @@ package kit_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
@@ -77,6 +78,21 @@ func TestADiffSaysWhereItLeftLinesOut(t *testing.T) {
 	joined := strings.Join(rows, "\n")
 	if !strings.Contains(joined, kit.Unicode().Ellipsis) {
 		t.Fatalf("drawn:\n%s\nwant a break saying lines were left out", joined)
+	}
+}
+
+func TestADiffIgnoresAZeroWidthGapGlyph(t *testing.T) {
+	hunks := append(changed("a", "b"), changed("c", "d")...)
+	drawn := make(chan struct{})
+	go func() {
+		defer close(drawn)
+		diff := kit.Diff{Hunks: hunks, Glyphs: kit.Glyphs{Ellipsis: "\u0301"}}
+		paint(8, diff.Measure(8), diff.Draw)
+	}()
+	select {
+	case <-drawn:
+	case <-time.After(time.Second):
+		t.Fatal("zero-width gap glyph made drawing stop advancing")
 	}
 }
 

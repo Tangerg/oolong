@@ -342,7 +342,10 @@ type activity struct {
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 	rate := kit.NewSlider(theme, glyphs, "rate", 1, 4)
 	rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
-	return &activity{theme: theme, glyphs: glyphs, of: of, rate: rate}
+	return &activity{
+		theme: theme, glyphs: glyphs, of: of, rate: rate,
+		spinner: kit.Spinner{Theme: theme, Glyphs: glyphs, Label: "watching"},
+	}
 }
 
 func (a *activity) tick() { a.spinner.Tick() }
@@ -374,8 +377,6 @@ func (a *activity) Draw(v headless.Frame) {
 		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[3].View)
 		return
 	}
-	a.spinner.Theme = a.theme
-	a.spinner.Label = "watching"
 	a.spinner.Draw(rows[3].View)
 }
 

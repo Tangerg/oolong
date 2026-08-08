@@ -55,6 +55,10 @@ point of tagging them low rather than not at all.
   command history detaches retained strings, editor line mutations use the standard
   slice operations that clear removed elements, and undo/redo stacks clear popped and
   evicted snapshots instead of retaining text behind spare capacity.
+- **Coverage-sensitive furniture has one source.** `Spinner`, `Status`, and
+  `Scrollbar` now consume `Glyphs` like every other kit component; the parallel
+  `Frames`, `Track`, `Thumb`, and `Braille` paths are removed. Scrollbar geometry also
+  uses the same overflow-safe proportional operation as layout and sliders.
 
 - **Proportional integer coordinates use one overflow-safe operation.**
   `layout.Scale` is now shared by layout allocation and slider value-to-track mapping;

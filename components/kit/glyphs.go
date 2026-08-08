@@ -75,7 +75,7 @@ func Unicode() Glyphs {
 		Expanded:  "▾",
 		Collapsed: "▸",
 		Ascending: "↑", Descending: "↓",
-		Spinner: []string{"·", "•", "●", "•"},
+		Spinner: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
 }
 

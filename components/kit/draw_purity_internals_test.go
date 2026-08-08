@@ -260,7 +260,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	transcriptCase.height = 3
 	cases = append(cases, transcriptCase)
 
-	spinner := &Spinner{Frames: []string{"a", "b"}, Label: "working", frame: 1}
+	spinner := &Spinner{Glyphs: Glyphs{Spinner: []string{"a", "b"}}, Label: "working", frame: 1}
 	cases = append(cases, drawPurityCase{
 		name: "*Spinner", width: 24, height: 1,
 		draw: func(view grid.View) { spinner.Draw(view) },
@@ -269,7 +269,7 @@ func kitDrawPurityCases() []drawPurityCase {
 				frame  int
 				label  string
 				frames []string
-			}{spinner.frame, spinner.Label, spinner.Frames}
+			}{spinner.frame, spinner.Label, spinner.Glyphs.Spinner}
 		},
 	})
 
@@ -309,7 +309,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		}{formController.Focused(), formValue, meaningOfEditor(formField.Editor()), formController.Error()}
 	}))
 
-	status := &Status{Doing: "working", Elapsed: "2s"}
+	status := &Status{Glyphs: ASCII(), Doing: "working", Elapsed: "2s"}
 	status.Tick()
 	cases = append(cases, drawPurityCase{
 		name: "*Status", width: 24, height: 1,
@@ -317,8 +317,8 @@ func kitDrawPurityCases() []drawPurityCase {
 		state: func() any {
 			return struct {
 				doing, elapsed string
-				frame          int
-			}{status.Doing, status.Elapsed, status.spinner.frame}
+				spinner        Spinner
+			}{status.Doing, status.Elapsed, status.spinner}
 		},
 	})
 

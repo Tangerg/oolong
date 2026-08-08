@@ -73,9 +73,10 @@ type runner struct {
 
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	theme := kit.Suited(runtime.Environment().Ground())
+	glyphs := kit.GlyphsFor(os.Getenv)
 	r := &runner{runtime: runtime, theme: theme, command: command}
 	r.out.Base = theme.Text
-	r.spinner = kit.Spinner{Theme: theme, Label: strings.Join(command, " ")}
+	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs, Label: strings.Join(command, " ")}
 	r.status = "starting"
 
 	// The window says what is happening to somebody looking at another window, which

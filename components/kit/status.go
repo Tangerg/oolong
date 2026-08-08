@@ -12,7 +12,8 @@ import (
 // what lets a test step it deterministically and what keeps an idle interface from
 // waking up to animate something nobody is waiting for.
 type Status struct {
-	Theme Theme
+	Theme  Theme
+	Glyphs Glyphs
 	// Doing is what is happening, in the present tense — "thinking", "reading
 	// main.go", "running tests".
 	Doing string
@@ -35,20 +36,22 @@ func (s *Status) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	s.spinner.Theme = s.Theme
-	s.spinner.Label = s.Doing
+	spinner := s.spinner
+	spinner.Theme = s.Theme
+	spinner.Glyphs = s.Glyphs
+	spinner.Label = s.Doing
 
 	if s.Elapsed == "" {
-		s.spinner.Draw(v)
+		spinner.Draw(v)
 		return
 	}
 	// The elapsed time is pinned to the right and the label gets what is left, so a
 	// long label is what gets truncated and the number stays readable.
 	elapsed := text.Width(s.Elapsed)
 	if elapsed+2 >= width {
-		s.spinner.Draw(v)
+		spinner.Draw(v)
 		return
 	}
-	s.spinner.Draw(v.Sub(grid.Rect(0, 0, width-elapsed-1, 1)))
+	spinner.Draw(v.Sub(grid.Rect(0, 0, width-elapsed-1, 1)))
 	v.Text(width-elapsed, 0, s.Elapsed, s.Theme.Subtle)
 }

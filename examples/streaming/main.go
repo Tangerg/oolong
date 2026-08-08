@@ -106,7 +106,7 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 		theme:   theme,
 		glyphs:  glyphs,
 		keys:    keys,
-		status:  kit.Status{Theme: theme, Doing: "ready"},
+		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
 	c.scroll.Wheel(runtime.Environment().Wheel())
 	c.view = kit.Transcript{

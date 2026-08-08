@@ -45,6 +45,15 @@ func TestAFieldPutsWhatWasTypedWhereTheCallerKeepsIt(t *testing.T) {
 	}
 }
 
+func TestBindRejectsANilPointerAtTheBoundary(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Bind accepted a nil pointer")
+		}
+	}()
+	headless.Bind((*string)(nil))
+}
+
 func TestAFieldStartsFromWhatTheCallerAlreadyHas(t *testing.T) {
 	// Which is what makes a form somebody is coming back to show what they said last
 	// time, rather than an empty one they have to fill in again.

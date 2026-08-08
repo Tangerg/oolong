@@ -123,7 +123,7 @@ func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 func TestStatusAdvancesOnlyWhenTold(t *testing.T) {
 	// It holds no clock, which is what lets a test step it and what keeps an idle
 	// interface from waking up to animate.
-	s := kit.Status{Doing: "thinking"}
+	s := kit.Status{Glyphs: kit.Glyphs{Spinner: []string{"a", "b"}}, Doing: "thinking"}
 	first := paint(20, 1, func(v grid.View) { s.Draw(v) })
 	again := paint(20, 1, func(v grid.View) { s.Draw(v) })
 	if first[0] != again[0] {
@@ -137,7 +137,7 @@ func TestStatusAdvancesOnlyWhenTold(t *testing.T) {
 }
 
 func TestStatusPinsTheElapsedTimeToTheRight(t *testing.T) {
-	s := kit.Status{Doing: "thinking", Elapsed: "4s"}
+	s := kit.Status{Glyphs: kit.ASCII(), Doing: "thinking", Elapsed: "4s"}
 	rows := paint(20, 1, func(v grid.View) { s.Draw(v) })
 	if !strings.HasSuffix(rows[0], "4s") {
 		t.Fatalf("row = %q, want the elapsed time at the right edge", rows[0])
@@ -149,7 +149,7 @@ func TestStatusPinsTheElapsedTimeToTheRight(t *testing.T) {
 
 func TestStatusDropsTheElapsedTimeWithNoRoomForIt(t *testing.T) {
 	// A number crushed against a truncated label is worse than no number.
-	s := kit.Status{Doing: "thinking", Elapsed: "4s"}
+	s := kit.Status{Glyphs: kit.ASCII(), Doing: "thinking", Elapsed: "4s"}
 	rows := paint(3, 1, func(v grid.View) { s.Draw(v) })
 	if strings.Contains(rows[0], "4s") {
 		t.Fatalf("row = %q, want the elapsed time dropped when it does not fit", rows[0])
@@ -171,6 +171,21 @@ func TestAMessageMeasuresWhatItThenDraws(t *testing.T) {
 	}
 	if last >= m.Measure(width) {
 		t.Fatalf("drew content on row %d, but measured only %d rows", last, m.Measure(width))
+	}
+}
+
+func TestAMessageWithoutASpeakerUsesTheWholeWidth(t *testing.T) {
+	message := kit.Message{Body: "12345"}
+	if got := message.Measure(5); got != 2 { // one body row and the trailing row
+		t.Fatalf("height = %d, want the body to fit one row without a speaker gutter", got)
+	}
+	rows := paint(5, 2, message.Draw)
+	if rows[0] != "12345" {
+		t.Fatalf("body row = %q, want it to begin in the first column", rows[0])
+	}
+	copyRows := message.Rows(5)
+	if len(copyRows) == 0 || copyRows[0].Offset != 0 {
+		t.Fatalf("copy rows = %+v, want no hidden gutter offset", copyRows)
 	}
 }
 

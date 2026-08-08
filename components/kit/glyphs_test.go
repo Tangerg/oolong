@@ -1,11 +1,13 @@
 package kit_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 func env(vars map[string]string) func(string) string {
@@ -65,33 +67,79 @@ func TestGlyphsWithNothingToAsk(t *testing.T) {
 // fallback is caught here rather than by somebody running in the C locale.
 func TestEveryGlyphHasAFallback(t *testing.T) {
 	ascii := kit.ASCII()
-	for name, got := range map[string]string{
-		"Horizontal": ascii.Horizontal, "Vertical": ascii.Vertical,
-		"TopLeft": ascii.TopLeft, "TopRight": ascii.TopRight,
-		"BottomLeft": ascii.BottomLeft, "BottomRight": ascii.BottomRight,
-		"RoundTopLeft": ascii.RoundTopLeft, "RoundTopRight": ascii.RoundTopRight,
-		"RoundBottomLeft": ascii.RoundBottomLeft, "RoundBottomRight": ascii.RoundBottomRight,
-		"Ellipsis": ascii.Ellipsis, "Bullet": ascii.Bullet, "Marker": ascii.Marker,
-		"ScrollTrack": ascii.ScrollTrack, "ScrollThumb": ascii.ScrollThumb,
+	value := reflect.ValueOf(ascii)
+	typeOf := value.Type()
+	for i := range value.NumField() {
+		name, field := typeOf.Field(i).Name, value.Field(i)
+		switch field.Kind() {
+		case reflect.String:
+			assertASCII(t, name, field.String())
+		case reflect.Slice:
+			// Partial-cell bar steps have no ASCII representation; an empty set is
+			// the deliberate whole-cell degradation documented on Glyphs.BarSteps.
+			if name == "BarSteps" {
+				continue
+			}
+			if field.Len() == 0 {
+				t.Errorf("%s has no fallback", name)
+			}
+			for at := range field.Len() {
+				assertASCII(t, name, field.Index(at).String())
+			}
+		default:
+			t.Fatalf("Glyphs.%s has unhandled kind %s", name, field.Kind())
+		}
+	}
+}
+
+func assertASCII(t *testing.T, name, value string) {
+	t.Helper()
+	if value == "" {
+		t.Errorf("%s has no fallback", name)
+	}
+	for _, r := range value {
+		if r > 0x7f {
+			t.Errorf("%s falls back to %q, which is not ASCII", name, value)
+		}
+	}
+}
+
+// TestBuiltInFurnitureHasStableCellGeometry locks the other half of the Glyphs
+// contract: components position these marks as furniture, so every built-in mark
+// except the deliberately wider ASCII ellipsis must occupy exactly one cell.
+func TestBuiltInFurnitureHasStableCellGeometry(t *testing.T) {
+	for name, glyphs := range map[string]kit.Glyphs{
+		"unicode": kit.Unicode(),
+		"ASCII":   kit.ASCII(),
 	} {
-		if got == "" {
-			t.Errorf("%s has no fallback", name)
-		}
-		for _, r := range got {
-			if r > 0x7f {
-				t.Errorf("%s falls back to %q, which is not ASCII", name, got)
+		t.Run(name, func(t *testing.T) {
+			value := reflect.ValueOf(glyphs)
+			typeOf := value.Type()
+			for i := range value.NumField() {
+				fieldName, field := typeOf.Field(i).Name, value.Field(i)
+				switch field.Kind() {
+				case reflect.String:
+					width := text.Width(field.String())
+					if fieldName == "Ellipsis" {
+						if width <= 0 {
+							t.Errorf("%s occupies %d cells, want at least one", fieldName, width)
+						}
+						continue
+					}
+					if width != 1 {
+						t.Errorf("%s occupies %d cells, want one", fieldName, width)
+					}
+				case reflect.Slice:
+					for at := range field.Len() {
+						if width := text.Width(field.Index(at).String()); width != 1 {
+							t.Errorf("%s[%d] occupies %d cells, want one", fieldName, at, width)
+						}
+					}
+				default:
+					t.Fatalf("Glyphs.%s has unhandled kind %s", fieldName, field.Kind())
+				}
 			}
-		}
-	}
-	if len(ascii.Spinner) == 0 {
-		t.Error("Spinner has no fallback")
-	}
-	for _, frame := range ascii.Spinner {
-		for _, r := range frame {
-			if r > 0x7f {
-				t.Errorf("the spinner falls back to %q, which is not ASCII", frame)
-			}
-		}
+		})
 	}
 }
 

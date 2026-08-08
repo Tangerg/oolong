@@ -382,7 +382,7 @@ func TestParagraphOwnsItsTextAndReturnsSnapshots(t *testing.T) {
 func TestSpinnerAdvancesOnlyWhenTold(t *testing.T) {
 	// It holds a frame number, not a clock: an idle UI must not wake up to animate
 	// something nobody is waiting for.
-	s := &kit.Spinner{Frames: []string{"a", "b"}, Label: "working"}
+	s := &kit.Spinner{Glyphs: kit.Glyphs{Spinner: []string{"a", "b"}}, Label: "working"}
 	first := paint(10, 1, func(v grid.View) { s.Draw(v) })
 	again := paint(10, 1, func(v grid.View) { s.Draw(v) })
 	equalRows(t, first, again)
@@ -397,16 +397,16 @@ func TestSpinnerAdvancesOnlyWhenTold(t *testing.T) {
 	}
 }
 
-func TestBrailleFramesAreIndependent(t *testing.T) {
-	first := kit.Braille()
-	first[0] = "changed"
-	if got := kit.Braille()[0]; got == "changed" {
-		t.Fatal("mutating one Braille result changed the package default")
+func TestBuiltInSpinnerFramesAreIndependent(t *testing.T) {
+	first := kit.Unicode()
+	first.Spinner[0] = "changed"
+	if got := kit.Unicode().Spinner[0]; got == "changed" {
+		t.Fatal("mutating one glyph set changed the built-in spinner")
 	}
 }
 
 func TestSpinnerDropsALabelThatDoesNotFit(t *testing.T) {
-	s := &kit.Spinner{Frames: []string{"a"}, Label: "far too long to fit"}
+	s := &kit.Spinner{Glyphs: kit.Glyphs{Spinner: []string{"a"}}, Label: "far too long to fit"}
 	rows := paint(3, 1, func(v grid.View) { s.Draw(v) })
 	if !strings.HasPrefix(rows[0], "a") {
 		t.Fatalf("row = %q, want the glyph", rows[0])
@@ -414,14 +414,15 @@ func TestSpinnerDropsALabelThatDoesNotFit(t *testing.T) {
 }
 
 func TestScrollbarThumbTracksThePosition(t *testing.T) {
+	glyphs := kit.Glyphs{ScrollTrack: "-", ScrollThumb: "#"}
 	top := paint(1, 4, func(v grid.View) {
-		kit.Scrollbar{Total: 40, Window: 4, Offset: 0, Track: "-", Thumb: "#"}.Draw(v)
+		kit.Scrollbar{Total: 40, Window: 4, Offset: 0, Glyphs: glyphs}.Draw(v)
 	})
 	if top[0] != "#" || top[3] != "-" {
 		t.Fatalf("at the top the bar is %v, want the thumb at the top", top)
 	}
 	bottom := paint(1, 4, func(v grid.View) {
-		kit.Scrollbar{Total: 40, Window: 4, Offset: 36, Track: "-", Thumb: "#"}.Draw(v)
+		kit.Scrollbar{Total: 40, Window: 4, Offset: 36, Glyphs: glyphs}.Draw(v)
 	})
 	if bottom[3] != "#" || bottom[0] != "-" {
 		t.Fatalf("at the end the bar is %v, want the thumb at the bottom", bottom)
@@ -431,10 +432,25 @@ func TestScrollbarThumbTracksThePosition(t *testing.T) {
 func TestScrollbarThumbNeverRoundsAway(t *testing.T) {
 	// A thumb rounded down to nothing tells the user nothing.
 	rows := paint(1, 4, func(v grid.View) {
-		kit.Scrollbar{Total: 10000, Window: 4, Offset: 5000, Track: "-", Thumb: "#"}.Draw(v)
+		kit.Scrollbar{Total: 10000, Window: 4, Offset: 5000, Glyphs: kit.ASCII()}.Draw(v)
 	})
 	if !strings.Contains(strings.Join(rows, ""), "#") {
 		t.Fatalf("bar = %v, want a thumb somewhere in it", rows)
+	}
+}
+
+func TestScrollbarUsesOverflowSafeClampedGeometry(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	rows := paint(1, 4, func(v grid.View) {
+		kit.Scrollbar{
+			Total: maxInt, Window: maxInt - 1, Offset: -maxInt, Glyphs: kit.ASCII(),
+		}.Draw(v)
+	})
+	if rows[0] != "#" {
+		t.Fatalf("negative offset put the thumb away from the top: %v", rows)
+	}
+	if got := strings.Count(strings.Join(rows, ""), "#"); got != 3 {
+		t.Fatalf("large proportional thumb occupies %d rows, want 3: %v", got, rows)
 	}
 }
 

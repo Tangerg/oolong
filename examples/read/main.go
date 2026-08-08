@@ -72,7 +72,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 		runtime: runtime,
 		theme:   theme,
 		pieces:  pieces(answer(), size),
-		spinner: kit.Spinner{Theme: theme, Label: "writing"},
+		spinner: kit.Spinner{Theme: theme, Glyphs: glyphs, Label: "writing"},
 	}
 	// A look is styles and the characters the furniture is drawn with, kept apart for
 	// the reason the kit keeps them apart: which grey a quotation is drawn in is

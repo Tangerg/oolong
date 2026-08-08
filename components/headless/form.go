@@ -24,11 +24,18 @@ type Accessor[T any] interface {
 	Set(v T)
 }
 
-// Bind is an accessor for a variable of the caller's own.
+// Bind is an accessor for a variable of the caller's own. A nil pointer is a
+// programmer error and panics at construction rather than later in an unrelated
+// control operation.
 //
 //	var name string
 //	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
-func Bind[T any](p *T) Accessor[T] { return bound[T]{p} }
+func Bind[T any](p *T) Accessor[T] {
+	if p == nil {
+		panic("headless: nil binding pointer")
+	}
+	return bound[T]{p}
+}
 
 type bound[T any] struct{ at *T }
 

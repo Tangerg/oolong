@@ -113,10 +113,11 @@ func (m margin) of(line diff.Line) string {
 // gap is the break between two hunks, which is what says lines were left out.
 func (d Diff) gap(v grid.View, y, w int) {
 	mark := d.Glyphs.Ellipsis
-	if mark == "" {
+	step := text.Width(mark)
+	if step <= 0 {
 		return
 	}
-	for x := 0; x < w; x += text.Width(mark) {
+	for x := 0; x < w; x += step {
 		v.Text(x, y, mark, d.Theme.Subtle)
 	}
 }
