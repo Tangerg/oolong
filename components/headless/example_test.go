@@ -32,24 +32,22 @@ func ExampleForm() {
 	)
 	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
-	form := &headless.Form{
-		Look: headless.Look{Taken: "x", Free: "-"},
-		Fields: []headless.Field{
-			&headless.Text{
-				Label: "Name",
-				Value: headless.Bind(&name),
-				Check: func(s string) error {
-					if s == "" {
-						return errors.New("a name is needed")
-					}
-					return nil
-				},
+	form := headless.NewForm(
+		&headless.Text{
+			Label: "Name",
+			Value: headless.Bind(&name),
+			Check: func(s string) error {
+				if s == "" {
+					return errors.New("a name is needed")
+				}
+				return nil
 			},
-			modelField,
-			&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
 		},
-		Done: func() { fmt.Println("collected:", name, model, sure) },
-	}
+		modelField,
+		&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
+	)
+	form.Look = headless.Look{Taken: "x", Free: "-"}
+	form.Done = func() { fmt.Println("collected:", name, model, sure) }
 
 	for _, r := range "ada" {
 		form.Handle(input.Key{Code: input.Character, Rune: r})

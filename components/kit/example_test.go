@@ -98,10 +98,10 @@ func ExampleForm() {
 	var name, model string
 	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
-	form := &headless.Form{Fields: []headless.Field{
+	form := headless.NewForm(
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
 		modelField,
-	}}
+	)
 	keys := headless.DefaultFormKeys()
 	view := kit.Form{
 		Of:     form,

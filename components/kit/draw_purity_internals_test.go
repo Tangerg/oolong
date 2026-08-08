@@ -297,7 +297,7 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	formValue := "answer"
 	formField := &headless.Text{Label: "field", Value: headless.Bind(&formValue)}
-	formController := &headless.Form{Fields: []headless.Field{formField}}
+	formController := headless.NewForm(formField)
 	formController.Focus(true)
 	form := &Form{Of: formController, Title: "form"}
 	cases = append(cases, widgetPurityCase("*Form", form, func() any {

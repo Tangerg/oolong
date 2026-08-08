@@ -111,9 +111,9 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	}
 
 	fields := []*retainedField{{}, {}, {}}
-	form := &Form{Fields: []Field{fields[0], fields[1], fields[2]}}
+	form := NewForm(fields[0], fields[1], fields[2])
 	form.Measure(10)
-	form.Fields = []Field{fields[0]}
+	form.Set(fields[0])
 	form.Measure(10)
 	for i, item := range form.body.items[:cap(form.body.items)] {
 		if i >= len(form.body.items) && item.Of != nil {
@@ -182,12 +182,15 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 	for i := range fields {
 		fields[i] = &retainedField{retainedWidget{payload: []byte{byte(i)}}}
 	}
-	form := Form{Fields: fields}
+	form := NewForm(fields...)
 	form.Measure(10)
-	form.Fields = fields[:1]
+	form.Set(fields[0])
 	form.Measure(10)
+	if cap(form.fields) > 2*len(form.fields)+16 {
+		t.Fatalf("form retains capacity %d for %d field", cap(form.fields), len(form.fields))
+	}
 	if cap(form.body.items) > 2*len(form.body.items)+16 {
-		t.Fatalf("form retains capacity %d for %d field", cap(form.body.items), len(form.body.items))
+		t.Fatalf("form container retains capacity %d for %d field", cap(form.body.items), len(form.body.items))
 	}
 
 	nodes := make([]Node[*retainedWidget], len(children))

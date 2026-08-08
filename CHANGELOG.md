@@ -57,6 +57,12 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- **Forms own their field collection and its focus transitions.** `NewForm`, `Set`,
+  `Add`, and `Fields` replace the mutable `Form.Fields` slice. Replacing the field at
+  a focused position now releases the old controller and transfers keyboard input to
+  the new one through `Container`'s single settlement path; drawing no longer rebuilds
+  children behind that owner's API.
+
 - **Every host now shares one bounded geometry contract.** `program.ValidateSize`
   guards both opening geometry and later resize events before they reach a grid
   allocation; non-positive, overflowing, and excessive peer-controlled surfaces
@@ -66,7 +72,9 @@ point of tagging them low rather than not at all.
 - **Program configuration has one side-effect-free validator.** `Config.Validate`
   owns the same Root/Inline contradictions enforced by `Run`, so a transport adapter
   can reject an impossible program before it acquires input or writes terminal
-  modes instead of copying runtime rules.
+  modes instead of copying runtime rules. `FrameInterval` names its duration by what
+  it is (rather than calling it a rate) and rejects a negative value instead of
+  silently interpreting an invalid duration as the default.
 
 - **Composed controls have one configuration path.** `kit.Composer` now projects
   its settings into the enclosed editor once per public entry point, and its private

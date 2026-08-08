@@ -43,9 +43,10 @@ import (
 	"github.com/Tangerg/oolong/core/term"
 )
 
-// DefaultFrameRate is the fastest a program redraws. A terminal cannot usefully show
-// more, and a stream of updates would otherwise ask for a frame each.
-const DefaultFrameRate = 16 * time.Millisecond
+// DefaultFrameInterval is the shortest time between program redraws. A terminal
+// cannot usefully show more, and a stream of updates would otherwise ask for a frame
+// each.
+const DefaultFrameInterval = 16 * time.Millisecond
 
 // ErrFrameTimeout means a frame writer did not account for its pending frames
 // before display ownership had to change. The program refuses the transition: a
@@ -162,6 +163,8 @@ type Host interface {
 // the cause. Drain returns nil only after every frame accepted before the call has
 // either been written or accounted for. [term.Writer] is the standard implementation.
 type FrameWriter interface {
+	// Queue takes ownership of frame. The caller does not read or change the slice
+	// after the call; an asynchronous implementation may retain it without copying.
 	Queue(frame []byte) uint64
 	Progress() <-chan struct{}
 	Written() uint64
@@ -210,8 +213,9 @@ type Config struct {
 	// and gives it back on the way out.
 	Host Host
 
-	// FrameRate caps how often the interface redraws. Zero uses [DefaultFrameRate].
-	FrameRate time.Duration
+	// FrameInterval is the shortest time between redraws. Zero uses
+	// [DefaultFrameInterval]; a negative duration is invalid.
+	FrameInterval time.Duration
 }
 
 // Validate reports contradictions in c without opening a terminal or invoking a
@@ -224,6 +228,9 @@ func (c Config) Validate() error {
 	}
 	if c.Inline != nil && c.Terminal.AltScreen {
 		return errors.New("program: an inline interface cannot take the alternate screen")
+	}
+	if c.FrameInterval < 0 {
+		return errors.New("program: frame interval cannot be negative")
 	}
 	return nil
 }
@@ -280,16 +287,16 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		return errors.New("program: host returned an input source with no event channel")
 	}
 	p := &program{
-		host:      hostServicesFor(host),
-		input:     source,
-		events:    events,
-		writer:    frames,
-		progress:  progress,
-		frameRate: cfg.FrameRate,
-		tasks:     newTaskQueue(),
+		host:          hostServicesFor(host),
+		input:         source,
+		events:        events,
+		writer:        frames,
+		progress:      progress,
+		frameInterval: cfg.FrameInterval,
+		tasks:         newTaskQueue(),
 	}
-	if p.frameRate <= 0 {
-		p.frameRate = DefaultFrameRate
+	if p.frameInterval == 0 {
+		p.frameInterval = DefaultFrameInterval
 	}
 	defer p.tasks.stop()
 	depth := cfg.Color
@@ -362,8 +369,8 @@ type program struct {
 	// different channel per call would split one watermark into unrelated streams.
 	progress <-chan struct{}
 
-	present   present.Presenter
-	frameRate time.Duration
+	present       present.Presenter
+	frameInterval time.Duration
 
 	// tasks is the concurrency-safe edge into this goroutine. It is a FIFO plus one
 	// wake-up rather than a bounded channel, so the owner can never deadlock behind
@@ -467,7 +474,7 @@ func (p *program) apply(task func()) {
 	if task != nil {
 		task()
 	}
-	p.present.RequestBy(time.Now(), p.frameRate)
+	p.present.RequestBy(time.Now(), p.frameInterval)
 }
 
 // handle deals with one terminal event.
@@ -490,7 +497,7 @@ func (p *program) handle(ev input.Event) error {
 		return nil
 	}
 	if p.root.Handle(ev) {
-		p.present.RequestBy(time.Now(), p.frameRate)
+		p.present.RequestBy(time.Now(), p.frameInterval)
 	}
 	return nil
 }

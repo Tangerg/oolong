@@ -1115,7 +1115,7 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 	)
 	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
-	form := &headless.Form{Fields: []headless.Field{
+	form := headless.NewForm(
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Check: func(s string) error {
 			if s == "" {
 				return errors.New("a name is needed")
@@ -1124,7 +1124,7 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 		}},
 		modelField,
 		&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
-	}}
+	)
 
 	var out strings.Builder
 	said := strings.NewReader("\nada\ngo\ny\n")

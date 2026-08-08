@@ -2,6 +2,7 @@ package headless
 
 import (
 	"image"
+	"slices"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -252,8 +253,10 @@ func (f *field) leaving(has bool) bool {
 //
 // The zero Form has no fields and answers nothing.
 type Form struct {
-	// Fields are what the form collects, in the order the keyboard walks them.
-	Fields []Field
+	// fields are what the form collects, in the order the keyboard walks them. They
+	// are private for the same reason Container's children are: replacing a focused
+	// field has to release the old owner before the new one can receive input.
+	fields []Field
 	// Keys say which keystrokes submit and abandon the form, and which walk between
 	// its fields. Nil reads through [DefaultFormKeys].
 	Keys *keymap.Map
@@ -277,6 +280,46 @@ type Form struct {
 	blurred bool
 }
 
+// NewForm constructs a form from fields in keyboard order.
+func NewForm(fields ...Field) *Form {
+	f := &Form{}
+	f.Set(fields...)
+	return f
+}
+
+// Set replaces the fields in keyboard order. The form copies the collection, releases
+// a focused field that was removed, and settles focus on its replacement. A field is
+// still caller-owned; only the ordered collection belongs to the form. A nil field is
+// a programmer error and panics here rather than in a later draw or submission.
+func (f *Form) Set(fields ...Field) {
+	if f == nil {
+		return
+	}
+	checkFields(fields)
+	f.fields = own(f.fields, fields)
+	f.rebuild()
+}
+
+// Add appends fields and returns the form, so a form can be built in one expression.
+func (f *Form) Add(fields ...Field) *Form {
+	if f == nil {
+		return nil
+	}
+	checkFields(fields)
+	f.fields = append(f.fields, fields...)
+	f.fields = trim(f.fields)
+	f.rebuild()
+	return f
+}
+
+// Fields returns a copy of the fields in keyboard order.
+func (f *Form) Fields() []Field {
+	if f == nil {
+		return nil
+	}
+	return slices.Clone(f.fields)
+}
+
 // Error is what checking the answers together last found.
 func (f *Form) Error() error { return f.problem }
 
@@ -296,7 +339,7 @@ func (f *Form) Submit() bool {
 	f.arrange()
 	f.problem = nil
 	ok := true
-	for _, field := range f.Fields {
+	for _, field := range f.fields {
 		if field.Validate() != nil {
 			ok = false
 		}
@@ -377,24 +420,36 @@ func (f *Form) Focus(has bool) {
 	f.body.Focus(has)
 }
 
-// arrange rebuilds the container from the fields and hands each of them the look.
-//
-// Every frame, because the fields can be replaced between two of them — a form that
-// asks a different question depending on the last answer is an ordinary form — and
-// because the look is a field of this one and may have been changed since.
+// arrange hands the current configuration and appearance to the already-settled
+// container. Collection changes go through Set or Add; Draw never acquires or
+// releases semantic ownership as a side effect.
 func (f *Form) arrange() {
 	f.body.Axis = layout.Down
 	f.body.Gap = f.Gap
 	f.body.Keys = f.keys()
-	clear(f.body.items)
-	f.body.items = f.body.items[:0]
-	for _, field := range f.Fields {
+	for _, field := range f.fields {
 		if takes, ok := field.(dressed); ok {
 			takes.dress(f.Look)
 		}
-		f.body.items = append(f.body.items, Item{Size: layout.Measured(1, 0), Of: field})
 	}
-	f.body.items = trim(f.body.items)
+}
+
+// rebuild is the only path from the form's field collection into its focus owner.
+// It is a semantic operation and deliberately never runs from Draw.
+func (f *Form) rebuild() {
+	items := make([]Item, len(f.fields))
+	for i, field := range f.fields {
+		items[i] = Item{Size: layout.Measured(1, 0), Of: field}
+	}
+	f.body.Set(items...)
+}
+
+func checkFields(fields []Field) {
+	for _, field := range fields {
+		if field == nil {
+			panic("headless: nil form field")
+		}
+	}
 }
 
 // keys is the map to read through, standing in the default for a caller who set none.

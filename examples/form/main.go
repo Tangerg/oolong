@@ -76,28 +76,27 @@ func ask(into *answers) *headless.Form {
 		Limit: 2,
 	}
 	tools.SetOptions(headless.Options("read", "write", "run"))
-	return &headless.Form{
-		Gap: 1,
-		Fields: []headless.Field{
-			&headless.Text{
-				Label:       "What is this session called?",
-				Placeholder: "a name",
-				Value:       headless.Bind(&into.name),
-				Check: func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return errors.New("a name is needed")
-					}
-					return nil
-				},
-			},
-			model,
-			tools,
-			&headless.Confirm{
-				Label: "Stream the answer?",
-				Value: headless.Bind(&into.stream),
+	form := headless.NewForm(
+		&headless.Text{
+			Label:       "What is this session called?",
+			Placeholder: "a name",
+			Value:       headless.Bind(&into.name),
+			Check: func(s string) error {
+				if strings.TrimSpace(s) == "" {
+					return errors.New("a name is needed")
+				}
+				return nil
 			},
 		},
-	}
+		model,
+		tools,
+		&headless.Confirm{
+			Label: "Stream the answer?",
+			Value: headless.Bind(&into.stream),
+		},
+	)
+	form.Gap = 1
+	return form
 }
 
 // askInWords is the whole of the other path: the conversation, over whatever the

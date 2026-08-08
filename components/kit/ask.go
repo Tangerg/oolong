@@ -29,7 +29,7 @@ func Ask(form *headless.Form, in io.Reader, out io.Writer) error {
 		return nil
 	}
 	lines := bufio.NewScanner(in)
-	for _, field := range form.Fields {
+	for _, field := range form.Fields() {
 		spoken, ok := field.(spokenField)
 		if !ok {
 			return fmt.Errorf("kit: %q cannot be answered in words", field.Prompt())

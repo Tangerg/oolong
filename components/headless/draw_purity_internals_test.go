@@ -379,7 +379,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	formValue := "value"
 	formText := &Text{Label: "field", Value: Bind(&formValue)}
-	form := &Form{Fields: []Field{formText}}
+	form := NewForm(formText)
 	form.Focus(true)
 	cases = append(cases, widgetPurityCase("*Form", form, func() any {
 		return struct {

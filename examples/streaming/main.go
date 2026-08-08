@@ -143,12 +143,10 @@ func (c *chat) buildApproval() {
 		Label: "Send this prompt?", Value: headless.Bind(&c.approval), Yes: "send", No: "cancel",
 	}
 	formKeys := headless.DefaultFormKeys()
-	c.form = &headless.Form{
-		Fields: []headless.Field{c.confirm},
-		Keys:   formKeys,
-		Done:   c.settleApproval,
-		GaveUp: c.reject,
-	}
+	c.form = headless.NewForm(c.confirm)
+	c.form.Keys = formKeys
+	c.form.Done = c.settleApproval
+	c.form.GaveUp = c.reject
 	dressed := &kit.Form{
 		Of: c.form, Theme: c.theme, Glyphs: c.glyphs,
 		Keys: formKeys, Hints: []keymap.Action{headless.Submit, headless.Cancel},

@@ -18,10 +18,10 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 	var model string
 	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
-	form := &headless.Form{Fields: []headless.Field{
+	form := headless.NewForm(
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
 		modelField,
-	}}
+	)
 	keys := headless.DefaultFormKeys()
 	view := kit.Form{
 		Of:     form,
@@ -49,7 +49,7 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	theme := kit.Dark()
 	field := &headless.Text{Label: "Name", Check: func(string) error { return errors.New("required") }}
-	form := &headless.Form{Fields: []headless.Field{field}}
+	form := headless.NewForm(field)
 	view := kit.Form{Of: form, Theme: theme}
 	form.Submit()
 

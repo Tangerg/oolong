@@ -1575,6 +1575,20 @@ func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
 	}
 }
 
+func TestAFrameIntervalCannotBeNegative(t *testing.T) {
+	cfg := program.Config{
+		Root:          func(*program.Runtime) program.Component { return &component{} },
+		Host:          newHost(t),
+		FrameInterval: -time.Millisecond,
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("a negative frame interval passed validation")
+	}
+	if err := program.Run(t.Context(), cfg); err == nil {
+		t.Fatal("a negative frame interval was accepted")
+	}
+}
+
 func TestAnInlineInterfaceNeverNamesARowOfTheTerminal(t *testing.T) {
 	// The program's rows are wherever the session's output left them, and nothing here
 	// is allowed to assume otherwise.

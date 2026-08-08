@@ -34,6 +34,53 @@ func typeInto(f headless.Field, s string) {
 	}
 }
 
+type observedField struct {
+	focused bool
+	handled int
+}
+
+func (*observedField) Draw(headless.Frame)       {}
+func (*observedField) Measure(int) int           { return 1 }
+func (*observedField) Prompt() string            { return "" }
+func (*observedField) Validate() error           { return nil }
+func (*observedField) Error() error              { return nil }
+func (f *observedField) Focus(has bool)          { f.focused = has }
+func (f *observedField) Handle(input.Event) bool { f.handled++; return true }
+
+func TestReplacingFormFieldsTransfersKeyboardOwnership(t *testing.T) {
+	old, next := new(observedField), new(observedField)
+	fields := []headless.Field{old}
+	form := headless.NewForm(fields...)
+	fields[0] = next
+
+	if got := form.Fields()[0]; got != old {
+		t.Fatal("form retained the caller's field slice")
+	}
+	form.Set(next)
+	if old.focused || !next.focused {
+		t.Fatalf("focus after Set: old=%v next=%v", old.focused, next.focused)
+	}
+	form.Handle(input.FocusIn{})
+	if old.handled != 0 || next.handled != 1 {
+		t.Fatalf("event deliveries after Set: old=%d next=%d", old.handled, next.handled)
+	}
+
+	snapshot := form.Fields()
+	snapshot[0] = old
+	if got := form.Fields()[0]; got != next {
+		t.Fatal("Fields exposed the form's owned collection")
+	}
+}
+
+func TestFormRejectsANilFieldAtTheCollectionBoundary(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewForm accepted a nil field")
+		}
+	}()
+	headless.NewForm(nil)
+}
+
 func TestAFieldPutsWhatWasTypedWhereTheCallerKeepsIt(t *testing.T) {
 	// A field does not own what it collects. Somebody asked for a name because they
 	// have somewhere to put a name.
@@ -226,7 +273,8 @@ func TestAChoiceIsMarkedAsTaken(t *testing.T) {
 	var picked []string
 	field := multiWith(headless.Options("a", "b"))
 	field.Value = headless.Bind(&picked)
-	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form := headless.NewForm(field)
+	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(8, 4).View())
 	field.Do(headless.Toggle)
 
@@ -273,10 +321,8 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 	modelField := selectWith(headless.Options("fast", "good"))
 	modelField.Label, modelField.Value = "Model", headless.Bind(&model)
 	done := 0
-	form := &headless.Form{
-		Fields: []headless.Field{nameField, modelField},
-		Done:   func() { done++ },
-	}
+	form := headless.NewForm(nameField, modelField)
+	form.Done = func() { done++ }
 	headless.NewRoot(form).Draw(grid.NewSurface(20, 8).View())
 
 	// Nothing typed, so submitting says so rather than finishing.
@@ -314,7 +360,7 @@ func TestAFormChecksEveryAnswerAndNotJustTheFirstOneThatFails(t *testing.T) {
 	}
 	first := &headless.Text{Label: "One", Check: empty}
 	second := &headless.Text{Label: "Two", Check: empty}
-	form := &headless.Form{Fields: []headless.Field{first, second}}
+	form := headless.NewForm(first, second)
 	if form.Submit() {
 		t.Fatal("an empty form said it was complete")
 	}
@@ -326,10 +372,8 @@ func TestAFormChecksEveryAnswerAndNotJustTheFirstOneThatFails(t *testing.T) {
 func TestAFormChecksTheAnswersTogetherOnlyOnceEachIsGood(t *testing.T) {
 	clash := errors.New("those two cannot both be so")
 	one := &headless.Text{Label: "One"}
-	form := &headless.Form{
-		Fields: []headless.Field{one},
-		Check:  func() error { return clash },
-	}
+	form := headless.NewForm(one)
+	form.Check = func() error { return clash }
 	if form.Submit() {
 		t.Fatal("the form was submitted with a problem across its fields")
 	}
@@ -343,7 +387,8 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 		Label: "Name",
 		Check: func(string) error { return errors.New("required") },
 	}
-	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form := headless.NewForm(field)
+	form.Look = bare()
 	if before := field.Measure(20); before != 2 {
 		t.Fatalf("a field with no problem is %d rows, want the label and the answer", before)
 	}
@@ -362,10 +407,8 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 
 func TestAFormAbandonedSaysSo(t *testing.T) {
 	gone := 0
-	form := &headless.Form{
-		Fields: []headless.Field{&headless.Text{Label: "One"}},
-		GaveUp: func() { gone++ },
-	}
+	form := headless.NewForm(&headless.Text{Label: "One"})
+	form.GaveUp = func() { gone++ }
 	form.Handle(input.Key{Code: input.Esc})
 	if gone != 1 {
 		t.Fatalf("cancelled %d times", gone)
@@ -379,7 +422,8 @@ func TestAChoiceCanBePressed(t *testing.T) {
 	var picked string
 	field := selectWith(headless.Options("fast", "good", "cheap"))
 	field.Label, field.Value = "Model", headless.Bind(&picked)
-	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form := headless.NewForm(field)
+	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(12, 4).View())
 
 	form.Handle(input.Mouse{
@@ -401,7 +445,8 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 	var picked string
 	field := selectWith(headless.Options("fast", "good"))
 	field.Label, field.Value = "Model", headless.Bind(&picked)
-	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form := headless.NewForm(field)
+	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(12, 3).View())
 	field.Do(headless.SelectNext)
 
@@ -416,7 +461,8 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 func TestAConfirmCanBePressed(t *testing.T) {
 	var sure bool
 	field := &headless.Confirm{Label: "Delete it?", Value: headless.Bind(&sure), Yes: "yes", No: "no"}
-	form := &headless.Form{Fields: []headless.Field{field}, Look: bare()}
+	form := headless.NewForm(field)
+	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(20, 2).View())
 
 	press := func(x int) {
@@ -515,7 +561,7 @@ func TestEveryFieldChecksWhatItHolds(t *testing.T) {
 func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
 	first := &headless.Text{Label: "One"}
 	second := &headless.Text{Label: "Two"}
-	form := &headless.Form{Fields: []headless.Field{first, second}}
+	form := headless.NewForm(first, second)
 	headless.NewRoot(form).Draw(grid.NewSurface(20, 6).View())
 
 	form.Focus(false)
