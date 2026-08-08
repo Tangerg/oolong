@@ -18,6 +18,20 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-09
+
+Additive. Nothing exported changed shape, so an application on 0.4.0 compiles
+unchanged; what arrived is evidence for claims that were already written down, and one
+worked interface that exercises them together.
+
+The performance model had six product questions and mostly micro-benchmarks. It now
+has an executable observation per question, and the numbers argue the architecture
+rather than the speed: raising the ingress limit from 4 KiB to 64 KiB cuts owner
+batches from 257 to 24 at the same throughput, transferring a committed block costs the
+same at any session age, resize is linear in retained blocks and not in blocks ever
+seen, and a 256-fold larger open markdown tail costs fifteen times more with a constant
+allocation count.
+
 ### Added
 
 - Six named benchmark families now make the architecture's performance questions
