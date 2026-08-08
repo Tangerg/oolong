@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // Transcript draws a session's output: the window of it that fits, the header pinned
@@ -175,13 +176,13 @@ func (t *Transcript) mark(v grid.View, from int) {
 	if t.Selection != nil && t.Selection.Active() {
 		for y := range h {
 			for x := range w {
-				if t.Selection.Covers(from+y, x) {
+				if t.Selection.Covers(layout.Sum(from, y), x) {
 					restyle(v, x, y, t.Theme.Selection)
 				}
 			}
 		}
 	}
-	start, end := visibleMatches(t.Matches, from, from+h)
+	start, end := visibleMatches(t.Matches, from, layout.Sum(from, h))
 	for i := start; i < end; i++ {
 		m := t.Matches[i]
 		style := t.Theme.Selection
@@ -189,11 +190,13 @@ func (t *Transcript) mark(v grid.View, from int) {
 			style = t.Theme.Accent
 		}
 		for row, span := range m.Spans {
-			y := m.Row + row - from
+			y := layout.Sum(m.Row, row) - from
 			if y < 0 || y >= h {
 				continue
 			}
-			for x := span.Col; x < span.Col+span.Width && x < w; x++ {
+			start := max(span.Col, 0)
+			end := min(layout.Sum(start, span.Width), w)
+			for x := start; x < end; x++ {
 				restyle(v, x, y, style)
 			}
 		}
@@ -210,7 +213,7 @@ func visibleMatches(matches []headless.Match, from, to int) (start, end int) {
 	start = sort.Search(len(matches), func(i int) bool { return matches[i].Row >= from })
 	if start > 0 {
 		previous := matches[start-1]
-		if previous.Row+len(previous.Spans) > from {
+		if layout.Sum(previous.Row, len(previous.Spans)) > from {
 			start--
 		}
 	}

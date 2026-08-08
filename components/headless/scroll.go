@@ -4,6 +4,7 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 // Scroll shows a window onto something taller than the space available.
@@ -72,8 +73,7 @@ func (s *Scroll) AtBottom() bool { return s.following }
 // Reaching the end starts following again, which is what every log viewer does and
 // what a reader means by scrolling to the bottom.
 func (s *Scroll) By(rows int) {
-	s.offset += rows
-	s.clamp()
+	s.offset = scrollOffset(s.offset, rows, s.max())
 	s.following = s.offset >= s.max()
 }
 
@@ -96,8 +96,8 @@ func (s *Scroll) ToTop() {
 // stays at the new end; a reader above the new start lands on the first retained row.
 func (s *Scroll) Discard(rows int) {
 	rows = max(rows, 0)
-	s.total = max(s.total-rows, 0)
-	s.offset = max(s.offset-rows, 0)
+	s.total = layout.Remaining(s.total, rows)
+	s.offset = layout.Remaining(s.offset, rows)
 	if s.following {
 		s.offset = s.max()
 		return
@@ -134,8 +134,8 @@ func (s *Scroll) RevealRange(first, last int) {
 	switch {
 	case first < s.offset:
 		s.offset = first
-	case last >= s.offset+s.window:
-		s.offset = min(last-s.window+1, first)
+	case last >= layout.Sum(s.offset, s.window):
+		s.offset = min(layout.Remaining(last, s.window-1), first)
 	}
 	s.clamp()
 }
@@ -143,11 +143,11 @@ func (s *Scroll) RevealRange(first, last int) {
 // Pages scrolls whole windows, keeping one row of overlap so the reader has
 // something to recognise on the other side of the jump.
 func (s *Scroll) Pages(n int) {
-	s.By(n * max(s.window-1, 1))
+	s.By(scrollPages(n, max(s.window-1, 1)))
 }
 
 // max is the largest offset that still shows a full window.
-func (s *Scroll) max() int { return max(s.total-s.window, 0) }
+func (s *Scroll) max() int { return layout.Remaining(s.total, s.window) }
 
 func (s *Scroll) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
 
@@ -220,7 +220,7 @@ func (s *Scroll) Rows(v grid.View, total int, row func(v grid.View, index int)) 
 	s.Layout(total, height)
 	first := s.Offset()
 	for y := range height {
-		index := first + y
+		index := layout.Sum(first, y)
 		if index >= total {
 			return
 		}
@@ -277,8 +277,8 @@ func (l *ScrollLayout) RevealRange(first, last int) {
 	switch {
 	case first < l.state.offset:
 		l.state.offset = first
-	case last >= l.state.offset+l.state.window:
-		l.state.offset = min(last-l.state.window+1, first)
+	case last >= layout.Sum(l.state.offset, l.state.window):
+		l.state.offset = min(layout.Remaining(last, l.state.window-1), first)
 	}
 	l.state.clamp()
 	l.scroll.stageState(l.frame, l.state)
@@ -341,6 +341,36 @@ func (s *scrollState) layout(total, window int) {
 	s.clamp()
 }
 
-func (s *scrollState) max() int { return max(s.total-s.window, 0) }
+func (s *scrollState) max() int { return layout.Remaining(s.total, s.window) }
 
 func (s *scrollState) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
+
+// scrollOffset applies a signed movement inside [0, limit] without letting either
+// direction wrap before it is clamped.
+func scrollOffset(at, by, limit int) int {
+	limit = max(limit, 0)
+	at = min(max(at, 0), limit)
+	if by >= 0 {
+		return min(layout.Sum(at, by), limit)
+	}
+	if by <= -at {
+		return 0
+	}
+	return at + by
+}
+
+// scrollPages multiplies a signed page count by a positive page size, saturating
+// before multiplication. By then clamps the result to the actual scroll range.
+func scrollPages(pages, size int) int {
+	size = max(size, 1)
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	switch {
+	case pages > maxInt/size:
+		return maxInt
+	case pages < minInt/size:
+		return minInt
+	default:
+		return pages * size
+	}
+}

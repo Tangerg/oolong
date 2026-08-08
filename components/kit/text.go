@@ -237,8 +237,8 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 		if start >= end {
 			continue
 		}
-		from := p.Indent + text.ColumnOf(part, start)
-		to := p.Indent + text.ColumnOf(part, end)
+		from := layout.Sum(p.Indent, text.ColumnOf(part, start))
+		to := layout.Sum(p.Indent, text.ColumnOf(part, end))
 		if x >= from && x < to {
 			return destination, true
 		}

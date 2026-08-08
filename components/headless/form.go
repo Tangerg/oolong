@@ -105,9 +105,9 @@ func (l Look) mark(taken bool) (string, int) {
 		return "", 0
 	}
 	if taken {
-		return l.Taken, width + 1
+		return l.Taken, layout.Sum(width, 1)
 	}
-	return l.Free, width + 1
+	return l.Free, layout.Sum(width, 1)
 }
 
 // choice draws one option on a row: its mark, and its label in whatever is left.
@@ -132,7 +132,7 @@ func (l Look) choice(v grid.View, label string, under, taken bool) {
 		v.Text(x, 0, mark, marked)
 		x = width
 	}
-	v.Text(x, 0, text.Truncate(label, max(w-x, 0), "…"), style)
+	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), "…"), style)
 }
 
 // dressed is a field of this package's, which takes its look from the form it is in.

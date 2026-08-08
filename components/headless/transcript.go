@@ -4,6 +4,7 @@ import (
 	"image"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -79,7 +80,7 @@ func (t *Transcript) Height() int { return t.rows }
 func (t *Transcript) StartRow() int { return t.start }
 
 // EndRow is the exclusive end of the transcript's live row range.
-func (t *Transcript) EndRow() int { return t.start + t.rows }
+func (t *Transcript) EndRow() int { return layout.Sum(t.start, t.rows) }
 
 // FirstBlock is the ID of the first live block. When the transcript is empty it is
 // the ID the next appended block will receive.
@@ -97,7 +98,7 @@ func (t *Transcript) Append(b Block) BlockID {
 	}
 	height := t.measure(b)
 	t.blocks = append(t.blocks, placed{block: b, height: height, top: t.EndRow()})
-	t.rows += height
+	t.rows = layout.Sum(t.rows, height)
 	return id
 }
 
@@ -249,7 +250,7 @@ func (l TranscriptLayout) Height() int { return l.state.rows }
 func (l TranscriptLayout) StartRow() int { return l.state.start }
 
 // EndRow is the exclusive end of this layout's live rows.
-func (l TranscriptLayout) EndRow() int { return l.state.start + l.state.rows }
+func (l TranscriptLayout) EndRow() int { return layout.Sum(l.state.start, l.state.rows) }
 
 // FirstBlock is the identity of the first live block.
 func (l TranscriptLayout) FirstBlock() BlockID { return l.state.first }
@@ -286,7 +287,7 @@ func (l TranscriptLayout) Draw(v grid.View, from int) {
 			continue
 		}
 		y := block.top - from
-		block.block.Draw(v.Sub(image.Rect(0, y, w, y+block.height)))
+		block.block.Draw(v.Sub(grid.Rect(0, y, w, block.height)))
 	}
 }
 
@@ -309,7 +310,7 @@ func (l TranscriptLayout) visible(from, rows int) (first, last int) {
 		return len(l.state.blocks), len(l.state.blocks)
 	}
 	first = l.index(from)
-	end := from + rows
+	end := layout.Sum(from, rows)
 	last = first
 	for last < len(l.state.blocks) && l.state.blocks[last].top < end {
 		last++
@@ -335,14 +336,14 @@ func (t *Transcript) remeasure(from int) {
 	top := t.start
 	if from > 0 {
 		prev := t.blocks[from-1]
-		top = prev.top + prev.height
+		top = layout.Sum(prev.top, prev.height)
 	}
 	for i := from; i < len(t.blocks); i++ {
 		t.blocks[i].height = t.measure(t.blocks[i].block)
 		t.blocks[i].top = top
-		top += t.blocks[i].height
+		top = layout.Sum(top, t.blocks[i].height)
 	}
-	t.rows = top - t.start
+	t.rows = layout.Remaining(top, t.start)
 }
 
 // measure is a block's height at the current width, never negative.
@@ -433,7 +434,7 @@ func (t *Transcript) visible(from, rows int) (first, last int) {
 		return len(t.blocks), len(t.blocks)
 	}
 	first = t.index(from)
-	end := from + rows
+	end := layout.Sum(from, rows)
 	last = first
 	for last < len(t.blocks) && t.blocks[last].top < end {
 		last++
@@ -579,7 +580,7 @@ func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 			break
 		}
 		gone++
-		rows += b.height
+		rows = layout.Sum(rows, b.height)
 	}
 	if gone == 0 {
 		return 0
@@ -587,8 +588,8 @@ func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 
 	t.release(gone)
 	t.first += BlockID(gone)
-	t.start += rows
-	t.rows -= rows
+	t.start = layout.Sum(t.start, rows)
+	t.rows = layout.Remaining(t.rows, rows)
 	return gone
 }
 

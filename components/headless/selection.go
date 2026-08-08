@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -162,10 +163,14 @@ func (s *Selection) Text(t *Transcript) string {
 		}
 		from, to := 0, len(row.Text)
 		if i == 0 {
-			from = clusterAtOrAfter(row.Text, max(start.Col-row.Offset, 0))
+			from = clusterAtOrAfter(row.Text, layout.Remaining(start.Col, row.Offset))
 		}
 		if i == len(rows)-1 {
-			to = text.OffsetAt(row.Text, max(end.Col-row.Offset+1, 0))
+			endExclusive := 0
+			if end.Col >= 0 {
+				endExclusive = layout.Sum(end.Col, 1)
+			}
+			to = text.OffsetAt(row.Text, layout.Remaining(endExclusive, row.Offset))
 		}
 		if from < to {
 			b.WriteString(strings.TrimRight(row.Text[from:to], " "))

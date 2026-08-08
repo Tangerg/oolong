@@ -80,6 +80,23 @@ func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 	}
 }
 
+func TestTranscriptRowCoordinatesCannotWrap(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	var tr headless.Transcript
+	tr.Resize(40)
+	id := tr.Append(&plain{lines: maxInt})
+
+	if got := tr.Height(); got != maxInt {
+		t.Fatalf("height = %d, want %d", got, maxInt)
+	}
+	if got := tr.EndRow(); got != maxInt {
+		t.Fatalf("end row = %d, want %d", got, maxInt)
+	}
+	if top, height, ok := tr.Extent(id); !ok || top != 0 || height != maxInt {
+		t.Fatalf("extent = (%d, %d, %v), want (0, %d, true)", top, height, ok, maxInt)
+	}
+}
+
 func TestTranscriptFindsTheBlockAtARow(t *testing.T) {
 	var tr headless.Transcript
 	tr.Resize(40)

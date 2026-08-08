@@ -1044,6 +1044,31 @@ func TestScrollClampsToTheContent(t *testing.T) {
 	}
 }
 
+func TestScrollMovementCannotWrapPastItsBounds(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+
+	var s headless.Scroll
+	s.Layout(maxInt, 2)
+	s.By(maxInt)
+	if got := s.Offset(); got != maxInt-2 || !s.AtBottom() {
+		t.Fatalf("largest forward movement stopped at %d (following %v), want %d", got, s.AtBottom(), maxInt-2)
+	}
+	s.By(minInt)
+	if got := s.Offset(); got != 0 || s.AtBottom() {
+		t.Fatalf("largest backward movement stopped at %d (following %v), want the start", got, s.AtBottom())
+	}
+
+	s.Pages(maxInt)
+	if got := s.Offset(); got != maxInt-2 || !s.AtBottom() {
+		t.Fatalf("largest forward page movement stopped at %d (following %v), want %d", got, s.AtBottom(), maxInt-2)
+	}
+	s.Pages(minInt)
+	if got := s.Offset(); got != 0 || s.AtBottom() {
+		t.Fatalf("largest backward page movement stopped at %d (following %v), want the start", got, s.AtBottom())
+	}
+}
+
 func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
 	var s headless.Scroll
 	s.Layout(3, 10)
