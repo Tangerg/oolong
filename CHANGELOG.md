@@ -18,6 +18,20 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-08
+
+Ownership, everywhere it was still implicit: of a gesture handed through a boundary,
+of the storage behind a value that outlived the chunk it came from, of a failure that
+used to arrive as a boolean. Exported mutable fields became accessors because a
+collection a caller can write to is one whose storage nobody can release, which is
+what made the retention work possible rather than merely tidy.
+
+Breaking. `Editor.HandleMouse`, `Doc.Blocks`, `Stream.Look`, `Paragraph.Lines`,
+`kit.Dots` and the exported slice fields on lists, filters, containers, sticky headers
+and choices are replaced by methods; `Drain` and `Present` return errors instead of
+booleans. There are no deprecated aliases: see the
+[breaking-change policy](docs/architecture.md#13-breaking-change-and-release-policy).
+
 ### Changed
 
 - **One boundary owns a gesture handed to a child, and it lives with the behaviour.**
