@@ -10,10 +10,8 @@ import (
 // Form dresses a [headless.Form]: a title, the fields, and a row of hints under them.
 //
 // The fields draw themselves, because a field is generic over what it holds and nothing
-// here could name every kind of one — see [headless.Look]. So this is where the look
-// goes in rather than where the drawing happens, and it is one assignment: a theme
-// becomes the handful of roles a field has, and a glyph set becomes the marks beside a
-// choice.
+// here could name every kind of one — see [headless.Look]. So this projects the theme
+// as the handful of roles a field has, without changing the controller's own look.
 type Form struct {
 	// Of is the form being collected. It is spelled the way a slot names what goes in
 	// it — see [github.com/Tangerg/oolong/core/layout.Slot] — because that is what
@@ -47,8 +45,6 @@ func (f *Form) Draw(v headless.Frame) {
 	if f.Of == nil {
 		return
 	}
-	f.Of.Look = f.Theme.Look(f.Glyphs)
-
 	rects := layout.Down.Rects(v.Bounds().Size(),
 		layout.Slot{Size: layout.Fixed(f.titleRows())},
 		layout.Slot{Size: layout.Flex(1)},
@@ -59,7 +55,7 @@ func (f *Form) Draw(v headless.Frame) {
 	if f.titleRows() > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0].View)
 	}
-	f.Of.Draw(bands[1])
+	f.Of.DrawWith(bands[1], f.Theme.Look(f.Glyphs))
 	if f.hintRows() > 0 {
 		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2].View)
 	}

@@ -46,6 +46,20 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 	}
 }
 
+func TestAFormAppearanceDoesNotReplaceTheControllersLook(t *testing.T) {
+	field := new(headless.Select[string])
+	field.SetOptions(headless.Options("one", "two"))
+	form := headless.NewForm(field)
+	form.Look = headless.Look{Taken: "C", Free: "-"}
+	view := kit.Form{Of: form, Theme: kit.Dark(), Glyphs: kit.Unicode()}
+
+	_ = paintWidget(12, view.Measure(12), &view)
+	rows := paintWidget(12, field.Measure(12), field)
+	if len(rows) == 0 || !strings.HasPrefix(rows[0], "C") {
+		t.Fatalf("field after appearance draw = %q, want the controller's C mark", rows)
+	}
+}
+
 func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	theme := kit.Dark()
 	field := &headless.Text{Label: "Name", Check: func(string) error { return errors.New("required") }}

@@ -373,9 +373,21 @@ func (f *Form) Measure(across int) int {
 	return f.body.Measure(across)
 }
 
-// Draw dresses the fields and lays them out down the region.
+// Draw dresses the fields with Look and lays them out down the region.
 func (f *Form) Draw(v Frame) {
+	f.DrawWith(v, f.Look)
+}
+
+// DrawWith draws the form with look for this projection only.
+//
+// An appearance wrapper uses this instead of changing [Form.Look] before drawing.
+// The fields are restored to the form's own look before DrawWith returns, so two
+// appearances can project the same controller without the last one silently
+// becoming its configuration.
+func (f *Form) DrawWith(v Frame, look Look) {
 	f.arrange()
+	f.dress(look)
+	defer func() { f.dress(f.Look) }()
 	f.body.Draw(v)
 }
 
@@ -420,16 +432,21 @@ func (f *Form) Focus(has bool) {
 	f.body.Focus(has)
 }
 
-// arrange hands the current configuration and appearance to the already-settled
-// container. Collection changes go through Set or Add; Draw never acquires or
-// releases semantic ownership as a side effect.
+// arrange hands current behavior configuration to the already-settled container.
+// Collection changes go through Set or Add; Draw never acquires or releases
+// semantic ownership as a side effect.
 func (f *Form) arrange() {
 	f.body.Axis = layout.Down
 	f.body.Gap = f.Gap
 	f.body.Keys = f.keys()
+}
+
+// dress hands a projection's appearance to the built-in fields. An external field
+// owns its own drawing and is deliberately left alone.
+func (f *Form) dress(look Look) {
 	for _, field := range f.fields {
 		if takes, ok := field.(dressed); ok {
-			takes.dress(f.Look)
+			takes.dress(look)
 		}
 	}
 }
