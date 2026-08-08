@@ -273,6 +273,24 @@ func TestSelectionCopiesNothingWhenThereIsNothingToCopy(t *testing.T) {
 	}
 }
 
+func TestSelectionClipsACommittedStartWithoutReusingItsColumn(t *testing.T) {
+	var tr headless.Transcript
+	tr.Resize(80)
+	old := tr.Append(&lines{rows: plainRows("old")})
+	tr.Append(&lines{rows: plainRows("live")})
+	tr.Finish(old)
+	if committed := tr.Commit(func(headless.Block, int) bool { return true }); committed != 1 {
+		t.Fatalf("committed %d blocks, want one", committed)
+	}
+
+	var selection headless.Selection
+	selection.Begin(headless.Point{Row: 0, Col: 2})
+	selection.Extend(headless.Point{Row: 1, Col: 3})
+	if got := selection.Text(&tr); got != "live" {
+		t.Fatalf("clipped selection = %q, want the complete surviving prefix row", got)
+	}
+}
+
 func TestSelectionTrimsThePaddingARowWasDrawnWith(t *testing.T) {
 	tr := transcriptOf(plainRows("short      ", "also short   ")...)
 
@@ -312,6 +330,19 @@ func TestClicksBreakWhenThePointerMoves(t *testing.T) {
 	c.Press(input.Mouse{Pos: image.Pt(10, 4), At: base})
 	if got := c.Press(input.Mouse{Pos: image.Pt(30, 4), At: base.Add(50 * time.Millisecond)}); got != 1 {
 		t.Errorf("a press elsewhere is %d, want 1", got)
+	}
+}
+
+func TestClicksCannotWrapDistantCoordinatesTogether(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	var clicks headless.Clicks
+	base := time.Unix(0, 0)
+	clicks.Press(input.Mouse{Pos: image.Pt(maxInt, maxInt), At: base})
+	if got := clicks.Press(input.Mouse{
+		Pos: image.Pt(minInt, minInt), At: base.Add(time.Millisecond),
+	}); got != 1 {
+		t.Fatalf("opposite coordinate extremes formed click run %d, want a new run", got)
 	}
 }
 

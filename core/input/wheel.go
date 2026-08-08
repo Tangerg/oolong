@@ -234,16 +234,17 @@ func (a *Advance) At(when time.Time, reports int) int { return a.at(when, report
 func (a *Advance) at(when time.Time, reports int) int {
 	distance := a.wheel.Distance()
 	if !when.IsZero() {
-		if a.last.IsZero() || when.Sub(a.last) > gestureGap {
+		gap := when.Sub(a.last)
+		if a.last.IsZero() || gap < 0 || gap > gestureGap {
 			a.began, a.reports, a.finger = when, 0, false
 		}
 		a.last = when
-		a.reports += abs(reports)
+		a.reports = addReportCount(a.reports, reports)
 		// A gesture is a finger once it has sent more reports, faster, than a hand
 		// could turn a wheel. It stays one until the gesture ends, because a finger
 		// slowing to a stop is still a finger.
 		if !a.finger && a.wheel.Reports <= 1 && a.reports > fingerReports {
-			if elapsed := when.Sub(a.began); elapsed <= time.Duration(a.reports)*fingerInterval {
+			if elapsed := when.Sub(a.began); withinReportRate(elapsed, a.reports) {
 				a.finger = true
 			}
 		}
@@ -254,8 +255,8 @@ func (a *Advance) at(when time.Time, reports int) int {
 	a.carried += float64(reports) * distance
 	// Truncated towards zero, so a direction change never crosses the boundary and
 	// spends a row it did not earn.
-	rows := int(a.carried)
-	a.carried -= float64(rows)
+	rows, remainder := wholeRows(a.carried)
+	a.carried = remainder
 	return rows
 }
 
@@ -266,9 +267,48 @@ func (a *Advance) Reset() {
 	a.last, a.began, a.reports, a.finger = time.Time{}, time.Time{}, 0, false
 }
 
-func abs(n int) int {
-	if n < 0 {
-		return -n
+const (
+	maxInt = int(^uint(0) >> 1)
+	minInt = -maxInt - 1
+)
+
+// addReportCount records magnitude rather than direction and saturates because the
+// count is evidence for classifying one gesture, not a quantity worth wrapping.
+func addReportCount(total, reports int) int {
+	magnitude := reports
+	if reports < 0 {
+		if reports == minInt {
+			magnitude = maxInt
+		} else {
+			magnitude = -reports
+		}
 	}
-	return n
+	if magnitude > maxInt-total {
+		return maxInt
+	}
+	return total + magnitude
+}
+
+// withinReportRate compares elapsed <= reports*interval without overflowing the
+// duration multiplication at an extreme public input.
+func withinReportRate(elapsed time.Duration, reports int) bool {
+	if elapsed < 0 || reports <= 0 {
+		return false
+	}
+	whole := elapsed / fingerInterval
+	allowed := time.Duration(reports)
+	return whole < allowed || whole == allowed && elapsed%fingerInterval == 0
+}
+
+// wholeRows turns the floating remainder into an int without letting a very large
+// public report count reverse direction at the conversion boundary.
+func wholeRows(distance float64) (int, float64) {
+	if distance >= float64(maxInt) {
+		return maxInt, 0
+	}
+	if distance <= float64(minInt) {
+		return minInt, 0
+	}
+	rows := int(distance)
+	return rows, distance - float64(rows)
 }

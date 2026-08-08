@@ -151,7 +151,12 @@ func (s *Selection) Text(t *Transcript) string {
 		return ""
 	}
 	start, end := s.Range()
-	rows := t.Rows(start.Row, end.Row-start.Row+1)
+	firstRow := max(start.Row, t.StartRow())
+	lastRow := min(end.Row, layout.Remaining(t.EndRow(), 1))
+	if firstRow > lastRow {
+		return ""
+	}
+	rows := t.Rows(firstRow, layout.Sum(layout.Remaining(lastRow, firstRow), 1))
 	if len(rows) == 0 {
 		return ""
 	}
@@ -162,10 +167,11 @@ func (s *Selection) Text(t *Transcript) string {
 			b.WriteString(row.Separator())
 		}
 		from, to := 0, len(row.Text)
-		if i == 0 {
+		rowAt := layout.Sum(firstRow, i)
+		if rowAt == start.Row {
 			from = clusterAtOrAfter(row.Text, layout.Remaining(start.Col, row.Offset))
 		}
-		if i == len(rows)-1 {
+		if rowAt == end.Row {
 			endExclusive := 0
 			if end.Col >= 0 {
 				endExclusive = layout.Sum(end.Col, 1)
@@ -245,7 +251,8 @@ func (c *Clicks) press(at image.Point, when time.Time) int {
 	if within <= 0 {
 		within = DefaultMultiClick
 	}
-	near := abs(at.X-c.at.X) <= multiClickSlack && abs(at.Y-c.at.Y) <= multiClickSlack
+	near := coordinatesNear(at.X, c.at.X, multiClickSlack) &&
+		coordinatesNear(at.Y, c.at.Y, multiClickSlack)
 	if c.count == 0 || !near || when.Sub(c.last) > within {
 		c.count = 1
 	} else {
@@ -259,11 +266,14 @@ func (c *Clicks) press(at image.Point, when time.Time) int {
 // makes the next press a first one.
 func (c *Clicks) Reset() { c.count = 0 }
 
-func abs(n int) int {
-	if n < 0 {
-		return -n
+func coordinatesNear(a, b, slack int) bool {
+	if slack < 0 {
+		return false
 	}
-	return n
+	if a < b {
+		a, b = b, a
+	}
+	return uint(a)-uint(b) <= uint(slack)
 }
 
 // SelectWord selects the word at a point, which is what a double-click means.
@@ -286,8 +296,8 @@ func (s *Selection) SelectWord(t *Transcript, p Point) bool {
 		return false
 	}
 	s.set(p.Row,
-		row.Offset+text.ColumnOf(row.Text, start),
-		row.Offset+text.ColumnOf(row.Text, end)-1,
+		layout.Sum(row.Offset, text.ColumnOf(row.Text, start)),
+		layout.Remaining(layout.Sum(row.Offset, text.ColumnOf(row.Text, end)), 1),
 	)
 	return true
 }
@@ -306,7 +316,7 @@ func (s *Selection) SelectLine(t *Transcript, p Point) bool {
 	if width == 0 {
 		return false
 	}
-	s.set(p.Row, row.Offset, row.Offset+width-1)
+	s.set(p.Row, max(row.Offset, 0), layout.Remaining(layout.Sum(row.Offset, width), 1))
 	return true
 }
 

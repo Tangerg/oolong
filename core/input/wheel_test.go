@@ -269,6 +269,30 @@ func TestAReportWithNoTimeIsTheWheel(t *testing.T) {
 	}
 }
 
+func TestExtremeReportCountsKeepTheirDirection(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	var advance input.Advance
+	if got := advance.By(maxInt); got != maxInt {
+		t.Fatalf("largest forward report count advanced %d rows, want %d", got, maxInt)
+	}
+	if got := advance.By(minInt); got != minInt {
+		t.Fatalf("largest backward report count advanced %d rows, want %d", got, minInt)
+	}
+}
+
+func TestAClockMovingBackwardsStartsANewWheelGesture(t *testing.T) {
+	var advance input.Advance
+	advance.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	base := time.Unix(10, 0)
+	advance.At(base, 1)
+	advance.At(base.Add(8*time.Millisecond), 1)
+
+	if got := advance.At(base.Add(-time.Second), 1); got != 3 {
+		t.Fatalf("out-of-order report advanced %d rows, want a fresh wheel notch of 3", got)
+	}
+}
+
 func TestTrackpadDistanceFallsBackToTheWheel(t *testing.T) {
 	// A terminal that says nothing about a finger is taken to treat it like the wheel,
 	// which is what nearly all of them do.
