@@ -327,18 +327,7 @@ func (r *renderer) code(n ast.Node, language string, in frame) {
 // because the width the text will be laid out in is not the width it was written in.
 // A hard break is a line break, because it was asked for.
 func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
-	lines := []text.Line{nil}
-	add := func(s string, st grid.Style, link string) {
-		if s == "" {
-			return
-		}
-		last := len(lines) - 1
-		if k := len(lines[last]); k > 0 && lines[last][k-1].Style == st && lines[last][k-1].Link == link {
-			lines[last][k-1].Text += s
-			return
-		}
-		lines[last] = append(lines[last], text.Span{Text: s, Style: st, Link: link})
-	}
+	var out inlineWriter
 
 	stack := make([]inlineAction, 0, 16)
 	pushInlineChildren(&stack, n, style, "")
@@ -347,22 +336,22 @@ func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 		action := stack[last]
 		stack = stack[:last]
 		if action.target {
-			r.target(add, action.destination, action.shown, action.style)
+			r.target(&out, action.destination, action.shown, action.style)
 			continue
 		}
 		switch node := action.node.(type) {
 		case *ast.Text:
-			add(string(node.Segment.Value(r.source)), action.style, action.link)
+			out.add(string(node.Segment.Value(r.source)), action.style, action.link)
 			switch {
 			case node.HardLineBreak():
-				lines = append(lines, nil)
+				out.breakLine()
 			case node.SoftLineBreak():
-				add(" ", action.style, action.link)
+				out.add(" ", action.style, action.link)
 			}
 		case *ast.String:
-			add(string(node.Value), action.style, action.link)
+			out.add(string(node.Value), action.style, action.link)
 		case *ast.CodeSpan:
-			add(r.plain(node), action.style.Merge(r.look.Code), action.link)
+			out.add(r.plain(node), action.style.Merge(r.look.Code), action.link)
 		case *ast.Emphasis:
 			if node.Level >= 2 {
 				pushInlineChildren(&stack, node, action.style.Merge(r.look.Strong), action.link)
@@ -381,23 +370,67 @@ func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 			pushInlineChildren(&stack, node, action.style.Merge(r.look.Link), target)
 		case *ast.AutoLink:
 			url := string(node.URL(r.source))
-			add(url, action.style.Merge(r.look.Link), url)
+			out.add(url, action.style.Merge(r.look.Link), url)
 		case *ast.Image:
 			// A picture is not something a row of cells can hold — see the graphics
 			// package for what a terminal will take — so what is left is what it was
 			// called and where it is.
 			target := string(node.Destination)
-			add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
-			r.target(add, target, "", action.style)
+			out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
+			r.target(&out, target, "", action.style)
 		case *east.TaskCheckBox:
-			add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
+			out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
 		case *ast.RawHTML:
 			// Dropped, like a block of it.
 		default:
 			pushInlineChildren(&stack, action.node, action.style, action.link)
 		}
 	}
-	return lines
+	return out.finish()
+}
+
+// inlineWriter is the mutable construction form of styled lines. Markdown parsers
+// are free to split one visual run into any number of adjacent AST nodes; owning a
+// Builder here keeps that parser detail from turning the rendering cost quadratic
+// or leaking extra spans into the public result.
+type inlineWriter struct {
+	lines []text.Line
+	line  text.Line
+	run   strings.Builder
+	style grid.Style
+	link  string
+	open  bool
+}
+
+func (w *inlineWriter) add(s string, style grid.Style, link string) {
+	if s == "" {
+		return
+	}
+	if !w.open || w.style != style || w.link != link {
+		w.flush()
+		w.style, w.link, w.open = style, link, true
+	}
+	w.run.WriteString(s)
+}
+
+func (w *inlineWriter) breakLine() {
+	w.flush()
+	w.lines = append(w.lines, w.line)
+	w.line = nil
+}
+
+func (w *inlineWriter) finish() []text.Line {
+	w.breakLine()
+	return w.lines
+}
+
+func (w *inlineWriter) flush() {
+	if !w.open {
+		return
+	}
+	w.line = append(w.line, text.Span{Text: w.run.String(), Style: w.style, Link: w.link})
+	w.run.Reset()
+	w.open = false
 }
 
 type inlineAction struct {
@@ -426,11 +459,11 @@ func pushInlineChildren(stack *[]inlineAction, n ast.Node, style grid.Style, lin
 //
 // It is left out either way when it says nothing the text did not: a bare URL as its
 // own link text is the commonest link there is.
-func (r *renderer) target(add func(string, grid.Style, string), destination, shown string, style grid.Style) {
+func (r *renderer) target(out *inlineWriter, destination, shown string, style grid.Style) {
 	if destination == "" || destination == shown || r.look.Target == (grid.Style{}) {
 		return
 	}
-	add(" ("+destination+")", style.Merge(r.look.Target), destination)
+	out.add(" ("+destination+")", style.Merge(r.look.Target), destination)
 }
 
 // box is what marks a task, and nothing when the look has no marks for one.

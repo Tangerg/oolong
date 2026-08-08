@@ -58,3 +58,28 @@ func TestInlineAndPlainWalkArbitraryASTDepthWithoutRecursion(t *testing.T) {
 		t.Fatalf("plain text = %q, want deep", got)
 	}
 }
+
+func TestInlineRenderingDoesNotAllocatePerAdjacentNode(t *testing.T) {
+	root := func(nodes int) ast.Node {
+		document := ast.NewDocument()
+		paragraph := ast.NewParagraph()
+		document.AppendChild(document, paragraph)
+		for range nodes {
+			paragraph.AppendChild(paragraph, ast.NewString([]byte("x")))
+		}
+		return document
+	}
+	allocations := func(document ast.Node) float64 {
+		return testing.AllocsPerRun(3, func() {
+			lines := (&renderer{}).inline(document, grid.Style{})
+			if len(lines) != 1 || len(lines[0]) != 1 {
+				panic("inline writer did not compact adjacent nodes")
+			}
+		})
+	}
+	small := allocations(root(1 << 10))
+	large := allocations(root(2 << 10))
+	if large > small+6 {
+		t.Fatalf("doubling adjacent nodes grew allocations from %.0f to %.0f", small, large)
+	}
+}
