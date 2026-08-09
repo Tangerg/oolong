@@ -76,8 +76,8 @@ type Tree[T any] struct {
 	// nodeIDs owns the stable node namespace. Zero is reserved for no node, which
 	// makes accidental empty identities impossible to retain as open state.
 	nodeIDs identitySequence
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got.
+	matcher keymap.Matcher
 }
 
 // NewTree constructs a tree from top-level nodes in display order.
@@ -213,14 +213,8 @@ func (t *Tree[T]) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := t.keys().Lookup(key, &t.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true // the start of a binding more than one chord long
-	}
-	return t.Do(action)
+	_, handled := t.matcher.Handle(t.keys(), key, t.Do)
+	return handled
 }
 
 // Do runs one of the tree's actions by name, reporting whether it was one this tree
@@ -285,7 +279,12 @@ func (t *Tree[T]) upToParent(at int) bool {
 
 // Focus takes the keyboard, or gives it up — see [List.Focus], which is where the
 // rows this is made of hold it.
-func (t *Tree[T]) Focus(has bool) { t.list.Focus(has) }
+func (t *Tree[T]) Focus(has bool) {
+	if !has {
+		t.matcher.Clear()
+	}
+	t.list.Focus(has)
+}
 
 // Focused reports whether this tree has the keyboard.
 func (t *Tree[T]) Focused() bool { return t.list.Focused() }

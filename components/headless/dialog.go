@@ -257,7 +257,7 @@ type DialogTrigger struct {
 	blurred      bool
 	pointer      Pointer
 	presentation Snapshot[image.Rectangle]
-	pending      keymap.Pending
+	matcher      keymap.Matcher
 }
 
 // Appearance returns the widget that paints the trigger.
@@ -323,11 +323,8 @@ func (t *DialogTrigger) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := t.keys().Lookup(key, &t.pending)
-	if !mine || action == "" {
-		return mine
-	}
-	return t.Do(action)
+	_, handled := t.matcher.Handle(t.keys(), key, t.Do)
+	return handled
 }
 
 // Do runs the activation action by name.
@@ -341,7 +338,13 @@ func (t *DialogTrigger) Do(action keymap.Action) bool {
 
 // Focus records semantic focus and passes it to the appearance.
 func (t *DialogTrigger) Focus(has bool) {
-	if t == nil || t.blurred == !has {
+	if t == nil {
+		return
+	}
+	if !has {
+		t.matcher.Clear()
+	}
+	if t.blurred == !has {
 		return
 	}
 	t.blurred = !has

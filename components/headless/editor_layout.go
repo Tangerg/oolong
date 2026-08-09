@@ -284,7 +284,12 @@ func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
 // is not two cursors: it is one, wherever the last of them happened to draw. This is
 // how the question is settled — see [Focusable], and note that a field nobody has
 // told anything believes it has the keyboard, which is what makes a lone field work.
-func (e *Editor) Focus(has bool) { e.blurred = !has }
+func (e *Editor) Focus(has bool) {
+	if !has {
+		e.matcher.Clear()
+	}
+	e.blurred = !has
+}
 
 // placeCursor asks for the terminal's cursor only when this field has the keyboard.
 func (e *Editor) placeCursor(v grid.View, x, y int) {

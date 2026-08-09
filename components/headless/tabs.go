@@ -47,7 +47,7 @@ type Tabs struct {
 	holderIndex int
 	settled     bool
 	blurred     bool
-	pending     keymap.Pending
+	matcher     keymap.Matcher
 }
 
 // NewTabs constructs an uncontrolled tabs controller with locally owned selection.
@@ -176,14 +176,8 @@ func (t *Tabs) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := t.keys().Lookup(key, &t.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true // the start of a binding more than one chord long
-	}
-	return t.Do(action)
+	_, handled := t.matcher.Handle(t.keys(), key, t.Do)
+	return handled
 }
 
 // Do offers an action to the selected pane before answering tab movement by name.
@@ -211,6 +205,9 @@ func (t *Tabs) Do(action keymap.Action) bool {
 func (t *Tabs) Focus(has bool) {
 	if t == nil {
 		return
+	}
+	if !has {
+		t.matcher.Clear()
 	}
 	blurred := !has
 	if t.blurred == blurred && t.settled {

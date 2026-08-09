@@ -15,13 +15,17 @@ func ExampleMap() {
 	keys.Bind("delete-word-back", input.Alt.With(input.Backspace))
 	keys.Bind("submit", input.Chord{Code: input.Enter})
 
-	var pending keymap.Pending
+	var matcher keymap.Matcher
 	for _, key := range []input.Key{
 		{Code: input.Character, Rune: 'w', Mods: input.Ctrl},
 		{Code: input.Enter},
 		{Code: input.Character, Rune: 'q'},
 	} {
-		action, mine := keys.Lookup(key, &pending)
+		var action keymap.Action
+		mine, _ := matcher.Handle(keys, key, func(next keymap.Action) bool {
+			action = next
+			return true
+		})
 		fmt.Printf("%-9s %-18s mine=%v\n", key, "\""+string(action)+"\"", mine)
 	}
 
@@ -53,10 +57,14 @@ func ExampleMap_sequences() {
 	keys := &keymap.Map{}
 	keys.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 
-	var pending keymap.Pending
+	var matcher keymap.Matcher
 	for range 2 {
-		action, mine := keys.Lookup(input.Key{Rune: 'g'}, &pending)
-		fmt.Printf("%q taken=%v waiting=%q\n", action, mine, pending.Keys().String())
+		var action keymap.Action
+		mine, _ := matcher.Handle(keys, input.Key{Rune: 'g'}, func(next keymap.Action) bool {
+			action = next
+			return true
+		})
+		fmt.Printf("%q taken=%v waiting=%q\n", action, mine, matcher.Keys().String())
 	}
 
 	// Output:

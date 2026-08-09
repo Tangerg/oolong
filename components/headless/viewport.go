@@ -152,7 +152,13 @@ func (p *Viewport) Do(action keymap.Action) bool {
 // Focus takes the keyboard, or gives it up, and passes the news to the content. A
 // window is a widget like any other, so one goes in a [Container] beside anything else.
 func (p *Viewport) Focus(has bool) {
-	if p == nil || p.blurred == !has {
+	if p == nil {
+		return
+	}
+	if !has {
+		p.scroll.matcher.Clear()
+	}
+	if p.blurred == !has {
 		return
 	}
 	p.blurred = !has

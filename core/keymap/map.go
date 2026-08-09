@@ -1,8 +1,8 @@
 // Package keymap maps terminal keystrokes to named actions.
 //
-// Lookups do not mutate a [Map]. Sequence progress lives in [Pending], so a map can
-// be shared by independent readers without sharing their partially typed sequences,
-// provided its bindings are not changed concurrently.
+// Matching does not mutate a [Map]. Sequence progress lives in [Matcher], so a map
+// can be shared by independent readers without sharing their partially typed
+// sequences, provided its bindings are not changed concurrently.
 package keymap
 
 import (
@@ -24,41 +24,47 @@ func (a Action) String() string { return string(a) }
 // [Map] does not specify a positive Timeout.
 const DefaultTimeout = time.Second
 
-// Pending records progress through one reader's partially typed sequence.
-// Its zero value has no progress.
-type Pending struct {
-	keys input.Keys
-	at   time.Time
+// Resolver schedules resolve after wait and returns a function that cancels it.
+//
+// It is the policy seam for a binding that is both an exact match and a prefix of a
+// longer binding. `Runtime.After` has this shape, but keymap deliberately
+// does not import the program package or own a clock. Resolve must run on the same
+// goroutine that calls [Matcher.Handle]. Calling it after cancellation is harmless.
+type Resolver func(wait time.Duration, resolve func()) (cancel func())
+
+// Matcher reads one [Map] for one event owner.
+//
+// It owns partial sequence progress, exact-prefix resolution and action dispatch.
+// The zero value is ready to use. A Matcher belongs to one goroutine and must not be
+// copied after first use.
+type Matcher struct {
+	keys   input.Keys
+	at     time.Time
+	exact  Action
+	do     func(Action) bool
+	cancel func()
+	ticket uint64
 }
 
 // Keys returns a copy of the chords typed so far.
-func (p *Pending) Keys() input.Keys {
-	if p == nil {
+func (m *Matcher) Keys() input.Keys {
+	if m == nil {
 		return nil
 	}
-	return slices.Clone(p.keys)
+	return slices.Clone(m.keys)
 }
 
-// Clear abandons the partially typed sequence.
-func (p *Pending) Clear() {
-	if p != nil {
-		p.keys, p.at = nil, time.Time{}
+// Clear abandons the partially typed sequence and cancels its resolver.
+func (m *Matcher) Clear() {
+	if m == nil {
+		return
 	}
-}
-
-// current returns the current prefix, or nil when it expired. Events with no
-// arrival time do not expire because no elapsed time can be inferred from them.
-func (p *Pending) current(timeout time.Duration, now time.Time) input.Keys {
-	if p == nil || len(p.keys) == 0 {
-		return nil
+	cancel := m.cancel
+	m.keys, m.at, m.exact, m.do, m.cancel = nil, time.Time{}, "", nil, nil
+	m.ticket++
+	if cancel != nil {
+		cancel()
 	}
-	if !p.at.IsZero() && !now.IsZero() {
-		elapsed := now.Sub(p.at)
-		if elapsed < 0 || elapsed > timeout {
-			return nil
-		}
-	}
-	return p.keys
 }
 
 // Binding associates a chord sequence with an action.
@@ -72,16 +78,18 @@ func (b Binding) String() string { return b.Keys.String() + " " + b.Action.Strin
 
 // Map associates chord sequences with actions.
 //
-// A sequence that is a proper prefix of another binding is unreachable: without a
-// timer driving lookup, the shorter binding cannot be chosen while the longer one
-// may still arrive. The longer sequence therefore takes precedence.
-//
 // The zero value is an empty map. Use Map by pointer after binding keys; copying a
 // populated Map would share its internal tree.
 type Map struct {
 	// Timeout controls how long a partially typed sequence remains current. Zero
 	// and negative values use [DefaultTimeout].
 	Timeout time.Duration
+	// Resolve decides when an exact binding that is also a prefix should run. Nil
+	// waits for another key: a continuation takes the longer binding, while a key
+	// that cannot continue it settles the exact binding first. Assign
+	// `Runtime.After` to make the exact binding run after Timeout even when
+	// no further input arrives.
+	Resolve Resolver
 
 	bound []Binding
 	root  *trieNode
@@ -171,36 +179,99 @@ func (m *Map) Action(keys ...input.Chord) (Action, bool) {
 	return node.action, true
 }
 
-// Lookup advances pending with key and returns the completed action and whether the
-// key belongs to this map. A sequence prefix belongs to the map even though its
-// returned action is empty. A nil Pending can resolve only single-chord bindings.
-func (m *Map) Lookup(key input.Key, pending *Pending) (Action, bool) {
-	if m == nil || !key.Down() {
-		return "", false
+// Handle advances the matcher with key and runs a completed action through do.
+// Matched reports whether this key belonged to bindings. Handled reports the
+// callback's answer, except that an unfinished prefix is always handled.
+//
+// A prefix belongs to the map before it names an action. If an earlier ambiguous
+// exact match is settled while this key is being read, this key is still matched
+// independently and the result reports whether the new key belongs. A nil Matcher,
+// Map or callback handles nothing.
+func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (matched, handled bool) {
+	if m == nil || bindings == nil || do == nil || !key.Down() {
+		return false, false
 	}
+	if m.expired(bindings.timeout(), key.At) {
+		m.resolveExact()
+	}
+
 	chord := key.Chord()
-	prefix := pending.current(m.timeout(), key.At)
-	node, ok := m.follow(append(slices.Clone(prefix), chord))
+	prefix := slices.Clone(m.keys)
+	node, ok := bindings.follow(append(prefix, chord))
 	if !ok && len(prefix) > 0 {
+		// The key proves the longer binding will not arrive. Settle an exact prefix,
+		// if there was one, then give this key a fresh reading of its own.
+		m.resolveExact()
 		prefix = nil
-		node, ok = m.follow(input.Keys{chord})
+		node, ok = bindings.follow(input.Keys{chord})
 	}
-	pending.Clear()
 	if !ok {
-		return "", false
+		m.Clear()
+		return false, false
 	}
-	if len(node.next) > 0 {
-		if pending == nil {
-			return "", false
+
+	m.Clear()
+	if len(node.next) == 0 {
+		if node.action == "" {
+			return false, false
 		}
-		pending.keys = append(slices.Clone(prefix), chord)
-		pending.at = key.At
-		return "", true
+		return true, do(node.action)
 	}
-	if node.action == "" {
-		return "", false
+
+	prefix = append(prefix, chord)
+	m.keys = prefix
+	m.at = key.At
+	if node.action != "" {
+		m.deferExact(bindings, node.action, do)
 	}
-	return node.action, true
+	return true, true
+}
+
+// expired reports whether timed input can no longer continue the held sequence.
+// Synthetic events with no arrival time never expire because no elapsed time can be
+// inferred from them.
+func (m *Matcher) expired(timeout time.Duration, now time.Time) bool {
+	if len(m.keys) == 0 || m.at.IsZero() || now.IsZero() {
+		return false
+	}
+	elapsed := now.Sub(m.at)
+	return elapsed < 0 || elapsed > timeout
+}
+
+// deferExact remembers the action at an ambiguous node and asks the map's policy to
+// settle it. The ticket makes a late callback from a cancelled resolver inert.
+func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool) {
+	m.exact, m.do = action, do
+	if bindings.Resolve == nil {
+		return
+	}
+	ticket := m.ticket
+	cancel := bindings.Resolve(bindings.timeout(), func() { m.resolve(ticket) })
+	if m.ticket == ticket && len(m.keys) > 0 {
+		m.cancel = cancel
+	} else if cancel != nil {
+		// A resolver is allowed to resolve synchronously. If it also returns a
+		// cancellation function, nothing should retain the already-finished work.
+		cancel()
+	}
+}
+
+func (m *Matcher) resolve(ticket uint64) {
+	if m == nil || m.ticket != ticket {
+		return
+	}
+	m.resolveExact()
+}
+
+func (m *Matcher) resolveExact() {
+	if m == nil {
+		return
+	}
+	action, do := m.exact, m.do
+	m.Clear()
+	if action != "" && do != nil {
+		do(action)
+	}
 }
 
 type trieNode struct {

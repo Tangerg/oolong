@@ -31,8 +31,8 @@ type Scroll struct {
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
 	wheel input.Advance
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got.
+	matcher keymap.Matcher
 
 	// pendingLayout is derived during a component frame and becomes the scroll's
 	// current bounds only with the complete root frame.
@@ -178,14 +178,8 @@ func (s *Scroll) Handle(ev input.Event, keys *keymap.Map) bool {
 	if keys == nil {
 		keys = scrollKeys()
 	}
-	action, mine := keys.Lookup(key, &s.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true // the start of a binding more than one chord long
-	}
-	return s.Do(action)
+	_, handled := s.matcher.Handle(keys, key, s.Do)
+	return handled
 }
 
 // Do runs one of the scroll's actions by name, reporting whether it was one a scroll

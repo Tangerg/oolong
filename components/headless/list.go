@@ -44,8 +44,8 @@ type List[T any] struct {
 	// presentation is the committed window and first visible row. Both are routing
 	// geometry: a page and a press must refer to the same complete frame.
 	presentation Snapshot[listPresentation]
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got.
+	matcher keymap.Matcher
 }
 
 // Selected is the index under the cursor, or -1 for an empty list.
@@ -127,14 +127,8 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := l.keys().Lookup(key, &l.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true // the start of a binding more than one chord long
-	}
-	return l.Do(action)
+	_, handled := l.matcher.Handle(l.keys(), key, l.Do)
+	return handled
 }
 
 // Do runs one of the list's actions by name, reporting whether it was one this list
@@ -224,7 +218,12 @@ func (l *List[T]) Measure(int) int { return len(l.items) }
 // because a container hands the keyboard to its children by asking for this, so a
 // list without it could not be one of them — and because [List.Focused] is how a row
 // asks, which is where the answer belongs.
-func (l *List[T]) Focus(has bool) { l.blurred = !has }
+func (l *List[T]) Focus(has bool) {
+	if !has {
+		l.matcher.Clear()
+	}
+	l.blurred = !has
+}
 
 // Focused reports whether this list has the keyboard.
 func (l *List[T]) Focused() bool { return !l.blurred }

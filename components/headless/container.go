@@ -143,8 +143,8 @@ type Container struct {
 	holding bool
 	// slots is rebuilt every frame from the items and kept to save the allocation.
 	slots []layout.Slot
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got.
+	matcher keymap.Matcher
 }
 
 // Rows is a container that stacks its children down the region.
@@ -241,6 +241,9 @@ func (c *Container) FocusPrev() bool { return c.step(-1) }
 // to the child that holds it. A container is a widget like any other, so a container
 // inside a container is how an interface gets more than one row of panes.
 func (c *Container) Focus(has bool) {
+	if !has {
+		c.matcher.Clear()
+	}
 	c.blurred = !has
 	c.settle()
 	tell(c.holder, has)
@@ -293,14 +296,8 @@ func (c *Container) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := c.keys().Lookup(key, &c.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true // the start of a binding more than one chord long
-	}
-	return c.Do(action)
+	_, handled := c.matcher.Handle(c.keys(), key, c.Do)
+	return handled
 }
 
 // Do runs one of the container's actions by name, reporting whether it was one a

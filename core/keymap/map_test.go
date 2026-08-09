@@ -2,6 +2,7 @@ package keymap_test
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,15 @@ import (
 // by. The zero time means nothing timed it.
 func at(chord input.Chord, when time.Time) input.Key {
 	return input.Key{Code: chord.Code, Rune: chord.Rune, Mods: chord.Mods, At: when}
+}
+
+func match(matcher *keymap.Matcher, bindings *keymap.Map, key input.Key) (keymap.Action, bool) {
+	var action keymap.Action
+	matched, _ := matcher.Handle(bindings, key, func(next keymap.Action) bool {
+		action = next
+		return true
+	})
+	return action, matched
 }
 
 func TestAChordSurvivesBeingWrittenDownAndReadBack(t *testing.T) {
@@ -86,18 +96,18 @@ func TestAKeystrokeNamesTheActionItIsBoundTo(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("delete-word-back", input.Ctrl.Rune('w'))
 
-	action, mine := m.Lookup(input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl}, &keymap.Pending{})
+	action, mine := match(&keymap.Matcher{}, m, input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl})
 	if !mine || action != "delete-word-back" {
 		t.Fatalf("ctrl+w = %q (mine=%v)", action, mine)
 	}
 	// A keystroke the map says nothing about is not the map's, which is what lets it
 	// carry on to whatever else might want it.
-	if _, mine := m.Lookup(input.Key{Code: input.Character, Rune: 'q'}, &keymap.Pending{}); mine {
+	if _, mine := match(&keymap.Matcher{}, m, input.Key{Code: input.Character, Rune: 'q'}); mine {
 		t.Error("the map claimed a keystroke nothing was bound to")
 	}
 	// A key coming back up is not a keystroke.
 	up := input.Key{Code: input.Character, Rune: 'w', Mods: input.Ctrl, Transition: input.Release}
-	if _, mine := m.Lookup(up, &keymap.Pending{}); mine {
+	if _, mine := match(&keymap.Matcher{}, m, up); mine {
 		t.Error("the map answered a key being let go of")
 	}
 }
@@ -105,23 +115,23 @@ func TestAKeystrokeNamesTheActionItIsBoundTo(t *testing.T) {
 func TestASequenceIsFinishedByItsLastChord(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	var pending keymap.Pending
+	var matcher keymap.Matcher
 	now := time.Unix(1700000000, 0)
 
 	// The first chord is the map's and names nothing yet. Consumed all the same: a
 	// caller that passed it on would let half a sequence act somewhere else too.
-	action, mine := m.Lookup(at(input.Chord{Rune: 'g'}, now), &pending)
+	action, mine := match(&matcher, m, at(input.Chord{Rune: 'g'}, now))
 	if !mine || action != "" {
 		t.Fatalf("the first chord = %q (mine=%v), want it taken and nothing done", action, mine)
 	}
-	if got := pending.Keys().String(); got != "g" {
+	if got := matcher.Keys().String(); got != "g" {
 		t.Fatalf("waiting on %q", got)
 	}
-	action, mine = m.Lookup(at(input.Chord{Rune: 'g'}, now.Add(50*time.Millisecond)), &pending)
+	action, mine = match(&matcher, m, at(input.Chord{Rune: 'g'}, now.Add(50*time.Millisecond)))
 	if !mine || action != "go-to-top" {
 		t.Fatalf("the second chord = %q (mine=%v)", action, mine)
 	}
-	if got := pending.Keys(); len(got) != 0 {
+	if got := matcher.Keys(); len(got) != 0 {
 		t.Fatalf("still waiting on %q after the sequence finished", got.String())
 	}
 }
@@ -132,21 +142,21 @@ func TestASequenceLeftTooLongIsOver(t *testing.T) {
 	m := &keymap.Map{Timeout: 100 * time.Millisecond}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	m.Bind("quit", input.Chord{Rune: 'q'})
-	var pending keymap.Pending
+	var matcher keymap.Matcher
 	now := time.Unix(1700000000, 0)
 
-	m.Lookup(at(input.Chord{Rune: 'g'}, now), &pending)
-	action, mine := m.Lookup(at(input.Chord{Rune: 'g'}, now.Add(time.Second)), &pending)
+	match(&matcher, m, at(input.Chord{Rune: 'g'}, now))
+	action, mine := match(&matcher, m, at(input.Chord{Rune: 'g'}, now.Add(time.Second)))
 	if action != "" {
 		t.Fatalf("a chord a second later finished the sequence anyway: %q", action)
 	}
-	if !mine || pending.Keys().String() != "g" {
-		t.Fatalf("the late chord did not begin the sequence again: %q (mine=%v)", pending.Keys().String(), mine)
+	if !mine || matcher.Keys().String() != "g" {
+		t.Fatalf("the late chord did not begin the sequence again: %q (mine=%v)", matcher.Keys().String(), mine)
 	}
 
 	// A chord that does not continue what was being typed is read on its own, because
 	// the user has plainly stopped spelling one thing and started another.
-	action, mine = m.Lookup(at(input.Chord{Rune: 'q'}, now.Add(time.Second)), &pending)
+	action, mine = match(&matcher, m, at(input.Chord{Rune: 'q'}, now.Add(time.Second)))
 	if !mine || action != "quit" {
 		t.Fatalf("the chord that broke off the sequence = %q (mine=%v)", action, mine)
 	}
@@ -155,14 +165,14 @@ func TestASequenceLeftTooLongIsOver(t *testing.T) {
 func TestASequenceFromTheFutureDoesNotJoinThePresent(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	var pending keymap.Pending
+	var matcher keymap.Matcher
 	now := time.Unix(1700000000, 0)
-	m.Lookup(at(input.Chord{Rune: 'g'}, now), &pending)
+	match(&matcher, m, at(input.Chord{Rune: 'g'}, now))
 
-	action, mine := m.Lookup(at(input.Chord{Rune: 'g'}, now.Add(-time.Second)), &pending)
-	if action != "" || !mine || pending.Keys().String() != "g" {
+	action, mine := match(&matcher, m, at(input.Chord{Rune: 'g'}, now.Add(-time.Second)))
+	if action != "" || !mine || matcher.Keys().String() != "g" {
 		t.Fatalf("out-of-order chord = %q (mine=%v, pending=%q), want a fresh prefix",
-			action, mine, pending.Keys().String())
+			action, mine, matcher.Keys().String())
 	}
 }
 
@@ -171,24 +181,24 @@ func TestAKeystrokeNothingTimedNeverGoesStale(t *testing.T) {
 	// sequence that could never be completed would be worse than one with no deadline.
 	m := &keymap.Map{Timeout: time.Nanosecond}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	var pending keymap.Pending
+	var matcher keymap.Matcher
 
-	m.Lookup(input.Key{Rune: 'g'}, &pending)
-	if action, _ := m.Lookup(input.Key{Rune: 'g'}, &pending); action != "go-to-top" {
+	match(&matcher, m, input.Key{Rune: 'g'})
+	if action, _ := match(&matcher, m, input.Key{Rune: 'g'}); action != "go-to-top" {
 		t.Fatalf("= %q, want the sequence completed", action)
 	}
 }
 
-func TestWithNowhereToRememberOnlySingleChordsAreReachable(t *testing.T) {
+func TestANilMatcherHandlesNothing(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	m.Bind("quit", input.Chord{Rune: 'q'})
 
-	if _, mine := m.Lookup(input.Key{Rune: 'g'}, nil); mine {
-		t.Error("half a sequence was taken by a reader with nowhere to keep it")
+	if _, mine := match(nil, m, input.Key{Rune: 'g'}); mine {
+		t.Error("a nil matcher took half a sequence")
 	}
-	if action, _ := m.Lookup(input.Key{Rune: 'q'}, nil); action != "quit" {
-		t.Errorf("= %q, want a single chord to work regardless", action)
+	if action, mine := match(nil, m, input.Key{Rune: 'q'}); mine || action != "" {
+		t.Errorf("nil matcher = %q (mine=%v), want it inert", action, mine)
 	}
 }
 
@@ -197,15 +207,99 @@ func TestAPrefixBindingNeverShadowsALongerSequence(t *testing.T) {
 	m.Bind("short", input.Chord{Rune: 'g'})
 	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 
-	var pending keymap.Pending
-	if action, mine := m.Lookup(input.Key{Rune: 'g'}, &pending); !mine || action != "" {
+	var matcher keymap.Matcher
+	if action, mine := match(&matcher, m, input.Key{Rune: 'g'}); !mine || action != "" {
 		t.Fatalf("prefix = %q (mine=%v), want it held for the longer sequence", action, mine)
 	}
-	if action, mine := m.Lookup(input.Key{Rune: 'g'}, &pending); !mine || action != "long" {
+	if action, mine := match(&matcher, m, input.Key{Rune: 'g'}); !mine || action != "long" {
 		t.Fatalf("completed sequence = %q (mine=%v), want long", action, mine)
 	}
-	if action, mine := m.Lookup(input.Key{Rune: 'g'}, nil); mine || action != "" {
-		t.Fatalf("stateless prefix = %q (mine=%v), want unreachable", action, mine)
+}
+
+func TestAResolverMakesAnExactPrefixReachable(t *testing.T) {
+	var resolve func()
+	var cancelled bool
+	m := &keymap.Map{
+		Timeout: 75 * time.Millisecond,
+		Resolve: func(wait time.Duration, fn func()) func() {
+			if wait != 75*time.Millisecond {
+				t.Fatalf("resolver wait = %v", wait)
+			}
+			resolve = fn
+			return func() { cancelled = true }
+		},
+	}
+	m.Bind("short", input.Chord{Rune: 'g'})
+	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+
+	var matcher keymap.Matcher
+	var actions []keymap.Action
+	matched, handled := matcher.Handle(m, input.Key{Rune: 'g'}, func(action keymap.Action) bool {
+		actions = append(actions, action)
+		return true
+	})
+	if !matched || !handled || resolve == nil || len(actions) != 0 {
+		t.Fatalf("first chord matched=%v handled=%v resolve=%v actions=%v",
+			matched, handled, resolve != nil, actions)
+	}
+	resolve()
+	if !cancelled || !slices.Equal(actions, []keymap.Action{"short"}) {
+		t.Fatalf("resolved actions = %v, cancelled=%v", actions, cancelled)
+	}
+	if keys := matcher.Keys(); len(keys) != 0 {
+		t.Fatalf("resolved matcher retained %q", keys.String())
+	}
+}
+
+func TestAContinuationCancelsTheExactResolver(t *testing.T) {
+	var cancelled int
+	var late func()
+	m := &keymap.Map{Resolve: func(_ time.Duration, resolve func()) func() {
+		late = resolve
+		return func() { cancelled++ }
+	}}
+	m.Bind("short", input.Chord{Rune: 'g'})
+	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+
+	var matcher keymap.Matcher
+	match(&matcher, m, input.Key{Rune: 'g'})
+	action, mine := match(&matcher, m, input.Key{Rune: 'g'})
+	if !mine || action != "long" || cancelled != 1 {
+		t.Fatalf("continuation = %q (mine=%v, cancelled=%d)", action, mine, cancelled)
+	}
+	late()
+	if keys := matcher.Keys(); len(keys) != 0 {
+		t.Fatalf("late resolver revived %q", keys.String())
+	}
+}
+
+func TestAKeyThatBreaksAnAmbiguitySettlesItThenGetsAReading(t *testing.T) {
+	m := &keymap.Map{}
+	m.Bind("short", input.Chord{Rune: 'g'})
+	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+	m.Bind("quit", input.Chord{Rune: 'q'})
+
+	var matcher keymap.Matcher
+	var actions []keymap.Action
+	do := func(action keymap.Action) bool {
+		actions = append(actions, action)
+		return true
+	}
+	matcher.Handle(m, input.Key{Rune: 'g'}, do)
+	matched, handled := matcher.Handle(m, input.Key{Rune: 'q'}, do)
+	if !matched || !handled || !slices.Equal(actions, []keymap.Action{"short", "quit"}) {
+		t.Fatalf("breaking key matched=%v handled=%v actions=%v", matched, handled, actions)
+	}
+}
+
+func TestACompletedActionCanDeclineTheEvent(t *testing.T) {
+	m := &keymap.Map{}
+	m.Bind("maybe", input.Chord{Rune: 'm'})
+	matched, handled := (&keymap.Matcher{}).Handle(m, input.Key{Rune: 'm'}, func(keymap.Action) bool {
+		return false
+	})
+	if !matched || handled {
+		t.Fatalf("matched=%v handled=%v, want a known action that declined", matched, handled)
 	}
 }
 
@@ -231,7 +325,7 @@ func TestUnbindingLeavesNothingBehindToSwallowAKeystroke(t *testing.T) {
 	if !m.Unbind(input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'}) {
 		t.Fatal("unbinding said there was nothing there")
 	}
-	if _, mine := m.Lookup(input.Key{Rune: 'g'}, &keymap.Pending{}); mine {
+	if _, mine := match(&keymap.Matcher{}, m, input.Key{Rune: 'g'}); mine {
 		t.Fatal("the first chord of the sequence is still being taken")
 	}
 	if m.Unbind(input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'}) {
@@ -259,11 +353,11 @@ func TestAnActionListsItsKeysInTheOrderTheyWereBound(t *testing.T) {
 
 func TestAnEmptyMapAndANilOneAnswerNothingRatherThanPanicking(t *testing.T) {
 	var zero keymap.Map
-	if _, mine := zero.Lookup(input.Key{Code: input.Enter}, &keymap.Pending{}); mine {
+	if _, mine := match(&keymap.Matcher{}, &zero, input.Key{Code: input.Enter}); mine {
 		t.Error("an empty map claimed a keystroke")
 	}
 	var missing *keymap.Map
-	if _, mine := missing.Lookup(input.Key{Code: input.Enter}, &keymap.Pending{}); mine {
+	if _, mine := match(&keymap.Matcher{}, missing, input.Key{Code: input.Enter}); mine {
 		t.Error("a map nobody made claimed a keystroke")
 	}
 	if keys := missing.Keys("anything"); keys != nil {
@@ -297,7 +391,7 @@ func TestShiftAndTabAreOneKeystrokeHoweverTheTerminalSpelledIt(t *testing.T) {
 		if !ok {
 			t.Fatalf("%q did not decode as a keystroke", bytes)
 		}
-		if action, _ := m.Lookup(key, &keymap.Pending{}); action != "focus-prev" {
+		if action, _ := match(&keymap.Matcher{}, m, key); action != "focus-prev" {
 			t.Errorf("%q decoded as %v, which the binding does not match", bytes, key)
 		}
 	}

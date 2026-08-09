@@ -21,7 +21,16 @@ type Settings[T any] struct {
 	// list is browsed.
 	EditKeys *keymap.Map
 
-	pending keymap.Pending
+	matcher keymap.Matcher
+}
+
+// Focus takes or releases the keyboard with the embedded list. Releasing it also
+// cancels a partial value binding owned by the settings controller.
+func (s *Settings[T]) Focus(has bool) {
+	if !has {
+		s.matcher.Clear()
+	}
+	s.List.Focus(has)
 }
 
 // Handle first lets list navigation and pointer selection act, then offers a key to
@@ -34,15 +43,8 @@ func (s *Settings[T]) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	action, mine := s.editKeys().Lookup(key, &s.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true
-	default:
-		return s.Do(action)
-	}
+	_, handled := s.matcher.Handle(s.editKeys(), key, s.Do)
+	return handled
 }
 
 // Do navigates the list or applies a value action to its selected item.

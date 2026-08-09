@@ -791,6 +791,56 @@ func TestRefreshAsksForAFrame(t *testing.T) {
 // machine it ran on, and it is instant. It also holds the program to a second claim
 // nobody had written down: a bubble does not end until the goroutines inside it do.
 
+func TestAfterRunsOnceOnTheInterfaceOwner(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+
+		var calls atomic.Int64
+		r.onLoop(func() {
+			r.root.runtime.After(5*time.Millisecond, func() {
+				r.root.text = "after"
+				calls.Add(1)
+			})
+		})
+		r.until("the one-shot callback", func() bool { return calls.Load() == 1 })
+		time.Sleep(100 * time.Millisecond)
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("one-shot callback ran %d times", got)
+		}
+		r.until("the callback state to be drawn", func() bool {
+			return strings.Contains(r.host.frames.String(), "after")
+		})
+		r.quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
+}
+
+func TestAfterCanBeStopped(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+
+		var calls atomic.Int64
+		var stop func()
+		r.onLoop(func() {
+			stop = r.root.runtime.After(5*time.Millisecond, func() { calls.Add(1) })
+			stop()
+			stop()
+		})
+		time.Sleep(100 * time.Millisecond)
+		if got := calls.Load(); got != 0 {
+			t.Fatalf("stopped one-shot callback ran %d times", got)
+		}
+		r.quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
+}
+
 func TestEveryTicksUntilItIsStopped(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r := start(t, nil)
@@ -1345,6 +1395,8 @@ func TestZeroRuntimesAreInert(t *testing.T) {
 	runtime.Dispatcher().Post(func() { t.Fatal("zero dispatcher ran work") })
 	stop := runtime.Every(time.Nanosecond, func() { t.Fatal("zero runtime ticked") })
 	stop()
+	after := runtime.After(time.Nanosecond, func() { t.Fatal("zero runtime callback ran") })
+	after()
 
 	var inline program.InlineRuntime
 	inline.Print(nil)

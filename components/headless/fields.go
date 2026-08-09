@@ -310,6 +310,7 @@ func (s *Select[T]) Validate() error {
 // Focus takes the keyboard or gives it up, and checks the choice on the way out.
 func (s *Select[T]) Focus(has bool) {
 	s.ensure()
+	s.list.Focus(has)
 	if s.leaving(has) {
 		_ = s.Validate()
 	}
@@ -379,7 +380,7 @@ type MultiSelect[T any] struct {
 	list    List[Option[T]]
 	taken   []bool
 	seeded  bool
-	pending keymap.Pending
+	matcher keymap.Matcher
 }
 
 // Prompt is what the field is asking for.
@@ -478,13 +479,8 @@ func (m *MultiSelect[T]) Draw(v Frame) {
 func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 	m.ensure()
 	if key, ok := ev.(input.Key); ok {
-		if action, mine := m.keys().Lookup(key, &m.pending); mine {
-			if action == "" {
-				return true
-			}
-			return m.Do(action)
-		}
-		return false
+		_, handled := m.matcher.Handle(m.keys(), key, m.Do)
+		return handled
 	}
 	mouse, ok := ev.(input.Mouse)
 	if !ok {
@@ -519,6 +515,9 @@ func (m *MultiSelect[T]) Validate() error {
 // Focus takes the keyboard or gives it up, and checks the choices on the way out.
 func (m *MultiSelect[T]) Focus(has bool) {
 	m.ensure()
+	if !has {
+		m.matcher.Clear()
+	}
 	if m.leaving(has) {
 		_ = m.Validate()
 	}
@@ -584,7 +583,7 @@ type Confirm struct {
 
 	yes     bool
 	seeded  bool
-	pending keymap.Pending
+	matcher keymap.Matcher
 	// split is the committed column where the second answer begins.
 	split Snapshot[int]
 }
@@ -653,14 +652,8 @@ func (c *Confirm) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := c.keys().Lookup(key, &c.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true
-	}
-	return c.Do(action)
+	_, handled := c.matcher.Handle(c.keys(), key, c.Do)
+	return handled
 }
 
 // Do runs one of the field's actions by name. See [Doer].
@@ -691,6 +684,9 @@ func (c *Confirm) Validate() error {
 // Focus takes the keyboard or gives it up, and checks the answer on the way out.
 func (c *Confirm) Focus(has bool) {
 	c.ensure()
+	if !has {
+		c.matcher.Clear()
+	}
 	if c.leaving(has) {
 		_ = c.Validate()
 	}

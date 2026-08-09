@@ -149,8 +149,8 @@ type Completion struct {
 	list  List[Candidate]
 	token Token
 	open  bool
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got.
+	matcher keymap.Matcher
 }
 
 // DefaultCompletionRows is how many candidates are shown at once when nothing says
@@ -183,6 +183,7 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 
 // Dismiss closes the completion.
 func (c *Completion) Dismiss() {
+	c.matcher.Clear()
 	c.open = false
 	c.token = Token{}
 	c.list.SetItems(nil)
@@ -234,14 +235,8 @@ func (c *Completion) Handle(ev input.Event) bool {
 		// pointer is.
 		return c.list.Handle(ev)
 	}
-	action, mine := c.keys().Lookup(key, &c.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true // the start of a binding more than one chord long
-	}
-	return c.Do(action)
+	_, handled := c.matcher.Handle(c.keys(), key, c.Do)
+	return handled
 }
 
 // Do runs one of the completion's actions by name, or the list's, reporting whether it

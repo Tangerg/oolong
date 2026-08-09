@@ -1,6 +1,6 @@
 # Examples
 
-Ten programs, shallowest first. The focused examples are one file and meant to be
+Eleven programs, shallowest first. The focused examples are one file and meant to be
 read as much as run. The agent is deliberately split by responsibility: a complex
 application should prove the public APIs compose without turning into a giant `main`.
 
@@ -11,6 +11,7 @@ go run ./examples/hello        # from the repository root, which is a Go workspa
 | | what it shows |
 | --- | --- |
 | [`hello`](hello) | The whole of the contract: draw into the space you are given, say whether you wanted an event, and stop. A box, a label, and a key count. |
+| [`keys`](keys) | Exact-prefix key sequences without reversing a dependency: `g` resolves after a caller-owned deadline, `gg` cancels it and takes the longer binding, and both actions stay on the interface owner. |
 | [`form`](form) | The four fields anything ever asks for, bound to variables of the program's own — and the same form asked in words when the output is a pipe rather than a terminal. |
 | [`picker`](picker) | A field, a fuzzy match and a list, put together by twenty lines rather than sold as a widget. The characters that answered the query are picked out in the rows. |
 | [`composer`](composer) | A product-grade prompt assembled from editor behavior: `@` completion, draft-preserving history, and large pastes collapsed into application-owned atomic chips. |

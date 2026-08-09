@@ -276,7 +276,7 @@ type Form struct {
 
 	body    Container
 	problem error
-	pending keymap.Pending
+	matcher keymap.Matcher
 	blurred bool
 }
 
@@ -401,14 +401,8 @@ func (f *Form) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := f.keys().Lookup(key, &f.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true
-	}
-	return f.Do(action)
+	_, handled := f.matcher.Handle(f.keys(), key, f.Do)
+	return handled
 }
 
 // Do runs one of the form's actions by name. See [Doer].
@@ -427,6 +421,9 @@ func (f *Form) Do(action keymap.Action) bool {
 // Focus takes the keyboard, or gives it up, and passes the news to the field that has
 // it.
 func (f *Form) Focus(has bool) {
+	if !has {
+		f.matcher.Clear()
+	}
 	f.blurred = !has
 	f.arrange()
 	f.body.Focus(has)

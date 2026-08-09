@@ -30,7 +30,7 @@ type Slider struct {
 
 	focused  bool
 	dragging bool
-	pending  keymap.Pending
+	matcher  keymap.Matcher
 	track    Snapshot[image.Rectangle]
 }
 
@@ -191,15 +191,8 @@ func (s *Slider) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	action, mine := s.keys().Lookup(key, &s.pending)
-	switch {
-	case !mine:
-		return false
-	case action == "":
-		return true
-	default:
-		return s.Do(action)
-	}
+	_, handled := s.matcher.Handle(s.keys(), key, s.Do)
+	return handled
 }
 
 // Do applies a slider action by name.
@@ -260,6 +253,9 @@ func (s *Slider) setAt(x int, track image.Rectangle) {
 // Focus takes or gives up keyboard ownership.
 func (s *Slider) Focus(has bool) {
 	if s != nil {
+		if !has {
+			s.matcher.Clear()
+		}
 		s.focused = has
 	}
 }

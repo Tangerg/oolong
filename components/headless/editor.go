@@ -103,9 +103,9 @@ type Editor struct {
 	continuation editorContinuation
 	yank         editorYank
 
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	// It is the field's own and not the map's — see [keymap.Pending].
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got. It is the
+	// field's own and not the map's — see [keymap.Matcher].
+	matcher keymap.Matcher
 
 	// blurred says the field has been told it does not have the keyboard, so it
 	// draws no cursor. Inverted, because a field that has never been told anything
@@ -651,16 +651,11 @@ func (e *Editor) Handle(ev input.Event) bool {
 		}
 	}
 
-	action, mine := e.keys().Lookup(key, &e.pending)
-	switch {
-	case !mine:
+	matched, handled := e.matcher.Handle(e.keys(), key, e.Do)
+	if !matched {
 		return e.typed(key)
-	case action == "":
-		// The start of a binding more than one chord long. Consumed and nothing done,
-		// which is what waiting for the rest of it looks like.
-		return true
 	}
-	return e.Do(action)
+	return handled
 }
 
 // Do runs one of the field's actions by name, reporting whether it was one this field

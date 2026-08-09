@@ -14,8 +14,8 @@
 //
 // The program parks when there is nothing to do. It wakes for input, for posted work,
 // and for the terminal reporting progress — never on a clock that runs regardless. A
-// component that wants a clock starts one with [Runtime.Every], and an interface with
-// nothing animating costs nothing.
+// component that wants a clock starts one with [Runtime.After] or [Runtime.Every], and
+// an interface with nothing scheduled costs nothing.
 //
 // # The two places an interface can be
 //
@@ -745,50 +745,88 @@ func (r *Runtime) Quit() {
 	p.tasks.signal()
 }
 
+// clockLifetime is the shared cancellation edge of one scheduled callback or
+// ticker. Stop may be called concurrently and more than once. Publishing cancelled
+// before closing done prevents work already selectable at that instant from posting
+// one last stale callback.
+type clockLifetime struct {
+	done      chan struct{}
+	cancelled atomic.Bool
+	once      sync.Once
+}
+
+func newClockLifetime() *clockLifetime { return &clockLifetime{done: make(chan struct{})} }
+
+func (c *clockLifetime) Stop() {
+	c.once.Do(func() {
+		c.cancelled.Store(true)
+		close(c.done)
+	})
+}
+
+// After schedules fn once on the interface goroutine after d. The returned stop
+// function is concurrency-safe and idempotent. Stop prevents work that has not begun;
+// when it races with the callback starting, either may win.
+func (r *Runtime) After(d time.Duration, fn func()) (stop func()) {
+	p := r.owner()
+	if p == nil || d <= 0 || fn == nil {
+		return func() {}
+	}
+	lifetime := newClockLifetime()
+	dispatch := r.Dispatcher()
+	go func() {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			if lifetime.cancelled.Load() {
+				return
+			}
+			dispatch.Post(func() {
+				if !lifetime.cancelled.Load() {
+					fn()
+				}
+			})
+		case <-lifetime.done:
+		case <-p.tasks.done:
+		}
+	}()
+	return lifetime.Stop
+}
+
 // Every schedules coalesced ticks on the interface goroutine.
 func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
 	p := r.owner()
 	if p == nil || d <= 0 || fn == nil {
 		return func() {}
 	}
-	stopped := make(chan struct{})
+	lifetime := newClockLifetime()
 	dispatch := r.Dispatcher()
-	var pending, cancelled atomic.Bool
-	// sync.Once rather than a bool: stop is handed out to a caller who may keep it
-	// anywhere, and two goroutines reaching a plain flag at once would both close
-	// the channel and one would panic. cancelled is published before the close so a
-	// tick already selectable at that instant cannot enqueue one last stale call.
-	var once sync.Once
-	stop = func() {
-		once.Do(func() {
-			cancelled.Store(true)
-			close(stopped)
-		})
-	}
+	var pending atomic.Bool
 	go func() {
 		ticker := time.NewTicker(d)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				if cancelled.Load() {
+				if lifetime.cancelled.Load() {
 					return
 				}
 				if pending.CompareAndSwap(false, true) {
 					dispatch.Post(func() {
 						defer pending.Store(false)
-						if cancelled.Load() {
+						if lifetime.cancelled.Load() {
 							return
 						}
 						fn()
 					})
 				}
-			case <-stopped:
+			case <-lifetime.done:
 				return
 			case <-p.tasks.done:
 				return
 			}
 		}
 	}()
-	return stop
+	return lifetime.Stop
 }

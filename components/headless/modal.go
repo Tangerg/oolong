@@ -127,8 +127,8 @@ type Stack struct {
 	// blurred says the stack itself has been told it does not have the keyboard,
 	// which is what a stack inside something larger is told.
 	blurred bool
-	// pending is how far into a multi-chord binding the keys typed so far have got.
-	pending keymap.Pending
+	// matcher owns how far into a multi-chord binding the keys have got.
+	matcher keymap.Matcher
 	// held is the layer that accepted a pointer press. Drag and release stay with it
 	// even after the pointer leaves its rectangle, matching capture inside containers.
 	held LayerID
@@ -269,11 +269,15 @@ func (s *Stack) Handle(ev input.Event) bool {
 		return true
 	}
 	if key, ok := ev.(input.Key); ok {
-		if action, mine := s.keys().Lookup(key, &s.pending); mine && action != "" {
-			if action == Close && !sticky(top.modal) {
+		s.matcher.Handle(s.keys(), key, func(action keymap.Action) bool {
+			if action != Close {
+				return false
+			}
+			if !sticky(top.modal) {
 				s.dismiss(top.id)
 			}
-		}
+			return true
+		})
 	}
 	// Consumed either way: what is underneath is covered, and a key that fell
 	// through to it would act somewhere the user is not looking.
@@ -448,6 +452,9 @@ type layerPlacement struct {
 // to whichever of the layers or the interface underneath currently holds it. A stack
 // is a widget, so one can sit inside a [Container] like anything else.
 func (s *Stack) Focus(has bool) {
+	if !has {
+		s.matcher.Clear()
+	}
 	s.blurred = !has
 	s.settled = false
 	s.settle()

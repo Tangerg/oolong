@@ -3,11 +3,39 @@ package headless_test
 import (
 	"image"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 )
+
+func TestAFieldGivingUpFocusCancelsItsPartialBinding(t *testing.T) {
+	var resolve func()
+	cancelled := false
+	keys := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
+		resolve = fn
+		return func() { cancelled = true }
+	}}
+	keys.Bind(headless.MoveLeft, input.Chord{Rune: 'g'})
+	keys.Bind(headless.MoveRight, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+	e := headless.NewEditor()
+	e.Keys = keys
+	e.SetText("ab")
+
+	if !e.Handle(input.Key{Rune: 'g'}) || resolve == nil {
+		t.Fatal("the ambiguous first chord was not held")
+	}
+	e.Focus(false)
+	if !cancelled {
+		t.Fatal("blur did not cancel the binding resolver")
+	}
+	resolve()
+	if line, col := e.Cursor(); line != 0 || col != 2 {
+		t.Fatalf("late resolver moved cursor to %d:%d", line, col)
+	}
+}
 
 func TestAFieldThatHoldsOneLineNeverGetsASecond(t *testing.T) {
 	// Every way text arrives goes through the same rule, because a rule kept in four
