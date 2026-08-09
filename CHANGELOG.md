@@ -18,6 +18,47 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-10
+
+The purity invariant grows a second half and a sharper instrument, and it immediately
+finds something.
+
+Breaking. `Writer.Progress` and `FrameWriter.Progress` are `Changes`, because progress
+now means the terminal's own progress indicator and one word cannot be both.
+`Accessor.Get` is `Value`, so a bound value is read and written through the same pair
+everywhere. `Scroll.Rows` is gone: a scroll offset is committed state and the row loop
+belonged to whoever draws. There are no compatibility aliases.
+
+### Changed
+
+- **Measurement is held to the same purity as drawing.** Section 4.2 has always said
+  "measurement and drawing are observationally pure", and only drawing had a guard.
+  The classifier now walks `Measure` receivers as well, and every stateful case
+  measures twice: the same answer, and no change to its semantic projection. A
+  container asks every child to measure on every frame, so this is the hotter of the
+  two paths and was the unguarded one.
+
+- **A drawn field no longer chooses on the application's behalf.** The new guard found
+  it. Measuring or drawing a controlled select used to seed the bound value the caller
+  had not set yet, which is a rendering pass making a product decision. Initial
+  presentation may read a bound value to place a cursor; only an input action or
+  semantic validation writes one back.
+
+  The instrument is what makes that observable: a counting accessor reports reads,
+  writes and whether it was seeded, so a write that stores the value it already held
+  is caught too. Comparing projections before and after could only ever see a value
+  that ended up different.
+
+- **An editor is drawn through a look without adopting it.** `Editor.DrawWith` lets an
+  appearance component paint one projection in its own theme while the editor stays
+  the single owner of its text, cursor and input configuration.
+
+### Fixed
+
+- A non-comparable value used as a child keeps its gesture from press to release. The
+  conservative identity comparison existed and was documented; it had no test built on
+  a type that would panic under interface equality, and now it does.
+
 ## [0.5.0] — 2026-08-10
 
 Three capabilities the terminal-UI audit named, and one limitation this repository had
