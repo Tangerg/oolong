@@ -14,17 +14,19 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 type drawPurityCase struct {
-	name   string
-	width  int
-	height int
-	draw   func(grid.View)
-	state  func() any
+	name    string
+	width   int
+	height  int
+	draw    func(grid.View)
+	measure func(int) int
+	state   func() any
 }
 
-func TestDrawIsObservationallyPure(t *testing.T) {
+func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	cases := kitDrawPurityCases()
 	dynamic := make(map[string]bool, len(cases))
 	for _, tc := range cases {
@@ -62,6 +64,18 @@ func TestDrawIsObservationallyPure(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(strings.TrimPrefix(tc.name, "*"), func(t *testing.T) {
 			before := tc.state()
+			if tc.measure != nil {
+				first := tc.measure(tc.width)
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
+				if second := tc.measure(tc.width); second != first {
+					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
+				}
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
+			}
 			first := captureDraw(t, tc.width, tc.height, tc.draw)
 			if after := tc.state(); !reflect.DeepEqual(after, before) {
 				t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
@@ -100,7 +114,7 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 		t.Fatal(err)
 	}
 	set := token.NewFileSet()
-	var found []string
+	var found, measured []string
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
@@ -111,16 +125,27 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 		}
 		for _, declaration := range file.Decls {
 			fn, ok := declaration.(*ast.FuncDecl)
-			if !ok || !strings.HasPrefix(fn.Name.Name, "Draw") || fn.Recv == nil || len(fn.Recv.List) != 1 {
+			if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 {
 				continue
 			}
-			found = append(found, receiverIdentity(fn.Recv.List[0].Type))
+			name := receiverIdentity(fn.Recv.List[0].Type)
+			switch {
+			case strings.HasPrefix(fn.Name.Name, "Draw"):
+				found = append(found, name)
+			case fn.Name.Name == "Measure":
+				measured = append(measured, name)
+			}
 		}
 	}
 	sort.Strings(found)
 	for _, name := range found {
 		if !dynamic[name] && !passive[name] {
 			t.Errorf("Draw entry-point receiver %s has no purity classification", name)
+		}
+	}
+	for _, name := range measured {
+		if !dynamic[name] && !passive[name] {
+			t.Errorf("Measure receiver %s has no purity classification", name)
 		}
 	}
 	for name := range dynamic {
@@ -163,18 +188,30 @@ type editorMeaning struct {
 	text         string
 	line, column int
 	selection    string
+	look         headless.Look
+	placeholder  string
+	maxRows      int
 }
 
 func meaningOfEditor(editor *headless.Editor) editorMeaning {
 	line, column := editor.Cursor()
 	return editorMeaning{
-		text: editor.Text(), line: line, column: column, selection: editor.Selected(),
+		text: editor.Text(), line: line, column: column,
+		selection: editor.Selected(), look: editor.Look,
+		placeholder: editor.Placeholder, maxRows: editor.MaxRows,
 	}
 }
 
 func widgetPurityCase(name string, widget headless.Widget, state func() any) drawPurityCase {
 	root := headless.NewRoot(widget)
-	return drawPurityCase{name: name, width: 24, height: 6, draw: root.Draw, state: state}
+	var measure func(int) int
+	if sized, ok := widget.(layout.Measurer); ok {
+		measure = sized.Measure
+	}
+	return drawPurityCase{
+		name: name, width: 24, height: 6,
+		draw: root.Draw, measure: measure, state: state,
+	}
 }
 
 func kitDrawPurityCases() []drawPurityCase {
@@ -263,7 +300,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	spinner := &Spinner{Glyphs: Glyphs{Spinner: []string{"a", "b"}}, Label: "working", frame: 1}
 	cases = append(cases, drawPurityCase{
 		name: "*Spinner", width: 24, height: 1,
-		draw: func(view grid.View) { spinner.Draw(view) },
+		draw: func(view grid.View) { spinner.Draw(view) }, measure: spinner.Measure,
 		state: func() any {
 			return struct {
 				frame  int
@@ -277,6 +314,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	composer.SetText("hello")
 	composer.Editor().MoveLeft()
 	composer.Focus(true)
+	composer.configure()
 	cases = append(cases, widgetPurityCase("*Composer", composer, func() any {
 		return meaningOfEditor(composer.Editor())
 	}))
@@ -285,7 +323,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	paragraph.Indent = 1
 	cases = append(cases, drawPurityCase{
 		name: "*Paragraph", width: 10, height: 3,
-		draw: func(view grid.View) { paragraph.Draw(view) },
+		draw: func(view grid.View) { paragraph.Draw(view) }, measure: paragraph.Measure,
 		state: func() any {
 			return struct {
 				lines         any
@@ -314,7 +352,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	status.Tick()
 	cases = append(cases, drawPurityCase{
 		name: "*Status", width: 24, height: 1,
-		draw: func(view grid.View) { status.Draw(view) },
+		draw: func(view grid.View) { status.Draw(view) }, measure: status.Measure,
 		state: func() any {
 			return struct {
 				doing, elapsed string

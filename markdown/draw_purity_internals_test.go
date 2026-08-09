@@ -24,14 +24,15 @@ import (
 // projection: it describes the frame just built, while Doc.blocks says what the
 // document means.
 type drawPurityCase struct {
-	name   string
-	width  int
-	height int
-	draw   func(grid.View)
-	state  func() any
+	name    string
+	width   int
+	height  int
+	draw    func(grid.View)
+	measure func(int) int
+	state   func() any
 }
 
-func TestDrawIsObservationallyPure(t *testing.T) {
+func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	cases := markdownDrawPurityCases()
 	dynamic := make(map[string]bool, len(cases))
 	for _, tc := range cases {
@@ -53,6 +54,18 @@ func TestDrawIsObservationallyPure(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(strings.TrimPrefix(tc.name, "*"), func(t *testing.T) {
 			before := tc.state()
+			if tc.measure != nil {
+				first := tc.measure(tc.width)
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
+				if second := tc.measure(tc.width); second != first {
+					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
+				}
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
+			}
 			first := captureDraw(t, tc.width, tc.height, tc.draw)
 			if after := tc.state(); !reflect.DeepEqual(after, before) {
 				t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
@@ -91,7 +104,7 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 		t.Fatal(err)
 	}
 	set := token.NewFileSet()
-	var found []string
+	var found, measured []string
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
@@ -102,16 +115,27 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 		}
 		for _, declaration := range file.Decls {
 			fn, ok := declaration.(*ast.FuncDecl)
-			if !ok || !strings.HasPrefix(fn.Name.Name, "Draw") || fn.Recv == nil || len(fn.Recv.List) != 1 {
+			if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 {
 				continue
 			}
-			found = append(found, receiverIdentity(fn.Recv.List[0].Type))
+			name := receiverIdentity(fn.Recv.List[0].Type)
+			switch {
+			case strings.HasPrefix(fn.Name.Name, "Draw"):
+				found = append(found, name)
+			case fn.Name.Name == "Measure":
+				measured = append(measured, name)
+			}
 		}
 	}
 	sort.Strings(found)
 	for _, name := range found {
 		if !dynamic[name] && !passive[name] {
 			t.Errorf("Draw entry-point receiver %s has no purity classification", name)
+		}
+	}
+	for _, name := range measured {
+		if !dynamic[name] && !passive[name] {
+			t.Errorf("Measure receiver %s has no purity classification", name)
 		}
 	}
 	for name := range dynamic {
@@ -202,7 +226,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 	})
 	return []drawPurityCase{{
 		name: "*Doc", width: 14, height: 6,
-		draw:  doc.Draw,
+		draw: doc.Draw, measure: doc.Measure,
 		state: func() any { return meaningOfDoc(doc) },
 	}}
 }

@@ -252,7 +252,6 @@ func (s *Select[T]) Chosen() (Option[T], bool) {
 
 // Measure is the label, the options within their cap, and the problem if there is one.
 func (s *Select[T]) Measure(int) int {
-	s.ensure()
 	rows := len(s.options)
 	if s.Rows > 0 {
 		rows = min(rows, s.Rows)
@@ -464,7 +463,6 @@ func (m *MultiSelect[T]) Toggle() bool {
 
 // Measure is the label, the options within their cap, and the problem if there is one.
 func (m *MultiSelect[T]) Measure(int) int {
-	m.ensure()
 	rows := len(m.options)
 	if m.Rows > 0 {
 		rows = min(rows, m.Rows)

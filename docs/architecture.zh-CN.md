@@ -435,7 +435,7 @@ import 该适配器的应用才承担它的外部依赖。
 | 集中的 primitive 保持集中 | `dupl` 拒绝在范围、坐标、writer、身份和 ANSI framing primitive 的唯一实现旁边出现第二份结构性拷贝。它按模块运行，因此跨模块拷贝仍超出其视野，需要人工审读 | 每次 CI，在单个模块内 |
 | 有界的活动生命期（3.2） | 一个确定性组件测试证明交付移除了强载荷引用与每块的放置记录；一个在全新进程里跑的压力测试比较 `N` 与 `2N` 的大量已交付流在 GC 之后的保留堆，拒绝与 `N` 成正比的增长 | 切片 1 及每一个 transcript 实现 |
 | 无损增量摄入 | burst、取消、关闭、部分尾部、生产者快于消费者等测试，证明顺序、批量、声明的上限以及不丢数据 | 切片 1 |
-| 可观察意义上纯粹的测量与绘制 | [`headless`](../components/headless/draw_purity_internals_test.go)、[`kit`](../components/kit/draw_purity_internals_test.go) 和 [`markdown`](../markdown/draw_purity_internals_test.go) 对每一个生产用的 `Draw` 接收者做分类；每一个有状态的接收者从同样的有意义状态画两次，保持其语义投影不变，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了 `Draw` 的包；未分类的接收者直接失败 |
+| 可观察意义上纯粹的测量与绘制 | [`headless`](../components/headless/draw_purity_internals_test.go)、[`kit`](../components/kit/draw_purity_internals_test.go) 和 [`markdown`](../markdown/draw_purity_internals_test.go) 对每一个生产用的 `Measure` 与 `Draw*` 接收者做分类；每一个有状态的接收者从同样的有意义状态测量和绘制两次，保持其语义投影不变，返回相同的尺寸，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了测量或绘制的包；未分类的接收者直接失败 |
 | 单帧路由几何（6.3） | 一个路由测试在新的根绘制暂存期间观察到旧快照，在根提交之后观察到完整的新快照；不存在可观察到的子节点几何混合体 | 切片 2 |
 | 受支持平台的尺寸变化投递 | 一个真实的 Unix PTY 改变几何后必须产生后续的 `Resize`；Windows 的轮询状态机用确定性时钟测试变化检测、错误恢复、去重和关闭；Windows 源码在 CI 中构建并测试 | 每次终端测试，以及每个受支持的 OS 源码集 |
 | 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
