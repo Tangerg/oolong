@@ -18,6 +18,52 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-10
+
+Three capabilities the terminal-UI audit named, and one limitation this repository had
+written into its own documentation and can now delete.
+
+Breaking. `keymap.Pending` and `Map.Lookup` are replaced by `Map.Resolve` and
+`Matcher`; `grid.View.PlaceCursor` takes the style the cursor should have. There are no
+compatibility aliases.
+
+### Added
+
+- **A binding that is also a prefix is reachable.** `core/keymap` used to say so in its
+  own documentation: without a clock, `g` could never run while `gg` might still
+  arrive, so the longer sequence always won. The clock was the problem, and no layer
+  inside the library is allowed to own one — the dependency graph keeps `runtime` away
+  from `interaction` and `keymap` away from `program`. So the decision is a value the
+  caller supplies. `Map.Resolve` is a `Resolver`: it schedules a callback and returns a
+  cancel, `Runtime.After` has exactly that shape, and `keymap` still imports no clock.
+
+  Nil resolves with the next key instead of a timer, which needs no clock at all: a
+  key that can continue the sequence takes the longer binding, and a key that cannot
+  settles the exact one first. A field that loses focus cancels whatever it was
+  holding, so a late callback cannot move a cursor the user has already left.
+
+  `Matcher` replaces the `Pending` value and the lookup-then-dispatch procedure every
+  component had written out separately.
+
+- **Cursor appearance is frame state.** A shape and a blink travel with the frame that
+  placed the cursor, are diffed like anything else, and are set through
+  `View.PlaceCursor`. `Editor.CursorStyle` is the field an application sets.
+
+- **Native task progress is a session capability.** `term.Progress` and
+  `Session.SetProgress` drive the terminal's own progress indicator through
+  `ProgressHost`. It is keepalive-aware, restored across a handover, and cleared when
+  the session closes, so a program that hands the terminal to an editor and comes back
+  does not leave a stale bar behind on a host that shows one.
+
+### Changed
+
+- **The prior-art survey records outcomes, not intentions.** Six of its eight
+  candidates are closed, each with the shape it took and what it deliberately did not
+  become: the settings component routes actions without introducing a scope system, the
+  kill ring stayed private to `Editor` rather than becoming a package, and the
+  paste-into-chip recipe lives in `examples/composer` where the threshold and the label
+  are the application's.
+
 ## [0.4.1] — 2026-08-09
 
 Additive. Nothing exported changed shape, so an application on 0.4.0 compiles
