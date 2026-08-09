@@ -27,7 +27,7 @@ func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 func TestWrappingReleasesOversizedRowStorage(t *testing.T) {
 	blocks := make([]Block, 1024)
 	for i := range blocks {
-		blocks[i].Lines = []text.Line{text.Of("row", grid.Style{})}
+		blocks[i].lines = []text.Line{text.Of("row", grid.Style{})}
 	}
 	var doc Doc
 	doc.SetBlocks(blocks)
@@ -72,18 +72,18 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	rule := Render("---", look)
 	code := Render("```go\nx\n```", look)
 	provided[0][0].Text = "changed"
-	if got := rule[0].Lines[0].String(); got != "kept" {
+	if got := rule[0].lines[0].String(); got != "kept" {
 		t.Fatalf("rule glyph = %q, want owned kept", got)
 	}
-	if got := code[0].Lines[0].String(); got != "kept" {
+	if got := code[0].lines[0].String(); got != "kept" {
 		t.Fatalf("highlighted code = %q after callback storage changed, want owned kept", got)
 	}
 
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	sourceEnd := sourceStart + uintptr(len(source))
 	for name, value := range map[string]string{
-		"rule": rule[0].Lines[0][0].Text,
-		"code": code[0].Lines[0][0].Text,
+		"rule": rule[0].lines[0][0].Text,
+		"code": code[0].lines[0][0].Text,
 	} {
 		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 		if at >= sourceStart && at < sourceEnd {

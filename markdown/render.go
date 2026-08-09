@@ -105,7 +105,7 @@ type renderer struct {
 
 // push adds a block, giving it whatever marker is waiting.
 func (r *renderer) push(b Block) {
-	b.Marker, r.marker = r.marker, nil
+	b.marker, r.marker = r.marker, nil
 	r.blocks = append(r.blocks, b)
 }
 
@@ -165,20 +165,20 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	switch node := n.(type) {
 	case *ast.Heading:
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight,
-			Lines: r.inline(node, r.look.heading(node.Level)),
+			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
+			lines: r.inline(node, r.look.heading(node.Level)),
 		})
 	case *ast.Paragraph:
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight,
-			Lines: r.inline(node, in.body),
+			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
+			lines: r.inline(node, in.body),
 		})
 	case *ast.TextBlock:
 		// What a list item's own text is, when the list is written without blank lines
 		// in it. It is a paragraph in everything but name.
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight,
-			Lines: r.inline(node, in.body),
+			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
+			lines: r.inline(node, in.body),
 		})
 	case *ast.List:
 		r.list(node, in, stack)
@@ -195,8 +195,8 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 		r.code(node, "", in)
 	case *ast.ThematicBreak:
 		r.push(Block{
-			Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight, Rule: true,
-			Lines: r.rule(),
+			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, rule: true,
+			lines: r.rule(),
 		})
 	case *east.Table:
 		r.table(node, in)
@@ -207,8 +207,8 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	}
 }
 
-// rule is what a thematic break draws: one divider, repeated to the width when it is
-// drawn — see [Block.Rule].
+// rule is what a thematic break draws: one divider, repeated to the width when the
+// block is drawn.
 //
 // A look with no divider still gets a row, because that is what a break is for: it
 // separates, and a separator that vanished would join the two things it was between.
@@ -306,7 +306,7 @@ func (r *renderer) code(n ast.Node, language string, in frame) {
 			out = append(out, text.Of(line, r.look.Block))
 		}
 	}
-	r.push(Block{Indent: in.indent, Rail: in.rail.line(), Gap: !in.tight, Lines: out})
+	r.push(Block{indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, lines: out})
 }
 
 // inline turns the inline nodes under n into lines, splitting where the text said to

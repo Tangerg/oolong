@@ -145,7 +145,7 @@ func (s *Stream) Open() []Block {
 	if !s.fresh {
 		s.open, s.fresh = Render(s.held.String(), s.look), true
 	}
-	return cloneBlocks(s.open)
+	return slices.Clone(s.open)
 }
 
 // Flush publishes whatever is left, which is what the end of an answer is.

@@ -21,10 +21,11 @@
 //
 // # What it produces
 //
-// [Block]s of styled lines, not a string and not cells. A line has no width yet —
-// see [github.com/Tangerg/oolong/core/text.Line] — so wrapping happens where the
-// width is known, which is where it is drawn. [Doc] is the drawable form for a
-// caller who wants one; a caller with its own idea of layout takes the blocks.
+// [Block]s, not a string and not cells. A block owns the styled source and the
+// layout rule that gives it physical rows at a width. Keeping those together is
+// what lets prose wrap, rules stretch and tables reflow without turning any of
+// them into cells before the final region is known. [Doc] composes the blocks; a
+// caller with its own layout can measure and draw them directly.
 //
 // # What it does not do
 //
@@ -37,45 +38,11 @@ package markdown
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
-
-// Block is one piece of a rendered document: lines that share an indent, and
-// whatever is drawn in front of them.
-//
-// The two prefixes are two different things, which is why there are two. A marker
-// goes on the first row only and is what a list item's bullet is; a rail goes on
-// every row, including the rows a wrap produced, and is what a quotation's bar is.
-// A renderer that had only one of them would either lose the bar down the side of a
-// wrapped quotation or repeat the bullet down the side of a wrapped list item.
-type Block struct {
-	// Lines are what the block says. They have no width yet: wrapping happens where
-	// the width is known.
-	Lines []text.Line
-	// Indent is which column the block's text starts at, which is how deep in a list
-	// or a quotation it sits.
-	Indent int
-	// Marker is drawn on the first row, ending where the text starts: a bullet, a
-	// number, a task's box.
-	Marker text.Line
-	// Rail is drawn on every row, ending where the text starts. It is what a
-	// quotation's bar is, and it is on every row because a wrapped quotation with a
-	// bar beside only its first line is a quotation that stops looking like one.
-	Rail text.Line
-	// Rule says the block is a line across the page: its one line is repeated to the
-	// width it is drawn in rather than wrapped, because a rule is as wide as the room
-	// it separates and only drawing knows what that is — and a rule wrapped instead of
-	// stretched comes out as ten rows of dashes.
-	Rule bool
-	// Gap says a blank row belongs before this block. It is set between the blocks of
-	// a document and not between the items of a list, which is the difference between
-	// prose and a list that reads as one thing.
-	Gap bool
-}
 
 // Doc is a rendered document, ready to be measured and drawn.
 //
@@ -95,24 +62,15 @@ type Doc struct {
 	fresh   bool
 }
 
-// row is one physical row: what it says, and where it starts.
-type row struct {
-	text.Wrapped
-	at     int
-	prefix text.Line
-	gap    string
-}
-
-// SetBlocks replaces the document. Doc copies blocks and their lines; the caller may
-// reuse or change its input after this returns.
+// SetBlocks replaces the document. Blocks are immutable values; Doc copies the
+// slice so the caller may reuse it after this returns.
 func (d *Doc) SetBlocks(blocks []Block) {
-	d.blocks, d.fresh = cloneBlocks(blocks), false
+	d.blocks, d.fresh = slices.Clone(blocks), false
 }
 
 // Append adds blocks to the end, which is what a stream does as they are finished.
-// Doc copies what it retains.
 func (d *Doc) Append(blocks ...Block) {
-	d.blocks = append(d.blocks, cloneBlocks(blocks)...)
+	d.blocks = append(d.blocks, blocks...)
 	d.fresh = false
 }
 
@@ -124,26 +82,13 @@ func (d *Doc) Len() int {
 	return len(d.blocks)
 }
 
-// Blocks returns a deep copy of the rendered blocks in document order.
+// Blocks returns the immutable rendered blocks in document order. The returned
+// slice is independent; the blocks themselves are values safe to share.
 func (d *Doc) Blocks() []Block {
 	if d == nil {
 		return nil
 	}
-	return cloneBlocks(d.blocks)
-}
-
-func cloneBlocks(blocks []Block) []Block {
-	if len(blocks) == 0 {
-		return nil
-	}
-	out := make([]Block, len(blocks))
-	for i, block := range blocks {
-		out[i] = block
-		out[i].Lines = text.CloneLines(block.Lines)
-		out[i].Marker = block.Marker.Clone()
-		out[i].Rail = block.Rail.Clone()
-	}
-	return out
+	return slices.Clone(d.blocks)
 }
 
 // Measure is how many rows the document needs at this width.
@@ -151,16 +96,8 @@ func (d *Doc) Measure(width int) int { return len(d.wrap(width)) }
 
 // Draw writes the document, one wrapped row per row of v.
 func (d *Doc) Draw(v grid.View) {
-	width, height := v.Size()
-	for y, r := range d.wrap(width) {
-		if y >= height {
-			return
-		}
-		if len(r.prefix) > 0 {
-			r.prefix.Draw(v, r.at-r.prefix.Width(), y)
-		}
-		r.Draw(v, r.at, y)
-	}
+	width, _ := v.Size()
+	drawRows(v, d.wrap(width))
 }
 
 // Rows returns the meaningful text of each drawn row for selection and search.
@@ -170,15 +107,7 @@ func (d *Doc) Draw(v grid.View) {
 // copying a bullet or quotation bar. The result uses core text vocabulary and does
 // not make markdown depend on a component package.
 func (d *Doc) Rows(width int) []text.Row {
-	wrapped := d.wrap(width)
-	out := make([]text.Row, len(wrapped))
-	for i, row := range wrapped {
-		out[i] = text.Row{
-			Text: row.Line.String(), Offset: row.at,
-			Joined: row.Joined, Gap: row.gap,
-		}
-	}
-	return out
+	return publicRows(d.wrap(width))
 }
 
 // wrap lays every block out at a width, once per width.
@@ -189,41 +118,10 @@ func (d *Doc) wrap(width int) []row {
 	clear(d.rows)
 	rows := d.rows[:0]
 	for _, block := range d.blocks {
-		if block.Gap && len(rows) > 0 {
+		if block.blankBefore && len(rows) > 0 {
 			rows = append(rows, row{})
 		}
-		at := block.Indent
-		room := max(layout.Remaining(width, at), 1)
-		if block.Rule {
-			rows = append(rows, row{
-				Wrapped: text.Wrapped{Line: stretch(block.Lines, room)},
-				at:      at, prefix: block.Rail,
-			})
-			continue
-		}
-		first := true
-		for _, line := range block.Lines {
-			whole := line.String()
-			previous := 0
-			for _, wrapped := range line.Wrap(room) {
-				prefix := block.Rail
-				if first {
-					// The marker replaces the rail on the row it is on, because they
-					// occupy the same columns: a list inside a quotation is a bar, then a
-					// bullet, and the bullet is the deeper of the two.
-					if len(block.Marker) > 0 {
-						prefix = block.Marker
-					}
-					first = false
-				}
-				gap := ""
-				if wrapped.Joined && previous <= wrapped.From && wrapped.From <= len(whole) {
-					gap = whole[previous:wrapped.From]
-				}
-				rows = append(rows, row{Wrapped: wrapped, at: at, prefix: prefix, gap: gap})
-				previous = wrapped.To
-			}
-		}
+		rows = block.appendRows(rows, width)
 	}
 	if len(rows) == 0 {
 		rows = nil
@@ -232,21 +130,6 @@ func (d *Doc) wrap(width int) []row {
 	}
 	d.rows, d.atWidth, d.fresh = rows, width, true
 	return rows
-}
-
-// stretch repeats a line until it fills the room there is, which is what a rule
-// across the page is: one character, as many times as the width says.
-func stretch(lines []text.Line, room int) text.Line {
-	if len(lines) == 0 || len(lines[0]) == 0 {
-		return nil
-	}
-	span := lines[0][0]
-	width := text.Width(span.Text)
-	if width <= 0 {
-		return nil
-	}
-	span.Text = strings.Repeat(span.Text, room/width+1)
-	return text.Line{span}.Truncate(room, "")
 }
 
 // Look is how a document is drawn: a style for every part of one, and the characters

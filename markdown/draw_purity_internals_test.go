@@ -43,7 +43,7 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	}
 	// Nothing here draws without owning state. Listing the classification anyway
 	// makes a future immutable drawer say so rather than be forgotten.
-	passive := map[string]bool{}
+	passive := map[string]bool{"Block": true}
 	for name := range passive {
 		if dynamic[name] {
 			t.Fatalf("Draw receiver %s is classified as both stateful and passive", name)
@@ -168,6 +168,7 @@ func receiverIdentity(expression ast.Expr) string {
 // blockMeaning is one block reduced to values that cannot alias the document.
 type blockMeaning struct {
 	text   string
+	table  string
 	marker string
 	rail   string
 	indent int
@@ -186,17 +187,28 @@ func meaningOfDoc(doc *Doc) docMeaning {
 	meaning := docMeaning{}
 	for _, block := range doc.blocks {
 		var body strings.Builder
-		for _, line := range block.Lines {
+		for _, line := range block.lines {
 			body.WriteString(line.String())
 			body.WriteByte('\n')
 		}
+		var tableBody strings.Builder
+		if block.table != nil {
+			for _, tableRow := range block.table.rows {
+				for _, cell := range tableRow {
+					tableBody.WriteString(cell.String())
+					tableBody.WriteByte('\t')
+				}
+				tableBody.WriteByte('\n')
+			}
+		}
 		meaning.blocks = append(meaning.blocks, blockMeaning{
 			text:   body.String(),
-			marker: block.Marker.String(),
-			rail:   block.Rail.String(),
-			indent: block.Indent,
-			rule:   block.Rule,
-			gap:    block.Gap,
+			table:  tableBody.String(),
+			marker: block.marker.String(),
+			rail:   block.rail.String(),
+			indent: block.indent,
+			rule:   block.rule,
+			gap:    block.blankBefore,
 		})
 	}
 	return meaning
@@ -212,17 +224,27 @@ func markdownDrawPurityCases() []drawPurityCase {
 	// trim the memo it just built.
 	doc := &Doc{}
 	doc.SetBlocks([]Block{
-		{Lines: []text.Line{plain("a heading")}},
+		{lines: []text.Line{plain("a heading")}},
 		{
-			Lines:  []text.Line{plain("an item long enough to wrap twice over")},
-			Marker: plain("- "), Indent: 2, Gap: true,
+			lines:  []text.Line{plain("an item long enough to wrap twice over")},
+			marker: plain("- "), indent: 2, blankBefore: true,
 		},
 		{
-			Lines: []text.Line{plain("a quotation that also wraps")},
-			Rail:  plain("| "), Indent: 2, Gap: true,
+			lines: []text.Line{plain("a quotation that also wraps")},
+			rail:  plain("| "), indent: 2, blankBefore: true,
 		},
-		{Lines: []text.Line{plain("-")}, Rule: true, Gap: true},
-		{Lines: []text.Line{plain("after the rule")}, Gap: true},
+		{lines: []text.Line{plain("-")}, rule: true, blankBefore: true},
+		{
+			table: &table{
+				rows: [][]text.Line{
+					{plain("name"), plain("description")},
+					{plain("one"), plain("a value long enough to wrap")},
+				},
+				header: true, separator: " | ", divider: "-",
+			},
+			blankBefore: true,
+		},
+		{lines: []text.Line{plain("after the rule")}, blankBefore: true},
 	})
 	return []drawPurityCase{{
 		name: "*Doc", width: 14, height: 6,
