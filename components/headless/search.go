@@ -258,14 +258,29 @@ func (s *Search) scan(j job) (Result, bool) {
 	}
 
 	joined, starts := join(j.corpus)
+	locations := re.FindAllStringIndex(joined, -1)
 	result := Result{Query: j.query}
-	for _, loc := range re.FindAllStringIndex(joined, -1) {
+	var spans []Span
+	if len(locations) > 0 {
+		// Every location produces at most one Match and normally one Span. A match
+		// crossing rows grows spans from this estimate without making the common case
+		// pay one allocation per occurrence.
+		result.Matches = make([]Match, 0, len(locations))
+		spans = make([]Span, 0, len(locations))
+	}
+	for _, loc := range locations {
 		if s.superseded(j.generation) {
 			return Result{}, true
 		}
-		if m, ok := spread(loc[0], loc[1], j.corpus, starts); ok {
-			m.Row = layout.Sum(m.Row, j.start)
-			result.Matches = append(result.Matches, m)
+		first := len(spans)
+		row, next, ok := spread(spans, loc[0], loc[1], j.corpus, starts)
+		if ok {
+			spans = next
+			last := len(spans)
+			result.Matches = append(result.Matches, Match{
+				Row:   layout.Sum(row, j.start),
+				Spans: spans[first:last:last],
+			})
 		}
 	}
 	return result, false
@@ -313,12 +328,12 @@ func join(rows []text.Row) (joined string, starts []int) {
 }
 
 // spread turns a byte range of the joined text into the columns it covers on each row.
-func spread(from, to int, rows []text.Row, starts []int) (Match, bool) {
+func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Span, bool) {
 	first := rowAt(starts, rows, from)
 	if first < 0 {
-		return Match{}, false
+		return 0, dst, false
 	}
-	m := Match{Row: first}
+	before := len(dst)
 	for i := first; i < len(rows); i++ {
 		start, end := starts[i], starts[i]+len(rows[i].Text)
 		if start >= to {
@@ -331,14 +346,14 @@ func spread(from, to int, rows []text.Row, starts []int) (Match, bool) {
 			lo, hi = 0, 0
 		}
 		startCol := text.ColumnOf(rows[i].Text, lo)
-		m.Spans = append(m.Spans, Span{
+		dst = append(dst, Span{
 			Col: layout.Sum(rows[i].Offset, startCol), Width: text.ColumnOf(rows[i].Text, hi) - startCol,
 		})
 	}
-	if len(m.Spans) == 0 {
-		return Match{}, false
+	if len(dst) == before {
+		return 0, dst, false
 	}
-	return m, true
+	return first, dst, true
 }
 
 // rowAt is the row a byte offset of the joined text falls in, or -1 when there are no

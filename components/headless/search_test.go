@@ -55,6 +55,11 @@ func TestSearchFindsEveryOccurrence(t *testing.T) {
 	if got := r.Matches[1]; got.Row != 2 || got.Spans[0] != (headless.Span{Col: 7, Width: 3}) {
 		t.Errorf("second match = %+v, want row 2 columns 7..10", got)
 	}
+	for i, match := range r.Matches {
+		if cap(match.Spans) != len(match.Spans) {
+			t.Errorf("match %d span capacity = %d, want its isolated length %d", i, cap(match.Spans), len(match.Spans))
+		}
+	}
 }
 
 func TestSearchIgnoresCase(t *testing.T) {
@@ -160,6 +165,17 @@ func TestSearchTakesAPattern(t *testing.T) {
 	r := found(t, s, `error \d+`)
 	if len(r.Matches) != 2 {
 		t.Fatalf("found %d matches, want 2", len(r.Matches))
+	}
+}
+
+func TestSearchLeavesNoMatchesNil(t *testing.T) {
+	tr := transcriptOf(plainRows("one", "two")...)
+	s := searching(t)
+	s.Submit(tr, "absent", false)
+
+	result := found(t, s, "absent")
+	if result.Matches != nil {
+		t.Errorf("matches = %+v, want nil", result.Matches)
 	}
 }
 

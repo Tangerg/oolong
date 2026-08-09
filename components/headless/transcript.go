@@ -84,7 +84,7 @@ func (t *Transcript) Height() int { return t.rows }
 func (t *Transcript) StartRow() int { return t.start }
 
 // EndRow is the exclusive end of the transcript's live row range.
-func (t *Transcript) EndRow() int { return layout.Sum(t.start, t.rows) }
+func (t *Transcript) EndRow() int { return t.endRow() }
 
 // FirstBlock is the ID of the first live block. When the transcript is empty it is
 // the ID the next appended block will receive.
@@ -222,6 +222,55 @@ type transcriptState struct {
 	first  BlockID
 }
 
+func (s transcriptState) endRow() int { return layout.Sum(s.start, s.rows) }
+
+// position resolves a stable identity into the current compact slice.
+func (s transcriptState) position(id BlockID) (int, bool) {
+	return blockPosition(s.first, id, len(s.blocks))
+}
+
+// index is the block covering row, which must be a row that exists.
+//
+// The last block whose top is at or below the row is the answer. A zero-height
+// block shares its top with the block after it, so choosing the last such block also
+// skips every zero-height block that cannot cover the row. A trailing zero-height
+// run starts at endRow, which callers reject before asking.
+func (s transcriptState) index(row int) int {
+	lo, hi := 0, len(s.blocks)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if s.blocks[mid].top <= row {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
+}
+
+// visible is the compact slice range touched by [from, from+rows).
+func (s transcriptState) visible(from, rows int) (first, last int) {
+	if rows <= 0 || s.rows == 0 || from >= s.endRow() {
+		return len(s.blocks), len(s.blocks)
+	}
+	if from < s.start {
+		if s.start > 0 {
+			rows -= s.start - from
+		}
+		from = s.start
+	}
+	if rows <= 0 {
+		return len(s.blocks), len(s.blocks)
+	}
+	first = s.index(from)
+	end := layout.Sum(from, rows)
+	last = first
+	for last < len(s.blocks) && s.blocks[last].top < end {
+		last++
+	}
+	return first, last
+}
+
 // TranscriptLayout is the immutable placement returned by [Transcript.Stage] for one
 // component frame.
 type TranscriptLayout struct{ state transcriptState }
@@ -233,14 +282,14 @@ func (l TranscriptLayout) Height() int { return l.state.rows }
 func (l TranscriptLayout) StartRow() int { return l.state.start }
 
 // EndRow is the exclusive end of this layout's live rows.
-func (l TranscriptLayout) EndRow() int { return layout.Sum(l.state.start, l.state.rows) }
+func (l TranscriptLayout) EndRow() int { return l.state.endRow() }
 
 // FirstBlock is the identity of the first live block.
 func (l TranscriptLayout) FirstBlock() BlockID { return l.state.first }
 
 // Block returns the live block with id.
 func (l TranscriptLayout) Block(id BlockID) Block {
-	i, ok := l.position(id)
+	i, ok := l.state.position(id)
 	if !ok {
 		return nil
 	}
@@ -249,7 +298,7 @@ func (l TranscriptLayout) Block(id BlockID) Block {
 
 // Extent is the first row and height occupied by id.
 func (l TranscriptLayout) Extent(id BlockID) (top, height int, ok bool) {
-	i, ok := l.position(id)
+	i, ok := l.state.position(id)
 	if !ok {
 		return 0, 0, false
 	}
@@ -263,7 +312,7 @@ func (l TranscriptLayout) Draw(v grid.View, from int) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	first, last := l.visible(from, h)
+	first, last := l.state.visible(from, h)
 	for i := first; i < last; i++ {
 		block := l.state.blocks[i]
 		if block.height == 0 {
@@ -272,45 +321,6 @@ func (l TranscriptLayout) Draw(v grid.View, from int) {
 		y := block.top - from
 		block.block.Draw(v.Sub(grid.Rect(0, y, w, block.height)))
 	}
-}
-
-func (l TranscriptLayout) position(id BlockID) (int, bool) {
-	return blockPosition(l.state.first, id, len(l.state.blocks))
-}
-
-func (l TranscriptLayout) visible(from, rows int) (first, last int) {
-	if rows <= 0 || l.state.rows == 0 || from >= l.EndRow() {
-		return len(l.state.blocks), len(l.state.blocks)
-	}
-	if from < l.state.start {
-		if l.state.start > 0 {
-			rows -= l.state.start - from
-		}
-		from = l.state.start
-	}
-	if rows <= 0 {
-		return len(l.state.blocks), len(l.state.blocks)
-	}
-	first = l.index(from)
-	end := layout.Sum(from, rows)
-	last = first
-	for last < len(l.state.blocks) && l.state.blocks[last].top < end {
-		last++
-	}
-	return first, last
-}
-
-func (l TranscriptLayout) index(row int) int {
-	lo, hi := 0, len(l.state.blocks)-1
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if l.state.blocks[mid].top <= row {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	return lo
 }
 
 // remeasure recomputes heights and tops from i onwards.
@@ -361,11 +371,6 @@ func (t *Transcript) At(row int) (id BlockID, offset int, ok bool) {
 	return t.first + blockOffset(i), row - t.blocks[i].top, true
 }
 
-// position resolves a stable identity into the current compact slice.
-func (t *Transcript) position(id BlockID) (int, bool) {
-	return blockPosition(t.first, id, len(t.blocks))
-}
-
 // blockPosition resolves an unsigned stable identity only after proving its distance
 // fits the architecture's slice index. Comparing before subtracting is what keeps a
 // stale earlier identity from wrapping into the live range.
@@ -391,32 +396,6 @@ func blockOffset(index int) BlockID {
 	return BlockID(index)
 }
 
-// index is the block covering a row, which must be a row that exists.
-//
-// It is shared with [Transcript.Visible] rather than repeated there. Two bisections
-// over the same tops would eventually disagree about a run of blocks with no height,
-// and the transcript that exercised the difference is the one nobody built.
-func (t *Transcript) index(row int) int {
-	// The last block whose top is at or below the row.
-	lo, hi := 0, len(t.blocks)-1
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if t.blocks[mid].top <= row {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	// The answer is never a block of no height, and nothing here has to check.
-	//
-	// Such a block shares its top with whichever block follows it, and this finds the
-	// largest index at or below the row — so the one it lands on is the last of any
-	// run sharing that top, which is the one with height. A run at the very end has
-	// nowhere to share with, and its top is the total, which the caller has already
-	// ruled the row out of.
-	return lo
-}
-
 // Visible is the range of blocks that any of the rows [from, from+rows) touch.
 //
 // The end is exclusive. An empty range comes back as two equal identities, which is
@@ -424,28 +403,6 @@ func (t *Transcript) index(row int) int {
 func (t *Transcript) Visible(from, rows int) (first, last BlockID) {
 	a, b := t.visible(from, rows)
 	return t.first + blockOffset(a), t.first + blockOffset(b)
-}
-
-func (t *Transcript) visible(from, rows int) (first, last int) {
-	if rows <= 0 || t.rows == 0 || from >= t.EndRow() {
-		return len(t.blocks), len(t.blocks)
-	}
-	if from < t.start {
-		if t.start > 0 {
-			rows -= t.start - from
-		}
-		from = t.start
-	}
-	if rows <= 0 {
-		return len(t.blocks), len(t.blocks)
-	}
-	first = t.index(from)
-	end := layout.Sum(from, rows)
-	last = first
-	for last < len(t.blocks) && t.blocks[last].top < end {
-		last++
-	}
-	return first, last
 }
 
 // Copyable is a block that can say what it draws, so a selection can be copied out
