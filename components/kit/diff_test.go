@@ -58,6 +58,40 @@ func TestADiffPutsBothLineNumbersDownTheLeft(t *testing.T) {
 	}
 }
 
+func TestADiffWrapsLongLinesWithoutDiscardingTheirTail(t *testing.T) {
+	d := kit.Diff{
+		Hunks: []diff.Hunk{{Lines: diff.Script{{Kind: diff.Added, Text: "alpha beta gamma"}}}},
+		Theme: kit.Dark(), Glyphs: kit.Unicode(),
+	}
+	if got := d.Measure(8); got != 3 {
+		t.Fatalf("Measure(8) = %d, want three wrapped rows", got)
+	}
+	equalRows(t, paint(8, d.Measure(8), d.Draw), []string{
+		"+alpha..",
+		"│beta...",
+		"│gamma..",
+	})
+}
+
+func TestADiffLineNumbersYieldBeforeTheyCrushTheContent(t *testing.T) {
+	d := kit.Diff{
+		Hunks: []diff.Hunk{{Lines: diff.Script{{
+			Kind: diff.Added, Text: "value", Old: 123, New: 456,
+		}}}},
+		Theme: kit.Dark(), Glyphs: kit.Unicode(), Numbers: true,
+	}
+	if got := d.Measure(10); got != 1 {
+		t.Fatalf("Measure(10) = %d, want the content kept on one row", got)
+	}
+	rows := paint(10, d.Measure(10), d.Draw)
+	if strings.Contains(rows[0], "123") || strings.Contains(rows[0], "456") {
+		t.Fatalf("narrow diff retained line numbers: %q", rows[0])
+	}
+	if !strings.HasPrefix(rows[0], "+value") {
+		t.Fatalf("narrow diff = %q, want the complete changed text", rows[0])
+	}
+}
+
 func TestADiffSaysWhereItLeftLinesOut(t *testing.T) {
 	before := strings.Repeat("same\n", 10) + "old" + strings.Repeat("\nsame", 10)
 	after := strings.Repeat("same\n", 10) + "new" + strings.Repeat("\nsame", 10)

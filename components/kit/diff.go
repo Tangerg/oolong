@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"strings"
+
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
@@ -25,7 +27,7 @@ type Diff struct {
 	// meaning on its own, which is why the theme has three styles for it and nothing
 	// else uses them.
 	Theme Theme
-	// Glyphs are the characters the break between hunks is drawn with.
+	// Glyphs are the characters used between hunks and beside continuation rows.
 	Glyphs Glyphs
 	// Numbers puts each line's number in both texts down the left. Off draws the marks
 	// alone, which is what a narrow pane has room for.
@@ -34,56 +36,100 @@ type Diff struct {
 
 var _ headless.Block = Diff{}
 
-// Measure is a row per line, and one for each break between hunks.
-func (d Diff) Measure(int) int {
-	rows := max(len(d.Hunks)-1, 0)
-	for _, h := range d.Hunks {
-		rows += len(h.Lines)
-	}
-	return rows
-}
+// Measure reports the physical rows needed at width. Long lines wrap through the
+// same layout Draw consumes, so measurement cannot promise rows drawing truncates.
+func (d Diff) Measure(width int) int { return len(d.layout(width).rows) }
 
 // Draw paints the hunks in order, with a break between them.
 func (d Diff) Draw(v grid.View) {
-	w, h := v.Size()
-	if w <= 0 || h <= 0 {
+	width, height := v.Size()
+	if width <= 0 || height <= 0 {
 		return
 	}
-	numbers := d.margin()
-	y := 0
-	for i, hunk := range d.Hunks {
-		if i > 0 {
-			d.gap(v, y, w)
-			y++
+	layout := d.layout(width)
+	for y, row := range layout.rows {
+		if y >= height {
+			return
 		}
-		for _, line := range hunk.Lines {
-			if y >= h {
-				return
-			}
-			d.line(v, y, w, numbers, line)
-			y++
+		if row.gap {
+			d.gap(v, y, width)
+			continue
 		}
+		d.line(v, y, width, row)
 	}
 }
 
-// line draws one line of the change: its numbers, its mark, and its text, all in the
-// one style that says what happened to it.
+// diffLayout is one width's complete physical representation. It is deliberately a
+// value produced from Diff rather than mutable cache state: Diff is passive content,
+// and callers are free to change its exported hunks and appearance between frames.
+type diffLayout struct{ rows []diffRow }
+
+type diffRow struct {
+	kind          diff.Kind
+	numbers, mark string
+	content       text.Line
+	gap           bool
+}
+
+func (d Diff) layout(width int) diffLayout {
+	// Measure(0) still answers the content's height, as other text measurers do. Draw
+	// cannot paint a zero-width view, but pretending the content has no rows would
+	// make a parent collapse it permanently.
+	width = max(width, 1)
+	gutter := d.gutter(width)
+	contentWidth := max(layout.Remaining(width, gutter.width()), 1)
+	out := diffLayout{}
+	for hunkIndex, hunk := range d.Hunks {
+		if hunkIndex > 0 {
+			out.rows = append(out.rows, diffRow{gap: true})
+		}
+		for _, line := range hunk.Lines {
+			style := d.style(line.Kind)
+			wrapped := text.Of(line.Text, style).Wrap(contentWidth)
+			for physical, content := range wrapped {
+				row := diffRow{kind: line.Kind, content: content.Line}
+				if physical == 0 {
+					row.numbers, row.mark = gutter.margin.of(line), gutter.mark(line.Kind)
+				} else {
+					row.numbers, row.mark = gutter.margin.blank(), gutter.continuation
+				}
+				out.rows = append(out.rows, row)
+			}
+		}
+	}
+	return out
+}
+
+// line draws one physical row of a change. Its numbers, mark and content sit in the
+// style that says what happened to the logical line.
 //
 // The style covers the whole row rather than the text alone. A background that stopped
 // where the text did would leave a diff looking like ragged bunting, and the eye reads
 // the block of colour long before it reads the mark.
-func (d Diff) line(v grid.View, y, w int, numbers margin, line diff.Line) {
-	style := d.style(line.Kind)
-	v.Fill(grid.Rect(0, y, w, 1), style)
-
-	x := v.Text(0, y, numbers.of(line), style.Merge(d.Theme.Subtle))
-	x = layout.Sum(x, v.Text(x, y, line.Kind.String(), style))
-	v.Text(x, y, text.Truncate(line.Text, max(w-x, 0), "…"), style)
+func (d Diff) line(v grid.View, y, width int, row diffRow) {
+	style := d.style(row.kind)
+	v.Fill(grid.Rect(0, y, width, 1), style)
+	x := v.Text(0, y, row.numbers, style.Merge(d.Theme.Subtle))
+	markStyle := style
+	if row.mark != row.kind.String() {
+		markStyle = style.Merge(d.Theme.Subtle)
+	}
+	x = layout.Sum(x, v.Text(x, y, row.mark, markStyle))
+	row.content.Draw(v, x, y)
 }
 
 // margin is the column of line numbers down the left of a diff: how wide each of the
 // two numbers is, or zero for a diff that does not draw them.
 type margin struct{ each int }
+
+func (m margin) width() int {
+	if m.each == 0 {
+		return 0
+	}
+	return 2*m.each + 2
+}
+
+func (m margin) blank() string { return strings.Repeat(" ", m.width()) }
 
 // margin is how wide the numbers have to be to hold every line's.
 func (d Diff) margin() margin {
@@ -109,6 +155,47 @@ func (m margin) of(line diff.Line) string {
 		return ""
 	}
 	return right(decimal(line.Old), m.each) + " " + right(decimal(line.New), m.each) + " "
+}
+
+type diffGutter struct {
+	margin       margin
+	showMark     bool
+	continuation string
+}
+
+// diffContentFloor is the least room worth preserving beside line numbers. Below
+// it the numbers yield to the changed text; the colour and mark still say what the
+// row is, while a one-column body would say almost nothing at a glance.
+const diffContentFloor = 4
+
+func (d Diff) gutter(width int) diffGutter {
+	gutter := diffGutter{}
+	if width > 1 {
+		gutter.showMark = true
+		gutter.continuation = d.Glyphs.Vertical
+		if text.Width(gutter.continuation) != 1 {
+			gutter.continuation = " "
+		}
+	}
+	if numbers := d.margin(); d.Numbers && width >= numbers.width()+1+diffContentFloor {
+		gutter.margin = numbers
+	}
+	return gutter
+}
+
+func (g diffGutter) width() int {
+	width := g.margin.width()
+	if g.showMark {
+		width++
+	}
+	return width
+}
+
+func (g diffGutter) mark(kind diff.Kind) string {
+	if !g.showMark {
+		return ""
+	}
+	return kind.String()
 }
 
 // gap is the break between two hunks, which is what says lines were left out.
