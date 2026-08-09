@@ -251,8 +251,15 @@ func (c *Container) Focus(has bool) {
 
 // Draw arranges the children and draws each into the room it got.
 func (c *Container) Draw(v Frame) {
+	c.drawWith(v, c.flow(), nil)
+}
+
+// drawWith projects the same settled children through flow and draw. It is private
+// because the semantic child collection still has one owner; Form uses the seam to
+// pass a frame-local Look without rewriting any child configuration during Draw.
+func (c *Container) drawWith(v Frame, flow layout.Flow, draw func(Frame, Widget)) {
 	items := slices.Clone(c.items)
-	rects := c.flow().Rects(v.Bounds().Size(), c.arrangeItems(items))
+	rects := flow.Rects(v.Bounds().Size(), c.arrangeItems(items))
 	placed := make([]childPlacement, len(items))
 	for i, item := range items {
 		placed[i] = childPlacement{
@@ -261,8 +268,14 @@ func (c *Container) Draw(v Frame) {
 	}
 	c.presentation.Stage(v, placed)
 	for _, child := range placed {
-		if child.child != nil {
-			child.child.Draw(v.Sub(child.area))
+		if child.child == nil {
+			continue
+		}
+		frame := v.Sub(child.area)
+		if draw == nil {
+			child.child.Draw(frame)
+		} else {
+			draw(frame, child.child)
 		}
 	}
 }
@@ -270,7 +283,11 @@ func (c *Container) Draw(v Frame) {
 // Measure is how much of the divided axis the children want altogether, which is
 // what a container inside a measured slot answers with.
 func (c *Container) Measure(across int) int {
-	return c.flow().Wanted(across, c.arrange())
+	return c.measureWith(across, c.flow())
+}
+
+func (c *Container) measureWith(across int, flow layout.Flow) int {
+	return flow.Wanted(across, c.arrange())
 }
 
 // flow is how this container divides its region: its axis, and the room it leaves

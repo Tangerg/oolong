@@ -19,7 +19,8 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
-// drawPurityCase names the semantic projection that Draw is forbidden to change.
+// drawPurityCase names the semantic projection that every Draw entry point is
+// forbidden to change.
 // Presentation snapshots and layout caches are intentionally absent: they exist to
 // describe the frame just built, while the values here say what the component means.
 type drawPurityCase struct {
@@ -105,7 +106,7 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 		}
 		for _, declaration := range file.Decls {
 			fn, ok := declaration.(*ast.FuncDecl)
-			if !ok || fn.Name.Name != "Draw" || fn.Recv == nil || len(fn.Recv.List) != 1 {
+			if !ok || !strings.HasPrefix(fn.Name.Name, "Draw") || fn.Recv == nil || len(fn.Recv.List) != 1 {
 				continue
 			}
 			found = append(found, receiverIdentity(fn.Recv.List[0].Type))
@@ -114,17 +115,17 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 	sort.Strings(found)
 	for _, name := range found {
 		if !dynamic[name] && !passive[name] {
-			t.Errorf("Draw receiver %s has no purity classification", name)
+			t.Errorf("Draw entry-point receiver %s has no purity classification", name)
 		}
 	}
 	for name := range dynamic {
 		if !slices.Contains(found, name) {
-			t.Errorf("purity case %s has no production Draw method", name)
+			t.Errorf("purity case %s has no production Draw entry point", name)
 		}
 	}
 	for name := range passive {
 		if !slices.Contains(found, name) {
-			t.Errorf("passive classification %s has no production Draw method", name)
+			t.Errorf("passive classification %s has no production Draw entry point", name)
 		}
 	}
 }
@@ -180,13 +181,14 @@ type editorMeaning struct {
 	line, column int
 	selection    string
 	blurred      bool
+	look         Look
 }
 
 func meaningOfEditor(editor *Editor) editorMeaning {
 	line, column := editor.Cursor()
 	return editorMeaning{
 		text: editor.Text(), line: line, column: column,
-		selection: editor.Selected(), blurred: editor.blurred,
+		selection: editor.Selected(), blurred: editor.blurred, look: editor.Look,
 	}
 }
 

@@ -54,9 +54,12 @@ func (t *Text) Measure(int) int { return layout.Sum(1, t.rows(t.Label)) }
 
 // Draw paints the label, the field and whatever was wrong with the answer.
 func (t *Text) Draw(v Frame) {
+	t.drawField(v, Look{})
+}
+
+func (t *Text) drawField(v Frame, look Look) {
 	t.ensure()
-	t.editor.Look = t.look
-	t.editor.Draw(t.frame(v, t.Label))
+	t.editor.drawWith(t.frame(v, t.Label, look), look)
 }
 
 // Handle passes input to the field and keeps the value in step with it.
@@ -259,8 +262,14 @@ func (s *Select[T]) Measure(int) int {
 
 // Draw paints the label, the options and whatever was wrong with the choice.
 func (s *Select[T]) Draw(v Frame) {
+	s.drawField(v, Look{})
+}
+
+func (s *Select[T]) drawField(v Frame, look Look) {
 	s.ensure()
-	s.list.Draw(s.frame(v, s.Label))
+	s.list.DrawRows(s.frame(v, s.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
+		look.choice(v, option.Label, under, under)
+	})
 }
 
 // Handle moves the cursor, and takes the choice with it.
@@ -322,12 +331,6 @@ func (s *Select[T]) ensure() {
 		return
 	}
 	s.seeded = true
-	// Wired once rather than every frame: it reads the look and the options through
-	// this field, so it does not go stale, and a Draw that assigns to the thing it is
-	// about to draw is a Draw with a side effect.
-	s.list.Row = func(v grid.View, _ int, option Option[T], under bool) {
-		s.look.choice(v, option.Label, under, under)
-	}
 	if s.Value == nil {
 		return
 	}
@@ -471,8 +474,14 @@ func (m *MultiSelect[T]) Measure(int) int {
 
 // Draw paints the label, the options and whatever was wrong with the choices.
 func (m *MultiSelect[T]) Draw(v Frame) {
+	m.drawField(v, Look{})
+}
+
+func (m *MultiSelect[T]) drawField(v Frame, look Look) {
 	m.ensure()
-	m.list.Draw(m.frame(v, m.Label))
+	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
+		look.choice(v, option.Label, under, at < len(m.taken) && m.taken[at])
+	})
 }
 
 // Handle moves the cursor and takes choices.
@@ -527,11 +536,6 @@ func (m *MultiSelect[T]) ensure() {
 	// The list inside has no map of its own: this field resolves every keystroke
 	// against one that has the movement and the key that takes a choice in it, and
 	// drives the list by name. Offering the event to both would resolve it twice.
-	if m.list.Row == nil {
-		m.list.Row = func(v grid.View, at int, option Option[T], under bool) {
-			m.look.choice(v, option.Label, under, at < len(m.taken) && m.taken[at])
-		}
-	}
 	if len(m.taken) != len(m.options) {
 		taken := make([]bool, len(m.options))
 		copy(taken, m.taken)
@@ -611,9 +615,13 @@ func (c *Confirm) Measure(int) int { return layout.Sum(1, c.rows(c.Label)) }
 
 // Draw paints the label and the two answers.
 func (c *Confirm) Draw(v Frame) {
+	c.drawField(v, Look{})
+}
+
+func (c *Confirm) drawField(v Frame, look Look) {
 	c.ensure()
 	c.split.Stage(v, 0)
-	row := c.frame(v, c.Label)
+	row := c.frame(v, c.Label, look)
 	w, h := row.Size()
 	if w <= 0 || h <= 0 {
 		return
@@ -625,15 +633,15 @@ func (c *Confirm) Draw(v Frame) {
 			// press needs to know.
 			c.split.Stage(v, x)
 		}
-		style := c.look.Text
+		style := look.Text
 		if yes == c.yes {
-			style = c.look.Selection.Merge(c.look.Accent)
+			style = look.Selection.Merge(look.Accent)
 		}
-		if mark, width := c.look.mark(yes == c.yes); width > 0 {
+		if mark, width := look.mark(yes == c.yes); width > 0 {
 			x = layout.Sum(x, row.Text(x, 0, mark, style), 1)
 		}
 		x = layout.Sum(x, row.Text(x, 0, c.word(yes), style))
-		x = layout.Sum(x, row.Text(x, 0, "  ", c.look.Text))
+		x = layout.Sum(x, row.Text(x, 0, "  ", look.Text))
 	}
 }
 

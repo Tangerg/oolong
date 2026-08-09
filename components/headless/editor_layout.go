@@ -177,6 +177,11 @@ func (e *Editor) Measure(width int) int {
 
 // Draw paints the field and places the cursor.
 func (e *Editor) Draw(frame Frame) {
+	e.drawWith(frame, e.Look)
+}
+
+// drawWith paints one projection without changing the editor's configured Look.
+func (e *Editor) drawWith(frame Frame, look Look) {
 	v := frame.View
 	e.presentation.Stage(frame, editorPresentation{})
 	total, height := v.Size()
@@ -197,7 +202,7 @@ func (e *Editor) Draw(frame Frame) {
 			width: width, gutter: gutter, left: left,
 		})
 		e.drawGutter(gutterView, e.rows(width))
-		e.drawLine(v, left)
+		e.drawLine(v, left, look)
 		return
 	}
 
@@ -217,7 +222,7 @@ func (e *Editor) Draw(frame Frame) {
 	e.drawGutter(gutterView, rows[first:last])
 
 	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
+		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
 		e.placeCursor(v, 0, 0)
 		return
 	}
@@ -228,7 +233,7 @@ func (e *Editor) Draw(frame Frame) {
 			break
 		}
 		r := rows[index]
-		text.Of(e.lines[r.line][r.start:r.end], e.Look.Text).Draw(v, 0, y)
+		text.Of(e.lines[r.line][r.start:r.end], look.Text).Draw(v, 0, y)
 	}
 	// The selection is laid over the text rather than drawn into it, so a run that
 	// crosses a style boundary keeps whatever was underneath — and so that the rows
@@ -240,7 +245,7 @@ func (e *Editor) Draw(frame Frame) {
 		}
 		end := min(layout.Sum(span.Col, span.Width), width)
 		for x := max(span.Col, 0); x < end; x++ {
-			v.MergeStyle(x, y, e.Look.Selection)
+			v.MergeStyle(x, y, look.Selection)
 		}
 	}
 	if y := cursorRow - first; y >= 0 && y < height {

@@ -50,9 +50,9 @@ func TestAFormAppearanceDoesNotReplaceTheControllersLook(t *testing.T) {
 	view := kit.NewForm(kit.Dark(), kit.Unicode(), form)
 
 	_ = paintWidget(12, view.Measure(12), view)
-	rows := paintWidget(12, field.Measure(12), field)
+	rows := paintWidget(12, form.Measure(12), form)
 	if len(rows) == 0 || !strings.HasPrefix(rows[0], "C") {
-		t.Fatalf("field after appearance draw = %q, want the controller's C mark", rows)
+		t.Fatalf("form after appearance draw = %q, want the controller's C mark", rows)
 	}
 }
 

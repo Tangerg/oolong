@@ -103,19 +103,16 @@ func (l Look) choice(v grid.View, label string, under, taken bool) {
 	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), "…"), style)
 }
 
-// dressed is a field of this package's, which takes its look from the form it is in.
-// One written elsewhere takes it from wherever its author likes, and a form does not
-// reach into it.
-type dressed interface{ dress(l Look) }
+// fieldDrawer is a built-in field that can project a Look without storing it. An
+// external Field draws itself and remains entirely outside the form's appearance
+// vocabulary.
+type fieldDrawer interface{ drawField(frame Frame, look Look) }
 
-// field is what every field in this package has in common: what it draws itself with,
-// whether it has the keyboard, and what was wrong with the answer.
-//
-// The dressing is unexported on purpose. A field of this package's takes its look from
-// the form it is in; one written elsewhere takes it from wherever its author likes, and
-// a form does not reach into it.
+// field is what every field in this package has in common: whether it has the
+// keyboard, what was wrong with the answer, and the committed geometry used by
+// pointer input. Appearance is deliberately absent; a Form passes it as a projection
+// argument while drawing.
 type field struct {
-	look    Look
 	problem error
 	// held says the field has had the keyboard, so that losing it means something. A
 	// field is told where it stands as soon as there is a form to say so, and checking
@@ -129,9 +126,6 @@ type field struct {
 
 // Error is what checking the answer last found.
 func (f *field) Error() error { return f.problem }
-
-// dress is how a form hands its look down.
-func (f *field) dress(l Look) { f.look = l }
 
 // rows is what the label and the error cost, on top of whatever the field itself needs.
 func (f *field) rows(label string) int {
@@ -147,7 +141,7 @@ func (f *field) rows(label string) int {
 
 // frame draws the label and the error, and returns the room left in between for the
 // field itself.
-func (f *field) frame(v Frame, label string) Frame {
+func (f *field) frame(v Frame, label string, look Look) Frame {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		f.presentation.Stage(v, fieldPresentation{})
@@ -155,12 +149,12 @@ func (f *field) frame(v Frame, label string) Frame {
 	}
 	top, bottom := 0, 0
 	if label != "" {
-		v.Text(0, 0, text.Truncate(label, w, "…"), f.look.Label)
+		v.Text(0, 0, text.Truncate(label, w, "…"), look.Label)
 		top = 1
 	}
 	if f.problem != nil && h > top {
 		bottom = 1
-		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, "…"), f.look.Danger)
+		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, "…"), look.Danger)
 	}
 	inner := v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
 	innerW, innerH := inner.Size()
@@ -293,7 +287,6 @@ func (f *Form) Error() error { return f.problem }
 
 // Focused is the field with the keyboard, or nil.
 func (f *Form) Focused() Field {
-	f.arrange()
 	current, _ := f.body.Focused().(Field)
 	return current
 }
@@ -304,7 +297,6 @@ func (f *Form) Focused() Field {
 // reported its problems one at a time would make somebody submit four times to find
 // out there were four.
 func (f *Form) Submit() bool {
-	f.arrange()
 	f.problem = nil
 	ok := true
 	for _, field := range f.fields {
@@ -337,8 +329,7 @@ func (f *Form) Cancel() {
 // Measure is how tall the fields are altogether, which is what a form in a measured
 // slot asks for.
 func (f *Form) Measure(across int) int {
-	f.arrange()
-	return f.body.Measure(across)
+	return f.body.measureWith(across, f.flow())
 }
 
 // Draw dresses the fields with Look and lays them out down the region.
@@ -349,19 +340,21 @@ func (f *Form) Draw(v Frame) {
 // DrawWith draws the form with look for this projection only.
 //
 // An appearance wrapper uses this instead of changing [Form.Look] before drawing.
-// The fields are restored to the form's own look before DrawWith returns, so two
-// appearances can project the same controller without the last one silently
-// becoming its configuration.
+// Neither the form nor its fields store look, so two appearances can project the same
+// controller without the last one silently becoming its configuration.
 func (f *Form) DrawWith(v Frame, look Look) {
-	f.arrange()
-	f.dress(look)
-	defer func() { f.dress(f.Look) }()
-	f.body.Draw(v)
+	f.body.drawWith(v, f.flow(), func(frame Frame, child Widget) {
+		if field, ok := child.(fieldDrawer); ok {
+			field.drawField(frame, look)
+			return
+		}
+		child.Draw(frame)
+	})
 }
 
 // Handle gives the event to the field with the keyboard, then to the form itself.
 func (f *Form) Handle(ev input.Event) bool {
-	f.arrange()
+	f.body.Keys = f.keys()
 	if f.body.Handle(ev) {
 		return true
 	}
@@ -393,27 +386,12 @@ func (f *Form) Focus(has bool) {
 		f.matcher.Clear()
 	}
 	f.blurred = !has
-	f.arrange()
+	f.body.Keys = f.keys()
 	f.body.Focus(has)
 }
 
-// arrange hands current behavior configuration to the already-settled container.
-// Collection changes go through Set or Add; Draw never acquires or releases
-// semantic ownership as a side effect.
-func (f *Form) arrange() {
-	f.body.Axis = layout.Down
-	f.body.Gap = f.Gap
-	f.body.Keys = f.keys()
-}
-
-// dress hands a projection's appearance to the built-in fields. An external field
-// owns its own drawing and is deliberately left alone.
-func (f *Form) dress(look Look) {
-	for _, field := range f.fields {
-		if takes, ok := field.(dressed); ok {
-			takes.dress(look)
-		}
-	}
+func (f *Form) flow() layout.Flow {
+	return layout.Flow{Axis: layout.Down, Gap: f.Gap}
 }
 
 // rebuild is the only path from the form's field collection into its focus owner.

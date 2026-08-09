@@ -1,7 +1,6 @@
 package headless
 
 import (
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
@@ -169,24 +168,6 @@ func (s *Scroll) Do(action keymap.Action) bool {
 		return false
 	}
 	return true
-}
-
-// Rows draws the visible slice of a set of rows.
-//
-// Each row is drawn by the caller's function, which is given a view one row tall.
-// The rows are drawn rather than returned so a row can be as complicated as it
-// likes without this type having to know.
-func (s *Scroll) Rows(v grid.View, total int, row func(v grid.View, index int)) {
-	width, height := v.Size()
-	s.Layout(total, height)
-	first := s.Offset()
-	for y := range height {
-		index := layout.Sum(first, y)
-		if index >= total {
-			return
-		}
-		row(v.Sub(grid.Rect(0, y, width, 1)), index)
-	}
 }
 
 // Stage derives the scroll layout for a component frame.

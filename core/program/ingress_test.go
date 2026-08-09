@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/core/input"
@@ -64,71 +65,74 @@ func TestByteIngressPreservesDataAndFinalResultOrder(t *testing.T) {
 }
 
 func TestByteIngressBackpressuresTheProducer(t *testing.T) {
-	h := newHost(t)
-	root := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{})}
-	done := make(chan error, 1)
-	ready := make(chan struct{})
-	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: h,
-			Root: func(runtime *program.Runtime) program.Component {
-				root.runtime = runtime
-				close(ready)
-				return root
-			},
+	synctest.Test(t, func(t *testing.T) {
+		h := newHost(t)
+		root := &blockingComponent{entered: make(chan struct{}), release: make(chan struct{})}
+		done := make(chan error, 1)
+		ready := make(chan struct{})
+		go func() {
+			done <- program.Run(t.Context(), program.Config{
+				Host: h,
+				Root: func(runtime *program.Runtime) program.Component {
+					root.runtime = runtime
+					close(ready)
+					return root
+				},
+			})
+		}()
+		<-ready
+
+		var received atomic.Int64
+		ingress, err := program.NewByteIngress(root.runtime.Dispatcher(), 4, func(batch program.ByteBatch) {
+			received.Add(int64(len(batch.Data)))
 		})
-	}()
-	<-ready
-
-	var received atomic.Int64
-	ingress, err := program.NewByteIngress(root.runtime.Dispatcher(), 4, func(batch program.ByteBatch) {
-		received.Add(int64(len(batch.Data)))
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.send(input.Key{Code: input.Character, Rune: 'x'})
-	<-root.entered
-	if _, err := ingress.Write([]byte("abcd")); err != nil {
-		t.Fatal(err)
-	}
-
-	written := make(chan error, 1)
-	go func() {
-		_, err := ingress.Write([]byte("e"))
-		written <- err
-	}()
-	select {
-	case err := <-written:
-		t.Fatalf("write escaped backpressure with %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	close(root.release)
-	select {
-	case err := <-written:
 		if err != nil {
-			t.Fatalf("write after room opened: %v", err)
+			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("write remained blocked after the owner drained data")
-	}
-	if err := ingress.Close(); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-ingress.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("ingress did not finish")
-	}
-	if got := received.Load(); got != 5 {
-		t.Fatalf("received %d bytes, want 5", got)
-	}
+		h.send(input.Key{Code: input.Character, Rune: 'x'})
+		<-root.entered
+		if _, err := ingress.Write([]byte("abcd")); err != nil {
+			t.Fatal(err)
+		}
 
-	onLoop(t, root.runtime, root.runtime.Quit)
-	if err := <-done; err != nil {
-		t.Fatalf("program: %v", err)
-	}
+		written := make(chan error, 1)
+		go func() {
+			_, err := ingress.Write([]byte("e"))
+			written <- err
+		}()
+		synctest.Wait()
+		select {
+		case err := <-written:
+			t.Fatalf("write escaped backpressure with %v", err)
+		default:
+		}
+
+		close(root.release)
+		select {
+		case err := <-written:
+			if err != nil {
+				t.Fatalf("write after room opened: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("write remained blocked after the owner drained data")
+		}
+		if err := ingress.Close(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-ingress.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("ingress did not finish")
+		}
+		if got := received.Load(); got != 5 {
+			t.Fatalf("received %d bytes, want 5", got)
+		}
+
+		onLoop(t, root.runtime, root.runtime.Quit)
+		if err := <-done; err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
 }
 
 func TestByteIngressCancellationUnblocksAndReleasesTheProducer(t *testing.T) {

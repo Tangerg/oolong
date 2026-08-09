@@ -2,6 +2,7 @@ package headless_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -34,18 +35,6 @@ func searching(t *testing.T) *headless.Search {
 	s := headless.NewSearch()
 	t.Cleanup(s.Close)
 	return s
-}
-
-func waitForUnreadResult(t *testing.T, s *headless.Search) {
-	t.Helper()
-	deadline := time.After(5 * time.Second)
-	for len(s.Results()) == 0 {
-		select {
-		case <-deadline:
-			t.Fatal("the search produced no result")
-		case <-time.After(time.Millisecond):
-		}
-	}
 }
 
 func TestSearchFindsEveryOccurrence(t *testing.T) {
@@ -195,30 +184,36 @@ func TestSearchReportsAPatternThatWillNotCompile(t *testing.T) {
 }
 
 func TestSearchAnswersNothingWhenNothingWasAsked(t *testing.T) {
-	tr := transcriptOf(plainRows("anything")...)
-	s := searching(t)
-	s.Submit(tr, "", false)
-	s.Submit(nil, "cat", false)
+	synctest.Test(t, func(t *testing.T) {
+		tr := transcriptOf(plainRows("anything")...)
+		s := searching(t)
+		s.Submit(tr, "", false)
+		s.Submit(nil, "cat", false)
+		synctest.Wait()
 
-	select {
-	case r := <-s.Results():
-		t.Errorf("an answer arrived anyway: %+v", r)
-	case <-time.After(100 * time.Millisecond):
-	}
+		select {
+		case r := <-s.Results():
+			t.Errorf("an answer arrived anyway: %+v", r)
+		default:
+		}
+	})
 }
 
 func TestClearingSearchCancelsAnUnreadAnswer(t *testing.T) {
-	tr := transcriptOf(plainRows("the cat sat")...)
-	s := searching(t)
-	s.Submit(tr, "cat", false)
-	waitForUnreadResult(t, s)
+	synctest.Test(t, func(t *testing.T) {
+		tr := transcriptOf(plainRows("the cat sat")...)
+		s := searching(t)
+		s.Submit(tr, "cat", false)
+		synctest.Wait()
 
-	s.Submit(tr, "", false)
-	select {
-	case r := <-s.Results():
-		t.Errorf("clearing the query left an answer behind: %+v", r)
-	case <-time.After(100 * time.Millisecond):
-	}
+		s.Submit(tr, "", false)
+		synctest.Wait()
+		select {
+		case r := <-s.Results():
+			t.Errorf("clearing the query left an answer behind: %+v", r)
+		default:
+		}
+	})
 }
 
 // TestSearchAnswersTheNewestQuery: the answer to a query three keystrokes old is
@@ -331,19 +326,19 @@ func TestTheZeroSearchIsStopped(t *testing.T) {
 // TestSearchReplacesAnAnswerNobodyRead. A result waiting to be read answered an older
 // query, and the newer answer is the one worth having.
 func TestSearchReplacesAnAnswerNobodyRead(t *testing.T) {
-	tr := transcriptOf(plainRows("the cat sat on the mat")...)
-	s := searching(t)
+	synctest.Test(t, func(t *testing.T) {
+		tr := transcriptOf(plainRows("the cat sat on the mat")...)
+		s := searching(t)
 
-	s.Submit(tr, "cat", false)
-	// Wait for the answer to be waiting rather than for a length of time. What this
-	// test is about is the second query arriving while the first answer is sitting in
-	// the channel unread, and the channel itself says when that is true.
-	waitForUnreadResult(t, s)
-	s.Submit(tr, "mat", false)
+		s.Submit(tr, "cat", false)
+		// Wait until the first answer is sitting unread before replacing it.
+		synctest.Wait()
+		s.Submit(tr, "mat", false)
 
-	if got := found(t, s, "mat"); len(got.Matches) != 1 {
-		t.Errorf("found %d matches of the newer query", len(got.Matches))
-	}
+		if got := found(t, s, "mat"); len(got.Matches) != 1 {
+			t.Errorf("found %d matches of the newer query", len(got.Matches))
+		}
+	})
 }
 
 func TestSearchAcrossARowWithNothingOnIt(t *testing.T) {

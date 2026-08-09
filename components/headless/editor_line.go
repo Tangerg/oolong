@@ -27,10 +27,10 @@ func (e *Editor) rows(width int) []editorRow {
 }
 
 // drawLine paints a field that holds one line, and places the cursor.
-func (e *Editor) drawLine(v grid.View, left int) {
+func (e *Editor) drawLine(v grid.View, left int, look Look) {
 	width, _ := v.Size()
 	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), e.Look.Subtle)
+		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
 		e.placeCursor(v, 0, 0)
 		return
 	}
@@ -38,12 +38,12 @@ func (e *Editor) drawLine(v grid.View, left int) {
 	shown := e.shown()
 	cursor := text.ColumnOf(shown, e.shownAt(e.col))
 
-	text.Of(shown, e.Look.Text).Draw(v, -left, 0)
+	text.Of(shown, look.Text).Draw(v, -left, 0)
 	if start, end, ok := e.Selection(); ok {
 		from := text.ColumnOf(shown, e.shownAt(start.Col)) - left
 		to := text.ColumnOf(shown, e.shownAt(end.Col)) - left
 		for x := max(from, 0); x < min(to, width); x++ {
-			v.MergeStyle(x, 0, e.Look.Selection)
+			v.MergeStyle(x, 0, look.Selection)
 		}
 	}
 	e.placeCursor(v, cursor-left, 0)

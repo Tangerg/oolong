@@ -1128,28 +1128,6 @@ func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
 	}
 }
 
-func TestScrollRowsDrawsOnlyTheVisibleSlice(t *testing.T) {
-	var s headless.Scroll
-	s.ToBottom()
-	rows := paint(4, 3, func(v grid.View) {
-		s.Rows(v, 10, func(row grid.View, index int) {
-			row.Text(0, 0, strconv.Itoa(index), grid.Style{})
-		})
-	})
-	// The window follows the end of the content, so the last three rows are shown.
-	equalRows(t, rows, []string{"7...", "8...", "9..."})
-}
-
-func TestScrollRowsStopsAtTheEndOfShortContent(t *testing.T) {
-	var s headless.Scroll
-	rows := paint(4, 4, func(v grid.View) {
-		s.Rows(v, 2, func(row grid.View, index int) {
-			row.Text(0, 0, strconv.Itoa(index), grid.Style{})
-		})
-	})
-	equalRows(t, rows, []string{"0...", "1...", "....", "...."})
-}
-
 // items builds a list of numbered strings.
 
 func TestListSelectionMoves(t *testing.T) {
