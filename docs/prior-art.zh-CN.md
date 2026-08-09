@@ -1,4 +1,4 @@
-# 先行者：五个终端 UI 家族，以及该从它们那里拿什么
+# 先行者：六个终端 UI 家族，以及该从它们那里拿什么
 
 语言：[English](prior-art.md) | 简体中文
 
@@ -23,6 +23,7 @@
 | [bubbles](https://github.com/charmbracelet/bubbles) | `8cea431`，2026-08-04 | Go | Charm 面向行为的组件目录。 |
 | [lipgloss](https://github.com/charmbracelet/lipgloss) | `5696b28`，2026-07-20 | Go | Charm 的字符串样式与布局层。 |
 | pi-tui | `7df73a00c`，2026-07-24 | TypeScript | “最小化的差量渲染终端 UI 框架”。 |
+| [Codex](https://github.com/openai/codex) | `e4e040881`，2026-08-03 | Rust | 一个基于 Ratatui 自行实现 TUI 的 agent CLI。 |
 
 第一轮是调研。2026-08-09 这一轮是对相关运行时、渲染器、keymap、
 editor、completion 与 terminal lifecycle 实现的源码审计。下文引语来自这些
@@ -350,6 +351,49 @@ Bubble Tea 的一次性 `Tick` 确实指向一项缺失的底层便利。keymap 
 `Runtime.After`。Timer/stopwatch widget 继续被否决：调度工作与选择产品如何展示时间，
 是两种职责。
 
+## 8. Codex：吸收终端行为，不吸收应用语法
+
+Codex 在这里有价值，因为它是一个大型 agent 产品，其终端代码必须面对窄窗口、多个
+色深、远程 session 与不同键盘协议的 terminal。它的 command palette、model picker、
+审批文案与 agent 状态词汇仍是产品语法；下面六项底层职责不是。
+
+**Markdown 表格把结构保留到宽度已知。** Codex 的 `markdown_render.rs` 保留带样式的
+cell 并对 column 分类，然后才选择对齐网格或 key/value records。Oolong 现在也在正确
+边界做这项决定：`markdown.Block` 保留表格 cell、alignment 与 style，再在 `Measure`/
+`Draw` 中分配可读列；无法保持可扫描性的表格会转为带 label 的 records。解析阶段不再
+冻结一份过宽文本，让后续 layout 只剩截断这一条路。
+
+**Diff 内容会换行，而不会被丢掉。** Codex 先为 gutter 留出空间，再换行剩余的 styled
+spans，并给 continuation row 一个空 gutter。`kit.Diff` 现在由同一份纯 width-aware
+layout 同时负责测量与绘制。line number 在会饿死内容时让位，continuation row 则保留
+sign、背景与缩进；不存在用 ellipsis 悄悄删掉 proposed change 的路径。
+
+**键盘增强以 feature 协商。** Codex 处理 Kitty keyboard flags、`modifyOtherKeys`、
+terminal-specific exclusion 与对称恢复。Oolong 的 transport-neutral 形状是
+`input.KeyboardFeatures`：`term.Options.Modes` 根据真正被驱动 terminal 的环境推导准确
+flags；SSH 使用 client 的 PTY 环境，而不是 server process。input package 命名解码后的
+能力；只有 `term` 拥有 escape sequence 与兼容性判断。
+
+**远程 clipboard 属于 client。** Codex 在 SSH 下经 terminal copy，把 OSC 52 原始输入
+限制为 100,000 bytes，并把 tmux 视为单独的 forwarding 情况。Oolong 现在由
+`clipboard.Channel` 拥有这份协议状态：编码、tmux passthrough、唯一未完成 read、answer
+关联与过期。本地 terminal 与 SSH host 消费同一个 channel，因此 remote OSC answer 只会
+在该 session 发起请求后成为 `input.Paste`。没有引入 native desktop clipboard package
+与 WSL PowerShell fallback：它们是应用/平台集成，不是两个 host 共享的 terminal 协议。
+
+**周围 terminal 参与 appearance。** Codex 根据 theme 与 colour level 解析 diff
+background，而不是假定一个固定背景上的 truecolor。Oolong 保留显式的 `Dark` 与
+`Light` palette；`Suited` 让正文继续使用 terminal 自己的 foreground，并由已报告 ground
+推导 neutral surface、line、selection 与 scrim。semantic colour 保持稳定，
+`grid.Depth` 只在最终 encoder 降级它们。组件因而只有一套 theme vocabulary，而不是每个
+terminal depth 一套 palette。
+
+**视觉回归是选择性的，也是有维度的。** Codex 的 snapshot 集中在窄/宽 table、换行
+diff 与有代表性的完整 screen。Oolong 现在在 `examples/internal/visualtest` 中组合
+`programtest` 与 `ptytest.Screen`：复杂 agent review 会在 44 和 90 列下检查；truecolor、
+256、16 与 no-colour 运行必须得到相同文字几何，同时使用正确编码族。这不是 blanket
+snapshot policy。状态转换仍用行为断言；golden 只守住少数“关系本身就是行为”的布局。
+
 ## 总结
 
 | 来源 | 采用 | 不引入 |
@@ -360,6 +404,7 @@ Bubble Tea 的一次性 `Tick` 确实指向一项缺失的底层便利。keymap 
 | grok-build | §3.2 的具名反例 | purge-and-re-emit resize |
 | agentui | detector 应当报告带原因的拒绝项 | 产品语法、第二套 transcript 引擎、detector 内部的路径 policy |
 | Charm | cursor 形态/闪烁、terminal 原生任务进度、一次性 owner 调度 | `Cmd`、styled-string rendering、widget 内的文件系统 policy |
+| Codex | 响应式语义表格、不截断 diff、键盘 feature 协商、client clipboard transport、ground-fitted theme 与选择性的多维视觉测试 | agent command 与 status 语法、native desktop clipboard policy、第二套 renderer 或 Ratatui 形状的 widget model |
 
 ## 有序候选项
 
@@ -382,10 +427,14 @@ Bubble Tea 的一次性 `Tick` 确实指向一项缺失的底层便利。keymap 
    切片按这个顺序落地。第一项从每个组件中移除了 `Pending` 与重复的 lookup/dispatch
    过程；第二项把 cursor 外观变成已交付且参与 diff 的帧状态；第三项把 native progress
    变成感知 keepalive 的 session 能力，在 handover 间恢复并在 close 时清除。
-7. **`core/link` 的拒绝报告。**
+7. **源自 Codex 的终端切片：已完成。** Markdown table 与 diff 现在根据 width 解析而
+   不丢弃内容；keyboard 与 clipboard 协议成为显式 host 能力；`Suited` 跟随 terminal
+   ground；代表性 screen 在 width 与 colour depth 两个维度都有守卫。每项职责都进入原有
+   owner layer，没有藏在一个 Codex 形状的 facade 后面。
+8. **`core/link` 的拒绝报告。**
    [§7.1](architecture.zh-CN.md#71-一个包必须配得上它的名字)要求一个边界有两个
    消费方；目前只有一个假想消费方。
-8. **paste-to-chip 示例：已完成。** `examples/composer` 拥有阈值、标签与保留的原文，
+9. **paste-to-chip 示例：已完成。** `examples/composer` 拥有阈值、标签与保留的原文，
    `headless.Editor` 只拥有原子编辑行为。
 
 ## 什么会改变本文

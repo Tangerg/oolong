@@ -1,4 +1,4 @@
-# Prior art: five terminal UI families, and what to take from them
+# Prior art: six terminal UI families, and what to take from them
 
 Language: English | [简体中文](prior-art.zh-CN.md)
 
@@ -24,6 +24,7 @@ today. A survey that turns into a backlog has stopped being a survey.
 | [bubbles](https://github.com/charmbracelet/bubbles) | `8cea431`, 2026-08-04 | Go | Charm's behaviour-oriented component catalogue. |
 | [lipgloss](https://github.com/charmbracelet/lipgloss) | `5696b28`, 2026-07-20 | Go | Charm's string styling and layout layer. |
 | pi-tui | `7df73a00c`, 2026-07-24 | TypeScript | "Minimal terminal UI framework with differential rendering." |
+| [Codex](https://github.com/openai/codex) | `e4e040881`, 2026-08-03 | Rust | An agent CLI whose TUI is implemented over Ratatui. |
 
 The first pass was a survey. The 2026-08-09 pass is a source audit of the relevant
 runtime, renderer, keymap, editor, completion and terminal-lifecycle implementations.
@@ -411,6 +412,61 @@ keymap resolver needs exactly one cancellable callback on the interface owner, s
 remain rejected: scheduling work and choosing a product display for time are different
 responsibilities.
 
+## 8. Codex: absorb terminal behaviour, not application grammar
+
+Codex is useful here because it is a large agent product whose terminal code has had
+to survive narrow windows, several colour depths, remote sessions and terminals with
+different keyboard protocols. Its command palette, model picker, approval wording and
+agent status vocabulary remain product grammar. Six lower-level responsibilities do
+not.
+
+**Markdown tables retain structure until width is known.** Codex's
+`markdown_render.rs` keeps styled cells and classifies columns before choosing an
+aligned grid or key/value records. Oolong now makes the same decision at the right
+boundary: `markdown.Block` retains table cells, alignments and styles, then allocates
+readable columns in `Measure`/`Draw`; a table that cannot remain scannable becomes
+labeled records. Parsing no longer freezes one wide textual rendering that a later
+layout can only truncate.
+
+**Diff content wraps; it is not discarded.** Codex reserves a gutter, wraps the
+remaining styled spans and gives continuation rows an empty gutter. `kit.Diff` now
+uses one pure width-aware layout for both measurement and drawing. Line numbers yield
+when they would starve content, while continuation rows preserve the sign, background
+and indentation. There is no ellipsis path that silently removes a proposed change.
+
+**Keyboard enhancement is negotiated as features.** Codex handles Kitty keyboard
+flags, `modifyOtherKeys`, terminal-specific exclusions and symmetric restoration.
+Oolong's transport-neutral form is `input.KeyboardFeatures`: `term.Options.Modes`
+derives the exact requested flags from the environment of the terminal being driven,
+and SSH uses the client's PTY environment rather than the server process. The input
+package names decoded capabilities; `term` alone owns escape sequences and
+compatibility decisions.
+
+**A remote clipboard belongs to the client.** Codex routes copy through the terminal
+under SSH, bounds OSC 52 input at 100,000 bytes and treats tmux as a distinct forwarding
+case. `clipboard.Channel` now owns that protocol state in Oolong: encoding, tmux
+passthrough, one outstanding read, answer correlation and expiry. The local terminal
+and SSH host consume the same channel, so a remote OSC answer becomes `input.Paste`
+only after that session requested it. Native desktop clipboard packages and WSL
+PowerShell fallbacks are not imported: they are application/platform integration, not
+the terminal protocol shared by both hosts.
+
+**The surrounding terminal participates in appearance.** Codex resolves diff
+backgrounds against theme and colour level instead of assuming truecolor on one fixed
+background. Oolong keeps `Dark` and `Light` as explicit palettes, while `Suited` leaves
+body text on the terminal's own foreground and derives neutral surfaces, lines,
+selection and scrim from the reported ground. Semantic colours stay stable, and
+`grid.Depth` reduces them only in the final encoder. Components therefore have one
+theme vocabulary, not one palette per terminal depth.
+
+**Visual regression is selective and dimensional.** Codex's snapshots concentrate on
+narrow/wide tables, wrapped diffs and representative full screens. Oolong now composes
+`programtest` with `ptytest.Screen` in `examples/internal/visualtest`: the complex agent
+review is checked at 44 and 90 columns, and truecolor, 256, 16 and no-colour runs must
+produce identical text geometry while using the right encoding family. This is not a
+blanket snapshot policy. State transitions still use behavioural assertions; goldens
+guard the few layouts whose relationships are the behaviour.
+
 ## Summary
 
 | source | adopt | do not import |
@@ -421,6 +477,7 @@ responsibilities.
 | grok-build | a named counter-example for §3.2 | purge-and-re-emit resize |
 | agentui | the idea that a detector should report refusals with reasons | product grammar; a second transcript engine; path policy inside a detector |
 | Charm | cursor shape/blink, native task progress and one-shot owner scheduling | `Cmd`, styled-string rendering, filesystem policy inside a widget |
+| Codex | responsive semantic tables, non-truncating diffs, keyboard feature negotiation, client clipboard transport, ground-fitted themes and selective dimensional visual tests | agent commands and status grammar, native desktop clipboard policy, a second renderer or Ratatui-shaped widget model |
 
 ## Ordered candidates
 
@@ -450,9 +507,14 @@ Ordered by what each is blocked on, not by appetite.
    cursor appearance committed and diffed frame state; the third made native progress
    a keepalive-aware session capability that is restored across handover and cleared
    on close.
-7. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
+7. **The Codex-derived terminal slices: completed.** Markdown tables and diffs now
+   resolve against width without discarding content; keyboard and clipboard protocols
+   are explicit host capabilities; `Suited` follows the terminal ground; representative
+   screens are guarded across width and colour depth. Each responsibility landed at
+   its existing owning layer rather than behind a Codex-shaped facade.
+8. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
    wants two consumers for a boundary; there is currently one hypothetical.
-8. **A paste-into-chip example: completed.** `examples/composer` owns the threshold,
+9. **A paste-into-chip example: completed.** `examples/composer` owns the threshold,
    label and retained source while `headless.Editor` owns only atomic editing.
 
 ## What would change this document
