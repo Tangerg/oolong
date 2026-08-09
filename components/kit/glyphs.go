@@ -65,7 +65,7 @@ func Unicode() Glyphs {
 		RoundBottomLeft: "╰", RoundBottomRight: "╯",
 		Ellipsis:    "…",
 		Bullet:      "•",
-		Marker:      "▸",
+		Marker:      "❯",
 		Taken:       "●",
 		Free:        "○",
 		ScrollTrack: "│", ScrollThumb: "█",
