@@ -4,6 +4,7 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/mattn/go-runewidth"
@@ -438,16 +439,34 @@ func (v View) Text(x, y int, s string, style Style) int {
 		case w == 2:
 			surf.repairPair(cx, p.Y)
 			surf.repairPair(layout.Translate(cx, 1), p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style, span: spanWide}
+			*surf.cellAt(cx, p.Y) = Cell{Content: ownedCluster(cluster), Style: style, span: spanWide}
 			*surf.cellAt(layout.Translate(cx, 1), p.Y) = Cell{Style: style, span: spanTrail}
 		default:
 			surf.repairPair(cx, p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Content: strings.Clone(cluster), Style: style}
+			*surf.cellAt(cx, p.Y) = Cell{Content: ownedCluster(cluster), Style: style}
 		}
 		cx = layout.Translate(cx, w)
 		advanced = layout.Sum(advanced, w)
 	}
 	return advanced
+}
+
+// asciiClusters gives the most common cells package-owned storage without one
+// allocation per draw. Other clusters are cloned by ownedCluster because they may
+// be short slices of a much larger caller-owned string.
+var asciiClusters = func() [utf8.RuneSelf]string {
+	var clusters [utf8.RuneSelf]string
+	for b := range utf8.RuneSelf {
+		clusters[b] = string(rune(b))
+	}
+	return clusters
+}()
+
+func ownedCluster(cluster string) string {
+	if len(cluster) == 1 && cluster[0] < utf8.RuneSelf {
+		return asciiClusters[cluster[0]]
+	}
+	return strings.Clone(cluster)
 }
 
 // combine appends a zero-width cluster to the cell that owns the column to the

@@ -226,7 +226,10 @@ func (w *wrapper) takeHeld() {
 	w.dropHeld()
 }
 
-func (w *wrapper) dropHeld() { w.held, w.heldW = nil, 0 }
+func (w *wrapper) dropHeld() {
+	w.held = w.held[:0]
+	w.heldW = 0
+}
 
 func (w *wrapper) breakRow() {
 	row := Wrapped{Line: line(w.row), Joined: len(w.rows) > 0}
@@ -235,7 +238,8 @@ func (w *wrapper) breakRow() {
 		row.From, row.To = first.at, last.at+last.size
 	}
 	w.rows = append(w.rows, row)
-	w.row, w.rowWidth = nil, 0
+	w.row = w.row[:0]
+	w.rowWidth = 0
 }
 
 // word places units[from:to] and returns the index to continue from.
@@ -456,7 +460,12 @@ func (l Line) bytes() int {
 // line rebuilds a line from units, merging neighbours that share a style and point
 // at the same thing.
 func line(units []unit) Line {
-	out := make(Line, 0, len(units))
+	if len(units) == 0 {
+		return Line{}
+	}
+	// Every non-empty row has one style run. Let uncommon additional runs grow the
+	// slice instead of reserving one Span for every grapheme in ordinary plain text.
+	out := make(Line, 0, 1)
 	for first := 0; first < len(units); {
 		last := first + 1
 		bytes := len(units[first].cluster)
