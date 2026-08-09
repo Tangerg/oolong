@@ -18,7 +18,110 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
-## [0.6.0] — 2026-08-10
+## [0.7.0] — 2026-08-10
+
+An environment fact belongs to the terminal being driven, not to the process doing
+the driving. Following that one sentence through the library is most of this release.
+
+Breaking, and the widest set so far. Every function that reads the environment now
+takes `func(string) (string, bool)` rather than `func(string) string`, because the
+difference between unset and empty is a fact a remote session has and a `getenv`
+shape throws away: `graphics.DetectIn`, `input.WheelFor`, `kit.GlyphsFor`.
+`term.OpenOn` and `term.Options.Modes` take that lookup as an argument.
+`term.Options.Keyboard` is an `input.KeyboardFeatures` set rather than a bool, and
+the five `input.Kitty*` constants are `input.Keyboard*` of that type;
+`input.KeyboardFlags.Flags` is `.Features`. The `clipboard` package's `Copy`,
+`Clear`, `Request` and `Parse` are methods on `*clipboard.Channel`, `Parse` is
+unexported, and `Selection`'s values are ordinals rather than their wire bytes.
+`markdown.Block`'s six exported fields are gone; a block is measured and drawn
+instead. There are no compatibility aliases.
+
+### Changed
+
+- **Terminal facts follow the terminal, not the process.** `term.Terminal` resolved
+  its wheel profile and image protocol from `os.Getenv` on every call, so a process
+  driving two terminals had one answer for both and a test could pin neither. They
+  are now resolved once, from the lookup `OpenOn` was given, and frozen for the
+  session. `os.LookupEnv` survives at exactly three entry points — `term.Open`,
+  `DetectDepth`, `DetectGraphics` — where the terminal really is this process's own.
+
+  Over SSH this is not a tidiness argument. The `ssh` host now reports the client's
+  wheel profile, negotiates keyboard features against the client's PTY environment,
+  and reaches the clipboard beside the user rather than one attached to the server
+  process. It had none of those before, and what it did read was the server's `TERM`.
+
+- **Keyboard enhancement is a feature set that is negotiated.** Asking for the whole
+  Kitty protocol was one bool and one hardcoded `\x1b[>31u`. It is now a set the
+  caller states, `term.KeyboardCompatible` is the portable subset — unambiguous codes
+  and alternate keycodes, without releases or text — and `Options.Modes` derives the
+  exact request from the driven terminal's environment. Two known-bad combinations are
+  refused there rather than by a package global: VS Code's bridge under WSL, which
+  acknowledges the mode and then loses what it carries, and iTerm2, which can leak a
+  release into the parent shell.
+
+- **The clipboard is a channel with one live request.** OSC 52 has no request
+  identity, so a boolean "a paste is outstanding" could hand an unrelated future
+  answer to whoever asked last. `clipboard.Channel` owns encoding, tmux DCS
+  passthrough, one outstanding read, selection correlation and a ten-second expiry;
+  `term` and `ssh` consume the same channel through one `input.OSC.Paste`, so neither
+  adapter has its own copy of the rule. The carried size is 100 kB rather than 1 MiB:
+  the far end's limit is silent, and a copy that reports success and vanishes is worse
+  than one that is refused.
+
+- **A markdown table keeps its cells until its width is known.** It used to be padded
+  to its widest cell at parse time, which left drawing a choice between wrapping a
+  pre-joined grid and cutting the last column off. A `Block` now retains cells,
+  alignments and styles; column room is water-filled at the width it is given, and a
+  table that cannot afford a readable column each becomes labeled records instead of a
+  grid of vertical fragments.
+
+- **A diff wraps rather than losing its tail.** `kit.Diff` had one ellipsis path that
+  silently removed the right-hand end of every long line — in a review pane, the part
+  of a proposed change nobody saw. Measurement and drawing now share one width-aware
+  layout, continuation rows keep the sign, colour and gutter, and line numbers yield
+  before they starve the content.
+
+  This has a cost worth stating: the layout is a value rather than cached state, so a
+  measured slot builds it twice per frame and pays for every line, not the visible
+  ones. A 300-line diff at 100 columns is about 5.5 ms and 17 MB per frame on an M4.
+  `markdown.Doc` caches by width behind a pointer; `Diff` does not yet.
+
+- **`Suited` fits a theme to the terminal instead of picking one.** Body text stays on
+  the terminal's own foreground, and neutral structure — subtle, muted, borders,
+  surfaces, selection, scrim — is mixed from the reported foreground and background, so
+  a pane reads as part of the user's terminal. Accent and outcome colours still come
+  from `Dark` or `Light`. If either ground colour is unknown the built-in theme is
+  returned unchanged, because guessing a missing colour can erase text.
+
+- **`Divide` and `Wanted` answer from the same code.** They agreed by inspection and
+  drifted in one case. Both now ask `Slot.wanted`, and the allocation itself is a
+  `division` value that cannot have its remaining room updated without its weight sum.
+
+- **Opening a terminal acquires in one direction and rolls back through one edge.**
+  Each failure path used to assemble its own list of what to undo, which is a shape
+  where adding a resource creates a path that forgets an older one. Acquisition,
+  activation and rollback are now three functions, and goroutines start only after
+  nothing left can fail. `program.Run` is split the same way, so a host that validates
+  badly cannot partly construct an interface before the component builder runs.
+
+### Added
+
+- **Representative screens are guarded at more than one width and colour depth.**
+  `examples/internal/visualtest` composes `programtest`'s in-process host with
+  `ptytest`'s screen model, so an example asserts what a terminal would actually show.
+  The agent review is checked at 44 and 90 columns. This is deliberately not a blanket
+  snapshot policy: state transitions stay behavioural, and goldens guard the few
+  layouts whose relationships are the behaviour.
+
+### Fixed
+
+- `Flex(0).AtLeast(n)` was counted as wanting `n` by `Wanted` and given nothing by
+  `Divide`. A weight of zero asks for no proportional share; an explicit floor is
+  still a real constraint.
+- A thematic break as the only content of a list item kept its bullet's column and
+  dropped the bullet. It now draws.
+- An empty markdown table cell no longer depends on the parser having produced a line
+  for it.
 
 The purity invariant grows a second half and a sharper instrument, and it immediately
 finds something.
