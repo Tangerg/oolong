@@ -49,11 +49,16 @@ import (
 // It draws into a grid view and is a
 // [github.com/Tangerg/oolong/core/layout.Measurer], which is what lets it go into a
 // slot, container or viewport belonging to a package this one has never heard of.
+// Copies detach block and row storage before either can be changed.
 type Doc struct {
 	// blocks are private because every mutation must invalidate rows. Exposing this
 	// slice made it possible to change the document while its cached wrap still
 	// described the old one.
 	blocks []Block
+	// blocksOwner identifies the value allowed to append into spare block capacity.
+	// A copied Doc detaches before appending, so two values cannot overwrite each
+	// other's logical document through a shared backing array.
+	blocksOwner *Doc
 
 	// rows memoises the wrap, which is asked for twice per frame — once to measure and
 	// once to draw — and is the most expensive thing this does.
@@ -66,14 +71,32 @@ type Doc struct {
 // slice so the caller may reuse it after this returns.
 func (d *Doc) SetBlocks(blocks []Block) {
 	d.blocks = slices.Clone(blocks)
-	clear(d.rows)
-	d.rows = d.rows[:0]
-	d.fresh = false
+	d.blocksOwner = d
+	d.invalidate()
 }
 
 // Append adds blocks to the end, which is what a stream does as they are finished.
 func (d *Doc) Append(blocks ...Block) {
+	if len(blocks) == 0 {
+		return
+	}
+	d.ownBlocks()
 	d.blocks = append(d.blocks, blocks...)
+	d.invalidate()
+}
+
+// ownBlocks detaches a copied document before it grows the shared slice.
+func (d *Doc) ownBlocks() {
+	if d.blocksOwner == d {
+		return
+	}
+	d.blocks = slices.Clone(d.blocks)
+	d.blocksOwner = d
+}
+
+// invalidate releases the immutable presentation snapshot.
+func (d *Doc) invalidate() {
+	d.rows = nil
 	d.fresh = false
 }
 
@@ -121,8 +144,9 @@ func (d *Doc) wrap(width int) []row {
 	if d.fresh && d.atWidth == width {
 		return d.rows
 	}
-	clear(d.rows)
-	rows := d.rows[:0]
+	// Wrapped rows are immutable memo snapshots. A new width gets new storage so a
+	// copied document cannot rewrite another value's cached presentation.
+	var rows []row
 	for _, block := range d.blocks {
 		if block.blankBefore && len(rows) > 0 {
 			rows = append(rows, row{})

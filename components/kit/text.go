@@ -43,6 +43,7 @@ func (l Label) Draw(v grid.View) {
 // Its height is not known until its width is, which is the whole reason a passive
 // [headless.Block] measures itself: publication and a [headless.Static] viewport
 // adapter both have to ask before they can decide how much room to give.
+// Copies detach their private wrap on the next layout or text change.
 type Paragraph struct {
 	// lines are private because every mutation must invalidate wrapped. Exposing them
 	// made it possible to change the text while its cached rows still described the
@@ -99,8 +100,10 @@ func NewParagraph(s string, style grid.Style) *Paragraph {
 // caller may reuse or change its input after this returns.
 func (p *Paragraph) SetText(lines []text.Line) {
 	p.lines = text.CloneLines(lines)
-	clear(p.wrapped)
-	p.wrapped = p.wrapped[:0]
+	// A memo is an immutable snapshot. Dropping it rather than clearing and reusing
+	// its storage keeps a Paragraph copied after layout from modifying the original
+	// paragraph's still-valid rows.
+	p.wrapped = nil
 	p.fresh = false
 }
 
@@ -269,11 +272,10 @@ func (p *Paragraph) rows(width int) []row {
 		return p.wrapped
 	}
 	if room <= 0 {
-		clear(p.wrapped)
 		p.wrapped, p.atWidth, p.atLimit, p.fresh = nil, room, p.MaxRows, true
 		return nil
 	}
-	rows := p.wrapped[:0]
+	var rows []row
 	for i, line := range p.lines {
 		for _, wrapped := range line.Wrap(room) {
 			rows = append(rows, row{Wrapped: wrapped, line: i})

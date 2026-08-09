@@ -85,6 +85,12 @@ private wrap cache.
   malformed or unrelated parameters leave the live request intact, while a matching
   selection with an unreadable payload settles it as a failed answer.
 
+- Width memos are immutable snapshots. Copying a paragraph, code block, message,
+  diff, or Markdown document after layout and then changing the copy can no longer
+  clear or rewrite rows the original still considers valid. Markdown documents also
+  detach their block storage before appending, so independently grown copies cannot
+  overwrite one another through spare slice capacity.
+
 ## [0.7.0] — 2026-08-10
 
 An environment fact belongs to the terminal being driven, not to the process doing

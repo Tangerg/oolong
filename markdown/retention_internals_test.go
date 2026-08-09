@@ -39,6 +39,40 @@ func TestReplacingADocumentReleasesItsCachedRowsBeforeAnotherLayout(t *testing.T
 	}
 }
 
+func TestDocCopyDetachesItsWrap(t *testing.T) {
+	var original Doc
+	original.SetBlocks(Render("original words", Look{}))
+	want := append([]row(nil), original.wrap(8)...)
+
+	copied := original
+	copied.SetBlocks(Render("replacement", Look{}))
+	_ = copied.wrap(8)
+
+	if got := original.wrap(8); !reflect.DeepEqual(got, want) {
+		t.Fatalf("original wrap after changing copy = %+v, want %+v", got, want)
+	}
+}
+
+func TestDocCopyOwnsSubsequentAppends(t *testing.T) {
+	blocks := Render("first", Look{})
+	original := Doc{blocks: make([]Block, len(blocks), len(blocks)+2)}
+	copy(original.blocks, blocks)
+	original.blocksOwner = &original
+
+	copied := original
+	copied.Append(Render("copied", Look{})...)
+	original.Append(Render("original", Look{})...)
+
+	copyBlocks := copied.Blocks()
+	originalBlocks := original.Blocks()
+	if got := copyBlocks[len(copyBlocks)-1].lines[0].String(); got != "copied" {
+		t.Fatalf("copy's last block after original append = %q, want copied", got)
+	}
+	if got := originalBlocks[len(originalBlocks)-1].lines[0].String(); got != "original" {
+		t.Fatalf("original's last block after copy append = %q, want original", got)
+	}
+}
+
 func TestWrappingReleasesOversizedRowStorage(t *testing.T) {
 	blocks := make([]Block, 1024)
 	for i := range blocks {

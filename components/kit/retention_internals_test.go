@@ -53,3 +53,33 @@ func TestDiffReusesTheLayoutMeasuredForItsFrame(t *testing.T) {
 		t.Fatal("a second layout at one width did not reuse the measured rows")
 	}
 }
+
+func TestParagraphCopyDetachesItsWrap(t *testing.T) {
+	original := NewParagraph("original words", grid.Style{})
+	want := original.Rows(8)
+
+	copied := *original
+	copied.SetText(linesOf("replacement", grid.Style{}))
+	_ = copied.Rows(8)
+
+	if got := original.Rows(8); !reflect.DeepEqual(got, want) {
+		t.Fatalf("original rows after changing copy = %+v, want %+v", got, want)
+	}
+}
+
+func TestDiffCopyDetachesItsLayout(t *testing.T) {
+	original := NewDiff(Theme{}, Glyphs{}, []diff.Hunk{{Lines: diff.Script{
+		{Kind: diff.Added, Text: "original words"},
+	}}})
+	want := append([]diffRow(nil), original.layout(8)...)
+
+	copied := *original
+	copied.SetHunks([]diff.Hunk{{Lines: diff.Script{
+		{Kind: diff.Removed, Text: "replacement"},
+	}}})
+	_ = copied.layout(8)
+
+	if got := original.layout(8); !reflect.DeepEqual(got, want) {
+		t.Fatalf("original layout after changing copy = %+v, want %+v", got, want)
+	}
+}

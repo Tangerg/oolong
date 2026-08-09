@@ -23,6 +23,7 @@ import (
 //
 // Diff owns its hunks and appearance. Mutations go through its methods so the wrapped
 // representation measured and drawn in one frame cannot describe different inputs.
+// Copies detach their private layout on the next layout or mutation.
 type Diff struct {
 	hunks   []diff.Hunk
 	theme   Theme
@@ -147,7 +148,10 @@ func (d *Diff) layout(width int) []diffRow {
 	}
 	gutter := d.gutter(width)
 	contentWidth := max(layout.Remaining(width, gutter.width()), 1)
-	rows := d.wrapped.rows[:0]
+	// A completed layout is immutable. Starting a new one with independent storage
+	// makes a Diff copied after Measure safe to change without clearing the original
+	// value's still-valid presentation snapshot.
+	var rows []diffRow
 	for hunkIndex, hunk := range d.hunks {
 		if hunkIndex > 0 {
 			rows = append(rows, diffRow{gap: true})
@@ -175,12 +179,9 @@ func (d *Diff) layout(width int) []diffRow {
 	return rows
 }
 
-// invalidate releases references held only by a stale layout while preserving empty
-// storage that the next layout can reuse.
+// invalidate releases the immutable snapshot held by a stale layout.
 func (d *Diff) invalidate() {
-	clear(d.wrapped.rows)
-	d.wrapped.rows = d.wrapped.rows[:0]
-	d.wrapped.fresh = false
+	d.wrapped = diffLayout{}
 }
 
 // line draws one physical row of a change. Its numbers, mark and content sit in the
