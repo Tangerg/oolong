@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/term"
 )
 
 // GroundHost supplies the colours discovered before a program starts.
@@ -41,6 +42,9 @@ type HandoverHost interface {
 // TitleHost names the user-facing host window.
 type TitleHost interface{ SetTitle(title string) }
 
+// ProgressHost presents task progress outside the interface's cell grid.
+type ProgressHost interface{ SetProgress(progress term.Progress) }
+
 // BellHost rings the user-facing host's audible or visible bell.
 type BellHost interface{ Bell() }
 
@@ -68,6 +72,7 @@ type hostServices struct {
 	pasteHost    PasteHost
 	handover     HandoverHost
 	titleHost    TitleHost
+	progressHost ProgressHost
 	bellHost     BellHost
 	notifyHost   NotifyHost
 	images       ImageHost
@@ -83,6 +88,7 @@ func hostServicesFor(host Host) hostServices {
 	services.pasteHost, _ = host.(PasteHost)
 	services.handover, _ = host.(HandoverHost)
 	services.titleHost, _ = host.(TitleHost)
+	services.progressHost, _ = host.(ProgressHost)
 	services.bellHost, _ = host.(BellHost)
 	services.notifyHost, _ = host.(NotifyHost)
 	services.images, _ = host.(ImageHost)
@@ -142,6 +148,12 @@ func (s hostServices) canHandOver() bool { return s.handover != nil }
 func (s hostServices) setTitle(title string) {
 	if s.titleHost != nil {
 		s.titleHost.SetTitle(title)
+	}
+}
+
+func (s hostServices) setProgress(progress term.Progress) {
+	if s.progressHost != nil {
+		s.progressHost.SetProgress(progress)
 	}
 }
 

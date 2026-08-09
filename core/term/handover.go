@@ -137,15 +137,20 @@ func (t *Terminal) Suspend() error { return t.Hand(Suspend) }
 
 // release gives the terminal up without ending the session.
 func (t *Terminal) release() error {
+	// Keepalives are output too. Pause before taking the writer's watermark so a
+	// refresh cannot appear after the drain and inside the child's output.
+	t.task.pause()
 	// Whatever the interface drew has to reach the terminal before the modes go
 	// back, for the same reason it does on the way out: a frame written after the
 	// alternate screen was given up is a frame drawn onto the user's own screen. Do
 	// this before changing any state, so a timeout leaves ownership exactly where it
 	// was and needs no compensating transition.
 	if err := t.writer.Drain(DrainGrace); err != nil {
+		t.task.restore(t.writer.Queue)
 		return fmt.Errorf("term: drain before handover: %w", err)
 	}
 	if err := t.writer.Err(); err != nil {
+		t.task.restore(t.writer.Queue)
 		return fmt.Errorf("term: drain before handover: %w", err)
 	}
 
@@ -166,9 +171,10 @@ func (t *Terminal) resume() error {
 	if _, err := xterm.MakeRaw(int(t.in.Fd())); err != nil {
 		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
 	}
-	if _, err := t.out.WriteString(t.modes.enter() + t.title.enter()); err != nil {
+	if _, err := t.out.WriteString(t.modes.enter() + t.title.enter() + t.task.enter()); err != nil {
 		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
 	}
+	t.task.resume()
 	t.handed.release()
 
 	// The same latest-value mailbox a window resize uses, rather than the public

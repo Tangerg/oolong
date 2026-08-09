@@ -121,6 +121,11 @@ func (s Session) Suspend() error {
 // SetTitle names the host window when supported.
 func (s Session) SetTitle(title string) { s.host().setTitle(title) }
 
+// SetProgress presents task progress outside the cell grid when supported. The
+// zero value clears an earlier value. It is independent of progress drawn inside
+// the interface, which remains ordinary component state.
+func (s Session) SetProgress(progress term.Progress) { s.host().setProgress(progress) }
+
 // Bell asks the host for the user's attention.
 func (s Session) Bell() { s.host().bell() }
 

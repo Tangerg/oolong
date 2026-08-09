@@ -94,6 +94,9 @@ type Terminal struct {
 	// title is what this session called the window, and what it owes the terminal
 	// when it gives it back.
 	title title
+	// task is progress shown outside the cell grid. It owns its keepalive and
+	// pauses it whenever another process owns the terminal.
+	task *taskProgress
 	// pictures numbers the images this session has sent, so that two of them cannot
 	// arrive under one name. It is atomic because sending one is not the interface's
 	// goroutine's business — a picture is usually fetched from somewhere else.
@@ -163,6 +166,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 		stop:       make(chan struct{}),
 		pumpDone:   make(chan struct{}),
 		resizeDone: make(chan struct{}),
+		task:       newTaskProgress(),
 	}
 
 	if _, err := out.WriteString(t.modes.enter()); err != nil {
@@ -182,6 +186,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 		return nil, errors.Join(errs...)
 	}
 	t.waker = waker
+	go t.task.run(t.stop, t.writer.Queue)
 
 	// The size is delivered as an event rather than left to be asked for, so a
 	// session learns its size the same way it learns about every later change.
@@ -488,6 +493,7 @@ func (t *Terminal) Close() error {
 		// terminal is somebody else's still ends.
 		t.waker.wake()
 		<-t.resizeDone
+		<-t.task.done
 
 		// Frames first: the writer may still hold one, and writing it after the
 		// modes have been put back would draw onto the user's restored screen.
@@ -513,9 +519,9 @@ func (t *Terminal) Close() error {
 // terminal the user has to close.
 func (t *Terminal) giveBack() []error {
 	var errs []error
-	// The title first, because it was set last: the unwinding is the taking over
-	// backwards, all the way through.
-	if _, err := t.out.WriteString(t.title.leave() + t.modes.leave()); err != nil {
+	// Session metadata is cleared before modes, so neither a task nor a title leaks
+	// into the next owner.
+	if _, err := t.out.WriteString(t.task.leave() + t.title.leave() + t.modes.leave()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
 	}
 	if err := xterm.Restore(int(t.in.Fd()), t.oldState); err != nil {

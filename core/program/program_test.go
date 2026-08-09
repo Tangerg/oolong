@@ -51,6 +51,7 @@ type host struct {
 	asked    int
 	handed   int
 	title    string
+	progress term.Progress
 	rang     int
 	notified []string
 }
@@ -77,6 +78,7 @@ type partialHost struct {
 	groundAnswer grid.Ground
 	copied       []string
 	notified     []string
+	progress     []term.Progress
 }
 
 func (h *partialHost) Ground() grid.Ground { return h.groundAnswer }
@@ -87,6 +89,10 @@ func (h *partialHost) Copy(text string) bool {
 }
 
 func (h *partialHost) Notify(text string) { h.notified = append(h.notified, text) }
+
+func (h *partialHost) SetProgress(progress term.Progress) {
+	h.progress = append(h.progress, progress)
+}
 
 // stalledWriter models transport that accepted frames but cannot account for them
 // before its deadline. It lets handover and shutdown be tested without a real blocked
@@ -306,6 +312,12 @@ func (h *host) SetTitle(s string) {
 	h.clipMu.Lock()
 	defer h.clipMu.Unlock()
 	h.title = s
+}
+
+func (h *host) SetProgress(progress term.Progress) {
+	h.clipMu.Lock()
+	defer h.clipMu.Unlock()
+	h.progress = progress
 }
 
 func (h *host) Bell() {
@@ -717,6 +729,7 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 			}
 			runtime.Clipboard().Paste()
 			runtime.Session().SetTitle("ignored")
+			runtime.Session().SetProgress(term.Progress{State: term.ProgressIndeterminate})
 			runtime.Session().Bell()
 			runtime.Session().Notify("noticed")
 			runtime.Dispatcher().Post(runtime.Quit)
@@ -731,6 +744,9 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 	}
 	if !slices.Equal(h.notified, []string{"noticed"}) {
 		t.Errorf("notified = %q, want [noticed]", h.notified)
+	}
+	if !slices.Equal(h.progress, []term.Progress{{State: term.ProgressIndeterminate}}) {
+		t.Errorf("progress = %+v, want one indeterminate value", h.progress)
 	}
 }
 
@@ -766,6 +782,7 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 		t.Fatalf("zero Session.Suspend error = %v, want errors.ErrUnsupported", err)
 	}
 	session.SetTitle("ignored")
+	session.SetProgress(term.Progress{State: term.ProgressIndeterminate})
 	session.Bell()
 	session.Notify("ignored")
 }

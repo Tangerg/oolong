@@ -9,7 +9,7 @@ import (
 	"github.com/Tangerg/oolong/core/ansi"
 )
 
-// The three things a program says to the terminal that are not a frame.
+// The things a program says to the terminal that are not a frame.
 //
 // Each is one sequence, and each is ignored by a terminal that does not implement
 // it — which is the whole reason they can be sent without asking first.

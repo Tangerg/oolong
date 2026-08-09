@@ -67,10 +67,11 @@ type agent struct {
 	reviewPane    reviewPane
 	reviewDialog  *kit.Dialog
 
-	model     string
-	run       *agentRun
-	stopClock func()
-	started   time.Time
+	model             string
+	run               *agentRun
+	stopClock         func()
+	stopProgressReset func()
+	started           time.Time
 }
 
 func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
@@ -285,6 +286,7 @@ func (a *agent) startRun(prompt string) {
 	a.conversation.User(prompt)
 	a.workflow.Reset()
 	a.status.Doing = "planning with " + a.model
+	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
 	a.started = time.Now()
 	a.stopClock = a.runtime.Every(120*time.Millisecond, a.tick)
 
@@ -336,16 +338,36 @@ func (a *agent) finishRun(err error) {
 	}
 	a.run = nil
 	a.status.Elapsed = ""
+	native := term.Progress{State: term.ProgressNormal, Percent: 100}
 	switch {
 	case errors.Is(err, context.Canceled):
 		a.status.Doing = "cancelled"
+		native.State = term.ProgressWarning
 	case err != nil:
 		a.status.Doing = "failed: " + err.Error()
+		native.State = term.ProgressError
 		a.conversation.Append(kit.Message{Theme: a.theme, Speaker: "runtime", Body: err.Error()})
 	default:
 		a.status.Doing = "complete"
 		a.runtime.Session().Notify("mock agent completed")
 	}
+	a.settledProgress(native)
+}
+
+func (a *agent) setProgress(progress term.Progress) {
+	if a.stopProgressReset != nil {
+		a.stopProgressReset()
+		a.stopProgressReset = nil
+	}
+	a.runtime.Session().SetProgress(progress)
+}
+
+func (a *agent) settledProgress(progress term.Progress) {
+	a.setProgress(progress)
+	a.stopProgressReset = a.runtime.After(2*time.Second, func() {
+		a.runtime.Session().SetProgress(term.Progress{})
+		a.stopProgressReset = nil
+	})
 }
 
 func (a *agent) stopRun() {

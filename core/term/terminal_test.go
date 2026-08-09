@@ -264,6 +264,11 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	defer func() { _ = tty.Close() }()
 	<-tty.Events() // the opening size
 	read(t, primary, 200*time.Millisecond)
+	tty.SetProgress(term.Progress{State: term.ProgressNormal, Percent: 42})
+	if drainErr := tty.Writer().Drain(2 * time.Second); drainErr != nil {
+		t.Fatal(drainErr)
+	}
+	read(t, primary, 200*time.Millisecond)
 
 	typed := make(chan string, 1)
 	err = tty.Hand(func() error {
@@ -271,7 +276,8 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 		// is asserted is what a terminal is sent, and a test that asked the code what
 		// it sends would pass whatever it happened to send.
 		if seen := read(t, primary, time.Second); !strings.Contains(seen, "\x1b[?1049l") ||
-			!strings.Contains(seen, "\x1b[?1003l") {
+			!strings.Contains(seen, "\x1b[?1003l") ||
+			!strings.Contains(seen, "\x1b]9;4;0\x07") {
 			t.Errorf("the child was given a terminal still holding %q", seen)
 		}
 
@@ -304,8 +310,9 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 		t.Fatalf("handing the terminal over: %v", err)
 	}
 
-	if seen := read(t, primary, time.Second); !strings.Contains(seen, "\x1b[?1049h") {
-		t.Errorf("the terminal was taken back as %q, want the modes on again", seen)
+	if seen := read(t, primary, time.Second); !strings.Contains(seen, "\x1b[?1049h") ||
+		!strings.Contains(seen, "\x1b]9;4;1;42\x07") {
+		t.Errorf("the terminal was taken back as %q, want modes and task progress", seen)
 	}
 	if _, err := primary.WriteString("z"); err != nil {
 		t.Fatal(err)
@@ -378,7 +385,7 @@ func TestAPanickingChildStillReturnsTerminalOwnership(t *testing.T) {
 }
 
 func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
-	// The three that are one sequence each and are ignored by a terminal that does
+	// The values that are one sequence each and are ignored by a terminal that does
 	// not implement them, which is what makes them safe to send without asking.
 	tty, watch := open(t, term.Options{})
 	read(t, watch, 200*time.Millisecond)
@@ -387,6 +394,7 @@ func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	// answer as often as it is a constant. One that survived would end the sequence
 	// and leave the rest to be read as commands.
 	tty.SetTitle("building \x1b]0;oolong")
+	tty.SetProgress(term.Progress{State: term.ProgressIndeterminate})
 	tty.Bell()
 	tty.Notify("tests passed")
 	if err := tty.Writer().Drain(2 * time.Second); err != nil {
@@ -403,6 +411,9 @@ func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	if !strings.Contains(seen, "\x1b]9;tests passed\x07") {
 		t.Errorf("the notification was sent as %q", seen)
 	}
+	if !strings.Contains(seen, "\x1b]9;4;3\x07") {
+		t.Errorf("native progress was sent as %q", seen)
+	}
 	if !strings.Contains(seen, "\x07") {
 		t.Errorf("the bell was not rung: %q", seen)
 	}
@@ -413,8 +424,9 @@ func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	if err := tty.Close(); err != nil {
 		t.Fatalf("closing: %v", err)
 	}
-	if seen := read(t, watch, 500*time.Millisecond); !strings.Contains(seen, "\x1b[23;0t") {
-		t.Errorf("the terminal was given back as %q, want its own title with it", seen)
+	if seen := read(t, watch, 500*time.Millisecond); !strings.Contains(seen, "\x1b[23;0t") ||
+		!strings.Contains(seen, "\x1b]9;4;0\x07") {
+		t.Errorf("the terminal was given back as %q, want its own title and no task progress", seen)
 	}
 }
 
