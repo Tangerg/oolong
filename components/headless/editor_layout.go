@@ -177,13 +177,25 @@ func (e *Editor) Measure(width int) int {
 
 // Draw paints the field and places the cursor.
 func (e *Editor) Draw(frame Frame) {
-	e.drawWith(frame, e.Look)
+	e.DrawWith(frame, e.Look)
 }
 
-// drawWith paints one projection without changing the editor's configured Look.
-func (e *Editor) drawWith(frame Frame, look Look) {
+// DrawWith paints one projection with look without changing the editor's configured
+// appearance.
+//
+// Appearance components use this when an editor participates in a larger theme. The
+// editor remains the single owner of its text, cursor and input configuration; drawing
+// it through another look does not make that look its configuration.
+func (e *Editor) DrawWith(frame Frame, look Look) {
+	e.drawWith(frame, look, &e.presentation)
+}
+
+// drawWith is the projection seam used by Text before it has taken ownership of its
+// accessor's initial value. Rendering may use a temporary editor state, while routing
+// geometry is still staged into the durable editor that will receive the next event.
+func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPresentation]) {
 	v := frame.View
-	e.presentation.Stage(frame, editorPresentation{})
+	presented.Stage(frame, editorPresentation{})
 	total, height := v.Size()
 	if total <= 0 || height <= 0 {
 		return
@@ -198,7 +210,7 @@ func (e *Editor) drawWith(frame Frame, look Look) {
 	}
 	if e.oneLine() {
 		left := e.lineOffset(width)
-		e.presentation.Stage(frame, editorPresentation{
+		presented.Stage(frame, editorPresentation{
 			width: width, gutter: gutter, left: left,
 		})
 		e.drawGutter(gutterView, e.rows(width))
@@ -215,7 +227,7 @@ func (e *Editor) drawWith(frame Frame, look Look) {
 	scroll := e.scroll.Stage(frame, len(rows), height)
 	scroll.Reveal(cursorRow)
 	first := scroll.Offset()
-	e.presentation.Stage(frame, editorPresentation{
+	presented.Stage(frame, editorPresentation{
 		width: width, gutter: gutter, first: first,
 	})
 	last := min(layout.Sum(first, height), len(rows))

@@ -78,9 +78,10 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	}
 	p.composer = kit.Composer{
 		Theme: theme, Prompt: glyphs.Marker + " ",
-		Placeholder: "Type @ to reference something",
-		Keys:        keys, Hints: []keymap.Action{submitPrompt, quitPrompt}, MaxRows: 1,
+		Hints: []keymap.Action{submitPrompt, quitPrompt}, MaxRows: 1,
 	}
+	p.composer.Editor().Placeholder = "Type @ to reference something"
+	p.composer.Editor().Keys = keys
 	p.composer.Editor().SingleLine = true
 	p.composer.Editor().Clipboard = runtime.Clipboard()
 	p.composer.Focus(true)

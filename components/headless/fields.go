@@ -58,8 +58,36 @@ func (t *Text) Draw(v Frame) {
 }
 
 func (t *Text) drawField(v Frame, look Look) {
-	t.ensure()
-	t.editor.drawWith(t.frame(v, t.Label, look), look)
+	editor := t.projection()
+	editor.drawWith(t.frame(v, t.Label, look), look, &t.editor.presentation)
+}
+
+// projection is the field as it should appear without making presentation the event
+// that initializes its semantic editor. A form normally focuses every field before
+// its first frame, but a lone field must still show a caller-owned initial value and
+// Draw must remain a pure read of that value.
+func (t *Text) projection() Editor {
+	if t.seeded || t.Value == nil {
+		projected := t.editor
+		projected.SingleLine = true
+		projected.Mask = t.Mask
+		projected.Placeholder = t.Placeholder
+		projected.Keys = t.Keys
+		return projected
+	}
+	projected := *NewEditor()
+	projected.Look = t.editor.Look
+	projected.Clipboard = t.editor.Clipboard
+	projected.MaxRows = t.editor.MaxRows
+	projected.Gutter = t.editor.Gutter
+	projected.CursorStyle = t.editor.CursorStyle
+	projected.blurred = t.editor.blurred
+	projected.SingleLine = true
+	projected.Mask = t.Mask
+	projected.Placeholder = t.Placeholder
+	projected.Keys = t.Keys
+	projected.SetText(t.Value.Value())
+	return projected
 }
 
 // Handle passes input to the field and keeps the value in step with it.
@@ -265,10 +293,22 @@ func (s *Select[T]) Draw(v Frame) {
 }
 
 func (s *Select[T]) drawField(v Frame, look Look) {
-	s.ensure()
-	s.list.DrawRows(s.frame(v, s.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
+	selected := s.list.Selected()
+	if !s.seeded && s.Value != nil {
+		selected = s.indexOf(s.Value.Value())
+	}
+	s.list.drawRows(s.frame(v, s.Label, look), selected, func(v grid.View, _ int, option Option[T], under bool) {
 		look.choice(v, option.Label, under, under)
 	})
+}
+
+func (s *Select[T]) indexOf(want T) int {
+	for i, option := range s.options {
+		if option.holds(want, s.Same) {
+			return i
+		}
+	}
+	return s.list.Selected()
 }
 
 // Handle moves the cursor, and takes the choice with it.
@@ -335,13 +375,7 @@ func (s *Select[T]) ensure() {
 	}
 	// The cursor starts on the choice already made, which is what makes a form somebody
 	// is coming back to show what they said last time.
-	want := s.Value.Value()
-	for i, option := range s.options {
-		if option.holds(want, s.Same) {
-			s.list.Select(i)
-			break
-		}
-	}
+	s.list.Select(s.indexOf(s.Value.Value()))
 }
 
 func (s *Select[T]) store() {
@@ -476,10 +510,30 @@ func (m *MultiSelect[T]) Draw(v Frame) {
 }
 
 func (m *MultiSelect[T]) drawField(v Frame, look Look) {
-	m.ensure()
+	taken := m.taken
+	if !m.seeded {
+		taken = m.selection()
+	}
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
-		look.choice(v, option.Label, under, at < len(m.taken) && m.taken[at])
+		look.choice(v, option.Label, under, at < len(taken) && taken[at])
 	})
+}
+
+func (m *MultiSelect[T]) selection() []bool {
+	taken := make([]bool, len(m.options))
+	if m.Value == nil {
+		copy(taken, m.taken)
+		return taken
+	}
+	for _, want := range m.Value.Value() {
+		for i, option := range m.options {
+			if option.holds(want, m.Same) {
+				taken[i] = true
+				break
+			}
+		}
+	}
+	return taken
 }
 
 // Handle moves the cursor and takes choices.
@@ -534,26 +588,11 @@ func (m *MultiSelect[T]) ensure() {
 	// The list inside has no map of its own: this field resolves every keystroke
 	// against one that has the movement and the key that takes a choice in it, and
 	// drives the list by name. Offering the event to both would resolve it twice.
-	if len(m.taken) != len(m.options) {
-		taken := make([]bool, len(m.options))
-		copy(taken, m.taken)
-		m.taken = taken
-	}
 	if m.seeded {
 		return
 	}
 	m.seeded = true
-	if m.Value == nil {
-		return
-	}
-	for _, want := range m.Value.Value() {
-		for i, option := range m.options {
-			if option.holds(want, m.Same) {
-				m.taken[i] = true
-				break
-			}
-		}
-	}
+	m.taken = m.selection()
 }
 
 func (m *MultiSelect[T]) store() {
@@ -617,7 +656,10 @@ func (c *Confirm) Draw(v Frame) {
 }
 
 func (c *Confirm) drawField(v Frame, look Look) {
-	c.ensure()
+	answer := c.yes
+	if !c.seeded && c.Value != nil {
+		answer = c.Value.Value()
+	}
 	c.split.Stage(v, 0)
 	row := c.frame(v, c.Label, look)
 	w, h := row.Size()
@@ -632,10 +674,10 @@ func (c *Confirm) drawField(v Frame, look Look) {
 			c.split.Stage(v, x)
 		}
 		style := look.Text
-		if yes == c.yes {
+		if yes == answer {
 			style = look.Selection.Merge(look.Accent)
 		}
-		if mark, width := look.mark(yes == c.yes); width > 0 {
+		if mark, width := look.mark(yes == answer); width > 0 {
 			x = layout.Sum(x, row.Text(x, 0, mark, style), 1)
 		}
 		x = layout.Sum(x, row.Text(x, 0, c.word(yes), style))

@@ -242,9 +242,15 @@ func (l *List[T]) Draw(v Frame) {
 // geometry it computed once at the frame's width. The list still owns selection,
 // scrolling and committed pointer routing; [List.Draw] is this method with Row.
 func (l *List[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
+	l.drawRows(v, l.Selected(), draw)
+}
+
+// drawRows projects a selection supplied by an owning controller without changing
+// this list's cursor. Select uses it to show a caller-owned initial value before the
+// first semantic operation initializes the cursor.
+func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, bool)) {
 	width, height := v.Size()
 	total := len(l.items)
-	selected := l.Selected()
 	scroll := l.scroll.Stage(v, total, height)
 	if selected >= 0 {
 		scroll.Reveal(selected)

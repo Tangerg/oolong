@@ -44,11 +44,11 @@ func ExampleComposer() {
 	keys.Bind("send", input.Chord{Code: input.Enter})
 
 	c := kit.Composer{
-		Prompt:      "› ",
-		Placeholder: "Ask something",
-		Keys:        keys,
-		Hints:       []keymap.Action{"send"},
+		Prompt: "› ",
+		Hints:  []keymap.Action{"send"},
 	}
+	c.Editor().Placeholder = "Ask something"
+	c.Editor().Keys = keys
 	showWidget(28, c.Measure(28), &c)
 
 	// Output:

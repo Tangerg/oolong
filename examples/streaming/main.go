@@ -114,12 +114,12 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 		Theme: theme, Glyphs: glyphs,
 	}
 	c.composer = kit.Composer{
-		Theme:       theme,
-		Prompt:      glyphs.Marker + " ",
-		Placeholder: "Ask something, or press ctrl+c to leave",
-		Keys:        keys,
-		Hints:       []keymap.Action{send, headless.InsertNewline, cancelReply, quit},
+		Theme:  theme,
+		Prompt: glyphs.Marker + " ",
+		Hints:  []keymap.Action{send, headless.InsertNewline, cancelReply, quit},
 	}
+	c.composer.Editor().Placeholder = "Ask something, or press ctrl+c to leave"
+	c.composer.Editor().Keys = keys
 	c.composer.Editor().Clipboard = runtime.Clipboard()
 	c.stream.SetLook(markdownLook(theme, glyphs))
 

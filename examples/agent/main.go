@@ -94,13 +94,13 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
 	a.conversation = newConversation(theme, glyphs, runtime.Environment().Wheel())
 	a.workflow = newWorkflow(theme, glyphs)
 	a.composer = kit.Composer{
-		Theme:       theme,
-		Prompt:      glyphs.Marker + " ",
-		Placeholder: "Ask the mock agent to change something",
-		Keys:        keys,
-		Hints:       []keymap.Action{sendPrompt, cancelRun, quitAgent},
-		MaxRows:     5,
+		Theme:   theme,
+		Prompt:  glyphs.Marker + " ",
+		Hints:   []keymap.Action{sendPrompt, cancelRun, quitAgent},
+		MaxRows: 5,
 	}
+	a.composer.Editor().Placeholder = "Ask the mock agent to change something"
+	a.composer.Editor().Keys = keys
 	a.composer.Editor().Clipboard = runtime.Clipboard()
 	completionKeys := headless.DefaultCompletionKeys()
 	completionKeys.Bind(headless.Accept, input.Chord{Code: input.Enter})

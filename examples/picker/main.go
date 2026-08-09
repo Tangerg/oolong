@@ -60,10 +60,10 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 
 	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
 	p.query = kit.Composer{
-		Theme:       theme,
-		Prompt:      glyphs.Marker + " ",
-		Placeholder: "type to narrow",
+		Theme:  theme,
+		Prompt: glyphs.Marker + " ",
 	}
+	p.query.Editor().Placeholder = "type to narrow"
 	p.list = &headless.Filter[string]{
 		Row: p.row,
 	}

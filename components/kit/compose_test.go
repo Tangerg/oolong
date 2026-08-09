@@ -52,7 +52,8 @@ func TestComposerLeavesEnterToItsInterface(t *testing.T) {
 }
 
 func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
-	c := kit.Composer{Prompt: "› ", Placeholder: "ask"}
+	c := kit.Composer{Prompt: "› "}
+	c.Editor().Placeholder = "ask"
 	rows := paintWidget(12, 1, &c)
 	if !strings.HasPrefix(rows[0], "› ") {
 		t.Fatalf("row = %q, want the prompt marker first", rows[0])
@@ -63,7 +64,8 @@ func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
 }
 
 func TestComposerPlaceholderGivesWayToText(t *testing.T) {
-	c := kit.Composer{Prompt: "› ", Placeholder: "ask"}
+	c := kit.Composer{Prompt: "› "}
+	c.Editor().Placeholder = "ask"
 	typeInto(&c, "hi")
 	rows := paintWidget(12, 1, &c)
 	if strings.Contains(rows[0], "ask") {
@@ -79,7 +81,7 @@ func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 	if got := c.Measure(20); got != 1 {
 		t.Fatalf("an empty composer with no hints = %d rows, want 1", got)
 	}
-	c.Keys, c.Hints = sendKeys(), []keymap.Action{"send"}
+	c.Editor().Keys, c.Hints = sendKeys(), []keymap.Action{"send"}
 	if got := c.Measure(20); got != 2 {
 		t.Fatalf("with a hint row = %d rows, want the field and the hints", got)
 	}
@@ -87,7 +89,8 @@ func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 
 func TestComposerHintsNobodyCanPressTakeNoRow(t *testing.T) {
 	// A hint row with nothing in it is a blank line the user cannot account for.
-	c := kit.Composer{Keys: sendKeys(), Hints: []keymap.Action{"unbound"}}
+	c := kit.Composer{Hints: []keymap.Action{"unbound"}}
+	c.Editor().Keys = sendKeys()
 	if got := c.Measure(20); got != 1 {
 		t.Fatalf("= %d rows, want no room given to hints nobody is shown", got)
 	}
@@ -111,9 +114,9 @@ func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
 func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 	c := kit.Composer{
 		Prompt: "› ",
-		Keys:   sendKeys(),
 		Hints:  []keymap.Action{"send"},
 	}
+	c.Editor().Keys = sendKeys()
 	rows := paintWidget(20, 2, &c)
 	if !strings.Contains(rows[1], "send") {
 		t.Fatalf("second row = %q, want the hints under the field", rows[1])

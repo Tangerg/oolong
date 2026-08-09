@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/oolong/core/fuzzy"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -121,6 +122,46 @@ func TestMeasurementDoesNotInitializeControlledChoices(t *testing.T) {
 	if multiple.seeded || many.reads != 0 || many.writes != 0 {
 		t.Fatalf("multi-select measurement initialized state: seeded=%t, reads=%d, writes=%d",
 			multiple.seeded, many.reads, many.writes)
+	}
+}
+
+func TestDrawingProjectsControlledFieldsWithoutInitializingThem(t *testing.T) {
+	textValue := &observedAccessor[string]{value: "seed"}
+	textField := &Text{Value: textValue}
+	textFrame := captureDraw(t, 20, 1, NewRoot(textField).Draw)
+	if !strings.Contains(textFrame.bytes, "seed") {
+		t.Fatalf("text field did not project its caller-owned value: %q", textFrame.bytes)
+	}
+	if textField.seeded || textValue.reads == 0 || textValue.writes != 0 {
+		t.Fatalf("text draw changed ownership: seeded=%t, reads=%d, writes=%d",
+			textField.seeded, textValue.reads, textValue.writes)
+	}
+
+	one := &observedAccessor[string]{value: "two"}
+	selection := &Select[string]{Value: one}
+	selection.SetOptions(Options("one", "two"))
+	captureDraw(t, 20, 2, NewRoot(selection).Draw)
+	if selection.seeded || selection.list.Selected() != 0 || one.reads == 0 || one.writes != 0 {
+		t.Fatalf("select draw changed ownership: seeded=%t, selected=%d, reads=%d, writes=%d",
+			selection.seeded, selection.list.Selected(), one.reads, one.writes)
+	}
+
+	many := &observedAccessor[[]string]{value: []string{"two"}}
+	multiple := &MultiSelect[string]{Value: many}
+	multiple.SetOptions(Options("one", "two"))
+	beforeTaken := slices.Clone(multiple.taken)
+	captureDraw(t, 20, 2, NewRoot(multiple).Draw)
+	if multiple.seeded || !slices.Equal(multiple.taken, beforeTaken) || many.reads == 0 || many.writes != 0 {
+		t.Fatalf("multi-select draw changed ownership: seeded=%t, taken=%v, reads=%d, writes=%d",
+			multiple.seeded, multiple.taken, many.reads, many.writes)
+	}
+
+	answer := &observedAccessor[bool]{value: true}
+	confirmation := &Confirm{Value: answer}
+	captureDraw(t, 20, 1, NewRoot(confirmation).Draw)
+	if confirmation.seeded || answer.reads == 0 || answer.writes != 0 {
+		t.Fatalf("confirm draw changed ownership: seeded=%t, reads=%d, writes=%d",
+			confirmation.seeded, answer.reads, answer.writes)
 	}
 }
 
@@ -245,13 +286,25 @@ type editorMeaning struct {
 	selection    string
 	blurred      bool
 	look         Look
+	placeholder  string
+	keys         *keymap.Map
+	clipboard    Clipboard
+	maxRows      int
+	singleLine   bool
+	mask         string
+	gutter       RowGutter
+	cursor       grid.CursorStyle
 }
 
 func meaningOfEditor(editor *Editor) editorMeaning {
 	line, column := editor.Cursor()
 	return editorMeaning{
 		text: editor.Text(), line: line, column: column,
-		selection: editor.Selected(), blurred: editor.blurred, look: editor.Look,
+		selection: editor.Selected(), blurred: editor.blurred,
+		look: editor.Look, placeholder: editor.Placeholder,
+		keys: editor.Keys, clipboard: editor.Clipboard,
+		maxRows: editor.MaxRows, singleLine: editor.SingleLine,
+		mask: editor.Mask, gutter: editor.Gutter, cursor: editor.CursorStyle,
 	}
 }
 

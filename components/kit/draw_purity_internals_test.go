@@ -14,7 +14,9 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 type drawPurityCase struct {
@@ -40,7 +42,6 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	// be given a semantic-state contract above.
 	passive := map[string]bool{
 		"Box":         true,
-		"*Code":       true,
 		"Cell":        true,
 		"Diff":        true,
 		"Help":        true,
@@ -190,7 +191,13 @@ type editorMeaning struct {
 	selection    string
 	look         headless.Look
 	placeholder  string
+	keys         *keymap.Map
+	clipboard    headless.Clipboard
 	maxRows      int
+	singleLine   bool
+	mask         string
+	gutter       headless.RowGutter
+	cursor       grid.CursorStyle
 }
 
 func meaningOfEditor(editor *headless.Editor) editorMeaning {
@@ -198,7 +205,9 @@ func meaningOfEditor(editor *headless.Editor) editorMeaning {
 	return editorMeaning{
 		text: editor.Text(), line: line, column: column,
 		selection: editor.Selected(), look: editor.Look,
-		placeholder: editor.Placeholder, maxRows: editor.MaxRows,
+		placeholder: editor.Placeholder, keys: editor.Keys, clipboard: editor.Clipboard,
+		maxRows: editor.MaxRows, singleLine: editor.SingleLine, mask: editor.Mask,
+		gutter: editor.Gutter, cursor: editor.CursorStyle,
 	}
 }
 
@@ -306,15 +315,15 @@ func kitDrawPurityCases() []drawPurityCase {
 				frame  int
 				label  string
 				frames []string
-			}{spinner.frame, spinner.Label, spinner.Glyphs.Spinner}
+			}{spinner.frame, spinner.Label, slices.Clone(spinner.Glyphs.Spinner)}
 		},
 	})
 
-	composer := &Composer{Prompt: "> ", Placeholder: "say something", MaxRows: 3}
+	composer := &Composer{Prompt: "> ", MaxRows: 3}
+	composer.Editor().Placeholder = "say something"
 	composer.SetText("hello")
 	composer.Editor().MoveLeft()
 	composer.Focus(true)
-	composer.configure()
 	cases = append(cases, widgetPurityCase("*Composer", composer, func() any {
 		return meaningOfEditor(composer.Editor())
 	}))
@@ -329,7 +338,20 @@ func kitDrawPurityCases() []drawPurityCase {
 				lines         any
 				indent, limit int
 				links         bool
-			}{paragraph.lines, paragraph.Indent, paragraph.MaxRows, paragraph.Links}
+			}{paragraph.Lines(), paragraph.Indent, paragraph.MaxRows, paragraph.Links}
+		},
+	})
+
+	code := NewCode([]text.Line{
+		text.Of("package main", grid.Style{}),
+		text.Of("func main() {}", grid.Style{}),
+	})
+	code.Gutter = LineNumbers{}
+	cases = append(cases, drawPurityCase{
+		name: "*Code", width: 18, height: 3,
+		draw: code.Draw, measure: code.Measure,
+		state: func() any {
+			return code.Lines()
 		},
 	})
 
@@ -356,8 +378,9 @@ func kitDrawPurityCases() []drawPurityCase {
 		state: func() any {
 			return struct {
 				doing, elapsed string
-				spinner        Spinner
-			}{status.Doing, status.Elapsed, status.spinner}
+				frame          int
+				frames         []string
+			}{status.Doing, status.Elapsed, status.spinner.frame, slices.Clone(status.spinner.Glyphs.Spinner)}
 		},
 	})
 
