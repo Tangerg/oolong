@@ -190,9 +190,9 @@ func (e *Editor) DrawWith(frame Frame, look Look) {
 	e.drawWith(frame, look, &e.presentation)
 }
 
-// drawWith is the projection seam used by Text before it has taken ownership of its
-// accessor's initial value. Rendering may use a temporary editor state, while routing
-// geometry is still staged into the durable editor that will receive the next event.
+// drawWith separates the state being projected from the routing geometry that will
+// receive the next event. A wrapper may render a temporary projection while staging
+// its geometry into the durable editor it owns.
 func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPresentation]) {
 	v := frame.View
 	presented.Stage(frame, editorPresentation{})

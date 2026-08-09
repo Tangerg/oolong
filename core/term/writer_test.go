@@ -32,6 +32,13 @@ func (r *recorder) String() string {
 	return r.b.String()
 }
 
+func newTestWriter(t *testing.T, dst io.Writer) *term.Writer {
+	t.Helper()
+	w := term.NewWriter(dst)
+	t.Cleanup(func() { _ = w.Close() })
+	return w
+}
+
 // blocker holds writes until it is released, standing in for a terminal that has
 // stopped accepting bytes.
 type blocker struct {
@@ -94,7 +101,7 @@ func (p *partial) Write(frame []byte) (int, error) {
 
 func TestFramesReachTheTerminalInOrder(t *testing.T) {
 	dst := &recorder{}
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 
 	var last uint64
 	for _, frame := range []string{"one", "two", "three"} {
@@ -129,7 +136,7 @@ func TestANilDestinationIsRejectedBeforeStartingTheWriter(t *testing.T) {
 
 func TestQueueDoesNotWaitForTheTerminal(t *testing.T) {
 	dst := newBlocker()
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	defer dst.releaseAll()
 
 	// The whole reason this type exists: a terminal that is not accepting bytes must
@@ -160,7 +167,7 @@ func (b *blocker) releaseAll() { close(b.release) }
 func TestChangesWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		dst := newBlocker()
-		w := term.NewWriter(dst)
+		w := newTestWriter(t, dst)
 
 		seq := w.Queue([]byte("frame"))
 		synctest.Wait()
@@ -179,6 +186,9 @@ func TestChangesWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
 		if got := w.Written(); got != seq {
 			t.Fatalf("watermark = %d, want %d", got, seq)
 		}
+		if err := w.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
 	})
 }
 
@@ -191,7 +201,7 @@ func TestChangesCoalesce(t *testing.T) {
 	// after Drain has returned, and one more arrives just after the first is taken.
 	// It failed that way once, on a machine that interleaved it differently from
 	// eight hundred runs here.
-	w := term.NewWriter(&recorder{})
+	w := newTestWriter(t, &recorder{})
 	for range 5 {
 		w.Queue([]byte("x"))
 	}
@@ -208,7 +218,7 @@ func TestChangesCoalesce(t *testing.T) {
 
 func TestAShortWriteWithoutErrorFailsAndStopsFurtherWrites(t *testing.T) {
 	dst := &brokenShort{}
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	w.Queue([]byte("hello"))
 	w.Queue([]byte("later"))
 	if err := w.Drain(time.Second); err != nil {
@@ -227,7 +237,7 @@ func TestAShortWriteWithoutErrorFailsAndStopsFurtherWrites(t *testing.T) {
 
 func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	dst := &failing{ok: 1}
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 
 	w.Queue([]byte("first"))
 	w.Queue([]byte("second"))
@@ -250,7 +260,7 @@ func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 }
 
 func TestFailureWakesChangesWithoutAdvancingTheWatermark(t *testing.T) {
-	w := term.NewWriter(&failing{})
+	w := newTestWriter(t, &failing{})
 	w.Queue([]byte("doomed"))
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("failed frame never settled: %v", err)
@@ -270,7 +280,7 @@ func TestFailureWakesChangesWithoutAdvancingTheWatermark(t *testing.T) {
 
 func TestFramesQueuedAfterFailureAreRefusedAndAccountedFor(t *testing.T) {
 	dst := &failing{}
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	w.Queue([]byte("doomed"))
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("failed frame never settled: %v", err)
@@ -292,7 +302,7 @@ func TestFramesQueuedAfterFailureAreRefusedAndAccountedFor(t *testing.T) {
 
 func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 	// A broken terminal must not be able to wedge a shutdown.
-	w := term.NewWriter(&failing{})
+	w := newTestWriter(t, &failing{})
 	w.Queue([]byte("doomed"))
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("Drain waited for a frame that had already failed: %v", err)
@@ -301,7 +311,7 @@ func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 
 func TestAPartialWriteFailsTheFrameAndStopsLaterWrites(t *testing.T) {
 	dst := &partial{}
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	w.Queue([]byte("first frame"))
 	w.Queue([]byte("second frame"))
 	if err := w.Drain(time.Second); err != nil {
@@ -326,7 +336,7 @@ func TestAPartialWriteFailsTheFrameAndStopsLaterWrites(t *testing.T) {
 
 func TestDrainGivesUpOnATerminalThatNeverAccepts(t *testing.T) {
 	dst := newBlocker()
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	defer dst.releaseAll()
 
 	w.Queue([]byte("frame"))
@@ -337,7 +347,7 @@ func TestDrainGivesUpOnATerminalThatNeverAccepts(t *testing.T) {
 
 func TestCloseReportsAbandonedFrames(t *testing.T) {
 	dst := newBlocker()
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	defer dst.releaseAll()
 
 	w.Queue([]byte("first"))
@@ -359,7 +369,7 @@ func TestCloseReportsAbandonedFrames(t *testing.T) {
 }
 
 func TestCloseIsIdempotent(t *testing.T) {
-	w := term.NewWriter(&recorder{})
+	w := newTestWriter(t, &recorder{})
 	w.Queue([]byte("frame"))
 	first := w.Close()
 	second := w.Close()
@@ -369,7 +379,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 }
 
 func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
-	w := term.NewWriter(&recorder{})
+	w := newTestWriter(t, &recorder{})
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -386,7 +396,7 @@ func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
 
 func TestARefusedFrameCannotOvertakeABlockedWriteInDrain(t *testing.T) {
 	dst := newBlocker()
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	w.Queue([]byte("blocked"))
 	if err := w.Close(); !errors.Is(err, term.ErrClosed) {
 		t.Fatalf("Close error = %v, want term.ErrClosed", err)
@@ -410,7 +420,7 @@ func TestManyProducersKeepSequenceAndWriteOrderTogether(t *testing.T) {
 	// Sequence order and write order have to agree, or the watermark would release a
 	// frame that has not landed.
 	dst := &recorder{}
-	w := term.NewWriter(dst)
+	w := newTestWriter(t, dst)
 	const frames = 50
 	type queued struct {
 		seq  uint64
@@ -449,7 +459,7 @@ func TestManyProducersKeepSequenceAndWriteOrderTogether(t *testing.T) {
 
 func TestQueueAndCloseAreSafeTogether(t *testing.T) {
 	for range 100 {
-		w := term.NewWriter(&recorder{})
+		w := newTestWriter(t, &recorder{})
 		start := make(chan struct{})
 		var wg sync.WaitGroup
 		for range 20 {
@@ -477,7 +487,7 @@ func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
 	// machine slow enough for Drain to get there first, which is how this hid.
 	synctest.Test(t, func(t *testing.T) {
 		dst := newBlocker()
-		w := term.NewWriter(dst)
+		w := newTestWriter(t, dst)
 		seq := w.Queue([]byte("frame"))
 
 		// Wait until both the terminal write and Drain are blocked. This is the
@@ -498,14 +508,16 @@ func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
 		if got := w.Written(); got != seq {
 			t.Fatalf("watermark = %d, want %d", got, seq)
 		}
+		if err := w.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
 	})
 }
 
 func TestQueuedCountsWhatWasHandedOver(t *testing.T) {
 	// The sequence is reserved before the goroutine can see the frame, so the count
 	// already accounts for it by the time Queue returns.
-	w := term.NewWriter(&recorder{})
-	defer func() { _ = w.Close() }()
+	w := newTestWriter(t, &recorder{})
 	if got := w.Queued(); got != 0 {
 		t.Fatalf("= %d before anything was queued", got)
 	}
