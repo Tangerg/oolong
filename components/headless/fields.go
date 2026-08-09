@@ -405,8 +405,6 @@ type MultiSelect[T any] struct {
 	Same func(a, b T) bool
 	// Check says what is wrong with the choices, or nil.
 	Check func(v []T) error
-	// Limit is how many may be taken at once. Zero is as many as there are.
-	Limit int
 	// Rows caps how many options are shown at once. Zero shows them all.
 	Rows int
 	// Keys say which keystrokes move and take. Nil reads through
@@ -415,6 +413,7 @@ type MultiSelect[T any] struct {
 
 	list    List[Option[T]]
 	taken   []bool
+	limit   int
 	seeded  bool
 	matcher keymap.Matcher
 }
@@ -447,11 +446,36 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 			}
 		}
 	}
+	clampTaken(m.taken, m.limit)
 	m.store()
 }
 
 // Options returns a copy of what is on offer.
 func (m *MultiSelect[T]) Options() []Option[T] { return slices.Clone(m.options) }
+
+// SetLimit changes how many choices may be taken at once. Zero allows every option;
+// a negative limit is a programmer error. Lowering the limit keeps the earliest
+// choices in option order and writes the settled set back to a bound value.
+func (m *MultiSelect[T]) SetLimit(limit int) {
+	if limit < 0 {
+		panic("headless: multi-select limit cannot be negative")
+	}
+	if m == nil || m.limit == limit {
+		return
+	}
+	m.limit = limit
+	if m.seeded && clampTaken(m.taken, m.limit) {
+		m.store()
+	}
+}
+
+// Limit reports how many choices may be taken at once. Zero allows every option.
+func (m *MultiSelect[T]) Limit() int {
+	if m == nil {
+		return 0
+	}
+	return m.limit
+}
 
 // Taken is what has been chosen, in the order the options are listed.
 func (m *MultiSelect[T]) Taken() []T {
@@ -479,6 +503,39 @@ func (m *MultiSelect[T]) takenOptions() []Option[T] {
 	return out
 }
 
+func (m *MultiSelect[T]) takenCount() int {
+	count := 0
+	for _, taken := range m.taken {
+		if taken {
+			count++
+		}
+	}
+	return count
+}
+
+// clampTaken is the one enforcement point for a choice limit. It preserves option
+// order, which is the order MultiSelect reports and the only stable priority
+// available.
+func clampTaken(taken []bool, limit int) bool {
+	if limit <= 0 {
+		return false
+	}
+	kept := 0
+	changed := false
+	for i, selected := range taken {
+		if !selected {
+			continue
+		}
+		if kept < limit {
+			kept++
+			continue
+		}
+		taken[i] = false
+		changed = true
+	}
+	return changed
+}
+
 // Toggle takes the option under the cursor, or gives it back, and reports whether
 // anything changed. Nothing changes when the limit is reached.
 func (m *MultiSelect[T]) Toggle() bool {
@@ -487,7 +544,7 @@ func (m *MultiSelect[T]) Toggle() bool {
 	if at < 0 || at >= len(m.taken) {
 		return false
 	}
-	if !m.taken[at] && m.Limit > 0 && len(m.Taken()) >= m.Limit {
+	if !m.taken[at] && m.limit > 0 && m.takenCount() >= m.limit {
 		return false
 	}
 	m.taken[at] = !m.taken[at]
@@ -512,18 +569,18 @@ func (m *MultiSelect[T]) Draw(v Frame) {
 func (m *MultiSelect[T]) drawField(v Frame, look Look) {
 	taken := m.taken
 	if !m.seeded {
-		taken = m.selection()
+		taken, _ = m.selection()
 	}
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
 		look.choice(v, option.Label, under, at < len(taken) && taken[at])
 	})
 }
 
-func (m *MultiSelect[T]) selection() []bool {
+func (m *MultiSelect[T]) selection() ([]bool, bool) {
 	taken := make([]bool, len(m.options))
 	if m.Value == nil {
 		copy(taken, m.taken)
-		return taken
+		return taken, clampTaken(taken, m.limit)
 	}
 	for _, want := range m.Value.Value() {
 		for i, option := range m.options {
@@ -533,7 +590,7 @@ func (m *MultiSelect[T]) selection() []bool {
 			}
 		}
 	}
-	return taken
+	return taken, clampTaken(taken, m.limit)
 }
 
 // Handle moves the cursor and takes choices.
@@ -592,7 +649,11 @@ func (m *MultiSelect[T]) ensure() {
 		return
 	}
 	m.seeded = true
-	m.taken = m.selection()
+	var clamped bool
+	m.taken, clamped = m.selection()
+	if clamped {
+		m.store()
+	}
 }
 
 func (m *MultiSelect[T]) store() {

@@ -30,7 +30,9 @@ type History struct {
 	entries []string
 	// at is where the walk has got to, counted from the end: zero is the draft, one
 	// is the newest entry. It is not an index into the slice, so that entries added
-	// during a walk cannot move the place.
+	// during a walk cannot move the place. It may be one past the oldest retained
+	// entry after SetLimit removes the entry currently shown; the next Forward then
+	// reaches the oldest entry that still exists instead of inventing an empty one.
 	at int
 	// draft is what was being typed when the walk began.
 	draft string
@@ -82,6 +84,9 @@ func (h *History) trim() {
 		dropped := len(h.entries) - limit
 		clear(h.entries[:dropped])
 		h.entries = trim(h.entries[dropped:])
+		if h.at > len(h.entries) {
+			h.at = len(h.entries) + 1
+		}
 	}
 }
 

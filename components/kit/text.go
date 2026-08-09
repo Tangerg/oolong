@@ -128,39 +128,73 @@ func (p *Paragraph) Draw(v grid.View) {
 	visible := v.Visible()
 	first := min(max(visible.Min.Y, 0), len(rows))
 	last := min(max(visible.Max.Y, first), len(rows))
+	detectedLine := -1
+	var detected detectedLinks
 	for y := first; y < last; y++ {
 		r := rows[y]
 		r.Draw(v, p.Indent, y)
 		if p.Links {
-			p.stamp(v, y, r)
+			if r.line != detectedLine {
+				detected = p.detectLinks(r.line)
+				detectedLine = r.line
+			}
+			p.stamp(v, y, detected.row(r))
 		}
 	}
 }
 
+// detectedLinks is one logical line and the destinations found in it. Draw keeps
+// one while it walks the physical rows of that line, so wrapping cannot multiply a
+// full-source scan by the number of rows it produced.
+type detectedLinks struct {
+	text         string
+	destinations []link.Link
+}
+
+func (p *Paragraph) detectLinks(line int) detectedLinks {
+	if line < 0 || line >= len(p.lines) {
+		return detectedLinks{}
+	}
+	whole := p.lines[line].String()
+	return detectedLinks{text: whole, destinations: link.DetectIn(whole, p.Exists)}
+}
+
+// rowLinks projects a logical line's destinations onto one wrapped byte range.
+type rowLinks struct {
+	text         string
+	from         int
+	destinations []link.Link
+}
+
+func (d detectedLinks) row(r row) rowLinks {
+	if r.To <= r.From || r.From < 0 || r.To > len(d.text) {
+		return rowLinks{}
+	}
+	return rowLinks{
+		text: d.text[r.From:r.To], from: r.From, destinations: d.destinations,
+	}
+}
+
+func (r rowLinks) rangeOf(destination link.Link) (start, end int, ok bool) {
+	start = max(destination.Start, r.from) - r.from
+	end = min(destination.End, r.from+len(r.text)) - r.from
+	return start, end, start < end
+}
+
 // stamp makes the links on one row clickable.
 //
-// The row's own text is the range of the logical line it came from, so a link's
-// offsets are shifted into it and the parts of a link that landed on other rows are
-// clipped away. A link that wrapped is stamped on each row it covers, with the same
-// target on all of them, which is how a terminal draws one hyperlink over two lines.
-func (p *Paragraph) stamp(v grid.View, y int, r row) {
-	if r.line >= len(p.lines) || r.To <= r.From {
-		return
-	}
-	whole := p.lines[r.line].String()
-	if r.To > len(whole) {
-		return
-	}
-	part := whole[r.From:r.To]
-	for _, l := range link.DetectIn(whole, p.Exists) {
-		start, end := max(l.Start, r.From)-r.From, min(l.End, r.To)-r.From
-		if start >= end {
+// A link that wrapped is stamped on each row it covers, with the same target on all
+// of them, which is how one terminal hyperlink covers several physical rows.
+func (p *Paragraph) stamp(v grid.View, y int, row rowLinks) {
+	for _, destination := range row.destinations {
+		start, end, ok := row.rangeOf(destination)
+		if !ok {
 			continue
 		}
 		// A relative path is still found by LinkAt, but left without OSC 8 so the
 		// terminal can resolve it against its reported directory.
-		target := hyperlinkTarget(l)
-		text.StampLink(v, p.Indent, y, part, start, end, target)
+		target := hyperlinkTarget(destination)
+		text.StampLink(v, p.Indent, y, row.text, start, end, target)
 	}
 }
 
@@ -206,12 +240,17 @@ func (p *Paragraph) projectRows(rows []row, first, last int) []text.Row {
 		previous := rows[first-1]
 		prevTo, prevLine = previous.To, previous.line
 	}
+	wholeLine := -1
+	whole := ""
 	for _, r := range rows[first:last] {
 		row := text.Row{
 			Text: r.Line.String(), Offset: p.Indent, Line: r.line + 1, Joined: r.Joined,
 		}
 		if r.Joined && r.line == prevLine && r.line < len(p.lines) {
-			whole := p.lines[r.line].String()
+			if r.line != wholeLine {
+				whole = p.lines[r.line].String()
+				wholeLine = r.line
+			}
 			if prevTo <= r.From && r.From <= len(whole) {
 				row.Gap = whole[prevTo:r.From]
 			}
@@ -237,23 +276,14 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 	if y >= len(rows) {
 		return link.Link{}, false
 	}
-	r := rows[y]
-	if r.line >= len(p.lines) || r.To <= r.From {
-		return link.Link{}, false
-	}
-	whole := p.lines[r.line].String()
-	if r.To > len(whole) {
-		return link.Link{}, false
-	}
-	part := whole[r.From:r.To]
-	for _, destination := range link.DetectIn(whole, p.Exists) {
-		start := max(destination.Start, r.From) - r.From
-		end := min(destination.End, r.To) - r.From
-		if start >= end {
+	row := p.detectLinks(rows[y].line).row(rows[y])
+	for _, destination := range row.destinations {
+		start, end, ok := row.rangeOf(destination)
+		if !ok {
 			continue
 		}
-		from := layout.Sum(p.Indent, text.ColumnOf(part, start))
-		to := layout.Sum(p.Indent, text.ColumnOf(part, end))
+		from := layout.Sum(p.Indent, text.ColumnOf(row.text, start))
+		to := layout.Sum(p.Indent, text.ColumnOf(row.text, end))
 		if x >= from && x < to {
 			return destination, true
 		}

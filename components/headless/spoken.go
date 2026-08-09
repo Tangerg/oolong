@@ -65,8 +65,8 @@ func (m *MultiSelect[T]) Reply(said string) error {
 			taken[at], count = true, count+1
 		}
 	}
-	if m.Limit > 0 && count > m.Limit {
-		return m.check(fmt.Errorf("at most %d may be chosen", m.Limit))
+	if m.limit > 0 && count > m.limit {
+		return m.check(fmt.Errorf("at most %d may be chosen", m.limit))
 	}
 	m.taken = taken
 	m.store()

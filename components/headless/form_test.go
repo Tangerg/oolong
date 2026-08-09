@@ -238,13 +238,53 @@ func TestPickingSeveralStopsAtItsLimit(t *testing.T) {
 	var picked []string
 	field := multiWith(headless.Options("a", "b", "c"))
 	field.Value = headless.Bind(&picked)
-	field.Limit = 1
+	field.SetLimit(1)
 	field.Do(headless.Toggle)
 	field.Do(headless.SelectNext)
 	field.Do(headless.Toggle)
 	if len(picked) != 1 || picked[0] != "a" {
 		t.Fatalf("= %v, want only what fits in the limit", picked)
 	}
+}
+
+func TestLoweringMultipleChoiceLimitSettlesTheBoundValue(t *testing.T) {
+	picked := []string{"a", "b", "c"}
+	field := multiWith(headless.Options("a", "b", "c"))
+	field.Value = headless.Bind(&picked)
+	if got := field.Taken(); len(got) != 3 {
+		t.Fatalf("initially taken = %v, want all three", got)
+	}
+
+	field.SetLimit(1)
+	if field.Limit() != 1 {
+		t.Fatalf("limit = %d, want 1", field.Limit())
+	}
+	if len(picked) != 1 || picked[0] != "a" {
+		t.Fatalf("settled binding = %v, want the first option", picked)
+	}
+}
+
+func TestMultipleChoiceLimitClampsTheInitialBoundValue(t *testing.T) {
+	picked := []string{"a", "b", "c"}
+	field := multiWith(headless.Options("a", "b", "c"))
+	field.Value = headless.Bind(&picked)
+	field.SetLimit(2)
+
+	if got := field.Taken(); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("taken = %v, want the first two options", got)
+	}
+	if len(picked) != 2 || picked[0] != "a" || picked[1] != "b" {
+		t.Fatalf("settled binding = %v, want the first two options", picked)
+	}
+}
+
+func TestMultipleChoiceLimitRejectsNegativeValues(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("SetLimit accepted a negative limit")
+		}
+	}()
+	new(headless.MultiSelect[string]).SetLimit(-1)
 }
 
 func TestReplacingMultipleChoicesMovesTheTakenSetByValue(t *testing.T) {

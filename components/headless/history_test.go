@@ -134,6 +134,30 @@ func TestHistoryDropsTheOldest(t *testing.T) {
 	}
 }
 
+func TestShrinkingHistorySettlesAWalkPastTheRetainedRange(t *testing.T) {
+	h := historyOf("a", "b", "c", "d")
+	if got, _ := h.Back("draft"); got != "d" {
+		t.Fatalf("first step = %q, want d", got)
+	}
+	if got, _ := h.Back(""); got != "c" {
+		t.Fatalf("second step = %q, want c", got)
+	}
+	if got, _ := h.Back(""); got != "b" {
+		t.Fatalf("third step = %q, want b", got)
+	}
+
+	h.SetLimit(2) // b was dropped; c and d remain.
+	for _, want := range []string{"c", "d", "draft"} {
+		got, ok := h.Forward()
+		if !ok || got != want {
+			t.Fatalf("forward after shrink = %q (%v), want %q", got, ok, want)
+		}
+	}
+	if h.Walking() {
+		t.Error("history is still walking after returning to the draft")
+	}
+}
+
 func TestHistoryLimitHasOneValidatedConfigurationPath(t *testing.T) {
 	var h headless.History
 	if got := h.Limit(); got != headless.DefaultHistoryLimit {

@@ -24,6 +24,8 @@ already-resolved locale, and `program.Environment.Locale` obtains that fact from
 new optional `LocaleHost` capability. Clipboard read requests now report admission:
 `PasteHost.Paste`, `program.Clipboard.Paste`, `headless.Clipboard.Paste`, and
 `headless.Editor.Paste` return `bool`. There are no compatibility aliases.
+`headless.MultiSelect.Limit` is replaced by `SetLimit` and `Limit`, so every change
+settles the selected set through the controller instead of bypassing its invariant.
 
 This round is also deliberately breaking. Frame-derived transcript and scroll
 geometry now has one public path: `Scroll.Layout`, `Transcript.Resize`,
@@ -71,6 +73,11 @@ private wrap cache.
   kit interprets only that stable value. A server process's locale can no longer choose
   ASCII or Unicode furniture for a remote client.
 
+- **Wrapped links are detected once per logical line.** Drawing and hit testing now
+  share one row projection, so a long linked paragraph no longer rescans its complete
+  source for every visible wrapped row. In the 40-row M4 benchmark this falls from
+  about 28 ms and 281 allocations to 0.86 ms and 46 allocations.
+
 ### Added
 
 - Example visual goldens can be deliberately regenerated with `go test -update`.
@@ -90,6 +97,12 @@ private wrap cache.
   clear or rewrite rows the original still considers valid. Markdown documents also
   detach their block storage before appending, so independently grown copies cannot
   overwrite one another through spare slice capacity.
+
+- Shrinking a command history while its current entry is removed now leaves the walk
+  immediately before the oldest retained entry; moving forward no longer yields
+  successful empty entries. Multi-select limits also constrain initial bindings,
+  option replacement, interactive toggles, and runtime limit changes through one
+  enforcement path.
 
 ## [0.7.0] — 2026-08-10
 

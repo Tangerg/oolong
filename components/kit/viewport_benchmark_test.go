@@ -32,6 +32,25 @@ func BenchmarkParagraphClippedDraw(b *testing.B) {
 	}
 }
 
+func BenchmarkParagraphWrappedLinksDraw(b *testing.B) {
+	const visible = 40
+	paragraph := kit.NewParagraph(
+		strings.Repeat("a long linked paragraph ", 400)+"https://example.test/reference",
+		grid.Style{},
+	)
+	paragraph.Links = true
+	height := paragraph.Measure(40)
+	surface := grid.NewSurface(40, visible)
+	view := surface.View().Sub(grid.Rect(0, -height/2, 40, height))
+
+	b.ReportAllocs()
+	b.ReportMetric(visible, "visible-rows/op")
+	b.ResetTimer()
+	for b.Loop() {
+		paragraph.Draw(view)
+	}
+}
+
 func BenchmarkCodeClippedDraw(b *testing.B) {
 	const (
 		rows    = 10_000

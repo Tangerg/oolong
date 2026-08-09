@@ -73,8 +73,8 @@ func ask(into *answers) *headless.Form {
 	tools := &headless.MultiSelect[string]{
 		Label: "Which tools may it use?",
 		Value: headless.Bind(&into.tools),
-		Limit: 2,
 	}
+	tools.SetLimit(2)
 	tools.SetOptions(headless.Options("read", "write", "run"))
 	form := headless.NewForm(
 		&headless.Text{
