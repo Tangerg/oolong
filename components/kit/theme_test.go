@@ -64,6 +64,58 @@ func TestBuiltInThemePalettes(t *testing.T) {
 	}
 }
 
+func TestSuitedThemeUsesTerminalNeutrals(t *testing.T) {
+	ground := grid.Ground{
+		FG: rgb(0xE8, 0xDC, 0xC8),
+		BG: rgb(0x18, 0x20, 0x28),
+	}
+	got := kit.Suited(ground)
+	dark := kit.Dark()
+
+	if !got.Text.FG.Default() || !got.Strong.FG.Default() || !got.Heading.FG.Default() {
+		t.Error("body roles override the terminal foreground")
+	}
+	if got.Muted.FG != ground.BG.Blend(ground.FG, 0.44) {
+		t.Errorf("muted foreground = %#v", got.Muted.FG)
+	}
+	if got.Subtle.FG != ground.BG.Blend(ground.FG, 0.30) {
+		t.Errorf("subtle foreground = %#v", got.Subtle.FG)
+	}
+	if got.Border.FG != ground.BG.Blend(ground.FG, 0.16) || got.Divider != got.Border {
+		t.Error("structural lines do not share the terminal-derived colour")
+	}
+	if got.Surface.BG != ground.BG.Blend(ground.FG, 0.04) {
+		t.Errorf("surface background = %#v", got.Surface.BG)
+	}
+	if got.Sunken.BG != ground.BG.Blend(ground.FG, 0.08) {
+		t.Errorf("sunken background = %#v", got.Sunken.BG)
+	}
+	if got.Selection.BG != ground.BG.Blend(ground.FG, 0.18) {
+		t.Errorf("selection background = %#v", got.Selection.BG)
+	}
+	if got.Added.BG != ground.BG.Blend(dark.Success.FG, 0.18) {
+		t.Errorf("added background = %#v", got.Added.BG)
+	}
+	if got.Removed.BG != ground.BG.Blend(dark.Danger.FG, 0.18) {
+		t.Errorf("removed background = %#v", got.Removed.BG)
+	}
+	if got.Accent != dark.Accent || got.Success != dark.Success || got.Warning != dark.Warning || got.Danger != dark.Danger || got.Info != dark.Info {
+		t.Error("semantic colours changed while fitting neutral roles")
+	}
+	if got.Scrim != (kit.Scrim{Color: ground.BG, Opacity: 0.55}) {
+		t.Errorf("scrim = %#v", got.Scrim)
+	}
+}
+
+func TestSuitedThemeChangesWithTerminalPalette(t *testing.T) {
+	a := kit.Suited(grid.Ground{FG: rgb(0xF0, 0xF0, 0xF0), BG: rgb(0x10, 0x10, 0x10)})
+	b := kit.Suited(grid.Ground{FG: rgb(0xD0, 0xC0, 0xB0), BG: rgb(0x20, 0x18, 0x10)})
+
+	if a.Muted == b.Muted || a.Surface == b.Surface || a.Selection == b.Selection {
+		t.Error("different terminal palettes produced the same neutral roles")
+	}
+}
+
 func theme(
 	text, muted, subtle, accent,
 	success, warning, danger, info,

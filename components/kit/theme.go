@@ -102,17 +102,47 @@ func (t Theme) Look(g Glyphs) headless.Look {
 	}
 }
 
-// Suited chooses a theme from the surrounding terminal colours.
+// Suited returns a theme fitted to the surrounding terminal colours.
 //
-// Only the background decides, because that is what everything is read against. A
-// terminal that said nothing gets the dark theme, because dark is the commoner
-// choice and light is the one that becomes unreadable when it is guessed wrong:
-// grey on white is faint, and grey on black is invisible.
+// The terminal's own foreground remains the body colour. Neutral structure is
+// mixed from the terminal's foreground and background, so panes remain part of the
+// user's terminal rather than looking like a fixed rectangle laid over it. Accent
+// and outcome colours come from [Dark] or [Light], selected by the background.
+//
+// Both colours are needed to fit a theme. If either is unknown, Suited returns the
+// corresponding built-in theme unchanged; guessing a missing colour can erase text.
 func Suited(g grid.Ground) Theme {
+	base := Dark()
 	if !g.BG.Default() && !g.BG.RGB().Dark() {
-		return Light()
+		base = Light()
 	}
-	return Dark()
+	if g.FG.Default() || g.BG.Default() {
+		return base
+	}
+	return base.suited(g)
+}
+
+// suited keeps semantic colours from t and derives every neutral role from the
+// terminal. The zero foreground styles are intentional: leaving them unset is how
+// body text continues to follow a terminal that is recoloured while the program is
+// running.
+func (t Theme) suited(g grid.Ground) Theme {
+	t.Text.FG = grid.Color{}
+	t.Strong.FG = grid.Color{}
+	t.Heading.FG = grid.Color{}
+
+	t.Subtle.FG = g.BG.Blend(g.FG, 0.30)
+	t.Muted.FG = g.BG.Blend(g.FG, 0.44)
+	t.Context.FG = t.Muted.FG
+	t.Border.FG = g.BG.Blend(g.FG, 0.16)
+	t.Divider.FG = t.Border.FG
+	t.Surface.BG = g.BG.Blend(g.FG, 0.04)
+	t.Sunken.BG = g.BG.Blend(g.FG, 0.08)
+	t.Selection.BG = g.BG.Blend(g.FG, 0.18)
+	t.Added.BG = g.BG.Blend(t.Success.FG, 0.18)
+	t.Removed.BG = g.BG.Blend(t.Danger.FG, 0.18)
+	t.Scrim = Scrim{Color: g.BG, Opacity: 0.55}
+	return t
 }
 
 // themePalette is the raw colour vocabulary shared by the built-in themes. Turning
