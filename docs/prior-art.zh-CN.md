@@ -1,6 +1,8 @@
-# 先行者：四个终端界面，以及该从它们那里拿什么
+# 先行者：五个终端 UI 家族，以及该从它们那里拿什么
 
-状态：一份附带取舍结论的调研。它与
+语言：[English](prior-art.md) | 简体中文
+
+状态：一份附带取舍结论、持续更新的源码审计。它与
 [architecture.md §5](architecture.zh-CN.md#5-从前端与-flutter-体系里拿什么)
 互为姊妹篇；后者用同样的方法看浏览器和 Flutter：把值得学习的职责与承载它的
 机制分开，并明确说出哪一半不采用。
@@ -17,13 +19,36 @@
 | [agentui](https://github.com/minoism/agentui) | `ec0414e`，2026-07-28 | Go，约 245 个文件 | 一个 agent CLI，与本仓库有共同祖先。 |
 | grok-build | `780d138`，2026-08-03 | Rust，约 2,500 个文件 | 已交付的产品；`xai-ratatui-*` crates 是它的终端层。 |
 | [opentui](https://github.com/anomalyco/opentui) | `b55f125`，2026-08-05 | TypeScript + Zig | 一个带 React、Solid、SSH 和 3D 包的终端 UI 平台。 |
-| pi-tui | `@earendil-works/pi-tui` | TypeScript | “最小化的差量渲染终端 UI 框架”。 |
+| [bubbletea](https://github.com/charmbracelet/bubbletea) | `6fb1f47`，2026-08-04 | Go | Charm 的运行时与渲染器。 |
+| [bubbles](https://github.com/charmbracelet/bubbles) | `8cea431`，2026-08-04 | Go | Charm 面向行为的组件目录。 |
+| [lipgloss](https://github.com/charmbracelet/lipgloss) | `5696b28`，2026-07-20 | Go | Charm 的字符串样式与布局层。 |
+| pi-tui | `7df73a00c`，2026-07-24 | TypeScript | “最小化的差量渲染终端 UI 框架”。 |
 
-这是调研，不是审计：读的是包文档、导出表面，以及各项目解释自身时指向的文件。
-下文引语来自这些来源；关于**本仓库**的每一项判断都对照代码核验过。
+第一轮是调研。2026-08-09 这一轮是对相关运行时、渲染器、keymap、
+editor、completion 与 terminal lifecycle 实现的源码审计。下文引语来自这些
+来源；关于**本仓库**的每一项判断都对照代码核验过。
 
 这些项目会继续变化。没有日期的对比，会在无人察觉时停止成立；本仓库已经犯过
 一次这种错误，并记录在 [ROADMAP.md](../ROADMAP.md) 里。
+
+## 2026-08-09 的可执行决策
+
+本轮选中三个纵向切片。它们小到可以独立落地，又完整到每个批次结束时
+已经可用。
+
+| 切片 | 吸收的职责 | 守住的边界 |
+| --- | --- | --- |
+| 精确匹配/前缀组合键 | `keymap.Matcher` 拥有单个 reader 的序列状态，并调用一个由调用方提供的 resolver；`Runtime.After` 是标准的 owner-goroutine resolver | `keymap` 不导入 `program`、不拥有时钟、不生长第二棵焦点树 |
+| cursor 形态与闪烁 | cursor 外观是 `grid` 已交付帧状态的一部分，像位置和可见性一样做 diff | editor 可以选择外观，但 terminal escape 状态不进入 `headless` 行为 |
+| terminal 原生任务进度 | `term` 拥有 OSC 9;4 编码与恢复；`program.Session` 暴露一个可选 host 能力 | 它与绘制在界面内的 `kit.Progress` 保持分离，应用任务 policy 留在下游 |
+
+每个切片都必须在自己的层级有单元测试、有端到端消费方、在适用时有空闲线路
+测试，并有 lifecycle 恢复测试。只有公开类型还不算完成。
+
+本轮还关闭了第一轮的一个假缺口。`Container` 与 `Stack` 本来就是 scope 系统：
+先把 event 交给焦点子项，子项拒绝后再下落给父级，已交付帧拥有 pointer 身份与
+几何。中央 keymap layer registry 会复制这棵树，并制造两个“哪个 scope 拥有事件”的
+答案。因此它被否决，而不是暂缓。
 
 ## 1. opentui/keymap 回答了本仓库已经写下的一项限制
 
@@ -38,28 +63,31 @@
 > `continueSequence`、`clear`，以及延迟的 `AbortSignal` + `sleep` 决策；并附带
 > Neovim 风格的超时解析器。
 
-值得拿的思想不是“加一个超时”，而是：**消歧是调用方提供的值**，超时解析器只是
+值得拿的思想不是“加一个超时”，而是：**消歧是调用方提供的 policy**，超时 resolver 只是
 它的一种实现。
 
-这个形状能解开本仓库无法从内部绕出的僵局。依赖图禁止 `runtime` 触达
-`interaction`，也禁止 `headless` 触达 `runtime`，所以库内**没有任何一层有资格
-拥有计时器**。解析器并不需要拥有它：`Pending` 报告歧义存在以及有哪些选择，能看见
-时钟的调用方给出答案。库仍然无需知道时间是什么。
+这个形状无需反转依赖边就能解决问题。依赖图禁止 `program` 穿过 components
+反向触达 `keymap`，也禁止 `headless` 触达 `program`，所以 **matcher 不能拥有 runtime
+timer**。取而代之，`Map` 接收一个与 `Runtime.After` 同形的 resolver。matcher 把可取消的
+精确 action 交给它，runtime 再把 action 调度回界面 owner。`keymap` 仍然不知道 runtime，
+也不知道 goroutine。
 
-另有两件值得拿的东西，它们彼此独立：
+还有一条更小的经验值得吸收：序列状态应该属于一个行为对象。旧 `Pending` 只暴露
+存储，十三个组件却重复同一套 lookup/dispatch 过程。`Matcher` 拥有推进、取消与
+dispatch，因此读取 map 只剩一份实现。
 
-- **带作用域、按优先级排序且可以下落的层。** 本仓库每种 widget 只有一张 map，
-  没有作用域概念；应用若想让一个绑定只在某个 pane 聚焦时生效，只能在 `Handle`
-  里手写条件。
-- **诊断。** opentui 报告遮蔽、不可达绑定、未激活原因，并对层图运行 lint 式分析。
-  一张能回答“这个绑定为什么永远不触发”的 keymap 才容易调试；本仓库的还不能。
+**不采用 scoped layer 与 layer diagnosis。** OpenTUI 需要 registry，是因为它的 binding 可以脱离
+renderable ownership 独立存在。Oolong 的 map 由组件树内的 widget 拥有。`Container` 与 `Stack`
+已经提供 focus-within、优先级与下落，帧事务也已经阻止输入几何与呈现状态分裂。
+再加 layer graph，会让 focus 与 key scope 有机会互相矛盾。为一张我们不应拥有的图做诊断，
+是为抽象辩护抽象。
 
-**不采用。** opentui 的 keymap 罗列了十二项主能力。其余九项包括可插拔的绑定语言
+**不采用。** opentui 的 keymap 罗列了十二项主能力。其余部分包括可插拔的绑定语言
 （解析器、展开器、变换器、命令解析器、字段编译器）、可注册 schema、带订阅通知的
 响应式 matcher，以及 React 和 Solid 绑定。
 [§16](architecture.zh-CN.md#16-明确否决的设计)已经否决通用 signals/observables
 框架，[§12 规则 8](architecture.zh-CN.md#12-go-api-规则)要求配置与问题成比例。
-十二项里取三项，才是诚实的比例。
+调用方提供的 resolver 与有状态 matcher，才是诚实的比例。
 
 ## 2. opentui/ssh 证实了本仓库已经实现的 host 形状
 
@@ -239,23 +267,21 @@ resize_viewport_height,
 | **按内容定宽的列** | opentui `TextTable` | `kit.Cell` 把首选宽度和绘制放在一起；`Column.Size: layout.Measured(0, 0)` 测量最宽标题或 cell；`TableLayout` 在整帧复用结果。 |
 | **设置列表** | pi-tui `settings-list`、agentui `catalog` | `headless.Settings` 在 `List` 上增加选中值动作；`kit.Settings` 提供按内容定宽的 label/value 行，应用数据与修改仍留在下游。 |
 
-### B. 真实存在，但被同一个共同问题挡住
+### B. 真实的产品组合，但边界继续留在下游
 
-以下三项看起来像三个组件，其实是一个尚未回答的设计问题——**作用域**——戴着三顶
-帽子。分别实现会制造三种互不兼容的作用域概念。
+第二轮审计发现，早先的“一个共同 scope 问题”是错误抽象。scope 已经存在于组件树；
+下面三项是附着在通用机制上的应用 policy。
 
-| 缺失项 | 谁有 | 问题是什么 |
+| 产品组合 | 谁有 | 本仓库的边界 |
 | --- | --- | --- |
-| **带作用域的 command palette** | agentui `palette`（`Scope`、`Predicate`、`Registry`） | `headless.Commands` 有 `Add`、`Remove`、`Lookup`、`Used` 与 `Find`，但不能表达 command 只在某个上下文可用；调用方只能在 `Find` 后过滤，而且每个调用方各写一套。 |
-| **completion source** | agentui `completion`（file、shell、`@` reference） | `Completion.Offer(token, candidates)` 从调用方接收候选。按 context 产出候选的 `Source` 是通用的；file 与 shell source 本身属于应用。 |
-| **file picker** | bubbles `filepicker` | 行为——tree、filter、selection——属于 `headless`；哪些目录可见是**安全决策**。agentui 把它放在 `policy` 参数，而不是 picker 内部；这条线是正确的，也正是它不能直接成为 widget 的原因。 |
+| **带作用域的 command palette** | agentui `palette`（`Scope`、`Predicate`、`Registry`） | pane 在同一 subtree 中拥有自己的 `Commands` 与 palette。`Container`/`Stack` 决定哪个 subtree 接收输入；不需要、也不允许第二套 scope registry。 |
+| **异步 completion source** | agentui 与 pi-tui 的 file、shell 和 reference provider | `Completion.Offer(token, candidates)` 继续是呈现接缝。应用拥有 I/O、取消，并在 offer 结果前验证 token/editor snapshot。 |
+| **file picker** | bubbles `filepicker` | `Tree`、`Editor`、`Completion`、`Scroll` 与 `Selection` 已经提供机制。文件系统根、隐藏文件规则与遍历权限是应用安全 policy，不是共享 widget。 |
 
-`examples/composer` 与 `examples/agent` 现在是 `Completion.Offer` 的两个消费方。
-两者都可以直接产生各自少量、由应用拥有的候选项，因此尚不足以证明需要 `Source`
-抽象；两者也都没有多个活动 scope，所以同样没有回答上面的共同问题。
-
-[§1](#1-opentuikeymap-回答了本仓库已经写下的一项限制)的 keymap scope 是第四顶帽子。
-无论怎样回答其中一个，都应当同时回答四个。
+`examples/composer` 与 `examples/agent` 是 `Completion.Offer` 的两个消费方，都能直接
+产生由应用拥有的候选。通用 `Source` 会让组件开始 I/O、导入取消 policy，并成为 editor
+状态的第二个 owner。agentui 的 generation check 与 pi-tui 的 text/line/column/request-id check
+都是把验证留在 source 旁边的证据，而不是把 source 搬进组件的证据。
 
 ### C. 只增加数量，不增加能力
 
@@ -283,18 +309,51 @@ selection 属于前者，policy 属于后者；settings list 属于前者，具�
 A 组完全属于前者，因此无需导入产品语法就能实现。
 
 顺序先做 A，因为五个完全造不出来的组件，比任意数量的已有能力别名更有价值。A 完成
-以后，B 仍然是一件工作，因为 scope 仍然是一个问题。C 继续由需求驱动；若只是产品
+以后，B 现在是已记录的应用边界，而不是框架 backlog。C 继续由需求驱动；若只是产品
 组合，就属于 example。
+
+## 7. Charm：借终端契约，不借执行模型
+
+Bubble Tea v2 在每个 `View` 里明示了两项终端属性：
+
+- `Cursor` 携带位置、形态与闪烁；
+- `ProgressBar` 携带 normal、error、indeterminate、warning 状态与有界百分比。
+
+OpenTUI 也独立地把 cursor style 当成 renderer 状态，pi-tui 也独立地使用 OSC 9;4
+告诉 terminal window 工作正在进行。这不是“组件数量”能力，而是 cell grid 之外的
+呈现状态；除非 session 明确更改或恢复，终端会在帧后继续保留它们。所以可执行决策
+在 renderer/session 边界同时吸收两者。
+
+两种 progress 的分开非常重要。`kit.Progress` 在界面内绘制比例，属于 layout 与 theme。
+native progress 属于 window 或 taskbar，窗口被遮住时仍然有用，并且必须在 handover 与
+close 时清除。两者无法互相实现，所以这不是重复 API。
+
+三项更大的 Charm 选择明确不引入：
+
+- Bubble Tea 的 `Model -> (Model, Cmd)` loop 是一套 immutable-effect 语汇。Oolong 的 owner
+  goroutine、`Dispatcher`、有界 `ByteIngress` 与具体 capability value 已经提供显式所有权；
+  再加 `Cmd` 会制造第二套并发模型。
+- Lip Gloss 样式化 ANSI string，因此必须再拥有 ANSI-aware 宽度、截断、拼接与分层定位。
+  Oolong 把 grapheme、style、link 与 painted region 保持为结构化值，直到最后的 encoder。
+  退回 styled string 会先丢失信息，再为恢复它付费。
+- Bubbles 的 file picker 拥有文件系统遍历 policy。Oolong 保留可复用交互机制，并像
+  第 6 节记录的那样，把文件系统权限留给应用。
+
+Bubble Tea 的一次性 `Tick` 确实指向一项缺失的底层便利。keymap resolver 正好需要
+一个在界面 owner 上运行的、可取消的一次性 callback，因此为这个具体消费方采用
+`Runtime.After`。Timer/stopwatch widget 继续被否决：调度工作与选择产品如何展示时间，
+是两种职责。
 
 ## 总结
 
 | 来源 | 采用 | 不引入 |
 | --- | --- | --- |
-| opentui/keymap | 调用方提供的消歧；带作用域和优先级的层；遮蔽与不可达绑定诊断 | 可插拔绑定语言、可注册 schema、响应式 matcher、框架绑定 |
+| opentui/keymap | 调用方提供的精确匹配/前缀消歧；每个 reader 一个有状态 matcher | 第二棵 scope tree、layer registry、绑定语言、响应式 matcher、框架绑定 |
 | opentui/ssh | 独立模块中、位于 `program.Host` 后面的 SSH channel，与 renderer 无关 | 任何让 `core` 知道某种 transport 存在的东西 |
 | pi-tui | 已实现的 `headless.Editor` kill ring；固定尺寸的 `ptytest.Screen` 断言模型 | 把 paste marker 做成库功能——机制已经存在，policy 属于应用；行字符串 diff 及它迫使产生的 ANSI-aware 字符串工具 |
 | grok-build | §3.2 的具名反例 | purge-and-re-emit resize |
 | agentui | detector 应当报告带原因的拒绝项 | 产品语法、第二套 transcript 引擎、detector 内部的路径 policy |
+| Charm | cursor 形态/闪烁、terminal 原生任务进度、一次性 owner 调度 | `Cmd`、styled-string rendering、widget 内的文件系统 policy |
 
 ## 有序候选项
 
@@ -313,9 +372,9 @@ A 组完全属于前者，因此无需导入产品语法就能实现。
    settings 组件路由 action，但刻意不引入 scope 系统。
 5. **kill ring：已完成。** 它仍是 `Editor` 内部的私有行为：有界存储、按方向累积、
    `Yank` 与紧邻的 `YankPop`；不增加 package 或公开存储抽象。
-6. **[B 组](#b-真实存在但被同一个共同问题挡住)与 keymap scope，作为一件工作。**
-   scoped palette、completion source、file picker 的 policy 接缝与 keymap layer，是一个
-   问题的四顶帽子。回答四次，正是仓库得到四种不兼容 scope 概念的方式。
+6. **精确匹配/前缀组合键、cursor 外观与 native progress：已选中。** 它们是本轮
+   审计的三个可执行切片，并按这个顺序落地。第一项同时从每个组件中移除
+   `Pending` 与重复的 lookup/dispatch 过程。
 7. **`core/link` 的拒绝报告。**
    [§7.1](architecture.zh-CN.md#71-一个包必须配得上它的名字)要求一个边界有两个
    消费方；目前只有一个假想消费方。
@@ -326,7 +385,8 @@ A 组完全属于前者，因此无需导入产品语法就能实现。
 
 带新日期的新一轮阅读，以及以下任一证据：
 
-- 这里出现一个真实界面，确实被前缀限制卡住；它会把候选 4 提前；
+- 有证据表明组件树路由无法表达真实 key scope；这会重新打开被否决的 layer
+  registry，而不是悄悄加入它；
 - 拒绝报告出现第二个消费方；它会把候选 7 从愿望变成边界；
 - 有证据表明 purge-and-re-emit resize 买到了 §3.2 未权衡的东西；它会重新打开一项
   否决，而不只是给它补注释。

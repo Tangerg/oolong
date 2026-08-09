@@ -211,10 +211,10 @@ API rules, the parts taken from frontend and Flutter systems, and the executable
 future abstractions have to pass on the way to v1.
 
 [docs/prior-art.md](docs/prior-art.md)
-([简体中文](docs/prior-art.zh-CN.md)) surveys four other terminal interfaces —
-`agentui`, `grok-build`, `opentui` and `pi-tui` — and says for each what it answers
-that this repository does not, what is worth taking, and what is deliberately left
-where it is.
+([简体中文](docs/prior-art.zh-CN.md)) audits five terminal UI families —
+`agentui`, `grok-build`, `opentui`, the Charm family and `pi-tui` — and says for
+each what it answers that this repository does not, what is worth taking, and what
+is deliberately left where it is.
 
 [docs/brand.md](docs/brand.md) ([简体中文](docs/brand.zh-CN.md)) records the name,
 positioning, voice, visual direction, and the boundary that keeps brand metaphors out

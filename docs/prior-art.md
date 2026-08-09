@@ -1,6 +1,8 @@
-# Prior art: four terminal interfaces, and what to take from them
+# Prior art: five terminal UI families, and what to take from them
 
-Status: a survey with decisions attached. It is the sibling of
+Language: English | [简体中文](prior-art.zh-CN.md)
+
+Status: a living source audit with decisions attached. It is the sibling of
 [architecture.md §5](architecture.md#5-what-is-taken-from-frontend-and-flutter-systems),
 which does the same job for browser and Flutter ideas: separate the responsibility
 worth learning from the mechanism that carries it, and say plainly which half is being
@@ -18,15 +20,40 @@ today. A survey that turns into a backlog has stopped being a survey.
 | [agentui](https://github.com/minoism/agentui) | `ec0414e`, 2026-07-28 | Go, ~245 files | An agent CLI. Shares ancestry with this repository. |
 | grok-build | `780d138`, 2026-08-03 | Rust, ~2,500 files | Shipping product; `xai-ratatui-*` crates are its terminal layer. |
 | [opentui](https://github.com/anomalyco/opentui) | `b55f125`, 2026-08-05 | TypeScript + Zig | A terminal UI platform with React, Solid, SSH and 3D packages. |
-| pi-tui | `@earendil-works/pi-tui` | TypeScript | "Minimal terminal UI framework with differential rendering." |
+| [bubbletea](https://github.com/charmbracelet/bubbletea) | `6fb1f47`, 2026-08-04 | Go | The Charm runtime and renderer. |
+| [bubbles](https://github.com/charmbracelet/bubbles) | `8cea431`, 2026-08-04 | Go | Charm's behaviour-oriented component catalogue. |
+| [lipgloss](https://github.com/charmbracelet/lipgloss) | `5696b28`, 2026-07-20 | Go | Charm's string styling and layout layer. |
+| pi-tui | `7df73a00c`, 2026-07-24 | TypeScript | "Minimal terminal UI framework with differential rendering." |
 
-This was a survey, not an audit: package documentation, exported surfaces, and the
-files each project points at when it explains itself. Quotations below are from those
-sources. Every claim about *this* repository was checked against the code.
+The first pass was a survey. The 2026-08-09 pass is a source audit of the relevant
+runtime, renderer, keymap, editor, completion and terminal-lifecycle implementations.
+Quotations below are from those sources. Every claim about *this* repository was
+checked against the code.
 
 These projects move. A comparison without a date is a claim that stops being true
 quietly, which is the mistake this repository has already made once and recorded in
 [ROADMAP.md](../ROADMAP.md).
+
+## The 2026-08-09 executable decision
+
+This pass selected three vertical slices. They are deliberately small enough to land
+independently and complete enough to be useful when each batch ends.
+
+| slice | responsibility taken | boundary kept |
+| --- | --- | --- |
+| exact-prefix key sequences | `keymap.Matcher` owns one reader's sequence and invokes a caller-supplied resolver; `Runtime.After` is the standard owner-goroutine resolver | `keymap` does not import `program`, own a clock, or grow a second focus tree |
+| cursor shape and blink | cursor appearance is part of `grid`'s committed frame state and is diffed like position and visibility | editors may choose an appearance, but terminal escape state does not enter `headless` behaviour |
+| native task progress | `term` owns OSC 9;4 encoding and restoration; `program.Session` exposes one optional host capability | it remains distinct from the drawn `kit.Progress`, and application task policy stays downstream |
+
+Each slice must have unit tests at its owning layer, an end-to-end consumer, idle-wire
+tests where applicable, and lifecycle restoration tests. A slice is not complete when
+only its public type exists.
+
+The pass also closes a false gap in the first survey. `Container` and `Stack` already
+form the scope system: the focused child is offered an event first, a declined event
+falls through to its parent, and the committed frame owns pointer identity and
+geometry. A central keymap-layer registry would duplicate that tree and create two
+answers to which scope owns an event. It is therefore rejected, not deferred.
 
 ## 1. opentui/keymap answers a limitation this repository has written down
 
@@ -42,34 +69,37 @@ quietly, which is the mistake this repository has already made once and recorded
 > `continueSequence`, `clear`, and deferred `AbortSignal` + `sleep` decisions. Ships a
 > Neovim-style timeout resolver.
 
-The idea worth taking is not "add a timeout". It is that **disambiguation is a value
+The idea worth taking is not "add a timeout". It is that **disambiguation is a policy
 the caller supplies**, and a timeout resolver is one implementation of it.
 
-That shape resolves a deadlock this repository has, and could not otherwise escape.
-The dependency graph forbids `runtime` from reaching `interaction` and forbids
-`headless` from reaching `runtime`, so **no layer inside the library is allowed to own
-the timer**. A resolver does not need to own one: `Pending` reports that an ambiguity
-exists and what the choices are, and whoever can see a clock answers. The library
-stays out of the business of knowing what time it is.
+That shape resolves a dependency problem without reversing an edge. The dependency
+graph forbids `program` from reaching `keymap` through components and forbids
+`headless` from reaching `program`, so **the matcher cannot own a runtime timer**.
+Instead a `Map` accepts a resolver with the same shape as `Runtime.After`. The matcher
+hands it a cancellable exact action; the runtime schedules that action back onto the
+interface owner. `keymap` still knows neither the runtime nor a goroutine.
 
-Two more things are worth taking and are independent of the first:
+One further lesson is taken in a smaller form: sequence state belongs to a behavioural
+object. The old `Pending` value only exposed storage while thirteen components repeated
+the same lookup/dispatch procedure. `Matcher` owns advancement, cancellation and
+dispatch, so there is one implementation of reading a map.
 
-- **Scoped, priority-ordered layers with fallthrough.** This repository has one map
-  per widget kind and no notion of scope, so an application that wants a binding
-  active only while a pane has focus writes that condition by hand in `Handle`.
-- **Diagnostics.** opentui reports shadowing, unreachable bindings, inactive reasons,
-  and runs lint-style analysers over the layer graph. A keymap that can be asked
-  *why* a binding never fires is a keymap people can debug; this repository's cannot
-  be asked.
+**Scoped layers and layer diagnostics are not taken.** OpenTUI needs a registry because
+its bindings can exist independently of renderable ownership. Oolong's maps are owned
+by widgets inside the component tree. `Container` and `Stack` already provide
+focus-within, priority and fallthrough, and their frame transaction already prevents
+input geometry from disagreeing with presentation. Adding a layer graph would make
+focus and key scope capable of contradicting one another. Diagnostics for a graph we
+do not have would be an abstraction built to justify another abstraction.
 
-**Not taken.** opentui's keymap lists twelve headline capabilities. The other nine are
+**Not taken.** opentui's keymap lists twelve headline capabilities. The rest are
 a pluggable binding language (parsers, expanders, transformers, command resolvers,
 field compilers), a registrable schema, reactive matchers with subscription-driven
 notifications, and React and Solid bindings.
 [§16](architecture.md#16-designs-explicitly-rejected) rejects a generic signals or
 observables framework outright, and
 [§12 rule 8](architecture.md#12-go-api-rules) asks configuration to stay proportional
-to the problem. Three of twelve is the honest share.
+to the problem. The caller-supplied resolver and stateful matcher are the honest share.
 
 ## 2. opentui/ssh confirms the shape of the host now implemented here
 
@@ -283,25 +313,24 @@ They now form one completed vertical slice rather than a permanent catalogue wis
 | **Columns sized from their content** | opentui `TextTable` | `kit.Cell` keeps preferred width and painting together; `Column.Size: layout.Measured(0, 0)` measures the widest title or cell, and `TableLayout` reuses the result for a whole frame. |
 | **A settings list** | pi-tui `settings-list`, agentui `catalog` | `headless.Settings` adds selected-value actions to `List`; `kit.Settings` supplies the fitted label/value rows while application data and mutation stay downstream. |
 
-### B. Real, but blocked on one shared question
+### B. Real product assemblies whose boundary remains downstream
 
-These three look like three components. They are one unanswered design question —
-**scope** — wearing three hats, and building them separately would produce three
-incompatible notions of it.
+The second audit found that the earlier "one shared scope question" was the wrong
+abstraction. Scope already exists in the component tree; the three items below are
+application policy attached to ordinary reusable mechanisms.
 
-| missing | who has it | the question |
+| assembly | who has it | boundary here |
 | --- | --- | --- |
-| **A scoped command palette** | agentui `palette` (`Scope`, `Predicate`, `Registry`) | `headless.Commands` has `Add`, `Remove`, `Lookup`, `Used` and `Find`. It cannot say a command is available only in some context; a caller filters after `Find` and every caller filters differently. |
-| **Completion sources** | agentui `completion` (file, shell, `@`-reference) | `Completion.Offer(token, candidates)` takes candidates from the caller. A `Source` that is asked for candidates given a context is general; the file and shell sources themselves are the application's. |
-| **A file picker** | bubbles `filepicker` | The behaviour — a tree, a filter, a selection — belongs in `headless`. Which directories may be seen is a **security decision**, and agentui puts it in a `policy` parameter rather than in the picker. That line is the right one and it is why this is not simply a widget. |
+| **A scoped command palette** | agentui `palette` (`Scope`, `Predicate`, `Registry`) | A pane owns its `Commands` and its palette in the same subtree. `Container`/`Stack` decide which subtree receives input; a second scope registry is neither needed nor allowed. |
+| **Asynchronous completion sources** | agentui and pi-tui file, shell and reference providers | `Completion.Offer(token, candidates)` remains the presentation seam. The application owns I/O, cancellation and validating the token/editor snapshot before offering a result. |
+| **A file picker** | bubbles `filepicker` | `Tree`, `Editor`, `Completion`, `Scroll` and `Selection` already provide the mechanics. Filesystem roots, hidden-file rules and traversal permissions are application security policy, not a shared widget. |
 
-`examples/composer` and `examples/agent` are now two consumers of `Completion.Offer`.
-Both can produce their small application-owned candidate sets directly, so they do
-not yet justify a `Source` abstraction. Neither has multiple active scopes, so they
-also do not answer the shared question above.
-
-`keymap` scopes, from [§1](#1-opentuikeymap-answers-a-limitation-this-repository-has-written-down),
-are the fourth hat. Whatever answers one of these should answer all four.
+`examples/composer` and `examples/agent` are two consumers of `Completion.Offer` and
+can produce their application-owned candidates directly. A generic `Source` would
+make the component start I/O, import cancellation policy and become a second owner of
+editor state. Both agentui's generation checks and pi-tui's
+text/line/column/request-id checks are evidence for keeping that validation beside the
+source, not for moving the source into the component.
 
 ### C. Count, not capability
 
@@ -331,19 +360,59 @@ the second. Group A was entirely the first kind, which is why it could be implem
 without importing product grammar.
 
 The sequence was A first, because five components that could not be built at all were
-a larger gain than any number of aliases for things that could. With A complete, B
-remains one piece of work because scope is one question. C remains demand-driven and,
-where it is merely product assembly, belongs in an example.
+a larger gain than any number of aliases for things that could. With A complete, B is
+now a recorded application boundary rather than a framework backlog. C remains
+demand-driven and, where it is merely product assembly, belongs in an example.
+
+## 7. Charm: borrow terminal contracts, not the execution model
+
+Bubble Tea v2 makes two terminal properties explicit in every `View`:
+
+- `Cursor` carries position, shape and blinking;
+- `ProgressBar` carries normal, error, indeterminate and warning states and a bounded
+  percentage.
+
+OpenTUI independently treats cursor style as renderer state, and pi-tui independently
+uses OSC 9;4 to tell a terminal window that work is active. These are not catalogue
+features. They are presentation state outside the cell grid, and the terminal keeps
+them after a frame unless the session deliberately changes or restores them. That is
+why the executable decision adopts both at the renderer/session boundary.
+
+The split between the two kinds of progress matters. `kit.Progress` draws a proportion
+inside the interface and belongs to layout and theme. Native progress belongs to the
+window or taskbar, remains useful while the window is obscured, and must be cleared on
+handover and close. One cannot implement the other, so this is not a duplicate API.
+
+Three larger Charm choices are deliberately not imported:
+
+- Bubble Tea's `Model -> (Model, Cmd)` loop is an immutable-effect vocabulary. Oolong's
+  owner goroutine, `Dispatcher`, bounded `ByteIngress` and concrete capability values
+  already provide explicit ownership without allocating a universal message/effect
+  language. Adding `Cmd` would create a second concurrency model.
+- Lip Gloss styles ANSI strings and consequently needs ANSI-aware width, truncation,
+  joining and layer placement. Oolong keeps graphemes, styles, links and painted
+  regions structured until the final encoder. Moving back to styled strings would
+  discard information and then pay to recover it.
+- Bubbles' file picker owns filesystem traversal policy. Oolong keeps the reusable
+  interaction mechanics and leaves filesystem authority to the application, as
+  section 6 records.
+
+Bubble Tea's one-shot `Tick` does point to one missing low-level convenience. The
+keymap resolver needs exactly one cancellable callback on the interface owner, so
+`Runtime.After` is adopted for that concrete consumer. Timer and stopwatch widgets
+remain rejected: scheduling work and choosing a product display for time are different
+responsibilities.
 
 ## Summary
 
 | source | adopt | do not import |
 | --- | --- | --- |
-| opentui/keymap | disambiguation as a caller-supplied resolver; scoped priority layers; diagnostics for shadowed and unreachable bindings | a pluggable binding language, registrable schema, reactive matchers, framework bindings |
+| opentui/keymap | exact-prefix disambiguation as a caller-supplied resolver; one stateful matcher per reader | a second scope tree, layer registry, binding language, reactive matchers, framework bindings |
 | opentui/ssh | an SSH channel behind `program.Host` as its own module, renderer-agnostic | anything that makes `core` know a transport exists |
 | pi-tui | the implemented kill ring in `headless.Editor`; the fixed-size `ptytest.Screen` assertion model | a paste marker as a library feature — the mechanism is already here and the policy is the application's; line-string diffing and the ANSI-aware string utilities it forces |
 | grok-build | a named counter-example for §3.2 | purge-and-re-emit resize |
 | agentui | the idea that a detector should report refusals with reasons | product grammar; a second transcript engine; path policy inside a detector |
+| Charm | cursor shape/blink, native task progress and one-shot owner scheduling | `Cmd`, styled-string rendering, filesystem policy inside a widget |
 
 ## Ordered candidates
 
@@ -367,10 +436,10 @@ Ordered by what each is blocked on, not by appetite.
 5. **A kill ring: completed.** It remains private behavior inside `Editor`: bounded
    storage, directional accumulation, `Yank`, and immediately consecutive `YankPop`,
    with no new package or public storage abstraction.
-6. **[Group B](#b-real-but-blocked-on-one-shared-question) and keymap scope, as one
-   piece of work.** A scoped palette, completion sources, a file picker's policy seam
-   and keymap layers are four hats on one question. Answering it four times is how a
-   repository ends up with four incompatible notions of scope.
+6. **Exact-prefix key sequences, cursor appearance and native progress: selected.**
+   They are the three executable slices in this audit and land in that order. The
+   first also removes `Pending` and the repeated lookup/dispatch procedure from every
+   component.
 7. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
    wants two consumers for a boundary; there is currently one hypothetical.
 8. **A paste-into-chip example: completed.** `examples/composer` owns the threshold,
@@ -380,8 +449,8 @@ Ordered by what each is blocked on, not by appetite.
 
 A new reading, with a new date. Also any of these:
 
-- a real interface here that the prefix limitation actually blocks, which would move
-  candidate 4 up;
+- evidence that component-tree routing cannot express a real key scope, which would
+  reopen the rejected layer registry rather than quietly adding one;
 - a second consumer for refusal reporting, which would move candidate 7 from a wish to
   a boundary;
 - evidence that purge-and-re-emit resize buys something §3.2 did not weigh, which
