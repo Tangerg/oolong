@@ -47,7 +47,7 @@ func flush(t *testing.T, s *grid.Screen, cursor grid.Cursor, draw func(grid.View
 	t.Helper()
 	v := s.Frame()
 	if cursor.Visible {
-		v.PlaceCursor(cursor.Pos.X, cursor.Pos.Y)
+		v.PlaceCursor(cursor.Pos.X, cursor.Pos.Y, cursor.Style)
 	}
 	if draw != nil {
 		draw(v)
@@ -575,6 +575,39 @@ func TestCursorCommands(t *testing.T) {
 	}
 }
 
+func TestCursorStyleIsPartOfTheFrameDiff(t *testing.T) {
+	s := grid.NewScreen(4, 1)
+	bar := grid.Cursor{
+		Visible: true, Pos: image.Pt(1, 0),
+		Style: grid.CursorStyle{Shape: grid.CursorBar, Blink: true},
+	}
+	first := flush(t, s, bar, nil)
+	if !strings.Contains(first, "\x1b[5 q") {
+		t.Fatalf("first frame = %q, want a blinking bar", first)
+	}
+	if idle := flush(t, s, bar, nil); idle != "" {
+		t.Fatalf("unchanged cursor wrote %q", idle)
+	}
+
+	underline := bar
+	underline.Style = grid.CursorStyle{Shape: grid.CursorUnderline}
+	if changed := flush(t, s, underline, nil); changed != "\x1b[4 q" {
+		t.Fatalf("style change = %q, want only a steady underline", changed)
+	}
+	if got := s.Cursor(); got != underline {
+		t.Fatalf("committed cursor = %+v, want %+v", got, underline)
+	}
+}
+
+func TestAnUnknownCursorShapeBecomesTheTerminalDefault(t *testing.T) {
+	s := grid.NewScreen(2, 1)
+	view := s.Frame()
+	view.PlaceCursor(0, 0, grid.CursorStyle{Shape: grid.CursorShape(255), Blink: true})
+	if got := s.Cursor().Style; got != (grid.CursorStyle{}) {
+		t.Fatalf("cursor style = %+v, want the zero default", got)
+	}
+}
+
 func TestWritingCellsReanchorsAnUnmovedCursor(t *testing.T) {
 	s := grid.NewScreen(6, 1)
 	cursor := grid.Cursor{Visible: true, Pos: image.Pt(0, 0)}
@@ -831,7 +864,7 @@ func TestTheCursorBelongsToWhoeverDrawsIt(t *testing.T) {
 	s := grid.NewScreen(20, 5)
 	// A widget speaks in its own coordinates; nobody in between carries the answer.
 	out := flush(t, s, grid.Cursor{}, func(v grid.View) {
-		v.Sub(grid.Rect(4, 2, 10, 1)).PlaceCursor(3, 0)
+		v.Sub(grid.Rect(4, 2, 10, 1)).PlaceCursor(3, 0, grid.CursorStyle{})
 	})
 	if !strings.Contains(out, "\x1b[3;8H") {
 		t.Fatalf("frame = %q, want the cursor at row 3 column 8", out)
@@ -854,7 +887,7 @@ func TestAWidgetScrolledOffScreenCannotMoveTheCursor(t *testing.T) {
 	out := flush(t, s, grid.Cursor{}, func(v grid.View) {
 		// The box starts past the right edge, so it has nowhere to draw and no say
 		// over the cursor either.
-		v.Sub(grid.Rect(20, 0, 5, 1)).PlaceCursor(0, 0)
+		v.Sub(grid.Rect(20, 0, 5, 1)).PlaceCursor(0, 0, grid.CursorStyle{})
 	})
 	if strings.Contains(out, "\x1b[?25h") {
 		t.Fatalf("frame = %q, want no cursor from a view with nowhere to draw", out)
@@ -864,7 +897,7 @@ func TestAWidgetScrolledOffScreenCannotMoveTheCursor(t *testing.T) {
 func TestPlacingTheCursorOnAPlainSurfaceIsHarmless(_ *testing.T) {
 	// A scratch surface is not a frame. Placing a cursor there means nothing, and
 	// meaning nothing is not the same as being an error.
-	grid.NewSurface(4, 1).View().PlaceCursor(1, 0)
+	grid.NewSurface(4, 1).View().PlaceCursor(1, 0, grid.CursorStyle{})
 }
 
 func TestASurfaceCanBeReadAsText(t *testing.T) {

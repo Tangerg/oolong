@@ -113,6 +113,17 @@ func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
 	}
 }
 
+func TestAnEditorPublishesItsCursorStyleWithItsFrame(t *testing.T) {
+	e := headless.NewEditor()
+	e.CursorStyle = grid.CursorStyle{Shape: grid.CursorBar, Blink: true}
+
+	screen := grid.NewScreen(8, 1)
+	headless.NewRoot(e).Draw(screen.Frame())
+	if got := screen.Cursor().Style; got != e.CursorStyle {
+		t.Fatalf("cursor style = %+v, want %+v", got, e.CursorStyle)
+	}
+}
+
 func TestAClickInAMaskedFieldLandsOnTheClusterItIsUnder(t *testing.T) {
 	e := &headless.Editor{Mask: "••"}
 	e.SetText("abc")

@@ -31,7 +31,8 @@ const (
 	pasteOn  = "\x1b[?2004h"
 	pasteOff = "\x1b[?2004l"
 
-	cursorShow = "\x1b[?25h"
+	cursorDefault = "\x1b[0 q"
+	cursorShow    = "\x1b[?25h"
 )
 
 // Modes is the immutable set of terminal modes a session turns on and later puts
@@ -90,8 +91,8 @@ func (m Modes) enter() string {
 }
 
 // leave is what to write to give the terminal back: every mode that was turned on,
-// turned off in the opposite order, and then the cursor shown, because a frame may
-// have hidden it.
+// turned off in the opposite order, and then the cursor restored and shown, because
+// a frame may have changed its shape or hidden it.
 func (m Modes) leave() string {
 	seq := m.sequence()
 	var b strings.Builder
@@ -100,6 +101,7 @@ func (m Modes) leave() string {
 			b.WriteString(seq[i].off)
 		}
 	}
+	b.WriteString(cursorDefault)
 	b.WriteString(cursorShow)
 	return b.String()
 }
@@ -107,5 +109,5 @@ func (m Modes) leave() string {
 // Enter encodes the modes in acquisition order.
 func (m Modes) Enter() string { return m.enter() }
 
-// Leave encodes the inverse modes in reverse order and makes the cursor visible.
+// Leave encodes the inverse modes in reverse order and restores the cursor.
 func (m Modes) Leave() string { return m.leave() }

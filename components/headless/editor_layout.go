@@ -296,7 +296,7 @@ func (e *Editor) placeCursor(v grid.View, x, y int) {
 	if e.blurred {
 		return
 	}
-	v.PlaceCursor(x, y)
+	v.PlaceCursor(x, y, e.CursorStyle)
 }
 
 // Scroll exposes the field's position, for a scrollbar beside a tall field.

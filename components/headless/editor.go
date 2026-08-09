@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/text"
@@ -67,6 +68,9 @@ type Editor struct {
 	// text. The gutter is not part of selection or clipboard content, and pointer
 	// input in it is left for a containing component to interpret.
 	Gutter RowGutter
+	// CursorStyle chooses the terminal cursor's shape and blink while this editor has
+	// the keyboard. The zero value leaves both to the terminal's configured default.
+	CursorStyle grid.CursorStyle
 
 	lines []string
 	// line is the cursor's logical line; col is its byte offset within that line.

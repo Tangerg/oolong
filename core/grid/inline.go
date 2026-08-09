@@ -79,6 +79,10 @@ type Inline struct {
 	// idle frame says nothing and leaves the blink alone.
 	known bool
 	shown bool
+	// cursorStyleKnown and cursorStyle track the last DECSCUSR sent. Visibility and
+	// shape are separate terminal state: hiding a cursor does not reset its shape.
+	cursorStyleKnown bool
+	cursorStyle      CursorStyle
 
 	// full forces the next flush to rewrite every row of the block, and repaintAll
 	// says the same about the regions something else painted — which the rows say
@@ -158,6 +162,7 @@ func (i *Inline) Invalidate() {
 	i.full = true
 	i.repaintAll = true
 	i.known = false
+	i.cursorStyleKnown = false
 }
 
 // Frame blanks the drawing surface and returns the view for this frame.
@@ -307,6 +312,7 @@ func (i *Inline) Finish(w io.Writer) error {
 		i.buf = append(i.buf, "\r\n"...)
 	}
 	i.buf = append(i.buf, sgrReset...)
+	i.buf = append(i.buf, defaultCursor...)
 	i.buf = append(i.buf, showCursor...)
 	i.rows, i.at = 0, image.Point{}
 	// Whatever was left open stays as it is — it is the terminal's output now — but
@@ -526,7 +532,8 @@ func (i *Inline) cursorPending() bool {
 	if !i.known || i.placed.Visible != i.shown {
 		return true
 	}
-	return i.placed.Visible && i.placed.Pos != i.at
+	return i.placed.Visible && (i.placed.Pos != i.at || !i.cursorStyleKnown ||
+		i.placed.Style.normalized() != i.cursorStyle)
 }
 
 // placeCursor moves the cursor from at, where writing the rows left it, to where
@@ -540,6 +547,12 @@ func (i *Inline) placeCursor(at image.Point) {
 			i.buf = append(i.buf, hideCursor...)
 		}
 		return
+	}
+	style := i.placed.Style.normalized()
+	if !i.cursorStyleKnown || style != i.cursorStyle {
+		i.buf = append(i.buf, style.sequence()...)
+		i.cursorStyleKnown = true
+		i.cursorStyle = style
 	}
 	// The cursor is never below the block: a frame that placed one counts its row as
 	// drawn, which is what makes the block tall enough to hold it.

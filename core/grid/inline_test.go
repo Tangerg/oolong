@@ -15,7 +15,7 @@ func inline(t *testing.T, i *grid.Inline, cursor grid.Cursor, draw func(grid.Vie
 	t.Helper()
 	v := i.Frame()
 	if cursor.Visible {
-		v.PlaceCursor(cursor.Pos.X, cursor.Pos.Y)
+		v.PlaceCursor(cursor.Pos.X, cursor.Pos.Y, cursor.Style)
 	}
 	if draw != nil {
 		draw(v)
@@ -172,7 +172,7 @@ func TestABlockIsTallEnoughToHoldTheCursor(t *testing.T) {
 	i := grid.NewInline(10, 6)
 	got := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(0, 2)}, lines("ab"))
 	want := "\x1b[0m" + "\r" + "ab" + "\x1b[K" +
-		"\r\n" + "\x1b[K" + "\r\n" + "\x1b[K" + "\x1b[?25h"
+		"\r\n" + "\x1b[K" + "\r\n" + "\x1b[K" + "\x1b[0 q" + "\x1b[?25h"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -181,7 +181,7 @@ func TestABlockIsTallEnoughToHoldTheCursor(t *testing.T) {
 func TestTheCursorIsPlacedRelativeToTheBlock(t *testing.T) {
 	i := grid.NewInline(10, 6)
 	got := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(2, 1)}, lines("ab", "cdef"))
-	if !strings.HasSuffix(got, "\r"+"\x1b[2C"+"\x1b[?25h") {
+	if !strings.HasSuffix(got, "\r"+"\x1b[0 q"+"\x1b[2C"+"\x1b[?25h") {
 		t.Fatalf("frame = %q, want the caret placed by moving across the block's last row", got)
 	}
 }
@@ -198,6 +198,24 @@ func TestAnUnmovedCursorIsNotRestated(t *testing.T) {
 	got := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(3, 0)}, lines("abcd"))
 	if got != "\x1b[0m"+"\r"+"\x1b[3C" {
 		t.Fatalf("frame = %q, want just the move", got)
+	}
+}
+
+func TestInlineCursorStyleIsDiffedWithoutRestartingAnIdleCursor(t *testing.T) {
+	i := grid.NewInline(10, 2)
+	bar := grid.Cursor{
+		Visible: true, Pos: image.Pt(1, 0),
+		Style: grid.CursorStyle{Shape: grid.CursorBar, Blink: true},
+	}
+	if first := inline(t, i, bar, lines("ab")); !strings.Contains(first, "\x1b[5 q") {
+		t.Fatalf("first frame = %q, want a blinking bar", first)
+	}
+	if idle := inline(t, i, bar, lines("ab")); idle != "" {
+		t.Fatalf("unchanged cursor wrote %q", idle)
+	}
+	bar.Style.Blink = false
+	if changed := inline(t, i, bar, lines("ab")); changed != "\x1b[0m"+"\r"+"\x1b[6 q"+"\x1b[1C" {
+		t.Fatalf("blink change = %q, want only style and re-anchor", changed)
 	}
 }
 
@@ -467,7 +485,7 @@ func TestFinishLeavesTheCursorBelowTheBlock(t *testing.T) {
 	if err := i.Finish(&buf); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	want := "\x1b[1B" + "\r\n" + "\x1b[0m" + "\x1b[?25h"
+	want := "\x1b[1B" + "\r\n" + "\x1b[0m" + "\x1b[0 q" + "\x1b[?25h"
 	if got := buf.String(); got != want {
 		t.Fatalf("Finish  = %q\nwant    = %q", got, want)
 	}
@@ -481,7 +499,7 @@ func TestFinishingAnEmptyBlockJustHandsTheCursorBack(t *testing.T) {
 	if err := i.Finish(&buf); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	if got := buf.String(); got != "\x1b[0m"+"\x1b[?25h" {
+	if got := buf.String(); got != "\x1b[0m"+"\x1b[0 q"+"\x1b[?25h" {
 		t.Fatalf("Finish = %q", got)
 	}
 }

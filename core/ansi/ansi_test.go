@@ -84,6 +84,21 @@ func TestAStringCommandEndsAtEitherOfItsTwoTerminators(t *testing.T) {
 	}
 }
 
+func TestAControlSeparatesParametersFromIntermediates(t *testing.T) {
+	p, n, ok := ansi.Next("\x1b[5 qtail")
+	if !ok || n != len("\x1b[5 q") || p.Kind != ansi.Control || p.Final != 'q' {
+		t.Fatalf("control = %#v, %d, %v", p, n, ok)
+	}
+	if p.Parameters != "5" || p.Intermediates != " " || p.Body != "" {
+		t.Fatalf("control sections = %#v", p)
+	}
+}
+
+func TestAParameterCannotFollowAnIntermediate(t *testing.T) {
+	pieces, _ := scan("\x1b[ 5q")
+	equal(t, pieces, []string{"malformed(\x1b[ )", "text(5q)"})
+}
+
 func TestWhatCannotBeASequenceIsNotReadAsTextEither(t *testing.T) {
 	// The introducer would otherwise be printed, and printing "[" because a
 	// terminal sent something malformed is how a decoder makes noise nobody can

@@ -166,9 +166,17 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 }
 
 func (s *Screen) control(piece ansi.Piece) error {
-	params := ansi.Parse(piece.Body)
+	params := ansi.Parse(piece.Parameters)
 	if !params.Valid() {
 		return fmt.Errorf("%w: malformed parameters in %q", ErrUnsupportedOutput, piece.Raw)
+	}
+	if piece.Intermediates != "" {
+		// DECSCUSR changes only cursor appearance. Other intermediate-bearing CSI
+		// sequences are outside the renderer subset until a renderer emits one.
+		if piece.Final == 'q' && piece.Intermediates == " " {
+			return nil
+		}
+		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
 	}
 	// Queries, mode changes, cursor shape and window metadata are real session
 	// traffic but paint no cell. The model ignores the question; it never fabricates

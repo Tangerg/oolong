@@ -262,8 +262,11 @@ func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
 }
 
 func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
-	// A frame may have hidden it, and a hidden cursor in the shell afterwards looks
-	// like a hung terminal.
+	// A frame may have hidden it or changed its shape. Either state leaking into the
+	// shell afterwards makes the terminal look broken.
+	if !strings.Contains(Modes{}.leave(), cursorDefault) {
+		t.Error("leaving does not restore the cursor's default shape")
+	}
 	if !strings.HasSuffix(Modes{}.leave(), cursorShow) {
 		t.Error("leaving does not end by showing the cursor")
 	}

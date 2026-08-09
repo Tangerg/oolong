@@ -1760,7 +1760,7 @@ func TestTheLastStateOfAnInlineInterfaceIsWhatStays(t *testing.T) {
 	if !strings.Contains(got, "goodbye") {
 		t.Fatalf("the last state was never drawn: %q", got)
 	}
-	if !strings.HasSuffix(got, "\r\n\x1b[0m\x1b[?25h") {
+	if !strings.HasSuffix(got, "\r\n\x1b[0m\x1b[0 q\x1b[?25h") {
 		t.Fatalf("the terminal was not handed back below the interface: %q", got)
 	}
 }

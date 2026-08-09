@@ -32,14 +32,8 @@ const (
 )
 
 // Body reports whether b may appear between a control sequence's introducer and
-// the byte that ends it: an intermediate byte, which selects a variant of the
-// sequence, or a parameter byte, which is a digit, a separator, or the marker a
-// private sequence opens with.
-//
-// The two halves are not separately exported. Nothing outside this package has
-// ever needed to tell them apart — what a reader asks is "is this still the body"
-// and then "is this the end" — and a predicate nobody calls is a predicate nobody
-// keeps true.
+// final byte. It is the scanning predicate shared by stream readers; [Piece]
+// separates the parameter and intermediate sections for semantic decoders.
 func Body(b byte) bool { return intermediate(b) || parameter(b) }
 
 func intermediate(b byte) bool { return b >= 0x20 && b <= 0x2f }
@@ -78,9 +72,15 @@ type Piece struct {
 	// introducer and the terminator, so that a reader passing what it does not
 	// understand through to a terminal can pass it on exactly as it came.
 	Raw string
-	// Body is the part between the introducer and the end: the parameter section
-	// of a [Control] piece, or a [String] piece's body without its terminator.
-	// Empty for anything else.
+	// Parameters is the parameter-byte section of a [Control] piece. Keeping it
+	// separate from Intermediates prevents a semantic decoder from trying to parse
+	// an intermediate byte as a number.
+	Parameters string
+	// Intermediates selects a variant of a [Control] piece. DECSCUSR, for example,
+	// is CSI Ps SP q and therefore carries one space here.
+	Intermediates string
+	// Body is a [String] piece's payload without its introducer or terminator. It is
+	// empty for the other piece kinds.
 	Body string
 	// Final is the byte that ended a [Control] or [Other] piece and says what it
 	// was, and the byte that introduced a [String] piece, for the same reason.
@@ -164,7 +164,11 @@ func introduces(b byte) bool {
 // what the sequence was.
 func control(s string) (Piece, int, bool) {
 	i := 2
-	for i < len(s) && Body(s[i]) {
+	for i < len(s) && parameter(s[i]) {
+		i++
+	}
+	paramsEnd := i
+	for i < len(s) && intermediate(s[i]) {
 		i++
 	}
 	if i >= len(s) {
@@ -176,7 +180,13 @@ func control(s string) (Piece, int, bool) {
 		// which is the only reading that does not swallow whatever follows.
 		return Piece{Kind: Malformed, Raw: s[:i]}, i, true
 	}
-	return Piece{Kind: Control, Raw: s[:i+1], Body: s[2:i], Final: s[i]}, i + 1, true
+	return Piece{
+		Kind:          Control,
+		Raw:           s[:i+1],
+		Parameters:    s[2:paramsEnd],
+		Intermediates: s[paramsEnd:i],
+		Final:         s[i],
+	}, i + 1, true
 }
 
 // command reads a string command, which ends at a bell or at an escape and a

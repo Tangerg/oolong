@@ -5,10 +5,66 @@ import (
 	"io"
 )
 
-// Cursor is where the terminal's own cursor should end a frame.
+// CursorShape is the terminal cursor's geometry.
+type CursorShape uint8
+
+const (
+	// CursorDefault asks the terminal for its configured default shape. Blink is
+	// ignored. It is the zero value and the shape restored when a session ends.
+	CursorDefault CursorShape = iota
+	// CursorBlock fills one cell.
+	CursorBlock
+	// CursorUnderline is a line along the bottom of one cell.
+	CursorUnderline
+	// CursorBar is a vertical line inside one cell.
+	CursorBar
+)
+
+// CursorStyle is how the terminal's own cursor is drawn. The zero value uses the
+// terminal's default. Blink applies to Block, Underline and Bar.
+type CursorStyle struct {
+	Shape CursorShape
+	Blink bool
+}
+
+// sequence returns DECSCUSR for the normalized style.
+func (s CursorStyle) sequence() string {
+	switch s.Shape {
+	case CursorBlock:
+		if s.Blink {
+			return blinkingBlockCursor
+		}
+		return steadyBlockCursor
+	case CursorUnderline:
+		if s.Blink {
+			return blinkingUnderlineCursor
+		}
+		return steadyUnderlineCursor
+	case CursorBar:
+		if s.Blink {
+			return blinkingBarCursor
+		}
+		return steadyBarCursor
+	default:
+		return defaultCursor
+	}
+}
+
+func (s CursorStyle) normalized() CursorStyle {
+	if s.Shape > CursorBar {
+		return CursorStyle{}
+	}
+	if s.Shape == CursorDefault {
+		s.Blink = false
+	}
+	return s
+}
+
+// Cursor is where and how the terminal's own cursor should end a frame.
 type Cursor struct {
 	Visible bool
 	Pos     image.Point
+	Style   CursorStyle
 }
 
 // Screen is the terminal's contents, double-buffered.
@@ -250,9 +306,11 @@ func (s *Screen) swap() { s.front, s.back = s.back, s.front }
 // cursor that never blinks. An idle frame must therefore say nothing at all, and
 // a frame that only wrote cells must re-anchor without moving.
 type cursorState struct {
-	known   bool
-	visible bool
-	pos     image.Point
+	known      bool
+	visible    bool
+	pos        image.Point
+	styleKnown bool
+	style      CursorStyle
 }
 
 // forget drops the tracked state, so the next frame states everything.
@@ -263,9 +321,19 @@ func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
 	defer func() {
 		c.known = true
 		c.visible = next.Visible
-		c.pos = next.Pos
+		if next.Visible {
+			c.pos = next.Pos
+			c.styleKnown = true
+			c.style = next.Style.normalized()
+		}
 	}()
 
+	if next.Visible {
+		style := next.Style.normalized()
+		if !c.styleKnown || style != c.style {
+			p.out = append(p.out, style.sequence()...)
+		}
+	}
 	if !c.known {
 		if next.Visible {
 			p.moveTo(next.Pos.X, next.Pos.Y)
@@ -290,6 +358,13 @@ func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
 }
 
 const (
-	showCursor = "\x1b[?25h"
-	hideCursor = "\x1b[?25l"
+	showCursor              = "\x1b[?25h"
+	hideCursor              = "\x1b[?25l"
+	defaultCursor           = "\x1b[0 q"
+	blinkingBlockCursor     = "\x1b[1 q"
+	steadyBlockCursor       = "\x1b[2 q"
+	blinkingUnderlineCursor = "\x1b[3 q"
+	steadyUnderlineCursor   = "\x1b[4 q"
+	blinkingBarCursor       = "\x1b[5 q"
+	steadyBarCursor         = "\x1b[6 q"
 )

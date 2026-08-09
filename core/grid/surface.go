@@ -241,7 +241,7 @@ func (v View) Subs(rects []image.Rectangle) []View {
 	return views
 }
 
-// PlaceCursor asks for the terminal's cursor to sit at local (x, y).
+// PlaceCursor asks for the terminal's cursor to sit at local (x, y) with style.
 //
 // It is how the drawing owner places the cursor without anyone in between
 // having to carry the answer: the view already knows where it sits on the screen,
@@ -251,7 +251,7 @@ func (v View) Subs(rects []image.Rectangle) []View {
 // glyph there would be: content scrolled off the screen does not get to move the
 // cursor. A frame in which nobody places the cursor is a frame with no cursor,
 // which is the right answer when nothing is being typed into.
-func (v View) PlaceCursor(x, y int) {
+func (v View) PlaceCursor(x, y int, style CursorStyle) {
 	if v.cursor == nil {
 		return
 	}
@@ -259,7 +259,7 @@ func (v View) PlaceCursor(x, y int) {
 	if !p.In(v.clip) {
 		return
 	}
-	*v.cursor = Cursor{Visible: true, Pos: p}
+	*v.cursor = Cursor{Visible: true, Pos: p, Style: style.normalized()}
 }
 
 // CellAt returns a copy of the cell at local (x, y) and whether it is inside the

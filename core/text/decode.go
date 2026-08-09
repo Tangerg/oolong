@@ -159,8 +159,8 @@ func (d *Decoder) piece(p ansi.Piece) []Line {
 	case ansi.Plain:
 		return d.write(p.Raw)
 	case ansi.Control:
-		if p.Final == 'm' {
-			d.sgr(ansi.Parse(p.Body))
+		if p.Final == 'm' && p.Intermediates == "" {
+			d.sgr(ansi.Parse(p.Parameters))
 		}
 	case ansi.String:
 		if p.Final == ']' {

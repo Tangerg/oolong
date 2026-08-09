@@ -100,7 +100,7 @@ func TestScreenIgnoresSessionTrafficThatPaintsNoCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := "\x1b[>31u\x1b[>0q\x1b[c\x1b[22;0t\x1b]10;?\x07text"
+	output := "\x1b[>31u\x1b[>0q\x1b[5 q\x1b[c\x1b[22;0t\x1b]10;?\x07text"
 	if err := shown.Apply([]byte(output)); err != nil {
 		t.Fatal(err)
 	}
