@@ -134,9 +134,11 @@ func (c *Channel) Request(sel Selection) (string, bool) {
 // Answer settles a terminal's OSC 52 parameters as text when they answer the live
 // request for the same selection.
 //
-// An unreadable answer still settles that request but reports false; treating it as
-// an empty success would clear a selection. An answer for another selection is left
-// alone for the terminal adapter to publish as the raw OSC event it received.
+// A syntactically valid answer for the requested selection settles the request even
+// when its payload cannot be decoded; treating that payload as an empty success would
+// clear a selection. Malformed parameters and answers for another selection are left
+// alone for the terminal adapter to publish as the raw OSC event it received, and do
+// not take ownership of the live request.
 func (c *Channel) Answer(params string) (string, bool) {
 	if c == nil {
 		return "", false

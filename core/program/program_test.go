@@ -76,12 +76,15 @@ func (h *minimalHost) Size() (int, int, error)     { return h.w, h.h, nil }
 type partialHost struct {
 	*minimalHost
 	groundAnswer grid.Ground
+	localeAnswer string
 	copied       []string
 	notified     []string
 	progress     []term.Progress
 }
 
 func (h *partialHost) Ground() grid.Ground { return h.groundAnswer }
+
+func (h *partialHost) Locale() string { return h.localeAnswer }
 
 func (h *partialHost) Copy(text string) bool {
 	h.copied = append(h.copied, text)
@@ -283,7 +286,7 @@ func (h *host) Copy(text string) bool {
 
 // Paste answers the way a host that is not a terminal would: by delivering the
 // text itself. Nothing above cares which it was.
-func (h *host) Paste() {
+func (h *host) Paste() bool {
 	h.clipMu.Lock()
 	text, deliver := h.pasteFor, h.pasteFor != ""
 	h.asked++
@@ -291,6 +294,7 @@ func (h *host) Paste() {
 	if deliver {
 		h.events <- input.Paste{Text: text}
 	}
+	return true
 }
 
 // Hand runs it. A host with no terminal has nothing to give away, and the half
@@ -683,6 +687,9 @@ func TestAHostOnlyImplementsTransport(t *testing.T) {
 			if !runtime.Environment().Ground().BG.Default() || runtime.Environment().Wheel() != (input.Wheel{}) {
 				t.Error("a missing observation capability did not return its zero answer")
 			}
+			if got := runtime.Environment().Locale(); got != "" {
+				t.Errorf("missing Locale = %q, want no claim", got)
+			}
 			if runtime.Clipboard().Copy("text") {
 				t.Error("a host with no clipboard accepted a copy")
 			}
@@ -711,7 +718,11 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 	defer func() { _ = transport.writer.Close() }()
 
 	wantGround := grid.Ground{BG: grid.RGBColor(0x12, 0x34, 0x56)}
-	h := &partialHost{minimalHost: transport, groundAnswer: wantGround}
+	h := &partialHost{
+		minimalHost:  transport,
+		groundAnswer: wantGround,
+		localeAnswer: "en_GB.UTF-8",
+	}
 	err := program.Run(t.Context(), program.Config{
 		Host: h,
 		Root: func(runtime *program.Runtime) program.Component {
@@ -724,10 +735,15 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 			if _, ok := runtime.Environment().Keyboard(); ok {
 				t.Error("missing Keyboard reported negotiated features")
 			}
+			if got := runtime.Environment().Locale(); got != "en_GB.UTF-8" {
+				t.Errorf("Locale = %q, want independent locale capability", got)
+			}
 			if !runtime.Clipboard().Copy("copied") {
 				t.Error("independent Copy capability was hidden")
 			}
-			runtime.Clipboard().Paste()
+			if runtime.Clipboard().Paste() {
+				t.Error("missing Paste capability accepted a request")
+			}
 			runtime.Session().SetTitle("ignored")
 			runtime.Session().SetProgress(term.Progress{State: term.ProgressIndeterminate})
 			runtime.Session().Bell()
@@ -763,7 +779,9 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	if clipboard.Copy("text") {
 		t.Fatal("zero Clipboard accepted a copy")
 	}
-	clipboard.Paste()
+	if clipboard.Paste() {
+		t.Fatal("zero Clipboard accepted a paste request")
+	}
 
 	var images program.Images
 	if images.Protocol() != graphics.None {
@@ -2062,7 +2080,9 @@ func TestPasteComesBackAsAPaste(t *testing.T) {
 	r.host.pasteFor = "copied"
 	r.host.clipMu.Unlock()
 
-	onLoop(t, rec.runtime, rec.runtime.Clipboard().Paste)
+	if !fromLoop(t, rec.runtime, rec.runtime.Clipboard().Paste) {
+		t.Fatal("the host refused a paste request")
+	}
 	r.until("the answer to arrive as a paste", func() bool { return len(rec.pasted()) == 1 })
 	if got := rec.pasted()[0]; got != "copied" {
 		t.Errorf("pasted %q, want %q", got, "copied")
@@ -2073,7 +2093,9 @@ func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
 	// Most terminals refuse to be read, and a refusal has no reply. Asking has to
 	// be safe and silent.
 	r, rec := startRecording(t)
-	onLoop(t, rec.runtime, rec.runtime.Clipboard().Paste)
+	if !fromLoop(t, rec.runtime, rec.runtime.Clipboard().Paste) {
+		t.Fatal("the host refused a paste request")
+	}
 	r.until("the host to be asked", func() bool { return r.host.timesAsked() == 1 })
 
 	// Followed by something observable, so the absence of a paste is waited for

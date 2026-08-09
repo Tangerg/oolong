@@ -9,7 +9,8 @@ package visualtest
 
 import (
 	"bytes"
-	"io/fs"
+	"flag"
+	"os"
 	"strings"
 	"testing"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/Tangerg/oolong/core/programtest"
 	"github.com/Tangerg/oolong/ptytest"
 )
+
+var update = flag.Bool("update", false, "update visual golden files")
 
 // Host is a programtest host that also reports the terminal colours an example is
 // being checked against. No other optional capability is invented.
@@ -78,23 +81,34 @@ func (h *Host) Capture(tb testing.TB) Capture {
 	return Capture{Rows: screen.Rows(), Encoding: h.Frame()}
 }
 
-// Match compares the visible part of rows with a golden file in source.
+// Match compares the visible part of rows with the golden file at path. Running the
+// example module's tests with -update replaces the file with the captured result.
 //
 // Trailing spaces and blank rows carry no visible information and are removed.
 // Spaces inside a row and empty rows between content remain significant.
-func Match(tb testing.TB, source fs.FS, name string, rows []string) {
+func Match(tb testing.TB, path string, rows []string) {
 	tb.Helper()
-	if source == nil || !fs.ValidPath(name) {
-		tb.Fatalf("visualtest: invalid golden path %q", name)
-	}
-	want, err := fs.ReadFile(source, name)
-	if err != nil {
-		tb.Fatalf("visualtest: read %s: %v", name, err)
+	if path == "" {
+		tb.Fatal("visualtest: empty golden path")
 	}
 	got := format(rows)
+	if *update {
+		// The path is a source-controlled test fixture chosen by the test author, not
+		// input from the program being tested; it deliberately uses ordinary source
+		// file permissions.
+		if err := os.WriteFile(path, got, 0o644); err != nil { //nolint:gosec // Test-owned source fixture needs source permissions.
+			tb.Fatalf("visualtest: update %s: %v", path, err)
+		}
+		tb.Logf("updated %s", path)
+		return
+	}
+	want, err := os.ReadFile(path) //nolint:gosec // Golden path is test-owned source, not external input.
+	if err != nil {
+		tb.Fatalf("visualtest: read %s: %v", path, err)
+	}
 	if !bytes.Equal(got, want) {
 		tb.Fatalf("visual screen differs from %s\n\ngot:\n%s\nwant:\n%s",
-			name, got, want)
+			path, got, want)
 	}
 }
 

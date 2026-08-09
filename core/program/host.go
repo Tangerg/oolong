@@ -21,6 +21,9 @@ type KeyboardHost interface {
 	Keyboard() (input.KeyboardFeatures, bool)
 }
 
+// LocaleHost supplies the character locale of the user-facing terminal.
+type LocaleHost interface{ Locale() string }
+
 // DirectoryHost tells a terminal how to resolve relative paths in program output.
 type DirectoryHost interface {
 	ReportDirectory(path string) error
@@ -29,10 +32,10 @@ type DirectoryHost interface {
 // CopyHost writes to the clipboard associated with the user-facing host.
 type CopyHost interface{ Copy(text string) bool }
 
-// PasteHost requests text from the clipboard associated with the user-facing
-// host. Answers arrive asynchronously through [EventSource.Events] as an
-// [input.Paste].
-type PasteHost interface{ Paste() }
+// PasteHost requests text from the clipboard associated with the user-facing host.
+// Paste reports whether the request was accepted; answers arrive asynchronously
+// through [EventSource.Events] as an [input.Paste].
+type PasteHost interface{ Paste() bool }
 
 // HandoverHost temporarily gives exclusive ownership of its display to run.
 type HandoverHost interface {
@@ -67,6 +70,7 @@ type hostServices struct {
 	groundHost   GroundHost
 	wheelHost    WheelHost
 	keyboardHost KeyboardHost
+	localeHost   LocaleHost
 	directory    DirectoryHost
 	copyHost     CopyHost
 	pasteHost    PasteHost
@@ -83,6 +87,7 @@ func hostServicesFor(host Host) hostServices {
 	services.groundHost, _ = host.(GroundHost)
 	services.wheelHost, _ = host.(WheelHost)
 	services.keyboardHost, _ = host.(KeyboardHost)
+	services.localeHost, _ = host.(LocaleHost)
 	services.directory, _ = host.(DirectoryHost)
 	services.copyHost, _ = host.(CopyHost)
 	services.pasteHost, _ = host.(PasteHost)
@@ -116,6 +121,13 @@ func (s hostServices) keyboard() (input.KeyboardFeatures, bool) {
 	return s.keyboardHost.Keyboard()
 }
 
+func (s hostServices) locale() string {
+	if s.localeHost == nil {
+		return ""
+	}
+	return s.localeHost.Locale()
+}
+
 func (s hostServices) reportDirectory(path string) error {
 	if s.directory == nil {
 		return nil
@@ -127,10 +139,8 @@ func (s hostServices) copy(text string) bool {
 	return s.copyHost != nil && s.copyHost.Copy(text)
 }
 
-func (s hostServices) paste() {
-	if s.pasteHost != nil {
-		s.pasteHost.Paste()
-	}
+func (s hostServices) paste() bool {
+	return s.pasteHost != nil && s.pasteHost.Paste()
 }
 
 func (s hostServices) hand(run func() error) error {

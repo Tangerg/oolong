@@ -99,6 +99,8 @@ func NewParagraph(s string, style grid.Style) *Paragraph {
 // caller may reuse or change its input after this returns.
 func (p *Paragraph) SetText(lines []text.Line) {
 	p.lines = text.CloneLines(lines)
+	clear(p.wrapped)
+	p.wrapped = p.wrapped[:0]
 	p.fresh = false
 }
 
@@ -242,13 +244,15 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 // arrive in one slice, and a byte range means nothing without the line it indexes.
 func (p *Paragraph) rows(width int) []row {
 	room := width - p.Indent
-	if room <= 0 {
-		return nil
-	}
 	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows {
 		return p.wrapped
 	}
-	var rows []row
+	if room <= 0 {
+		clear(p.wrapped)
+		p.wrapped, p.atWidth, p.atLimit, p.fresh = nil, room, p.MaxRows, true
+		return nil
+	}
+	rows := p.wrapped[:0]
 	for i, line := range p.lines {
 		for _, wrapped := range line.Wrap(room) {
 			rows = append(rows, row{Wrapped: wrapped, line: i})
@@ -263,6 +267,11 @@ func (p *Paragraph) rows(width int) []row {
 		// provenance to offer. A link stamped from the old range would land on the
 		// ellipsis, and a hyperlink over "…" is worse than none.
 		rows[last].From, rows[last].To = 0, 0
+	}
+	if len(rows) == 0 {
+		rows = nil
+	} else if cap(rows) > 2*len(rows)+16 {
+		rows = append([]row(nil), rows...)
 	}
 	p.wrapped, p.atWidth, p.atLimit, p.fresh = rows, room, p.MaxRows, true
 	return rows

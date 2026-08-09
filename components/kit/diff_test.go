@@ -16,7 +16,7 @@ func changed(before, after string) []diff.Hunk {
 }
 
 func TestADiffMarksEachLineWithWhatHappenedToIt(t *testing.T) {
-	d := kit.Diff{Hunks: changed("a\nb\nc", "a\nB\nc"), Theme: kit.Dark()}
+	d := kit.NewDiff(kit.Dark(), kit.Glyphs{}, changed("a\nb\nc", "a\nB\nc"))
 	rows := paint(10, d.Measure(10), func(v grid.View) { d.Draw(v) })
 	want := []string{" a........", "-b........", "+B........", " c........"}
 	for i, row := range want {
@@ -30,7 +30,7 @@ func TestADiffColoursTheWholeRowAndNotJustTheText(t *testing.T) {
 	// A background that stopped where the text did would leave a diff looking like
 	// ragged bunting, and the eye reads the block of colour before it reads the mark.
 	theme := kit.Dark()
-	d := kit.Diff{Hunks: changed("a", "b"), Theme: theme}
+	d := kit.NewDiff(theme, kit.Glyphs{}, changed("a", "b"))
 	s := grid.NewSurface(10, d.Measure(10))
 	d.Draw(s.View())
 
@@ -48,7 +48,8 @@ func TestADiffPutsBothLineNumbersDownTheLeft(t *testing.T) {
 	// A reader looking for what to open needs the number in the text that still
 	// exists; one reading the change needs both. A line that is only in one text has a
 	// blank where the other number would be.
-	d := kit.Diff{Hunks: changed("a\nb\nc", "a\nB\nc"), Theme: kit.Dark(), Numbers: true}
+	d := kit.NewDiff(kit.Dark(), kit.Glyphs{}, changed("a\nb\nc", "a\nB\nc"))
+	d.ShowNumbers(true)
 	rows := paint(12, d.Measure(12), func(v grid.View) { d.Draw(v) })
 	want := []string{"1 1  a.....", "2   -b.....", "  2 +B.....", "3 3  c....."}
 	for i, row := range want {
@@ -59,10 +60,9 @@ func TestADiffPutsBothLineNumbersDownTheLeft(t *testing.T) {
 }
 
 func TestADiffWrapsLongLinesWithoutDiscardingTheirTail(t *testing.T) {
-	d := kit.Diff{
-		Hunks: []diff.Hunk{{Lines: diff.Script{{Kind: diff.Added, Text: "alpha beta gamma"}}}},
-		Theme: kit.Dark(), Glyphs: kit.Unicode(),
-	}
+	d := kit.NewDiff(kit.Dark(), kit.Unicode(), []diff.Hunk{{
+		Lines: diff.Script{{Kind: diff.Added, Text: "alpha beta gamma"}},
+	}})
 	if got := d.Measure(8); got != 3 {
 		t.Fatalf("Measure(8) = %d, want three wrapped rows", got)
 	}
@@ -74,12 +74,10 @@ func TestADiffWrapsLongLinesWithoutDiscardingTheirTail(t *testing.T) {
 }
 
 func TestADiffLineNumbersYieldBeforeTheyCrushTheContent(t *testing.T) {
-	d := kit.Diff{
-		Hunks: []diff.Hunk{{Lines: diff.Script{{
-			Kind: diff.Added, Text: "value", Old: 123, New: 456,
-		}}}},
-		Theme: kit.Dark(), Glyphs: kit.Unicode(), Numbers: true,
-	}
+	d := kit.NewDiff(kit.Dark(), kit.Unicode(), []diff.Hunk{{Lines: diff.Script{{
+		Kind: diff.Added, Text: "value", Old: 123, New: 456,
+	}}}})
+	d.ShowNumbers(true)
 	if got := d.Measure(10); got != 1 {
 		t.Fatalf("Measure(10) = %d, want the content kept on one row", got)
 	}
@@ -100,14 +98,11 @@ func TestADiffSaysWhereItLeftLinesOut(t *testing.T) {
 		t.Fatalf("%d hunks, want the unchanged middle left out", got)
 	}
 
-	two := kit.Diff{
-		Hunks:  changed("a\nx\nb\nc\nd\ne\nf\ny\ng", "a\nX\nb\nc\nd\ne\nf\nY\ng"),
-		Theme:  kit.Dark(),
-		Glyphs: kit.Unicode(),
-	}
+	two := kit.NewDiff(kit.Dark(), kit.Unicode(),
+		changed("a\nx\nb\nc\nd\ne\nf\ny\ng", "a\nX\nb\nc\nd\ne\nf\nY\ng"))
 	rows := paint(12, two.Measure(12), func(v grid.View) { two.Draw(v) })
-	if len(two.Hunks) != 2 {
-		t.Fatalf("%d hunks, want two", len(two.Hunks))
+	if got := len(two.Hunks()); got != 2 {
+		t.Fatalf("%d hunks, want two", got)
 	}
 	joined := strings.Join(rows, "\n")
 	if !strings.Contains(joined, kit.Unicode().Ellipsis) {
@@ -120,8 +115,8 @@ func TestADiffIgnoresAZeroWidthGapGlyph(t *testing.T) {
 	drawn := make(chan struct{})
 	go func() {
 		defer close(drawn)
-		diff := kit.Diff{Hunks: hunks, Glyphs: kit.Glyphs{Ellipsis: "\u0301"}}
-		paint(8, diff.Measure(8), diff.Draw)
+		diffView := kit.NewDiff(kit.Theme{}, kit.Glyphs{Ellipsis: "\u0301"}, hunks)
+		paint(8, diffView.Measure(8), diffView.Draw)
 	}()
 	select {
 	case <-drawn:
@@ -134,12 +129,32 @@ func TestADiffTallerThanItsPaneScrolls(t *testing.T) {
 	// Which is the whole point of the window being a separate thing: a diff knows how
 	// tall it is and nothing else, and something that shows a window onto anything at
 	// all does the rest.
-	d := kit.Diff{Hunks: changed("a\nb\nc\nd", "A\nB\nC\nD"), Theme: kit.Dark()}
+	d := kit.NewDiff(kit.Dark(), kit.Glyphs{}, changed("a\nb\nc\nd", "A\nB\nC\nD"))
 	window := headless.NewViewport(headless.Static{Of: d})
 	paintWidget(10, 3, window)
 	window.Scroll().ToBottom()
 	rows := paintWidget(10, 3, window)
 	if !strings.Contains(strings.Join(rows, "\n"), "D") {
 		t.Fatalf("drawn:\n%s\nwant the end of the change", strings.Join(rows, "\n"))
+	}
+}
+
+func TestADiffOwnsItsHunksAndInvalidatesLayoutThroughSetHunks(t *testing.T) {
+	source := []diff.Hunk{{Lines: diff.Script{{Kind: diff.Added, Text: "before"}}}}
+	d := kit.NewDiff(kit.Dark(), kit.Unicode(), source)
+	if got := d.Measure(12); got != 1 {
+		t.Fatalf("Measure(12) = %d, want one row", got)
+	}
+
+	source[0].Lines[0].Text = "changed elsewhere"
+	snapshot := d.Hunks()
+	snapshot[0].Lines[0].Text = "changed snapshot"
+	if got := strings.Join(paint(12, 1, d.Draw), ""); !strings.Contains(got, "before") {
+		t.Fatalf("draw after caller and snapshot mutation = %q, want owned text", got)
+	}
+
+	d.SetHunks([]diff.Hunk{{Lines: diff.Script{{Kind: diff.Added, Text: "after wrapping"}}}})
+	if got := d.Measure(8); got != 2 {
+		t.Fatalf("Measure(8) after SetHunks = %d, want invalidated two-row layout", got)
 	}
 }

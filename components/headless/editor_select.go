@@ -29,9 +29,9 @@ type Clipboard interface {
 	// Copy puts text where a paste would find it, reporting false for text it will
 	// not carry.
 	Copy(text string) bool
-	// Paste asks for what is there. The answer arrives later, as an [input.Paste]
-	// among the editor's ordinary events, which is why nothing is returned.
-	Paste()
+	// Paste asks for what is there and reports whether the request was accepted. The
+	// answer arrives later, as an [input.Paste] among the editor's ordinary events.
+	Paste() bool
 }
 
 // Anchor begins or continues a selection at the cursor.
@@ -155,12 +155,11 @@ func (e *Editor) Cut() bool {
 	return e.DeleteSelection()
 }
 
-// Paste asks the clipboard for its contents. What comes back arrives later as an
-// ordinary paste event, which this editor already inserts.
-func (e *Editor) Paste() {
-	if e.Clipboard != nil {
-		e.Clipboard.Paste()
-	}
+// Paste asks the clipboard for its contents and reports whether the request was
+// accepted. What comes back arrives later as an ordinary paste event, which this
+// editor already inserts.
+func (e *Editor) Paste() bool {
+	return e.Clipboard != nil && e.Clipboard.Paste()
 }
 
 // move runs an action if it is a way of moving, reporting whether it was one.

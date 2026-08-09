@@ -15,7 +15,7 @@ import (
 )
 
 // host is the one transport boundary. In addition to the required program.Host
-// methods it exposes the wheel profile and clipboard that are determined by the
+// methods it exposes the locale, wheel profile and clipboard determined by the
 // client terminal's environment. An SSH PTY does not prove notification, image or
 // probe capabilities merely by existing, so those remain absent.
 type host struct {
@@ -23,6 +23,7 @@ type host struct {
 	writer *term.Writer
 	modes  term.Modes
 	clip   *clipboard.Channel
+	locale string
 	wheel  input.Wheel
 
 	windowMu sync.RWMutex
@@ -33,10 +34,11 @@ type host struct {
 }
 
 var (
-	_ program.Host      = (*host)(nil)
-	_ program.WheelHost = (*host)(nil)
-	_ program.CopyHost  = (*host)(nil)
-	_ program.PasteHost = (*host)(nil)
+	_ program.Host       = (*host)(nil)
+	_ program.LocaleHost = (*host)(nil)
+	_ program.WheelHost  = (*host)(nil)
+	_ program.CopyHost   = (*host)(nil)
+	_ program.PasteHost  = (*host)(nil)
 )
 
 func newHost(
@@ -46,12 +48,14 @@ func newHost(
 	windows <-chan charmssh.Window,
 	modes term.Modes,
 	clip *clipboard.Channel,
+	locale string,
 	wheel input.Wheel,
 ) *host {
 	h := &host{
 		writer: term.NewWriter(channel),
 		modes:  modes,
 		clip:   clip,
+		locale: locale,
 		wheel:  wheel,
 		window: window,
 	}
@@ -62,6 +66,7 @@ func newHost(
 
 func (h *host) Input() program.EventSource  { return h.source }
 func (h *host) Writer() program.FrameWriter { return h.writer }
+func (h *host) Locale() string              { return h.locale }
 func (h *host) Wheel() input.Wheel          { return h.wheel }
 
 // Copy asks the client terminal to update the clipboard beside the user, not one
@@ -77,10 +82,12 @@ func (h *host) Copy(text string) bool {
 // Paste asks the client terminal for that same clipboard. A valid answer is
 // translated by eventSource into the ordinary input.Paste event components already
 // consume.
-func (h *host) Paste() {
+func (h *host) Paste() bool {
 	if sequence, ok := h.clip.Request(clipboard.System); ok {
 		h.writer.Queue([]byte(sequence))
+		return true
 	}
+	return false
 }
 
 func (h *host) Size() (width, height int, _ error) {

@@ -79,13 +79,11 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	// The tree with a look on it. It is still a widget — it takes the keyboard and
 	// answers events by passing them down — so the container holds this rather than
 	// the bare tree, and nothing here has to dress it at drawing time.
-	b.dressed = kit.NewTree(
-		theme, kit.GlyphsFor(os.LookupEnv), b.tree, func(e entry) string { return e.name },
-	)
+	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
+	b.dressed = kit.NewTree(theme, glyphs, b.tree, func(e entry) string { return e.name })
 	// A window shows the part of something taller than the room there is. The preview
 	// is ordinary wrapped text and knows nothing about being scrolled.
 	b.window = headless.NewViewport(headless.Static{Of: b.preview})
-	glyphs := kit.GlyphsFor(os.LookupEnv)
 	b.treeBox = kit.NewPanel(theme, glyphs, b.dressed)
 	b.treeBox.Box.Title = "files"
 	b.viewBox = kit.NewPanel(theme, glyphs, b.window)

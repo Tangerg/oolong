@@ -10,44 +10,25 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-func env(vars map[string]string) func(string) (string, bool) {
-	return func(name string) (string, bool) {
-		value, ok := vars[name]
-		return value, ok
-	}
-}
-
 // TestGlyphsFollowTheLocale, because there is no way to ask a terminal whether it will
 // draw a box character. Outside UTF-8 a multi-byte glyph arrives as bytes the terminal
 // draws one at a time, and a panel in mojibake is worse than a panel in dashes.
 func TestGlyphsFollowTheLocale(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		env     map[string]string
+		locale  string
 		unicode bool
 	}{
-		{name: "nothing said", env: map[string]string{}, unicode: true},
-		{name: "a UTF-8 locale", env: map[string]string{"LANG": "en_US.UTF-8"}, unicode: true},
-		{name: "spelled without the dash", env: map[string]string{"LANG": "en_US.utf8"}, unicode: true},
-		{name: "the C locale", env: map[string]string{"LANG": "C"}, unicode: false},
-		{name: "POSIX", env: map[string]string{"LC_ALL": "POSIX"}, unicode: false},
-		{name: "latin-1", env: map[string]string{"LANG": "en_US.ISO-8859-1"}, unicode: false},
-		{name: "a language with no charset", env: map[string]string{"LANG": "en_US"}, unicode: false},
-
-		// The order the C library reads them in.
-		{
-			name:    "LC_ALL overrides a UTF-8 LANG",
-			env:     map[string]string{"LC_ALL": "C", "LANG": "en_US.UTF-8"},
-			unicode: false,
-		},
-		{
-			name:    "LC_CTYPE outranks LANG",
-			env:     map[string]string{"LC_CTYPE": "en_US.UTF-8", "LANG": "C"},
-			unicode: true,
-		},
+		{name: "nothing said", locale: "", unicode: true},
+		{name: "a UTF-8 locale", locale: "en_US.UTF-8", unicode: true},
+		{name: "spelled without the dash", locale: "en_US.utf8", unicode: true},
+		{name: "the C locale", locale: "C", unicode: false},
+		{name: "POSIX", locale: "POSIX", unicode: false},
+		{name: "latin-1", locale: "en_US.ISO-8859-1", unicode: false},
+		{name: "a language with no charset", locale: "en_US", unicode: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := kit.GlyphsFor(env(tc.env))
+			got := kit.GlyphsFor(tc.locale)
 			want := kit.ASCII()
 			if tc.unicode {
 				want = kit.Unicode()
@@ -61,7 +42,7 @@ func TestGlyphsFollowTheLocale(t *testing.T) {
 }
 
 func TestGlyphsWithNothingToAsk(t *testing.T) {
-	if got := kit.GlyphsFor(nil); got.Horizontal != kit.Unicode().Horizontal {
+	if got := kit.GlyphsFor(""); got.Horizontal != kit.Unicode().Horizontal {
 		t.Errorf("got %q, want the unicode set", got.Horizontal)
 	}
 }

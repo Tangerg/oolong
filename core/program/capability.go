@@ -39,8 +39,12 @@ func (e Environment) Wheel() input.Wheel { return e.host.wheel() }
 // Keyboard reports negotiated keyboard protocol features.
 func (e Environment) Keyboard() (input.KeyboardFeatures, bool) { return e.host.keyboard() }
 
+// Locale reports the character locale of the user-facing terminal. An empty string
+// means the host made no claim; it does not mean the process locale should be used.
+func (e Environment) Locale() string { return e.host.locale() }
+
 // Clipboard is the clipboard associated with the user-facing host. Its zero value
-// refuses writes and ignores reads.
+// refuses writes and reads.
 type Clipboard struct{ host hostServices }
 
 // Clipboard returns the runtime's clipboard capability.
@@ -51,8 +55,11 @@ func (r *Runtime) Clipboard() Clipboard {
 // Copy puts text on the host clipboard when supported.
 func (c Clipboard) Copy(text string) bool { return c.host.copy(text) }
 
-// Paste requests clipboard contents. A successful answer arrives as [input.Paste].
-func (c Clipboard) Paste() { c.host.paste() }
+// Paste requests clipboard contents and reports whether the host accepted the
+// request. False means the host cannot read the clipboard or an earlier unidentified
+// request is still in flight. An accepted answer arrives asynchronously as
+// [input.Paste]; true does not mean the terminal will answer.
+func (c Clipboard) Paste() bool { return c.host.paste() }
 
 // Session controls the live terminal session around rendered frames. It groups
 // operations that must remain ordered with the interface owner's state. Its zero

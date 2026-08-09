@@ -77,7 +77,7 @@ const (
 
 func newDashboard(runtime *program.Runtime) *dashboard {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.LookupEnv)
+	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 
 	d := &dashboard{runtime: runtime, theme: theme, motion: true}
 	d.work = newQueue(theme, glyphs)

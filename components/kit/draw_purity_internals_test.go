@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
@@ -43,7 +44,6 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	passive := map[string]bool{
 		"Box":         true,
 		"Cell":        true,
-		"Diff":        true,
 		"Help":        true,
 		"Image":       true,
 		"Label":       true,
@@ -225,6 +225,23 @@ func widgetPurityCase(name string, widget headless.Widget, state func() any) dra
 
 func kitDrawPurityCases() []drawPurityCase {
 	var cases []drawPurityCase
+
+	diffView := NewDiff(Dark(), Unicode(), []diff.Hunk{{
+		Lines: diff.Script{{Kind: diff.Added, Text: "one two three"}},
+	}})
+	diffView.ShowNumbers(true)
+	cases = append(cases, drawPurityCase{
+		name: "*Diff", width: 10, height: 3,
+		draw: diffView.Draw, measure: diffView.Measure,
+		state: func() any {
+			return struct {
+				hunks   []diff.Hunk
+				theme   Theme
+				glyphs  Glyphs
+				numbers bool
+			}{diffView.Hunks(), diffView.theme, diffView.glyphs, diffView.numbers}
+		},
+	})
 
 	dialogBody := headless.NewEditor()
 	dialogBody.Insert("body")

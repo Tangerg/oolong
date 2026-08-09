@@ -43,7 +43,7 @@ func (h *host) Writer() program.FrameWriter { return h.writer }
 func (h *host) Size() (int, int, error)     { return 60, 12, nil }
 func (h *host) Ground() grid.Ground         { return grid.Ground{} }
 func (h *host) Copy(string) bool            { return false }
-func (h *host) Paste()                      {}
+func (h *host) Paste() bool                 { return false }
 func (h *host) Wheel() input.Wheel          { return input.Wheel{} }
 
 func (h *host) Graphics() graphics.Protocol   { return graphics.None }

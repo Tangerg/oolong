@@ -76,7 +76,7 @@ type agent struct {
 
 func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.LookupEnv)
+	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	keys := headless.DefaultEditorKeys()
 	keys.Bind(sendPrompt, input.Chord{Code: input.Enter})
 	keys.Bind(cancelRun, input.Ctrl.Rune('x'))

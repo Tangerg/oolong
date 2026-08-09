@@ -116,7 +116,9 @@ func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	form.Focus(true)
 
 	view := kit.NewForm(
-		kit.Suited(runtime.Environment().Ground()), kit.GlyphsFor(os.LookupEnv), form,
+		kit.Suited(runtime.Environment().Ground()),
+		kit.GlyphsFor(runtime.Environment().Locale()),
+		form,
 	)
 	view.Title = "New session"
 	view.Keys = keys

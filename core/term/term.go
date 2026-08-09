@@ -91,10 +91,11 @@ type Terminal struct {
 	// clipboard owns OSC 52 encoding and the one live read request. Paste may be
 	// called from any goroutine while the pump settles its answer.
 	clipboard *clipboard.Channel
-	// wheelProfile and imageProtocol are immutable facts of this session. They are
-	// resolved once from the environment passed to OpenOn and the answers received
-	// from this terminal, so later process-environment changes cannot alter a live
-	// terminal's capabilities.
+	// locale, wheelProfile and imageProtocol are immutable facts of this session.
+	// They are resolved once from the environment passed to OpenOn and the answers
+	// received from this terminal, so later process-environment changes cannot alter
+	// a live terminal's capabilities.
+	locale        string
 	wheelProfile  input.Wheel
 	imageProtocol graphics.Protocol
 	// title is what this session called the window, and what it owes the terminal
@@ -202,6 +203,7 @@ func newTerminal(
 		resizeDone: make(chan struct{}),
 		task:       newTaskProgress(),
 		clipboard:  clipboard.New(lookup),
+		locale:     DetectLocaleIn(lookup),
 	}
 }
 
@@ -349,13 +351,16 @@ func (t *Terminal) Copy(text string) bool {
 // that is what it is: a component that already inserts what the user pasted needs
 // nothing further to insert what they copied somewhere else.
 //
-// Most terminals refuse to answer, because a program that can read the clipboard
-// can read what the user copied out of a password manager. A refusal has no reply,
-// so nothing should wait on one.
-func (t *Terminal) Paste() {
+// It reports whether this request was queued. False means a previous unidentified
+// request is still eligible for an answer. Most terminals refuse to answer, because
+// a program that can read the clipboard can read what the user copied out of a
+// password manager; that refusal has no reply, so true does not promise an answer.
+func (t *Terminal) Paste() bool {
 	if sequence, ok := t.clipboard.Request(clipboard.System); ok {
 		t.writer.Queue([]byte(sequence))
+		return true
 	}
+	return false
 }
 
 // Name is what the terminal called itself when asked, and whether it answered.
@@ -390,6 +395,11 @@ func (t *Terminal) Version() (input.DeviceVersion, bool) {
 func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
 	return t.said.keyboard, t.said.hasKeyboard
 }
+
+// Locale is the terminal environment's character locale. It is the explicit
+// OpenOn environment's answer, not the process environment's, and an empty string
+// means none was supplied.
+func (t *Terminal) Locale() string { return t.locale }
 
 // identity is what to match a terminal against: what it called itself when asked, and
 // nothing when it did not.

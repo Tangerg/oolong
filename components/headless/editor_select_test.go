@@ -22,7 +22,13 @@ func (c *clip) Copy(text string) bool {
 	return true
 }
 
-func (c *clip) Paste() { c.asked++ }
+func (c *clip) Paste() bool {
+	if c.refuse {
+		return false
+	}
+	c.asked++
+	return true
+}
 
 // shift is the same key with shift held, which is what a terminal sends.
 func shift(code input.Code) input.Key {
@@ -248,7 +254,9 @@ func TestEditorWithoutAClipboardDoesNothingQuietly(t *testing.T) {
 	if e.Cut() {
 		t.Error("a cut with nowhere to put it reported success")
 	}
-	e.Paste()
+	if e.Paste() {
+		t.Error("a paste with nowhere to read from reported success")
+	}
 	if got, want := e.Text(), "hello"; got != want {
 		t.Errorf("text = %q, want it untouched", got)
 	}

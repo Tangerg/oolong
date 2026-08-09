@@ -78,6 +78,8 @@ type Stream struct {
 // its rendering without invalidating the open cache.
 func (s *Stream) SetLook(look Look) {
 	s.look = cloneLook(look)
+	clear(s.open)
+	s.open = nil
 	s.fresh = false
 }
 
@@ -109,6 +111,8 @@ func (s *Stream) Feed(chunk string) []Block {
 		return nil
 	}
 	_, _ = s.held.WriteString(chunk)
+	clear(s.open)
+	s.open = nil
 	s.fresh = false
 
 	cut := s.scan()

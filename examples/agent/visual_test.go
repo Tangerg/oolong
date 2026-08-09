@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -21,7 +21,6 @@ var visualGround = grid.Ground{
 
 func runVisualAgent(t *testing.T, width, height int, depth grid.Depth) (*visualtest.Host, func()) {
 	t.Helper()
-	t.Setenv("LC_ALL", "C.UTF-8")
 	host := visualtest.New(t, width, height, visualGround)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -64,7 +63,7 @@ func TestReviewScreenAtRepresentativeWidths(t *testing.T) {
 			host.Shows(t, "Allow this tool call?")
 
 			capture := host.Capture(t)
-			visualtest.Match(t, os.DirFS("testdata"), size.name+"-review.golden", capture.Rows)
+			visualtest.Match(t, filepath.Join("testdata", size.name+"-review.golden"), capture.Rows)
 		})
 	}
 }

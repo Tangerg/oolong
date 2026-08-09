@@ -139,12 +139,8 @@ func ExampleProgress() {
 func ExampleDiff() {
 	before := strings.Split("keep\nold\nkeep", "\n")
 	after := strings.Split("keep\nnew\nkeep", "\n")
-	view := kit.Diff{
-		Hunks:   diff.Between(before, after).Hunks(1),
-		Theme:   kit.Dark(),
-		Glyphs:  kit.ASCII(),
-		Numbers: true,
-	}
+	view := kit.NewDiff(kit.Dark(), kit.ASCII(), diff.Between(before, after).Hunks(1))
+	view.ShowNumbers(true)
 	show(16, view.Measure(16), view.Draw)
 
 	// Output:

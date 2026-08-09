@@ -173,6 +173,22 @@ func TestAnswerRequiresTheRequestedSelection(t *testing.T) {
 	}
 }
 
+func TestMalformedAnswersDoNotStealAValidRequest(t *testing.T) {
+	channel := &clipboard.Channel{}
+	if _, ok := channel.Request(clipboard.System); !ok {
+		t.Fatal("request was refused")
+	}
+	for _, params := range []string{"", "c", "cc;aGk=", "x;aGk="} {
+		if text, ok := channel.Answer(params); ok {
+			t.Fatalf("malformed %q was accepted as %q", params, text)
+		}
+	}
+	valid := "c;" + base64.StdEncoding.EncodeToString([]byte("still pending"))
+	if text, ok := channel.Answer(valid); !ok || text != "still pending" {
+		t.Fatalf("matching answer after malformed traffic = %q, %t", text, ok)
+	}
+}
+
 func TestAnswerSanitizesWhatTheTerminalGaveBack(t *testing.T) {
 	params := "c;" + base64.StdEncoding.EncodeToString([]byte{'a', 0xff, 0xfe, 'b'})
 	text, ok := answer(&clipboard.Channel{}, clipboard.System, params)

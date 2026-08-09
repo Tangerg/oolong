@@ -39,6 +39,7 @@ type keys struct {
 	mapKeys *keymap.Map
 	matcher keymap.Matcher
 	theme   kit.Theme
+	glyphs  kit.Glyphs
 	row     int
 	last    string
 }
@@ -53,6 +54,7 @@ func newKeys(runtime *program.Runtime) *keys {
 		runtime: runtime,
 		mapKeys: bindings,
 		theme:   kit.Suited(runtime.Environment().Ground()),
+		glyphs:  kit.GlyphsFor(runtime.Environment().Locale()),
 		last:    "waiting for g or gg",
 	}
 }
@@ -60,7 +62,7 @@ func newKeys(runtime *program.Runtime) *keys {
 func (k *keys) Draw(view grid.View) {
 	width, height := view.Size()
 	box := kit.Box{
-		Theme: k.theme, Glyphs: kit.GlyphsFor(os.LookupEnv), Title: "key sequences",
+		Theme: k.theme, Glyphs: k.glyphs, Title: "key sequences",
 		Padding: layout.Symmetric(0, 1),
 	}
 	area := grid.Rect(max((width-54)/2, 0), max((height-7)/2, 0), min(width, 54), min(height, 7))

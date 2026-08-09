@@ -24,6 +24,21 @@ func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 	}
 }
 
+func TestReplacingADocumentReleasesItsCachedRowsBeforeAnotherLayout(t *testing.T) {
+	doc := &Doc{}
+	doc.SetBlocks(Render(strings.Repeat("old content ", 128), Look{}))
+	doc.wrap(20)
+	doc.SetBlocks(nil)
+	if doc.fresh || len(doc.rows) != 0 {
+		t.Fatalf("invalidated document retained %d row(s)", len(doc.rows))
+	}
+	for i, cached := range doc.rows[:cap(doc.rows)] {
+		if !reflect.DeepEqual(cached, row{}) {
+			t.Fatalf("cached row %d retained replaced content %+v", i, cached)
+		}
+	}
+}
+
 func TestWrappingReleasesOversizedRowStorage(t *testing.T) {
 	blocks := make([]Block, 1024)
 	for i := range blocks {

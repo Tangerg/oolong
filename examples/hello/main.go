@@ -44,6 +44,7 @@ type hello struct {
 	runtime *program.Runtime
 	keys    int
 	theme   kit.Theme
+	glyphs  kit.Glyphs
 	set     bool
 }
 
@@ -56,12 +57,15 @@ func (h *hello) Draw(v grid.View) {
 	if !h.set {
 		// The look follows what the terminal said about itself, which is known by the
 		// time anything is drawn.
-		h.theme, h.set = kit.Suited(h.runtime.Environment().Ground()), true
+		environment := h.runtime.Environment()
+		h.theme = kit.Suited(environment.Ground())
+		h.glyphs = kit.GlyphsFor(environment.Locale())
+		h.set = true
 	}
 	width, height := v.Size()
 	box := kit.Box{
 		Theme:   h.theme,
-		Glyphs:  kit.GlyphsFor(os.LookupEnv),
+		Glyphs:  h.glyphs,
 		Title:   "hello",
 		Padding: layout.Symmetric(0, 1),
 	}

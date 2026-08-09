@@ -76,7 +76,7 @@ func TestOpeningRefusesRedirectedOutputEvenWithTerminalInput(t *testing.T) {
 
 func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
 	_, replica := pty(t)
-	values := map[string]string{"TERM_PROGRAM": "iTerm.app"}
+	values := map[string]string{"TERM_PROGRAM": "iTerm.app", "LANG": "en_GB.UTF-8"}
 	lookup := func(name string) (string, bool) {
 		value, ok := values[name]
 		return value, ok
@@ -91,12 +91,16 @@ func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
 	// A terminal's capabilities are session facts. Neither mutation of the adapter's
 	// environment nor this process's unrelated environment may change them later.
 	values["TERM_PROGRAM"] = "Apple_Terminal"
+	values["LANG"] = "C"
 	t.Setenv("KITTY_WINDOW_ID", "1")
 	if got := tty.Wheel(); got != (input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}) {
 		t.Errorf("wheel = %+v, want the explicit terminal environment", got)
 	}
 	if got := tty.Graphics(); got != graphics.ITerm2 {
 		t.Errorf("graphics = %v, want iTerm2 from the explicit terminal environment", got)
+	}
+	if got := tty.Locale(); got != "en_GB.UTF-8" {
+		t.Errorf("locale = %q, want the frozen explicit terminal environment", got)
 	}
 }
 

@@ -34,7 +34,8 @@ var (
 // handler retains those decisions and can report a non-nil result before returning.
 //
 // The zero cfg.Color, [grid.Auto], is resolved from the client's PTY environment
-// rather than the server process environment.
+// rather than the server process environment. Terminal modes, character locale,
+// wheel scaling and clipboard transport follow that same client-owned environment.
 func Run(session charmssh.Session, cfg program.Config) (err error) {
 	if cfg.Host != nil {
 		return ErrHostSet
@@ -65,6 +66,7 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 	host := newHost(
 		ctx.Done(), session, pty.Window, windows,
 		options.Modes(env.lookup), clipboard.New(env.lookup),
+		term.DetectLocaleIn(env.lookup),
 		input.WheelFor(env.lookup, ""),
 	)
 	defer func() { err = errors.Join(err, host.Close()) }()

@@ -118,9 +118,10 @@ func (a *agent) buildReview() {
 	dressed.Keys = keys
 	dressed.Hints = []keymap.Action{headless.Submit, headless.Cancel}
 	a.reviewPane = reviewPane{
-		diff: &kit.Diff{Theme: a.theme, Glyphs: a.glyphs, Numbers: true},
+		diff: kit.NewDiff(a.theme, a.glyphs, nil),
 		form: dressed, theme: a.theme,
 	}
+	a.reviewPane.diff.ShowNumbers(true)
 	a.reviewDialog = kit.NewDialog(&a.stack, a.theme, a.glyphs, "Review tool call", &a.reviewPane)
 	a.reviewDialog.Panel().Where = layout.Placement{Width: 76, Height: 16, Margin: 1}
 }
@@ -134,7 +135,7 @@ func (a *agent) openReview(request *reviewRequest) {
 	a.review = request
 	a.reviewAnswer = true
 	a.reviewConfirm.Say(true)
-	a.reviewPane.diff.Hunks = diff.Between(request.proposal.Before, request.proposal.After).Hunks(2)
+	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
 	a.status.Doing = "waiting for tool approval"
@@ -164,9 +165,9 @@ func (a *agent) showTool(result toolResult) {
 	a.conversation.Append(kit.Message{
 		Theme: a.theme, Speaker: result.Name, Body: oneLine(result.Summary),
 	})
-	a.conversation.Append(&kit.Diff{
-		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2),
-		Theme: a.theme, Glyphs: a.glyphs, Numbers: true,
-	})
+	shown := kit.NewDiff(a.theme, a.glyphs,
+		diff.Between(result.Change.Before, result.Change.After).Hunks(2))
+	shown.ShowNumbers(true)
+	a.conversation.Append(shown)
 	a.conversation.Retain(a.runtime)
 }

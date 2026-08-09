@@ -112,6 +112,32 @@ func TestRunUsesTheClientEnvironmentForItsWheel(t *testing.T) {
 	}
 }
 
+func TestRunUsesTheClientEnvironmentForItsLocale(t *testing.T) {
+	windows := make(chan charmssh.Window)
+	close(windows)
+	session := &fakeSession{
+		ctx:     newFakeContext(t.Context()),
+		window:  charmssh.Window{Width: 80, Height: 24},
+		windows: windows,
+		ptyOK:   true,
+		environ: []string{"LC_CTYPE=C", "LANG=en_US.UTF-8"},
+	}
+
+	var got string
+	err := Run(session, program.Config{
+		Root: func(runtime *program.Runtime) program.Component {
+			got = runtime.Environment().Locale()
+			return quittingComponent{runtime: runtime}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "C" {
+		t.Fatalf("locale = %q, want the client terminal's LC_CTYPE", got)
+	}
+}
+
 func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	var output lockedBuffer
 	host := &host{
@@ -121,7 +147,12 @@ func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	if !host.Copy("copied remotely") {
 		t.Fatal("a small copy was refused")
 	}
-	host.Paste()
+	if !host.Paste() {
+		t.Fatal("the first paste request was refused")
+	}
+	if host.Paste() {
+		t.Fatal("a second unidentified paste request was accepted")
+	}
 	if err := host.writer.Close(); err != nil {
 		t.Fatal(err)
 	}

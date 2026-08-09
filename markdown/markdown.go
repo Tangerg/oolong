@@ -65,7 +65,10 @@ type Doc struct {
 // SetBlocks replaces the document. Blocks are immutable values; Doc copies the
 // slice so the caller may reuse it after this returns.
 func (d *Doc) SetBlocks(blocks []Block) {
-	d.blocks, d.fresh = slices.Clone(blocks), false
+	d.blocks = slices.Clone(blocks)
+	clear(d.rows)
+	d.rows = d.rows[:0]
+	d.fresh = false
 }
 
 // Append adds blocks to the end, which is what a stream does as they are finished.

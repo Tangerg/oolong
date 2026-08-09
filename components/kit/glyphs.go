@@ -106,36 +106,24 @@ func ASCII() Glyphs {
 	}
 }
 
-// GlyphsFor picks the set a terminal in this environment can draw.
+// GlyphsFor picks the set a terminal in this locale can draw.
 //
 // The test is the locale, because there is no other. A terminal cannot be asked
 // whether it will render a box-drawing character, and the one thing that reliably
 // decides it is whether the environment says UTF-8: outside it, a multi-byte glyph
 // arrives as bytes the terminal draws one at a time.
 //
-// The lookup is passed in rather than read, for the same reason it is everywhere else
-// here — this package is not one that touches the operating system, and a test that
-// could not say what the locale was could not check either answer.
-func GlyphsFor(lookup func(string) (string, bool)) Glyphs {
-	if lookup == nil {
+// The resolved locale is passed rather than an environment lookup because choosing
+// which environment belongs to a terminal is a transport concern. This appearance
+// package only interprets the fact it was given.
+func GlyphsFor(locale string) Glyphs {
+	if locale == "" {
 		return Unicode()
 	}
-	// The first of these that is set decides, which is the order the C library reads
-	// them in: LC_ALL overrides everything, LC_CTYPE decides character handling, and
-	// LANG is the fallback for both.
-	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
-		if value, ok := lookup(name); ok && value != "" {
-			if utf8Locale(value) {
-				return Unicode()
-			}
-			return ASCII()
-		}
+	if utf8Locale(locale) {
+		return Unicode()
 	}
-	// Nothing said. Modern terminals are UTF-8 whether or not anybody set a variable,
-	// and assuming otherwise would give dashes to the overwhelming majority to spare
-	// the few — the same bet, and for the same reason, as an unrecognised TERM being
-	// treated as truecolor.
-	return Unicode()
+	return ASCII()
 }
 
 // utf8Locale reports whether a locale names the UTF-8 character set.

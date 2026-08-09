@@ -73,7 +73,7 @@ type runner struct {
 
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.LookupEnv)
+	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	r := &runner{runtime: runtime, theme: theme, command: command}
 	r.out.Base = theme.Text
 	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs, Label: strings.Join(command, " ")}

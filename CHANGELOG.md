@@ -18,6 +18,45 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+Breaking. `kit.Diff` is now constructed with `kit.NewDiff`; its hunks and appearance
+are changed through methods rather than exported fields. `kit.GlyphsFor` accepts an
+already-resolved locale, and `program.Environment.Locale` obtains that fact from the
+new optional `LocaleHost` capability. Clipboard read requests now report admission:
+`PasteHost.Paste`, `program.Clipboard.Paste`, `headless.Clipboard.Paste`, and
+`headless.Editor.Paste` return `bool`. There are no compatibility aliases.
+
+### Changed
+
+- **A diff owns and memoises its physical layout.** Hunks are copied on entry and all
+  mutations invalidate one private width cache, so measurement and drawing consume
+  the same rows without exposing stale-cache states. In the committed frame benchmark,
+  a 1,000-line diff at 100 columns and a 60-row viewport falls from about 23.2 ms,
+  107 MB and 73,000 allocations per frame to about 0.65 ms, 7 kB and 5,500 allocations
+  on an M4. Stale diff, paragraph, markdown document and stream caches release their
+  references as soon as their source is replaced.
+
+- **Clipboard backpressure is observable.** OSC 52 can correlate only one read at a
+  time. A caller now receives false when a host cannot read or an unidentified request
+  is still live, while accepted answers continue to arrive as ordinary paste events.
+  The consumer-side editor interface and the runtime capability use the same shape.
+
+- **Character locale follows the driven terminal.** Local terminals freeze the
+  environment passed to `OpenOn`; SSH hosts expose the accepted client's locale; the
+  kit interprets only that stable value. A server process's locale can no longer choose
+  ASCII or Unicode furniture for a remote client.
+
+### Added
+
+- Example visual goldens can be deliberately regenerated with `go test -update`.
+- Regression gates cover diff layout reuse and retention, locale precedence and SSH
+  propagation, clipboard request admission, and a thematic break used as list content.
+
+### Fixed
+
+- `clipboard.Channel.Answer` now documents and tests its actual ownership rule:
+  malformed or unrelated parameters leave the live request intact, while a matching
+  selection with an unreadable payload settles it as a failed answer.
+
 ## [0.7.0] — 2026-08-10
 
 An environment fact belongs to the terminal being driven, not to the process doing
@@ -122,6 +161,8 @@ instead. There are no compatibility aliases.
   dropped the bullet. It now draws.
 - An empty markdown table cell no longer depends on the parser having produced a line
   for it.
+
+## [0.6.0] — 2026-08-10
 
 The purity invariant grows a second half and a sharper instrument, and it immediately
 finds something.

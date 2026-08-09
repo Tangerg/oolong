@@ -191,6 +191,13 @@ func TestAListIsIndentedPastItsOwnMarks(t *testing.T) {
 	})
 }
 
+func TestAThematicBreakKeepsTheMarkerOfItsListItem(t *testing.T) {
+	// The divider is the item's content, not a reason to discard the item. Keeping
+	// the marker is what distinguishes a one-item list containing a rule from a rule
+	// at the document root.
+	equal(t, render(t, 14, "-   ***"), []string{"• ────────────"})
+}
+
 func TestAQuotationKeepsItsBarDownEveryRow(t *testing.T) {
 	// Including the rows a wrap produced. A bar beside only the first line is a
 	// quotation that stops looking like one exactly where it gets long enough to
