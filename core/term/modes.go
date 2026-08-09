@@ -1,6 +1,11 @@
 package term
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+
+	"github.com/Tangerg/oolong/core/input"
+)
 
 // Terminal modes, each written as a pair: what turns it on, and what puts it back.
 //
@@ -21,11 +26,6 @@ const (
 	focusOn  = "\x1b[?1004h"
 	focusOff = "\x1b[?1004l"
 
-	// The Kitty keyboard protocol's progressive enhancement. The flags ask for
-	// unambiguous key codes, key release and repeat events, alternate key codes and
-	// the text a key produced. A terminal that does not implement it ignores the
-	// request, and the disable form pops whatever was pushed.
-	keyboardOn  = "\x1b[>31u"
 	keyboardOff = "\x1b[<u"
 
 	pasteOn  = "\x1b[?2004h"
@@ -34,6 +34,12 @@ const (
 	cursorDefault = "\x1b[0 q"
 	cursorShow    = "\x1b[?25h"
 )
+
+// KeyboardCompatible is the portable keyboard enhancement set. It makes modified
+// keys unambiguous and reports alternate-layout keycodes without asking for release
+// events or turning ordinary text into escape sequences. Applications needing those
+// less widely reliable behaviours add their features explicitly.
+const KeyboardCompatible = input.KeyboardDisambiguate | input.KeyboardReportAlternates
 
 // Modes is the immutable set of terminal modes a session turns on and later puts
 // back. Its fields stay private so the only way to construct one is from [Options],
@@ -46,18 +52,70 @@ type Modes struct {
 	altScreen bool
 	mouse     bool
 	focus     bool
-	keyboard  bool
+	keyboard  input.KeyboardFeatures
 }
 
-// Modes returns the terminal-mode encoding selected by o. Probe is deliberately
-// absent from the result: probing is an input round trip, not an output mode.
-func (o Options) Modes() Modes {
+// Modes returns the terminal-mode encoding selected by o for an environment.
+// Probe is deliberately absent from the result: probing is an input round trip,
+// not an output mode.
+//
+// lookup is the environment of the terminal being driven, not necessarily this
+// process. A local terminal passes its process environment lookup; an SSH adapter
+// passes the client's accepted PTY environment. Nil means no environment facts are
+// available.
+func (o Options) Modes(lookup func(string) (string, bool)) Modes {
 	return Modes{
 		altScreen: o.AltScreen,
 		mouse:     o.Mouse,
 		focus:     o.Focus,
-		keyboard:  o.Keyboard,
+		keyboard:  compatibleKeyboard(o.Keyboard, lookup),
 	}
+}
+
+func compatibleKeyboard(
+	features input.KeyboardFeatures,
+	lookup func(string) (string, bool),
+) input.KeyboardFeatures {
+	features &= input.KeyboardAll
+	if features == 0 || lookup == nil {
+		return features
+	}
+
+	// VS Code's terminal bridge in WSL can acknowledge progressive keyboard mode
+	// and then corrupt or lose the sequences it carries. An application running on
+	// another machine must use that session's environment, which is why this decision
+	// is made while Modes is built rather than by a package global.
+	wsl := environmentSet(lookup, "WSL_INTEROP") || environmentSet(lookup, "WSL_DISTRO_NAME")
+	vscode := environmentEqual(lookup, "TERM_PROGRAM", "vscode") ||
+		environmentSet(lookup, "VSCODE_INJECTION")
+	if wsl && vscode {
+		return 0
+	}
+
+	// iTerm2 can leak a release belonging to the exiting application into its parent
+	// shell. The compatible set never asks for releases; callers that add them still
+	// get every other requested feature on this terminal.
+	if environmentEqual(lookup, "TERM_PROGRAM", "iTerm.app") {
+		features &^= input.KeyboardReportEvents
+	}
+	return features
+}
+
+func environmentSet(lookup func(string) (string, bool), name string) bool {
+	value, ok := lookup(name)
+	return ok && strings.TrimSpace(value) != ""
+}
+
+func environmentEqual(lookup func(string) (string, bool), name, want string) bool {
+	value, ok := lookup(name)
+	return ok && strings.EqualFold(strings.TrimSpace(value), want)
+}
+
+func keyboardOn(features input.KeyboardFeatures) string {
+	if features == 0 {
+		return ""
+	}
+	return "\x1b[>" + strconv.Itoa(int(features)) + "u"
 }
 
 // mode pairs one mode's enable and disable sequences with whether it is wanted.
@@ -74,7 +132,7 @@ func (m Modes) sequence() []mode {
 		{altScreenOn, altScreenOff, m.altScreen},
 		{mouseOn, mouseOff, m.mouse},
 		{focusOn, focusOff, m.focus},
-		{keyboardOn, keyboardOff, m.keyboard},
+		{keyboardOn(m.keyboard), keyboardOff, m.keyboard != 0},
 		{pasteOn, pasteOff, true},
 	}
 }

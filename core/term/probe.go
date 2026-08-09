@@ -99,7 +99,7 @@ type answers struct {
 	hasVersion bool
 	// keyboard is which of the Kitty protocol's enhancements are on, which is not
 	// the same as which were asked for.
-	keyboard    input.KeyboardFlags
+	keyboard    input.KeyboardFeatures
 	hasKeyboard bool
 }
 
@@ -157,7 +157,7 @@ func (p *probe) take(ev input.Event, got *answers) {
 	case input.DeviceVersion:
 		got.version, got.hasVersion = ev, true
 	case input.KeyboardFlags:
-		got.keyboard, got.hasKeyboard = ev, true
+		got.keyboard, got.hasKeyboard = ev.Features, true
 	case input.DeviceAttributes:
 		got.attributes, got.hasAttrs = ev, true
 	default:

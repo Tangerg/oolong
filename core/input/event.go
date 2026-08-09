@@ -281,8 +281,8 @@ type DCS struct{ Body string }
 
 func (DCS) terminalEvent() {}
 
-// KeyboardFlags is a terminal's answer about which of the Kitty keyboard protocol's
-// enhancements are turned on.
+// KeyboardFlags is a terminal's answer about which keyboard protocol enhancements
+// are turned on.
 //
 // Asking is not the same as being answered, and being answered is not the same as
 // having asked. A terminal may accept the request for unambiguous key codes and give
@@ -290,31 +290,47 @@ func (DCS) terminalEvent() {}
 // no release ever arrives. Nothing in the events themselves distinguishes that from a
 // user who simply has not lifted a key, so the only way to know is to read back what
 // took.
-type KeyboardFlags struct{ Flags int }
+type KeyboardFlags struct{ Features KeyboardFeatures }
 
 func (KeyboardFlags) terminalEvent() {}
 
-// The Kitty keyboard protocol's progressive enhancements, as the bits a terminal
-// reports them in.
+// KeyboardFeatures is a set of progressive enhancements requested from or reported
+// by a terminal speaking the Kitty keyboard protocol.
+//
+// It is shared by terminal configuration and the negotiated result so there cannot
+// be two vocabularies for one protocol. Zero is the historical keyboard encoding.
+type KeyboardFeatures int
+
+// The protocol's progressive enhancements, as the bits on the wire name them.
 const (
-	// KittyDisambiguate makes every key arrive as an unambiguous code rather than as
+	// KeyboardDisambiguate makes every key arrive as an unambiguous code rather than as
 	// whatever byte it historically produced. It is what makes Shift+Enter and
 	// Ctrl+Enter tellable apart from Enter.
-	KittyDisambiguate = 1 << iota
-	// KittyReportEvents adds key releases and repeats. Without it a key going down is
+	KeyboardDisambiguate KeyboardFeatures = 1 << iota
+	// KeyboardReportEvents adds key releases and repeats. Without it a key going down is
 	// all there is, and anything held cannot be known to have been let go.
-	KittyReportEvents
-	// KittyReportAlternates adds the key a different layout would have produced.
-	KittyReportAlternates
-	// KittyReportAllAsEscapes makes even plain letters arrive as sequences.
-	KittyReportAllAsEscapes
-	// KittyReportText adds the text a key produced, which the terminal knows and a
+	KeyboardReportEvents
+	// KeyboardReportAlternates adds the key a different layout would have produced.
+	KeyboardReportAlternates
+	// KeyboardReportAllAsEscapes makes even plain letters arrive as sequences.
+	KeyboardReportAllAsEscapes
+	// KeyboardReportText adds the text a key produced, which the terminal knows and a
 	// program guessing from a keycode does not.
-	KittyReportText
+	KeyboardReportText
+
+	// KeyboardAll is every enhancement this version understands. Unknown bits a
+	// future terminal reports remain in KeyboardFlags, but are never emitted by a
+	// request built by this version.
+	KeyboardAll = KeyboardDisambiguate | KeyboardReportEvents | KeyboardReportAlternates |
+		KeyboardReportAllAsEscapes | KeyboardReportText
 )
 
-// Has reports whether a flag is among those the terminal turned on.
-func (k KeyboardFlags) Has(flag int) bool { return k.Flags&flag == flag }
+// Has reports whether every requested feature is in k.
+func (k KeyboardFeatures) Has(features KeyboardFeatures) bool { return k&features == features }
+
+// Has reports whether every requested feature is among those the terminal turned
+// on.
+func (k KeyboardFlags) Has(features KeyboardFeatures) bool { return k.Features.Has(features) }
 
 // DeviceVersion is a terminal's answer to being asked which version of itself it is.
 //

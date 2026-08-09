@@ -35,11 +35,11 @@ func newHost(
 	channel io.ReadWriter,
 	window charmssh.Window,
 	windows <-chan charmssh.Window,
-	options term.Options,
+	modes term.Modes,
 ) *host {
 	h := &host{
 		writer: term.NewWriter(channel),
-		modes:  options.Modes(),
+		modes:  modes,
 		window: window,
 	}
 	h.writer.Queue([]byte(h.modes.Enter()))

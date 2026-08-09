@@ -48,9 +48,9 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 		return sizeErr
 	}
 
+	env := newEnvironment(session.Environ())
+	env.set("TERM", pty.Term)
 	if cfg.Color == grid.Auto {
-		env := newEnvironment(session.Environ())
-		env.set("TERM", pty.Term)
 		cfg.Color = term.DetectDepthIn(env.lookup)
 	}
 
@@ -60,7 +60,7 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 	// transport setup to its adapter.
 	options.AltScreen = cfg.Root != nil
 	ctx := session.Context()
-	host := newHost(ctx.Done(), session, pty.Window, windows, options)
+	host := newHost(ctx.Done(), session, pty.Window, windows, options.Modes(env.lookup))
 	defer func() { err = errors.Join(err, host.Close()) }()
 	cfg.Host = host
 	return program.Run(ctx, cfg)

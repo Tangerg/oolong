@@ -18,7 +18,7 @@ type WheelHost interface{ Wheel() input.Wheel }
 
 // KeyboardHost supplies keyboard protocol features negotiated with the host.
 type KeyboardHost interface {
-	Keyboard() (input.KeyboardFlags, bool)
+	Keyboard() (input.KeyboardFeatures, bool)
 }
 
 // DirectoryHost tells a terminal how to resolve relative paths in program output.
@@ -109,9 +109,9 @@ func (s hostServices) wheel() input.Wheel {
 	return s.wheelHost.Wheel()
 }
 
-func (s hostServices) keyboard() (input.KeyboardFlags, bool) {
+func (s hostServices) keyboard() (input.KeyboardFeatures, bool) {
 	if s.keyboardHost == nil {
-		return input.KeyboardFlags{}, false
+		return 0, false
 	}
 	return s.keyboardHost.Keyboard()
 }

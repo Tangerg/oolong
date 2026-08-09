@@ -38,7 +38,7 @@ type host struct {
 	w, h      int
 	ground    grid.Ground
 	wheel     input.Wheel
-	keys      input.KeyboardFlags
+	keys      input.KeyboardFeatures
 	saidKeys  bool
 	directory string
 
@@ -2087,7 +2087,7 @@ func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
 
 func (h *host) Wheel() input.Wheel { return h.wheel }
 
-func (h *host) Keyboard() (input.KeyboardFlags, bool) { return h.keys, h.saidKeys }
+func (h *host) Keyboard() (input.KeyboardFeatures, bool) { return h.keys, h.saidKeys }
 
 // ReportDirectory does nothing, which is what a host with no terminal to tell has to
 // do — and reports no error, because there was nothing to fail.
@@ -2121,9 +2121,9 @@ func TestAComponentLearnsWhatTheKeyboardActuallyDoes(t *testing.T) {
 	// Nothing in the events says so, so a component that cannot ask cannot choose a
 	// different interaction.
 	h := newHost(t)
-	h.keys, h.saidKeys = input.KeyboardFlags{Flags: input.KittyDisambiguate}, true
+	h.keys, h.saidKeys = input.KeyboardDisambiguate, true
 
-	got := make(chan input.KeyboardFlags, 1)
+	got := make(chan input.KeyboardFeatures, 1)
 	said := make(chan bool, 1)
 	r := startOn(t, h, func(l *program.Runtime) program.Component {
 		flags, ok := l.Environment().Keyboard()
@@ -2137,10 +2137,10 @@ func TestAComponentLearnsWhatTheKeyboardActuallyDoes(t *testing.T) {
 		t.Fatal("the component was told nothing was known")
 	}
 	flags := <-got
-	if !flags.Has(input.KittyDisambiguate) {
+	if !flags.Has(input.KeyboardDisambiguate) {
 		t.Error("disambiguation was not reported")
 	}
-	if flags.Has(input.KittyReportEvents) {
+	if flags.Has(input.KeyboardReportEvents) {
 		t.Error("releases were reported by a terminal that turned them off")
 	}
 }

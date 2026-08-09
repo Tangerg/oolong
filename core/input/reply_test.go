@@ -36,35 +36,35 @@ func TestTheKeyboardFlagsRead(t *testing.T) {
 	if !ok {
 		t.Fatalf("did not decode as the flags")
 	}
-	if got.Flags != 31 {
-		t.Errorf("flags = %d, want 31", got.Flags)
+	if got.Features != input.KeyboardAll {
+		t.Errorf("flags = %d, want %d", got.Features, input.KeyboardAll)
 	}
-	for _, flag := range []int{
-		input.KittyDisambiguate, input.KittyReportEvents, input.KittyReportAlternates,
-		input.KittyReportAllAsEscapes, input.KittyReportText,
+	for _, flag := range []input.KeyboardFeatures{
+		input.KeyboardDisambiguate, input.KeyboardReportEvents, input.KeyboardReportAlternates,
+		input.KeyboardReportAllAsEscapes, input.KeyboardReportText,
 	} {
 		if !got.Has(flag) {
-			t.Errorf("flag %d is not among %d", flag, got.Flags)
+			t.Errorf("flag %d is not among %d", flag, got.Features)
 		}
 	}
 
 	// The case the whole thing exists for: the protocol is live and releases will
 	// never come.
 	partial := one(t, "\x1b[?1u").(input.KeyboardFlags)
-	if !partial.Has(input.KittyDisambiguate) {
+	if !partial.Has(input.KeyboardDisambiguate) {
 		t.Error("disambiguation was not reported")
 	}
-	if partial.Has(input.KittyReportEvents) {
+	if partial.Has(input.KeyboardReportEvents) {
 		t.Error("releases were reported by a terminal that did not turn them on")
 	}
 }
 
 func TestTheKeyboardFlagsOfNothing(t *testing.T) {
 	got := one(t, "\x1b[?0u").(input.KeyboardFlags)
-	if got.Flags != 0 {
-		t.Errorf("flags = %d, want none", got.Flags)
+	if got.Features != 0 {
+		t.Errorf("flags = %d, want none", got.Features)
 	}
-	if got.Has(input.KittyDisambiguate) {
+	if got.Has(input.KeyboardDisambiguate) {
 		t.Error("a flag was reported when none were set")
 	}
 }

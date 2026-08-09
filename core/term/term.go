@@ -50,10 +50,11 @@ type Options struct {
 	// Focus asks to be told when the terminal window gains or loses focus, which is
 	// what lets a UI stop animating while nobody is looking.
 	Focus bool
-	// Keyboard asks for the Kitty keyboard protocol: unambiguous key codes, key
-	// releases and repeats, and the text a key produced. Terminals that do not
-	// implement it ignore the request.
-	Keyboard bool
+	// Keyboard is the Kitty keyboard protocol enhancements to request. Use
+	// [KeyboardCompatible] for the portable set and add features such as
+	// [input.KeyboardReportEvents] only when the application consumes them.
+	// Terminals that do not implement the protocol ignore the request.
+	Keyboard input.KeyboardFeatures
 	// Probe asks the terminal about itself while [Open] is still running: the
 	// colour it draws on, and the extensions it claims. See [Terminal.Ground]
 	// and [Terminal.Attributes].
@@ -159,7 +160,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	t := &Terminal{
 		in:         in,
 		out:        out,
-		modes:      opts.Modes(),
+		modes:      opts.Modes(os.LookupEnv),
 		oldState:   oldState,
 		events:     make(chan input.Event, 64),
 		resized:    make(chan input.Resize, 1),
@@ -335,7 +336,7 @@ func (t *Terminal) Version() (input.DeviceVersion, bool) {
 //
 // A session that did not ask for the protocol, or a terminal that does not implement
 // it, reports false.
-func (t *Terminal) Keyboard() (input.KeyboardFlags, bool) {
+func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
 	return t.said.keyboard, t.said.hasKeyboard
 }
 

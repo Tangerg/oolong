@@ -48,8 +48,8 @@ func (h *host) Wheel() input.Wheel          { return input.Wheel{} }
 
 func (h *host) Graphics() graphics.Protocol   { return graphics.None }
 func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
-func (h *host) Keyboard() (input.KeyboardFlags, bool) {
-	return input.KeyboardFlags{}, false
+func (h *host) Keyboard() (input.KeyboardFeatures, bool) {
+	return 0, false
 }
 
 func (h *host) Transmit([]byte) (graphics.Image, error) {

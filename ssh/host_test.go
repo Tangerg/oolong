@@ -33,13 +33,17 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 		Root: func(runtime *program.Runtime) program.Component {
 			return quittingComponent{runtime: runtime}
 		},
-		Terminal: term.Options{Mouse: true, Focus: true, Keyboard: true},
+		Terminal: term.Options{
+			Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	all := term.Options{AltScreen: true, Mouse: true, Focus: true, Keyboard: true}.Modes()
+	all := term.Options{
+		AltScreen: true, Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
+	}.Modes(nil)
 	written := session.output.String()
 	if !strings.HasPrefix(written, all.Enter()) {
 		t.Fatalf("output did not acquire modes first: %q", written)
@@ -49,6 +53,34 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 	}
 	if session.closed {
 		t.Fatal("Run closed the caller-owned SSH channel")
+	}
+}
+
+func TestRunUsesTheClientEnvironmentForKeyboardCompatibility(t *testing.T) {
+	windows := make(chan charmssh.Window)
+	close(windows)
+	session := &fakeSession{
+		ctx:     newFakeContext(t.Context()),
+		window:  charmssh.Window{Width: 80, Height: 24},
+		windows: windows,
+		ptyOK:   true,
+		environ: []string{
+			"WSL_DISTRO_NAME=Ubuntu",
+			"TERM_PROGRAM=vscode",
+		},
+	}
+
+	err := Run(session, program.Config{
+		Root: func(runtime *program.Runtime) program.Component {
+			return quittingComponent{runtime: runtime}
+		},
+		Terminal: term.Options{Keyboard: input.KeyboardAll},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written := session.output.String(); strings.Contains(written, "\x1b[>") {
+		t.Fatalf("keyboard mode ignored the client environment: %q", written)
 	}
 }
 

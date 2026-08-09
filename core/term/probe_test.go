@@ -426,10 +426,10 @@ func TestWhichKeyboardEnhancementsTookEffect(t *testing.T) {
 	if !ok {
 		t.Fatal("the terminal answered and the session did not learn it")
 	}
-	if !flags.Has(input.KittyDisambiguate) {
+	if !flags.Has(input.KeyboardDisambiguate) {
 		t.Error("disambiguation was not reported")
 	}
-	if flags.Has(input.KittyReportEvents) {
+	if flags.Has(input.KeyboardReportEvents) {
 		t.Error("releases were reported by a terminal that turned them off")
 	}
 }

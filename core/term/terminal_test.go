@@ -74,13 +74,15 @@ func TestOpeningRefusesRedirectedOutputEvenWithTerminalInput(t *testing.T) {
 }
 
 func TestASessionSaysWhatItIsTurningOn(t *testing.T) {
-	tty, watch := open(t, term.Options{Mouse: true, Focus: true, Keyboard: true})
+	tty, watch := open(t, term.Options{
+		Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
+	})
 
 	seen := read(t, watch, 500*time.Millisecond)
 	for name, seq := range map[string]string{
 		"mouse":    "\x1b[?1003h",
 		"focus":    "\x1b[?1004h",
-		"keyboard": "\x1b[>31u",
+		"keyboard": "\x1b[>5u",
 		"paste":    "\x1b[?2004h",
 	} {
 		if !strings.Contains(seen, seq) {

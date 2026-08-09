@@ -37,7 +37,7 @@ func (e Environment) Ground() grid.Ground { return e.host.ground() }
 func (e Environment) Wheel() input.Wheel { return e.host.wheel() }
 
 // Keyboard reports negotiated keyboard protocol features.
-func (e Environment) Keyboard() (input.KeyboardFlags, bool) { return e.host.keyboard() }
+func (e Environment) Keyboard() (input.KeyboardFeatures, bool) { return e.host.keyboard() }
 
 // Clipboard is the clipboard associated with the user-facing host. Its zero value
 // refuses writes and ignores reads.
