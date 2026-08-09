@@ -1,0 +1,24 @@
+you
+  move validation into its owner
+
+Working plan
+I’ll in╭─Review tool call─────────────────────────────────────────────────────────╮
+The beh│ internal/parser.go — move validation into parser.advance                 │wo
+functio│ 1 1  func parse(token string) error {                                    │
+       │ 2   -    if token == "" { return errEmpty }                              │
+       │ 3 2      return state.advance(token)                                     │
+       │   3 +}                                                                   │
+       │   4 +                                                                    │
+       │   5 +func (s *parser) advance(token string) error {                      │
+       │   6 +    if token == "" { return errEmpty }                              │
+       │   7 +    // transition remains owned here                                │
+       │   8 +    return nil                                                      │
+╭─run p│ 4 9  }                                                                   │──────╮
+│ ● und│ Allow this tool call?                                                    │ done │
+│ ● ins│ ● apply  ○ deny                                                          │ done │
+│ ❯ rev│ enter submit  esc cancel                                                 │nning │
+│ ○ ver╰──────────────────────────────────────────────────────────────────────────╯iting │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+⠋ waiting for tool approval
+❯ Ask the mock agent to change something
+enter send  ctrl+x cancel run  ctrl+c quit

@@ -1,0 +1,18 @@
+you
+ ╭─Review tool call───────────────────────╮
+─│ internal/parser.go — move validation … │─
+I│ 1 1  func parse(token string) error {  │
+v│ 2   -    if token == "" { return       │
+T│     │errEmpty }                        │
+a│ 3 2      return state.advance(token)   │
+f│   3 +}                                 │
+i│   4 +                                  │
+╭│   5 +func (s *parser) advance(token    │╮
+││     │string) error {                   ││
+││   6 +    if token == "" { return       ││
+││     │errEmpty }                        ││
+││ Allow this tool call?                  ││
+╰│ ● apply  ○ deny                        │╯
+⠋│ enter submit  esc cancel               │
+❯╰────────────────────────────────────────╯
+enter send  ctrl+x cancel run  ctrl+c quit
