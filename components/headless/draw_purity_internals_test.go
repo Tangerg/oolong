@@ -395,12 +395,10 @@ func headlessDrawPurityCases() []drawPurityCase {
 	viewport.Focus(true)
 	viewportCase := widgetPurityCase("*Viewport", viewport, func() any {
 		return struct {
-			offset, total, window int
-			following             bool
-			focused               bool
+			state   scrollState
+			focused bool
 		}{
-			viewport.scroll.offset, viewport.scroll.total, viewport.scroll.window,
-			viewport.scroll.following, viewportContent.focused,
+			viewport.scroll.current, viewportContent.focused,
 		}
 	})
 	viewportCase.height = 3

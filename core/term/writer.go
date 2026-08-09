@@ -38,10 +38,10 @@ const DrainGrace = 250 * time.Millisecond
 // remote session, a suspended emulator, a scrolled-back pager — so producers must
 // not perform those writes synchronously.
 //
-// Progress is reported as a watermark rather than as a stream of results: the only
-// question anyone asks is how far the terminal has got, and a counter answers it
-// without a queue to keep in order or a consumer to keep up. [Writer.Progress]
-// signals its consumer when the watermark moves, and [Writer.Written] says where it is.
+// Successful completion is reported as a watermark rather than as a stream of
+// results: the only question anyone asks is how far the terminal has got, and a
+// counter answers it without a queue to keep in order or a consumer to keep up.
+// [Writer.Changes] signals when that watermark or [Writer.Err] may have changed.
 //
 // Every method is safe for concurrent use. Frames are assigned a sequence while
 // they are appended to one FIFO, so sequence order and write order cannot diverge
@@ -58,15 +58,15 @@ type Writer struct {
 	wake    chan struct{}
 	closed  bool
 
-	// progress holds at most one pending wake-up: a consumer that has not yet noticed
+	// changes holds at most one pending wake-up: a consumer that has not yet noticed
 	// the last advance does not need to be told twice. It has exactly one consumer,
 	// and a wake-up taken from it is gone.
-	progress chan struct{}
+	changes chan struct{}
 
 	// advanced is closed and replaced every time the watermark moves.
 	//
 	// It exists because [Writer.Drain] also waits for the watermark, and a second
-	// consumer of progress would take wake-ups the primary consumer is owed. A closed channel
+	// consumer of changes would take wake-ups the primary consumer is owed. A closed channel
 	// is a broadcast: every waiter sees it, and none can take it from another.
 	// Waiting on progress from two places was a hang that only appeared on a
 	// machine slow enough for Drain to reach the channel first.
@@ -109,7 +109,7 @@ func NewWriter(dst io.Writer) *Writer {
 	w := &Writer{
 		dst:      dst,
 		wake:     make(chan struct{}, 1),
-		progress: make(chan struct{}, 1),
+		changes:  make(chan struct{}, 1),
 		advanced: make(chan struct{}),
 		loopDone: make(chan struct{}),
 	}
@@ -155,9 +155,10 @@ func (w *Writer) signal() {
 	}
 }
 
-// Progress wakes its receiver when the write watermark has moved. It carries no
-// value: the watermark is read from [Writer.Written], which is always current.
-func (w *Writer) Progress() <-chan struct{} { return w.progress }
+// Changes is the stable, single-consumer notification channel for writer state. A
+// receive means [Writer.Written] or [Writer.Err] may have changed; several changes
+// coalesce into one wake-up, so the current values must always be read from the writer.
+func (w *Writer) Changes() <-chan struct{} { return w.changes }
 
 // Queued is the highest sequence handed to the writer.
 func (w *Writer) Queued() uint64 { return w.queued.current() }
@@ -183,7 +184,7 @@ func (w *Writer) Err() error {
 // program does not find half a frame in front of it. A failed frame counts as
 // drained: a broken terminal must not be able to wedge a shutdown.
 //
-// It takes nothing from [Writer.Progress]. Waiting here must not cost its consumer a
+// It takes nothing from [Writer.Changes]. Waiting here must not cost its consumer a
 // wake-up it is owed, which is what the broadcast channel is for.
 func (w *Writer) Drain(timeout time.Duration) error {
 	if !w.drain(w.queued.current(), timeout) {
@@ -308,7 +309,7 @@ func (w *Writer) finish(seq uint64, err error) {
 	// the watermark, so anything published after it could still be in flight when
 	// the caller looks.
 	select {
-	case w.progress <- struct{}{}:
+	case w.changes <- struct{}{}:
 	default:
 	}
 	advanced := w.settle(seq)

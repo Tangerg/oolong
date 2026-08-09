@@ -36,13 +36,13 @@ import (
 // The zero value is an empty transcript at width zero. Nothing can be measured until
 // [Transcript.Resize] has said how wide the space is.
 type Transcript struct {
-	blocks []placed
-	width  int
-	rows   int
-	start  int
-	first  BlockID
+	// transcriptState is embedded because these are the transcript's committed
+	// values, not a cache beside it. A frame derives another complete state and swaps
+	// it in atomically; keeping both as the same entity prevents commit and Layout
+	// from becoming two hand-maintained field lists.
+	transcriptState
 
-	pendingLayout transcriptLayoutState
+	pendingLayout transcriptState
 	staged        *transaction
 }
 
@@ -164,13 +164,7 @@ func (t *Transcript) Layout() TranscriptLayout {
 	if t == nil {
 		return TranscriptLayout{}
 	}
-	return TranscriptLayout{state: transcriptLayoutState{
-		blocks: t.blocks,
-		width:  t.width,
-		rows:   t.rows,
-		start:  t.start,
-		first:  t.first,
-	}}
+	return TranscriptLayout{state: t.transcriptState}
 }
 
 // Stage lays the transcript out at width for a component frame.
@@ -210,7 +204,7 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 		}
 		top = layout.Sum(top, height)
 	}
-	t.pendingLayout = transcriptLayoutState{
+	t.pendingLayout = transcriptState{
 		blocks: blocks,
 		width:  width,
 		rows:   layout.Remaining(top, t.start),
@@ -224,10 +218,8 @@ func (t *Transcript) commit(tx *transaction) {
 	if t.staged != tx {
 		return
 	}
-	t.blocks = t.pendingLayout.blocks
-	t.width = t.pendingLayout.width
-	t.rows = t.pendingLayout.rows
-	t.pendingLayout = transcriptLayoutState{}
+	t.transcriptState = t.pendingLayout
+	t.pendingLayout = transcriptState{}
 	t.staged = nil
 }
 
@@ -235,11 +227,11 @@ func (t *Transcript) abort(tx *transaction) {
 	if t.staged != tx {
 		return
 	}
-	t.pendingLayout = transcriptLayoutState{}
+	t.pendingLayout = transcriptState{}
 	t.staged = nil
 }
 
-type transcriptLayoutState struct {
+type transcriptState struct {
 	blocks []placed
 	width  int
 	rows   int
@@ -249,7 +241,7 @@ type transcriptLayoutState struct {
 
 // TranscriptLayout is the immutable placement used to draw one transcript frame.
 // It is returned by Transcript.Layout and Transcript.Stage.
-type TranscriptLayout struct{ state transcriptLayoutState }
+type TranscriptLayout struct{ state transcriptState }
 
 // Height is the number of live rows in this layout.
 func (l TranscriptLayout) Height() int { return l.state.rows }

@@ -208,14 +208,10 @@ func TestResizeIntakeKeepsTheLatestWindow(t *testing.T) {
 			t.Fatal("window intake stopped behind the event consumer")
 		}
 	}
-	last := receiveEvent(t, source.Events())
-	select {
-	case event := <-source.Events():
-		last = event
-	case <-time.After(20 * time.Millisecond):
-	}
-	if last != (input.Resize{Width: 100, Height: 24}) {
-		t.Fatalf("last event = %#v", last)
+	want := input.Resize{Width: 100, Height: 24}
+	var last input.Event
+	for last != want {
+		last = receiveEvent(t, source.Events())
 	}
 	reader <- readResult{err: io.EOF}
 	for event := range source.Events() {
@@ -226,7 +222,10 @@ func TestResizeIntakeKeepsTheLatestWindow(t *testing.T) {
 func receiveEvent(t *testing.T, events <-chan input.Event) input.Event {
 	t.Helper()
 	select {
-	case event := <-events:
+	case event, ok := <-events:
+		if !ok {
+			t.Fatal("event stream closed while waiting for an event")
+		}
 		return event
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for event")

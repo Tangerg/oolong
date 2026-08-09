@@ -120,7 +120,7 @@ func (t *Text) ensure() {
 	}
 	t.seeded = true
 	if t.Value != nil {
-		t.editor.SetText(t.Value.Get())
+		t.editor.SetText(t.Value.Value())
 	}
 }
 
@@ -333,7 +333,7 @@ func (s *Select[T]) ensure() {
 	}
 	// The cursor starts on the choice already made, which is what makes a form somebody
 	// is coming back to show what they said last time.
-	want := s.Value.Get()
+	want := s.Value.Value()
 	for i, option := range s.options {
 		if option.holds(want, s.Same) {
 			s.list.Select(i)
@@ -544,7 +544,7 @@ func (m *MultiSelect[T]) ensure() {
 	if m.Value == nil {
 		return
 	}
-	for _, want := range m.Value.Get() {
+	for _, want := range m.Value.Value() {
 		for i, option := range m.options {
 			if option.holds(want, m.Same) {
 				m.taken[i] = true
@@ -698,7 +698,7 @@ func (c *Confirm) ensure() {
 	}
 	c.seeded = true
 	if c.Value != nil {
-		c.yes = c.Value.Get()
+		c.yes = c.Value.Value()
 	}
 }
 

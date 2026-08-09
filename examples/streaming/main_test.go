@@ -112,6 +112,7 @@ type state struct {
 	blocks               int
 	first                headless.BlockID
 	status               string
+	prompt               string
 }
 
 func stateOf(t *testing.T, c *chat) state {
@@ -121,6 +122,7 @@ func stateOf(t *testing.T, c *chat) state {
 		result <- state{
 			active: c.active, open: c.hasOpen, dialog: c.dialog.Open(),
 			blocks: c.content.Len(), first: c.content.FirstBlock(), status: c.status.Doing,
+			prompt: c.composer.Text(),
 		}
 	})
 	select {
@@ -326,16 +328,23 @@ func TestCancellationSettlesSeparatelyFromFailure(t *testing.T) {
 
 func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 	h := newHost()
-	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error {
-		t.Fatal("an empty prompt reached the source")
+	called := make(chan string, 1)
+	c, stop := runSource(t, h, func(_ context.Context, prompt string, _ io.Writer) error {
+		called <- prompt
 		return nil
 	})
 	defer stop()
 	awaitText(t, h, "Ask something")
 	h.events <- input.Key{Code: input.Enter}
-	time.Sleep(50 * time.Millisecond)
-	if stateOf(t, c).dialog {
+	h.typeText("x")
+	got := awaitState(t, c, func(s state) bool { return s.prompt == "x" })
+	if got.dialog {
 		t.Fatal("an empty prompt opened approval")
+	}
+	select {
+	case prompt := <-called:
+		t.Fatalf("an empty prompt reached the source as %q", prompt)
+	default:
 	}
 }
 

@@ -21,13 +21,10 @@ import (
 // The zero value shows the start and does not follow, which is what a list of items
 // wants. A transcript asks to follow, once, with [Scroll.ToBottom].
 type Scroll struct {
-	// offset is how many rows are hidden above the window.
-	offset int
-	// following makes the window stick to the end as content arrives.
-	following bool
-	// total and window are what the last layout measured, remembered so a scroll
-	// arriving between frames is clamped against something real.
-	total, window int
+	// current is the committed position and bounds. Keeping the four values in the
+	// same entity used by a staged frame gives scrolling one implementation: input
+	// changes current, while Draw changes a copy until the root commits it.
+	current scrollState
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
 	wheel input.Advance
@@ -46,9 +43,7 @@ type Scroll struct {
 // new end; a window that is not following keeps its place, clamped against content
 // that may have grown or shrunk since the last frame.
 func (s *Scroll) Layout(total, window int) {
-	state := s.state()
-	state.layout(total, window)
-	s.apply(state)
+	s.current.layout(total, window)
 }
 
 // Wheel says what the terminal's wheel reports are worth, which is not a constant:
@@ -63,30 +58,27 @@ func (s *Scroll) Wheel(w input.Wheel) { s.wheel.Wheel(w) }
 
 // Offset is how many rows are hidden above the window, which is what a scrollbar and
 // a hit test both want.
-func (s *Scroll) Offset() int { return s.offset }
+func (s *Scroll) Offset() int { return s.current.offset }
 
 // AtBottom reports whether the window is following the end of the content.
-func (s *Scroll) AtBottom() bool { return s.following }
+func (s *Scroll) AtBottom() bool { return s.current.following }
 
 // By scrolls a number of rows: negative towards the start, positive towards the end.
 //
 // Reaching the end starts following again, which is what every log viewer does and
 // what a reader means by scrolling to the bottom.
 func (s *Scroll) By(rows int) {
-	s.offset = scrollOffset(s.offset, rows, s.max())
-	s.following = s.offset >= s.max()
+	s.current.by(rows)
 }
 
 // ToBottom follows the end of the content.
 func (s *Scroll) ToBottom() {
-	s.following = true
-	s.offset = s.max()
+	s.current.toBottom()
 }
 
 // ToTop shows the start of the content and stops following.
 func (s *Scroll) ToTop() {
-	s.following = false
-	s.offset = 0
+	s.current.toTop()
 }
 
 // Discard removes rows from the start of the content while preserving the row under
@@ -95,14 +87,7 @@ func (s *Scroll) ToTop() {
 // A streaming transcript uses this after publishing a prefix. A following window
 // stays at the new end; a reader above the new start lands on the first retained row.
 func (s *Scroll) Discard(rows int) {
-	rows = max(rows, 0)
-	s.total = layout.Remaining(s.total, rows)
-	s.offset = layout.Remaining(s.offset, rows)
-	if s.following {
-		s.offset = s.max()
-		return
-	}
-	s.clamp()
+	s.current.discard(rows)
 }
 
 // Reveal scrolls as little as it can to bring a row into the window.
@@ -124,32 +109,14 @@ func (s *Scroll) Reveal(row int) {
 // reading begins. Anything else would show the end of a match and leave the reader
 // to scroll backwards to find out what it was part of.
 func (s *Scroll) RevealRange(first, last int) {
-	if s.window <= 0 {
-		return
-	}
-	if last < first {
-		first, last = last, first
-	}
-	s.following = false
-	switch {
-	case first < s.offset:
-		s.offset = first
-	case last >= layout.Sum(s.offset, s.window):
-		s.offset = min(layout.Remaining(last, s.window-1), first)
-	}
-	s.clamp()
+	s.current.revealRange(first, last)
 }
 
 // Pages scrolls whole windows, keeping one row of overlap so the reader has
 // something to recognise on the other side of the jump.
 func (s *Scroll) Pages(n int) {
-	s.By(scrollPages(n, max(s.window-1, 1)))
+	s.current.pages(n)
 }
-
-// max is the largest offset that still shows a full window.
-func (s *Scroll) max() int { return layout.Remaining(s.total, s.window) }
-
-func (s *Scroll) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
 
 // Handle scrolls in response to keys and the mouse wheel, reporting whether it
 // consumed the event.
@@ -229,7 +196,7 @@ func (s *Scroll) Rows(v grid.View, total int, row func(v grid.View, index int)) 
 // continues to see the previous frame. Reveal and RevealRange update this staged
 // layout rather than the committed scroll.
 func (s *Scroll) Stage(frame Frame, total, window int) ScrollLayout {
-	state := s.state()
+	state := s.current
 	if s.staged == frame.transaction {
 		state = s.pendingLayout
 	}
@@ -264,17 +231,7 @@ func (l *ScrollLayout) RevealRange(first, last int) {
 	if l == nil || l.scroll == nil || l.state.window <= 0 {
 		return
 	}
-	if last < first {
-		first, last = last, first
-	}
-	l.state.following = false
-	switch {
-	case first < l.state.offset:
-		l.state.offset = first
-	case last >= layout.Sum(l.state.offset, l.state.window):
-		l.state.offset = min(layout.Remaining(last, l.state.window-1), first)
-	}
-	l.state.clamp()
+	l.state.revealRange(first, last)
 	l.scroll.stageState(l.frame, l.state)
 }
 
@@ -296,7 +253,7 @@ func (s *Scroll) commit(tx *transaction) {
 	if s.staged != tx {
 		return
 	}
-	s.apply(s.pendingLayout)
+	s.current = s.pendingLayout
 	s.pendingLayout = scrollState{}
 	s.staged = nil
 }
@@ -307,18 +264,6 @@ func (s *Scroll) abort(tx *transaction) {
 	}
 	s.pendingLayout = scrollState{}
 	s.staged = nil
-}
-
-func (s *Scroll) state() scrollState {
-	return scrollState{
-		offset: s.offset, following: s.following,
-		total: s.total, window: s.window,
-	}
-}
-
-func (s *Scroll) apply(state scrollState) {
-	s.offset, s.following = state.offset, state.following
-	s.total, s.window = state.total, state.window
 }
 
 type scrollState struct {
@@ -333,6 +278,53 @@ func (s *scrollState) layout(total, window int) {
 		return
 	}
 	s.clamp()
+}
+
+func (s *scrollState) by(rows int) {
+	s.offset = scrollOffset(s.offset, rows, s.max())
+	s.following = s.offset >= s.max()
+}
+
+func (s *scrollState) toBottom() {
+	s.following = true
+	s.offset = s.max()
+}
+
+func (s *scrollState) toTop() {
+	s.following = false
+	s.offset = 0
+}
+
+func (s *scrollState) discard(rows int) {
+	rows = max(rows, 0)
+	s.total = layout.Remaining(s.total, rows)
+	s.offset = layout.Remaining(s.offset, rows)
+	if s.following {
+		s.offset = s.max()
+		return
+	}
+	s.clamp()
+}
+
+func (s *scrollState) revealRange(first, last int) {
+	if s.window <= 0 {
+		return
+	}
+	if last < first {
+		first, last = last, first
+	}
+	s.following = false
+	switch {
+	case first < s.offset:
+		s.offset = first
+	case last >= layout.Sum(s.offset, s.window):
+		s.offset = min(layout.Remaining(last, s.window-1), first)
+	}
+	s.clamp()
+}
+
+func (s *scrollState) pages(n int) {
+	s.by(scrollPages(n, max(s.window-1, 1)))
 }
 
 func (s *scrollState) max() int { return layout.Remaining(s.total, s.window) }

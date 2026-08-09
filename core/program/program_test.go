@@ -98,14 +98,14 @@ func (h *partialHost) SetProgress(progress term.Progress) {
 // before its deadline. It lets handover and shutdown be tested without a real blocked
 // goroutine surviving the test.
 type stalledWriter struct {
-	queued   atomic.Uint64
-	progress chan struct{}
+	queued  atomic.Uint64
+	changes chan struct{}
 }
 
-func newStalledWriter() *stalledWriter { return &stalledWriter{progress: make(chan struct{})} }
+func newStalledWriter() *stalledWriter { return &stalledWriter{changes: make(chan struct{})} }
 
 func (w *stalledWriter) Queue([]byte) uint64       { return w.queued.Add(1) }
-func (w *stalledWriter) Progress() <-chan struct{} { return w.progress }
+func (w *stalledWriter) Changes() <-chan struct{}  { return w.changes }
 func (w *stalledWriter) Written() uint64           { return 0 }
 func (w *stalledWriter) Err() error                { return nil }
 func (w *stalledWriter) Drain(time.Duration) error { return term.ErrDrainTimeout }
@@ -117,13 +117,13 @@ type stalledHost struct {
 }
 
 type protocolWriter struct {
-	progress <-chan struct{}
-	queued   atomic.Uint64
-	err      error
+	changes <-chan struct{}
+	queued  atomic.Uint64
+	err     error
 }
 
 func (w *protocolWriter) Queue([]byte) uint64       { return w.queued.Add(1) }
-func (w *protocolWriter) Progress() <-chan struct{} { return w.progress }
+func (w *protocolWriter) Changes() <-chan struct{}  { return w.changes }
 func (w *protocolWriter) Written() uint64           { return 0 }
 func (w *protocolWriter) Err() error                { return w.err }
 func (w *protocolWriter) Drain(time.Duration) error { return nil }
@@ -133,7 +133,7 @@ type sequenceWriter struct {
 	mu        sync.Mutex
 	at        int
 	written   atomic.Uint64
-	progress  chan struct{}
+	changes   chan struct{}
 }
 
 func (w *sequenceWriter) Queue([]byte) uint64 {
@@ -143,13 +143,13 @@ func (w *sequenceWriter) Queue([]byte) uint64 {
 	w.mu.Unlock()
 	w.written.Store(seq)
 	select {
-	case w.progress <- struct{}{}:
+	case w.changes <- struct{}{}:
 	default:
 	}
 	return seq
 }
 
-func (w *sequenceWriter) Progress() <-chan struct{} { return w.progress }
+func (w *sequenceWriter) Changes() <-chan struct{}  { return w.changes }
 func (w *sequenceWriter) Written() uint64           { return w.written.Load() }
 func (w *sequenceWriter) Err() error                { return nil }
 func (w *sequenceWriter) Drain(time.Duration) error { return nil }
@@ -1257,30 +1257,30 @@ func TestAProgramWithNoComponentIsRefused(t *testing.T) {
 	}
 }
 
-func TestAFrameWriterMustProvideALiveProgressStream(t *testing.T) {
+func TestAFrameWriterMustProvideALiveChangesStream(t *testing.T) {
 	root := func(*program.Runtime) program.Component { return &component{text: "ready"} }
-	withoutProgress := &protocolHost{
+	withoutChanges := &protocolHost{
 		events: make(chan input.Event), writer: &protocolWriter{},
 	}
-	if err := program.Run(t.Context(), program.Config{Host: withoutProgress, Root: root}); err == nil || !strings.Contains(err.Error(), "no progress channel") {
-		t.Fatalf("nil progress stream returned %v", err)
+	if err := program.Run(t.Context(), program.Config{Host: withoutChanges, Root: root}); err == nil || !strings.Contains(err.Error(), "no changes channel") {
+		t.Fatalf("nil changes stream returned %v", err)
 	}
 
 	closed := make(chan struct{})
 	close(closed)
-	closedProgress := &protocolHost{
-		events: make(chan input.Event), writer: &protocolWriter{progress: closed},
+	closedChanges := &protocolHost{
+		events: make(chan input.Event), writer: &protocolWriter{changes: closed},
 	}
-	if err := program.Run(t.Context(), program.Config{Host: closedProgress, Root: root}); err == nil || !strings.Contains(err.Error(), "progress channel closed") {
-		t.Fatalf("closed progress stream returned %v", err)
+	if err := program.Run(t.Context(), program.Config{Host: closedChanges, Root: root}); err == nil || !strings.Contains(err.Error(), "changes channel closed") {
+		t.Fatalf("closed changes stream returned %v", err)
 	}
 
 	cause := errors.New("writer transport ended")
-	failedProgress := &protocolHost{
-		events: make(chan input.Event), writer: &protocolWriter{progress: closed, err: cause},
+	failedChanges := &protocolHost{
+		events: make(chan input.Event), writer: &protocolWriter{changes: closed, err: cause},
 	}
-	if err := program.Run(t.Context(), program.Config{Host: failedProgress, Root: root}); !errors.Is(err, cause) {
-		t.Fatalf("closed failed progress stream returned %v, want its cause", err)
+	if err := program.Run(t.Context(), program.Config{Host: failedChanges, Root: root}); !errors.Is(err, cause) {
+		t.Fatalf("closed failed changes stream returned %v, want its cause", err)
 	}
 }
 
@@ -1290,7 +1290,7 @@ func TestAFrameWriterMustAssignMonotonicNonzeroSequences(t *testing.T) {
 		"repeated": {1, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			writer := &sequenceWriter{sequences: sequences, progress: make(chan struct{}, 1)}
+			writer := &sequenceWriter{sequences: sequences, changes: make(chan struct{}, 1)}
 			host := &protocolHost{events: make(chan input.Event), writer: writer}
 			err := program.Run(t.Context(), program.Config{
 				Host: host,
@@ -1309,12 +1309,12 @@ func TestAFrameWriterMustAssignMonotonicNonzeroSequences(t *testing.T) {
 	}
 }
 
-func TestShutdownPreservesAFrameFailureNotYetReportedByProgress(t *testing.T) {
+func TestShutdownPreservesAFrameFailureNotYetReportedByChanges(t *testing.T) {
 	cause := errors.New("frame failed during shutdown")
-	progress := make(chan struct{})
+	changes := make(chan struct{})
 	host := &protocolHost{
 		events: make(chan input.Event),
-		writer: &protocolWriter{progress: progress, err: cause},
+		writer: &protocolWriter{changes: changes, err: cause},
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -1337,7 +1337,7 @@ func TestAFrameConstructionFailureNeverBecomesAPresentedFrame(t *testing.T) {
 			name = "inline"
 		}
 		t.Run(name, func(t *testing.T) {
-			writer := &protocolWriter{progress: make(chan struct{})}
+			writer := &protocolWriter{changes: make(chan struct{})}
 			host := &protocolHost{events: make(chan input.Event), writer: writer}
 			painter := &brokenPainter{cause: cause}
 			cfg := program.Config{Host: host}
@@ -1473,7 +1473,7 @@ func TestDisplayOwnershipDoesNotChangeAfterAWriterFailure(t *testing.T) {
 	cause := errors.New("terminal output failed")
 	host := &handoverProtocolHost{protocolHost: &protocolHost{
 		events: make(chan input.Event),
-		writer: &protocolWriter{progress: make(chan struct{}), err: cause},
+		writer: &protocolWriter{changes: make(chan struct{}), err: cause},
 	}}
 	called := false
 	var handErr error
@@ -2181,7 +2181,10 @@ func TestTheBlockIsLeftBehindBeforeAnythingElseGetsTheTerminal(t *testing.T) {
 	root.hand = func() error {
 		seenDuring.Store(h.frames.String())
 		before := root.drawn.Load()
-		time.Sleep(30 * time.Millisecond)
+		// A queued redraw cannot run until display ownership returns. Posting one here
+		// gives the assertion a causal edge instead of asking the scheduler for a quiet
+		// interval and hoping the request had time to run.
+		root.runtime.Refresh()
 		drawnDuring.Store(root.drawn.Load() - before)
 		drawnBy.Store(root.drawn.Load())
 		return nil

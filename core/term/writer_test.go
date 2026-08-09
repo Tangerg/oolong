@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/core/term"
@@ -156,29 +157,32 @@ func TestQueueDoesNotWaitForTheTerminal(t *testing.T) {
 
 func (b *blocker) releaseAll() { close(b.release) }
 
-func TestProgressWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
-	dst := newBlocker()
-	w := term.NewWriter(dst)
+func TestChangesWakesTheLoopWhenTheWatermarkMoves(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		dst := newBlocker()
+		w := term.NewWriter(dst)
 
-	seq := w.Queue([]byte("frame"))
-	select {
-	case <-w.Progress():
-		t.Fatal("progress reported before anything was written")
-	case <-time.After(20 * time.Millisecond):
-	}
+		seq := w.Queue([]byte("frame"))
+		synctest.Wait()
+		select {
+		case <-w.Changes():
+			t.Fatal("change reported before anything was written")
+		default:
+		}
 
-	dst.releaseAll()
-	select {
-	case <-w.Progress():
-	case <-time.After(time.Second):
-		t.Fatal("progress never reported")
-	}
-	if got := w.Written(); got != seq {
-		t.Fatalf("watermark = %d, want %d", got, seq)
-	}
+		dst.releaseAll()
+		select {
+		case <-w.Changes():
+		case <-time.After(time.Second):
+			t.Fatal("change never reported")
+		}
+		if got := w.Written(); got != seq {
+			t.Fatalf("watermark = %d, want %d", got, seq)
+		}
+	})
 }
 
-func TestProgressCoalesces(t *testing.T) {
+func TestChangesCoalesce(t *testing.T) {
 	// A loop that has not noticed the last advance does not need to be told twice,
 	// and a bounded signal is what keeps a burst of frames from queueing wake-ups.
 	//
@@ -194,11 +198,11 @@ func TestProgressCoalesces(t *testing.T) {
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("frames never drained: %v", err)
 	}
-	<-w.Progress()
+	<-w.Changes()
 	select {
-	case <-w.Progress():
+	case <-w.Changes():
 		t.Fatal("a second wake-up was queued for the same unobserved advance")
-	case <-time.After(20 * time.Millisecond):
+	default:
 	}
 }
 
@@ -242,6 +246,25 @@ func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	}
 	if got := w.Written(); got != 1 {
 		t.Fatalf("watermark = %d, want only the frame that succeeded", got)
+	}
+}
+
+func TestFailureWakesChangesWithoutAdvancingTheWatermark(t *testing.T) {
+	w := term.NewWriter(&failing{})
+	w.Queue([]byte("doomed"))
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("failed frame never settled: %v", err)
+	}
+	select {
+	case <-w.Changes():
+	default:
+		t.Fatal("write failure did not publish a writer change")
+	}
+	if w.Written() != 0 {
+		t.Fatal("a failed frame advanced the successful-write watermark")
+	}
+	if err := w.Err(); !errors.Is(err, errBroken) {
+		t.Fatalf("Err = %v, want the write failure", err)
 	}
 }
 
@@ -448,32 +471,34 @@ func TestQueueAndCloseAreSafeTogether(t *testing.T) {
 }
 
 func TestDrainDoesNotTakeTheLoopsWakeUp(t *testing.T) {
-	// Two things wait for the watermark: the loop, through Progress, and Drain.
-	// Progress holds one wake-up and a taken one is gone, so a Drain that waited on
+	// Two things wait for the watermark: the loop, through Changes, and Drain.
+	// Changes holds one wake-up and a taken one is gone, so a Drain that waited on
 	// it would leave the loop with nothing to wake on — and would do so only on a
 	// machine slow enough for Drain to get there first, which is how this hid.
-	dst := newBlocker()
-	w := term.NewWriter(dst)
-	seq := w.Queue([]byte("frame"))
+	synctest.Test(t, func(t *testing.T) {
+		dst := newBlocker()
+		w := term.NewWriter(dst)
+		seq := w.Queue([]byte("frame"))
 
-	// Drain is waiting before anything has been written, which is the ordering the
-	// fast path never takes.
-	drained := make(chan error, 1)
-	go func() { drained <- w.Drain(2 * time.Second) }()
-	time.Sleep(20 * time.Millisecond)
-	dst.releaseAll()
+		// Wait until both the terminal write and Drain are blocked. This is the
+		// ordering the fast path never takes, expressed without scheduler timing.
+		drained := make(chan error, 1)
+		go func() { drained <- w.Drain(2 * time.Second) }()
+		synctest.Wait()
+		dst.releaseAll()
 
-	if err := <-drained; err != nil {
-		t.Fatalf("never drained: %v", err)
-	}
-	select {
-	case <-w.Progress():
-	case <-time.After(time.Second):
-		t.Fatal("the loop was never woken: Drain took the wake-up it was owed")
-	}
-	if got := w.Written(); got != seq {
-		t.Fatalf("watermark = %d, want %d", got, seq)
-	}
+		if err := <-drained; err != nil {
+			t.Fatalf("never drained: %v", err)
+		}
+		select {
+		case <-w.Changes():
+		case <-time.After(time.Second):
+			t.Fatal("the loop was never woken: Drain took the wake-up it was owed")
+		}
+		if got := w.Written(); got != seq {
+			t.Fatalf("watermark = %d, want %d", got, seq)
+		}
+	})
 }
 
 func TestQueuedCountsWhatWasHandedOver(t *testing.T) {

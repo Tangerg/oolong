@@ -11,38 +11,6 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Accessor is caller-owned readable and writable state.
-//
-// Fields use one because a form is collecting into an application value. Controlled
-// controllers use the same small contract so their operations update the caller's
-// single source of truth instead of maintaining a private shadow copy.
-//
-// [Bind] is the one every caller wants: a variable of their own. Anything else that can
-// be read and written — a setting, a row of a record, a channel of one — is an accessor
-// too, which is why this is an interface and not a pointer.
-type Accessor[T any] interface {
-	Get() T
-	Set(v T)
-}
-
-// Bind is an accessor for a variable of the caller's own. A nil pointer is a
-// programmer error and panics at construction rather than later in an unrelated
-// control operation.
-//
-//	var name string
-//	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
-func Bind[T any](p *T) Accessor[T] {
-	if p == nil {
-		panic("headless: nil binding pointer")
-	}
-	return bound[T]{p}
-}
-
-type bound[T any] struct{ at *T }
-
-func (b bound[T]) Get() T  { return *b.at }
-func (b bound[T]) Set(v T) { *b.at = v }
-
 // Field is one thing a [Form] collects.
 //
 // It draws itself, including what it is asking for and what was wrong with the answer.

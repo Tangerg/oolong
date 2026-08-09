@@ -187,11 +187,12 @@ type Host interface {
 // FrameWriter is the part of a frame queue the program needs.
 //
 // It is defined by the consumer rather than exposing [term.Writer] through [Host].
-// Implementations must preserve queue order, report progress as a watermark and be
-// safe for concurrent use. Progress returns one stable channel for the writer's
-// lifetime; closing it means the writer has permanently stopped and Err must report
-// the cause. Drain returns nil only after every frame accepted before the call has
-// either been written or accounted for. [term.Writer] is the standard implementation.
+// Implementations must preserve queue order, report successful completion as a
+// watermark and be safe for concurrent use. Changes returns one stable,
+// single-consumer channel for the writer's lifetime; a receive means Written or Err
+// may have changed. Closing it means the writer has permanently stopped and Err must
+// report the cause. Drain returns nil only after every frame accepted before the call
+// has either been written or accounted for. [term.Writer] is the standard implementation.
 type FrameWriter interface {
 	// Queue takes ownership of frame. The caller does not read or change the slice
 	// after the call; an asynchronous implementation may retain it without copying.
@@ -199,7 +200,8 @@ type FrameWriter interface {
 	// sequences from the same writer. Written reports a watermark in that sequence
 	// space.
 	Queue(frame []byte) uint64
-	Progress() <-chan struct{}
+	// Changes coalesces state changes; the receiver must re-read Written and Err.
+	Changes() <-chan struct{}
 	Written() uint64
 	Err() error
 	Drain(timeout time.Duration) error
@@ -307,9 +309,9 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	if frames == nil {
 		return errors.New("program: host returned no frame writer")
 	}
-	progress := frames.Progress()
-	if progress == nil {
-		return errors.New("program: frame writer returned no progress channel")
+	changes := frames.Changes()
+	if changes == nil {
+		return errors.New("program: frame writer returned no changes channel")
 	}
 	source := host.Input()
 	if source == nil {
@@ -324,7 +326,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		input:         source,
 		events:        events,
 		writer:        frames,
-		progress:      progress,
+		changes:       changes,
 		frameInterval: cfg.FrameInterval,
 		tasks:         newTaskQueue(),
 	}
@@ -403,7 +405,7 @@ type program struct {
 	queued uint64
 	// progress is read once and then owned by the event loop. A writer returning a
 	// different channel per call would split one watermark into unrelated streams.
-	progress <-chan struct{}
+	changes <-chan struct{}
 
 	present       present.Presenter
 	frameInterval time.Duration
@@ -482,13 +484,13 @@ func (p *program) run(ctx context.Context) (err error) {
 				}
 			}
 
-		case _, ok := <-p.progress:
+		case _, ok := <-p.changes:
 			if !ok {
 				p.outputFailed = true
 				if err := p.writer.Err(); err != nil {
 					return err
 				}
-				return errors.New("program: frame writer progress channel closed")
+				return errors.New("program: frame writer changes channel closed")
 			}
 			p.present.Wrote(p.writer.Written())
 			if err := p.writer.Err(); err != nil {

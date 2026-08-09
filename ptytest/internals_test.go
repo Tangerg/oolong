@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -29,16 +30,18 @@ func TestATranscriptIsSafeToReadWhileItGrows(t *testing.T) {
 }
 
 func TestWaitForReturnsOnceEveryTokenHasArrived(t *testing.T) {
-	tr := newTranscript()
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		tr.append([]byte("first "))
-		time.Sleep(10 * time.Millisecond)
-		tr.append([]byte("second"))
-	}()
-	if err := tr.WaitWithin(2*time.Second, "first", "second"); err != nil {
-		t.Fatalf("waiting for both: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		tr := newTranscript()
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			tr.append([]byte("first "))
+			time.Sleep(10 * time.Millisecond)
+			tr.append([]byte("second"))
+		}()
+		if err := tr.WaitWithin(2*time.Second, "first", "second"); err != nil {
+			t.Fatalf("waiting for both: %v", err)
+		}
+	})
 }
 
 func TestWaitForGivesUpAndSaysWhatItNeverSaw(t *testing.T) {
