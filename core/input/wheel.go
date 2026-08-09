@@ -126,22 +126,25 @@ var wheelProfiles = []struct {
 // The lookup is passed in rather than read, for the same reason it is everywhere else
 // in this library: this package is a function of its inputs, and a test that could not
 // say what terminal it was in could not check any of these answers.
-func WheelFor(getenv func(string) string, name string) Wheel {
+func WheelFor(lookup func(string) (string, bool), name string) Wheel {
 	if wheel, ok := profileOf(name); ok {
 		return wheel
 	}
-	if getenv == nil {
+	if lookup == nil {
 		return Wheel{}
 	}
-	if multiplexed(getenv) {
+	if multiplexed(lookup) {
 		return Wheel{Reports: 1, Rows: 1, Trackpad: 3}
 	}
-	if getenv("KITTY_WINDOW_ID") != "" || getenv("GHOSTTY_RESOURCES_DIR") != "" ||
-		getenv("ALACRITTY_SOCKET") != "" {
+	if environmentValue(lookup, "KITTY_WINDOW_ID") != "" ||
+		environmentValue(lookup, "GHOSTTY_RESOURCES_DIR") != "" ||
+		environmentValue(lookup, "ALACRITTY_SOCKET") != "" {
 		return Wheel{Reports: 3, Rows: 3, Trackpad: 3}
 	}
 	if wheel, ok := profileOf(strings.Join([]string{
-		getenv("TERM"), getenv("TERM_PROGRAM"), getenv("LC_TERMINAL"),
+		environmentValue(lookup, "TERM"),
+		environmentValue(lookup, "TERM_PROGRAM"),
+		environmentValue(lookup, "LC_TERMINAL"),
 	}, " ")); ok {
 		return wheel
 	}
@@ -164,15 +167,21 @@ func profileOf(identity string) (Wheel, bool) {
 
 // multiplexed reports whether something between the terminal and this program is
 // rewriting the mouse reports.
-func multiplexed(getenv func(string) string) bool {
-	if getenv("TMUX") != "" || getenv("STY") != "" ||
-		getenv("ZELLIJ") != "" || getenv("ZELLIJ_SESSION_NAME") != "" {
+func multiplexed(lookup func(string) (string, bool)) bool {
+	if environmentValue(lookup, "TMUX") != "" || environmentValue(lookup, "STY") != "" ||
+		environmentValue(lookup, "ZELLIJ") != "" ||
+		environmentValue(lookup, "ZELLIJ_SESSION_NAME") != "" {
 		return true
 	}
-	term := strings.ToLower(getenv("TERM"))
-	program := strings.ToLower(getenv("TERM_PROGRAM"))
+	term := strings.ToLower(environmentValue(lookup, "TERM"))
+	program := strings.ToLower(environmentValue(lookup, "TERM_PROGRAM"))
 	return program == "tmux" || strings.HasPrefix(term, "screen") ||
 		strings.HasPrefix(term, "tmux")
+}
+
+func environmentValue(lookup func(string) (string, bool), name string) string {
+	value, _ := lookup(name)
+	return value
 }
 
 // Advance turns a run of wheel reports into whole rows, keeping what is left over.

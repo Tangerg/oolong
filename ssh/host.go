@@ -15,14 +15,15 @@ import (
 )
 
 // host is the one transport boundary. In addition to the required program.Host
-// methods it exposes the clipboard that OSC 52 reaches through the client terminal.
-// An SSH PTY does not prove notification, image or probe capabilities merely by
-// existing, so those remain absent.
+// methods it exposes the wheel profile and clipboard that are determined by the
+// client terminal's environment. An SSH PTY does not prove notification, image or
+// probe capabilities merely by existing, so those remain absent.
 type host struct {
 	source *eventSource
 	writer *term.Writer
 	modes  term.Modes
 	clip   *clipboard.Channel
+	wheel  input.Wheel
 
 	windowMu sync.RWMutex
 	window   charmssh.Window
@@ -33,6 +34,7 @@ type host struct {
 
 var (
 	_ program.Host      = (*host)(nil)
+	_ program.WheelHost = (*host)(nil)
 	_ program.CopyHost  = (*host)(nil)
 	_ program.PasteHost = (*host)(nil)
 )
@@ -44,11 +46,13 @@ func newHost(
 	windows <-chan charmssh.Window,
 	modes term.Modes,
 	clip *clipboard.Channel,
+	wheel input.Wheel,
 ) *host {
 	h := &host{
 		writer: term.NewWriter(channel),
 		modes:  modes,
 		clip:   clip,
+		wheel:  wheel,
 		window: window,
 	}
 	h.writer.Queue([]byte(h.modes.Enter()))
@@ -58,6 +62,7 @@ func newHost(
 
 func (h *host) Input() program.EventSource  { return h.source }
 func (h *host) Writer() program.FrameWriter { return h.writer }
+func (h *host) Wheel() input.Wheel          { return h.wheel }
 
 // Copy asks the client terminal to update the clipboard beside the user, not one
 // attached to the remote server process.

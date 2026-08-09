@@ -279,47 +279,77 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	if validationErr := cfg.Validate(); validationErr != nil {
 		return validationErr
 	}
-	opts := cfg.Terminal
-	opts.AltScreen = cfg.Root != nil
-
-	host := cfg.Host
-	if host == nil {
-		terminal, openErr := term.Open(opts)
-		if openErr != nil {
-			return openErr
-		}
-		// Giving the terminal back matters more than anything that could go wrong while
-		// using it: a terminal left in raw mode is one the user has to close.
-		defer func() { err = errors.Join(err, terminal.Close()) }()
-		host = terminalHost{Terminal: terminal}
+	session, openErr := cfg.openHost()
+	if openErr != nil {
+		return openErr
 	}
+	// Giving an owned terminal back matters more than anything that could go wrong
+	// while using it: a terminal left in raw mode is one the user has to close.
+	defer func() { err = errors.Join(err, session.close()) }()
 
-	// The size is asked for once, here, rather than waited for. A program draws before
-	// it selects — that is what puts the interface up without the user having to press
-	// something — and a first frame drawn onto a screen of no size is a blank terminal.
+	p, buildErr := newProgram(cfg, session.Host)
+	if buildErr != nil {
+		return buildErr
+	}
+	defer p.tasks.stop()
+	return p.run(ctx)
+}
+
+// hostSession is a transport and the ownership Run acquired with it. A supplied
+// host has nothing to release; a local terminal owns raw mode and must be closed.
+type hostSession struct {
+	Host
+	release func() error
+}
+
+func (s hostSession) close() error {
+	if s.release == nil {
+		return nil
+	}
+	return s.release()
+}
+
+func (c Config) openHost() (hostSession, error) {
+	if c.Host != nil {
+		return hostSession{Host: c.Host}, nil
+	}
+	opts := c.Terminal
+	opts.AltScreen = c.Root != nil
+	terminal, err := term.Open(opts)
+	if err != nil {
+		return hostSession{}, err
+	}
+	return hostSession{Host: terminalHost{Terminal: terminal}, release: terminal.Close}, nil
+}
+
+// newProgram binds a validated transport before invoking application code. That
+// order keeps malformed hosts from partially constructing an interface and gives a
+// component builder only resources that are ready for use.
+func newProgram(cfg Config, host Host) (*program, error) {
+	// The size is asked for once rather than waited for. A program draws before it
+	// selects, and a first frame drawn onto a screen of no size is a blank terminal.
 	width, height, err := host.Size()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := ValidateSize(width, height); err != nil {
-		return err
+		return nil, err
 	}
-
 	frames := host.Writer()
 	if frames == nil {
-		return errors.New("program: host returned no frame writer")
+		return nil, errors.New("program: host returned no frame writer")
 	}
 	changes := frames.Changes()
 	if changes == nil {
-		return errors.New("program: frame writer returned no changes channel")
+		return nil, errors.New("program: frame writer returned no changes channel")
 	}
 	source := host.Input()
 	if source == nil {
-		return errors.New("program: host returned no input source")
+		return nil, errors.New("program: host returned no input source")
 	}
 	events := source.Events()
 	if events == nil {
-		return errors.New("program: host returned an input source with no event channel")
+		return nil, errors.New("program: host returned an input source with no event channel")
 	}
 	p := &program{
 		host:          hostServicesFor(host),
@@ -330,14 +360,33 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		frameInterval: cfg.FrameInterval,
 		tasks:         newTaskQueue(),
 	}
+	built := false
+	defer func() {
+		if !built {
+			p.tasks.stop()
+		}
+	}()
 	if p.frameInterval == 0 {
 		p.frameInterval = DefaultFrameInterval
 	}
-	defer p.tasks.stop()
 	depth := cfg.Color
 	if depth == grid.Auto {
 		depth = term.DetectDepth()
 	}
+	if err := p.buildInterface(cfg, width, height, depth); err != nil {
+		return nil, err
+	}
+	// What the terminal draws with and on goes to the canvas, not just to the
+	// component: a cell left at the terminal's own colours has no numbers of its own,
+	// and a layer floating over one has to mix with something. This is the only place
+	// that knows both the answer and the surface, so it is the only place that can
+	// join them — see [grid.Ground].
+	p.canvas.SetGround(p.host.ground())
+	built = true
+	return p, nil
+}
+
+func (p *program) buildInterface(cfg Config, width, height int, depth grid.Depth) error {
 	if cfg.Inline != nil {
 		p.inline = grid.NewInline(width, height)
 		p.inline.SetDepth(depth)
@@ -352,13 +401,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	if p.root == nil {
 		return errors.New("program: component builder returned nil")
 	}
-	// What the terminal draws with and on goes to the canvas, not just to the
-	// component: a cell left at the terminal's own colours has no numbers of its own,
-	// and a layer floating over one has to mix with something. This is the only place
-	// that knows both the answer and the surface, so it is the only place that can
-	// join them — see [grid.Ground].
-	p.canvas.SetGround(p.host.ground())
-	return p.run(ctx)
+	return nil
 }
 
 // terminalHost adapts the concrete terminal to the consumer-defined Host without
@@ -436,12 +479,8 @@ func (p *program) run(ctx context.Context) (err error) {
 	// due fires when a frame that was turned away for arriving too soon becomes
 	// allowed. Without it the last update of a burst would sit undrawn until something
 	// else happened to wake the loop.
-	due := time.NewTimer(0)
-	defer due.Stop()
-	if !due.Stop() {
-		<-due.C
-	}
-	armed := false
+	due := newFrameTimer()
+	defer due.stop()
 
 	p.present.RequestFull()
 	for !p.quit.Load() {
@@ -450,14 +489,7 @@ func (p *program) run(ctx context.Context) (err error) {
 			return err
 		}
 
-		if armed && !due.Stop() {
-			<-due.C
-		}
-		armed = false
-		if at, pending := p.present.DueAt(); pending {
-			due.Reset(max(time.Until(at), 0))
-			armed = true
-		}
+		due.schedule(p.present.DueAt())
 
 		select {
 		case <-ctx.Done():
@@ -475,34 +507,78 @@ func (p *program) run(ctx context.Context) (err error) {
 			}
 
 		case <-p.tasks.wake:
-			// Take one scheduling turn. Work beyond it leaves another wake-up, so a
-			// burst that is already waiting cannot keep input out of the select.
-			for _, task := range p.tasks.take() {
-				p.apply(task)
-				if p.quit.Load() {
-					break
-				}
-			}
+			p.runTasks()
 
 		case _, ok := <-p.changes:
-			if !ok {
-				p.outputFailed = true
-				if err := p.writer.Err(); err != nil {
-					return err
-				}
-				return errors.New("program: frame writer changes channel closed")
-			}
-			p.present.Wrote(p.writer.Written())
-			if err := p.writer.Err(); err != nil {
-				p.outputFailed = true
-				// A terminal that has failed a write does not recover, and an interface
-				// that cannot reach its terminal has nothing left to do.
-				return err
+			if writeErr := p.writerChanged(ok); writeErr != nil {
+				return writeErr
 			}
 
-		case <-due.C:
-			armed = false
+		case <-due.channel():
+			due.fired()
 		}
+	}
+	return nil
+}
+
+// frameTimer owns the drain-before-reset protocol of a reusable timer. Keeping the
+// armed bit beside the timer prevents the event loop from having two independent
+// accounts of whether a value may still be waiting on its channel.
+type frameTimer struct {
+	timer *time.Timer
+	armed bool
+}
+
+func newFrameTimer() *frameTimer {
+	timer := time.NewTimer(0)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	return &frameTimer{timer: timer}
+}
+
+func (t *frameTimer) schedule(at time.Time, pending bool) {
+	if t.armed && !t.timer.Stop() {
+		<-t.timer.C
+	}
+	t.armed = false
+	if pending {
+		t.timer.Reset(max(time.Until(at), 0))
+		t.armed = true
+	}
+}
+
+func (t *frameTimer) channel() <-chan time.Time { return t.timer.C }
+
+func (t *frameTimer) fired() { t.armed = false }
+
+func (t *frameTimer) stop() { t.timer.Stop() }
+
+// runTasks takes one scheduling turn. Work posted while this batch runs leaves
+// another wake-up, so a burst already waiting cannot keep input out of the select.
+func (p *program) runTasks() {
+	for _, task := range p.tasks.take() {
+		p.apply(task)
+		if p.quit.Load() {
+			return
+		}
+	}
+}
+
+func (p *program) writerChanged(open bool) error {
+	if !open {
+		p.outputFailed = true
+		if err := p.writer.Err(); err != nil {
+			return err
+		}
+		return errors.New("program: frame writer changes channel closed")
+	}
+	p.present.Wrote(p.writer.Written())
+	if err := p.writer.Err(); err != nil {
+		p.outputFailed = true
+		// A terminal that has failed a write does not recover, and an interface that
+		// cannot reach its terminal has nothing left to do.
+		return err
 	}
 	return nil
 }

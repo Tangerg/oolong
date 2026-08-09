@@ -85,6 +85,33 @@ func TestRunUsesTheClientEnvironmentForKeyboardCompatibility(t *testing.T) {
 	}
 }
 
+func TestRunUsesTheClientEnvironmentForItsWheel(t *testing.T) {
+	windows := make(chan charmssh.Window)
+	close(windows)
+	session := &fakeSession{
+		ctx:     newFakeContext(t.Context()),
+		window:  charmssh.Window{Width: 80, Height: 24},
+		windows: windows,
+		ptyOK:   true,
+		environ: []string{"TERM_PROGRAM=iTerm.app"},
+	}
+
+	var got input.Wheel
+	err := Run(session, program.Config{
+		Root: func(runtime *program.Runtime) program.Component {
+			got = runtime.Environment().Wheel()
+			return quittingComponent{runtime: runtime}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}
+	if got != want {
+		t.Fatalf("wheel = %+v, want the client terminal's %+v", got, want)
+	}
+}
+
 func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	var output lockedBuffer
 	host := &host{

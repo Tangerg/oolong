@@ -191,7 +191,7 @@ func (s *Stack) Remove(id LayerID) bool {
 	if id == 0 {
 		return false
 	}
-	for i := len(s.layers) - 1; i >= 0; i-- {
+	for i := range slices.Backward(s.layers) {
 		if s.layers[i].id == id {
 			return s.remove(i)
 		}

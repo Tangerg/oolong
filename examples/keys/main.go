@@ -60,7 +60,7 @@ func newKeys(runtime *program.Runtime) *keys {
 func (k *keys) Draw(view grid.View) {
 	width, height := view.Size()
 	box := kit.Box{
-		Theme: k.theme, Glyphs: kit.GlyphsFor(os.Getenv), Title: "key sequences",
+		Theme: k.theme, Glyphs: kit.GlyphsFor(os.LookupEnv), Title: "key sequences",
 		Padding: layout.Symmetric(0, 1),
 	}
 	area := grid.Rect(max((width-54)/2, 0), max((height-7)/2, 0), min(width, 54), min(height, 7))

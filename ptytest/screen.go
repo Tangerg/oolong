@@ -178,21 +178,31 @@ func (s *Screen) control(piece ansi.Piece) error {
 		}
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
 	}
-	// Queries, mode changes, cursor shape and window metadata are real session
-	// traffic but paint no cell. The model ignores the question; it never fabricates
-	// the terminal's answer.
-	switch piece.Final {
-	case 'c', 'h', 'l', 'q', 't':
+	if ignoresControl(piece.Final, params) {
 		return nil
-	case 'u':
-		if params.Marker() != 0 {
-			return nil
-		}
 	}
 	if params.Marker() != 0 {
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
 	}
-	switch piece.Final {
+	return s.executeControl(piece.Final, params, piece.Raw)
+}
+
+// ignoresControl reports session traffic that paints no cells. The model accepts
+// the question or mode change but never fabricates a terminal answer.
+func ignoresControl(final byte, params ansi.Params) bool {
+	// Queries, mode changes, cursor shape and window metadata are real session
+	// traffic but paint no cell.
+	switch final {
+	case 'c', 'h', 'l', 'q', 't':
+		return true
+	case 'u':
+		return params.Marker() != 0
+	}
+	return false
+}
+
+func (s *Screen) executeControl(final byte, params ansi.Params, raw string) error {
+	switch final {
 	case 'm':
 		return nil
 	case 'H', 'f':
@@ -212,17 +222,17 @@ func (s *Screen) control(piece ansi.Piece) error {
 	case 'd':
 		s.move(s.at.X, defaultOne(params.First())-1)
 	case 'K':
-		return s.eraseLine(params.First(), piece.Raw)
+		return s.eraseLine(params.First(), raw)
 	case 'J':
-		return s.eraseDisplay(params.First(), piece.Raw)
+		return s.eraseDisplay(params.First(), raw)
 	case 'S':
 		s.scrollUp(defaultOne(params.First()))
 	case 'T':
 		s.scrollDown(defaultOne(params.First()))
 	case 'r':
-		return s.setMargins(params, piece.Raw)
+		return s.setMargins(params, raw)
 	default:
-		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
+		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
 	}
 	return nil
 }

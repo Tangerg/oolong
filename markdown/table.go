@@ -105,27 +105,12 @@ func (t *table) appendRows(dst []row, room int) []row {
 // false when even the readable floors do not fit, which is the point at which a
 // record layout communicates the table better than a grid.
 func (t *table) columnWidths(room int) ([]int, bool) {
-	columns := t.columns()
-	if columns == 0 {
+	natural := t.naturalWidths()
+	if len(natural) == 0 {
 		return nil, true
 	}
-
-	natural := make([]int, columns)
-	for _, tableRow := range t.rows {
-		for column, cell := range tableRow {
-			if column < columns {
-				natural[column] = max(natural[column], cell.Width())
-			}
-		}
-	}
-
-	overhead := 0
-	separatorWidth := text.Width(t.separator)
-	for range columns - 1 {
-		overhead = layout.Sum(overhead, separatorWidth)
-	}
-	budget := layout.Remaining(room, overhead)
-	widths := make([]int, columns)
+	budget := layout.Remaining(room, t.separatorWidth(len(natural)))
+	widths := make([]int, len(natural))
 	used := 0
 	for i, width := range natural {
 		widths[i] = min(width, tableColumnFloor)
@@ -134,9 +119,33 @@ func (t *table) columnWidths(room int) ([]int, bool) {
 	if used > budget {
 		return nil, false
 	}
+	t.growColumns(widths, natural, budget-used)
+	return widths, true
+}
 
-	remaining := budget - used
-	pending := make([]int, 0, columns)
+func (t *table) naturalWidths() []int {
+	widths := make([]int, t.columns())
+	for _, row := range t.rows {
+		for column, cell := range row {
+			widths[column] = max(widths[column], cell.Width())
+		}
+	}
+	return widths
+}
+
+func (t *table) separatorWidth(columns int) int {
+	width := 0
+	for range max(columns-1, 0) {
+		width = layout.Sum(width, text.Width(t.separator))
+	}
+	return width
+}
+
+// growColumns water-fills every column still below its natural width. A column that
+// reaches its target leaves the next round, so compact columns do not consume the
+// same share as content that can still use it.
+func (t *table) growColumns(widths, natural []int, remaining int) {
+	pending := make([]int, 0, len(widths))
 	for i := range widths {
 		if widths[i] < natural[i] {
 			pending = append(pending, i)
@@ -177,7 +186,6 @@ func (t *table) columnWidths(room int) ([]int, bool) {
 		}
 		break
 	}
-	return widths, true
 }
 
 func (t *table) columns() int {

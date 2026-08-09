@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/term"
@@ -39,7 +40,7 @@ func open(t *testing.T, opts term.Options) (*term.Terminal, *os.File) {
 	primary, replica := pty(t)
 	// The replica is the terminal, so that is the side the session takes over and
 	// the primary is where a test watches from.
-	tty, err := term.OpenOn(replica, replica, opts, nil)
+	tty, err := term.OpenOn(replica, replica, opts, os.LookupEnv)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -70,6 +71,32 @@ func TestOpeningRefusesRedirectedOutputEvenWithTerminalInput(t *testing.T) {
 
 	if _, err := term.OpenOn(replica, out, term.Options{}, nil); !errors.Is(err, term.ErrNotTerminal) {
 		t.Fatalf("OpenOn error = %v, want redirected output rejected", err)
+	}
+}
+
+func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
+	_, replica := pty(t)
+	values := map[string]string{"TERM_PROGRAM": "iTerm.app"}
+	lookup := func(name string) (string, bool) {
+		value, ok := values[name]
+		return value, ok
+	}
+
+	tty, err := term.OpenOn(replica, replica, term.Options{}, lookup)
+	if err != nil {
+		t.Fatalf("opening a terminal with an explicit environment: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	// A terminal's capabilities are session facts. Neither mutation of the adapter's
+	// environment nor this process's unrelated environment may change them later.
+	values["TERM_PROGRAM"] = "Apple_Terminal"
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	if got := tty.Wheel(); got != (input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}) {
+		t.Errorf("wheel = %+v, want the explicit terminal environment", got)
+	}
+	if got := tty.Graphics(); got != graphics.ITerm2 {
+		t.Errorf("graphics = %v, want iTerm2 from the explicit terminal environment", got)
 	}
 }
 

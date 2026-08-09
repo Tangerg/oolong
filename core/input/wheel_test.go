@@ -7,8 +7,11 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-func env(vars map[string]string) func(string) string {
-	return func(name string) string { return vars[name] }
+func env(vars map[string]string) func(string) (string, bool) {
+	return func(name string) (string, bool) {
+		value, ok := vars[name]
+		return value, ok
+	}
 }
 
 // TestWheelForKnowsWhoSendsWhat is the whole problem. A wheel report carries no

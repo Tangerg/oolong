@@ -329,61 +329,73 @@ func (t *Transcript) Handle(event input.Event) bool {
 		return true
 	}
 	ev, ok := event.(input.Mouse)
-	presented := t.presentation.Value()
 	if !ok {
 		return false
 	}
 	switch ev.Action {
 	case input.MouseDown:
-		// A new press supersedes a release the terminal never reported.
-		t.dragged = nil
-		if ev.Button != input.ButtonLeft || presented.content == nil || presented.selection == nil {
-			return false
-		}
-		at, on := presented.pointAt(ev.Pos, false)
-		if !on {
-			return false
-		}
-		run := presented.selection.Clicks.Press(ev)
-		// A word or a row, when there is one there. A double-click in the margin has
-		// nothing to take, and falls back to starting a selection like any press.
-		switch run {
-		case 2:
-			if presented.selection.SelectWord(presented.content, at) {
-				return true
-			}
-		case 3:
-			if presented.selection.SelectLine(presented.content, at) {
-				return true
-			}
-		}
-		presented.selection.Begin(at)
-		t.dragged = presented.selection
-		return true
+		return t.press(ev)
 	case input.MouseDrag:
-		if t.dragged == nil || !t.dragged.Dragging() {
-			return false
-		}
-		at, on := presented.pointAt(ev.Pos, true)
-		if !on {
-			return false
-		}
-		t.dragged.Extend(at)
-		return true
+		return t.drag(ev)
 	case input.MouseUp:
-		if t.dragged == nil {
-			return false
-		}
-		// A release is a lifetime transition, not a hit test. Once this selection
-		// accepted the press, it must be settled even when the pointer is now outside
-		// the transcript or the visible window has collapsed.
-		dragged := t.dragged
-		t.dragged = nil
-		dragged.Done()
-		return true
+		return t.release()
 	default:
 		return false
 	}
+}
+
+func (t *Transcript) press(event input.Mouse) bool {
+	// A new press supersedes a release the terminal never reported.
+	t.dragged = nil
+	presented := t.presentation.Value()
+	if event.Button != input.ButtonLeft || presented.content == nil || presented.selection == nil {
+		return false
+	}
+	at, on := presented.pointAt(event.Pos, false)
+	if !on {
+		return false
+	}
+	run := presented.selection.Clicks.Press(event)
+	// A word or a row, when there is one there. A double-click in the margin has
+	// nothing to take, and falls back to starting a selection like any press.
+	switch run {
+	case 2:
+		if presented.selection.SelectWord(presented.content, at) {
+			return true
+		}
+	case 3:
+		if presented.selection.SelectLine(presented.content, at) {
+			return true
+		}
+	}
+	presented.selection.Begin(at)
+	t.dragged = presented.selection
+	return true
+}
+
+func (t *Transcript) drag(event input.Mouse) bool {
+	if t.dragged == nil || !t.dragged.Dragging() {
+		return false
+	}
+	at, on := t.presentation.Value().pointAt(event.Pos, true)
+	if !on {
+		return false
+	}
+	t.dragged.Extend(at)
+	return true
+}
+
+func (t *Transcript) release() bool {
+	if t.dragged == nil {
+		return false
+	}
+	// A release is a lifetime transition, not a hit test. Once this selection
+	// accepted the press, it must be settled even when the pointer is now outside the
+	// transcript or the visible window has collapsed.
+	dragged := t.dragged
+	t.dragged = nil
+	dragged.Done()
+	return true
 }
 
 type transcriptPresentation struct {

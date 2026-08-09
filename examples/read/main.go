@@ -66,7 +66,7 @@ func newReader(runtime *program.InlineRuntime) *reader { return read(runtime, pi
 
 func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.Getenv)
+	glyphs := kit.GlyphsFor(os.LookupEnv)
 
 	r := &reader{
 		runtime: runtime,

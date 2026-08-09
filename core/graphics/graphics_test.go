@@ -26,8 +26,11 @@ func png(w, h uint32, total int) []byte {
 	return buf
 }
 
-func env(m map[string]string) func(string) string {
-	return func(k string) string { return m[k] }
+func env(m map[string]string) func(string) (string, bool) {
+	return func(k string) (string, bool) {
+		value, ok := m[k]
+		return value, ok
+	}
 }
 
 func TestDetection(t *testing.T) {

@@ -56,7 +56,7 @@ type picker struct {
 
 func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.Getenv)
+	glyphs := kit.GlyphsFor(os.LookupEnv)
 
 	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
 	p.query = kit.Composer{

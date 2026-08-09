@@ -155,7 +155,7 @@ func (h *History) Cancel() (string, bool) {
 func (h *History) Recall(query string) []Recalled {
 	if query == "" {
 		out := make([]Recalled, 0, len(h.entries))
-		for i := len(h.entries) - 1; i >= 0; i-- {
+		for i := range slices.Backward(h.entries) {
 			out = append(out, Recalled{Entry: h.entries[i], Step: len(h.entries) - i})
 		}
 		return out

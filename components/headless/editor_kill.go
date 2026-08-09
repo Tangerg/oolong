@@ -1,6 +1,9 @@
 package headless
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // editorKillRingLimit bounds text retained outside the document. A kill ring is
 // clipboard-like history, not application history: sixteen distinct kills are enough
@@ -84,8 +87,8 @@ func (k *editorKill) materialise() string {
 	}
 	var out strings.Builder
 	out.Grow(k.bytes)
-	for i := len(k.before) - 1; i >= 0; i-- {
-		out.WriteString(k.before[i])
+	for _, text := range slices.Backward(k.before) {
+		out.WriteString(text)
 	}
 	out.WriteString(k.value)
 	for _, text := range k.after {

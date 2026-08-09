@@ -324,58 +324,64 @@ func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 		last := len(stack) - 1
 		action := stack[last]
 		stack = stack[:last]
-		if action.target {
-			r.target(&out, action.destination, action.shown, action.style)
-			continue
-		}
-		switch node := action.node.(type) {
-		case *ast.Text:
-			out.add(string(node.Segment.Value(r.source)), action.style, action.link)
-			switch {
-			case node.HardLineBreak():
-				out.breakLine()
-			case node.SoftLineBreak():
-				out.add(" ", action.style, action.link)
-			}
-		case *ast.String:
-			out.add(string(node.Value), action.style, action.link)
-		case *ast.CodeSpan:
-			out.add(r.plain(node), action.style.Merge(r.look.Code), action.link)
-		case *ast.Emphasis:
-			if node.Level >= 2 {
-				pushInlineChildren(&stack, node, action.style.Merge(r.look.Strong), action.link)
-			} else {
-				pushInlineChildren(&stack, node, action.style.Merge(r.look.Emphasis), action.link)
-			}
-		case *east.Strikethrough:
-			pushInlineChildren(&stack, node, action.style.Merge(r.look.Struck), action.link)
-		case *ast.Link:
-			// Push the target before the children: the stack visits the words first and
-			// then writes the optional address, preserving document order.
-			target := string(node.Destination)
-			stack = append(stack, inlineAction{
-				target: true, destination: target, shown: r.plain(node), style: action.style,
-			})
-			pushInlineChildren(&stack, node, action.style.Merge(r.look.Link), target)
-		case *ast.AutoLink:
-			url := string(node.URL(r.source))
-			out.add(url, action.style.Merge(r.look.Link), url)
-		case *ast.Image:
-			// A picture is not something a row of cells can hold — see the graphics
-			// package for what a terminal will take — so what is left is what it was
-			// called and where it is.
-			target := string(node.Destination)
-			out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
-			r.target(&out, target, "", action.style)
-		case *east.TaskCheckBox:
-			out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
-		case *ast.RawHTML:
-			// Dropped, like a block of it.
-		default:
-			pushInlineChildren(&stack, action.node, action.style, action.link)
-		}
+		r.writeInline(&out, &stack, action)
 	}
 	return out.finish()
+}
+
+// writeInline applies one traversal action. The stack owns document order; this
+// method owns how one node contributes text or schedules its children.
+func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action inlineAction) {
+	if action.target {
+		r.target(out, action.destination, action.shown, action.style)
+		return
+	}
+	switch node := action.node.(type) {
+	case *ast.Text:
+		out.add(string(node.Segment.Value(r.source)), action.style, action.link)
+		switch {
+		case node.HardLineBreak():
+			out.breakLine()
+		case node.SoftLineBreak():
+			out.add(" ", action.style, action.link)
+		}
+	case *ast.String:
+		out.add(string(node.Value), action.style, action.link)
+	case *ast.CodeSpan:
+		out.add(r.plain(node), action.style.Merge(r.look.Code), action.link)
+	case *ast.Emphasis:
+		if node.Level >= 2 {
+			pushInlineChildren(stack, node, action.style.Merge(r.look.Strong), action.link)
+		} else {
+			pushInlineChildren(stack, node, action.style.Merge(r.look.Emphasis), action.link)
+		}
+	case *east.Strikethrough:
+		pushInlineChildren(stack, node, action.style.Merge(r.look.Struck), action.link)
+	case *ast.Link:
+		// Push the target before the children: the stack visits the words first and
+		// then writes the optional address, preserving document order.
+		target := string(node.Destination)
+		*stack = append(*stack, inlineAction{
+			target: true, destination: target, shown: r.plain(node), style: action.style,
+		})
+		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), target)
+	case *ast.AutoLink:
+		url := string(node.URL(r.source))
+		out.add(url, action.style.Merge(r.look.Link), url)
+	case *ast.Image:
+		// A picture is not something a row of cells can hold — see the graphics
+		// package for what a terminal will take — so what is left is what it was
+		// called and where it is.
+		target := string(node.Destination)
+		out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
+		r.target(out, target, "", action.style)
+	case *east.TaskCheckBox:
+		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
+	case *ast.RawHTML:
+		// Dropped, like a block of it.
+	default:
+		pushInlineChildren(stack, action.node, action.style, action.link)
+	}
 }
 
 // inlineWriter is the mutable construction form of styled lines. Markdown parsers

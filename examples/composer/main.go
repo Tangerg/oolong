@@ -60,7 +60,7 @@ type prompt struct {
 
 func newPrompt(runtime *program.Runtime) *prompt {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.Getenv)
+	glyphs := kit.GlyphsFor(os.LookupEnv)
 	keys := headless.DefaultEditorKeys()
 	keys.Bind(submitPrompt, input.Chord{Code: input.Enter})
 	keys.Bind(quitPrompt, input.Ctrl.Rune('c'))

@@ -361,7 +361,7 @@ var iterm2Programs = []string{"iterm", "mintty"}
 // a test passes whatever facts it wants. There is no cached global and no
 // override hook, for the same reason there is no global palette — a program with two
 // terminals could not have two answers, and a test could not pin either.
-func DetectIn(getenv func(string) string, name string, sixel bool) Protocol {
+func DetectIn(lookup func(string) (string, bool), name string, sixel bool) Protocol {
 	// What the terminal called itself, first. An environment describes the terminal a
 	// session was started from, which over ssh, in a container, or under a multiplexer
 	// is not the terminal it is talking to; an answer to a question came from the one
@@ -369,16 +369,27 @@ func DetectIn(getenv func(string) string, name string, sixel bool) Protocol {
 	if p, ok := named(name); ok {
 		return p
 	}
-	if getenv("KITTY_WINDOW_ID") != "" || getenv("GHOSTTY_RESOURCES_DIR") != "" {
+	if environmentValue(lookup, "KITTY_WINDOW_ID") != "" ||
+		environmentValue(lookup, "GHOSTTY_RESOURCES_DIR") != "" {
 		return Kitty
 	}
-	if p, ok := named(getenv("TERM") + " " + getenv("TERM_PROGRAM") + " " + getenv("LC_TERMINAL")); ok {
+	if p, ok := named(environmentValue(lookup, "TERM") + " " +
+		environmentValue(lookup, "TERM_PROGRAM") + " " +
+		environmentValue(lookup, "LC_TERMINAL")); ok {
 		return p
 	}
 	if sixel {
 		return Sixel
 	}
 	return None
+}
+
+func environmentValue(lookup func(string) (string, bool), name string) string {
+	if lookup == nil {
+		return ""
+	}
+	value, _ := lookup(name)
+	return value
 }
 
 // named is the protocol whichever terminal an identity names speaks, if it is one this

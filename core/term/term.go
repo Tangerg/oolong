@@ -91,6 +91,12 @@ type Terminal struct {
 	// clipboard owns OSC 52 encoding and the one live read request. Paste may be
 	// called from any goroutine while the pump settles its answer.
 	clipboard *clipboard.Channel
+	// wheelProfile and imageProtocol are immutable facts of this session. They are
+	// resolved once from the environment passed to OpenOn and the answers received
+	// from this terminal, so later process-environment changes cannot alter a live
+	// terminal's capabilities.
+	wheelProfile  input.Wheel
+	imageProtocol graphics.Protocol
 	// title is what this session called the window, and what it owes the terminal
 	// when it gives it back.
 	title title
@@ -148,13 +154,12 @@ func OpenOn(
 	if out == nil {
 		return nil, errors.New("term: output file is required")
 	}
-	inFD := int(in.Fd())
-	if !xterm.IsTerminal(inFD) {
-		return nil, fmt.Errorf("%w: input is fd %d", ErrNotTerminal, inFD)
+	inFD, err := checkedTerminalFD(in, "input")
+	if err != nil {
+		return nil, err
 	}
-	outFD := int(out.Fd())
-	if !xterm.IsTerminal(outFD) {
-		return nil, fmt.Errorf("%w: output is fd %d", ErrNotTerminal, outFD)
+	if _, outputErr := checkedTerminalFD(out, "output"); outputErr != nil {
+		return nil, outputErr
 	}
 
 	// Raw mode first: it is what stops the terminal from interpreting keys on the
@@ -163,8 +168,29 @@ func OpenOn(
 	if err != nil {
 		return nil, fmt.Errorf("term: enter raw mode: %w", err)
 	}
+	t := newTerminal(in, out, opts, lookup, oldState)
+	if err := t.takeOver(inFD); err != nil {
+		return nil, err
+	}
+	t.start(opts, lookup)
+	return t, nil
+}
 
-	t := &Terminal{
+func checkedTerminalFD(file *os.File, role string) (int, error) {
+	fd := int(file.Fd())
+	if !xterm.IsTerminal(fd) {
+		return 0, fmt.Errorf("%w: %s is fd %d", ErrNotTerminal, role, fd)
+	}
+	return fd, nil
+}
+
+func newTerminal(
+	in, out *os.File,
+	opts Options,
+	lookup func(string) (string, bool),
+	oldState *xterm.State,
+) *Terminal {
+	return &Terminal{
 		in:         in,
 		out:        out,
 		modes:      opts.Modes(lookup),
@@ -177,26 +203,29 @@ func OpenOn(
 		task:       newTaskProgress(),
 		clipboard:  clipboard.New(lookup),
 	}
+}
 
-	if _, err := out.WriteString(t.modes.enter()); err != nil {
-		errs := []error{fmt.Errorf("term: take over the terminal: %w", err)}
-		errs = append(errs, t.giveBack()...)
-		return nil, errors.Join(errs...)
+// takeOver acquires the output-side resources in order. Any failure rolls back the
+// complete prefix already acquired, leaving start to run only for a usable session.
+func (t *Terminal) takeOver(inFD int) error {
+	if _, err := t.out.WriteString(t.modes.enter()); err != nil {
+		return t.abortOpen(fmt.Errorf("term: take over the terminal: %w", err))
 	}
 
-	t.writer = NewWriter(out)
+	t.writer = NewWriter(t.out)
 	waker, wakeErr := newWaker(inFD)
 	if wakeErr != nil {
-		errs := []error{wakeErr}
-		if err := t.writer.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("term: stop frame writer after open failed: %w", err))
-		}
-		errs = append(errs, t.giveBack()...)
-		return nil, errors.Join(errs...)
+		return t.abortOpen(wakeErr)
 	}
 	t.waker = waker
 	go t.task.run(t.stop, t.writer.Queue)
+	return nil
+}
 
+// start activates the input side after acquisition can no longer fail. Goroutines
+// are deliberately last: no partially opened Terminal is returned, and no rollback
+// path has to coordinate workers that escaped into the session.
+func (t *Terminal) start(opts Options, lookup func(string) (string, bool)) {
 	// The size is delivered as an event rather than left to be asked for, so a
 	// session learns its size the same way it learns about every later change.
 	var opening dimensions
@@ -215,10 +244,13 @@ func OpenOn(
 	parser := &input.Parser{}
 	var early []input.Event
 	if opts.Probe {
-		pr := &probe{raw: raw, out: out, parser: parser}
+		pr := &probe{raw: raw, out: t.out, parser: parser}
 		t.said = pr.run()
 		early = pr.early
 	}
+	t.wheelProfile = input.WheelFor(lookup, t.identity())
+	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
+	t.imageProtocol = graphics.DetectIn(lookup, t.identity(), sixel)
 
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
@@ -230,7 +262,20 @@ func OpenOn(
 		t.inputErr = p.run()
 		close(t.events)
 	}()
-	return t, nil
+}
+
+// abortOpen rolls back every resource acquired before a Terminal became usable.
+// Acquisition grows in one direction; every failure leaves through this one edge so
+// adding a resource cannot create a new path that forgets an older one.
+func (t *Terminal) abortOpen(cause error) error {
+	errs := []error{cause}
+	if t.writer != nil {
+		if err := t.writer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("term: stop frame writer after open failed: %w", err))
+		}
+	}
+	errs = append(errs, t.giveBack()...)
+	return errors.Join(errs...)
 }
 
 // Events is the terminal's input, closed when the input ends or the session does.
@@ -360,7 +405,7 @@ func (t *Terminal) identity() string {
 // It prefers what the terminal said it was over what the environment claims, for the
 // reason [Terminal.Name] gives.
 func (t *Terminal) Wheel() input.Wheel {
-	return input.WheelFor(os.Getenv, t.identity())
+	return t.wheelProfile
 }
 
 // Graphics is the richest way this terminal will take an image.
@@ -370,8 +415,7 @@ func (t *Terminal) Wheel() input.Wheel {
 // session that did not ask — see [Options.Probe] — gets the answer the environment
 // alone supports, which is the same as [DetectGraphics].
 func (t *Terminal) Graphics() graphics.Protocol {
-	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
-	return graphics.DetectIn(os.Getenv, t.identity(), sixel)
+	return t.imageProtocol
 }
 
 // ReportDirectory tells the terminal which directory the program is working in.

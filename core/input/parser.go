@@ -123,73 +123,83 @@ func (p *Parser) drain(final bool) (events []Event) {
 		}
 	}()
 	for {
-		if p.dropping != droppingNothing {
-			if !p.skipRunaway() {
-				if final {
-					// Input went quiet part-way through, so the runaway sequence
-					// is over however it ended. Staying in this state would eat
-					// the next keystroke that happened to be a parameter byte.
-					//
-					// A command still accumulating gets no such treatment: it is
-					// incomplete rather than ambiguous, and time says nothing about
-					// it. Giving up on one already given up on has to end
-					// somewhere; giving up on one still arriving would corrupt the
-					// answer to a query as large as a clipboard.
-					p.dropping = droppingNothing
-				}
-				return events
-			}
-			continue
-		}
-		if p.str != noString {
-			ev, done := p.readString()
-			if !done {
-				return events
-			}
-			if ev != nil {
-				events = append(events, ev)
-			}
-			continue
-		}
-		if p.pasting {
-			text, done := p.readPaste()
-			if !done {
-				return events
-			}
-			// A paste is bytes a terminal was handed by something else, and Text
-			// is a string, which every consumer will treat as text and eventually
-			// put in a cell. Invalid UTF-8 is replaced rather than passed on, for
-			// the same reason a control character is dropped at the cell: this is
-			// where untrusted bytes stop being untrusted.
-			if text != "" {
-				events = append(events, Paste{Text: strings.ToValidUTF8(text, "\uFFFD")})
-			}
-			continue
-		}
-		if len(p.buf) == 0 {
+		event, advanced := p.advance(final)
+		if !advanced {
 			return events
 		}
-		n, ev, done := p.decode(p.buf, final)
-		if done {
-			p.take(n)
-			if ev != nil {
-				events = append(events, ev)
-			}
-			continue
+		if event != nil {
+			events = append(events, event)
 		}
-		if !final {
-			return events
-		}
-		if p.buf[0] == esc {
-			// Nothing followed it in time, so it was the key.
-			events = append(events, Key{Code: Esc})
-			p.take(1)
-			continue
-		}
-		// A character whose remaining bytes will never arrive. Dropping one byte
-		// rather than the buffer keeps whatever follows decodable.
-		p.take(1)
 	}
+}
+
+// advance makes one state transition. Its boolean distinguishes waiting from
+// consuming bytes that deliberately produce no event.
+func (p *Parser) advance(final bool) (Event, bool) {
+	switch {
+	case p.dropping != droppingNothing:
+		return p.advanceRunaway(final)
+	case p.str != noString:
+		return p.readString()
+	case p.pasting:
+		return p.advancePaste()
+	default:
+		return p.advanceInput(final)
+	}
+}
+
+func (p *Parser) advanceRunaway(final bool) (Event, bool) {
+	if p.skipRunaway() {
+		return nil, true
+	}
+	if final {
+		// Input went quiet part-way through, so the runaway sequence is over however
+		// it ended. Staying in this state would eat the next keystroke that happened
+		// to be a parameter byte.
+		//
+		// A command still accumulating gets no such treatment: it is incomplete rather
+		// than ambiguous, and time says nothing about it. Giving up on one already
+		// given up on has to end somewhere; giving up on one still arriving would
+		// corrupt the answer to a query as large as a clipboard.
+		p.dropping = droppingNothing
+	}
+	return nil, false
+}
+
+func (p *Parser) advancePaste() (Event, bool) {
+	text, done := p.readPaste()
+	if !done || text == "" {
+		return nil, done
+	}
+	// A paste is bytes a terminal was handed by something else, and Text is a
+	// string, which every consumer will treat as text and eventually put in a cell.
+	// Invalid UTF-8 is replaced rather than passed on, for the same reason a control
+	// character is dropped at the cell: this is where untrusted bytes stop being
+	// untrusted.
+	return Paste{Text: strings.ToValidUTF8(text, "\uFFFD")}, true
+}
+
+func (p *Parser) advanceInput(final bool) (Event, bool) {
+	if len(p.buf) == 0 {
+		return nil, false
+	}
+	n, event, done := p.decode(p.buf, final)
+	if done {
+		p.take(n)
+		return event, true
+	}
+	if !final {
+		return nil, false
+	}
+	if p.buf[0] == esc {
+		// Nothing followed it in time, so it was the key.
+		p.take(1)
+		return Key{Code: Esc}, true
+	}
+	// A character whose remaining bytes will never arrive. Dropping one byte rather
+	// than the buffer keeps whatever follows decodable.
+	p.take(1)
+	return nil, true
 }
 
 // skipRunaway drops the rest of whichever runaway sequence is being thrown away.

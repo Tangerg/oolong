@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
 )
@@ -64,6 +65,7 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 	host := newHost(
 		ctx.Done(), session, pty.Window, windows,
 		options.Modes(env.lookup), clipboard.New(env.lookup),
+		input.WheelFor(env.lookup, ""),
 	)
 	defer func() { err = errors.Join(err, host.Close()) }()
 	cfg.Host = host

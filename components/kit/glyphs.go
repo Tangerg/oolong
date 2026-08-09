@@ -116,15 +116,15 @@ func ASCII() Glyphs {
 // The lookup is passed in rather than read, for the same reason it is everywhere else
 // here — this package is not one that touches the operating system, and a test that
 // could not say what the locale was could not check either answer.
-func GlyphsFor(getenv func(string) string) Glyphs {
-	if getenv == nil {
+func GlyphsFor(lookup func(string) (string, bool)) Glyphs {
+	if lookup == nil {
 		return Unicode()
 	}
 	// The first of these that is set decides, which is the order the C library reads
 	// them in: LC_ALL overrides everything, LC_CTYPE decides character handling, and
 	// LANG is the fallback for both.
 	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
-		if value := getenv(name); value != "" {
+		if value, ok := lookup(name); ok && value != "" {
 			if utf8Locale(value) {
 				return Unicode()
 			}

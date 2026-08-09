@@ -209,15 +209,32 @@ func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPres
 		return
 	}
 	if e.oneLine() {
-		left := e.lineOffset(width)
-		presented.Stage(frame, editorPresentation{
-			width: width, gutter: gutter, left: left,
-		})
-		e.drawGutter(gutterView, e.rows(width))
-		e.drawLine(v, left, look)
+		e.drawOneLine(frame, v, gutterView, look, presented, width, gutter)
 		return
 	}
+	e.drawMultiline(frame, v, gutterView, look, presented, width, height, gutter)
+}
 
+func (e *Editor) drawOneLine(
+	frame Frame,
+	view, gutterView grid.View,
+	look Look,
+	presented *Snapshot[editorPresentation],
+	width, gutter int,
+) {
+	left := e.lineOffset(width)
+	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left})
+	e.drawGutter(gutterView, e.rows(width))
+	e.drawLine(view, left, look)
+}
+
+func (e *Editor) drawMultiline(
+	frame Frame,
+	view, gutterView grid.View,
+	look Look,
+	presented *Snapshot[editorPresentation],
+	width, height, gutter int,
+) {
 	rows := e.rows(width)
 	cursorRow, cursorColumn := e.rowAt(width)
 
@@ -234,8 +251,8 @@ func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPres
 	e.drawGutter(gutterView, rows[first:last])
 
 	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
-		e.placeCursor(v, 0, 0)
+		view.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
+		e.placeCursor(view, 0, 0)
 		return
 	}
 
@@ -245,7 +262,7 @@ func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPres
 			break
 		}
 		r := rows[index]
-		text.Of(e.lines[r.line][r.start:r.end], look.Text).Draw(v, 0, y)
+		text.Of(e.lines[r.line][r.start:r.end], look.Text).Draw(view, 0, y)
 	}
 	// The selection is laid over the text rather than drawn into it, so a run that
 	// crosses a style boundary keeps whatever was underneath — and so that the rows
@@ -257,11 +274,11 @@ func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPres
 		}
 		end := min(layout.Sum(span.Col, span.Width), width)
 		for x := max(span.Col, 0); x < end; x++ {
-			v.MergeStyle(x, y, look.Selection)
+			view.MergeStyle(x, y, look.Selection)
 		}
 	}
 	if y := cursorRow - first; y >= 0 && y < height {
-		e.placeCursor(v, cursorColumn, y)
+		e.placeCursor(view, cursorColumn, y)
 	}
 }
 

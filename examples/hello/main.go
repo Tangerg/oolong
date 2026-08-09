@@ -61,7 +61,7 @@ func (h *hello) Draw(v grid.View) {
 	width, height := v.Size()
 	box := kit.Box{
 		Theme:   h.theme,
-		Glyphs:  kit.GlyphsFor(os.Getenv),
+		Glyphs:  kit.GlyphsFor(os.LookupEnv),
 		Title:   "hello",
 		Padding: layout.Symmetric(0, 1),
 	}

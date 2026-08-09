@@ -134,7 +134,7 @@ func (t *Tree[T]) rebuild() {
 		depth int
 	}
 	stack := make([]pending, 0, len(t.nodes))
-	for i := len(t.nodes) - 1; i >= 0; i-- {
+	for i := range slices.Backward(t.nodes) {
 		stack = append(stack, pending{node: &t.nodes[i]})
 	}
 	for len(stack) > 0 {
@@ -150,7 +150,7 @@ func (t *Tree[T]) rebuild() {
 		if !open {
 			continue
 		}
-		for i := len(node.children) - 1; i >= 0; i-- {
+		for i := range slices.Backward(node.children) {
 			stack = append(stack, pending{node: &node.children[i], depth: current.depth + 1})
 		}
 	}
@@ -320,60 +320,12 @@ func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
 		t.open = nil
 		return
 	}
+	owned, nodeIDs, branches := copyTree(nodes, t.nodes, t.nodeIDs, len(t.open))
+	t.retainOpenBranches(branches)
+	t.nodes, t.nodeIDs = owned, nodeIDs
+}
 
-	nodeIDs := t.nodeIDs
-	owned := make([]treeNode[T], len(nodes))
-	branches := make(map[uint64]struct{}, len(t.open))
-	type frame struct {
-		source []Node[T]
-		old    []treeNode[T]
-		target []treeNode[T]
-		at     int
-		key    *Node[T]
-	}
-	rootKey := &nodes[0]
-	active := map[*Node[T]]struct{}{rootKey: {}}
-	stack := []frame{{source: nodes, old: t.nodes, target: owned, key: rootKey}}
-	for len(stack) > 0 {
-		current := &stack[len(stack)-1]
-		if current.at == len(current.source) {
-			delete(active, current.key)
-			stack = stack[:len(stack)-1]
-			continue
-		}
-
-		i := current.at
-		current.at++
-		source := current.source[i]
-		var id uint64
-		var oldChildren []treeNode[T]
-		if i < len(current.old) {
-			id = current.old[i].id
-			oldChildren = current.old[i].children
-		} else {
-			var ok bool
-			id, ok = nodeIDs.next()
-			if !ok {
-				panic("headless: tree exhausted node identities")
-			}
-		}
-		current.target[i] = treeNode[T]{item: source.Item, id: id}
-		if len(source.Children) == 0 {
-			continue
-		}
-		branches[id] = struct{}{}
-		key := &source.Children[0]
-		if _, cyclic := active[key]; cyclic {
-			panic("headless: cyclic tree node collection")
-		}
-		children := make([]treeNode[T], len(source.Children))
-		current.target[i].children = children
-		active[key] = struct{}{}
-		stack = append(stack, frame{
-			source: source.Children, old: oldChildren, target: children, key: key,
-		})
-	}
-
+func (t *Tree[T]) retainOpenBranches(branches map[uint64]struct{}) {
 	for id := range t.open {
 		if _, ok := branches[id]; !ok {
 			delete(t.open, id)
@@ -382,7 +334,89 @@ func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
 	if len(t.open) == 0 {
 		t.open = nil
 	}
-	t.nodes, t.nodeIDs = owned, nodeIDs
+}
+
+// treeCopy owns one iterative transfer from caller-owned nodes into the tree. Its
+// active slice identities make a cycle an explicit state transition instead of an
+// accidental exhaustion of stack or heap.
+type treeCopy[T any] struct {
+	ids      identitySequence
+	branches map[uint64]struct{}
+	active   map[*Node[T]]struct{}
+	stack    []treeCopyFrame[T]
+}
+
+type treeCopyFrame[T any] struct {
+	source []Node[T]
+	old    []treeNode[T]
+	target []treeNode[T]
+	at     int
+	key    *Node[T]
+}
+
+func copyTree[T any](
+	source []Node[T],
+	old []treeNode[T],
+	ids identitySequence,
+	branchCapacity int,
+) ([]treeNode[T], identitySequence, map[uint64]struct{}) {
+	target := make([]treeNode[T], len(source))
+	rootKey := &source[0]
+	copying := treeCopy[T]{
+		ids:      ids,
+		branches: make(map[uint64]struct{}, branchCapacity),
+		active:   map[*Node[T]]struct{}{rootKey: {}},
+		stack: []treeCopyFrame[T]{
+			{source: source, old: old, target: target, key: rootKey},
+		},
+	}
+	copying.run()
+	return target, copying.ids, copying.branches
+}
+
+func (c *treeCopy[T]) run() {
+	for len(c.stack) > 0 {
+		current := &c.stack[len(c.stack)-1]
+		if current.at == len(current.source) {
+			delete(c.active, current.key)
+			c.stack = c.stack[:len(c.stack)-1]
+			continue
+		}
+		c.copyNext(current)
+	}
+}
+
+func (c *treeCopy[T]) copyNext(current *treeCopyFrame[T]) {
+	i := current.at
+	current.at++
+	source := current.source[i]
+	id, oldChildren := c.identityAt(current.old, i)
+	current.target[i] = treeNode[T]{item: source.Item, id: id}
+	if len(source.Children) == 0 {
+		return
+	}
+	c.branches[id] = struct{}{}
+	key := &source.Children[0]
+	if _, cyclic := c.active[key]; cyclic {
+		panic("headless: cyclic tree node collection")
+	}
+	children := make([]treeNode[T], len(source.Children))
+	current.target[i].children = children
+	c.active[key] = struct{}{}
+	c.stack = append(c.stack, treeCopyFrame[T]{
+		source: source.Children, old: oldChildren, target: children, key: key,
+	})
+}
+
+func (c *treeCopy[T]) identityAt(old []treeNode[T], index int) (uint64, []treeNode[T]) {
+	if index < len(old) {
+		return old[index].id, old[index].children
+	}
+	id, ok := c.ids.next()
+	if !ok {
+		panic("headless: tree exhausted node identities")
+	}
+	return id, nil
 }
 
 // exportNodes copies the owned hierarchy without making valid depth a call-stack

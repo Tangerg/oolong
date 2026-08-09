@@ -94,7 +94,7 @@ func newChat(runtime *program.InlineRuntime) *chat {
 
 func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(os.Getenv)
+	glyphs := kit.GlyphsFor(os.LookupEnv)
 	keys := headless.DefaultEditorKeys()
 	keys.Bind(send, input.Chord{Code: input.Enter})
 	keys.Bind(cancelReply, input.Ctrl.Rune('x'))

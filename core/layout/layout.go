@@ -348,30 +348,32 @@ func Wanted(across int, slots []Slot) int {
 	across = max(across, 0)
 	total := 0
 	for _, slot := range slots {
-		switch slot.Size.kind {
-		case fixedSizing:
-			total = Sum(total, slot.Size.amount)
-		case partSizing:
-			// A fraction of a region nobody has named yet. There is no total to take a
-			// part of, so it counts as its floor — the same answer a flexible slot
-			// gives, and for the same reason.
-			total = Sum(total, slot.Size.minimum)
-		case measuredSizing:
-			want := slot.Size.minimum
-			if slot.Of != nil {
-				want = max(slot.Of.Measure(across), slot.Size.minimum)
-			}
-			if slot.Size.maximum > 0 {
-				want = min(want, slot.Size.maximum)
-			}
-			total = Sum(total, want)
-		case flexSizing:
-			total = Sum(total, slot.Size.minimum)
-		case zeroSizing:
-			continue
-		}
+		total = Sum(total, slot.wanted(across))
 	}
 	return total
+}
+
+// wanted is what a slot can ask for before the divided extent exists. A fraction
+// and a flexible share therefore ask only for their floor; both need a named whole
+// before their proportional part has meaning.
+func (s Slot) wanted(across int) int {
+	switch s.Size.kind {
+	case fixedSizing:
+		return s.Size.amount
+	case partSizing, flexSizing:
+		return s.Size.minimum
+	case measuredSizing:
+		want := s.Size.minimum
+		if s.Of != nil {
+			want = max(s.Of.Measure(across), s.Size.minimum)
+		}
+		if s.Size.maximum > 0 {
+			want = min(want, s.Size.maximum)
+		}
+		return want
+	default:
+		return 0
+	}
 }
 
 // Divide splits total among slots, measuring against across, and returns each
@@ -380,74 +382,81 @@ func Wanted(across int, slots []Slot) int {
 // It is exported because related geometry may need the same allocation without
 // constructing rectangles.
 func Divide(total, across int, slots []Slot) []int {
-	sizes := make([]int, len(slots))
-	left := max(total, 0)
-	across = max(across, 0)
-	flex := 0
-	// Every slot contributes at most this much, so the sum cannot overflow an int,
-	// including on 32-bit architectures. The cap changes only ratios made from
-	// weights too large to carry additional useful precision.
-	maxFlex := maxInt / max(len(slots), 1)
+	d := division{
+		total:   max(total, 0),
+		across:  max(across, 0),
+		slots:   slots,
+		sizes:   make([]int, len(slots)),
+		maxFlex: maxInt / max(len(slots), 1),
+	}
+	d.left = d.total
+	d.reserve()
+	d.distribute()
+	return d.sizes
+}
 
-	// Fixed and measured slots take theirs first: both are stating a need, and the
-	// flexible ones exist to absorb whatever is left over.
-	for i, slot := range slots {
+// division owns one allocation in progress. Keeping its remaining room and weight
+// sum together makes it impossible for the rigid and flexible passes to update only
+// half of the same state.
+type division struct {
+	total, across int
+	left, flex    int
+	maxFlex       int
+	slots         []Slot
+	sizes         []int
+}
+
+// reserve gives non-flexible slots the space they state they need and totals the
+// weights that will divide what remains.
+func (d *division) reserve() {
+	for i, slot := range d.slots {
 		switch slot.Size.kind {
-		case fixedSizing:
-			sizes[i] = min(slot.Size.amount, left)
-		case partSizing:
-			// Of the whole region rather than of what is left, which is the whole
-			// difference between this and a share: it is worked out from the total the
-			// division began with, so nothing else in the region can move it.
-			want := Scale(max(total, 0), slot.Size.amount, slot.Size.whole)
-			sizes[i] = min(max(want, slot.Size.minimum), left)
-		case measuredSizing:
-			want := slot.Size.minimum
-			if slot.Of != nil {
-				want = max(slot.Of.Measure(across), slot.Size.minimum)
-			}
-			if slot.Size.maximum > 0 {
-				want = min(want, slot.Size.maximum)
-			}
-			sizes[i] = min(want, left)
 		case flexSizing:
-			share := min(slot.Size.amount, maxFlex)
-			flex += share
-			continue
-		case zeroSizing:
-			continue
+			d.flex += d.share(slot)
+		case partSizing:
+			// A part is of the whole region rather than of what is left, which is the
+			// difference between it and a flexible share.
+			want := Scale(d.total, slot.Size.amount, slot.Size.whole)
+			d.allocate(i, max(want, slot.Size.minimum))
+		default:
+			d.allocate(i, slot.wanted(d.across))
 		}
-		left -= sizes[i]
 	}
-	if flex == 0 {
-		return sizes
-	}
+}
 
-	// Shares of what is left, with each slot's floor honoured only while there is
-	// room for it. Several floors can add up to more than the space there is, and a
-	// layout that handed them out anyway would report more than it allocated, making
-	// measurement and placement disagree.
-	remainder := left
-	lastFlex := -1
-	for i, slot := range slots {
+// distribute gives flexible slots shares of the same remainder. Floors are still
+// honoured for a zero-weight slot: Flex(0).AtLeast(n) asks for no proportional room,
+// but its explicit minimum remains a real constraint.
+func (d *division) distribute() {
+	remainder := d.left
+	lastWeighted := -1
+	for i, slot := range d.slots {
 		if slot.Size.kind != flexSizing {
 			continue
 		}
-		share := min(slot.Size.amount, maxFlex)
-		if share == 0 {
-			continue
+		share := d.share(slot)
+		want := slot.Size.minimum
+		if d.flex > 0 {
+			want = max(Scale(remainder, share, d.flex), want)
 		}
-		want := Scale(remainder, share, flex)
-		want = max(want, slot.Size.minimum)
-		sizes[i] = min(want, left)
-		left -= sizes[i]
-		lastFlex = i
+		d.allocate(i, want)
+		if share > 0 {
+			lastWeighted = i
+		}
 	}
-	// The rounding remainder goes to the last flexible slot rather than being lost.
-	if lastFlex >= 0 && left > 0 {
-		sizes[lastFlex] += left
+	// Integer division may leave a remainder. The last weighted slot owns it; a
+	// floor-only slot must not absorb room it never asked to share.
+	if lastWeighted >= 0 && d.left > 0 {
+		d.sizes[lastWeighted] += d.left
+		d.left = 0
 	}
-	return sizes
+}
+
+func (d *division) share(slot Slot) int { return min(slot.Size.amount, d.maxFlex) }
+
+func (d *division) allocate(index, want int) {
+	d.sizes[index] = min(max(want, 0), d.left)
+	d.left -= d.sizes[index]
 }
 
 const (

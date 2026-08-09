@@ -153,6 +153,17 @@ func TestNeverHandsOutMoreThanThereIs(t *testing.T) {
 	}
 }
 
+func TestAZeroWeightFlexSlotStillKeepsItsFloor(t *testing.T) {
+	slots := []layout.Slot{
+		{Size: layout.Flex(0).AtLeast(3)},
+		{Size: layout.Flex(1)},
+	}
+	equal(t, layout.Divide(10, 1, slots), []int{3, 7})
+	if got := layout.Wanted(1, slots); got != 3 {
+		t.Fatalf("Wanted = %d, want the same three-unit floor Divide honours", got)
+	}
+}
+
 func TestSizingConstructorsDoNotExpressNegativeExtents(t *testing.T) {
 	got := layout.Divide(12, 1, []layout.Slot{
 		{Size: layout.Fixed(-1)},

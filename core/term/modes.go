@@ -1,6 +1,7 @@
 package term
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -154,9 +155,9 @@ func (m Modes) enter() string {
 func (m Modes) leave() string {
 	seq := m.sequence()
 	var b strings.Builder
-	for i := len(seq) - 1; i >= 0; i-- {
-		if seq[i].wanted {
-			b.WriteString(seq[i].off)
+	for _, mode := range slices.Backward(seq) {
+		if mode.wanted {
+			b.WriteString(mode.off)
 		}
 	}
 	b.WriteString(cursorDefault)
