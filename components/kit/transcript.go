@@ -271,11 +271,11 @@ func (t *Transcript) commit(p Printer, limit int) int {
 	}
 	before := t.Content.StartRow()
 	committed := 0
-	gone := t.Content.Commit(func(b headless.Block, rows int) bool {
+	gone := t.Content.Commit(func(b headless.Block, _ int) bool {
 		if limit >= 0 && committed >= limit {
 			return false
 		}
-		p.PrintRows(rows, b.Draw)
+		p.Print(b)
 		committed++
 		return true
 	})
@@ -299,9 +299,9 @@ func (t *Transcript) commit(p Printer, limit int) int {
 // It is declared here because Commit is its consumer. Concrete output transports can
 // satisfy it without this package depending on them.
 type Printer interface {
-	// PrintRows draws rows into the terminal's own output, above the interface, where
-	// they stay after the program exits.
-	PrintRows(rows int, draw func(grid.View))
+	// Print draws content into the terminal's own output, above the interface, where
+	// it stays after the program exits.
+	Print(content grid.Drawable)
 }
 
 // Handle answers scrolling and selection over the transcript, reporting whether it

@@ -147,6 +147,15 @@ type Style struct {
 	Attr   Attr
 }
 
+// Drawable is passive content that can measure its height at a width and draw into
+// exactly that space. It is the common contract shared by layout, retained content,
+// and permanent inline publication; layers may add lifecycle meaning but must not
+// invent another drawing shape.
+type Drawable interface {
+	Draw(view View)
+	layout.Measurer
+}
+
 // Merge lays over on top of s: whatever over states wins, whatever it leaves at
 // its default is inherited. Attributes accumulate, because an overlay that adds
 // emphasis should not silently drop the emphasis underneath it.

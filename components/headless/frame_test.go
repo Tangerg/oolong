@@ -220,7 +220,7 @@ func (f *scrollFixture) Draw(frame Frame) {
 
 func TestScrollPublishesDerivedBoundsWithTheRootFrame(t *testing.T) {
 	var scroll Scroll
-	scroll.Layout(10, 5)
+	stageScrollForTest(&scroll, 10, 5)
 	scroll.ToBottom()
 	fixture := &scrollFixture{scroll: &scroll, total: 20}
 
@@ -262,7 +262,7 @@ func (f *transcriptFixture) Draw(frame Frame) {
 func TestTranscriptReflowCommitsWithTheRootFrame(t *testing.T) {
 	var transcript Transcript
 	transcript.Append(wrappingBlock{})
-	transcript.Resize(10)
+	stageTranscriptForTest(&transcript, 10)
 	fixture := &transcriptFixture{transcript: &transcript, width: 5}
 
 	NewRoot(fixture).Draw(grid.NewSurface(5, 2).View())

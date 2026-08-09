@@ -276,7 +276,7 @@ func (l *List[T]) reveal() {
 	if window <= 0 || len(l.items) == 0 {
 		return
 	}
-	l.scroll.Layout(len(l.items), window)
+	l.scroll.layout(len(l.items), window)
 	first := l.scroll.Offset()
 	switch last := first + window - 1; {
 	case l.selected < first:

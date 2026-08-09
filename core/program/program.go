@@ -38,7 +38,6 @@ import (
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/present"
 	"github.com/Tangerg/oolong/core/term"
 )
@@ -137,16 +136,6 @@ func (r *InlineRuntime) inlineCanvas() *grid.Inline {
 		return nil
 	}
 	return p.inline
-}
-
-// Printable is something that can say how tall it is at a width and then draw
-// itself into that space.
-//
-// The interface is defined here where printing consumes it. Any higher-level value
-// with the same drawing and measuring behaviour satisfies it without an adapter.
-type Printable interface {
-	Draw(view grid.View)
-	layout.Measurer
 }
 
 // EventSource is one ordered input stream and its terminal result.
@@ -745,22 +734,12 @@ func (f *frameBuffer) Write(b []byte) (int, error) {
 }
 
 // Print publishes a measured drawable above an inline interface.
-func (r *InlineRuntime) Print(p Printable) {
+func (r *InlineRuntime) Print(p grid.Drawable) {
 	inline := r.inlineCanvas()
 	if inline == nil || p == nil {
 		return
 	}
-	width, _ := inline.Size()
-	inline.Print(p.Measure(width), p.Draw)
-}
-
-// PrintRows publishes a caller-sized drawing above an inline interface.
-func (r *InlineRuntime) PrintRows(rows int, draw func(grid.View)) {
-	inline := r.inlineCanvas()
-	if inline == nil || draw == nil {
-		return
-	}
-	inline.Print(rows, draw)
+	inline.Print(p)
 }
 
 // Append continues the last published row until draw reports completion.

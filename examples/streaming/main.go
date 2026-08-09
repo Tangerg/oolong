@@ -222,7 +222,7 @@ func (c *chat) reject() {
 func (c *chat) startReply(prompt string) {
 	c.composer.Reset()
 	c.selection.Clear()
-	c.appendFinished(kit.Message{Theme: c.theme, Speaker: "you", Body: prompt, Own: true})
+	c.appendFinished(&kit.Message{Theme: c.theme, Speaker: "you", Body: prompt, Own: true})
 	c.stream.Reset()
 	c.open, c.hasOpen = nil, false
 	c.active = true
@@ -318,7 +318,7 @@ func (c *chat) finishReply(err error) {
 		c.status.Doing = "cancelled"
 	case err != nil:
 		c.status.Doing = "failed: " + err.Error()
-		c.appendFinished(kit.Message{
+		c.appendFinished(&kit.Message{
 			Theme: c.theme, Speaker: "source", Body: err.Error(),
 		})
 	default:

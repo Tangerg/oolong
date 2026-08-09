@@ -72,6 +72,7 @@ type Search struct {
 	wake    chan struct{}
 	results chan Result
 	stop    chan struct{}
+	done    chan struct{}
 	once    sync.Once
 }
 
@@ -92,6 +93,7 @@ func NewSearch() *Search {
 		wake:    make(chan struct{}, 1),
 		results: make(chan Result, 1),
 		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 	go s.run()
 	return s
@@ -107,9 +109,11 @@ func (s *Search) Results() <-chan Result {
 	return s.results
 }
 
-// Close stops the scanner. It is safe to call more than once.
+// Close stops the scanner and waits for its worker to release the current corpus.
+// It is safe to call more than once. When it returns, Results is closed and Search
+// retains no submitted rows or unread result.
 func (s *Search) Close() {
-	if s == nil || s.stop == nil {
+	if s == nil || s.stop == nil || s.done == nil {
 		return
 	}
 	s.once.Do(func() {
@@ -126,6 +130,7 @@ func (s *Search) Close() {
 		close(s.stop)
 		s.mu.Unlock()
 	})
+	<-s.done
 }
 
 // Submit schedules a scan of t for query, replacing any scan not yet finished.
@@ -194,6 +199,7 @@ var stoppedResults = func() <-chan Result {
 
 // run is the worker.
 func (s *Search) run() {
+	defer close(s.done)
 	defer close(s.results)
 	for {
 		select {

@@ -23,7 +23,7 @@ func TestCompositeMeasurementsSaturateAtMaxInt(t *testing.T) {
 	cases := map[string]int{
 		"panel":   NewPanel(Theme{}, Glyphs{}, child).Measure(80),
 		"tabs":    NewTabs(Theme{}, Glyphs{}, headless.Tab{Title: "one", Of: child}).Measure(80),
-		"message": (Message{Trailing: maxInt}).Measure(80),
+		"message": (&Message{Trailing: maxInt}).Measure(80),
 	}
 	for name, got := range cases {
 		if got != maxInt {

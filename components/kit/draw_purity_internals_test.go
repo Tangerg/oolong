@@ -48,7 +48,7 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 		"Image":       true,
 		"Label":       true,
 		"LineNumbers": true,
-		"Message":     true,
+		"*Message":    true,
 		"Overlay":     true,
 		"Palette":     true,
 		"Progress":    true,
@@ -305,11 +305,10 @@ func kitDrawPurityCases() []drawPurityCase {
 	}))
 
 	content := &headless.Transcript{}
-	content.Resize(24)
 	content.Append(&purityBlock{text: "retained", height: 2})
 	var transcriptScroll headless.Scroll
-	transcriptScroll.Layout(content.Height(), 3)
 	transcript := &Transcript{Content: content, Scroll: &transcriptScroll, Current: -1}
+	headless.NewRoot(transcript).Draw(grid.NewSurface(24, 3).View())
 	transcriptCase := widgetPurityCase("*Transcript", transcript, func() any {
 		return struct {
 			length, width, height, start int

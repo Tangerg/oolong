@@ -188,7 +188,7 @@ func (a *agent) registerCommands() {
 	a.commands.Add(headless.Command{
 		Name: "help", Title: "show the commands available in this session",
 		Run: func(string) {
-			a.conversation.Append(kit.Message{
+			a.conversation.Append(&kit.Message{
 				Theme: a.theme, Speaker: "commands",
 				Body: "/clear — release the live transcript\n/model <fast|careful> — choose the mock plan\n/quit — leave",
 			})
@@ -346,7 +346,7 @@ func (a *agent) finishRun(err error) {
 	case err != nil:
 		a.status.Doing = "failed: " + err.Error()
 		native.State = term.ProgressError
-		a.conversation.Append(kit.Message{Theme: a.theme, Speaker: "runtime", Body: err.Error()})
+		a.conversation.Append(&kit.Message{Theme: a.theme, Speaker: "runtime", Body: err.Error()})
 	default:
 		a.status.Doing = "complete"
 		a.runtime.Session().Notify("mock agent completed")

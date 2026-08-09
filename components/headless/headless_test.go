@@ -71,6 +71,70 @@ func paintWidget(w, h int, widget headless.Widget) []string {
 	return paint(w, h, headless.NewRoot(widget).Draw)
 }
 
+// transcriptFrame is the one test path for establishing and drawing transcript
+// geometry. Tests deliberately go through Root rather than growing privileged
+// alternatives to the frame transaction used by applications.
+type transcriptFrame struct {
+	transcript *headless.Transcript
+	width      int
+	from       int
+	draw       bool
+	layout     headless.TranscriptLayout
+}
+
+func (f *transcriptFrame) Draw(frame headless.Frame) {
+	if f.draw {
+		width, height := frame.Size()
+		if width <= 0 || height <= 0 {
+			return
+		}
+	}
+	f.layout = f.transcript.Stage(frame, f.width)
+	if f.draw {
+		f.layout.Draw(frame.View, f.from)
+	}
+}
+
+func stageTranscript(transcript *headless.Transcript, width int) headless.TranscriptLayout {
+	frame := &transcriptFrame{transcript: transcript, width: width}
+	headless.NewRoot(frame).Draw(grid.NewSurface(max(width, 1), 1).View())
+	return frame.layout
+}
+
+func transcriptLayout(transcript *headless.Transcript) headless.TranscriptLayout {
+	width := 0
+	if transcript != nil {
+		width = transcript.Width()
+	}
+	return stageTranscript(transcript, width)
+}
+
+func drawTranscript(view grid.View, from int, transcript *headless.Transcript) {
+	width, _ := view.Size()
+	frame := &transcriptFrame{
+		transcript: transcript,
+		width:      width,
+		from:       from,
+		draw:       true,
+	}
+	headless.NewRoot(frame).Draw(view)
+}
+
+type scrollFrame struct {
+	scroll        *headless.Scroll
+	total, window int
+}
+
+func (f scrollFrame) Draw(frame headless.Frame) {
+	f.scroll.Stage(frame, f.total, f.window)
+}
+
+func stageScroll(scroll *headless.Scroll, total, window int) {
+	headless.NewRoot(scrollFrame{scroll: scroll, total: total, window: window}).Draw(
+		grid.NewSurface(1, max(window, 1)).View(),
+	)
+}
+
 func equalRows(t *testing.T, got, want []string) {
 	t.Helper()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -989,7 +1053,7 @@ func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 func TestAFreshScrollShowsTheStart(t *testing.T) {
 	// Which is what a list of items wants. Following is asked for, not assumed.
 	var s headless.Scroll
-	s.Layout(10, 5)
+	stageScroll(&s, 10, 5)
 	if s.AtBottom() || s.Offset() != 0 {
 		t.Fatalf("offset = %d, following = %v, want the start", s.Offset(), s.AtBottom())
 	}
@@ -997,12 +1061,12 @@ func TestAFreshScrollShowsTheStart(t *testing.T) {
 
 func TestAFollowingScrollStaysAtTheEndAsContentArrives(t *testing.T) {
 	var s headless.Scroll
-	s.Layout(10, 5)
+	stageScroll(&s, 10, 5)
 	s.ToBottom()
 	if got := s.Offset(); got != 5 {
 		t.Fatalf("offset = %d, want the last five rows shown", got)
 	}
-	s.Layout(20, 5)
+	stageScroll(&s, 20, 5)
 	if got := s.Offset(); got != 15 {
 		t.Fatalf("offset = %d, want to still be showing the end", got)
 	}
@@ -1010,12 +1074,12 @@ func TestAFollowingScrollStaysAtTheEndAsContentArrives(t *testing.T) {
 
 func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
 	var s headless.Scroll
-	s.Layout(100, 10)
+	stageScroll(&s, 100, 10)
 	s.ToBottom()
 	s.By(-20)
 	before := s.Offset()
 	// Ten more rows arrive while the reader is looking at something further up.
-	s.Layout(110, 10)
+	stageScroll(&s, 110, 10)
 	if got := s.Offset(); got != before {
 		t.Fatalf("offset moved from %d to %d as content arrived", before, got)
 	}
@@ -1026,7 +1090,7 @@ func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
 
 func TestScrollClampsToTheContent(t *testing.T) {
 	var s headless.Scroll
-	s.Layout(10, 5)
+	stageScroll(&s, 10, 5)
 	s.ToBottom()
 	s.By(-1000)
 	if got := s.Offset(); got != 0 {
@@ -1038,7 +1102,7 @@ func TestScrollClampsToTheContent(t *testing.T) {
 	}
 	// Content that shrank under a scrolled window must not leave it out of bounds.
 	s.By(-3)
-	s.Layout(6, 5)
+	stageScroll(&s, 6, 5)
 	if got := s.Offset(); got > 1 {
 		t.Fatalf("offset = %d, want it clamped to the smaller content", got)
 	}
@@ -1049,7 +1113,7 @@ func TestScrollMovementCannotWrapPastItsBounds(t *testing.T) {
 	minInt := -maxInt - 1
 
 	var s headless.Scroll
-	s.Layout(maxInt, 2)
+	stageScroll(&s, maxInt, 2)
 	s.By(maxInt)
 	if got := s.Offset(); got != maxInt-2 || !s.AtBottom() {
 		t.Fatalf("largest forward movement stopped at %d (following %v), want %d", got, s.AtBottom(), maxInt-2)
@@ -1071,7 +1135,7 @@ func TestScrollMovementCannotWrapPastItsBounds(t *testing.T) {
 
 func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
 	var s headless.Scroll
-	s.Layout(3, 10)
+	stageScroll(&s, 3, 10)
 	if got := s.Offset(); got != 0 {
 		t.Fatalf("offset = %d, want nothing hidden", got)
 	}
@@ -1083,7 +1147,7 @@ func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
 
 func TestScrollPagesKeepOneRowOfOverlap(t *testing.T) {
 	var s headless.Scroll
-	s.Layout(100, 10)
+	stageScroll(&s, 100, 10)
 	s.ToTop()
 	s.Pages(1)
 	// Nine rows, not ten: the reader needs one row they recognise on the other side
@@ -1096,7 +1160,7 @@ func TestScrollPagesKeepOneRowOfOverlap(t *testing.T) {
 func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
 	keys := headless.DefaultScrollKeys()
 	var s headless.Scroll
-	s.Layout(100, 10)
+	stageScroll(&s, 100, 10)
 	s.ToTop()
 
 	if !s.Handle(key(input.Down), keys) || s.Offset() != 1 {

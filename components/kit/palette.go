@@ -56,6 +56,9 @@ func (p Palette) Measure(int) int { return max(len(p.Found), 1) }
 
 // Draw writes the list into v, one command per row.
 func (p Palette) Draw(v grid.View) {
+	if v.Empty() {
+		return
+	}
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		return
@@ -67,10 +70,11 @@ func (p Palette) Draw(v grid.View) {
 
 	mark := p.marker()
 	marker := max(text.Width(mark), 0)
-	for y, found := range p.Found {
-		if y >= h {
-			return
-		}
+	visible := v.Visible()
+	first := min(max(visible.Min.Y, 0), len(p.Found))
+	last := min(max(visible.Max.Y, first), min(len(p.Found), h))
+	for y := first; y < last; y++ {
+		found := p.Found[y]
 		style := p.Theme.Text
 		if y == p.Selected {
 			style = p.Theme.Selection

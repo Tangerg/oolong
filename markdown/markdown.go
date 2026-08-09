@@ -99,6 +99,9 @@ func (d *Doc) Measure(width int) int { return len(d.wrap(width)) }
 
 // Draw writes the document, one wrapped row per row of v.
 func (d *Doc) Draw(v grid.View) {
+	if v.Empty() {
+		return
+	}
 	width, _ := v.Size()
 	drawRows(v, d.wrap(width))
 }

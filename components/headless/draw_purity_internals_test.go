@@ -271,15 +271,6 @@ func (*purityModal) Place(space image.Point) layout.Placement {
 	return layout.Placement{Width: min(space.X, 12), Height: min(space.Y, 3)}
 }
 
-type purityBlock struct {
-	text   string
-	height int
-}
-
-func (b *purityBlock) Draw(view grid.View) { view.Text(0, 0, b.text, grid.Style{}) }
-
-func (b *purityBlock) Measure(int) int { return max(b.height, 1) }
-
 type editorMeaning struct {
 	text         string
 	line, column int
@@ -425,7 +416,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	list.SetItems([]string{"one", "two", "three"})
 	list.Select(1)
 	list.Focus(true)
-	list.Scroll().Layout(3, 2)
+	stageScrollForTest(list.Scroll(), 3, 2)
 	listCase := widgetPurityCase("*List", list, func() any {
 		return struct {
 			selected int
@@ -443,7 +434,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	tree.Open(0)
 	tree.Select(1)
 	tree.Focus(true)
-	tree.Scroll().Layout(2, 2)
+	stageScrollForTest(tree.Scroll(), 2, 2)
 	treeCase := widgetPurityCase("*Tree", tree, func() any {
 		return struct {
 			selected int
@@ -474,7 +465,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	filter.SetPattern("alp")
 	filter.Select(1)
 	filter.Focus(true)
-	filter.Scroll().Layout(filter.Matched(), 2)
+	stageScrollForTest(filter.Scroll(), filter.Matched(), 2)
 	filterCase := widgetPurityCase("*Filter", filter, func() any {
 		return struct {
 			pattern  string
@@ -515,7 +506,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	viewportContent := &purityWidget{text: "tall", height: 8}
 	viewport := NewViewport(viewportContent)
-	viewport.Scroll().Layout(8, 3)
+	stageScrollForTest(viewport.Scroll(), 8, 3)
 	viewport.Scroll().By(2)
 	viewport.Focus(true)
 	viewportCase := widgetPurityCase("*Viewport", viewport, func() any {
@@ -545,20 +536,6 @@ func headlessDrawPurityCases() []drawPurityCase {
 	cases = append(cases, drawPurityCase{
 		name: "*Root", width: 24, height: 6, draw: root.Draw,
 		state: func() any { return rootChild.focused },
-	})
-
-	transcript := &Transcript{}
-	transcript.Resize(24)
-	transcript.Append(&purityBlock{text: "kept", height: 2})
-	cases = append(cases, drawPurityCase{
-		name: "*Transcript", width: 24, height: 2,
-		draw: func(view grid.View) { transcript.Draw(view, transcript.StartRow()) },
-		state: func() any {
-			return struct {
-				length, width, height, start int
-				first                        BlockID
-			}{transcript.Len(), transcript.Width(), transcript.Height(), transcript.StartRow(), transcript.FirstBlock()}
-		},
 	})
 
 	return cases

@@ -25,7 +25,33 @@ new optional `LocaleHost` capability. Clipboard read requests now report admissi
 `PasteHost.Paste`, `program.Clipboard.Paste`, `headless.Clipboard.Paste`, and
 `headless.Editor.Paste` return `bool`. There are no compatibility aliases.
 
+This round is also deliberately breaking. Frame-derived transcript and scroll
+geometry now has one public path: `Scroll.Layout`, `Transcript.Resize`,
+`Transcript.Layout`, and `Transcript.Draw` are removed in favour of `Stage` and the
+layout value it returns. Permanent inline output likewise has one path:
+`program.Printable` and `InlineRuntime.PrintRows` are removed; passive content shares
+the lower `grid.Drawable` contract, and both `grid.Inline.Print` and
+`InlineRuntime.Print` accept that object directly.
+`kit.Message` now implements passive content through a pointer so it can own its
+private wrap cache.
+
 ### Changed
+
+- **Passive content pays for visible work.** Paragraphs, code gutters, messages,
+  palettes, diffs, tables, line numbers, and Markdown all consume the clip already
+  carried by `grid.View` instead of walking hidden rows. On an M4 with 10,000 retained
+  rows and a 40-row viewport, steady-state code drawing falls from about 11 ms and
+  799 kB to 0.12 ms and 5 kB; a message falls from about 12 ms and 34 MB to 35 µs and
+  1.2 kB; and a 10,000-item palette falls from roughly 90–112 ms to 0.24 ms.
+
+- **Measurement and publication have one vocabulary.** `grid.Drawable` is the
+  lowest common measured-drawing contract. Headless blocks add lifetime meaning by
+  embedding it, while the runtime and kit printer consume it directly. Callers no
+  longer choose between a measured object and a separate row-count callback.
+
+- **Search closure settles ownership synchronously.** `Search.Close` now waits for
+  its worker to exit and for `Results` to close; it returns with no live corpus or
+  unread result retained.
 
 - **A diff owns and memoises its physical layout.** Hunks are copied on entry and all
   mutations invalidate one private width cache, so measurement and drawing consume
@@ -50,6 +76,8 @@ new optional `LocaleHost` capability. Clipboard read requests now report admissi
 - Example visual goldens can be deliberately regenerated with `go test -update`.
 - Regression gates cover diff layout reuse and retention, locale precedence and SSH
   propagation, clipboard request admission, and a thematic break used as list content.
+- Clipped-drawing benchmarks and tests cover large paragraphs, code, messages,
+  palettes, and table callbacks, keeping viewport cost tied to visible work.
 
 ### Fixed
 

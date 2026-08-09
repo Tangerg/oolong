@@ -36,12 +36,9 @@ type Scroll struct {
 	staged        *transaction
 }
 
-// Layout tells the scroll how much content there is and how much of it is shown.
-//
-// It runs once per frame, before anything is drawn. A following window moves to the
-// new end; a window that is not following keeps its place, clamped against content
-// that may have grown or shrunk since the last frame.
-func (s *Scroll) Layout(total, window int) {
+// layout updates committed bounds before an owner-side semantic operation. Drawing
+// uses Stage so new bounds become visible only with the complete root frame.
+func (s *Scroll) layout(total, window int) {
 	s.current.layout(total, window)
 }
 

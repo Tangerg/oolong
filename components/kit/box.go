@@ -108,6 +108,9 @@ func (b Box) Draw(v grid.View) grid.View {
 // interior rectangle they must stage with a headless frame; Draw remains the public
 // one-step path for passive content.
 func (b Box) paint(v grid.View) {
+	if v.Empty() {
+		return
+	}
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		return
@@ -121,34 +124,43 @@ func (b Box) paint(v grid.View) {
 }
 
 func (b Box) drawBorder(v grid.View, border Border, w, h int) {
+	visible := v.Visible()
 	// A box one column or one row deep has no room for two opposing edges. Drawing
 	// what fits and no more keeps a collapsing layout from looking corrupted.
-	if h >= 1 {
+	if h >= 1 && 0 >= visible.Min.Y && 0 < visible.Max.Y {
 		b.drawEdge(v, 0, w, border.TopLeft, border.Top, border.TopRight)
 	}
-	if h >= 2 {
+	bottom := h - 1
+	if h >= 2 && bottom >= visible.Min.Y && bottom < visible.Max.Y {
 		b.drawEdge(v, h-1, w, border.BottomLeft, border.Bottom, border.BottomRight)
 	}
-	for y := 1; y < h-1; y++ {
+	first := max(1, visible.Min.Y)
+	last := min(h-1, visible.Max.Y)
+	for y := first; y < last; y++ {
 		v.Text(0, y, border.Left, b.Theme.Border)
 		if w >= 2 {
 			v.Text(w-1, y, border.Right, b.Theme.Border)
 		}
 	}
-	if h >= 1 {
+	if h >= 1 && 0 >= visible.Min.Y && 0 < visible.Max.Y {
 		b.label(v, 0, w, b.Title, b.Theme.Heading, b.TitleAlign)
 	}
-	if h >= 2 {
+	if h >= 2 && bottom >= visible.Min.Y && bottom < visible.Max.Y {
 		b.label(v, h-1, w, b.Footer, b.Theme.Subtle, b.FooterAlign)
 	}
 }
 
 func (b Box) drawEdge(v grid.View, y, w int, left, mid, right string) {
-	v.Text(0, y, left, b.Theme.Border)
-	for x := 1; x < w-1; x++ {
+	visible := v.Visible()
+	if visible.Min.X <= 0 && visible.Max.X > 0 {
+		v.Text(0, y, left, b.Theme.Border)
+	}
+	first := max(1, visible.Min.X)
+	last := min(w-1, visible.Max.X)
+	for x := first; x < last; x++ {
 		v.Text(x, y, mid, b.Theme.Border)
 	}
-	if w >= 2 {
+	if w >= 2 && w-1 >= visible.Min.X && w-1 < visible.Max.X {
 		v.Text(w-1, y, right, b.Theme.Border)
 	}
 }

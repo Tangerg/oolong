@@ -38,6 +38,9 @@ func (b Block) Measure(width int) int { return len(b.appendRows(nil, width)) }
 // Draw writes the block into v. It excludes any blank row before the block, because
 // only the composer knows whether a preceding block exists.
 func (b Block) Draw(v grid.View) {
+	if v.Empty() {
+		return
+	}
 	width, _ := v.Size()
 	drawRows(v, b.appendRows(nil, width))
 }
@@ -102,11 +105,11 @@ func appendWrapped(dst []row, line text.Line, width int) []row {
 }
 
 func drawRows(v grid.View, rows []row) {
-	_, height := v.Size()
-	for y, r := range rows {
-		if y >= height {
-			return
-		}
+	visible := v.Visible()
+	first := min(max(visible.Min.Y, 0), len(rows))
+	last := min(max(visible.Max.Y, first), len(rows))
+	for y := first; y < last; y++ {
+		r := rows[y]
 		if len(r.prefix) > 0 {
 			r.prefix.Draw(v, r.at-r.prefix.Width(), y)
 		}

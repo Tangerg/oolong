@@ -13,7 +13,7 @@ func (identityBlock) Draw(grid.View)  {}
 
 func TestTranscriptIdentityExhaustionCannotReuseAnOldIdentity(t *testing.T) {
 	transcript := Transcript{transcriptState: transcriptState{first: exhaustedBlockID - 1}}
-	transcript.Resize(1)
+	stageTranscriptForTest(&transcript, 1)
 	id := transcript.Append(identityBlock{})
 	if id != exhaustedBlockID-1 {
 		t.Fatalf("last identity = %d, want %d", id, exhaustedBlockID-1)

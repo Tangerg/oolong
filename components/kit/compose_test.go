@@ -257,6 +257,24 @@ func TestAMessageCanBeCopiedWithoutCopyingItsVisualGutter(t *testing.T) {
 	}
 }
 
+func TestMessageMutationInvalidatesItsPrivateWrap(t *testing.T) {
+	old := grid.Style{FG: grid.RGBColor(1, 2, 3)}
+	newStyle := grid.Style{FG: grid.RGBColor(4, 5, 6)}
+	message := kit.Message{Body: "old body", Theme: kit.Theme{Text: old}}
+	message.Measure(20)
+
+	message.Body = "new body"
+	message.Theme.Text = newStyle
+	surface := grid.NewSurface(20, message.Measure(20))
+	message.Draw(surface.View())
+	if got := rowOf(surface.View(), 0, 20); !strings.HasPrefix(got, "new body") || strings.Contains(got, "old") {
+		t.Fatalf("drawn body = %q, want only the replacement", got)
+	}
+	if got := cellAt(surface, 0, 0).Style; got != newStyle {
+		t.Fatalf("drawn style = %+v, want %+v", got, newStyle)
+	}
+}
+
 func TestADialogIsAModalTheStackCanDrive(_ *testing.T) {
 	// The contract is the point: the appearance half has to satisfy the interface
 	// the behaviour half drives, or neither is any use.

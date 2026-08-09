@@ -83,6 +83,18 @@ func TestBoxFramesAndReportsWhatIsLeft(t *testing.T) {
 	})
 }
 
+func TestBoxDrawsAClippedMiddleWithoutInventingEdges(t *testing.T) {
+	box := kit.Box{Glyphs: kit.Unicode()}
+	rows := paint(8, 3, func(view grid.View) {
+		box.Draw(view.Sub(grid.Rect(0, -50, 8, 100)))
+	})
+	equalRows(t, rows, []string{
+		"│......│",
+		"│......│",
+		"│......│",
+	})
+}
+
 // TestBoxGeometryAgreesWithItself sweeps every small size a collapsing layout can
 // hand a box.
 //
@@ -585,6 +597,36 @@ func TestTableLayoutOwnsTheColumnDefinitionItMeasured(t *testing.T) {
 	}
 }
 
+func TestTableDrawsOnlyRowsInsideTheClip(t *testing.T) {
+	var styled, painted []int
+	table := kit.Table{
+		Columns: []kit.Column{{Size: layout.Fixed(8)}},
+		Rows:    100,
+		RowStyle: func(row int) grid.Style {
+			styled = append(styled, row)
+			return grid.Style{}
+		},
+		Cell: func(row, _ int) kit.Cell {
+			painted = append(painted, row)
+			return kit.Cell{}
+		},
+	}
+	surface := grid.NewSurface(8, 3)
+	table.Draw(surface.View().Sub(grid.Rect(0, -50, 8, 100)))
+
+	want := []int{50, 51, 52}
+	if !reflect.DeepEqual(styled, want) {
+		t.Fatalf("styled rows = %v, want %v", styled, want)
+	}
+	if !reflect.DeepEqual(painted, want) {
+		t.Fatalf("painted rows = %v, want %v", painted, want)
+	}
+	table.Draw(surface.View().Sub(grid.Rect(0, -200, 8, 100)))
+	if !reflect.DeepEqual(styled, want) || !reflect.DeepEqual(painted, want) {
+		t.Fatal("a fully clipped table evaluated hidden rows")
+	}
+}
+
 func TestTableFlexibleColumnsHaveAFloor(t *testing.T) {
 	table := kit.Table{Columns: []kit.Column{
 		{Size: layout.Fixed(8)}, {Size: layout.Flex(1).AtLeast(4)},
@@ -929,7 +971,7 @@ func TestParagraphDoesNotLinkATruncatedRow(t *testing.T) {
 func TestParagraphCopiesAsAParagraph(t *testing.T) {
 	var tr headless.Transcript
 	p := kit.NewParagraph("the quick brown fox jumps over it\nand a second line", grid.Style{})
-	tr.Resize(12)
+	stageContent(&tr, 12)
 	tr.Append(p)
 
 	if tr.Height() < 4 {
@@ -952,7 +994,7 @@ func TestParagraphCopiesAsAParagraph(t *testing.T) {
 func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 	const word = "supercalifragilisticexpialidocious"
 	var tr headless.Transcript
-	tr.Resize(10)
+	stageContent(&tr, 10)
 	tr.Append(kit.NewParagraph(word, grid.Style{}))
 
 	var s headless.Selection

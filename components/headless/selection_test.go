@@ -26,7 +26,7 @@ func (l *lines) Draw(v grid.View) {
 // text is a transcript of one block with the given rows.
 func transcriptOf(rows ...text.Row) *headless.Transcript {
 	var tr headless.Transcript
-	tr.Resize(80)
+	stageTranscript(&tr, 80)
 	tr.Append(&lines{rows: rows})
 	return &tr
 }
@@ -239,7 +239,7 @@ func TestSelectionCopiesRowsOfBlocksItCannotRead(t *testing.T) {
 	// A block that cannot be copied still occupies its rows, so the copy has as many
 	// lines as the user dragged over.
 	var tr headless.Transcript
-	tr.Resize(80)
+	stageTranscript(&tr, 80)
 	tr.Append(&lines{rows: plainRows("before")})
 	tr.Append(&plain{lines: 2})
 	tr.Append(&lines{rows: plainRows("after")})
@@ -275,7 +275,7 @@ func TestSelectionCopiesNothingWhenThereIsNothingToCopy(t *testing.T) {
 
 func TestSelectionClipsACommittedStartWithoutReusingItsColumn(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(80)
+	stageTranscript(&tr, 80)
 	old := tr.Append(&lines{rows: plainRows("old")})
 	tr.Append(&lines{rows: plainRows("live")})
 	tr.Finish(old)

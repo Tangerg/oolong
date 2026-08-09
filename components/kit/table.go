@@ -191,20 +191,31 @@ func (t Table) Measure(int) int {
 
 // Draw paints the header and as many rows as fit.
 func (t Table) Draw(v grid.View) {
+	if v.Empty() {
+		return
+	}
 	width, height := v.Size()
 	if width <= 0 || height <= 0 || len(t.Columns) == 0 {
 		return
 	}
-	y := 0
 	columns := t.Layout(width)
+	visible := v.Visible()
+	first := min(max(visible.Min.Y, 0), height)
+	last := min(max(visible.Max.Y, first), height)
+	header := 0
 	if t.Header {
+		header = 1
+	}
+	if t.Header && first == 0 && last > 0 {
 		columns.Titles(v)
-		y++
 	}
 	if t.Cell == nil {
 		return
 	}
-	for row := 0; row < t.Rows && y < height; row, y = row+1, y+1 {
+	firstRow := min(max(first-header, 0), max(t.Rows, 0))
+	lastRow := min(max(last-header, firstRow), max(t.Rows, 0))
+	for row := firstRow; row < lastRow; row++ {
+		y := row + header
 		var band grid.Style
 		if t.RowStyle != nil {
 			band = t.RowStyle(row)

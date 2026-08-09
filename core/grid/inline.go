@@ -184,23 +184,20 @@ func (i *Inline) Frame() View {
 // text they came to. They reach the terminal with the next flush, before the block,
 // which is what puts them above it.
 //
-// It takes a count rather than working one out because output can be taller than
-// the terminal — a long answer printed into the scrollback is the ordinary case —
-// and a caller that has laid its content out already knows how tall it is. Every
-// row asked for is printed, so a blank row is a blank row and not slack.
-//
 // Whole rows, each on a row of its own: a row left open by [Inline.Append] is finished
 // first, because what follows it is not part of it. Output arriving in pieces that do
 // not stop at a line boundary is that other method's business.
-func (i *Inline) Print(rows int, draw func(View)) {
-	if rows <= 0 {
+func (i *Inline) Print(content Drawable) {
+	if content == nil {
 		return
 	}
 	w, _ := i.back.Size()
-	i.scratch.Resize(w, rows)
-	if draw != nil {
-		draw(i.scratch.View())
+	rows := content.Measure(w)
+	if rows <= 0 {
+		return
 	}
+	i.scratch.Resize(w, rows)
+	content.Draw(i.scratch.View())
 	for y := range rows {
 		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.row(y), i.depth)})
 	}

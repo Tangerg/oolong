@@ -1435,7 +1435,6 @@ func TestZeroRuntimesAreInert(t *testing.T) {
 
 	var inline program.InlineRuntime
 	inline.Print(nil)
-	inline.PrintRows(1, func(grid.View) { t.Fatal("zero inline runtime drew") })
 	inline.Append(func(grid.View) bool {
 		t.Fatal("zero inline runtime appended")
 		return false
@@ -1747,7 +1746,10 @@ func TestAnInlineInterfaceNeverNamesARowOfTheTerminal(t *testing.T) {
 func TestPrintedOutputReachesTheTerminalAboveTheInterface(t *testing.T) {
 	h, root, done := startInline(t)
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.PrintRows(1, func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) })
+		root.runtime.Print(measurer{
+			measure: func(int) int { return 1 },
+			draw:    func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) },
+		})
 	})
 	waitFor(t, done, h, "the printed row", func() bool {
 		return strings.Contains(h.frames.String(), "finished")
@@ -1771,7 +1773,10 @@ func TestPrintedOutputIsNotLostToTheExit(t *testing.T) {
 	// the answer, then stop. Pacing must not be able to swallow the answer.
 	h, root, done := startInline(t)
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.PrintRows(1, func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) })
+		root.runtime.Print(measurer{
+			measure: func(int) int { return 1 },
+			draw:    func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) },
+		})
 		root.runtime.Quit()
 	})
 	if err := <-done; err != nil {
@@ -1800,7 +1805,7 @@ func TestTheLastStateOfAnInlineInterfaceIsWhatStays(t *testing.T) {
 	}
 }
 
-// measurer is a Printable built from two functions.
+// measurer is a grid.Drawable built from two functions.
 type measurer struct {
 	measure func(width int) int
 	draw    func(v grid.View)

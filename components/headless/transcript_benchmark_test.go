@@ -24,7 +24,7 @@ func (benchmarkBlock) Draw(grid.View) {}
 // this benchmark reports the ongoing time and allocation cost per transferred block.
 func BenchmarkTranscriptCommittedStream(b *testing.B) {
 	var transcript Transcript
-	transcript.Resize(80)
+	stageTranscriptForTest(&transcript, 80)
 	block := benchmarkBlock{bytes: 4 << 10}
 
 	b.ReportAllocs()
@@ -37,10 +37,10 @@ func BenchmarkTranscriptCommittedStream(b *testing.B) {
 	}
 }
 
-// BenchmarkTranscriptRetainedResize measures the real frame transaction used by a
+// BenchmarkTranscriptRetainedReflow measures the real frame transaction used by a
 // retained transcript. Alternating widths forces a complete reflow; the block count
 // scale makes accidental work proportional to session history visible.
-func BenchmarkTranscriptRetainedResize(b *testing.B) {
+func BenchmarkTranscriptRetainedReflow(b *testing.B) {
 	for _, blocks := range []int{100, 10_000} {
 		b.Run(fmt.Sprintf("blocks=%d", blocks), func(b *testing.B) {
 			var transcript Transcript

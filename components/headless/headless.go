@@ -85,8 +85,7 @@ type Sized interface {
 // block is committed, it can leave the active component tree without carrying a frame
 // transaction or interaction lifecycle with it.
 type Block interface {
-	Draw(view grid.View)
-	layout.Measurer
+	grid.Drawable
 }
 
 // RowGutter draws decoration beside visual text rows.

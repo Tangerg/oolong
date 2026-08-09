@@ -220,7 +220,7 @@ func TestClearingSearchCancelsAnUnreadAnswer(t *testing.T) {
 // worth nothing, so a burst produces one answer and it is the last one.
 func TestSearchAnswersTheNewestQuery(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(80)
+	stageTranscript(&tr, 80)
 	for range 200 {
 		tr.Append(&lines{rows: plainRows("the cat sat on the mat with another cat")})
 	}
@@ -240,7 +240,7 @@ func TestSearchAnswersTheNewestQuery(t *testing.T) {
 // scan does not change the scan's linear complexity and leaves ownership unambiguous.
 func TestSearchDoesNotOwnTheTranscriptBetweenScans(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(80)
+	stageTranscript(&tr, 80)
 	counted := &counting{rows: plainRows("the cat sat")}
 	tr.Append(counted)
 	s := searching(t)
@@ -267,7 +267,7 @@ func TestSearchDoesNotOwnTheTranscriptBetweenScans(t *testing.T) {
 
 func TestSearchReportsRowsInTheLiveCoordinateSpaceAfterCommit(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(80)
+	stageTranscript(&tr, 80)
 	first := tr.Append(&lines{rows: plainRows("finished")})
 	tr.Append(&lines{rows: plainRows("find the needle")})
 	tr.Finish(first)
@@ -296,6 +296,20 @@ func TestSearchCloseIsSafeTwice(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("the result stream remained open after Search.Close")
+	}
+}
+
+func TestSearchCloseSettlesItsResultStreamBeforeReturning(t *testing.T) {
+	s := headless.NewSearch()
+	s.Close()
+
+	select {
+	case _, ok := <-s.Results():
+		if ok {
+			t.Fatal("a closed search produced a result")
+		}
+	default:
+		t.Fatal("Close returned before the result stream closed")
 	}
 }
 

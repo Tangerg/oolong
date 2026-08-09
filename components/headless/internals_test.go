@@ -282,7 +282,7 @@ func (b *retainedBlock) Rows(int) []text.Row {
 
 func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {
 	var transcript Transcript
-	transcript.Resize(80)
+	stageTranscriptForTest(&transcript, 80)
 	ids := make([]BlockID, 1024)
 	for i := range ids {
 		ids[i] = transcript.Append(&retainedBlock{payload: []byte{byte(i)}})
@@ -335,17 +335,24 @@ func TestTranscriptCommittedHeapDoesNotFollowSessionAge(t *testing.T) {
 }
 
 func TestSearchOwnsPendingInputAndCloseReleasesIt(t *testing.T) {
-	// There is deliberately no worker: this test is about the private ownership cut,
-	// and keeping the mailbox pending makes that cut deterministic.
+	// There is deliberately no scanner: this test is about the private ownership cut,
+	// and keeping the mailbox pending makes that cut deterministic. The small lifetime
+	// goroutine still closes the result and completion signals exactly as run does.
 	s := &Search{
 		wake:    make(chan struct{}, 1),
 		results: make(chan Result, 1),
 		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
 	}
+	go func() {
+		<-s.stop
+		close(s.results)
+		close(s.done)
+	}()
 	backing := strings.Repeat("discarded ", 1024) + "needle"
 	query := backing[len(backing)-len("needle"):]
 	var transcript Transcript
-	transcript.Resize(80)
+	stageTranscriptForTest(&transcript, 80)
 	transcript.Append(&retainedBlock{payload: []byte("needle")})
 	s.Submit(&transcript, query, false)
 	if unsafe.StringData(s.next.query) == unsafe.StringData(query) { //nolint:gosec // compare ownership; no pointer is dereferenced.
@@ -399,7 +406,7 @@ func transcriptHeapProbe(t *testing.T) {
 		t.Fatalf("invalid block count %q", os.Getenv("OOLONG_TRANSCRIPT_BLOCKS"))
 	}
 	var transcript Transcript
-	transcript.Resize(80)
+	stageTranscriptForTest(&transcript, 80)
 	for range blocks {
 		id := transcript.Append(&retainedBlock{payload: make([]byte, 64<<10)})
 		transcript.Finish(id)

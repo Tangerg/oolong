@@ -60,7 +60,7 @@ func (p *plain) Draw(v grid.View) { v.Text(0, 0, "plain", grid.Style{}) }
 
 func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(40)
+	stageTranscript(&tr, 40)
 	a, b, c := &block{name: "a", lines: 3}, &block{name: "b", lines: 1}, &block{name: "c", lines: 4}
 	tr.Append(a)
 	tr.Append(b)
@@ -83,7 +83,7 @@ func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 func TestTranscriptRowCoordinatesCannotWrap(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	var tr headless.Transcript
-	tr.Resize(40)
+	stageTranscript(&tr, 40)
 	id := tr.Append(&plain{lines: maxInt})
 
 	if got := tr.Height(); got != maxInt {
@@ -99,7 +99,7 @@ func TestTranscriptRowCoordinatesCannotWrap(t *testing.T) {
 
 func TestTranscriptFindsTheBlockAtARow(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(40)
+	stageTranscript(&tr, 40)
 	for _, lines := range []int{3, 1, 4} {
 		tr.Append(&block{name: "x", lines: lines})
 	}
@@ -133,7 +133,7 @@ func TestTranscriptFindsTheBlockAtARow(t *testing.T) {
 // any of a run that shares one, and only one of them owns the row.
 func TestTranscriptSkipsBlocksWithNoHeight(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(40)
+	stageTranscript(&tr, 40)
 	tr.Append(&block{name: "first", lines: 2})
 	tr.Append(&block{name: "empty", lines: 0})
 	tr.Append(&block{name: "also empty", lines: 0})
@@ -150,7 +150,7 @@ func TestTranscriptSkipsBlocksWithNoHeight(t *testing.T) {
 // structure exists to avoid.
 func TestTranscriptOnlyMeasuresWhatMoved(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(40)
+	stageTranscript(&tr, 40)
 	var blocks []*block
 	var lastID headless.BlockID
 	for i := range 50 {
@@ -180,9 +180,9 @@ func TestTranscriptOnlyMeasuresWhatMoved(t *testing.T) {
 	}
 }
 
-func TestTranscriptResizeMeasuresEverythingOnce(t *testing.T) {
+func TestTranscriptReflowMeasuresEverythingOnce(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(40)
+	stageTranscript(&tr, 40)
 	var blocks []*block
 	for i := range 5 {
 		b := &block{name: fmt.Sprintf("b%d", i), lines: 2}
@@ -193,7 +193,7 @@ func TestTranscriptResizeMeasuresEverythingOnce(t *testing.T) {
 		b.measure = 0
 	}
 
-	if got := tr.Resize(8); got != 5*4 {
+	if got := stageTranscript(&tr, 8).Height(); got != 5*4 {
 		t.Errorf("rows at the narrower width = %d, want %d", got, 5*4)
 	}
 	for i, b := range blocks {
@@ -207,7 +207,7 @@ func TestTranscriptResizeMeasuresEverythingOnce(t *testing.T) {
 	for _, b := range blocks {
 		b.measure = 0
 	}
-	tr.Resize(8)
+	stageTranscript(&tr, 8)
 	for i, b := range blocks {
 		if b.measure != 0 {
 			t.Errorf("block %d was measured again for a width it already had", i)
@@ -217,7 +217,7 @@ func TestTranscriptResizeMeasuresEverythingOnce(t *testing.T) {
 
 func TestTranscriptDrawsOnlyWhatTheWindowTouches(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	for i := range 6 {
 		tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 2})
 	}
@@ -235,13 +235,13 @@ func TestTranscriptDrawsOnlyWhatTheWindowTouches(t *testing.T) {
 // discarded — which is what makes a block not need to know it is partly visible.
 func TestTranscriptDrawsAcrossItsOwnEdges(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 4})
 	tr.Append(&block{name: "b", lines: 4})
 
 	// Three rows, starting two into the first block.
 	s := grid.NewSurface(20, 3)
-	tr.Draw(s.View(), 2)
+	drawTranscript(s.View(), 2, &tr)
 
 	want := []string{"a:2", "a:3", "b:0"}
 	for y, text := range want {
@@ -253,14 +253,14 @@ func TestTranscriptDrawsAcrossItsOwnEdges(t *testing.T) {
 
 func TestTranscriptDrawsNothingIntoNoSpace(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 2})
 
 	// A view with nowhere to draw is handed to the blocks not at all, rather than
 	// each of them being left to notice. The zero view is the one a container gives
 	// a child it had no room for.
-	tr.Draw(grid.NewSurface(0, 0).View(), 0)
-	tr.Draw(grid.View{}, 0)
+	drawTranscript(grid.NewSurface(0, 0).View(), 0, &tr)
+	drawTranscript(grid.View{}, 0, &tr)
 
 	// And the transcript itself is unchanged by having been asked.
 	if got := tr.Height(); got != 2 {
@@ -270,7 +270,7 @@ func TestTranscriptDrawsNothingIntoNoSpace(t *testing.T) {
 
 func TestTranscriptTextIsTheRowsAndNothingElse(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 2})
 	tr.Append(&block{name: "b", lines: 2})
 
@@ -290,7 +290,7 @@ func TestTranscriptTextIsTheRowsAndNothingElse(t *testing.T) {
 // across one has to come out with as many lines as the user dragged over.
 func TestTranscriptTextKeepsTheRowsOfBlocksItCannotCopy(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 1})
 	tr.Append(&plain{lines: 2})
 	tr.Append(&block{name: "b", lines: 1})
@@ -309,7 +309,7 @@ func TestTranscriptTextKeepsTheRowsOfBlocksItCannotCopy(t *testing.T) {
 
 func TestTranscriptTextClampsToWhatExists(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 2})
 
 	if got := tr.Rows(0, 10); len(got) != 2 {
@@ -331,14 +331,14 @@ func TestTranscriptWithoutAWidthMeasuresNothing(t *testing.T) {
 	if got := tr.Height(); got != 0 {
 		t.Errorf("rows = %d before any width was set, want 0", got)
 	}
-	if got := tr.Resize(20); got != 3 {
+	if got := stageTranscript(&tr, 20).Height(); got != 3 {
 		t.Errorf("rows = %d once a width was set, want 3", got)
 	}
 }
 
 func TestTranscriptIgnoresWhatItCannotHold(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(nil)
 	if got := tr.Len(); got != 0 {
 		t.Errorf("a nil block was appended anyway: length %d", got)
@@ -373,7 +373,7 @@ func rowText(v grid.View, y int) string {
 
 func TestTranscriptEdges(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 2})
 
 	if got := tr.Width(); got != 20 {
@@ -401,7 +401,7 @@ func TestTranscriptEdges(t *testing.T) {
 	// Drawing a window that starts past everything writes nothing rather than
 	// reaching for a block that is not there.
 	s := grid.NewSurface(20, 2)
-	tr.Draw(s.View(), 99)
+	drawTranscript(s.View(), 99, &tr)
 	if got := rowText(s.View(), 0); got != "" {
 		t.Errorf("a window past the end drew %q", got)
 	}
@@ -424,7 +424,7 @@ func TestTranscriptOfNothingAtAll(t *testing.T) {
 	if first != 0 || last != 0 {
 		t.Errorf("Visible = [%d,%d), want [0,0)", first, last)
 	}
-	tr.Draw(grid.NewSurface(10, 2).View(), 0)
+	drawTranscript(grid.NewSurface(10, 2).View(), 0, &tr)
 	if got := tr.Rows(0, 4); got != nil {
 		t.Errorf("Rows = %q, want nothing", rowTexts(got))
 	}
@@ -434,7 +434,7 @@ func TestTranscriptFindsRowsAcrossManyBlocks(t *testing.T) {
 	// Enough blocks that the bisection has to go both ways, and every row checked
 	// against the block it must belong to.
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	const blocks, lines = 9, 3
 	for i := range blocks {
 		tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: lines})
@@ -457,13 +457,13 @@ func TestTranscriptFindsRowsAcrossManyBlocks(t *testing.T) {
 // rows, so it is neither drawn nor counted, and the rows after it do not shift.
 func TestTranscriptStepsOverEmptyBlocksWhileDrawing(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 1})
 	tr.Append(&block{name: "gone", lines: 0})
 	tr.Append(&block{name: "b", lines: 1})
 
 	s := grid.NewSurface(20, 2)
-	tr.Draw(s.View(), 0)
+	drawTranscript(s.View(), 0, &tr)
 	for y, want := range []string{"a:0", "b:0"} {
 		if got := rowText(s.View(), y); got != want {
 			t.Errorf("row %d = %q, want %q", y, got, want)
@@ -484,7 +484,7 @@ func (s *short) Rows(int) []text.Row { return []text.Row{{Text: "only one"}} }
 
 func TestTranscriptTextSurvivesABlockThatSaysTooLittle(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&short{rows: 3})
 
 	got := rowTexts(tr.Rows(0, 3))
@@ -528,7 +528,7 @@ func TestScrollRevealMovesAsLittleAsItCan(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var s headless.Scroll
-			s.Layout(100, 5)
+			stageScroll(&s, 100, 5)
 			s.By(tc.offset)
 			s.Reveal(tc.row)
 			if got := s.Offset(); got != tc.wantOffset {
@@ -542,7 +542,7 @@ func TestScrollRevealStopsFollowing(t *testing.T) {
 	// A row was asked for, and following the end would scroll away from it at once.
 	var s headless.Scroll
 	s.ToBottom()
-	s.Layout(100, 5)
+	stageScroll(&s, 100, 5)
 	if !s.AtBottom() {
 		t.Fatal("not following to begin with")
 	}
@@ -559,7 +559,7 @@ func TestScrollRevealRangeShowsWhereReadingBegins(t *testing.T) {
 	// A match taller than the window: its start wins, or the reader is shown the end
 	// of something and left to scroll back for what it was part of.
 	var s headless.Scroll
-	s.Layout(100, 3)
+	stageScroll(&s, 100, 3)
 	s.RevealRange(20, 40)
 	if got := s.Offset(); got != 20 {
 		t.Errorf("offset = %d, want the start of the range", got)
@@ -574,7 +574,7 @@ func TestScrollRevealRangeShowsWhereReadingBegins(t *testing.T) {
 
 func TestScrollRevealBackwardsRangeIsTheSameRange(t *testing.T) {
 	var s headless.Scroll
-	s.Layout(100, 5)
+	stageScroll(&s, 100, 5)
 	s.RevealRange(40, 20)
 	if got := s.Offset(); got != 20 {
 		t.Errorf("offset = %d, want 20", got)
@@ -596,7 +596,7 @@ func TestScrollTakesTheTerminalsWordForWhatANotchIs(t *testing.T) {
 	keys := headless.DefaultScrollKeys()
 	notch := func(w input.Wheel) int {
 		var s headless.Scroll
-		s.Layout(1000, 10)
+		stageScroll(&s, 1000, 10)
 		s.ToTop()
 		s.Wheel(w)
 		for range w.Reports {
@@ -637,7 +637,7 @@ func (p *printer) print(b headless.Block, rows int) bool {
 // has to wait — giving it over first would put the answer above the question.
 func TestOnlyTheLeadingRunIsCommitted(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	for i := range 4 {
 		tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 2})
 	}
@@ -668,7 +668,7 @@ func TestOnlyTheLeadingRunIsCommitted(t *testing.T) {
 // program cannot take it back.
 func TestABlockGoesOnce(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	b := &block{name: "only", lines: 2}
 	tr.Append(b)
 	tr.Finish(0)
@@ -688,7 +688,7 @@ func TestABlockGoesOnce(t *testing.T) {
 
 func TestARefusalStopsTheRun(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	for i := range 3 {
 		id := tr.Append(&block{name: fmt.Sprintf("b%d", i), lines: 1})
 		tr.Finish(id)
@@ -709,7 +709,7 @@ func TestARefusalStopsTheRun(t *testing.T) {
 // again would show it twice.
 func TestACommittedBlockIsNoLongerDrawn(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "gone", lines: 2})
 	tr.Append(&block{name: "here", lines: 2})
 	tr.Finish(0)
@@ -718,7 +718,7 @@ func TestACommittedBlockIsNoLongerDrawn(t *testing.T) {
 	tr.Commit(p.print)
 
 	s := grid.NewSurface(20, 4)
-	tr.Draw(s.View(), tr.StartRow())
+	drawTranscript(s.View(), tr.StartRow(), &tr)
 	for y, want := range []string{"here:0", "here:1"} {
 		if got := rowText(s.View(), y); got != want {
 			t.Errorf("row %d = %q, want %q", y, got, want)
@@ -728,7 +728,7 @@ func TestACommittedBlockIsNoLongerDrawn(t *testing.T) {
 
 func TestStartRowIsWhereWhatIsLeftBegins(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 3})
 	tr.Append(&block{name: "b", lines: 2})
 
@@ -754,7 +754,7 @@ func TestStartRowIsWhereWhatIsLeftBegins(t *testing.T) {
 
 func TestFinishIgnoresWhatIsNotThere(t *testing.T) {
 	var tr headless.Transcript
-	tr.Resize(20)
+	stageTranscript(&tr, 20)
 	tr.Append(&block{name: "a", lines: 1})
 	tr.Finish(^headless.BlockID(0))
 	tr.Finish(9)

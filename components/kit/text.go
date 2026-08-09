@@ -117,12 +117,16 @@ func (p *Paragraph) Measure(width int) int { return len(p.rows(width)) }
 
 // Draw writes the paragraph, one wrapped row per row of v.
 func (p *Paragraph) Draw(v grid.View) {
-	w, h := v.Size()
+	if v.Empty() {
+		return
+	}
+	w, _ := v.Size()
 	rows := p.rows(w)
-	for y, r := range rows {
-		if y >= h {
-			return
-		}
+	visible := v.Visible()
+	first := min(max(visible.Min.Y, 0), len(rows))
+	last := min(max(visible.Max.Y, first), len(rows))
+	for y := first; y < last; y++ {
+		r := rows[y]
 		r.Draw(v, p.Indent, y)
 		if p.Links {
 			p.stamp(v, y, r)
@@ -180,9 +184,26 @@ func hyperlinkTarget(l link.Link) string {
 // breaks a word in half.
 func (p *Paragraph) Rows(width int) []text.Row {
 	rows := p.rows(width)
-	out := make([]text.Row, 0, len(rows))
+	return p.projectRows(rows, 0, len(rows))
+}
+
+// textRows projects only [first,last) from the cached wrap. Code uses it for a
+// clipped gutter so a small viewport does not allocate public rows for hidden text.
+func (p *Paragraph) textRows(width, first, last int) []text.Row {
+	rows := p.rows(width)
+	return p.projectRows(rows, first, last)
+}
+
+func (p *Paragraph) projectRows(rows []row, first, last int) []text.Row {
+	first = min(max(first, 0), len(rows))
+	last = min(max(last, first), len(rows))
+	out := make([]text.Row, 0, last-first)
 	prevTo, prevLine := 0, -1
-	for _, r := range rows {
+	if first > 0 {
+		previous := rows[first-1]
+		prevTo, prevLine = previous.To, previous.line
+	}
+	for _, r := range rows[first:last] {
 		row := text.Row{
 			Text: r.Line.String(), Offset: p.Indent, Line: r.line + 1, Joined: r.Joined,
 		}

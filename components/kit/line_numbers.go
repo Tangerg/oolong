@@ -37,15 +37,19 @@ func (n LineNumbers) Width(lines int) int {
 
 // Draw paints one number for each logical line beginning in rows.
 func (n LineNumbers) Draw(view grid.View, rows []text.Row) {
+	if view.Empty() {
+		return
+	}
 	width, height := view.Size()
 	if width <= 0 || height <= 0 {
 		return
 	}
 	digits := layout.Remaining(width, text.Width(n.Separator), n.gap())
-	for y, row := range rows {
-		if y >= height {
-			return
-		}
+	visible := view.Visible()
+	first := min(max(visible.Min.Y, 0), len(rows))
+	last := min(max(visible.Max.Y, first), min(len(rows), height))
+	for y := first; y < last; y++ {
+		row := rows[y]
 		if row.Line <= 0 || row.Joined {
 			continue
 		}

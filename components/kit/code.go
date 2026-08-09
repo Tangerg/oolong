@@ -52,17 +52,19 @@ func (c *Code) Measure(width int) int {
 
 // Draw paints the number gutter and source text.
 func (c *Code) Draw(view grid.View) {
-	if c == nil {
+	if c == nil || view.Empty() {
 		return
 	}
 	width, height := view.Size()
 	gutter := min(c.gutterWidth(), max(width, 0))
 	contentWidth := layout.Remaining(width, gutter)
 	if gutter > 0 {
-		rows := c.body.Rows(contentWidth)
-		rows = rows[:min(len(rows), max(height, 0))]
+		visible := view.Visible()
+		first := min(max(visible.Min.Y, 0), max(height, 0))
+		last := min(max(visible.Max.Y, first), max(height, 0))
+		rows := c.body.textRows(contentWidth, first, last)
 		c.Gutter.Draw(
-			view.Sub(grid.Rect(0, 0, gutter, height)),
+			view.Sub(grid.Rect(0, first, gutter, last-first)),
 			rows,
 		)
 	}

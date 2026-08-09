@@ -155,14 +155,14 @@ func (a *agent) answerReview(approved bool) {
 		return
 	}
 	a.status.Doing = "tool call denied"
-	a.conversation.Append(kit.Message{
+	a.conversation.Append(&kit.Message{
 		Theme: a.theme, Speaker: "tool", Body: request.proposal.Path + " — denied",
 	})
 }
 
 func (a *agent) showTool(result toolResult) {
 	a.conversation.FlushMarkdown()
-	a.conversation.Append(kit.Message{
+	a.conversation.Append(&kit.Message{
 		Theme: a.theme, Speaker: result.Name, Body: oneLine(result.Summary),
 	})
 	shown := kit.NewDiff(a.theme, a.glyphs,

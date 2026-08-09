@@ -35,11 +35,39 @@ func (s *said) Rows(int) []text.Row {
 func session(t *testing.T, width int, blocks ...[]string) *headless.Transcript {
 	t.Helper()
 	tr := &headless.Transcript{}
-	tr.Resize(width)
 	for _, rows := range blocks {
 		tr.Append(&said{rows: rows})
 	}
+	stageContent(tr, width)
 	return tr
+}
+
+type contentFrame struct {
+	content *headless.Transcript
+	width   int
+}
+
+func (f contentFrame) Draw(frame headless.Frame) { f.content.Stage(frame, f.width) }
+
+func stageContent(content *headless.Transcript, width int) {
+	headless.NewRoot(contentFrame{content: content, width: width}).Draw(
+		grid.NewSurface(max(width, 1), 1).View(),
+	)
+}
+
+type scrollFrame struct {
+	scroll        *headless.Scroll
+	total, window int
+}
+
+func (f scrollFrame) Draw(frame headless.Frame) {
+	f.scroll.Stage(frame, f.total, f.window)
+}
+
+func stageScroll(scroll *headless.Scroll, total, window int) {
+	headless.NewRoot(scrollFrame{scroll: scroll, total: total, window: window}).Draw(
+		grid.NewSurface(1, max(window, 1)).View(),
+	)
 }
 
 // styles is the style of every cell on a row, so a test can say exactly what was
@@ -154,7 +182,7 @@ func TestAPinnedHeaderTakesRoomFromTheBody(t *testing.T) {
 
 	view := kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky, Glyphs: kit.Glyphs{Horizontal: "-"}}
 	// Scrolled two rows down, so the prompt is off the top.
-	sc.Layout(tr.Height(), 4)
+	stageScroll(&sc, tr.Height(), 4)
 	sc.By(2)
 	drawTranscript(s.View(), &view)
 
@@ -192,7 +220,7 @@ func TestAPinnedHeaderDissolvesAsTheNextOnePushesItOff(t *testing.T) {
 			FG: grid.RGBColor(0xFF, 0xFF, 0xFF),
 			BG: grid.RGBColor(0x00, 0x00, 0x00),
 		})
-		sc.Layout(tr.Height(), 4)
+		stageScroll(&sc, tr.Height(), 4)
 		sc.By(scrollBy)
 		drawTranscript(s.View(), &kit.Transcript{Content: tr, Scroll: &sc, Sticky: sticky})
 		return cellAt(s, 0, 0).Style
@@ -262,9 +290,10 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 // recordingPrinter stands in for an inline loop.
 type recordingPrinter struct{ rows []int }
 
-func (p *recordingPrinter) PrintRows(rows int, draw func(grid.View)) {
+func (p *recordingPrinter) Print(content grid.Drawable) {
+	rows := content.Measure(20)
 	p.rows = append(p.rows, rows)
-	draw(grid.NewSurface(20, rows).View())
+	content.Draw(grid.NewSurface(20, rows).View())
 }
 
 func TestCommittingGivesTheFinishedBlocksToThePrinter(t *testing.T) {
@@ -305,7 +334,7 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 	tr.Finish(0)
 
 	var scroll headless.Scroll
-	scroll.Layout(tr.Height(), 2)
+	stageScroll(&scroll, tr.Height(), 2)
 	scroll.By(1)
 	var selection headless.Selection
 	selection.Begin(headless.Point{Row: 1, Col: 2})

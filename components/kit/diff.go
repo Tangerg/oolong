@@ -100,17 +100,19 @@ func (d *Diff) Measure(width int) int {
 
 // Draw paints the hunks in order, with a break between them.
 func (d *Diff) Draw(v grid.View) {
-	if d == nil {
+	if d == nil || v.Empty() {
 		return
 	}
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return
 	}
-	for y, row := range d.layout(width) {
-		if y >= height {
-			return
-		}
+	rows := d.layout(width)
+	visible := v.Visible()
+	first := min(max(visible.Min.Y, 0), len(rows))
+	last := min(max(visible.Max.Y, first), len(rows))
+	for y := first; y < last; y++ {
+		row := rows[y]
 		if row.gap {
 			d.gap(v, y, width)
 			continue

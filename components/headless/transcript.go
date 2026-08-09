@@ -33,8 +33,8 @@ import (
 // the rows after it move. A change of width is the one linear operation, because a
 // width is what every height is a function of.
 //
-// The zero value is an empty transcript at width zero. Nothing can be measured until
-// [Transcript.Resize] has said how wide the space is.
+// The zero value is an empty transcript at width zero. Its first [Transcript.Stage]
+// establishes the width; subsequent appends reuse the last committed width.
 type Transcript struct {
 	// transcriptState is embedded because these are the transcript's committed
 	// values, not a cache beside it. A frame derives another complete state and swaps
@@ -143,24 +143,7 @@ func (t *Transcript) Changed(id BlockID) {
 	t.remeasure(i)
 }
 
-// Resize measures everything again at a new width, and reports the new total.
-//
-// A width is what every height in here is a function of, so this is linear in the
-// number of blocks and there is no version of it that is not. Calling it with the
-// width it already has costs nothing, which is what makes it safe to call once a
-// frame — and what a caller should do, rather than trying to remember whether the
-// window changed.
-func (t *Transcript) Resize(width int) int {
-	if width == t.width {
-		return t.rows
-	}
-	t.width = width
-	t.remeasure(0)
-	return t.rows
-}
-
-// Layout returns the transcript's currently committed geometry.
-func (t *Transcript) Layout() TranscriptLayout {
+func (t *Transcript) layout() TranscriptLayout {
 	if t == nil {
 		return TranscriptLayout{}
 	}
@@ -170,7 +153,7 @@ func (t *Transcript) Layout() TranscriptLayout {
 // Stage lays the transcript out at width for a component frame.
 //
 // A changed width is measured into private pending placement. The new row space
-// becomes observable through Layout, Height, Extent, selection and search only when
+// becomes observable through Height, Extent, selection and search only when
 // the complete Root frame commits. Calling Stage at the committed width reuses the
 // existing placement without allocation.
 func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
@@ -179,7 +162,7 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 	}
 	width = max(width, 0)
 	if t.staged == nil && width == t.width {
-		return t.Layout()
+		return t.layout()
 	}
 	if frame.transaction == nil || !frame.transaction.active {
 		panic("headless: transcript layout staged outside Root.Draw")
@@ -239,8 +222,8 @@ type transcriptState struct {
 	first  BlockID
 }
 
-// TranscriptLayout is the immutable placement used to draw one transcript frame.
-// It is returned by Transcript.Layout and Transcript.Stage.
+// TranscriptLayout is the immutable placement returned by [Transcript.Stage] for one
+// component frame.
 type TranscriptLayout struct{ state transcriptState }
 
 // Height is the number of live rows in this layout.
@@ -463,29 +446,6 @@ func (t *Transcript) visible(from, rows int) (first, last int) {
 		last++
 	}
 	return first, last
-}
-
-// Draw writes the window of rows starting at from into v, which is as many rows tall
-// as the window is.
-//
-// A block that the window cuts into is drawn whole into a view that starts above or
-// ends below the space available, and the parts outside are discarded — which is what
-// a view already does, and is why nothing here has to teach a block about being
-// partly visible. A block does not know it is in a transcript at all.
-func (t *Transcript) Draw(v grid.View, from int) {
-	w, h := v.Size()
-	if w <= 0 || h <= 0 {
-		return
-	}
-	first, last := t.visible(from, h)
-	for i := first; i < last; i++ {
-		b := t.blocks[i]
-		if b.height == 0 {
-			continue
-		}
-		y := layout.Relative(b.top, from)
-		b.block.Draw(v.Sub(grid.Rect(0, y, w, b.height)))
-	}
 }
 
 // Copyable is a block that can say what it draws, so a selection can be copied out
