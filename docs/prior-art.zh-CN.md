@@ -33,17 +33,18 @@ editor、completion 与 terminal lifecycle 实现的源码审计。下文引语�
 
 ## 2026-08-09 的可执行决策
 
-本轮选中三个纵向切片。它们小到可以独立落地，又完整到每个批次结束时
+本轮选中并完成了三个纵向切片。它们小到可以独立落地，又完整到每个批次结束时
 已经可用。
 
 | 切片 | 吸收的职责 | 守住的边界 |
 | --- | --- | --- |
 | 精确匹配/前缀组合键 | `keymap.Matcher` 拥有单个 reader 的序列状态，并调用一个由调用方提供的 resolver；`Runtime.After` 是标准的 owner-goroutine resolver | `keymap` 不导入 `program`、不拥有时钟、不生长第二棵焦点树 |
 | cursor 形态与闪烁 | cursor 外观是 `grid` 已交付帧状态的一部分，像位置和可见性一样做 diff | editor 可以选择外观，但 terminal escape 状态不进入 `headless` 行为 |
-| terminal 原生任务进度 | `term` 拥有 OSC 9;4 编码与恢复；`program.Session` 暴露一个可选 host 能力 | 它与绘制在界面内的 `kit.Progress` 保持分离，应用任务 policy 留在下游 |
+| terminal 原生任务进度 | `term` 拥有 OSC 9;4 编码、keepalive 与恢复；`program.Session` 暴露一个可选 host 能力 | 它与绘制在界面内的 `kit.Progress` 保持分离，应用任务 policy 留在下游 |
 
-每个切片都必须在自己的层级有单元测试、有端到端消费方、在适用时有空闲线路
-测试，并有 lifecycle 恢复测试。只有公开类型还不算完成。
+每个切片都已经在自己的层级有单元测试、有端到端消费方、在适用时有空闲线路
+测试，并有 lifecycle 恢复测试。`examples/keys` 消费序列消歧，`Editor` 通过帧发布
+cursor 外观，`examples/agent` 把原生进度用于真实任务生命周期。只有公开类型还不算完成。
 
 本轮还关闭了第一轮的一个假缺口。`Container` 与 `Stack` 本来就是 scope 系统：
 先把 event 交给焦点子项，子项拒绝后再下落给父级，已交付帧拥有 pointer 身份与
@@ -52,7 +53,7 @@ editor、completion 与 terminal lifecycle 实现的源码审计。下文引语�
 
 ## 1. opentui/keymap 回答了本仓库已经写下的一项限制
 
-`core/keymap` 自己写明了上限：
+这个切片落地前，`core/keymap` 自己写明了上限：
 
 > 一个序列如果是另一个绑定的真前缀，就不可达：没有计时器驱动查找时，只要更长
 > 的绑定仍可能到来，就不能选择较短的绑定。因此更长序列优先。
@@ -328,6 +329,11 @@ OpenTUI 也独立地把 cursor style 当成 renderer 状态，pi-tui 也独立�
 native progress 属于 window 或 taskbar，窗口被遮住时仍然有用，并且必须在 handover 与
 close 时清除。两者无法互相实现，所以这不是重复 API。
 
+Pi-tui 后来的 keepalive 修复暴露了一个仅有 encoder 会漏掉的生命周期细节：有些 terminal
+会在任务仍活跃时让 OSC 9;4 过期。因此 Oolong 只在原生进度活跃时启动 ticker，在取得
+handover watermark 之前暂停它，在重新取得所有权后重述最新值；进度清空时完全不拥有
+timer。Keepalive 是 session 基础设施，不是应用计时器。
+
 三项更大的 Charm 选择明确不引入：
 
 - Bubble Tea 的 `Model -> (Model, Cmd)` loop 是一套 immutable-effect 语汇。Oolong 的 owner
@@ -372,9 +378,10 @@ Bubble Tea 的一次性 `Tick` 确实指向一项缺失的底层便利。keymap 
    settings 组件路由 action，但刻意不引入 scope 系统。
 5. **kill ring：已完成。** 它仍是 `Editor` 内部的私有行为：有界存储、按方向累积、
    `Yank` 与紧邻的 `YankPop`；不增加 package 或公开存储抽象。
-6. **精确匹配/前缀组合键、cursor 外观与 native progress：已选中。** 它们是本轮
-   审计的三个可执行切片，并按这个顺序落地。第一项同时从每个组件中移除
-   `Pending` 与重复的 lookup/dispatch 过程。
+6. **精确匹配/前缀组合键、cursor 外观与 native progress：已完成。** 三个可执行
+   切片按这个顺序落地。第一项从每个组件中移除了 `Pending` 与重复的 lookup/dispatch
+   过程；第二项把 cursor 外观变成已交付且参与 diff 的帧状态；第三项把 native progress
+   变成感知 keepalive 的 session 能力，在 handover 间恢复并在 close 时清除。
 7. **`core/link` 的拒绝报告。**
    [§7.1](architecture.zh-CN.md#71-一个包必须配得上它的名字)要求一个边界有两个
    消费方；目前只有一个假想消费方。

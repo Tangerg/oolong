@@ -13,7 +13,7 @@
 // it, and it is why state reached only from that goroutine needs no internal lock.
 //
 // The program parks when there is nothing to do. It wakes for input, for posted work,
-// and for the terminal reporting progress — never on a clock that runs regardless. A
+// and for the frame writer settling output — never on a clock that runs regardless. A
 // component that wants a clock starts one with [Runtime.After] or [Runtime.Every], and
 // an interface with nothing scheduled costs nothing.
 //

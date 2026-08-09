@@ -36,18 +36,20 @@ quietly, which is the mistake this repository has already made once and recorded
 
 ## The 2026-08-09 executable decision
 
-This pass selected three vertical slices. They are deliberately small enough to land
-independently and complete enough to be useful when each batch ends.
+This pass selected and completed three vertical slices. They are deliberately small
+enough to land independently and complete enough to be useful when each batch ends.
 
 | slice | responsibility taken | boundary kept |
 | --- | --- | --- |
 | exact-prefix key sequences | `keymap.Matcher` owns one reader's sequence and invokes a caller-supplied resolver; `Runtime.After` is the standard owner-goroutine resolver | `keymap` does not import `program`, own a clock, or grow a second focus tree |
 | cursor shape and blink | cursor appearance is part of `grid`'s committed frame state and is diffed like position and visibility | editors may choose an appearance, but terminal escape state does not enter `headless` behaviour |
-| native task progress | `term` owns OSC 9;4 encoding and restoration; `program.Session` exposes one optional host capability | it remains distinct from the drawn `kit.Progress`, and application task policy stays downstream |
+| native task progress | `term` owns OSC 9;4 encoding, keepalive and restoration; `program.Session` exposes one optional host capability | it remains distinct from the drawn `kit.Progress`, and application task policy stays downstream |
 
-Each slice must have unit tests at its owning layer, an end-to-end consumer, idle-wire
-tests where applicable, and lifecycle restoration tests. A slice is not complete when
-only its public type exists.
+Each slice has unit tests at its owning layer, an end-to-end consumer, idle-wire tests
+where applicable, and lifecycle restoration tests. `examples/keys` consumes sequence
+resolution, `Editor` publishes cursor appearance through a frame, and `examples/agent`
+uses native progress for a real task lifetime. A slice is not complete when only its
+public type exists.
 
 The pass also closes a false gap in the first survey. `Container` and `Stack` already
 form the scope system: the focused child is offered an event first, a declined event
@@ -57,7 +59,7 @@ answers to which scope owns an event. It is therefore rejected, not deferred.
 
 ## 1. opentui/keymap answers a limitation this repository has written down
 
-`core/keymap` states its own ceiling:
+Before this slice, `core/keymap` stated its own ceiling:
 
 > A sequence that is a proper prefix of another binding is unreachable: without a
 > timer driving lookup, the shorter binding cannot be chosen while the longer one may
@@ -383,6 +385,12 @@ inside the interface and belongs to layout and theme. Native progress belongs to
 window or taskbar, remains useful while the window is obscured, and must be cleared on
 handover and close. One cannot implement the other, so this is not a duplicate API.
 
+Pi-tui's later keepalive fix exposes a lifecycle detail an encoder alone would miss:
+some terminals expire OSC 9;4 while a task is still active. Oolong therefore starts a
+ticker only for active native progress, pauses it before taking the handover watermark,
+restates the latest value after reacquisition, and owns no timer at all while progress
+is clear. A keepalive is session infrastructure, not an application timer.
+
 Three larger Charm choices are deliberately not imported:
 
 - Bubble Tea's `Model -> (Model, Cmd)` loop is an immutable-effect vocabulary. Oolong's
@@ -436,10 +444,12 @@ Ordered by what each is blocked on, not by appetite.
 5. **A kill ring: completed.** It remains private behavior inside `Editor`: bounded
    storage, directional accumulation, `Yank`, and immediately consecutive `YankPop`,
    with no new package or public storage abstraction.
-6. **Exact-prefix key sequences, cursor appearance and native progress: selected.**
-   They are the three executable slices in this audit and land in that order. The
-   first also removes `Pending` and the repeated lookup/dispatch procedure from every
-   component.
+6. **Exact-prefix key sequences, cursor appearance and native progress: completed.**
+   The three executable slices landed in that order. The first removed `Pending` and
+   the repeated lookup/dispatch procedure from every component; the second made
+   cursor appearance committed and diffed frame state; the third made native progress
+   a keepalive-aware session capability that is restored across handover and cleared
+   on close.
 7. **Refusal reporting in `core/link`.** [§7.1](architecture.md#71-a-package-must-earn-its-name)
    wants two consumers for a boundary; there is currently one hypothetical.
 8. **A paste-into-chip example: completed.** `examples/composer` owns the threshold,

@@ -17,7 +17,7 @@ program.Run(ctx, program.Config{
 A canonical chat interface that combines bounded background ingress, incremental
 markdown, a selectable recent transcript, terminal-owned history, approval and
 cancellation is [`examples/streaming`](examples/streaming).
-There are [ten examples](examples), shallowest first. At the far end,
+There are [eleven examples](examples), shallowest first. At the far end,
 [`examples/agent`](examples/agent) is a complete mock coding-agent session with a
 live plan, command completion, streamed markdown, bounded history and a blocking
 tool review over a diff. [`examples/composer`](examples/composer) isolates the rich
@@ -66,6 +66,7 @@ Eight modules in one repository.
 | **`ptytest`** | a harness that runs a terminal program on a real pty and says what reached the terminal | `x/sys` |
 | **`ssh`** | an accepted SSH PTY adapted into the same program host, with ordered input, resize and output ownership | `charm.land/ssh` |
 | **`examples`** | demonstrations, which nothing may import | — |
+| **`internal`** | repository-wide architecture, dependency and documentation gates | — |
 
 A module boundary costs version skew and buys an independent dependency set, so
 there is one wherever the dependencies genuinely differ and nowhere else. That is
@@ -184,20 +185,21 @@ object with no lock in it.
 
 Runtime services are concrete domain objects rather than a wide service interface:
 `Environment` owns negotiated terminal facts, `Clipboard` owns copy and paste,
-`Session` owns handover and attention, and `Images` owns image transport. A component
-is handed only the object it actually needs.
+`Session` owns handover, attention and native task progress, and `Images` owns image
+transport. A component is handed only the object it actually needs.
 
 To be exact, because the short version is easy to overstate: the process has more
-goroutines than one. `core/term` runs three — a reader that cannot be interrupted
-portably, a frame writer so that a slow terminal cannot stop the runtime from reading
-input, and a resize signal fan. None of them touches a widget. The claim is about
-who owns the interface's state, and exactly one goroutine does.
+goroutines than one. `core/term` runs five — a reader that cannot be interrupted
+portably, the pump that decodes what it read, a frame writer so that a slow terminal
+cannot stop input, a resize watcher, and a native-progress keeper that parks without
+a timer unless a task is active. None of them touches a widget. The claim is about who
+owns the interface's state, and exactly one goroutine does.
 
 The program parks when there is nothing to do. It wakes for input, for posted work, and
-for the terminal reporting progress — never on a clock that runs regardless. A component
-that wants a clock starts one with `Runtime.Every`, and an interface with nothing animating
-costs nothing. A busy interface keeps at most one tick waiting, so resuming it does
-not replay time that has already passed.
+for frame-writer settlement — never on a clock that runs regardless. A component that
+wants a clock starts one with `Runtime.Every`, and an interface with nothing animating
+costs nothing. A busy interface keeps at most one tick waiting, so resuming it does not
+replay time that has already passed.
 
 ## More
 
