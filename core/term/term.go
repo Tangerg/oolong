@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	xterm "golang.org/x/term"
 
@@ -89,9 +88,9 @@ type Terminal struct {
 	// said is what the terminal was willing to say about itself, when it was asked.
 	// It is written once during Open and only read afterwards.
 	said answers
-	// pasting is set between asking for the clipboard and the answer arriving. It is
-	// atomic because Paste may be called from anywhere and the pump reads it.
-	pasting atomic.Bool
+	// clipboard owns OSC 52 encoding and the one live read request. Paste may be
+	// called from any goroutine while the pump settles its answer.
+	clipboard *clipboard.Channel
 	// title is what this session called the window, and what it owes the terminal
 	// when it gives it back.
 	title title
@@ -120,7 +119,7 @@ type Terminal struct {
 // case a caller has to handle rather than force: a program whose output is being
 // piped wants to write text, not frames.
 func Open(opts Options) (*Terminal, error) {
-	return OpenOn(os.Stdin, os.Stdout, opts)
+	return OpenOn(os.Stdin, os.Stdout, opts, os.LookupEnv)
 }
 
 // OpenOn takes over a terminal that is not this process's own.
@@ -130,11 +129,19 @@ func Open(opts Options) (*Terminal, error) {
 // session over a pty holds one at each end, and everything below this line worked
 // on whatever files it was handed long before anything could hand it any.
 //
-// It is also what makes this package testable at all. A terminal that could only
+// lookup is the environment of the files' terminal. It is explicit because the
+// terminal may belong to a pty or another session whose TERM and TMUX are not this
+// process's. Nil means no environment facts are available.
+//
+// OpenOn is also what makes this package testable at all. A terminal that could only
 // ever be the process's own is one whose lifecycle — raw mode, the modes it turns
 // on, the order it puts them back in — could be checked only by running a second
 // program and reading what came out of it.
-func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
+func OpenOn(
+	in, out *os.File,
+	opts Options,
+	lookup func(string) (string, bool),
+) (*Terminal, error) {
 	if in == nil {
 		return nil, errors.New("term: input file is required")
 	}
@@ -160,7 +167,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 	t := &Terminal{
 		in:         in,
 		out:        out,
-		modes:      opts.Modes(os.LookupEnv),
+		modes:      opts.Modes(lookup),
 		oldState:   oldState,
 		events:     make(chan input.Event, 64),
 		resized:    make(chan input.Resize, 1),
@@ -168,6 +175,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 		pumpDone:   make(chan struct{}),
 		resizeDone: make(chan struct{}),
 		task:       newTaskProgress(),
+		clipboard:  clipboard.New(lookup),
 	}
 
 	if _, err := out.WriteString(t.modes.enter()); err != nil {
@@ -214,7 +222,7 @@ func OpenOn(in, out *os.File, opts Options) (*Terminal, error) {
 
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
-		out: t.events, parser: parser, early: early, pasting: &t.pasting,
+		out: t.events, parser: parser, early: early, clipboard: t.clipboard,
 	}
 	t.startResizeWatcher(opening)
 	go func() {
@@ -270,9 +278,6 @@ func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
 	return t.said.attributes, t.said.hasAttrs
 }
 
-// clipboardCommand is the operating system command that carries a clipboard.
-const clipboardCommand = 52
-
 // Copy asks the terminal to put text on the system clipboard, reporting false for
 // text too large to carry — see [clipboard.Limit].
 //
@@ -285,7 +290,7 @@ const clipboardCommand = 52
 // never inside one. A terminal is free to refuse and says nothing when it does, so
 // true means asked for rather than done.
 func (t *Terminal) Copy(text string) bool {
-	seq, ok := clipboard.Copy(clipboard.System, text)
+	seq, ok := t.clipboard.Copy(clipboard.System, text)
 	if !ok {
 		return false
 	}
@@ -303,8 +308,9 @@ func (t *Terminal) Copy(text string) bool {
 // can read what the user copied out of a password manager. A refusal has no reply,
 // so nothing should wait on one.
 func (t *Terminal) Paste() {
-	t.pasting.Store(true)
-	t.writer.Queue([]byte(clipboard.Request(clipboard.System)))
+	if sequence, ok := t.clipboard.Request(clipboard.System); ok {
+		t.writer.Queue([]byte(sequence))
+	}
 }
 
 // Name is what the terminal called itself when asked, and whether it answered.

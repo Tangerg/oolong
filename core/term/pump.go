@@ -3,7 +3,6 @@ package term
 import (
 	"errors"
 	"io"
-	"sync/atomic"
 	"time"
 
 	"github.com/Tangerg/oolong/core/clipboard"
@@ -39,13 +38,10 @@ type pump struct {
 	// until this goroutine runs and a burst large enough to fill it would deadlock
 	// whoever pushed.
 	early []input.Event
-	// pasting says whether a clipboard request is outstanding, so that only an
-	// answer this session asked for is turned into a paste.
-	//
-	// It is shared with whoever called Paste, on whatever goroutine that was, which
-	// is why it is atomic and why it is a pointer: the flag belongs to the terminal
-	// and the reading of it belongs here.
-	pasting *atomic.Bool
+	// clipboard settles only the OSC 52 answer this session asked for. It is shared
+	// with whoever called Paste, while the request lifecycle remains owned by the
+	// value built for this terminal.
+	clipboard *clipboard.Channel
 	// grace overrides input.DefaultEscapeTimeout for tests.
 	grace time.Duration
 	// now overrides the clock, for tests. It stamps keystrokes and mouse reports with
@@ -196,16 +192,15 @@ func (p *pump) clock() time.Time {
 // not a thing to relax about on the strength of what terminals are known to do.
 func (p *pump) pasted(ev input.Event) (input.Event, bool) {
 	osc, ok := ev.(input.OSC)
-	if !ok || osc.Command != clipboardCommand || p.pasting == nil || !p.pasting.Load() {
+	if !ok {
 		return nil, false
 	}
-	p.pasting.Store(false)
-	_, text, ok := clipboard.Parse(osc.Params)
+	pasted, ok := osc.Paste(p.clipboard)
 	if !ok {
 		// A terminal that answered with nothing readable still answered. Turning
 		// that into an empty paste would clear a selection the user still has, so
 		// the answer is passed through as what it is.
 		return nil, false
 	}
-	return input.Paste{Text: text}, true
+	return pasted, true
 }

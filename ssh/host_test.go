@@ -12,6 +12,7 @@ import (
 
 	charmssh "charm.land/ssh"
 
+	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
@@ -81,6 +82,59 @@ func TestRunUsesTheClientEnvironmentForKeyboardCompatibility(t *testing.T) {
 	}
 	if written := session.output.String(); strings.Contains(written, "\x1b[>") {
 		t.Fatalf("keyboard mode ignored the client environment: %q", written)
+	}
+}
+
+func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
+	var output lockedBuffer
+	host := &host{
+		writer: term.NewWriter(&output),
+		clip:   &clipboard.Channel{},
+	}
+	if !host.Copy("copied remotely") {
+		t.Fatal("a small copy was refused")
+	}
+	host.Paste()
+	if err := host.writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written := output.String()
+	wantCopy, _ := (&clipboard.Channel{}).Copy(clipboard.System, "copied remotely")
+	wantPaste, _ := (&clipboard.Channel{}).Request(clipboard.System)
+	for name, sequence := range map[string]string{"copy": wantCopy, "paste": wantPaste} {
+		if !strings.Contains(written, sequence) {
+			t.Errorf("client %s sequence was not written: %q", name, written)
+		}
+	}
+}
+
+func TestEventSourceTurnsOnlyTheRequestedClipboardAnswerIntoPaste(t *testing.T) {
+	reader := make(chanReader)
+	windows := make(chan charmssh.Window)
+	clip := &clipboard.Channel{}
+	if _, ok := clip.Request(clipboard.System); !ok {
+		t.Fatal("clipboard request was refused")
+	}
+	source := newEventSource(t.Context().Done(), reader, windows,
+		func(window charmssh.Window) (input.Resize, bool, error) {
+			return input.Resize{Width: window.Width, Height: window.Height}, true, nil
+		}, clip)
+	t.Cleanup(source.Close)
+
+	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the client")
+	reader <- readResult{data: []byte(answer)}
+	event := receiveEvent(t, source.Events())
+	paste, ok := event.(input.Paste)
+	if !ok || paste.Text != "from the client" {
+		t.Fatalf("clipboard answer = %#v, want client paste", event)
+	}
+
+	unasked, _ := (&clipboard.Channel{}).Copy(clipboard.System, "unasked")
+	reader <- readResult{data: []byte(unasked)}
+	if event := receiveEvent(t, source.Events()); event == nil {
+		t.Fatal("unasked clipboard answer disappeared")
+	} else if _, ok := event.(input.OSC); !ok {
+		t.Fatalf("unasked clipboard answer became %#v", event)
 	}
 }
 
@@ -194,7 +248,7 @@ func TestEventSourceDecodesBytesThenReportsItsResult(t *testing.T) {
 	source := newEventSource(t.Context().Done(), reader, windows,
 		func(window charmssh.Window) (input.Resize, bool, error) {
 			return input.Resize{Width: window.Width, Height: window.Height}, true, nil
-		})
+		}, nil)
 	t.Cleanup(source.Close)
 
 	reader <- readResult{data: []byte("a")}
@@ -227,7 +281,7 @@ func TestResizeIntakeKeepsTheLatestWindow(t *testing.T) {
 		func(window charmssh.Window) (input.Resize, bool, error) {
 			observed <- struct{}{}
 			return input.Resize{Width: window.Width, Height: window.Height}, true, nil
-		})
+		}, nil)
 	t.Cleanup(source.Close)
 
 	for width := 81; width <= 100; width++ {

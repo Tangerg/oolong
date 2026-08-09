@@ -31,7 +31,7 @@ func answered(t *testing.T, answer string) (*term.Terminal, *os.File) {
 		t.Fatalf("staging the terminal's answer: %v", err)
 	}
 
-	tty, err := term.OpenOn(replica, replica, term.Options{Probe: true})
+	tty, err := term.OpenOn(replica, replica, term.Options{Probe: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
 	if !tty.Copy("hello") {
 		t.Fatal("a small copy was refused")
 	}
-	want, _ := clipboard.Copy(clipboard.System, "hello")
+	want, _ := (&clipboard.Channel{}).Copy(clipboard.System, "hello")
 	if got := read(t, primary, time.Second); !strings.Contains(got, want) {
 		t.Errorf("the terminal was sent %q, which does not carry the copy", got)
 	}
@@ -256,11 +256,12 @@ func TestPasteArrivesAsAPaste(t *testing.T) {
 	<-tty.Events() // the opening size
 
 	tty.Paste()
-	if got := read(t, primary, time.Second); !strings.Contains(got, clipboard.Request(clipboard.System)) {
+	want, _ := (&clipboard.Channel{}).Request(clipboard.System)
+	if got := read(t, primary, time.Second); !strings.Contains(got, want) {
 		t.Fatalf("the terminal was sent %q, which does not ask for the clipboard", got)
 	}
 
-	answer, _ := clipboard.Copy(clipboard.System, "from the clipboard")
+	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the clipboard")
 	if _, err := primary.WriteString(answer); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +289,7 @@ func TestAnAnswerNobodyAskedForIsNotAPaste(t *testing.T) {
 	tty, primary := open(t, term.Options{})
 	<-tty.Events()
 
-	answer, _ := clipboard.Copy(clipboard.System, "unasked")
+	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "unasked")
 	if _, err := primary.WriteString(answer); err != nil {
 		t.Fatal(err)
 	}

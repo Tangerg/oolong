@@ -39,7 +39,7 @@ func open(t *testing.T, opts term.Options) (*term.Terminal, *os.File) {
 	primary, replica := pty(t)
 	// The replica is the terminal, so that is the side the session takes over and
 	// the primary is where a test watches from.
-	tty, err := term.OpenOn(replica, replica, opts)
+	tty, err := term.OpenOn(replica, replica, opts, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestOpeningSomethingThatIsNotATerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	if _, err := term.OpenOn(f, f, term.Options{}); err == nil {
+	if _, err := term.OpenOn(f, f, term.Options{}, nil); err == nil {
 		t.Fatal("a file that is not a terminal was taken over")
 	}
 }
@@ -68,7 +68,7 @@ func TestOpeningRefusesRedirectedOutputEvenWithTerminalInput(t *testing.T) {
 	}
 	defer func() { _ = out.Close() }()
 
-	if _, err := term.OpenOn(replica, out, term.Options{}); !errors.Is(err, term.ErrNotTerminal) {
+	if _, err := term.OpenOn(replica, out, term.Options{}, nil); !errors.Is(err, term.ErrNotTerminal) {
 		t.Fatalf("OpenOn error = %v, want redirected output rejected", err)
 	}
 }
@@ -118,7 +118,7 @@ func TestASessionGivesTheTerminalBack(t *testing.T) {
 
 func TestCloseStillAttemptsRawModeRestoreAfterItsOutputFails(t *testing.T) {
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{Mouse: true})
+	tty, err := term.OpenOn(replica, replica, term.Options{Mouse: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestATerminalReportsItsSizeAndItsOpeningResize(t *testing.T) {
 
 func TestATerminalReportsALaterResize(t *testing.T) {
 	_, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{})
+	tty, err := term.OpenOn(replica, replica, term.Options{}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	// order, which is what closing does — so handing the terminal to a child is that
 	// twice, and the child gets a terminal with no idea a program was using it.
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true, Mouse: true})
+	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true, Mouse: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 
 func TestAPanickingChildStillReturnsTerminalOwnership(t *testing.T) {
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true})
+	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}

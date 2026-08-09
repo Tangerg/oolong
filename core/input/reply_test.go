@@ -3,6 +3,7 @@ package input_test
 import (
 	"testing"
 
+	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -66,6 +67,21 @@ func TestTheKeyboardFlagsOfNothing(t *testing.T) {
 	}
 	if got.Has(input.KeyboardDisambiguate) {
 		t.Error("a flag was reported when none were set")
+	}
+}
+
+func TestAClipboardAnswerBecomesPasteOnlyForItsLiveChannel(t *testing.T) {
+	channel := &clipboard.Channel{}
+	if _, ok := channel.Request(clipboard.System); !ok {
+		t.Fatal("clipboard request was refused")
+	}
+	command := one(t, "\x1b]52;c;cGFzdGVk\x1b\\").(input.OSC)
+	paste, ok := command.Paste(channel)
+	if !ok || paste.Text != "pasted" {
+		t.Fatalf("paste = %+v, %t", paste, ok)
+	}
+	if paste, ok := command.Paste(channel); ok {
+		t.Fatalf("settled answer was accepted again as %+v", paste)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	charmssh "charm.land/ssh"
 
+	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -22,6 +23,7 @@ type eventSource struct {
 
 	windows <-chan charmssh.Window
 	resize  func(charmssh.Window) (input.Resize, bool, error)
+	clip    *clipboard.Channel
 
 	events     chan input.Event
 	raw        chan []byte
@@ -41,12 +43,14 @@ func newEventSource(
 	in io.Reader,
 	windows <-chan charmssh.Window,
 	resize func(charmssh.Window) (input.Resize, bool, error),
+	clip *clipboard.Channel,
 ) *eventSource {
 	s := &eventSource{
 		cancelled:  cancelled,
 		in:         in,
 		windows:    windows,
 		resize:     resize,
+		clip:       clip,
 		events:     make(chan input.Event),
 		raw:        make(chan []byte, 4),
 		read:       make(chan error, 1),
@@ -244,6 +248,10 @@ func (s *eventSource) stamp(events []input.Event) []input.Event {
 	now := time.Now()
 	for i, event := range events {
 		switch event := event.(type) {
+		case input.OSC:
+			if pasted, ok := event.Paste(s.clip); ok {
+				events[i] = pasted
+			}
 		case input.Key:
 			if event.At.IsZero() {
 				event.At = now

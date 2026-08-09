@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Tangerg/oolong/core/clipboard"
 )
 
 // Event is one thing the terminal reported. The set is closed by the unexported
@@ -267,6 +269,18 @@ type OSC struct {
 }
 
 func (OSC) terminalEvent() {}
+
+// Paste settles o as clipboard text when channel owns the live OSC 52 request.
+// Keeping the interpretation on the decoded command gives every terminal adapter
+// one path from the same wire event to [Paste], while the lower clipboard package
+// remains independent of the event model.
+func (o OSC) Paste(channel *clipboard.Channel) (Paste, bool) {
+	if o.Command != clipboard.Command || channel == nil {
+		return Paste{}, false
+	}
+	text, ok := channel.Answer(o.Params)
+	return Paste{Text: text}, ok
+}
 
 // DCS is a device control string the terminal sent.
 //
