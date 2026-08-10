@@ -18,6 +18,12 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-10
+
+One thing should exist once. A measured-drawing contract, a module list, a piece of
+transcript geometry, a width memo, a documentation link: each of these had two copies
+somewhere in this repository, and every pair could disagree without anything noticing.
+
 Breaking. `kit.Diff` is now constructed with `kit.NewDiff`; its hunks and appearance
 are changed through methods rather than exported fields. `kit.GlyphsFor` accepts an
 already-resolved locale, and `program.Environment.Locale` obtains that fact from the
