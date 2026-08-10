@@ -18,6 +18,15 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-10
+
+Optional content is a fork rather than a chain, and the claims this repository makes
+about itself now have guards that fail when they stop being true.
+
+0.9.0 was prepared but never tagged: its gate refused a half-finished documentation
+move, and a version nobody can fetch does not belong in this file as one. Its notes
+are part of this release.
+
 The polished kit now proves all three caller-owned controller paths end to end.
 Executable package examples cover controlled dialogs, sliders, and tabs; the
 dashboard coordinates tab shortcuts and settings through bound application values,
@@ -56,16 +65,14 @@ front and back surfaces, dimensions, terminal ground, and colour depth. Resize,
 frame start and buffer exchange consequently have one implementation, and colour
 depth no longer has two candidate sources of truth.
 
-Brand exploration images live outside the repository and their former path is
-ignored; only the selected vector enters the documentation site. Documentation
+Brand exploration batches are ignored by path, so only the two approved marks enter
+the documentation site and a future batch is excluded by default. Documentation
 audit, lint, route validation, and static compilation are now one locked
 `npm run docs:check` gate shared by CI, Pages, contributors, and releases.
 Visual golden files now declare LF as repository data, so Windows and Unix runners
 compare the same bytes instead of inheriting each checkout's line-ending policy.
 Documentation checks normalize CRLF at their input boundary, preserving Markdown's
 platform-neutral semantics while still validating frontmatter and anchors on Windows.
-
-## [0.9.0] — 2026-08-10
 
 Optional content is a fork rather than a chain. Markdown, highlighting and
 mathematics are peers that terminate at `core/text`; none imports another, any subset
