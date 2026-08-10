@@ -260,11 +260,11 @@ func codeFences(content, language string) string {
 	inside := false
 	for _, line := range strings.SplitAfter(content, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
+		if after, ok := strings.CutPrefix(trimmed, "```"); ok {
 			if inside {
 				inside = false
 				code.WriteByte('\n')
-			} else if strings.TrimSpace(strings.TrimPrefix(trimmed, "```")) == language {
+			} else if strings.TrimSpace(after) == language {
 				inside = true
 			}
 			continue
