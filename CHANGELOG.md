@@ -33,8 +33,17 @@ renderers preserve source. `core/text.UTF8Locale` is the single locale-encoding
 interpretation shared by component and formula glyph selection.
 
 The `read` example exercises the complete composition while arbitrary chunk
-boundaries cross a `$$` block: Markdown retains the open fence, `latex.Of` renders
-the semantic body, and only the finished formula is published to scrollback.
+boundaries cross code and `$$` blocks: Markdown retains each open fence,
+`highlight.Of` and `latex.Of` render their semantic bodies, and only finished blocks
+are published to scrollback. Both optional modules retain their independent entry
+points: highlighting returns styled lines and a formula is a measured, selectable
+drawable without involving Markdown.
+
+Fixed extension renderers now preserve the documented distinction between declining
+with nil and intentionally producing no rows. LaTeX scripts allocate only the bands
+they occupy, and unbraced numeric superscripts and subscripts compose in either order
+despite the external parser's Go-number tokenization. CI derives local module
+replacements from the workspace module list instead of maintaining two more lists.
 
 ## [0.8.0] — 2026-08-10
 

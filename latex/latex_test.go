@@ -69,6 +69,49 @@ func TestFormulaRendersSymbolsRootsAndScripts(t *testing.T) {
 	}
 }
 
+func TestScriptsOccupyOnlyTheirOwnRows(t *testing.T) {
+	tests := []struct {
+		source string
+		want   []string
+	}{
+		{`x^2`, []string{" 2", "x"}},
+		{`x_2`, []string{"x", " 2"}},
+		{`\frac{x^2}{y}`, []string{"  2", " x", "────", " y"}},
+	}
+	for _, test := range tests {
+		t.Run(test.source, func(t *testing.T) {
+			formula := latex.Render(test.source, latex.Look{})
+			if err := formula.Err(); err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			if got := formulaRows(t, formula, 20); !slices.Equal(got, test.want) {
+				t.Fatalf("rows = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUnbracedScriptsCanAppearInEitherOrder(t *testing.T) {
+	want := []string{" 2", "x", " 1"}
+	for _, source := range []string{`x^2_1`, `x_1^2`} {
+		formula := latex.Render(source, latex.Look{})
+		if err := formula.Err(); err != nil {
+			t.Fatalf("Render(%q): %v", source, err)
+		}
+		if got := formulaRows(t, formula, 20); !slices.Equal(got, want) {
+			t.Errorf("Render(%q) = %q, want %q", source, got, want)
+		}
+	}
+}
+
+func TestDuplicateScriptsAreRejectedEvenWhenOneIsEmpty(t *testing.T) {
+	for _, source := range []string{`x^{}^2`, `x_{}_2`} {
+		if err := latex.Render(source, latex.Look{}).Err(); err == nil {
+			t.Errorf("Render(%q).Err is nil", source)
+		}
+	}
+}
+
 func TestLookStylesTextRulesAndFallbackIndependently(t *testing.T) {
 	textStyle := grid.Style{Attr: grid.Bold}
 	ruleStyle := grid.Style{Attr: grid.Underline}

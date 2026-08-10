@@ -49,6 +49,24 @@ func TestMathWithoutARendererShowsItsSource(t *testing.T) {
 	equal(t, render(t, 20, "$$\nx^2 + y^2\n$$"), []string{"x^2 + y^2"})
 }
 
+func TestEmptyMathRenderingIsDifferentFromDeclining(t *testing.T) {
+	appearance := look()
+	appearance.SetRenderer(markdown.DisplayMath, func(string, string) []text.Line {
+		return []text.Line{}
+	})
+	blocks := markdown.Render("$$\nx^2 + y^2\n$$", appearance)
+
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %d, want 1", len(blocks))
+	}
+	if got := blocks[0].Measure(20); got != 0 {
+		t.Fatalf("empty rendering measures %d rows, want 0", got)
+	}
+	if got := blocks[0].Rows(20); len(got) != 0 {
+		t.Fatalf("empty rendering has %d rows, want 0", len(got))
+	}
+}
+
 func TestDisplayMathDelimitersOccupyTheirOwnLines(t *testing.T) {
 	appearance := look()
 	appearance.SetRenderer(markdown.DisplayMath, func(string, string) []text.Line {

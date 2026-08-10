@@ -311,10 +311,14 @@ func (r *renderer) math(n ast.Node, in frame) {
 
 func (r *renderer) extension(kind Extension, info, source string, in frame) {
 	var lines []text.Line
+	handled := false
 	if render := r.look.renderer(kind); render != nil {
-		lines = text.CloneLines(render(info, source))
+		if rendered := render(info, source); rendered != nil {
+			lines = text.CloneLines(rendered)
+			handled = true
+		}
 	}
-	if lines == nil {
+	if !handled {
 		for line := range strings.SplitSeq(source, "\n") {
 			lines = append(lines, text.Of(line, r.look.Block))
 		}

@@ -43,11 +43,52 @@ func parse(source string) (node ast.Node, err error) {
 			node, err = nil, parseFailure(recovered)
 		}
 	}()
-	node, err = golatex.ParseExpr("$" + source + "$")
+	node, err = golatex.ParseExpr("$" + braceNumericScripts(source) + "$")
 	if err != nil {
 		return nil, &parseError{message: err.Error()}
 	}
 	return node, nil
+}
+
+// braceNumericScripts adapts TeX's script tokens to the external parser's Go
+// scanner. text/scanner accepts underscores inside numeric literals, while TeX
+// always treats an underscore as a new script. Making the numeric atom explicit
+// keeps x^2_1 equivalent to x^{2}_{1} without teaching the layout layer about a
+// dependency's tokenization.
+func braceNumericScripts(source string) string {
+	var out strings.Builder
+	out.Grow(len(source))
+	for at := 0; at < len(source); {
+		marker := source[at] == '^' || source[at] == '_'
+		if !marker || escapedAt(source, at) {
+			out.WriteByte(source[at])
+			at++
+			continue
+		}
+
+		out.WriteByte(source[at])
+		at++
+		start := at
+		for at < len(source) && source[at] >= '0' && source[at] <= '9' {
+			at++
+		}
+		if start == at {
+			continue
+		}
+		out.WriteByte('{')
+		out.WriteString(source[start:at])
+		out.WriteByte('}')
+	}
+	return out.String()
+}
+
+func escapedAt(source string, at int) bool {
+	backslashes := 0
+	for at > 0 && source[at-1] == '\\' {
+		backslashes++
+		at--
+	}
+	return backslashes%2 != 0
 }
 
 func validateSource(source string) error {
@@ -149,17 +190,20 @@ func (r *formulaRenderer) sequence(nodes ast.List, style grid.Style) (box, error
 		}
 		i++
 		var superscript, subscript box
+		var hasSuperscript, hasSubscript bool
 		for i < len(nodes) {
 			switch script := nodes[i].(type) {
 			case *ast.Sup:
-				if superscript.width > 0 {
+				if hasSuperscript {
 					return box{}, errors.New("base has two superscripts")
 				}
+				hasSuperscript = true
 				superscript, err = r.node(script.Node, style)
 			case *ast.Sub:
-				if subscript.width > 0 {
+				if hasSubscript {
 					return box{}, errors.New("base has two subscripts")
 				}
+				hasSubscript = true
 				subscript, err = r.node(script.Node, style)
 			default:
 				parts = append(parts, scripted(base, superscript, subscript))

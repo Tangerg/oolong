@@ -21,6 +21,8 @@ type mark struct {
 	style grid.Style
 }
 
+func (b *box) empty() bool { return len(b.marks) == 0 }
+
 func atom(value string, style grid.Style) box {
 	if value == "" {
 		return box{}
@@ -73,16 +75,23 @@ func stack(numerator, denominator box, rule bool, glyphs Glyphs, style grid.Styl
 }
 
 func scripted(base, superscript, subscript box) box {
-	if superscript.width == 0 && subscript.width == 0 {
+	if superscript.empty() && subscript.empty() {
 		return base
 	}
-	var out box
-	out.width = base.width + max(superscript.width, subscript.width)
-	out.above = max(base.above, superscript.above+superscript.below+1)
-	out.below = max(base.below, subscript.above+subscript.below+1)
+	out := box{
+		width: base.width + max(superscript.width, subscript.width),
+		above: base.above,
+		below: base.below,
+	}
 	out.add(base, 0, 0)
-	out.add(superscript, base.width, -1-superscript.below)
-	out.add(subscript, base.width, 1+subscript.above)
+	if !superscript.empty() {
+		out.above = max(out.above, superscript.above+superscript.below+1)
+		out.add(superscript, base.width, -1-superscript.below)
+	}
+	if !subscript.empty() {
+		out.below = max(out.below, subscript.above+subscript.below+1)
+		out.add(subscript, base.width, 1+subscript.above)
+	}
 	return out
 }
 

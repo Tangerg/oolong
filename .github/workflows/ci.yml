@@ -118,14 +118,7 @@ jobs:
           for m in $(scripts/modules.sh); do
             (
               cd "$standalone_root/$m"
-              go mod edit \
-                -replace=github.com/Tangerg/oolong/core="$standalone_root/core" \
-                -replace=github.com/Tangerg/oolong/components="$standalone_root/components" \
-                -replace=github.com/Tangerg/oolong/markdown="$standalone_root/markdown" \
-                -replace=github.com/Tangerg/oolong/highlight="$standalone_root/highlight" \
-                -replace=github.com/Tangerg/oolong/latex="$standalone_root/latex" \
-                -replace=github.com/Tangerg/oolong/ptytest="$standalone_root/ptytest" \
-                -replace=github.com/Tangerg/oolong/ssh="$standalone_root/ssh"
+              "$standalone_root/scripts/replace-local-modules.sh" "$standalone_root"
               GOWORK=off go test -count=1 ./...
             )
           done
@@ -344,14 +337,7 @@ jobs:
           for m in $(scripts/modules.sh); do
             (
               cd "$tidy_root/$m"
-              go mod edit \
-                -replace=github.com/Tangerg/oolong/core="$tidy_root/core" \
-                -replace=github.com/Tangerg/oolong/components="$tidy_root/components" \
-                -replace=github.com/Tangerg/oolong/markdown="$tidy_root/markdown" \
-                -replace=github.com/Tangerg/oolong/highlight="$tidy_root/highlight" \
-                -replace=github.com/Tangerg/oolong/latex="$tidy_root/latex" \
-                -replace=github.com/Tangerg/oolong/ptytest="$tidy_root/ptytest" \
-                -replace=github.com/Tangerg/oolong/ssh="$tidy_root/ssh"
+              "$tidy_root/scripts/replace-local-modules.sh" "$tidy_root"
               # A local replacement legitimately needs no checksum for the published
               # module it replaces. Normalize only those lines before comparing.
               if [ -f go.sum ]; then

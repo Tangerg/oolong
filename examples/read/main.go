@@ -28,6 +28,7 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/highlight"
 	"github.com/Tangerg/oolong/latex"
 	"github.com/Tangerg/oolong/markdown"
 )
@@ -103,13 +104,8 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 		Text: theme.Text, Rule: theme.Subtle, Error: theme.Danger,
 		Glyphs: latex.GlyphsFor(runtime.Environment().Locale()),
 	}))
+	look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
 	r.stream.SetLook(look)
-	// A code highlighter would go here, in one line, and would be the only thing that
-	// pulls a lexer for every language into a program:
-	//
-	//	look := r.stream.Look()
-	//	look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
-	//	r.stream.SetLook(look)
 
 	runtime.Session().SetTitle("reading")
 	r.stop = runtime.Every(every, r.advance)

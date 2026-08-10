@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/Tangerg/oolong/components v0.8.0
 	github.com/Tangerg/oolong/core v0.8.1-0.20260810040214-007f7d78239b
+	github.com/Tangerg/oolong/highlight v0.8.0
 	github.com/Tangerg/oolong/latex v0.0.0-20260810040214-007f7d78239b
 	github.com/Tangerg/oolong/markdown v0.8.1-0.20260810040214-007f7d78239b
 	github.com/Tangerg/oolong/ptytest v0.8.0
@@ -12,7 +13,9 @@ require (
 
 require (
 	codeberg.org/go-latex/latex v0.3.0 // indirect
+	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
