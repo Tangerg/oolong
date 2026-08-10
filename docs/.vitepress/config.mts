@@ -81,7 +81,10 @@ const chineseSidebar: DefaultTheme.SidebarItem[] = [
 ]
 
 const sharedTheme: DefaultTheme.Config = {
-  logo: '/logo.svg',
+  logo: {
+    src: '/brand/oolong-icon.png',
+    alt: 'Oolong'
+  },
   socialLinks: [{ icon: 'github', link: repository }],
   search: {
     provider: 'local',
@@ -130,8 +133,8 @@ export default defineConfig({
     'zh/README.md': 'zh/index.md'
   },
   head: [
-    ['link', { rel: 'icon', href: '/oolong/logo.svg', type: 'image/svg+xml' }],
-    ['meta', { name: 'theme-color', content: '#a9602a' }]
+    ['link', { rel: 'icon', href: '/oolong/brand/oolong-icon.png', type: 'image/png' }],
+    ['meta', { name: 'theme-color', content: '#071127' }]
   ],
   locales: {
     root: {

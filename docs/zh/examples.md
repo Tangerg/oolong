@@ -54,7 +54,7 @@ go run ./examples/form | cat
 | [`picker`](https://github.com/Tangerg/oolong/tree/main/examples/picker) | `go run ./examples/picker` | 输入以过滤；方向键移动；`Enter` 选择 | 文本字段、模糊排序、列表、匹配高亮 |
 | [`composer`](https://github.com/Tangerg/oolong/tree/main/examples/composer) | `go run ./examples/composer` | 输入 `@`；方向键选择；`Enter` 提交 | 补全、草稿历史、原子粘贴元素 |
 | [`files`](https://github.com/Tangerg/oolong/tree/main/examples/files) | `go run ./examples/files .` | `Tab` 换栏；方向键导航；`q` 退出 | 焦点、树身份、viewport、指针路由 |
-| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | 切换标签、排序表头、调整滑块 | 标签、表格、进度、动画生命周期 |
+| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | 按 `1`–`3`、排序表头、调整滑块 | 调用方拥有的标签与滑块、表格、进度、动画生命周期 |
 
 库不会在已有原语之外添加第二套 `Picker` 或 `FileBrowser` API。每种产品交互都组合自同一批控制器。
 
@@ -80,7 +80,7 @@ go run ./examples/form | cat
 | --- | --- | --- | --- |
 | [`run`](https://github.com/Tangerg/oolong/tree/main/examples/run) | `go run ./examples/run -- go test ./core/...` | `Ctrl+E` 编辑；`Ctrl+Z` 暂停；`Ctrl+C` 退出 | ANSI 解码、子进程输出、终端交接 |
 | [`read`](https://github.com/Tangerg/oolong/tree/main/examples/read) | `go run ./examples/read` | 回答结束后按 `Ctrl+C` 退出 | 增量 Markdown、扩展、稳定块、开放尾部 |
-| [`streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` | `Enter` 允许；`Ctrl+X` 取消 | 有界摄入、transcript、选择、失败、resize |
+| [`streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` | `Enter` 允许；`Ctrl+X` 取消 | 受控对话框、有界摄入、transcript、失败、resize |
 | [`agent`](https://github.com/Tangerg/oolong/tree/main/examples/agent) | `go run ./examples/agent` | `Enter` 发送；`/help` 列出命令 | 计划、补全、工具审核、diff、有界历史 |
 
 `streaming` 是规范库集成。`agent` 添加产品策略，但不会把模型名称、工具语法或工作区效果放进框架。两个命令都不会发起网络请求或修改文件。

@@ -10,7 +10,7 @@
   --vp-c-gutter: rgba(71, 53, 38, 0.08);
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: linear-gradient(120deg, #8d4d24 12%, #d18a45 82%);
-  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(209, 138, 69, 0.32), transparent 68%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(51, 209, 229, 0.22), transparent 68%);
   --vp-home-hero-image-filter: blur(42px);
 }
 
@@ -26,21 +26,96 @@
   --vp-c-divider: rgba(240, 218, 193, 0.13);
   --vp-c-gutter: rgba(240, 218, 193, 0.08);
   --vp-home-hero-name-background: linear-gradient(120deg, #f1bd83 10%, #cf7f3d 90%);
-  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(226, 161, 95, 0.26), transparent 68%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(112, 85, 255, 0.2), transparent 68%);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
 }
 
 .VPNavBarTitle .logo {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(7, 17, 39, 0.18);
+}
+
+.dark .VPNavBarTitle .logo {
+  outline-color: rgba(255, 255, 255, 0.1);
 }
 
 .VPHomeHero .image-container {
-  transform: translateY(-8px);
+  transform: translateY(-4px);
 }
 
 .VPHomeHero .image-src {
-  width: min(300px, 75vw);
-  max-height: 260px;
+  width: min(320px, 78vw);
+  height: auto;
+  max-width: min(320px, 78vw);
+  max-height: none;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 22%;
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 24px 64px rgba(7, 17, 39, 0.18),
+    0 4px 16px rgba(7, 17, 39, 0.12);
+}
+
+.dark .VPHomeHero .image-src {
+  outline-color: rgba(255, 255, 255, 0.1);
+}
+
+.VPHomeHero .name,
+.VPHomeHero .text {
+  text-wrap: balance;
+}
+
+.VPHomeHero .tagline {
+  text-wrap: pretty;
+}
+
+.brand-marks {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(180px, 0.8fr);
+  gap: 20px;
+  margin: 24px 0 32px;
+}
+
+.brand-marks figure {
+  margin: 0;
+  padding: 12px;
+  border-radius: 20px;
+  background: var(--vp-c-bg-soft);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.06),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.dark .brand-marks figure {
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.brand-marks img {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.dark .brand-marks img {
+  outline-color: rgba(255, 255, 255, 0.1);
+}
+
+.brand-marks figcaption {
+  margin-top: 10px;
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .VPFeature {
@@ -73,5 +148,20 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .VPHomeHero .image-container {
+    transform: translateY(-16px);
+  }
+
+  .VPHomeHero .image-src {
+    width: min(240px, 60vw);
+    max-width: min(240px, 60vw);
+  }
+
+  .brand-marks {
+    grid-template-columns: 1fr;
   }
 }

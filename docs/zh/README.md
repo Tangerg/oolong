@@ -9,8 +9,8 @@ hero:
   text: 面向 Go 的流式优先终端 UI
   tagline: 流可以很长，活动界面始终有界。
   image:
-    src: /logo.svg
-    alt: Oolong 流动标志
+    src: /brand/oolong-wordmark.png
+    alt: 带有流动终端数据块的 Oolong 字母标
   actions:
     - theme: brand
       text: 构建第一个界面

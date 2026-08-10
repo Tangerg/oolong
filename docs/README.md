@@ -9,8 +9,8 @@ hero:
   text: Streaming-first terminal UI for Go
   tagline: Streams can be long. The live interface stays bounded.
   image:
-    src: /logo.svg
-    alt: Oolong flow mark
+    src: /brand/oolong-wordmark.png
+    alt: Oolong wordmark with flowing terminal chunks
   actions:
     - theme: brand
       text: Build your first interface

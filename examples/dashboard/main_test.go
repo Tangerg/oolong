@@ -47,8 +47,9 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 		return lint >= 0 && test >= 0 && lint < test
 	})
 
-	// Alt+right moves to the other pane, which is about the queue as one number.
-	host.Send(input.Key{Code: input.Right, Mods: input.Alt})
+	// A numeric shortcut writes the caller-owned selection and asks the controller
+	// to settle focus. The same strip then projects that one source of truth.
+	host.Type("2")
 	host.Shows(t, "all of it")
 	host.Shows(t, "1 tasks/tick")
 	host.Send(input.Key{Code: input.Right})
@@ -57,12 +58,12 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	// The settings list changes the same bounded value, rather than holding a second
 	// preference that only looks like it. Moving back proves both panes observe one
 	// source of truth.
-	host.Send(input.Key{Code: input.Right, Mods: input.Alt})
+	host.Type("3")
 	host.Shows(t, "motion")
 	host.Shows(t, "2 tasks/tick")
 	host.Send(input.Key{Code: input.Right})
 	host.Shows(t, "3 tasks/tick")
-	host.Send(input.Key{Code: input.Left, Mods: input.Alt})
+	host.Type("2")
 	host.Shows(t, "3 tasks/tick")
 
 	host.Type("q")

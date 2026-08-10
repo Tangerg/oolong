@@ -144,6 +144,20 @@ Oolong 应当像一个经过深思熟虑的基础设施库那样写作：直接�
 
 ## 6. 视觉方向
 
+Oolong 有两种正式标志。当空间足够、名称能够清晰阅读时使用字母标；在导航、
+favicon、应用启动器和其他小型方形界面中使用紧凑图标。
+
+<div class="brand-marks">
+  <figure>
+    <img src="/brand/oolong-wordmark.png" alt="带有不等长彩色数据块的小写 Oolong 字母标">
+    <figcaption>主字母标——用于大型品牌展示和文档界面</figcaption>
+  </figure>
+  <figure>
+    <img src="/brand/oolong-icon.png" alt="Oolong 有界像素流图标">
+    <figcaption>紧凑图标——用于导航、favicon 和应用界面</figcaption>
+  </figure>
+</div>
+
 ### 6.1 文字标识
 
 首选文字标识是小写的 `oolong`。它在终端字号下必须仍然一眼可读。

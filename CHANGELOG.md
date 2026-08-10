@@ -18,6 +18,24 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+The polished kit now proves all three caller-owned controller paths end to end.
+Executable package examples cover controlled dialogs, sliders, and tabs; the
+dashboard coordinates tab shortcuts and settings through bound application values,
+and the streaming example observes its bound modal state without a shadow copy.
+
+The program package is organized around its existing responsibilities — public
+runtime contract, configuration, host boundary, event loop, output settlement,
+inline publication, and clocks — without adding an interface or changing an exported
+signature. GitHub Actions now hashes every module `go.sum` through one recursive
+cache path, so the workspace root no longer disables setup-go caching and a new
+module does not require another cache list entry.
+
+Committed fuzz crashers can no longer become silent orphans when a target is renamed
+or removed. The architecture gate matches every `testdata/fuzz/<Name>` directory to
+an actual `func <Name>(*testing.F)`, and the parser's invalid-UTF-8 paste regression
+now follows the broader valid-text property that owns it. Fuzz corpus files and
+visual goldens both have repository-level LF contracts on every checkout platform.
+
 The bilingual documentation now builds as a searchable VitePress site with stable
 English and Chinese routes, task-oriented navigation, module selection, symptom-led
 troubleshooting, and a fourteen-command learning catalog. CI compiles the site and

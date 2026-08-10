@@ -6,8 +6,8 @@
 // a cursor: the rows and their order are one thing, where the columns go is another,
 // and the two meet in four lines rather than in a widget that owns both.
 //
-// Alt+left and alt+right move between panes, the arrows move in them, a press on a
-// heading sorts by it, and q leaves.
+// Alt+left and alt+right or 1–3 move between panes, the arrows move in them, a press
+// on a heading sorts by it, and q leaves.
 package main
 
 import (
@@ -60,6 +60,7 @@ type dashboard struct {
 	runtime *program.Runtime
 	theme   kit.Theme
 
+	pane   int
 	tabs   *headless.Tabs
 	strip  kit.Tabs
 	work   *queue
@@ -90,9 +91,10 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 		d.changePreference,
 	)
 
-	d.strip = *kit.NewTabs(
+	d.strip = *kit.NewControlledTabs(
 		theme,
 		glyphs,
+		headless.Bind(&d.pane),
 		headless.Tab{Title: "tasks", Of: d.work},
 		headless.Tab{Title: "activity", Of: d.watch},
 		headless.Tab{Title: "settings", Of: d.prefs},
@@ -114,21 +116,30 @@ func (d *dashboard) Draw(v headless.Frame) {
 	))
 	d.strip.Draw(rows[0])
 	kit.Label{
-		Text:  "alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit",
+		Text:  "1–3 or alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit",
 		Style: d.theme.Subtle,
 	}.Draw(rows[1].View)
 }
 
 func (d *dashboard) Handle(ev input.Event) bool {
-	if key, ok := ev.(input.Key); ok && key.Down() && key.Rune == 'q' {
-		d.runtime.Quit()
-		return true
+	if key, ok := ev.(input.Key); ok && key.Down() {
+		switch key.Rune {
+		case 'q':
+			d.runtime.Quit()
+			return true
+		case '1', '2', '3':
+			// The shortcut edits application state; Sync performs the controller's
+			// focus transition without turning Draw into a semantic state change.
+			d.pane = int(key.Rune - '1')
+			d.tabs.Sync()
+			return true
+		}
 	}
 	return d.strip.Handle(ev)
 }
 
 func (d *dashboard) advance() {
-	d.work.advance(d.watch.rate.Controller().Value())
+	d.work.advance(d.watch.rateValue)
 	if d.motion {
 		d.watch.tick()
 	}
@@ -137,7 +148,7 @@ func (d *dashboard) advance() {
 func (d *dashboard) preferenceValue(item preference) string {
 	switch item {
 	case ratePreference:
-		return fmt.Sprintf("%d tasks/tick", d.watch.rate.Controller().Value())
+		return fmt.Sprintf("%d tasks/tick", d.watch.rateValue)
 	case motionPreference:
 		if d.motion {
 			return "on"
@@ -336,16 +347,22 @@ type activity struct {
 	glyphs  kit.Glyphs
 	of      *queue
 	spinner kit.Spinner
-	rate    *kit.Slider
+	// rateValue belongs to the dashboard rather than its appearance. The slider and
+	// settings pane both edit this one value, so neither can drift from the other.
+	rateValue int
+	rate      *kit.Slider
 }
 
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
-	rate := kit.NewSlider(theme, glyphs, "rate", 1, 4)
-	rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
-	return &activity{
-		theme: theme, glyphs: glyphs, of: of, rate: rate,
-		spinner: kit.Spinner{Theme: theme, Glyphs: glyphs, Label: "watching"},
+	activity := &activity{theme: theme, glyphs: glyphs, of: of, rateValue: 1}
+	activity.rate = kit.NewControlledSlider(
+		theme, glyphs, headless.Bind(&activity.rateValue), "rate", 1, 4,
+	)
+	activity.rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
+	activity.spinner = kit.Spinner{
+		Theme: theme, Glyphs: glyphs, Label: "watching",
 	}
+	return activity
 }
 
 func (a *activity) tick() { a.spinner.Tick() }

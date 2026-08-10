@@ -136,6 +136,57 @@ func ExampleProgress() {
 	// |fetching █████▎░░░░░░░░  38%|
 }
 
+func ExampleNewControlledTabs() {
+	selected := 1
+	tabs := kit.NewControlledTabs(
+		kit.Theme{}, kit.ASCII(), headless.Bind(&selected),
+		headless.Tab{Title: "one"},
+		headless.Tab{Title: "two"},
+	)
+	fmt.Println(tabs.Controller().Selected())
+	tabs.Controller().Select(0)
+	fmt.Println(selected)
+
+	// Output:
+	// 1
+	// 0
+}
+
+func ExampleNewControlledSlider() {
+	value := 2
+	slider := kit.NewControlledSlider(
+		kit.Theme{}, kit.ASCII(), headless.Bind(&value), "workers", 1, 8,
+	)
+	slider.Controller().Move(2)
+	fmt.Println(value)
+
+	value = 8
+	slider.Controller().Sync()
+	fmt.Println(slider.Controller().Value())
+
+	// Output:
+	// 4
+	// 8
+}
+
+func ExampleNewControlledDialog() {
+	var open bool
+	dialog := kit.NewControlledDialog(
+		&headless.Stack{}, headless.Bind(&open), kit.Theme{}, kit.ASCII(),
+		"Confirm", headless.Static{Of: kit.Label{Text: "Continue?"}},
+	)
+	dialog.Show()
+	fmt.Println(open)
+
+	open = false
+	dialog.Controller().Sync()
+	fmt.Println(dialog.Open())
+
+	// Output:
+	// true
+	// false
+}
+
 func ExampleDiff() {
 	before := strings.Split("keep\nold\nkeep", "\n")
 	after := strings.Split("keep\nnew\nkeep", "\n")

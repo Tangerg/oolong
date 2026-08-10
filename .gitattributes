@@ -1,3 +1,4 @@
-# Visual fixtures are byte-for-byte contracts. Git must not rewrite their line
-# endings according to the checkout platform before the tests compare them.
+# Byte fixtures are repository contracts. Git must not rewrite their line endings
+# according to the checkout platform before a visual test or fuzzer reads them.
 *.golden text eol=lf
+**/testdata/fuzz/** text eol=lf

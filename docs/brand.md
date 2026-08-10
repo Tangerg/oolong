@@ -179,6 +179,21 @@ wins whenever a reader must make a technical decision.
 
 ## 6. Visual direction
 
+Oolong has two approved marks. Use the wordmark when the name has room to remain
+readable; use the compact icon for navigation, favicons, application launchers, and
+other small square surfaces.
+
+<div class="brand-marks">
+  <figure>
+    <img src="/brand/oolong-wordmark.png" alt="Lowercase Oolong wordmark with unequal colored stream chunks">
+    <figcaption>Primary wordmark — large brand and documentation surfaces</figcaption>
+  </figure>
+  <figure>
+    <img src="/brand/oolong-icon.png" alt="Oolong bounded pixel stream icon">
+    <figcaption>Compact icon — navigation, favicon, and application surfaces</figcaption>
+  </figure>
+</div>
+
 ### 6.1 Wordmark
 
 The preferred wordmark is lowercase `oolong`. It should remain immediately readable at

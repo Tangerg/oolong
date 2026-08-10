@@ -73,11 +73,12 @@ type chat struct {
 	body      *headless.Container
 	stack     headless.Stack
 
-	approval bool
-	confirm  *headless.Confirm
-	form     *headless.Form
-	dialog   *kit.Dialog
-	pending  string
+	approval   bool
+	dialogOpen bool
+	confirm    *headless.Confirm
+	form       *headless.Form
+	dialog     *kit.Dialog
+	pending    string
 
 	stream  markdown.Stream
 	open    *markdown.Doc
@@ -135,8 +136,8 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 }
 
 // buildApproval composes behavior from headless and appearance from kit. The form
-// owns submission, Dialog owns open state and focus transfer, and chat alone decides
-// what approval means to the product.
+// owns submission, Dialog owns open/close transitions and focus transfer, while chat
+// owns the bound open value and decides what approval means to the product.
 func (c *chat) buildApproval() {
 	c.approval = true
 	c.confirm = &headless.Confirm{
@@ -150,7 +151,9 @@ func (c *chat) buildApproval() {
 	dressed := kit.NewForm(c.theme, c.glyphs, c.form)
 	dressed.Keys = formKeys
 	dressed.Hints = []keymap.Action{headless.Submit, headless.Cancel}
-	c.dialog = kit.NewDialog(&c.stack, c.theme, c.glyphs, "Approve prompt", dressed)
+	c.dialog = kit.NewControlledDialog(
+		&c.stack, headless.Bind(&c.dialogOpen), c.theme, c.glyphs, "Approve prompt", dressed,
+	)
 	c.dialog.Controller().SetDescription("The source starts only after approval.")
 	c.dialog.Panel().Where = layout.Placement{Width: 48, Height: 7, Margin: 1}
 }
@@ -178,7 +181,7 @@ func (c *chat) Handle(event input.Event) bool {
 		}
 	}
 	handled := c.stack.Handle(event)
-	if c.pending != "" && !c.dialog.Open() {
+	if c.pending != "" && !c.dialogOpen {
 		// Stack may dismiss on Escape or a click outside. Dialog has already restored
 		// focus; this settles the product intent that had not been approved.
 		c.pending = ""
@@ -189,7 +192,7 @@ func (c *chat) Handle(event input.Event) bool {
 
 func (c *chat) requestApproval() {
 	prompt := strings.TrimSpace(c.composer.Text())
-	if prompt == "" || c.active || c.dialog.Open() {
+	if prompt == "" || c.active || c.dialogOpen {
 		return
 	}
 	c.pending = prompt

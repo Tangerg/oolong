@@ -62,6 +62,9 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           cache: true
+          # The repository root is a workspace, not a module. This glob follows
+          # every module with dependencies without another hand-maintained list.
+          cache-dependency-path: "**/go.sum"
 
       # Built into a scratch directory rather than in place: a module whose
       # only package is a command in a directory of the same name would
@@ -103,6 +106,7 @@ jobs:
         with:
           go-version: "1.26.x"
           check-latest: true
+          cache-dependency-path: "**/go.sum"
 
       # A workspace can make an undeclared local dependency look healthy. Work in a
       # disposable checkout with the workspace off and local versions of declared
@@ -137,6 +141,7 @@ jobs:
         with:
           go-version: "1.26.x"
           check-latest: true
+          cache-dependency-path: "**/go.sum"
 
       # gorelease owns both halves of this promise: exported Go API compatibility
       # and the module/dependency facts that make a release usable. Pinning the
@@ -236,6 +241,7 @@ jobs:
         with:
           go-version: "1.26.x"
           check-latest: true
+          cache-dependency-path: "**/go.sum"
 
       # Pinned rather than floating: a linter that changes under a repository is
       # one whose findings arrive as unrelated failures on somebody else's change.
@@ -257,10 +263,11 @@ jobs:
         run: for m in $(scripts/modules.sh); do (cd "$m" && govulncheck ./...) || exit 1; done
 
   # The committed seed corpus runs as part of `go test`, which only replays inputs
-  # somebody already found. The bug that made this job exist — a parser whose
-  # answer depended on where the read split — passed every other check here and
-  # was reached by a fuzzer in fifteen seconds, so the generator runs on every
-  # push and not only when someone remembers.
+  # somebody already found; internal/arch also proves every corpus directory still
+  # names a live fuzz target. The bug that made this job exist — a parser whose
+  # answer depended on where the read split — passed every other check here and was
+  # reached by a fuzzer in fifteen seconds, so the generator runs on every push and
+  # not only when someone remembers.
   fuzz:
     runs-on: ubuntu-latest
     steps:
@@ -269,6 +276,7 @@ jobs:
         with:
           go-version: "1.26.x"
           check-latest: true
+          cache-dependency-path: "**/go.sum"
       - name: Fuzz every target
         run: |
           set -euo pipefail
@@ -304,6 +312,7 @@ jobs:
         with:
           go-version: "1.26.x"
           check-latest: true
+          cache-dependency-path: "**/go.sum"
 
       # gofumpt rather than gofmt: it is gofmt plus the decisions gofmt left open,
       # and a repository that argues about them in review is one that has not made
@@ -382,6 +391,7 @@ jobs:
         with:
           go-version: "1.26.x"
           check-latest: true
+          cache-dependency-path: "**/go.sum"
 
       # Vet rather than build, because vet type-checks the tests too. A test file
       # that named a syscall package with no build tag on it compiled here and

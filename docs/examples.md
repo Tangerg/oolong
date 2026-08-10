@@ -54,7 +54,7 @@ These examples combine reusable behavior while the application keeps product lay
 | [`picker`](https://github.com/Tangerg/oolong/tree/main/examples/picker) | `go run ./examples/picker` | Type to filter; arrows move; `Enter` picks | Text field, fuzzy ranking, list, highlighted matches |
 | [`composer`](https://github.com/Tangerg/oolong/tree/main/examples/composer) | `go run ./examples/composer` | Type `@`; arrows choose; `Enter` submits | Completion, draft history, atomic paste elements |
 | [`files`](https://github.com/Tangerg/oolong/tree/main/examples/files) | `go run ./examples/files .` | `Tab` changes pane; arrows navigate; `q` quits | Focus, tree identity, viewport, pointer routing |
-| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | Change tabs, sort headers, adjust sliders | Tabs, tables, progress, animation lifetime |
+| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | Press `1`–`3`, sort headers, adjust sliders | Caller-owned tabs and slider, tables, progress, animation lifetime |
 
 The library does not add a second `Picker` or `FileBrowser` API. Each product interaction is a composition over the same controllers.
 
@@ -80,7 +80,7 @@ These examples add background work, incremental transforms, inline publication, 
 | --- | --- | --- | --- |
 | [`run`](https://github.com/Tangerg/oolong/tree/main/examples/run) | `go run ./examples/run -- go test ./core/...` | `Ctrl+E` edits; `Ctrl+Z` suspends; `Ctrl+C` quits | ANSI decoding, subprocess output, terminal handover |
 | [`read`](https://github.com/Tangerg/oolong/tree/main/examples/read) | `go run ./examples/read` | `Ctrl+C` quits after the answer | Incremental Markdown, extensions, stable blocks, open tail |
-| [`streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` | `Enter` approves; `Ctrl+X` cancels | Bounded ingress, transcript, selection, failure, resize |
+| [`streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` | `Enter` approves; `Ctrl+X` cancels | Controlled dialog, bounded ingress, transcript, failure, resize |
 | [`agent`](https://github.com/Tangerg/oolong/tree/main/examples/agent) | `go run ./examples/agent` | `Enter` sends; `/help` lists commands | Plan, completion, tool review, diff, bounded history |
 
 `streaming` is the canonical library integration. `agent` adds product policy without moving model names, tool grammar, or workspace effects into the framework. Neither command performs network requests or changes files.

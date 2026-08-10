@@ -108,6 +108,17 @@ When a source writes through `program.ByteIngress`, close the ingress and wait f
 its final owner-side batch. Cancellation tests should prove blocked writers return
 and no producer survives the program.
 
+## Preserve fuzz regressions
+
+`go test` replays files under `testdata/fuzz/<Target>` before fuzz generation. Keep
+that directory name identical to its `func <Target>(f *testing.F)`: when a target is
+renamed, move its corpus in the same change. The architecture gate rejects a corpus
+with no live fuzz target, because Go otherwise ignores that directory without an
+error.
+
+Corpus files are byte fixtures. The repository forces LF endings for every
+`testdata/fuzz/**` path so checkout settings cannot rewrite a seed before Go reads it.
+
 ## Update visual goldens deliberately
 
 The complex examples store text goldens for geometry that is easier to review as a
