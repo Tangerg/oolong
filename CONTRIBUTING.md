@@ -60,12 +60,12 @@ version skew and buys an independent dependency set:
 
 - `core` carries the whole third-party list and everything the engine is.
 - `components` imports nothing outside `core` and the standard library.
-- `markdown` is where a parser is allowed to be and `highlight` is where a lexer
-  per language is, and nothing imports either: that is what the two modules above
-  buy by refusing them. They may not import each other, which is what the seam
-  between them is for.
+- `markdown` is where its parser is allowed to be, `highlight` is where lexers and
+  palettes live, and `latex` owns mathematical parsing and terminal layout. They
+  are peers and may not import one another; consumer-owned core-text seams are how
+  applications compose them.
 - `ptytest` depends on neither and nothing depends on it.
-- Anything wanting a heavy dependency — markdown, syntax highlighting — becomes
+- Anything wanting a heavy dependency — markdown, syntax highlighting, mathematics — becomes
   a module of its own so that neither of the first two hears about it.
 
 A **ring** boundary is inside a module, where the compiler cannot see it:

@@ -102,7 +102,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	// pulls a lexer for every language into a program:
 	//
 	//	look := r.stream.Look()
-	//	look.Highlight = highlight.Of("github-dark")
+	//	look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
 	//	r.stream.SetLook(look)
 
 	runtime.Session().SetTitle("reading")

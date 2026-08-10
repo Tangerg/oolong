@@ -173,6 +173,7 @@ type blockMeaning struct {
 	rail   string
 	indent int
 	rule   bool
+	fixed  bool
 	gap    bool
 }
 
@@ -208,6 +209,7 @@ func meaningOfDoc(doc *Doc) docMeaning {
 			rail:   block.rail.String(),
 			indent: block.indent,
 			rule:   block.rule,
+			fixed:  block.fixed,
 			gap:    block.blankBefore,
 		})
 	}

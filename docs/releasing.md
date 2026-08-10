@@ -7,7 +7,7 @@ or edit dependency versions by hand.
 ## Know what is released
 
 The public release train contains `core`, `components`, `markdown`, `highlight`,
-`ptytest`, and `ssh`. Every public module receives the same version even when its
+`latex`, `ptytest`, and `ssh`. Every public module receives the same version even when its
 own files did not change. `examples` and `internal` are tested but never tagged.
 
 Before v1, every exported API may change. From v1 onward, the release must preserve

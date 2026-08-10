@@ -19,7 +19,7 @@ Oolong 是一个面向 Go 的、流式优先的终端界面底座。
 1. **发布平面**把已完成的内容移交给终端拥有的历史。
 2. **交互平面**拥有那个有界的、仍然可以变化的活动界面。
 
-运行时和终端适配层驱动这两个平面，但不知道应用选了哪些 widget。markdown 和语法高亮这类内容变换仍然是**同级**模块，产出共享的文本值；它们不会变成运行时插件。
+运行时和终端适配层驱动这两个平面，但不知道应用选了哪些 widget。markdown、语法高亮和数学排版这类内容变换仍然是**同级**模块，产出共享的文本值；它们不会变成运行时插件。
 
 HTML、CSS、DOM、React、Vue、Solid、Flutter、Base UI、Radix UI、shadcn 的思想，在能澄清上述职责的地方是有用的。它们不构成在 Go 里复制一个浏览器或一个 Dart 运行时的理由。
 
@@ -294,6 +294,7 @@ flowchart BT
     Kit["default appearance"] --> Headless
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
+    Latex["mathematical layout"] --> Model
     App["application composition"] --> Program
     App --> SSH
     App --> ProgramTest
@@ -301,7 +302,14 @@ flowchart BT
     App --> Kit
     App --> Markdown
     App --> Highlight
+    App --> Latex
 ```
+
+同级内容模块通过消费方拥有的语义块接缝组合，而不是彼此 import。Markdown 拥有
+语法识别，并暴露 fenced code、display mathematics 这类稳定语义；renderer 只接收
+info 字符串、source 与 `core/text` 值。Goldmark node、LaTeX AST node、Chroma lexer
+及其配置都不得跨越模块边界。未来的 Markdown 语法扩展必须保持这个方向，不能把
+某个实现解析器变成公开插件协议。
 
 `program` 与 widget 阶梯保持正交。它驱动一个由消费方定义的组件方法集，并且不得 import `components`。反过来，组件也不知道是哪个终端宿主、调度器或运行时在驱动它们。
 
@@ -330,7 +338,7 @@ import 该适配器的应用才承担它的外部依赖。
 
 一个下层抽象之所以通用，是因为**它的契约在它自己的词汇里是完整的**，而不是因为它接受 `any`、属性 map，或者为它决定不了的每件事都开一个回调。一个只是把上层知识搬进字符串的通用逃生口，是抽象泄漏。
 
-复制/搜索这条边界示范了方向。一个视觉文本行现在是 `core/text.Row`：有意义的文本、它渲染后的列偏移、以及可逆的折行元数据。`markdown` 和 `components` 都能产出它，而彼此都不用学对方的词汇。transcript 的选择和搜索消费的是那个更底层的值；装订线、标记和组件身份不会漏进被复制的文本。
+复制/搜索这条边界示范了方向。一个视觉文本行现在是 `core/text.Row`：有意义的文本、它渲染后的列偏移、以及可逆的折行元数据。`markdown`、`latex` 和 `components` 都能产出它，而彼此都不用学对方的词汇。transcript 的选择和搜索消费的是那个更底层的值；装订线、标记和组件身份不会漏进被复制的文本。
 
 架构测试继续强制 import、文档引用、模块依赖承诺、图的完整性和无环性。新增一个 ring 就是加一个节点及其直接的下层依赖。
 
@@ -435,7 +443,7 @@ import 该适配器的应用才承担它的外部依赖。
 | 集中的 primitive 保持集中 | `dupl` 拒绝在范围、坐标、writer、身份和 ANSI framing primitive 的唯一实现旁边出现第二份结构性拷贝。它按模块运行，因此跨模块拷贝仍超出其视野，需要人工审读 | 每次 CI，在单个模块内 |
 | 有界的活动生命期（3.2） | 一个确定性组件测试证明交付移除了强载荷引用与每块的放置记录；一个在全新进程里跑的压力测试比较 `N` 与 `2N` 的大量已交付流在 GC 之后的保留堆，拒绝与 `N` 成正比的增长 | 切片 1 及每一个 transcript 实现 |
 | 无损增量摄入 | burst、取消、关闭、部分尾部、生产者快于消费者等测试，证明顺序、批量、声明的上限以及不丢数据 | 切片 1 |
-| 可观察意义上纯粹的测量与绘制 | [`headless`](../components/headless/draw_purity_internals_test.go)、[`kit`](../components/kit/draw_purity_internals_test.go) 和 [`markdown`](../markdown/draw_purity_internals_test.go) 对每一个生产用的 `Measure` 与 `Draw*` 接收者做分类；每一个有状态的接收者从同样的有意义状态测量和绘制两次，保持其语义投影不变，返回相同的尺寸，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了测量或绘制的包；未分类的接收者直接失败 |
+| 可观察意义上纯粹的测量与绘制 | [`headless`](../components/headless/draw_purity_internals_test.go)、[`kit`](../components/kit/draw_purity_internals_test.go)、[`markdown`](../markdown/draw_purity_internals_test.go) 和 [`latex`](../latex/draw_purity_internals_test.go) 对每一个生产用的 `Measure` 与 `Draw*` 接收者做分类；每一个有状态的接收者从同样的有意义状态测量和绘制两次，保持其语义投影不变，返回相同的尺寸，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了测量或绘制的包；未分类的接收者直接失败 |
 | 单帧路由几何（6.3） | 一个路由测试在新的根绘制暂存期间观察到旧快照，在根提交之后观察到完整的新快照；不存在可观察到的子节点几何混合体 | 切片 2 |
 | 受支持平台的尺寸变化投递 | 一个真实的 Unix PTY 改变几何后必须产生后续的 `Resize`；Windows 的轮询状态机用确定性时钟测试变化检测、错误恢复、去重和关闭；Windows 源码在 CI 中构建并测试 | 每次终端测试，以及每个受支持的 OS 源码集 |
 | 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
@@ -478,6 +486,7 @@ Benchmark 应当回答产品问题：
 - 一小时的流在完成块交付之后，对内存的影响是什么？
 - 生产者的爆发比帧能展示的速度更快时会发生什么？
 - 更新一个开放中的 markdown 块的代价是多少？
+- 解析一个有代表性的数学表达式会分配多少？
 - 一个没有变化的帧做了多少工作、写了多少字节？
 - 对一个大的、刻意保留的 transcript 做尺寸变化，代价是多少？
 - 宽字素、组合符、链接和图片是否保持了它们的不变式？
@@ -489,6 +498,7 @@ Benchmark 应当回答产品问题：
 | 已交付流的生命期 | `BenchmarkTranscriptCommittedStream` 测量会话年龄增长时的稳定态转移成本；确定性释放测试和全新进程堆测试仍然是保留问题的证明 |
 | 生产者爆发 | `BenchmarkByteIngressProducerBurst` 在两个显式待处理字节上限下报告吞吐、分配与 owner 批次数 |
 | 开放 markdown 更新 | `BenchmarkOpenMarkdownUpdate` 在三个尺度上保持开放尾部大小不变；`BenchmarkOpenMarkdownCachedRead` 把防御性结果复制与解析分开 |
+| 数学排版 | `BenchmarkRender` 对一个包含分式、根式、关系符和上下标的代表性表达式解析并排版一次；后续帧复用不可变结果，并由纯度关卡覆盖 |
 | 未变化帧 | `BenchmarkFrameThatChangedNothing` 在工作量与分配之外，还报告每帧的线上字节数 |
 | 保留 transcript 的尺寸变化 | `BenchmarkTranscriptRetainedResize` 通过真实根帧事务，在保留 100 块和 10,000 块时交替改变宽度 |
 | 复杂 cell 不变式 | `BenchmarkComplexFrameThatChangedNothing` 组合宽字素、组合符、链接、样式和绘制区域，并报告线上字节数；正确性仍由聚焦的 grid 与 text 测试负责 |

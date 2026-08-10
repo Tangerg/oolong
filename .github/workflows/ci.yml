@@ -8,6 +8,7 @@ on:
       - "components/v*"
       - "markdown/v*"
       - "highlight/v*"
+      - "latex/v*"
       - "ptytest/v*"
       - "ssh/v*"
   pull_request:
@@ -17,7 +18,7 @@ on:
         description: Public module to validate before tagging
         required: true
         type: choice
-        options: [core, components, markdown, highlight, ptytest, ssh]
+        options: [core, components, markdown, highlight, latex, ptytest, ssh]
       version:
         description: Proposed canonical version, for example v1.2.3
         required: true
@@ -122,6 +123,7 @@ jobs:
                 -replace=github.com/Tangerg/oolong/components="$standalone_root/components" \
                 -replace=github.com/Tangerg/oolong/markdown="$standalone_root/markdown" \
                 -replace=github.com/Tangerg/oolong/highlight="$standalone_root/highlight" \
+                -replace=github.com/Tangerg/oolong/latex="$standalone_root/latex" \
                 -replace=github.com/Tangerg/oolong/ptytest="$standalone_root/ptytest" \
                 -replace=github.com/Tangerg/oolong/ssh="$standalone_root/ssh"
               GOWORK=off go test -count=1 ./...
@@ -347,6 +349,7 @@ jobs:
                 -replace=github.com/Tangerg/oolong/components="$tidy_root/components" \
                 -replace=github.com/Tangerg/oolong/markdown="$tidy_root/markdown" \
                 -replace=github.com/Tangerg/oolong/highlight="$tidy_root/highlight" \
+                -replace=github.com/Tangerg/oolong/latex="$tidy_root/latex" \
                 -replace=github.com/Tangerg/oolong/ptytest="$tidy_root/ptytest" \
                 -replace=github.com/Tangerg/oolong/ssh="$tidy_root/ssh"
               # A local replacement legitimately needs no checksum for the published

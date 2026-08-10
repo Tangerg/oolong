@@ -11,6 +11,7 @@ import (
 	east "github.com/yuin/goldmark/extension/ast"
 	gparser "github.com/yuin/goldmark/parser"
 	gtext "github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
@@ -31,7 +32,12 @@ import (
 func parse(source []byte) ast.Node { return parser().Parse(gtext.NewReader(source)) }
 
 var parser = sync.OnceValue(func() gparser.Parser {
-	return goldmark.New(goldmark.WithExtensions(extension.GFM)).Parser()
+	return goldmark.New(
+		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithParserOptions(gparser.WithBlockParsers(
+			util.Prioritized(&mathBlockParser{}, 650),
+		)),
+	).Parser()
 })
 
 // Render turns a whole markdown document into blocks.
@@ -193,6 +199,8 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 		r.code(node, string(node.Language(r.source)), in)
 	case *ast.CodeBlock:
 		r.code(node, "", in)
+	case *mathBlock:
+		r.math(node, in)
 	case *ast.ThematicBreak:
 		r.push(Block{
 			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, rule: true,
@@ -287,26 +295,44 @@ func (r *renderer) quoted(previous *railChain, indent int) (*railChain, int) {
 	return &railChain{previous: previous, span: span, depth: depth}, layout.Sum(indent, text.Width(span.Text))
 }
 
-// code renders a block of code, through the look's highlighter when it has one.
+// code publishes fenced source through its semantic renderer when one is installed.
 func (r *renderer) code(n ast.Node, language string, in frame) {
+	source := r.sourceLines(n)
+	if strings.EqualFold(strings.TrimSpace(language), "math") {
+		r.extension(DisplayMath, "", strings.Join(source, "\n"), in)
+		return
+	}
+	r.extension(FencedCode, language, strings.Join(source, "\n"), in)
+}
+
+func (r *renderer) math(n ast.Node, in frame) {
+	r.extension(DisplayMath, "", strings.Join(r.sourceLines(n), "\n"), in)
+}
+
+func (r *renderer) extension(kind Extension, info, source string, in frame) {
+	var lines []text.Line
+	if render := r.look.renderer(kind); render != nil {
+		lines = text.CloneLines(render(info, source))
+	}
+	if lines == nil {
+		for line := range strings.SplitSeq(source, "\n") {
+			lines = append(lines, text.Of(line, r.look.Block))
+		}
+	}
+	r.push(Block{
+		indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
+		lines: lines, fixed: kind == DisplayMath,
+	})
+}
+
+func (r *renderer) sourceLines(n ast.Node) []string {
 	lines := n.Lines()
 	source := make([]string, 0, lines.Len())
 	for i := range lines.Len() {
 		segment := lines.At(i)
 		source = append(source, strings.TrimRight(string(segment.Value(r.source)), "\n"))
 	}
-
-	var out []text.Line
-	if r.look.Highlight != nil {
-		out = text.CloneLines(r.look.Highlight(language, strings.Join(source, "\n")))
-	}
-	if out == nil {
-		out = make([]text.Line, 0, len(source))
-		for _, line := range source {
-			out = append(out, text.Of(line, r.look.Block))
-		}
-	}
-	r.push(Block{indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, lines: out})
+	return source
 }
 
 // inline turns the inline nodes under n into lines, splitting where the text said to

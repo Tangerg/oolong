@@ -2,7 +2,7 @@ go 1.26.0
 
 // Every module in the repository, so that a change spanning two of them is one
 // change: built together, tested together, committed together. That is the whole
-// reason to keep them in one repository rather than five, and it is why this file
+// reason to keep them in one repository rather than separate repositories, and it is why this file
 // is committed rather than ignored — without it a checkout does not build.
 //
 // The repository root is not one of them. A module is a unit of distribution and
@@ -16,6 +16,7 @@ use (
 	./examples
 	./highlight
 	./internal
+	./latex
 	./markdown
 	./ptytest
 	./ssh

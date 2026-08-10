@@ -45,7 +45,7 @@ const modulePath = "github.com/Tangerg/oolong"
 // interface library that drags a dependency tree behind it is one people work
 // around instead of using. `components` carries none, which is what makes it plain
 // that everything it needs is already in `core`. Anything wanting a heavy
-// dependency — markdown, syntax highlighting — becomes a module of its own with
+// dependency — markdown, syntax highlighting, mathematics — becomes a module of its own with
 // its own list, and neither of these two is touched.
 var modules = map[string][]string{
 	"core": {
@@ -55,12 +55,13 @@ var modules = map[string][]string{
 		"golang.org/x/sys",
 	},
 	"components": nil,
-	// The modules the boundary was drawn for. Markdown needs a parser and highlighting
-	// needs a lexer per language and a palette per theme; both are trees of somebody
+	// The modules the boundary was drawn for. Markdown and mathematics need parsers,
+	// and highlighting needs a lexer per language and a palette per theme; each is a tree of somebody
 	// else's code, and this is where they are allowed to be — which is what the two
 	// modules above buy by refusing them.
 	"markdown":  {"github.com/yuin/goldmark"},
 	"highlight": {"github.com/alecthomas/chroma"},
+	"latex":     {"codeberg.org/go-latex/latex"},
 	"internal":  nil,
 	"ptytest":   {"golang.org/x/sys"},
 	"ssh":       {"charm.land/ssh"},
@@ -89,6 +90,7 @@ var rings = []struct {
 	{"components/kit/", "kit"},
 	{"markdown/", "markdown"},
 	{"highlight/", "highlight"},
+	{"latex/", "latex"},
 	{"ptytest/", "harness"},
 	{"ssh/", "ssh"},
 	{"examples/", "examples"},
@@ -130,16 +132,17 @@ var dependencies = map[string][]string{
 	"kit":      {"headless"},
 
 	// Optional content modules terminate at the common text model and remain peers:
-	// neither parser nor highlighter owns the other.
+	// no parser, highlighter or typesetter owns another.
 	"markdown":  {"model"},
 	"highlight": {"model"},
+	"latex":     {"model"},
 
 	// A harness is outside the product graph and may inspect terminal-neutral text
 	// and ANSI syntax from above. Demonstrations are the composition root and may use
 	// every public branch, but no production ring depends on either test layer.
 	"harness":  {"model"},
 	"ssh":      {"runtime"},
-	"examples": {"testharness", "kit", "markdown", "highlight", "harness", "ssh"},
+	"examples": {"testharness", "kit", "markdown", "highlight", "latex", "harness", "ssh"},
 
 	// The architecture module contains only tests and imports no production ring.
 	"internal": nil,
@@ -212,7 +215,7 @@ func TestDocumentationPointsDown(t *testing.T) {
 		"core/anim", "core/ansi", "core/clipboard", "core/diff", "core/fuzzy",
 		"core/graphics", "core/grid", "core/input", "core/layout", "core/link",
 		"core/keymap", "core/present", "core/program", "core/programtest", "core/term", "core/text",
-		"components/headless", "components/kit", "markdown", "highlight", "ptytest", "ssh",
+		"components/headless", "components/kit", "markdown", "highlight", "latex", "ptytest", "ssh",
 	}
 
 	walk(t, root, func(dir, path string) {
@@ -439,6 +442,9 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"markdown", "highlight", true},
 		{"highlight", "markdown", true},
 		{"highlight", "core/text", false},
+		{"latex", "markdown", true},
+		{"markdown", "latex", true},
+		{"latex", "core/text", false},
 		{"ptytest", "core/text", false},
 
 		// Nothing leans on the harness, and nothing imports a demonstration.

@@ -135,7 +135,7 @@ oolong_deps() {
 		sort -u
 }
 
-# Repeated passes rather than a clever sort: seven modules, and an order anyone can
+# Repeated passes rather than a clever sort: a small module set, and an order anyone can
 # check by reading it.
 order=()
 remaining=("${ALL_MODULES[@]}")

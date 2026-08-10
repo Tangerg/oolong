@@ -32,8 +32,9 @@ The architecture therefore has two more fundamental planes than any widget tree:
 2. The **interaction plane** owns the bounded live interface that can still change.
 
 The runtime and terminal adapter drive both planes but do not know which widgets an
-application chose. Content transforms such as markdown and syntax highlighting remain
-peers that produce shared text values; they do not become runtime plugins.
+application chose. Content transforms such as markdown, syntax highlighting, and
+mathematical layout remain peers that produce shared text values; they do not become
+runtime plugins.
 
 Ideas from HTML, CSS, DOM, React, Vue, Solid, Flutter, Base UI, Radix UI, and shadcn are
 useful where they clarify these responsibilities. They are not a reason to reproduce a
@@ -465,6 +466,7 @@ flowchart BT
     Kit["default appearance"] --> Headless
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
+    Latex["mathematical layout"] --> Model
     App["application composition"] --> Program
     App --> SSH
     App --> ProgramTest
@@ -472,7 +474,16 @@ flowchart BT
     App --> Kit
     App --> Markdown
     App --> Highlight
+    App --> Latex
 ```
+
+Peer content modules compose through a consumer-owned semantic-block seam, not by
+importing one another. Markdown owns syntax recognition and exposes stable meanings
+such as fenced code and display mathematics; renderers receive only info strings,
+source, and `core/text` values. Goldmark nodes, LaTeX AST nodes, Chroma lexers, and
+their configuration never cross module boundaries. A future Markdown syntax
+extension must preserve that direction instead of turning an implementation parser
+into the public plug-in protocol.
 
 `program` remains orthogonal to the widget ladder. It drives a consumer-defined
 component method set and must not import `components`. Conversely, components do not
@@ -517,9 +528,9 @@ is an abstraction leak.
 
 The copy/search boundary demonstrates the direction. A visual text row is now
 `core/text.Row`: meaningful text, its rendered column offset, and reversible wrap
-metadata. `markdown` and `components` can both produce it without either learning the
-other's vocabulary. Transcript selection and search consume that lower value; gutters,
-markers and component identity do not leak into copied text.
+metadata. `markdown`, `latex`, and `components` can produce it without learning one
+another's vocabulary. Transcript selection and search consume that lower value;
+gutters, markers and component identity do not leak into copied text.
 
 Architecture tests continue to enforce imports, documentation references, module
 dependency promises, graph completeness, and acyclicity. A new ring is added as one
@@ -686,7 +697,7 @@ invariant it makes enforceable.
 | a centralized primitive stays centralized | `dupl` rejects a second structural copy of the extent, coordinate, writer, identity and ANSI framing primitives beside the first. It runs per module, so a copy in another module is outside its reach and stays a reading | every CI run, within a module |
 | bounded live lifetime, section 3.2 | a deterministic component test proves that commit removes strong payload references and per-block placement records; a fresh-process stress test compares `N` and `2N` large committed streams after GC and rejects retained-heap growth proportional to `N` | required by slice 1 and every transcript implementation |
 | incremental lossless ingress | burst, cancellation, close, partial-tail, and producer-faster-than-consumer tests prove ordering, batching, the declared bound, and the absence of drops | required by slice 1 |
-| observationally pure measurement and drawing | [`headless`](../components/headless/draw_purity_internals_test.go), [`kit`](../components/kit/draw_purity_internals_test.go) and [`markdown`](../markdown/draw_purity_internals_test.go) classify every production `Measure` and `Draw*` receiver; every stateful receiver measures and draws twice from the same meaningful state, preserves its semantic projection, returns the same extent, and produces identical terminal bytes, styles, and cursor state | every package that implements measurement or drawing; an unclassified receiver fails |
+| observationally pure measurement and drawing | [`headless`](../components/headless/draw_purity_internals_test.go), [`kit`](../components/kit/draw_purity_internals_test.go), [`markdown`](../markdown/draw_purity_internals_test.go), and [`latex`](../latex/draw_purity_internals_test.go) classify every production `Measure` and `Draw*` receiver; every stateful receiver measures and draws twice from the same meaningful state, preserves its semantic projection, returns the same extent, and produces identical terminal bytes, styles, and cursor state | every package that implements measurement or drawing; an unclassified receiver fails |
 | one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
@@ -748,6 +759,7 @@ Benchmarks should answer product questions:
 - How does a one-hour stream affect memory after completed blocks are committed?
 - What happens when a producer bursts faster than frames can be shown?
 - What is the cost of updating one open markdown block?
+- What does parsing one representative mathematical expression allocate?
 - How much work does an unchanged frame do and how many bytes does it write?
 - What does resize cost for a large deliberately retained transcript?
 - Do wide graphemes, combining marks, links, and images preserve their invariants?
@@ -760,6 +772,7 @@ benchmark:
 | committed stream lifetime | `BenchmarkTranscriptCommittedStream` measures steady-state transfer cost as session age grows; the deterministic release and fresh-process heap tests remain the retention proof |
 | producer burst | `BenchmarkByteIngressProducerBurst` reports throughput, allocations, and owner batches at two explicit pending-byte limits |
 | open markdown update | `BenchmarkOpenMarkdownUpdate` holds the open-tail size constant at three scales; `BenchmarkOpenMarkdownCachedRead` separates the defensive result copy from parsing |
+| mathematical layout | `BenchmarkRender` parses and lays out a representative fraction, radical, relation, and scripts once; frames reuse the immutable result and are covered by the purity gate |
 | unchanged frame | `BenchmarkFrameThatChangedNothing` reports wire bytes per frame as well as work and allocations |
 | retained transcript resize | `BenchmarkTranscriptRetainedResize` alternates widths through the real root-frame transaction at 100 and 10,000 retained blocks |
 | complex cell invariants | `BenchmarkComplexFrameThatChangedNothing` combines wide and combining graphemes, links, styles, and a painted region, and reports wire bytes; correctness remains in the focused grid and text tests |

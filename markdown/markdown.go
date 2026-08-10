@@ -29,14 +29,14 @@
 //
 // # What it does not do
 //
-// It does not highlight code. A highlighter is several megabytes of lexers and a
-// matter of taste, which is the same argument that keeps one appearance out of the
-// behaviour a widget has — so [Look.Highlight] is where one plugs in, and a document
-// with none draws code in one style. Chroma is ten lines away and is nobody's
-// dependency until somebody wants it.
+// It does not highlight code or typeset mathematics. Those concerns bring their own
+// parsers, dependencies and policies. [Look.SetRenderer] is the one seam where
+// recognized semantic blocks receive such a renderer; without one their source stays
+// readable. The Markdown parser and its AST never cross that seam.
 package markdown
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/Tangerg/oolong/core/grid"
@@ -211,15 +211,56 @@ type Look struct {
 	// a theme and a glyph set, and a caller with one of those builds this from it.
 	Glyphs Glyphs
 
-	// Highlight turns a block of code into styled lines, and is where a syntax
-	// highlighter plugs in. Nil draws the code in [Look.Block], which is what a
-	// document that nobody has chosen a highlighter for should look like.
+	// Extension renderers handle recognized semantic blocks whose implementation belongs in a
+	// sibling module. Code highlighting and mathematical typesetting use this same
+	// boundary. Missing renderers leave source readable in Block style.
 	//
-	// The language is whatever was written after the fence, unexamined: it is the
-	// author's word for what the code is, and mapping it onto a lexer is the
-	// highlighter's business rather than this module's.
-	Highlight func(language, source string) []text.Line
+	// The functions consume and produce core values. They never receive parser
+	// nodes, so the Markdown implementation and its dependency remain private.
+	extensions map[Extension]Renderer
 }
+
+// Extension identifies a semantic block recognized by Markdown. It is not a parser
+// plug-in API: syntax and parse correctness remain this module's responsibility;
+// rendering the resulting domain content is the replaceable part.
+type Extension uint8
+
+const (
+	_ Extension = iota
+	// FencedCode is a backtick or tilde fence. The renderer's info is the language
+	// written after the fence.
+	FencedCode
+	// DisplayMath is a $$ block or a fenced block whose language is math.
+	DisplayMath
+)
+
+// Renderer turns one extension body into logical styled lines. Markdown retains the
+// layout semantics: fenced code wraps like code already did, while display
+// mathematics clips rather than reflowing its two-dimensional arrangement.
+// Returning nil asks Markdown to show the source in [Look.Block]; returning a
+// non-nil empty slice intentionally draws no rows.
+type Renderer func(info, source string) []text.Line
+
+// SetRenderer sets the sole renderer for extension. A nil renderer removes it.
+//
+// The zero Look is ready. The private registry is copied before mutation, so changing
+// a copied Look does not silently change the value it was copied from.
+func (l *Look) SetRenderer(extension Extension, renderer Renderer) {
+	l.extensions = maps.Clone(l.extensions)
+	if renderer == nil {
+		delete(l.extensions, extension)
+		if len(l.extensions) == 0 {
+			l.extensions = nil
+		}
+		return
+	}
+	if l.extensions == nil {
+		l.extensions = make(map[Extension]Renderer)
+	}
+	l.extensions[extension] = renderer
+}
+
+func (l *Look) renderer(extension Extension) Renderer { return l.extensions[extension] }
 
 // Glyphs are the characters a document's furniture is drawn with.
 //
@@ -240,7 +281,7 @@ type Glyphs struct {
 
 // heading is the style for a heading of a level, counting from one. A level deeper
 // than the look has entries for is drawn as the deepest one it has.
-func (l Look) heading(level int) grid.Style {
+func (l *Look) heading(level int) grid.Style {
 	if len(l.Headings) == 0 {
 		return l.Text
 	}

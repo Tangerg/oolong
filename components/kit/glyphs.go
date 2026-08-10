@@ -1,6 +1,6 @@
 package kit
 
-import "strings"
+import "github.com/Tangerg/oolong/core/text"
 
 // Glyphs are the characters a look draws its furniture with.
 //
@@ -120,22 +120,10 @@ func GlyphsFor(locale string) Glyphs {
 	if locale == "" {
 		return Unicode()
 	}
-	if utf8Locale(locale) {
+	if text.UTF8Locale(locale) {
 		return Unicode()
 	}
 	return ASCII()
-}
-
-// utf8Locale reports whether a locale names the UTF-8 character set.
-func utf8Locale(value string) bool {
-	_, charset, found := strings.Cut(value, ".")
-	if !found {
-		// "C" and "POSIX" name no character set and mean ASCII. Anything else without
-		// one is a language with no encoding given, which is not a promise of UTF-8.
-		return false
-	}
-	charset = strings.ToLower(strings.ReplaceAll(charset, "-", ""))
-	return strings.HasPrefix(charset, "utf8")
 }
 
 // Border is the set of characters a box is drawn with. The zero Border draws no

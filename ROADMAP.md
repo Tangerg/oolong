@@ -407,7 +407,7 @@ in a frame, which is still waiting on the same thing.*
    goes into a slot, a container or a viewport belonging to a package this module has
    never heard of. And a highlighter: several megabytes of lexers is a matter of
    taste, which is the argument that keeps one appearance out of the behaviour a
-   widget has, so `Look.Highlight` is where one plugs in and chroma is nobody's
+   widget has, so `Look.SetRenderer` is where one plugs in and chroma is nobody's
    dependency until somebody wants it.
 
 4. **Images in a frame.** `core/graphics` knows the protocols and which of them survive

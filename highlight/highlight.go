@@ -13,12 +13,14 @@
 // text out already takes. Nothing here draws, measures or wraps: a highlighted
 // block of code is styled text and is laid out like any other styled text.
 //
-// # How it plugs into markdown
+// # Integration
 //
-// [Of] returns exactly the function a markdown look asks for, which is the whole of
-// the wiring and the reason that module has a seam rather than a dependency:
+// [Of] returns the two-string function shape used by semantic content registries.
+// The first argument is a language and the second is source; this peer module need
+// not import whichever composer consumes the result:
 //
-//	look.Highlight = highlight.Of("github-dark")
+//	render := highlight.Of("github-dark")
+//	lines := render("go", source)
 //
 // # What it does not expose
 //

@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"maps"
 	"slices"
 	"strings"
 )
@@ -27,10 +28,10 @@ import (
 // # Where it cuts
 //
 // At a blank line, once a line has arrived after it that does not begin with a
-// space — and never inside a fenced block of code. That is what "certainly finished"
-// can be made of without a parser that can be asked what it is in the middle of: a
-// blank line ends every block markdown has, except that a list or an indented block
-// of code carries on across one when what follows it is indented.
+// space — and never inside fenced code or display mathematics. That is what
+// "certainly finished" can be made of without a parser that can be asked what it is
+// in the middle of: a blank line ends every block markdown has, except that a list or
+// an indented block of code carries on across one when what follows it is indented.
 //
 // The cost of the rule is stated rather than hidden. A list with blank lines between
 // its items is published in pieces, and reads the same. A link written as a
@@ -88,6 +89,7 @@ func (s *Stream) Look() Look { return cloneLook(s.look) }
 
 func cloneLook(look Look) Look {
 	look.Headings = slices.Clone(look.Headings)
+	look.extensions = maps.Clone(look.extensions)
 	look.Glyphs.Bullet = strings.Clone(look.Glyphs.Bullet)
 	look.Glyphs.Bar = strings.Clone(look.Glyphs.Bar)
 	look.Glyphs.Divider = strings.Clone(look.Glyphs.Divider)
@@ -224,6 +226,9 @@ func fenceOf(line string) string {
 	if len(line)-len(trimmed) > 3 {
 		return ""
 	}
+	if strings.TrimRight(trimmed, " \t") == "$$" {
+		return "$$"
+	}
 	for _, mark := range []string{"```", "~~~"} {
 		if strings.HasPrefix(trimmed, mark) {
 			run := 0
@@ -244,6 +249,9 @@ func closes(line, fence string) bool {
 	trimmed := strings.TrimLeft(line, " ")
 	if len(line)-len(trimmed) > 3 || fence == "" {
 		return false
+	}
+	if fence == "$$" {
+		return strings.TrimRight(trimmed, " \t") == fence
 	}
 	run := fenceOf(trimmed)
 	return run != "" && run[0] == fence[0] && len(run) >= len(fence) && strings.TrimRight(trimmed[len(run):], " \t") == ""

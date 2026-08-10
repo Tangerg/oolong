@@ -2,7 +2,7 @@
 
 All notable changes to this repository. Modules are tagged separately —
 `core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `highlight/vX.Y.Z`,
-`ptytest/vX.Y.Z`, `ssh/vX.Y.Z` — and share one version number: a release is a state of the
+`latex/vX.Y.Z`, `ptytest/vX.Y.Z`, `ssh/vX.Y.Z` — and share one version number: a release is a state of the
 repository.
 
 From 0.1.0 they are also one coordinated release train, as
@@ -17,6 +17,20 @@ these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
 ## [Unreleased]
+
+Added the optional `latex` module. It parses a deliberately bounded mathematical
+LaTeX subset into immutable, copyable terminal rows with fractions, roots, scripts,
+symbols, Unicode/ASCII furniture, source-preserving errors, and no external process
+or image-only path. `Formula` shares the repository's `grid.Drawable`, measurement,
+and row-selection contracts; parser panics and hostile input do not cross its API.
+
+Breaking. Markdown code highlighting and display mathematics now use one
+`Look.SetRenderer` registry keyed by stable semantic blocks. `Look.Highlight` is
+removed rather than kept beside a second extension API. `$$` blocks and fenced
+`math` blocks both publish `DisplayMath`; fenced code publishes `FencedCode`. Parser
+nodes remain private, sibling modules return only `core/text` lines, and missing
+renderers preserve source. `core/text.UTF8Locale` is the single locale-encoding
+interpretation shared by component and formula glyph selection.
 
 ## [0.8.0] — 2026-08-10
 

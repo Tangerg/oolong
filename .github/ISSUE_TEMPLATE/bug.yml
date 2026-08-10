@@ -18,6 +18,7 @@ body:
         - components
         - markdown
         - highlight
+        - latex
         - ptytest
         - ssh
         - examples or documentation

@@ -12,6 +12,7 @@ updates:
       - /core
       - /examples
       - /highlight
+      - /latex
       - /markdown
       - /ptytest
       - /ssh

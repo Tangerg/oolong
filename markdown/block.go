@@ -26,6 +26,7 @@ type Block struct {
 	marker text.Line
 	rail   text.Line
 	rule   bool
+	fixed  bool
 
 	blankBefore bool
 }
@@ -72,6 +73,10 @@ func (b Block) appendRows(dst []row, width int) []row {
 		dst = b.table.appendRows(dst, room)
 	case b.rule:
 		dst = append(dst, row{Wrapped: text.Wrapped{Line: stretch(b.lines, room)}})
+	case b.fixed:
+		for _, line := range b.lines {
+			dst = append(dst, row{Wrapped: text.Wrapped{Line: line.Truncate(room, "")}})
+		}
 	default:
 		for _, line := range b.lines {
 			dst = appendWrapped(dst, line, room)

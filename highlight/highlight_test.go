@@ -82,14 +82,12 @@ func TestTheSchemesOnOfferAreTheOnesThatWork(t *testing.T) {
 }
 
 func TestOneFunctionIsTheWholeOfTheWiring(t *testing.T) {
-	// The field a markdown look has, written out here because this module may not
-	// import that one — which is the seam, and the reason it is a seam rather than a
-	// dependency.
-	var look struct {
-		Highlight func(language, source string) []text.Line
+	// The function shape Markdown's extension registry accepts, written out because
+	// this peer module must not import Markdown merely to satisfy its seam.
+	call := func(renderer func(info, source string) []text.Line) []text.Line {
+		return renderer("go", "var x = 1")
 	}
-	look.Highlight = highlight.Of("monokai")
-	if lines := look.Highlight("go", "var x = 1"); len(lines) != 1 || lines[0].String() != "var x = 1" {
+	if lines := call(highlight.Of("monokai")); len(lines) != 1 || lines[0].String() != "var x = 1" {
 		t.Fatalf("the plugged-in highlighter produced %v", lines)
 	}
 }

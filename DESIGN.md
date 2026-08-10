@@ -60,8 +60,9 @@ one. Everything else here follows from it.
 Two kinds of boundary, enforced two different ways.
 
 A **module** boundary is where the dependencies differ. `core` carries the whole
-third-party list; `components` carries none; `markdown` and `highlight` carry their
-parser and lexer independently, and neither of the first two hears about them. That
+third-party list; `components` carries none; `markdown`, `highlight`, and `latex`
+carry their parser, lexer, and typesetter dependencies independently, and neither of
+the first two hears about them. That
 is the only thing a module boundary is worth paying for — it costs version skew,
 and the Charm ecosystem's own v2 migration is the standing demonstration of what
 that costs when bubbletea, bubbles and lipgloss all have to move together.
@@ -120,7 +121,7 @@ are promises rather than coincidences, and a test fails when either list grows.
 
 A terminal library that drags a tree behind it is one people work around instead of
 adopting — which is why anything needing a heavy dependency (markdown, syntax
-highlighting) becomes a module of its own, with a list of its own, and neither of
+highlighting, mathematical layout) becomes a module of its own, with a list of its own, and neither of
 these two is touched.
 
 ---
@@ -400,20 +401,35 @@ costs.
 What comes out is `core/text` lines, so wrapping happens where the width is known, and
 the drawable form is a `Drawer` and a `Measurer` and nothing else — which is what lets
 a document go into a slot, a container or a viewport belonging to a package this module
-has never heard of. It does not highlight code: a highlighter is several megabytes of
-lexers and a matter of taste, which is the same argument that keeps one appearance out
-of the behaviour a widget has, so there is a seam for one and no dependency on one.
+has never heard of. It does not highlight code or typeset mathematics. A single
+semantic-block registry hands fenced code and display mathematics to consumer-supplied
+functions over `core/text` lines. Goldmark nodes never cross that boundary, and
+missing renderers keep source readable.
 
 ### highlight
 
 Source code into styled lines, and a module of its own for the reason markdown is: a
 lexer per language and a palette per theme is several megabytes of somebody else's
-tree. It is what plugs into markdown's seam, in one line, and neither module knows
+tree. It plugs into Markdown's `FencedCode` entry in one line, and neither module knows
 the other exists.
 
 Nothing of the highlighter reaches its API. A style is its name, a language is its
 name, and what comes back is text — the same boundary markdown keeps around its
 parser, and what lets either be replaced without anything above noticing.
+
+### latex
+
+Mathematical LaTeX into immutable terminal rows. It is a peer of `markdown` and
+`highlight`: the parser and symbol tables stay in this module, while its public
+values speak only in `grid`, `layout`, and `text`. `Formula` measures, draws, and
+reports selectable rows from one precomputed box layout; drawing never reparses.
+
+It is deliberately not a TeX engine. Documents, packages, macro definitions, file
+inclusion, page layout, command execution, TikZ, and raster output are outside the
+contract. Unsupported or incomplete expressions remain visible as their source with
+an error. `latex.Of` has the same two-string function shape as the Markdown extension
+registry and ignores the semantic info argument, so composition requires no import
+edge between the peer modules.
 
 ### ssh
 
@@ -527,11 +543,16 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
   another product; the decoder is the ten-per-cent of it that is worth having on its
   own.
 - **Streaming markdown cuts at a blank line.** A block is published once a line has
-  arrived after it that does not begin with a space, and never inside a fenced block
-  of code. A list with blank lines between its items is therefore published in pieces,
+  arrived after it that does not begin with a space, and never inside fenced code or
+  display mathematics. A list with blank lines between its items is therefore published in pieces,
   which reads the same, and a link written as a reference is published before its
   address arrives, which comes out as the words without the link. Both are the price
   of showing an answer as it is written instead of after it is finished.
+- **Mathematics is not a TeX engine.** `latex` handles the expression vocabulary that
+  remains meaningful in terminal cells: symbols, operators, fractions, roots,
+  scripts, binomials, overlines, and text/font emphasis. Documents, packages, macro
+  definitions, environments, file inclusion, page layout, TikZ, and command
+  execution are outside its contract. Unsupported input stays visible as source.
 - **Windows resize observation is sampled.** The console reports resizing through the
   input handle rather than a signal, and that handle already has one VT-byte reader.
   A second record reader would split input ownership, so the terminal adapter samples

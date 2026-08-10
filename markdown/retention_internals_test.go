@@ -111,12 +111,8 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	source := strings.Repeat("discarded", 1<<12) + "kept"
 	glyph := source[len(source)-len("kept"):]
 	provided := []text.Line{text.Of(glyph, grid.Style{})}
-	look := Look{
-		Glyphs: Glyphs{Divider: glyph},
-		Highlight: func(string, string) []text.Line {
-			return provided
-		},
-	}
+	look := Look{Glyphs: Glyphs{Divider: glyph}}
+	look.SetRenderer(FencedCode, func(string, string) []text.Line { return provided })
 
 	rule := Render("---", look)
 	code := Render("```go\nx\n```", look)
