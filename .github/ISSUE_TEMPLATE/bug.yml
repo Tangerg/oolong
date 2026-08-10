@@ -1,0 +1,79 @@
+name: Bug report
+description: Report reproducible incorrect behavior in a published Oolong module
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security vulnerabilities must use the private process in SECURITY.md.
+        For other defects, provide the smallest program and exact environment that reproduce the behavior.
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - core
+        - components
+        - markdown
+        - highlight
+        - ptytest
+        - ssh
+        - examples or documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Oolong version
+      description: Give the coordinated release version or commit.
+      placeholder: v0.7.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include `go version`, operating system, terminal, TERM, and local or SSH transport.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include a program, test, or byte sequence and the command that runs it.
+      render: go
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: State what happened, including errors or terminal output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: State the contract you expected the library to preserve.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I reproduced this with the latest coordinated release.
+          required: true
+        - label: This report contains no private exploit or credential material.
+          required: true

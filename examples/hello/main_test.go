@@ -17,9 +17,9 @@ func TestItDrawsAndAnswersAndStops(t *testing.T) {
 		})
 	}()
 
-	host.Shows(t, "press a key")
+	host.Shows(t, "0 keys")
 	host.Type("ab")
-	host.Shows(t, "2 keys so far")
+	host.Shows(t, "2 keys")
 
 	host.Type("q")
 	if err := <-done; err != nil {

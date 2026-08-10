@@ -39,6 +39,17 @@ private wrap cache.
 
 ### Changed
 
+- **The reader path now grows from the actual minimum.** `examples/hello` uses only
+  `core` and states the complete two-method component contract. The README, first
+  interface tutorial, streaming guide, testing guide, and example catalog then add
+  layout, headless behavior, appearance, publication, and real-PTY proof in that
+  order. English and Chinese task guides carry the same compilable starter program.
+
+- **Module membership has one executable source.** CI and the coordinated release
+  script both consume `scripts/modules.sh`, which derives the complete and public
+  module sets from `go.work`. A module can no longer be added to the workspace while
+  remaining absent from one of those gates.
+
 - **Passive content pays for visible work.** Paragraphs, code gutters, messages,
   palettes, diffs, tables, line numbers, and Markdown all consume the clip already
   carried by `grid.View` instead of walking hidden rows. On an M4 with 10,000 retained
@@ -80,6 +91,14 @@ private wrap cache.
 
 ### Added
 
+- Documentation links and GitHub heading anchors are checked from the repository
+  architecture module. The getting-started programs are extracted from both
+  languages and compiled against the current local `core`; the example catalog
+  similarly discovers every command and requires one entry, package comment, and
+  test.
+- Release and community facilities now include a maintainer release guide, private
+  security policy, structured bug and capability reports, and a pull-request
+  checklist tied to ownership, dependency direction, tests, and documentation.
 - Example visual goldens can be deliberately regenerated with `go test -update`.
 - Regression gates cover diff layout reuse and retention, locale precedence and SSH
   propagation, clipboard request admission, and a thematic break used as list content.
@@ -87,6 +106,11 @@ private wrap cache.
   palettes, and table callbacks, keeping viewport cost tied to visible work.
 
 ### Fixed
+
+- The Go reference badge now points to the published `core` module rather than the
+  intentionally empty repository root. Contributor commands include `ssh`,
+  Dependabot scans every dependency-bearing `go.mod`, and stale documentation anchors now fail
+  locally instead of becoming dead links after merge.
 
 - `clipboard.Channel.Answer` now documents and tests its actual ownership rule:
   malformed or unrelated parameters leave the live request intact, while a matching
@@ -423,7 +447,7 @@ also the first evidence that `program.Host` at three methods is a seam somebody 
 can reach.
 
 The rest of the additions are the components the
-[prior-art survey](docs/prior-art.md#a-general-behaviour-and-it-passes-the-gates) found
+[prior-art survey](docs/prior-art.md#a-general-behaviour-now-implemented) found
 missing outright: a bounded numeric value, line numbers, an assembled code block,
 columns sized from their content, and a settings list. Each is behaviour in `headless`
 and appearance in `kit`, and the two sliders in the dashboard example drive the same

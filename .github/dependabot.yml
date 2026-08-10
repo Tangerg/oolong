@@ -5,10 +5,22 @@ version: 2
 # version, never add a name, because the arch test would refuse the addition.
 updates:
   - package-ecosystem: gomod
-    directory: /
+    # The repository root has no go.mod. Keep every real module in one update
+    # declaration and group a shared dependency by name across those modules.
+    directories:
+      - /components
+      - /core
+      - /examples
+      - /highlight
+      - /markdown
+      - /ptytest
+      - /ssh
     schedule:
       interval: monthly
     open-pull-requests-limit: 3
+    groups:
+      repository-dependencies:
+        group-by: dependency-name
     commit-message:
       prefix: deps
 

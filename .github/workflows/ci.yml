@@ -36,12 +36,9 @@ concurrency:
   cancel-in-progress: true
 
 # Every job runs over every module. `go test ./...` covers the module it is
-# standing in and no other, so a workspace has to be walked rather than trusted —
-# and the list comes from go.work, so a module added without being wired into the
-# workspace is a module CI never sees, which the arch test also refuses.
-env:
-  MODULES: core components markdown highlight internal ptytest ssh examples
-  PUBLIC_MODULES: core components markdown highlight ptytest ssh
+# standing in and no other, so a workspace has to be walked rather than trusted.
+# scripts/modules.sh derives membership from go.work; the release script consumes
+# the same list, so adding a module cannot update one gate and silently miss another.
 
 jobs:
   test:
@@ -71,7 +68,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          for m in $MODULES; do
+          for m in $(scripts/modules.sh); do
             (
               cd "$m"
               # A module holding a command builds into a scratch directory: the
@@ -87,14 +84,14 @@ jobs:
 
       - name: Vet
         shell: bash
-        run: for m in $MODULES; do (cd "$m" && go vet ./...) || exit 1; done
+        run: for m in $(scripts/modules.sh); do (cd "$m" && go vet ./...) || exit 1; done
 
       # The race detector is the point of running the tests at all: the whole
       # concurrency model is "one goroutine owns the state", and the only way
       # that stays true is if something checks.
       - name: Test
         shell: bash
-        run: for m in $MODULES; do (cd "$m" && go test -race -count=1 ./...) || exit 1; done
+        run: for m in $(scripts/modules.sh); do (cd "$m" && go test -race -count=1 ./...) || exit 1; done
 
   standalone:
     name: modules without workspace
@@ -117,7 +114,7 @@ jobs:
           set -euo pipefail
           standalone_root="$RUNNER_TEMP/oolong-standalone"
           cp -R . "$standalone_root"
-          for m in $MODULES; do
+          for m in $(scripts/modules.sh); do
             (
               cd "$standalone_root/$m"
               go mod edit \
@@ -168,7 +165,7 @@ jobs:
             current_tag="$GITHUB_REF_NAME"
           fi
 
-          case " $PUBLIC_MODULES " in
+          case " $(scripts/modules.sh --public | tr '\n' ' ') " in
             *" $module "*) ;;
             *) echo "unknown public module: $module" >&2; exit 2 ;;
           esac
@@ -255,14 +252,14 @@ jobs:
       - name: golangci-lint
         run: |
           for os in linux darwin windows; do
-            for m in $MODULES; do
+            for m in $(scripts/modules.sh); do
               (cd "$m" && GOOS=$os golangci-lint run ./...) || exit 1
             done
           done
 
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - name: govulncheck
-        run: for m in $MODULES; do (cd "$m" && govulncheck ./...) || exit 1; done
+        run: for m in $(scripts/modules.sh); do (cd "$m" && govulncheck ./...) || exit 1; done
 
   # The committed seed corpus runs as part of `go test`, which only replays inputs
   # somebody already found. The bug that made this job exist — a parser whose
@@ -335,7 +332,7 @@ jobs:
           set -euo pipefail
           tidy_root="$RUNNER_TEMP/oolong-tidy"
           cp -R . "$tidy_root"
-          for m in $MODULES; do
+          for m in $(scripts/modules.sh); do
             (
               cd "$tidy_root/$m"
               go mod edit \
@@ -396,14 +393,14 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: for m in $MODULES; do (cd "$m" && go vet ./...) || exit 1; done
+        run: for m in $(scripts/modules.sh); do (cd "$m" && go vet ./...) || exit 1; done
 
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          for m in $MODULES; do
+          for m in $(scripts/modules.sh); do
             (
               cd "$m"
               # A module holding a command builds into a scratch directory: the

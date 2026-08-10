@@ -1,37 +1,77 @@
-# Examples
+# Run the examples
 
-Eleven programs, shallowest first. The focused examples are one file and meant to be
-read as much as run. The agent is deliberately split by responsibility: a complex
-application should prove the public APIs compose without turning into a giant `main`.
+The examples form one learning path from a two-method component to a complete mock
+coding agent. Focused examples keep one `main.go`; larger examples split product
+state, background sources, and review flows by responsibility.
+
+Run commands from the repository root, where `go.work` connects the current modules:
 
 ```sh
-go run ./examples/hello        # from the repository root, which is a Go workspace
+go run ./examples/hello
 ```
 
-| | what it shows |
-| --- | --- |
-| [`hello`](hello) | The whole of the contract: draw into the space you are given, say whether you wanted an event, and stop. A box, a label, and a key count. |
-| [`keys`](keys) | Exact-prefix key sequences without reversing a dependency: `g` resolves after a caller-owned deadline, `gg` cancels it and takes the longer binding, and both actions stay on the interface owner. |
-| [`form`](form) | The four fields anything ever asks for, bound to variables of the program's own — and the same form asked in words when the output is a pipe rather than a terminal. |
-| [`picker`](picker) | A field, a fuzzy match and a list, put together by twenty lines rather than sold as a widget. The characters that answered the query are picked out in the rows. |
-| [`composer`](composer) | A product-grade prompt assembled from editor behavior: `@` completion, draft-preserving history, and large pastes collapsed into application-owned atomic chips. |
-| [`files`](files) | Two panes and a keyboard that moves between them: a tree that opens and closes, a window onto something taller than the room, and a container that decides which pane an event is for. |
-| [`dashboard`](dashboard) | Tabs, a table with a cursor whose header sorts it when pressed, progress bars for work with a total and a spinner for work without one. |
-| [`run`](run) | Driving another program: its coloured output read back into styled text, every finished line printed into the terminal's own scrollback, and the terminal handed to `$EDITOR` and taken back. |
-| [`read`](read) | An answer arriving a few characters at a time. What is certainly finished is published once and never redrawn; what is still being written is re-rendered every chunk. |
-| [`streaming`](streaming) | The canonical inline shape: bounded background ingress, an open markdown tail, a selectable recent transcript, stable publication to terminal scrollback, approval, cancellation, failure, resize, and real-PTY proof. |
-| [`agent`](agent) | A complete mock coding-agent session: streamed markdown, bounded live history, a run plan, command completion, a blocking tool approval with a diff, application-level cancellation, and no clock after the run settles. |
+Every example has an in-process test. Run the complete example module with:
 
-## Two things they are all doing
+```sh
+cd examples
+go test ./...
+```
 
-**Nothing draws itself twice.** A program says what to run and where — a screen of
-its own, or a block in the terminal's own screen with finished output printed above
-it — and the runtime decides when a frame is worth drawing. An interface with nothing
-happening costs nothing.
+## Learn the runtime contract
 
-**Every one of them is testable without a terminal.** Beside each program is a test
-that starts it over the public [`programtest`](../core/programtest) host, types at it,
-and reads what reached the screen. The base host implements only the three required
-`program.Host` methods; a test embeds it to add exactly the optional capabilities it
-needs to observe. This is a supported application boundary, not an examples-only
-trick.
+| Example | Run | Controls | Public concepts |
+| --- | --- | --- | --- |
+| [`hello`](hello) | `go run ./examples/hello` | Any key counts; `q` or `Ctrl+C` quits | `program.Component`, `Config.Root`, `grid.View`, input ownership |
+| [`keys`](keys) | `go run ./examples/keys` | `g` moves after a deadline; `gg` jumps to the top; `q` quits | Named actions, exact-prefix sequences, caller-owned timeout |
+| [`form`](form) | `go run ./examples/form` | `Tab` changes field; arrows choose; `Enter` submits; `Esc` cancels | Controlled fields, validation, grid and spoken rendering |
+
+Pipe the form to see the same headless fields asked without a terminal:
+
+```sh
+go run ./examples/form | cat
+```
+
+## Compose headless behavior
+
+| Example | Run | Controls | Public concepts |
+| --- | --- | --- | --- |
+| [`picker`](picker) | `go run ./examples/picker` | Type to filter; arrows move; `Enter` picks; `Esc` quits | Text field, fuzzy ranking, list, highlighted matches |
+| [`composer`](composer) | `go run ./examples/composer` | Type `@` for references; arrows choose; `Enter` submits; `Ctrl+C` quits | Editor completion, draft history, atomic paste elements |
+| [`files`](files) | `go run ./examples/files .` | `Tab` changes pane; arrows move; left/right close/open; `q` quits | Container focus, tree identity, viewport, pointer routing |
+| [`dashboard`](dashboard) | `go run ./examples/dashboard` | `Alt+Left/Right` changes tab; arrows adjust; click headers to sort; `q` quits | Tabs, tables, sliders, progress, animation lifetime |
+
+These programs assemble product-level interactions from smaller controllers. The
+library does not add a second `Picker` or `FileBrowser` API beside the primitives
+that already express them.
+
+## Publish streamed output
+
+| Example | Run | Controls | Public concepts |
+| --- | --- | --- | --- |
+| [`run`](run) | `go run ./examples/run -- go test ./core/...` | `Ctrl+E` hands over to `$EDITOR`; `Ctrl+Z` suspends; `Ctrl+C` quits | ANSI decoding, subprocess output, terminal handover, inline publication |
+| [`read`](read) | `go run ./examples/read` | `Ctrl+C` quits after the deterministic answer | Incremental Markdown, stable blocks, open tail, scrollback ownership |
+| [`streaming`](streaming) | `go run ./examples/streaming` | `Enter` requests approval; `Ctrl+X` cancels; `Ctrl+C` quits | Bounded ingress, transcript, selection, approval, failure, resize |
+| [`agent`](agent) | `go run ./examples/agent` | `Enter` sends; `/help` lists commands; `Ctrl+X` cancels; `Ctrl+C` quits | Agent composition, plan, command completion, tool review, diff, bounded history |
+
+`streaming` is the canonical library integration. `agent` adds application policy
+without moving model names, tool grammar, or product state into the framework.
+Neither example performs network requests or changes files.
+
+## Read each example as a tested slice
+
+The neighboring `main_test.go` starts the program through `programtest.Host`, sends
+events, and asserts visible behavior. The complex agent also keeps narrow and wide
+frame goldens. Regenerate intended visual changes with:
+
+```sh
+cd examples
+go test -update ./agent
+```
+
+The streaming example adds a real-PTY test for terminal scrollback and idle output.
+Use the [testing guide](../docs/testing.md) to choose between `programtest` and
+`ptytest` in an application.
+
+The repository architecture gate discovers example commands from their `main.go`
+files. It rejects an example missing from this catalog, an example without a test,
+or a catalog entry whose path no longer exists.

@@ -2,7 +2,7 @@
 
 Focused issues and pull requests are welcome. Before changing behaviour or an
 exported API, read the module and ring boundaries in the
-[README](./README.md#what-it-is) and the reasoning behind them in
+[README](./README.md#build-from-layers) and the reasoning behind them in
 [DESIGN.md](./DESIGN.md).
 
 ## Requirements
@@ -13,7 +13,7 @@ exported API, read the module and ring boundaries in the
 - `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `govulncheck`
   (v1.6.0). Release checks pin
   `golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743`.
-- Node.js 22 or newer when changing Markdown.
+- Node.js 22 or newer when changing Markdown or preparing a release.
 - Tests written with the standard `testing` package.
 
 This is a workspace of several modules. `go.work` is committed and a checkout
@@ -25,18 +25,18 @@ While iterating:
 
 ```sh
 gofumpt -w .
-for m in core components markdown highlight internal ptytest examples; do (cd "$m" && go test ./...); done
+for m in $(scripts/modules.sh); do (cd "$m" && go test ./...); done
 ```
 
 Before opening a pull request, the whole gate CI runs:
 
 ```sh
 test -z "$(gofumpt -l .)"
-for m in core components markdown highlight internal ptytest examples; do (cd "$m" && \
+for m in $(scripts/modules.sh); do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done
 go work sync && git diff --quiet -- go.work
-npx --yes markdownlint-cli2
+npx --yes markdownlint-cli2@0.23.2
 ```
 
 CI additionally copies the repository, turns `go.work` off, and checks every module
@@ -97,26 +97,35 @@ Adding a method to an exported interface is breaking. Raising the `go` directive
 raises every dependent's toolchain floor. Both are compatibility decisions rather
 than routine cleanup.
 
+## Documentation and examples
+
+Write one page for one reader task. Put tutorials and how-to guides under `docs`,
+package reference in Go comments and executable examples, and complete applications
+under `examples`. Update the English and Chinese pages together when they describe
+the same contract.
+
+Every relative Markdown path and heading anchor is checked by `internal/arch`. The
+getting-started programs are extracted and compiled, while the example catalog is
+derived from command directories. Do not add a second hand-maintained count or list.
+
 ## Coordinated releases
 
 Tags are immutable dependency promises; never move or recreate one that has been
-published. A change spanning modules is released from the bottom upward:
+published. [`scripts/release.sh`](scripts/release.sh) is the only supported release
+path. It derives dependency phases, updates downstream requirements, runs the pinned
+compatibility policy, and pushes one coordinated version across every public module.
 
-1. Before each tag, dispatch the `ci` workflow with the public module and proposed
-   canonical version. Its pinned `gorelease` compares the checkout with that module's
-   preceding immutable tag. Pre-1.0 changes are reported; from v1 onward an
-   incompatible proposal fails. A pushed public-module tag runs the same check again.
-2. Verify and tag `core/vX.Y.Z`.
-3. Update `components` and `markdown` to that published core version, run with
-   `GOWORK=off`, then tag the changed modules. Independent changed modules such as
-   `highlight` and `ptytest` can be tagged in the same release once their own graphs
-   pass.
-4. Update `examples` to the published module versions and require a plain
-   `GOWORK=off go mod tidy -diff` plus `go test ./...` to pass.
+Read [Prepare a coordinated release](docs/releasing.md), then inspect the dry run
+before enabling its only destructive mode:
 
-No release tag may contain a `replace` directive. Until the lower module's new tag
-exists, failure to resolve one of its newly added packages from the previous tag is
-expected published-graph state, not a reason to commit a local replacement.
+```sh
+scripts/release.sh X.Y.Z
+scripts/release.sh X.Y.Z --execute
+```
+
+No release tag may contain a `replace` directive. Do not create module tags or edit
+Oolong dependency versions by hand; that would introduce a second release path whose
+ordering and failure semantics are not guarded.
 
 ## Tests
 

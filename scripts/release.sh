@@ -27,30 +27,17 @@ MODULE_PATH=github.com/Tangerg/oolong
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
-# The module list is go.work's. A second copy here is a second thing to forget, and
-# forgetting it is silent: a module missing from this list is not gated, not tagged,
-# and nobody finds out until somebody cannot resolve it.
-# Read with a loop rather than mapfile: the bash on a stock macOS is 3.2, and a
-# release script that only runs where somebody installed a newer one is a release
-# script that fails on the machine that has to cut the release.
+# scripts/modules.sh is also consumed by CI. A module missing from either gate used
+# to be a silent failure mode; go.work now supplies one list to both.
 ALL_MODULES=()
 while IFS= read -r module; do
 	[[ -n "$module" ]] && ALL_MODULES+=("$module")
-done < <(sed -n '/^use (/,/^)/p' go.work | sed -n 's|^[[:space:]]*\./||p')
-
-# Everything is published unless it is one of these. Stated as an exclusion so that a
-# new module is released by default: being tagged when it should not have been is a
-# visible mistake, and being skipped is not.
-NOT_PUBLISHED=(internal examples)
+done < <(scripts/modules.sh)
 
 PUBLIC_MODULES=()
-for module in "${ALL_MODULES[@]}"; do
-	published=true
-	for excluded in "${NOT_PUBLISHED[@]}"; do
-		[[ "$module" == "$excluded" ]] && published=false
-	done
-	$published && PUBLIC_MODULES+=("$module")
-done
+while IFS= read -r module; do
+	[[ -n "$module" ]] && PUBLIC_MODULES+=("$module")
+done < <(scripts/modules.sh --public)
 
 GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743
 
@@ -184,6 +171,10 @@ note "${order[*]}"
 
 step "Gate"
 
+for tool in golangci-lint gofumpt govulncheck npx; do
+	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
+done
+
 for module in "${ALL_MODULES[@]}"; do
 	(cd "$module" && go build ./... && go vet ./...) || die "$module does not build or vet."
 done
@@ -194,19 +185,21 @@ for module in "${ALL_MODULES[@]}"; do
 done
 note "tests with the race detector"
 
-if command -v golangci-lint >/dev/null; then
-	for module in "${ALL_MODULES[@]}"; do
-		(cd "$module" && golangci-lint run ./... >/dev/null 2>&1) || die "$module has lint findings."
-	done
-	note "golangci-lint"
-else
-	note "golangci-lint not installed — skipped, and CI will run it"
-fi
+for module in "${ALL_MODULES[@]}"; do
+	(cd "$module" && golangci-lint run ./... >/dev/null 2>&1) || die "$module has lint findings."
+done
+note "golangci-lint"
 
-if command -v gofumpt >/dev/null; then
-	[[ -z "$(gofumpt -l .)" ]] || die "gofumpt would reformat: $(gofumpt -l . | tr '\n' ' ')"
-	note "gofumpt"
-fi
+[[ -z "$(gofumpt -l .)" ]] || die "gofumpt would reformat: $(gofumpt -l . | tr '\n' ' ')"
+note "gofumpt"
+
+for module in "${ALL_MODULES[@]}"; do
+	(cd "$module" && govulncheck ./... >/dev/null) || die "$module has a reachable vulnerability."
+done
+note "govulncheck"
+
+npx --yes markdownlint-cli2@0.23.2 >/dev/null || die "Markdown has lint findings."
+note "markdownlint"
 
 for module in "${ALL_MODULES[@]}"; do
 	[[ -z "$(cd "$module" && go fix -diff ./... 2>/dev/null)" ]] ||
