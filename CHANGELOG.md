@@ -28,6 +28,21 @@ Documentation tests now require every page to declare its purpose, keep one matc
 Chinese route, preserve heading structure, and link every executable example exactly
 once in both catalogs.
 
+Same-repository GitHub links are now checked against the current checkout instead of
+being mistaken for uncheckable web links. Missing source files, directories and
+Markdown anchors therefore fail the architecture gate whichever link form a page
+needs for VitePress.
+
+`grid.Screen` and `grid.Inline` now compose one private frame buffer that owns their
+front and back surfaces, dimensions, terminal ground, and colour depth. Resize,
+frame start and buffer exchange consequently have one implementation, and colour
+depth no longer has two candidate sources of truth.
+
+Brand exploration images live outside the repository and their former path is
+ignored; only the selected vector enters the documentation site. Documentation
+audit, lint, route validation, and static compilation are now one locked
+`npm run docs:check` gate shared by CI, Pages, contributors, and releases.
+
 ## [0.9.0] — 2026-08-10
 
 Optional content is a fork rather than a chain. Markdown, highlighting and

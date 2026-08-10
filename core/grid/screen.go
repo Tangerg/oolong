@@ -79,8 +79,8 @@ type Cursor struct {
 // markers — because an idle UI should be silent on the wire and should leave the
 // cursor's blink undisturbed.
 type Screen struct {
-	front, back *Surface
-	cursor      cursorState
+	buffers frameBuffer
+	cursor  cursorState
 	// placed is where this frame's drawing asked the cursor to go, reset by every
 	// Frame and read by Flush.
 	placed Cursor
@@ -106,32 +106,27 @@ type Screen struct {
 // everything.
 func NewScreen(w, h int) *Screen {
 	return &Screen{
-		front: NewSurface(w, h),
-		back:  NewSurface(w, h),
-		full:  true,
+		buffers: newFrameBuffer(w, h),
+		full:    true,
 	}
 }
 
 // Size returns the screen's width and height.
-func (s *Screen) Size() (w, h int) { return s.back.Size() }
+func (s *Screen) Size() (w, h int) { return s.buffers.size() }
 
 // Resize changes the screen's size. The next flush repaints everything: after a
 // resize the terminal has reflowed its own contents, and nothing about what it is
 // showing can be assumed.
 func (s *Screen) Resize(w, h int) {
-	w, h, _ = surfaceSize(w, h)
-	if cw, ch := s.back.Size(); cw == w && ch == h {
-		return
+	if s.buffers.resize(w, h) {
+		s.Invalidate()
 	}
-	s.front.Resize(w, h)
-	s.back.Resize(w, h)
-	s.Invalidate()
 }
 
 // SetDepth says how much colour the terminal can show. It forces a full repaint,
 // because every cell the terminal is holding was encoded at the old depth.
 func (s *Screen) SetDepth(d Depth) {
-	if s.frame.depth == d {
+	if !s.buffers.setDepth(d) {
 		return
 	}
 	s.frame.adoptDepth(d)
@@ -146,8 +141,7 @@ func (s *Screen) SetDepth(d Depth) {
 // ground is read while a frame is being drawn, so the next frame uses it by drawing
 // itself, and nothing already on the terminal was encoded with it.
 func (s *Screen) SetGround(g Ground) {
-	s.front.SetGround(g)
-	s.back.SetGround(g)
+	s.buffers.setGround(g)
 }
 
 // Invalidate forgets what the terminal is showing, so the next flush repaints in
@@ -164,11 +158,7 @@ func (s *Screen) Invalidate() {
 // frames is the diff's job, not the caller's, and a surface that carried
 // yesterday's cells forward would make a missed redraw look like success.
 func (s *Screen) Frame() View {
-	s.back.Reset()
-	s.placed = Cursor{}
-	v := s.back.View()
-	v.cursor = &s.placed
-	return v
+	return s.buffers.begin(&s.placed)
 }
 
 // Cursor is where the last frame asked for the terminal's cursor to go.
@@ -198,7 +188,7 @@ func (s *Screen) Flush(w io.Writer) error {
 	s.cursor.emit(&s.frame, s.placed, s.frame.begun)
 
 	if len(s.frame.out) == 0 {
-		s.swap()
+		s.buffers.swap()
 		return nil
 	}
 	s.out = append(s.out[:0], beginSync...)
@@ -211,7 +201,7 @@ func (s *Screen) Flush(w io.Writer) error {
 		s.Invalidate()
 		return err
 	}
-	s.swap()
+	s.buffers.swap()
 	return nil
 }
 
@@ -223,7 +213,7 @@ func (s *Screen) Flush(w io.Writer) error {
 // everything erases every region it knew about and paints them again, which is also
 // what makes a resize and a handover come back right.
 func (s *Screen) paintRegions() error {
-	was := s.front.regions()
+	was := s.buffers.front.regions()
 	out := bytesTo{&s.frame.out}
 	if s.repaintAll {
 		s.repaintAll = false
@@ -232,10 +222,10 @@ func (s *Screen) paintRegions() error {
 		}
 		was = nil
 	}
-	if err := repaint(out, was, s.back.regions(), s.frame.moveToPoint); err != nil {
+	if err := repaint(out, was, s.buffers.back.regions(), s.frame.moveToPoint); err != nil {
 		return err
 	}
-	if len(s.back.regions()) > 0 || len(was) > 0 {
+	if len(s.buffers.back.regions()) > 0 || len(was) > 0 {
 		// A painter was handed the writer, and what it wrote is not something this
 		// package can read: where the cursor ended up is no longer known.
 		s.frame.forcePos()
@@ -248,13 +238,13 @@ func (s *Screen) paintRegions() error {
 func (s *Screen) paintCells() {
 	if s.full {
 		s.full = false
-		s.frame.paint(s.back, 0, s.back.h, everything)
+		s.frame.paint(s.buffers.back, 0, s.buffers.back.h, everything)
 		return
 	}
 	if s.paintScroll() {
 		return
 	}
-	s.frame.paint(s.back, 0, s.back.h, changedAgainst(s.front, s.back))
+	s.frame.paint(s.buffers.back, 0, s.buffers.back.h, changedAgainst(s.buffers.front, s.buffers.back))
 }
 
 // paintScroll takes the terminal's own scrolling shortcut when the frame is a row
@@ -265,11 +255,11 @@ func (s *Screen) paintCells() {
 // against a floor rather than against the diff itself means the diff is never
 // built twice.
 func (s *Screen) paintScroll() bool {
-	shifts := detectShifts(s.front, s.back)
+	shifts := detectShifts(s.buffers.front, s.buffers.back)
 	if len(shifts) == 0 {
 		return false
 	}
-	floor := diffCostFloor(s.front, s.back)
+	floor := diffCostFloor(s.buffers.front, s.buffers.back)
 	if floor == 0 {
 		return false
 	}
@@ -278,7 +268,7 @@ func (s *Screen) paintScroll() bool {
 	bestLen := 0
 	for i, shift := range shifts {
 		s.scratch.restart()
-		s.scratch.scroll(s.back, shift)
+		s.scratch.scroll(s.buffers.back, shift)
 		n := len(s.scratch.out)
 		if n < floor && (best < 0 || n < bestLen) {
 			best, bestLen = i, n
@@ -288,16 +278,13 @@ func (s *Screen) paintScroll() bool {
 		return false
 	}
 	s.scratch.restart()
-	s.scratch.scroll(s.back, shifts[best])
+	s.scratch.scroll(s.buffers.back, shifts[best])
 	s.frame.out = append(s.frame.out, s.scratch.out...)
 	// The scratch painter established the style and cursor state that the frame
 	// painter must now continue from.
 	s.frame.adopt(&s.scratch)
 	return true
 }
-
-// swap makes this frame the one the terminal is showing.
-func (s *Screen) swap() { s.front, s.back = s.back, s.front }
 
 // cursorState de-duplicates cursor commands across frames.
 //

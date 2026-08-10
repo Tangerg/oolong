@@ -42,7 +42,7 @@ const eraseLine = "\x1b[K"
 // when the terminal did not reflow and approximate when it did, which is the same
 // bargain every inline interface makes.
 type Inline struct {
-	front, back *Surface
+	buffers frameBuffer
 	// scratch is where printed rows are drawn before being encoded. It belongs to
 	// the block so it is always the block's width, which is the one width a printed
 	// row may be without the terminal wrapping it and moving the block.
@@ -90,9 +90,6 @@ type Inline struct {
 	full       bool
 	repaintAll bool
 
-	// depth is how much colour the terminal is being asked to show.
-	depth Depth
-
 	// buf is one frame's payload and out the same wrapped for atomic application.
 	buf, out []byte
 }
@@ -113,35 +110,28 @@ type printed struct {
 // and the block takes as much of it as the interface draws into.
 func NewInline(w, h int) *Inline {
 	return &Inline{
-		front:   NewSurface(w, h),
-		back:    NewSurface(w, h),
+		buffers: newFrameBuffer(w, h),
 		scratch: NewSurface(w, 0),
 		full:    true,
 	}
 }
 
 // Size returns the block's width and the height it may grow to.
-func (i *Inline) Size() (w, h int) { return i.back.Size() }
+func (i *Inline) Size() (w, h int) { return i.buffers.size() }
 
 // Resize changes the width and the height the block may grow to.
 func (i *Inline) Resize(w, h int) {
-	w, h, _ = surfaceSize(w, h)
-	if cw, ch := i.back.Size(); cw == w && ch == h {
-		return
+	if i.buffers.resize(w, h) {
+		i.Invalidate()
 	}
-	i.front.Resize(w, h)
-	i.back.Resize(w, h)
-	i.Invalidate()
 }
 
 // SetDepth says how much colour the terminal can show. It forces a full repaint,
 // because every row the terminal is holding was encoded at the old depth.
 func (i *Inline) SetDepth(d Depth) {
-	if i.depth == d {
-		return
+	if i.buffers.setDepth(d) {
+		i.Invalidate()
 	}
-	i.depth = d
-	i.Invalidate()
 }
 
 // SetGround says what the terminal's own two colours are, so that a layer drawn
@@ -151,8 +141,7 @@ func (i *Inline) SetDepth(d Depth) {
 // through a view like anything else, and a block of it that dims part of itself
 // should dim the same way there as it would in the frame.
 func (i *Inline) SetGround(g Ground) {
-	i.front.SetGround(g)
-	i.back.SetGround(g)
+	i.buffers.setGround(g)
 	i.scratch.SetGround(g)
 }
 
@@ -170,11 +159,7 @@ func (i *Inline) Invalidate() {
 // The view is as tall as the block may grow to, not as tall as the block ends up:
 // its height is decided by what this frame draws into it.
 func (i *Inline) Frame() View {
-	i.back.Reset()
-	i.placed = Cursor{}
-	v := i.back.View()
-	v.cursor = &i.placed
-	return v
+	return i.buffers.begin(&i.placed)
 }
 
 // Print draws rows that become part of the terminal's own output, above the
@@ -191,7 +176,7 @@ func (i *Inline) Print(content Drawable) {
 	if content == nil {
 		return
 	}
-	w, _ := i.back.Size()
+	w, _ := i.buffers.size()
 	rows := content.Measure(w)
 	if rows <= 0 {
 		return
@@ -199,7 +184,7 @@ func (i *Inline) Print(content Drawable) {
 	i.scratch.Resize(w, rows)
 	content.Draw(i.scratch.View())
 	for y := range rows {
-		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.row(y), i.depth)})
+		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.row(y), i.buffers.depth)})
 	}
 	i.open, i.tail = false, 0
 }
@@ -222,7 +207,7 @@ func (i *Inline) Append(draw func(View)) {
 	if draw == nil {
 		return
 	}
-	w, _ := i.back.Size()
+	w, _ := i.buffers.size()
 	at := 0
 	if i.open {
 		at = i.tail
@@ -236,7 +221,7 @@ func (i *Inline) Append(draw func(View)) {
 	if len(cells) == 0 {
 		return
 	}
-	i.pending = append(i.pending, printed{row: EncodeRow(cells, i.depth), after: i.open})
+	i.pending = append(i.pending, printed{row: EncodeRow(cells, i.buffers.depth), after: i.open})
 	i.open, i.tail = true, at+len(cells)
 }
 
@@ -322,10 +307,10 @@ func (i *Inline) Finish(w io.Writer) error {
 // used is how many rows the block needs: the rows up to the last one with anything
 // on it, and enough to hold the cursor if drawing placed one.
 func (i *Inline) used() int {
-	_, h := i.back.Size()
+	_, h := i.buffers.size()
 	last := -1
 	for y := h - 1; y >= 0; y-- {
-		if len(trimBlankTail(i.back.row(y))) > 0 {
+		if len(trimBlankTail(i.buffers.back.row(y))) > 0 {
 			last = y
 			break
 		}
@@ -337,7 +322,7 @@ func (i *Inline) used() int {
 	// be tall enough to hold it: a picture below the block's last written row would
 	// be drawn outside it, and the next frame would move up over rows it does not
 	// own.
-	for _, region := range i.back.regions() {
+	for _, region := range i.buffers.back.regions() {
 		last = max(last, region.rect.Max.Y-1)
 	}
 	return last + 1
@@ -387,7 +372,7 @@ func (i *Inline) pendingAdvance() int {
 
 func (i *Inline) compositionNeeded(used, extra int, full bool) bool {
 	if full || extra > 0 || len(i.pending) > 0 ||
-		!sameRegions(i.front.regions(), i.back.regions()) || i.cursorPending() {
+		!sameRegions(i.buffers.front.regions(), i.buffers.back.regions()) || i.cursorPending() {
 		return true
 	}
 	for y := range used {
@@ -442,7 +427,7 @@ func (i *Inline) composeRows(used, extra int, full bool) int {
 			// Erasing leaves the cursor where it is, which is already column zero.
 			i.buf = append(i.buf, eraseLine...)
 		case i.rowChanged(y, full):
-			row := EncodeRow(i.back.row(y), i.depth)
+			row := EncodeRow(i.buffers.back.row(y), i.buffers.depth)
 			i.buf = append(i.buf, row...)
 			i.buf = append(i.buf, eraseLine...)
 			moved = len(row) > 0
@@ -455,7 +440,7 @@ func (i *Inline) composeRows(used, extra int, full bool) int {
 }
 
 func (i *Inline) rowChanged(y int, full bool) bool {
-	return full || !rowEqual(i.front, y, i.back, y)
+	return full || !rowEqual(i.buffers.front, y, i.buffers.back, y)
 }
 
 // composeEnd repaints non-cell regions and leaves the terminal cursor where the
@@ -492,7 +477,7 @@ func (i *Inline) composeEnd(used, total int, full bool) error {
 // showing with it, so that frame paints its regions again from nothing — the same
 // answer a full repaint gives, and for the same reason.
 func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
-	was, now := i.front.regions(), i.back.regions()
+	was, now := i.buffers.front.regions(), i.buffers.back.regions()
 	if len(was) == 0 && len(now) == 0 {
 		return cur, nil
 	}
@@ -567,7 +552,7 @@ func (i *Inline) placeCursor(at image.Point) {
 
 // settle makes this frame the one the terminal is showing.
 func (i *Inline) settle(used int) {
-	i.front, i.back = i.back, i.front
+	i.buffers.swap()
 	i.rows = used
 	i.full = false
 }

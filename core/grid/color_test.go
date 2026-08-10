@@ -1,6 +1,7 @@
 package grid_test
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -139,6 +140,34 @@ func TestNoColorKeepsTheAttributesAndDropsTheColour(t *testing.T) {
 	}
 	if !strings.Contains(got, ";1") || !strings.Contains(got, ";4") {
 		t.Fatalf("sgr = %q, want bold and underline kept", got)
+	}
+}
+
+func TestRenderersUseTheSameColourDepth(t *testing.T) {
+	type renderer interface {
+		Frame() grid.View
+		Flush(output io.Writer) error
+		SetDepth(depth grid.Depth)
+	}
+	for _, test := range []struct {
+		name string
+		new  func() renderer
+	}{
+		{name: "screen", new: func() renderer { return grid.NewScreen(4, 1) }},
+		{name: "inline", new: func() renderer { return grid.NewInline(4, 1) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			renderer := test.new()
+			renderer.SetDepth(grid.Depth16)
+			renderer.Frame().Text(0, 0, "x", grid.Style{FG: grid.RGBColor(200, 30, 30)})
+			var output buffer
+			if err := renderer.Flush(&output); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(output.String(), ";91") {
+				t.Fatalf("frame = %q, want the sixteen-colour form", output.String())
+			}
+		})
 	}
 }
 
