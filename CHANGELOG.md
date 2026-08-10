@@ -42,6 +42,8 @@ Brand exploration images live outside the repository and their former path is
 ignored; only the selected vector enters the documentation site. Documentation
 audit, lint, route validation, and static compilation are now one locked
 `npm run docs:check` gate shared by CI, Pages, contributors, and releases.
+Visual golden files now declare LF as repository data, so Windows and Unix runners
+compare the same bytes instead of inheriting each checkout's line-ending policy.
 
 ## [0.9.0] — 2026-08-10
 

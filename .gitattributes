@@ -1,0 +1,3 @@
+# Visual fixtures are byte-for-byte contracts. Git must not rewrite their line
+# endings according to the checkout platform before the tests compare them.
+*.golden text eol=lf
