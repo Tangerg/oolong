@@ -125,11 +125,6 @@ func TestWrapAnEmptyLineIsOneEmptyRow(t *testing.T) {
 	}
 }
 
-func TestWrapAllStartsEachLineOnItsOwnRow(t *testing.T) {
-	lines := []text.Line{text.Of("one", grid.Style{}), text.Of("", grid.Style{}), text.Of("two", grid.Style{})}
-	equal(t, rows(text.WrapAll(lines, 10)), []string{"one", "", "two"})
-}
-
 func TestWrapExpandsTabs(t *testing.T) {
 	// A leading tab is eight columns, so only the first word fits in twelve.
 	equal(t, rows(text.Of("\tfunc main", grid.Style{}).Wrap(12)), []string{"        func", "main"})

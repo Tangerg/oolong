@@ -295,9 +295,8 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 
 // rows is the wrap at this width, computed once per width.
 //
-// Each line is wrapped on its own rather than through text.WrapAll, so that a row
-// still knows which line it came from. Nothing else would: the rows of every line
-// arrive in one slice, and a byte range means nothing without the line it indexes.
+// Each line is wrapped on its own so that every resulting row still knows which
+// source line it came from. A byte range means nothing without that line index.
 func (p *Paragraph) rows(width int) []row {
 	// Measurement still needs a truthful height before a parent has assigned any
 	// width. A zero answer would let that parent collapse the paragraph permanently,

@@ -117,10 +117,7 @@ func ASCII() Glyphs {
 // which environment belongs to a terminal is a transport concern. This appearance
 // package only interprets the fact it was given.
 func GlyphsFor(locale string) Glyphs {
-	if locale == "" {
-		return Unicode()
-	}
-	if text.UTF8Locale(locale) {
+	if text.PrefersUnicode(locale) {
 		return Unicode()
 	}
 	return ASCII()

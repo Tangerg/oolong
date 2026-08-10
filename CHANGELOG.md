@@ -29,8 +29,11 @@ Breaking. Markdown code highlighting and display mathematics now use one
 removed rather than kept beside a second extension API. `$$` blocks and fenced
 `math` blocks both publish `DisplayMath`; fenced code publishes `FencedCode`. Parser
 nodes remain private, sibling modules return only `core/text` lines, and missing
-renderers preserve source. `core/text.UTF8Locale` is the single locale-encoding
-interpretation shared by component and formula glyph selection.
+renderers preserve source.
+
+Breaking. `core/text.UTF8Locale` and the unused `WrapAll` convenience function are
+removed. `core/text.PrefersUnicode` is the single locale policy shared by component
+and formula glyph selection, including the modern default for an absent locale.
 
 The `read` example exercises the complete composition while arbitrary chunk
 boundaries cross code and `$$` blocks: Markdown retains each open fence,

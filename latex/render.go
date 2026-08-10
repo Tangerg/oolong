@@ -226,103 +226,153 @@ func (r *formulaRenderer) macro(macro *ast.Macro, style grid.Style) (box, error)
 	}
 	name := macro.Name.Name
 	args := macro.Args
+	if rendered, handled, err := r.structuralMacro(name, args, style); handled {
+		return rendered, err
+	}
+	if rendered, handled, err := r.appearanceMacro(name, args, style); handled {
+		return rendered, err
+	}
+	return r.namedMacro(name, args, style)
+}
+
+func (r *formulaRenderer) structuralMacro(name string, args ast.List, style grid.Style) (box, bool, error) {
 	switch name {
 	case `\frac`, `\dfrac`, `\tfrac`:
-		if len(args) != 2 {
-			return box{}, fmt.Errorf("%s needs numerator and denominator", name)
-		}
-		numerator, err := r.node(args[0], style)
-		if err != nil {
-			return box{}, err
-		}
-		denominator, err := r.node(args[1], style)
-		if err != nil {
-			return box{}, err
-		}
-		return stack(numerator, denominator, true, r.look.Glyphs, r.look.Rule), nil
+		rendered, err := r.fraction(name, args, style)
+		return rendered, true, err
 	case `\binom`:
-		if len(args) != 2 {
-			return box{}, fmt.Errorf("%s needs two arguments", name)
-		}
-		top, err := r.node(args[0], style)
-		if err != nil {
-			return box{}, err
-		}
-		bottom, err := r.node(args[1], style)
-		if err != nil {
-			return box{}, err
-		}
-		return delimited(
-			stack(top, bottom, false, r.look.Glyphs, r.look.Rule),
-			r.look.Glyphs.Left, r.look.Glyphs.Right, style,
-		), nil
+		rendered, err := r.binomial(name, args, style)
+		return rendered, true, err
 	case `\stackrel`:
-		if len(args) != 2 {
-			return box{}, fmt.Errorf("%s needs an annotation and a base", name)
-		}
-		annotation, err := r.node(args[0], style)
-		if err != nil {
-			return box{}, err
-		}
-		base, err := r.node(args[1], style)
-		if err != nil {
-			return box{}, err
-		}
-		return scripted(base, annotation, box{}), nil
+		rendered, err := r.stackedRelation(name, args, style)
+		return rendered, true, err
 	case `\sqrt`:
-		if len(args) == 0 {
-			return box{}, fmt.Errorf("%s needs a radicand", name)
-		}
-		content, err := r.node(args[len(args)-1], style)
-		if err != nil {
-			return box{}, err
-		}
-		root := radical(content, r.look.Glyphs, style, r.look.Rule)
-		if len(args) == 2 {
-			index, err := r.node(args[0], style)
-			if err != nil {
-				return box{}, err
-			}
-			root = scripted(root, index, box{})
-		}
-		return root, nil
+		rendered, err := r.squareRoot(name, args, style)
+		return rendered, true, err
 	case `\overline`:
-		if len(args) != 1 {
-			return box{}, fmt.Errorf("%s needs one argument", name)
-		}
-		content, err := r.node(args[0], style)
+		rendered, err := r.overline(name, args, style)
+		return rendered, true, err
+	default:
+		return box{}, false, nil
+	}
+}
+
+func (r *formulaRenderer) fraction(name string, args ast.List, style grid.Style) (box, error) {
+	if len(args) != 2 {
+		return box{}, fmt.Errorf("%s needs numerator and denominator", name)
+	}
+	numerator, err := r.node(args[0], style)
+	if err != nil {
+		return box{}, err
+	}
+	denominator, err := r.node(args[1], style)
+	if err != nil {
+		return box{}, err
+	}
+	return stack(numerator, denominator, true, r.look.Glyphs, r.look.Rule), nil
+}
+
+func (r *formulaRenderer) binomial(name string, args ast.List, style grid.Style) (box, error) {
+	if len(args) != 2 {
+		return box{}, fmt.Errorf("%s needs two arguments", name)
+	}
+	top, err := r.node(args[0], style)
+	if err != nil {
+		return box{}, err
+	}
+	bottom, err := r.node(args[1], style)
+	if err != nil {
+		return box{}, err
+	}
+	return delimited(
+		stack(top, bottom, false, r.look.Glyphs, r.look.Rule),
+		r.look.Glyphs.Left, r.look.Glyphs.Right, style,
+	), nil
+}
+
+func (r *formulaRenderer) stackedRelation(name string, args ast.List, style grid.Style) (box, error) {
+	if len(args) != 2 {
+		return box{}, fmt.Errorf("%s needs an annotation and a base", name)
+	}
+	annotation, err := r.node(args[0], style)
+	if err != nil {
+		return box{}, err
+	}
+	base, err := r.node(args[1], style)
+	if err != nil {
+		return box{}, err
+	}
+	return scripted(base, annotation, box{}), nil
+}
+
+func (r *formulaRenderer) squareRoot(name string, args ast.List, style grid.Style) (box, error) {
+	if len(args) == 0 {
+		return box{}, fmt.Errorf("%s needs a radicand", name)
+	}
+	content, err := r.node(args[len(args)-1], style)
+	if err != nil {
+		return box{}, err
+	}
+	root := radical(content, r.look.Glyphs, style, r.look.Rule)
+	if len(args) == 2 {
+		index, err := r.node(args[0], style)
 		if err != nil {
 			return box{}, err
 		}
-		return overlined(content, r.look.Glyphs, r.look.Rule), nil
+		root = scripted(root, index, box{})
+	}
+	return root, nil
+}
+
+func (r *formulaRenderer) overline(name string, args ast.List, style grid.Style) (box, error) {
+	if len(args) != 1 {
+		return box{}, fmt.Errorf("%s needs one argument", name)
+	}
+	content, err := r.node(args[0], style)
+	if err != nil {
+		return box{}, err
+	}
+	return overlined(content, r.look.Glyphs, r.look.Rule), nil
+}
+
+func (r *formulaRenderer) appearanceMacro(name string, args ast.List, style grid.Style) (box, bool, error) {
+	switch name {
 	case `\mathbf`, `\textbf`:
-		return r.styledArg(name, args, style.Merge(grid.Style{Attr: grid.Bold}))
+		rendered, err := r.styledArg(name, args, style.Merge(grid.Style{Attr: grid.Bold}))
+		return rendered, true, err
 	case `\mathit`, `\textit`:
-		return r.styledArg(name, args, style.Merge(grid.Style{Attr: grid.Italic}))
+		rendered, err := r.styledArg(name, args, style.Merge(grid.Style{Attr: grid.Italic}))
+		return rendered, true, err
 	case `\mathtt`, `\texttt`, `\mathsf`, `\textsf`, `\mathcal`, `\textcal`,
 		`\mathdefault`, `\textdefault`, `\mathbb`, `\textbb`, `\mathfrak`, `\textfrak`,
 		`\mathscr`, `\textscr`, `\mathregular`, `\textregular`:
-		return r.styledArg(name, args, style)
+		rendered, err := r.styledArg(name, args, style)
+		return rendered, true, err
 	case `\operatorname`:
-		return r.styledArg(name, args, style)
+		rendered, err := r.styledArg(name, args, style)
+		return rendered, true, err
 	case `\exp`:
 		content, err := r.styledArg(name, args, style)
 		if err != nil {
-			return box{}, err
+			return box{}, true, err
 		}
-		return horizontal(atom("exp ", style), content), nil
+		return horizontal(atom("exp ", style), content), true, nil
 	case `\ `, `\,`, `\:`, `\;`:
-		return atom(" ", style), nil
+		return atom(" ", style), true, nil
 	case `\quad`:
-		return atom("  ", style), nil
+		return atom("  ", style), true, nil
 	case `\qquad`:
-		return atom("    ", style), nil
+		return atom("    ", style), true, nil
 	case `\!`:
-		return box{}, nil
+		return box{}, true, nil
 	case `\hspace`:
-		return atom(" ", style), nil
+		return atom(" ", style), true, nil
+	default:
+		return box{}, false, nil
 	}
+}
 
+func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Style) (box, error) {
 	if len(args) > 0 {
 		label := strings.TrimPrefix(name, `\`)
 		content, err := r.node(args[len(args)-1], style)

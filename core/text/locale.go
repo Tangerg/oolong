@@ -2,14 +2,17 @@ package text
 
 import "strings"
 
-// UTF8Locale reports whether a POSIX locale explicitly names the UTF-8 character
-// set. It does not guess: C, POSIX, an empty locale and a language without an
-// encoding all return false.
+// PrefersUnicode reports whether a POSIX locale should select Unicode terminal
+// text. An empty locale keeps the modern Unicode default; C, POSIX, a language
+// without an encoding, and a locale naming another encoding return false.
 //
 // Resolving which locale belongs to a terminal is a transport concern. Interpreting
-// the encoding it names belongs here, beside the text that must be representable in
-// that encoding.
-func UTF8Locale(value string) bool {
+// how that locale constrains text belongs here, beside the text that must be
+// representable in it.
+func PrefersUnicode(value string) bool {
+	if value == "" {
+		return true
+	}
 	_, charset, found := strings.Cut(value, ".")
 	if !found {
 		return false

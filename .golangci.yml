@@ -39,8 +39,10 @@ linters:
     - forcetypeassert
     - gocheckcompilerdirectives
     - gochecksumtype
+    - gocognit
     - goconst
     - gocritic
+    - gocyclo
     - godot
     - goprintffuncname
     - gosec
@@ -104,6 +106,15 @@ linters:
       # repetitions that can drift apart should share a constant.
       match-constant: false
 
+    gocognit:
+      # A function above this line is doing more than one readable job. Tests use
+      # deliberate case tables and fault scripts, so the production-only rule is
+      # selected below.
+      min-complexity: 30
+
+    gocyclo:
+      min-complexity: 30
+
     recvcheck:
       # Reading a value and writing one are not the same receiver, and the text
       # encoding needs both: MarshalText reads, and encoding.TextUnmarshaler cannot
@@ -133,6 +144,8 @@ linters:
       - path: _test\.go
         linters:
           - forcetypeassert
+          - gocognit
+          - gocyclo
 
 issues:
   # Truncating output turns "clean" into "clean as far as we looked".

@@ -108,7 +108,7 @@ func ASCII() Glyphs {
 // a terminal is a transport concern. Formula appearance only interprets the fact it
 // was given.
 func GlyphsFor(locale string) Glyphs {
-	if locale == "" || text.UTF8Locale(locale) {
+	if text.PrefersUnicode(locale) {
 		return Unicode()
 	}
 	return ASCII()

@@ -316,16 +316,6 @@ func (w *wrapper) finish() []Wrapped {
 	return w.rows
 }
 
-// WrapAll wraps lines in order. Every line starts a row of its own, so a blank
-// line stays a blank row.
-func WrapAll(lines []Line, width int) []Wrapped {
-	var out []Wrapped
-	for _, l := range lines {
-		out = append(out, l.Wrap(width)...)
-	}
-	return out
-}
-
 // Truncate cuts the line to at most width columns, ending it with ellipsis when
 // anything was cut. The ellipsis takes the style of the last text that survived,
 // so it reads as part of the sentence it is ending.
