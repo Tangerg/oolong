@@ -18,6 +18,13 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-10
+
+Optional content is a fork rather than a chain. Markdown, highlighting and
+mathematics are peers that terminate at `core/text`; none imports another, any subset
+composes, and each is usable on its own. A program that shows no mathematics never
+acquires a TeX parser, and one that shows no code never acquires a lexer.
+
 Added the optional `latex` module. It parses a deliberately bounded mathematical
 LaTeX subset into immutable, copyable terminal rows with fractions, roots, scripts,
 symbols, Unicode/ASCII furniture, source-preserving errors, and no external process
