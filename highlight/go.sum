@@ -1,5 +1,5 @@
-github.com/Tangerg/oolong/core v0.8.0 h1:HgPLjU4MJyJyzGiovGRz978TeKLQohFDlCh/zzBiP5o=
-github.com/Tangerg/oolong/core v0.8.0/go.mod h1:zUZzUfvUNAedDusXlkkN1tC67ejzFOdFk7Kt854rOKc=
+github.com/Tangerg/oolong/core v0.10.0 h1:mi07Ra94Rq5AvosQXbwygBqDo1w6NJfmxg2Ok91Vt/A=
+github.com/Tangerg/oolong/core v0.10.0/go.mod h1:zUZzUfvUNAedDusXlkkN1tC67ejzFOdFk7Kt854rOKc=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r5BXYZs=
