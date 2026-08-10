@@ -13,7 +13,11 @@ exported API, read the module and ring boundaries in the
 - `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `shfmt`
   (v3.13.1), and `govulncheck` (v1.6.0). Release checks pin
   `golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743`.
-- Node.js 22 or newer when changing Markdown or preparing a release.
+- Node.js 22 or newer when changing Markdown or preparing a release. The exact
+  documentation toolchain is in `package-lock.json`. Its VitePress preview pin is
+  deliberate: the current stable line still resolves to dependencies with
+  published advisories, while this lock audits clean. Re-evaluate the pin rather
+  than floating it or suppressing the audit.
 - Tests written with the standard `testing` package.
 
 This is a workspace of several modules. `go.work` is committed and a checkout
@@ -39,8 +43,7 @@ for m in $(scripts/modules.sh); do (cd "$m" && \
   golangci-lint run ./... && govulncheck ./...) || break; done
 go work sync && git diff --quiet -- go.work
 npm ci
-npm run docs:lint
-npm run docs:build
+npm run docs:check
 ```
 
 CI additionally copies the repository, turns `go.work` off, and checks every module
@@ -122,8 +125,9 @@ npm ci
 npm run docs:dev
 ```
 
-Use `npm run docs:build` before committing navigation, theme, or Markdown changes.
-The build checks internal routes and emits the same static files that
+Use `npm run docs:check` before committing navigation, theme, or Markdown changes.
+This command audits the locked toolchain, checks prose and internal routes,
+and emits the same static files that
 `.github/workflows/pages.yml` deploys from `main`. Generated files under
 `docs/.vitepress/dist` are never committed or uploaded by hand.
 

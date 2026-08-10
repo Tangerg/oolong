@@ -34,3 +34,6 @@ go.work.sum
 node_modules/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+# Brand ideation is working material, not a website or clone dependency. Keep the
+# selected vector in docs/public and keep generated exploration batches outside.
+docs/public/brand/

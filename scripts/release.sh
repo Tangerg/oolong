@@ -201,8 +201,9 @@ for module in "${ALL_MODULES[@]}"; do
 done
 note "govulncheck"
 
-npx --yes markdownlint-cli2@0.23.2 >/dev/null || die "Markdown has lint findings."
-note "markdownlint"
+npm ci >/dev/null || die "documentation dependencies do not install from package-lock.json."
+npm run docs:check >/dev/null || die "documentation audit, lint, or build failed."
+note "documentation"
 
 for module in "${ALL_MODULES[@]}"; do
 	[[ -z "$(cd "$module" && go fix -diff ./... 2>/dev/null)" ]] ||

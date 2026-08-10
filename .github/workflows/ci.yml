@@ -292,8 +292,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npm run docs:lint
-      - run: npm run docs:build
+      - run: npm run docs:check
 
   tidy:
     name: formatting and modules

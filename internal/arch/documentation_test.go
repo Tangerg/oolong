@@ -1,6 +1,8 @@
 package arch
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -204,7 +206,7 @@ func documentationFrontMatter(body string) (map[string]string, bool) {
 		return nil, false
 	}
 	fields := make(map[string]string)
-	for _, line := range strings.Split(header, "\n") {
+	for line := range strings.SplitSeq(header, "\n") {
 		key, value, found := strings.Cut(line, ":")
 		if found {
 			fields[strings.TrimSpace(key)] = strings.TrimSpace(value)
@@ -219,12 +221,14 @@ var (
 	markdownHeading    = regexp.MustCompile(`(?m)^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$`)
 	headingLink        = regexp.MustCompile(`\[([^\]]+)\]\([^)]*\)`)
 	headingHTML        = regexp.MustCompile(`<[^>]*>`)
+	repositoryLink     = regexp.MustCompile(`^/Tangerg/oolong/(?:blob|tree)/main/(.+)$`)
 )
 
-// TestEveryLocalDocumentationLinkResolves makes the documentation graph an
-// executable promise. GitHub can render a missing relative path or stale heading
-// anchor only as a dead end, and neither go test nor markdownlint observes it.
-func TestEveryLocalDocumentationLinkResolves(t *testing.T) {
+// TestEveryRepositoryDocumentationLinkResolves makes the documentation graph an
+// executable promise. Relative links and same-repository GitHub URLs both resolve
+// against this checkout; otherwise a renamed source file becomes a quiet dead end
+// that neither go test nor markdownlint observes.
+func TestEveryRepositoryDocumentationLinkResolves(t *testing.T) {
 	root := repoRoot(t)
 	checked := 0
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -252,8 +256,9 @@ func TestEveryLocalDocumentationLinkResolves(t *testing.T) {
 					destination = captured(content, match, 2)
 				}
 				line := strings.Count(content[:match[0]], "\n") + 1
-				checked++
-				checkMarkdownLink(t, root, path, line, destination)
+				if checkMarkdownLink(t, root, path, line, destination) {
+					checked++
+				}
 			}
 		}
 		return nil
@@ -266,52 +271,125 @@ func TestEveryLocalDocumentationLinkResolves(t *testing.T) {
 	}
 }
 
-func checkMarkdownLink(t *testing.T, root, source string, line int, destination string) {
+func checkMarkdownLink(t *testing.T, root, source string, line int, destination string) bool {
 	t.Helper()
+	checked, err := validateMarkdownLink(root, source, destination)
+	if err != nil {
+		t.Errorf("%s:%d %v", relative(root, source), line, err)
+	}
+	return checked
+}
+
+func validateMarkdownLink(root, source, destination string) (bool, error) {
 	parsed, err := url.Parse(destination)
 	if err != nil {
-		t.Errorf("%s:%d has an invalid link %q: %v", relative(root, source), line, destination, err)
-		return
+		return true, fmt.Errorf("has an invalid link %q: %w", destination, err)
 	}
-	if parsed.IsAbs() || parsed.Host != "" || strings.HasPrefix(destination, "//") {
-		return
+	linked, local, err := documentationLinkTarget(root, source, parsed)
+	if err != nil {
+		return true, fmt.Errorf("has an invalid link %q: %w", destination, err)
 	}
-
-	linked := source
-	if parsed.Path != "" {
-		path, unescapeErr := url.PathUnescape(parsed.Path)
-		if unescapeErr != nil {
-			t.Errorf("%s:%d has an invalid escaped path %q: %v", relative(root, source), line, destination, unescapeErr)
-			return
-		}
-		linked = filepath.Clean(filepath.Join(filepath.Dir(source), filepath.FromSlash(path)))
+	if !local {
+		return false, nil
 	}
 	info, err := os.Stat(linked)
 	if err != nil {
-		t.Errorf("%s:%d links to missing %q", relative(root, source), line, destination)
-		return
+		return true, fmt.Errorf("links to missing %q", destination)
 	}
 	if parsed.Fragment == "" {
-		return
+		return true, nil
 	}
 	if info.IsDir() {
 		linked = filepath.Join(linked, "README.md")
 		if _, statErr := os.Stat(linked); statErr != nil {
-			t.Errorf("%s:%d links to anchor %q in a directory with no README", relative(root, source), line, destination)
-			return
+			return true, fmt.Errorf("links to anchor %q in a directory with no README", destination)
 		}
 	}
 	if filepath.Ext(linked) != ".md" {
-		t.Errorf("%s:%d links to anchor %q in a non-Markdown file", relative(root, source), line, destination)
-		return
+		return true, fmt.Errorf("links to anchor %q in a non-Markdown file", destination)
 	}
 	anchors, err := markdownAnchors(linked)
 	if err != nil {
-		t.Errorf("%s:%d cannot read %q: %v", relative(root, source), line, destination, err)
-		return
+		return true, fmt.Errorf("cannot read %q: %w", destination, err)
 	}
 	if !anchors[parsed.Fragment] {
-		t.Errorf("%s:%d links to missing anchor %q", relative(root, source), line, destination)
+		return true, fmt.Errorf("links to missing anchor %q", destination)
+	}
+	return true, nil
+}
+
+// documentationLinkTarget maps links whose truth lives in this checkout back to
+// the checkout. Ordinary web links remain the web's responsibility, but spelling
+// a repository file as a GitHub URL must not make it invisible to this gate.
+func documentationLinkTarget(root, source string, parsed *url.URL) (string, bool, error) {
+	if parsed.IsAbs() || parsed.Host != "" {
+		if parsed.Scheme != "https" || !strings.EqualFold(parsed.Host, "github.com") {
+			return "", false, nil
+		}
+		match := repositoryLink.FindStringSubmatch(parsed.EscapedPath())
+		if match == nil {
+			return "", false, nil
+		}
+		path, err := url.PathUnescape(match[1])
+		if err != nil {
+			return "", false, err
+		}
+		linked := filepath.Clean(filepath.Join(root, filepath.FromSlash(path)))
+		rel, err := filepath.Rel(root, linked)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", false, errors.New("repository path leaves the checkout")
+		}
+		return linked, true, nil
+	}
+
+	linked := source
+	if parsed.Path != "" {
+		path, err := url.PathUnescape(parsed.EscapedPath())
+		if err != nil {
+			return "", false, err
+		}
+		linked = filepath.Clean(filepath.Join(filepath.Dir(source), filepath.FromSlash(path)))
+	}
+	return linked, true, nil
+}
+
+func TestRepositoryMarkdownLinksRemainCheckoutContracts(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "docs", "guide.md")
+	target := filepath.Join(root, "core", "grid", "inline.go")
+	for _, dir := range []string{filepath.Dir(source), filepath.Dir(target)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(source, []byte("# Guide\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("package grid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		destination string
+		wantChecked bool
+		wantErr     bool
+	}{
+		{name: "repository file", destination: "https://github.com/Tangerg/oolong/blob/main/core/grid/inline.go", wantChecked: true},
+		{name: "missing repository file", destination: "https://github.com/Tangerg/oolong/blob/main/core/grid/missing.go", wantChecked: true, wantErr: true},
+		{name: "escaped checkout", destination: "https://github.com/Tangerg/oolong/blob/main/%2e%2e/outside.go", wantChecked: true, wantErr: true},
+		{name: "external website", destination: "https://example.com/not-checked-here"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checked, err := validateMarkdownLink(root, source, test.destination)
+			if checked != test.wantChecked {
+				t.Errorf("validateMarkdownLink() checked = %v, want %v", checked, test.wantChecked)
+			}
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateMarkdownLink() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
 	}
 }
 
