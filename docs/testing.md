@@ -114,3 +114,7 @@ go test -update ./agent
 
 Review the changed golden beside the code change. Ordinary `go test ./...` never
 rewrites it.
+
+Apply both harnesses to a complete streaming application in
+[Build a bounded agent interface](agent.md), or read [Architecture](architecture.md)
+for the invariants these tests enforce.

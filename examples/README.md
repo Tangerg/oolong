@@ -31,6 +31,9 @@ Pipe the form to see the same headless fields asked without a terminal:
 go run ./examples/form | cat
 ```
 
+Start with [Build your first interface](../docs/getting-started.md) when the two-method
+component contract is new.
+
 ## Compose headless behavior
 
 | Example | Run | Controls | Public concepts |
@@ -44,6 +47,9 @@ These programs assemble product-level interactions from smaller controllers. The
 library does not add a second `Picker` or `FileBrowser` API beside the primitives
 that already express them.
 
+[Compose a themeable picker](../docs/components.md) explains the ownership and
+appearance seams used throughout this group.
+
 ## Render optional content
 
 | Example | Run | Controls | Public concepts |
@@ -55,6 +61,9 @@ that already express them.
 The first two show that Markdown and LaTeX are complete content models on their own.
 The third connects Highlight and LaTeX through Markdown's semantic renderer seam;
 the optional modules remain peers and do not import one another.
+
+[Render Markdown, code, and mathematics](../docs/content.md) develops these three
+entry points from independent use to application-owned composition.
 
 ## Publish streamed output
 
@@ -68,6 +77,10 @@ the optional modules remain peers and do not import one another.
 `streaming` is the canonical library integration. `agent` adds application policy
 without moving model names, tool grammar, or product state into the framework.
 Neither example performs network requests or changes files.
+
+Read [Build bounded streaming output](../docs/streaming.md) before the canonical
+integration, then [Build a bounded agent interface](../docs/agent.md) for the
+advanced application boundary.
 
 ## Read each example as a tested slice
 

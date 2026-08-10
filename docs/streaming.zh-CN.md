@@ -6,6 +6,12 @@
 
 完整实现位于 [`examples/streaming`](../examples/streaming)。下面的片段只保留应用必须维护的所有权边界。
 
+## 开始之前
+
+请先阅读[组合一个可换主题的选择器](components.zh-CN.md)，理解所有者侧组件状态。
+如果数据源输出 Markdown，再阅读[渲染 Markdown、代码与数学公式](content.zh-CN.md)；
+纯字节流不需要可选内容模块。
+
 ## 分开四种生命周期
 
 一个流式界面同时包含四种不同的状态：
@@ -104,4 +110,6 @@ func (c *chat) accept(batch program.ByteBatch) {
 
 ## 验证完整路径
 
-使用 `programtest` 验证所有者侧状态；使用 PTY 测试验证永久发布、空闲输出、resize 和终端模式清理。[测试指南](testing.zh-CN.md)定义了这两条边界。
+使用 `programtest` 验证所有者侧状态；使用 PTY 测试验证永久发布、空闲输出、resize 和
+终端模式清理。[测试指南](testing.zh-CN.md)定义了这两条边界。继续阅读
+[构建有界 Agent 界面](agent.zh-CN.md)，在这条字节路径周围添加类型化领域事件与工具审核。

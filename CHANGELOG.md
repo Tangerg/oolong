@@ -53,6 +53,12 @@ lifetime management: `examples/markdown` renders a finished document,
 `examples/latex` draws a formula directly, and `examples/content` composes Markdown,
 Highlight, and LaTeX through the consumer-owned semantic registry.
 
+Documentation now provides one bilingual learning path from a core-only component,
+through headless composition and optional content, to bounded streaming and a full
+agent interface. Every step names one tested example, and the architecture gate
+keeps the order, translations, root entry points, links, and executable slices from
+drifting apart.
+
 ## [0.8.0] — 2026-08-10
 
 One thing should exist once. A measured-drawing contract, a module list, a piece of

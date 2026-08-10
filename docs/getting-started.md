@@ -104,4 +104,5 @@ The core contract stays the same as the interface grows:
   terminal scrollback
 
 Run [`examples/hello`](../examples/hello) for this exact first slice. Continue with
-the [example catalog](../examples) or [build bounded streaming output](streaming.md).
+the [example catalog](../examples) or
+[compose a themeable picker](components.md) to add the component layer.

@@ -23,9 +23,9 @@ go get github.com/Tangerg/oolong/components@latest
 ```
 
 [Build your first Oolong interface](docs/getting-started.md) creates a complete
-core-only program and explains its two-method component contract. The
-[streaming guide](docs/streaming.md) adds bounded background input, incremental
-content, and permanent terminal output.
+core-only program and explains its two-method component contract. Continue through
+the [guided learning path](docs) to compose headless behavior, optional content,
+bounded streaming, and a complete agent interface.
 
 From a repository checkout, run the smallest and largest demonstrations:
 
@@ -129,7 +129,10 @@ The [documentation index](docs) separates tutorials, how-to guides, reference, a
 architecture material. The main paths are:
 
 - [Build your first interface](docs/getting-started.md)
+- [Compose a themeable picker](docs/components.md)
+- [Render Markdown, code, and mathematics](docs/content.md)
 - [Build bounded streaming output](docs/streaming.md)
+- [Build a bounded agent interface](docs/agent.md)
 - [Test an interface](docs/testing.md)
 - [Browse the examples](examples)
 - [Understand the architecture](docs/architecture.md)

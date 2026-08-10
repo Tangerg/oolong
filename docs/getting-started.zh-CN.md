@@ -96,4 +96,6 @@ go run .
 - 需要默认主题和复合组件时，添加 `components/kit`
 - 已完成输出需要保留在终端回滚区时，把 `Config.Root` 换成 `Config.Inline`
 
-[`examples/hello`](../examples/hello) 就是这个最小切片。接下来可以浏览[示例目录](../examples)，或者继续阅读[构建有界的流式输出](streaming.zh-CN.md)。
+[`examples/hello`](../examples/hello) 就是这个最小切片。接下来可以浏览
+[示例目录](../examples)，或者阅读[组合一个可换主题的选择器](components.zh-CN.md)
+以添加组件层。

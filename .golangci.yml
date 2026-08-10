@@ -43,6 +43,7 @@ linters:
     - goconst
     - gocritic
     - gocyclo
+    - godoclint
     - godot
     - goprintffuncname
     - gosec

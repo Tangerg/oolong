@@ -98,3 +98,6 @@ go test -update ./agent
 ```
 
 把变化后的 golden 与代码一起评审。普通的 `go test ./...` 永远不会改写它。
+
+请在[构建有界 Agent 界面](agent.zh-CN.md)中把两种测试工具应用到完整流式应用，或阅读
+[架构](architecture.zh-CN.md)以了解这些测试所强制执行的不变式。

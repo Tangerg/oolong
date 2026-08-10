@@ -9,6 +9,12 @@ publishes finished blocks into terminal scrollback.
 Use [`examples/streaming`](../examples/streaming) as the complete implementation.
 The snippets below isolate the ownership boundaries that an application must keep.
 
+## Before you begin
+
+Read [Compose a themeable picker](components.md) for owner-side component state. Read
+[Render Markdown, code, and mathematics](content.md) when the source emits Markdown;
+plain byte streams do not require an optional content module.
+
 ## Keep four lifetimes separate
 
 A streaming interface owns four different states:
@@ -124,4 +130,5 @@ completed successfully even when presentation could not finish.
 
 Test owner-side state with `programtest`. Add a PTY test for permanent publication,
 idle output, resize, and terminal mode cleanup. The [testing guide](testing.md)
-defines both boundaries.
+defines both boundaries. Continue with [Build a bounded agent interface](agent.md)
+to add typed domain events and tool review around this byte path.

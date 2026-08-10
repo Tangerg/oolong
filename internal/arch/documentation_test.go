@@ -51,6 +51,72 @@ func TestGettingStartedProgramCompiles(t *testing.T) {
 	}
 }
 
+// TestLearningPathStaysRunnableAndOrdered ties every teaching step to a tested
+// vertical slice. A guide may explain less than its example contains, but it must
+// never become an isolated recipe with no executable proof behind it.
+func TestLearningPathStaysRunnableAndOrdered(t *testing.T) {
+	root := repoRoot(t)
+	index, err := readRepositoryFile(filepath.Join(root, "docs", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexText := string(index)
+	readme, err := readRepositoryFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readmeText := string(readme)
+
+	steps := []struct {
+		guide   string
+		example string
+	}{
+		{"getting-started.md", "hello"},
+		{"components.md", "picker"},
+		{"content.md", "content"},
+		{"streaming.md", "streaming"},
+		{"agent.md", "agent"},
+	}
+	previous := -1
+	for _, step := range steps {
+		needle := "](" + step.guide + ")"
+		at := strings.Index(indexText, needle)
+		switch {
+		case at < 0:
+			t.Errorf("docs/README.md does not list %s", step.guide)
+		case at <= previous:
+			t.Errorf("docs/README.md lists %s outside the learning order", step.guide)
+		default:
+			previous = at
+		}
+
+		if !strings.Contains(readmeText, "](docs/"+step.guide+")") {
+			t.Errorf("README.md does not expose docs/%s", step.guide)
+		}
+		assertGuideExample(t, root, step.guide, step.example)
+	}
+}
+
+func assertGuideExample(t *testing.T, root, guide, example string) {
+	t.Helper()
+	for _, name := range []string{guide, strings.TrimSuffix(guide, ".md") + ".zh-CN.md"} {
+		body, err := readRepositoryFile(filepath.Join(root, "docs", name))
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if !strings.Contains(string(body), "](../examples/"+example+")") {
+			t.Errorf("docs/%s does not point to examples/%s", name, example)
+		}
+	}
+	for _, name := range []string{"main.go", "main_test.go"} {
+		path := filepath.Join(root, "examples", example, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("docs/%s relies on an untested example: %s", guide, relative(root, path))
+		}
+	}
+}
+
 func TestTranslatedDocumentationStaysPaired(t *testing.T) {
 	root := repoRoot(t)
 	docs := filepath.Join(root, "docs")
