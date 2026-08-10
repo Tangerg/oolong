@@ -38,7 +38,9 @@ for m in $(scripts/modules.sh); do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done
 go work sync && git diff --quiet -- go.work
-npx --yes markdownlint-cli2@0.23.2
+npm ci
+npm run docs:lint
+npm run docs:build
 ```
 
 CI additionally copies the repository, turns `go.work` off, and checks every module
@@ -108,7 +110,22 @@ the same contract.
 
 Every relative Markdown path and heading anchor is checked by `internal/arch`. The
 getting-started programs are extracted and compiled, while the example catalog is
-derived from command directories. Do not add a second hand-maintained count or list.
+derived from command directories. Every documentation page declares its reader task
+in frontmatter, and every English page has the same route below `docs/zh`. Do not add
+a second hand-maintained count or list.
+
+Install the pinned documentation toolchain once, then run the VitePress development
+server from the repository root:
+
+```sh
+npm ci
+npm run docs:dev
+```
+
+Use `npm run docs:build` before committing navigation, theme, or Markdown changes.
+The build checks internal routes and emits the same static files that
+`.github/workflows/pages.yml` deploys from `main`. Generated files under
+`docs/.vitepress/dist` are never committed or uploaded by hand.
 
 ## Coordinated releases
 

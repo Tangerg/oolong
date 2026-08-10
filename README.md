@@ -1,6 +1,7 @@
 # oolong
 
 [![ci](https://github.com/Tangerg/oolong/actions/workflows/ci.yml/badge.svg)](https://github.com/Tangerg/oolong/actions/workflows/ci.yml)
+[![documentation](https://img.shields.io/badge/docs-online-a9602a)](https://tangerg.github.io/oolong/)
 [![go reference](https://pkg.go.dev/badge/github.com/Tangerg/oolong/core.svg)](https://pkg.go.dev/github.com/Tangerg/oolong/core)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
@@ -14,6 +15,9 @@ Oolong is pre-1.0. Releases may break exported APIs and document every break in 
 declare Go 1.25 are tested at that floor.
 
 ## Start here
+
+[Read the documentation](https://tangerg.github.io/oolong/) for the complete
+bilingual path from the runtime contract to bounded agent interfaces.
 
 Install only the layers your program uses:
 
@@ -34,7 +38,7 @@ go run ./examples/hello
 go run ./examples/agent
 ```
 
-The [example catalog](examples) orders every program by the concepts it adds. Each
+The [example catalog](docs/examples.md) orders every program by the concepts it adds. Each
 example has an in-process test; the canonical streaming example also runs on a real
 pseudoterminal (PTY).
 
@@ -134,7 +138,7 @@ architecture material. The main paths are:
 - [Build bounded streaming output](docs/streaming.md)
 - [Build a bounded agent interface](docs/agent.md)
 - [Test an interface](docs/testing.md)
-- [Browse the examples](examples)
+- [Browse the examples](docs/examples.md)
 - [Understand the architecture](docs/architecture.md)
 - [Compare prior systems](docs/prior-art.md)
 - [Prepare a coordinated release](docs/releasing.md)

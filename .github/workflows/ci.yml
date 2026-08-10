@@ -283,14 +283,17 @@ jobs:
           done
 
   docs:
-    name: markdown
+    name: documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
-      - run: npx --yes markdownlint-cli2@0.23.2
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:lint
+      - run: npm run docs:build
 
   tidy:
     name: formatting and modules

@@ -18,6 +18,16 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+The bilingual documentation now builds as a searchable VitePress site with stable
+English and Chinese routes, task-oriented navigation, module selection, symptom-led
+troubleshooting, and a fourteen-command learning catalog. CI compiles the site and
+GitHub Pages deploys the exact checked artifact from `main`; generated files are not
+committed.
+
+Documentation tests now require every page to declare its purpose, keep one matching
+Chinese route, preserve heading structure, and link every executable example exactly
+once in both catalogs.
+
 ## [0.9.0] — 2026-08-10
 
 Optional content is a fork rather than a chain. Markdown, highlighting and

@@ -4,6 +4,17 @@ version: 2
 # grows. That makes an automated bump safe to look at: it can only ever move a
 # version, never add a name, because the arch test would refuse the addition.
 updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      documentation-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: docs
+
   - package-ecosystem: gomod
     # The repository root has no go.mod. Keep every real module in one update
     # declaration and group a shared dependency by name across those modules.
