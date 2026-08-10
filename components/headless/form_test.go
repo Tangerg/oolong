@@ -287,6 +287,11 @@ func TestMultipleChoiceLimitRejectsNegativeValues(t *testing.T) {
 	new(headless.MultiSelect[string]).SetLimit(-1)
 }
 
+func TestNilMultipleChoiceIgnoresLimitChanges(*testing.T) {
+	var field *headless.MultiSelect[string]
+	field.SetLimit(-1)
+}
+
 func TestReplacingMultipleChoicesMovesTheTakenSetByValue(t *testing.T) {
 	picked := []string{"b"}
 	field := multiWith(headless.Options("a", "b", "c"))

@@ -64,13 +64,15 @@ private wrap cache.
 
 - **Search closure settles ownership synchronously.** `Search.Close` now waits for
   its worker to exit and for `Results` to close; it returns with no live corpus or
-  unread result retained.
+  unread result retained. Joining rows and matching them are separate cancellation
+  phases, so a close or newer query arriving during the join does not also wait for
+  a now-unobservable regular-expression pass.
 
 - **A diff owns and memoises its physical layout.** Hunks are copied on entry and all
   mutations invalidate one private width cache, so measurement and drawing consume
   the same rows without exposing stale-cache states. In the committed frame benchmark,
   a 1,000-line diff at 100 columns and a 60-row viewport falls from about 23.2 ms,
-  107 MB and 73,000 allocations per frame to about 0.65 ms, 7 kB and 5,500 allocations
+  107 MB and 73,000 allocations per frame to about 0.65 ms, 1.4 kB and 60 allocations
   on an M4. Stale diff, paragraph, markdown document and stream caches release their
   references as soon as their source is replaced.
 
@@ -99,6 +101,8 @@ private wrap cache.
 - Release and community facilities now include a maintainer release guide, private
   security policy, structured bug and capability reports, and a pull-request
   checklist tied to ownership, dependency direction, tests, and documentation.
+- CI and the release gate pin `shfmt` for the scripts that derive module membership
+  and execute coordinated releases; shell formatting is no longer a review-only rule.
 - Example visual goldens can be deliberately regenerated with `go test -update`.
 - Regression gates cover diff layout reuse and retention, locale precedence and SSH
   propagation, clipboard request admission, and a thematic break used as list content.
@@ -106,6 +110,10 @@ private wrap cache.
   palettes, and table callbacks, keeping viewport cost tied to visible work.
 
 ### Fixed
+
+- Paragraph measurement now uses the same one-column floor as messages, diffs, and
+  Markdown. A parent asking before it has assigned width no longer receives a false
+  zero height, including when the paragraph's indent consumes the available width.
 
 - The Go reference badge now points to the published `core` module rather than the
   intentionally empty repository root. Contributor commands include `ssh`,

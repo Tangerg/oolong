@@ -258,6 +258,13 @@ func (s *Search) scan(j job) (Result, bool) {
 	}
 
 	joined, starts := join(j.corpus)
+	// Joining and matching are separate linear passes. A close or newer query that
+	// arrived while the snapshot was being joined must not also pay for a regexp pass
+	// whose answer can no longer be observed. The matcher itself cannot be interrupted,
+	// so this is the last cancellation boundary before entering it.
+	if s.superseded(j.generation) {
+		return Result{}, true
+	}
 	locations := re.FindAllStringIndex(joined, -1)
 	result := Result{Query: j.query}
 	var spans []Span

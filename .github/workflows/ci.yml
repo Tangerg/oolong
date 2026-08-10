@@ -321,6 +321,13 @@ jobs:
             exit 1
           fi
 
+      # These scripts define the module set and the only release path. Their format
+      # is executable repository policy, so it gets the same pinned, mechanical
+      # check as Go source instead of relying on review.
+      - run: go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+      - name: shfmt
+        run: shfmt -d scripts
+
       # Each module's go.mod is part of its dependency promise. Use a disposable
       # checkout with local replacements because a coordinated, unreleased change
       # may consume a package that does not exist in the previous published tag.

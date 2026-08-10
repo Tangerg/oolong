@@ -10,8 +10,8 @@ exported API, read the module and ring boundaries in the
 - Go 1.26 or newer for the complete workspace. `core`, `internal` and `ptytest`
   also test their declared Go 1.25 floor without the workspace; higher modules
   still depend on existing Oolong tags whose own directives require 1.26.
-- `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `govulncheck`
-  (v1.6.0). Release checks pin
+- `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `shfmt`
+  (v3.13.1), and `govulncheck` (v1.6.0). Release checks pin
   `golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743`.
 - Node.js 22 or newer when changing Markdown or preparing a release.
 - Tests written with the standard `testing` package.
@@ -25,6 +25,7 @@ While iterating:
 
 ```sh
 gofumpt -w .
+shfmt -w scripts
 for m in $(scripts/modules.sh); do (cd "$m" && go test ./...); done
 ```
 
@@ -32,6 +33,7 @@ Before opening a pull request, the whole gate CI runs:
 
 ```sh
 test -z "$(gofumpt -l .)"
+shfmt -d scripts
 for m in $(scripts/modules.sh); do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done

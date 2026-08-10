@@ -14,6 +14,6 @@ alternative. Include benchmark evidence for performance claims.
 - [ ] Added or updated an external-package test for public behavior
 - [ ] Added a changelog entry for caller-visible or breaking changes
 - [ ] Kept application vocabulary out of framework packages
-- [ ] Ran `gofumpt` and every module's tests
+- [ ] Ran `gofumpt`, `shfmt`, and every module's tests
 - [ ] Ran race, lint, vulnerability, Markdown, and standalone module gates when relevant
 - [ ] Updated English and Chinese documentation together when they describe the same contract

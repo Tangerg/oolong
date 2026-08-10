@@ -28,7 +28,7 @@ if [ "${1-}" = "--public" ]; then
 		*) printf '%s\n' "$module" ;;
 		esac
 	done
-	 exit 0
+	exit 0
 fi
 
 printf '%s\n' "$modules"

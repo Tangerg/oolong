@@ -171,7 +171,7 @@ note "${order[*]}"
 
 step "Gate"
 
-for tool in golangci-lint gofumpt govulncheck npx; do
+for tool in golangci-lint gofumpt govulncheck npx shfmt; do
 	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
 done
 
@@ -192,6 +192,9 @@ note "golangci-lint"
 
 [[ -z "$(gofumpt -l .)" ]] || die "gofumpt would reformat: $(gofumpt -l . | tr '\n' ' ')"
 note "gofumpt"
+
+shfmt -d scripts || die "shfmt would reformat repository scripts."
+note "shfmt"
 
 for module in "${ALL_MODULES[@]}"; do
 	(cd "$module" && govulncheck ./... >/dev/null) || die "$module has a reachable vulnerability."
@@ -269,7 +272,7 @@ for module in "${order[@]}"; do
 	for dependency in $(oolong_deps "$module"); do
 		for index in "${!order[@]}"; do
 			if [[ "${order[index]}" == "$dependency" ]]; then
-				(( phase_of[index] + 1 > phase )) && phase=$((phase_of[index] + 1))
+				((phase_of[index] + 1 > phase)) && phase=$((phase_of[index] + 1))
 			fi
 		done
 	done

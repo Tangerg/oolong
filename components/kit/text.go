@@ -115,7 +115,9 @@ func (p *Paragraph) Lines() []text.Line {
 	return text.CloneLines(p.lines)
 }
 
-// Measure is how many rows the paragraph needs at this width.
+// Measure is how many rows the paragraph needs at this width. A width no larger
+// than Indent is measured with one text column: there is nothing to draw yet, but
+// reporting no content would let a parent collapse the paragraph permanently.
 func (p *Paragraph) Measure(width int) int { return len(p.rows(width)) }
 
 // Draw writes the paragraph, one wrapped row per row of v.
@@ -297,13 +299,13 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 // still knows which line it came from. Nothing else would: the rows of every line
 // arrive in one slice, and a byte range means nothing without the line it indexes.
 func (p *Paragraph) rows(width int) []row {
-	room := width - p.Indent
+	// Measurement still needs a truthful height before a parent has assigned any
+	// width. A zero answer would let that parent collapse the paragraph permanently,
+	// so text follows the same rule here as Message, Diff and Markdown: lay it out at
+	// one column even when the eventual view has no drawable interior.
+	room := max(layout.Remaining(width, p.Indent), 1)
 	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows {
 		return p.wrapped
-	}
-	if room <= 0 {
-		p.wrapped, p.atWidth, p.atLimit, p.fresh = nil, room, p.MaxRows, true
-		return nil
 	}
 	var rows []row
 	for i, line := range p.lines {

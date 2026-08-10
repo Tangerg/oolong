@@ -344,6 +344,17 @@ func TestParagraphHeightFollowsWidth(t *testing.T) {
 	equalRows(t, rows, []string{"one two..", "three....", "four....."})
 }
 
+func TestParagraphMeasuresContentBeforeItHasDrawableWidth(t *testing.T) {
+	p := kit.NewParagraph("one two\nthree", grid.Style{})
+	p.Indent = 3
+	want := p.Measure(p.Indent + 1)
+	for _, width := range []int{-1, 0, 1, p.Indent} {
+		if got := p.Measure(width); got != want {
+			t.Errorf("height at width %d = %d, want one-column height %d", width, got, want)
+		}
+	}
+}
+
 func TestParagraphKeepsNewlinesAsLineBreaks(t *testing.T) {
 	p := kit.NewParagraph("first\nsecond", grid.Style{})
 	if got := p.Measure(20); got != 2 {
