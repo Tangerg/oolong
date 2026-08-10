@@ -44,6 +44,18 @@ These programs assemble product-level interactions from smaller controllers. The
 library does not add a second `Picker` or `FileBrowser` API beside the primitives
 that already express them.
 
+## Render optional content
+
+| Example | Run | Controls | Public concepts |
+| --- | --- | --- | --- |
+| [`markdown`](markdown) | `go run ./examples/markdown` | `q` quits | Finished Markdown blocks, document measurement, width-dependent layout |
+| [`latex`](latex) | `go run ./examples/latex` | `q` quits | Standalone formula, two-dimensional layout, direct drawing |
+| [`content`](content) | `go run ./examples/content` | `q` quits | Consumer-owned composition of Markdown, Highlight, and LaTeX |
+
+The first two show that Markdown and LaTeX are complete content models on their own.
+The third connects Highlight and LaTeX through Markdown's semantic renderer seam;
+the optional modules remain peers and do not import one another.
+
 ## Publish streamed output
 
 | Example | Run | Controls | Public concepts |

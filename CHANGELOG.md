@@ -45,6 +45,11 @@ they occupy, and unbraced numeric superscripts and subscripts compose in either 
 despite the external parser's Go-number tokenization. CI derives local module
 replacements from the workspace module list instead of maintaining two more lists.
 
+Three focused commands now show the content layers before the streaming example adds
+lifetime management: `examples/markdown` renders a finished document,
+`examples/latex` draws a formula directly, and `examples/content` composes Markdown,
+Highlight, and LaTeX through the consumer-owned semantic registry.
+
 ## [0.8.0] — 2026-08-10
 
 One thing should exist once. A measured-drawing contract, a module list, a piece of

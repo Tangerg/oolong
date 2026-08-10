@@ -28,6 +28,8 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/examples/internal/latexlook"
+	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/highlight"
 	"github.com/Tangerg/oolong/latex"
 	"github.com/Tangerg/oolong/markdown"
@@ -76,34 +78,12 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 		pieces:  pieces(answer(), size),
 		spinner: kit.Spinner{Theme: theme, Glyphs: glyphs, Label: "writing"},
 	}
-	// A look is styles and the characters the furniture is drawn with, kept apart for
-	// the reason the kit keeps them apart: which grey a quotation is drawn in is
-	// taste, and whether the terminal can draw the bar beside it is a fact.
-	look := markdown.Look{
-		Text:     theme.Text,
-		Headings: []grid.Style{theme.Heading, theme.Strong},
-		Strong:   theme.Strong,
-		Emphasis: grid.Style{Attr: grid.Italic},
-		Struck:   grid.Style{Attr: grid.Strike},
-		Code:     theme.Info,
-		Block:    theme.Muted,
-		Link:     theme.Accent,
-		Quote:    theme.Muted,
-		Rail:     theme.Subtle,
-		Marker:   theme.Accent,
-		Rule:     theme.Subtle,
-		Glyphs: markdown.Glyphs{
-			Bullet:    glyphs.Bullet,
-			Bar:       glyphs.Vertical,
-			Divider:   glyphs.Horizontal,
-			Checked:   glyphs.Taken,
-			Unchecked: glyphs.Free,
-		},
-	}
-	look.SetRenderer(markdown.DisplayMath, latex.Of(latex.Look{
-		Text: theme.Text, Rule: theme.Subtle, Error: theme.Danger,
-		Glyphs: latex.GlyphsFor(runtime.Environment().Locale()),
-	}))
+	// Appearance is application composition: the three peer modules still share no
+	// import edge and expose only their core text boundary to one another.
+	look := markdownlook.New(theme, glyphs)
+	look.SetRenderer(markdown.DisplayMath, latex.Of(latexlook.New(
+		theme, runtime.Environment().Locale(),
+	)))
 	look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
 	r.stream.SetLook(look)
 
