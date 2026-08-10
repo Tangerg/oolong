@@ -32,6 +32,10 @@ nodes remain private, sibling modules return only `core/text` lines, and missing
 renderers preserve source. `core/text.UTF8Locale` is the single locale-encoding
 interpretation shared by component and formula glyph selection.
 
+The `read` example exercises the complete composition while arbitrary chunk
+boundaries cross a `$$` block: Markdown retains the open fence, `latex.Of` renders
+the semantic body, and only the finished formula is published to scrollback.
+
 ## [0.8.0] — 2026-08-10
 
 One thing should exist once. A measured-drawing contract, a module list, a piece of

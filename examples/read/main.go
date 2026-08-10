@@ -28,6 +28,7 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/latex"
 	"github.com/Tangerg/oolong/markdown"
 )
 
@@ -77,7 +78,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	// A look is styles and the characters the furniture is drawn with, kept apart for
 	// the reason the kit keeps them apart: which grey a quotation is drawn in is
 	// taste, and whether the terminal can draw the bar beside it is a fact.
-	r.stream.SetLook(markdown.Look{
+	look := markdown.Look{
 		Text:     theme.Text,
 		Headings: []grid.Style{theme.Heading, theme.Strong},
 		Strong:   theme.Strong,
@@ -97,7 +98,12 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 			Checked:   glyphs.Taken,
 			Unchecked: glyphs.Free,
 		},
-	})
+	}
+	look.SetRenderer(markdown.DisplayMath, latex.Of(latex.Look{
+		Text: theme.Text, Rule: theme.Subtle, Error: theme.Danger,
+		Glyphs: latex.GlyphsFor(runtime.Environment().Locale()),
+	}))
+	r.stream.SetLook(look)
 	// A code highlighter would go here, in one line, and would be the only thing that
 	// pulls a lexer for every language into a program:
 	//
@@ -200,6 +206,12 @@ func answer() string {
 		"\tfmt.Println(\"a fenced block is never cut in half\")",
 		"}",
 		"```",
+		"",
+		"A semantic extension can keep mathematical structure two-dimensional too:",
+		"",
+		"$$",
+		`x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`,
+		"$$",
 		"",
 		"The last paragraph is the one still being written, which is why it is drawn",
 		"rather than printed. When it ends, it is printed too — and then this program",

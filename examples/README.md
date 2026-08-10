@@ -49,7 +49,7 @@ that already express them.
 | Example | Run | Controls | Public concepts |
 | --- | --- | --- | --- |
 | [`run`](run) | `go run ./examples/run -- go test ./core/...` | `Ctrl+E` hands over to `$EDITOR`; `Ctrl+Z` suspends; `Ctrl+C` quits | ANSI decoding, subprocess output, terminal handover, inline publication |
-| [`read`](read) | `go run ./examples/read` | `Ctrl+C` quits after the deterministic answer | Incremental Markdown, stable blocks, open tail, scrollback ownership |
+| [`read`](read) | `go run ./examples/read` | `Ctrl+C` quits after the deterministic answer | Incremental Markdown, semantic extensions, LaTeX mathematics, stable blocks, open tail, scrollback ownership |
 | [`streaming`](streaming) | `go run ./examples/streaming` | `Enter` requests approval; `Ctrl+X` cancels; `Ctrl+C` quits | Bounded ingress, transcript, selection, approval, failure, resize |
 | [`agent`](agent) | `go run ./examples/agent` | `Enter` sends; `/help` lists commands; `Ctrl+X` cancels; `Ctrl+C` quits | Agent composition, plan, command completion, tool review, diff, bounded history |
 

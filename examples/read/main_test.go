@@ -63,6 +63,9 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 		title, notified := host.state()
 		return title == "" && notified == 1
 	})
+	if frames := host.Frames(); !strings.Contains(frames, "√") {
+		t.Fatal("the streamed display formula was not rendered through the Markdown extension")
+	}
 	host.Shows(t, "that is the whole answer")
 
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})

@@ -4,16 +4,20 @@ go 1.26.0
 
 require (
 	github.com/Tangerg/oolong/components v0.8.0
-	github.com/Tangerg/oolong/core v0.8.0
-	github.com/Tangerg/oolong/markdown v0.8.0
+	github.com/Tangerg/oolong/core v0.8.1-0.20260810040214-007f7d78239b
+	github.com/Tangerg/oolong/latex v0.0.0-20260810040214-007f7d78239b
+	github.com/Tangerg/oolong/markdown v0.8.1-0.20260810040214-007f7d78239b
 	github.com/Tangerg/oolong/ptytest v0.8.0
 )
 
 require (
+	codeberg.org/go-latex/latex v0.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
+	golang.org/x/image v0.40.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 )
