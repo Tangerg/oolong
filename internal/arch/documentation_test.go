@@ -1,6 +1,7 @@
 package arch
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/url"
@@ -393,6 +394,34 @@ func TestRepositoryMarkdownLinksRemainCheckoutContracts(t *testing.T) {
 	}
 }
 
+func TestRepositoryMarkdownParsingIgnoresCheckoutLineEndings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guide.md")
+	body := "---\r\ntitle: Guide\r\ndescription: A guide.\r\ncontentType: Tutorial\r\n---\r\n\r\n# Read Me\r\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	normalized, err := readRepositoryFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, ok := documentationFrontMatter(string(normalized))
+	if !ok {
+		t.Fatal("CRLF frontmatter was not recognized")
+	}
+	if got := fields["contentType"]; got != "Tutorial" {
+		t.Errorf("contentType = %q, want Tutorial", got)
+	}
+
+	anchors, err := markdownAnchors(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !anchors["read-me"] {
+		t.Error("CRLF heading did not produce the read-me anchor")
+	}
+}
+
 func markdownAnchors(path string) (map[string]bool, error) {
 	body, err := readRepositoryFile(path)
 	if err != nil {
@@ -493,5 +522,12 @@ func relative(root, path string) string {
 func readRepositoryFile(path string) ([]byte, error) {
 	// Paths come from fixed documentation names or a walk rooted at repoRoot.
 	//nolint:gosec // G304: the test deliberately validates repository-owned files.
-	return os.ReadFile(path)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// Git may materialize text files with CRLF on Windows. Markdown gives CRLF
+	// and LF the same meaning, so every repository check consumes one canonical
+	// representation instead of leaking the checkout platform into parsing.
+	return bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n")), nil
 }
