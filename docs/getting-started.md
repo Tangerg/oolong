@@ -1,6 +1,12 @@
+---
+title: Build your first Oolong interface
+description: Build and run a full-screen counter directly on Oolong's lowest public interface layer.
+contentType: Tutorial
+---
+
 # Build your first Oolong interface
 
-Language: English | [简体中文](getting-started.zh-CN.md)
+Language: English | [简体中文](zh/getting-started.md)
 
 This tutorial creates a full-screen counter with the lowest public layer. You will
 run one component, draw two lines, handle keys, and stop without importing the
@@ -103,6 +109,6 @@ The core contract stays the same as the interface grows:
 - Replace `Config.Root` with `Config.Inline` when finished output must remain in
   terminal scrollback
 
-Run [`examples/hello`](../examples/hello) for this exact first slice. Continue with
-the [example catalog](../examples) or
+Run [`examples/hello`](https://github.com/Tangerg/oolong/tree/main/examples/hello) for this exact first slice. Continue with
+the [example catalog](https://github.com/Tangerg/oolong/tree/main/examples) or
 [compose a themeable picker](components.md) to add the component layer.

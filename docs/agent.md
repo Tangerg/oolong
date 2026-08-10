@@ -1,13 +1,19 @@
+---
+title: Build a bounded agent interface
+description: Assemble a bounded streaming agent CLI with reviewable tool calls and terminal scrollback.
+contentType: Tutorial
+---
+
 # Build a bounded agent interface
 
-Language: English | [简体中文](agent.zh-CN.md)
+Language: English | [简体中文](zh/agent.md)
 
 This advanced tutorial assembles a streaming agent CLI without moving model, tool,
 or product grammar into the framework. The resulting interface keeps ordered text
 bounded, routes discrete domain events on the owner goroutine, reviews tool calls,
 and releases finished history to terminal scrollback.
 
-Complete implementation: [`examples/agent`](../examples/agent)
+Complete implementation: [`examples/agent`](https://github.com/Tangerg/oolong/tree/main/examples/agent)
 
 ## Before you begin
 

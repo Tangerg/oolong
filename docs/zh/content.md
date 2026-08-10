@@ -1,18 +1,24 @@
+---
+title: 渲染 Markdown、代码与数学公式
+description: 独立或组合使用 Markdown、语法高亮和 LaTeX。
+contentType: How-to
+---
+
 # 渲染 Markdown、代码与数学公式
 
-语言：[English](content.md) | 简体中文
+语言：[English](../content.md) | 简体中文
 
 本指南先独立使用 Markdown、语法高亮和 LaTeX，再在应用边界组合它们。每个可选模块都
 可以移除，应用只为自己导入的解析器承担代价。
 
-完整程序：[`examples/markdown`](../examples/markdown)、
-[`examples/latex`](../examples/latex) 和
-[`examples/content`](../examples/content)
+完整程序：[`examples/markdown`](https://github.com/Tangerg/oolong/tree/main/examples/markdown)、
+[`examples/latex`](https://github.com/Tangerg/oolong/tree/main/examples/latex) 和
+[`examples/content`](https://github.com/Tangerg/oolong/tree/main/examples/content)
 
 ## 开始之前
 
 把内容放进实时组件树之前，请先阅读
-[组合一个可换主题的选择器](components.zh-CN.md)。独立的 `highlight` 与 `latex` 入口
+[组合一个可换主题的选择器](components.md)。独立的 `highlight` 与 `latex` 入口
 只需要核心文本和网格模型。
 
 ## 选择内容所需的模块
@@ -156,7 +162,7 @@ open.SetBlocks(nil)
 ```
 
 这两个文档让所有权切点变得可见，但不会替应用选择呈现方式。
-[流式指南](streaming.zh-CN.md)使用 `headless.Transcript` 和 `program.ByteIngress`
+[流式指南](streaming.md)使用 `headless.Transcript` 和 `program.ByteIngress`
 展示了具体 transcript 模式。
 
 ## 分层测试每个边界
@@ -175,5 +181,5 @@ cd examples
 go test ./markdown ./latex ./content
 ```
 
-接下来阅读[构建有界流式输出](streaming.zh-CN.md)以接入后台字节，再阅读
-[构建有界 Agent 界面](agent.zh-CN.md)以了解完整应用形态。
+接下来阅读[构建有界流式输出](streaming.md)以接入后台字节，再阅读
+[构建有界 Agent 界面](agent.md)以了解完整应用形态。

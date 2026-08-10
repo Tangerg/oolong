@@ -1,6 +1,13 @@
+---
+title: Prior art
+description: Review the terminal UI systems Oolong studies and the design choices it adopts or declines.
+contentType: Conceptual
+outline: deep
+---
+
 # Prior art: six terminal UI families, and what to take from them
 
-Language: English | [简体中文](prior-art.zh-CN.md)
+Language: English | [简体中文](zh/prior-art.md)
 
 Status: a living source audit with decisions attached. It is the sibling of
 [architecture.md §5](architecture.md#5-what-is-taken-from-frontend-and-flutter-systems),
@@ -33,7 +40,7 @@ checked against the code.
 
 These projects move. A comparison without a date is a claim that stops being true
 quietly, which is the mistake this repository has already made once and recorded in
-[ROADMAP.md](../ROADMAP.md).
+[ROADMAP.md](https://github.com/Tangerg/oolong/blob/main/ROADMAP.md).
 
 ## The 2026-08-09 executable decision
 
@@ -154,7 +161,7 @@ into a marker its editor treats as a single segment:
 
 **This repository already had the mechanism; the worked example now exists.**
 `headless.Editor` elements and `text.Mark` provide the atomic behavior, while
-[`examples/composer`](../examples/composer) points it at `input.Paste`. The example
+[`examples/composer`](https://github.com/Tangerg/oolong/tree/main/examples/composer) points it at `input.Paste`. The example
 owns the threshold, marker wording, and original pasted bytes. None became library
 policy, which is the boundary this section argued for.
 
@@ -175,7 +182,7 @@ repository and the third does not.
 whose job is to reason about text with escape sequences buried in it. Drawing into
 cells means never having that family: a wide grapheme, a hyperlink and a painted image
 region are structured values rather than bytes that have to be parsed back out. This is
-the same argument [ROADMAP](../ROADMAP.md) makes about line-string diffing, and pi-tui
+the same argument [ROADMAP](https://github.com/Tangerg/oolong/blob/main/ROADMAP.md) makes about line-string diffing, and pi-tui
 is a current example of the other side of it.
 
 **Strategy 3 is coarser than it sounds.** "Move to the first changed line, clear to

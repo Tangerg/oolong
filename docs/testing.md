@@ -1,6 +1,12 @@
+---
+title: Test an Oolong interface
+description: Test components in process and reserve pseudo-terminals for transport behavior.
+contentType: How-to
+---
+
 # Test an Oolong interface
 
-Language: English | [简体中文](testing.zh-CN.md)
+Language: English | [简体中文](zh/testing.md)
 
 This guide chooses the smallest harness that can observe a behavior. Use
 `programtest` for component and application state. Use `ptytest` only when the

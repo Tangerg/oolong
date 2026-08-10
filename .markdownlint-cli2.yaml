@@ -6,6 +6,10 @@ config:
   # The changelog repeats version headings by design.
   MD024:
     siblings_only: true
+  # VitePress frontmatter supplies browser metadata; the visible document title
+  # remains the single H1 in the Markdown body.
+  MD025:
+    front_matter_title: ""
   # Inline HTML is not used; badges are Markdown links.
   MD033: false
 globs:

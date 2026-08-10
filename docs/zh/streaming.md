@@ -1,15 +1,21 @@
+---
+title: 构建有界的流式输出
+description: 接入有序字节源，同时约束待处理工作并释放已完成输出。
+contentType: How-to
+---
+
 # 构建有界的流式输出
 
-语言：[English](streaming.md) | 简体中文
+语言：[English](../streaming.md) | 简体中文
 
 本指南把一个有序的后台字节源接入内联界面。待处理输入始终有界，未完成内容只在界面所有者上变换，完成的内容则发布到终端回滚区。
 
-完整实现位于 [`examples/streaming`](../examples/streaming)。下面的片段只保留应用必须维护的所有权边界。
+完整实现位于 [`examples/streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming)。下面的片段只保留应用必须维护的所有权边界。
 
 ## 开始之前
 
-请先阅读[组合一个可换主题的选择器](components.zh-CN.md)，理解所有者侧组件状态。
-如果数据源输出 Markdown，再阅读[渲染 Markdown、代码与数学公式](content.zh-CN.md)；
+请先阅读[组合一个可换主题的选择器](components.md)，理解所有者侧组件状态。
+如果数据源输出 Markdown，再阅读[渲染 Markdown、代码与数学公式](content.md)；
 纯字节流不需要可选内容模块。
 
 ## 分开四种生命周期
@@ -111,5 +117,5 @@ func (c *chat) accept(batch program.ByteBatch) {
 ## 验证完整路径
 
 使用 `programtest` 验证所有者侧状态；使用 PTY 测试验证永久发布、空闲输出、resize 和
-终端模式清理。[测试指南](testing.zh-CN.md)定义了这两条边界。继续阅读
-[构建有界 Agent 界面](agent.zh-CN.md)，在这条字节路径周围添加类型化领域事件与工具审核。
+终端模式清理。[测试指南](testing.md)定义了这两条边界。继续阅读
+[构建有界 Agent 界面](agent.md)，在这条字节路径周围添加类型化领域事件与工具审核。

@@ -15,7 +15,7 @@ import (
 func TestGettingStartedProgramCompiles(t *testing.T) {
 	root := repoRoot(t)
 	var program string
-	for _, name := range []string{"getting-started.md", "getting-started.zh-CN.md"} {
+	for _, name := range []string{"getting-started.md", filepath.Join("zh", "getting-started.md")} {
 		path := filepath.Join(root, "docs", name)
 		body, err := readRepositoryFile(path)
 		if err != nil {
@@ -99,13 +99,14 @@ func TestLearningPathStaysRunnableAndOrdered(t *testing.T) {
 
 func assertGuideExample(t *testing.T, root, guide, example string) {
 	t.Helper()
-	for _, name := range []string{guide, strings.TrimSuffix(guide, ".md") + ".zh-CN.md"} {
+	link := "](https://github.com/Tangerg/oolong/tree/main/examples/" + example + ")"
+	for _, name := range []string{guide, filepath.Join("zh", guide)} {
 		body, err := readRepositoryFile(filepath.Join(root, "docs", name))
 		if err != nil {
 			t.Error(err)
 			continue
 		}
-		if !strings.Contains(string(body), "](../examples/"+example+")") {
+		if !strings.Contains(string(body), link) {
 			t.Errorf("docs/%s does not point to examples/%s", name, example)
 		}
 	}
@@ -127,36 +128,89 @@ func TestTranslatedDocumentationStaysPaired(t *testing.T) {
 	pairs := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".zh-CN.md") {
+		if entry.IsDir() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
 		pairs++
-		englishName := strings.TrimSuffix(name, ".zh-CN.md") + ".md"
+		englishName := name
 		english, err := readRepositoryFile(filepath.Join(docs, englishName))
-		if err != nil {
-			t.Errorf("%s has no English source %s", name, englishName)
-			continue
-		}
-		chinese, err := readRepositoryFile(filepath.Join(docs, name))
 		if err != nil {
 			t.Error(err)
 			continue
 		}
-		if !strings.Contains(string(english), "]("+name+")") {
+		chineseName := filepath.Join("zh", name)
+		chinese, err := readRepositoryFile(filepath.Join(docs, chineseName))
+		if err != nil {
+			t.Errorf("%s has no Chinese translation %s", englishName, filepath.ToSlash(chineseName))
+			continue
+		}
+		englishLink := "](zh/" + name + ")"
+		chineseLink := "](../" + name + ")"
+		if name == "README.md" {
+			englishLink = "](/zh/)"
+			chineseLink = "](/)"
+		}
+		if !strings.Contains(string(english), englishLink) {
 			t.Errorf("%s does not link to its Chinese translation", englishName)
 		}
-		if !strings.Contains(string(chinese), "]("+englishName+")") {
-			t.Errorf("%s does not link to its English source", name)
+		if !strings.Contains(string(chinese), chineseLink) {
+			t.Errorf("%s does not link to its English source", filepath.ToSlash(chineseName))
 		}
+		assertDocumentationPurpose(t, filepath.ToSlash(filepath.Join("docs", englishName)), english)
+		assertDocumentationPurpose(t, filepath.ToSlash(filepath.Join("docs", chineseName)), chinese)
 		englishHeadings := len(markdownHeading.FindAll(english, -1))
 		chineseHeadings := len(markdownHeading.FindAll(chinese, -1))
 		if englishHeadings != chineseHeadings {
-			t.Errorf("%s has %d headings; %s has %d", englishName, englishHeadings, name, chineseHeadings)
+			t.Errorf("%s has %d headings; %s has %d", englishName, englishHeadings, filepath.ToSlash(chineseName), chineseHeadings)
 		}
 	}
 	if pairs == 0 {
 		t.Fatal("no translated documentation pairs found")
 	}
+}
+
+func assertDocumentationPurpose(t *testing.T, name string, body []byte) {
+	t.Helper()
+	fields, ok := documentationFrontMatter(string(body))
+	if !ok {
+		t.Errorf("%s must begin with YAML frontmatter", name)
+		return
+	}
+	for _, field := range []string{"title", "description", "contentType"} {
+		if fields[field] == "" {
+			t.Errorf("%s frontmatter has no %s", name, field)
+		}
+	}
+	allowed := map[string]bool{
+		"Conceptual":      true,
+		"How-to":          true,
+		"Landing":         true,
+		"Reference":       true,
+		"Troubleshooting": true,
+		"Tutorial":        true,
+	}
+	if kind := fields["contentType"]; kind != "" && !allowed[kind] {
+		t.Errorf("%s has unknown contentType %q", name, kind)
+	}
+}
+
+func documentationFrontMatter(body string) (map[string]string, bool) {
+	rest, ok := strings.CutPrefix(body, "---\n")
+	if !ok {
+		return nil, false
+	}
+	header, _, ok := strings.Cut(rest, "\n---\n")
+	if !ok {
+		return nil, false
+	}
+	fields := make(map[string]string)
+	for _, line := range strings.Split(header, "\n") {
+		key, value, found := strings.Cut(line, ":")
+		if found {
+			fields[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return fields, true
 }
 
 var (

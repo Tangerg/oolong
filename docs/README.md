@@ -1,35 +1,67 @@
-# Learn Oolong
+---
+layout: home
+title: Oolong
+titleTemplate: false
+description: A streaming-first terminal UI substrate for Go.
+contentType: Landing
+hero:
+  name: Oolong
+  text: Streaming-first terminal UI for Go
+  tagline: Streams can be long. The live interface stays bounded.
+  image:
+    src: /logo.svg
+    alt: Oolong flow mark
+  actions:
+    - theme: brand
+      text: Build your first interface
+      link: /getting-started
+    - theme: alt
+      text: Browse examples
+      link: /examples
+features:
+  - title: Streamed output is the primary lifetime
+    details: Finished content becomes terminal scrollback while the interactive tail stays small.
+  - title: Behavior and appearance compose
+    details: Use headless controllers, the polished kit, or your own design system without changing runtime ownership.
+  - title: Go-shaped from the bottom up
+    details: Concrete values, consumer-owned interfaces, explicit errors, and one-way dependencies keep each layer replaceable.
+---
 
-Follow the learning path in order when adopting the library. Each step ends with a
-runnable, tested slice and introduces one new layer without replacing the previous
-one.
+Language: English | [简体中文](/zh/)
 
-## Learning path
+## Learn by building
+
+Follow the path in order when adopting Oolong. Each step produces a runnable, tested slice and adds one layer without replacing the previous one.
 
 | Level | Build | Outcome |
 | --- | --- | --- |
-| Beginner | [Your first interface](getting-started.md) ([简体中文](getting-started.zh-CN.md)) | Run a core-only full-screen component |
-| Beginner | [A themeable picker](components.md) ([简体中文](components.zh-CN.md)) | Compose headless behavior, kit appearance, layout, and input |
-| Intermediate | [Markdown, code, and mathematics](content.md) ([简体中文](content.zh-CN.md)) | Use optional renderers independently and together |
-| Intermediate | [Bounded streaming output](streaming.md) ([简体中文](streaming.zh-CN.md)) | Move ordered background bytes into an inline interface |
-| Advanced | [A bounded agent interface](agent.md) ([简体中文](agent.zh-CN.md)) | Join streaming text, domain events, review, and scrollback ownership |
-| Any level | [Interface testing](testing.md) ([简体中文](testing.zh-CN.md)) | Choose between in-process and real-PTY tests |
+| Beginner | [Your first interface](getting-started.md) | Run a core-only full-screen component |
+| Beginner | [A themeable picker](components.md) | Compose headless behavior, kit appearance, layout, and input |
+| Intermediate | [Markdown, code, and mathematics](content.md) | Use optional renderers independently and together |
+| Intermediate | [Bounded streaming output](streaming.md) | Move ordered background bytes into an inline interface |
+| Advanced | [A bounded agent interface](agent.md) | Join streaming text, domain events, review, and scrollback ownership |
 
-The [example catalog](../examples) mirrors this order. Every example has an
-in-process test, and the streaming slice also proves terminal behavior on a PTY.
+[Browse the example catalog](examples.md) when you prefer to learn from complete commands. Every example includes an in-process test.
 
-## Architecture and project reference
+## Choose the smallest useful layer
 
-| Document | Read it to |
-| --- | --- |
-| [Architecture](architecture.md) ([简体中文](architecture.zh-CN.md)) | Understand normative lifetime, ownership, dependency, failure, and v1 rules |
-| [Prior art](prior-art.md) ([简体中文](prior-art.zh-CN.md)) | See which ideas were adopted or rejected |
-| [Brand](brand.md) ([简体中文](brand.zh-CN.md)) | Keep product language and visual direction consistent |
-| [Coordinated releases](releasing.md) | Validate and tag every public module |
-| [Current design](../DESIGN.md) | Inspect the implementation's present shape and known limits |
-| [Completed roadmap](../ROADMAP.md) | Trace capability work to the evidence that closed it |
+Install only the modules your application imports:
 
-Package-level contracts live beside the code and render on
-[`pkg.go.dev`](https://pkg.go.dev/github.com/Tangerg/oolong/core). Start with the
-guide for a workflow; use package documentation when selecting exact types and
-methods.
+```sh
+go get github.com/Tangerg/oolong/core@latest
+go get github.com/Tangerg/oolong/components@latest
+```
+
+Start with `core` for the runtime, terminal, grid, input, text, and layout. Add `components` for reusable headless behavior and the default theme. Optional Markdown, highlighting, LaTeX, SSH, and PTY testing remain separate modules.
+
+[Choose modules for your interface](modules.md) lists the dependency and release rules.
+
+## Validate and understand the system
+
+- [Test an interface](testing.md) at the in-process and pseudoterminal boundaries
+- [Troubleshoot an application](troubleshooting.md) by symptom and ownership boundary
+- [Read the architecture](architecture.md) for normative lifetime and dependency rules
+- [Compare prior systems](prior-art.md) to understand adopted and rejected ideas
+- [Prepare a coordinated release](releasing.md) when maintaining the repository
+
+Package contracts render on [pkg.go.dev](https://pkg.go.dev/github.com/Tangerg/oolong/core). The [GitHub repository](https://github.com/Tangerg/oolong) contains source, examples, changelog, and contribution policy.

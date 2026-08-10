@@ -1,6 +1,12 @@
+---
+title: 构建你的第一个 Oolong 界面
+description: 直接使用 Oolong 最底层的公开界面构建并运行全屏计数器。
+contentType: Tutorial
+---
+
 # 构建你的第一个 Oolong 界面
 
-语言：[English](getting-started.md) | 简体中文
+语言：[English](../getting-started.md) | 简体中文
 
 本教程使用最底层的公开能力构建一个全屏计数器。你将运行一个组件、绘制两行文字、处理按键并退出，全程不需要导入组件库。
 
@@ -96,6 +102,6 @@ go run .
 - 需要默认主题和复合组件时，添加 `components/kit`
 - 已完成输出需要保留在终端回滚区时，把 `Config.Root` 换成 `Config.Inline`
 
-[`examples/hello`](../examples/hello) 就是这个最小切片。接下来可以浏览
-[示例目录](../examples)，或者阅读[组合一个可换主题的选择器](components.zh-CN.md)
+[`examples/hello`](https://github.com/Tangerg/oolong/tree/main/examples/hello) 就是这个最小切片。接下来可以浏览
+[示例目录](https://github.com/Tangerg/oolong/tree/main/examples)，或者阅读[组合一个可换主题的选择器](components.md)
 以添加组件层。

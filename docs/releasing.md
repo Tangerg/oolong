@@ -1,4 +1,12 @@
+---
+title: Prepare a coordinated release
+description: Validate and publish one immutable version across every public Oolong module.
+contentType: How-to
+---
+
 # Prepare a coordinated release
+
+Language: English | [简体中文](zh/releasing.md)
 
 This maintainer guide cuts one immutable version across every public module. The
 release script derives module order from `go.work` and `go.mod`; do not create tags

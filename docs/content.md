@@ -1,14 +1,20 @@
+---
+title: Render Markdown, code, and mathematics
+description: Use Markdown, syntax highlighting, and LaTeX independently or together.
+contentType: How-to
+---
+
 # Render Markdown, code, and mathematics
 
-Language: English | [简体中文](content.zh-CN.md)
+Language: English | [简体中文](zh/content.md)
 
 This guide uses Markdown, syntax highlighting, and LaTeX independently, then
 combines them at the application boundary. Each optional module stays removable:
 applications pay only for the parsers they import.
 
-Complete programs: [`examples/markdown`](../examples/markdown),
-[`examples/latex`](../examples/latex), and
-[`examples/content`](../examples/content)
+Complete programs: [`examples/markdown`](https://github.com/Tangerg/oolong/tree/main/examples/markdown),
+[`examples/latex`](https://github.com/Tangerg/oolong/tree/main/examples/latex), and
+[`examples/content`](https://github.com/Tangerg/oolong/tree/main/examples/content)
 
 ## Before you begin
 

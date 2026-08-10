@@ -1,20 +1,26 @@
+---
+title: 构建有界 Agent 界面
+description: 组合一个有界的流式 Agent CLI，审核工具调用，并把历史交付给终端回滚区。
+contentType: Tutorial
+---
+
 # 构建有界 Agent 界面
 
-语言：[English](agent.md) | 简体中文
+语言：[English](../agent.md) | 简体中文
 
 本高级教程组合一个流式 Agent CLI，同时不把模型、工具或产品语法放进框架。最终界面会
 约束有序文本，在线程所有者上路由离散领域事件，审核工具调用，并把已完成历史释放给
 终端回滚区。
 
-完整实现：[`examples/agent`](../examples/agent)
+完整实现：[`examples/agent`](https://github.com/Tangerg/oolong/tree/main/examples/agent)
 
 ## 开始之前
 
 请依次阅读以下指南：
 
-1. [组合一个可换主题的选择器](components.zh-CN.md)，理解无外观组件所有权
-2. [渲染 Markdown、代码与数学公式](content.zh-CN.md)，理解被动内容
-3. [构建有界流式输出](streaming.zh-CN.md)，理解字节摄入与发布
+1. [组合一个可换主题的选择器](components.md)，理解无外观组件所有权
+2. [渲染 Markdown、代码与数学公式](content.md)，理解被动内容
+3. [构建有界流式输出](streaming.md)，理解字节摄入与发布
 
 示例使用确定性的模拟后端。请在应用中把它替换成模型或进程适配器，界面架构无需改变。
 
@@ -254,5 +260,5 @@ go test -update ./agent  # 只在审核有意的 golden 修改时执行
 ```
 
 完成的应用应当满足一个决定性属性：把已完成会话扩大一倍，不会让实时 transcript 也扩大
-一倍。请阅读[架构](architecture.zh-CN.md)，了解该属性背后的规范性生命周期、依赖、
+一倍。请阅读[架构](architecture.md)，了解该属性背后的规范性生命周期、依赖、
 失败和 v1 发布规则。

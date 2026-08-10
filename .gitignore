@@ -29,3 +29,8 @@ go.work.sum
 .vscode/
 .DS_Store
 *~
+
+# VitePress dependencies and generated site state.
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

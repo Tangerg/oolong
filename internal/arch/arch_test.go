@@ -516,7 +516,7 @@ func moduleOf(dir string) (string, []string, bool) {
 
 // skipped reports whether a directory is none of this test's business.
 func skipped(name string, isRoot bool) bool {
-	return !isRoot && (name == "vendor" || strings.HasPrefix(name, "."))
+	return !isRoot && (name == "node_modules" || name == "vendor" || strings.HasPrefix(name, "."))
 }
 
 // walk visits every production Go file in the repository, reporting its directory

@@ -1,12 +1,18 @@
+---
+title: Compose a themeable picker
+description: Combine layout, focus, input, filtering, and themes into a reusable terminal picker.
+contentType: Tutorial
+---
+
 # Compose a themeable picker
 
-Language: English | [简体中文](components.zh-CN.md)
+Language: English | [简体中文](zh/components.md)
 
 This tutorial turns the core component contract into a reusable interface without
 giving product policy to the library. You will combine a text editor, fuzzy filter,
 layout, focus, pointer routing, and a terminal-aware theme.
 
-Complete code: [`examples/picker`](../examples/picker)
+Complete code: [`examples/picker`](https://github.com/Tangerg/oolong/tree/main/examples/picker)
 
 ## Before you begin
 

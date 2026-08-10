@@ -1,15 +1,21 @@
+---
+title: 组合一个可换主题的选择器
+description: 把布局、焦点、输入、过滤和主题组合成可复用的终端选择器。
+contentType: Tutorial
+---
+
 # 组合一个可换主题的选择器
 
-语言：[English](components.md) | 简体中文
+语言：[English](../components.md) | 简体中文
 
 本教程把核心组件契约扩展成可复用的界面，同时不把产品策略交给库。你将组合文本编辑器、
 模糊过滤、布局、焦点、指针路由和适配终端的主题。
 
-完整代码：[`examples/picker`](../examples/picker)
+完整代码：[`examples/picker`](https://github.com/Tangerg/oolong/tree/main/examples/picker)
 
 ## 开始之前
 
-请先完成[构建第一个界面](getting-started.zh-CN.md)。本教程假定你已经理解
+请先完成[构建第一个界面](getting-started.md)。本教程假定你已经理解
 `program.Run`、`Draw` 和 `Handle` 如何配合。
 
 在 `core` 之外添加组件模块：
@@ -167,5 +173,5 @@ cd examples && go test ./picker
 ```
 
 现在你已经掌握组件层组合模型。接下来可以阅读
-[渲染 Markdown、代码与数学公式](content.zh-CN.md)以添加被动内容，或阅读
-[构建有界流式输出](streaming.zh-CN.md)以连接后台工作。
+[渲染 Markdown、代码与数学公式](content.md)以添加被动内容，或阅读
+[构建有界流式输出](streaming.md)以连接后台工作。

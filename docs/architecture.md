@@ -1,13 +1,20 @@
+---
+title: Streaming-first architecture
+description: Understand the lifecycle, ownership, dependency, and quality invariants that govern Oolong.
+contentType: Conceptual
+outline: deep
+---
+
 # Streaming-first architecture
 
-Language: English | [简体中文](architecture.zh-CN.md)
+Language: English | [简体中文](zh/architecture.md)
 
 Status: target architecture and decision framework. This document describes the
 direction new work must preserve; it does not claim that every mechanism described
 below already exists.
 
-The [README](../README.md) is the front door, [DESIGN.md](../DESIGN.md) explains the
-current system and its provenance, and [ROADMAP.md](../ROADMAP.md) records how the
+The [README](https://github.com/Tangerg/oolong/blob/main/README.md) is the front door, [DESIGN.md](https://github.com/Tangerg/oolong/blob/main/DESIGN.md) explains the
+current system and its provenance, and [ROADMAP.md](https://github.com/Tangerg/oolong/blob/main/ROADMAP.md) records how the
 current feature set was reached. This document has a different job: it states the
 long-term architecture, the boundaries that must survive implementation changes, and
 the gates a proposed abstraction has to pass before it becomes public.
@@ -84,9 +91,9 @@ open -> finished -> committed
   redraws it, rewraps it, searches it, or counts it as UI memory; a transport failure
   is settled by the rules in section 9 rather than by returning it to the component.
 
-This is already visible in [`grid.Inline`](../core/grid/inline.go),
-[`headless.Transcript`](../components/headless/transcript.go), and
-[`markdown.Stream`](../markdown/stream.go). Future abstractions must preserve the same
+This is already visible in [`grid.Inline`](https://github.com/Tangerg/oolong/blob/main/core/grid/inline.go),
+[`headless.Transcript`](https://github.com/Tangerg/oolong/blob/main/components/headless/transcript.go), and
+[`markdown.Stream`](https://github.com/Tangerg/oolong/blob/main/markdown/stream.go). Future abstractions must preserve the same
 shape rather than hiding it behind a generic collection or component lifecycle.
 
 ### 3.1 Two kinds of retained output
@@ -566,7 +573,7 @@ it must specify:
 - which goroutine invokes the consumer;
 - whether an error or final partial chunk is delivered before close.
 
-[`program.ByteIngress`](../core/program/ingress.go) is the deliberately narrow result
+[`program.ByteIngress`](https://github.com/Tangerg/oolong/blob/main/core/program/ingress.go) is the deliberately narrow result
 proven by the subprocess example. It accepts lossless bytes, blocks the producer when
 its explicit pending-byte limit is full, batches adjacent writes behind at most one
 owner task, delivers completion or failure after accepted data, and stops with its
@@ -697,11 +704,11 @@ invariant it makes enforceable.
 | a centralized primitive stays centralized | `dupl` rejects a second structural copy of the extent, coordinate, writer, identity and ANSI framing primitives beside the first. It runs per module, so a copy in another module is outside its reach and stays a reading | every CI run, within a module |
 | bounded live lifetime, section 3.2 | a deterministic component test proves that commit removes strong payload references and per-block placement records; a fresh-process stress test compares `N` and `2N` large committed streams after GC and rejects retained-heap growth proportional to `N` | required by slice 1 and every transcript implementation |
 | incremental lossless ingress | burst, cancellation, close, partial-tail, and producer-faster-than-consumer tests prove ordering, batching, the declared bound, and the absence of drops | required by slice 1 |
-| observationally pure measurement and drawing | [`headless`](../components/headless/draw_purity_internals_test.go), [`kit`](../components/kit/draw_purity_internals_test.go), [`markdown`](../markdown/draw_purity_internals_test.go), and [`latex`](../latex/draw_purity_internals_test.go) classify every production `Measure` and `Draw*` receiver; every stateful receiver measures and draws twice from the same meaningful state, preserves its semantic projection, returns the same extent, and produces identical terminal bytes, styles, and cursor state | every package that implements measurement or drawing; an unclassified receiver fails |
+| observationally pure measurement and drawing | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go), [`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go), [`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go), and [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) classify every production `Measure` and `Draw*` receiver; every stateful receiver measures and draws twice from the same meaningful state, preserves its semantic projection, returns the same extent, and produces identical terminal bytes, styles, and cursor state | every package that implements measurement or drawing; an unclassified receiver fails |
 | one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
-| idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
-| failure and ownership settlement | [`program` fault tests](../core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](../core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](../core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
+| idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
+| failure and ownership settlement | [`program` fault tests](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
 | public module compatibility | every module builds without `go.work`; the release workflow runs the pinned `golang.org/x/exp/cmd/gorelease` against the preceding immutable module tag, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | manual release check before tagging and every public module tag |
 
 The bounded-memory gate deliberately has two parts. Internal reference and record
@@ -711,7 +718,7 @@ architectural consequence without making an absolute allocation count the contra
 Benchmarks and long-running soak tests provide trend evidence, but do not replace the
 deterministic guard.
 
-Third-party program tests use [`programtest`](../core/programtest), an in-process host
+Third-party program tests use [`programtest`](https://github.com/Tangerg/oolong/tree/main/core/programtest), an in-process host
 above the runtime in the enforced dependency DAG. Its base Host implements only the
 three required transport methods. Tests add optional terminal capabilities by embedding
 it in a local type, so the public harness does not make capability absence impossible
@@ -963,7 +970,7 @@ keep green. Fault injection covers source and input failure, an
 ambiguous partial output write, no writes after failure, drain timeout, capability
 absence, bounded close, and best-effort real-terminal teardown.
 
-This slice is complete. [`examples/streaming`](../examples/streaming) is the single
+This slice is complete. [`examples/streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) is the single
 canonical path rather than a parallel showcase: approval transfers focus before the
 source starts; the source writes only through `ByteIngress`; `markdown.Stream` turns
 the changing suffix into stable blocks; and `Transcript.CommitN` transfers only the
@@ -1027,7 +1034,7 @@ Structural tests cover roles, selected/open/focused state and the two ownership 
 `kit.Panel` closes the separate composition gap between passive chrome and a live child:
 it preserves the child's focus capability, commits its inner routing geometry with the
 root frame, and is proven by both component tests and the framed panes in
-[`examples/files`](../examples/files).
+[`examples/files`](https://github.com/Tangerg/oolong/tree/main/examples/files).
 
 ### Slice 4: computed appearance and semantics
 

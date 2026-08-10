@@ -8,11 +8,16 @@ import (
 )
 
 func TestCatalogCoversEveryCommand(t *testing.T) {
-	readme, err := os.ReadFile("README.md")
-	if err != nil {
-		t.Fatal(err)
+	catalogs := make(map[string]string)
+	for _, path := range []string{"../docs/examples.md", "../docs/zh/examples.md"} {
+		// Paths are fixed repository documentation owned by this test.
+		//nolint:gosec // G304: the test deliberately audits repository-owned files.
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalogs[path] = string(body)
 	}
-	catalog := string(readme)
 
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -32,9 +37,11 @@ func TestCatalogCoversEveryCommand(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(name, "main_test.go")); err != nil {
 			t.Errorf("%s is a command without main_test.go", name)
 		}
-		link := "[`" + name + "`](" + name + ")"
-		if n := strings.Count(catalog, link); n != 1 {
-			t.Errorf("README contains %d entries for %s, want one", n, name)
+		link := "[`" + name + "`](https://github.com/Tangerg/oolong/tree/main/examples/" + name + ")"
+		for path, catalog := range catalogs {
+			if n := strings.Count(catalog, link); n != 1 {
+				t.Errorf("%s contains %d entries for %s, want one", path, n, name)
+			}
 		}
 		// mainPath is derived from a directory entry below the example module.
 		//nolint:gosec // G304: the test deliberately audits repository-owned files.

@@ -1,12 +1,18 @@
+---
+title: Build bounded streaming output
+description: Connect an ordered byte source while keeping pending work bounded and completed output releasable.
+contentType: How-to
+---
+
 # Build bounded streaming output
 
-Language: English | [简体中文](streaming.zh-CN.md)
+Language: English | [简体中文](zh/streaming.md)
 
 This guide connects an ordered background byte source to an inline interface. It
 keeps pending input bounded, transforms partial content on the interface owner, and
 publishes finished blocks into terminal scrollback.
 
-Use [`examples/streaming`](../examples/streaming) as the complete implementation.
+Use [`examples/streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) as the complete implementation.
 The snippets below isolate the ownership boundaries that an application must keep.
 
 ## Before you begin

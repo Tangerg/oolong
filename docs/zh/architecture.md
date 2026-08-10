@@ -1,10 +1,17 @@
+---
+title: 流式优先的架构
+description: 理解约束 Oolong 的生命周期、所有权、依赖方向和质量不变式。
+contentType: Conceptual
+outline: deep
+---
+
 # 流式优先的架构
 
-语言：[English](architecture.md) | 简体中文
+语言：[English](../architecture.md) | 简体中文
 
 状态：目标架构与决策框架。本文描述新工作必须保持的方向；它并不声称下文提到的每一项机制都已经存在。
 
-[README](../README.md) 是入口，[DESIGN.md](../DESIGN.md) 讲当前系统及其来历，[ROADMAP.md](../ROADMAP.md) 记录当前功能集是怎么走到这一步的。本文的职责不同：它陈述长期架构、必须在实现变更中存活下来的边界，以及一个被提议的抽象在公开之前要通过的关卡。
+[README](https://github.com/Tangerg/oolong/blob/main/README.md) 是入口，[DESIGN.md](https://github.com/Tangerg/oolong/blob/main/DESIGN.md) 讲当前系统及其来历，[ROADMAP.md](https://github.com/Tangerg/oolong/blob/main/ROADMAP.md) 记录当前功能集是怎么走到这一步的。本文的职责不同：它陈述长期架构、必须在实现变更中存活下来的边界，以及一个被提议的抽象在公开之前要通过的关卡。
 
 **必须**、**应当**、**可以** 三个词是刻意区分的。必须是不变式。应当是默认做法，违反它需要具体理由。可以是一个选项，不是路线图上的承诺。
 
@@ -48,7 +55,7 @@ HTML、CSS、DOM、React、Vue、Solid、Flutter、Base UI、Radix UI、shadcn �
 - **完成（finished）** 的内容不会再变，但仍可能被保留，因为程序需要搜索它、选择它、重排它，或者在更大的交互里保住它的位置。
 - **交付（committed）** 的内容已经越过一条单向所有权边界，进入发布平面。投递成功后终端拥有它。活动程序不再重画它、不再重新折行、不再搜索它，也不再把它算作 UI 内存；传输失败按第 9 节结算，而不是把它退回组件。
 
-这一点在 [`grid.Inline`](../core/grid/inline.go)、[`headless.Transcript`](../components/headless/transcript.go) 和 [`markdown.Stream`](../markdown/stream.go) 里已经可见。未来的抽象必须保持同样的形状，而不是把它藏进一个通用集合或者组件生命周期里。
+这一点在 [`grid.Inline`](https://github.com/Tangerg/oolong/blob/main/core/grid/inline.go)、[`headless.Transcript`](https://github.com/Tangerg/oolong/blob/main/components/headless/transcript.go) 和 [`markdown.Stream`](https://github.com/Tangerg/oolong/blob/main/markdown/stream.go) 里已经可见。未来的抽象必须保持同样的形状，而不是把它藏进一个通用集合或者组件生命周期里。
 
 ### 3.1 两种被保留的输出
 
@@ -70,7 +77,7 @@ HTML、CSS、DOM、React、Vue、Solid、Flutter、Base UI、Radix UI、shadcn �
 
 一种要求整个会话始终挂载的组件架构与 Oolong 不兼容，即使它渲染得很快。一种在尺寸变化时清空 scrollback 并重新吐出保留历史的算法同样不兼容：它拿用户的终端历史和无界的应用内存去换取几何上的确定性。
 
-[grok-build 的 `xai-ratatui-inline`](prior-art.zh-CN.md#4-grok-build反例比借鉴更有价值) 正在交付的恰好就是这种清除后重绘的替代方案。点名一个可工作的反例不会削弱这条规则；它记录的是 Oolong 明确拒绝了哪一项真实权衡。
+[grok-build 的 `xai-ratatui-inline`](prior-art.md#4-grok-build反例比借鉴更有价值) 正在交付的恰好就是这种清除后重绘的替代方案。点名一个可工作的反例不会削弱这条规则；它记录的是 Oolong 明确拒绝了哪一项真实权衡。
 
 有界有一个可操作的含义。假设一次执行保有 `B` 个活动或刻意保留的块，其中共有 `L` 字节载荷，另有一个至多为 `T` 字节的开放尾部。在已交付输出被释放之后，组件图**必须**只保留 `O(L + T)` 的载荷和 `O(B)` 的放置状态，不受会话总共见过的块数 `N` 影响。绘制、重新测量与尺寸变化**必须**服从同一个活动边界。常量大小的累计水位是合法的；每个已交付块各留一条记录、一个闭包、一段源切片或一份放置状态则不合法。
 
@@ -365,7 +372,7 @@ import 该适配器的应用才承担它的外部依赖。
 - 由哪个 goroutine 调用消费者；
 - 关闭之前是否投递错误或最后一个不完整的 chunk。
 
-[`program.ByteIngress`](../core/program/ingress.go) 就是由子进程示例证明出来的、刻意做窄的那个结果。它接受无损字节，在显式的待处理字节上限满了时阻塞生产者，把相邻写入批量化到至多一个拥有者任务背后，在已接受数据之后投递完成或失败，并随它的 dispatcher 一起停止。它没有制造第二个拥有者循环，也没有改变非阻塞的 `Dispatcher.Post` 契约。
+[`program.ByteIngress`](https://github.com/Tangerg/oolong/blob/main/core/program/ingress.go) 就是由子进程示例证明出来的、刻意做窄的那个结果。它接受无损字节，在显式的待处理字节上限满了时阻塞生产者，把相邻写入批量化到至多一个拥有者任务背后，在已接受数据之后投递完成或失败，并随它的 dispatcher 一起停止。它没有制造第二个拥有者循环，也没有改变非阻塞的 `Dispatcher.Post` 契约。
 
 那份证明**不构成**为另外两个语义类别引入通用 mailbox、observable、带类型流或策略的理由。那些抽象仍然需要它们自己的完整调用方。
 
@@ -443,16 +450,16 @@ import 该适配器的应用才承担它的外部依赖。
 | 集中的 primitive 保持集中 | `dupl` 拒绝在范围、坐标、writer、身份和 ANSI framing primitive 的唯一实现旁边出现第二份结构性拷贝。它按模块运行，因此跨模块拷贝仍超出其视野，需要人工审读 | 每次 CI，在单个模块内 |
 | 有界的活动生命期（3.2） | 一个确定性组件测试证明交付移除了强载荷引用与每块的放置记录；一个在全新进程里跑的压力测试比较 `N` 与 `2N` 的大量已交付流在 GC 之后的保留堆，拒绝与 `N` 成正比的增长 | 切片 1 及每一个 transcript 实现 |
 | 无损增量摄入 | burst、取消、关闭、部分尾部、生产者快于消费者等测试，证明顺序、批量、声明的上限以及不丢数据 | 切片 1 |
-| 可观察意义上纯粹的测量与绘制 | [`headless`](../components/headless/draw_purity_internals_test.go)、[`kit`](../components/kit/draw_purity_internals_test.go)、[`markdown`](../markdown/draw_purity_internals_test.go) 和 [`latex`](../latex/draw_purity_internals_test.go) 对每一个生产用的 `Measure` 与 `Draw*` 接收者做分类；每一个有状态的接收者从同样的有意义状态测量和绘制两次，保持其语义投影不变，返回相同的尺寸，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了测量或绘制的包；未分类的接收者直接失败 |
+| 可观察意义上纯粹的测量与绘制 | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go)、[`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go)、[`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go) 和 [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) 对每一个生产用的 `Measure` 与 `Draw*` 接收者做分类；每一个有状态的接收者从同样的有意义状态测量和绘制两次，保持其语义投影不变，返回相同的尺寸，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了测量或绘制的包；未分类的接收者直接失败 |
 | 单帧路由几何（6.3） | 一个路由测试在新的根绘制暂存期间观察到旧快照，在根提交之后观察到完整的新快照；不存在可观察到的子节点几何混合体 | 切片 2 |
 | 受支持平台的尺寸变化投递 | 一个真实的 Unix PTY 改变几何后必须产生后续的 `Resize`；Windows 的轮询状态机用确定性时钟测试变化检测、错误恢复、去重和关闭；Windows 源码在 CI 中构建并测试 | 每次终端测试，以及每个受支持的 OS 源码集 |
-| 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](../core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
-| 失败与所有权结算 | [`program` 故障测试](../core/program/program_test.go) 覆盖输入原因、分配前的非法或过量宿主几何、部分输出、失败后不再写入、排空超时、能力缺席；[`term` 故障测试](../core/term/terminal_test.go) 覆盖真实 PTY 拆除，[`Writer`](../core/term/writer_test.go) 覆盖短写/部分写与有界关闭 | 切片 1 及每一个新宿主 |
+| 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
+| 失败与所有权结算 | [`program` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 覆盖输入原因、分配前的非法或过量宿主几何、部分输出、失败后不再写入、排空超时、能力缺席；[`term` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) 覆盖真实 PTY 拆除，[`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) 覆盖短写/部分写与有界关闭 | 切片 1 及每一个新宿主 |
 | 公开模块兼容性 | 每个模块在没有 `go.work` 的情况下构建；发布流程用钉住版本的 `golang.org/x/exp/cmd/gorelease` 与前一个不可变模块 tag 比对，报告 pre-1.0 的变更并拒绝违反 Go 兼容性的 v1+ tag 提案；日常 CI 检查声明的 Go 下限与受支持源码集 | 打 tag 前的手动发布检查，以及每一个公开模块 tag |
 
 有界内存这道关卡刻意分成两半。内部引用与记录计数是确定性的，是主证明。黑盒堆测试跑在全新进程里，载荷大到足以压过运行时噪声；它验证的是架构后果，而不把某个绝对分配数变成契约。Benchmark 和长跑浸泡测试提供趋势证据，但不替代那道确定性守卫。
 
-第三方程序测试使用 [`programtest`](../core/programtest)：它是强制依赖 DAG 中位于运行时上方的进程内宿主。它的基础 Host 只实现三个必需的传输方法。测试通过把它嵌入本地类型来增加可选终端能力，因此公开测试工具不会让“能力缺席”变得不可测试。示例使用的是这个公开包；复现示例测试不再暗中依赖任何私有 fake。
+第三方程序测试使用 [`programtest`](https://github.com/Tangerg/oolong/tree/main/core/programtest)：它是强制依赖 DAG 中位于运行时上方的进程内宿主。它的基础 Host 只实现三个必需的传输方法。测试通过把它嵌入本地类型来增加可选终端能力，因此公开测试工具不会让“能力缺席”变得不可测试。示例使用的是这个公开包；复现示例测试不再暗中依赖任何私有 fake。
 
 并非每一条语义规则都能由一个仓库级静态测试推断出来。当强制手段必然是一种测试模式时，引入某个组件或宿主的那个切片必须把那个模式实例化。**评审者应当拒绝这样一条新的 `must`：它的失败无法被观察到，而且它计划中的强制手段没有被点名。**
 
@@ -608,7 +615,7 @@ Pre-1.0 只有在下列全部成立时才结束：
 
 `Host.Input` 返回一个带因果的 `EventSource`：通道关闭之后跟着一个 `Err` 结果，于是干净的 EOF 与已知的传输失败保持可区分，而不用把 `program` 耦合到某个具体宿主。`ByteIngress` 现在提供无损字节策略：它的子进程调用方证明了批量化、待处理字节上限、生产者背压、有序的完成与失败、以及拥有者取消，而没有改变通用分发。`Transcript.Commit` 已经在保住一个聚合的活坐标基准的同时，物理地释放已交付载荷与每块的放置记录；它的确定性保留测试和全新进程的 `N` 对 `2N` GC 测试，是这个切片必须保持绿色的关卡。故障注入覆盖来源与输入失败、一次歧义的部分输出写、失败之后不再写入、排空超时、能力缺席、有界关闭，以及尽力而为的真实终端拆除。
 
-**这个切片已完成。** [`examples/streaming`](../examples/streaming) 是唯一的规范路径，而不是一个并行的陈列品：批准在来源启动之前转移焦点；来源只通过 `ByteIngress` 写；`markdown.Stream` 把变化中的后缀变成稳定块；`Transcript.CommitN` 只转移多出来的已完成前缀，同时保留一个固定大小的近期窗口用于选择、指针和滚动交互。取消是一个与来源失败不同的领域结果，拆除通过 ingress 所有权取消来源。确定性的示例测试证明批准顺序、稳定/开放的转换、保留上限、失败之前已接受的字节，以及取消。组件测试证明滚轮与选择的路由；真实 PTY 套件证明尺寸变化、空闲静默、模式恢复、scrollback 存活，以及从批准到发布的完整路径。program 与 terminal 的故障套件仍然是输入关闭、歧义部分写、排空超时、缺失可选能力和相互独立的拆除尝试的可执行证据。
+**这个切片已完成。** [`examples/streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) 是唯一的规范路径，而不是一个并行的陈列品：批准在来源启动之前转移焦点；来源只通过 `ByteIngress` 写；`markdown.Stream` 把变化中的后缀变成稳定块；`Transcript.CommitN` 只转移多出来的已完成前缀，同时保留一个固定大小的近期窗口用于选择、指针和滚动交互。取消是一个与来源失败不同的领域结果，拆除通过 ingress 所有权取消来源。确定性的示例测试证明批准顺序、稳定/开放的转换、保留上限、失败之前已接受的字节，以及取消。组件测试证明滚轮与选择的路由；真实 PTY 套件证明尺寸变化、空闲静默、模式恢复、scrollback 存活，以及从批准到发布的完整路径。program 与 terminal 的故障套件仍然是输入关闭、歧义部分写、排空超时、缺失可选能力和相互独立的拆除尝试的可执行证据。
 
 ### 切片 2：消除呈现状态的泄漏
 
@@ -633,7 +640,7 @@ Pre-1.0 只有在下列全部成立时才结束：
 
 **这个切片已完成。** `headless.Dialog` 拥有一个模态状态机；它的 content 和 trigger 是复合部件，每一条关闭路径都结算受控或本地的 open 状态，`Stack.Remove` 可以关掉一个被覆盖的对话框而不驱散更新的那一层。焦点测试证明打开会把键盘所有权从底层拿走，而每一种驱散都会把它还回去。`headless.Tabs` 拥有自己的 tab 部件和受控或本地的选择；拥有者写入的受控状态通过一个显式的 `Sync` 应用，于是绘制永远不执行一次隐藏的焦点转移。两个控件都投影出同一棵带类型的 `SemanticNode` 树，而不暴露视觉盒子。`kit.NewDialog` 与 `kit.NewTabs` 是那条精致、可主题化的短路径，同时它们的控制器和外观部件仍然可达。结构化测试覆盖角色、selected/open/focused 状态和两种所有权模式。
 
-`kit.Panel` 关闭了被动 chrome 与活孩子之间那条独立的组合缺口：它保留孩子的焦点能力，把内部路由几何与根帧一起交付，并同时由组件测试和 [`examples/files`](../examples/files) 中带框的双窗格证明。
+`kit.Panel` 关闭了被动 chrome 与活孩子之间那条独立的组合缺口：它保留孩子的焦点能力，把内部路由几何与根帧一起交付，并同时由组件测试和 [`examples/files`](https://github.com/Tangerg/oolong/tree/main/examples/files) 中带框的双窗格证明。
 
 ### 切片 4：计算式外观与语义
 

@@ -1,8 +1,15 @@
+---
+title: Oolong 品牌
+description: 一致地使用 Oolong 的名称、视觉语言和流式优先词汇。
+contentType: Reference
+outline: deep
+---
+
 # Oolong 品牌
 
-语言：[English](brand.md) | 简体中文
+语言：[English](../brand.md) | 简体中文
 
-状态：品牌基础与命名指南。本文记录这个名字意味着什么、Oolong 如何描述自己，以及品牌语言必须止步于哪里。技术契约仍以[架构文档](architecture.zh-CN.md)为准。
+状态：品牌基础与命名指南。本文记录这个名字意味着什么、Oolong 如何描述自己，以及品牌语言必须止步于哪里。技术契约仍以[架构文档](architecture.md)为准。
 
 ## 1. 品牌核心
 

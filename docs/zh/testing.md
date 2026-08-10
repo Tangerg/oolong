@@ -1,6 +1,12 @@
+---
+title: 测试 Oolong 界面
+description: 在进程内测试组件，只在传输行为需要时使用伪终端。
+contentType: How-to
+---
+
 # 测试 Oolong 界面
 
-语言：[English](testing.md) | 简体中文
+语言：[English](../testing.md) | 简体中文
 
 本指南帮助你选择能够观察目标行为的最小测试工具。组件和应用状态使用 `programtest`；只有当结论依赖真实终端传输时，才使用 `ptytest`。
 
@@ -99,5 +105,5 @@ go test -update ./agent
 
 把变化后的 golden 与代码一起评审。普通的 `go test ./...` 永远不会改写它。
 
-请在[构建有界 Agent 界面](agent.zh-CN.md)中把两种测试工具应用到完整流式应用，或阅读
-[架构](architecture.zh-CN.md)以了解这些测试所强制执行的不变式。
+请在[构建有界 Agent 界面](agent.md)中把两种测试工具应用到完整流式应用，或阅读
+[架构](architecture.md)以了解这些测试所强制执行的不变式。

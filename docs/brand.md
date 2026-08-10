@@ -1,6 +1,13 @@
+---
+title: Oolong brand
+description: Use Oolong's name, visual language, and streaming-first vocabulary consistently.
+contentType: Reference
+outline: deep
+---
+
 # Oolong brand
 
-Language: English | [简体中文](brand.zh-CN.md)
+Language: English | [简体中文](zh/brand.md)
 
 Status: brand foundation and naming guide. This document records what the name means,
 how Oolong describes itself, and where brand language must stop. The
