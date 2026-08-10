@@ -3,6 +3,7 @@ package latex_test
 import (
 	"fmt"
 
+	"github.com/Tangerg/oolong/core/text"
 	"github.com/Tangerg/oolong/latex"
 )
 
@@ -15,4 +16,23 @@ func ExampleRender() {
 	// Output:
 	//      2
 	// E = mc
+}
+
+func ExampleOf_observeErrors() {
+	failures := 0
+	render := func(_ string, source string) []text.Line {
+		formula := latex.Render(source, latex.Look{})
+		if formula.Err() != nil {
+			failures++
+		}
+		return formula.Lines()
+	}
+
+	lines := render("", `\frac{`)
+	fmt.Println(lines[0].String())
+	fmt.Println("failures:", failures)
+
+	// Output:
+	// \frac{
+	// failures: 1
 }

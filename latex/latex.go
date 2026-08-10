@@ -22,6 +22,18 @@
 //	render := latex.Of(latex.Look{Text: style, Glyphs: latex.Unicode()})
 //	lines := render("", source)
 //
+// [Of] returns lines and does not expose the [Formula] value. Call [Render] inside
+// a custom adapter to observe [Formula.Err], [Formula.Source] or [Formula.Width]
+// before returning [Formula.Lines]:
+//
+//	render := func(_ string, source string) []text.Line {
+//		formula := latex.Render(source, look)
+//		if err := formula.Err(); err != nil {
+//			report(source, err)
+//		}
+//		return formula.Lines()
+//	}
+//
 // The producer and consumer remain peers. Both know only core text and grid values;
 // neither imports the other.
 package latex
@@ -194,6 +206,10 @@ func Render(source string, look Look) *Formula {
 
 // Of returns the semantic-renderer function shape. Every call goes through [Render];
 // this is an adapter to a consumer-owned function type, not a second rendering API.
+//
+// Use Of when styled lines are the complete result. The function intentionally omits
+// the resulting [Formula] and its error, source, width and drawing methods. Call
+// [Render] in a custom adapter when those values matter, then return [Formula.Lines].
 func Of(look Look) func(info, source string) []text.Line {
 	look = look.normalized()
 	return func(_ string, source string) []text.Line {

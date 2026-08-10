@@ -429,7 +429,10 @@ inclusion, page layout, command execution, TikZ, and raster output are outside t
 contract. Unsupported or incomplete expressions remain visible as their source with
 an error. `latex.Of` has the same two-string function shape as the Markdown extension
 registry and ignores the semantic info argument, so composition requires no import
-edge between the peer modules.
+edge between the peer modules. That adapter returns styled lines and intentionally
+omits the richer `Formula` value. An application that needs `Formula.Err`, `Source`,
+or `Width` calls `latex.Render` inside its own adapter. It observes the formula before
+returning its lines.
 
 ### ssh
 
