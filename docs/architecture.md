@@ -348,9 +348,10 @@ They may be concrete values or functions created from a `*Dialog` controller, wi
 small locally declared interfaces where substitution is real.
 
 This structure should replace configurations that grow through unrelated booleans.
-Mutually exclusive variants should be separate constructors, concrete types, or
-explicit values. A boolean is appropriate for independent state, not for choosing one
-of several component kinds.
+Mutually exclusive component kinds should be separate concrete types. Variants of one
+type belong in explicit values on its single constructor; they must not become
+parallel constructor names. A boolean is appropriate for independent state, not for
+choosing one of several component kinds.
 
 ### 6.2 Controlled and uncontrolled state
 
@@ -361,10 +362,11 @@ Reusable headless components need two valid ownership modes:
 - **Controlled:** the caller supplies storage or a binding because several components
   coordinate around the same value.
 
-The distinction must be visible in construction or in the bound value, not hidden
-behind `Controlled bool`. Existing typed accessors are a useful pattern when the
-component genuinely edits caller-owned data. A component must not keep a private copy
-of controlled state that can drift from its owner.
+The distinction must be visible in the bound value of one explicit construction
+configuration, not hidden behind `Controlled bool` or split across `New` and
+`NewControlled`. Existing typed accessors are a useful pattern when the component
+genuinely edits caller-owned data. A component must not keep a private copy of
+controlled state that can drift from its owner.
 
 ### 6.3 Layout and committed geometry
 
@@ -709,6 +711,7 @@ invariant it makes enforceable.
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
 | failure and ownership settlement | [`program` fault tests](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
+| public construction has one language | `internal/arch` rejects functional options, exported `Options` configuration, and multiple exported `New...` functions returning the same concrete type; ownership variants use one explicit `Config` value | every CI run |
 | callable code has executable evidence | the pinned `golang.org/x/tools/cmd/deadcode` analyzes each module with tests across Linux, macOS, and Windows; private unreachable code is removed, while an unreachable export receives caller-side contract coverage and is retained or removed only through an independent API-design review | every CI run and release |
 | public module compatibility | every module builds without `go.work`; pinned `apidiff` compares each public module with its preceding immutable tag on every change and requires every exported removal by exact old name in the Unreleased migration ledger; the release workflow additionally runs pinned `gorelease`, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | every CI run, the manual release check before tagging, and every public module tag |
 

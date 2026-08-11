@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -36,25 +37,35 @@ type Tabs struct {
 	body         headless.PointerRegion
 }
 
-// NewTabs composes an uncontrolled headless controller with the kit's finished tab
-// strip. The controller remains available through [Tabs.Controller] for custom
-// behavior or semantic inspection.
-func NewTabs(theme Theme, glyphs Glyphs, items ...headless.Tab) *Tabs {
-	return &Tabs{
-		controller: headless.NewTabs(items...), Theme: theme, Glyphs: glyphs, Rule: true,
-	}
+// TabsConfig is the complete construction state of [Tabs].
+//
+// Selection chooses state ownership in the same configuration that chooses content
+// and appearance. Nil keeps selection local; a non-nil accessor gives ownership to
+// the caller. NoRule suppresses the rule under the tab strip; its zero value keeps
+// the kit default.
+type TabsConfig struct {
+	// Theme and Glyphs define the strip appearance.
+	Theme  Theme
+	Glyphs Glyphs
+	// Items are copied into the constructed headless controller.
+	Items []headless.Tab
+	// Selection is optional caller-owned state. Nil keeps state local.
+	Selection headless.Accessor[int]
+	// Keys maps tab actions. Nil uses the headless defaults.
+	Keys *keymap.Map
+	// NoWrap stops movement at the ends. NoRule hides the separator below the strip.
+	NoWrap, NoRule bool
 }
 
-// NewControlledTabs composes a kit strip around caller-owned selection state.
-func NewControlledTabs(
-	theme Theme,
-	glyphs Glyphs,
-	selection headless.Accessor[int],
-	items ...headless.Tab,
-) *Tabs {
+// NewTabs constructs the kit's finished tab strip and its sole headless controller.
+func NewTabs(config TabsConfig) *Tabs {
 	return &Tabs{
-		controller: headless.NewControlledTabs(selection, items...),
-		Theme:      theme, Glyphs: glyphs, Rule: true,
+		controller: headless.NewTabs(headless.TabsConfig{
+			Items: config.Items, Selection: config.Selection, Keys: config.Keys, NoWrap: config.NoWrap,
+		}),
+		Theme:  config.Theme,
+		Glyphs: config.Glyphs,
+		Rule:   !config.NoRule,
 	}
 }
 

@@ -284,10 +284,10 @@ func TestADialogIsAModalTheStackCanDrive(_ *testing.T) {
 
 func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) {
 	stack := &headless.Stack{}
-	dialog := kit.NewDialog(
-		stack, kit.Dark(), kit.Unicode(), "Confirm",
-		headless.Static{Of: kit.Label{Text: "really?"}},
-	)
+	dialog := kit.NewDialog(kit.DialogConfig{
+		Stack: stack, Theme: kit.Dark(), Glyphs: kit.Unicode(), Title: "Confirm",
+		Body: headless.Static{Of: kit.Label{Text: "really?"}},
+	})
 	dialog.Controller().SetDescription("A structural description")
 	dialog.Show()
 
@@ -302,7 +302,7 @@ func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) 
 }
 
 func TestDialogTriggerOpensTheDialogThroughItsAction(t *testing.T) {
-	dialog := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "title", nil)
+	dialog := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Title: "title"})
 	trigger := dialog.Trigger("open", nil)
 	if !trigger.Do(headless.Activate) {
 		t.Fatal("the dialog trigger declined its activation action")
@@ -315,7 +315,7 @@ func TestDialogTriggerOpensTheDialogThroughItsAction(t *testing.T) {
 func TestDialogPanelTransfersFocusWithItsBody(t *testing.T) {
 	first := &panelChild{}
 	second := &panelChild{}
-	dialog := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "", first)
+	dialog := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Body: first})
 	dialog.Show()
 	if dialog.Panel().Body() != first || !first.focused {
 		t.Fatal("the open dialog did not give its body the keyboard")
@@ -332,10 +332,10 @@ func TestDialogPanelTransfersFocusWithItsBody(t *testing.T) {
 }
 
 func TestADialogFramesItsBodyAndTitlesIt(t *testing.T) {
-	d := kit.NewDialog(
-		&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Confirm",
-		headless.Static{Of: kit.Label{Text: "really?"}},
-	)
+	d := kit.NewDialog(kit.DialogConfig{
+		Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Title: "Confirm",
+		Body: headless.Static{Of: kit.Label{Text: "really?"}},
+	})
 	rows := paintWidget(20, 5, d.Panel())
 	if !strings.Contains(rows[0], "Confirm") {
 		t.Fatalf("top row = %q, want the title in the border", rows[0])
@@ -352,10 +352,10 @@ func TestADialogPutsItsHintsInTheBottomBorder(t *testing.T) {
 	// Where they do not cost a row, which is the whole reason to put them there.
 	keys := &keymap.Map{}
 	keys.Bind("ok", input.Chord{Code: input.Enter})
-	d := kit.NewDialog(
-		&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Confirm",
-		headless.Static{Of: kit.Label{Text: "x"}},
-	)
+	d := kit.NewDialog(kit.DialogConfig{
+		Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Title: "Confirm",
+		Body: headless.Static{Of: kit.Label{Text: "x"}},
+	})
 	d.Panel().Keys = keys
 	d.Panel().Hints = []keymap.Action{"ok"}
 	rows := paintWidget(24, 4, d.Panel())
@@ -401,7 +401,7 @@ func TestADialogDimsWithTheThemeAndNotWithAnOpinionOfItsOwn(t *testing.T) {
 
 func TestADialogPassesInputToABodyThatWantsIt(t *testing.T) {
 	editor := &headless.Editor{}
-	d := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "", editor)
+	d := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}, Body: editor})
 	if !d.Panel().Handle(input.Key{Code: input.Character, Rune: 'q'}) {
 		t.Fatal("the dialog did not offer the key to its body")
 	}
@@ -412,17 +412,17 @@ func TestADialogPassesInputToABodyThatWantsIt(t *testing.T) {
 
 func TestADialogWithABodyThatIgnoresInputConsumesNothing(t *testing.T) {
 	// So the stack can decide what an unconsumed key meant — closing, usually.
-	d := kit.NewDialog(
-		&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "",
-		headless.Static{Of: kit.Label{Text: "just words"}},
-	)
+	d := kit.NewDialog(kit.DialogConfig{
+		Stack: &headless.Stack{},
+		Body:  headless.Static{Of: kit.Label{Text: "just words"}},
+	})
 	if d.Panel().Handle(input.Key{Code: input.Esc}) {
 		t.Fatal("a dialog whose body cannot answer input consumed a key anyway")
 	}
 }
 
 func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
-	d := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "Empty", nil)
+	d := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Title: "Empty"})
 	rows := paintWidget(14, 3, d.Panel())
 	if !strings.Contains(rows[0], "Empty") {
 		t.Fatalf("top row = %q, want the frame drawn anyway", rows[0])
@@ -430,17 +430,17 @@ func TestADialogWithNoBodyIsStillDrawable(t *testing.T) {
 }
 
 func TestADialogWithNoRoomDrawsNothing(_ *testing.T) {
-	d := kit.NewDialog(
-		&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "Squeezed",
-		headless.Static{Of: kit.Label{Text: "x"}},
-	)
+	d := kit.NewDialog(kit.DialogConfig{
+		Stack: &headless.Stack{}, Title: "Squeezed",
+		Body: headless.Static{Of: kit.Label{Text: "x"}},
+	})
 	headless.NewRoot(d.Panel()).Draw(grid.NewSurface(0, 0).View())
 	d.Panel().Backdrop(grid.NewSurface(0, 0).View())
 }
 
 func TestADialogGoesWhereItWasPlaced(t *testing.T) {
 	where := layout.Placement{Anchor: layout.Middle, Width: 8, Height: 3}
-	d := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Glyphs{}, "", nil)
+	d := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}})
 	d.Panel().Where = where
 	if got := d.Panel().Place(image.Pt(40, 20)); got != where {
 		t.Fatalf("= %+v, want the placement it was given", got)

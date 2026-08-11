@@ -10,7 +10,7 @@ import (
 )
 
 func TestSliderComposesLabelTrackThumbAndValue(t *testing.T) {
-	slider := kit.NewSlider(kit.Theme{}, kit.Unicode(), "speed", 0, 10)
+	slider := kit.NewSlider(kit.SliderConfig{Glyphs: kit.Unicode(), Maximum: 10, Label: "speed"})
 	slider.Controller().Set(5)
 	equalRows(t, paintWidget(20, 1, slider), []string{"speed.─────●──────.5"})
 
@@ -26,7 +26,7 @@ func TestSliderComposesLabelTrackThumbAndValue(t *testing.T) {
 }
 
 func TestSliderMayFormatItsValue(t *testing.T) {
-	slider := kit.NewSlider(kit.Theme{}, kit.ASCII(), "workers", 1, 8)
+	slider := kit.NewSlider(kit.SliderConfig{Glyphs: kit.ASCII(), Minimum: 1, Maximum: 8, Label: "workers"})
 	slider.Controller().Set(3)
 	slider.Format = func(value int) string { return strconv.Itoa(value) + "x" }
 	equalRows(t, paintWidget(18, 1, slider), []string{"workers.-O-----.3x"})

@@ -106,15 +106,6 @@ func (c *Channel) Copy(sel Selection, text string) (string, bool) {
 	return c.wrap(encode(sel, base64.StdEncoding.EncodeToString([]byte(text)))), true
 }
 
-// Clear returns the sequence that empties a clipboard. It is a copy of nothing
-// rather than a command of its own, which is how the protocol spells it.
-func (c *Channel) Clear(sel Selection) string {
-	if c == nil {
-		return ""
-	}
-	return c.wrap(encode(sel, ""))
-}
-
 // Request starts one clipboard read and returns the sequence to send.
 //
 // It reports false while an earlier request is still eligible for an answer. OSC

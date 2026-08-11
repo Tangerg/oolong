@@ -98,11 +98,11 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 		}
 	}
 
-	tabs := NewTabs(
-		Tab{Title: "one", Of: children[0]},
-		Tab{Title: "two", Of: children[1]},
-		Tab{Title: "three", Of: children[2]},
-	)
+	tabs := NewTabs(TabsConfig{Items: []Tab{
+		{Title: "one", Of: children[0]},
+		{Title: "two", Of: children[1]},
+		{Title: "three", Of: children[2]},
+	}})
 	tabs.Set(Tab{Title: "one", Of: children[0]})
 	for i, tab := range tabs.items[:cap(tabs.items)] {
 		if i >= len(tabs.items) && tab.Of != nil {
@@ -173,7 +173,7 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 		t.Fatalf("container retains capacity %d for %d slot", cap(container.slots), len(container.slots))
 	}
 
-	tabs := NewTabs(makeTabs(children)...)
+	tabs := NewTabs(TabsConfig{Items: makeTabs(children)})
 	tabs.Set(Tab{Title: "one", Of: children[0]})
 	if cap(tabs.items) > 2*len(tabs.items)+16 {
 		t.Fatalf("tabs retain capacity %d for %d item", cap(tabs.items), len(tabs.items))
@@ -238,15 +238,15 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	container := NewContainer(layout.Down, Item{Key: source})
 	assertDetached("container key", container.Items()[0].Key)
 
-	tabs := NewTabs(Tab{Title: source})
+	tabs := NewTabs(TabsConfig{Items: []Tab{{Title: source}}})
 	assertDetached("tab title", tabs.Items()[0].Title)
 
-	dialog := NewDialog(&Stack{}, source, &retainedModal{})
+	dialog := NewDialog(DialogConfig{Stack: &Stack{}, Title: source, Content: &retainedModal{}})
 	assertDetached("dialog title", dialog.Title())
 	dialog.SetDescription(source)
 	assertDetached("dialog description", dialog.Description())
 
-	slider := NewSlider(0, 1)
+	slider := NewSlider(SliderConfig{Maximum: 1})
 	slider.SetLabel(source)
 	assertDetached("slider label", slider.Label())
 

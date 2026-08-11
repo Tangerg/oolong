@@ -126,15 +126,6 @@ func (t *Terminal) Hand(run func() error) (err error) {
 	return run()
 }
 
-// Suspend hands the terminal back and stops this process, the way Ctrl+Z does in a
-// shell, returning when the process is continued.
-//
-// It is [Terminal.Hand] with [Suspend] inside it, and it is only separate because
-// the terminal has to be given back before the process stops rather than after: a
-// program stopped while holding the alternate screen leaves the user looking at
-// half an interface with no way to type into it.
-func (t *Terminal) Suspend() error { return t.Hand(Suspend) }
-
 // release gives the terminal up without ending the session.
 func (t *Terminal) release() error {
 	// Keepalives are output too. Pause before taking the writer's watermark so a

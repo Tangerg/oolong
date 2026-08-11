@@ -315,7 +315,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	var cases []drawPurityCase
 
 	contentModal := &purityModal{&purityWidget{text: "content", height: 2}}
-	contentDialog := NewDialog(&Stack{}, "content", contentModal)
+	contentDialog := NewDialog(DialogConfig{Stack: &Stack{}, Title: "content", Content: contentModal})
 	contentDialog.Show()
 	contentDialog.Content().Focus(true)
 	cases = append(cases, widgetPurityCase("*DialogContent", contentDialog.Content(), func() any {
@@ -325,7 +325,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 		}{contentDialog.Semantics(), contentModal.focused}
 	}))
 
-	triggerDialog := NewDialog(&Stack{}, "triggered", &purityModal{&purityWidget{text: "dialog"}})
+	triggerDialog := NewDialog(DialogConfig{Stack: &Stack{}, Title: "triggered", Content: &purityModal{&purityWidget{text: "dialog"}}})
 	trigger := triggerDialog.Trigger("open", &purityWidget{text: "open"})
 	trigger.Focus(true)
 	cases = append(cases, widgetPurityCase("*DialogTrigger", trigger, func() any {
@@ -333,7 +333,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}))
 
 	tabChild := &purityWidget{text: "pane", height: 2}
-	tabs := NewTabs(Tab{Title: "one", Of: tabChild}, Tab{Title: "two", Of: &purityWidget{text: "other"}})
+	tabs := NewTabs(TabsConfig{Items: []Tab{{Title: "one", Of: tabChild}, {Title: "two", Of: &purityWidget{text: "other"}}}})
 	tabs.Focus(true)
 	cases = append(cases, widgetPurityCase("*Tabs", tabs, func() any { return tabs.Semantics() }))
 

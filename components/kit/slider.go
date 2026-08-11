@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -26,24 +27,40 @@ type Slider struct {
 	controller *headless.Slider
 }
 
-// NewSlider composes an uncontrolled slider with the kit appearance.
-func NewSlider(theme Theme, glyphs Glyphs, label string, minimum, maximum int) *Slider {
-	of := headless.NewSlider(minimum, maximum)
-	of.SetLabel(label)
-	return &Slider{controller: of, Theme: theme, Glyphs: glyphs}
+// SliderConfig is the complete construction state of [Slider].
+//
+// Value chooses state ownership without selecting a second constructor. Nil starts a
+// locally owned value at Minimum. Format is optional and has the same zero meaning as
+// [Slider.Format].
+type SliderConfig struct {
+	// Theme and Glyphs define the track appearance.
+	Theme  Theme
+	Glyphs Glyphs
+	// Value is optional caller-owned state. Nil starts local state at Minimum.
+	Value headless.Accessor[int]
+	// Minimum and Maximum are inclusive and may be equal.
+	Minimum, Maximum int
+	// Step is the keyboard increment. Zero means one.
+	Step int
+	// Label names the value at the left of the track and in semantics.
+	Label string
+	// Keys maps slider actions. Nil uses the headless defaults.
+	Keys *keymap.Map
+	// Format renders the value at the right. Nil uses strconv.Itoa.
+	Format func(int) string
 }
 
-// NewControlledSlider composes a slider around caller-owned value storage.
-func NewControlledSlider(
-	theme Theme,
-	glyphs Glyphs,
-	binding headless.Accessor[int],
-	label string,
-	minimum, maximum int,
-) *Slider {
-	of := headless.NewControlledSlider(binding, minimum, maximum)
-	of.SetLabel(label)
-	return &Slider{controller: of, Theme: theme, Glyphs: glyphs}
+// NewSlider constructs the kit appearance and its sole headless controller.
+func NewSlider(config SliderConfig) *Slider {
+	return &Slider{
+		controller: headless.NewSlider(headless.SliderConfig{
+			Value: config.Value, Minimum: config.Minimum, Maximum: config.Maximum,
+			Step: config.Step, Label: config.Label, Keys: config.Keys,
+		}),
+		Theme:  config.Theme,
+		Glyphs: config.Glyphs,
+		Format: config.Format,
+	}
 }
 
 // Controller returns the headless slider that owns value and interaction state.

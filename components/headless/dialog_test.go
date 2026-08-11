@@ -38,7 +38,7 @@ func TestDialogOwnsOpenStateAndRestoresFocus(t *testing.T) {
 	content := &focusedPanel{panel: panel{name: "confirm", place: middle(10, 3)}}
 	stack := headless.NewStack(base)
 	stack.Focus(true)
-	dialog := headless.NewDialog(stack, "Approve command", content)
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Title: "Approve command", Content: content})
 	dialog.SetDescription("The command may change files")
 
 	dialog.Show()
@@ -70,9 +70,9 @@ func TestDialogOwnsOpenStateAndRestoresFocus(t *testing.T) {
 func TestDialogSettlesEveryStackDismissalIntoControlledState(t *testing.T) {
 	open := false
 	stack := &headless.Stack{}
-	dialog := headless.NewControlledDialog(
-		stack, headless.Bind(&open), "Confirm", &panel{place: middle(8, 3)},
-	)
+	dialog := headless.NewDialog(headless.DialogConfig{
+		Stack: stack, Open: headless.Bind(&open), Title: "Confirm", Content: &panel{place: middle(8, 3)},
+	})
 	dialog.Show()
 	if !open {
 		t.Fatal("show did not write caller-owned state")
@@ -96,7 +96,7 @@ func TestDialogSettlesEveryStackDismissalIntoControlledState(t *testing.T) {
 
 func TestDialogCanCloseUnderANewerLayerWithoutDismissingIt(t *testing.T) {
 	stack := &headless.Stack{}
-	dialog := headless.NewDialog(stack, "First", &panel{place: middle(8, 3)})
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Title: "First", Content: &panel{place: middle(8, 3)}})
 	dialog.Show()
 	newer := &panel{name: "newer", place: middle(6, 2)}
 	stack.Push(newer)
@@ -109,7 +109,7 @@ func TestDialogCanCloseUnderANewerLayerWithoutDismissingIt(t *testing.T) {
 
 func TestDialogTriggerOwnsActivationAndSemantics(t *testing.T) {
 	stack := &headless.Stack{}
-	dialog := headless.NewDialog(stack, "Confirm", &panel{place: middle(8, 3)})
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Title: "Confirm", Content: &panel{place: middle(8, 3)}})
 	trigger := dialog.Trigger("Open confirmation", &focusProbe{})
 	root := headless.NewRoot(trigger)
 	root.Draw(grid.NewSurface(12, 1).View())
@@ -126,7 +126,7 @@ func TestDialogTriggerOwnsActivationAndSemantics(t *testing.T) {
 }
 
 func TestDialogTriggerTransfersFocusWithItsAppearance(t *testing.T) {
-	dialog := headless.NewDialog(&headless.Stack{}, "Confirm", &panel{place: middle(8, 3)})
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: &headless.Stack{}, Title: "Confirm", Content: &panel{place: middle(8, 3)}})
 	first := &focusProbe{}
 	second := &focusProbe{}
 	trigger := dialog.Trigger("Open", first)
@@ -146,7 +146,7 @@ func TestDialogTriggerTransfersFocusWithItsAppearance(t *testing.T) {
 
 func TestDialogTriggerDeclinesAPointerBeforeItHasAFrame(t *testing.T) {
 	stack := &headless.Stack{}
-	dialog := headless.NewDialog(stack, "Confirm", &panel{place: middle(8, 3)})
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Title: "Confirm", Content: &panel{place: middle(8, 3)}})
 	trigger := dialog.Trigger("Open", nil)
 	if trigger.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("a trigger answered a pointer about no presented frame")

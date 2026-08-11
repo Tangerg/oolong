@@ -44,7 +44,7 @@ func TestTheKeyboardFlagsRead(t *testing.T) {
 		input.KeyboardDisambiguate, input.KeyboardReportEvents, input.KeyboardReportAlternates,
 		input.KeyboardReportAllAsEscapes, input.KeyboardReportText,
 	} {
-		if !got.Has(flag) {
+		if !got.Features.Has(flag) {
 			t.Errorf("flag %d is not among %d", flag, got.Features)
 		}
 	}
@@ -52,10 +52,10 @@ func TestTheKeyboardFlagsRead(t *testing.T) {
 	// The case the whole thing exists for: the protocol is live and releases will
 	// never come.
 	partial := one(t, "\x1b[?1u").(input.KeyboardFlags)
-	if !partial.Has(input.KeyboardDisambiguate) {
+	if !partial.Features.Has(input.KeyboardDisambiguate) {
 		t.Error("disambiguation was not reported")
 	}
-	if partial.Has(input.KeyboardReportEvents) {
+	if partial.Features.Has(input.KeyboardReportEvents) {
 		t.Error("releases were reported by a terminal that did not turn them on")
 	}
 }
@@ -65,7 +65,7 @@ func TestTheKeyboardFlagsOfNothing(t *testing.T) {
 	if got.Features != 0 {
 		t.Errorf("flags = %d, want none", got.Features)
 	}
-	if got.Has(input.KeyboardDisambiguate) {
+	if got.Features.Has(input.KeyboardDisambiguate) {
 		t.Error("a flag was reported when none were set")
 	}
 }

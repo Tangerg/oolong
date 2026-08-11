@@ -28,9 +28,9 @@ type Tab struct {
 // a list keeps between selection and rows. [SemanticNode] describes the tab list and
 // panel without coupling either to those cells.
 //
-// Construct it with [NewTabs] or [NewControlledTabs] so selection ownership is
-// explicit. The zero value is an empty uncontrolled controller and is safe, but Set is
-// the only way to give it parts.
+// Construct it with [NewTabs] so selection ownership is explicit in one configuration.
+// The zero value is an empty locally owned controller and is safe, but Set is the only
+// way to give it parts.
 type Tabs struct {
 	items     []Tab
 	selection ownedValue[int]
@@ -50,20 +50,34 @@ type Tabs struct {
 	matcher     keymap.Matcher
 }
 
-// NewTabs constructs an uncontrolled tabs controller with locally owned selection.
-func NewTabs(items ...Tab) *Tabs {
-	tabs := &Tabs{selection: localValue(0)}
-	tabs.Set(items...)
-	return tabs
+// TabsConfig is the complete construction state of [Tabs].
+//
+// A nil Selection gives the controller local ownership. An accessor gives ownership
+// to the caller without selecting a different constructor or maintaining a shadow
+// value. The zero value constructs an empty, locally owned controller.
+type TabsConfig struct {
+	// Items are copied in display order.
+	Items []Tab
+	// Selection is optional caller-owned state. Nil keeps state local.
+	Selection Accessor[int]
+	// Keys maps tab actions. Nil uses [DefaultTabsKeys].
+	Keys *keymap.Map
+	// NoWrap stops movement at the first and last tab.
+	NoWrap bool
 }
 
-// NewControlledTabs constructs a tabs controller whose selection lives in binding.
+// NewTabs constructs one tabs controller from config.
 //
-// Selection operations write binding directly. When the owner writes binding itself,
-// it calls [Tabs.Sync] so focus moves as the same semantic transition.
-func NewControlledTabs(binding Accessor[int], items ...Tab) *Tabs {
-	tabs := &Tabs{selection: controlledValue(binding)}
-	tabs.Set(items...)
+// With Selection set, selection operations write the accessor directly. When its
+// owner writes it independently, it calls [Tabs.Sync] so focus moves as the same
+// semantic transition.
+func NewTabs(config TabsConfig) *Tabs {
+	tabs := &Tabs{
+		selection: newOwnedValue(0, config.Selection),
+		Keys:      config.Keys,
+		NoWrap:    config.NoWrap,
+	}
+	tabs.Set(config.Items...)
 	return tabs
 }
 

@@ -26,29 +26,42 @@ type Dialog struct {
 	layer   LayerID
 }
 
-// NewDialog constructs an uncontrolled dialog whose open state is locally owned.
-func NewDialog(stack *Stack, title string, content Modal) *Dialog {
-	return newDialog(stack, title, content, localValue(false))
-}
-
-// NewControlledDialog constructs a dialog whose open state lives in binding.
+// DialogConfig is the complete construction state of [Dialog].
 //
-// Controller operations write binding directly; there is no private copy to drift.
-// When the owner writes the binding itself, it calls [Dialog.Sync] to perform the
-// corresponding stack and focus transition.
-func NewControlledDialog(stack *Stack, binding Accessor[bool], title string, content Modal) *Dialog {
-	return newDialog(stack, title, content, controlledValue(binding))
+// Stack and Content are required. A nil Open gives the dialog local ownership and an
+// initially closed state. An accessor gives ownership to the caller; its current value
+// is applied to stack membership during construction.
+type DialogConfig struct {
+	// Stack owns modal ordering and is required.
+	Stack *Stack
+	// Open is optional caller-owned state. Nil starts locally closed.
+	Open Accessor[bool]
+	// Title and Description are copied semantic text.
+	Title       string
+	Description string
+	// Content is the required modal part placed on Stack while open.
+	Content Modal
 }
 
-func newDialog(stack *Stack, title string, content Modal, open ownedValue[bool]) *Dialog {
-	if stack == nil {
+// NewDialog constructs one dialog from config.
+//
+// With Open set, controller operations write the accessor directly. When its owner
+// writes it independently, it calls [Dialog.Sync] to perform the corresponding stack
+// and focus transition.
+func NewDialog(config DialogConfig) *Dialog {
+	if config.Stack == nil {
 		panic("headless: dialog requires a stack")
 	}
-	if content == nil {
+	if config.Content == nil {
 		panic("headless: dialog requires content")
 	}
-	dialog := &Dialog{stack: stack, open: open, title: strings.Clone(title)}
-	dialog.content = &DialogContent{dialog: dialog, modal: content}
+	dialog := &Dialog{
+		stack:  config.Stack,
+		open:   newOwnedValue(false, config.Open),
+		title:  strings.Clone(config.Title),
+		detail: strings.Clone(config.Description),
+	}
+	dialog.content = &DialogContent{dialog: dialog, modal: config.Content}
 	dialog.Sync()
 	return dialog
 }

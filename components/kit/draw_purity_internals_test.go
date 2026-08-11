@@ -246,7 +246,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	dialogBody := &headless.Editor{}
 	dialogBody.Insert("body")
 	dialogBody.Focus(true)
-	dialog := NewDialog(&headless.Stack{}, Theme{}, Unicode(), "title", dialogBody)
+	dialog := NewDialog(DialogConfig{Stack: &headless.Stack{}, Glyphs: Unicode(), Title: "title", Body: dialogBody})
 	dialog.Show()
 	cases = append(cases, widgetPurityCase("*DialogPanel", dialog.Panel(), func() any {
 		return struct {
@@ -268,10 +268,13 @@ func kitDrawPurityCases() []drawPurityCase {
 	firstPane.Insert("first")
 	secondPane := &headless.Editor{}
 	secondPane.Insert("second")
-	tabs := NewTabs(Theme{}, Unicode(),
-		headless.Tab{Title: "first", Of: firstPane},
-		headless.Tab{Title: "second", Of: secondPane},
-	)
+	tabs := NewTabs(TabsConfig{
+		Glyphs: Unicode(),
+		Items: []headless.Tab{
+			{Title: "first", Of: firstPane},
+			{Title: "second", Of: secondPane},
+		},
+	})
 	tabs.Controller().Select(1)
 	tabs.Focus(true)
 	cases = append(cases, widgetPurityCase("*Tabs", tabs, func() any {
@@ -282,7 +285,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		}{tabs.Controller().Semantics(), meaningOfEditor(firstPane), meaningOfEditor(secondPane)}
 	}))
 
-	slider := NewSlider(Theme{}, Unicode(), "speed", 0, 10)
+	slider := NewSlider(SliderConfig{Glyphs: Unicode(), Maximum: 10, Label: "speed"})
 	slider.Controller().Set(4)
 	slider.Focus(true)
 	cases = append(cases, widgetPurityCase("*Slider", slider, func() any {
@@ -290,12 +293,11 @@ func kitDrawPurityCases() []drawPurityCase {
 	}))
 
 	settingValues := []string{"dark", "on"}
-	settings := NewSettings(
-		Theme{}, []int{0, 1},
-		func(index int) string { return []string{"theme", "wrap"}[index] },
-		func(index int) string { return settingValues[index] },
-		nil,
-	)
+	settings := NewSettings(SettingsConfig[int]{
+		Items: []int{0, 1},
+		Label: func(index int) string { return []string{"theme", "wrap"}[index] },
+		Value: func(index int) string { return settingValues[index] },
+	})
 	settings.Controller().Select(1)
 	cases = append(cases, widgetPurityCase("*Settings", settings, func() any {
 		return struct {
@@ -375,8 +377,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	formField := &headless.Text{Label: "field", Value: headless.Bind(&formValue)}
 	formController := headless.NewForm(formField)
 	formController.Focus(true)
-	form := NewForm(Theme{}, Glyphs{}, formController)
-	form.Title = "form"
+	form := NewForm(FormConfig{Controller: formController, Title: "form"})
 	cases = append(cases, widgetPurityCase("*Form", form, func() any {
 		return struct {
 			focused headless.Field
@@ -406,8 +407,9 @@ func kitDrawPurityCases() []drawPurityCase {
 	treeController.Open(0)
 	treeController.Select(1)
 	treeController.Focus(true)
-	tree := NewTree(Theme{}, Glyphs{}, treeController, func(item string) string { return item })
-	tree.Indent = 2
+	tree := NewTree(TreeConfig[string]{
+		Controller: treeController, Text: func(item string) string { return item }, Indent: 2,
+	})
 	cases = append(cases, widgetPurityCase("*Tree", tree, func() any {
 		return struct {
 			selected int

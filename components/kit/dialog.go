@@ -2,6 +2,7 @@ package kit
 
 import (
 	"image"
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -21,33 +22,51 @@ type Dialog struct {
 	panel      *DialogPanel
 }
 
-// NewDialog constructs an uncontrolled dialog with kit defaults.
-func NewDialog(
-	stack *headless.Stack,
-	theme Theme,
-	glyphs Glyphs,
-	title string,
-	body headless.Widget,
-) *Dialog {
-	panel := &DialogPanel{Theme: theme, Glyphs: glyphs}
-	panel.SetBody(body)
-	controller := headless.NewDialog(stack, title, panel)
-	panel.dialog = controller
-	return &Dialog{controller: controller, panel: panel}
+// DialogConfig is the complete construction state of [Dialog].
+//
+// Stack is required. A nil Open gives the underlying controller local ownership;
+// setting it gives ownership to the caller without choosing a second constructor.
+// The remaining fields configure the semantic dialog and its kit appearance together,
+// so the title, panel and controller cannot be assembled out of step.
+type DialogConfig struct {
+	// Stack owns modal ordering and is required.
+	Stack *headless.Stack
+	// Open is optional caller-owned state. Nil starts locally closed.
+	Open headless.Accessor[bool]
+	// Theme and Glyphs define the panel appearance.
+	Theme  Theme
+	Glyphs Glyphs
+	// Title and Description are copied semantic text; Title also labels the border.
+	Title       string
+	Description string
+	// Body is the optional live content inside the panel.
+	Body headless.Widget
+	// Where places the panel, and Border selects its frame style.
+	Where  layout.Placement
+	Border Border
+	// Keys supplies the map used to draw Hints. Hints is copied.
+	Keys  *keymap.Map
+	Hints []keymap.Action
 }
 
-// NewControlledDialog constructs a kit dialog whose open state is caller-owned.
-func NewControlledDialog(
-	stack *headless.Stack,
-	open headless.Accessor[bool],
-	theme Theme,
-	glyphs Glyphs,
-	title string,
-	body headless.Widget,
-) *Dialog {
-	panel := &DialogPanel{Theme: theme, Glyphs: glyphs}
-	panel.SetBody(body)
-	controller := headless.NewControlledDialog(stack, open, title, panel)
+// NewDialog constructs one dialog with kit defaults from config.
+func NewDialog(config DialogConfig) *Dialog {
+	panel := &DialogPanel{
+		Theme:  config.Theme,
+		Glyphs: config.Glyphs,
+		Where:  config.Where,
+		Border: config.Border,
+		Keys:   config.Keys,
+		Hints:  slices.Clone(config.Hints),
+	}
+	panel.SetBody(config.Body)
+	controller := headless.NewDialog(headless.DialogConfig{
+		Stack:       config.Stack,
+		Open:        config.Open,
+		Title:       config.Title,
+		Description: config.Description,
+		Content:     panel,
+	})
 	panel.dialog = controller
 	return &Dialog{controller: controller, panel: panel}
 }
@@ -69,21 +88,37 @@ func (d *Dialog) Panel() *DialogPanel {
 }
 
 // Show opens the dialog.
-func (d *Dialog) Show() { d.controller.Show() }
+func (d *Dialog) Show() {
+	if d != nil && d.controller != nil {
+		d.controller.Show()
+	}
+}
 
 // Dismiss closes the dialog and restores focus below it.
-func (d *Dialog) Dismiss() { d.controller.Dismiss() }
+func (d *Dialog) Dismiss() {
+	if d != nil && d.controller != nil {
+		d.controller.Dismiss()
+	}
+}
 
 // Open reports whether the dialog is open.
-func (d *Dialog) Open() bool { return d.controller.Open() }
+func (d *Dialog) Open() bool { return d != nil && d.controller != nil && d.controller.Open() }
 
 // Trigger constructs a headless activation part for this dialog.
 func (d *Dialog) Trigger(label string, of headless.Widget) *headless.DialogTrigger {
+	if d == nil || d.controller == nil {
+		return nil
+	}
 	return d.controller.Trigger(label, of)
 }
 
 // Semantics returns the underlying structural semantic projection.
-func (d *Dialog) Semantics() headless.SemanticNode { return d.controller.Semantics() }
+func (d *Dialog) Semantics() headless.SemanticNode {
+	if d == nil || d.controller == nil {
+		return headless.SemanticNode{Role: headless.RoleDialog}
+	}
+	return d.controller.Semantics()
+}
 
 // DialogPanel is the kit appearance part of a [headless.Dialog].
 //

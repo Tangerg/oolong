@@ -106,9 +106,10 @@ func TestAnUnknownSelectionBecomesTheSystemOne(t *testing.T) {
 	}
 }
 
-func TestClearIsACopyOfNothing(t *testing.T) {
-	if got, want := (&clipboard.Channel{}).Clear(clipboard.System), "\x1b]52;c;\x1b\\"; got != want {
-		t.Errorf("got %q, want %q", got, want)
+func TestCopyingNothingClearsTheSelection(t *testing.T) {
+	got, ok := (&clipboard.Channel{}).Copy(clipboard.System, "")
+	if want := "\x1b]52;c;\x1b\\"; !ok || got != want {
+		t.Errorf("got %q, %t; want %q, true", got, ok, want)
 	}
 }
 
@@ -116,9 +117,6 @@ func TestNilChannelIsInert(t *testing.T) {
 	var channel *clipboard.Channel
 	if sequence, ok := channel.Copy(clipboard.System, "text"); ok || sequence != "" {
 		t.Fatalf("nil copy = %q, %t", sequence, ok)
-	}
-	if sequence := channel.Clear(clipboard.System); sequence != "" {
-		t.Fatalf("nil clear = %q", sequence)
 	}
 	if sequence, ok := channel.Request(clipboard.System); ok || sequence != "" {
 		t.Fatalf("nil request = %q, %t", sequence, ok)

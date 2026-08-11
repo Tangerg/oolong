@@ -18,6 +18,29 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+Breaking. Tabs, sliders, and dialogs now have one constructor per concrete type.
+Their explicit `Config` values select local or caller-owned state through an optional
+typed accessor, so ownership no longer creates parallel `New` and `NewControlled`
+APIs. Kit configurations include behavior, content, and appearance in one value and
+construct exactly one headless controller internally; callers that need behavior
+without the kit appearance construct the headless type directly.
+
+Long positional kit constructors for forms, trees, and settings now take named
+`Config` values. A dressed form reads help bindings from its headless controller
+instead of carrying a second key map, so displayed shortcuts and accepted shortcuts
+cannot drift. Trees keep an explicitly supplied headless controller because dressing
+must not replace its caller-owned hierarchy, while settings construct their sole
+controller from one complete value.
+
+Exact semantic aliases are removed. Emptying a clipboard is the protocol's existing
+`Channel.Copy(selection, "")` operation, reported through the same success result as
+every other copy. `KeyboardFlags.Features.Has` is the one feature-set query, and a PTY
+session uses its standard `io.Writer` contract with `io.WriteString` instead of a
+second text-writing method. A directly owned terminal suspends through
+`Terminal.Hand(term.Suspend)` instead of a forwarding method. Architecture tests now
+reject multiple exported `New...` functions returning the same concrete type, turning
+the one-constructor rule into a repository invariant.
+
 Breaking. `kit.Tree` now has pointer receivers throughout, matching its constructor
 and every other controller-backed kit component instead of allowing copied
 controller values to masquerade as independent widgets.
@@ -86,6 +109,16 @@ unless its exact old name appears in this section.
 
 #### components
 
+- `headless.NewControlledDialog`, `headless.NewControlledSlider`, and
+  `headless.NewControlledTabs` are folded into `headless.NewDialog`,
+  `headless.NewSlider`, and `headless.NewTabs`; set the accessor field on their
+  explicit `Config` values for caller-owned state.
+- `kit.NewControlledDialog`, `kit.NewControlledSlider`, and `kit.NewControlledTabs`
+  are folded into the corresponding `kit.New...` constructor. Each kit `Config`
+  now carries both ownership and appearance and exposes its constructed controller
+  through `Controller`.
+- `kit.Form.Keys` is removed. Set `kit.Form.Controller().Keys` (normally through the
+  controller supplied to `kit.NewForm`) and the hint row reads that same map.
 - `headless.Columns` and `headless.Rows` are replaced by
   `headless.NewContainer`, whose axis makes the variant explicit.
 - `headless.NewEditor` is removed; the useful zero `headless.Editor` is the sole
@@ -100,6 +133,11 @@ unless its exact old name appears in this section.
 
 #### core
 
+- `clipboard.(*Channel).Clear` is replaced by
+  `clipboard.(*Channel).Copy(selection, "")`, the protocol's single spelling for
+  emptying a selection.
+- `input.KeyboardFlags.Has` is replaced by
+  `input.KeyboardFlags.Features.Has`, keeping membership on the feature-set type.
 - `ansi.Params.First` is replaced by `ansi.Params.At(0)`.
 - `graphics.Place` and `graphics.Delete` are folded into `graphics.Image.Paint` and
   `graphics.Image.Erase`; the image now owns operations that require its identity.
@@ -117,6 +155,9 @@ unless its exact old name appears in this section.
 - `term.DetectGraphics` has no process-global replacement. An opened terminal owns
   the answer through `term.(*Terminal).Graphics`; an adapter that owns terminal facts
   calls `graphics.Detect` directly.
+- `term.(*Terminal).Suspend` is replaced by `term.(*Terminal).Hand(term.Suspend)`.
+  `program.Session.Suspend` remains a distinct host-capability operation: unlike a
+  generic handover, it must not stop a process when a custom host has no handover.
 
 #### highlight
 
@@ -132,6 +173,8 @@ unless its exact old name appears in this section.
 
 #### ptytest
 
+- `(*Session).Type` is replaced by `io.WriteString(session, text)`; `Session` already
+  implements `io.Writer`.
 - `(*Transcript).WaitWithin` is replaced by `(*Transcript).WaitFor` with a caller-owned
   context.
 - `Options` is replaced by `Config`.

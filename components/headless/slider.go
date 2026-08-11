@@ -17,8 +17,8 @@ import (
 // pointer dragging, controlled state, bounds, and semantics remain one state machine
 // regardless of how the track looks.
 //
-// Construct a slider with [NewSlider] or [NewControlledSlider]. Its zero value is the
-// inert range [0, 0] with a step of one.
+// Construct a slider with [NewSlider]. Its zero value is the inert range [0, 0] with
+// a step of one.
 type Slider struct {
 	minimum, maximum int
 	step             int
@@ -34,21 +34,35 @@ type Slider struct {
 	track    Snapshot[image.Rectangle]
 }
 
-// NewSlider constructs an uncontrolled slider at minimum.
-func NewSlider(minimum, maximum int) *Slider {
-	s := &Slider{value: localValue(minimum)}
-	s.SetBounds(minimum, maximum)
-	return s
+// SliderConfig is the complete construction state of [Slider].
+//
+// A nil Value gives the controller local ownership starting at Minimum. An accessor
+// gives ownership to the caller and is clamped during construction. Step zero means
+// one, matching the useful zero Slider.
+type SliderConfig struct {
+	// Value is optional caller-owned state. Nil starts local state at Minimum.
+	Value Accessor[int]
+	// Minimum and Maximum are inclusive and may be equal.
+	Minimum, Maximum int
+	// Step is the keyboard increment. Zero means one.
+	Step int
+	// Label names the value in semantics and any appearance.
+	Label string
+	// Keys maps slider actions. Nil uses [DefaultSliderKeys].
+	Keys *keymap.Map
 }
 
-// NewControlledSlider constructs a slider whose value lives in binding.
+// NewSlider constructs one slider from config.
 //
-// Construction clamps the current bound value. Later owner-written values are applied
-// with [Slider.Sync], matching the explicit controlled-state rule used by dialogs and
-// tabs.
-func NewControlledSlider(binding Accessor[int], minimum, maximum int) *Slider {
-	s := &Slider{value: controlledValue(binding)}
-	s.SetBounds(minimum, maximum)
+// With Value set, later owner-written values are applied with [Slider.Sync], matching
+// the explicit controlled-state rule used by dialogs and tabs.
+func NewSlider(config SliderConfig) *Slider {
+	s := &Slider{value: newOwnedValue(config.Minimum, config.Value), Keys: config.Keys}
+	s.SetBounds(config.Minimum, config.Maximum)
+	if config.Step != 0 {
+		s.SetStep(config.Step)
+	}
+	s.SetLabel(config.Label)
 	return s
 }
 

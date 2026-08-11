@@ -1137,11 +1137,13 @@ func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
 }
 
 func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
-	tabs := kit.NewTabs(
-		kit.Dark(), kit.ASCII(),
-		headless.Tab{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
-		headless.Tab{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
-	)
+	tabs := kit.NewTabs(kit.TabsConfig{
+		Theme: kit.Dark(), Glyphs: kit.ASCII(),
+		Items: []headless.Tab{
+			{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
+			{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
+		},
+	})
 	equalRows(t, paintWidget(14, 4, tabs), []string{
 		"chat..files...",
 		"--------------",
@@ -1163,11 +1165,13 @@ func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
 }
 
 func TestNewTabsProvidesTheFinishedStripAndItsController(t *testing.T) {
-	tabs := kit.NewTabs(
-		kit.Dark(), kit.ASCII(),
-		headless.Tab{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
-		headless.Tab{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
-	)
+	tabs := kit.NewTabs(kit.TabsConfig{
+		Theme: kit.Dark(), Glyphs: kit.ASCII(),
+		Items: []headless.Tab{
+			{Title: "chat", Of: headless.Static{Of: kit.Label{Text: "one"}}},
+			{Title: "files", Of: headless.Static{Of: kit.Label{Text: "two"}}},
+		},
+	})
 	if tabs.Controller() == nil || !tabs.Rule {
 		t.Fatal("the short constructor omitted its controller or finished default rule")
 	}
@@ -1183,7 +1187,10 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 		headless.Node[string]{Item: "README"},
 	)
 	tree.Open(0)
-	view := kit.NewTree(kit.Dark(), kit.ASCII(), tree, func(s string) string { return s })
+	view := kit.NewTree(kit.TreeConfig[string]{
+		Theme: kit.Dark(), Glyphs: kit.ASCII(), Controller: tree,
+		Text: func(s string) string { return s },
+	})
 	// A leaf starts in the same column as a branch — the mark is a blank as wide as
 	// one — so a tree of files does not read as a tree of two different things.
 	equalRows(t, paintWidget(12, 3, view), []string{
@@ -1210,7 +1217,9 @@ func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	controller.Row = func(grid.View, int, headless.Shown[string], bool) {
 		called++
 	}
-	dressed := kit.NewTree(kit.Theme{}, kit.Glyphs{}, controller, func(item string) string { return item })
+	dressed := kit.NewTree(kit.TreeConfig[string]{
+		Controller: controller, Text: func(item string) string { return item },
+	})
 	paintWidget(8, 1, dressed)
 	if called != 0 {
 		t.Fatal("the dressed tree used the controller's unrelated row appearance")
@@ -1341,7 +1350,7 @@ func TestALayerPassesTheKeyboardToWhatIsInIt(t *testing.T) {
 	// form inside one takes every keystroke while drawing no caret.
 	body := &spy{}
 	stack := &headless.Stack{}
-	dialog := kit.NewDialog(stack, kit.Dark(), kit.ASCII(), "sure?", body)
+	dialog := kit.NewDialog(kit.DialogConfig{Stack: stack, Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: body})
 	dialog.Show()
 	stack.Focus(true)
 

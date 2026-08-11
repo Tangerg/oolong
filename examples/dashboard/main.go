@@ -83,22 +83,20 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	d := &dashboard{runtime: runtime, theme: theme, motion: true}
 	d.work = newQueue(theme, glyphs)
 	d.watch = newActivity(theme, glyphs, d.work)
-	d.prefs = kit.NewSettings(
-		theme,
-		[]preference{ratePreference, motionPreference},
-		func(item preference) string { return string(item) },
-		d.preferenceValue,
-		d.changePreference,
-	)
+	d.prefs = kit.NewSettings(kit.SettingsConfig[preference]{
+		Theme: theme, Items: []preference{ratePreference, motionPreference},
+		Label: func(item preference) string { return string(item) },
+		Value: d.preferenceValue, Change: d.changePreference,
+	})
 
-	d.strip = *kit.NewControlledTabs(
-		theme,
-		glyphs,
-		headless.Bind(&d.pane),
-		headless.Tab{Title: "tasks", Of: d.work},
-		headless.Tab{Title: "activity", Of: d.watch},
-		headless.Tab{Title: "settings", Of: d.prefs},
-	)
+	d.strip = *kit.NewTabs(kit.TabsConfig{
+		Theme: theme, Glyphs: glyphs, Selection: headless.Bind(&d.pane),
+		Items: []headless.Tab{
+			{Title: "tasks", Of: d.work},
+			{Title: "activity", Of: d.watch},
+			{Title: "settings", Of: d.prefs},
+		},
+	})
 	d.tabs = d.strip.Controller()
 	d.tabs.Focus(true)
 
@@ -355,9 +353,10 @@ type activity struct {
 
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 	activity := &activity{theme: theme, glyphs: glyphs, of: of, rateValue: 1}
-	activity.rate = kit.NewControlledSlider(
-		theme, glyphs, headless.Bind(&activity.rateValue), "rate", 1, 4,
-	)
+	activity.rate = kit.NewSlider(kit.SliderConfig{
+		Theme: theme, Glyphs: glyphs, Value: headless.Bind(&activity.rateValue),
+		Minimum: 1, Maximum: 4, Label: "rate",
+	})
 	activity.rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
 	activity.spinner = kit.Spinner{
 		Theme: theme, Glyphs: glyphs, Label: "watching",

@@ -34,14 +34,29 @@ type Tree[T any] struct {
 	controller *headless.Tree[T]
 }
 
-// NewTree dresses controller with the kit tree appearance.
-func NewTree[T any](
-	theme Theme,
-	glyphs Glyphs,
-	controller *headless.Tree[T],
-	read func(item T) string,
-) *Tree[T] {
-	return &Tree[T]{Theme: theme, Glyphs: glyphs, Text: read, controller: controller}
+// TreeConfig is the complete construction state of [Tree]. Controller is required;
+// Text may be nil when the appearance needs only branch marks and indentation.
+type TreeConfig[T any] struct {
+	// Theme and Glyphs define row and branch appearance.
+	Theme  Theme
+	Glyphs Glyphs
+	// Controller owns hierarchy, selection and interaction and is required.
+	Controller *headless.Tree[T]
+	// Text projects an item into its row label. Nil produces an empty label.
+	Text func(item T) string
+	// Indent is the columns per depth. Zero means two.
+	Indent int
+}
+
+// NewTree dresses one headless tree with the kit appearance.
+func NewTree[T any](config TreeConfig[T]) *Tree[T] {
+	if config.Controller == nil {
+		panic("kit: tree requires a controller")
+	}
+	return &Tree[T]{
+		Theme: config.Theme, Glyphs: config.Glyphs, Text: config.Text,
+		Indent: config.Indent, controller: config.Controller,
+	}
 }
 
 // Controller returns the headless tree that owns hierarchy and selection state.

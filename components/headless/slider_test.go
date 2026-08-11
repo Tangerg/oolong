@@ -10,7 +10,7 @@ import (
 )
 
 func TestSliderOwnsOneBoundedValue(t *testing.T) {
-	slider := headless.NewSlider(-10, 10)
+	slider := headless.NewSlider(headless.SliderConfig{Minimum: -10, Maximum: 10})
 	if got := slider.Value(); got != -10 {
 		t.Fatalf("initial value = %d, want minimum -10", got)
 	}
@@ -41,7 +41,7 @@ func TestSliderOwnsOneBoundedValue(t *testing.T) {
 
 func TestControlledSliderHasNoShadowValue(t *testing.T) {
 	value := 50
-	slider := headless.NewControlledSlider(headless.Bind(&value), 0, 10)
+	slider := headless.NewSlider(headless.SliderConfig{Value: headless.Bind(&value), Maximum: 10})
 	if value != 10 || slider.Value() != 10 {
 		t.Fatalf("construction left binding=%d slider=%d, want both clamped to 10", value, slider.Value())
 	}
@@ -63,7 +63,7 @@ func TestControlledSliderHasNoShadowValue(t *testing.T) {
 }
 
 func TestSliderAnswersActionsAndDefaultKeys(t *testing.T) {
-	slider := headless.NewSlider(0, 10)
+	slider := headless.NewSlider(headless.SliderConfig{Maximum: 10})
 	slider.SetStep(2)
 	for _, key := range []input.Key{
 		{Code: input.Right},
@@ -95,7 +95,7 @@ type sliderTrack struct {
 func (s sliderTrack) Draw(frame headless.Frame) { s.control.Stage(frame, s.rect) }
 
 func TestSliderDragsAgainstCommittedTrackGeometry(t *testing.T) {
-	slider := headless.NewSlider(0, 100)
+	slider := headless.NewSlider(headless.SliderConfig{Maximum: 100})
 	root := headless.NewRoot(sliderTrack{control: slider, rect: grid.Rect(2, 0, 5, 1)})
 	root.Draw(grid.NewSurface(10, 1).View())
 
@@ -120,7 +120,7 @@ func TestSliderDragsAgainstCommittedTrackGeometry(t *testing.T) {
 }
 
 func TestSliderSemanticsCarryItsMeaning(t *testing.T) {
-	slider := headless.NewSlider(0, 10)
+	slider := headless.NewSlider(headless.SliderConfig{Maximum: 10})
 	slider.SetLabel("speed")
 	slider.Set(4)
 	slider.Focus(true)
@@ -132,14 +132,14 @@ func TestSliderSemanticsCarryItsMeaning(t *testing.T) {
 
 func TestSliderRejectsInvalidConfiguration(t *testing.T) {
 	for _, build := range []func(){
-		func() { headless.NewSlider(2, 1) },
+		func() { headless.NewSlider(headless.SliderConfig{Minimum: 2, Maximum: 1}) },
 		func() {
-			slider := headless.NewSlider(0, 1)
+			slider := headless.NewSlider(headless.SliderConfig{Maximum: 1})
 			slider.SetStep(0)
 		},
 		func() {
 			maxInt := int(^uint(0) >> 1)
-			headless.NewSlider(-maxInt-1, maxInt)
+			headless.NewSlider(headless.SliderConfig{Minimum: -maxInt - 1, Maximum: maxInt})
 		},
 	} {
 		func() {

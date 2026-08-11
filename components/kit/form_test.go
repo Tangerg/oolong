@@ -23,10 +23,11 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 		modelField,
 	)
 	keys := headless.DefaultFormKeys()
-	view := kit.NewForm(kit.Dark(), kit.Unicode(), form)
-	view.Title = "New session"
-	view.Keys = keys
-	view.Hints = []keymap.Action{headless.Submit, headless.Cancel}
+	form.Keys = keys
+	view := kit.NewForm(kit.FormConfig{
+		Theme: kit.Dark(), Glyphs: kit.Unicode(), Controller: form, Title: "New session",
+		Hints: []keymap.Action{headless.Submit, headless.Cancel},
+	})
 
 	rows := paintWidget(24, view.Measure(24), view)
 	drawn := strings.Join(rows, "\n")
@@ -47,7 +48,7 @@ func TestAFormAppearanceDoesNotReplaceTheControllersLook(t *testing.T) {
 	field.SetOptions(headless.Options("one", "two"))
 	form := headless.NewForm(field)
 	form.Look = headless.Look{Taken: "C", Free: "-"}
-	view := kit.NewForm(kit.Dark(), kit.Unicode(), form)
+	view := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.Unicode(), Controller: form})
 
 	_ = paintWidget(12, view.Measure(12), view)
 	rows := paintWidget(12, form.Measure(12), form)
@@ -60,7 +61,7 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	theme := kit.Dark()
 	field := &headless.Text{Label: "Name", Check: func(string) error { return errors.New("required") }}
 	form := headless.NewForm(field)
-	view := kit.NewForm(theme, kit.Glyphs{}, form)
+	view := kit.NewForm(kit.FormConfig{Theme: theme, Controller: form})
 	form.Submit()
 
 	s := grid.NewSurface(20, view.Measure(20))
@@ -69,5 +70,21 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	// saying something is wrong.
 	if c := cellAt(s, 0, 2); c.Style.FG != theme.Danger.FG {
 		t.Fatalf("the problem is drawn %+v, want the danger style", c)
+	}
+}
+
+func TestDressedControllersAreRequiredAtConstruction(t *testing.T) {
+	for name, build := range map[string]func(){
+		"form": func() { kit.NewForm(kit.FormConfig{}) },
+		"tree": func() { kit.NewTree(kit.TreeConfig[string]{}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("missing controller did not panic")
+				}
+			}()
+			build()
+		})
 	}
 }

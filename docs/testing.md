@@ -84,7 +84,7 @@ defer cancel()
 if err := session.Transcript().WaitFor(ctx, "ready"); err != nil {
     t.Fatal(err)
 }
-if err := session.Type("q"); err != nil {
+if _, err := io.WriteString(session, "q"); err != nil {
     t.Fatal(err)
 }
 ```

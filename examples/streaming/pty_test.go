@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,15 +118,15 @@ func TestTheInterfaceIsUpBeforeAnybodyTypes(t *testing.T) {
 func TestTypingAndSendingReachesTheTerminal(t *testing.T) {
 	s := start(t)
 	waitFor(t, s, "Ask something")
-	if err := s.Type("what is this"); err != nil {
+	if _, err := io.WriteString(s, "what is this"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, s, "what is this")
-	if err := s.Type("\r"); err != nil {
+	if _, err := io.WriteString(s, "\r"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, s, "Approve prompt")
-	if err := s.Type("\r"); err != nil {
+	if _, err := io.WriteString(s, "\r"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, s, "you", "Streaming first")
@@ -136,7 +137,7 @@ func TestTheSessionGivesTheTerminalBack(t *testing.T) {
 	// closing the window, and nothing else in the suite can see it.
 	s := start(t)
 	waitFor(t, s, "Ask something")
-	if err := s.Type("\x03"); err != nil { // ctrl+c, which the example binds to quit
+	if _, err := io.WriteString(s, "\x03"); err != nil { // ctrl+c, which the example binds to quit
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), settle)
@@ -193,17 +194,17 @@ func TestWhatWasPrintedSurvivesTheProgram(t *testing.T) {
 	// terminal, and is still there after the program that said it has gone.
 	s := start(t)
 	waitFor(t, s, "Ask something")
-	if err := s.Type("hello there\r"); err != nil {
+	if _, err := io.WriteString(s, "hello there\r"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, s, "Approve prompt")
-	if err := s.Type("\r"); err != nil {
+	if _, err := io.WriteString(s, "\r"); err != nil {
 		t.Fatal(err)
 	}
 	// Waiting for the final retained paragraph also means earlier stable blocks have
 	// crossed the bounded window into terminal-owned scrollback.
 	waitFor(t, s, "complete", "When this paragraph finishes")
-	if err := s.Type("\x03"); err != nil {
+	if _, err := io.WriteString(s, "\x03"); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), settle)

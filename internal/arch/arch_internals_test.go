@@ -485,6 +485,92 @@ func TestConfigurationRuleRecognizesFunctionalOptions(t *testing.T) {
 	}
 }
 
+// TestConcreteTypesHaveOneConstructor keeps ownership or configuration variants out
+// of exported function names. One concrete value gets one New entry point; optional
+// state belongs in its Config. Different abstraction layers may each construct their
+// own type, but NewControlledThing beside NewThing makes callers choose between two
+// languages for the same value and lets those paths drift.
+func TestConcreteTypesHaveOneConstructor(t *testing.T) {
+	root := repoRoot(t)
+	constructors := make(map[string][]string)
+	walk(t, root, func(dir, path string) {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			constructed := constructedType(function)
+			if constructed == "" {
+				continue
+			}
+			position := fset.Position(function.Pos())
+			relative, relErr := filepath.Rel(root, position.Filename)
+			if relErr != nil {
+				t.Fatalf("make %s relative: %v", position.Filename, relErr)
+			}
+			key := dir + ":" + constructed
+			constructors[key] = append(constructors[key],
+				filepath.ToSlash(relative)+":"+function.Name.Name)
+		}
+	})
+	for constructed, entries := range constructors {
+		if len(entries) > 1 {
+			t.Errorf("%s has multiple constructors %s; keep one New entry and put variants in Config",
+				constructed, strings.Join(entries, ", "))
+		}
+	}
+}
+
+func constructedType(function *ast.FuncDecl) string {
+	if function.Recv != nil || !function.Name.IsExported() ||
+		!strings.HasPrefix(function.Name.Name, "New") || function.Type.Results == nil ||
+		len(function.Type.Results.List) == 0 {
+		return ""
+	}
+	expression := function.Type.Results.List[0].Type
+	if pointer, ok := expression.(*ast.StarExpr); ok {
+		expression = pointer.X
+	}
+	switch indexed := expression.(type) {
+	case *ast.IndexExpr:
+		expression = indexed.X
+	case *ast.IndexListExpr:
+		expression = indexed.X
+	}
+	return typeName(expression)
+}
+
+func TestConstructorRuleRecognizesConcreteResults(t *testing.T) {
+	tests := []struct {
+		source string
+		want   string
+	}{
+		{"func NewThing() *Thing", "Thing"},
+		{"func NewThing() (Thing, error)", "Thing"},
+		{"func NewTree[T any]() *Tree[T]", "Tree"},
+		{"func NewPair[A, B any]() *Pair[A, B]", "Pair"},
+		{"func New() *Thing", "Thing"},
+		{"func BuildThing() *Thing", ""},
+		{"func (Thing) NewPart() *Part", ""},
+		{"func NewNothing()", ""},
+	}
+	for _, test := range tests {
+		file, err := parser.ParseFile(token.NewFileSet(), "rule.go", "package rule\n"+test.source, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %q: %v", test.source, err)
+		}
+		function := file.Decls[0].(*ast.FuncDecl)
+		if got := constructedType(function); got != test.want {
+			t.Errorf("constructedType(%q) = %q, want %q", test.source, got, test.want)
+		}
+	}
+}
+
 func typeName(expression ast.Expr) string {
 	switch expression := expression.(type) {
 	case *ast.Ident:

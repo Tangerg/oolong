@@ -26,17 +26,40 @@ type Settings[T any] struct {
 	controller *headless.Settings[T]
 }
 
+// SettingsConfig is the complete construction state of [Settings].
+//
+// Keys browse the list and EditKeys change the selected value. Keeping both in this
+// value makes their different responsibilities explicit without hiding either in a
+// positional function argument.
+type SettingsConfig[T any] struct {
+	// Theme defines row and value appearance.
+	Theme Theme
+	// Items are copied into the constructed controller.
+	Items []T
+	// Label and Value project the two visible columns. Nil produces an empty column.
+	Label func(T) string
+	Value func(T) string
+	// Change applies a value action. Nil makes values read-only.
+	Change func(index int, item T, action keymap.Action) bool
+	// Keys browse rows; EditKeys change the selected value. Nil uses the respective defaults.
+	Keys     *keymap.Map
+	EditKeys *keymap.Map
+	// Wrap moves row selection across the ends.
+	Wrap bool
+	// ValueWidth caps the right column. Zero leaves it uncapped.
+	ValueWidth int
+}
+
 // NewSettings builds a settings list around one application-owned item slice.
-func NewSettings[T any](
-	theme Theme,
-	items []T,
-	label func(T) string,
-	value func(T) string,
-	change func(index int, item T, action keymap.Action) bool,
-) *Settings[T] {
-	controller := &headless.Settings[T]{Change: change}
-	controller.SetItems(items)
-	return &Settings[T]{Theme: theme, controller: controller, Label: label, Value: value}
+func NewSettings[T any](config SettingsConfig[T]) *Settings[T] {
+	controller := &headless.Settings[T]{Change: config.Change, EditKeys: config.EditKeys}
+	controller.Keys = config.Keys
+	controller.Wrap = config.Wrap
+	controller.SetItems(config.Items)
+	return &Settings[T]{
+		Theme: config.Theme, controller: controller, Label: config.Label,
+		Value: config.Value, ValueWidth: config.ValueWidth,
+	}
 }
 
 // Controller returns the headless settings list that owns selection and actions.

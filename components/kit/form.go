@@ -1,6 +1,9 @@
 package kit
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -19,19 +22,44 @@ type Form struct {
 	Glyphs Glyphs
 	// Title sits above the fields. Empty draws none and costs no row.
 	Title string
-	// Keys is where the hints' keystrokes are read from, and Hints are the actions to
-	// show under the fields. An action with nothing bound to it is not shown.
-	Keys  *keymap.Map
+	// Hints are the controller actions to show under the fields. Their keystrokes
+	// always come from the controller's own map, so help cannot disagree with input.
+	// An action with nothing bound to it is not shown.
 	Hints []keymap.Action
 
 	controller *headless.Form
 	body       headless.PointerRegion
 }
 
-// NewForm dresses controller with a theme and glyph set. The controller remains
-// available through [Form.Controller].
-func NewForm(theme Theme, glyphs Glyphs, controller *headless.Form) *Form {
-	return &Form{Theme: theme, Glyphs: glyphs, controller: controller}
+// FormConfig is the complete construction state of [Form].
+//
+// Controller is required and remains the sole owner of fields, keys, validation and
+// submission. Nil Controller.Keys is materialized as the standard form map so the
+// same map can drive both behavior and visible hints.
+type FormConfig struct {
+	// Theme and Glyphs define field roles and choice marks.
+	Theme  Theme
+	Glyphs Glyphs
+	// Controller owns fields, keys, validation and submission and is required.
+	Controller *headless.Form
+	// Title is copied. Empty omits the heading row.
+	Title string
+	// Hints is copied and resolved through Controller.Keys.
+	Hints []keymap.Action
+}
+
+// NewForm dresses one headless form without creating a second behavior surface.
+func NewForm(config FormConfig) *Form {
+	if config.Controller == nil {
+		panic("kit: form requires a controller")
+	}
+	if config.Controller.Keys == nil {
+		config.Controller.Keys = headless.DefaultFormKeys()
+	}
+	return &Form{
+		Theme: config.Theme, Glyphs: config.Glyphs, controller: config.Controller,
+		Title: strings.Clone(config.Title), Hints: slices.Clone(config.Hints),
+	}
 }
 
 // Controller returns the headless form that owns fields and submission behavior.
@@ -68,7 +96,7 @@ func (f *Form) Draw(v headless.Frame) {
 	}
 	f.controller.DrawWith(bands[1], f.Theme.Look(f.Glyphs))
 	if f.hintRows() > 0 {
-		Help{Theme: f.Theme, Keys: f.Keys, Show: f.Hints}.Draw(bands[2].View)
+		Help{Theme: f.Theme, Keys: f.controller.Keys, Show: f.Hints}.Draw(bands[2].View)
 	}
 }
 
@@ -116,7 +144,7 @@ func (f *Form) titleRows() int {
 // bound to something.
 func (f *Form) hintRows() int {
 	for _, action := range f.Hints {
-		if len(f.Keys.Keys(action)) > 0 {
+		if len(f.controller.Keys.Keys(action)) > 0 {
 			return 1
 		}
 	}

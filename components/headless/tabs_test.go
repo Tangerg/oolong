@@ -10,10 +10,10 @@ import (
 
 func TestOnePaneShowsAndTheRestWait(t *testing.T) {
 	first, second := &tall{rows: 2}, &tall{rows: 3}
-	tabs := headless.NewTabs(
-		headless.Tab{Title: "one", Of: first},
-		headless.Tab{Title: "two", Of: second},
-	)
+	tabs := headless.NewTabs(headless.TabsConfig{Items: []headless.Tab{
+		{Title: "one", Of: first},
+		{Title: "two", Of: second},
+	}})
 
 	if got := paintWidget(6, 2, tabs); got[0] != "row 0." {
 		t.Fatalf("the first pane drew %q", got)
@@ -38,7 +38,7 @@ func TestOnePaneShowsAndTheRestWait(t *testing.T) {
 func TestTabMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	minInt := -maxInt - 1
-	tabs := headless.NewTabs(headless.Tab{}, headless.Tab{}, headless.Tab{})
+	tabs := headless.NewTabs(headless.TabsConfig{Items: make([]headless.Tab, 3)})
 	tabs.NoWrap = true
 	tabs.Select(1)
 	if !tabs.Move(maxInt) || tabs.Selected() != 2 {
@@ -53,7 +53,7 @@ func TestThePaneShowingAnswersBeforeTheTabsDo(t *testing.T) {
 	// A pane that took the arrow keys keeps them. Tabs that took them first would
 	// make a list inside one impossible to move through.
 	pane := &tall{rows: 4}
-	tabs := headless.NewTabs(headless.Tab{Title: "one", Of: pane}, headless.Tab{Title: "two"})
+	tabs := headless.NewTabs(headless.TabsConfig{Items: []headless.Tab{{Title: "one", Of: pane}, {Title: "two"}}})
 
 	if !tabs.Handle(input.Mouse{Action: input.MouseDown}) {
 		t.Fatal("the pane was not offered the event")
@@ -65,7 +65,7 @@ func TestThePaneShowingAnswersBeforeTheTabsDo(t *testing.T) {
 
 func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 	first, second := &tall{rows: 1}, &tall{rows: 1}
-	tabs := headless.NewTabs(headless.Tab{Of: first}, headless.Tab{Of: second})
+	tabs := headless.NewTabs(headless.TabsConfig{Items: []headless.Tab{{Of: first}, {Of: second}}})
 	tabs.Focus(true)
 	if first.told != 1 {
 		t.Fatal("the pane showing was not told it has the keyboard")
@@ -79,10 +79,10 @@ func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 func TestTabsAcceptNonComparableValuePanes(t *testing.T) {
 	first := valueField{target: &field{name: "first"}, payload: []byte("first")}
 	second := valueField{target: &field{name: "second"}, payload: []byte("second")}
-	tabs := headless.NewTabs(
-		headless.Tab{Title: "first", Of: first},
-		headless.Tab{Title: "second", Of: second},
-	)
+	tabs := headless.NewTabs(headless.TabsConfig{Items: []headless.Tab{
+		{Title: "first", Of: first},
+		{Title: "second", Of: second},
+	}})
 	tabs.Select(1)
 	if got := tabs.Selected(); got != 1 {
 		t.Fatalf("selected = %d, want 1", got)
@@ -92,11 +92,13 @@ func TestTabsAcceptNonComparableValuePanes(t *testing.T) {
 func TestControlledTabsUseOneSelectionAndSyncExternalTransitions(t *testing.T) {
 	selected := 1
 	first, second := &focusProbe{}, &focusProbe{}
-	tabs := headless.NewControlledTabs(
-		headless.Bind(&selected),
-		headless.Tab{Title: "one", Of: first},
-		headless.Tab{Title: "two", Of: second},
-	)
+	tabs := headless.NewTabs(headless.TabsConfig{
+		Selection: headless.Bind(&selected),
+		Items: []headless.Tab{
+			{Title: "one", Of: first},
+			{Title: "two", Of: second},
+		},
+	})
 	if tabs.Selected() != 1 || !second.focused {
 		t.Fatalf("controlled tabs started selected=%d first=%v second=%v",
 			tabs.Selected(), first.changes, second.changes)
@@ -120,10 +122,10 @@ func TestControlledTabsUseOneSelectionAndSyncExternalTransitions(t *testing.T) {
 }
 
 func TestTabsExposeStructuralSemanticsIndependentOfTheStrip(t *testing.T) {
-	tabs := headless.NewTabs(
-		headless.Tab{Title: "chat", Of: &focusProbe{}},
-		headless.Tab{Title: "files", Of: &focusProbe{}},
-	)
+	tabs := headless.NewTabs(headless.TabsConfig{Items: []headless.Tab{
+		{Title: "chat", Of: &focusProbe{}},
+		{Title: "files", Of: &focusProbe{}},
+	}})
 	tabs.Select(1)
 	node := tabs.Semantics()
 	if node.Role != headless.RoleTabList || !node.State.Has(headless.StateFocused) {

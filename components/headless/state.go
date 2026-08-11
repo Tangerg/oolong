@@ -34,22 +34,19 @@ func (b bound[T]) Set(v T)  { *b.at = v }
 
 // ownedValue is local storage unless an accessor gives ownership to a caller.
 //
-// It stays private because ownership is part of each controller's construction, not a
-// second state API applications should pass around. The two controller constructors
-// make the distinction visible; operations use this one path in either mode and never
-// keep a shadow copy of controlled state.
+// It stays private because ownership is part of each controller's configuration, not
+// a second state API applications should pass around. One constructor accepts either
+// mode; operations use this one path and never keep a shadow copy of controlled state.
 type ownedValue[T any] struct {
 	local   T
 	binding Accessor[T]
 }
 
-func localValue[T any](initial T) ownedValue[T] { return ownedValue[T]{local: initial} }
-
-func controlledValue[T any](binding Accessor[T]) ownedValue[T] {
-	if binding == nil {
-		panic("headless: nil controlled-state accessor")
+func newOwnedValue[T any](initial T, binding Accessor[T]) ownedValue[T] {
+	if binding != nil {
+		return ownedValue[T]{binding: binding}
 	}
-	return ownedValue[T]{binding: binding}
+	return ownedValue[T]{local: initial}
 }
 
 func (v *ownedValue[T]) get() T {

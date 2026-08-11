@@ -114,15 +114,19 @@ func (a *agent) buildReview() {
 	a.reviewForm.Keys = keys
 	a.reviewForm.Done = func() { a.answerReview(a.reviewAnswer) }
 	a.reviewForm.GaveUp = func() { a.answerReview(false) }
-	dressed := kit.NewForm(a.theme, a.glyphs, a.reviewForm)
-	dressed.Keys = keys
-	dressed.Hints = []keymap.Action{headless.Submit, headless.Cancel}
+	dressed := kit.NewForm(kit.FormConfig{
+		Theme: a.theme, Glyphs: a.glyphs, Controller: a.reviewForm,
+		Hints: []keymap.Action{headless.Submit, headless.Cancel},
+	})
 	a.reviewPane = reviewPane{
 		diff: kit.NewDiff(a.theme, a.glyphs, nil),
 		form: dressed, theme: a.theme,
 	}
 	a.reviewPane.diff.ShowNumbers(true)
-	a.reviewDialog = kit.NewDialog(&a.stack, a.theme, a.glyphs, "Review tool call", &a.reviewPane)
+	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
+		Stack: &a.stack, Theme: a.theme, Glyphs: a.glyphs,
+		Title: "Review tool call", Body: &a.reviewPane,
+	})
 	a.reviewDialog.Panel().Where = layout.Placement{Width: 76, Height: 16, Margin: 1}
 }
 

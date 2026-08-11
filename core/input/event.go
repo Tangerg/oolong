@@ -370,10 +370,6 @@ const (
 // Has reports whether every requested feature is in k.
 func (k KeyboardFeatures) Has(features KeyboardFeatures) bool { return k&features == features }
 
-// Has reports whether every requested feature is among those the terminal turned
-// on.
-func (k KeyboardFlags) Has(features KeyboardFeatures) bool { return k.Features.Has(features) }
-
 // DeviceVersion is a terminal's answer to being asked which version of itself it is.
 //
 // It is the query for the terminals that answer nothing else. Alacritty exports no

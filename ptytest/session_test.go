@@ -3,6 +3,7 @@ package ptytest_test
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func TestASessionSendsWhatIsTyped(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	if err := s.Type("typed and echoed\n"); err != nil {
+	if _, err := io.WriteString(s, "typed and echoed\n"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, s.Transcript(), "typed and echoed")

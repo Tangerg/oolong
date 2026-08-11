@@ -14,11 +14,10 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 	type preference struct{ name string }
 	items := []preference{{"theme"}, {"wrap"}}
 	values := []string{"dark", "on"}
-	settings := kit.NewSettings(
-		kit.Theme{},
-		items,
-		func(item preference) string { return item.name },
-		func(item preference) string {
+	settings := kit.NewSettings(kit.SettingsConfig[preference]{
+		Items: items,
+		Label: func(item preference) string { return item.name },
+		Value: func(item preference) string {
 			for i := range items {
 				if items[i] == item {
 					return values[i]
@@ -26,14 +25,14 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 			}
 			return ""
 		},
-		func(index int, _ preference, action keymap.Action) bool {
+		Change: func(index int, _ preference, action keymap.Action) bool {
 			if action != headless.Increase {
 				return false
 			}
 			values[index] = "off"
 			return true
 		},
-	)
+	})
 
 	equalRows(t, paintWidget(16, 2, settings), []string{
 		"theme.......dark",
@@ -51,12 +50,10 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 
 func TestSettingsOwnTheirItemSlice(t *testing.T) {
 	items := []string{"one", "two"}
-	settings := kit.NewSettings(
-		kit.Theme{}, items,
-		func(item string) string { return item },
-		func(string) string { return "" },
-		nil,
-	)
+	settings := kit.NewSettings(kit.SettingsConfig[string]{
+		Items: items, Label: func(item string) string { return item },
+		Value: func(string) string { return "" },
+	})
 	items[0] = "changed"
 	if got := settings.Items(); !reflect.DeepEqual(got, []string{"one", "two"}) {
 		t.Fatalf("Items = %v, want the controller-owned input", got)

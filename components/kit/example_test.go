@@ -103,10 +103,11 @@ func ExampleForm() {
 		modelField,
 	)
 	keys := headless.DefaultFormKeys()
-	view := kit.NewForm(kit.Dark(), kit.ASCII(), form)
-	view.Title = "New session"
-	view.Keys = keys
-	view.Hints = []keymap.Action{headless.Submit}
+	form.Keys = keys
+	view := kit.NewForm(kit.FormConfig{
+		Theme: kit.Dark(), Glyphs: kit.ASCII(), Controller: form, Title: "New session",
+		Hints: []keymap.Action{headless.Submit},
+	})
 	showWidget(22, view.Measure(22), view)
 
 	// Output:
@@ -136,13 +137,12 @@ func ExampleProgress() {
 	// |fetching █████▎░░░░░░░░  38%|
 }
 
-func ExampleNewControlledTabs() {
+func ExampleNewTabs_controlled() {
 	selected := 1
-	tabs := kit.NewControlledTabs(
-		kit.Theme{}, kit.ASCII(), headless.Bind(&selected),
-		headless.Tab{Title: "one"},
-		headless.Tab{Title: "two"},
-	)
+	tabs := kit.NewTabs(kit.TabsConfig{
+		Glyphs: kit.ASCII(), Selection: headless.Bind(&selected),
+		Items: []headless.Tab{{Title: "one"}, {Title: "two"}},
+	})
 	fmt.Println(tabs.Controller().Selected())
 	tabs.Controller().Select(0)
 	fmt.Println(selected)
@@ -152,11 +152,12 @@ func ExampleNewControlledTabs() {
 	// 0
 }
 
-func ExampleNewControlledSlider() {
+func ExampleNewSlider_controlled() {
 	value := 2
-	slider := kit.NewControlledSlider(
-		kit.Theme{}, kit.ASCII(), headless.Bind(&value), "workers", 1, 8,
-	)
+	slider := kit.NewSlider(kit.SliderConfig{
+		Glyphs: kit.ASCII(), Value: headless.Bind(&value),
+		Minimum: 1, Maximum: 8, Label: "workers",
+	})
 	slider.Controller().Move(2)
 	fmt.Println(value)
 
@@ -169,12 +170,12 @@ func ExampleNewControlledSlider() {
 	// 8
 }
 
-func ExampleNewControlledDialog() {
+func ExampleNewDialog_controlled() {
 	var open bool
-	dialog := kit.NewControlledDialog(
-		&headless.Stack{}, headless.Bind(&open), kit.Theme{}, kit.ASCII(),
-		"Confirm", headless.Static{Of: kit.Label{Text: "Continue?"}},
-	)
+	dialog := kit.NewDialog(kit.DialogConfig{
+		Stack: &headless.Stack{}, Open: headless.Bind(&open), Glyphs: kit.ASCII(),
+		Title: "Confirm", Body: headless.Static{Of: kit.Label{Text: "Continue?"}},
+	})
 	dialog.Show()
 	fmt.Println(open)
 

@@ -27,7 +27,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -188,12 +187,6 @@ func (s *Session) Transcript() *Transcript { return s.transcript }
 
 // Write sends bytes to the program as though they were typed.
 func (s *Session) Write(p []byte) (int, error) { return s.primary.Write(p) }
-
-// Type sends text to the program as though it were typed.
-func (s *Session) Type(text string) error {
-	_, err := io.WriteString(s.primary, text)
-	return err
-}
 
 // Resize changes the terminal's size and tells the program, the way a terminal
 // emulator would: the winsize first, then the signal.

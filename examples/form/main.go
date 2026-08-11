@@ -115,14 +115,13 @@ func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	form.GaveUp = runtime.Quit
 	form.Focus(true)
 
-	view := kit.NewForm(
-		kit.Suited(runtime.Environment().Ground()),
-		kit.GlyphsFor(runtime.Environment().Locale()),
-		form,
-	)
-	view.Title = "New session"
-	view.Keys = keys
-	view.Hints = []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel}
+	view := kit.NewForm(kit.FormConfig{
+		Theme:      kit.Suited(runtime.Environment().Ground()),
+		Glyphs:     kit.GlyphsFor(runtime.Environment().Locale()),
+		Controller: form,
+		Title:      "New session",
+		Hints:      []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel},
+	})
 	return headless.NewRoot(&screen{view: view})
 }
 
