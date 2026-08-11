@@ -35,49 +35,48 @@ type drawPurityCase struct {
 
 func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	cases := headlessDrawPurityCases()
-	dynamic := make(map[string]bool, len(cases))
+	covered := make(map[string]bool, len(cases))
 	for _, tc := range cases {
-		if dynamic[tc.name] {
+		if covered[tc.name] {
 			t.Fatalf("Draw receiver %s has two purity cases", tc.name)
 		}
-		dynamic[tc.name] = true
+		covered[tc.name] = true
 	}
-	// These value drawers are immutable adapters or derived presentation values.
-	// Listing them beside the dynamic cases makes a new Draw implementation fail
-	// until its ownership class and, when stateful, its semantic projection are named.
-	passive := map[string]bool{
-		"Static":           true,
-		"TranscriptLayout": true,
-	}
-	for name := range passive {
-		if dynamic[name] {
-			t.Fatalf("Draw receiver %s is classified as both stateful and passive", name)
-		}
-	}
-	assertDrawersClassified(t, dynamic, passive)
+	assertDrawersCovered(t, covered)
 
 	for _, tc := range cases {
 		t.Run(strings.TrimPrefix(tc.name, "*"), func(t *testing.T) {
-			before := tc.state()
+			var before any
+			if tc.state != nil {
+				before = tc.state()
+			}
 			if tc.measure != nil {
 				first := tc.measure(tc.width)
-				if after := tc.state(); !reflect.DeepEqual(after, before) {
-					t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				if tc.state != nil {
+					if after := tc.state(); !reflect.DeepEqual(after, before) {
+						t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+					}
 				}
 				if second := tc.measure(tc.width); second != first {
 					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
 				}
-				if after := tc.state(); !reflect.DeepEqual(after, before) {
-					t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				if tc.state != nil {
+					if after := tc.state(); !reflect.DeepEqual(after, before) {
+						t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+					}
 				}
 			}
 			first := captureDraw(t, tc.width, tc.height, tc.draw)
-			if after := tc.state(); !reflect.DeepEqual(after, before) {
-				t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+			if tc.state != nil {
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
 			}
 			second := captureDraw(t, tc.width, tc.height, tc.draw)
-			if after := tc.state(); !reflect.DeepEqual(after, before) {
-				t.Fatalf("second Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+			if tc.state != nil {
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("second Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
 			}
 			if !reflect.DeepEqual(second, first) {
 				t.Fatalf("two Draw calls from the same state produced different frames")
@@ -181,7 +180,7 @@ func captureDraw(t *testing.T, width, height int, draw func(grid.View)) captured
 	return capturedFrame{bytes: output.String(), cursor: screen.Cursor()}
 }
 
-func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
+func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -213,23 +212,18 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 	}
 	sort.Strings(found)
 	for _, name := range found {
-		if !dynamic[name] && !passive[name] {
-			t.Errorf("Draw entry-point receiver %s has no purity classification", name)
+		if !covered[name] {
+			t.Errorf("Draw entry-point receiver %s has no executable purity case", name)
 		}
 	}
 	for _, name := range measured {
-		if !dynamic[name] && !passive[name] {
-			t.Errorf("Measure receiver %s has no purity classification", name)
+		if !covered[name] {
+			t.Errorf("Measure receiver %s has no executable purity case", name)
 		}
 	}
-	for name := range dynamic {
+	for name := range covered {
 		if !slices.Contains(found, name) {
 			t.Errorf("purity case %s has no production Draw entry point", name)
-		}
-	}
-	for name := range passive {
-		if !slices.Contains(found, name) {
-			t.Errorf("passive classification %s has no production Draw entry point", name)
 		}
 	}
 }
@@ -254,6 +248,15 @@ type purityWidget struct {
 	height  int
 	focused bool
 }
+
+type purityBlock struct {
+	text   string
+	height int
+}
+
+func (b purityBlock) Draw(view grid.View) { view.Text(0, 0, b.text, grid.Style{}) }
+
+func (b purityBlock) Measure(int) int { return max(b.height, 1) }
 
 func (w *purityWidget) Draw(frame Frame) {
 	frame.Text(0, 0, w.text, grid.Style{})
@@ -314,6 +317,21 @@ func widgetPurityCase(name string, widget Widget, state func() any) drawPurityCa
 func headlessDrawPurityCases() []drawPurityCase {
 	var cases []drawPurityCase
 
+	static := Static{Of: purityBlock{text: "static", height: 1}}
+	cases = append(cases, drawPurityCase{
+		name: "Static", width: 24, height: 2,
+		draw: func(view grid.View) { static.Draw(Frame{View: view}) }, measure: static.Measure,
+	})
+
+	transcriptBlock := purityBlock{text: "transcript", height: 1}
+	transcriptLayout := TranscriptLayout{state: transcriptState{
+		blocks: []placed{{block: transcriptBlock, height: 1}}, width: 24, rows: 1,
+	}}
+	cases = append(cases, drawPurityCase{
+		name: "TranscriptLayout", width: 24, height: 2,
+		draw: func(view grid.View) { transcriptLayout.Draw(view, 0) },
+	})
+
 	contentModal := &purityModal{&purityWidget{text: "content", height: 2}}
 	contentDialog := NewDialog(DialogConfig{Stack: &Stack{}, Title: "content", Content: contentModal})
 	contentDialog.Show()
@@ -338,7 +356,11 @@ func headlessDrawPurityCases() []drawPurityCase {
 	cases = append(cases, widgetPurityCase("*Tabs", tabs, func() any { return tabs.Semantics() }))
 
 	textValue := "seed"
-	textField := &Text{Label: "name", Value: Bind(&textValue)}
+	textChecks := 0
+	textField := &Text{
+		Label: "name", Value: Bind(&textValue),
+		Check: func(string) error { textChecks++; return nil },
+	}
 	textField.ensure()
 	textField.Focus(true)
 	textField.editor.MoveLeft()
@@ -347,12 +369,15 @@ func headlessDrawPurityCases() []drawPurityCase {
 			editor editorMeaning
 			value  string
 			err    error
-		}{meaningOfEditor(&textField.editor), textValue, textField.Error()}
+			checks int
+		}{meaningOfEditor(&textField.editor), textValue, textField.Error(), textChecks}
 	}))
 
 	selectedValue := "two"
+	selectChecks := 0
 	selectField := &Select[string]{
 		Label: "choice", Value: Bind(&selectedValue),
+		Check: func(string) error { selectChecks++; return nil },
 	}
 	selectField.SetOptions(Options("one", "two", "three"))
 	selectField.ensure()
@@ -364,12 +389,15 @@ func headlessDrawPurityCases() []drawPurityCase {
 			ok     bool
 			value  string
 			index  int
-		}{chosen, ok, selectedValue, selectField.list.Selected()}
+			checks int
+		}{chosen, ok, selectedValue, selectField.list.Selected(), selectChecks}
 	}))
 
 	takenValue := []string{"two"}
+	multiChecks := 0
 	multiField := &MultiSelect[string]{
 		Label: "many", Value: Bind(&takenValue),
+		Check: func([]string) error { multiChecks++; return nil },
 	}
 	multiField.SetOptions(Options("one", "two", "three"))
 	multiField.ensure()
@@ -377,23 +405,33 @@ func headlessDrawPurityCases() []drawPurityCase {
 	multiField.list.Select(2)
 	cases = append(cases, widgetPurityCase("*MultiSelect", multiField, func() any {
 		return struct {
-			taken []string
-			index int
-		}{multiField.Taken(), multiField.list.Selected()}
+			taken  []string
+			index  int
+			checks int
+		}{multiField.Taken(), multiField.list.Selected(), multiChecks}
 	}))
 
 	answer := true
-	confirm := &Confirm{Label: "continue", Value: Bind(&answer)}
+	confirmChecks := 0
+	confirm := &Confirm{
+		Label: "continue", Value: Bind(&answer),
+		Check: func(bool) error { confirmChecks++; return nil },
+	}
 	confirm.ensure()
 	confirm.Focus(true)
 	cases = append(cases, widgetPurityCase("*Confirm", confirm, func() any {
 		return struct {
 			answer, value bool
 			err           error
-		}{confirm.Answer(), answer, confirm.Error()}
+			checks        int
+		}{confirm.Answer(), answer, confirm.Error(), confirmChecks}
 	}))
 
-	completion := &Completion{MaxRows: 2}
+	accepts := 0
+	completion := &Completion{
+		MaxRows: 2,
+		Accept:  func(Candidate, Token) { accepts++ },
+	}
 	completion.Offer(Token{Start: 1, End: 3, Query: "tw"}, []Candidate{{Text: "two"}, {Text: "twelve"}})
 	completion.Do(SelectNext)
 	cases = append(cases, widgetPurityCase("*Completion", completion, func() any {
@@ -405,7 +443,8 @@ func headlessDrawPurityCases() []drawPurityCase {
 			token     Token
 			tokenOK   bool
 			open      bool
-		}{current, currentOK, token, tokenOK, completion.Open()}
+			accepts   int
+		}{current, currentOK, token, tokenOK, completion.Open(), accepts}
 	}))
 
 	list := &List[string]{

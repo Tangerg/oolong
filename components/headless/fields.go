@@ -227,7 +227,8 @@ type Select[T any] struct {
 	// the choice already made. Nil matches a bound string or Stringer value against
 	// the label, and matches old and new options by label when they are replaced. A
 	// different value type whose initial bound value must identify an option supplies
-	// Same; Go cannot safely compare an arbitrary T on the field's behalf.
+	// Same; Go cannot safely compare an arbitrary T on the field's behalf. Same may run
+	// during drawing and must not mutate either value or unrelated state.
 	Same func(a, b T) bool
 	// Check says what is wrong with the choice, or nil.
 	Check func(v T) error
@@ -401,7 +402,8 @@ type MultiSelect[T any] struct {
 	options []Option[T]
 	// Value is where the choices go, in the order the options are listed.
 	Value Accessor[[]T]
-	// Same says whether two values are the same one — see [Select.Same].
+	// Same says whether two values are the same one — see [Select.Same]. It is a pure
+	// projection callback and may run during drawing.
 	Same func(a, b T) bool
 	// Check says what is wrong with the choices, or nil.
 	Check func(v []T) error
@@ -725,18 +727,18 @@ func (c *Confirm) drawField(v Frame, look Look) {
 	if !c.seeded && c.Value != nil {
 		answer = c.Value.Value()
 	}
-	c.split.Stage(v, 0)
 	row := c.frame(v, c.Label, look)
 	w, h := row.Size()
 	if w <= 0 || h <= 0 {
+		c.split.Stage(v, 0)
 		return
 	}
-	x := 0
+	x, split := 0, 0
 	for _, yes := range []bool{true, false} {
 		if !yes {
 			// Where one answer ends and the other begins, which is the whole of what a
 			// press needs to know.
-			c.split.Stage(v, x)
+			split = x
 		}
 		style := look.Text
 		if yes == answer {
@@ -748,6 +750,7 @@ func (c *Confirm) drawField(v Frame, look Look) {
 		x = layout.Sum(x, row.Text(x, 0, c.word(yes), style))
 		x = layout.Sum(x, row.Text(x, 0, "  ", look.Text))
 	}
+	c.split.Stage(v, split)
 }
 
 // Handle answers the field, by key or by pressing one of the two answers.

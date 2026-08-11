@@ -76,7 +76,6 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 
 // Draw stacks the query over the matches, with a count where there is room.
 func (p *picker) Draw(v headless.Frame) {
-	p.areas.Stage(v, pickerAreas{})
 	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
 		{Size: layout.Fixed(1)},
 		{Size: layout.Flex(1)},

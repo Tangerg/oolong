@@ -861,7 +861,7 @@ func linkedCells(v grid.View, y, width int) []string {
 func TestParagraphMakesURLsClickable(t *testing.T) {
 	s := grid.NewSurface(30, 3)
 	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.Draw(s.View())
 
 	got := linkedCells(s.View(), 0, 30)
@@ -899,7 +899,7 @@ func TestParagraphKeepsAWrappedURLWhole(t *testing.T) {
 	const url = "https://example.com/a/long/path"
 	s := grid.NewSurface(12, 6)
 	p := kit.NewParagraph(url, grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.Draw(s.View())
 
 	v, rows := s.View(), 0
@@ -926,7 +926,7 @@ func TestParagraphKeepsAWrappedURLWhole(t *testing.T) {
 func TestParagraphAnswersAClick(t *testing.T) {
 	s := grid.NewSurface(30, 3)
 	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.Draw(s.View())
 
 	if got, ok := p.LinkAt(8, 0, 30); !ok || got.Target != "https://a.test" {
@@ -945,7 +945,7 @@ func TestParagraphHitTestingReadsCurrentTextWithoutDrawHistory(t *testing.T) {
 	// the pure layout query immediately and does not require a clearing draw.
 	s := grid.NewSurface(30, 3)
 	p := kit.NewParagraph("go to https://a.test now", grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.Draw(s.View())
 	if _, ok := p.LinkAt(8, 0, 30); !ok {
 		t.Fatal("no link was recorded to begin with")
@@ -963,7 +963,7 @@ func TestParagraphHitTestingReadsCurrentTextWithoutDrawHistory(t *testing.T) {
 func TestParagraphDoesNotLinkATruncatedRow(t *testing.T) {
 	s := grid.NewSurface(20, 2)
 	p := kit.NewParagraph("first line here\nhttps://a.test is on the second row", grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.MaxRows = 2
 	p.Draw(s.View())
 
@@ -1053,8 +1053,16 @@ func TestTheComposerShowsASelection(t *testing.T) {
 func TestParagraphMakesAPathClickable(t *testing.T) {
 	s := grid.NewSurface(40, 3)
 	p := kit.NewParagraph("edited src/main.go:42 for you", grid.Style{})
-	p.Links = true
-	p.Exists = func(path string) bool { return path == "src/main.go" }
+	lookups := 0
+	p.SetLinks(kit.LinkConfig{
+		Enabled: true,
+		Exists: func(path string) bool {
+			lookups++
+			return path == "src/main.go"
+		},
+	})
+	detected := lookups
+	p.Measure(40)
 	p.Draw(s.View())
 
 	destination, ok := p.LinkAt(len("edited "), 0, 40)
@@ -1063,6 +1071,9 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 	}
 	if destination.Target != "src/main.go" || destination.Line != 42 {
 		t.Errorf("a click found %+v, want the path at line 42", destination)
+	}
+	if lookups != detected {
+		t.Fatalf("Measure, Draw or LinkAt performed %d new filesystem lookups", lookups-detected)
 	}
 	// A relative path gets no OSC 8: the terminal knows the directory and offers to
 	// open it in the editor the user actually uses.
@@ -1077,7 +1088,7 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 func TestParagraphEscapesAbsoluteFileHyperlinks(t *testing.T) {
 	s := grid.NewSurface(50, 1)
 	p := kit.NewParagraph(`open "/Applications/Demo App.app"`, grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.Draw(s.View())
 
 	want := "file:///Applications/Demo%20App.app"
@@ -1099,7 +1110,7 @@ func TestParagraphEscapesAbsoluteFileHyperlinks(t *testing.T) {
 func TestParagraphStillHyperlinksAURL(t *testing.T) {
 	s := grid.NewSurface(40, 3)
 	p := kit.NewParagraph("see https://a.test now", grid.Style{})
-	p.Links = true
+	p.SetLinks(kit.LinkConfig{Enabled: true})
 	p.Draw(s.View())
 
 	if c := cellAt(s.View(), len("see "), 0); c.Link != "https://a.test" {

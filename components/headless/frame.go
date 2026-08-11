@@ -19,6 +19,7 @@ import (
 type Frame struct {
 	grid.View
 	transaction *transaction
+	generation  uint64
 }
 
 type frameStamp struct {
@@ -27,15 +28,15 @@ type frameStamp struct {
 }
 
 func (f Frame) stamp() frameStamp {
-	if f.transaction == nil {
+	if !f.active() {
 		return frameStamp{}
 	}
-	return frameStamp{transaction: f.transaction, generation: f.transaction.generation}
+	return frameStamp{transaction: f.transaction, generation: f.generation}
 }
 
 // Sub returns a child frame over r, whose coordinates begin at zero.
 func (f Frame) Sub(r image.Rectangle) Frame {
-	return Frame{View: f.View.Sub(r), transaction: f.transaction}
+	return Frame{View: f.View.Sub(r), transaction: f.transaction, generation: f.generation}
 }
 
 // Subs returns child frames over rects, preserving their order.
@@ -61,6 +62,11 @@ func (f Frame) Subs(rects []image.Rectangle) []Frame {
 // immutable by its producers and consumers. A reference deliberately used as a live
 // identity or behavior, such as a Widget, keeps that reference's normal semantics.
 //
+// One Snapshot may be staged once in a root frame. Sharing it between siblings is an
+// ownership error and panics instead of making the sibling drawn last win. Refine a
+// staged rich-model value through the value returned by its Stage operation rather
+// than staging the same owner again.
+//
 // The zero value contains the zero T and is ready to stage.
 type Snapshot[T any] struct {
 	current T
@@ -78,22 +84,14 @@ func (s *Snapshot[T]) Value() T {
 	return s.current
 }
 
-// Stage prepares value for publication with frame's complete root draw. See
-// [Snapshot] for the ownership rule when value contains references.
+// Stage prepares value for publication with frame's complete root draw. It must be
+// called at most once for this Snapshot in one frame. See [Snapshot] for the ownership
+// rule when value contains references.
 func (s *Snapshot[T]) Stage(frame Frame, value T) {
 	if s == nil {
 		return
 	}
-	if frame.transaction == nil || !frame.transaction.active {
-		panic("headless: presentation state staged outside Root.Draw")
-	}
-	if s.staged != frame.transaction {
-		if s.staged != nil {
-			panic("headless: presentation state staged by two roots")
-		}
-		s.staged = frame.transaction
-		frame.transaction.states = append(frame.transaction.states, s)
-	}
+	frame.enlist(s, &s.staged)
 	s.pending = value
 }
 
@@ -125,6 +123,35 @@ type transaction struct {
 	states     []stagedState
 	active     bool
 	generation uint64
+}
+
+func (f Frame) active() bool {
+	return f.transaction != nil && f.transaction.active && f.generation == f.transaction.generation
+}
+
+// enlist gives one piece of presentation state its sole position in this root frame.
+// One registration per frame is what makes sibling order irrelevant: two components
+// cannot race to make the last pending value win. A state object still owned by a
+// different active root is the same ownership error under another spelling.
+func (f Frame) enlist(state stagedState, staged **transaction) {
+	if !f.active() {
+		panic("headless: presentation state staged outside its Root.Draw frame")
+	}
+	if *staged != nil {
+		if *staged == f.transaction {
+			panic("headless: presentation state staged twice in one frame")
+		}
+		panic("headless: presentation state staged by two roots")
+	}
+	*staged = f.transaction
+	f.transaction.states = append(f.transaction.states, state)
+}
+
+// owns reports whether a short-lived layout still belongs to the active frame that
+// created it. It is used for refinements of one staged value, never to register a
+// second producer.
+func (f Frame) owns(staged *transaction) bool {
+	return f.active() && staged == f.transaction
 }
 
 func (t *transaction) begin() {
@@ -187,7 +214,7 @@ func (r *Root) Draw(view grid.View) {
 			r.tx.abort()
 		}
 	}()
-	frame := Frame{View: view, transaction: &r.tx}
+	frame := Frame{View: view, transaction: &r.tx, generation: r.tx.generation}
 	r.presentation.Stage(frame, r.Of)
 	if r.Of != nil {
 		r.Of.Draw(frame)

@@ -195,9 +195,9 @@ func (e *Editor) DrawWith(frame Frame, look Look) {
 // its geometry into the durable editor it owns.
 func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPresentation]) {
 	v := frame.View
-	presented.Stage(frame, editorPresentation{})
 	total, height := v.Size()
 	if total <= 0 || height <= 0 {
+		presented.Stage(frame, editorPresentation{})
 		return
 	}
 	e.ensure()
@@ -206,35 +206,35 @@ func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPres
 	gutterView := v.Sub(grid.Rect(0, 0, gutter, height))
 	v = v.Sub(grid.Rect(gutter, 0, width, height))
 	if width <= 0 {
+		presented.Stage(frame, editorPresentation{})
 		return
 	}
 	if e.oneLine() {
-		e.drawOneLine(frame, v, gutterView, look, presented, width, gutter)
+		presentation := e.drawOneLine(v, gutterView, look, width, gutter)
+		presented.Stage(frame, presentation)
 		return
 	}
-	e.drawMultiline(frame, v, gutterView, look, presented, width, height, gutter)
+	presentation := e.drawMultiline(frame, v, gutterView, look, width, height, gutter)
+	presented.Stage(frame, presentation)
 }
 
 func (e *Editor) drawOneLine(
-	frame Frame,
 	view, gutterView grid.View,
 	look Look,
-	presented *Snapshot[editorPresentation],
 	width, gutter int,
-) {
+) editorPresentation {
 	left := e.lineOffset(width)
-	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left})
 	e.drawGutter(gutterView, e.rows(width))
 	e.drawLine(view, left, look)
+	return editorPresentation{width: width, gutter: gutter, left: left}
 }
 
 func (e *Editor) drawMultiline(
 	frame Frame,
 	view, gutterView grid.View,
 	look Look,
-	presented *Snapshot[editorPresentation],
 	width, height, gutter int,
-) {
+) editorPresentation {
 	rows := e.rows(width)
 	cursorRow, cursorColumn := e.rowAt(width)
 
@@ -244,16 +244,14 @@ func (e *Editor) drawMultiline(
 	scroll := e.scroll.Stage(frame, len(rows), height)
 	scroll.Reveal(cursorRow)
 	first := scroll.Offset()
-	presented.Stage(frame, editorPresentation{
-		width: width, gutter: gutter, first: first,
-	})
+	presentation := editorPresentation{width: width, gutter: gutter, first: first}
 	last := min(layout.Sum(first, height), len(rows))
 	e.drawGutter(gutterView, rows[first:last])
 
 	if e.Empty() && e.Placeholder != "" {
 		view.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
 		e.placeCursor(view, 0, 0)
-		return
+		return presentation
 	}
 
 	for y := range height {
@@ -280,6 +278,7 @@ func (e *Editor) drawMultiline(
 	if y := cursorRow - first; y >= 0 && y < height {
 		e.placeCursor(view, cursorColumn, y)
 	}
+	return presentation
 }
 
 func (e *Editor) gutterWidth() int {

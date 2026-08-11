@@ -164,16 +164,7 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 	if t.staged == nil && width == t.width {
 		return t.layout()
 	}
-	if frame.transaction == nil || !frame.transaction.active {
-		panic("headless: transcript layout staged outside Root.Draw")
-	}
-	if t.staged != frame.transaction {
-		if t.staged != nil {
-			panic("headless: transcript layout staged by two roots")
-		}
-		t.staged = frame.transaction
-		frame.transaction.states = append(frame.transaction.states, t)
-	}
+	frame.enlist(t, &t.staged)
 
 	blocks := make([]placed, len(t.blocks))
 	top := t.start

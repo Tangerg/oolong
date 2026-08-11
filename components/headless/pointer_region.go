@@ -67,15 +67,6 @@ func (r *PointerRegion) Stage(frame Frame, area image.Rectangle, child Widget) {
 	r.presented.Stage(frame, pointerRegionFrame{area: area, child: target, frame: frame.stamp()})
 }
 
-// Clear publishes the absence of a child, which is what a wrapper with nothing to draw
-// stages so that a stale region cannot answer for a frame that does not contain it.
-func (r *PointerRegion) Clear(frame Frame) {
-	if r == nil {
-		return
-	}
-	r.presented.Stage(frame, pointerRegionFrame{})
-}
-
 // Handle offers a pointer event to the child, in the child's own coordinates.
 //
 // Handled reports whether the child consumed it. Delivered reports whether it reached

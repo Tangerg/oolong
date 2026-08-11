@@ -34,45 +34,48 @@ type drawPurityCase struct {
 
 func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	cases := markdownDrawPurityCases()
-	dynamic := make(map[string]bool, len(cases))
+	covered := make(map[string]bool, len(cases))
 	for _, tc := range cases {
-		if dynamic[tc.name] {
+		if covered[tc.name] {
 			t.Fatalf("Draw receiver %s has two purity cases", tc.name)
 		}
-		dynamic[tc.name] = true
+		covered[tc.name] = true
 	}
-	// Nothing here draws without owning state. Listing the classification anyway
-	// makes a future immutable drawer say so rather than be forgotten.
-	passive := map[string]bool{"Block": true}
-	for name := range passive {
-		if dynamic[name] {
-			t.Fatalf("Draw receiver %s is classified as both stateful and passive", name)
-		}
-	}
-	assertDrawersClassified(t, dynamic, passive)
+	assertDrawersCovered(t, covered)
 
 	for _, tc := range cases {
 		t.Run(strings.TrimPrefix(tc.name, "*"), func(t *testing.T) {
-			before := tc.state()
+			var before any
+			if tc.state != nil {
+				before = tc.state()
+			}
 			if tc.measure != nil {
 				first := tc.measure(tc.width)
-				if after := tc.state(); !reflect.DeepEqual(after, before) {
-					t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				if tc.state != nil {
+					if after := tc.state(); !reflect.DeepEqual(after, before) {
+						t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+					}
 				}
 				if second := tc.measure(tc.width); second != first {
 					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
 				}
-				if after := tc.state(); !reflect.DeepEqual(after, before) {
-					t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				if tc.state != nil {
+					if after := tc.state(); !reflect.DeepEqual(after, before) {
+						t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+					}
 				}
 			}
 			first := captureDraw(t, tc.width, tc.height, tc.draw)
-			if after := tc.state(); !reflect.DeepEqual(after, before) {
-				t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+			if tc.state != nil {
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
 			}
 			second := captureDraw(t, tc.width, tc.height, tc.draw)
-			if after := tc.state(); !reflect.DeepEqual(after, before) {
-				t.Fatalf("second Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+			if tc.state != nil {
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("second Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
 			}
 			if !reflect.DeepEqual(second, first) {
 				t.Fatalf("two Draw calls from the same state produced different frames")
@@ -97,7 +100,7 @@ func captureDraw(t *testing.T, width, height int, draw func(grid.View)) captured
 	return capturedFrame{bytes: output.String(), cursor: screen.Cursor()}
 }
 
-func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
+func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -129,23 +132,18 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 	}
 	sort.Strings(found)
 	for _, name := range found {
-		if !dynamic[name] && !passive[name] {
-			t.Errorf("Draw entry-point receiver %s has no purity classification", name)
+		if !covered[name] {
+			t.Errorf("Draw entry-point receiver %s has no executable purity case", name)
 		}
 	}
 	for _, name := range measured {
-		if !dynamic[name] && !passive[name] {
-			t.Errorf("Measure receiver %s has no purity classification", name)
+		if !covered[name] {
+			t.Errorf("Measure receiver %s has no executable purity case", name)
 		}
 	}
-	for name := range dynamic {
+	for name := range covered {
 		if !slices.Contains(found, name) {
 			t.Errorf("purity case %s has no production Draw entry point", name)
-		}
-	}
-	for name := range passive {
-		if !slices.Contains(found, name) {
-			t.Errorf("passive classification %s has no production Draw entry point", name)
 		}
 	}
 }
@@ -219,6 +217,11 @@ func meaningOfDoc(doc *Doc) docMeaning {
 func plain(s string) text.Line { return text.Of(s, grid.Style{}) }
 
 func markdownDrawPurityCases() []drawPurityCase {
+	block := Block{lines: []text.Line{plain("passive block")}}
+	cases := []drawPurityCase{{
+		name: "Block", width: 14, height: 2, draw: block.Draw, measure: block.Measure,
+	}}
+
 	// One document carrying every shape Draw computes from a width rather than reads
 	// from a block: wrapping, a marker, a rail, an indent, and a rule stretched to
 	// the room it is drawn in. The view is shorter than the wrapped rows, so drawing
@@ -248,9 +251,9 @@ func markdownDrawPurityCases() []drawPurityCase {
 		},
 		{lines: []text.Line{plain("after the rule")}, blankBefore: true},
 	})
-	return []drawPurityCase{{
+	return append(cases, drawPurityCase{
 		name: "*Doc", width: 14, height: 6,
 		draw: doc.Draw, measure: doc.Measure,
 		state: func() any { return meaningOfDoc(doc) },
-	}}
+	})
 }

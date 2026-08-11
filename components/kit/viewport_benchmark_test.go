@@ -38,7 +38,7 @@ func BenchmarkParagraphWrappedLinksDraw(b *testing.B) {
 		strings.Repeat("a long linked paragraph ", 400)+"https://example.test/reference",
 		grid.Style{},
 	)
-	paragraph.Links = true
+	paragraph.SetLinks(kit.LinkConfig{Enabled: true})
 	height := paragraph.Measure(40)
 	surface := grid.NewSurface(40, visible)
 	view := surface.View().Sub(grid.Rect(0, -height/2, 40, height))

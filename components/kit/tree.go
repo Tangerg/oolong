@@ -22,7 +22,8 @@ const treeIndent = 2
 // opens, and the row under the cursor drawn as a selection.
 type Tree[T any] struct {
 	// Text is what a row says. A tree given none draws nothing but its marks, which
-	// is what an item that cannot be read as text comes to.
+	// is what an item that cannot be read as text comes to. Text runs during drawing
+	// and must be an observationally pure projection.
 	Text func(item T) string
 	// Theme is the look, and Glyphs are the marks beside a branch. A tree given no
 	// glyphs draws no marks, and its rows are then told apart by their indent alone.
@@ -42,7 +43,8 @@ type TreeConfig[T any] struct {
 	Glyphs Glyphs
 	// Controller owns hierarchy, selection and interaction and is required.
 	Controller *headless.Tree[T]
-	// Text projects an item into its row label. Nil produces an empty label.
+	// Text projects an item into its row label. Nil produces an empty label. It runs
+	// during drawing and must be observationally pure.
 	Text func(item T) string
 	// Indent is the columns per depth. Zero means two.
 	Indent int

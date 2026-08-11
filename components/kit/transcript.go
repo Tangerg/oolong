@@ -60,9 +60,9 @@ type Transcript struct {
 
 // Draw fills v with as much of the transcript as fits.
 func (t *Transcript) Draw(v headless.Frame) {
-	t.presentation.Stage(v, transcriptPresentation{content: t.Content, selection: t.Selection})
 	w, h := v.Size()
 	if t.Content == nil || w <= 0 || h <= 0 {
+		t.presentation.Stage(v, transcriptPresentation{content: t.Content, selection: t.Selection})
 		return
 	}
 	content := t.Content.Stage(v, w)
@@ -81,11 +81,14 @@ func (t *Transcript) Draw(v headless.Frame) {
 // drawing and pointer translation cannot acquire separate geometry paths.
 func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Frame) transcriptWindow {
 	w, h := frame.Size()
-	// Laid out twice, because the two answers depend on each other: how much room the
+	// One frame-local layout is refined in two steps, because the two answers depend
+	// on each other: how much room the
 	// content has depends on the header, and which block is pinned depends on where
 	// the content is scrolled to. One pass settles it — the first says roughly where
 	// the window is, which is enough to know which header goes above it, and the
-	// second lays the scroll out against the room actually left.
+	// second resizes that same pending layout against the room actually left. Staging
+	// the Scroll twice would make the last sibling or call win, so ScrollLayout.Resize
+	// is the explicit refinement operation.
 	//
 	// Doing it once either way is worse. Laying out against the full height leaves the
 	// last rows of a transcript unreachable, which a session that follows its own
@@ -98,8 +101,9 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 	// know how tall the window turned out to be.
 	bodyRect := grid.Rect(0, 0, w, h)
 	from := content.StartRow()
+	var scroll headless.ScrollLayout
 	if t.Scroll != nil {
-		scroll := t.Scroll.Stage(frame, content.Height(), h)
+		scroll = t.Scroll.Stage(frame, content.Height(), h)
 		t.reveal(content, &scroll)
 		from = content.StartRow() + scroll.Offset()
 	}
@@ -120,7 +124,7 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 		return window
 	}
 	if t.Scroll != nil {
-		scroll := t.Scroll.Stage(frame, content.Height(), layout.Remaining(h, pinned.Rows))
+		scroll.Resize(layout.Remaining(h, pinned.Rows))
 		from = layout.Sum(content.StartRow(), scroll.Offset())
 	}
 	bodyRect = grid.Rect(0, pinned.Rows, w, layout.Remaining(h, pinned.Rows))

@@ -62,7 +62,8 @@ type Tree[T any] struct {
 	// settlement or retain open identities that no longer name a branch.
 	nodes []treeNode[T]
 	// Row draws one row. at is where it sits among the rows on screen and selected
-	// says whether it is the one under the cursor.
+	// says whether it is the one under the cursor. It runs during drawing and must be
+	// an observationally pure projection; state changes belong in event handlers.
 	Row func(v grid.View, at int, row Shown[T], selected bool)
 	// Keys say which keystrokes produce which of the actions the tree answers to —
 	// see [Tree.Do]. Nil reads through [DefaultTreeKeys].

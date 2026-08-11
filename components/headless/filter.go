@@ -34,7 +34,8 @@ type Filter[T any] struct {
 	text func(item T) string
 	// Row draws one of the items that matched. at is where it sits among the rows on
 	// screen, match says which characters of its text answered the pattern, and
-	// selected says whether it is the one under the cursor.
+	// selected says whether it is the one under the cursor. It runs during drawing
+	// and must be an observationally pure projection.
 	Row func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
 	Keys *keymap.Map
@@ -151,12 +152,12 @@ func (f *Filter[T]) Focus(has bool) { f.list.Focus(has) }
 // Focused reports whether this list has the keyboard.
 func (f *Filter[T]) Focused() bool { return f.list.Focused() }
 
-// Measure is one row per match.
-func (f *Filter[T]) Measure(int) int { return f.Matched() }
+// Measure is one row per match. Match state is rebuilt by semantic operations, so
+// measuring only observes the last complete projection.
+func (f *Filter[T]) Measure(int) int { return f.list.Len() }
 
 // Draw paints the matches that fit.
 func (f *Filter[T]) Draw(v Frame) {
-	f.match()
 	f.list.DrawRows(v, f.row)
 }
 

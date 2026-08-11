@@ -87,14 +87,16 @@ func (t *Tabs) Measure(across int) int {
 
 // Draw paints the strip, the rule under it, and the pane in what is left.
 func (t *Tabs) Draw(v headless.Frame) {
-	t.presentation.Stage(v, tabsPresentation{})
-	t.body.Clear(v)
 	controller := t.controller
 	if controller == nil {
+		t.presentation.Stage(v, tabsPresentation{})
+		t.body.Stage(v, image.Rectangle{}, nil)
 		return
 	}
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
+		t.presentation.Stage(v, tabsPresentation{})
+		t.body.Stage(v, image.Rectangle{}, nil)
 		return
 	}
 	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{

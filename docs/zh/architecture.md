@@ -141,6 +141,10 @@ finished live value -> publication
 
 这是 React 纯度规则中有用的那一半，翻译到保留式对象模型里。对刚构建出来的一帧做局部改动、以及不可见的缓存改动，是允许的；**渲染期间可观察的状态转移不允许**。
 
+被保留的函数值必须有明确阶段。**投影回调**可以在测量或绘制期间运行，并继承同一份可观察纯度契约。**语义回调**在拥有者重建有意义状态时运行，**事件回调**从输入处理中运行，**携带回调**则交还应用拥有者调用。库可以强制自己在哪个阶段调用回调，也可以拒绝其完整包内渲染调用图里的固有副作用；它无法检查下游投影回调的函数体。因此，公开回调文档与调用方的组件测试必须承担契约的最后一部分。
+
+一份根帧里的局部呈现状态只有一个生产者。`Snapshot`、`Scroll` 或 transcript 放置只能暂存一次；随后可以用一个更丰富的短生命周期布局值细化这同一份待定值。重复暂存同一个拥有者是编程错误，而不是后写者覆盖。这样，兄弟绘制顺序无法决定路由或滚动几何；`Frame` 上的代次也会阻止保存下来的旧帧在后续绘制期间重新变得有效。
+
 ### 4.3 副作用
 
 副作用只发生在明确的边界上：
@@ -450,8 +454,8 @@ import 该适配器的应用才承担它的外部依赖。
 | 集中的 primitive 保持集中 | `dupl` 拒绝在范围、坐标、writer、身份和 ANSI framing primitive 的唯一实现旁边出现第二份结构性拷贝。它按模块运行，因此跨模块拷贝仍超出其视野，需要人工审读 | 每次 CI，在单个模块内 |
 | 有界的活动生命期（3.2） | 一个确定性组件测试证明交付移除了强载荷引用与每块的放置记录；一个在全新进程里跑的压力测试比较 `N` 与 `2N` 的大量已交付流在 GC 之后的保留堆，拒绝与 `N` 成正比的增长 | 切片 1 及每一个 transcript 实现 |
 | 无损增量摄入 | burst、取消、关闭、部分尾部、生产者快于消费者等测试，证明顺序、批量、声明的上限以及不丢数据 | 切片 1 |
-| 可观察意义上纯粹的测量与绘制 | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go)、[`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go)、[`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go) 和 [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) 对每一个生产用的 `Measure` 与 `Draw*` 接收者做分类；每一个有状态的接收者从同样的有意义状态测量和绘制两次，保持其语义投影不变，返回相同的尺寸，并产出完全相同的终端字节、样式和光标状态 | 每一个实现了测量或绘制的包；未分类的接收者直接失败 |
-| 单帧路由几何（6.3） | 一个路由测试在新的根绘制暂存期间观察到旧快照，在根提交之后观察到完整的新快照；不存在可观察到的子节点几何混合体 | 切片 2 |
+| 可观察意义上纯粹的测量与绘制 | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go)、[`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go)、[`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go) 和 [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) 从源码推导每一个生产用的 `Measure` 与 `Draw*` 接收者，并逐一执行两次；有状态用例保持语义投影不变，全部用例都返回相同尺寸和帧，事件回调计数也属于被观察状态。[`internal/arch` 渲染副作用关卡](https://github.com/Tangerg/oolong/blob/main/internal/arch/render_effects_internals_test.go)从这些入口沿类型解析后的包内调用图追踪，拒绝 goroutine、I/O、时钟、随机性、日志、发布和非投影回调。[回调阶段关卡](https://github.com/Tangerg/oolong/blob/main/internal/arch/render_callbacks_internals_test.go)要求每一个被保留的函数值都必须有且只有一条不过期的投影、语义、事件或携带声明 | 每一个实现测量或绘制的包；未分类接收者、回调、固有副作用、未解析本地调用或阶段违规都会直接失败 |
+| 单帧路由几何与兄弟顺序无关性（6.3） | 路由测试在新的根绘制暂存期间观察到旧快照，提交后观察到完整的新快照。`Snapshot`、`Scroll` 和 transcript 放置每帧只登记一次；重复生产者会 panic，帧代次会拒绝保存下来的旧帧，中止会释放待定状态，而一个已暂存的充血布局值无需二次登记即可继续细化 | 切片 2，以及每一种新的暂存呈现拥有者 |
 | 受支持平台的尺寸变化投递 | 一个真实的 Unix PTY 改变几何后必须产生后续的 `Resize`；Windows 的轮询状态机用确定性时钟测试变化检测、错误恢复、去重和关闭；Windows 源码在 CI 中构建并测试 | 每次终端测试，以及每个受支持的 OS 源码集 |
 | 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
 | 失败与所有权结算 | [`program` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 覆盖输入原因、分配前的非法或过量宿主几何、部分输出、失败后不再写入、排空超时、能力缺席；[`term` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) 覆盖真实 PTY 拆除，[`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) 覆盖短写/部分写与有界关闭 | 切片 1 及每一个新宿主 |

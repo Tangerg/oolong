@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"image"
 	"slices"
 	"strings"
 
@@ -80,8 +81,8 @@ func (f *Form) Measure(across int) int {
 
 // Draw dresses the form and paints it.
 func (f *Form) Draw(v headless.Frame) {
-	f.body.Clear(v)
 	if f.controller == nil {
+		f.body.Stage(v, image.Rectangle{}, nil)
 		return
 	}
 	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{

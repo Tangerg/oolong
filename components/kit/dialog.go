@@ -214,8 +214,8 @@ func (d *DialogPanel) Backdrop(v grid.View) { d.Theme.Scrim.Over(v) }
 
 // Draw paints the frame and the body.
 func (d *DialogPanel) Draw(v headless.Frame) {
-	d.content.Clear(v)
 	if w, h := v.Size(); w <= 0 || h <= 0 {
+		d.content.Stage(v, image.Rectangle{}, nil)
 		return
 	}
 	box := Box{

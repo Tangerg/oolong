@@ -28,7 +28,9 @@ type Column struct {
 // reservation; a narrow table may still give the cell less room.
 type Cell struct {
 	Preferred int
-	Paint     func(view grid.View, base grid.Style)
+	// Paint runs during drawing and must only paint its view; it must not mutate
+	// application state, publish output, or start work.
+	Paint func(view grid.View, base grid.Style)
 }
 
 // NewCell builds a cell from its preferred width and painter.
@@ -85,7 +87,8 @@ type Table struct {
 	//
 	// A custom cell uses [NewCell]. Its painter receives the row's base style — a
 	// band or selection — because replacing the cells over a filled row without it
-	// would erase the band.
+	// would erase the band. Cell and Paint are projection callbacks: they may run
+	// repeatedly during measurement and drawing and must be observationally pure.
 	Cell func(row, column int) Cell
 	// Gap is the space between columns. Zero uses one column, which is the least
 	// that still reads as two columns rather than one.
@@ -100,11 +103,13 @@ type Table struct {
 	// a cursor answers exactly this, so wiring the two together is
 	// Sorted: rows.Sorted. And because the zero value of a column number is a column,
 	// which would mark the first one on every table nobody sorted.
+	// Sorted may run during drawing and must only observe ordering state.
 	Sorted func() (column int, descending, ok bool)
 	// Glyphs are the marks beside a sorted column's title. A table given none marks
 	// nothing, which is the rule the whole package keeps.
 	Glyphs Glyphs
-	// RowStyle styles a whole row, for banding or for a selection.
+	// RowStyle styles a whole row, for banding or for a selection. It is a pure
+	// projection callback and may run during drawing.
 	RowStyle func(row int) grid.Style
 }
 

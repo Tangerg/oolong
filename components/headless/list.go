@@ -30,6 +30,10 @@ type List[T any] struct {
 	// down the left, a mark for what has been chosen, a colour that alternates. Only
 	// the list knows it, and a caller finding it again by comparing items would be
 	// guessing whenever two of them were alike.
+	//
+	// Row runs during measurement or drawing. It must be an observationally pure
+	// projection: mutate list or application state from Handle or another owner-side
+	// operation, never from this callback.
 	Row func(v grid.View, at int, item T, selected bool)
 	// Keys say which keystrokes produce which of the actions the list answers to —
 	// see [List.Do]. Nil reads through [DefaultListKeys].

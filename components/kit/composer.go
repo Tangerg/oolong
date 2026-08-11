@@ -94,9 +94,9 @@ func (c *Composer) Measure(width int) int {
 
 // Draw paints the marker, the field and the hints.
 func (c *Composer) Draw(v headless.Frame) {
-	c.field.Clear(v)
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
+		c.field.Stage(v, grid.Rect(0, 0, 0, 0), nil)
 		return
 	}
 	hints := c.hintRows()

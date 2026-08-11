@@ -172,14 +172,13 @@ func (s *Scroll) Do(action keymap.Action) bool {
 // The returned layout is the one drawing should use. Its bounds and offset become
 // current only when the complete [Root] frame commits, so input during a nested draw
 // continues to see the previous frame. Reveal and RevealRange update this staged
-// layout rather than the committed scroll.
+// layout rather than the committed scroll. One Scroll may be staged once per frame;
+// use the returned ScrollLayout to refine that one pending value.
 func (s *Scroll) Stage(frame Frame, total, window int) ScrollLayout {
 	state := s.current
-	if s.staged == frame.transaction {
-		state = s.pendingLayout
-	}
 	state.layout(total, window)
-	s.stageState(frame, state)
+	frame.enlist(s, &s.staged)
+	s.pendingLayout = state
 	return ScrollLayout{scroll: s, frame: frame, state: state}
 }
 
@@ -210,19 +209,24 @@ func (l *ScrollLayout) RevealRange(first, last int) {
 		return
 	}
 	l.state.revealRange(first, last)
-	l.scroll.stageState(l.frame, l.state)
+	l.scroll.updateState(l.frame, l.state)
 }
 
-func (s *Scroll) stageState(frame Frame, state scrollState) {
-	if frame.transaction == nil || !frame.transaction.active {
-		panic("headless: scroll layout staged outside Root.Draw")
+// Resize changes how many rows this frame-local layout can show while retaining its
+// total and any Reveal adjustment already made. A transcript uses it after discovering
+// that a sticky header consumes part of the provisional window; creating a second
+// layout for the same Scroll would make sibling and call order decide which one wins.
+func (l *ScrollLayout) Resize(window int) {
+	if l == nil || l.scroll == nil {
+		return
 	}
-	if s.staged != frame.transaction {
-		if s.staged != nil {
-			panic("headless: scroll layout staged by two roots")
-		}
-		s.staged = frame.transaction
-		frame.transaction.states = append(frame.transaction.states, s)
+	l.state.layout(l.state.total, window)
+	l.scroll.updateState(l.frame, l.state)
+}
+
+func (s *Scroll) updateState(frame Frame, state scrollState) {
+	if !frame.owns(s.staged) {
+		panic("headless: scroll layout updated outside its owning frame")
 	}
 	s.pendingLayout = state
 }

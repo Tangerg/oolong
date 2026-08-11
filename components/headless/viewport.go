@@ -84,10 +84,10 @@ func (p *Viewport) Measure(across int) int {
 
 // Draw paints as much of the content as fits.
 func (p *Viewport) Draw(v Frame) {
-	p.presentation.Stage(v, viewportPresentation{})
 	w, h := v.Size()
 	content := p.content
 	if content == nil || w <= 0 || h <= 0 {
+		p.presentation.Stage(v, viewportPresentation{})
 		return
 	}
 	total := content.Measure(w)

@@ -106,6 +106,21 @@ SSH terminals freeze the result as `ColorHost`, and `program.Environment.Color`
 exposes the same resolved fact. A custom host that omits the capability safely draws
 without colour instead of accidentally consulting the server process environment.
 
+Rendering purity now has executable coverage for intrinsic effects as well as state.
+Architecture tests derive every production `Measure` and `Draw*` entry, follow its
+type-resolved package-local call graph, and reject goroutines, I/O, clocks, randomness,
+logging, publication, and callbacks assigned to a non-projection phase. Every retained
+callback has one exact, anti-stale phase declaration, while component suites execute
+every render receiver twice and keep event-callback counts in the observed state.
+Filter matching and paragraph path discovery now happen at semantic update boundaries,
+never lazily from `Measure` or `Draw`.
+
+Presentation state now has one producer in each root frame. Snapshots, scrolls, and
+transcript placement reject duplicate staging instead of letting sibling order choose
+the last pending value; rich frame-local layouts expose explicit refinement behavior,
+and frame generations prevent a saved frame from becoming valid during a later draw.
+`ScrollLayout.Resize` refines the one staged scroll layout used by sticky transcripts.
+
 ### Breaking API migration
 
 This is the complete source-breaking ledger relative to v0.10.0. CI derives it again
@@ -131,6 +146,12 @@ change cannot ship unless its exact API name appears in this section.
   are named alongside appearance and indentation.
 - `kit.Form.Keys` is removed. Set `kit.Form.Controller().Keys` (normally through the
   controller supplied to `kit.NewForm`) and the hint row reads that same map.
+- `headless.(*PointerRegion).Clear` is removed. Stage an empty rectangle and nil target
+  through `headless.(*PointerRegion).Stage`, the sole operation for replacing its
+  frame-local region.
+- `kit.Paragraph.Links` and `kit.Paragraph.Exists` are removed. Call
+  `kit.(*Paragraph).SetLinks` with `kit.LinkConfig`; detection then runs when link
+  configuration or text changes rather than during frame projection.
 - `headless.Columns` and `headless.Rows` are replaced by
   `headless.NewContainer`, whose axis makes the variant explicit.
 - `headless.NewEditor` is removed; the useful zero `headless.Editor` is the sole

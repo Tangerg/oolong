@@ -207,6 +207,80 @@ func TestRootAbortsPendingPresentationStateOnPanic(t *testing.T) {
 	}
 }
 
+type duplicateSnapshotFixture struct{ state Snapshot[int] }
+
+func (f *duplicateSnapshotFixture) Draw(frame Frame) {
+	f.state.Stage(frame, 1)
+	f.state.Stage(frame, 2)
+}
+
+func TestOnePresentationStateCanBeStagedOnlyOncePerFrame(t *testing.T) {
+	fixture := &duplicateSnapshotFixture{}
+	root := NewRoot(fixture)
+	defer func() {
+		if got := recover(); got != "headless: presentation state staged twice in one frame" {
+			t.Fatalf("duplicate stage panic = %v", got)
+		}
+		if fixture.state.Value() != 0 || fixture.state.pending != 0 || fixture.state.staged != nil {
+			t.Fatalf("duplicate stage survived abort: value=%d pending=%d staged=%p",
+				fixture.state.Value(), fixture.state.pending, fixture.state.staged)
+		}
+	}()
+	root.Draw(grid.NewSurface(1, 1).View())
+}
+
+type retainedFrameFixture struct {
+	old   Frame
+	reuse bool
+	state Snapshot[int]
+}
+
+func (f *retainedFrameFixture) Draw(frame Frame) {
+	if !f.reuse {
+		f.old = frame
+		return
+	}
+	f.state.Stage(f.old, 1)
+}
+
+func TestAFrameCannotBecomeValidAgainDuringALaterDraw(t *testing.T) {
+	fixture := &retainedFrameFixture{}
+	root := NewRoot(fixture)
+	view := grid.NewSurface(1, 1).View()
+	root.Draw(view)
+	fixture.reuse = true
+	defer func() {
+		if got := recover(); got != "headless: presentation state staged outside its Root.Draw frame" {
+			t.Fatalf("stale frame panic = %v", got)
+		}
+	}()
+	root.Draw(view)
+}
+
+type resizeScrollFixture struct {
+	scroll *Scroll
+	before int
+	after  int
+}
+
+func (f *resizeScrollFixture) Draw(frame Frame) {
+	layout := f.scroll.Stage(frame, 20, 10)
+	layout.Reveal(12)
+	f.before = layout.Offset()
+	layout.Resize(5)
+	f.after = layout.Offset()
+}
+
+func TestOneScrollLayoutCanBeRefinedWithinItsFrame(t *testing.T) {
+	var scroll Scroll
+	fixture := &resizeScrollFixture{scroll: &scroll}
+	NewRoot(fixture).Draw(grid.NewSurface(1, 10).View())
+	if fixture.before != 3 || fixture.after != 3 || scroll.Offset() != 3 {
+		t.Fatalf("offset before resize=%d after=%d committed=%d; want 3, 3, 3",
+			fixture.before, fixture.after, scroll.Offset())
+	}
+}
+
 type scrollFixture struct {
 	scroll     *Scroll
 	total      int

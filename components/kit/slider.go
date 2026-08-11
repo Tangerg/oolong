@@ -22,6 +22,7 @@ type Slider struct {
 	Glyphs Glyphs
 	// Format turns the integer value into its right-hand label. Nil uses strconv.Itoa;
 	// returning an empty string omits the value and leaves that room to the track.
+	// Format runs during drawing and must be an observationally pure projection.
 	Format func(int) string
 
 	controller *headless.Slider
@@ -46,7 +47,8 @@ type SliderConfig struct {
 	Label string
 	// Keys maps slider actions. Nil uses the headless defaults.
 	Keys *keymap.Map
-	// Format renders the value at the right. Nil uses strconv.Itoa.
+	// Format renders the value at the right. Nil uses strconv.Itoa. It runs during
+	// drawing and must be observationally pure.
 	Format func(int) string
 }
 

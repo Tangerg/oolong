@@ -98,7 +98,6 @@ func newPrompt(runtime *program.Runtime) *prompt {
 }
 
 func (p *prompt) Draw(frame headless.Frame) {
-	p.field.Clear(frame)
 	width, height := frame.Size()
 	composerRows := min(p.composer.Measure(width), height)
 	rects := (layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{

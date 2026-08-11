@@ -54,18 +54,9 @@ type Paragraph struct {
 	Indent int
 	// MaxRows caps the height. Zero means no cap; a cap replaces the last row it
 	// keeps with one ending in an ellipsis.
-	MaxRows int
-	// Links makes what the text points at clickable on terminals that support it and
-	// enables pure hit testing through [Paragraph.LinkAt].
-	//
-	// It is off by default. Text a program composed itself has nothing in it worth
-	// finding, and marking up a line nobody will click costs a scan of every line
-	// every time the width changes.
-	Links bool
-	// Exists says whether a path is a file, and is what lets the shapes that cannot be
-	// told from prose be found — see [link.Detect]. Nil leaves them out, which is
-	// right for text about somebody else's machine.
-	Exists func(path string) bool
+	MaxRows    int
+	linkConfig LinkConfig
+	links      []detectedLinks
 
 	// wrapped memoises the last wrap, which is asked for twice per frame — once to
 	// measure and once to draw — and is the most expensive thing this widget does.
@@ -73,6 +64,20 @@ type Paragraph struct {
 	atWidth int
 	atLimit int
 	fresh   bool
+}
+
+// LinkConfig says which destinations a [Paragraph] detects.
+//
+// Enabled finds URLs and file paths. Exists additionally decides whether ambiguous
+// bare names such as "main.go" are files; nil leaves those names as prose. The
+// callback runs only from [Paragraph.SetLinks] and [Paragraph.SetText], never from
+// Measure, Draw or [Paragraph.LinkAt], so it may consult the filesystem without
+// turning frame projection into I/O.
+//
+// The zero value disables detection.
+type LinkConfig struct {
+	Enabled bool
+	Exists  func(path string) bool
 }
 
 var _ headless.Block = (*Paragraph)(nil)
@@ -100,11 +105,21 @@ func NewParagraph(s string, style grid.Style) *Paragraph {
 // caller may reuse or change its input after this returns.
 func (p *Paragraph) SetText(lines []text.Line) {
 	p.lines = text.CloneLines(lines)
+	p.detectLinks()
 	// A memo is an immutable snapshot. Dropping it rather than clearing and reusing
 	// its storage keeps a Paragraph copied after layout from modifying the original
 	// paragraph's still-valid rows.
 	p.wrapped = nil
 	p.fresh = false
+}
+
+// SetLinks replaces link-detection policy and detects the current logical lines.
+// Detection belongs to this explicit semantic operation rather than layout: changing
+// terminal width can then reflow and draw the paragraph without repeating a caller's
+// filesystem work or any other effect hidden behind Exists.
+func (p *Paragraph) SetLinks(config LinkConfig) {
+	p.linkConfig = config
+	p.detectLinks()
 }
 
 // Lines returns a deep copy of the paragraph's logical lines.
@@ -130,16 +145,10 @@ func (p *Paragraph) Draw(v grid.View) {
 	visible := v.Visible()
 	first := min(max(visible.Min.Y, 0), len(rows))
 	last := min(max(visible.Max.Y, first), len(rows))
-	detectedLine := -1
-	var detected detectedLinks
 	for y := first; y < last; y++ {
 		r := rows[y]
 		r.Draw(v, p.Indent, y)
-		if p.Links {
-			if r.line != detectedLine {
-				detected = p.detectLinks(r.line)
-				detectedLine = r.line
-			}
+		if detected, ok := p.detectedLine(r.line); ok {
 			p.stamp(v, y, detected.row(r))
 		}
 	}
@@ -153,12 +162,24 @@ type detectedLinks struct {
 	destinations []link.Link
 }
 
-func (p *Paragraph) detectLinks(line int) detectedLinks {
-	if line < 0 || line >= len(p.lines) {
-		return detectedLinks{}
+func (p *Paragraph) detectLinks() {
+	if !p.linkConfig.Enabled || len(p.lines) == 0 {
+		p.links = nil
+		return
 	}
-	whole := p.lines[line].String()
-	return detectedLinks{text: whole, destinations: link.Detect(whole, p.Exists)}
+	links := make([]detectedLinks, len(p.lines))
+	for i, line := range p.lines {
+		whole := line.String()
+		links[i] = detectedLinks{text: whole, destinations: link.Detect(whole, p.linkConfig.Exists)}
+	}
+	p.links = links
+}
+
+func (p *Paragraph) detectedLine(line int) (detectedLinks, bool) {
+	if line < 0 || line >= len(p.links) {
+		return detectedLinks{}, false
+	}
+	return p.links[line], true
 }
 
 // rowLinks projects a logical line's destinations onto one wrapped byte range.
@@ -271,14 +292,18 @@ func (p *Paragraph) projectRows(rows []row, first, last int) []text.Row {
 // answer is a pure projection of the same wrapped rows Draw uses, so measuring or
 // drawing cannot publish hidden hit-test state.
 func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
-	if !p.Links || x < p.Indent || y < 0 {
+	if x < p.Indent || y < 0 {
 		return link.Link{}, false
 	}
 	rows := p.rows(width)
 	if y >= len(rows) {
 		return link.Link{}, false
 	}
-	row := p.detectLinks(rows[y].line).row(rows[y])
+	detected, ok := p.detectedLine(rows[y].line)
+	if !ok {
+		return link.Link{}, false
+	}
+	row := detected.row(rows[y])
 	for _, destination := range row.destinations {
 		start, end, ok := row.rangeOf(destination)
 		if !ok {

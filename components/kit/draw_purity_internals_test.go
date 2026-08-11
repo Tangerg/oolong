@@ -31,59 +31,48 @@ type drawPurityCase struct {
 
 func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	cases := kitDrawPurityCases()
-	dynamic := make(map[string]bool, len(cases))
+	covered := make(map[string]bool, len(cases))
 	for _, tc := range cases {
-		if dynamic[tc.name] {
+		if covered[tc.name] {
 			t.Fatalf("Draw receiver %s has two purity cases", tc.name)
 		}
-		dynamic[tc.name] = true
+		covered[tc.name] = true
 	}
-	// These are immutable appearance values. The explicit list is also a
-	// completeness guard: every new Draw receiver must be declared passive here or
-	// be given a semantic-state contract above.
-	passive := map[string]bool{
-		"Box":         true,
-		"Cell":        true,
-		"Help":        true,
-		"Image":       true,
-		"Label":       true,
-		"LineNumbers": true,
-		"*Message":    true,
-		"Overlay":     true,
-		"Palette":     true,
-		"Progress":    true,
-		"Scrollbar":   true,
-		"Table":       true,
-	}
-	for name := range passive {
-		if dynamic[name] {
-			t.Fatalf("Draw receiver %s is classified as both stateful and passive", name)
-		}
-	}
-	assertDrawersClassified(t, dynamic, passive)
+	assertDrawersCovered(t, covered)
 
 	for _, tc := range cases {
 		t.Run(strings.TrimPrefix(tc.name, "*"), func(t *testing.T) {
-			before := tc.state()
+			var before any
+			if tc.state != nil {
+				before = tc.state()
+			}
 			if tc.measure != nil {
 				first := tc.measure(tc.width)
-				if after := tc.state(); !reflect.DeepEqual(after, before) {
-					t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				if tc.state != nil {
+					if after := tc.state(); !reflect.DeepEqual(after, before) {
+						t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+					}
 				}
 				if second := tc.measure(tc.width); second != first {
 					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
 				}
-				if after := tc.state(); !reflect.DeepEqual(after, before) {
-					t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+				if tc.state != nil {
+					if after := tc.state(); !reflect.DeepEqual(after, before) {
+						t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+					}
 				}
 			}
 			first := captureDraw(t, tc.width, tc.height, tc.draw)
-			if after := tc.state(); !reflect.DeepEqual(after, before) {
-				t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+			if tc.state != nil {
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("first Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
 			}
 			second := captureDraw(t, tc.width, tc.height, tc.draw)
-			if after := tc.state(); !reflect.DeepEqual(after, before) {
-				t.Fatalf("second Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+			if tc.state != nil {
+				if after := tc.state(); !reflect.DeepEqual(after, before) {
+					t.Fatalf("second Draw changed semantic state\n before: %#v\n  after: %#v", before, after)
+				}
 			}
 			if !reflect.DeepEqual(second, first) {
 				t.Fatal("two Draw calls from the same state produced different frames")
@@ -108,7 +97,7 @@ func captureDraw(t *testing.T, width, height int, draw func(grid.View)) captured
 	return capturedFrame{bytes: output.String(), cursor: screen.Cursor()}
 }
 
-func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
+func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -140,23 +129,18 @@ func assertDrawersClassified(t *testing.T, dynamic, passive map[string]bool) {
 	}
 	sort.Strings(found)
 	for _, name := range found {
-		if !dynamic[name] && !passive[name] {
-			t.Errorf("Draw entry-point receiver %s has no purity classification", name)
+		if !covered[name] {
+			t.Errorf("Draw entry-point receiver %s has no executable purity case", name)
 		}
 	}
 	for _, name := range measured {
-		if !dynamic[name] && !passive[name] {
-			t.Errorf("Measure receiver %s has no purity classification", name)
+		if !covered[name] {
+			t.Errorf("Measure receiver %s has no executable purity case", name)
 		}
 	}
-	for name := range dynamic {
+	for name := range covered {
 		if !slices.Contains(found, name) {
 			t.Errorf("purity case %s has no production Draw entry point", name)
-		}
-	}
-	for name := range passive {
-		if !slices.Contains(found, name) {
-			t.Errorf("passive classification %s has no production Draw entry point", name)
 		}
 	}
 }
@@ -226,6 +210,74 @@ func widgetPurityCase(name string, widget headless.Widget, state func() any) dra
 func kitDrawPurityCases() []drawPurityCase {
 	var cases []drawPurityCase
 
+	box := Box{Glyphs: ASCII(), Padding: layout.Uniform(1), Title: "box"}
+	cases = append(cases, drawPurityCase{
+		name: "Box", width: 16, height: 4,
+		draw: func(view grid.View) { box.Draw(view) },
+	})
+
+	cell := LabelCell(Label{Text: "cell"})
+	cases = append(cases, drawPurityCase{
+		name: "Cell", width: 8, height: 1,
+		draw: func(view grid.View) { cell.Draw(view, grid.Style{}) }, measure: cell.Measure,
+	})
+
+	help := Help{Show: []keymap.Action{"accept"}}
+	cases = append(cases, drawPurityCase{
+		name: "Help", width: 16, height: 1, draw: help.Draw, measure: help.Measure,
+	})
+
+	imageView := Image{Alt: "unavailable"}
+	cases = append(cases, drawPurityCase{
+		name: "Image", width: 16, height: 1, draw: imageView.Draw, measure: imageView.Measure,
+	})
+
+	label := Label{Text: "label", Ellipsis: "…"}
+	cases = append(cases, drawPurityCase{
+		name: "Label", width: 8, height: 1, draw: label.Draw, measure: label.Measure,
+	})
+
+	numbers := LineNumbers{Separator: "│"}
+	rows := []text.Row{{Text: "one", Line: 1}, {Text: "two", Line: 2}}
+	cases = append(cases, drawPurityCase{
+		name: "LineNumbers", width: 4, height: 2,
+		draw: func(view grid.View) { numbers.Draw(view, rows) },
+	})
+
+	message := &Message{Speaker: "assistant", Body: "a passive message"}
+	cases = append(cases, drawPurityCase{
+		name: "*Message", width: 16, height: 4, draw: message.Draw, measure: message.Measure,
+	})
+
+	overlay := Overlay{Placement: layout.Placement{Width: 8, Height: 2}}
+	cases = append(cases, drawPurityCase{
+		name: "Overlay", width: 16, height: 4,
+		draw: func(view grid.View) { overlay.Draw(view) },
+	})
+
+	palette := Palette{Empty: "nothing found"}
+	cases = append(cases, drawPurityCase{
+		name: "Palette", width: 16, height: 2, draw: palette.Draw, measure: palette.Measure,
+	})
+
+	progress := Progress{Glyphs: ASCII(), Done: 1, Total: 3, Label: "work", Percent: true}
+	cases = append(cases, drawPurityCase{
+		name: "Progress", width: 20, height: 1, draw: progress.Draw, measure: progress.Measure,
+	})
+
+	scrollbar := Scrollbar{Total: 20, Window: 5, Offset: 4, Glyphs: ASCII()}
+	cases = append(cases, drawPurityCase{
+		name: "Scrollbar", width: 1, height: 5, draw: scrollbar.Draw,
+	})
+
+	table := Table{
+		Columns: []Column{{Title: "name"}}, Rows: 1, Header: true,
+		Cell: func(int, int) Cell { return LabelCell(Label{Text: "value"}) },
+	}
+	cases = append(cases, drawPurityCase{
+		name: "Table", width: 12, height: 2, draw: table.Draw, measure: table.Measure,
+	})
+
 	diffView := NewDiff(Dark(), Unicode(), []diff.Hunk{{
 		Lines: diff.Script{{Kind: diff.Added, Text: "one two three"}},
 	}})
@@ -293,17 +345,20 @@ func kitDrawPurityCases() []drawPurityCase {
 	}))
 
 	settingValues := []string{"dark", "on"}
+	settingChanges := 0
 	settings := NewSettings(SettingsConfig[int]{
-		Items: []int{0, 1},
-		Label: func(index int) string { return []string{"theme", "wrap"}[index] },
-		Value: func(index int) string { return settingValues[index] },
+		Items:  []int{0, 1},
+		Label:  func(index int) string { return []string{"theme", "wrap"}[index] },
+		Value:  func(index int) string { return settingValues[index] },
+		Change: func(int, int, keymap.Action) bool { settingChanges++; return true },
 	})
 	settings.Controller().Select(1)
 	cases = append(cases, widgetPurityCase("*Settings", settings, func() any {
 		return struct {
 			selected int
 			values   []string
-		}{settings.Selected(), slices.Clone(settingValues)}
+			changes  int
+		}{settings.Selected(), slices.Clone(settingValues), settingChanges}
 	}))
 
 	content := &headless.Transcript{}
@@ -356,7 +411,7 @@ func kitDrawPurityCases() []drawPurityCase {
 				lines         any
 				indent, limit int
 				links         bool
-			}{paragraph.Lines(), paragraph.Indent, paragraph.MaxRows, paragraph.Links}
+			}{paragraph.Lines(), paragraph.Indent, paragraph.MaxRows, paragraph.linkConfig.Enabled}
 		},
 	})
 
@@ -374,17 +429,28 @@ func kitDrawPurityCases() []drawPurityCase {
 	})
 
 	formValue := "answer"
-	formField := &headless.Text{Label: "field", Value: headless.Bind(&formValue)}
+	fieldChecks, formChecks, formDone, formGaveUp := 0, 0, 0, 0
+	formField := &headless.Text{
+		Label: "field", Value: headless.Bind(&formValue),
+		Check: func(string) error { fieldChecks++; return nil },
+	}
 	formController := headless.NewForm(formField)
+	formController.Check = func() error { formChecks++; return nil }
+	formController.Done = func() { formDone++ }
+	formController.GaveUp = func() { formGaveUp++ }
 	formController.Focus(true)
 	form := NewForm(FormConfig{Controller: formController, Title: "form"})
 	cases = append(cases, widgetPurityCase("*Form", form, func() any {
 		return struct {
-			focused headless.Field
-			value   string
-			editor  editorMeaning
-			err     error
-		}{formController.Focused(), formValue, meaningOfEditor(formField.Editor()), formController.Error()}
+			focused   headless.Field
+			value     string
+			editor    editorMeaning
+			err       error
+			callbacks [4]int
+		}{
+			formController.Focused(), formValue, meaningOfEditor(formField.Editor()), formController.Error(),
+			[4]int{fieldChecks, formChecks, formDone, formGaveUp},
+		}
 	}))
 
 	status := &Status{Glyphs: ASCII(), Doing: "working", Elapsed: "2s"}

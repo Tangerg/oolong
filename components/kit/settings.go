@@ -17,7 +17,8 @@ import (
 type Settings[T any] struct {
 	Theme Theme
 	// Label and Value are the two columns shown for an item. Nil returns an empty
-	// column.
+	// column. Both run during measurement and drawing and must be observationally
+	// pure; Change is the event-side mutation boundary.
 	Label func(T) string
 	Value func(T) string
 	// ValueWidth caps the fitted value column. Zero leaves it uncapped.
@@ -37,6 +38,7 @@ type SettingsConfig[T any] struct {
 	// Items are copied into the constructed controller.
 	Items []T
 	// Label and Value project the two visible columns. Nil produces an empty column.
+	// They run during measurement and drawing and must be observationally pure.
 	Label func(T) string
 	Value func(T) string
 	// Change applies a value action. Nil makes values read-only.

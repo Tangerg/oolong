@@ -216,6 +216,22 @@ This is the useful part of React's purity rule translated into a retained object
 model. Local mutation of a newly built frame and invisible cache mutation are allowed;
 observable state transitions during rendering are not.
 
+Retained function values have an explicit phase. A **projection callback** may run
+during measurement or drawing and inherits the same observational-purity contract.
+A **semantic callback** runs while an owner rebuilds meaningful state, an **event
+callback** runs from input handling, and a **carried callback** is returned for an
+application owner to invoke. The library can enforce which phase it calls and can
+reject intrinsic effects in its complete package-local render call graph; it cannot
+inspect a downstream projection callback's body. Public callback documentation and
+the caller's component tests therefore carry that final part of the contract.
+
+Frame-local presentation state has one producer per root frame. A `Snapshot`,
+`Scroll`, or transcript placement stages once; a richer short-lived layout value may
+then refine that one pending value. Staging the same owner twice is a programmer error,
+not last-writer-wins behavior. This makes sibling order unable to choose routing or
+scroll geometry, while the generation on `Frame` prevents a saved frame from becoming
+valid again during a later draw.
+
 ### 4.3 Effects
 
 Effects occur at explicit boundaries:
@@ -706,8 +722,8 @@ invariant it makes enforceable.
 | a centralized primitive stays centralized | `dupl` rejects a second structural copy of the extent, coordinate, writer, identity and ANSI framing primitives beside the first. It runs per module, so a copy in another module is outside its reach and stays a reading | every CI run, within a module |
 | bounded live lifetime, section 3.2 | a deterministic component test proves that commit removes strong payload references and per-block placement records; a fresh-process stress test compares `N` and `2N` large committed streams after GC and rejects retained-heap growth proportional to `N` | required by slice 1 and every transcript implementation |
 | incremental lossless ingress | burst, cancellation, close, partial-tail, and producer-faster-than-consumer tests prove ordering, batching, the declared bound, and the absence of drops | required by slice 1 |
-| observationally pure measurement and drawing | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go), [`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go), [`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go), and [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) classify every production `Measure` and `Draw*` receiver; every stateful receiver measures and draws twice from the same meaningful state, preserves its semantic projection, returns the same extent, and produces identical terminal bytes, styles, and cursor state | every package that implements measurement or drawing; an unclassified receiver fails |
-| one-frame routing geometry, section 6.3 | a routing test observes the old snapshot while a new root draw is staged, then the complete new snapshot after the root commit; no mixture of child geometries is observable | required by slice 2 |
+| observationally pure measurement and drawing | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go), [`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go), [`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go), and [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) derive every production `Measure` and `Draw*` receiver from source and execute each one twice; stateful cases preserve their semantic projection, all cases return the same extent and frame, and event callbacks are counted as part of state. The [`internal/arch` render-effects gate](https://github.com/Tangerg/oolong/blob/main/internal/arch/render_effects_internals_test.go) follows the type-resolved package-local call graph from those entries and rejects goroutines, I/O, clocks, randomness, logging, publication, and non-projection callbacks. The [callback-phase gate](https://github.com/Tangerg/oolong/blob/main/internal/arch/render_callbacks_internals_test.go) requires every retained function value to have exactly one non-stale projection, semantic, event, or carried declaration | every package that implements measurement or drawing; an unclassified receiver, callback, intrinsic effect, unresolved local call, or phase violation fails |
+| one-frame routing geometry and sibling-order independence, section 6.3 | routing tests observe the old snapshot while a new root draw is staged, then the complete new snapshot after commit. `Snapshot`, `Scroll`, and transcript placement enlist exactly once per frame; duplicate producers panic, frame generations reject stale saved frames, abort releases pending state, and a staged rich layout is refined without a second registration | required by slice 2 and every new staged presentation owner |
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
 | failure and ownership settlement | [`program` fault tests](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
