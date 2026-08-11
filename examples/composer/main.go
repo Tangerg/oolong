@@ -33,7 +33,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newPrompt(runtime))
 		},
-		Terminal: term.Options{Probe: true, Mouse: true},
+		Terminal: term.Config{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "composer:", err)
 		os.Exit(1)
@@ -101,11 +101,11 @@ func (p *prompt) Draw(frame headless.Frame) {
 	p.field.Clear(frame)
 	width, height := frame.Size()
 	composerRows := min(p.composer.Measure(width), height)
-	rects := layout.Down.Rects(frame.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(2)},
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(composerRows)},
-	)
+	rects := (layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(2)},
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(composerRows)},
+	})
 	rows := frame.Subs(rects)
 	kit.Label{Text: "Composable prompt", Style: p.theme.Heading}.Draw(rows[0].View)
 	kit.Label{Text: p.status, Style: p.theme.Subtle, Ellipsis: p.glyphs.Ellipsis}.

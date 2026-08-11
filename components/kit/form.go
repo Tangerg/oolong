@@ -56,11 +56,11 @@ func (f *Form) Draw(v headless.Frame) {
 	if f.controller == nil {
 		return
 	}
-	rects := layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(f.titleRows())},
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(f.hintRows())},
-	)
+	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(f.titleRows())},
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(f.hintRows())},
+	})
 	bands := v.Subs(rects)
 	f.body.Stage(v, rects[1], f.controller)
 	if f.titleRows() > 0 {

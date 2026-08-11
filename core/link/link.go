@@ -16,7 +16,7 @@
 // answer is a byte range and a destination; what happens next is the caller's.
 //
 // Nor is the filesystem. This package reads text and nothing else, which is why the
-// one rule that needs the filesystem takes it as an argument — see [DetectIn].
+// one rule that needs the filesystem takes it as an argument — see [Detect].
 package link
 
 import (
@@ -114,7 +114,7 @@ var urlPattern = regexp.MustCompile(`(?:https?://|\bwww\.)[A-Za-z0-9\-._~:/?#\[\
 //     the extension keeps slashed prose out: "TCP/IP" and "and/or" have none.
 //
 // A bare name with neither — "main.go" — is deliberately absent here, and is found
-// only when a caller can confirm it. See [DetectIn].
+// only when a caller can confirm it. See [Detect].
 var pathPattern = regexp.MustCompile(
 	`'[^']*\.[A-Za-z0-9]+'` +
 		`|"[^"]*\.[A-Za-z0-9]+"` +
@@ -136,24 +136,17 @@ var linePattern = regexp.MustCompile(`^:([0-9]{1,9})(?::([0-9]{1,9}))?`)
 // belongs to the sentence around a link rather than to the link.
 const trailing = ".,;:!?)]}"
 
-// Detect finds every link in s, in the order they appear, as byte ranges into s.
-//
-// Only what can be recognised from the text alone. A bare filename cannot be — see
-// [DetectIn], which is this with the one question this package cannot answer handed in.
-func Detect(s string) Links { return DetectIn(s, nil) }
-
-// DetectIn finds every link in s, asking exists about the shapes that cannot be told
-// from prose by looking at them.
+// Detect finds every link in s, in the order it appears, as a byte range into s.
 //
 // exists is given a path exactly as it was written, relative and unexpanded, and
-// answers whether there is a file there. A nil exists asks nothing and leaves the
-// ambiguous shapes out, which is [Detect] and which is the right answer for text whose
-// paths belong to somebody else's machine.
+// answers whether there is a file there. Nil asks nothing and leaves ambiguous bare
+// filenames out, which is the right answer for text whose paths belong to somebody
+// else's machine. URLs and self-evident rooted or qualified paths need no lookup.
 //
 // It is an argument rather than a call into the operating system because this package
 // reads text. A library that quietly stat'd every word of a model's output would be
 // doing something no reader of its documentation had reason to expect.
-func DetectIn(s string, exists func(path string) bool) Links {
+func Detect(s string, exists func(path string) bool) Links {
 	found := detectURLs(s)
 	found = append(found, detectPaths(s, exists)...)
 	if exists != nil {

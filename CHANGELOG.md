@@ -18,6 +18,54 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+Breaking. `kit.Tree` now has pointer receivers throughout, matching its constructor
+and every other controller-backed kit component instead of allowing copied
+controller values to masquerade as independent widgets.
+
+Controlled tabs now normalize an out-of-range bound selection through the binding
+itself before settling focus, so caller state, active content, and keyboard routing
+cannot disagree. PTY session and transcript waits preserve `context.Cause`, allowing
+test harnesses to distinguish an ordinary cancellation from the failure that caused
+their surrounding operation to stop.
+
+LaTeX symbol resolution retains only successful terminal mappings. Arbitrary invalid
+macro names therefore cannot grow process-global state, while measured repeated
+formula rendering keeps the bounded cache's lower latency and allocation cost.
+Wheel gesture evolution and transcript viewport geometry now live with their state
+objects, and inline and screen painters share one numeric CSI encoder.
+
+Repository gates now reject unreachable private implementation and public operations
+without executable contract coverage across Linux, macOS, and Windows with a pinned
+`deadcode` analyzer. Repository usage is explicitly not an API-retention criterion:
+downstream capabilities survive unless an independent design review finds their
+responsibility or abstraction unsound. White-box tests must use the explicit
+`_internals_test.go` suffix; ordinary tests remain caller-side, making private
+coupling and public evidence mechanically reviewable.
+
+Public APIs now enforce one semantic operation per entry point. Terminal and PTY
+construction use explicit `term.Config` and `ptytest.Config` values; the former
+`Options` types are removed. `ptytest.Start` accepts its configuration directly and
+transcript waiting is context-only; `headless`
+constructs both row and column containers through `NewContainer`; the useful zero
+`Editor` replaces its redundant constructor; `kit.Transcript.Commit` takes one
+explicit limit instead of splitting bounded and unbounded publication across two
+methods; and `Box.InnerRect` is the sole geometry-only interior query. Highlighting
+now uses one reusable concrete `highlight.Renderer` for standalone and Markdown
+composition, LaTeX composition calls the same rich `latex.Render` entry directly,
+and image-protocol detection has one explicit `graphics.Detect` function. Link
+detection now takes its optional filesystem predicate on the sole `link.Detect`
+entry; wheel report conversion uses one timestamp-aware `Advance.Rows` method; and
+ANSI parameters use indexed `Params.At` without a first-element alias. Layout now
+has one `Flow` entry for rectangle placement, size allocation, and wanted extent;
+the no-gap case is an explicit zero-gap flow rather than parallel `Axis` and
+package-level convenience APIs.
+
+Automatic colour is now a fact of the driven host rather than the process running
+the framework. `term.DetectDepth` takes one explicit environment lookup, local and
+SSH terminals freeze the result as `ColorHost`, and `program.Environment.Color`
+exposes the same resolved fact. A custom host that omits the capability safely draws
+without colour instead of accidentally consulting the server process environment.
+
 ## [0.10.0] — 2026-08-10
 
 Optional content is a fork rather than a chain, and the claims this repository makes

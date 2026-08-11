@@ -112,6 +112,23 @@ func TestAKeystrokeNamesTheActionItIsBoundTo(t *testing.T) {
 	}
 }
 
+func TestBindingsAreACallerOwnedSnapshotOfTheWholeMap(t *testing.T) {
+	m := &keymap.Map{}
+	original := input.Ctrl.Rune('w')
+	m.Bind("delete-word-back", original)
+	m.Bind("submit", input.Chord{Code: input.Enter})
+
+	bindings := m.Bindings()
+	if len(bindings) != 2 || bindings[0].String() != "ctrl+w delete-word-back" {
+		t.Fatalf("bindings = %+v, want the complete map in binding order", bindings)
+	}
+	bindings[0].Keys[0] = input.Chord{Code: input.Esc}
+	bindings[0].Action = "changed"
+	if action, ok := m.Action(original); !ok || action != "delete-word-back" {
+		t.Fatalf("changing the snapshot changed the map: action=%q ok=%v", action, ok)
+	}
+}
+
 func TestASequenceIsFinishedByItsLastChord(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})

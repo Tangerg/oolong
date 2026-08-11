@@ -15,16 +15,8 @@
 //
 // # Integration
 //
-// [Of] adapts the same renderer to the two-string function shape used by semantic
-// content registries. The first argument is reserved for format information and the
-// second is the expression source:
-//
-//	render := latex.Of(latex.Look{Text: style, Glyphs: latex.Unicode()})
-//	lines := render("", source)
-//
-// [Of] returns lines and does not expose the [Formula] value. Call [Render] inside
-// a custom adapter to observe [Formula.Err], [Formula.Source] or [Formula.Width]
-// before returning [Formula.Lines]:
+// A semantic content registry can call the same [Render] entry through a closure.
+// The registry's first argument is format information and the second is source:
 //
 //	render := func(_ string, source string) []text.Line {
 //		formula := latex.Render(source, look)
@@ -202,19 +194,6 @@ func Render(source string, look Look) *Formula {
 		f.width = max(f.width, line.Width())
 	}
 	return f
-}
-
-// Of returns the semantic-renderer function shape. Every call goes through [Render];
-// this is an adapter to a consumer-owned function type, not a second rendering API.
-//
-// Use Of when styled lines are the complete result. The function intentionally omits
-// the resulting [Formula] and its error, source, width and drawing methods. Call
-// [Render] in a custom adapter when those values matter, then return [Formula.Lines].
-func Of(look Look) func(info, source string) []text.Line {
-	look = look.normalized()
-	return func(_ string, source string) []text.Line {
-		return Render(source, look).Lines()
-	}
 }
 
 // Source returns the expression body supplied to [Render].

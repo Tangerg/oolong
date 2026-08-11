@@ -25,7 +25,7 @@ import (
 func main() {
 	if err := program.Run(context.Background(), program.Config{
 		Root:     func(runtime *program.Runtime) program.Component { return newMarkdown(runtime) },
-		Terminal: term.Options{Probe: true},
+		Terminal: term.Config{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "markdown:", err)
 		os.Exit(1)
@@ -47,11 +47,11 @@ func newMarkdown(runtime *program.Runtime) *markdownScreen {
 }
 
 func (s *markdownScreen) Draw(view grid.View) {
-	rows := view.Subs(layout.Down.Rects(view.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-	))
+	rows := view.Subs((layout.Flow{Axis: layout.Down}).Rects(view.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(1)},
+	}))
 	kit.Label{Text: "Markdown", Style: s.theme.Heading}.Draw(rows[0])
 	s.doc.Draw(rows[1])
 	kit.Label{Text: "q quits · Render → Blocks → Doc", Style: s.theme.Subtle}.Draw(rows[2])

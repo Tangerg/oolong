@@ -24,7 +24,7 @@ func TestCompatibleKeyboardRequestsOnlyPortableFeatures(t *testing.T) {
 			t.Errorf("compatible keyboard unexpectedly requests feature %d", feature)
 		}
 	}
-	if got := (term.Options{Keyboard: features}).Modes(nil).Enter(); !strings.Contains(got, "\x1b[>5u") {
+	if got := (term.Config{Keyboard: features}).Modes(nil).Enter(); !strings.Contains(got, "\x1b[>5u") {
 		t.Fatalf("compatible keyboard mode = %q, want flags 5", got)
 	}
 }
@@ -71,7 +71,7 @@ func TestKeyboardModesUseTheDrivenTerminalEnvironment(t *testing.T) {
 				value, ok := tt.env[name]
 				return value, ok
 			}
-			modes := (term.Options{Keyboard: input.KeyboardAll | 1<<20}).Modes(lookup)
+			modes := (term.Config{Keyboard: input.KeyboardAll | 1<<20}).Modes(lookup)
 			enter, leave := modes.Enter(), modes.Leave()
 			if tt.want == 0 {
 				if strings.Contains(enter, "\x1b[>") || strings.Contains(leave, "\x1b[<u") {

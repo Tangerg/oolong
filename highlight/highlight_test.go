@@ -10,7 +10,7 @@ import (
 )
 
 func TestCodeComesBackAsStyledLines(t *testing.T) {
-	lines := highlight.Lines("go", "func main() {\n\tprintln(\"hi\")\n}", "github-dark")
+	lines := highlight.New("github-dark").Lines("go", "func main() {\n\tprintln(\"hi\")\n}")
 	if len(lines) != 3 {
 		t.Fatalf("%d lines, want one per line of source", len(lines))
 	}
@@ -46,24 +46,35 @@ func TestCodeNobodyCouldNameIsStillCode(t *testing.T) {
 	// An unknown language is guessed at, and a guess that fails is plain text. The
 	// whole cost of going wrong here is code that is not coloured.
 	for _, language := range []string{"", "not-a-language", "COBOL"} {
-		lines := highlight.Lines(language, "one\ntwo", highlight.Style(language))
+		lines := highlight.New(highlight.Style(language)).Lines(language, "one\ntwo")
 		if len(lines) != 2 || lines[0].String() != "one" || lines[1].String() != "two" {
 			t.Fatalf("%q came out as %v", language, lines)
 		}
 	}
 }
 
+func TestZeroRendererUsesTheFallbackScheme(t *testing.T) {
+	var renderer highlight.Renderer
+	lines := renderer.Lines("go", "package main")
+	if len(lines) != 1 || lines[0].String() != "package main" {
+		t.Fatalf("zero renderer produced %v", lines)
+	}
+	if _, ok := renderer.Background(); !ok {
+		t.Fatal("the fallback scheme did not expose its background")
+	}
+}
+
 func TestASchemeSaysWhatItExpectsToSitOn(t *testing.T) {
 	// A whole picture: light text from a dark scheme on a light terminal is
 	// unreadable, and the pane belongs to the caller.
-	dark, ok := highlight.Background("github-dark")
+	dark, ok := highlight.New("github-dark").Background()
 	if !ok {
 		t.Fatal("a scheme with a background did not say so")
 	}
 	if dark.Default() || !dark.RGB().Dark() {
 		t.Fatalf("the dark scheme expects to sit on %v", dark.RGB())
 	}
-	if light, ok := highlight.Background("github"); !ok || light.RGB().Dark() {
+	if light, ok := highlight.New("github").Background(); !ok || light.RGB().Dark() {
 		t.Fatalf("the light scheme expects to sit on %v (said %v)", light.RGB(), ok)
 	}
 }
@@ -75,7 +86,7 @@ func TestTheSchemesOnOfferAreTheOnesThatWork(t *testing.T) {
 	}
 	// What a program offers a user is what will be accepted, or the offer is a lie.
 	for _, name := range names[:5] {
-		if lines := highlight.Lines("go", "package main", highlight.Style(name)); len(lines) != 1 {
+		if lines := highlight.New(highlight.Style(name)).Lines("go", "package main"); len(lines) != 1 {
 			t.Fatalf("%q highlighted to %v", name, lines)
 		}
 	}
@@ -87,7 +98,8 @@ func TestOneFunctionIsTheWholeOfTheWiring(t *testing.T) {
 	call := func(renderer func(info, source string) []text.Line) []text.Line {
 		return renderer("go", "var x = 1")
 	}
-	if lines := call(highlight.Of("monokai")); len(lines) != 1 || lines[0].String() != "var x = 1" {
+	renderer := highlight.New("monokai")
+	if lines := call(renderer.Lines); len(lines) != 1 || lines[0].String() != "var x = 1" {
 		t.Fatalf("the plugged-in highlighter produced %v", lines)
 	}
 }

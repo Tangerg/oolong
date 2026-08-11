@@ -63,7 +63,7 @@ type Paragraph struct {
 	// every time the width changes.
 	Links bool
 	// Exists says whether a path is a file, and is what lets the shapes that cannot be
-	// told from prose be found — see [link.DetectIn]. Nil leaves them out, which is
+	// told from prose be found — see [link.Detect]. Nil leaves them out, which is
 	// right for text about somebody else's machine.
 	Exists func(path string) bool
 
@@ -158,7 +158,7 @@ func (p *Paragraph) detectLinks(line int) detectedLinks {
 		return detectedLinks{}
 	}
 	whole := p.lines[line].String()
-	return detectedLinks{text: whole, destinations: link.DetectIn(whole, p.Exists)}
+	return detectedLinks{text: whole, destinations: link.Detect(whole, p.Exists)}
 }
 
 // rowLinks projects a logical line's destinations onto one wrapped byte range.

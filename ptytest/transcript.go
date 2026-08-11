@@ -5,7 +5,6 @@ import (
 	"context"
 	"strings"
 	"sync"
-	"time"
 )
 
 // Transcript is everything a session has written, accumulated as it arrives.
@@ -64,7 +63,8 @@ func (t *Transcript) Screen(size Size) (*Screen, error) {
 	return screen, nil
 }
 
-// WaitFor blocks until every token has appeared, or until ctx is done.
+// WaitFor blocks until every token has appeared. If ctx ends first, the returned
+// error unwraps to [context.Cause] of ctx.
 //
 // Every token, not the last one: a test waiting for a frame usually has more than
 // one thing to say about it, and waiting for them one at a time would pass on a
@@ -82,17 +82,9 @@ func (t *Transcript) WaitFor(ctx context.Context, tokens ...string) error {
 		select {
 		case <-grew:
 		case <-ctx.Done():
-			return &missing{tokens: absent(text, tokens), transcript: text, err: ctx.Err()}
+			return &missing{tokens: absent(text, tokens), transcript: text, err: context.Cause(ctx)}
 		}
 	}
-}
-
-// WaitWithin is [Transcript.WaitFor] with a deadline instead of a context, which
-// is what a test usually has.
-func (t *Transcript) WaitWithin(d time.Duration, tokens ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
-	defer cancel()
-	return t.WaitFor(ctx, tokens...)
 }
 
 // missing reports what never turned up, with the transcript that did.

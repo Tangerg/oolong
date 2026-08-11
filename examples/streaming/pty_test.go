@@ -43,9 +43,9 @@ func start(t *testing.T) *ptytest.Session {
 	if !ptytest.Supported() {
 		t.Skip("no pty on this platform")
 	}
-	session, err := ptytest.StartWith(
+	session, err := ptytest.Start(
 		t.Context(),
-		ptytest.Options{Size: openingSize},
+		ptytest.Config{Size: openingSize},
 		build(t),
 	)
 	if errors.Is(err, ptytest.ErrUnsupported) {
@@ -67,6 +67,15 @@ var openingSize = ptytest.Size{Cols: 60, Rows: 20}
 // under a loaded runner is the one place in this repository where being patient
 // costs nothing and being brisk costs a false failure.
 const settle = 30 * time.Second
+
+func waitFor(t *testing.T, s *ptytest.Session, tokens ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), settle)
+	defer cancel()
+	if err := s.Transcript().WaitFor(ctx, tokens...); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // quiesce waits until the interface has stopped writing, and returns how much it
 // had written by then.
@@ -94,9 +103,7 @@ func quiesce(t *testing.T, s *ptytest.Session) int {
 
 func TestTheInterfaceIsUpBeforeAnybodyTypes(t *testing.T) {
 	s := start(t)
-	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Ask something")
 	quiesce(t, s)
 	screen, err := s.Transcript().Screen(openingSize)
 	if err != nil {
@@ -109,36 +116,26 @@ func TestTheInterfaceIsUpBeforeAnybodyTypes(t *testing.T) {
 
 func TestTypingAndSendingReachesTheTerminal(t *testing.T) {
 	s := start(t)
-	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Ask something")
 	if err := s.Type("what is this"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transcript().WaitWithin(settle, "what is this"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "what is this")
 	if err := s.Type("\r"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transcript().WaitWithin(settle, "Approve prompt"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Approve prompt")
 	if err := s.Type("\r"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transcript().WaitWithin(settle, "you", "Streaming first"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "you", "Streaming first")
 }
 
 func TestTheSessionGivesTheTerminalBack(t *testing.T) {
 	// The failure this catches is the one the user cannot recover from without
 	// closing the window, and nothing else in the suite can see it.
 	s := start(t)
-	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Ask something")
 	if err := s.Type("\x03"); err != nil { // ctrl+c, which the example binds to quit
 		t.Fatal(err)
 	}
@@ -164,9 +161,7 @@ func TestAnIdleInterfaceGoesQuiet(t *testing.T) {
 	// A frame that would change nothing writes nothing, so an interface nobody is
 	// touching is silent on the wire and the cursor keeps blinking.
 	s := start(t)
-	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Ask something")
 	settled := quiesce(t, s)
 	time.Sleep(700 * time.Millisecond)
 	if grew := len(s.Transcript().Bytes()) - settled; grew != 0 {
@@ -176,9 +171,7 @@ func TestAnIdleInterfaceGoesQuiet(t *testing.T) {
 
 func TestResizingRepaintsRatherThanCorrupting(t *testing.T) {
 	s := start(t)
-	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Ask something")
 	before := quiesce(t, s)
 	if err := s.Resize(ptytest.Size{Cols: 40, Rows: 20}); err != nil {
 		t.Fatal(err)
@@ -199,23 +192,17 @@ func TestWhatWasPrintedSurvivesTheProgram(t *testing.T) {
 	// The claim the library is built around: what has been said belongs to the
 	// terminal, and is still there after the program that said it has gone.
 	s := start(t)
-	if err := s.Transcript().WaitWithin(settle, "Ask something"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Ask something")
 	if err := s.Type("hello there\r"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transcript().WaitWithin(settle, "Approve prompt"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "Approve prompt")
 	if err := s.Type("\r"); err != nil {
 		t.Fatal(err)
 	}
 	// Waiting for the final retained paragraph also means earlier stable blocks have
 	// crossed the bounded window into terminal-owned scrollback.
-	if err := s.Transcript().WaitWithin(settle, "complete", "When this paragraph finishes"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, s, "complete", "When this paragraph finishes")
 	if err := s.Type("\x03"); err != nil {
 		t.Fatal(err)
 	}

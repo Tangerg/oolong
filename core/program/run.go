@@ -56,9 +56,9 @@ func (c Config) openHost() (hostSession, error) {
 	if c.Host != nil {
 		return hostSession{Host: c.Host}, nil
 	}
-	opts := c.Terminal
-	opts.AltScreen = c.Root != nil
-	terminal, err := term.Open(opts)
+	terminalConfig := c.Terminal
+	terminalConfig.AltScreen = c.Root != nil
+	terminal, err := term.Open(terminalConfig)
 	if err != nil {
 		return hostSession{}, err
 	}
@@ -114,7 +114,7 @@ func newProgram(cfg Config, host Host) (*program, error) {
 	}
 	depth := cfg.Color
 	if depth == grid.Auto {
-		depth = term.DetectDepth()
+		depth = p.host.color()
 	}
 	if err := p.buildInterface(cfg, width, height, depth); err != nil {
 		return nil, err

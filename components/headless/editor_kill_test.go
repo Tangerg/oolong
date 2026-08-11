@@ -7,7 +7,7 @@ import (
 )
 
 func TestConsecutiveBackwardKillsAccumulateInReadingOrder(t *testing.T) {
-	editor := headless.NewEditor()
+	editor := &headless.Editor{}
 	editor.SetText("one two three")
 	editor.Do(headless.DeleteWordBack)
 	editor.Do(headless.DeleteWordBack)
@@ -22,7 +22,7 @@ func TestConsecutiveBackwardKillsAccumulateInReadingOrder(t *testing.T) {
 }
 
 func TestConsecutiveForwardKillsAccumulateAcrossALineBreak(t *testing.T) {
-	editor := headless.NewEditor()
+	editor := &headless.Editor{}
 	editor.SetText("keep one\ntwo")
 	editor.SetCursor(0, len("keep "))
 	editor.Do(headless.KillToEnd)
@@ -39,7 +39,7 @@ func TestConsecutiveForwardKillsAccumulateAcrossALineBreak(t *testing.T) {
 }
 
 func TestYankPopCyclesOlderKills(t *testing.T) {
-	editor := headless.NewEditor()
+	editor := &headless.Editor{}
 	for _, text := range []string{"one", "two", "three"} {
 		editor.SetText(text)
 		editor.Do(headless.DeleteWordBack)
@@ -65,7 +65,7 @@ func TestYankPopCyclesOlderKills(t *testing.T) {
 }
 
 func TestAnInterveningActionEndsYankPop(t *testing.T) {
-	editor := headless.NewEditor()
+	editor := &headless.Editor{}
 	for _, text := range []string{"old", "new"} {
 		editor.SetText(text)
 		editor.Do(headless.DeleteWordBack)

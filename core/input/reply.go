@@ -226,7 +226,7 @@ func (ps params) report(final byte) Event {
 	case ps.Marker() == '?' && final == 'c':
 		return ps.deviceAttributes()
 	case ps.Marker() == '?' && final == 'u':
-		return KeyboardFlags{Features: KeyboardFeatures(max(ps.First(), 0))}
+		return KeyboardFlags{Features: KeyboardFeatures(max(ps.At(0), 0))}
 	case ps.Marker() == '>' && final == 'c':
 		return DeviceVersion{Kind: max(ps.At(0), 0), Version: max(ps.At(1), 0), Patch: max(ps.At(2), 0)}
 	default:

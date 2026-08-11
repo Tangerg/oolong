@@ -129,7 +129,7 @@ func TestAdvanceKeepsWhatAReportWasWorth(t *testing.T) {
 	var a input.Advance
 	a.Wheel(input.Wheel{Reports: 3, Rows: 1})
 
-	got := []int{a.By(1), a.By(1), a.By(1), a.By(1)}
+	got := []int{a.Rows(time.Time{}, 1), a.Rows(time.Time{}, 1), a.Rows(time.Time{}, 1), a.Rows(time.Time{}, 1)}
 	want := []int{0, 0, 1, 0}
 	for i := range want {
 		if got[i] != want[i] {
@@ -141,10 +141,10 @@ func TestAdvanceKeepsWhatAReportWasWorth(t *testing.T) {
 func TestAdvanceUpAndDown(t *testing.T) {
 	var a input.Advance
 	a.Wheel(input.Wheel{Reports: 1, Rows: 3})
-	if got := a.By(-1); got != -3 {
+	if got := a.Rows(time.Time{}, -1); got != -3 {
 		t.Errorf("one report up = %d rows, want -3", got)
 	}
-	if got := a.By(1); got != 3 {
+	if got := a.Rows(time.Time{}, 1); got != 3 {
 		t.Errorf("one report down = %d rows, want 3", got)
 	}
 }
@@ -156,12 +156,12 @@ func TestAdvanceDoesNotSpendARowItDidNotEarn(t *testing.T) {
 	a.Wheel(input.Wheel{Reports: 3, Rows: 1})
 
 	// Two thirds down, then two thirds back up: nothing moved, and nothing is owed.
-	total := a.By(1) + a.By(1) + a.By(-1) + a.By(-1)
+	total := a.Rows(time.Time{}, 1) + a.Rows(time.Time{}, 1) + a.Rows(time.Time{}, -1) + a.Rows(time.Time{}, -1)
 	if total != 0 {
 		t.Errorf("scrolled %d rows for a gesture that came back to where it began", total)
 	}
 	// And the next full notch is still a whole row.
-	if got := a.By(3); got != 1 {
+	if got := a.Rows(time.Time{}, 3); got != 1 {
 		t.Errorf("a notch after that = %d rows, want 1", got)
 	}
 }
@@ -169,17 +169,17 @@ func TestAdvanceDoesNotSpendARowItDidNotEarn(t *testing.T) {
 func TestAdvanceReset(t *testing.T) {
 	var a input.Advance
 	a.Wheel(input.Wheel{Reports: 3, Rows: 1})
-	a.By(1)
-	a.By(1)
+	a.Rows(time.Time{}, 1)
+	a.Rows(time.Time{}, 1)
 	a.Reset()
-	if got := a.By(1); got != 0 {
+	if got := a.Rows(time.Time{}, 1); got != 0 {
 		t.Errorf("after a reset the first report gave %d rows, want 0", got)
 	}
 }
 
 func TestTheZeroAdvanceScrollsOneRowAReport(t *testing.T) {
 	var a input.Advance
-	if got := a.By(1); got != 1 {
+	if got := a.Rows(time.Time{}, 1); got != 1 {
 		t.Errorf("got %d, want one row", got)
 	}
 }
@@ -211,7 +211,7 @@ func TestAFingerIsToldFromTheWheelByHowFastItArrives(t *testing.T) {
 	turned := 0
 	for i := range 4 {
 		// A hand turning a wheel: notches a fifth of a second apart.
-		turned += wheel.At(base.Add(time.Duration(i)*200*time.Millisecond), 1)
+		turned += wheel.Rows(base.Add(time.Duration(i)*200*time.Millisecond), 1)
 	}
 	if turned != 12 {
 		t.Errorf("four notches scrolled %d rows, want 12", turned)
@@ -222,7 +222,7 @@ func TestAFingerIsToldFromTheWheelByHowFastItArrives(t *testing.T) {
 	swiped := 0
 	for i := range 4 {
 		// A finger: reports as fast as the terminal can send them.
-		swiped += finger.At(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+		swiped += finger.Rows(base.Add(time.Duration(i)*8*time.Millisecond), 1)
 	}
 	if swiped <= turned {
 		t.Errorf("four reports of a swipe scrolled %d rows and four notches scrolled %d", swiped, turned)
@@ -236,10 +236,10 @@ func TestAGestureEndsAndTheNextIsJudgedAfresh(t *testing.T) {
 
 	// A swipe.
 	for i := range 6 {
-		a.At(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+		a.Rows(base.Add(time.Duration(i)*8*time.Millisecond), 1)
 	}
 	// Then, long after, a single notch — which must not be charged at the swipe's rate.
-	if got := a.At(base.Add(2*time.Second), 1); got != 3 {
+	if got := a.Rows(base.Add(2*time.Second), 1); got != 3 {
 		t.Errorf("a notch after the swipe scrolled %d rows, want 3", got)
 	}
 }
@@ -254,7 +254,7 @@ func TestATerminalThatBatchesIsNeverAskedTheQuestion(t *testing.T) {
 
 	rows := 0
 	for i := range 6 {
-		rows += a.At(base.Add(time.Duration(i)*time.Millisecond), 1)
+		rows += a.Rows(base.Add(time.Duration(i)*time.Millisecond), 1)
 	}
 	if rows != 6 {
 		t.Errorf("six reports scrolled %d rows, want 6 — one each", rows)
@@ -266,7 +266,7 @@ func TestAReportWithNoTimeIsTheWheel(t *testing.T) {
 	var a input.Advance
 	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	for range 6 {
-		if got := a.By(1); got != 3 {
+		if got := a.Rows(time.Time{}, 1); got != 3 {
 			t.Fatalf("an untimed report scrolled %d rows, want the wheel's 3", got)
 		}
 	}
@@ -276,10 +276,10 @@ func TestExtremeReportCountsKeepTheirDirection(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	minInt := -maxInt - 1
 	var advance input.Advance
-	if got := advance.By(maxInt); got != maxInt {
+	if got := advance.Rows(time.Time{}, maxInt); got != maxInt {
 		t.Fatalf("largest forward report count advanced %d rows, want %d", got, maxInt)
 	}
-	if got := advance.By(minInt); got != minInt {
+	if got := advance.Rows(time.Time{}, minInt); got != minInt {
 		t.Fatalf("largest backward report count advanced %d rows, want %d", got, minInt)
 	}
 }
@@ -288,10 +288,10 @@ func TestAClockMovingBackwardsStartsANewWheelGesture(t *testing.T) {
 	var advance input.Advance
 	advance.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	base := time.Unix(10, 0)
-	advance.At(base, 1)
-	advance.At(base.Add(8*time.Millisecond), 1)
+	advance.Rows(base, 1)
+	advance.Rows(base.Add(8*time.Millisecond), 1)
 
-	if got := advance.At(base.Add(-time.Second), 1); got != 3 {
+	if got := advance.Rows(base.Add(-time.Second), 1); got != 3 {
 		t.Fatalf("out-of-order report advanced %d rows, want a fresh wheel notch of 3", got)
 	}
 }
@@ -314,7 +314,7 @@ func TestAFingerSwipingUpwardsIsStillAFinger(t *testing.T) {
 
 	rows := 0
 	for i := range 6 {
-		rows += a.At(base.Add(time.Duration(i)*8*time.Millisecond), -1)
+		rows += a.Rows(base.Add(time.Duration(i)*8*time.Millisecond), -1)
 	}
 	if rows > -18 {
 		t.Errorf("six upward reports scrolled %d rows, want more than six notches' worth", rows)
@@ -326,10 +326,10 @@ func TestResetForgetsTheGesture(t *testing.T) {
 	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	base := time.Unix(0, 0)
 	for i := range 6 {
-		a.At(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+		a.Rows(base.Add(time.Duration(i)*8*time.Millisecond), 1)
 	}
 	a.Reset()
-	if got := a.At(base.Add(50*time.Millisecond), 1); got != 3 {
+	if got := a.Rows(base.Add(50*time.Millisecond), 1); got != 3 {
 		t.Errorf("the first report after a reset scrolled %d rows, want the wheel's 3", got)
 	}
 }

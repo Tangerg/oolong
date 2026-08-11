@@ -512,7 +512,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 // decodeNumberedKey reads the sequences that name a key by number, which is also
 // how a terminal announces a paste.
 func (p *Parser) decodeNumberedKey(ps params) Event {
-	switch num := ps.First(); num {
+	switch num := ps.At(0); num {
 	case pasteOpen:
 		p.pasting = true
 		return nil

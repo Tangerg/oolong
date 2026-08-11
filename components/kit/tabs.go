@@ -86,11 +86,11 @@ func (t *Tabs) Draw(v headless.Frame) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	rects := layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Fixed(t.rows() - 1)},
-		layout.Slot{Size: layout.Flex(1)},
-	)
+	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Fixed(t.rows() - 1)},
+		{Size: layout.Flex(1)},
+	})
 	views := v.Subs(rects)
 	presented := tabsPresentation{
 		of:    controller,

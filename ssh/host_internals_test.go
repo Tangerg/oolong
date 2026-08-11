@@ -34,7 +34,7 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 		Root: func(runtime *program.Runtime) program.Component {
 			return quittingComponent{runtime: runtime}
 		},
-		Terminal: term.Options{
+		Terminal: term.Config{
 			Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
 		},
 	})
@@ -42,7 +42,7 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all := term.Options{
+	all := term.Config{
 		AltScreen: true, Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
 	}.Modes(nil)
 	written := session.output.String()
@@ -75,7 +75,7 @@ func TestRunUsesTheClientEnvironmentForKeyboardCompatibility(t *testing.T) {
 		Root: func(runtime *program.Runtime) program.Component {
 			return quittingComponent{runtime: runtime}
 		},
-		Terminal: term.Options{Keyboard: input.KeyboardAll},
+		Terminal: term.Config{Keyboard: input.KeyboardAll},
 	})
 	if err != nil {
 		t.Fatal(err)

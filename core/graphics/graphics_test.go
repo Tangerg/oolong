@@ -81,7 +81,7 @@ func TestDetection(t *testing.T) {
 			want:  graphics.ITerm2,
 		},
 	} {
-		if got := graphics.DetectIn(env(tc.env), tc.name, tc.sixel); got != tc.want {
+		if got := graphics.Detect(env(tc.env), tc.name, tc.sixel); got != tc.want {
 			t.Errorf("%s: = %v, want %v", tc.desc, got, tc.want)
 		}
 	}
@@ -308,9 +308,10 @@ func TestTransmitChunksWhatDoesNotFit(t *testing.T) {
 	}
 }
 
-func TestPlaceAndDeleteNameTheImage(t *testing.T) {
+func TestPaintAndEraseNameTheImage(t *testing.T) {
+	image := graphics.Image{ID: 9}
 	var buf bytes.Buffer
-	if err := graphics.Place(&buf, 9, 20, 10); err != nil {
+	if err := image.Paint(&buf, 20, 10); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "i=9") ||
@@ -318,7 +319,7 @@ func TestPlaceAndDeleteNameTheImage(t *testing.T) {
 		t.Fatalf("place = %q, want the id and the cell box in it", got)
 	}
 	buf.Reset()
-	if err := graphics.Delete(&buf, 9); err != nil {
+	if err := image.Erase(&buf); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "a=d") || !strings.Contains(got, "i=9") {
@@ -337,8 +338,8 @@ func TestGraphicsWritesRejectSilentTruncation(t *testing.T) {
 			_, err := graphics.Transmit(shortWriter{}, 1, image)
 			return err
 		},
-		"place":  func() error { return graphics.Place(shortWriter{}, 1, 1, 1) },
-		"delete": func() error { return graphics.Delete(shortWriter{}, 1) },
+		"paint":  func() error { return (graphics.Image{ID: 1}).Paint(shortWriter{}, 1, 1) },
+		"erase":  func() error { return (graphics.Image{ID: 1}).Erase(shortWriter{}) },
 		"inline": func() error { return graphics.Inline(shortWriter{}, image, 1, 1) },
 	}
 	for name, operation := range operations {
@@ -419,7 +420,7 @@ func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
 		},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := graphics.DetectIn(env(tc.env), tc.name, false); got != tc.want {
+			if got := graphics.Detect(env(tc.env), tc.name, false); got != tc.want {
 				t.Errorf("= %v, want %v", got, tc.want)
 			}
 		})

@@ -427,12 +427,10 @@ reports selectable rows from one precomputed box layout; drawing never reparses.
 It is deliberately not a TeX engine. Documents, packages, macro definitions, file
 inclusion, page layout, command execution, TikZ, and raster output are outside the
 contract. Unsupported or incomplete expressions remain visible as their source with
-an error. `latex.Of` has the same two-string function shape as the Markdown extension
-registry and ignores the semantic info argument, so composition requires no import
-edge between the peer modules. That adapter returns styled lines and intentionally
-omits the richer `Formula` value. An application that needs `Formula.Err`, `Source`,
-or `Width` calls `latex.Render` inside its own adapter. It observes the formula before
-returning its lines.
+an error. Composition uses the same `latex.Render` entry inside the Markdown
+extension registry's consumer-owned function shape, so it requires no import edge
+between the peer modules and introduces no second, lossy rendering API. An application
+can observe `Formula.Err`, `Source`, or `Width` before returning its lines.
 
 ### ssh
 

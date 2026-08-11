@@ -6,8 +6,9 @@ import (
 	"github.com/Tangerg/oolong/highlight"
 )
 
-func ExampleLines() {
-	lines := highlight.Lines("go", "for range 3 {\n\tfmt.Println(\"hello\")\n}", "github-dark")
+func ExampleRenderer_Lines() {
+	renderer := highlight.New("github-dark")
+	lines := renderer.Lines("go", "for range 3 {\n\tfmt.Println(\"hello\")\n}")
 	for _, line := range lines {
 		fmt.Println(line.String())
 	}

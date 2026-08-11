@@ -225,6 +225,17 @@ func TestASpringKeepsTheSpeedItHadWhenTheTargetMoves(t *testing.T) {
 	}
 }
 
+func TestSettingASpringPlacesAndSettlesItImmediately(t *testing.T) {
+	var spring anim.Spring
+	spring.To(10)
+	spring.Tick()
+	spring.Set(4)
+	if spring.Value() != 4 || spring.Velocity() != 0 || !spring.Done() {
+		t.Fatalf("set spring = value %v velocity %v done %v, want 4, 0, true",
+			spring.Value(), spring.Velocity(), spring.Done())
+	}
+}
+
 func TestATimelineHoldsItsEndsAndPassesThroughItsFrames(t *testing.T) {
 	line := anim.NewTimeline(
 		anim.Keyframe{At: 0, Value: 0},
@@ -244,6 +255,11 @@ func TestATimelineHoldsItsEndsAndPassesThroughItsFrames(t *testing.T) {
 	line.Tick()
 	if got := line.Value(); got != 0 || !line.Done() {
 		t.Fatalf("past the end the value is %v and done is %v", got, line.Done())
+	}
+	line.Reset()
+	if line.At() != 0 || line.Value() != want[0] || line.Done() {
+		t.Fatalf("reset timeline = tick %d value %v done %v, want its beginning",
+			line.At(), line.Value(), line.Done())
 	}
 }
 

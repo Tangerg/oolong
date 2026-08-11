@@ -10,8 +10,9 @@ exported API, read the module and ring boundaries in the
 - Go 1.26 or newer for the complete workspace. `core`, `internal` and `ptytest`
   also test their declared Go 1.25 floor without the workspace; higher modules
   still depend on existing Oolong tags whose own directives require 1.26.
-- `golangci-lint` v2 (CI pins v2.12.2), `gofumpt` (v0.11.0), `shfmt`
-  (v3.13.1), and `govulncheck` (v1.6.0). Release checks pin
+- `golangci-lint` v2 (CI pins v2.12.2), `deadcode` from `golang.org/x/tools`
+  (v0.44.0), `gofumpt` (v0.11.0), `shfmt` (v3.13.1), and `govulncheck`
+  (v1.6.0). Release checks pin
   `golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743`.
 - Node.js 22 or newer when changing Markdown or preparing a release. The exact
   documentation toolchain is in `package-lock.json`. Its VitePress preview pin is
@@ -41,6 +42,7 @@ shfmt -d scripts
 for m in $(scripts/modules.sh); do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done
+scripts/check-reachability.sh
 go work sync && git diff --quiet -- go.work
 npm ci
 npm run docs:check
@@ -99,6 +101,15 @@ Any exported change must include:
   with no public form.
 - Cancellation and concurrency semantics where they apply.
 - A [CHANGELOG.md](./CHANGELOG.md) entry when existing callers must change.
+
+Related construction settings belong in a package `Config` struct, whose optional
+fields have useful zero meanings. Do not add a functional-options API.
+
+Repository usage is not an API-retention criterion. A library operation may exist
+solely for downstream callers or to satisfy a consumer-owned interface. A `deadcode`
+finding on an export asks for caller-side contract coverage; removal additionally
+requires an API review showing that the responsibility is misplaced, duplicated, or
+cannot be given a coherent contract.
 
 Adding a method to an exported interface is breaking. Raising the `go` directive
 raises every dependent's toolchain floor. Both are compatibility decisions rather

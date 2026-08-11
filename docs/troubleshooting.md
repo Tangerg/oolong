@@ -71,7 +71,7 @@ Increasing the byte limit can absorb larger bursts, but it cannot repair an owne
 
 ## Live memory grows with session age
 
-Finished transcript blocks must leave the live graph. Mark stable blocks finished, keep a bounded interactive prefix, and commit the excess through `kit.Transcript.CommitN`.
+Finished transcript blocks must leave the live graph. Mark stable blocks finished, keep a bounded interactive prefix, and commit the excess through `kit.Transcript.Commit` with an explicit limit.
 
 Keep only the open Markdown tail mutable. Do not retain substrings or rows from already committed output. The [streaming guide](streaming.md) defines the ownership cut, and the [agent guide](agent.md) shows bounded retention.
 

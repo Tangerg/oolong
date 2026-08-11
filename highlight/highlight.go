@@ -15,12 +15,13 @@
 //
 // # Integration
 //
-// [Of] returns the two-string function shape used by semantic content registries.
-// The first argument is a language and the second is source; this peer module need
-// not import whichever composer consumes the result:
+// A [Renderer] has the same [Renderer.Lines] method whether it is called directly
+// or installed in a semantic content registry. The first argument is a language
+// and the second is source; this peer module need not import whichever composer
+// consumes the result:
 //
-//	render := highlight.Of("github-dark")
-//	lines := render("go", source)
+//	renderer := highlight.New("github-dark")
+//	lines := renderer.Lines("go", source)
 //
 // # What it does not expose
 //
@@ -48,20 +49,19 @@ type Style string
 
 // Styles are the schemes there are, in alphabetical order. It is what a program
 // offering the choice to a user reads from, so the list cannot go out of step with
-// what [Of] will accept.
+// what [New] will accept.
 func Styles() []string { return styles.Names() }
 
-// Of returns a highlighting function suitable for any consumer of styled lines.
+// Renderer highlights source with one resolved colour scheme.
 //
-// The style is resolved once here rather than on every block, which is what makes
-// the returned function cheap enough to call for every fenced block of a streaming
-// answer.
-func Of(style Style) func(language, source string) []text.Line {
-	scheme := schemeOf(style)
-	return func(language, source string) []text.Line {
-		return highlight(language, source, scheme)
-	}
-}
+// Its zero value uses the highlighter's fallback scheme. A Renderer is immutable
+// and cheap to copy; resolving the named style once keeps [Renderer.Lines] suitable
+// for every fenced block of a streaming answer.
+type Renderer struct{ scheme *chroma.Style }
+
+// New constructs a renderer for style. An unknown name uses the highlighter's
+// fallback scheme, so source always remains readable.
+func New(style Style) Renderer { return Renderer{scheme: schemeOf(style)} }
 
 // Lines is one block of code, highlighted.
 //
@@ -70,8 +70,8 @@ func Of(style Style) func(language, source string) []text.Line {
 // at from the source and a guess that fails is plain text rather than an error. Code
 // nobody could name is still code, and showing it uncoloured is the whole of what
 // going wrong here should cost.
-func Lines(language, source string, style Style) []text.Line {
-	return highlight(language, source, schemeOf(style))
+func (r Renderer) Lines(language, source string) []text.Line {
+	return highlight(language, source, r.resolved())
 }
 
 // Background is the colour a style expects its code to sit on, and whether it has
@@ -81,12 +81,19 @@ func Lines(language, source string, style Style) []text.Line {
 // scheme on a light terminal is unreadable, and the caller is the one holding the
 // pane it goes in. A caller that would rather keep its own background ignores this,
 // which is why it is a question rather than something written into the lines.
-func Background(style Style) (grid.Color, bool) {
-	entry := schemeOf(style).Get(chroma.Background)
+func (r Renderer) Background() (grid.Color, bool) {
+	entry := r.resolved().Get(chroma.Background)
 	if !entry.Background.IsSet() {
 		return grid.Color{}, false
 	}
 	return colour(entry.Background), true
+}
+
+func (r Renderer) resolved() *chroma.Style {
+	if r.scheme != nil {
+		return r.scheme
+	}
+	return styles.Fallback
 }
 
 // schemeOf resolves a name to a scheme, falling back rather than failing.

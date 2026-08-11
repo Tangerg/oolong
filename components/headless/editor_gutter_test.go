@@ -31,7 +31,7 @@ func (g *recordingGutter) Draw(_ grid.View, rows []text.Row) {
 }
 
 func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
-	editor := headless.NewEditor()
+	editor := &headless.Editor{}
 	editor.Gutter = numberedGutter{}
 	editor.SetText("alpha beta\nx")
 
@@ -64,7 +64,7 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 
 func TestMaskedEditorDoesNotDiscloseItsValueToAGutter(t *testing.T) {
 	gutter := &recordingGutter{}
-	editor := headless.NewEditor()
+	editor := &headless.Editor{}
 	editor.Gutter = gutter
 	editor.Mask = "•"
 	editor.SetText("secret")

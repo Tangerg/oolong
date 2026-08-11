@@ -96,7 +96,7 @@ func (i Image) fit(width int) (cols, rows int, ok bool) {
 	return cols, rows, true
 }
 
-// Width is what the alternative text measures, which is what a caller aligning
-// something beside it needs. It is here rather than left to the caller because the
-// two are the same string and only one of them should know how wide it is.
+// Width is the cell width of the alternative text. It lets Image satisfy a
+// consumer-owned width interface without making the consumer repeat how terminal
+// text is measured; the displayed picture itself still fits the width given to Draw.
 func (i Image) Width() int { return text.Width(i.Alt) }

@@ -35,12 +35,12 @@ func TestLocaleFollowsCharacterEnvironmentPrecedence(t *testing.T) {
 				value, ok := tc.values[name]
 				return value, ok
 			}
-			if got := term.DetectLocaleIn(lookup); got != tc.want {
-				t.Fatalf("DetectLocaleIn = %q, want %q", got, tc.want)
+			if got := term.DetectLocale(lookup); got != tc.want {
+				t.Fatalf("DetectLocale = %q, want %q", got, tc.want)
 			}
 		})
 	}
-	if got := term.DetectLocaleIn(nil); got != "" {
-		t.Fatalf("DetectLocaleIn(nil) = %q, want no claim", got)
+	if got := term.DetectLocale(nil); got != "" {
+		t.Fatalf("DetectLocale(nil) = %q, want no claim", got)
 	}
 }

@@ -27,7 +27,7 @@ const (
 func main() {
 	if err := program.Run(context.Background(), program.Config{
 		Root:     func(runtime *program.Runtime) program.Component { return newKeys(runtime) },
-		Terminal: term.Options{Probe: true},
+		Terminal: term.Config{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "keys:", err)
 		os.Exit(1)

@@ -67,7 +67,9 @@ func (m *Matcher) Clear() {
 	}
 }
 
-// Binding associates a chord sequence with an action.
+// Binding associates a chord sequence with an action. Values returned by
+// [Map.Bindings] are caller-owned snapshots, so an application may sort, present or
+// serialize them without changing the map.
 type Binding struct {
 	Keys   input.Keys
 	Action Action
@@ -155,7 +157,9 @@ func (m *Map) Keys(action Action) []input.Keys {
 	return keys
 }
 
-// Bindings returns a deep copy of every binding, in binding order.
+// Bindings returns a deep copy of every binding, in binding order. It is the
+// complete observation surface for applications that present or persist a key map;
+// use [Map.Keys] when only one action is relevant.
 func (m *Map) Bindings() []Binding {
 	if m == nil {
 		return nil

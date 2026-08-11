@@ -51,6 +51,22 @@ func ExampleMap_Keys() {
 	// alt+backspace
 }
 
+func ExampleMap_Bindings() {
+	// Bindings is the complete snapshot used by a settings or help interface. Keys is
+	// the narrower query when the caller already knows the action it wants.
+	keys := &keymap.Map{}
+	keys.Bind("submit", input.Chord{Code: input.Enter})
+	keys.Bind("cancel", input.Chord{Code: input.Esc})
+
+	for _, binding := range keys.Bindings() {
+		fmt.Println(binding)
+	}
+
+	// Output:
+	// enter submit
+	// esc cancel
+}
+
 func ExampleMap_sequences() {
 	// A binding can be more than one chord long. The first chord is the map's and
 	// names nothing yet, which the caller has to consume rather than pass on.

@@ -81,6 +81,15 @@ func TestWrapMarksContinuationRows(t *testing.T) {
 	}
 }
 
+func TestRowSeparatorReconstructsLogicalText(t *testing.T) {
+	if got := (text.Row{}).Separator(); got != "\n" {
+		t.Fatalf("independent row separator = %q, want newline", got)
+	}
+	if got := (text.Row{Joined: true, Gap: " "}).Separator(); got != " " {
+		t.Fatalf("joined row separator = %q, want its consumed space", got)
+	}
+}
+
 func TestWrapHardBreaksAWordLongerThanTheWidth(t *testing.T) {
 	line := text.Of("abcdefghij", grid.Style{})
 	equal(t, rows(line.Wrap(4)), []string{"abcd", "efgh", "ij"})

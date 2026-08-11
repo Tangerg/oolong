@@ -27,7 +27,7 @@ import (
 
 func TestEditorUndoHistoryIsBounded(t *testing.T) {
 	// An unbounded history in a long-lived process is a leak with a friendly name.
-	e := NewEditor()
+	e := &Editor{}
 	for i := range maxUndo + 50 {
 		e.Insert("x")
 		e.MoveLeft()
@@ -79,7 +79,7 @@ func (*retainedModal) Place(image.Point) layout.Placement { return layout.Placem
 
 func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	children := []*retainedWidget{{payload: []byte("one")}, {payload: []byte("two")}, {payload: []byte("three")}}
-	container := Rows(
+	container := NewContainer(layout.Down,
 		Item{Size: layout.Measured(1, 0), Of: children[0]},
 		Item{Size: layout.Measured(1, 0), Of: children[1]},
 		Item{Size: layout.Measured(1, 0), Of: children[2]},
@@ -235,7 +235,7 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 		}
 	}
 
-	container := Rows(Item{Key: source})
+	container := NewContainer(layout.Down, Item{Key: source})
 	assertDetached("container key", container.Items()[0].Key)
 
 	tabs := NewTabs(Tab{Title: source})

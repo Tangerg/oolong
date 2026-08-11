@@ -72,7 +72,7 @@ func TestDetect(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := link.Detect(tc.in)
+			got := link.Detect(tc.in, nil)
 			if len(got) != len(tc.want) {
 				t.Fatalf("found %d links %+v, want %d %+v", len(got), got, len(tc.want), tc.want)
 			}
@@ -89,7 +89,7 @@ func TestTextButtedAgainstAUrlIsNotSwallowed(t *testing.T) {
 	// The normal case in Chinese and Japanese prose, and the reason the body is the
 	// URI character set rather than "anything that is not a space".
 	const doc = "见 https://example.com 页面"
-	got := link.Detect(doc)
+	got := link.Detect(doc, nil)
 	if len(got) != 1 {
 		t.Fatalf("found %d links, want 1", len(got))
 	}
@@ -100,7 +100,7 @@ func TestTextButtedAgainstAUrlIsNotSwallowed(t *testing.T) {
 
 func TestTextButtedDirectlyAgainstAUrlWithNoSpace(t *testing.T) {
 	const doc = "自见https://example.com页面"
-	got := link.Detect(doc)
+	got := link.Detect(doc, nil)
 	if len(got) != 1 {
 		t.Fatalf("found %d links, want 1", len(got))
 	}
@@ -111,7 +111,7 @@ func TestTextButtedDirectlyAgainstAUrlWithNoSpace(t *testing.T) {
 
 func TestTextReportsWhatWasWritten(t *testing.T) {
 	const doc = "go to www.example.com now"
-	got := link.Detect(doc)
+	got := link.Detect(doc, nil)
 	if len(got) != 1 {
 		t.Fatalf("found %d links, want 1", len(got))
 	}
@@ -134,7 +134,7 @@ func TestTextOutsideTheStringIsEmptyRatherThanAPanic(t *testing.T) {
 
 func TestAt(t *testing.T) {
 	const s = "see https://example.com and http://other.test now"
-	links := link.Detect(s)
+	links := link.Detect(s, nil)
 	if len(links) != 2 {
 		t.Fatalf("found %d links in %q", len(links), s)
 	}
@@ -179,7 +179,7 @@ func FuzzDetectNeverPanicsAndStaysInside(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		links := link.DetectIn(s, func(string) bool { return true })
+		links := link.Detect(s, func(string) bool { return true })
 		end := 0
 		for _, l := range links {
 			if l.Start < 0 || l.End > len(s) || l.Start >= l.End {

@@ -224,7 +224,7 @@ func TestAWidgetAnswersToTheNameOfWhatItDoes(t *testing.T) {
 	// The other half of a keymap. A widget names what it can do and answers to the
 	// name, which is what lets an action be reached from somewhere that is not the
 	// keyboard — a menu, a command typed by name, or a test that presses nothing.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("hello world")
 	if !e.Do(headless.MoveLineStart) {
 		t.Fatal("the editor did not know an action it documents")
@@ -585,7 +585,7 @@ func TestACompletionWithNoRoomDrawsNothing(_ *testing.T) {
 func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
 	// Which is the reason headless.Editor.Replace exists: taking back one thing the user did
 	// should not take two.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.SetText("look at @src")
 	token, ok := headless.TokenAt(e.Text(), len("look at @src"), file)
 	if !ok {
@@ -605,7 +605,7 @@ func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
 }
 
 func TestReplaceIsClampedToTheLine(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.SetText("abc")
 	e.Replace(-3, 99, "x")
 	if got := e.Text(); got != "x" {
@@ -614,7 +614,7 @@ func TestReplaceIsClampedToTheLine(t *testing.T) {
 }
 
 func TestEditorTyping(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	typeText(e, "hello")
 	if got := e.Text(); got != "hello" {
 		t.Fatalf("text = %q", got)
@@ -628,7 +628,7 @@ func TestEditorTyping(t *testing.T) {
 func TestEditorRefusesControlCharacters(t *testing.T) {
 	// A control character has no width and would be dropped at the cell, leaving a
 	// cursor position with nothing under it.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.InsertRune('\x1b')
 	e.InsertRune('\r')
 	if !e.Empty() {
@@ -641,7 +641,7 @@ func TestEditorRefusesControlCharacters(t *testing.T) {
 }
 
 func TestEditorMovesByClusterNotByByteOrRune(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("a中b")
 	e.MoveLineStart()
 	e.MoveRight()
@@ -660,7 +660,7 @@ func TestEditorMovesByClusterNotByByteOrRune(t *testing.T) {
 }
 
 func TestEditorCursorSitsOnTheColumnItsCharacterOccupies(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("中文x")
 	_, column := cursorAt(e, 20, 3)
 	// Two wide characters are four columns, so the cursor after the letter is at five.
@@ -670,7 +670,7 @@ func TestEditorCursorSitsOnTheColumnItsCharacterOccupies(t *testing.T) {
 }
 
 func TestEditorNewlineSplitsTheLine(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("hello world")
 	e.MoveLineStart()
 	for range 5 {
@@ -689,7 +689,7 @@ func TestEditorNewlineSplitsTheLine(t *testing.T) {
 func TestEditorPasteArrivesAsText(t *testing.T) {
 	// The point of a bracketed paste: what was pasted goes in as it was, newlines and
 	// all, rather than being interpreted a keystroke at a time.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Handle(input.Paste{Text: "func main() {\n\tprintln(1)\n}"})
 	if got := e.Text(); got != "func main() {\n\tprintln(1)\n}" {
 		t.Fatalf("text = %q", got)
@@ -701,7 +701,7 @@ func TestEditorPasteArrivesAsText(t *testing.T) {
 }
 
 func TestEditorBackspaceJoinsLines(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("one\ntwo")
 	e.MoveLineStart()
 	e.DeleteBack()
@@ -714,7 +714,7 @@ func TestEditorBackspaceJoinsLines(t *testing.T) {
 }
 
 func TestEditorBackspaceAtTheVeryStartDoesNothing(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("x")
 	e.MoveLineStart()
 	e.DeleteBack()
@@ -724,7 +724,7 @@ func TestEditorBackspaceAtTheVeryStartDoesNothing(t *testing.T) {
 }
 
 func TestEditorDeleteForwardJoinsTheLineBelow(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("one\ntwo")
 	e.MoveLineStart()
 	e.MoveUp()
@@ -736,7 +736,7 @@ func TestEditorDeleteForwardJoinsTheLineBelow(t *testing.T) {
 }
 
 func TestEditorWordMotions(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("alpha beta_two  gamma")
 	e.MoveLineEnd()
 
@@ -757,7 +757,7 @@ func TestEditorWordMotions(t *testing.T) {
 }
 
 func TestEditorDeleteWordBack(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("one two three")
 	e.Handle(ctrlKey('w'))
 	if got := e.Text(); got != "one two " {
@@ -771,7 +771,7 @@ func TestEditorDeleteWordBack(t *testing.T) {
 }
 
 func TestEditorKillToEndAndBack(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("keep this away")
 	e.MoveLineStart()
 	for range len("keep this ") {
@@ -789,7 +789,7 @@ func TestEditorKillToEndAndBack(t *testing.T) {
 
 func TestEditorKillToEndSwallowsTheLineBreakWhenThereIsNothingElse(t *testing.T) {
 	// What makes repeated presses take a paragraph rather than stop at the first line.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("one\ntwo")
 	e.MoveLineStart()
 	e.MoveUp()
@@ -801,7 +801,7 @@ func TestEditorKillToEndSwallowsTheLineBreakWhenThereIsNothingElse(t *testing.T)
 }
 
 func TestEditorKillToStart(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("drop this keep")
 	e.MoveLineStart()
 	for range len("drop this ") {
@@ -818,7 +818,7 @@ func TestEditorKillToStart(t *testing.T) {
 
 func TestEditorUndoStepsOverAPhraseNotALetter(t *testing.T) {
 	// One undo per keystroke would make undo useless in a composer.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	typeText(e, "hello world")
 	e.Undo()
 	if !e.Empty() {
@@ -827,7 +827,7 @@ func TestEditorUndoStepsOverAPhraseNotALetter(t *testing.T) {
 }
 
 func TestEditorUndoAndRedo(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	typeText(e, "first")
 	e.Newline()
 	typeText(e, "second")
@@ -856,7 +856,7 @@ func TestEditorUndoAndRedo(t *testing.T) {
 func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 	// A field that wraps has to move down the screen. Jumping to the next paragraph
 	// would move the cursor somewhere the user cannot see the reason for.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("aaa bbb ccc ddd")
 	if got := e.Measure(8); got != 2 {
 		t.Fatalf("height at width 8 = %d, want the text wrapped onto 2 rows", got)
@@ -879,7 +879,7 @@ func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
 	// Travelling down through a short line and out the other side has to come back to
 	// the column it went in at, or the cursor drifts left and stays there.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("aaaaaaaa\nbb\ncccccccc")
 	e.MoveLineStart()
 	e.SetCursor(0, 6)
@@ -896,7 +896,7 @@ func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
 }
 
 func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("one\ntwo")
 	cursorAt(e, 20, 5)
 	e.MoveUp()
@@ -913,7 +913,7 @@ func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
 }
 
 func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("one two three four five six seven")
 	wide := e.Measure(40)
 	narrow := e.Measure(10)
@@ -928,7 +928,7 @@ func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
 
 func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 	// A field that jumped to the end would lose the line the user is typing on.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("l1\nl2\nl3\nl4\nl5\nl6")
 	row, _ := cursorAt(e, 20, 3)
 	if row < 0 || row > 2 {
@@ -942,7 +942,7 @@ func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 }
 
 func TestEditorPlaceholderIsNotText(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Placeholder = "Ask anything"
 	rows := paintWidget(20, 1, e)
 	if !strings.Contains(rows[0], "Ask anything") {
@@ -961,7 +961,7 @@ func TestEditorPlaceholderIsNotText(t *testing.T) {
 func TestEditorLeavesEnterToItsContainer(t *testing.T) {
 	// Whether Enter sends or breaks the line is the container's decision. An editor
 	// that swallowed it would take that decision away from every container.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	if e.Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("the editor consumed Enter")
 	}
@@ -978,7 +978,7 @@ func TestEditorLeavesEnterToItsContainer(t *testing.T) {
 }
 
 func TestEditorLeavesChordsItHasNoUseForAlone(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	for _, ev := range []input.Event{
 		ctrlKey('g'),
 		ctrlKey('c'),
@@ -996,7 +996,7 @@ func TestEditorLeavesChordsItHasNoUseForAlone(t *testing.T) {
 }
 
 func TestEditorAcceptsShiftedCharacters(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Handle(input.Key{Code: input.Character, Rune: 'A', Mods: input.Shift})
 	if got := e.Text(); got != "A" {
 		t.Fatalf("text = %q", got)
@@ -1007,7 +1007,7 @@ func TestEditorPrefersTheTextTheTerminalReported(t *testing.T) {
 	// The key's own code is the unshifted key on the physical keyboard. On a layout
 	// where the key beside "1" produces "@", inserting the code would type "2", so
 	// what the terminal says the key produced has to win.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Handle(input.Key{Code: input.Character, Rune: '2', Text: "@"})
 	if got := e.Text(); got != "@" {
 		t.Fatalf("text = %q, want what the terminal reported", got)
@@ -1038,7 +1038,7 @@ func TestTheZeroEditorIsUsable(t *testing.T) {
 
 func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 	// The invariant the cursor rests on: what the layout says is what is drawn.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Insert("alpha beta gamma delta")
 	const width = 12
 	rows := paintWidget(width, e.Measure(width), e)

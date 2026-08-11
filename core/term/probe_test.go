@@ -31,7 +31,7 @@ func answered(t *testing.T, answer string) (*term.Terminal, *os.File) {
 		t.Fatalf("staging the terminal's answer: %v", err)
 	}
 
-	tty, err := term.OpenOn(replica, replica, term.Options{Probe: true}, os.LookupEnv)
+	tty, err := term.OpenOn(replica, replica, term.Config{Probe: true}, os.LookupEnv)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestProbeStopsWaitingWhenTheTerminalSaysWhatItIs(t *testing.T) {
 }
 
 func TestProbeAsksNothingUnlessAsked(t *testing.T) {
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	if !tty.Ground().BG.Default() {
 		t.Error("a terminal nobody questioned reported a background")
 	}
@@ -231,7 +231,7 @@ func TestProbePassesOnAnAnswerToSomethingElse(t *testing.T) {
 func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
 	// The terminal does the copying because over ssh, in a container, or through a
 	// multiplexer running elsewhere it is the only end the user is at.
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	if !tty.Copy("hello") {
 		t.Fatal("a small copy was refused")
 	}
@@ -242,7 +242,7 @@ func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
 }
 
 func TestCopyRefusesMoreThanItCanCarry(t *testing.T) {
-	tty, _ := open(t, term.Options{})
+	tty, _ := open(t, term.Config{})
 	if tty.Copy(strings.Repeat("x", clipboard.Limit()+1)) {
 		t.Error("a copy past the limit was reported as asked for")
 	}
@@ -252,7 +252,7 @@ func TestCopyRefusesMoreThanItCanCarry(t *testing.T) {
 // a terminal are the same event to whatever receives them, and this is the layer
 // that knows the difference so that nothing above has to.
 func TestPasteArrivesAsAPaste(t *testing.T) {
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	<-tty.Events() // the opening size
 
 	tty.Paste()
@@ -286,7 +286,7 @@ func TestPasteArrivesAsAPaste(t *testing.T) {
 // but the alternative rule would let text arrive in a document nobody asked to put
 // it in.
 func TestAnAnswerNobodyAskedForIsNotAPaste(t *testing.T) {
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	<-tty.Events()
 
 	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "unasked")
@@ -313,7 +313,7 @@ func TestAnAnswerNobodyAskedForIsNotAPaste(t *testing.T) {
 // TestAnUnreadableAnswerIsNotAnEmptyPaste, because an empty paste would clear a
 // selection the user still has.
 func TestAnUnreadableAnswerIsNotAnEmptyPaste(t *testing.T) {
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	<-tty.Events()
 
 	tty.Paste()
@@ -350,7 +350,7 @@ func TestGraphicsNeedsBothFacts(t *testing.T) {
 	}
 
 	// The same terminal, never asked, cannot know.
-	unasked, _ := open(t, term.Options{})
+	unasked, _ := open(t, term.Config{})
 	if got := unasked.Graphics(); got != graphics.None {
 		t.Errorf("a terminal nobody asked reports %v, want none", got)
 	}
@@ -475,7 +475,7 @@ func TestNoAnswerIsReadAsTyping(t *testing.T) {
 }
 
 func TestReportingTheDirectory(t *testing.T) {
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	if err := tty.ReportDirectory("/tmp/some dir/x"); err != nil {
 		t.Fatalf("ReportDirectory: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestReportingTheDirectory(t *testing.T) {
 }
 
 func TestReportingTheDirectoryDefaultsToThisOne(t *testing.T) {
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	if err := tty.ReportDirectory(""); err != nil {
 		t.Fatalf("ReportDirectory: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestAnAnswerToSomethingElseIsPassedOn(t *testing.T) {
 func TestReportingADirectoryThatCannotBeMadeAbsolute(t *testing.T) {
 	// A path is made absolute because a relative one tells the terminal nothing it did
 	// not already have.
-	tty, primary := open(t, term.Options{})
+	tty, primary := open(t, term.Config{})
 	if err := tty.ReportDirectory("relative/path"); err != nil {
 		t.Fatalf("ReportDirectory: %v", err)
 	}

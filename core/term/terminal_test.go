@@ -35,12 +35,12 @@ func pty(t *testing.T) (primary, replica *os.File) {
 	return primary, replica
 }
 
-func open(t *testing.T, opts term.Options) (*term.Terminal, *os.File) {
+func open(t *testing.T, cfg term.Config) (*term.Terminal, *os.File) {
 	t.Helper()
 	primary, replica := pty(t)
 	// The replica is the terminal, so that is the side the session takes over and
 	// the primary is where a test watches from.
-	tty, err := term.OpenOn(replica, replica, opts, os.LookupEnv)
+	tty, err := term.OpenOn(replica, replica, cfg, os.LookupEnv)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestOpeningSomethingThatIsNotATerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	if _, err := term.OpenOn(f, f, term.Options{}, nil); err == nil {
+	if _, err := term.OpenOn(f, f, term.Config{}, nil); err == nil {
 		t.Fatal("a file that is not a terminal was taken over")
 	}
 }
@@ -69,20 +69,22 @@ func TestOpeningRefusesRedirectedOutputEvenWithTerminalInput(t *testing.T) {
 	}
 	defer func() { _ = out.Close() }()
 
-	if _, err := term.OpenOn(replica, out, term.Options{}, nil); !errors.Is(err, term.ErrNotTerminal) {
+	if _, err := term.OpenOn(replica, out, term.Config{}, nil); !errors.Is(err, term.ErrNotTerminal) {
 		t.Fatalf("OpenOn error = %v, want redirected output rejected", err)
 	}
 }
 
 func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
 	_, replica := pty(t)
-	values := map[string]string{"TERM_PROGRAM": "iTerm.app", "LANG": "en_GB.UTF-8"}
+	values := map[string]string{
+		"TERM": "xterm-256color", "TERM_PROGRAM": "iTerm.app", "LANG": "en_GB.UTF-8",
+	}
 	lookup := func(name string) (string, bool) {
 		value, ok := values[name]
 		return value, ok
 	}
 
-	tty, err := term.OpenOn(replica, replica, term.Options{}, lookup)
+	tty, err := term.OpenOn(replica, replica, term.Config{}, lookup)
 	if err != nil {
 		t.Fatalf("opening a terminal with an explicit environment: %v", err)
 	}
@@ -91,6 +93,7 @@ func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
 	// A terminal's capabilities are session facts. Neither mutation of the adapter's
 	// environment nor this process's unrelated environment may change them later.
 	values["TERM_PROGRAM"] = "Apple_Terminal"
+	values["TERM"] = "dumb"
 	values["LANG"] = "C"
 	t.Setenv("KITTY_WINDOW_ID", "1")
 	if got := tty.Wheel(); got != (input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}) {
@@ -102,10 +105,13 @@ func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
 	if got := tty.Locale(); got != "en_GB.UTF-8" {
 		t.Errorf("locale = %q, want the frozen explicit terminal environment", got)
 	}
+	if got := tty.Color(); got != grid.Depth256 {
+		t.Errorf("color = %v, want the frozen explicit terminal environment", got)
+	}
 }
 
 func TestASessionSaysWhatItIsTurningOn(t *testing.T) {
-	tty, watch := open(t, term.Options{
+	tty, watch := open(t, term.Config{
 		Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
 	})
 
@@ -128,7 +134,7 @@ func TestASessionSaysWhatItIsTurningOn(t *testing.T) {
 }
 
 func TestASessionGivesTheTerminalBack(t *testing.T) {
-	tty, watch := open(t, term.Options{Mouse: true})
+	tty, watch := open(t, term.Config{Mouse: true})
 	read(t, watch, 300*time.Millisecond)
 
 	if err := tty.Close(); err != nil {
@@ -149,7 +155,7 @@ func TestASessionGivesTheTerminalBack(t *testing.T) {
 
 func TestCloseStillAttemptsRawModeRestoreAfterItsOutputFails(t *testing.T) {
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{Mouse: true}, nil)
+	tty, err := term.OpenOn(replica, replica, term.Config{Mouse: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -174,7 +180,7 @@ func TestCloseStillAttemptsRawModeRestoreAfterItsOutputFails(t *testing.T) {
 }
 
 func TestATerminalReportsItsSizeAndItsOpeningResize(t *testing.T) {
-	tty, _ := open(t, term.Options{})
+	tty, _ := open(t, term.Config{})
 
 	w, h, err := tty.Size()
 	if err != nil {
@@ -197,7 +203,7 @@ func TestATerminalReportsItsSizeAndItsOpeningResize(t *testing.T) {
 
 func TestATerminalReportsALaterResize(t *testing.T) {
 	_, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{}, nil)
+	tty, err := term.OpenOn(replica, replica, term.Config{}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -228,7 +234,7 @@ func TestATerminalReportsALaterResize(t *testing.T) {
 }
 
 func TestATerminalsWriterReachesIt(t *testing.T) {
-	tty, watch := open(t, term.Options{})
+	tty, watch := open(t, term.Config{})
 	read(t, watch, 200*time.Millisecond)
 
 	s := grid.NewScreen(4, 1)
@@ -247,7 +253,7 @@ func TestATerminalsWriterReachesIt(t *testing.T) {
 }
 
 func TestKeystrokesTypedAtATerminalArriveAsEvents(t *testing.T) {
-	tty, watch := open(t, term.Options{})
+	tty, watch := open(t, term.Config{})
 	<-tty.Events() // the opening size
 
 	if _, err := watch.WriteString("k"); err != nil {
@@ -290,7 +296,7 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	// order, which is what closing does — so handing the terminal to a child is that
 	// twice, and the child gets a terminal with no idea a program was using it.
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true, Mouse: true}, nil)
+	tty, err := term.OpenOn(replica, replica, term.Config{AltScreen: true, Mouse: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -371,7 +377,7 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 
 func TestAPanickingChildStillReturnsTerminalOwnership(t *testing.T) {
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Options{AltScreen: true}, nil)
+	tty, err := term.OpenOn(replica, replica, term.Config{AltScreen: true}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -420,7 +426,7 @@ func TestAPanickingChildStillReturnsTerminalOwnership(t *testing.T) {
 func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 	// The values that are one sequence each and are ignored by a terminal that does
 	// not implement them, which is what makes them safe to send without asking.
-	tty, watch := open(t, term.Options{})
+	tty, watch := open(t, term.Config{})
 	read(t, watch, 200*time.Millisecond)
 
 	// With an escape byte in the text, because the text is a file name or a model's

@@ -37,12 +37,12 @@ func TestRootPublishesNestedRoutingGeometryAtomically(t *testing.T) {
 	newTop := &routingTarget{}
 	newBottom := &routingTarget{}
 
-	inner := Rows(
+	inner := NewContainer(layout.Down,
 		Item{Size: layout.Fixed(2), Of: oldTop},
 		Item{Size: layout.Fixed(1), Of: oldBottom},
 	)
 	probe := &routingProbe{point: image.Pt(0, 2)}
-	outer := Rows(
+	outer := NewContainer(layout.Down,
 		Item{Size: layout.Fixed(3), Of: inner},
 		Item{Size: layout.Fixed(0), Of: probe},
 	)

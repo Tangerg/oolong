@@ -136,7 +136,9 @@ func (t *Tabs) Select(at int) {
 	t.settle()
 }
 
-// Sync applies a caller-written controlled selection to pane focus.
+// Sync applies a caller-written controlled selection to pane focus. An index outside
+// the current parts is clamped and written back, so the caller and controller keep
+// one valid selection rather than observing different forms of the same state.
 //
 // Accessors are not observable. Keeping this explicit prevents Draw from performing a
 // hidden semantic transition merely because external storage changed.
@@ -144,7 +146,7 @@ func (t *Tabs) Sync() {
 	if t == nil {
 		return
 	}
-	t.settle()
+	t.Select(t.selection.get())
 }
 
 // Move steps by n panes, wrapping unless told not to.

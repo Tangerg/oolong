@@ -443,7 +443,7 @@ and indentation. There is no ellipsis path that silently removes a proposed chan
 
 **Keyboard enhancement is negotiated as features.** Codex handles Kitty keyboard
 flags, `modifyOtherKeys`, terminal-specific exclusions and symmetric restoration.
-Oolong's transport-neutral form is `input.KeyboardFeatures`: `term.Options.Modes`
+Oolong's transport-neutral form is `input.KeyboardFeatures`: `term.Config.Modes`
 derives the exact requested flags from the environment of the terminal being driven,
 and SSH uses the client's PTY environment rather than the server process. The input
 package names decoded capabilities; `term` alone owns escape sequences and

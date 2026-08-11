@@ -3,7 +3,6 @@ package grid
 import (
 	"image"
 	"io"
-	"strconv"
 )
 
 // eraseLine clears from the cursor to the end of its row. It is what makes a row
@@ -558,7 +557,5 @@ func (i *Inline) settle(used int) {
 }
 
 func (i *Inline) csi(n int, final byte) {
-	i.buf = append(i.buf, '\x1b', '[')
-	i.buf = strconv.AppendInt(i.buf, int64(n), 10)
-	i.buf = append(i.buf, final)
+	i.buf = appendCSI(i.buf, n, final)
 }

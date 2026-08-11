@@ -72,7 +72,42 @@ func (m mockBackend) Run(ctx context.Context, prompt string, output agentOutput)
 		return err
 	}
 
-	proposal := changeProposal{
+	proposal := parserProposal()
+	if err := output.Step(ctx, stepUpdate{Index: 2, State: stepRunning}); err != nil {
+		return err
+	}
+	approved, err := output.Review(ctx, proposal)
+	if err != nil {
+		return err
+	}
+	if !approved {
+		if err := output.Step(ctx, stepUpdate{Index: 2, State: stepSkipped}); err != nil {
+			return err
+		}
+		if err := output.Step(ctx, stepUpdate{Index: 3, State: stepSkipped}); err != nil {
+			return err
+		}
+		return m.write(ctx, output, "I left the workspace unchanged. The review decision is a domain result, not a transport failure.\n")
+	}
+	if err := output.Tool(ctx, toolResult{
+		Name: "apply_patch", Summary: "updated internal/parser.go", Change: proposal,
+	}); err != nil {
+		return err
+	}
+	if err := output.Step(ctx, stepUpdate{Index: 2, State: stepDone}); err != nil {
+		return err
+	}
+	if err := output.Step(ctx, stepUpdate{Index: 3, State: stepRunning}); err != nil {
+		return err
+	}
+	if err := m.write(ctx, output, "## Verification\n\nThe focused tests and race detector pass. The parser now owns validation and callers have one obvious path.\n\nAll checks pass.\n"); err != nil {
+		return err
+	}
+	return output.Step(ctx, stepUpdate{Index: 3, State: stepDone})
+}
+
+func parserProposal() changeProposal {
+	return changeProposal{
 		Path:    "internal/parser.go",
 		Summary: "move validation into parser.advance",
 		Before: []string{
@@ -93,33 +128,6 @@ func (m mockBackend) Run(ctx context.Context, prompt string, output agentOutput)
 			"}",
 		},
 	}
-	if err := output.Step(ctx, stepUpdate{Index: 2, State: stepRunning}); err != nil {
-		return err
-	}
-	approved, err := output.Review(ctx, proposal)
-	if err != nil {
-		return err
-	}
-	if !approved {
-		_ = output.Step(ctx, stepUpdate{Index: 2, State: stepSkipped})
-		_ = output.Step(ctx, stepUpdate{Index: 3, State: stepSkipped})
-		return m.write(ctx, output, "I left the workspace unchanged. The review decision is a domain result, not a transport failure.\n")
-	}
-	if err := output.Tool(ctx, toolResult{
-		Name: "apply_patch", Summary: "updated internal/parser.go", Change: proposal,
-	}); err != nil {
-		return err
-	}
-	if err := output.Step(ctx, stepUpdate{Index: 2, State: stepDone}); err != nil {
-		return err
-	}
-	if err := output.Step(ctx, stepUpdate{Index: 3, State: stepRunning}); err != nil {
-		return err
-	}
-	if err := m.write(ctx, output, "## Verification\n\nThe focused tests and race detector pass. The parser now owns validation and callers have one obvious path.\n\nAll checks pass.\n"); err != nil {
-		return err
-	}
-	return output.Step(ctx, stepUpdate{Index: 3, State: stepDone})
 }
 
 func (m mockBackend) write(ctx context.Context, dst io.Writer, body string) error {

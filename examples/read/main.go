@@ -28,6 +28,7 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/core/text"
 	"github.com/Tangerg/oolong/examples/internal/latexlook"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/highlight"
@@ -38,7 +39,7 @@ import (
 func main() {
 	if err := program.Run(context.Background(), program.Config{
 		Inline:   func(runtime *program.InlineRuntime) program.Component { return newReader(runtime) },
-		Terminal: term.Options{Probe: true},
+		Terminal: term.Config{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "read:", err)
 		os.Exit(1)
@@ -81,10 +82,12 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	// Appearance is application composition: the three peer modules still share no
 	// import edge and expose only their core text boundary to one another.
 	look := markdownlook.New(theme, glyphs)
-	look.SetRenderer(markdown.DisplayMath, latex.Of(latexlook.New(
-		theme, runtime.Environment().Locale(),
-	)))
-	look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
+	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
+	look.SetRenderer(markdown.DisplayMath, func(_ string, source string) []text.Line {
+		return latex.Render(source, formulaLook).Lines()
+	})
+	highlighter := highlight.New("github-dark")
+	look.SetRenderer(markdown.FencedCode, highlighter.Lines)
 	r.stream.SetLook(look)
 
 	runtime.Session().SetTitle("reading")
@@ -125,10 +128,10 @@ func (r *reader) finish() {
 
 // Draw is what is still being written, and a row under it.
 func (r *reader) Draw(v grid.View) {
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Measured(0, 0), Of: layout.MeasureFunc(r.open.Measure)},
-		layout.Slot{Size: layout.Fixed(1)},
-	))
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Measured(0, 0), Of: layout.MeasureFunc(r.open.Measure)},
+		{Size: layout.Fixed(1)},
+	}))
 	r.open.Draw(rows[0])
 	if r.at >= len(r.pieces) {
 		kit.Label{

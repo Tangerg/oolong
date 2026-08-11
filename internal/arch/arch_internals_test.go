@@ -26,6 +26,7 @@
 package arch
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -350,6 +351,146 @@ func TestEveryDirectoryBelongsToARing(t *testing.T) {
 	})
 }
 
+func TestWhiteBoxTestsNameTheirBoundary(t *testing.T) {
+	root := repoRoot(t)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if skipped(entry.Name(), path == root) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_internals_test.go") {
+			return nil
+		}
+		production, ok, err := productionPackage(filepath.Dir(path))
+		if err != nil || !ok || production == "main" {
+			return err
+		}
+		tested, err := packageClause(path)
+		if err != nil {
+			return err
+		}
+		if tested == production {
+			relative, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+			t.Errorf("%s is a white-box test; name it *_internals_test.go", filepath.ToSlash(relative))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk tests: %v", err)
+	}
+}
+
+// TestConfigurationUsesExplicitValues keeps construction configuration in ordinary
+// structs. A functional option is not just another spelling: it hides the complete
+// configuration from documentation, comparison and composition, and gives one
+// operation a second configuration language. Domain values such as
+// headless.Option remain structs and therefore do not match this rule.
+func TestConfigurationUsesExplicitValues(t *testing.T) {
+	root := repoRoot(t)
+	walk(t, root, func(_, path string) {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			spec, ok := node.(*ast.TypeSpec)
+			if !ok || !spec.Name.IsExported() {
+				return true
+			}
+			position := fset.Position(spec.Pos())
+			relative, relErr := filepath.Rel(root, position.Filename)
+			if relErr != nil {
+				t.Fatalf("make %s relative: %v", position.Filename, relErr)
+			}
+			location := filepath.ToSlash(relative)
+
+			if spec.Name.Name == "Options" {
+				if _, isStruct := spec.Type.(*ast.StructType); isStruct {
+					t.Errorf("%s:%d declares Options as configuration; use one explicit Config value",
+						location, position.Line)
+				}
+			}
+			function, isFunction := spec.Type.(*ast.FuncType)
+			if !isFunction {
+				return true
+			}
+			if spec.Name.Name == "Option" || mutatesConfig(function) {
+				t.Errorf("%s:%d declares the functional option %s; use an explicit Config struct",
+					location, position.Line, spec.Name.Name)
+			}
+			return true
+		})
+	})
+}
+
+func mutatesConfig(function *ast.FuncType) bool {
+	if function.Results != nil && len(function.Results.List) != 0 {
+		return false
+	}
+	if function.Params == nil || len(function.Params.List) != 1 {
+		return false
+	}
+	parameter := function.Params.List[0]
+	if len(parameter.Names) > 1 {
+		return false
+	}
+	pointer, ok := parameter.Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	name := typeName(pointer.X)
+	return name == "config" || strings.HasSuffix(name, "Config") || strings.HasSuffix(name, "Options")
+}
+
+func TestConfigurationRuleRecognizesFunctionalOptions(t *testing.T) {
+	tests := []struct {
+		source string
+		want   bool
+	}{
+		{"func(*Config)", true},
+		{"func(*transport.Config)", true},
+		{"func(*sessionOptions)", true},
+		{"func(*Config) error", false},
+		{"func(string)", false},
+		{"func(a, b *Config)", false},
+		{"func(*Widget)", false},
+	}
+	for _, test := range tests {
+		expression, err := parser.ParseExpr(test.source)
+		if err != nil {
+			t.Fatalf("parse %q: %v", test.source, err)
+		}
+		function, ok := expression.(*ast.FuncType)
+		if !ok {
+			t.Fatalf("%q parsed as %T", test.source, expression)
+		}
+		if got := mutatesConfig(function); got != test.want {
+			t.Errorf("mutatesConfig(%q) = %t, want %t", test.source, got, test.want)
+		}
+	}
+}
+
+func typeName(expression ast.Expr) string {
+	switch expression := expression.(type) {
+	case *ast.Ident:
+		return expression.Name
+	case *ast.SelectorExpr:
+		return expression.Sel.Name
+	default:
+		return ""
+	}
+}
+
 func TestDependencyGraphIsCompleteAndAcyclic(t *testing.T) {
 	known := make(map[string]bool, len(rings))
 	for _, ring := range rings {
@@ -576,6 +717,29 @@ func comments(t *testing.T, fset *token.FileSet, path string) []string {
 		out[i] = group.Text()
 	}
 	return out
+}
+
+func productionPackage(dir string) (string, bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		name, err := packageClause(filepath.Join(dir, entry.Name()))
+		return name, true, err
+	}
+	return "", false, nil
+}
+
+func packageClause(path string) (string, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
+	if err != nil {
+		return "", err
+	}
+	return file.Name.Name, nil
 }
 
 // repoRoot is the directory holding go.work, which is the one thing that marks the

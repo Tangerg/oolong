@@ -100,10 +100,10 @@ func (c *Composer) Draw(v headless.Frame) {
 		return
 	}
 	hints := c.hintRows()
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(hints)},
-	))
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(hints)},
+	}))
 	c.drawField(rows[0])
 	if hints > 0 {
 		Help{Theme: c.Theme, Keys: c.keys(), Show: c.Hints}.Draw(rows[1].View)

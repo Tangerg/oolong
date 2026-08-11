@@ -24,6 +24,9 @@ func TestScreenAppliesFullFramesAndCellDiffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := shown.Size(); got != (ptytest.Size{Cols: 8, Rows: 2}) {
+		t.Fatalf("screen size = %+v, want 8 columns by 2 rows", got)
+	}
 	if err := shown.Apply(output.Bytes()); err != nil {
 		t.Fatal(err)
 	}

@@ -26,7 +26,7 @@ focus came with it, and only then did "how is a widget dressed" have one answer.
 ### 1.1 Components do not compose
 
 Every widget here is an independent object that knows nothing about any other. A caller
-places them by hand with `layout.Down.Rects` and forwards events by hand. `kit.Composer` has
+places them by hand with a downward `layout.Flow` and forwards events by hand. `kit.Composer` has
 to subtract its own marker width from a mouse position before handing it to the field —
 work a parent container would do, if there were one.
 
@@ -469,7 +469,7 @@ things, and one of them has already been written twice:
 copy of the arithmetic out fixed a defect in it: a floor on a flexible column was
 handed out even when there was no room for it, so a narrow table returned widths
 adding up to more than it had and the last column drew past its own right edge.
-`layout.Divide` has always honoured a floor only while there is room, because a widget
+`layout.Flow.Divide` has always honoured a floor only while there is room, because a widget
 cannot see the clip and lays out against the size it was told. The form's copy was a
 blank child between every pair of fields, which put things in the focus ring that are
 not children; a `Container` has a `Gap` now.

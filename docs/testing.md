@@ -73,13 +73,15 @@ under test into `t.TempDir`, then start it on a PTY:
 if !ptytest.Supported() {
     t.Skip("this platform has no PTY harness")
 }
-session, err := ptytest.Start(t.Context(), binary)
+session, err := ptytest.Start(t.Context(), ptytest.Config{}, binary)
 if err != nil {
     t.Fatal(err)
 }
 defer func() { _ = session.Close() }()
 
-if err := session.Transcript().WaitWithin(5*time.Second, "ready"); err != nil {
+ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+defer cancel()
+if err := session.Transcript().WaitFor(ctx, "ready"); err != nil {
     t.Fatal(err)
 }
 if err := session.Type("q"); err != nil {
@@ -118,6 +120,22 @@ error.
 
 Corpus files are byte fixtures. The repository forces LF endings for every
 `testdata/fuzz/**` path so checkout settings cannot rewrite a seed before Go reads it.
+
+## Give every callable path executable evidence
+
+`scripts/check-reachability.sh` runs the pinned `deadcode` analyzer with tests across
+Linux, macOS, and Windows. A private unreachable function is dead implementation. An
+unreachable exported operation has no executable contract coverage, but it is not
+necessarily dead API: a framework exists for downstream callers, and its extension
+points may intentionally have no repository production call. Give that operation an
+external-package behavioral test. Retain or remove it only after a separate review of
+its responsibility, abstraction level, overlap, and contract.
+
+Keep caller-visible behavior in external-package tests (`foo_test`). A white-box
+test may use the implementation package only when the property has no public form,
+and its filename must end in `_internals_test.go`. The architecture gate derives
+the package boundary from source and rejects an ordinary test that crosses it, so
+private coupling stays exceptional and visible during review.
 
 ## Update visual goldens deliberately
 

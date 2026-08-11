@@ -36,7 +36,7 @@ func shift(code input.Code) input.Key {
 }
 
 func editorWith(text string) *headless.Editor {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.SetText(text)
 	e.SetCursor(0, 0)
 	return e

@@ -71,7 +71,7 @@ func (w *widget) Handle(event input.Event) bool {
 
 ## 实时内存随会话年龄增长
 
-完成的 transcript 块必须离开实时图。请把稳定块标记为完成，只保留有界的交互前缀，并通过 `kit.Transcript.CommitN` 交付超出的部分。
+完成的 transcript 块必须离开实时图。请把稳定块标记为完成，只保留有界的交互前缀，并通过带显式上限的 `kit.Transcript.Commit` 交付超出的部分。
 
 只让开放的 Markdown 尾部保持可变。不要保留已经交付输出的子串或行。[流式指南](streaming.md)定义了所有权切点，[Agent 指南](agent.md)展示了有界保留策略。
 

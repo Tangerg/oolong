@@ -65,14 +65,14 @@ type Widget interface {
 // It is [layout.Measurer] and nothing more, so a sized widget goes straight into a
 // [layout.Slot]:
 //
-//	rects := layout.Down.Rects(v.Bounds().Size(),
-//		layout.Slot{Size: layout.Measured(0, 3), Of: header},
-//		layout.Slot{Size: layout.Flex(1)},
-//	)
+//	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+//		{Size: layout.Measured(0, 3), Of: header},
+//		{Size: layout.Flex(1)},
+//	})
 //
 // Measure is asked before Draw and must agree with it. A widget that reports one
-// size and draws another gets clipped or leaves a gap, and both look like a layout
-// bug somewhere else.
+// size and draws another gets clipped or leaves a gap, and both look like a defect
+// elsewhere in the layout tree.
 type Sized interface {
 	Widget
 	layout.Measurer

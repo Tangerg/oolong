@@ -109,9 +109,7 @@ func (p *painter) setScrollRegion(top, bottom int) {
 func (p *painter) dropScrollRegion() { p.out = append(p.out, "\x1b[r"...) }
 
 func (p *painter) csi(n int, final byte) {
-	p.out = append(p.out, '\x1b', '[')
-	p.out = strconv.AppendInt(p.out, int64(n), 10)
-	p.out = append(p.out, final)
+	p.out = appendCSI(p.out, n, final)
 }
 
 // diffCostFloor is a guaranteed lower bound on what the plain cell diff between

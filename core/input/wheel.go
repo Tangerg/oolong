@@ -224,42 +224,20 @@ const (
 // accumulated. It is what a caller does once, having asked [WheelFor].
 func (a *Advance) Wheel(w Wheel) { a.wheel = w }
 
-// By is how many rows n reports in one direction come to.
-//
-// A negative count is upwards, which is what the caller already has: a wheel event is
-// one report in a direction, so this is called with plus or minus one.
-func (a *Advance) By(reports int) int {
-	return a.at(time.Time{}, reports)
-}
-
-// At is the same for a report that came with a time on it, which is what a terminal's
-// reader stamps — see [Mouse.At].
+// Rows converts reports in one direction into whole rows at when.
 //
 // The time is what tells a finger from the wheel. Both send the same report, and only
 // how fast they arrive is different: a wheel's notches come as far apart as a hand can
-// turn them, and a finger's motion arrives as fast as the terminal can report it.
-func (a *Advance) At(when time.Time, reports int) int { return a.at(when, reports) }
-
-func (a *Advance) at(when time.Time, reports int) int {
+// turn them, and a finger's motion arrives as fast as the terminal can report it. A
+// zero time deliberately disables temporal classification for synthetic input.
+//
+// A negative report count is upwards, which is what a caller already has: a wheel
+// event is one report in a direction, so this is normally called with plus or minus
+// one.
+func (a *Advance) Rows(when time.Time, reports int) int {
 	distance := a.wheel.Distance()
-	if !when.IsZero() {
-		gap := when.Sub(a.last)
-		if a.last.IsZero() || gap < 0 || gap > gestureGap {
-			a.began, a.reports, a.finger = when, 0, false
-		}
-		a.last = when
-		a.reports = addReportCount(a.reports, reports)
-		// A gesture is a finger once it has sent more reports, faster, than a hand
-		// could turn a wheel. It stays one until the gesture ends, because a finger
-		// slowing to a stop is still a finger.
-		if !a.finger && a.wheel.Reports <= 1 && a.reports > fingerReports {
-			if elapsed := when.Sub(a.began); withinReportRate(elapsed, a.reports) {
-				a.finger = true
-			}
-		}
-		if a.finger {
-			distance = a.wheel.TrackpadDistance()
-		}
+	if a.observe(when, reports) {
+		distance = a.wheel.TrackpadDistance()
 	}
 	a.carried += float64(reports) * distance
 	// Truncated towards zero, so a direction change never crosses the boundary and
@@ -267,6 +245,28 @@ func (a *Advance) at(when time.Time, reports int) int {
 	rows, remainder := wholeRows(a.carried)
 	a.carried = remainder
 	return rows
+}
+
+// observe advances gesture identity and reports whether the current reports come
+// from a finger. Classification belongs to the gesture state itself; converting
+// reports to rows only consumes its answer.
+func (a *Advance) observe(when time.Time, reports int) bool {
+	if when.IsZero() {
+		return false
+	}
+	gap := when.Sub(a.last)
+	if a.last.IsZero() || gap < 0 || gap > gestureGap {
+		a.began, a.reports, a.finger = when, 0, false
+	}
+	a.last = when
+	a.reports = addReportCount(a.reports, reports)
+	// A gesture is a finger once it has sent more reports, faster, than a hand
+	// could turn a wheel. It stays one until the gesture ends, because a finger
+	// slowing to a stop is still a finger.
+	if !a.finger && a.wheel.Reports <= 1 && a.reports > fingerReports {
+		a.finger = withinReportRate(when.Sub(a.began), a.reports)
+	}
+	return a.finger
 }
 
 // Reset drops any part of a row accumulated and forgets the gesture, which a caller

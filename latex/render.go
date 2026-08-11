@@ -415,20 +415,36 @@ type symbolResult struct {
 	err   error
 }
 
-var symbolCache sync.Map
+// symbolResolver memoises only symbols the dependency successfully resolves.
+// Unknown macro names come from untrusted formula source and are deliberately not
+// retained: caching failures would turn distinct invalid inputs into process-lifetime
+// global state.
+type symbolResolver struct{ cache sync.Map }
+
+var symbolsForTerminal symbolResolver
 
 func terminalSymbol(name string, plain bool) (string, error) {
 	if plain {
 		return asciiSymbol(name), nil
 	}
-	if cached, ok := symbolCache.Load(name); ok {
-		if result, valid := cached.(symbolResult); valid {
-			return result.value, result.err
+	return symbolsForTerminal.resolve(name)
+}
+
+func (r *symbolResolver) resolve(name string) (string, error) {
+	if cached, ok := r.cache.Load(name); ok {
+		if value, valid := cached.(string); valid {
+			return value, nil
 		}
-		symbolCache.Delete(name)
+		r.cache.Delete(name)
 	}
 	result := resolveSymbol(name)
-	symbolCache.Store(name, result)
+	if result.err == nil {
+		actual, _ := r.cache.LoadOrStore(name, result.value)
+		if value, valid := actual.(string); valid {
+			return value, nil
+		}
+		r.cache.Delete(name)
+	}
 	return result.value, result.err
 }
 

@@ -377,7 +377,7 @@ sign、背景与缩进；不存在用 ellipsis 悄悄删掉 proposed change 的�
 
 **键盘增强以 feature 协商。** Codex 处理 Kitty keyboard flags、`modifyOtherKeys`、
 terminal-specific exclusion 与对称恢复。Oolong 的 transport-neutral 形状是
-`input.KeyboardFeatures`：`term.Options.Modes` 根据真正被驱动 terminal 的环境推导准确
+`input.KeyboardFeatures`：`term.Config.Modes` 根据真正被驱动 terminal 的环境推导准确
 flags；SSH 使用 client 的 PTY 环境，而不是 server process。input package 命名解码后的
 能力；只有 `term` 拥有 escape sequence 与兼容性判断。
 

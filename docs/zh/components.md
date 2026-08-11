@@ -91,11 +91,11 @@ func (p *picker) configureItems(items []string) {
 
 ```go
 func (p *picker) Draw(frame headless.Frame) {
-    rows := frame.Subs(layout.Down.Rects(frame.Bounds().Size(),
-        layout.Slot{Size: layout.Fixed(1)},
-        layout.Slot{Size: layout.Flex(1)},
-        layout.Slot{Size: layout.Fixed(1)},
-    ))
+    rows := frame.Subs((layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
+        {Size: layout.Fixed(1)},
+        {Size: layout.Flex(1)},
+        {Size: layout.Fixed(1)},
+    }))
     p.query.Draw(rows[0])
     p.list.Draw(rows[1])
     kit.Label{
@@ -145,7 +145,7 @@ err := program.Run(context.Background(), program.Config{
     Root: func(runtime *program.Runtime) program.Component {
         return headless.NewRoot(newPicker(runtime, files()))
     },
-    Terminal: term.Options{Probe: true, Mouse: true},
+    Terminal: term.Config{Probe: true, Mouse: true},
 })
 ```
 

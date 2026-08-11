@@ -29,7 +29,7 @@ The three modules are peers with different natural results:
 | Module | Primary entry point | Result | Use it for |
 | --- | --- | --- | --- |
 | `markdown` | `markdown.Render` | `[]markdown.Block` | Structured prose and GFM |
-| `highlight` | `highlight.Lines` | `[]text.Line` | One styled source block |
+| `highlight` | `highlight.New` | `highlight.Renderer` | Reusable styled source rendering |
 | `latex` | `latex.Render` | `*latex.Formula` | Measured, selectable mathematics |
 
 Install only the selected modules and the lower layers your application uses:
@@ -64,17 +64,19 @@ theme or assume a palette.
 
 ## Highlight source without Markdown
 
-Use `highlight.Lines` when the application already knows that a value is code:
+Construct one renderer when the application knows a value is code, then use the same
+`Lines` method everywhere that scheme is needed:
 
 ```go
-lines := highlight.Lines("go", source, "github-dark")
+highlighter := highlight.New("github-dark")
+lines := highlighter.Lines("go", source)
 for row, line := range lines {
     line.Draw(view, 0, row)
 }
 ```
 
 An unknown language falls back to source analysis and then plain text. Use
-`highlight.Background` when the surrounding pane should adopt the selected scheme's
+`highlighter.Background` when the surrounding pane should adopt the selected scheme's
 background; token lines do not force that decision.
 
 ## Render a formula without Markdown
@@ -114,8 +116,13 @@ look := markdown.Look{
     Link:     theme.Accent,
     Marker:   theme.Accent,
 }
-look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
-look.SetRenderer(markdown.DisplayMath, latex.Of(formulaLook))
+highlighter := highlight.New("github-dark")
+look.SetRenderer(markdown.FencedCode, highlighter.Lines)
+look.SetRenderer(markdown.DisplayMath,
+    func(_ string, source string) []text.Line {
+        return latex.Render(source, formulaLook).Lines()
+    },
+)
 
 doc.SetBlocks(markdown.Render(source, look))
 ```
@@ -129,10 +136,11 @@ type Renderer func(info, source string) []text.Line
 No parser tree crosses the boundary. Highlight and LaTeX return core styled text,
 and neither knows that Markdown is the consumer.
 
-## Preserve domain results when they matter
+## Observe domain results while composing
 
-`latex.Of` is an adapter for callers that need only lines. Wrap `latex.Render`
-directly when the application must count, log, or display parse failures:
+There is no second, lossy LaTeX entry point. The same `latex.Render` call used on its
+own is wrapped at the consumer boundary, so an application can count, log, or display
+parse failures before it returns the lines Markdown needs:
 
 ```go
 look.SetRenderer(markdown.DisplayMath,
@@ -177,7 +185,7 @@ The [streaming guide](streaming.md) shows the concrete transcript pattern with
 Use focused tests so a failure names the layer that broke:
 
 - Assert `markdown.Doc.Rows(width)` for document structure and wrapping
-- Assert `highlight.Lines` spans for language and style selection
+- Assert `highlight.Renderer.Lines` spans for language and style selection
 - Assert `Formula.Err`, `Lines`, and `Width` for mathematical input
 - Run the composed component through `programtest` for final visible behavior
 

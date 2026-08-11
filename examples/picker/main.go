@@ -33,7 +33,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newPicker(runtime, files(), &chosen))
 		},
-		Terminal: term.Options{Probe: true},
+		Terminal: term.Config{Probe: true},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "picker:", err)
@@ -77,11 +77,11 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 // Draw stacks the query over the matches, with a count where there is room.
 func (p *picker) Draw(v headless.Frame) {
 	p.areas.Stage(v, pickerAreas{})
-	rects := layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-	)
+	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(1)},
+	})
 	rows := v.Subs(rects)
 	p.areas.Stage(v, pickerAreas{query: rects[0], list: rects[1]})
 	p.query.Draw(rows[0])
@@ -180,9 +180,11 @@ func (p *picker) pick() {
 // files is what there is to choose from. A real one would read a directory or a
 // history; what matters here is that it is a slice of the program's own things.
 func files() []string {
-	var out []string
-	for _, dir := range []string{"core/grid", "core/text", "core/term", "components/headless", "components/kit"} {
-		for _, name := range []string{"doc.go", "main.go", "reader.go", "writer.go", "view.go"} {
+	directories := []string{"core/grid", "core/text", "core/term", "components/headless", "components/kit"}
+	names := []string{"doc.go", "main.go", "reader.go", "writer.go", "view.go"}
+	out := make([]string, 0, len(directories)*len(names))
+	for _, dir := range directories {
+		for _, name := range names {
 			out = append(out, strings.Join([]string{dir, name}, "/"))
 		}
 	}

@@ -351,7 +351,7 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 func TestClickingAnEmptyField(t *testing.T) {
 	// An empty field still has a row, because a blank line in a composer is a blank
 	// line on screen. A click anywhere in it lands on the only position there is.
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	at, ok := e.At(4, 5, 20)
 	if !ok {
 		t.Fatal("a click in an empty field found nothing")

@@ -163,10 +163,10 @@ func (l *List[T]) Do(action keymap.Action) bool {
 func (l *List[T]) mouse(ev input.Mouse) bool {
 	switch ev.Action {
 	case input.WheelUp:
-		l.scroll.By(l.scroll.wheel.At(ev.At, -1))
+		l.scroll.By(l.scroll.wheel.Rows(ev.At, -1))
 		return true
 	case input.WheelDown:
-		l.scroll.By(l.scroll.wheel.At(ev.At, 1))
+		l.scroll.By(l.scroll.wheel.Rows(ev.At, 1))
 		return true
 	case input.MouseDown:
 		if ev.Button != input.ButtonLeft {

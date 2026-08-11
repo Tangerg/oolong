@@ -21,7 +21,7 @@ func TestIdentitySequenceStopsBeforeReusingAValue(t *testing.T) {
 
 func TestIdentityOwnersFailBeforeChangingTheirState(t *testing.T) {
 	t.Run("editor", func(t *testing.T) {
-		editor := NewEditor()
+		editor := &Editor{}
 		editor.SetText("kept")
 		editor.elementIDs.last = math.MaxUint64
 		got := panicFrom(func() { editor.InsertElement(0, "new") })

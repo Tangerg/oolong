@@ -89,7 +89,7 @@ func drawn(c *headless.Container, h int) {
 
 func TestAKeyGoesToWhicheverChildHasTheKeyboard(t *testing.T) {
 	first, second := &field{name: "first", takes: true}, &field{name: "second", takes: true}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(1), Of: first},
 		headless.Item{Size: layout.Fixed(1), Of: second},
 	)
@@ -118,7 +118,7 @@ func TestAKeyGoesToWhicheverChildHasTheKeyboard(t *testing.T) {
 // be asked every frame is a widget that cannot draw itself from what it knows.
 func TestEveryChildIsToldWhereItStands(t *testing.T) {
 	first, second := &field{name: "first"}, &field{name: "second"}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(1), Of: first},
 		headless.Item{Size: layout.Fixed(1), Of: second},
 	)
@@ -143,7 +143,7 @@ func TestEveryChildIsToldWhereItStands(t *testing.T) {
 
 func TestTabMovesTheKeyboardOnlyAfterTheFieldDeclinesIt(t *testing.T) {
 	greedy, plain := &field{name: "greedy", takes: true}, &field{name: "plain"}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(1), Of: greedy},
 		headless.Item{Size: layout.Fixed(1), Of: plain},
 	)
@@ -169,7 +169,7 @@ func TestTabMovesTheKeyboardOnlyAfterTheFieldDeclinesIt(t *testing.T) {
 // it cannot use instead of swallowing it.
 func TestAKeyNobodyWantedIsDeclined(t *testing.T) {
 	inner := &field{name: "inner"}
-	outer := headless.Rows(headless.Item{Of: inner})
+	outer := headless.NewContainer(layout.Down, headless.Item{Of: inner})
 	if outer.Handle(input.Key{Code: input.Character, Rune: 'x'}) {
 		t.Fatal("a key nobody wanted was reported as handled")
 	}
@@ -177,7 +177,7 @@ func TestAKeyNobodyWantedIsDeclined(t *testing.T) {
 
 func TestAPointerEventGoesToWhateverItIsOverInThatChildsOwnCoordinates(t *testing.T) {
 	top, bottom := &field{name: "top", takes: true}, &field{name: "bottom", takes: true}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(2), Of: top},
 		headless.Item{Size: layout.Fixed(2), Of: bottom},
 	)
@@ -200,7 +200,7 @@ func TestAPointerEventGoesToWhateverItIsOverInThatChildsOwnCoordinates(t *testin
 // wanted: clicking a pane is how a user says they mean that one.
 func TestAPressMovesTheKeyboardToWhatWasPressed(t *testing.T) {
 	top, bottom := &field{name: "top"}, &field{name: "bottom"}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(2), Of: top},
 		headless.Item{Size: layout.Fixed(2), Of: bottom},
 	)
@@ -220,7 +220,7 @@ func TestAPressMovesTheKeyboardToWhatWasPressed(t *testing.T) {
 // selection stop extending the moment it leaves the pane it started in.
 func TestADragStaysWithWhateverTookThePress(t *testing.T) {
 	top, bottom := &field{name: "top", takes: true}, &field{name: "bottom", takes: true}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(2), Of: top},
 		headless.Item{Size: layout.Fixed(2), Of: bottom},
 	)
@@ -251,7 +251,7 @@ func TestADragStaysWithWhateverTookThePress(t *testing.T) {
 func TestANewPressEndsAnIncompleteContainerGesture(t *testing.T) {
 	first := &field{name: "first", takes: true}
 	second := &field{name: "second"}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(2), Of: first},
 		headless.Item{Size: layout.Fixed(2), Of: second},
 	)
@@ -270,7 +270,7 @@ func TestANewPressEndsAnIncompleteContainerGesture(t *testing.T) {
 
 func TestRemovingThePresentedOwnerEndsContainerCapture(t *testing.T) {
 	child := &field{name: "child", takes: true}
-	c := headless.Rows(headless.Item{Size: layout.Fixed(2), Of: child})
+	c := headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(2), Of: child})
 	drawn(c, 2)
 	c.Handle(pressAt(0, 0))
 
@@ -289,7 +289,7 @@ func TestRemovingThePresentedOwnerEndsContainerCapture(t *testing.T) {
 // whole region would stop anything above it from ever seeing the pointer.
 func TestAPointerEventOutsideEveryChildIsDeclined(t *testing.T) {
 	only := &field{name: "only", takes: true}
-	c := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: only})
+	c := headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(1), Of: only})
 	drawn(c, 4)
 
 	if c.Handle(pressAt(0, 3)) {
@@ -301,7 +301,7 @@ func TestAPointerEventOutsideEveryChildIsDeclined(t *testing.T) {
 // frames — a status row that comes and goes — can state which semantic part moved.
 func TestAKeyCarriesFocusAcrossPositions(t *testing.T) {
 	status, composer := &field{name: "status"}, &field{name: "composer"}
-	c := headless.Rows(headless.Item{Key: "composer", Size: layout.Fixed(1), Of: composer})
+	c := headless.NewContainer(layout.Down, headless.Item{Key: "composer", Size: layout.Fixed(1), Of: composer})
 	drawn(c, 2)
 
 	c.Set(
@@ -328,7 +328,7 @@ func TestAKeyCarriesFocusAcrossPositions(t *testing.T) {
 func TestContainerIdentityDoesNotRequireComparableWidgets(t *testing.T) {
 	target := &field{name: "value", takes: true}
 	value := valueField{target: target, payload: []byte("not comparable")}
-	c := headless.Rows(headless.Item{Key: "value", Size: layout.Fixed(1), Of: value})
+	c := headless.NewContainer(layout.Down, headless.Item{Key: "value", Size: layout.Fixed(1), Of: value})
 	drawn(c, 1)
 	if !c.Give(0) {
 		t.Fatal("container refused a valid value widget")
@@ -351,13 +351,13 @@ func TestContainerRejectsDuplicateKeysAtTheOwnershipBoundary(t *testing.T) {
 			t.Fatal("duplicate item keys did not panic")
 		}
 	}()
-	headless.Rows(headless.Item{Key: "same"}, headless.Item{Key: "same"})
+	headless.NewContainer(layout.Down, headless.Item{Key: "same"}, headless.Item{Key: "same"})
 }
 
 func TestContainerOwnsItsChildListAndReturnsSnapshots(t *testing.T) {
 	one, two := &field{name: "one"}, &field{name: "two"}
 	items := []headless.Item{{Size: layout.Fixed(1), Of: one}}
-	container := headless.Rows(items...)
+	container := headless.NewContainer(layout.Down, items...)
 	items[0].Of = two
 	if got := container.Items()[0].Of; got != headless.Widget(one) {
 		t.Fatal("caller mutation replaced the container's child")
@@ -375,8 +375,8 @@ func TestContainerOwnsItsChildListAndReturnsSnapshots(t *testing.T) {
 // possible to get two cursors if the news does not travel.
 func TestAContainerInsideAContainerPassesTheAnswerDown(t *testing.T) {
 	left, right := &field{name: "left"}, &field{name: "right"}
-	inner := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: right})
-	outer := headless.Columns(
+	inner := headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(1), Of: right})
+	outer := headless.NewContainer(layout.Across,
 		headless.Item{Size: layout.Fixed(5), Of: left},
 		headless.Item{Size: layout.Fixed(5), Of: inner},
 	)
@@ -425,7 +425,7 @@ func TestOnlyTheFocusedFieldPlacesTheCursor(t *testing.T) {
 	first, second := &headless.Editor{}, &headless.Editor{}
 	first.SetText("one")
 	second.SetText("two")
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(1), Of: first},
 		headless.Item{Size: layout.Fixed(1), Of: second},
 	)
@@ -489,7 +489,7 @@ func TestALayerTakesTheKeyboardFromWhatItCovers(t *testing.T) {
 func TestAContainerAsksItsChildrenHowBigTheyWant(t *testing.T) {
 	var editor headless.Editor
 	editor.SetText("one\ntwo\nthree")
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(1), Of: &field{name: "header"}},
 		headless.Item{Size: layout.Measured(0, 0), Of: &editor},
 	)
@@ -504,7 +504,7 @@ func TestAContainerAsksItsChildrenHowBigTheyWant(t *testing.T) {
 // none of it would appear on exactly the frames it was meant to be absent from.
 func TestASlotOfNoRowsGetsNoRows(t *testing.T) {
 	status, body := &field{name: "status"}, &field{name: "body"}
-	c := headless.Rows(
+	c := headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Fixed(0), Of: status},
 		headless.Item{Size: layout.Flex(1), Of: body},
 	)

@@ -62,11 +62,6 @@ func (b Box) Overhead() image.Point {
 	return image.Pt(layout.Sum(edge, pad.X), layout.Sum(edge, pad.Y))
 }
 
-// Inner is the region left for content, in v's coordinates.
-func (b Box) Inner(v grid.View) grid.View {
-	return v.Sub(b.InnerRect(v.Bounds().Size()))
-}
-
 // InnerRect is the region left for content within a space of size.
 func (b Box) InnerRect(size image.Point) image.Rectangle {
 	if size.X <= 0 || size.Y <= 0 {
@@ -101,7 +96,7 @@ func (b Box) InnerRect(size image.Point) image.Rectangle {
 //	content.Draw(inner)
 func (b Box) Draw(v grid.View) grid.View {
 	b.paint(v)
-	return b.Inner(v)
+	return v.Sub(b.InnerRect(v.Bounds().Size()))
 }
 
 // paint draws only the appearance. Live compositions use it after computing the

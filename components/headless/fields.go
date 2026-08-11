@@ -75,7 +75,7 @@ func (t *Text) projection() Editor {
 		projected.Keys = t.Keys
 		return projected
 	}
-	projected := *NewEditor()
+	projected := Editor{}
 	projected.Look = t.editor.Look
 	projected.Clipboard = t.editor.Clipboard
 	projected.MaxRows = t.editor.MaxRows

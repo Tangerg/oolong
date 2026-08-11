@@ -82,16 +82,16 @@ func TestOpenWithoutATerminal(t *testing.T) {
 	// Under a test runner standard input is not a terminal, which is exactly the
 	// case a caller has to handle rather than force: a program whose output is piped
 	// wants text, not frames.
-	if _, err := Open(Options{}); !errors.Is(err, ErrNotTerminal) {
+	if _, err := Open(Config{}); !errors.Is(err, ErrNotTerminal) {
 		t.Fatalf("Open error = %v, want ErrNotTerminal", err)
 	}
 }
 
 func TestOpenRequiresBothTerminalFiles(t *testing.T) {
-	if _, err := OpenOn(nil, nil, Options{}, nil); err == nil || !strings.Contains(err.Error(), "input file") {
+	if _, err := OpenOn(nil, nil, Config{}, nil); err == nil || !strings.Contains(err.Error(), "input file") {
 		t.Fatalf("nil input returned %v", err)
 	}
-	if _, err := OpenOn(os.Stdin, nil, Options{}, nil); err == nil || !strings.Contains(err.Error(), "output file") {
+	if _, err := OpenOn(os.Stdin, nil, Config{}, nil); err == nil || !strings.Contains(err.Error(), "output file") {
 		t.Fatalf("nil output returned %v", err)
 	}
 }

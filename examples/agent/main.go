@@ -37,7 +37,7 @@ func main() {
 		Inline: func(runtime *program.InlineRuntime) program.Component {
 			return headless.NewRoot(newAgent(runtime, mockBackend{delay: 18 * time.Millisecond}))
 		},
-		Terminal: term.Options{Probe: true, Mouse: true},
+		Terminal: term.Config{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "agent:", err)
 		os.Exit(1)
@@ -112,7 +112,7 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
 	}
 	a.registerCommands()
 
-	a.body = headless.Rows(
+	a.body = headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Flex(1), Of: a.conversation},
 		headless.Item{Size: layout.Fixed(a.workflow.Measure(0)), Of: headless.Static{Of: &a.workflow}},
 		headless.Item{Size: layout.Fixed(1), Of: headless.Static{Of: agentStatus{owner: a}}},

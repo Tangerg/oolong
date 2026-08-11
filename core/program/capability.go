@@ -33,6 +33,9 @@ func (r *Runtime) Environment() Environment {
 // Ground reports the host's foreground and background colours when known.
 func (e Environment) Ground() grid.Ground { return e.host.ground() }
 
+// Color reports the colour depth of the user-facing terminal.
+func (e Environment) Color() grid.Depth { return e.host.color() }
+
 // Wheel reports how host wheel events should be scaled.
 func (e Environment) Wheel() input.Wheel { return e.host.wheel() }
 

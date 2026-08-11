@@ -173,7 +173,7 @@ func (t Table) preferred(column int) int {
 //
 // The arithmetic used to be written out here — the fixed columns, then the shares of
 // what was left, then the rounding remainder to the last one. It was the same
-// arithmetic as [layout.Divide] with the gaps taken off the front, which is the
+// arithmetic as [layout.Flow.Divide] with the gaps taken off the front, which is the
 // signal that a gap belongs one layer down: two copies of a sizing rule are two
 // chances to round it differently.
 func (t Table) flow() layout.Flow {

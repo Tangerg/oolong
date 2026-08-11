@@ -145,11 +145,6 @@ type editorState struct {
 	marks []text.Mark
 }
 
-// NewEditor returns an empty editor.
-func NewEditor() *Editor {
-	return &Editor{lines: []string{""}, wantColumn: -1}
-}
-
 // Text is the whole content, lines joined by newlines.
 func (e *Editor) Text() string {
 	e.ensure()

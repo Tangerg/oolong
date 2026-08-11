@@ -72,8 +72,8 @@ func (s Size) dims() (cols, rows uint16, err error) {
 	return uint16(s.Cols), uint16(s.Rows), nil
 }
 
-// Options configures a session.
-type Options struct {
+// Config describes a session before it starts.
+type Config struct {
 	// Size is the terminal's opening size. The zero value is 80 by 24.
 	Size Size
 	// Dir is the child's working directory, and Env its environment. Both follow
@@ -103,19 +103,14 @@ type Session struct {
 	closeOnce sync.Once
 }
 
-// Start runs a command on a new pty of the default size.
-func Start(ctx context.Context, name string, args ...string) (*Session, error) {
-	return StartWith(ctx, Options{}, name, args...)
-}
-
-// StartWith runs a command on a new pty.
+// Start runs a command on a new pty.
 //
 // Cancelling ctx kills the program. A test that hands it t.Context() therefore
 // cannot leave one behind however it fails — which matters more here than
 // anywhere else in the repository, because what would be left behind is a process
 // holding a terminal.
-func StartWith(ctx context.Context, opts Options, name string, args ...string) (*Session, error) {
-	size := opts.Size
+func Start(ctx context.Context, cfg Config, name string, args ...string) (*Session, error) {
+	size := cfg.Size
 	if size == (Size{}) {
 		size = Size{Cols: 80, Rows: 24}
 	}
@@ -140,8 +135,8 @@ func StartWith(ctx context.Context, opts Options, name string, args ...string) (
 	// Running a command the caller named is what this package is for.
 	//nolint:gosec // G204: the command is the harness's argument, by design.
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = opts.Dir
-	cmd.Env = opts.Env
+	cmd.Dir = cfg.Dir
+	cmd.Env = cfg.Env
 	attach(cmd, replica)
 
 	if err := cmd.Start(); err != nil {
@@ -179,7 +174,7 @@ func (s *Session) read() {
 // wait reaps the child once, so Wait and Close can both ask.
 func (s *Session) wait(cmd *exec.Cmd) {
 	defer close(s.waitDone)
-	// The waiting goroutine is the only owner of exec.Cmd after StartWith returns.
+	// The waiting goroutine is the only owner of exec.Cmd after Start returns.
 	// Once Wait finishes, its arguments, environment and launch bookkeeping can be
 	// collected even while the Session remains available for transcript assertions.
 	err := cmd.Wait()
@@ -212,13 +207,14 @@ func (s *Session) Resize(size Size) error {
 	return signalResize(s.process)
 }
 
-// Wait blocks until the program exits, or until ctx is done.
+// Wait blocks until the program exits. If ctx ends first, Wait returns
+// [context.Cause] of ctx.
 func (s *Session) Wait(ctx context.Context) error {
 	select {
 	case <-s.waitDone:
 		return s.waitErr
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.Cause(ctx)
 	}
 }
 

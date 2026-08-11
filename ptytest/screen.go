@@ -210,25 +210,25 @@ func (s *Screen) executeControl(final byte, params ansi.Params, raw string) erro
 		column := defaultOne(params.At(1)) - 1
 		s.move(column, row)
 	case 'A':
-		s.move(s.at.X, s.at.Y-defaultOne(params.First()))
+		s.move(s.at.X, s.at.Y-defaultOne(params.At(0)))
 	case 'B':
-		s.move(s.at.X, s.at.Y+defaultOne(params.First()))
+		s.move(s.at.X, s.at.Y+defaultOne(params.At(0)))
 	case 'C':
-		s.move(s.at.X+defaultOne(params.First()), s.at.Y)
+		s.move(s.at.X+defaultOne(params.At(0)), s.at.Y)
 	case 'D':
-		s.move(s.at.X-defaultOne(params.First()), s.at.Y)
+		s.move(s.at.X-defaultOne(params.At(0)), s.at.Y)
 	case 'G':
-		s.move(defaultOne(params.First())-1, s.at.Y)
+		s.move(defaultOne(params.At(0))-1, s.at.Y)
 	case 'd':
-		s.move(s.at.X, defaultOne(params.First())-1)
+		s.move(s.at.X, defaultOne(params.At(0))-1)
 	case 'K':
-		return s.eraseLine(params.First(), raw)
+		return s.eraseLine(params.At(0), raw)
 	case 'J':
-		return s.eraseDisplay(params.First(), raw)
+		return s.eraseDisplay(params.At(0), raw)
 	case 'S':
-		s.scrollUp(defaultOne(params.First()))
+		s.scrollUp(defaultOne(params.At(0)))
 	case 'T':
-		s.scrollDown(defaultOne(params.First()))
+		s.scrollDown(defaultOne(params.At(0)))
 	case 'r':
 		return s.setMargins(params, raw)
 	default:

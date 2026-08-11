@@ -43,7 +43,7 @@ const (
 const KeyboardCompatible = input.KeyboardDisambiguate | input.KeyboardReportAlternates
 
 // Modes is the immutable set of terminal modes a session turns on and later puts
-// back. Its fields stay private so the only way to construct one is from [Options],
+// back. Its fields stay private so the only way to construct one is from [Config],
 // keeping the public configuration and the wire representation from drifting.
 //
 // Enter and Leave are encodings rather than writes. A local terminal writes them
@@ -64,12 +64,12 @@ type Modes struct {
 // process. A local terminal passes its process environment lookup; an SSH adapter
 // passes the client's accepted PTY environment. Nil means no environment facts are
 // available.
-func (o Options) Modes(lookup func(string) (string, bool)) Modes {
+func (c Config) Modes(lookup func(string) (string, bool)) Modes {
 	return Modes{
-		altScreen: o.AltScreen,
-		mouse:     o.Mouse,
-		focus:     o.Focus,
-		keyboard:  compatibleKeyboard(o.Keyboard, lookup),
+		altScreen: c.AltScreen,
+		mouse:     c.Mouse,
+		focus:     c.Focus,
+		keyboard:  compatibleKeyboard(c.Keyboard, lookup),
 	}
 }
 

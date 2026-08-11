@@ -64,13 +64,15 @@ func (h darkHost) Ground() grid.Ground {
 if !ptytest.Supported() {
     t.Skip("this platform has no PTY harness")
 }
-session, err := ptytest.Start(t.Context(), binary)
+session, err := ptytest.Start(t.Context(), ptytest.Config{}, binary)
 if err != nil {
     t.Fatal(err)
 }
 defer func() { _ = session.Close() }()
 
-if err := session.Transcript().WaitWithin(5*time.Second, "ready"); err != nil {
+ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+defer cancel()
+if err := session.Transcript().WaitFor(ctx, "ready"); err != nil {
     t.Fatal(err)
 }
 if err := session.Type("q"); err != nil {
@@ -102,6 +104,17 @@ PTY 测试能够证明进程内 host 无法观察的事实：
 
 语料文件是字节 fixture。仓库强制所有 `testdata/fuzz/**` 路径使用 LF，避免检出设置在
 Go 读取之前改写 seed。
+
+## 为每一条可调用路径提供可执行证据
+
+`scripts/check-reachability.sh` 会带测试在 Linux、macOS 与 Windows 上运行钉住版本的
+`deadcode` 分析器。私有不可达函数是死亡实现；公开不可达操作则缺少可执行契约覆盖，
+但不一定是死亡 API：框架本来就服务于下游调用方，扩展点也可能刻意没有仓库内生产调用。
+应当为它提供外部包行为测试；是否保留或删除，还必须另外评审其职责、抽象层级、重叠与契约。
+
+调用方可见的行为应放在外部包测试（`foo_test`）中。只有当某项性质无法通过公开面表达时，
+白盒测试才可以使用实现包，而且文件名必须以 `_internals_test.go` 结尾。架构关卡会从源码
+推导包边界，并拒绝越过边界的普通测试，使私有耦合始终是例外，也始终能在评审中看见。
 
 ## 有意更新视觉 golden
 

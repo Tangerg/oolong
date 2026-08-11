@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/term"
 )
@@ -46,57 +45,25 @@ func TestDetectDepth(t *testing.T) {
 					unset(t, k)
 				}
 			}
-			if got := term.DetectDepth(); got != tc.want {
+			if got := term.DetectDepth(os.LookupEnv); got != tc.want {
 				t.Fatalf("= %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestDetectDepthInUsesTheGivenEnvironment(t *testing.T) {
+func TestDetectDepthUsesTheGivenEnvironment(t *testing.T) {
 	env := map[string]string{"TERM": "xterm-256color"}
 	lookup := func(name string) (string, bool) {
 		value, ok := env[name]
 		return value, ok
 	}
-	if got := term.DetectDepthIn(lookup); got != grid.Depth256 {
+	if got := term.DetectDepth(lookup); got != grid.Depth256 {
 		t.Fatalf("depth = %v, want %v", got, grid.Depth256)
 	}
 	env["NO_COLOR"] = ""
-	if got := term.DetectDepthIn(lookup); got != grid.NoColor {
+	if got := term.DetectDepth(lookup); got != grid.NoColor {
 		t.Fatalf("NO_COLOR depth = %v, want %v", got, grid.NoColor)
-	}
-}
-
-func TestDetectGraphics(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		env  map[string]string
-		want graphics.Protocol
-	}{
-		{"nothing said", map[string]string{}, graphics.None},
-		{"kitty by window id", map[string]string{"KITTY_WINDOW_ID": "1"}, graphics.Kitty},
-		{"ghostty by resources", map[string]string{"GHOSTTY_RESOURCES_DIR": "/opt"}, graphics.Kitty},
-		{"kitty by TERM", map[string]string{"TERM": "xterm-kitty"}, graphics.Kitty},
-		{"wezterm by program", map[string]string{"TERM_PROGRAM": "WezTerm"}, graphics.Kitty},
-		{"iterm2 speaks its own", map[string]string{"TERM_PROGRAM": "iTerm.app"}, graphics.ITerm2},
-		{"apple terminal speaks none", map[string]string{"TERM_PROGRAM": "Apple_Terminal"}, graphics.None},
-		// Sixel is not reachable from here on purpose: nothing in an environment
-		// names it, so this function cannot find it and says so.
-		{"a terminal that only draws sixel", map[string]string{"TERM": "xterm"}, graphics.None},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, k := range []string{"KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "TERM", "TERM_PROGRAM", "LC_TERMINAL"} {
-				if v, ok := tc.env[k]; ok {
-					t.Setenv(k, v)
-				} else {
-					unset(t, k)
-				}
-			}
-			if got := term.DetectGraphics(); got != tc.want {
-				t.Fatalf("= %v, want %v", got, tc.want)
-			}
-		})
 	}
 }
 

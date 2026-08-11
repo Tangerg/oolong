@@ -111,6 +111,12 @@ func TestControlledTabsUseOneSelectionAndSyncExternalTransitions(t *testing.T) {
 	if !second.focused || first.focused {
 		t.Fatal("sync did not transfer focus after an owner-written selection")
 	}
+
+	selected = 99
+	tabs.Sync()
+	if selected != 1 || tabs.Selected() != 1 {
+		t.Fatalf("sync left binding=%d selected=%d, want both clamped to 1", selected, tabs.Selected())
+	}
 }
 
 func TestTabsExposeStructuralSemanticsIndependentOfTheStrip(t *testing.T) {
@@ -148,7 +154,7 @@ func TestAListCanHoldTheKeyboard(t *testing.T) {
 	}
 
 	// A container can therefore hold one, which is the point.
-	body := headless.Rows(headless.Item{Size: layout.Fixed(1), Of: &list})
+	body := headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(1), Of: &list})
 	if !body.Give(0) {
 		t.Fatal("a container would not hand the keyboard to a list")
 	}

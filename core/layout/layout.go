@@ -133,8 +133,9 @@ type Sizing struct {
 	minimum, maximum int
 }
 
-// IsZero reports whether s names no sizing policy. Containers with a useful
-// default can distinguish an omitted policy without inspecting its representation.
+// IsZero reports whether s names no sizing policy. It lets a higher-level
+// container apply its own useful default without inspecting this value's private
+// representation or mistaking an explicit Fixed(0) for omission.
 func (s Sizing) IsZero() bool { return s.kind == zeroSizing }
 
 type sizingKind uint8
@@ -260,8 +261,8 @@ const (
 //
 // The gap is here rather than in [Slot] because it is one answer for the whole
 // division: a caller specifies the spacing once, instead of padding every slot but
-// the last and getting the last one wrong. Calling
-// [Axis.Rects] is the same arrangement with no gap.
+// the last and getting the last one wrong. A zero gap is the ordinary contiguous
+// arrangement; it uses this same value and the same operations.
 type Flow struct {
 	Axis Axis
 	// Gap is how many units go between one slot and the next.
@@ -302,13 +303,13 @@ func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 // Divide splits total among the slots, holding back the gaps between them first.
 func (f Flow) Divide(total, across int, slots []Slot) []int {
 	available := max(total, 0)
-	return Divide(Remaining(available, f.gaps(len(slots))), across, slots)
+	return divide(Remaining(available, f.gaps(len(slots))), across, slots)
 }
 
 // Wanted is how much of the divided axis the slots ask for altogether, the gaps
 // between them included.
 func (f Flow) Wanted(across int, slots []Slot) int {
-	wanted, gaps := Wanted(across, slots), f.gaps(len(slots))
+	wanted, gaps := wanted(across, slots), f.gaps(len(slots))
 	return Sum(wanted, gaps)
 }
 
@@ -323,28 +324,13 @@ func (f Flow) gaps(slots int) int {
 	return f.Gap * (slots - 1)
 }
 
-// Rects is where each slot goes when a space is divided along the axis, in the
-// space's own coordinates.
-//
-// The result is geometry only and can be projected into any coordinate model. Keeping
-// allocation separate lets independent consumers share one answer instead of
-// reconstructing it according to their own rules.
-//
-// The order of business is measure, then arrange: the only order that works when one
-// slot's size depends on its item and another's depends on what is left. Slots
-// that end up with no room still get a rectangle — an empty one — so result indexes
-// always correspond to input slot indexes.
-func (a Axis) Rects(space image.Point, slots ...Slot) []image.Rectangle {
-	return Flow{Axis: a}.Rects(space, slots)
-}
-
-// Wanted is how much of the divided axis a set of slots asks for altogether,
+// wanted is how much of the divided axis a set of slots asks for altogether,
 // measured against across.
 //
 // It is what a group made of slots answers when it is itself measured. A flexible slot has
 // nothing to ask for — a share is a share of a total, and there is no total yet — so
 // it counts as its floor.
-func Wanted(across int, slots []Slot) int {
+func wanted(across int, slots []Slot) int {
 	across = max(across, 0)
 	total := 0
 	for _, slot := range slots {
@@ -376,12 +362,9 @@ func (s Slot) wanted(across int) int {
 	}
 }
 
-// Divide splits total among slots, measuring against across, and returns each
-// slot's size. The sizes always add up to at most total.
-//
-// It is exported because related geometry may need the same allocation without
-// constructing rectangles.
-func Divide(total, across int, slots []Slot) []int {
+// divide splits total among slots, measuring against across, and returns each slot's
+// size. The sizes always add up to at most total.
+func divide(total, across int, slots []Slot) []int {
 	d := division{
 		total:   max(total, 0),
 		across:  max(across, 0),

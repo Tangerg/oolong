@@ -171,7 +171,7 @@ note "${order[*]}"
 
 step "Gate"
 
-for tool in golangci-lint gofumpt govulncheck npx shfmt; do
+for tool in deadcode golangci-lint gofumpt govulncheck npx shfmt; do
 	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
 done
 
@@ -189,6 +189,9 @@ for module in "${ALL_MODULES[@]}"; do
 	(cd "$module" && golangci-lint run ./... >/dev/null 2>&1) || die "$module has lint findings."
 done
 note "golangci-lint"
+
+scripts/check-reachability.sh || die "callable code lacks executable coverage or private code is unreachable."
+note "callable code reachability"
 
 [[ -z "$(gofumpt -l .)" ]] || die "gofumpt would reformat: $(gofumpt -l . | tr '\n' ' ')"
 note "gofumpt"

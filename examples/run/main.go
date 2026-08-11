@@ -48,7 +48,7 @@ func main() {
 		Inline: func(runtime *program.InlineRuntime) program.Component {
 			return newRunner(runtime, command)
 		},
-		Terminal: term.Options{Probe: true},
+		Terminal: term.Config{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "run:", err)
 		os.Exit(1)
@@ -184,10 +184,10 @@ func (r *runner) finish(err error) {
 
 // Draw is the line still being written, and a row saying what is happening.
 func (r *runner) Draw(v grid.View) {
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-	))
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Fixed(1)},
+	}))
 	// The open line is drawn rather than printed: it is not finished, and what is
 	// printed is finished for good.
 	r.out.Open().Draw(rows[0], 0, 0)

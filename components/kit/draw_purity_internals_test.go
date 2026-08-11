@@ -243,7 +243,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		},
 	})
 
-	dialogBody := headless.NewEditor()
+	dialogBody := &headless.Editor{}
 	dialogBody.Insert("body")
 	dialogBody.Focus(true)
 	dialog := NewDialog(&headless.Stack{}, Theme{}, Unicode(), "title", dialogBody)
@@ -255,7 +255,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		}{dialog.Semantics(), meaningOfEditor(dialogBody)}
 	}))
 
-	panelBody := headless.NewEditor()
+	panelBody := &headless.Editor{}
 	panelBody.Insert("body")
 	panelBody.Focus(true)
 	panel := NewPanel(Theme{}, Unicode(), panelBody)
@@ -264,9 +264,9 @@ func kitDrawPurityCases() []drawPurityCase {
 		return meaningOfEditor(panelBody)
 	}))
 
-	firstPane := headless.NewEditor()
+	firstPane := &headless.Editor{}
 	firstPane.Insert("first")
-	secondPane := headless.NewEditor()
+	secondPane := &headless.Editor{}
 	secondPane.Insert("second")
 	tabs := NewTabs(Theme{}, Unicode(),
 		headless.Tab{Title: "first", Of: firstPane},
@@ -406,9 +406,9 @@ func kitDrawPurityCases() []drawPurityCase {
 	treeController.Open(0)
 	treeController.Select(1)
 	treeController.Focus(true)
-	tree := *NewTree(Theme{}, Glyphs{}, treeController, func(item string) string { return item })
+	tree := NewTree(Theme{}, Glyphs{}, treeController, func(item string) string { return item })
 	tree.Indent = 2
-	cases = append(cases, widgetPurityCase("Tree", tree, func() any {
+	cases = append(cases, widgetPurityCase("*Tree", tree, func() any {
 		return struct {
 			selected int
 			focused  bool

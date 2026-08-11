@@ -66,7 +66,21 @@ func (t *Transcript) Draw(v headless.Frame) {
 		return
 	}
 	content := t.Content.Stage(v, w)
+	window := t.window(content, v)
+	t.presentation.Stage(v, window.presentation)
 
+	if window.pinned.Rows > 0 {
+		t.drawHeader(content, v.View, window.pinned)
+	}
+	content.Draw(window.body, window.presentation.from)
+	t.mark(window.body, window.presentation.from)
+}
+
+// window lays out the scroll and optional pinned header as one visual window. The
+// resulting view, header and routing projection come from the same calculation, so
+// drawing and pointer translation cannot acquire separate geometry paths.
+func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Frame) transcriptWindow {
+	w, h := frame.Size()
 	// Laid out twice, because the two answers depend on each other: how much room the
 	// content has depends on the header, and which block is pinned depends on where
 	// the content is scrolled to. One pass settles it — the first says roughly where
@@ -82,40 +96,42 @@ func (t *Transcript) Draw(v headless.Frame) {
 	// scroll, because stepping to a match that cannot be seen is not stepping to it.
 	// It is done here rather than left to a caller because the caller has no way to
 	// know how tall the window turned out to be.
-	body := v.View
 	bodyRect := grid.Rect(0, 0, w, h)
 	from := content.StartRow()
 	if t.Scroll != nil {
-		scroll := t.Scroll.Stage(v, content.Height(), h)
+		scroll := t.Scroll.Stage(frame, content.Height(), h)
 		t.reveal(content, &scroll)
 		from = content.StartRow() + scroll.Offset()
 	}
-	presented := transcriptPresentation{
-		content:   t.Content,
-		selection: t.Selection,
-		body:      bodyRect,
-		from:      from,
+	window := transcriptWindow{
+		body: frame.View,
+		presentation: transcriptPresentation{
+			content:   t.Content,
+			selection: t.Selection,
+			body:      bodyRect,
+			from:      from,
+		},
 	}
-	if t.Sticky != nil {
-		if pinned, ok := t.Sticky.At(content, from, h); ok && pinned.Rows < h {
-			if t.Scroll != nil {
-				scroll := t.Scroll.Stage(v, content.Height(), layout.Remaining(h, pinned.Rows))
-				from = layout.Sum(content.StartRow(), scroll.Offset())
-			}
-			t.drawHeader(content, v.View, pinned)
-			bodyRect = grid.Rect(0, pinned.Rows, w, layout.Remaining(h, pinned.Rows))
-			body = v.Sub(bodyRect).View
-			presented.body, presented.from = bodyRect, from
-			if top, _, exists := content.Extent(pinned.Block); exists && pinned.Visible() > 0 {
-				presented.header = grid.Rect(0, 0, w, pinned.Visible())
-				presented.headerFrom = layout.Sum(top, pinned.ClipTop)
-			}
-		}
+	if t.Sticky == nil {
+		return window
 	}
-	t.presentation.Stage(v, presented)
-
-	content.Draw(body, from)
-	t.mark(body, from)
+	pinned, ok := t.Sticky.At(content, from, h)
+	if !ok || pinned.Rows >= h {
+		return window
+	}
+	if t.Scroll != nil {
+		scroll := t.Scroll.Stage(frame, content.Height(), layout.Remaining(h, pinned.Rows))
+		from = layout.Sum(content.StartRow(), scroll.Offset())
+	}
+	bodyRect = grid.Rect(0, pinned.Rows, w, layout.Remaining(h, pinned.Rows))
+	window.body = frame.Sub(bodyRect).View
+	window.pinned = pinned
+	window.presentation.body, window.presentation.from = bodyRect, from
+	if top, _, exists := content.Extent(pinned.Block); exists && pinned.Visible() > 0 {
+		window.presentation.header = grid.Rect(0, 0, w, pinned.Visible())
+		window.presentation.headerFrom = layout.Sum(top, pinned.ClipTop)
+	}
+	return window
 }
 
 // reveal brings the current match into the window.
@@ -243,36 +259,26 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 //
 // Any output sink with the small Printer method set can receive committed blocks:
 //
-//	view.Commit(output)
+//	view.Commit(output, 0)
 //
 // Nothing is committed unless this is called. A block given to the terminal is no
 // longer selectable, searchable, or re-wrapped when the window changes, so the choice
-// is the program's and is made block by block with
-// [headless.Transcript.Finish].
-func (t *Transcript) Commit(p Printer) int {
-	return t.commit(p, -1)
-}
-
-// CommitN gives at most n finished leading blocks to p.
+// is the program's and is made block by block with [headless.Transcript.Finish].
 //
-// It is the bounded-retention form: an application can keep a small recent window
-// selectable and searchable while transferring only the excess stable prefix. A
-// non-positive n commits nothing. [Transcript.Commit] remains the all-finished form.
-func (t *Transcript) CommitN(p Printer, n int) int {
-	if n <= 0 {
-		return 0
+// limit is the most blocks to transfer. Zero transfers every finished block; a
+// positive limit lets an application retain a recent window and publish only its
+// excess stable prefix. A negative limit is a programmer error.
+func (t *Transcript) Commit(p Printer, limit int) int {
+	if limit < 0 {
+		panic("kit: transcript commit limit cannot be negative")
 	}
-	return t.commit(p, n)
-}
-
-func (t *Transcript) commit(p Printer, limit int) int {
 	if t.Content == nil || p == nil {
 		return 0
 	}
 	before := t.Content.StartRow()
 	committed := 0
 	gone := t.Content.Commit(func(b headless.Block, _ int) bool {
-		if limit >= 0 && committed >= limit {
+		if limit > 0 && committed >= limit {
 			return false
 		}
 		p.Print(b)
@@ -403,6 +409,15 @@ type transcriptPresentation struct {
 	selection        *headless.Selection
 	body, header     image.Rectangle
 	from, headerFrom int
+}
+
+// transcriptWindow is one frame's complete visual projection. Keeping its body,
+// optional header and routing geometry together makes it impossible to draw one
+// arrangement and publish another by assembling them along separate paths.
+type transcriptWindow struct {
+	body         grid.View
+	presentation transcriptPresentation
+	pinned       headless.Pinned
 }
 
 // pointAt translates a screen point to the transcript. When nearest is true, a point

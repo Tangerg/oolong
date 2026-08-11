@@ -7,3 +7,5 @@
 - Prefer established, well-maintained libraries when they reduce overall complexity or improve reliability. Do not reimplement common functionality without a clear reason.
 - Lean on the dependencies already in the project before writing your own implementation or adding packages. Do not assume a library lacks a capability without checking its documentation and types.
 - Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
+- Treat repository-local usage as no evidence for or against a public API. This is a framework: retain or remove exported operations and extension points by responsibility, abstraction quality, and downstream utility, never merely because production code in this repository does or does not call them.
+- Use explicit `Config` structs for related construction settings, and give optional fields useful zero meanings. Do not introduce functional-options APIs.

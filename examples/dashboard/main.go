@@ -31,7 +31,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newDashboard(runtime))
 		},
-		Terminal: term.Options{Probe: true, Mouse: true},
+		Terminal: term.Config{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "dashboard:", err)
 		os.Exit(1)
@@ -110,10 +110,10 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 
 // Draw is the strip, whichever pane it says, and a hint row under both.
 func (d *dashboard) Draw(v headless.Frame) {
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-	))
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(1)},
+	}))
 	d.strip.Draw(rows[0])
 	kit.Label{
 		Text:  "1–3 or alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit",
@@ -234,10 +234,10 @@ func (q *queue) Draw(v headless.Frame) {
 	width, _ := v.Size()
 	columns := q.view.Layout(width)
 	q.columns.Stage(v, columns)
-	bands := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Flex(1)},
-	))
+	bands := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Flex(1)},
+	}))
 	columns.Titles(bands[0].View)
 	q.rows.DrawRows(bands[1], func(v grid.View, at int, item task, selected bool) {
 		q.row(columns, v, at, item, selected)
@@ -371,12 +371,12 @@ func (a *activity) Measure(int) int { return 4 }
 
 func (a *activity) Draw(v headless.Frame) {
 	finished, total := a.of.remaining()
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Flex(1)},
-	))
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Fixed(1)},
+		{Size: layout.Fixed(1)},
+		{Size: layout.Flex(1)},
+	}))
 	kit.Progress{
 		Theme:   a.theme,
 		Glyphs:  a.glyphs,

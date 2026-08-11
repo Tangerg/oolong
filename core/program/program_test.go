@@ -76,6 +76,7 @@ func (h *minimalHost) Size() (int, int, error)     { return h.w, h.h, nil }
 type partialHost struct {
 	*minimalHost
 	groundAnswer grid.Ground
+	colorAnswer  grid.Depth
 	localeAnswer string
 	copied       []string
 	notified     []string
@@ -83,6 +84,8 @@ type partialHost struct {
 }
 
 func (h *partialHost) Ground() grid.Ground { return h.groundAnswer }
+
+func (h *partialHost) Color() grid.Depth { return h.colorAnswer }
 
 func (h *partialHost) Locale() string { return h.localeAnswer }
 
@@ -684,7 +687,9 @@ func TestAHostOnlyImplementsTransport(t *testing.T) {
 	err := program.Run(t.Context(), program.Config{
 		Host: h,
 		Root: func(runtime *program.Runtime) program.Component {
-			if !runtime.Environment().Ground().BG.Default() || runtime.Environment().Wheel() != (input.Wheel{}) {
+			if !runtime.Environment().Ground().BG.Default() ||
+				runtime.Environment().Color() != grid.NoColor ||
+				runtime.Environment().Wheel() != (input.Wheel{}) {
 				t.Error("a missing observation capability did not return its zero answer")
 			}
 			if got := runtime.Environment().Locale(); got != "" {
@@ -718,9 +723,11 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 	defer func() { _ = transport.writer.Close() }()
 
 	wantGround := grid.Ground{BG: grid.RGBColor(0x12, 0x34, 0x56)}
+	wantColor := grid.Depth256
 	h := &partialHost{
 		minimalHost:  transport,
 		groundAnswer: wantGround,
+		colorAnswer:  wantColor,
 		localeAnswer: "en_GB.UTF-8",
 	}
 	err := program.Run(t.Context(), program.Config{
@@ -728,6 +735,9 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 		Root: func(runtime *program.Runtime) program.Component {
 			if got := runtime.Environment().Ground(); got != wantGround {
 				t.Errorf("Ground = %v, want %v", got, wantGround)
+			}
+			if got := runtime.Environment().Color(); got != wantColor {
+				t.Errorf("Color = %v, want %v", got, wantColor)
 			}
 			if got := runtime.Environment().Wheel(); got != (input.Wheel{}) {
 				t.Errorf("missing Wheel = %v, want zero", got)
@@ -768,7 +778,7 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 
 func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	var environment program.Environment
-	if !environment.Ground().BG.Default() || environment.Wheel() != (input.Wheel{}) {
+	if !environment.Ground().BG.Default() || environment.Color() != grid.NoColor || environment.Wheel() != (input.Wheel{}) {
 		t.Fatal("zero Environment reported host facts")
 	}
 	if _, ok := environment.Keyboard(); ok {
@@ -1701,7 +1711,7 @@ func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
 	// of its own has no session output to sit among, and nowhere to print.
 	cfg := program.Config{
 		Inline:   func(*program.InlineRuntime) program.Component { return &printer{} },
-		Terminal: term.Options{AltScreen: true},
+		Terminal: term.Config{AltScreen: true},
 		Host:     newHost(t),
 	}
 	if err := cfg.Validate(); err == nil {

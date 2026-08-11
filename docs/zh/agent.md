@@ -173,7 +173,7 @@ func (a *agent) accept(batch program.ByteBatch) {
 
 ## 释放已完成历史
 
-为选择和搜索保留一小段交互窗口。通过 `kit.Transcript.CommitN` 交付更早的完成块；
+为选择和搜索保留一小段交互窗口。通过带显式上限的 `kit.Transcript.Commit` 交付更早的完成块；
 同一个已测量 drawable 会被打印，随后离开实时所有权。
 
 ```go
@@ -189,7 +189,7 @@ func (c *conversation) Retain(printer kit.Printer) {
         finished++
     }
     if excess := finished - retainedBlocks; excess > 0 {
-        c.view.CommitN(printer, excess)
+        c.view.Commit(printer, excess)
     }
     c.scroll.ToBottom()
 }

@@ -8,7 +8,6 @@ import (
 	charmssh "charm.land/ssh"
 
 	"github.com/Tangerg/oolong/core/clipboard"
-	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
@@ -33,7 +32,7 @@ var (
 // SSH channel itself and does not choose an exit status. The surrounding SSH
 // handler retains those decisions and can report a non-nil result before returning.
 //
-// The zero cfg.Color, [grid.Auto], is resolved from the client's PTY environment
+// The zero cfg.Color is resolved from the client's PTY environment
 // rather than the server process environment. Terminal modes, character locale,
 // wheel scaling and clipboard transport follow that same client-owned environment.
 func Run(session charmssh.Session, cfg program.Config) (err error) {
@@ -53,20 +52,17 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 
 	env := newEnvironment(session.Environ())
 	env.set("TERM", pty.Term)
-	if cfg.Color == grid.Auto {
-		cfg.Color = term.DetectDepthIn(env.lookup)
-	}
-
-	options := cfg.Terminal
+	terminalConfig := cfg.Terminal
 	// A root program owns an alternate screen on every transport. program.Run makes
 	// the same decision for a local terminal; a supplied Host deliberately leaves
 	// transport setup to its adapter.
-	options.AltScreen = cfg.Root != nil
+	terminalConfig.AltScreen = cfg.Root != nil
 	ctx := session.Context()
 	host := newHost(
 		ctx.Done(), session, pty.Window, windows,
-		options.Modes(env.lookup), clipboard.New(env.lookup),
-		term.DetectLocaleIn(env.lookup),
+		terminalConfig.Modes(env.lookup), clipboard.New(env.lookup),
+		term.DetectLocale(env.lookup),
+		term.DetectDepth(env.lookup),
 		input.WheelFor(env.lookup, ""),
 	)
 	defer func() { err = errors.Join(err, host.Close()) }()

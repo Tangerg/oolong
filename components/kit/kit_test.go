@@ -98,7 +98,7 @@ func TestBoxDrawsAClippedMiddleWithoutInventingEdges(t *testing.T) {
 // TestBoxGeometryAgreesWithItself sweeps every small size a collapsing layout can
 // hand a box.
 //
-// [Box.Draw] returns the interior it just framed and [Box.Inner] computes the same
+// [Box.Draw] returns the interior it just framed and [Box.InnerRect] computes the same
 // interior without drawing, so the two must never disagree — a caller that measured
 // with one and drew with the other would be laying out against a rectangle the frame
 // does not have. Degenerate sizes are the interesting ones because that is where a
@@ -115,7 +115,8 @@ func TestBoxGeometryAgreesWithItself(t *testing.T) {
 			for h := range 15 {
 				surface := grid.NewSurface(w, h)
 				dw, dh := box.Draw(surface.View()).Size()
-				iw, ih := box.Inner(surface.View()).Size()
+				inner := box.InnerRect(surface.View().Bounds().Size()).Size()
+				iw, ih := inner.X, inner.Y
 				if dw != iw || dh != ih {
 					t.Fatalf("%s at %dx%d: Draw gave %dx%d, Inner gave %dx%d", name, w, h, dw, dh, iw, ih)
 				}
@@ -138,8 +139,8 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 	} {
 		over := box.Overhead()
 		s := grid.NewSurface(20, 10)
-		inner := box.Inner(s.View())
-		iw, ih := inner.Size()
+		inner := box.InnerRect(s.View().Bounds().Size()).Size()
+		iw, ih := inner.X, inner.Y
 		if iw != 20-over.X || ih != 10-over.Y {
 			t.Errorf("box %+v: inner %dx%d does not match overhead %+v", box, iw, ih, over)
 		}
@@ -513,6 +514,9 @@ func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
 	keys.Bind("quit", input.Ctrl.Rune('c'))
 	keys.Bind("tasks", input.Ctrl.Rune('g'))
 	help := kit.Help{Keys: keys, Show: []keymap.Action{"send", "quit", "tasks"}}
+	if got := help.Measure(40); got != 1 {
+		t.Fatalf("Help.Measure = %d, want its one display row", got)
+	}
 	full := paint(40, 1, func(v grid.View) { help.Draw(v) })
 	for _, want := range []string{"enter send", "ctrl+c quit", "ctrl+g tasks"} {
 		if !strings.Contains(full[0], want) {
@@ -1189,6 +1193,17 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 	})
 }
 
+func TestNilTreeIsAnEmptyWidget(t *testing.T) {
+	var tree *kit.Tree[string]
+	if tree.Controller() != nil || tree.Focused() || tree.Handle(input.Key{Code: input.Enter}) {
+		t.Fatal("a nil tree reported controller, focus, or handled input")
+	}
+	if got := tree.Measure(20); got != 0 {
+		t.Fatalf("nil tree measured %d rows, want zero", got)
+	}
+	paintWidget(20, 1, tree)
+}
+
 func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	called := 0
 	controller := headless.NewTree(headless.Node[string]{Item: "root"})
@@ -1295,6 +1310,10 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 	equalRows(t, paint(12, 1, none.Draw), []string{"a diagram..."})
 	if none.Measure(12) != 1 {
 		t.Fatalf("a picture that cannot be shown asked for %d rows", none.Measure(12))
+	}
+	var width interface{ Width() int } = none
+	if got := width.Width(); got != 9 {
+		t.Fatalf("alternative text measured %d cells, want nine", got)
 	}
 
 	// With a handle and a cell size it keeps the room, and the cells stay blank: what

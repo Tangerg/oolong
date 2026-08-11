@@ -9,13 +9,14 @@ import (
 	charmssh "charm.land/ssh"
 
 	"github.com/Tangerg/oolong/core/clipboard"
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
 )
 
 // host is the one transport boundary. In addition to the required program.Host
-// methods it exposes the locale, wheel profile and clipboard determined by the
+// methods it exposes colour, locale, wheel profile and clipboard determined by the
 // client terminal's environment. An SSH PTY does not prove notification, image or
 // probe capabilities merely by existing, so those remain absent.
 type host struct {
@@ -24,6 +25,7 @@ type host struct {
 	modes  term.Modes
 	clip   *clipboard.Channel
 	locale string
+	color  grid.Depth
 	wheel  input.Wheel
 
 	windowMu sync.RWMutex
@@ -35,6 +37,7 @@ type host struct {
 
 var (
 	_ program.Host       = (*host)(nil)
+	_ program.ColorHost  = (*host)(nil)
 	_ program.LocaleHost = (*host)(nil)
 	_ program.WheelHost  = (*host)(nil)
 	_ program.CopyHost   = (*host)(nil)
@@ -49,6 +52,7 @@ func newHost(
 	modes term.Modes,
 	clip *clipboard.Channel,
 	locale string,
+	color grid.Depth,
 	wheel input.Wheel,
 ) *host {
 	h := &host{
@@ -56,6 +60,7 @@ func newHost(
 		modes:  modes,
 		clip:   clip,
 		locale: locale,
+		color:  color,
 		wheel:  wheel,
 		window: window,
 	}
@@ -67,6 +72,7 @@ func newHost(
 func (h *host) Input() program.EventSource  { return h.source }
 func (h *host) Writer() program.FrameWriter { return h.writer }
 func (h *host) Locale() string              { return h.locale }
+func (h *host) Color() grid.Depth           { return h.color }
 func (h *host) Wheel() input.Wheel          { return h.wheel }
 
 // Copy asks the client terminal to update the clipboard beside the user, not one

@@ -33,7 +33,7 @@ func main() {
 		Inline: func(runtime *program.InlineRuntime) program.Component {
 			return headless.NewRoot(newChat(runtime))
 		},
-		Terminal: term.Options{Probe: true},
+		Terminal: term.Config{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "streaming:", err)
 		os.Exit(1)
@@ -124,7 +124,7 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 	c.composer.Editor().Clipboard = runtime.Clipboard()
 	c.stream.SetLook(markdownLook(theme, glyphs))
 
-	c.body = headless.Rows(
+	c.body = headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Flex(1), Of: &c.view},
 		headless.Item{Size: layout.Fixed(1), Of: headless.Static{Of: &c.status}},
 		headless.Item{Size: layout.Measured(1, 0), Of: &c.composer},
@@ -366,7 +366,7 @@ func (c *chat) retainWindow() {
 		finished++
 	}
 	if excess := finished - retainedFinished; excess > 0 {
-		c.view.CommitN(c.runtime, excess)
+		c.view.Commit(c.runtime, excess)
 	}
 	c.scroll.ToBottom()
 }

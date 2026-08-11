@@ -92,10 +92,6 @@ func (ps Params) Valid() bool {
 	return true
 }
 
-// First is the leading parameter, or zero when there was none. Zero is the
-// protocol's own default for a missing parameter, so a caller need not distinguish.
-func (ps Params) First() int { return ps.At(0) }
-
 // At is the leading value of group i, or zero when the group is absent.
 func (ps Params) At(i int) int {
 	group := ps.Group(i)

@@ -123,7 +123,7 @@ func (c *conversation) Retain(printer kit.Printer) {
 		finished++
 	}
 	if excess := finished - retainedAgentBlocks; excess > 0 {
-		c.view.CommitN(printer, excess)
+		c.view.Commit(printer, excess)
 	}
 	c.scroll.ToBottom()
 }

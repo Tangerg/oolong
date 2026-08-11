@@ -20,7 +20,7 @@ func TestAFieldGivingUpFocusCancelsItsPartialBinding(t *testing.T) {
 	}}
 	keys.Bind(headless.MoveLeft, input.Chord{Rune: 'g'})
 	keys.Bind(headless.MoveRight, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.Keys = keys
 	e.SetText("ab")
 
@@ -114,7 +114,7 @@ func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
 }
 
 func TestAnEditorPublishesItsCursorStyleWithItsFrame(t *testing.T) {
-	e := headless.NewEditor()
+	e := &headless.Editor{}
 	e.CursorStyle = grid.CursorStyle{Shape: grid.CursorBar, Blink: true}
 
 	screen := grid.NewScreen(8, 1)

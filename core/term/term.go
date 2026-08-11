@@ -35,12 +35,12 @@ var ErrNotTerminal = errors.New("term: not a terminal")
 // older image that can still be present, so the session refuses another transmission.
 var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
 
-// Options says which of the terminal's optional behaviours a session wants.
+// Config says which terminal behaviours a session wants.
 //
 // The zero value asks for none of them, which is a legitimate choice for a
 // session that only wants raw keys, and is why each is named for what turning it
 // on gets you rather than for turning it off.
-type Options struct {
+type Config struct {
 	// AltScreen draws on a screen of its own, leaving the user's scrollback as it
 	// was. Without it, frames are drawn in place among whatever else is on screen.
 	AltScreen bool
@@ -58,7 +58,7 @@ type Options struct {
 	// colour it draws on, and the extensions it claims. See [Terminal.Ground]
 	// and [Terminal.Attributes].
 	//
-	// It is the only option that costs anything — one round trip to the terminal,
+	// It is the only setting that costs anything — one round trip to the terminal,
 	// normally a millisecond and bounded either way — and the only one whose answer
 	// a session cannot get any other way. A theme that has to be told whether the
 	// terminal is light is a theme that is wrong for half the people who run it.
@@ -96,6 +96,7 @@ type Terminal struct {
 	// received from this terminal, so later process-environment changes cannot alter
 	// a live terminal's capabilities.
 	locale        string
+	color         grid.Depth
 	wheelProfile  input.Wheel
 	imageProtocol graphics.Protocol
 	// title is what this session called the window, and what it owes the terminal
@@ -125,8 +126,8 @@ type Terminal struct {
 // It reports [ErrNotTerminal] when there is no terminal to take over, which is the
 // case a caller has to handle rather than force: a program whose output is being
 // piped wants to write text, not frames.
-func Open(opts Options) (*Terminal, error) {
-	return OpenOn(os.Stdin, os.Stdout, opts, os.LookupEnv)
+func Open(cfg Config) (*Terminal, error) {
+	return OpenOn(os.Stdin, os.Stdout, cfg, os.LookupEnv)
 }
 
 // OpenOn takes over a terminal that is not this process's own.
@@ -146,7 +147,7 @@ func Open(opts Options) (*Terminal, error) {
 // program and reading what came out of it.
 func OpenOn(
 	in, out *os.File,
-	opts Options,
+	cfg Config,
 	lookup func(string) (string, bool),
 ) (*Terminal, error) {
 	if in == nil {
@@ -169,11 +170,11 @@ func OpenOn(
 	if err != nil {
 		return nil, fmt.Errorf("term: enter raw mode: %w", err)
 	}
-	t := newTerminal(in, out, opts, lookup, oldState)
+	t := newTerminal(in, out, cfg, lookup, oldState)
 	if err := t.takeOver(inFD); err != nil {
 		return nil, err
 	}
-	t.start(opts, lookup)
+	t.start(cfg, lookup)
 	return t, nil
 }
 
@@ -187,14 +188,14 @@ func checkedTerminalFD(file *os.File, role string) (int, error) {
 
 func newTerminal(
 	in, out *os.File,
-	opts Options,
+	cfg Config,
 	lookup func(string) (string, bool),
 	oldState *xterm.State,
 ) *Terminal {
 	return &Terminal{
 		in:         in,
 		out:        out,
-		modes:      opts.Modes(lookup),
+		modes:      cfg.Modes(lookup),
 		oldState:   oldState,
 		events:     make(chan input.Event, 64),
 		resized:    make(chan input.Resize, 1),
@@ -203,7 +204,8 @@ func newTerminal(
 		resizeDone: make(chan struct{}),
 		task:       newTaskProgress(),
 		clipboard:  clipboard.New(lookup),
-		locale:     DetectLocaleIn(lookup),
+		locale:     DetectLocale(lookup),
+		color:      DetectDepth(lookup),
 	}
 }
 
@@ -227,7 +229,7 @@ func (t *Terminal) takeOver(inFD int) error {
 // start activates the input side after acquisition can no longer fail. Goroutines
 // are deliberately last: no partially opened Terminal is returned, and no rollback
 // path has to coordinate workers that escaped into the session.
-func (t *Terminal) start(opts Options, lookup func(string) (string, bool)) {
+func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	// The size is delivered as an event rather than left to be asked for, so a
 	// session learns its size the same way it learns about every later change.
 	var opening dimensions
@@ -245,14 +247,14 @@ func (t *Terminal) start(opts Options, lookup func(string) (string, bool)) {
 	// listening for the answer, and any later means two readers race for it.
 	parser := &input.Parser{}
 	var early []input.Event
-	if opts.Probe {
+	if cfg.Probe {
 		pr := &probe{raw: raw, out: t.out, parser: parser}
 		t.said = pr.run()
 		early = pr.early
 	}
 	t.wheelProfile = input.WheelFor(lookup, t.identity())
 	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
-	t.imageProtocol = graphics.DetectIn(lookup, t.identity(), sixel)
+	t.imageProtocol = graphics.Detect(lookup, t.identity(), sixel)
 
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
@@ -401,6 +403,9 @@ func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
 // means none was supplied.
 func (t *Terminal) Locale() string { return t.locale }
 
+// Color is how much colour this terminal's environment says it can show.
+func (t *Terminal) Color() grid.Depth { return t.color }
+
 // identity is what to match a terminal against: what it called itself when asked, and
 // nothing when it did not.
 func (t *Terminal) identity() string {
@@ -422,8 +427,8 @@ func (t *Terminal) Wheel() input.Wheel {
 //
 // It is the environment and the terminal's own claims together, which is what it
 // takes: the environment names the terminal, and only the terminal names sixel. A
-// session that did not ask — see [Options.Probe] — gets the answer the environment
-// alone supports, which is the same as [DetectGraphics].
+// session that did not ask — see [Config.Probe] — gets the answer
+// [graphics.Detect] derives from its environment alone.
 func (t *Terminal) Graphics() graphics.Protocol {
 	return t.imageProtocol
 }

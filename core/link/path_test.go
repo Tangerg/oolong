@@ -39,7 +39,7 @@ func TestPathsWhoseShapeIsEvidenceEnough(t *testing.T) {
 		{"an encoded one /tmp/%2Fa/b.txt", "/tmp/%2Fa/b.txt"},
 		{"a directory /var/log/", "/var/log/"},
 	} {
-		got := link.Detect(tc.in)
+		got := link.Detect(tc.in, nil)
 		if len(got) != 1 {
 			t.Errorf("%q found %v, want one path", tc.in, targets(got))
 			continue
@@ -66,7 +66,7 @@ func TestSlashedProseIsNotAPath(t *testing.T) {
 		"either his/her copy",
 		"a fraction 1/2 of it",
 	} {
-		if got := link.Detect(in); len(got) != 0 {
+		if got := link.Detect(in, nil); len(got) != 0 {
 			t.Errorf("%q found %v", in, targets(got))
 		}
 	}
@@ -77,11 +77,11 @@ func TestSlashedProseIsNotAPath(t *testing.T) {
 func TestABareNameNeedsConfirming(t *testing.T) {
 	const in = "I edited main.go and node.js runs it, version 1.2.3"
 
-	if got := link.Detect(in); len(got) != 0 {
+	if got := link.Detect(in, nil); len(got) != 0 {
 		t.Errorf("without a filesystem it found %v, want nothing", targets(got))
 	}
 
-	got := link.DetectIn(in, files("main.go"))
+	got := link.Detect(in, files("main.go"))
 	if len(got) != 1 {
 		t.Fatalf("found %v, want only the file that is there", targets(got))
 	}
@@ -94,7 +94,7 @@ func TestABareNameNeedsConfirming(t *testing.T) {
 // output does not underline a path from somebody else's machine.
 func TestARelativePathIsConfirmedWhenThereIsAnythingToConfirmItWith(t *testing.T) {
 	const in = "changed src/main.go and their/other.go"
-	got := link.DetectIn(in, files("src/main.go"))
+	got := link.Detect(in, files("src/main.go"))
 	if len(got) != 1 || got[0].Target != "src/main.go" {
 		t.Errorf("found %v, want only the one that is there", targets(got))
 	}
@@ -103,7 +103,7 @@ func TestARelativePathIsConfirmedWhenThereIsAnythingToConfirmItWith(t *testing.T
 // TestARootedPathIsNotAskedAbout: it says where it is, and a reference to a file that
 // has not been written yet is still a reference to that file.
 func TestARootedPathIsNotAskedAbout(t *testing.T) {
-	got := link.DetectIn("will write /tmp/output.txt", files())
+	got := link.Detect("will write /tmp/output.txt", files())
 	if len(got) != 1 || got[0].Target != "/tmp/output.txt" {
 		t.Errorf("found %v, want the rooted path", targets(got))
 	}
@@ -116,7 +116,7 @@ func TestAQuotedPathKeepsItsSpaces(t *testing.T) {
 		{`open "/Applications/Demo App.app"`, "/Applications/Demo App.app"},
 		{`see 'my notes/todo list.md'`, "my notes/todo list.md"},
 	} {
-		got := link.Detect(tc.in)
+		got := link.Detect(tc.in, nil)
 		if len(got) != 1 {
 			t.Errorf("%q found %v", tc.in, targets(got))
 			continue
@@ -145,7 +145,7 @@ func TestALineAndColumnBelongToTheLink(t *testing.T) {
 		{"at /a/b.go:1:1 exactly", "/a/b.go", 1, 1},
 		{"no line here src/main.go", "src/main.go", 0, 0},
 	} {
-		got := link.Detect(tc.in)
+		got := link.Detect(tc.in, nil)
 		if len(got) != 1 {
 			t.Errorf("%q found %v", tc.in, targets(got))
 			continue
@@ -164,7 +164,7 @@ func TestALineAndColumnBelongToTheLink(t *testing.T) {
 // TestAURLIsNotAlsoAPath, or a link would be stamped twice and whichever ran last
 // would win.
 func TestAURLIsNotAlsoAPath(t *testing.T) {
-	got := link.Detect("see https://example.com/a/b.html for it")
+	got := link.Detect("see https://example.com/a/b.html for it", nil)
 	if len(got) != 1 {
 		t.Fatalf("found %v, want one link", targets(got))
 	}
@@ -174,7 +174,7 @@ func TestAURLIsNotAlsoAPath(t *testing.T) {
 }
 
 func TestLinksComeBackInOrderAndDoNotOverlap(t *testing.T) {
-	got := link.Detect("see /a/b.go then https://x.test/y then ~/c/d.txt")
+	got := link.Detect("see /a/b.go then https://x.test/y then ~/c/d.txt", nil)
 	if len(got) != 3 {
 		t.Fatalf("found %v, want three", targets(got))
 	}
@@ -196,7 +196,7 @@ func TestKindNames(t *testing.T) {
 
 func TestDetectFindsNothingInNothing(t *testing.T) {
 	for _, in := range []string{"", "   ", "/", "~/", "just words"} {
-		if got := link.Detect(in); len(got) != 0 {
+		if got := link.Detect(in, nil); len(got) != 0 {
 			t.Errorf("%q found %v", in, targets(got))
 		}
 	}
@@ -212,7 +212,7 @@ func TestPathsThatAreTheTailOfALongerWord(t *testing.T) {
 		"foo~/bar.go",
 		"a.b/c.go",
 	} {
-		for _, l := range link.Detect(in) {
+		for _, l := range link.Detect(in, nil) {
 			if l.Start != 0 {
 				t.Errorf("%q found %q starting at %d, in the middle of a word", in, l.Target, l.Start)
 			}
@@ -220,14 +220,14 @@ func TestPathsThatAreTheTailOfALongerWord(t *testing.T) {
 	}
 	// At the very start of the text there is nothing before it, which is the case the
 	// check has to allow.
-	if got := link.Detect("/usr/bin/go is there"); len(got) != 1 {
+	if got := link.Detect("/usr/bin/go is there", nil); len(got) != 1 {
 		t.Errorf("a path at the start of the text found %v", targets(got))
 	}
 }
 
 func TestABareNameIsNotFoundInTheMiddleOfOne(t *testing.T) {
 	// The same rule, on the branch that only the filesystem can decide.
-	got := link.DetectIn("nonsense.go", files("sense.go"))
+	got := link.Detect("nonsense.go", files("sense.go"))
 	if len(got) != 0 {
 		t.Errorf("found %v inside a longer word", targets(got))
 	}
@@ -239,7 +239,7 @@ func TestTrailingPunctuationLeavesThePath(t *testing.T) {
 		{"look at /tmp/a.go,", "/tmp/a.go"},
 		{"(see /tmp/a.go)", "/tmp/a.go"},
 	} {
-		got := link.Detect(tc.in)
+		got := link.Detect(tc.in, nil)
 		if len(got) != 1 || got[0].Target != tc.want {
 			t.Errorf("%q found %v, want %q", tc.in, targets(got), tc.want)
 		}
@@ -248,7 +248,7 @@ func TestTrailingPunctuationLeavesThePath(t *testing.T) {
 
 func TestAPathThatIsOnlyPunctuationIsNotAPath(t *testing.T) {
 	for _, in := range []string{"a / b", "~/", "// a comment"} {
-		for _, l := range link.Detect(in) {
+		for _, l := range link.Detect(in, nil) {
 			if l.Target == "/" || l.Target == "~/" || l.Target == "" {
 				t.Errorf("%q found the empty path %q", in, l.Target)
 			}
@@ -261,7 +261,7 @@ func TestAPathThatIsOnlyPunctuationIsNotAPath(t *testing.T) {
 func TestOverlappingShapesKeepTheFirst(t *testing.T) {
 	// The bare branch would find "b.go" inside the relative path the other branch
 	// already found.
-	got := link.DetectIn("in src/b.go now", files("src/b.go", "b.go"))
+	got := link.Detect("in src/b.go now", files("src/b.go", "b.go"))
 	if len(got) != 1 || got[0].Target != "src/b.go" {
 		t.Errorf("found %v, want only the whole path", targets(got))
 	}

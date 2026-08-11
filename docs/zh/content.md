@@ -28,7 +28,7 @@ contentType: How-to
 | 模块 | 主入口 | 结果 | 用途 |
 | --- | --- | --- | --- |
 | `markdown` | `markdown.Render` | `[]markdown.Block` | 结构化文本与 GFM |
-| `highlight` | `highlight.Lines` | `[]text.Line` | 一段带样式的源码 |
+| `highlight` | `highlight.New` | `highlight.Renderer` | 可复用的源码样式渲染器 |
 | `latex` | `latex.Render` | `*latex.Formula` | 可测量、可选择的数学公式 |
 
 只安装选中的模块以及应用需要的底层模块：
@@ -61,17 +61,19 @@ rows := doc.Rows(width)
 
 ## 不通过 Markdown 高亮源码
 
-当应用已经知道一个值是代码时，直接使用 `highlight.Lines`：
+当应用已经知道一个值是代码时，先构造一个渲染器，再在所有需要该配色的地方使用同一个
+`Lines` 方法：
 
 ```go
-lines := highlight.Lines("go", source, "github-dark")
+highlighter := highlight.New("github-dark")
+lines := highlighter.Lines("go", source)
 for row, line := range lines {
     line.Draw(view, 0, row)
 }
 ```
 
 未知语言会先根据源码推断，仍无法识别时则退化为纯文本。若周围面板需要采用所选方案的
-背景，请使用 `highlight.Background`；词法单元行不会替应用强制做出这个决定。
+背景，请使用 `highlighter.Background`；词法单元行不会替应用强制做出这个决定。
 
 ## 不通过 Markdown 渲染公式
 
@@ -108,8 +110,13 @@ look := markdown.Look{
     Link:     theme.Accent,
     Marker:   theme.Accent,
 }
-look.SetRenderer(markdown.FencedCode, highlight.Of("github-dark"))
-look.SetRenderer(markdown.DisplayMath, latex.Of(formulaLook))
+highlighter := highlight.New("github-dark")
+look.SetRenderer(markdown.FencedCode, highlighter.Lines)
+look.SetRenderer(markdown.DisplayMath,
+    func(_ string, source string) []text.Line {
+        return latex.Render(source, formulaLook).Lines()
+    },
+)
 
 doc.SetBlocks(markdown.Render(source, look))
 ```
@@ -123,10 +130,10 @@ type Renderer func(info, source string) []text.Line
 解析树不会越过边界。Highlight 与 LaTeX 只返回核心样式文本，也都不知道 Markdown 是
 消费方。
 
-## 在需要时保留领域结果
+## 在组合时观察领域结果
 
-`latex.Of` 是只需要文本行时使用的适配器。当应用需要统计、记录或展示解析失败时，请
-直接包装 `latex.Render`：
+LaTeX 不再提供第二个会丢失信息的入口。应用在消费方边界包装独立使用时同一个
+`latex.Render` 调用，因此可以在返回 Markdown 所需文本行之前统计、记录或展示解析失败：
 
 ```go
 look.SetRenderer(markdown.DisplayMath,
@@ -170,7 +177,7 @@ open.SetBlocks(nil)
 使用聚焦测试，使失败能够直接指出损坏的层级：
 
 - 用 `markdown.Doc.Rows(width)` 断言文档结构和折行
-- 用 `highlight.Lines` 的 span 断言语言与样式选择
+- 用 `highlight.Renderer.Lines` 的 span 断言语言与样式选择
 - 用 `Formula.Err`、`Lines` 和 `Width` 断言数学输入
 - 通过 `programtest` 运行组合组件，断言最终可见行为
 

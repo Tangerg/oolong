@@ -212,6 +212,20 @@ func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 	}
 }
 
+func TestDecoderResetStartsAFreshStreamWithItsConfiguredBase(t *testing.T) {
+	base := grid.Style{FG: grid.RGBColor(0x11, 0x22, 0x33)}
+	decoder := text.Decoder{Base: base}
+	decoder.Feed("\x1b[31mold")
+	decoder.Reset()
+	if open := decoder.Open(); len(open) != 0 {
+		t.Fatalf("reset decoder retained %q", open.String())
+	}
+	lines := decoder.Feed("new\n")
+	if len(lines) != 1 || len(lines[0]) != 1 || lines[0][0].Text != "new" || lines[0][0].Style != base {
+		t.Fatalf("fresh stream = %#v, want one line in the configured base style", lines)
+	}
+}
+
 func TestASequenceThatNeverEndsIsNotHeldForEver(t *testing.T) {
 	var d text.Decoder
 	d.Feed("\x1b]0;" + strings.Repeat("x", 1<<17))

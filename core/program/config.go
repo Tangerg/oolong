@@ -37,13 +37,11 @@ type Config struct {
 	// frames go is the rendering model and not an input capability: it follows from
 	// which of Root and Inline was set. Asking for it alongside Inline is a
 	// contradiction and is reported as one.
-	Terminal term.Options
+	Terminal term.Config
 
 	// Color says how much colour the terminal can show. The zero value, [grid.Auto],
-	// asks [term.DetectDepth] — which is the one thing in this library that reads
-	// its environment rather than making a request and letting it be ignored,
-	// because a truecolor sequence a terminal cannot read prints wrong rather than
-	// degrading.
+	// asks the host's optional [ColorHost]. A local terminal derives that answer with
+	// [term.DetectDepth]; a host without the capability safely uses no colour.
 	//
 	// Setting it is how a program that already knows — from its own configuration,
 	// or because it is writing to something that is not a terminal at all — takes

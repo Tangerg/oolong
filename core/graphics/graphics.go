@@ -125,8 +125,8 @@ var ErrNotPNG = errors.New("graphics: not a PNG")
 
 // Image is a transmitted image and the size it arrived at.
 type Image struct {
-	// ID is the number the terminal now knows the image by, which is what
-	// [Place] and [Delete] refer to.
+	// ID is the number the terminal now knows the image by. It also makes a stable
+	// identity for [github.com/Tangerg/oolong/core/grid.View.Paint].
 	ID uint32
 	// Width and Height are the image's size in pixels, for working out how many
 	// cells it should occupy with [Fit].
@@ -199,7 +199,7 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 	}
 }
 
-// Place shows a transmitted image at the cursor, scaled into cols by rows cells.
+// Paint shows a transmitted image at the cursor, scaled into cols by rows cells.
 //
 // The cursor is positioned by the caller, and the escape belongs after the cell
 // diff of the frame it appears in: the diff would otherwise write over the image
@@ -208,38 +208,26 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 // The cursor is left where it was found. That is what lets an image go in a frame
 // at all — every position in a frame is a movement from the last known one, and an
 // inline block's whole position is relative — and it is the property the protocols
-// that cannot be told to move an image also lack. See [Image.Paint], which is this
-// under the name a frame asks for.
-func Place(w io.Writer, id uint32, cols, rows int) error {
+// that cannot be told to move an image also lack.
+//
+// Paint and [Image.Erase] are what a frame asks of anything that writes itself onto
+// the terminal rather than into cells. They satisfy
+// [github.com/Tangerg/oolong/core/grid.Painter] without either package knowing about
+// the other.
+func (i Image) Paint(w io.Writer, cols, rows int) error {
 	// z=-1 puts the image behind the text, so a caller can still write over it, and
 	// C=1 keeps the cursor where it is.
-	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", id, cols, rows))
+	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", i.ID, cols, rows))
 }
 
-// Paint puts the image in a region of a frame, and Erase takes it away again.
-//
-// The two of them are what a frame asks of anything that writes itself onto the
-// terminal rather than into cells — see
-// [github.com/Tangerg/oolong/core/grid.Painter], which this satisfies without either
-// package knowing about the other: one says what a region needs, the other happens
-// to be able to do it.
-//
-// Only an image that was transmitted has them, which is the same distinction the
-// package comment draws. An image put on the screen with [Inline] has no name to
-// place again or take away, so there is nothing here for it to be.
-func (i Image) Paint(w io.Writer, cols, rows int) error { return Place(w, i.ID, cols, rows) }
-
 // Erase removes every placement of the image and forgets it.
-func (i Image) Erase(w io.Writer) error { return Delete(w, i.ID) }
-
-// Delete removes every placement of an image and forgets it.
-func Delete(w io.Writer, id uint32) error {
-	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", id))
+func (i Image) Erase(w io.Writer) error {
+	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", i.ID))
 }
 
 // Inline writes an image at the cursor over iTerm2's protocol.
 //
-// There is no counterpart to [Place] or [Delete], because the protocol has none:
+// There is no counterpart to [Image.Paint] or [Image.Erase], because the protocol has none:
 // the image goes where the cursor is and the program never hears of it again. That
 // is why it is only for [Printed] output — see the package comment — and why this
 // takes the payload every time rather than an identifier.
@@ -345,7 +333,7 @@ var kittyPrograms = []string{"kitty", "ghostty", "wezterm", "warp"}
 // "iTerm2" in LC_TERMINAL, and "iTerm2 3.5.0" when it is asked directly.
 var iterm2Programs = []string{"iterm", "mintty"}
 
-// DetectIn works out the richest protocol a terminal supports.
+// Detect works out the richest protocol a terminal supports.
 //
 // name is what the terminal said it was when asked, or empty when nothing was asked or
 // nothing answered. It outranks the environment for the reason above.
@@ -361,7 +349,7 @@ var iterm2Programs = []string{"iterm", "mintty"}
 // a test passes whatever facts it wants. There is no cached global and no
 // override hook, for the same reason there is no global palette — a program with two
 // terminals could not have two answers, and a test could not pin either.
-func DetectIn(lookup func(string) (string, bool), name string, sixel bool) Protocol {
+func Detect(lookup func(string) (string, bool), name string, sixel bool) Protocol {
 	// What the terminal called itself, first. An environment describes the terminal a
 	// session was started from, which over ssh, in a container, or under a multiplexer
 	// is not the terminal it is talking to; an answer to a question came from the one

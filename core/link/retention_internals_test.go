@@ -25,7 +25,7 @@ func TestFilteringLinksClearsDiscardedStorage(t *testing.T) {
 
 func TestDetectedTargetsDoNotRetainTheirSource(t *testing.T) {
 	source := strings.Repeat("ordinary prose ", 1<<12) + "/tmp/result.txt"
-	links := Detect(source)
+	links := Detect(source, nil)
 	if len(links) != 1 {
 		t.Fatalf("found %d links, want one", len(links))
 	}

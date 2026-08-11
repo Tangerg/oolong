@@ -86,7 +86,7 @@ func TestEditorKillsDetachTheSurvivingHalfLine(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			editor := NewEditor()
+			editor := &Editor{}
 			editor.SetText(tc.text)
 			editor.SetCursor(0, tc.col)
 			source := editor.lines[0]

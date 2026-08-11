@@ -18,7 +18,7 @@ func ExampleRender() {
 	// E = mc
 }
 
-func ExampleOf_observeErrors() {
+func ExampleRender_observeErrors() {
 	failures := 0
 	render := func(_ string, source string) []text.Line {
 		formula := latex.Render(source, latex.Look{})

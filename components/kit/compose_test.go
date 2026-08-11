@@ -301,6 +301,17 @@ func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) 
 	}
 }
 
+func TestDialogTriggerOpensTheDialogThroughItsAction(t *testing.T) {
+	dialog := kit.NewDialog(&headless.Stack{}, kit.Theme{}, kit.Unicode(), "title", nil)
+	trigger := dialog.Trigger("open", nil)
+	if !trigger.Do(headless.Activate) {
+		t.Fatal("the dialog trigger declined its activation action")
+	}
+	if !dialog.Open() {
+		t.Fatal("the dialog trigger did not open its owner")
+	}
+}
+
 func TestDialogPanelTransfersFocusWithItsBody(t *testing.T) {
 	first := &panelChild{}
 	second := &panelChild{}

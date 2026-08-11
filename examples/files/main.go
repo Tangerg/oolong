@@ -37,7 +37,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newBrowser(runtime, read(root, 2)))
 		},
-		Terminal: term.Options{Probe: true, Mouse: true},
+		Terminal: term.Config{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "files:", err)
 		os.Exit(1)
@@ -92,7 +92,7 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	// The two framed panes, with a column between them. A panel translates from its
 	// border to its child, while the container translates from the whole row to the
 	// panel. Each object owns exactly the coordinate boundary it drew.
-	b.body = headless.Columns(
+	b.body = headless.NewContainer(layout.Across,
 		headless.Item{Size: layout.Part(2, 5), Of: b.treeBox},
 		headless.Item{Size: layout.Flex(1), Of: b.viewBox},
 	)
@@ -104,10 +104,10 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 // Draw paints the two panes, and a hint row under them.
 func (b *browser) Draw(v headless.Frame) {
 	b.show()
-	rows := v.Subs(layout.Down.Rects(v.Bounds().Size(),
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(1)},
-	))
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(1)},
+	}))
 	b.body.Draw(rows[0])
 
 	kit.Label{

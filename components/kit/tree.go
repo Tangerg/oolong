@@ -45,7 +45,12 @@ func NewTree[T any](
 }
 
 // Controller returns the headless tree that owns hierarchy and selection state.
-func (t Tree[T]) Controller() *headless.Tree[T] { return t.controller }
+func (t *Tree[T]) Controller() *headless.Tree[T] {
+	if t == nil {
+		return nil
+	}
+	return t.controller
+}
 
 // Handle passes the event to the tree — see [headless.Tree.Handle].
 //
@@ -53,42 +58,42 @@ func (t Tree[T]) Controller() *headless.Tree[T] { return t.controller }
 // something that can go in a container, take the keyboard from it, and answer what
 // the container hands it. A look that could only be drawn would have to be wired up
 // by hand wherever it was used.
-func (t Tree[T]) Handle(ev input.Event) bool {
-	if t.controller == nil {
+func (t *Tree[T]) Handle(ev input.Event) bool {
+	if t == nil || t.controller == nil {
 		return false
 	}
 	return t.controller.Handle(ev)
 }
 
 // Focus takes the keyboard, or gives it up.
-func (t Tree[T]) Focus(has bool) {
-	if t.controller != nil {
+func (t *Tree[T]) Focus(has bool) {
+	if t != nil && t.controller != nil {
 		t.controller.Focus(has)
 	}
 }
 
 // Focused reports whether the tree has the keyboard, which is what a row asks to
 // decide how a selection nobody is typing at should look.
-func (t Tree[T]) Focused() bool { return t.controller != nil && t.controller.Focused() }
+func (t *Tree[T]) Focused() bool { return t != nil && t.controller != nil && t.controller.Focused() }
 
 // Measure is one row per row the tree is showing.
-func (t Tree[T]) Measure(across int) int {
-	if t.controller == nil {
+func (t *Tree[T]) Measure(across int) int {
+	if t == nil || t.controller == nil {
 		return 0
 	}
 	return t.controller.Measure(across)
 }
 
 // Draw paints the rows that fit.
-func (t Tree[T]) Draw(v headless.Frame) {
-	if t.controller == nil {
+func (t *Tree[T]) Draw(v headless.Frame) {
+	if t == nil || t.controller == nil {
 		return
 	}
 	t.controller.DrawRows(v, t.row)
 }
 
 // row draws one row: the indent, the mark, and what the item says.
-func (t Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) {
+func (t *Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) {
 	width, _ := v.Size()
 	if width <= 0 {
 		return
@@ -119,7 +124,7 @@ func (t Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) {
 
 // mark is what goes before a row: which way a branch is turned, or a space as wide
 // as one so that leaves line up with their siblings.
-func (t Tree[T]) mark(row headless.Shown[T]) string {
+func (t *Tree[T]) mark(row headless.Shown[T]) string {
 	switch {
 	case !row.Branch:
 		// A leaf beside a branch has to start in the same column, or a tree of files

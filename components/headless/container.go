@@ -147,16 +147,10 @@ type Container struct {
 	matcher keymap.Matcher
 }
 
-// Rows is a container that stacks its children down the region.
-func Rows(items ...Item) *Container {
-	c := &Container{Axis: layout.Down}
-	c.Set(items...)
-	return c
-}
-
-// Columns is a container that puts its children side by side.
-func Columns(items ...Item) *Container {
-	c := &Container{Axis: layout.Across}
+// NewContainer constructs a container that arranges its children along axis.
+// [layout.Down] stacks rows and [layout.Across] places columns side by side.
+func NewContainer(axis layout.Axis, items ...Item) *Container {
+	c := &Container{Axis: axis}
 	c.Set(items...)
 	return c
 }

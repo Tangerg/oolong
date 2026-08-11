@@ -72,6 +72,9 @@ type FrameWriter interface {
 // GroundHost supplies the colours discovered before a program starts.
 type GroundHost interface{ Ground() grid.Ground }
 
+// ColorHost supplies the colour depth of the user-facing terminal.
+type ColorHost interface{ Color() grid.Depth }
+
 // WheelHost supplies the host's wheel-event scale.
 type WheelHost interface{ Wheel() input.Wheel }
 
@@ -127,6 +130,7 @@ type ImageHost interface {
 // type assertions or spreads nil checks through its state machine.
 type hostServices struct {
 	groundHost   GroundHost
+	colorHost    ColorHost
 	wheelHost    WheelHost
 	keyboardHost KeyboardHost
 	localeHost   LocaleHost
@@ -144,6 +148,7 @@ type hostServices struct {
 func hostServicesFor(host Host) hostServices {
 	services := hostServices{}
 	services.groundHost, _ = host.(GroundHost)
+	services.colorHost, _ = host.(ColorHost)
 	services.wheelHost, _ = host.(WheelHost)
 	services.keyboardHost, _ = host.(KeyboardHost)
 	services.localeHost, _ = host.(LocaleHost)
@@ -164,6 +169,13 @@ func (s hostServices) ground() grid.Ground {
 		return grid.Ground{}
 	}
 	return s.groundHost.Ground()
+}
+
+func (s hostServices) color() grid.Depth {
+	if s.colorHost == nil {
+		return grid.NoColor
+	}
+	return s.colorHost.Color()
 }
 
 func (s hostServices) wheel() input.Wheel {

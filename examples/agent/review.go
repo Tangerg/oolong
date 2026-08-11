@@ -89,11 +89,11 @@ type reviewPane struct {
 func (p *reviewPane) Draw(frame headless.Frame) {
 	width, height := frame.Size()
 	formRows := min(p.form.Measure(width), height)
-	rows := frame.Subs(layout.Down.Rects(frame.Bounds().Size(),
-		layout.Slot{Size: layout.Fixed(1)},
-		layout.Slot{Size: layout.Flex(1)},
-		layout.Slot{Size: layout.Fixed(formRows)},
-	))
+	rows := frame.Subs((layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
+		{Size: layout.Fixed(1)},
+		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(formRows)},
+	}))
 	kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: "…"}.Draw(rows[0].View)
 	p.diff.Draw(rows[1].View)
 	p.form.Draw(rows[2])

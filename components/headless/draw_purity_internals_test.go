@@ -445,7 +445,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	treeCase.height = 2
 	cases = append(cases, treeCase)
 
-	editor := NewEditor()
+	editor := &Editor{}
 	editor.Insert("one two")
 	editor.MoveLeft()
 	editor.Anchor()
@@ -522,7 +522,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	oldChild := &purityWidget{text: "old"}
 	newChild := &purityWidget{text: "new"}
-	container := Rows(Item{Size: layout.Flex(1), Of: oldChild})
+	container := NewContainer(layout.Down, Item{Size: layout.Flex(1), Of: oldChild})
 	container.Set(Item{Size: layout.Flex(1), Of: newChild})
 	cases = append(cases, widgetPurityCase("*Container", container, func() any {
 		return struct {

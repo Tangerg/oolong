@@ -709,6 +709,7 @@ invariant it makes enforceable.
 | supported-platform resize delivery | a real Unix PTY changes geometry and must produce the later `Resize`; the Windows polling state machine is tested with a deterministic clock for change detection, error recovery, deduplication, and shutdown; Windows sources build and test in CI | every terminal test run and every supported OS source set |
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
 | failure and ownership settlement | [`program` fault tests](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
+| callable code has executable evidence | the pinned `golang.org/x/tools/cmd/deadcode` analyzes each module with tests across Linux, macOS, and Windows; private unreachable code is removed, while an unreachable export receives caller-side contract coverage and is retained or removed only through an independent API-design review | every CI run and release |
 | public module compatibility | every module builds without `go.work`; the release workflow runs the pinned `golang.org/x/exp/cmd/gorelease` against the preceding immutable module tag, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | manual release check before tagging and every public module tag |
 
 The bounded-memory gate deliberately has two parts. Internal reference and record
@@ -815,9 +816,9 @@ Public APIs follow these rules:
    API meaningless.
 7. **State transitions are methods.** Rich objects protect their own invariants instead
    of exposing fields that callers must update in a coordinated order.
-8. **Configuration stays proportional.** Plain fields are appropriate for simple
-   declarative values. Functional options are reserved for genuinely complex
-   initialization, not used as ceremony around every constructor.
+8. **Configuration is an explicit value.** When construction has related declarative
+   settings, accept a package `Config` struct and give its optional fields useful
+   zero meanings. Do not introduce functional-option APIs.
 9. **Names rely on package context.** Prefer `grid.View`, `layout.Flow`, and
    `program.Run` to names that repeat their package.
 10. **Callbacks have one purpose.** If a callback accumulates lifecycle rules, errors,
@@ -828,8 +829,12 @@ Public APIs follow these rules:
     are explicit values.
 13. **Generics remove repeated algorithms.** They do not create a component type
     hierarchy or a universal state container.
-14. **One obvious path.** When a new contract replaces an old one, update callers and
-    remove the obsolete route.
+14. **One semantic operation, one entry point at each layer.** Do not export a default
+    wrapper, `With` variant, lossy adapter, or convenience alias when a useful zero
+    value or explicit argument makes the canonical call clear. A second entry must
+    cross a named boundary — ownership, lifecycle, abstraction layer, or result
+    contract — rather than merely save a caller one argument. When a contract changes,
+    update callers and remove the obsolete route.
 
 API ergonomics are evaluated at call sites in examples, not only at declarations. The
 shortest useful streaming program and the most demanding composition should both read
@@ -973,7 +978,7 @@ absence, bounded close, and best-effort real-terminal teardown.
 This slice is complete. [`examples/streaming`](https://github.com/Tangerg/oolong/tree/main/examples/streaming) is the single
 canonical path rather than a parallel showcase: approval transfers focus before the
 source starts; the source writes only through `ByteIngress`; `markdown.Stream` turns
-the changing suffix into stable blocks; and `Transcript.CommitN` transfers only the
+the changing suffix into stable blocks; and `Transcript.Commit` with an explicit limit transfers only the
 excess finished prefix while retaining a fixed recent window for selection, pointer
 and scroll interaction. Cancellation is a distinct domain result from source failure,
 and teardown cancels the source through ingress ownership. Deterministic example tests
@@ -1139,7 +1144,11 @@ Use this checklist for every architectural proposal.
 - Are interfaces small, consumer-owned, and proven by substitution?
 - Are concrete types returned?
 - Are variants encoded in types or values instead of contradictory booleans?
-- Is there one path rather than a legacy and a new path?
+- Do related construction settings use one explicit `Config` value whose optional
+  fields have useful zero meanings, rather than functional options?
+- Does each semantic operation have one entry point at this layer?
+- If two entries share implementation, which ownership, lifecycle, layer, or result
+  boundary makes them different capabilities rather than aliases?
 
 ### Delivery
 

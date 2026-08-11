@@ -258,6 +258,13 @@ jobs:
             done
           done
 
+      # Reachability finds dead private implementation and public contracts without
+      # executable caller-side coverage. An unused export is not dead library API:
+      # whether it belongs is an API-design decision, never a repository call count.
+      - run: go install golang.org/x/tools/cmd/deadcode@v0.44.0
+      - name: callable code reachability
+        run: scripts/check-reachability.sh
+
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - name: govulncheck
         run: for m in $(scripts/modules.sh); do (cd "$m" && govulncheck ./...) || exit 1; done

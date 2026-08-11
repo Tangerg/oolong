@@ -38,7 +38,9 @@ func TestWaitForReturnsOnceEveryTokenHasArrived(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 			tr.append([]byte("second"))
 		}()
-		if err := tr.WaitWithin(2*time.Second, "first", "second"); err != nil {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		if err := tr.WaitFor(ctx, "first", "second"); err != nil {
 			t.Fatalf("waiting for both: %v", err)
 		}
 	})
@@ -48,7 +50,9 @@ func TestWaitForGivesUpAndSaysWhatItNeverSaw(t *testing.T) {
 	tr := newTranscript()
 	tr.append([]byte("only this"))
 
-	err := tr.WaitWithin(20*time.Millisecond, "only", "missing")
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	err := tr.WaitFor(ctx, "only", "missing")
 	if err == nil {
 		t.Fatal("waiting for something that never came did not fail")
 	}
@@ -60,6 +64,18 @@ func TestWaitForGivesUpAndSaysWhatItNeverSaw(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("the failure does not unwrap to a deadline: %v", err)
+	}
+}
+
+func TestWaitForPreservesTheContextsCause(t *testing.T) {
+	tr := newTranscript()
+	want := errors.New("the surrounding test stopped")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(want)
+
+	err := tr.WaitFor(ctx, "missing")
+	if !errors.Is(err, want) {
+		t.Fatalf("waiting with a cause gave %v, want %v", err, want)
 	}
 }
 

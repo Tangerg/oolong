@@ -183,7 +183,7 @@ block is marked finished and never parsed again.
 ## Release finished history
 
 Keep a small interactive window for selection and search. Commit older finished
-blocks through `kit.Transcript.CommitN`; the same measured drawable is printed and
+blocks through `kit.Transcript.Commit`; the same measured drawable is printed and
 then removed from live ownership.
 
 ```go
@@ -199,7 +199,7 @@ func (c *conversation) Retain(printer kit.Printer) {
         finished++
     }
     if excess := finished - retainedBlocks; excess > 0 {
-        c.view.CommitN(printer, excess)
+        c.view.Commit(printer, excess)
     }
     c.scroll.ToBottom()
 }
