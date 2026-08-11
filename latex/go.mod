@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	codeberg.org/go-latex/latex v0.3.0
-	github.com/Tangerg/oolong/core v0.10.0
+	github.com/Tangerg/oolong/core v0.11.0
 )
 
 require (
