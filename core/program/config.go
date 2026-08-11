@@ -30,8 +30,10 @@ type Config struct {
 	// Returning nil is an error.
 	Inline func(*InlineRuntime) Component
 
-	// Terminal says which of the terminal's optional behaviours to ask for. Ignored
-	// when Host is set.
+	// Terminal says which of the terminal's optional behaviours to ask for. Run
+	// applies it when opening the local terminal; a transport adapter may interpret
+	// it before supplying Host. A Host passed directly to Run already owns its setup
+	// and receives none of these settings.
 	//
 	// AltScreen is the program's to decide rather than the caller's, because where
 	// frames go is the rendering model and not an input capability: it follows from

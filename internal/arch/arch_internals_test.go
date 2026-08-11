@@ -389,11 +389,16 @@ func TestWhiteBoxTestsNameTheirBoundary(t *testing.T) {
 	}
 }
 
-// TestConfigurationUsesExplicitValues keeps construction configuration in ordinary
-// structs. A functional option is not just another spelling: it hides the complete
-// configuration from documentation, comparison and composition, and gives one
-// operation a second configuration language. Domain values such as
-// headless.Option remain structs and therefore do not match this rule.
+// TestConfigurationUsesExplicitValues rejects the conventional API shapes that would
+// reintroduce functional options: an Options struct, a function type named Option, or
+// a function type that mutates configuration. A functional option is not just another
+// spelling: it hides the complete configuration from documentation, comparison and
+// composition, and gives one operation a second configuration language.
+//
+// This deliberately does not guess whether every struct named Settings, Params or
+// something else is configuration. Those names also describe real domain values;
+// their responsibility belongs to API review, not a naming heuristic. Domain values
+// such as headless.Option remain structs and therefore do not match this rule.
 func TestConfigurationUsesExplicitValues(t *testing.T) {
 	root := repoRoot(t)
 	walk(t, root, func(_, path string) {

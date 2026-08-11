@@ -73,6 +73,38 @@ func TestScreenAppliesInlineRepaintAndErasure(t *testing.T) {
 	assertScreenRows(t, shown, "ONE     ", "        ", "        ")
 }
 
+func TestScreenModelsEraseAtAPendingWrapMargin(t *testing.T) {
+	shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := shown.Apply([]byte("abcd\x1b[K")); err != nil {
+		t.Fatal(err)
+	}
+	assertScreenRows(t, shown, "abc ")
+}
+
+func TestInlineKeepsFullWidthASCIIAndWideText(t *testing.T) {
+	const width = 8
+	renderer := grid.NewInline(width, 2)
+	frame := renderer.Frame()
+	frame.Text(0, 0, "running!", grid.Style{})
+	frame.Text(0, 1, "done中文", grid.Style{})
+
+	var output bytes.Buffer
+	if err := renderer.Flush(&output); err != nil {
+		t.Fatal(err)
+	}
+	shown, err := ptytest.NewScreen(ptytest.Size{Cols: width, Rows: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := shown.Apply(output.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	assertScreenRows(t, shown, "running!", "done中文")
+}
+
 func TestScreenCarriesSplitSequencesAndUTF8(t *testing.T) {
 	shown, err := ptytest.NewScreen(ptytest.Size{Cols: 6, Rows: 1})
 	if err != nil {

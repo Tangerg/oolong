@@ -145,21 +145,10 @@ func (p *pump) drainRaw(parser *input.Parser) bool {
 // part-way through. Stopping mid-batch loses the rest, which is correct: nothing
 // downstream is listening any more.
 func (p *pump) deliver(events []input.Event) bool {
+	events = input.Stamp(events, p.clock())
 	for _, ev := range events {
 		if pasted, ok := p.pasted(ev); ok {
 			ev = pasted
-		}
-		switch timed := ev.(type) {
-		case input.Mouse:
-			if timed.At.IsZero() {
-				timed.At = p.clock()
-				ev = timed
-			}
-		case input.Key:
-			if timed.At.IsZero() {
-				timed.At = p.clock()
-				ev = timed
-			}
 		}
 		select {
 		case p.out <- ev:

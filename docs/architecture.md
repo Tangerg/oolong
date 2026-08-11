@@ -710,7 +710,7 @@ invariant it makes enforceable.
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
 | failure and ownership settlement | [`program` fault tests](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
 | callable code has executable evidence | the pinned `golang.org/x/tools/cmd/deadcode` analyzes each module with tests across Linux, macOS, and Windows; private unreachable code is removed, while an unreachable export receives caller-side contract coverage and is retained or removed only through an independent API-design review | every CI run and release |
-| public module compatibility | every module builds without `go.work`; the release workflow runs the pinned `golang.org/x/exp/cmd/gorelease` against the preceding immutable module tag, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | manual release check before tagging and every public module tag |
+| public module compatibility | every module builds without `go.work`; pinned `apidiff` compares each public module with its preceding immutable tag on every change and requires every exported removal by exact old name in the Unreleased migration ledger; the release workflow additionally runs pinned `gorelease`, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | every CI run, the manual release check before tagging, and every public module tag |
 
 The bounded-memory gate deliberately has two parts. Internal reference and record
 counts are deterministic and are the primary proof. The black-box heap test runs in
@@ -964,8 +964,12 @@ without teaching lower packages what a chat, model, approval, or command is.
 
 `Host.Input` returns one causal `EventSource`: channel closure is followed by
 an `Err` result, so clean EOF and known transport failure stay distinct without
-coupling `program` to a concrete host. `ByteIngress` now supplies the lossless byte
-policy: its subprocess caller proves batching, a pending-byte bound, producer
+coupling `program` to a concrete host. A transport decoding terminal bytes calls
+`input.Stamp` once on each parser batch: protocol decoding owns event identity, while
+the transport boundary owns arrival time. Keys and pointer gestures therefore cannot
+silently acquire different clock policies in different hosts.
+`ByteIngress` now supplies the lossless byte policy: its subprocess caller proves
+batching, a pending-byte bound, producer
 backpressure, ordered completion and failure, and owner cancellation without changing
 general dispatch.
 `Transcript.Commit` already physically releases committed payload and per-block

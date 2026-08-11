@@ -58,9 +58,10 @@ const responseTimeout = 10 * time.Second
 
 // Channel is one stateful OSC 52 path to a user-facing terminal.
 //
-// Its zero value is a direct path ready for use. [New] additionally adapts encoding
-// to a tmux session described by an environment. All methods are safe to call from
-// different goroutines. A Channel must not be copied after first use.
+// Its zero value is a direct path ready for use; a nil *Channel is inert. [New]
+// additionally adapts encoding to a tmux session described by an environment. All
+// methods are safe to call from different goroutines. A Channel must not be copied
+// after first use.
 type Channel struct {
 	tmux bool
 
@@ -99,7 +100,7 @@ func New(lookup func(string) (string, bool)) *Channel {
 //
 // It reports false for text too large to carry. See [Limit].
 func (c *Channel) Copy(sel Selection, text string) (string, bool) {
-	if len(text) > maxPayload {
+	if c == nil || len(text) > maxPayload {
 		return "", false
 	}
 	return c.wrap(encode(sel, base64.StdEncoding.EncodeToString([]byte(text)))), true
@@ -107,7 +108,12 @@ func (c *Channel) Copy(sel Selection, text string) (string, bool) {
 
 // Clear returns the sequence that empties a clipboard. It is a copy of nothing
 // rather than a command of its own, which is how the protocol spells it.
-func (c *Channel) Clear(sel Selection) string { return c.wrap(encode(sel, "")) }
+func (c *Channel) Clear(sel Selection) string {
+	if c == nil {
+		return ""
+	}
+	return c.wrap(encode(sel, ""))
+}
 
 // Request starts one clipboard read and returns the sequence to send.
 //
@@ -169,7 +175,7 @@ func (c *Channel) clock() time.Time {
 }
 
 func (c *Channel) wrap(sequence string) string {
-	if c == nil || !c.tmux || sequence == "" {
+	if !c.tmux || sequence == "" {
 		return sequence
 	}
 	// tmux DCS passthrough doubles every escape in the inner sequence. This stays

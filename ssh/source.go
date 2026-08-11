@@ -245,23 +245,14 @@ func (s *eventSource) deliver(events []input.Event) bool {
 }
 
 func (s *eventSource) stamp(events []input.Event) []input.Event {
-	now := time.Now()
+	events = input.Stamp(events, time.Now())
 	for i, event := range events {
-		switch event := event.(type) {
-		case input.OSC:
-			if pasted, ok := event.Paste(s.clip); ok {
-				events[i] = pasted
-			}
-		case input.Key:
-			if event.At.IsZero() {
-				event.At = now
-				events[i] = event
-			}
-		case input.Mouse:
-			if event.At.IsZero() {
-				event.At = now
-				events[i] = event
-			}
+		osc, ok := event.(input.OSC)
+		if !ok {
+			continue
+		}
+		if pasted, ok := osc.Paste(s.clip); ok {
+			events[i] = pasted
 		}
 	}
 	return events

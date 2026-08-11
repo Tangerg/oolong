@@ -47,10 +47,17 @@ import (
 // highlighter's own default rather than nothing.
 type Style string
 
-// Styles are the schemes there are, in alphabetical order. It is what a program
-// offering the choice to a user reads from, so the list cannot go out of step with
-// what [New] will accept.
-func Styles() []string { return styles.Names() }
+// Styles returns the available schemes in alphabetical order. A program offering
+// the choice to a user reads from this list, so its values have the same [Style]
+// type [New] accepts and require no conversion at the call site.
+func Styles() []Style {
+	names := styles.Names()
+	available := make([]Style, len(names))
+	for i, name := range names {
+		available[i] = Style(name)
+	}
+	return available
+}
 
 // Renderer highlights source with one resolved colour scheme.
 //

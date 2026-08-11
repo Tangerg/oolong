@@ -112,6 +112,22 @@ func TestClearIsACopyOfNothing(t *testing.T) {
 	}
 }
 
+func TestNilChannelIsInert(t *testing.T) {
+	var channel *clipboard.Channel
+	if sequence, ok := channel.Copy(clipboard.System, "text"); ok || sequence != "" {
+		t.Fatalf("nil copy = %q, %t", sequence, ok)
+	}
+	if sequence := channel.Clear(clipboard.System); sequence != "" {
+		t.Fatalf("nil clear = %q", sequence)
+	}
+	if sequence, ok := channel.Request(clipboard.System); ok || sequence != "" {
+		t.Fatalf("nil request = %q, %t", sequence, ok)
+	}
+	if text, ok := channel.Answer("c;dGV4dA=="); ok || text != "" {
+		t.Fatalf("nil answer = %q, %t", text, ok)
+	}
+}
+
 func TestRequestAsksOnceUntilItsAnswer(t *testing.T) {
 	channel := &clipboard.Channel{}
 	sequence, requested := channel.Request(clipboard.System)

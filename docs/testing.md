@@ -97,7 +97,11 @@ A PTY test can prove facts an in-process host cannot:
 - An idle interface stops writing bytes
 - Published output remains after the live block exits
 
-`ptytest` captures a byte stream; it is not a general terminal emulator. Assert
+`ptytest` captures a byte stream; it is not a general terminal emulator. When the
+claim is the visible cell text produced by `grid.Screen` or `grid.Inline`, apply that
+stream to `ptytest.Screen`. Its renderer-sized model includes cursor movement,
+erasure, bounded scrolling, wide cells, and the terminal's delayed wrap at the right
+margin; unsupported device traffic returns an error instead of being guessed. Assert
 protocol sequences directly when the sequence itself is the contract.
 
 ## Keep time and background work deterministic
@@ -130,6 +134,12 @@ necessarily dead API: a framework exists for downstream callers, and its extensi
 points may intentionally have no repository production call. Give that operation an
 external-package behavioral test. Retain or remove it only after a separate review of
 its responsibility, abstraction level, overlap, and contract.
+
+Reachability never authorizes removal. `scripts/check-api-changelog.sh` separately
+uses pinned `apidiff` against each preceding public module tag and requires every
+removed export by exact old name in the Unreleased migration ledger. That evidence
+cannot prove the design decision, but it prevents deletion from being the silent way
+to satisfy the reachability gate.
 
 Keep caller-visible behavior in external-package tests (`foo_test`). A white-box
 test may use the implementation package only when the property has no public form,

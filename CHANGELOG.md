@@ -34,6 +34,18 @@ formula rendering keeps the bounded cache's lower latency and allocation cost.
 Wheel gesture evolution and transcript viewport geometry now live with their state
 objects, and inline and screen painters share one numeric CSI encoder.
 
+Inline publication no longer emits erase-to-end after a row fills the terminal's
+right margin, preserving its final cell across ASCII, wide text, styled text and
+hyperlinks. The PTY assertion screen now models a terminal's pending-wrap state, so
+the original failure and future right-margin regressions are observable in tests.
+Input transports stamp parser batches through one `input.Stamp` operation instead of
+maintaining local key and mouse type switches. `highlight.Styles` now returns the
+same `highlight.Style` values accepted by `highlight.New`. `text.Line.Wrap` keeps
+per-cluster presentation by reference and reserves its bounded working sets up front,
+substantially reducing allocation without adding mutable cache state. Every method on
+a nil `*clipboard.Channel` is now uniformly inert; the useful zero value remains the
+direct OSC 52 path.
+
 Repository gates now reject unreachable private implementation and public operations
 without executable contract coverage across Linux, macOS, and Windows with a pinned
 `deadcode` analyzer. Repository usage is explicitly not an API-retention criterion:
@@ -65,6 +77,65 @@ the framework. `term.DetectDepth` takes one explicit environment lookup, local a
 SSH terminals freeze the result as `ColorHost`, and `program.Environment.Color`
 exposes the same resolved fact. A custom host that omits the capability safely draws
 without colour instead of accidentally consulting the server process environment.
+
+### Removed API migration
+
+This is the complete removal ledger relative to v0.10.0. CI derives it again from
+the immutable module tags with the pinned `apidiff`; an exported removal cannot ship
+unless its exact old name appears in this section.
+
+#### components
+
+- `headless.Columns` and `headless.Rows` are replaced by
+  `headless.NewContainer`, whose axis makes the variant explicit.
+- `headless.NewEditor` is removed; the useful zero `headless.Editor` is the sole
+  construction path.
+- `kit.(*Transcript).CommitN` is folded into `kit.(*Transcript).Commit`, whose limit
+  is explicit at the one publication entry point.
+- `kit.Box.Inner` is replaced by the geometry-only `kit.Box.InnerRect`.
+- The value method set `kit.Tree[T].Controller`, `kit.Tree[T].Draw`,
+  `kit.Tree[T].Focus`, `kit.Tree[T].Focused`, `kit.Tree[T].Handle`, and
+  `kit.Tree[T].Measure` is removed. Keep the `*kit.Tree[T]` returned by its
+  constructor; copying a controller-backed tree never made an independent widget.
+
+#### core
+
+- `ansi.Params.First` is replaced by `ansi.Params.At(0)`.
+- `graphics.Place` and `graphics.Delete` are folded into `graphics.Image.Paint` and
+  `graphics.Image.Erase`; the image now owns operations that require its identity.
+- `graphics.DetectIn` is replaced by the sole `graphics.Detect` entry.
+- `input.(*Advance).At` and `input.(*Advance).By` are replaced by
+  `input.(*Advance).Rows`, which owns timestamped gesture evolution.
+- `layout.Axis.Rects`, `layout.Divide`, and `layout.Wanted` are replaced by methods
+  on one explicit `layout.Flow` value.
+- `link.DetectIn` is folded into `link.Detect`, whose optional filesystem predicate
+  is explicit.
+- `term.DetectDepthIn` and `term.DetectLocaleIn` are replaced by `term.DetectDepth`
+  and `term.DetectLocale`, both of which require the driven terminal's environment
+  lookup.
+- `term.Options` is replaced by `term.Config`.
+- `term.DetectGraphics` has no process-global replacement. An opened terminal owns
+  the answer through `term.(*Terminal).Graphics`; an adapter that owns terminal facts
+  calls `graphics.Detect` directly.
+
+#### highlight
+
+- `Background`, `Lines`, and `Of` are replaced by the reusable `Renderer` returned
+  by `New`; standalone and Markdown rendering now use the same object.
+- `Styles` now returns `[]Style`, the values accepted directly by `New`, instead of
+  requiring every caller to convert names from `[]string`.
+
+#### latex
+
+- `Of` is removed. Call `Render` inside the consumer-owned Markdown adapter so the
+  same rich `Formula` result remains observable in every composition.
+
+#### ptytest
+
+- `(*Transcript).WaitWithin` is replaced by `(*Transcript).WaitFor` with a caller-owned
+  context.
+- `Options` is replaced by `Config`.
+- `StartWith` is folded into `Start`, which accepts that `Config` directly.
 
 ## [0.10.0] — 2026-08-10
 

@@ -180,10 +180,15 @@ func (l Line) Wrap(width int) []Wrapped {
 	if len(units) == 0 {
 		return []Wrapped{{Line: l, To: l.bytes()}}
 	}
-	w := wrapper{width: width}
+	rowCapacity := min(len(units), width)
+	w := wrapper{
+		width: width,
+		rows:  make([]Wrapped, 0, len(units)/width+1),
+		row:   make([]unit, 0, rowCapacity),
+	}
 	for i, n := 0, len(units); i < n; {
 		if units[i].space {
-			w.hold(units[i])
+			w.hold(i, units[i])
 			i++
 			continue
 		}
@@ -195,7 +200,7 @@ func (l Line) Wrap(width int) []Wrapped {
 		}
 		i = w.word(units, i, end, wordWidth)
 	}
-	return w.finish()
+	return w.finish(units)
 }
 
 // wrapper accumulates rows. Held spaces are kept out of the current row until
@@ -206,12 +211,18 @@ type wrapper struct {
 
 	row      []unit
 	rowWidth int
-	held     []unit
+	heldFrom int
+	heldTo   int
+	hasHeld  bool
 	heldW    int
 }
 
-func (w *wrapper) hold(u unit) {
-	w.held = append(w.held, u)
+func (w *wrapper) hold(at int, u unit) {
+	if !w.hasHeld {
+		w.heldFrom = at
+		w.hasHeld = true
+	}
+	w.heldTo = at + 1
 	w.heldW = layout.Sum(w.heldW, u.width)
 }
 
@@ -220,14 +231,14 @@ func (w *wrapper) place(u unit) {
 	w.rowWidth = layout.Sum(w.rowWidth, u.width)
 }
 
-func (w *wrapper) takeHeld() {
-	w.row = append(w.row, w.held...)
+func (w *wrapper) takeHeld(units []unit) {
+	w.row = append(w.row, units[w.heldFrom:w.heldTo]...)
 	w.rowWidth = layout.Sum(w.rowWidth, w.heldW)
 	w.dropHeld()
 }
 
 func (w *wrapper) dropHeld() {
-	w.held = w.held[:0]
+	w.heldFrom, w.heldTo, w.hasHeld = 0, 0, false
 	w.heldW = 0
 }
 
@@ -247,7 +258,7 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 	switch {
 	case layout.Sum(w.rowWidth, w.heldW, wordWidth) <= w.width:
 		// Fits after the spaces that preceded it.
-		w.takeHeld()
+		w.takeHeld(units)
 		for ; from < to; from++ {
 			w.place(units[from])
 		}
@@ -268,9 +279,9 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 
 // hardBreak splits a word that is wider than a whole row.
 func (w *wrapper) hardBreak(units []unit, from, to int) int {
-	if len(w.held) > 0 {
+	if w.hasHeld {
 		if layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width {
-			w.takeHeld()
+			w.takeHeld(units)
 		} else {
 			w.dropHeld()
 			if len(w.row) > 0 {
@@ -300,8 +311,8 @@ func (w *wrapper) hardBreak(units []unit, from, to int) int {
 }
 
 // finish takes whatever trailing spaces fit and closes the last row.
-func (w *wrapper) finish() []Wrapped {
-	for _, u := range w.held {
+func (w *wrapper) finish(units []unit) []Wrapped {
+	for _, u := range units[w.heldFrom:w.heldTo] {
 		if layout.Sum(w.rowWidth, u.width) > w.width {
 			break
 		}
@@ -344,7 +355,7 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 		}
 		kept = append(kept, u)
 		used = next
-		style = u.style
+		style = u.style()
 	}
 	out := line(kept)
 	if ellipsis == "" {
@@ -381,9 +392,15 @@ func Truncate(s string, width int, ellipsis string) string {
 // unit is one grapheme cluster with everything wrapping needs to know about it.
 type unit struct {
 	cluster string
-	style   grid.Style
-	link    string
-	width   int
+	// source owns appearance and link identity. Carrying one pointer per cluster
+	// instead of copying a Style and string header keeps wrapping proportional to
+	// the text model rather than to the size of its presentation vocabulary.
+	source *Span
+	// linked is false only for a tab expansion. A tab advances through empty cells;
+	// unlike an ordinary space, those cells are not painted and therefore cannot be
+	// part of a terminal hyperlink.
+	linked bool
+	width  int
 	// space marks a break opportunity. A tab is one, and is also the reason a
 	// unit's width is not derivable from its cluster alone.
 	space bool
@@ -399,9 +416,24 @@ type unit struct {
 // units is the line as the things that occupy columns, with tabs expanded against the
 // running column.
 func (l Line) units() []unit {
-	var units []unit
+	// A grapheme never contains more units than runes, except that one tab expands
+	// to at most TabStop spaces. This exact upper bound for ordinary text avoids the
+	// repeated growth and copying of the comparatively rich unit value. It remains
+	// an upper bound for combining sequences and controls, which merely leave spare
+	// capacity for this call and never escape it.
+	capacity := 0
+	for _, span := range l {
+		for _, r := range span.Text {
+			capacity = layout.Sum(capacity, 1)
+			if r == '\t' {
+				capacity = layout.Sum(capacity, TabStop-1)
+			}
+		}
+	}
+	units := make([]unit, 0, capacity)
 	col, at := 0, 0
-	for _, s := range l {
+	for i := range l {
+		s := &l[i]
 		g := uniseg.NewGraphemes(s.Text)
 		for g.Next() {
 			cluster := g.Str()
@@ -410,7 +442,7 @@ func (l Line) units() []unit {
 				n := TabStop - col%TabStop
 				for range n {
 					units = append(units, unit{
-						cluster: " ", style: s.Style, width: 1, space: true,
+						cluster: " ", source: s, width: 1, space: true,
 						at: at, size: len(cluster),
 					})
 				}
@@ -420,14 +452,14 @@ func (l Line) units() []unit {
 				// reaching a cell.
 			case cluster == " ":
 				units = append(units, unit{
-					cluster: " ", style: s.Style, link: s.Link, width: 1, space: true,
+					cluster: " ", source: s, linked: true, width: 1, space: true,
 					at: at, size: len(cluster),
 				})
 				col++
 			default:
 				w := clusterWidth(cluster)
 				units = append(units, unit{
-					cluster: cluster, style: s.Style, link: s.Link, width: w,
+					cluster: cluster, source: s, linked: true, width: w,
 					at: at, size: len(cluster),
 				})
 				col = layout.Sum(col, w)
@@ -459,7 +491,7 @@ func line(units []unit) Line {
 	for first := 0; first < len(units); {
 		last := first + 1
 		bytes := len(units[first].cluster)
-		for last < len(units) && units[last].style == units[first].style && units[last].link == units[first].link {
+		for last < len(units) && units[last].sameRun(units[first]) {
 			bytes += len(units[last].cluster)
 			last++
 		}
@@ -470,12 +502,25 @@ func line(units []unit) Line {
 		}
 		out = append(out, Span{
 			Text:  text.String(),
-			Style: units[first].style,
-			Link:  units[first].link,
+			Style: units[first].style(),
+			Link:  units[first].link(),
 		})
 		first = last
 	}
 	return out
+}
+
+func (u unit) style() grid.Style { return u.source.Style }
+
+func (u unit) link() string {
+	if !u.linked {
+		return ""
+	}
+	return u.source.Link
+}
+
+func (u unit) sameRun(other unit) bool {
+	return u.style() == other.style() && u.link() == other.link()
 }
 
 // piece is a run of text and the column it starts at, after tab expansion.

@@ -20,7 +20,10 @@ own files did not change. `examples` and `internal` are tested but never tagged.
 
 Before v1, every exported API may change. From v1 onward, the release must preserve
 Go source compatibility with the previous v1 release. The pinned `gorelease` check
-enforces that boundary.
+enforces that boundary. Independently, pinned `apidiff` compares the working API with
+the preceding immutable tag on every change. A removed export must appear by its exact
+old name in the Unreleased migration ledger, so review can distinguish an intentional
+contract decision from deletion driven by repository reachability.
 
 ## Prepare the repository
 
@@ -53,6 +56,7 @@ Review these facts in its output:
 - Every public module appears exactly once in a tag phase
 - A module is tagged after every Oolong module it imports
 - The proposed changelog section exists
+- Every exported removal appears in its module's Unreleased migration ledger
 - `gorelease` reports the expected pre-1.0 break or v1 compatibility result
 - No local or remote tag already uses the version
 

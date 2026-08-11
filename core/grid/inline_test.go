@@ -395,7 +395,7 @@ func TestAppendingToAFullRowStartsTheNextOne(t *testing.T) {
 
 	got := inline(t, i, grid.Cursor{}, nil)
 	want := "\x1b[0m" + "\r" +
-		"abcd" + "\x1b[K" + "\r\n" +
+		"abcd" + "\r\n" +
 		"ef" + "\x1b[K" + "\r\n" + "\x1b[?25l"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
@@ -460,8 +460,11 @@ func TestPrintedRowsAreClippedToTheBlocksWidth(t *testing.T) {
 	i := grid.NewInline(6, 4)
 	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "far too long", grid.Style{}) }))
 	got := inline(t, i, grid.Cursor{}, nil)
-	if !strings.Contains(got, "far to"+"\x1b[K") {
+	if !strings.Contains(got, "far to"+"\r\n") {
 		t.Fatalf("frame = %q, want the printed row clipped to six columns", got)
+	}
+	if strings.Contains(got, "far to"+"\x1b[K") {
+		t.Fatalf("frame = %q erases the rightmost cell after filling the row", got)
 	}
 	if strings.Contains(got, "long") {
 		t.Fatalf("frame = %q, want nothing past the block's width", got)
@@ -587,17 +590,39 @@ func TestAnInlineBlockWithNoRoomDrawsNothing(t *testing.T) {
 	}
 }
 
-func TestInlineRowsAreEndedWithACarriageReturnBeforeTheNewline(t *testing.T) {
+func TestFullWidthInlineRowsKeepTheirRightmostCell(t *testing.T) {
 	// A row that filled the last column leaves the terminal in its pending-wrap state,
-	// and a bare newline there advances twice — which takes the block's anchor with it.
+	// where erase-to-end would erase that last cell. Carriage return both preserves the
+	// cell and cancels pending wrap before the newline moves to the next row.
 	i := grid.NewInline(4, 3)
 	got := inline(t, i, grid.Cursor{}, lines("abcd", "efgh"))
-	if !strings.Contains(got, "abcd"+"\x1b[K"+"\r\n") {
-		t.Fatalf("frame = %q, want the row break to begin with a carriage return", got)
+	if strings.Contains(got, "abcd"+"\x1b[K") || strings.Contains(got, "efgh"+"\x1b[K") {
+		t.Fatalf("frame = %q erases a rightmost cell after filling its row", got)
+	}
+	if !strings.Contains(got, "abcd"+"\r\n") {
+		t.Fatalf("frame = %q, want the full row ended by carriage return and newline", got)
 	}
 	for at := range got {
 		if got[at] == '\n' && (at == 0 || got[at-1] != '\r') {
 			t.Fatalf("frame = %q has a newline at %d with no carriage return before it", got, at)
 		}
+	}
+}
+
+func TestFullWidthInlineRowsUseCellGeometryWithStylesAndLinks(t *testing.T) {
+	// ANSI styling and hyperlink wrappers make the encoded byte string much longer
+	// than the cells it paints. Margin detection therefore belongs to the surface row,
+	// before encoding, and must stay true when presentation metadata is present.
+	i := grid.NewInline(4, 2)
+	got := inline(t, i, grid.Cursor{}, func(v grid.View) {
+		v.Text(0, 0, "ab", grid.Style{})
+		v.Text(2, 0, "cd", grid.Style{Attr: grid.Bold})
+		v.Link(0, 0, 4, "https://example.test/full")
+	})
+	if strings.Contains(got, "\x1b[K") {
+		t.Fatalf("frame = %q erases a styled, linked row that fills its cells", got)
+	}
+	if !strings.Contains(got, "https://example.test/full") || !strings.Contains(got, "cd") {
+		t.Fatalf("frame = %q, want the complete linked and styled row", got)
 	}
 }

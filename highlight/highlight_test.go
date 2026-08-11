@@ -86,7 +86,7 @@ func TestTheSchemesOnOfferAreTheOnesThatWork(t *testing.T) {
 	}
 	// What a program offers a user is what will be accepted, or the offer is a lie.
 	for _, name := range names[:5] {
-		if lines := highlight.New(highlight.Style(name)).Lines("go", "package main"); len(lines) != 1 {
+		if lines := highlight.New(name).Lines("go", "package main"); len(lines) != 1 {
 			t.Fatalf("%q highlighted to %v", name, lines)
 		}
 	}

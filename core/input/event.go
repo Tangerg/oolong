@@ -26,6 +26,34 @@ type Event interface {
 	terminalEvent()
 }
 
+// Stamp fills missing arrival times in events and returns the same slice.
+//
+// A [Parser] owns protocol decoding and therefore produces zero times. The
+// transport that read its bytes owns when they arrived; calling Stamp once at that
+// boundary keeps key-sequence expiry, clicks, and wheel gestures on one time model.
+// Existing non-zero times are preserved so replayed and synthetic events retain the
+// clock chosen by their producer.
+//
+// Stamp replaces value events in place. The caller owns slices returned by
+// [Parser.Feed] and [Parser.Flush], so no copy is needed at the ordinary call site.
+func Stamp(events []Event, at time.Time) []Event {
+	for i, event := range events {
+		switch timed := event.(type) {
+		case Key:
+			if timed.At.IsZero() {
+				timed.At = at
+				events[i] = timed
+			}
+		case Mouse:
+			if timed.At.IsZero() {
+				timed.At = at
+				events[i] = timed
+			}
+		}
+	}
+	return events
+}
+
 // Mods is the set of modifier keys held during an event.
 type Mods uint8
 

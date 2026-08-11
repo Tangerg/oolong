@@ -237,6 +237,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # API-removal evidence is compared with the preceding immutable module
+          # tags, not with an arbitrary parent commit.
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.x"
@@ -264,6 +268,13 @@ jobs:
       - run: go install golang.org/x/tools/cmd/deadcode@v0.44.0
       - name: callable code reachability
         run: scripts/check-reachability.sh
+
+      # Reachability cannot decide whether a library API deserves removal. apidiff
+      # supplies the published-symbol ledger; the changelog must name each removal
+      # before review or release can proceed.
+      - run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260727155853-b88d891fe743
+      - name: exported removals have migration entries
+        run: scripts/check-api-changelog.sh
 
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
       - name: govulncheck

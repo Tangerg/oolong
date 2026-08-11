@@ -14,7 +14,7 @@ contentType: How-to
 
 公开发布列车包含 `core`、`components`、`markdown`、`highlight`、`latex`、`ptytest` 和 `ssh`。即使一个模块自身没有文件变化，它也会获得相同版本。`examples` 与 `internal` 会接受测试，但永远不会发布 tag。
 
-在 v1 之前，所有导出 API 都可能变化。从 v1 开始，发布必须保持与前一个 v1 版本的 Go 源码兼容性。固定版本的 `gorelease` 检查会强制执行这条边界。
+在 v1 之前，所有导出 API 都可能变化。从 v1 开始，发布必须保持与前一个 v1 版本的 Go 源码兼容性。固定版本的 `gorelease` 检查会强制执行这条边界。与此独立，钉住版本的 `apidiff` 会在每次变更中把工作 API 与前一个不可变 tag 比对。被删除的导出标识符必须以原名出现在 Unreleased 迁移清单中，使评审能够区分有意的契约决定与被仓库内可达性推动的删除。
 
 ## 准备仓库
 
@@ -43,6 +43,7 @@ Dry run 会执行本地关卡、检查第一阶段 API 兼容性、推导依赖�
 - 每个公开模块只在一个 tag 阶段出现一次
 - 每个模块都在其导入的 Oolong 模块之后发布 tag
 - 提议的 changelog 章节存在
+- 每个被删除的导出标识符都出现在所属模块的 Unreleased 迁移清单中
 - `gorelease` 报告预期的 pre-1.0 break 或 v1 兼容结果
 - 本地和远端都不存在相同版本的 tag
 

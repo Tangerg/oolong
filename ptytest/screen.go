@@ -36,12 +36,13 @@ type screenCell struct {
 // A Screen has a fixed positive size and is not safe for concurrent use. Obtain a
 // snapshot from [Transcript.Screen] when output may still be arriving.
 type Screen struct {
-	size  Size
-	cells []screenCell
-	at    image.Point
-	top   int
-	end   int
-	scan  ansi.Scanner
+	size        Size
+	cells       []screenCell
+	at          image.Point
+	pendingWrap bool
+	top         int
+	end         int
+	scan        ansi.Scanner
 }
 
 // NewScreen returns a blank screen-state assertion model.
@@ -222,9 +223,15 @@ func (s *Screen) executeControl(final byte, params ansi.Params, raw string) erro
 	case 'd':
 		s.move(s.at.X, defaultOne(params.At(0))-1)
 	case 'K':
-		return s.eraseLine(params.At(0), raw)
+		if err := s.eraseLine(params.At(0), raw); err != nil {
+			return err
+		}
+		s.pendingWrap = false
 	case 'J':
-		return s.eraseDisplay(params.At(0), raw)
+		if err := s.eraseDisplay(params.At(0), raw); err != nil {
+			return err
+		}
+		s.pendingWrap = false
 	case 'S':
 		s.scrollUp(defaultOne(params.At(0)))
 	case 'T':
@@ -268,6 +275,7 @@ func (s *Screen) controlByte(b byte) {
 	case '\r':
 		s.at.X = 0
 	}
+	s.pendingWrap = false
 }
 
 func (s *Screen) writeText(raw string) {
@@ -276,9 +284,10 @@ func (s *Screen) writeText(raw string) {
 		if width <= 0 || width > s.size.Cols {
 			continue
 		}
-		if s.at.X >= s.size.Cols || s.at.X+width > s.size.Cols {
+		if s.pendingWrap || s.at.X >= s.size.Cols || s.at.X+width > s.size.Cols {
 			s.at.X = 0
 			s.lineFeed()
+			s.pendingWrap = false
 		}
 		s.clearGlyphAt(s.at.X, s.at.Y)
 		cell := s.index(s.at.X, s.at.Y)
@@ -287,13 +296,20 @@ func (s *Screen) writeText(raw string) {
 			s.clearGlyphAt(s.at.X+x, s.at.Y)
 			s.cells[s.index(s.at.X+x, s.at.Y)] = screenCell{trail: true}
 		}
-		s.at.X += width
+		next := s.at.X + width
+		if next == s.size.Cols {
+			s.at.X = s.size.Cols - 1
+			s.pendingWrap = true
+			continue
+		}
+		s.at.X = next
 	}
 }
 
 func (s *Screen) move(x, y int) {
 	s.at.X = min(max(x, 0), s.size.Cols-1)
 	s.at.Y = min(max(y, 0), s.size.Rows-1)
+	s.pendingWrap = false
 }
 
 func (s *Screen) lineFeed() {

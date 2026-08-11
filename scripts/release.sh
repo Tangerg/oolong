@@ -171,7 +171,7 @@ note "${order[*]}"
 
 step "Gate"
 
-for tool in deadcode golangci-lint gofumpt govulncheck npx shfmt; do
+for tool in apidiff deadcode golangci-lint gofumpt govulncheck npx shfmt; do
 	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
 done
 
@@ -192,6 +192,10 @@ note "golangci-lint"
 
 scripts/check-reachability.sh || die "callable code lacks executable coverage or private code is unreachable."
 note "callable code reachability"
+
+CHANGELOG_SECTION="${version#v}" scripts/check-api-changelog.sh ||
+	die "an exported removal lacks an exact $version migration entry."
+note "exported API removal ledger"
 
 [[ -z "$(gofumpt -l .)" ]] || die "gofumpt would reformat: $(gofumpt -l . | tr '\n' ' ')"
 note "gofumpt"

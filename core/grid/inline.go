@@ -95,7 +95,8 @@ type Inline struct {
 
 // printed is one piece of published output on its way to the terminal, encoded.
 type printed struct {
-	row string
+	row      string
+	atMargin bool
 	// after says this goes onto the end of what was published before it rather than
 	// onto a row of its own. It is what a block that does not begin at a column is:
 	// the cells go where the last ones stopped.
@@ -183,7 +184,8 @@ func (i *Inline) Print(content Drawable) {
 	i.scratch.Resize(w, rows)
 	content.Draw(i.scratch.View())
 	for y := range rows {
-		i.pending = append(i.pending, printed{row: EncodeRow(i.scratch.row(y), i.buffers.depth)})
+		row, atMargin := encodeInlineRow(i.scratch.row(y), i.buffers.depth)
+		i.pending = append(i.pending, printed{row: row, atMargin: atMargin})
 	}
 	i.open, i.tail = false, 0
 }
@@ -220,7 +222,9 @@ func (i *Inline) Append(draw func(View)) {
 	if len(cells) == 0 {
 		return
 	}
-	i.pending = append(i.pending, printed{row: EncodeRow(cells, i.buffers.depth), after: i.open})
+	i.pending = append(i.pending, printed{
+		row: EncodeRow(cells, i.buffers.depth), atMargin: at+len(cells) == w, after: i.open,
+	})
 	i.open, i.tail = true, at+len(cells)
 }
 
@@ -398,7 +402,9 @@ func (i *Inline) composePending() {
 			i.buf = append(i.buf, "\r\n"...)
 		}
 		i.buf = append(i.buf, p.row...)
-		i.buf = append(i.buf, eraseLine...)
+		if !p.atMargin {
+			i.buf = append(i.buf, eraseLine...)
+		}
 	}
 	if len(i.pending) > 0 {
 		// Below everything published, which is where the block goes.
@@ -426,9 +432,11 @@ func (i *Inline) composeRows(used, extra int, full bool) int {
 			// Erasing leaves the cursor where it is, which is already column zero.
 			i.buf = append(i.buf, eraseLine...)
 		case i.rowChanged(y, full):
-			row := EncodeRow(i.buffers.back.row(y), i.buffers.depth)
+			row, atMargin := encodeInlineRow(i.buffers.back.row(y), i.buffers.depth)
 			i.buf = append(i.buf, row...)
-			i.buf = append(i.buf, eraseLine...)
+			if !atMargin {
+				i.buf = append(i.buf, eraseLine...)
+			}
 			moved = len(row) > 0
 		}
 	}
@@ -436,6 +444,14 @@ func (i *Inline) composeRows(used, extra int, full bool) int {
 		i.buf = append(i.buf, '\r')
 	}
 	return total
+}
+
+// encodeInlineRow reports whether the encoded cells reach the terminal's right
+// margin. A terminal keeps its cursor on the last cell while wrap is pending, so
+// erase-to-end there would erase the last character rather than clear an empty tail.
+func encodeInlineRow(cells []Cell, depth Depth) (row string, atMargin bool) {
+	visible := trimBlankTail(cells)
+	return EncodeRow(visible, depth), len(visible) > 0 && len(visible) == len(cells)
 }
 
 func (i *Inline) rowChanged(y int, full bool) bool {
