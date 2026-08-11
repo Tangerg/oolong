@@ -18,6 +18,18 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-11
+
+One semantic operation per entry point, and every rule about that now fails a test
+when it stops being true. Section 4.2's six render prohibitions are all executable:
+three by a type-resolved call-graph analysis over every `Measure` and `Draw*` entry,
+one by a callback-phase registry, one by staging state that a second producer cannot
+overwrite, and one by the projection comparison that was already there.
+
+This is also the largest source break in the project's history. The migration ledger
+below is derived from the published tags by `apidiff` on every push; an incompatible
+change cannot ship unless its exact name appears there.
+
 Breaking. Tabs, sliders, and dialogs now have one constructor per concrete type.
 Their explicit `Config` values select local or caller-owned state through an optional
 typed accessor, so ownership no longer creates parallel `New` and `NewControlled`

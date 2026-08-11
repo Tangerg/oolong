@@ -53,8 +53,15 @@ parser_probe=$(printf '%s\n' \
 	exit 2
 }
 
+# A released section carries a date after its version, while Unreleased does not.
+# Match the bracketed name and require the next character to end the heading or
+# separate the date, so [0.1.0] can never claim [0.10.0]'s ledger.
 awk -v heading="## [$section_name]" '
-	$0 == heading { inside = 1; next }
+	substr($0, 1, length(heading)) == heading &&
+		(length($0) == length(heading) || substr($0, length(heading) + 1, 1) == " ") {
+		inside = 1
+		next
+	}
 	inside && /^## / { exit }
 	inside { print }
 ' CHANGELOG.md >"$scratch/changes.md"
