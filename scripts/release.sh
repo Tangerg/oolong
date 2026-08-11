@@ -194,8 +194,8 @@ scripts/check-reachability.sh || die "callable code lacks executable coverage or
 note "callable code reachability"
 
 CHANGELOG_SECTION="${version#v}" scripts/check-api-changelog.sh ||
-	die "an exported removal lacks an exact $version migration entry."
-note "exported API removal ledger"
+	die "an incompatible exported API change lacks an exact $version migration entry."
+note "breaking API migration ledger"
 
 [[ -z "$(gofumpt -l .)" ]] || die "gofumpt would reformat: $(gofumpt -l . | tr '\n' ' ')"
 note "gofumpt"

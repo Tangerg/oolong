@@ -269,11 +269,11 @@ jobs:
       - name: callable code reachability
         run: scripts/check-reachability.sh
 
-      # Reachability cannot decide whether a library API deserves removal. apidiff
-      # supplies the published-symbol ledger; the changelog must name each removal
-      # before review or release can proceed.
+      # Reachability cannot decide whether a library API deserves removal or a new
+      # shape. apidiff supplies the published-symbol ledger; the changelog must name
+      # each incompatible change before review or release can proceed.
       - run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260727155853-b88d891fe743
-      - name: exported removals have migration entries
+      - name: breaking APIs have migration entries
         run: scripts/check-api-changelog.sh
 
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0

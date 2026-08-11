@@ -38,8 +38,13 @@ every other copy. `KeyboardFlags.Features.Has` is the one feature-set query, and
 session uses its standard `io.Writer` contract with `io.WriteString` instead of a
 second text-writing method. A directly owned terminal suspends through
 `Terminal.Hand(term.Suspend)` instead of a forwarding method. Architecture tests now
-reject multiple exported `New...` functions returning the same concrete type, turning
-the one-constructor rule into a repository invariant.
+reject undeclared multiple exported `New...` or `Open...` entries returning the same
+concrete type, turning the one-construction-language rule into a repository invariant.
+The process-terminal `term.Open` and caller-owned-PTY `term.OpenOn` entries are an
+explicit, live ownership-boundary declaration rather than an invisible naming-rule
+exception. The pinned `apidiff` gate now requires an exact migration entry for every
+source-incompatible API change, including signature changes and interface growth,
+instead of guarding removals alone.
 
 Breaking. `kit.Tree` now has pointer receivers throughout, matching its constructor
 and every other controller-backed kit component instead of allowing copied
@@ -101,11 +106,11 @@ SSH terminals freeze the result as `ColorHost`, and `program.Environment.Color`
 exposes the same resolved fact. A custom host that omits the capability safely draws
 without colour instead of accidentally consulting the server process environment.
 
-### Removed API migration
+### Breaking API migration
 
-This is the complete removal ledger relative to v0.10.0. CI derives it again from
-the immutable module tags with the pinned `apidiff`; an exported removal cannot ship
-unless its exact old name appears in this section.
+This is the complete source-breaking ledger relative to v0.10.0. CI derives it again
+from the immutable module tags with the pinned `apidiff`; an incompatible exported API
+change cannot ship unless its exact API name appears in this section.
 
 #### components
 
@@ -117,6 +122,13 @@ unless its exact old name appears in this section.
   are folded into the corresponding `kit.New...` constructor. Each kit `Config`
   now carries both ownership and appearance and exposes its constructed controller
   through `Controller`.
+- `kit.NewDialog`, `kit.NewSlider`, and `kit.NewTabs` now take their corresponding
+  explicit `Config` value. Set `Open`, `Value`, or `Selection` there when state is
+  caller-owned; the same constructor handles locally owned state when it is nil.
+- `kit.NewSettings` now takes `kit.SettingsConfig`, replacing five positional values
+  with named item, projection, action, key-map, wrapping, and width settings.
+- `kit.NewTree` now takes `kit.TreeConfig`; its required controller and text projection
+  are named alongside appearance and indentation.
 - `kit.Form.Keys` is removed. Set `kit.Form.Controller().Keys` (normally through the
   controller supplied to `kit.NewForm`) and the hint row reads that same map.
 - `headless.Columns` and `headless.Rows` are replaced by
@@ -152,6 +164,8 @@ unless its exact old name appears in this section.
   and `term.DetectLocale`, both of which require the driven terminal's environment
   lookup.
 - `term.Options` is replaced by `term.Config`.
+- `program.Config.Terminal` now has type `term.Config` rather than the removed
+  `term.Options`; its field name and zero-value behavior are unchanged.
 - `term.DetectGraphics` has no process-global replacement. An opened terminal owns
   the answer through `term.(*Terminal).Graphics`; an adapter that owns terminal facts
   calls `graphics.Detect` directly.

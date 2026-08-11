@@ -485,14 +485,40 @@ func TestConfigurationRuleRecognizesFunctionalOptions(t *testing.T) {
 	}
 }
 
+type constructionEntry struct {
+	name, location string
+}
+
+type constructionException struct {
+	names  []string
+	reason string
+}
+
+var constructionExceptions = map[string]constructionException{
+	"core/term:Terminal": {
+		names: []string{"Open", "OpenOn"},
+		reason: "Open owns the process terminal and environment; OpenOn owns caller-provided " +
+			"terminal files and their environment. Moving that transport into term.Config would " +
+			"leak local process resources into every adapter that shares terminal behavior settings.",
+	},
+}
+
 // TestConcreteTypesHaveOneConstructor keeps ownership or configuration variants out
-// of exported function names. One concrete value gets one New entry point; optional
-// state belongs in its Config. Different abstraction layers may each construct their
-// own type, but NewControlledThing beside NewThing makes callers choose between two
-// languages for the same value and lets those paths drift.
+// of exported function names. One concrete value normally gets one conventional New
+// or resource-acquiring Open entry point; optional state belongs in its Config.
+// Different abstraction layers may each construct their own type, but
+// NewControlledThing beside NewThing makes callers choose between two languages for
+// the same value and lets those paths drift.
+//
+// The verbs are deliberately explicit. New constructs values and Open acquires
+// stateful resources in Go's standard vocabulary. Parse, Decode and Render describe
+// transformations whose result types do not by themselves identify one construction
+// contract, so an AST rule must not guess about them. Multiple New/Open entries need
+// an exact declaration below naming the ownership or lifecycle boundary that earns
+// them; an exception is therefore reviewed and kept live rather than silently skipped.
 func TestConcreteTypesHaveOneConstructor(t *testing.T) {
 	root := repoRoot(t)
-	constructors := make(map[string][]string)
+	constructors := make(map[string][]constructionEntry)
 	walk(t, root, func(dir, path string) {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
@@ -515,20 +541,53 @@ func TestConcreteTypesHaveOneConstructor(t *testing.T) {
 			}
 			key := dir + ":" + constructed
 			constructors[key] = append(constructors[key],
-				filepath.ToSlash(relative)+":"+function.Name.Name)
+				constructionEntry{function.Name.Name, filepath.ToSlash(relative)})
 		}
 	})
 	for constructed, entries := range constructors {
-		if len(entries) > 1 {
-			t.Errorf("%s has multiple constructors %s; keep one New entry and put variants in Config",
-				constructed, strings.Join(entries, ", "))
+		if len(entries) <= 1 || allowedConstruction(constructed, entries) {
+			continue
+		}
+		slices.SortFunc(entries, func(a, b constructionEntry) int {
+			return strings.Compare(a.name+":"+a.location, b.name+":"+b.location)
+		})
+		locations := make([]string, len(entries))
+		for i, entry := range entries {
+			locations[i] = entry.location + ":" + entry.name
+		}
+		t.Errorf("%s has multiple New/Open construction entries %s; keep one entry or declare the distinct ownership or lifecycle boundary",
+			constructed, strings.Join(locations, ", "))
+	}
+	for constructed, exception := range constructionExceptions {
+		entries, ok := constructors[constructed]
+		if exception.reason == "" {
+			t.Errorf("construction exception %s has no architectural reason", constructed)
+		}
+		if !ok || !allowedConstruction(constructed, entries) {
+			t.Errorf("construction exception %s for %v is stale or does not match the live entries",
+				constructed, exception.names)
 		}
 	}
 }
 
+func allowedConstruction(constructed string, entries []constructionEntry) bool {
+	exception, ok := constructionExceptions[constructed]
+	if !ok || exception.reason == "" || len(entries) != len(exception.names) {
+		return false
+	}
+	names := make([]string, len(entries))
+	for i, entry := range entries {
+		names[i] = entry.name
+	}
+	slices.Sort(names)
+	want := slices.Clone(exception.names)
+	slices.Sort(want)
+	return slices.Equal(names, want)
+}
+
 func constructedType(function *ast.FuncDecl) string {
 	if function.Recv != nil || !function.Name.IsExported() ||
-		!strings.HasPrefix(function.Name.Name, "New") || function.Type.Results == nil ||
+		!constructionVerb(function.Name.Name) || function.Type.Results == nil ||
 		len(function.Type.Results.List) == 0 {
 		return ""
 	}
@@ -545,6 +604,19 @@ func constructedType(function *ast.FuncDecl) string {
 	return typeName(expression)
 }
 
+func constructionVerb(name string) bool {
+	for _, verb := range []string{"New", "Open"} {
+		if name == verb {
+			return true
+		}
+		if len(name) > len(verb) && strings.HasPrefix(name, verb) {
+			next := name[len(verb)]
+			return next >= 'A' && next <= 'Z'
+		}
+	}
+	return false
+}
+
 func TestConstructorRuleRecognizesConcreteResults(t *testing.T) {
 	tests := []struct {
 		source string
@@ -555,6 +627,10 @@ func TestConstructorRuleRecognizesConcreteResults(t *testing.T) {
 		{"func NewTree[T any]() *Tree[T]", "Tree"},
 		{"func NewPair[A, B any]() *Pair[A, B]", "Pair"},
 		{"func New() *Thing", "Thing"},
+		{"func Open(Config) (*Thing, error)", "Thing"},
+		{"func OpenOn(Source) *Thing", "Thing"},
+		{"func Newline() *Thing", ""},
+		{"func Reopen() *Thing", ""},
 		{"func BuildThing() *Thing", ""},
 		{"func (Thing) NewPart() *Part", ""},
 		{"func NewNothing()", ""},

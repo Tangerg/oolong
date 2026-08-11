@@ -137,9 +137,9 @@ its responsibility, abstraction level, overlap, and contract.
 
 Reachability never authorizes removal. `scripts/check-api-changelog.sh` separately
 uses pinned `apidiff` against each preceding public module tag and requires every
-removed export by exact old name in the Unreleased migration ledger. That evidence
-cannot prove the design decision, but it prevents deletion from being the silent way
-to satisfy the reachability gate.
+incompatible exported API change by exact name in the Unreleased migration ledger.
+That evidence cannot prove the design decision, but it prevents deletion or reshaping
+from being the silent way to satisfy the reachability gate.
 
 Keep caller-visible behavior in external-package tests (`foo_test`). A white-box
 test may use the implementation package only when the property has no public form,

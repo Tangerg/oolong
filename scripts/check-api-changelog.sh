@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
-# Require every exported removal since the preceding immutable module tag to appear
-# by its exact old name in CHANGELOG's Unreleased migration ledger. deadcode can say
-# that an operation lacks repository evidence; it cannot decide whether a library
-# should remove that operation. This independent gate makes removal a visible API
-# decision without confusing reachability with responsibility.
+# Require every incompatible exported change since the preceding immutable module tag
+# to appear by its exact API name in CHANGELOG's Unreleased migration ledger. deadcode
+# can say that an operation lacks repository evidence; it cannot decide whether a
+# library should remove or reshape that operation. This independent gate makes every
+# source break a visible API decision without confusing reachability with
+# responsibility.
 
 set -euo pipefail
 
@@ -30,6 +31,28 @@ write_export() {
 	fi
 }
 
+incompatible_symbols() {
+	sed -n -E '/^Incompatible changes:$/,/^Compatible changes:$/ {
+		s/^- (\.\/)?([^:]+):.*$/\2/p
+	}'
+}
+
+# Keep the parser's scope executable. apidiff reports additions below the compatible
+# heading; they must not create migration work. Every entry above it must survive,
+# including less common breaks such as adding a method to a public interface.
+parser_probe=$(printf '%s\n' \
+	'Incompatible changes:' \
+	'- ./pkg.Removed: removed' \
+	'- ./pkg.Changed: changed from func() to func(int)' \
+	'- ./pkg.Interface.Method: added' \
+	'Compatible changes:' \
+	'- ./pkg.Added: added' |
+	incompatible_symbols)
+[[ "$parser_probe" == $'pkg.Removed\npkg.Changed\npkg.Interface.Method' ]] || {
+	echo "internal error: apidiff incompatibility parser lost its contract" >&2
+	exit 2
+}
+
 awk -v heading="## [$section_name]" '
 	$0 == heading { inside = 1; next }
 	inside && /^## / { exit }
@@ -39,7 +62,7 @@ awk -v heading="## [$section_name]" '
 failed=false
 for module in $(scripts/modules.sh --public); do
 	previous=$(git tag --list "$module/v*" --sort=-v:refname | head -n 1)
-	# A module with no published API baseline cannot have a published removal.
+	# A module with no published API baseline cannot have a published break.
 	[[ -n "$previous" ]] || continue
 
 	version=${previous#*/}
@@ -47,8 +70,8 @@ for module in $(scripts/modules.sh --public); do
 	GOWORK=off go mod download "$module_path@$version"
 	old_dir=$(GOWORK=off go list -m -f '{{.Dir}}' "$module_path@$version")
 
-	removed_file="$scratch/$module-removed"
-	: >"$removed_file"
+	breaking_file="$scratch/$module-breaking"
+	: >"$breaking_file"
 	for goos in linux darwin windows; do
 		old_export="$scratch/$module-$goos-old.api"
 		new_export="$scratch/$module-$goos-new.api"
@@ -60,11 +83,10 @@ for module in $(scripts/modules.sh --public); do
 			cat "$diff_log" >&2
 			exit 1
 		fi
-		printf '%s\n' "$changes" |
-			sed -n -E 's/^- (\.\/)?(.*): removed$/\2/p' >>"$removed_file"
+		printf '%s\n' "$changes" | incompatible_symbols >>"$breaking_file"
 	done
-	removed=$(sort -u "$removed_file")
-	[[ -n "$removed" ]] || continue
+	breaking=$(sort -u "$breaking_file")
+	[[ -n "$breaking" ]] || continue
 
 	section=$(awk -v heading="#### $module" '
 		$0 == heading { found = 1; inside = 1; next }
@@ -72,7 +94,7 @@ for module in $(scripts/modules.sh --public); do
 		inside { print }
 		END { if (!found) exit 1 }
 	' "$scratch/changes.md") || {
-		echo "CHANGELOG.md has removals from $module/$version but no '#### $module' ledger in [$section_name]" >&2
+		echo "CHANGELOG.md has incompatible API changes from $module/$version but no '#### $module' ledger in [$section_name]" >&2
 		failed=true
 		continue
 	}
@@ -81,10 +103,10 @@ for module in $(scripts/modules.sh --public); do
 		[[ -n "$symbol" ]] || continue
 		needle="\`$symbol\`"
 		if [[ "$section" != *"$needle"* ]]; then
-			echo "CHANGELOG.md does not name removed API $module/$symbol (baseline $previous)" >&2
+			echo "CHANGELOG.md does not name incompatible API $module/$symbol (baseline $previous)" >&2
 			failed=true
 		fi
-	done <<<"$removed"
+	done <<<"$breaking"
 done
 
 if $failed; then
