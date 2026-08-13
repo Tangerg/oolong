@@ -87,6 +87,11 @@ func (e *Editor) Selected() string {
 	if !ok {
 		return ""
 	}
+	return e.textBetween(start, end)
+}
+
+// textBetween is the text in a range in reading order.
+func (e *Editor) textBetween(start, end Caret) string {
 	e.ensure()
 	if start.Line == end.Line {
 		return e.lines[start.Line][start.Col:end.Col]
@@ -104,30 +109,85 @@ func (e *Editor) Selected() string {
 
 // DeleteSelection removes the selected text and reports whether there was any.
 func (e *Editor) DeleteSelection() bool {
-	if _, _, ok := e.Selection(); !ok {
+	start, end, ok := e.Selection()
+	if !ok {
 		return false
 	}
 	e.snapshot()
 	e.endTyping()
-	return e.dropSelection()
+	e.selecting = false
+	e.replaceRange(start, end, "")
+	return true
 }
 
-// replaceRange puts s where the range was, leaving the cursor at the end of what it
-// put there. The caller has taken the snapshot.
+// prepareReplacement applies the editor's one-line rule and reports whether replacing
+// a range changes text or atomic elements. Its returned text is the canonical value
+// replaceRange consumes, so normalization occurs at this one boundary.
+//
+// Comparing text alone is not enough: replacing a chip with the same visible word
+// removes the element identity and is therefore a semantic change too. Conversely,
+// an empty edit inside a chip is still empty and must not destroy it.
+func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
+	s = e.flatten(s)
+	if e.textBetween(start, end) != s {
+		return s, true
+	}
+	if start == end && s == "" {
+		return s, false
+	}
+	from, to := e.offsetOf(start), e.offsetOf(end)
+	for _, mark := range e.marks {
+		if from < mark.End && to > mark.Start {
+			return s, true
+		}
+	}
+	return s, false
+}
+
+// replaceRange is the one operation that changes editor text. Insertion is an empty
+// range, deletion has empty replacement text, and replacement is both. The caller
+// has established that the range changes semantic content and taken any undo snapshot
+// it needs.
 func (e *Editor) replaceRange(start, end Caret, s string) {
-	// The cut is described against the document it is a cut of, so the marks move
-	// before the lines do. What goes in its place is a second edit, made by splice
-	// below, against the document the cut left.
-	e.removed(start, end, "")
+	e.requireContentRevision()
+	e.removed(start, end, s)
 	head := e.lines[start.Line][:start.Col]
 	tail := e.lines[end.Line][end.Col:]
-	e.lines = slices.Replace(e.lines, start.Line, end.Line+1, head+tail)
-	e.line, e.col = start.Line, start.Col
-	e.wantColumn = -1
-	e.invalidate()
-	if s != "" {
-		e.splice(s)
+	if !strings.Contains(s, "\n") {
+		e.lines = slices.Replace(e.lines, start.Line, end.Line+1, ownedEditorLine(head, s, tail))
+		e.line, e.col = start.Line, start.Col+len(s)
+		e.wantColumn = -1
+		e.contentChanged()
+		return
 	}
+	parts := strings.Split(s, "\n")
+	inserted := make([]string, len(parts))
+	inserted[0] = ownedEditorLine(head, parts[0])
+	for i := 1; i < len(parts); i++ {
+		inserted[i] = strings.Clone(parts[i])
+	}
+	last := len(inserted) - 1
+	e.line, e.col = start.Line+last, len(inserted[last])
+	inserted[last] = ownedEditorLine(inserted[last], tail)
+	e.lines = slices.Replace(e.lines, start.Line, end.Line+1, inserted...)
+	e.wantColumn = -1
+	e.contentChanged()
+}
+
+// ownedEditorLine joins pieces into storage owned by the surviving document. A range
+// edit commonly keeps only the prefix or suffix of a large source line; retaining the
+// source allocation would make deleting text keep the deleted bytes alive.
+func ownedEditorLine(parts ...string) string {
+	length := 0
+	for _, part := range parts {
+		length += len(part)
+	}
+	var line strings.Builder
+	line.Grow(length)
+	for _, part := range parts {
+		line.WriteString(part)
+	}
+	return line.String()
 }
 
 // Copy puts the selection where a paste would find it, and reports whether anything
@@ -189,18 +249,5 @@ func (e *Editor) move(action keymap.Action) bool {
 	default:
 		return false
 	}
-	return true
-}
-
-// dropSelection removes the selected text without taking a snapshot, so that an edit
-// which replaces a selection is one step to undo rather than two.
-func (e *Editor) dropSelection() bool {
-	start, end, ok := e.Selection()
-	if !ok {
-		e.selecting = false
-		return false
-	}
-	e.selecting = false
-	e.replaceRange(start, end, "")
 	return true
 }

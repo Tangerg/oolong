@@ -72,10 +72,19 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	}
 	e.endTyping()
 	e.snapshot()
-	e.dropSelection()
-
-	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
-	e.splice(body + " ")
+	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	if selected, selectedEnd, ok := e.Selection(); ok {
+		start, end = selected, selectedEnd
+	}
+	e.selecting = false
+	at := e.offsetOf(start)
+	replacement, changedText := e.prepareReplacement(start, end, body+" ")
+	if changedText {
+		e.replaceRange(start, end, replacement)
+	} else {
+		e.requireContentRevision()
+		e.line, e.col = end.Line, end.Col
+	}
 	mark := text.Mark{
 		ID:     id,
 		Kind:   int(kind),
@@ -90,6 +99,9 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 		return a.Start - b.Start
 	})
 	e.marks = slices.Insert(e.marks, where, mark)
+	if !changedText {
+		e.contentChanged()
+	}
 	return e.elementOf(mark)
 }
 

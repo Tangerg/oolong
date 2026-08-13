@@ -276,6 +276,7 @@ func (*purityModal) Place(space image.Point) layout.Placement {
 
 type editorMeaning struct {
 	text         string
+	revision     uint64
 	line, column int
 	selection    string
 	blurred      bool
@@ -293,7 +294,7 @@ type editorMeaning struct {
 func meaningOfEditor(editor *Editor) editorMeaning {
 	line, column := editor.Cursor()
 	return editorMeaning{
-		text: editor.Text(), line: line, column: column,
+		text: editor.Text(), revision: editor.Revision(), line: line, column: column,
 		selection: editor.Selected(), blurred: editor.blurred,
 		look: editor.Look, placeholder: editor.Placeholder,
 		keys: editor.Keys, clipboard: editor.Clipboard,

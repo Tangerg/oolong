@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"unicode"
@@ -120,6 +121,9 @@ type Editor struct {
 	// typing marks a run of plain insertions, so undo steps over a phrase rather
 	// than a letter.
 	typing bool
+	// revision is the semantic content generation. Cursor, selection and presentation
+	// state deliberately live outside it.
+	revision uint64
 
 	scroll Scroll
 	layout editorLayout
@@ -151,17 +155,32 @@ func (e *Editor) Text() string {
 	return strings.Join(e.lines, "\n")
 }
 
+// Revision reports the generation of the editor's semantic content.
+//
+// It advances once for every change to text or atomic elements, whether the change
+// came from input, a programmatic editing method, undo or redo. Cursor movement,
+// selection, scrolling, focus, copying and an edit that has no effect leave it alone.
+// This is what lets a caller decide whether to validate, persist or mark a draft dirty
+// without guessing from a key or an action name.
+//
+// A revision is an opaque, process-local observation token. Compare it with an earlier
+// value from this editor; do not persist it or give the number itself meaning.
+func (e *Editor) Revision() uint64 { return e.revision }
+
 // SetText replaces the content and puts the cursor at the end, which is where
 // someone who just had text put in front of them wants to carry on from.
 func (e *Editor) SetText(s string) {
+	e.ensure()
 	e.endTyping()
+	start := Caret{}
+	end := Caret{Line: len(e.lines) - 1, Col: len(e.lines[len(e.lines)-1])}
+	s, changed := e.prepareReplacement(start, end, s)
+	if !changed {
+		e.line, e.col = end.Line, end.Col
+		return
+	}
 	e.snapshot()
-	s = strings.Clone(e.flatten(s))
-	e.edited(text.Edit{Start: 0, End: e.byteLength(), Text: s})
-	e.lines = strings.Split(s, "\n")
-	e.line = len(e.lines) - 1
-	e.col = len(e.lines[e.line])
-	e.invalidate()
+	e.replaceRange(start, end, s)
 }
 
 // Empty reports whether there is nothing in the field.
@@ -172,12 +191,17 @@ func (e *Editor) Empty() bool {
 
 // Clear empties the field.
 func (e *Editor) Clear() {
+	e.ensure()
 	e.endTyping()
+	start := Caret{}
+	end := Caret{Line: len(e.lines) - 1, Col: len(e.lines[len(e.lines)-1])}
+	_, changed := e.prepareReplacement(start, end, "")
+	if !changed {
+		e.line, e.col = 0, 0
+		return
+	}
 	e.snapshot()
-	e.edited(text.Edit{Start: 0, End: e.byteLength()})
-	e.lines = []string{""}
-	e.line, e.col = 0, 0
-	e.invalidate()
+	e.replaceRange(start, end, "")
 }
 
 // Cursor is the cursor's logical line and byte offset, for anything that needs to
@@ -222,13 +246,24 @@ func (e *Editor) Insert(s string) {
 	}
 	e.ensure()
 	e.breakContinuation()
+	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	if selected, selectedEnd, ok := e.Selection(); ok {
+		start, end = selected, selectedEnd
+	}
+	s, changed := e.prepareReplacement(start, end, s)
+	if !changed {
+		e.selecting = false
+		e.line, e.col = end.Line, end.Col
+		e.wantColumn = -1
+		return
+	}
 	if !e.typing {
 		e.snapshot()
 	}
 	// Typing over a selection replaces it, and does so inside the same undo step: a
 	// user who selected a word and typed another did one thing.
-	e.dropSelection()
-	e.splice(s)
+	e.selecting = false
+	e.replaceRange(start, end, s)
 }
 
 // Replace swaps the byte range [start, end) of the line the cursor is on for s, and
@@ -243,11 +278,16 @@ func (e *Editor) Replace(start, end int, s string) {
 	start = min(max(start, 0), len(line))
 	end = min(max(end, start), len(line))
 	e.endTyping()
+	from := Caret{Line: e.line, Col: start}
+	to := Caret{Line: e.line, Col: end}
+	s, changed := e.prepareReplacement(from, to, s)
+	if !changed {
+		e.col = end
+		e.wantColumn = -1
+		return
+	}
 	e.snapshot()
-	e.removed(Caret{Line: e.line, Col: start}, Caret{Line: e.line, Col: end}, "")
-	e.lines[e.line] = line[:start] + line[end:]
-	e.col = start
-	e.splice(s)
+	e.replaceRange(from, to, s)
 }
 
 // flatten turns line breaks into spaces for a field that holds one line, and leaves
@@ -265,37 +305,6 @@ func (e *Editor) flatten(s string) string {
 
 // oneLine reports whether the field holds a single line.
 func (e *Editor) oneLine() bool { return e.SingleLine || e.Mask != "" }
-
-// splice puts text in at the cursor, assuming the undo step has been opened already.
-func (e *Editor) splice(s string) {
-	s = strings.Clone(e.flatten(s))
-	// The marks are moved before anything else is, because an edit is described
-	// against the document as it was.
-	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
-	e.edited(text.Edit{Start: at, End: at, Text: s})
-
-	parts := strings.Split(s, "\n")
-	current := e.lines[e.line]
-	head, tail := current[:e.col], current[e.col:]
-
-	if len(parts) == 1 {
-		e.lines[e.line] = head + parts[0] + tail
-		e.col += len(parts[0])
-		e.invalidate()
-		return
-	}
-	inserted := make([]string, len(parts))
-	inserted[0] = head + parts[0]
-	copy(inserted[1:], parts[1:])
-	last := len(inserted) - 1
-	col := len(inserted[last])
-	inserted[last] += tail
-
-	e.lines = slices.Replace(e.lines, e.line, e.line+1, inserted...)
-	e.line += last
-	e.col = col
-	e.invalidate()
-}
 
 // InsertRune puts one character in.
 func (e *Editor) InsertRune(r rune) {
@@ -317,15 +326,10 @@ func (e *Editor) Newline() {
 		return
 	}
 	e.endTyping()
-	e.snapshot()
 	e.ensure()
-	current := e.lines[e.line]
-	head, tail := current[:e.col], current[e.col:]
-	e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}, "\n")
-	e.lines = slices.Replace(e.lines, e.line, e.line+1, head, tail)
-	e.line++
-	e.col = 0
-	e.invalidate()
+	e.snapshot()
+	at := Caret{Line: e.line, Col: e.col}
+	e.replaceRange(at, at, "\n")
 }
 
 // DeleteBack removes the cluster before the cursor, or joins this line to the one
@@ -344,10 +348,7 @@ func (e *Editor) DeleteBack() {
 		if el, inside := e.insideElement(e.line, at); inside {
 			at = el.Start
 		}
-		e.removed(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
-		e.lines[e.line] = e.lines[e.line][:at] + e.lines[e.line][e.col:]
-		e.col = at
-		e.invalidate()
+		e.replaceRange(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
 		// Corrections belong to the burst they correct: typing a word, fixing a letter
 		// and carrying on is one thought and should be one undo step.
 		e.typing = true
@@ -359,12 +360,7 @@ func (e *Editor) DeleteBack() {
 	e.endTyping()
 	e.snapshot()
 	above := e.lines[e.line-1]
-	e.col = len(above)
-	e.removed(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0}, "")
-	e.lines[e.line-1] = above + e.lines[e.line]
-	e.lines = slices.Delete(e.lines, e.line, e.line+1)
-	e.line--
-	e.invalidate()
+	e.replaceRange(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0}, "")
 }
 
 // DeleteForward removes the cluster after the cursor, or joins the line below.
@@ -380,19 +376,14 @@ func (e *Editor) DeleteForward() {
 		if el, inside := e.ElementAt(e.line, e.col); inside {
 			at = el.End
 		}
-		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: at}, "")
-		e.lines[e.line] = current[:e.col] + current[at:]
-		e.invalidate()
+		e.replaceRange(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: at}, "")
 		return
 	}
 	if e.line == len(e.lines)-1 {
 		return
 	}
 	e.snapshot()
-	e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
-	e.lines[e.line] = current + e.lines[e.line+1]
-	e.lines = slices.Delete(e.lines, e.line+1, e.line+2)
-	e.invalidate()
+	e.replaceRange(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 }
 
 // DeleteWordBack removes from the cursor back to the start of the word behind it.
@@ -413,10 +404,7 @@ func (e *Editor) DeleteWordBack() {
 		at = element.Start
 	}
 	e.rememberKill(e.lines[e.line][at:e.col], true, join)
-	e.removed(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
-	e.lines[e.line] = e.lines[e.line][:at] + e.lines[e.line][e.col:]
-	e.col = at
-	e.invalidate()
+	e.replaceRange(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
 }
 
 // KillToEnd cuts from the cursor to the end of the line, keeping what it cut.
@@ -434,20 +422,13 @@ func (e *Editor) KillToEnd() {
 	e.snapshot()
 	if e.col < len(current) {
 		e.rememberKill(current[e.col:], false, join)
-		e.removed(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
-		// The remaining prefix becomes the editor's new long-lived value. Detach it
-		// from the removed tail rather than retaining the complete old line.
-		e.lines[e.line] = strings.Clone(current[:e.col])
-		e.invalidate()
+		e.replaceRange(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
 		return
 	}
 	if e.line < len(e.lines)-1 {
 		e.rememberKill("\n", false, join)
-		e.removed(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
-		e.lines[e.line] = current + e.lines[e.line+1]
-		e.lines = slices.Delete(e.lines, e.line+1, e.line+2)
+		e.replaceRange(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 	}
-	e.invalidate()
 }
 
 // KillToStart cuts from the start of the line to the cursor.
@@ -460,11 +441,7 @@ func (e *Editor) KillToStart() {
 	}
 	e.snapshot()
 	e.rememberKill(e.lines[e.line][:e.col], true, join)
-	e.removed(Caret{Line: e.line, Col: 0}, Caret{Line: e.line, Col: e.col}, "")
-	// For the same ownership reason as KillToEnd, the survivor owns only itself.
-	e.lines[e.line] = strings.Clone(e.lines[e.line][e.col:])
-	e.col = 0
-	e.invalidate()
+	e.replaceRange(Caret{Line: e.line}, Caret{Line: e.line, Col: e.col}, "")
 }
 
 // Yank puts back the most recently killed text.
@@ -499,8 +476,14 @@ func (e *Editor) YankPop() {
 		return
 	}
 	yank := e.yank
-	e.snapshot()
-	e.replaceRange(yank.start, yank.end, killed)
+	killed, changed := e.prepareReplacement(yank.start, yank.end, killed)
+	if changed {
+		e.snapshot()
+		e.replaceRange(yank.start, yank.end, killed)
+	} else {
+		e.line, e.col = yank.end.Line, yank.end.Col
+		e.wantColumn = -1
+	}
 	e.yank = editorYank{
 		start: yank.start,
 		end:   Caret{Line: e.line, Col: e.col},
@@ -752,15 +735,24 @@ func (e *Editor) ensure() {
 	}
 }
 
-// invalidate marks the layout out of date and drops the column vertical movement
-// was aiming for, because the text it was aiming into has changed.
+// contentChanged advances the semantic generation, marks the layout out of date and
+// drops the column vertical movement was aiming for.
 //
 // It says nothing about whether a run of typing is still open. Conflating the two is
 // what made every keystroke take its own undo step: the flag that decides whether to
 // snapshot was being cleared by the very operation that had just set it.
-func (e *Editor) invalidate() {
+func (e *Editor) contentChanged() {
+	e.revision++
 	e.layout.stale = true
 	e.wantColumn = -1
+}
+
+// requireContentRevision keeps exhaustion on the caller's side of a mutation, so a
+// recovered panic cannot leave changed content carrying its old observation token.
+func (e *Editor) requireContentRevision() {
+	if e.revision == math.MaxUint64 {
+		panic("headless: editor exhausted content revisions")
+	}
 }
 
 // endTyping closes a run of insertions, the one thing a click could have said about
@@ -797,12 +789,17 @@ func (e *Editor) state() editorState {
 }
 
 func (e *Editor) restore(s editorState) {
+	changed := !slices.Equal(e.lines, s.lines) || !slices.Equal(e.marks, s.marks)
+	if changed {
+		e.requireContentRevision()
+	}
 	e.lines = append([]string(nil), s.lines...)
 	e.marks = append([]text.Mark(nil), s.marks...)
 	e.line, e.col = s.line, s.col
 	e.selecting = false
-	e.layout.stale = true
-	e.wantColumn = -1
+	if changed {
+		e.contentChanged()
+	}
 }
 
 // wordStart is the offset of the start of the word before i: any run of

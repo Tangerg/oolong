@@ -18,6 +18,17 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+`headless.Editor.Revision` now exposes one monotonic, process-local observation token
+for semantic content. Text input, programmatic editing, atomic elements, undo and redo
+advance it once; cursor, selection, scrolling, focus, clipboard requests and handled
+no-ops do not. Consumers can therefore drive persistence, validation and dirty state
+from the editor's result instead of coupling those policies to today's keys and action
+names. All range edits now pass through one internal replacement operation, which also
+makes empty replacement inside an atomic element a true no-op rather than silently
+dropping the element. Controlled `headless.Text` fields use the same revision boundary,
+so handled cursor and no-op editing actions no longer write unchanged values through
+their accessor.
+
 ## [0.11.0] — 2026-08-11
 
 One semantic operation per entry point, and every rule about that now fails a test

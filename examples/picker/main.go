@@ -151,11 +151,12 @@ func (p *picker) Handle(ev input.Event) bool {
 			return false
 		}
 	}
-	if p.query.Handle(ev) {
+	before := p.query.Editor().Revision()
+	handled := p.query.Handle(ev)
+	if p.query.Editor().Revision() != before {
 		p.list.SetPattern(p.query.Text())
-		return true
 	}
-	return false
+	return handled
 }
 
 // moves reports whether a key is one of the four that mean "through the matches"

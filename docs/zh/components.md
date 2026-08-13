@@ -110,7 +110,9 @@ func (p *picker) Draw(frame headless.Frame) {
 
 ## 按所有权路由事件
 
-把导航键交给列表，把文本输入交给编辑器。编辑器发生变化后，将它的文本发布为过滤模式。
+把导航键交给列表，把文本输入交给编辑器。“已处理”与“已改变”是两个事实：在空编辑器
+开头按 Backspace 会被处理，但不会改变任何内容。在输入前后比较 `Editor.Revision`，只在
+语义内容真的变化时发布过滤模式，无需根据按键或 action 名称猜测。
 
 ```go
 func (p *picker) Handle(event input.Event) bool {
@@ -123,11 +125,12 @@ func (p *picker) Handle(event input.Event) bool {
             return p.list.Handle(event)
         }
     }
-    if p.query.Handle(event) {
+    before := p.query.Editor().Revision()
+    handled := p.query.Handle(event)
+    if p.query.Editor().Revision() != before {
         p.list.SetPattern(p.query.Text())
-        return true
     }
-    return false
+    return handled
 }
 ```
 

@@ -92,6 +92,47 @@ func TestAFieldPutsWhatWasTypedWhereTheCallerKeepsIt(t *testing.T) {
 	}
 }
 
+type countedTextValue struct {
+	value  string
+	writes int
+}
+
+func (v *countedTextValue) Value() string { return v.value }
+
+func (v *countedTextValue) Set(value string) {
+	v.value = value
+	v.writes++
+}
+
+func TestAControlledTextFieldWritesOnlySemanticChanges(t *testing.T) {
+	value := &countedTextValue{}
+	field := &headless.Text{Value: value}
+
+	if !field.Handle(input.Key{Code: input.Backspace}) {
+		t.Fatal("backspace at the beginning was not handled")
+	}
+	if value.writes != 0 {
+		t.Fatalf("handled no-op wrote the bound value %d times", value.writes)
+	}
+
+	if !field.Handle(input.Key{Code: input.F1, Text: "x"}) {
+		t.Fatal("key-provided text was not handled")
+	}
+	if value.value != "x" || value.writes != 1 {
+		t.Fatalf("bound value = %q after %d writes, want x after one", value.value, value.writes)
+	}
+
+	if !field.Do(headless.DeleteBack) || value.value != "" || value.writes != 2 {
+		t.Fatalf("delete left %q after %d writes", value.value, value.writes)
+	}
+	if !field.Do(headless.DeleteBack) {
+		t.Fatal("no-op delete action was not handled")
+	}
+	if value.writes != 2 {
+		t.Fatalf("no-op action wrote the bound value %d times", value.writes)
+	}
+}
+
 func TestBindRejectsANilPointerAtTheBoundary(t *testing.T) {
 	defer func() {
 		if recover() == nil {

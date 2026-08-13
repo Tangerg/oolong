@@ -93,27 +93,31 @@ func (t *Text) projection() Editor {
 // Handle passes input to the field and keeps the value in step with it.
 func (t *Text) Handle(ev input.Event) bool {
 	t.ensure()
+	before := t.editor.Revision()
 	if mouse, ok := ev.(input.Mouse); ok {
 		local, in := t.within(mouse)
 		if !in {
 			return false
 		}
-		return t.editor.Handle(local)
+		handled := t.editor.Handle(local)
+		t.storeSince(before)
+		return handled
 	}
 	if !t.editor.Handle(ev) {
 		return false
 	}
-	t.store()
+	t.storeSince(before)
 	return true
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (t *Text) Do(action keymap.Action) bool {
 	t.ensure()
+	before := t.editor.Revision()
 	if !t.editor.Do(action) {
 		return false
 	}
-	t.store()
+	t.storeSince(before)
 	return true
 }
 
@@ -159,6 +163,15 @@ func (t *Text) ensure() {
 func (t *Text) store() {
 	if t.Value != nil {
 		t.Value.Set(t.editor.Text())
+	}
+}
+
+// storeSince writes through a controlled field only when its semantic answer changed.
+// Handling a cursor key or an impossible deletion is not an assignment merely because
+// the editor consumed the action.
+func (t *Text) storeSince(before uint64) {
+	if t.editor.Revision() != before {
+		t.store()
 	}
 }
 

@@ -116,8 +116,11 @@ interface without changing either child.
 
 ## Route events by ownership
 
-Offer navigation keys to the list and text input to the composer. When the composer
-changes, publish its text as the filter pattern.
+Offer navigation keys to the list and text input to the composer. Handling and
+changing are different facts: Backspace is handled at the beginning of an empty
+editor but changes nothing. Compare `Editor.Revision` around input to publish the
+pattern only when semantic content changed, without guessing from keys or action
+names.
 
 ```go
 func (p *picker) Handle(event input.Event) bool {
@@ -130,11 +133,12 @@ func (p *picker) Handle(event input.Event) bool {
             return p.list.Handle(event)
         }
     }
-    if p.query.Handle(event) {
+    before := p.query.Editor().Revision()
+    handled := p.query.Handle(event)
+    if p.query.Editor().Revision() != before {
         p.list.SetPattern(p.query.Text())
-        return true
     }
-    return false
+    return handled
 }
 ```
 
