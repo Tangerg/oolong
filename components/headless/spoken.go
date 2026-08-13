@@ -3,6 +3,7 @@ package headless
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -18,8 +19,9 @@ func (t *Text) Ask() string {
 // Reply takes what was said as the whole of the answer.
 func (t *Text) Reply(said string) error {
 	t.ensure()
+	before := t.editor.Revision()
 	t.editor.SetText(said)
-	t.store()
+	t.storeSince(before)
 	return t.Validate()
 }
 
@@ -37,7 +39,6 @@ func (s *Select[T]) Reply(said string) error {
 		return s.check(err)
 	}
 	s.list.Select(at)
-	s.store()
 	return s.Validate()
 }
 
@@ -68,8 +69,10 @@ func (m *MultiSelect[T]) Reply(said string) error {
 	if m.limit > 0 && count > m.limit {
 		return m.check(fmt.Errorf("at most %d may be chosen", m.limit))
 	}
-	m.taken = taken
-	m.store()
+	if !slices.Equal(m.taken, taken) {
+		m.taken = taken
+		m.store()
+	}
 	return m.Validate()
 }
 

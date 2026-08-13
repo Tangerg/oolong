@@ -124,11 +124,7 @@ func (s *Slider) Set(value int) bool {
 		return false
 	}
 	value = min(max(value, s.minimum), s.maximum)
-	if s.value.get() == value {
-		return false
-	}
-	s.value.set(value)
-	return true
+	return s.value.set(value)
 }
 
 // Sync clamps a caller-written controlled value. It is harmless for an uncontrolled

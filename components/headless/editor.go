@@ -293,7 +293,17 @@ func (e *Editor) Replace(start, end int, s string) {
 // typing, pasting, setting the text, replacing a range, putting an element in — and a
 // rule enforced in four places is a rule with a way round it.
 func (e *Editor) flatten(s string) string {
-	if !e.oneLine() || !strings.ContainsAny(s, "\n\r") {
+	if !e.oneLine() {
+		return s
+	}
+	return flattenLines(s)
+}
+
+// flattenLines is the canonical projection of text onto one logical line. Single-line
+// editors apply it to every replacement; atomic elements apply it to their body even
+// in a multi-line editor because one element is one contiguous run of cells.
+func flattenLines(s string) string {
+	if !strings.ContainsAny(s, "\n\r") {
 		return s
 	}
 	return strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
@@ -324,14 +334,11 @@ func (e *Editor) typeText(s string) {
 // Newline splits the line at the cursor, and does nothing at all in a field that holds
 // one line.
 func (e *Editor) Newline() {
+	e.endTyping()
 	if e.oneLine() {
 		return
 	}
-	e.endTyping()
-	e.ensure()
-	e.snapshot()
-	at := Caret{Line: e.line, Col: e.col}
-	e.replaceRange(at, at, "\n")
+	e.Insert("\n")
 }
 
 // DeleteBack removes the cluster before the cursor, or joins this line to the one

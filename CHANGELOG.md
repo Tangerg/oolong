@@ -23,6 +23,12 @@ the identity edit after clamping, before atomic-mark reachability is considered,
 zero-width no-op inside an atomic mark cannot delete it while a real insertion still
 does.
 
+Atomic editor elements now canonicalize every line break before insertion, independent
+of the editor's own single-line mode. The stored text, mark range and returned
+`headless.Element` therefore describe the same one-line body, and the ordinary
+separator after an element cannot be swallowed by a range measured from the
+pre-normalized input.
+
 `headless.Editor.Revision` now exposes one monotonic, process-local observation token
 for semantic content. Text input, programmatic editing, atomic elements, undo and redo
 advance it once; cursor, selection, scrolling, focus, clipboard requests and handled
@@ -35,6 +41,18 @@ so handled cursor and no-op editing actions no longer write unchanged values thr
 their accessor. Real content replacements also settle the selection at that boundary,
 so whole-text programmatic changes cannot leave an anchor outside the new content;
 equivalent typing does not open an unsnapshotted undo run.
+
+Caller-owned component state now writes through an accessor only for semantic value
+transitions. Re-selecting a tab or confirmation, navigating a choice at its boundary,
+repeating an unchanged spoken answer and opening or dismissing a dialog twice remain
+handled operations where appropriate without becoming false persistence or validation
+events. The shared controlled-scalar owner enforces this for tabs, sliders and dialogs;
+arbitrary-valued choice fields compare the selection state they own. Initial
+multi-choice values are normalized as one transition when they contain unavailable or
+duplicate choices or disagree with option order, while already canonical values are
+left alone. Newline insertion now uses the editor's sole replacement path, so it
+replaces a selection and a rejected single-line newline closes rather than corrupting
+the surrounding undo run.
 
 ## [0.11.0] — 2026-08-11
 

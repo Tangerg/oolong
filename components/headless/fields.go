@@ -234,7 +234,9 @@ type Select[T any] struct {
 	// with the list cursor and its bound accessor.
 	options []Option[T]
 	// Value is where the choice goes. It is read once, to put the cursor on what is
-	// already chosen, and written whenever the cursor moves.
+	// already chosen, and written whenever the cursor moves. An initial value that
+	// names no option falls back to the first choice and is written when the field is
+	// validated; repeated validation does not rewrite an already settled answer.
 	Value Accessor[T]
 	// Same says whether two values are the same one, which is what puts the cursor on
 	// the choice already made. Nil matches a bound string or Stringer value against
@@ -252,6 +254,12 @@ type Select[T any] struct {
 
 	list   List[Option[T]]
 	seeded bool
+	// stored is the selected index last written to Value. synced distinguishes that
+	// state from an unmatched initial value that happened to fall back to the same
+	// index. Validation settles the latter once; it never uses an accessor write as
+	// an acceptance event.
+	stored int
+	synced bool
 }
 
 // Prompt is what the field is asking for.
@@ -271,6 +279,7 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 	if !s.seeded {
 		return
 	}
+	s.synced = false
 	if hadPrevious {
 		for i, option := range s.options {
 			if option.sameOption(previous, s.Same) {
@@ -309,20 +318,20 @@ func (s *Select[T]) Draw(v Frame) {
 func (s *Select[T]) drawField(v Frame, look Look) {
 	selected := s.list.Selected()
 	if !s.seeded && s.Value != nil {
-		selected = s.indexOf(s.Value.Value())
+		selected, _ = s.indexOf(s.Value.Value())
 	}
 	s.list.drawRows(s.frame(v, s.Label, look), selected, func(v grid.View, _ int, option Option[T], under bool) {
 		look.choice(v, option.Label, under, under)
 	})
 }
 
-func (s *Select[T]) indexOf(want T) int {
+func (s *Select[T]) indexOf(want T) (int, bool) {
 	for i, option := range s.options {
 		if option.holds(want, s.Same) {
-			return i
+			return i, true
 		}
 	}
-	return s.list.Selected()
+	return s.list.Selected(), false
 }
 
 // Handle moves the cursor, and takes the choice with it.
@@ -335,28 +344,35 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 		}
 		ev = local
 	}
+	before := s.list.Selected()
 	if !s.list.Handle(ev) {
 		return false
 	}
-	s.store()
+	if s.list.Selected() != before {
+		s.store()
+	}
 	return true
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (s *Select[T]) Do(action keymap.Action) bool {
 	s.ensure()
+	before := s.list.Selected()
 	if !s.list.Do(action) {
 		return false
 	}
-	s.store()
+	if s.list.Selected() != before {
+		s.store()
+	}
 	return true
 }
 
 // Validate checks the choice.
 func (s *Select[T]) Validate() error {
 	s.ensure()
-	// Validation is a semantic transition: submitting or leaving the field accepts
-	// the option under the cursor. Presentation alone must not do that work.
+	// An initial value that named no option is settled here, at the semantic validation
+	// boundary rather than during presentation. Once settled, checking it again is not
+	// another assignment.
 	s.store()
 	if s.Check == nil {
 		return s.check(nil)
@@ -389,15 +405,22 @@ func (s *Select[T]) ensure() {
 	}
 	// The cursor starts on the choice already made, which is what makes a form somebody
 	// is coming back to show what they said last time.
-	s.list.Select(s.indexOf(s.Value.Value()))
+	at, matched := s.indexOf(s.Value.Value())
+	s.list.Select(at)
+	s.stored, s.synced = s.list.Selected(), matched
 }
 
 func (s *Select[T]) store() {
 	if s.Value == nil {
 		return
 	}
+	at := s.list.Selected()
+	if s.synced && s.stored == at {
+		return
+	}
 	if chosen, ok := s.list.Current(); ok {
 		s.Value.Set(chosen.Value)
+		s.stored, s.synced = at, true
 	}
 }
 
@@ -413,7 +436,9 @@ type MultiSelect[T any] struct {
 	// options are private because replacing them has to move the taken set by value,
 	// not attach old boolean positions to unrelated new choices.
 	options []Option[T]
-	// Value is where the choices go, in the order the options are listed.
+	// Value is where the choices go, in the order the options are listed. On first use,
+	// choices no longer offered are discarded, duplicates are folded and option order
+	// is restored through one write; a value already in canonical form is not rewritten.
 	Value Accessor[[]T]
 	// Same says whether two values are the same one — see [Select.Same]. It is a pure
 	// projection callback and may run during drawing.
@@ -599,9 +624,10 @@ func (m *MultiSelect[T]) selection() ([]bool, bool) {
 	taken := make([]bool, len(m.options))
 	if m.Value == nil {
 		copy(taken, m.taken)
-		return taken, clampTaken(taken, m.limit)
+		return taken, !clampTaken(taken, m.limit)
 	}
-	for _, want := range m.Value.Value() {
+	bound := m.Value.Value()
+	for _, want := range bound {
 		for i, option := range m.options {
 			if option.holds(want, m.Same) {
 				taken[i] = true
@@ -609,7 +635,27 @@ func (m *MultiSelect[T]) selection() ([]bool, bool) {
 			}
 		}
 	}
-	return taken, clampTaken(taken, m.limit)
+	clamped := clampTaken(taken, m.limit)
+	count := 0
+	for _, selected := range taken {
+		if selected {
+			count++
+		}
+	}
+	if clamped || len(bound) != count {
+		return taken, false
+	}
+	at := 0
+	for i, option := range m.options {
+		if !taken[i] {
+			continue
+		}
+		if !option.holds(bound[at], m.Same) {
+			return taken, false
+		}
+		at++
+	}
+	return taken, true
 }
 
 // Handle moves the cursor and takes choices.
@@ -668,9 +714,9 @@ func (m *MultiSelect[T]) ensure() {
 		return
 	}
 	m.seeded = true
-	var clamped bool
-	m.taken, clamped = m.selection()
-	if clamped {
+	var canonical bool
+	m.taken, canonical = m.selection()
+	if !canonical {
 		m.store()
 	}
 }
@@ -721,6 +767,9 @@ func (c *Confirm) Answer() bool {
 // Say answers the field.
 func (c *Confirm) Say(yes bool) {
 	c.ensure()
+	if c.yes == yes {
+		return
+	}
 	c.yes = yes
 	if c.Value != nil {
 		c.Value.Set(yes)

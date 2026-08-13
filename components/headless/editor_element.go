@@ -58,10 +58,15 @@ func (el Element) Text(e *Editor) string {
 
 // InsertElement puts text at the cursor as one atomic unit, and returns it.
 //
+// Line breaks in body become spaces even in a multi-line editor. An element is one
+// contiguous run of cells; allowing its source to span logical lines would make its
+// returned line-local range describe only a fragment of what was inserted.
+//
 // A separator space follows it, which is what makes a chip in a prompt something a
 // user can type after. The space is ordinary text and not part of the element: it is
 // there to be deleted.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
+	body = flattenLines(body)
 	if body == "" {
 		return Element{}
 	}

@@ -26,6 +26,38 @@ func TestElementIsInsertedWithASeparator(t *testing.T) {
 	}
 }
 
+func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		singleLine bool
+		body       string
+		want       string
+	}{
+		{"line feed in a multi-line editor", false, "a\nb", "a b"},
+		{"CRLF in a single-line editor", true, "a\r\nb", "a b"},
+		{"carriage return in a multi-line editor", false, "a\rb", "a b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := editorWith("")
+			e.SingleLine = tc.singleLine
+			el := e.InsertElement(fileChip, tc.body)
+
+			if got := e.Text(); got != tc.want+" " {
+				t.Fatalf("text = %q, want the element and its separator %q", got, tc.want+" ")
+			}
+			if got := el.Text(e); got != tc.want {
+				t.Fatalf("element text = %q, want %q", got, tc.want)
+			}
+			if el.Line != 0 || el.Start != 0 || el.End != len(tc.want) {
+				t.Fatalf("element range = %+v, want line 0 range [0,%d)", el, len(tc.want))
+			}
+			if _, inside := e.ElementAt(0, len(tc.want)); inside {
+				t.Fatal("the ordinary separator became part of the atomic element")
+			}
+		})
+	}
+}
+
 // TestTheCursorStepsOverAnElement. It is one thing on screen, and a cursor inside it
 // has no position a reader could account for.
 func TestTheCursorStepsOverAnElement(t *testing.T) {

@@ -219,6 +219,21 @@ func TestEquivalentTypingLeavesTheNextEditUndoable(t *testing.T) {
 	}
 }
 
+func TestAHandledSingleLineNewlineClosesTheTypingRun(t *testing.T) {
+	var editor headless.Editor
+	editor.SingleLine = true
+	editor.Handle(input.Key{Code: input.Character, Rune: 'x'})
+	if !editor.Do(headless.InsertNewline) {
+		t.Fatal("the known newline action was not handled")
+	}
+	editor.Handle(input.Key{Code: input.Character, Rune: 'y'})
+
+	editor.Undo()
+	if got := editor.Text(); got != "x" {
+		t.Fatalf("undo after a handled newline restored %q, want the preceding typing run", got)
+	}
+}
+
 func TestSettingTheSamePlainTextDoesNotAdvanceRevisionOrAddHistory(t *testing.T) {
 	editor := editorWith("same")
 	before := editor.Revision()

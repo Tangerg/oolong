@@ -37,12 +37,12 @@ func (b bound[T]) Set(v T)  { *b.at = v }
 // It stays private because ownership is part of each controller's configuration, not
 // a second state API applications should pass around. One constructor accepts either
 // mode; operations use this one path and never keep a shadow copy of controlled state.
-type ownedValue[T any] struct {
+type ownedValue[T comparable] struct {
 	local   T
 	binding Accessor[T]
 }
 
-func newOwnedValue[T any](initial T, binding Accessor[T]) ownedValue[T] {
+func newOwnedValue[T comparable](initial T, binding Accessor[T]) ownedValue[T] {
 	if binding != nil {
 		return ownedValue[T]{binding: binding}
 	}
@@ -56,10 +56,17 @@ func (v *ownedValue[T]) get() T {
 	return v.local
 }
 
-func (v *ownedValue[T]) set(value T) {
+// set is the one transition for a controlled scalar. Accessors may persist, publish
+// or validate a write, so assigning the value they already hold is not harmless just
+// because Bind would make it look like an ordinary variable assignment.
+func (v *ownedValue[T]) set(value T) bool {
+	if v.get() == value {
+		return false
+	}
 	if v.binding != nil {
 		v.binding.Set(value)
-		return
+		return true
 	}
 	v.local = value
+	return true
 }

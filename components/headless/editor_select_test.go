@@ -164,6 +164,20 @@ func TestTypingReplacesASelection(t *testing.T) {
 	}
 }
 
+func TestNewlineReplacesASelection(t *testing.T) {
+	e := editorWith("hello world")
+	for range 5 {
+		e.Handle(shift(input.Right))
+	}
+	e.Newline()
+	if got, want := e.Text(), "\n world"; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+	if got := e.Selected(); got != "" {
+		t.Errorf("the selection survived being replaced by a newline: %q", got)
+	}
+}
+
 // TestTypingOverASelectionIsOneStepToUndo, because a user who selected a word and
 // typed another did one thing.
 func TestTypingOverASelectionIsOneStepToUndo(t *testing.T) {
