@@ -376,7 +376,8 @@ func completeClusters(line string, start, end int) (int, int) {
 // replacement text, and terminal controls other than tabs are removed. A field that
 // holds one line turns separators into spaces instead. Applying these rules here
 // means typing, paste, SetText and Replace cannot build four subtly different kinds
-// of document.
+// of document. InsertElement uses the sibling oneLineText boundary because an atomic
+// element is one run of cells even in a multi-line editor.
 func (e *Editor) canonicalText(s string) string {
 	if e.oneLine() {
 		return oneLineText(s)

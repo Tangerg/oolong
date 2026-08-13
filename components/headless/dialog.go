@@ -84,22 +84,26 @@ func (d *Dialog) Dismiss() {
 	d.Sync()
 }
 
-// Sync applies caller-written controlled state to stack membership and focus.
+// Sync applies caller-written controlled state to stack membership and focus, and
+// reports whether the layer was added or removed.
 //
 // Accessors are deliberately not observable. Making this transition explicit keeps
 // focus changes out of Draw and preserves the rule that drawing cannot advance
 // semantic state.
-func (d *Dialog) Sync() {
+func (d *Dialog) Sync() bool {
 	if d == nil || d.stack == nil || d.content == nil {
-		return
+		return false
 	}
 	shown := d.stack.Contains(d.layer)
 	switch {
 	case d.open.get() && !shown:
 		d.layer = d.stack.Push(d.content)
+		return true
 	case !d.open.get() && shown:
 		d.stack.Remove(d.layer)
+		return true
 	}
+	return false
 }
 
 // Open reports whether the dialog is semantically open.

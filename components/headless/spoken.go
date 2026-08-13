@@ -39,6 +39,7 @@ func (s *Select[T]) Reply(said string) error {
 		return s.check(err)
 	}
 	s.list.Select(at)
+	s.store()
 	return s.Validate()
 }
 
@@ -78,14 +79,12 @@ func (m *MultiSelect[T]) Reply(said string) error {
 
 // Ask is the question and the two words that answer it.
 func (c *Confirm) Ask() string {
-	c.ensure()
 	return c.Label + " (" + c.word(true) + "/" + c.word(false) + ")"
 }
 
 // Reply takes either answer, or as much of one as is unambiguous — nobody types
 // "yes" in full twice.
 func (c *Confirm) Reply(said string) error {
-	c.ensure()
 	said = strings.ToLower(strings.TrimSpace(said))
 	yes, no := strings.ToLower(c.word(true)), strings.ToLower(c.word(false))
 	yesMatch, noMatch := strings.HasPrefix(yes, said), strings.HasPrefix(no, said)

@@ -158,9 +158,64 @@ func TestDrawingProjectsControlledFieldsWithoutInitializingThem(t *testing.T) {
 	answer := &observedAccessor[bool]{value: true}
 	confirmation := &Confirm{Value: answer}
 	captureDraw(t, 20, 1, NewRoot(confirmation).Draw)
-	if confirmation.seeded || answer.reads == 0 || answer.writes != 0 {
-		t.Fatalf("confirm draw changed ownership: seeded=%t, reads=%d, writes=%d",
-			confirmation.seeded, answer.reads, answer.writes)
+	if confirmation.answer.local || answer.reads == 0 || answer.writes != 0 {
+		t.Fatalf("confirm draw changed ownership: local=%t, reads=%d, writes=%d",
+			confirmation.answer.local, answer.reads, answer.writes)
+	}
+}
+
+type fieldProjection func(Frame)
+
+func (draw fieldProjection) Draw(frame Frame) { draw(frame) }
+
+func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
+	look := Look{Taken: "x", Free: "-"}
+
+	textValue := &observedAccessor[string]{value: "old"}
+	textField := &Text{Value: textValue}
+	textField.ensure()
+	textValue.value = "new"
+	beforeText := meaningOfEditor(&textField.editor)
+	frame := captureDraw(t, 8, 1, NewRoot(textField).Draw)
+	if !strings.Contains(frame.bytes, "new") || !reflect.DeepEqual(meaningOfEditor(&textField.editor), beforeText) {
+		t.Fatalf("text draw did not purely project later owner value: %q", frame.bytes)
+	}
+
+	one := &observedAccessor[string]{value: "one"}
+	selection := &Select[string]{Value: one}
+	selection.SetOptions(Options("one", "two"))
+	selection.ensure()
+	one.value = "two"
+	selectSurface := grid.NewSurface(8, 2)
+	NewRoot(fieldProjection(func(frame Frame) { selection.drawField(frame, look) })).Draw(selectSurface.View())
+	first, _ := selectSurface.CellAt(0, 0)
+	second, _ := selectSurface.CellAt(0, 1)
+	if first.Content != "-" || second.Content != "x" || selection.list.Selected() != 0 || one.writes != 0 {
+		t.Fatalf("select projection marks=(%q,%q) cursor=%d writes=%d", first.Content, second.Content, selection.list.Selected(), one.writes)
+	}
+
+	many := &observedAccessor[[]string]{value: []string{"one"}}
+	multiple := &MultiSelect[string]{Value: many}
+	multiple.SetOptions(Options("one", "two"))
+	multiple.ensure()
+	many.value = []string{"two"}
+	beforeTaken := slices.Clone(multiple.taken)
+	multiSurface := grid.NewSurface(8, 2)
+	NewRoot(fieldProjection(func(frame Frame) { multiple.drawField(frame, look) })).Draw(multiSurface.View())
+	first, _ = multiSurface.CellAt(0, 0)
+	second, _ = multiSurface.CellAt(0, 1)
+	if first.Content != "-" || second.Content != "x" || !slices.Equal(multiple.taken, beforeTaken) || many.writes != 0 {
+		t.Fatalf("multi projection marks=(%q,%q) taken=%v writes=%d", first.Content, second.Content, multiple.taken, many.writes)
+	}
+
+	answer := &observedAccessor[bool]{}
+	confirmation := &Confirm{Value: answer}
+	answer.value = true
+	confirmSurface := grid.NewSurface(16, 1)
+	NewRoot(fieldProjection(func(frame Frame) { confirmation.drawField(frame, look) })).Draw(confirmSurface.View())
+	first, _ = confirmSurface.CellAt(0, 0)
+	if first.Content != "x" || confirmation.answer.local || answer.writes != 0 {
+		t.Fatalf("confirm projection mark=%q local=%t writes=%d", first.Content, confirmation.answer.local, answer.writes)
 	}
 }
 
@@ -458,7 +513,6 @@ func headlessDrawPurityCases() []drawPurityCase {
 		Label: "continue", Value: Bind(&answer),
 		Check: func(bool) error { confirmChecks++; return nil },
 	}
-	confirm.ensure()
 	confirm.Focus(true)
 	cases = append(cases, widgetPurityCase("*Confirm", confirm, func() any {
 		return struct {

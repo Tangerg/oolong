@@ -179,6 +179,12 @@ func (e *Editor) insideElement(line, col int) (Element, bool) {
 // right from inside one has to come out at the far side, and moving left at the near
 // side. A position that is not inside anything is returned as it is.
 func (e *Editor) snapElement(line, col int, forward bool) int {
+	// Before first use the zero editor has one conceptual empty line. Keeping this
+	// primitive total preserves that zero-value contract even for an internal caller
+	// that only needs to settle a position and has not initialized storage yet.
+	if len(e.lines) == 0 {
+		return 0
+	}
 	line = min(max(line, 0), len(e.lines)-1)
 	col = clusterPosition(e.lines[line], col, forward)
 	return e.snapElementBoundary(line, col, forward)

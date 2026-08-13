@@ -384,6 +384,14 @@ configuration, not hidden behind `Controlled bool` or split across `New` and
 genuinely edits caller-owned data. A component must not keep a private copy of
 controlled state that can drift from its owner.
 
+An accessor always denotes the caller's current value; it is never merely an
+initialization seed. Drawing may read and project it but must not synchronize derived
+semantic state. A field reconciles its editor, cursor, or choice set at the next
+semantic operation. A controller whose reconciliation must also transfer focus or
+change modal stack membership exposes `Sync`, because an accessor is deliberately not
+an event subscription; `Sync` reports whether that correlated state changed. This is
+one ownership model with an explicit transition boundary, not a second state API.
+
 ### 6.3 Layout and committed geometry
 
 `core/layout` remains pure geometry. It divides sizes and returns rectangles; it does

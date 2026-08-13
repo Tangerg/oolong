@@ -27,8 +27,8 @@ type Text struct {
 	field
 	// Label is what the field is asking for.
 	Label string
-	// Value is where what is typed goes. It is read once, when the field is first used,
-	// and written whenever the text changes.
+	// Value is the caller-owned text. A caller change is observed at the next semantic
+	// operation and by drawing; edits write it immediately. Nil keeps the text local.
 	Value Accessor[string]
 	// Check says what is wrong with what has been entered, or nil. It is asked when the
 	// keyboard leaves the field and when the form is submitted.
@@ -81,7 +81,11 @@ func (t *Text) projection() *Editor {
 			current: t.editor.presentation.Value(),
 		},
 	}
-	if t.seeded || t.Value == nil {
+	value := ""
+	if t.Value != nil {
+		value = oneLineText(t.Value.Value())
+	}
+	if t.Value == nil || t.seeded && value == t.editor.Text() {
 		// A render projection owns its storage and directly expresses Text's one-line
 		// view. Editor is intentionally a mutable owner, not a value safe to copy and
 		// then mutate: its history, marks and kill ring all contain slice headers.
@@ -95,7 +99,6 @@ func (t *Text) projection() *Editor {
 		projected.selecting = t.editor.selecting
 		return projected
 	}
-	value := oneLineText(t.Value.Value())
 	projected.lines = []string{value}
 	projected.col = len(value)
 	return projected
@@ -154,19 +157,26 @@ func (t *Text) Focus(has bool) {
 	}
 }
 
-// ensure keeps the field in step with what the caller set, and gives it its first look
-// at the value it is collecting.
+// ensure makes the caller-owned value authoritative at semantic boundaries. Drawing
+// projects that value without mutating the editor; input first reconciles the editor
+// so cursor, history and the subsequent write all describe the same text.
 func (t *Text) ensure() {
 	t.editor.SetSingleLine(true)
 	t.editor.Placeholder = t.Placeholder
 	t.editor.Keys = t.Keys
-	if t.seeded {
+	if t.Value == nil {
+		t.seeded = true
 		return
 	}
-	t.seeded = true
-	if t.Value != nil {
-		t.editor.SetText(t.Value.Value())
+	value := oneLineText(t.Value.Value())
+	if !t.seeded || value != t.editor.Text() {
+		t.editor.SetText(value)
+		// Reconciliation is a new owner state, not a user edit inside the old one.
+		// Keeping the previous editor snapshots would let Undo overwrite the accessor
+		// with a value that stopped being current before this operation began.
+		t.editor.history.clear()
 	}
+	t.seeded = true
 }
 
 // store puts what has been typed where the caller keeps it.
@@ -243,10 +253,10 @@ type Select[T any] struct {
 	// options are private because replacing them has to reconcile the selected value
 	// with the list cursor and its bound accessor.
 	options []Option[T]
-	// Value is where the choice goes. It is read once, to put the cursor on what is
-	// already chosen, and written whenever the cursor moves. An initial value that
-	// names no option falls back to the first choice and is written when the field is
-	// validated; repeated validation does not rewrite an already settled answer.
+	// Value is the caller-owned choice. A caller change moves the cursor at the next
+	// semantic operation and is projected by drawing; cursor movement writes it
+	// immediately. A value that names no option falls back to the current choice and is
+	// written when the field is validated. Nil keeps the choice local.
 	Value Accessor[T]
 	// Same says whether two values are the same one, which is what puts the cursor on
 	// the choice already made. Nil matches a bound string or Stringer value against
@@ -289,6 +299,11 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 	if !s.seeded {
 		return
 	}
+	if s.Value != nil {
+		s.sync()
+		s.store()
+		return
+	}
 	s.synced = false
 	if hadPrevious {
 		for i, option := range s.options {
@@ -327,7 +342,7 @@ func (s *Select[T]) Draw(v Frame) {
 
 func (s *Select[T]) drawField(v Frame, look Look) {
 	selected := s.list.Selected()
-	if !s.seeded && s.Value != nil {
+	if s.Value != nil {
 		selected, _ = s.indexOf(s.Value.Value())
 	}
 	s.list.drawRows(s.frame(v, s.Label, look), selected, func(v grid.View, _ int, option Option[T], under bool) {
@@ -406,10 +421,14 @@ func (s *Select[T]) Focus(has bool) {
 
 func (s *Select[T]) ensure() {
 	s.list.Keys = s.Keys
-	if s.seeded {
-		return
-	}
 	s.seeded = true
+	s.sync()
+}
+
+// sync reconciles the cursor with the caller-owned value without accepting an
+// unavailable value. Validation or an actual selection transition performs that
+// settlement through store; a read alone is not an assignment.
+func (s *Select[T]) sync() {
 	if s.Value == nil {
 		return
 	}
@@ -446,9 +465,10 @@ type MultiSelect[T any] struct {
 	// options are private because replacing them has to move the taken set by value,
 	// not attach old boolean positions to unrelated new choices.
 	options []Option[T]
-	// Value is where the choices go, in the order the options are listed. On first use,
-	// choices no longer offered are discarded, duplicates are folded and option order
-	// is restored through one write; a value already in canonical form is not rewritten.
+	// Value is the caller-owned set, in option order. A caller change is observed at the
+	// next semantic operation and by drawing. Unavailable choices are discarded,
+	// duplicates are folded and option order is restored through one write; a value
+	// already in canonical form is not rewritten. Nil keeps the set local.
 	Value Accessor[[]T]
 	// Same says whether two values are the same one — see [Select.Same]. It is a pure
 	// projection callback and may run during drawing.
@@ -476,7 +496,7 @@ func (m *MultiSelect[T]) Prompt() string { return m.Label }
 // is nil, wherever it moved.
 func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	var previous []Option[T]
-	if m.seeded {
+	if m.seeded && m.Value == nil {
 		previous = m.takenOptions()
 	}
 	m.options = own(m.options, options)
@@ -486,6 +506,10 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	m.list.SetItems(m.options)
 	m.taken = make([]bool, len(m.options))
 	if !m.seeded {
+		return
+	}
+	if m.Value != nil {
+		m.sync()
 		return
 	}
 	for _, want := range previous {
@@ -515,11 +539,16 @@ func (m *MultiSelect[T]) SetLimit(limit int) {
 		panic("headless: multi-select limit cannot be negative")
 	}
 	if m.limit == limit {
+		if m.seeded {
+			m.sync()
+		}
 		return
 	}
 	m.limit = limit
-	if m.seeded && clampTaken(m.taken, m.limit) {
-		m.store()
+	if m.seeded {
+		// Reconcile against the new limit once. Canonicalizing against the old limit
+		// first could publish two intermediate values for one semantic operation.
+		m.sync()
 	}
 }
 
@@ -622,7 +651,7 @@ func (m *MultiSelect[T]) Draw(v Frame) {
 
 func (m *MultiSelect[T]) drawField(v Frame, look Look) {
 	taken := m.taken
-	if !m.seeded {
+	if !m.seeded || m.Value != nil {
 		taken, _ = m.selection()
 	}
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
@@ -720,10 +749,13 @@ func (m *MultiSelect[T]) ensure() {
 	// The list inside has no map of its own: this field resolves every keystroke
 	// against one that has the movement and the key that takes a choice in it, and
 	// drives the list by name. Offering the event to both would resolve it twice.
-	if m.seeded {
-		return
-	}
 	m.seeded = true
+	m.sync()
+}
+
+// sync makes the caller-owned set the selection model's source. Unlike Draw, this is
+// a semantic boundary, so it also settles a non-canonical value exactly once.
+func (m *MultiSelect[T]) sync() {
 	var canonical bool
 	m.taken, canonical = m.selection()
 	if !canonical {
@@ -733,7 +765,7 @@ func (m *MultiSelect[T]) ensure() {
 
 func (m *MultiSelect[T]) store() {
 	if m.Value != nil {
-		m.Value.Set(m.Taken())
+		m.Value.Set(m.takenValues())
 	}
 }
 
@@ -749,7 +781,8 @@ type Confirm struct {
 	field
 	// Label is what the field is asking.
 	Label string
-	// Value is where the answer goes.
+	// Value is the caller-owned answer. Reads observe it directly and answers write it
+	// immediately. Nil keeps the answer local.
 	Value Accessor[bool]
 	// Yes and No are the two answers as they are shown. Empty uses "yes" and "no".
 	Yes, No string
@@ -758,8 +791,7 @@ type Confirm struct {
 	// Keys say which keystrokes answer. Nil reads through [DefaultConfirmKeys].
 	Keys *keymap.Map
 
-	yes     bool
-	seeded  bool
+	answer  valueState[bool]
 	matcher keymap.Matcher
 	// split is the committed column where the second answer begins.
 	split Snapshot[int]
@@ -770,20 +802,12 @@ func (c *Confirm) Prompt() string { return c.Label }
 
 // Answer is what has been answered.
 func (c *Confirm) Answer() bool {
-	c.ensure()
-	return c.yes
+	return c.answer.get(c.Value)
 }
 
 // Say answers the field.
 func (c *Confirm) Say(yes bool) {
-	c.ensure()
-	if c.yes == yes {
-		return
-	}
-	c.yes = yes
-	if c.Value != nil {
-		c.Value.Set(yes)
-	}
+	c.answer.set(c.Value, yes)
 }
 
 // Measure is the label, the two answers on one row, and the problem if there is one.
@@ -795,10 +819,7 @@ func (c *Confirm) Draw(v Frame) {
 }
 
 func (c *Confirm) drawField(v Frame, look Look) {
-	answer := c.yes
-	if !c.seeded && c.Value != nil {
-		answer = c.Value.Value()
-	}
+	answer := c.Answer()
 	row := c.frame(v, c.Label, look)
 	w, h := row.Size()
 	if w <= 0 || h <= 0 {
@@ -827,7 +848,6 @@ func (c *Confirm) drawField(v Frame, look Look) {
 
 // Handle answers the field, by key or by pressing one of the two answers.
 func (c *Confirm) Handle(ev input.Event) bool {
-	c.ensure()
 	if mouse, ok := ev.(input.Mouse); ok {
 		local, in := c.within(mouse)
 		if !in || local.Action != input.MouseDown || local.Button != input.ButtonLeft {
@@ -846,14 +866,13 @@ func (c *Confirm) Handle(ev input.Event) bool {
 
 // Do runs one of the field's actions by name. See [Doer].
 func (c *Confirm) Do(action keymap.Action) bool {
-	c.ensure()
 	switch action {
 	case SelectPrev:
 		c.Say(true)
 	case SelectNext:
 		c.Say(false)
 	case Toggle:
-		c.Say(!c.yes)
+		c.Say(!c.Answer())
 	default:
 		return false
 	}
@@ -862,31 +881,19 @@ func (c *Confirm) Do(action keymap.Action) bool {
 
 // Validate checks the answer.
 func (c *Confirm) Validate() error {
-	c.ensure()
 	if c.Check == nil {
 		return c.check(nil)
 	}
-	return c.check(c.Check(c.yes))
+	return c.check(c.Check(c.Answer()))
 }
 
 // Focus takes the keyboard or gives it up, and checks the answer on the way out.
 func (c *Confirm) Focus(has bool) {
-	c.ensure()
 	if !has {
 		c.matcher.Clear()
 	}
 	if c.leaving(has) {
 		_ = c.Validate()
-	}
-}
-
-func (c *Confirm) ensure() {
-	if c.seeded {
-		return
-	}
-	c.seeded = true
-	if c.Value != nil {
-		c.yes = c.Value.Value()
 	}
 }
 

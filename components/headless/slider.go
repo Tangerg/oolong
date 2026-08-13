@@ -127,8 +127,8 @@ func (s *Slider) Set(value int) bool {
 	return s.value.set(value)
 }
 
-// Sync clamps a caller-written controlled value. It is harmless for an uncontrolled
-// slider.
+// Sync clamps a caller-written controlled value and reports whether it wrote the
+// normalized value. It is harmless for an uncontrolled slider.
 func (s *Slider) Sync() bool {
 	if s == nil {
 		return false

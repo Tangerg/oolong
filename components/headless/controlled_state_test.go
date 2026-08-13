@@ -1,7 +1,13 @@
 package headless_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"slices"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -21,6 +27,192 @@ func (a *countedAccessor[T]) Value() T { return a.value }
 func (a *countedAccessor[T]) Set(value T) {
 	a.value = value
 	a.writes++
+}
+
+// TestEveryAccessorOwnerObservesCallerTransitions is both the ownership contract and
+// its coverage gate. The case names are checked against every exported production
+// struct that accepts an Accessor, so a new controlled component cannot inherit only
+// the convenient write half of the contract.
+func TestEveryAccessorOwnerObservesCallerTransitions(t *testing.T) {
+	cases := map[string]func(*testing.T){
+		"Confirm": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[bool]{}
+			field := &headless.Confirm{Value: value}
+			if field.Answer() {
+				t.Fatal("confirmation did not read its initial owner value")
+			}
+			value.value = true
+			field.Say(false)
+			if value.value || value.writes != 1 || field.Answer() {
+				t.Fatalf("answer=%t writes=%d, want an owner-written yes followed by one no", value.value, value.writes)
+			}
+		},
+		"Dialog": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[bool]{}
+			stack := &headless.Stack{}
+			dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Open: value, Content: &panel{}})
+			value.value = true
+			if !dialog.Open() || !dialog.Sync() || dialog.Sync() || stack.Empty() {
+				t.Fatal("dialog did not settle one owner-written open transition")
+			}
+			value.value = false
+			if !dialog.Sync() || dialog.Sync() || !stack.Empty() {
+				t.Fatal("dialog did not settle one owner-written close transition")
+			}
+		},
+		"MultiSelect": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[[]string]{value: []string{"a"}}
+			field := &headless.MultiSelect[string]{Value: value}
+			field.SetOptions(headless.Options("a", "b"))
+			_ = field.Taken()
+			value.value = []string{"b"}
+			if got := field.Taken(); !slices.Equal(got, []string{"b"}) || value.writes != 0 {
+				t.Fatalf("taken=%v writes=%d, want caller-owned b without a rewrite", got, value.writes)
+			}
+			if err := field.Reply("a"); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(value.value, []string{"a"}) || value.writes != 1 {
+				t.Fatalf("binding=%v writes=%d, want one transition back to a", value.value, value.writes)
+			}
+		},
+		"Select": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[string]{value: "a"}
+			field := &headless.Select[string]{Value: value}
+			field.SetOptions(headless.Options("a", "b"))
+			_, _ = field.Chosen()
+			value.value = "b"
+			if err := field.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			chosen, ok := field.Chosen()
+			if !ok || chosen.Value != "b" || value.value != "b" || value.writes != 0 {
+				t.Fatalf("choice=%+v ok=%t binding=%q writes=%d, want caller-owned b", chosen, ok, value.value, value.writes)
+			}
+			if err := field.Reply("a"); err != nil {
+				t.Fatal(err)
+			}
+			if value.value != "a" || value.writes != 1 {
+				t.Fatalf("binding=%q writes=%d, want one spoken transition to a", value.value, value.writes)
+			}
+		},
+		"Slider": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[int]{value: 2}
+			slider := headless.NewSlider(headless.SliderConfig{Value: value, Minimum: 0, Maximum: 10})
+			value.value = 7
+			if slider.Value() != 7 || slider.Sync() {
+				t.Fatal("slider did not read a valid owner transition directly")
+			}
+			value.value = 99
+			if !slider.Sync() || slider.Sync() || value.value != 10 || value.writes != 1 {
+				t.Fatalf("value=%d writes=%d, want one clamp to 10", value.value, value.writes)
+			}
+		},
+		"Tabs": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[int]{}
+			tabs := headless.NewTabs(headless.TabsConfig{
+				Items: []headless.Tab{{Title: "a"}, {Title: "b"}}, Selection: value,
+			})
+			value.value = 1
+			if tabs.Selected() != 1 || !tabs.Sync() || tabs.Sync() {
+				t.Fatal("tabs did not settle one owner-written selection transition")
+			}
+		},
+		"Text": func(t *testing.T) {
+			t.Helper()
+			value := &countedAccessor[string]{value: "a"}
+			field := &headless.Text{Value: value}
+			if err := field.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			value.value = "b"
+			if err := field.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			if got := field.Editor().Text(); got != "b" || value.writes != 0 {
+				t.Fatalf("text=%q writes=%d, want caller-owned b without a rewrite", got, value.writes)
+			}
+			if !field.Do(headless.Undo) || field.Editor().Text() != "b" || value.writes != 0 {
+				t.Fatal("undo restored state from before an owner-written replacement")
+			}
+		},
+	}
+
+	names := make([]string, 0, len(cases))
+	for name := range cases {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t.Run(name, cases[name])
+	}
+	assertAccessorOwnersCovered(t, cases)
+}
+
+func assertAccessorOwnersCovered(t *testing.T, covered map[string]func(*testing.T)) {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := make(map[string]bool)
+	set := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(set, entry.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.TYPE {
+				continue
+			}
+			for _, specification := range general.Specs {
+				typed, ok := specification.(*ast.TypeSpec)
+				if !ok || !typed.Name.IsExported() || !structHasAccessor(typed.Type) {
+					continue
+				}
+				found[strings.TrimSuffix(typed.Name.Name, "Config")] = true
+			}
+		}
+	}
+	for owner := range found {
+		if covered[owner] == nil {
+			t.Errorf("controlled owner %s has no caller-transition contract case", owner)
+		}
+	}
+	for owner := range covered {
+		if !found[owner] {
+			t.Errorf("controlled owner case %s is stale", owner)
+		}
+	}
+}
+
+func structHasAccessor(expression ast.Expr) bool {
+	structure, ok := expression.(*ast.StructType)
+	if !ok {
+		return false
+	}
+	for _, field := range structure.Fields.List {
+		indexed, ok := field.Type.(*ast.IndexExpr)
+		if !ok {
+			continue
+		}
+		name, ok := indexed.X.(*ast.Ident)
+		if ok && name.Name == "Accessor" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestControlledScalarsWriteOnlyTransitions(t *testing.T) {
@@ -203,4 +395,20 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 			t.Fatalf("answer=%t writes=%d, want yes after one", value.value, value.writes)
 		}
 	})
+}
+
+func TestControlledMultipleChoiceSettlesOneOperationWithOneWrite(t *testing.T) {
+	value := &countedAccessor[[]string]{value: []string{"a", "b"}}
+	field := &headless.MultiSelect[string]{Value: value}
+	field.SetOptions(headless.Options("a", "b"))
+	_ = field.Taken()
+
+	// The owner changed both order and cardinality before the limit transition. The
+	// field must settle against the new limit directly, not publish a canonical value
+	// for the old limit and then a second intermediate state.
+	value.value = []string{"b", "a"}
+	field.SetLimit(1)
+	if !slices.Equal(value.value, []string{"a"}) || value.writes != 1 {
+		t.Fatalf("binding=%v writes=%d, want one settled write to a", value.value, value.writes)
+	}
 }

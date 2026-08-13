@@ -94,17 +94,24 @@ their accessor. Real content replacements also settle the selection at that boun
 so whole-text programmatic changes cannot leave an anchor outside the new content;
 equivalent typing does not open an unsnapshotted undo run.
 
-Caller-owned component state now writes through an accessor only for semantic value
-transitions. Re-selecting a tab or confirmation, navigating a choice at its boundary,
-repeating an unchanged spoken answer and opening or dismissing a dialog twice remain
-handled operations where appropriate without becoming false persistence or validation
-events. The shared controlled-scalar owner enforces this for tabs, sliders and dialogs;
-arbitrary-valued choice fields compare the selection state they own. Initial
-multi-choice values are normalized as one transition when they contain unavailable or
-duplicate choices or disagree with option order, while already canonical values are
-left alone. Newline insertion now uses the editor's sole replacement path, so it
-replaces a selection and a rejected single-line newline closes rather than corrupting
-the surrounding undo run.
+Caller-owned component state now has one meaning: the accessor is the current value,
+not an initialization seed plus an eventually drifting private copy. Confirm uses the
+same scalar ownership path as tabs, sliders and dialogs. Text, single-choice and
+multiple-choice fields project later caller writes during drawing and reconcile their
+derived editor, cursor or taken-set state at the next semantic operation. A
+source-derived contract test requires every exported accessor owner to prove both
+directions, so adding a controlled component cannot silently test only component-to-
+owner writes. Re-selecting a tab or confirmation, navigating at a boundary, repeating
+an unchanged spoken answer and opening or dismissing a dialog twice remain handled
+operations where appropriate without becoming false persistence events. Multi-choice
+limit changes settle directly against the final limit and cannot publish an
+intermediate canonical value. Tabs, sliders and dialogs now consistently report from
+`Sync` whether reconciliation changed their correlated state.
+
+Newline insertion uses the editor's sole replacement path, so it replaces a selection
+and a rejected single-line newline closes rather than corrupting the surrounding undo
+run. Atomic-element cursor settlement is total for the zero editor, and its storage
+boundary documentation now names the intentionally separate one-line element path.
 
 ### Breaking API migration
 
@@ -117,6 +124,12 @@ the surrounding undo run.
 - `headless.Text.Mask` was removed. Configure and observe the field's sole editor with
   `headless.Text.Editor().SetMask` and `headless.Text.Editor().Mask()`. Invalid masks
   now panic at that setter rather than later during `Draw`.
+- `headless.(*Dialog).Sync` now returns whether stack membership changed. Existing
+  statement calls remain valid; callers that schedule work from reconciliation should
+  use the result instead of comparing open state around the call.
+- `headless.(*Tabs).Sync` now returns whether focus or the stored selection changed,
+  matching `headless.(*Slider).Sync` and giving all controlled scalar controllers one
+  transition result.
 
 ## [0.11.0] — 2026-08-11
 

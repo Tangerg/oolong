@@ -150,17 +150,20 @@ func (t *Tabs) Select(at int) {
 	t.settle()
 }
 
-// Sync applies a caller-written controlled selection to pane focus. An index outside
-// the current parts is clamped and written back, so the caller and controller keep
-// one valid selection rather than observing different forms of the same state.
+// Sync applies a caller-written controlled selection to pane focus and reports
+// whether focus or the stored selection changed. An index outside the current parts
+// is clamped and written back, so the caller and controller keep one valid selection
+// rather than observing different forms of the same state.
 //
 // Accessors are not observable. Keeping this explicit prevents Draw from performing a
 // hidden semantic transition merely because external storage changed.
-func (t *Tabs) Sync() {
+func (t *Tabs) Sync() bool {
 	if t == nil {
-		return
+		return false
 	}
-	t.Select(t.selection.get())
+	selected := min(max(t.selection.get(), 0), max(len(t.items)-1, 0))
+	changed := t.selection.set(selected)
+	return t.settle() || changed
 }
 
 // Move steps by n panes, wrapping unless told not to.
@@ -283,14 +286,14 @@ func (t *Tabs) Semantics() SemanticNode {
 	return root
 }
 
-func (t *Tabs) settle() {
+func (t *Tabs) settle() bool {
 	wantIndex := t.Selected()
 	want := Widget(nil)
 	if pane, ok := t.Current(); ok {
 		want = pane.Of
 	}
 	if t.settled && wantIndex == t.holderIndex {
-		return
+		return false
 	}
 	from := t.holder
 	t.holder, t.holderIndex, t.settled = want, wantIndex, true
@@ -303,6 +306,7 @@ func (t *Tabs) settle() {
 		}
 	}
 	tell(want, !t.blurred)
+	return true
 }
 
 func (t *Tabs) keys() *keymap.Map {
