@@ -379,7 +379,7 @@ func completeClusters(line string, start, end int) (int, int) {
 // of document.
 func (e *Editor) canonicalText(s string) string {
 	if e.oneLine() {
-		return text.Printable(flattenLines(s))
+		return oneLineText(s)
 	}
 	if strings.Contains(s, "\r") {
 		s = logicalLineBreaks.Replace(s)
@@ -393,6 +393,11 @@ func (e *Editor) canonicalText(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// oneLineText is the one storage boundary shared by one-line fields and atomic
+// elements. Keeping it separate from Editor state lets a pure render projection use
+// the same policy without constructing or mutating an Editor merely to sanitize text.
+func oneLineText(s string) string { return text.Printable(flattenLines(s)) }
 
 // flattenLines is the canonical projection of text onto one logical line. Single-line
 // editors apply it to every replacement; atomic elements apply it to their body even

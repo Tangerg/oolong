@@ -252,6 +252,20 @@ func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
 	equalRows(t, rows, []string{"******.."})
 }
 
+func TestControlledTextUsesOneProjectionBeforeAndAfterInitialization(t *testing.T) {
+	value := "a\r\nb\x7f"
+	field := &headless.Text{Value: headless.Bind(&value)}
+	field.Editor().Gutter = numberedGutter{}
+	field.Editor().SetMask("*")
+
+	before := paintWidget(8, 1, field)
+	field.Focus(true)
+	after := paintWidget(8, 1, field)
+
+	equalRows(t, before, []string{"1.***..."})
+	equalRows(t, after, before)
+}
+
 func TestEveryTextEntryPathBuildsTheSameTerminalSafeDocument(t *testing.T) {
 	const source = "a\r\nb\rc\x00d\x1be\tf\xff"
 	const want = "a\nb\ncde\tf\ufffd"

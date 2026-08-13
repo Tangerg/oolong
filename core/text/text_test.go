@@ -308,6 +308,28 @@ func TestColumnsBeforeAnOffset(t *testing.T) {
 	}
 }
 
+func TestPlainASCIIByteAndColumnCoordinatesAgree(t *testing.T) {
+	const s = "plain ASCII text"
+	for at := -1; at <= len(s)+1; at++ {
+		want := min(max(at, 0), len(s))
+		if got := text.ColumnOf(s, at); got != want {
+			t.Errorf("ColumnOf(%d) = %d, want %d", at, got, want)
+		}
+		if got := text.OffsetAt(s, at); got != want {
+			t.Errorf("OffsetAt(%d) = %d, want %d", at, got, want)
+		}
+	}
+	if got := text.ColumnOf("a\x7fb", 2); got != 1 {
+		t.Fatalf("ColumnOf with DEL = %d, want the control to occupy no column", got)
+	}
+	if got := text.OffsetAt("a\x7fb", 1); got != 2 {
+		t.Fatalf("OffsetAt with DEL = %d, want the offset after the zero-width control", got)
+	}
+	if got := text.Width("a\x7fb"); got != 2 {
+		t.Fatalf("Width with DEL = %d, want the control to occupy no column", got)
+	}
+}
+
 func TestTheOffsetAtAColumn(t *testing.T) {
 	// How a click, and a cursor moving between lines of different lengths, find
 	// where they land.
@@ -327,6 +349,68 @@ func TestTheOffsetAtAColumn(t *testing.T) {
 	if got := text.OffsetAt("a\tb", text.TabStop); got != 2 {
 		t.Fatalf("after a tab = %d, want the offset past it", got)
 	}
+}
+
+func FuzzCoordinatesMatchCompleteSegmentation(f *testing.F) {
+	for _, seed := range []string{
+		"plain ASCII",
+		"a\tb\x7fc",
+		"a\u0301中b",
+		"👩‍💻x",
+		"🇨🇳🇬🇧x",
+		"\xffa\x00",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) > 256 {
+			s = s[:256]
+		}
+		for at := -1; at <= len(s)+1; at++ {
+			if got, want := text.ColumnOf(s, at), columnOfByIteration(s, at); got != want {
+				t.Fatalf("ColumnOf(%q, %d) = %d, want %d", s, at, got, want)
+			}
+		}
+		for col := -1; col <= text.Width(s)+1; col++ {
+			if got, want := text.OffsetAt(s, col), offsetAtByIteration(s, col); got != want {
+				t.Fatalf("OffsetAt(%q, %d) = %d, want %d", s, col, got, want)
+			}
+		}
+	})
+}
+
+func columnOfByIteration(s string, offset int) int {
+	col := 0
+	for at, cluster := range text.Clusters(s) {
+		if at >= offset {
+			break
+		}
+		if cluster == "\t" {
+			col += text.TabStop - col%text.TabStop
+		} else {
+			col += grid.ClusterWidth(cluster)
+		}
+	}
+	return col
+}
+
+func offsetAtByIteration(s string, column int) int {
+	if column <= 0 {
+		return 0
+	}
+	offset, width := 0, 0
+	for at, cluster := range text.Clusters(s) {
+		step := grid.ClusterWidth(cluster)
+		if cluster == "\t" {
+			step = text.TabStop - width%text.TabStop
+		}
+		if width+step > column {
+			return at
+		}
+		width += step
+		offset = at + len(cluster)
+	}
+	return offset
 }
 
 func TestAWrappedRowMeasuresAndDrawsItself(t *testing.T) {

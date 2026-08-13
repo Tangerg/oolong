@@ -67,7 +67,7 @@ func (el Element) Text(e *Editor) string {
 // user can type after. The space is ordinary text and not part of the element: it is
 // there to be deleted.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
-	body = text.Printable(flattenLines(body))
+	body = oneLineText(body)
 	if body == "" {
 		return Element{}
 	}

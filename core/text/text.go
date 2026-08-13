@@ -569,6 +569,9 @@ func expand(s string, col *int) []piece {
 
 // advance is where col ends up after s, with tabs expanded.
 func advance(s string, col int) int {
+	if plainASCII(s) {
+		return layout.Sum(col, len(s))
+	}
 	g := uniseg.NewGraphemes(s)
 	for g.Next() {
 		if cluster := g.Str(); cluster == "\t" {
@@ -578,6 +581,18 @@ func advance(s string, col int) int {
 		}
 	}
 	return col
+}
+
+// plainASCII reports whether every byte is one printable, one-column cluster.
+// Keeping that fact here lets every byte/column conversion share the common fast
+// path without weakening the Unicode path used as the authority for all other text.
+func plainASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] < ' ' || s[i] > '~' {
+			return false
+		}
+	}
+	return true
 }
 
 // dropped reports whether a cluster is discarded rather than laid out. Measuring
@@ -682,6 +697,9 @@ func PrevCluster(s string, i int) int {
 
 // ColumnOf is how many columns of s sit before the byte offset i.
 func ColumnOf(s string, i int) int {
+	if plainASCII(s) {
+		return min(max(i, 0), len(s))
+	}
 	col := 0
 	for at, cluster := range Clusters(s) {
 		if at >= i {
@@ -702,6 +720,9 @@ func ColumnOf(s string, i int) int {
 func OffsetAt(s string, col int) int {
 	if col <= 0 {
 		return 0
+	}
+	if plainASCII(s) {
+		return min(col, len(s))
 	}
 	at, width := 0, 0
 	for offset, cluster := range Clusters(s) {

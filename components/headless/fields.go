@@ -67,6 +67,20 @@ func (t *Text) drawField(v Frame, look Look) {
 // its first frame, but a lone field must still show a caller-owned initial value and
 // Draw must remain a pure read of that value.
 func (t *Text) projection() *Editor {
+	// drawWith receives its look explicitly; keys and the clipboard are input
+	// services; MaxRows and scrolling are multi-line concerns; element identity has
+	// no distinct appearance. This is the complete state a one-line draw reads.
+	projected := &Editor{
+		Placeholder: t.Placeholder,
+		Gutter:      t.editor.Gutter,
+		CursorStyle: t.editor.CursorStyle,
+		blurred:     t.editor.blurred,
+		singleLine:  true,
+		mask:        t.editor.mask,
+		presentation: Snapshot[editorPresentation]{
+			current: t.editor.presentation.Value(),
+		},
+	}
 	if t.seeded || t.Value == nil {
 		// A render projection owns its storage and directly expresses Text's one-line
 		// view. Editor is intentionally a mutable owner, not a value safe to copy and
@@ -75,35 +89,15 @@ func (t *Text) projection() *Editor {
 		if len(lines) == 0 {
 			lines = []string{""}
 		}
-		joined := strings.Join(lines, " ")
-		return &Editor{
-			Placeholder: t.Placeholder,
-			Gutter:      t.editor.Gutter,
-			CursorStyle: t.editor.CursorStyle,
-			lines:       []string{joined},
-			col:         offsetInLines(lines, Caret{Line: t.editor.line, Col: t.editor.col}),
-			anchor: Caret{
-				Col: offsetInLines(lines, t.editor.anchor),
-			},
-			selecting:  t.editor.selecting,
-			blurred:    t.editor.blurred,
-			singleLine: true,
-			mask:       t.editor.mask,
-			presentation: Snapshot[editorPresentation]{
-				current: t.editor.presentation.Value(),
-			},
-		}
+		projected.lines = []string{strings.Join(lines, " ")}
+		projected.col = offsetInLines(lines, Caret{Line: t.editor.line, Col: t.editor.col})
+		projected.anchor.Col = offsetInLines(lines, t.editor.anchor)
+		projected.selecting = t.editor.selecting
+		return projected
 	}
-	projected := &Editor{singleLine: true, mask: t.editor.mask}
-	projected.Look = t.editor.Look
-	projected.Clipboard = t.editor.Clipboard
-	projected.MaxRows = t.editor.MaxRows
-	projected.Gutter = t.editor.Gutter
-	projected.CursorStyle = t.editor.CursorStyle
-	projected.blurred = t.editor.blurred
-	projected.Placeholder = t.Placeholder
-	projected.Keys = t.Keys
-	projected.SetText(t.Value.Value())
+	value := oneLineText(t.Value.Value())
+	projected.lines = []string{value}
+	projected.col = len(value)
 	return projected
 }
 
