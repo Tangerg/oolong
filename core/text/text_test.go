@@ -328,6 +328,9 @@ func TestPlainASCIIByteAndColumnCoordinatesAgree(t *testing.T) {
 	if got := text.Width("a\x7fb"); got != 2 {
 		t.Fatalf("Width with DEL = %d, want the control to occupy no column", got)
 	}
+	if got := text.OffsetAt("a\u0301b", 1); got != 3 {
+		t.Fatalf("OffsetAt with a combining suffix = %d, want the complete first cluster", got)
+	}
 }
 
 func TestTheOffsetAtAColumn(t *testing.T) {

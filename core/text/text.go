@@ -588,12 +588,14 @@ func advance(s string, col int) int {
 // path without weakening the Unicode path used as the authority for all other text.
 func plainASCII(s string) bool {
 	for i := range len(s) {
-		if s[i] < ' ' || s[i] > '~' {
+		if !plainASCIIByte(s[i]) {
 			return false
 		}
 	}
 	return true
 }
+
+func plainASCIIByte(b byte) bool { return b >= ' ' && b <= '~' }
 
 // dropped reports whether a cluster is discarded rather than laid out. Measuring
 // has to agree with drawing about this, or a line's reported width will not be the
@@ -697,8 +699,12 @@ func PrevCluster(s string, i int) int {
 
 // ColumnOf is how many columns of s sit before the byte offset i.
 func ColumnOf(s string, i int) int {
-	if plainASCII(s) {
-		return min(max(i, 0), len(s))
+	i = min(max(i, 0), len(s))
+	// Only the prefix before i contributes to the answer. The byte at i need only be
+	// ASCII, not printable: a control there occupies no preceding column, while a
+	// Unicode Extend or ZWJ may still join the cluster before the boundary.
+	if plainASCII(s[:i]) && (i == len(s) || s[i] < utf8.RuneSelf) {
+		return i
 	}
 	col := 0
 	for at, cluster := range Clusters(s) {
@@ -721,8 +727,12 @@ func OffsetAt(s string, col int) int {
 	if col <= 0 {
 		return 0
 	}
-	if plainASCII(s) {
-		return min(col, len(s))
+	end := min(col, len(s))
+	// Unlike ColumnOf, the byte at the candidate boundary must itself occupy one
+	// column. A tab or zero-width control belongs to this column and must be consumed;
+	// a Unicode byte may join or widen the preceding cluster.
+	if plainASCII(s[:end]) && (end == len(s) || plainASCIIByte(s[end])) {
+		return end
 	}
 	at, width := 0, 0
 	for offset, cluster := range Clusters(s) {

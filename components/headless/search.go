@@ -27,7 +27,12 @@ type Result struct {
 	// Query is what was searched for, so a caller can tell an answer to the question
 	// it is still asking from an answer to one it has moved on from.
 	Query string
-	// Matches are in the order they appear.
+	// Matches is the complete geometry in document order. It is deliberately not a
+	// viewport-sized window: a result must support stepping to any occurrence and
+	// highlighting a different viewport after scrolling without retaining or
+	// rescanning the transcript snapshot that produced it. Its retained cost is
+	// therefore proportional to occurrences, while the source rows are released when
+	// the scan finishes.
 	Matches []Match
 	// Err is set when the query was a pattern that would not compile. It is a
 	// result rather than a refusal at submission time, because a user typing a

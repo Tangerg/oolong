@@ -46,7 +46,10 @@ settlement has a constant-time ASCII path, known cursor boundaries skip redundan
 validation, and word movement walks each cluster once. Arbitrary external byte offsets
 retain the complete Unicode validation path. Printable ASCII also has one shared
 byte-to-column fast path for width, offset and column projection; Unicode, tabs and
-controls continue through the complete grapheme and terminal-width authority.
+controls continue through the complete grapheme and terminal-width authority. Offset
+and column queries inspect only the prefix their answer depends on, so a cursor near
+the start of a long line does not scan an unrelated suffix merely to prove it is
+ASCII.
 
 Editor cursor placement now has one grapheme-and-element settlement path. Public byte
 ranges expand to whole grapheme clusters, `text.NextCluster` and `text.PrevCluster`
