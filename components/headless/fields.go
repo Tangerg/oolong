@@ -69,8 +69,8 @@ func (t *Text) drawField(v Frame, look Look) {
 func (t *Text) projection() Editor {
 	if t.seeded || t.Value == nil {
 		projected := t.editor
-		projected.SingleLine = true
-		projected.Mask = t.Mask
+		projected.SetSingleLine(true)
+		projected.SetMask(t.Mask)
 		projected.Placeholder = t.Placeholder
 		projected.Keys = t.Keys
 		return projected
@@ -82,8 +82,8 @@ func (t *Text) projection() Editor {
 	projected.Gutter = t.editor.Gutter
 	projected.CursorStyle = t.editor.CursorStyle
 	projected.blurred = t.editor.blurred
-	projected.SingleLine = true
-	projected.Mask = t.Mask
+	projected.SetSingleLine(true)
+	projected.SetMask(t.Mask)
 	projected.Placeholder = t.Placeholder
 	projected.Keys = t.Keys
 	projected.SetText(t.Value.Value())
@@ -146,8 +146,8 @@ func (t *Text) Focus(has bool) {
 // ensure keeps the field in step with what the caller set, and gives it its first look
 // at the value it is collecting.
 func (t *Text) ensure() {
-	t.editor.SingleLine = true
-	t.editor.Mask = t.Mask
+	t.editor.SetSingleLine(true)
+	t.editor.SetMask(t.Mask)
 	t.editor.Placeholder = t.Placeholder
 	t.editor.Keys = t.Keys
 	if t.seeded {

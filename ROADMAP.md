@@ -238,7 +238,7 @@ streaming output, and is not an accident.
    **It turned out not to be a different thing.** The difference is two rules — no line
    breaks go in, and text wider than the box slides sideways instead of wrapping — and
    everything else is the same field: what a cursor is, what selecting means, what undo
-   undoes, where a click lands. So it is `Editor.SingleLine` and `Editor.Mask`, and the
+   undoes, where a click lands. So it is `Editor.SetSingleLine` and `Editor.SetMask`, and the
    validation is the form's, where the analysis already said it belonged. A separate
    type would have been three hundred lines of the same logic written a second time.
 4. ~~**A diff view.**~~ `Theme` carries `Added`, `Removed` and `Context`, and nothing

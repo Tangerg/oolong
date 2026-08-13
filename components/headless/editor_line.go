@@ -76,12 +76,12 @@ func (e *Editor) lineOffset(width int) int {
 func (e *Editor) shown() string {
 	e.ensure()
 	line := e.lines[0]
-	if e.Mask == "" {
+	if e.mask == "" {
 		return line
 	}
 	var b strings.Builder
 	for range text.Clusters(line) {
-		b.WriteString(e.Mask)
+		b.WriteString(e.mask)
 	}
 	return b.String()
 }
@@ -92,7 +92,7 @@ func (e *Editor) shown() string {
 // different count of bytes. Nothing else in the field has to know that: the cursor, the
 // selection and a click all pass through here and through [Editor.lineAt].
 func (e *Editor) shownAt(col int) int {
-	if e.Mask == "" {
+	if e.mask == "" {
 		return col
 	}
 	at := 0
@@ -100,21 +100,21 @@ func (e *Editor) shownAt(col int) int {
 		if offset >= col {
 			break
 		}
-		at += len(e.Mask)
+		at += len(e.mask)
 	}
 	return at
 }
 
 // lineAt is an offset into what is drawn as one into the line.
 func (e *Editor) lineAt(at int) int {
-	if e.Mask == "" {
+	if e.mask == "" {
 		return at
 	}
 	line := e.lines[0]
 	if at <= 0 {
 		return 0
 	}
-	want := at / len(e.Mask)
+	want := at / len(e.mask)
 	seen := 0
 	for offset := range text.Clusters(line) {
 		if seen == want {

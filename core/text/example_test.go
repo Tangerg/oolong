@@ -39,3 +39,8 @@ func ExampleDecoder() {
 	// "linking"
 	// still open: ""
 }
+
+func ExamplePrintable() {
+	fmt.Printf("%q\n", text.Printable("name\tvalue\x00\xff"))
+	// Output: "name\tvalue�"
+}

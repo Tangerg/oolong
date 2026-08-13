@@ -190,7 +190,7 @@ func meaningOfEditor(editor *headless.Editor) editorMeaning {
 		text: editor.Text(), line: line, column: column,
 		selection: editor.Selected(), look: editor.Look,
 		placeholder: editor.Placeholder, keys: editor.Keys, clipboard: editor.Clipboard,
-		maxRows: editor.MaxRows, singleLine: editor.SingleLine, mask: editor.Mask,
+		maxRows: editor.MaxRows, singleLine: editor.SingleLine(), mask: editor.Mask(),
 		gutter: editor.Gutter, cursor: editor.CursorStyle,
 	}
 }

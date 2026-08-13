@@ -2,7 +2,6 @@ package text
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/ansi"
 	"github.com/Tangerg/oolong/core/grid"
@@ -191,7 +190,7 @@ func (d *Decoder) osc(body string) {
 	}
 	// body may point into the temporary partial-sequence buffer or a much larger
 	// caller chunk. A live hyperlink owns only its address.
-	d.link = strings.Clone(printable(target))
+	d.link = strings.Clone(Printable(target))
 }
 
 // write adds text to the open line, breaking a line at every newline.
@@ -212,7 +211,7 @@ func (d *Decoder) write(s string) []Line {
 // there when the style has not changed — so a line that arrived in twenty pieces is
 // as few spans as it has styles.
 func (d *Decoder) append(s string) {
-	s = printable(s)
+	s = Printable(s)
 	if s == "" {
 		return
 	}
@@ -254,31 +253,6 @@ func (d *Decoder) takeLine() Line {
 	d.dirty = false
 	return line
 }
-
-// printable drops the control characters that survived the scan.
-//
-// A tab is kept, because it is laid out rather than obeyed — see [TabStop] — and
-// everything else in the C0 block is a movement instruction for a terminal this
-// package is not. They are dropped here rather than at the cell so that measuring
-// and drawing see the same text.
-func printable(s string) string {
-	if utf8.ValidString(s) && !strings.ContainsFunc(s, dropRune) {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range strings.ToValidUTF8(s, "\ufffd") {
-		if !dropRune(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-// dropRune is [dropped] asked about one rune, which is the form a scan over raw
-// output wants. The two must agree: text dropped here and text measured there are
-// the same text.
-func dropRune(r rune) bool { return r != '\t' && (r < 0x20 || r == 0x7f) }
 
 // sgr applies one select-graphic-rendition sequence to the style in force.
 //

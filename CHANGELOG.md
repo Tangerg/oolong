@@ -18,6 +18,37 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+Editor text now has one canonical storage boundary. `text.Printable` replaces invalid
+UTF-8 and removes control characters while retaining tabs; setting,
+inserting, replacing, pasting and atomic-element insertion all pass through that same
+rule. CRLF and carriage returns become logical line breaks in a multi-line editor and
+spaces in a one-line editor, so byte offsets, cursor positions, element ranges and
+drawn cells cannot disagree about invisible input.
+
+Handled no-op edit actions, vertical movement and loss of focus now close the current
+typing run. The next insertion therefore owns an undo snapshot even when it follows an
+empty kill, yank, yank-pop, redo, cut or paste, a rejected control character, a move to
+another visual row, or a focus round trip.
+
+Editor cursor placement now has one grapheme-and-element settlement path. Public byte
+ranges expand to whole grapheme clusters, `text.NextCluster` and `text.PrevCluster`
+handle offsets inside UTF-8 and grapheme clusters symmetrically, vertical movement
+maps terminal columns rather than copying byte offsets, and word movement cannot land
+inside adjacent atomic elements. Insertion also settles segmentation that reforms
+across its boundary, so subsequent edits cannot split the resulting cluster.
+
+Transcript row windows now consistently mean the documented absolute half-open
+interval. Drawing, visible-block lookup and copied rows share one saturating interval
+intersection, including negative starts and counts that would otherwise overflow.
+
+Breaking. `headless.Editor.SingleLine` and `headless.Editor.Mask` are now observed and
+changed through methods. `Editor.SetSingleLine` and `Editor.SetMask` own the semantic
+transition instead of allowing public fields to hide existing multi-line content from
+the one-line renderer. Enabling either mode flattens existing line breaks once and,
+when that changes content, preserves cursor and element offsets and advances
+`Editor.Revision`. It always clears history that could restore content invalid in the
+new mode. A mask must have stable, visible cell geometry.
+
 An empty `text.Edit` now leaves every `text.Mark` unchanged. `Edit.Shift` recognizes
 the identity edit after clamping, before atomic-mark reachability is considered, so a
 zero-width no-op inside an atomic mark cannot delete it while a real insertion still
@@ -53,6 +84,15 @@ duplicate choices or disagree with option order, while already canonical values 
 left alone. Newline insertion now uses the editor's sole replacement path, so it
 replaces a selection and a rejected single-line newline closes rather than corrupting
 the surrounding undo run.
+
+### Breaking API migration
+
+#### components
+
+- `headless.Editor.SingleLine` changed from a public field to a getter. Assign with
+  `headless.Editor.SetSingleLine` and observe with `headless.Editor.SingleLine()`.
+- `headless.Editor.Mask` changed from a public field to a getter. Assign with
+  `headless.Editor.SetMask` and observe with `headless.Editor.Mask()`.
 
 ## [0.11.0] — 2026-08-11
 

@@ -406,9 +406,21 @@ func TestTranscriptEdges(t *testing.T) {
 		t.Errorf("a window past the end drew %q", got)
 	}
 
-	// A negative start is clamped rather than indexing backwards.
-	if got := tr.Rows(-4, 2); len(got) != 2 || got[0].Text != "a:0" {
-		t.Errorf("Rows(-4, 2) = %q, want the first two rows", rowTexts(got))
+	// The request is an absolute half-open interval. One wholly before row zero is
+	// empty; one crossing it contributes only the part that exists.
+	if got := tr.Rows(-4, 2); got != nil {
+		t.Errorf("Rows(-4, 2) = %q, want no live rows", rowTexts(got))
+	}
+	if got := tr.Rows(-1, 2); len(got) != 1 || got[0].Text != "a:0" {
+		t.Errorf("Rows(-1, 2) = %q, want only row zero", rowTexts(got))
+	}
+	first, last := tr.Visible(-4, 2)
+	if first != last {
+		t.Errorf("Visible(-4, 2) = [%d,%d), want no blocks", first, last)
+	}
+	first, last = tr.Visible(-1, 2)
+	if first != tr.FirstBlock() || last != tr.FirstBlock()+1 {
+		t.Errorf("Visible(-1, 2) = [%d,%d), want the first block", first, last)
 	}
 }
 

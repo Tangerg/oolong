@@ -39,7 +39,7 @@ func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := editorWith("")
-			e.SingleLine = tc.singleLine
+			e.SetSingleLine(tc.singleLine)
 			el := e.InsertElement(fileChip, tc.body)
 
 			if got := e.Text(); got != tc.want+" " {
@@ -58,6 +58,29 @@ func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
 	}
 }
 
+func TestAnElementCannotOwnInvisibleTerminalInstructions(t *testing.T) {
+	var editor headless.Editor
+	element := editor.InsertElement(fileChip, "a\x00\x1bb")
+	if got := element.Text(&editor); got != "ab" {
+		t.Fatalf("element text = %q, want ab", got)
+	}
+	if got := editor.Text(); got != "ab " {
+		t.Fatalf("editor text = %q, want an ordinary separator after the visible element", got)
+	}
+}
+
+func TestElementsSurviveAOneLineModeTransition(t *testing.T) {
+	var editor headless.Editor
+	editor.SetText("before\n")
+	element := editor.InsertElement(fileChip, "@main.go")
+	editor.SetSingleLine(true)
+
+	got := editor.Elements()
+	if len(got) != 1 || got[0].ID != element.ID || got[0].Text(&editor) != "@main.go" {
+		t.Fatalf("one-line transition disturbed the element: %+v", got)
+	}
+}
+
 // TestTheCursorStepsOverAnElement. It is one thing on screen, and a cursor inside it
 // has no position a reader could account for.
 func TestTheCursorStepsOverAnElement(t *testing.T) {
@@ -73,6 +96,20 @@ func TestTheCursorStepsOverAnElement(t *testing.T) {
 	e.Handle(input.Key{Code: input.Left})
 	if _, col := e.Cursor(); col != 0 {
 		t.Errorf("moving back landed at column %d, want the near side", col)
+	}
+}
+
+func TestWordMovementCannotLandInsideAnElement(t *testing.T) {
+	var editor headless.Editor
+	editor.SetText("go")
+	element := editor.InsertElement(fileChip, "$name")
+	editor.MoveWordLeft()
+	if line, col := editor.Cursor(); line != element.Line || col != element.Start {
+		t.Fatalf("word-left cursor = (%d,%d), want before %+v", line, col, element)
+	}
+	editor.MoveWordRight()
+	if line, col := editor.Cursor(); line != element.Line || col < element.End {
+		t.Fatalf("word-right cursor = (%d,%d), want after %+v", line, col, element)
 	}
 }
 

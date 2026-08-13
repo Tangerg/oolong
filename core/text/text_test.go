@@ -227,6 +227,13 @@ func TestControlCharactersAreDroppedRatherThanLaidOut(t *testing.T) {
 	}
 }
 
+func TestPrintableKeepsTextAndTabsButNotControlCharacters(t *testing.T) {
+	const source = "a\tb\x00\x1b\x7f\u0085c\xff"
+	if got := text.Printable(source); got != "a\tbc\ufffd" {
+		t.Fatalf("Printable(%q) = %q", source, got)
+	}
+}
+
 func TestOfEmptyTextIsNoSpans(t *testing.T) {
 	if got := text.Of("", grid.Style{}); got != nil {
 		t.Fatalf("text.Of(\"\") = %+v, want no spans", got)
@@ -438,8 +445,19 @@ func TestTruncatingPlainTextToNothing(t *testing.T) {
 
 func TestNextClusterFromInsideOne(t *testing.T) {
 	// An offset in the middle of a cluster still advances past the whole of it.
-	if got := text.NextCluster("中b", 1); got == 1 {
-		t.Fatal("stepping from inside a cluster went nowhere")
+	if got := text.NextCluster("中b", 1); got != 3 {
+		t.Fatalf("NextCluster from inside 中 = %d, want its end at 3", got)
+	}
+}
+
+func TestPrevClusterFromInsideOne(t *testing.T) {
+	// Scan the complete string rather than a prefix ending in the middle of UTF-8;
+	// otherwise the partial rune becomes replacement text and invents a boundary.
+	if got := text.PrevCluster("a中文b", 6); got != 4 {
+		t.Fatalf("PrevCluster from inside 文 = %d, want its start at 4", got)
+	}
+	if got := text.PrevCluster("a中文b", 4); got != 1 {
+		t.Fatalf("PrevCluster from the boundary after 中 = %d, want 中 at 1", got)
 	}
 }
 

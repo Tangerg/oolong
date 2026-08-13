@@ -127,7 +127,7 @@ func (e *Editor) DeleteSelection() bool {
 // removes the element identity and is therefore a semantic change too. Conversely,
 // an empty edit inside a chip is still empty and must not destroy it.
 func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
-	s = e.flatten(s)
+	s = e.canonicalText(s)
 	if e.textBetween(start, end) != s {
 		return s, true
 	}
@@ -149,7 +149,8 @@ func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
 // separate because an identity replacement changes none of them.
 func (e *Editor) finishReplacement(at Caret) {
 	e.selecting = false
-	e.line, e.col = at.Line, at.Col
+	e.line = min(max(at.Line, 0), len(e.lines)-1)
+	e.col = e.snapElement(e.line, at.Col, true)
 	e.wantColumn = -1
 }
 
@@ -217,6 +218,7 @@ func (e *Editor) Copy() bool {
 // into a clipboard that refused it would lose the text with nothing to paste back,
 // and a terminal is free to refuse.
 func (e *Editor) Cut() bool {
+	e.endTyping()
 	if !e.Copy() {
 		return false
 	}
@@ -227,6 +229,7 @@ func (e *Editor) Cut() bool {
 // accepted. What comes back arrives later as an ordinary paste event, which this
 // editor already inserts.
 func (e *Editor) Paste() bool {
+	e.endTyping()
 	return e.Clipboard != nil && e.Clipboard.Paste()
 }
 

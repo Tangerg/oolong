@@ -637,9 +637,10 @@ func NextCluster(s string, i int) int {
 	if i >= len(s) {
 		return len(s)
 	}
-	for at, cluster := range Clusters(s[i:]) {
-		_ = at
-		return i + len(cluster)
+	for at, cluster := range Clusters(s) {
+		if after := at + len(cluster); i < after {
+			return after
+		}
 	}
 	return len(s)
 }
@@ -650,11 +651,12 @@ func PrevCluster(s string, i int) int {
 		return 0
 	}
 	i = min(i, len(s))
-	last := 0
-	for at := range Clusters(s[:i]) {
-		last = at
+	for at, cluster := range Clusters(s) {
+		if i <= at+len(cluster) {
+			return at
+		}
 	}
-	return last
+	return len(s)
 }
 
 // ColumnOf is how many columns of s sit before the byte offset i.

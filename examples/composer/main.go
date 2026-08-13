@@ -82,7 +82,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	}
 	p.composer.Editor().Placeholder = "Type @ to reference something"
 	p.composer.Editor().Keys = keys
-	p.composer.Editor().SingleLine = true
+	p.composer.Editor().SetSingleLine(true)
 	p.composer.Editor().Clipboard = runtime.Clipboard()
 	p.composer.Focus(true)
 	p.completion = headless.Completion{

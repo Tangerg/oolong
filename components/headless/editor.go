@@ -50,21 +50,6 @@ type Editor struct {
 	// the cursor in view. Zero means it grows without limit, which only suits a
 	// field that owns its whole pane.
 	MaxRows int
-	// SingleLine keeps the field to one line. Nothing puts a line break in — a pasted
-	// one becomes a space, because that is what the text meant and dropping it would
-	// join two words — and text wider than the box slides sideways instead of wrapping.
-	//
-	// It is a mode of this field rather than a field of its own because the difference
-	// is those two rules and nothing else: what a cursor is, what selecting means, what
-	// undo undoes and where a click lands are the same questions with the same answers.
-	SingleLine bool
-	// Mask is what each cluster is drawn as, for a field holding something the screen
-	// should not show. Empty draws the text.
-	//
-	// A masked field holds one line whether or not [Editor.SingleLine] says so: a
-	// secret is one value, and where to break a line nobody can read is not a question
-	// worth an answer.
-	Mask string
 	// Gutter draws beside the field's visual rows. Nil gives every column to the
 	// text. The gutter is not part of selection or clipboard content, and pointer
 	// input in it is left for a containing component to interpret.
@@ -124,6 +109,11 @@ type Editor struct {
 	// revision is the semantic content generation. Cursor, selection and presentation
 	// state deliberately live outside it.
 	revision uint64
+	// singleLine and mask are private because changing either can change the semantic
+	// one-line invariant. Their setters perform that transition; public fields would
+	// let existing multi-line content become invisible without changing the model.
+	singleLine bool
+	mask       string
 
 	scroll Scroll
 	layout editorLayout
@@ -166,6 +156,72 @@ func (e *Editor) Text() string {
 // A revision is an opaque, process-local observation token. Compare it with an earlier
 // value from this editor; do not persist it or give the number itself meaning.
 func (e *Editor) Revision() uint64 { return e.revision }
+
+// SingleLine reports whether this field was explicitly configured to hold one line.
+// A non-empty [Editor.Mask] also makes the effective field one-line.
+func (e *Editor) SingleLine() bool { return e.singleLine }
+
+// SetSingleLine changes whether the field holds one line.
+//
+// Enabling it turns existing line breaks into spaces as one semantic change, keeps
+// element identities, settles the cursor from the same whole-document offset, and
+// clears undo history that could otherwise restore an invalid multi-line state.
+// Disabling it leaves the current one-line content in place; later insertions may add
+// lines.
+func (e *Editor) SetSingleLine(enabled bool) {
+	if e.singleLine == enabled {
+		return
+	}
+	wasOneLine := e.oneLine()
+	e.singleLine = enabled
+	e.oneLineChanged(wasOneLine)
+}
+
+// Mask reports what each text cluster is drawn as. Empty means text is shown.
+func (e *Editor) Mask() string { return e.mask }
+
+// SetMask changes what each text cluster is drawn as.
+//
+// A mask must be valid, visible terminal text without tabs or control characters;
+// invalid configuration panics. A non-empty mask makes the field one-line, applying
+// the same semantic transition as [Editor.SetSingleLine].
+func (e *Editor) SetMask(mask string) {
+	if mask != "" && (text.Printable(mask) != mask || strings.Contains(mask, "\t") || text.Width(mask) == 0) {
+		panic("headless: editor mask must be visible terminal text without controls")
+	}
+	if e.mask == mask {
+		return
+	}
+	wasOneLine := e.oneLine()
+	e.mask = strings.Clone(mask)
+	e.oneLineChanged(wasOneLine)
+}
+
+// oneLineChanged maintains the storage invariant after a mode transition.
+func (e *Editor) oneLineChanged(wasOneLine bool) {
+	nowOneLine := e.oneLine()
+	if wasOneLine == nowOneLine {
+		return
+	}
+	e.endTyping()
+	e.layout.stale = true
+	if !nowOneLine {
+		return
+	}
+	// Even when the current value already has one line, an older undo snapshot may
+	// not. Configuration is not user history, so entering the stricter mode settles
+	// the old history rather than letting Undo violate the new storage invariant.
+	e.history.clear()
+	if len(e.lines) <= 1 {
+		return
+	}
+	e.requireContentRevision()
+	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
+	e.lines = []string{strings.Join(e.lines, " ")}
+	e.line, e.col = 0, e.snapElement(0, at, true)
+	e.selecting = false
+	e.contentChanged()
+}
 
 // SetText replaces the content and puts the cursor at the end, which is where
 // someone who just had text put in front of them wants to carry on from.
@@ -227,14 +283,7 @@ func (e *Editor) SetCursor(line, col int) {
 	e.line = min(max(line, 0), len(e.lines)-1)
 	current := e.lines[e.line]
 	col = min(max(col, 0), len(current))
-	// NextCluster from the preceding boundary lands on the boundary at or before
-	// col, which is the only offset a caret can occupy.
-	if col > 0 && col < len(current) {
-		if at := text.PrevCluster(current, col); text.NextCluster(current, at) > col {
-			col = at
-		}
-	}
-	e.col = col
+	e.col = e.snapElement(e.line, col, false)
 	e.wantColumn = -1
 }
 
@@ -264,7 +313,8 @@ func (e *Editor) Insert(s string) {
 }
 
 // Replace swaps the byte range [start, end) of the line the cursor is on for s, and
-// leaves the cursor after what was put in. The range is clamped to the line.
+// leaves the cursor after what was put in. The range is clamped to the line and
+// expanded to whole grapheme clusters; a terminal cursor cannot address half of one.
 //
 // It is one edit rather than a delete and an insert so that it is one step to undo:
 // accepting a completion is one thing the user did, and taking it back should not
@@ -274,6 +324,7 @@ func (e *Editor) Replace(start, end int, s string) {
 	line := e.lines[e.line]
 	start = min(max(start, 0), len(line))
 	end = min(max(end, start), len(line))
+	start, end = completeClusters(line, start, end)
 	e.endTyping()
 	from := Caret{Line: e.line, Col: start}
 	to := Caret{Line: e.line, Col: end}
@@ -286,17 +337,45 @@ func (e *Editor) Replace(start, end int, s string) {
 	e.replaceRange(from, to, s)
 }
 
-// flatten turns line breaks into spaces for a field that holds one line, and leaves
-// text alone for one that does not.
-//
-// It is here rather than at each way text arrives because there are five of them —
-// typing, pasting, setting the text, replacing a range, putting an element in — and a
-// rule enforced in four places is a rule with a way round it.
-func (e *Editor) flatten(s string) string {
-	if !e.oneLine() {
-		return s
+// completeClusters makes a caller-supplied byte range safe for an editor whose
+// cursor and cells speak in grapheme clusters. An insertion inside a cluster lands
+// before it; a non-empty range expands to cover every cluster it touched. Cutting a
+// rune or an emoji in half would leave invalid UTF-8 or a cursor position no terminal
+// cell can represent.
+func completeClusters(line string, start, end int) (int, int) {
+	empty := start == end
+	for at, cluster := range text.Clusters(line) {
+		after := at + len(cluster)
+		if start > at && start < after {
+			start = at
+		}
+		if end > at && end < after {
+			end = after
+		}
 	}
-	return flattenLines(s)
+	if empty {
+		end = start
+	}
+	return start, end
+}
+
+// canonicalText is the one boundary between caller text and editor storage.
+//
+// Line endings become the editor's one line separator, invalid UTF-8 becomes
+// replacement text, and terminal controls other than tabs are removed. A field that
+// holds one line turns separators into spaces instead. Applying these rules here
+// means typing, paste, SetText and Replace cannot build four subtly different kinds
+// of document.
+func (e *Editor) canonicalText(s string) string {
+	if e.oneLine() {
+		return text.Printable(flattenLines(s))
+	}
+	s = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(s)
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = text.Printable(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 // flattenLines is the canonical projection of text onto one logical line. Single-line
@@ -310,16 +389,14 @@ func flattenLines(s string) string {
 }
 
 // oneLine reports whether the field holds a single line.
-func (e *Editor) oneLine() bool { return e.SingleLine || e.Mask != "" }
+func (e *Editor) oneLine() bool { return e.singleLine || e.mask != "" }
 
 // InsertRune puts one character in.
 func (e *Editor) InsertRune(r rune) {
-	// A control character has no width and no business in the text: it would be
-	// dropped at the cell, leaving a cursor position with nothing under it.
-	if r != '\t' && unicode.IsControl(r) {
-		return
-	}
-	e.typeText(string(r))
+	// A rune action is not the line-breaking action. Printable keeps a tab and drops
+	// controls; canonicalText then owns the same storage rule as every other way text
+	// enters instead of this method maintaining another character classifier.
+	e.typeText(text.Printable(string(r)))
 }
 
 // typeText inserts terminal-produced text and keeps a real insertion open as one undo
@@ -423,11 +500,11 @@ func (e *Editor) DeleteWordBack() {
 func (e *Editor) KillToEnd() {
 	e.ensure()
 	join := e.continuation == editorContinuationKill
+	e.endTyping()
 	current := e.lines[e.line]
 	if e.col >= len(current) && e.line == len(e.lines)-1 {
 		return
 	}
-	e.endTyping()
 	e.snapshot()
 	if e.col < len(current) {
 		e.rememberKill(current[e.col:], false, join)
@@ -455,12 +532,12 @@ func (e *Editor) KillToStart() {
 
 // Yank puts back the most recently killed text.
 func (e *Editor) Yank() {
+	e.endTyping()
 	killed, ok := e.kills.newest()
 	if !ok {
 		return
 	}
 	// Insert takes the snapshot, once, now that the run is closed.
-	e.endTyping()
 	start := Caret{Line: e.line, Col: e.col}
 	if selected, _, ok := e.Selection(); ok {
 		start = selected
@@ -478,10 +555,12 @@ func (e *Editor) Yank() {
 // sequence and makes this a no-op.
 func (e *Editor) YankPop() {
 	if e.continuation != editorContinuationYank {
+		e.endTyping()
 		return
 	}
 	killed, next, ok := e.kills.older(e.yank.ring)
 	if !ok {
+		e.endTyping()
 		return
 	}
 	yank := e.yank
@@ -541,7 +620,7 @@ func (e *Editor) MoveWordLeft() {
 		e.MoveLeft()
 		return
 	}
-	e.col = wordStart(e.lines[e.line], e.col)
+	e.col = e.snapElement(e.line, wordStart(e.lines[e.line], e.col), false)
 }
 
 // MoveWordRight moves past the end of the word in front of the cursor.
@@ -553,7 +632,7 @@ func (e *Editor) MoveWordRight() {
 		e.MoveRight()
 		return
 	}
-	e.col = wordEnd(e.lines[e.line], e.col)
+	e.col = e.snapElement(e.line, wordEnd(e.lines[e.line], e.col), true)
 }
 
 // MoveLineStart moves to the start of the logical line.
@@ -588,7 +667,7 @@ func (e *Editor) Undo() {
 
 // Redo steps forward again.
 func (e *Editor) Redo() {
-	e.breakContinuation()
+	e.endTyping()
 	if !e.history.canForward() {
 		return
 	}

@@ -298,8 +298,8 @@ func meaningOfEditor(editor *Editor) editorMeaning {
 		selection: editor.Selected(), blurred: editor.blurred,
 		look: editor.Look, placeholder: editor.Placeholder,
 		keys: editor.Keys, clipboard: editor.Clipboard,
-		maxRows: editor.MaxRows, singleLine: editor.SingleLine,
-		mask: editor.Mask, gutter: editor.Gutter, cursor: editor.CursorStyle,
+		maxRows: editor.MaxRows, singleLine: editor.SingleLine(),
+		mask: editor.Mask(), gutter: editor.Gutter, cursor: editor.CursorStyle,
 	}
 }
 

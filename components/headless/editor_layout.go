@@ -141,12 +141,24 @@ func (e *Editor) MoveDown() { e.moveRow(1) }
 // went in. Recomputing it each step would drag the cursor left and leave it there.
 func (e *Editor) moveRow(delta int) {
 	e.ensure()
+	e.endTyping()
 	width := e.presentation.Value().width
 	if width <= 0 {
 		// Nothing has been drawn yet, so there are no visual rows to move through.
-		// Logical lines are the best available answer.
-		e.line = min(max(e.line+delta, 0), len(e.lines)-1)
-		e.col = min(e.col, len(e.lines[e.line]))
+		// Logical lines are the best available answer, but the horizontal coordinate
+		// is still a terminal column rather than a byte offset. Copying the byte offset
+		// to a UTF-8 line can put the cursor in the middle of a rune.
+		column := text.ColumnOf(e.lines[e.line], e.col)
+		if e.wantColumn >= 0 {
+			column = e.wantColumn
+		}
+		target := min(max(e.line+delta, 0), len(e.lines)-1)
+		if target == e.line {
+			return
+		}
+		e.line = target
+		e.col = e.snapElement(target, text.OffsetAt(e.lines[target], column), true)
+		e.wantColumn = column
 		return
 	}
 	row, column := e.rowAt(width)
@@ -158,6 +170,7 @@ func (e *Editor) moveRow(delta int) {
 		return
 	}
 	e.line, e.col = e.offsetIn(width, target, column)
+	e.col = e.snapElement(e.line, e.col, true)
 	e.wantColumn = column
 }
 
@@ -299,7 +312,7 @@ func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
 	out := make([]text.Row, len(rows))
 	for i, row := range rows {
 		shown := e.lines[row.line][row.start:row.end]
-		if e.Mask != "" {
+		if e.mask != "" {
 			// A masked field must not disclose its value to an appearance callback.
 			shown = e.shown()
 		}
@@ -320,6 +333,7 @@ func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
 func (e *Editor) Focus(has bool) {
 	if !has {
 		e.matcher.Clear()
+		e.endTyping()
 	}
 	e.blurred = !has
 }

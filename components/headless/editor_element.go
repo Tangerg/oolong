@@ -66,7 +66,7 @@ func (el Element) Text(e *Editor) string {
 // user can type after. The space is ordinary text and not part of the element: it is
 // there to be deleted.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
-	body = flattenLines(body)
+	body = text.Printable(flattenLines(body))
 	if body == "" {
 		return Element{}
 	}
@@ -178,14 +178,38 @@ func (e *Editor) insideElement(line, col int) (Element, bool) {
 // right from inside one has to come out at the far side, and moving left at the near
 // side. A position that is not inside anything is returned as it is.
 func (e *Editor) snapElement(line, col int, forward bool) int {
-	el, inside := e.insideElement(line, col)
-	if !inside {
-		return col
+	line = min(max(line, 0), len(e.lines)-1)
+	col = clusterPosition(e.lines[line], col, forward)
+	for {
+		el, inside := e.insideElement(line, col)
+		if !inside {
+			return col
+		}
+		if forward {
+			col = clusterPosition(e.lines[line], el.End, true)
+		} else {
+			col = clusterPosition(e.lines[line], el.Start, false)
+		}
+	}
+}
+
+// clusterPosition is the closest caret position in direction when at falls inside a
+// grapheme cluster. Editing can change segmentation across the insertion boundary,
+// so start+len(inserted) is not by itself proof that a cursor can still sit there.
+func clusterPosition(line string, at int, forward bool) int {
+	at = min(max(at, 0), len(line))
+	if at == 0 || at == len(line) {
+		return at
+	}
+	before := text.PrevCluster(line, at)
+	after := text.NextCluster(line, before)
+	if after == at {
+		return at
 	}
 	if forward {
-		return el.End
+		return after
 	}
-	return el.Start
+	return before
 }
 
 // edited moves every element over a change to the text, dropping the ones the change

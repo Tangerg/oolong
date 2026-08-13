@@ -241,16 +241,8 @@ func (s transcriptState) index(row int) int {
 
 // visible is the compact slice range touched by [from, from+rows).
 func (s transcriptState) visible(from, rows int) (first, last int) {
-	if rows <= 0 || s.rows == 0 || from >= s.endRow() {
-		return len(s.blocks), len(s.blocks)
-	}
-	if from < s.start {
-		if s.start > 0 {
-			rows -= s.start - from
-		}
-		from = s.start
-	}
-	if rows <= 0 {
+	from, rows, ok := s.window(from, rows)
+	if !ok {
 		return len(s.blocks), len(s.blocks)
 	}
 	first = s.index(from)
@@ -260,6 +252,21 @@ func (s transcriptState) visible(from, rows int) (first, last int) {
 		last++
 	}
 	return first, last
+}
+
+// window intersects an absolute row interval with the rows this state owns.
+// Translate is the signed, saturating addition: a negative start remains meaningful
+// and an enormous count cannot wrap the requested end behind it.
+func (s transcriptState) window(from, rows int) (start, count int, ok bool) {
+	if rows <= 0 || s.rows == 0 {
+		return 0, 0, false
+	}
+	end := min(layout.Translate(from, rows), s.endRow())
+	start = max(from, s.start)
+	if end <= start {
+		return 0, 0, false
+	}
+	return start, end - start, true
 }
 
 // TranscriptLayout is the immutable placement returned by [Transcript.Stage] for one
@@ -417,17 +424,8 @@ type Copyable interface {
 // count is what was asked for, clamped to what exists, so a caller can index the
 // result by row and get the row it meant.
 func (t *Transcript) Rows(from, count int) []text.Row {
-	if count <= 0 || from >= t.EndRow() {
-		return nil
-	}
-	if from < t.start {
-		if t.start > 0 {
-			count -= t.start - from
-		}
-		from = t.start
-	}
-	count = min(count, t.EndRow()-from)
-	if count <= 0 {
+	from, count, ok := t.window(from, count)
+	if !ok {
 		return nil
 	}
 	out := make([]text.Row, count)

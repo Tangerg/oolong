@@ -142,7 +142,8 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"paste request", func(e *headless.Editor) { e.Clipboard = &clip{}; e.Paste() }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			editor := &headless.Editor{SingleLine: true}
+			editor := &headless.Editor{}
+			editor.SetSingleLine(true)
 			before := editor.Revision()
 			tc.does(editor)
 			if got := editor.Revision(); got != before {
@@ -219,9 +220,66 @@ func TestEquivalentTypingLeavesTheNextEditUndoable(t *testing.T) {
 	}
 }
 
+func TestHandledNoOpEditorActionsCloseTheTypingRun(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		do   func(*headless.Editor)
+	}{
+		{"kill at end", func(e *headless.Editor) { e.Do(headless.KillToEnd) }},
+		{"yank without a kill", func(e *headless.Editor) { e.Do(headless.Yank) }},
+		{"yank-pop without a yank", func(e *headless.Editor) { e.Do(headless.YankPop) }},
+		{"redo without an undone edit", func(e *headless.Editor) { e.Do(headless.Redo) }},
+		{"cut without a selection", func(e *headless.Editor) { e.Do(headless.Cut) }},
+		{"paste without a clipboard", func(e *headless.Editor) { e.Do(headless.Paste) }},
+		{"newline in a single-line field", func(e *headless.Editor) { e.Do(headless.InsertNewline) }},
+		{"handled control character", func(e *headless.Editor) {
+			e.Handle(input.Key{Code: input.Character, Rune: '\x1b'})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			editor := &headless.Editor{}
+			editor.SetSingleLine(true)
+			editor.InsertRune('x')
+			tc.do(editor)
+			editor.InsertRune('y')
+
+			editor.Undo()
+			if got := editor.Text(); got != "x" {
+				t.Fatalf("undo after handled no-op restored %q, want x", got)
+			}
+		})
+	}
+}
+
+func TestVerticalMovementClosesTheTypingRun(t *testing.T) {
+	editor := editorWith("first\nsecond")
+	editor.SetCursor(0, len("first"))
+	editor.InsertRune('x')
+	editor.MoveDown()
+	editor.InsertRune('y')
+
+	editor.Undo()
+	if got := editor.Text(); got != "firstx\nsecond" {
+		t.Fatalf("undo after vertical movement restored %q, want only the later typing undone", got)
+	}
+}
+
+func TestLosingFocusClosesTheTypingRun(t *testing.T) {
+	var editor headless.Editor
+	editor.InsertRune('x')
+	editor.Focus(false)
+	editor.Focus(true)
+	editor.InsertRune('y')
+
+	editor.Undo()
+	if got := editor.Text(); got != "x" {
+		t.Fatalf("undo after a focus round trip restored %q, want only the later typing undone", got)
+	}
+}
+
 func TestAHandledSingleLineNewlineClosesTheTypingRun(t *testing.T) {
 	var editor headless.Editor
-	editor.SingleLine = true
+	editor.SetSingleLine(true)
 	editor.Handle(input.Key{Code: input.Character, Rune: 'x'})
 	if !editor.Do(headless.InsertNewline) {
 		t.Fatal("the known newline action was not handled")

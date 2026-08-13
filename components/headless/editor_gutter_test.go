@@ -66,7 +66,7 @@ func TestMaskedEditorDoesNotDiscloseItsValueToAGutter(t *testing.T) {
 	gutter := &recordingGutter{}
 	editor := &headless.Editor{}
 	editor.Gutter = gutter
-	editor.Mask = "•"
+	editor.SetMask("•")
 	editor.SetText("secret")
 	paintWidget(10, 1, editor)
 

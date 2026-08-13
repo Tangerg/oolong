@@ -10,6 +10,13 @@ type editorHistory struct {
 	undo, redo []editorState
 }
 
+func (h *editorHistory) clear() {
+	clear(h.undo)
+	clear(h.redo)
+	h.undo = nil
+	h.redo = nil
+}
+
 func (h *editorHistory) canBack() bool    { return len(h.undo) > 0 }
 func (h *editorHistory) canForward() bool { return len(h.redo) > 0 }
 
