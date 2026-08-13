@@ -1,6 +1,7 @@
 package text_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,6 +91,44 @@ func TestAnEditInsideAnAtomicMarkDestroysIt(t *testing.T) {
 	} {
 		if got := tc.edit.Shift([]text.Mark{mark}, len("see file.go now")); len(got) != 0 {
 			t.Errorf("%s: the mark survived as %+v", tc.name, got[0])
+		}
+	}
+}
+
+func TestAnEmptyEditDoesNotShiftAnyMark(t *testing.T) {
+	const document = "see file.go now"
+	for _, markCase := range []struct {
+		name string
+		mark text.Mark
+	}{
+		{"ordinary", text.Mark{ID: 1, Kind: 7, Start: 4, End: 11}},
+		{"atomic", text.Mark{ID: 1, Kind: 7, Start: 4, End: 11, Atomic: true}},
+	} {
+		for _, tc := range []struct {
+			name string
+			at   int
+		}{
+			{"before the document", -20},
+			{"before", 0},
+			{"at the start", markCase.mark.Start},
+			{"inside", 7},
+			{"at the end", markCase.mark.End},
+			{"after", len(document)},
+			{"after the document", len(document) + 20},
+		} {
+			t.Run(markCase.name+"/"+tc.name, func(t *testing.T) {
+				edit := text.Edit{Start: tc.at, End: tc.at}
+				if got := edit.Apply(document); got != document {
+					t.Fatalf("empty edit changed the document to %q", got)
+				}
+				if got := edit.Delta(len(document)); got != 0 {
+					t.Fatalf("empty edit delta = %d, want 0", got)
+				}
+				want := []text.Mark{markCase.mark}
+				if got := edit.Shift(slices.Clone(want), len(document)); !slices.Equal(got, want) {
+					t.Fatalf("empty edit shifted the mark from %+v to %+v", want, got)
+				}
+			})
 		}
 	}
 }

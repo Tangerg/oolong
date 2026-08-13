@@ -23,6 +23,9 @@ type Edit struct {
 // moved cannot panic.
 func (e Edit) Apply(document string) string {
 	e = e.within(len(document))
+	if e.empty() {
+		return document
+	}
 	return document[:e.Start] + e.Text + document[e.End:]
 }
 
@@ -53,6 +56,11 @@ func (e Edit) within(n int) Edit {
 }
 
 func (e Edit) delta() int { return len(e.Text) - (e.End - e.Start) }
+
+// empty reports the one edit that is an identity for every document. A replacement
+// with equal lengths may or may not replace the same bytes; an empty range with no
+// text never changes anything.
+func (e Edit) empty() bool { return e.Start == e.End && e.Text == "" }
 
 // Mark is a range of a document that moves as the document is edited.
 //
@@ -114,6 +122,9 @@ func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 //
 // # What happens to a mark the edit reached into
 //
+// An empty edit changes neither text nor marks. Its position may be inside a mark,
+// but a position on its own did not reach into anything.
+//
 // An atomic mark is dropped: half of a thing that stood for something is not a
 // smaller thing, it is a fragment that still looks like the thing and no longer is.
 // Any other mark stretches to cover what replaced the part the edit took — and is
@@ -125,6 +136,9 @@ func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 // held a mark by value has to find it again by identity.
 func (e Edit) Shift(marks []Mark, n int) []Mark {
 	e = e.within(n)
+	if e.empty() {
+		return marks
+	}
 	kept := marks[:0]
 	for _, m := range marks {
 		if m.Atomic && e.reaches(m) {

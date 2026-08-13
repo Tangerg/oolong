@@ -95,6 +95,28 @@ func TestMovingWithoutShiftLetsTheSelectionGo(t *testing.T) {
 	}
 }
 
+func TestReplacementDropsASelectionWhetherOrNotTextChanges(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*headless.Editor)
+	}{
+		{"clear", func(e *headless.Editor) { e.Clear() }},
+		{"different set text", func(e *headless.Editor) { e.SetText("hi") }},
+		{"equivalent set text", func(e *headless.Editor) { e.SetText("hello world") }},
+		{"different replace", func(e *headless.Editor) { e.Replace(0, 5, "HELLO") }},
+		{"equivalent replace", func(e *headless.Editor) { e.Replace(0, 5, "hello") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			editor := editorWith("hello world")
+			editor.SelectAll()
+			tc.change(editor)
+			if selected := editor.Selected(); selected != "" {
+				t.Fatalf("content replacement left %q selected", selected)
+			}
+		})
+	}
+}
+
 func TestSelectingNothingIsNotASelection(t *testing.T) {
 	// A shift-arrow pressed and taken back leaves the anchor on the cursor, and
 	// copying that would put an empty string on the clipboard.

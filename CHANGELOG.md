@@ -18,6 +18,11 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+An empty `text.Edit` now leaves every `text.Mark` unchanged. `Edit.Shift` recognizes
+the identity edit after clamping, before atomic-mark reachability is considered, so a
+zero-width no-op inside an atomic mark cannot delete it while a real insertion still
+does.
+
 `headless.Editor.Revision` now exposes one monotonic, process-local observation token
 for semantic content. Text input, programmatic editing, atomic elements, undo and redo
 advance it once; cursor, selection, scrolling, focus, clipboard requests and handled
@@ -27,7 +32,9 @@ names. All range edits now pass through one internal replacement operation, whic
 makes empty replacement inside an atomic element a true no-op rather than silently
 dropping the element. Controlled `headless.Text` fields use the same revision boundary,
 so handled cursor and no-op editing actions no longer write unchanged values through
-their accessor.
+their accessor. Real content replacements also settle the selection at that boundary,
+so whole-text programmatic changes cannot leave an anchor outside the new content;
+equivalent typing does not open an unsnapshotted undo run.
 
 ## [0.11.0] — 2026-08-11
 

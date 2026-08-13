@@ -115,7 +115,6 @@ func (e *Editor) DeleteSelection() bool {
 	}
 	e.snapshot()
 	e.endTyping()
-	e.selecting = false
 	e.replaceRange(start, end, "")
 	return true
 }
@@ -144,6 +143,16 @@ func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
 	return s, false
 }
 
+// finishReplacement settles the interaction state common to a replacement whether
+// or not its bytes changed. The cursor belongs after what was put there and the old
+// selection no longer describes an active range. Revision, history and layout remain
+// separate because an identity replacement changes none of them.
+func (e *Editor) finishReplacement(at Caret) {
+	e.selecting = false
+	e.line, e.col = at.Line, at.Col
+	e.wantColumn = -1
+}
+
 // replaceRange is the one operation that changes editor text. Insertion is an empty
 // range, deletion has empty replacement text, and replacement is both. The caller
 // has established that the range changes semantic content and taken any undo snapshot
@@ -155,8 +164,7 @@ func (e *Editor) replaceRange(start, end Caret, s string) {
 	tail := e.lines[end.Line][end.Col:]
 	if !strings.Contains(s, "\n") {
 		e.lines = slices.Replace(e.lines, start.Line, end.Line+1, ownedEditorLine(head, s, tail))
-		e.line, e.col = start.Line, start.Col+len(s)
-		e.wantColumn = -1
+		e.finishReplacement(Caret{Line: start.Line, Col: start.Col + len(s)})
 		e.contentChanged()
 		return
 	}
@@ -167,10 +175,10 @@ func (e *Editor) replaceRange(start, end Caret, s string) {
 		inserted[i] = strings.Clone(parts[i])
 	}
 	last := len(inserted) - 1
-	e.line, e.col = start.Line+last, len(inserted[last])
+	cursor := Caret{Line: start.Line + last, Col: len(inserted[last])}
 	inserted[last] = ownedEditorLine(inserted[last], tail)
 	e.lines = slices.Replace(e.lines, start.Line, end.Line+1, inserted...)
-	e.wantColumn = -1
+	e.finishReplacement(cursor)
 	e.contentChanged()
 }
 

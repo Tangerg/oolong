@@ -202,6 +202,23 @@ func TestReplacingASelectionWithTheSameTextDoesNotAdvanceRevision(t *testing.T) 
 	}
 }
 
+func TestEquivalentTypingLeavesTheNextEditUndoable(t *testing.T) {
+	editor := editorWith("hello")
+	editor.Anchor()
+	editor.MoveRight()
+	before := editor.Revision()
+
+	editor.InsertRune('h')
+	if got := editor.Revision(); got != before {
+		t.Fatalf("equivalent typing advanced revision from %d to %d", before, got)
+	}
+	editor.InsertRune('X')
+	editor.Undo()
+	if got := editor.Text(); got != "hello" {
+		t.Fatalf("undo after equivalent typing restored %q, want hello", got)
+	}
+}
+
 func TestSettingTheSamePlainTextDoesNotAdvanceRevisionOrAddHistory(t *testing.T) {
 	editor := editorWith("same")
 	before := editor.Revision()

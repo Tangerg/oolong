@@ -76,14 +76,13 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	if selected, selectedEnd, ok := e.Selection(); ok {
 		start, end = selected, selectedEnd
 	}
-	e.selecting = false
 	at := e.offsetOf(start)
 	replacement, changedText := e.prepareReplacement(start, end, body+" ")
 	if changedText {
 		e.replaceRange(start, end, replacement)
 	} else {
 		e.requireContentRevision()
-		e.line, e.col = end.Line, end.Col
+		e.finishReplacement(end)
 	}
 	mark := text.Mark{
 		ID:     id,

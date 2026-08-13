@@ -176,7 +176,7 @@ func (e *Editor) SetText(s string) {
 	end := Caret{Line: len(e.lines) - 1, Col: len(e.lines[len(e.lines)-1])}
 	s, changed := e.prepareReplacement(start, end, s)
 	if !changed {
-		e.line, e.col = end.Line, end.Col
+		e.finishReplacement(end)
 		return
 	}
 	e.snapshot()
@@ -197,7 +197,7 @@ func (e *Editor) Clear() {
 	end := Caret{Line: len(e.lines) - 1, Col: len(e.lines[len(e.lines)-1])}
 	_, changed := e.prepareReplacement(start, end, "")
 	if !changed {
-		e.line, e.col = 0, 0
+		e.finishReplacement(start)
 		return
 	}
 	e.snapshot()
@@ -252,9 +252,7 @@ func (e *Editor) Insert(s string) {
 	}
 	s, changed := e.prepareReplacement(start, end, s)
 	if !changed {
-		e.selecting = false
-		e.line, e.col = end.Line, end.Col
-		e.wantColumn = -1
+		e.finishReplacement(end)
 		return
 	}
 	if !e.typing {
@@ -262,7 +260,6 @@ func (e *Editor) Insert(s string) {
 	}
 	// Typing over a selection replaces it, and does so inside the same undo step: a
 	// user who selected a word and typed another did one thing.
-	e.selecting = false
 	e.replaceRange(start, end, s)
 }
 
@@ -282,8 +279,7 @@ func (e *Editor) Replace(start, end int, s string) {
 	to := Caret{Line: e.line, Col: end}
 	s, changed := e.prepareReplacement(from, to, s)
 	if !changed {
-		e.col = end
-		e.wantColumn = -1
+		e.finishReplacement(to)
 		return
 	}
 	e.snapshot()
@@ -313,10 +309,16 @@ func (e *Editor) InsertRune(r rune) {
 	if r != '\t' && unicode.IsControl(r) {
 		return
 	}
-	e.Insert(string(r))
-	// The run stays open, so a phrase becomes one undo step rather than a letter's
-	// worth each.
-	e.typing = true
+	e.typeText(string(r))
+}
+
+// typeText inserts terminal-produced text and keeps a real insertion open as one undo
+// run. A handled no-op must close the run: without a snapshot of its own, allowing the
+// next insertion to coalesce with it would leave that insertion no state to undo to.
+func (e *Editor) typeText(s string) {
+	before := e.revision
+	e.Insert(s)
+	e.typing = e.revision != before
 }
 
 // Newline splits the line at the cursor, and does nothing at all in a field that holds
@@ -481,8 +483,7 @@ func (e *Editor) YankPop() {
 		e.snapshot()
 		e.replaceRange(yank.start, yank.end, killed)
 	} else {
-		e.line, e.col = yank.end.Line, yank.end.Col
-		e.wantColumn = -1
+		e.finishReplacement(yank.end)
 	}
 	e.yank = editorYank{
 		start: yank.start,
@@ -702,8 +703,7 @@ func (e *Editor) typed(key input.Key) bool {
 	// the unshifted key on the physical keyboard: on a layout where the key beside "1"
 	// produces "@", inserting the code would type "2".
 	if key.Text != "" {
-		e.Insert(key.Text)
-		e.typing = true
+		e.typeText(key.Text)
 		return true
 	}
 	if key.Code == input.Character && key.Rune != 0 {
