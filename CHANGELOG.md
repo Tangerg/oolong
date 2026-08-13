@@ -30,6 +30,19 @@ typing run. The next insertion therefore owns an undo snapshot even when it foll
 empty kill, yank, yank-pop, redo, cut or paste, a rejected control character, a move to
 another visual row, or a focus round trip.
 
+Drawing a `headless.Text` now builds an independently owned render projection instead
+of applying semantic setters to a shallow copy of its editor. Draw therefore cannot
+clear shared undo storage or mutate another slice-backed editor subsystem. The draw
+purity gate now includes complete undo, redo and kill histories rather than observing
+only current text and cursor state. `Editor` also carries the standard `go vet`
+no-copy marker, turning future copies of the mutable owner into build-time findings.
+
+ASCII cursor stepping and ordinary typing no longer rescan the complete logical line.
+Shared immutable line-ending replacers remove per-keystroke construction, grapheme
+settlement has a constant-time ASCII path, known cursor boundaries skip redundant
+validation, and word movement walks each cluster once. Arbitrary external byte offsets
+retain the complete Unicode validation path.
+
 Editor cursor placement now has one grapheme-and-element settlement path. Public byte
 ranges expand to whole grapheme clusters, `text.NextCluster` and `text.PrevCluster`
 handle offsets inside UTF-8 and grapheme clusters symmetrically, vertical movement
@@ -93,6 +106,9 @@ the surrounding undo run.
   `headless.Editor.SetSingleLine` and observe with `headless.Editor.SingleLine()`.
 - `headless.Editor.Mask` changed from a public field to a getter. Assign with
   `headless.Editor.SetMask` and observe with `headless.Editor.Mask()`.
+- `headless.Text.Mask` was removed. Configure and observe the field's sole editor with
+  `headless.Text.Editor().SetMask` and `headless.Text.Editor().Mask()`. Invalid masks
+  now panic at that setter rather than later during `Draw`.
 
 ## [0.11.0] — 2026-08-11
 

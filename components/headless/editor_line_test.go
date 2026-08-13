@@ -198,6 +198,21 @@ func TestOneLineModeCannotRestoreMultilineHistory(t *testing.T) {
 	}
 }
 
+func TestDrawingTextDoesNotChangeItsEditorsHistory(t *testing.T) {
+	field := &headless.Text{}
+	editor := field.Editor()
+	editor.SetText("one")
+	editor.SetText("one\ntwo")
+	editor.SetSingleLine(false)
+
+	rows := paintWidget(20, 1, field)
+	equalRows(t, rows, []string{"one two............."})
+	editor.Undo()
+	if got := editor.Text(); got != "one" {
+		t.Fatalf("undo after Draw restored %q, want one", got)
+	}
+}
+
 func TestEditorRejectsAMaskWithNoStableCellGeometry(t *testing.T) {
 	for _, mask := range []string{"\t", "\n", "\x1b", "\u0301", "\xff"} {
 		t.Run(fmt.Sprintf("%q", mask), func(t *testing.T) {
@@ -210,6 +225,31 @@ func TestEditorRejectsAMaskWithNoStableCellGeometry(t *testing.T) {
 			editor.SetMask(mask)
 		})
 	}
+}
+
+func TestTextRejectsAnInvalidMaskBeforeDrawing(t *testing.T) {
+	for _, mask := range []string{"\t", "\a", "\u200b"} {
+		t.Run(fmt.Sprintf("%q", mask), func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("Editor.SetMask(%q) did not reject invalid configuration", mask)
+				}
+			}()
+			field := &headless.Text{}
+			field.Editor().SetMask(mask)
+		})
+	}
+}
+
+func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
+	value := "secret"
+	field := &headless.Text{Value: headless.Bind(&value)}
+	field.Editor().SetMask("*")
+	if got := field.Editor().Mask(); got != "*" {
+		t.Fatalf("Mask() = %q, want *", got)
+	}
+	rows := paintWidget(8, 1, field)
+	equalRows(t, rows, []string{"******.."})
 }
 
 func TestEveryTextEntryPathBuildsTheSameTerminalSafeDocument(t *testing.T) {

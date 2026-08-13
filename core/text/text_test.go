@@ -461,6 +461,81 @@ func TestPrevClusterFromInsideOne(t *testing.T) {
 	}
 }
 
+func TestClusterSteppingFastPathsMatchCompleteSegmentation(t *testing.T) {
+	for _, s := range []string{
+		"plain ASCII",
+		"a\r\nb",
+		"a\u0301b",
+		"\u0605a",
+		"👩‍💻x",
+		"🇨🇳🇬🇧x",
+	} {
+		for at := -1; at <= len(s)+1; at++ {
+			if got, want := text.NextCluster(s, at), nextClusterByIteration(s, at); got != want {
+				t.Fatalf("NextCluster(%q, %d) = %d, want %d", s, at, got, want)
+			}
+			if got, want := text.PrevCluster(s, at), prevClusterByIteration(s, at); got != want {
+				t.Fatalf("PrevCluster(%q, %d) = %d, want %d", s, at, got, want)
+			}
+		}
+	}
+}
+
+func FuzzClusterSteppingMatchesCompleteSegmentation(f *testing.F) {
+	for _, seed := range []string{
+		"plain ASCII",
+		"a\r\nb",
+		"a\u0301b",
+		"\u0605a",
+		"👩‍💻x",
+		"🇨🇳🇬🇧x",
+		"\xffa\x00",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) > 512 {
+			s = s[:512]
+		}
+		for at := -1; at <= len(s)+1; at++ {
+			if got, want := text.NextCluster(s, at), nextClusterByIteration(s, at); got != want {
+				t.Fatalf("NextCluster(%q, %d) = %d, want %d", s, at, got, want)
+			}
+			if got, want := text.PrevCluster(s, at), prevClusterByIteration(s, at); got != want {
+				t.Fatalf("PrevCluster(%q, %d) = %d, want %d", s, at, got, want)
+			}
+		}
+	})
+}
+
+func nextClusterByIteration(s string, at int) int {
+	if at < 0 {
+		return 0
+	}
+	if at >= len(s) {
+		return len(s)
+	}
+	for start, cluster := range text.Clusters(s) {
+		if after := start + len(cluster); at < after {
+			return after
+		}
+	}
+	return len(s)
+}
+
+func prevClusterByIteration(s string, at int) int {
+	if at <= 0 {
+		return 0
+	}
+	at = min(at, len(s))
+	for start, cluster := range text.Clusters(s) {
+		if at <= start+len(cluster) {
+			return start
+		}
+	}
+	return len(s)
+}
+
 // TestWrapRecordsWhereEachRowCameFrom is what makes the wrap invertible. Anything
 // found in the text before it was wrapped — a URL, a search match, the end of a
 // selection — has to be locatable on the rows afterwards.

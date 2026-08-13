@@ -157,7 +157,7 @@ func (e *Editor) moveRow(delta int) {
 			return
 		}
 		e.line = target
-		e.col = e.snapElement(target, text.OffsetAt(e.lines[target], column), true)
+		e.col = e.snapElementBoundary(target, text.OffsetAt(e.lines[target], column), true)
 		e.wantColumn = column
 		return
 	}
@@ -170,7 +170,7 @@ func (e *Editor) moveRow(delta int) {
 		return
 	}
 	e.line, e.col = e.offsetIn(width, target, column)
-	e.col = e.snapElement(e.line, e.col, true)
+	e.col = e.snapElementBoundary(e.line, e.col, true)
 	e.wantColumn = column
 }
 

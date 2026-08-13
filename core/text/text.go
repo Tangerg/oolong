@@ -20,6 +20,7 @@ import (
 	"iter"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/rivo/uniseg"
 
@@ -637,6 +638,16 @@ func NextCluster(s string, i int) int {
 	if i >= len(s) {
 		return len(s)
 	}
+	// Plain ASCII is one cluster per byte. Requiring ASCII on both sides keeps this
+	// fast path out of the cases where adjacent Unicode can join it (Prepend, Extend
+	// and ZWJ sequences). CRLF is the one multi-byte ASCII cluster.
+	if s[i] < utf8.RuneSelf && (i == 0 || s[i-1] < utf8.RuneSelf) &&
+		(i+1 == len(s) || s[i+1] < utf8.RuneSelf) {
+		if s[i] == '\r' && i+1 < len(s) && s[i+1] == '\n' {
+			return i + 2
+		}
+		return i + 1
+	}
 	for at, cluster := range Clusters(s) {
 		if after := at + len(cluster); i < after {
 			return after
@@ -651,6 +662,16 @@ func PrevCluster(s string, i int) int {
 		return 0
 	}
 	i = min(i, len(s))
+	if i == 0 {
+		return 0
+	}
+	last := i - 1
+	if s[last] < utf8.RuneSelf && (last == 0 || s[last-1] < utf8.RuneSelf) {
+		if s[last] == '\n' && last > 0 && s[last-1] == '\r' {
+			return last - 1
+		}
+		return last
+	}
 	for at, cluster := range Clusters(s) {
 		if i <= at+len(cluster) {
 			return at

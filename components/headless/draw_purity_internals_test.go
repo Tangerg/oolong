@@ -279,6 +279,14 @@ type editorMeaning struct {
 	revision     uint64
 	line, column int
 	selection    string
+	anchor       Caret
+	selecting    bool
+	wantColumn   int
+	rowEnd       Caret
+	rowEndSet    bool
+	elements     []Element
+	elementIDs   identitySequence
+	matcherKeys  input.Keys
 	blurred      bool
 	look         Look
 	placeholder  string
@@ -289,18 +297,48 @@ type editorMeaning struct {
 	mask         string
 	gutter       RowGutter
 	cursor       grid.CursorStyle
+	undo, redo   []editorState
+	kills        []editorKill
+	typing       bool
+	continuation editorContinuation
+	yank         editorYank
 }
 
 func meaningOfEditor(editor *Editor) editorMeaning {
 	line, column := editor.Cursor()
 	return editorMeaning{
 		text: editor.Text(), revision: editor.Revision(), line: line, column: column,
-		selection: editor.Selected(), blurred: editor.blurred,
+		selection: editor.Selected(), anchor: editor.anchor, selecting: editor.selecting,
+		wantColumn: editor.wantColumn, rowEnd: editor.rowEnd, rowEndSet: editor.rowEndSet,
+		elements: editor.Elements(), elementIDs: editor.elementIDs,
+		matcherKeys: editor.matcher.Keys(), blurred: editor.blurred,
 		look: editor.Look, placeholder: editor.Placeholder,
 		keys: editor.Keys, clipboard: editor.Clipboard,
 		maxRows: editor.MaxRows, singleLine: editor.SingleLine(),
 		mask: editor.Mask(), gutter: editor.Gutter, cursor: editor.CursorStyle,
+		undo: cloneEditorStates(editor.history.undo), redo: cloneEditorStates(editor.history.redo),
+		kills: cloneEditorKills(editor.kills.entries), typing: editor.typing,
+		continuation: editor.continuation, yank: editor.yank,
 	}
+}
+
+func cloneEditorStates(states []editorState) []editorState {
+	out := slices.Clone(states)
+	for i := range out {
+		out[i].lines = slices.Clone(out[i].lines)
+		out[i].marks = slices.Clone(out[i].marks)
+	}
+	return out
+}
+
+func cloneEditorKills(kills []editorKill) []editorKill {
+	out := slices.Clone(kills)
+	for i := range out {
+		out[i].value = strings.Clone(out[i].value)
+		out[i].before = slices.Clone(out[i].before)
+		out[i].after = slices.Clone(out[i].after)
+	}
+	return out
 }
 
 func widgetPurityCase(name string, widget Widget, state func() any) drawPurityCase {
@@ -364,6 +402,8 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}
 	textField.ensure()
 	textField.Focus(true)
+	textField.editor.KillToStart()
+	textField.editor.Undo()
 	textField.editor.MoveLeft()
 	cases = append(cases, widgetPurityCase("*Text", textField, func() any {
 		return struct {
@@ -487,6 +527,8 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	editor := &Editor{}
 	editor.Insert("one two")
+	editor.KillToStart()
+	editor.Undo()
 	editor.MoveLeft()
 	editor.Anchor()
 	editor.MoveWordLeft()

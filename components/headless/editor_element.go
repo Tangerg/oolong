@@ -3,6 +3,7 @@ package headless
 import (
 	"math"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/text"
 )
@@ -180,6 +181,13 @@ func (e *Editor) insideElement(line, col int) (Element, bool) {
 func (e *Editor) snapElement(line, col int, forward bool) int {
 	line = min(max(line, 0), len(e.lines)-1)
 	col = clusterPosition(e.lines[line], col, forward)
+	return e.snapElementBoundary(line, col, forward)
+}
+
+// snapElementBoundary applies only the atomic-element half of snapElement when its
+// caller already owns a grapheme boundary. Cursor movement and column mapping have
+// that stronger fact and should not rescan the line merely to prove it again.
+func (e *Editor) snapElementBoundary(line, col int, forward bool) int {
 	for {
 		el, inside := e.insideElement(line, col)
 		if !inside {
@@ -201,15 +209,25 @@ func clusterPosition(line string, at int, forward bool) int {
 	if at == 0 || at == len(line) {
 		return at
 	}
-	before := text.PrevCluster(line, at)
-	after := text.NextCluster(line, before)
-	if after == at {
+	// Editor storage contains no ASCII controls other than tab, so two adjacent ASCII
+	// bytes always have a grapheme boundary between them. This is the ordinary typing
+	// path and avoids walking the line from its start on every keystroke.
+	if line[at-1] < utf8.RuneSelf && line[at] < utf8.RuneSelf {
 		return at
 	}
-	if forward {
-		return after
+	for start, cluster := range text.Clusters(line) {
+		after := start + len(cluster)
+		if at == start || at == after {
+			return at
+		}
+		if at < after {
+			if forward {
+				return after
+			}
+			return start
+		}
 	}
-	return before
+	return len(line)
 }
 
 // edited moves every element over a change to the text, dropping the ones the change
@@ -256,12 +274,21 @@ func (e *Editor) removed(start, end Caret, s string) {
 // is the only reason the shifting rule could move out of this package at all.
 func (e *Editor) offsetOf(c Caret) int {
 	e.ensure()
-	line := min(max(c.Line, 0), len(e.lines)-1)
+	return offsetInLines(e.lines, c)
+}
+
+// offsetInLines is the read-only form used by render projections that must not
+// initialize or otherwise mutate the editor they reflect.
+func offsetInLines(lines []string, c Caret) int {
+	if len(lines) == 0 {
+		return 0
+	}
+	line := min(max(c.Line, 0), len(lines)-1)
 	at := 0
 	for i := range line {
-		at += len(e.lines[i]) + 1
+		at += len(lines[i]) + 1
 	}
-	return at + min(max(c.Col, 0), len(e.lines[line]))
+	return at + min(max(c.Col, 0), len(lines[line]))
 }
 
 // caretAt is a byte offset as a line and a column.

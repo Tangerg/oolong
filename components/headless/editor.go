@@ -24,7 +24,11 @@ import (
 // pressing down inside a long paragraph has to move down the screen; a cursor that
 // jumped to the next paragraph instead would be moving somewhere the user cannot
 // see the reason for.
+//
+// The zero value is ready to use. An Editor must not be copied after first use.
 type Editor struct {
+	noCopy noCopy
+
 	// Placeholder is shown while the field is empty, and is not part of the text.
 	Placeholder string
 	// Look is how the text, the placeholder and the selection are drawn — see [Look],
@@ -121,6 +125,13 @@ type Editor struct {
 	// and vertical cursor routing.
 	presentation Snapshot[editorPresentation]
 }
+
+// noCopy is the standard go vet marker for mutable owners whose internal references
+// make copying after first use unsafe. Its methods are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 type editorPresentation struct {
 	width, gutter, first, left int
@@ -370,7 +381,12 @@ func (e *Editor) canonicalText(s string) string {
 	if e.oneLine() {
 		return text.Printable(flattenLines(s))
 	}
-	s = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(s)
+	if strings.Contains(s, "\r") {
+		s = logicalLineBreaks.Replace(s)
+	}
+	if !strings.Contains(s, "\n") {
+		return text.Printable(s)
+	}
 	lines := strings.Split(s, "\n")
 	for i := range lines {
 		lines[i] = text.Printable(lines[i])
@@ -385,8 +401,17 @@ func flattenLines(s string) string {
 	if !strings.ContainsAny(s, "\n\r") {
 		return s
 	}
-	return strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
+	return flatLineBreaks.Replace(s)
 }
+
+// Replacers are immutable after construction and safe for concurrent use. Keeping
+// the two storage policies here avoids rebuilding their search automata on every
+// keystroke while leaving the distinction between logical and flattened breaks
+// explicit.
+var (
+	logicalLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+	flatLineBreaks    = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+)
 
 // oneLine reports whether the field holds a single line.
 func (e *Editor) oneLine() bool { return e.singleLine || e.mask != "" }
@@ -456,7 +481,7 @@ func (e *Editor) DeleteForward() {
 	current := e.lines[e.line]
 	if e.col < len(current) {
 		e.snapshot()
-		at := text.NextCluster(current, e.col)
+		at := nextClusterBoundary(current, e.col)
 		// The whole element or none of it, for the same reason a backspace takes all
 		// of one.
 		if el, inside := e.ElementAt(e.line, e.col); inside {
@@ -587,7 +612,7 @@ func (e *Editor) MoveLeft() {
 	if e.col > 0 {
 		// Stepping over an element rather than into it: it is one thing on screen,
 		// and a cursor inside it has no position a reader could account for.
-		e.col = e.snapElement(e.line, text.PrevCluster(e.lines[e.line], e.col), false)
+		e.col = e.snapElementBoundary(e.line, text.PrevCluster(e.lines[e.line], e.col), false)
 		return
 	}
 	if e.line > 0 {
@@ -602,7 +627,7 @@ func (e *Editor) MoveRight() {
 	e.endTyping()
 	e.wantColumn = -1
 	if e.col < len(e.lines[e.line]) {
-		e.col = e.snapElement(e.line, text.NextCluster(e.lines[e.line], e.col), true)
+		e.col = e.snapElementBoundary(e.line, nextClusterBoundary(e.lines[e.line], e.col), true)
 		return
 	}
 	if e.line < len(e.lines)-1 {
@@ -620,7 +645,7 @@ func (e *Editor) MoveWordLeft() {
 		e.MoveLeft()
 		return
 	}
-	e.col = e.snapElement(e.line, wordStart(e.lines[e.line], e.col), false)
+	e.col = e.snapElementBoundary(e.line, wordStart(e.lines[e.line], e.col), false)
 }
 
 // MoveWordRight moves past the end of the word in front of the cursor.
@@ -632,7 +657,7 @@ func (e *Editor) MoveWordRight() {
 		e.MoveRight()
 		return
 	}
-	e.col = e.snapElement(e.line, wordEnd(e.lines[e.line], e.col), true)
+	e.col = e.snapElementBoundary(e.line, wordEnd(e.lines[e.line], e.col), true)
 }
 
 // MoveLineStart moves to the start of the logical line.
@@ -653,7 +678,7 @@ func (e *Editor) MoveLineEnd() {
 
 // Undo steps back to before the last change.
 func (e *Editor) Undo() {
-	e.breakContinuation()
+	e.endTyping()
 	if !e.history.canBack() {
 		return
 	}
@@ -891,40 +916,41 @@ func (e *Editor) restore(s editorState) {
 // wordStart is the offset of the start of the word before i: any run of
 // non-word characters, then the word itself, the way a terminal has always done it.
 func wordStart(s string, i int) int {
-	at := i
-	for at > 0 {
-		prev := text.PrevCluster(s, at)
-		if isWord(s[prev:at]) {
-			break
+	start := 0
+	inWord := false
+	for at, cluster := range text.Clusters(s[:i]) {
+		word := isWord(cluster)
+		if word && !inWord {
+			start = at
 		}
-		at = prev
+		inWord = word
 	}
-	for at > 0 {
-		prev := text.PrevCluster(s, at)
-		if !isWord(s[prev:at]) {
-			break
-		}
-		at = prev
-	}
-	return at
+	return start
 }
 
 // wordEnd is the offset past the end of the word after i.
 func wordEnd(s string, i int) int {
-	at := i
-	for at < len(s) {
-		next := text.NextCluster(s, at)
-		if isWord(s[at:next]) {
-			break
+	found := false
+	for at, cluster := range text.Clusters(s[i:]) {
+		word := isWord(cluster)
+		if found && !word {
+			return i + at
 		}
-		at = next
+		found = found || word
 	}
-	for at < len(s) {
-		next := text.NextCluster(s, at)
-		if !isWord(s[at:next]) {
-			break
-		}
-		at = next
+	return len(s)
+}
+
+// nextClusterBoundary advances from a position the editor already knows is a
+// grapheme boundary. Unlike text.NextCluster it need not recover from an arbitrary
+// byte offset, so segmentation can begin at that boundary instead of rescanning the
+// complete prefix.
+func nextClusterBoundary(s string, at int) int {
+	if at >= len(s) {
+		return len(s)
+	}
+	for _, cluster := range text.Clusters(s[at:]) {
+		return at + len(cluster)
 	}
 	return at
 }

@@ -33,9 +33,8 @@ type Text struct {
 	// Check says what is wrong with what has been entered, or nil. It is asked when the
 	// keyboard leaves the field and when the form is submitted.
 	Check func(s string) error
-	// Placeholder is shown while the field is empty, and Mask is what each cluster is
-	// drawn as for something the screen should not show.
-	Placeholder, Mask string
+	// Placeholder is shown while the field is empty.
+	Placeholder string
 	// Keys say which keystrokes edit. Nil reads through [DefaultEditorKeys].
 	Keys *keymap.Map
 
@@ -43,7 +42,8 @@ type Text struct {
 	seeded bool
 }
 
-// Editor is the field itself, for a caller that needs the cursor or the clipboard.
+// Editor is the field itself, for a caller that needs the cursor, clipboard, or
+// one-line appearance such as [Editor.SetMask].
 func (t *Text) Editor() *Editor { return &t.editor }
 
 // Prompt is what the field is asking for.
@@ -66,24 +66,41 @@ func (t *Text) drawField(v Frame, look Look) {
 // that initializes its semantic editor. A form normally focuses every field before
 // its first frame, but a lone field must still show a caller-owned initial value and
 // Draw must remain a pure read of that value.
-func (t *Text) projection() Editor {
+func (t *Text) projection() *Editor {
 	if t.seeded || t.Value == nil {
-		projected := t.editor
-		projected.SetSingleLine(true)
-		projected.SetMask(t.Mask)
-		projected.Placeholder = t.Placeholder
-		projected.Keys = t.Keys
-		return projected
+		// A render projection owns its storage and directly expresses Text's one-line
+		// view. Editor is intentionally a mutable owner, not a value safe to copy and
+		// then mutate: its history, marks and kill ring all contain slice headers.
+		lines := t.editor.lines
+		if len(lines) == 0 {
+			lines = []string{""}
+		}
+		joined := strings.Join(lines, " ")
+		return &Editor{
+			Placeholder: t.Placeholder,
+			Gutter:      t.editor.Gutter,
+			CursorStyle: t.editor.CursorStyle,
+			lines:       []string{joined},
+			col:         offsetInLines(lines, Caret{Line: t.editor.line, Col: t.editor.col}),
+			anchor: Caret{
+				Col: offsetInLines(lines, t.editor.anchor),
+			},
+			selecting:  t.editor.selecting,
+			blurred:    t.editor.blurred,
+			singleLine: true,
+			mask:       t.editor.mask,
+			presentation: Snapshot[editorPresentation]{
+				current: t.editor.presentation.Value(),
+			},
+		}
 	}
-	projected := Editor{}
+	projected := &Editor{singleLine: true, mask: t.editor.mask}
 	projected.Look = t.editor.Look
 	projected.Clipboard = t.editor.Clipboard
 	projected.MaxRows = t.editor.MaxRows
 	projected.Gutter = t.editor.Gutter
 	projected.CursorStyle = t.editor.CursorStyle
 	projected.blurred = t.editor.blurred
-	projected.SetSingleLine(true)
-	projected.SetMask(t.Mask)
 	projected.Placeholder = t.Placeholder
 	projected.Keys = t.Keys
 	projected.SetText(t.Value.Value())
@@ -147,7 +164,6 @@ func (t *Text) Focus(has bool) {
 // at the value it is collecting.
 func (t *Text) ensure() {
 	t.editor.SetSingleLine(true)
-	t.editor.SetMask(t.Mask)
 	t.editor.Placeholder = t.Placeholder
 	t.editor.Keys = t.Keys
 	if t.seeded {
