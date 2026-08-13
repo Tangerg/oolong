@@ -18,6 +18,27 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-14
+
+Every value here has one owner and one boundary where ownership changes hands, and
+each of those boundaries now fails a test when it stops being one. An editor's text
+has a single canonical storage rule, a single replacement operation and a single
+grapheme-and-element settlement. A render projection owns its storage rather than
+sharing slices with the editor it reflects, so drawing cannot reach into undo history
+that belongs to someone else. A caller's accessor is the current value rather than a
+seed that a component then shadows and lets drift.
+
+The gates came with them. The draw purity comparison now includes complete undo, redo
+and kill histories rather than only the text and cursor a reader would think to check;
+a source-derived contract test requires every exported accessor owner to prove both
+directions of ownership, so a new controlled component cannot inherit only the
+convenient half; and `go vet` refuses to copy the mutable owner at all.
+
+Consolidating the boundaries is what made them cheap. Once each question had exactly
+one place to ask it, that place could be made to inspect only what its answer depends
+on: ASCII cursor stepping, ordinary typing and byte-to-column projection no longer
+rescan a logical line to prove something about a part of it they never read.
+
 Editor text now has one canonical storage boundary. `text.Printable` replaces invalid
 UTF-8 and removes control characters while retaining tabs; setting,
 inserting, replacing, pasting and atomic-element insertion all pass through that same

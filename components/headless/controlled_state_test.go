@@ -37,10 +37,17 @@ func TestEveryAccessorOwnerObservesCallerTransitions(t *testing.T) {
 	cases := map[string]func(*testing.T){
 		"Confirm": func(t *testing.T) {
 			t.Helper()
-			value := &countedAccessor[bool]{}
+			// The owner starts at the value a private copy would not hold, and then
+			// moves to the one it would. A shadow copy answers false throughout, so
+			// only reading through the accessor satisfies both.
+			value := &countedAccessor[bool]{value: true}
 			field := &headless.Confirm{Value: value}
-			if field.Answer() {
+			if !field.Answer() {
 				t.Fatal("confirmation did not read its initial owner value")
+			}
+			value.value = false
+			if field.Answer() {
+				t.Fatal("confirmation answered from a copy of its owner value")
 			}
 			value.value = true
 			field.Say(false)
