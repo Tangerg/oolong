@@ -12,9 +12,9 @@ import (
 
 func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 	doc := &Doc{rows: []row{
-		{Wrapped: text.Wrapped{Line: text.Of("one", grid.Style{})}, gap: "one"},
-		{Wrapped: text.Wrapped{Line: text.Of("two", grid.Style{})}, gap: "two"},
-		{Wrapped: text.Wrapped{Line: text.Of("three", grid.Style{})}, gap: "three"},
+		{Line: text.Of("one", grid.Style{}), gap: "one"},
+		{Line: text.Of("two", grid.Style{}), gap: "two"},
+		{Line: text.Of("three", grid.Style{}), gap: "three"},
 	}}
 	doc.wrap(10)
 	for i, cached := range doc.rows[:cap(doc.rows)] {

@@ -72,10 +72,10 @@ func (b Block) appendRows(dst []row, width int) []row {
 	case b.table != nil:
 		dst = b.table.appendRows(dst, room)
 	case b.rule:
-		dst = append(dst, row{Wrapped: text.Wrapped{Line: stretch(b.lines, room)}})
+		dst = append(dst, row{Line: stretch(b.lines, room)})
 	case b.fixed:
 		for _, line := range b.lines {
-			dst = append(dst, row{Wrapped: text.Wrapped{Line: line.Truncate(room, "")}})
+			dst = append(dst, row{Line: line.Truncate(room, "")})
 		}
 	default:
 		for _, line := range b.lines {

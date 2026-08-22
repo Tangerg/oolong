@@ -249,7 +249,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		name: "*Message", width: 16, height: 4, draw: message.Draw, measure: message.Measure,
 	})
 
-	overlay := Overlay{Placement: layout.Placement{Width: 8, Height: 2}}
+	overlay := Overlay{Width: 8, Height: 2}
 	cases = append(cases, drawPurityCase{
 		name: "Overlay", width: 16, height: 4,
 		draw: func(view grid.View) { overlay.Draw(view) },

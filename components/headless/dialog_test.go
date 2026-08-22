@@ -35,7 +35,7 @@ func (p *focusedPanel) Focus(has bool) { p.focusProbe.Focus(has) }
 
 func TestDialogOwnsOpenStateAndRestoresFocus(t *testing.T) {
 	base := &focusProbe{}
-	content := &focusedPanel{panel: panel{name: "confirm", place: middle(10, 3)}}
+	content := &focusedPanel{name: "confirm", place: middle(10, 3)}
 	stack := headless.NewStack(base)
 	stack.Focus(true)
 	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Title: "Approve command", Content: content})

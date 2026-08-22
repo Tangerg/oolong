@@ -458,7 +458,7 @@ func (l *layer) Place(image.Point) layout.Placement { return l.where }
 // dialog that has one of its own.
 func TestALayerTakesTheKeyboardFromWhatItCovers(t *testing.T) {
 	base := &field{name: "base"}
-	over := &layer{field: field{name: "over"}, where: layout.Placement{Width: 4, Height: 1}}
+	over := &layer{name: "over", where: layout.Placement{Width: 4, Height: 1}}
 	s := headless.NewStack(base)
 	s.Focus(true)
 

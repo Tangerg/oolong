@@ -178,7 +178,7 @@ func TestALayerThatConsumesEscapeKeepsIt(t *testing.T) {
 func TestAnInsistentLayerRefusesToBeDismissed(t *testing.T) {
 	// The layer that has to be answered rather than dismissed. Consuming escape
 	// and doing nothing would read as a bug at the call site.
-	p := &insistentPanel{panel: panel{name: "p", place: middle(4, 2)}}
+	p := &insistentPanel{name: "p", place: middle(4, 2)}
 	p.insist = true
 	var s headless.Stack
 	s.Push(p)
@@ -377,8 +377,8 @@ func TestClearPopsFromTheTopDown(t *testing.T) {
 	var order []string
 	mark := func(name string) *closingPanel {
 		return &closingPanel{
-			panel: panel{name: name, place: middle(4, 2)},
-			note:  func() { order = append(order, name) },
+			name: name, place: middle(4, 2),
+			note: func() { order = append(order, name) },
 		}
 	}
 	var s headless.Stack
@@ -453,7 +453,7 @@ func TestABackdropIsGivenTheWholeSpaceAndTheLayerIsNot(t *testing.T) {
 	// A layer is handed its own area and nothing else, which is what stops it
 	// drawing outside its box. Dimming what is behind needs the rest, so it is a
 	// separate question with a separate answer.
-	b := &backdropPanel{panel: panel{name: "b", place: middle(4, 2)}}
+	b := &backdropPanel{name: "b", place: middle(4, 2)}
 	var s headless.Stack
 	s.Push(b)
 	draw(&s, 20, 10)

@@ -220,10 +220,10 @@ func (t *table) appendGrid(dst []row, widths []int) []row {
 				}
 				line = appendAligned(line, cell, width, t.alignment(column))
 			}
-			dst = append(dst, row{Wrapped: text.Wrapped{Line: line}})
+			dst = append(dst, row{Line: line})
 		}
 		if rowIndex == 0 && t.header {
-			dst = append(dst, row{Wrapped: text.Wrapped{Line: t.ruleLine(widths)}})
+			dst = append(dst, row{Line: t.ruleLine(widths)})
 		}
 	}
 	return dst

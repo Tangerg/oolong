@@ -785,7 +785,7 @@ func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 func TestOverlayDrawsIntoWhereItSaidItWould(t *testing.T) {
 	// Area and Draw have to agree, or a hit test a frame later answers about the wrong
 	// place.
-	o := kit.Overlay{Placement: layout.Placement{Anchor: layout.Middle, Width: 4, Height: 1}}
+	o := kit.Overlay{Anchor: layout.Middle, Width: 4, Height: 1}
 	s := grid.NewSurface(10, 3)
 	area := o.Area(s.View())
 	o.Draw(s.View()).Text(0, 0, "abcd", grid.Style{})
@@ -808,7 +808,7 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 	s := grid.NewSurface(8, 2)
 	s.View().Text(0, 0, "behind", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF)})
 	theme := kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}}
-	kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Theme: theme}.Draw(s.View())
+	kit.Overlay{Width: 2, Height: 1, Theme: theme}.Draw(s.View())
 
 	if got := cellAt(s, 0, 0).Content; got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
@@ -824,7 +824,7 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 // with — and where it did not say, the honest outcome is that nothing changes.
 func TestOverlayShadeNeedsToKnowWhatTheTerminalDrawsOn(t *testing.T) {
 	theme := kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}}
-	overlay := kit.Overlay{Placement: layout.Placement{Width: 2, Height: 1}, Theme: theme}
+	overlay := kit.Overlay{Width: 2, Height: 1, Theme: theme}
 
 	unasked := grid.NewSurface(8, 2)
 	unasked.View().Text(0, 0, "behind", grid.Style{})
