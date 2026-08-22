@@ -12,7 +12,7 @@ contentType: Tutorial
 
 ## 前置条件
 
-使用 Go 1.26 或更新版本，并在能够进入原始输入模式的终端中运行。程序也支持 Windows Terminal，以及提供终端的 SSH 会话。
+使用 Go 1.27 或更新版本，并在能够进入原始输入模式的终端中运行。程序也支持 Windows Terminal，以及提供终端的 SSH 会话。
 
 ## 创建模块
 

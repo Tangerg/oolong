@@ -18,6 +18,27 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+Every module now requires Go 1.27. The repository has one language floor rather than
+letting workspace builds hide a newer dependency from modules that claimed an older
+one. CI exercises every module independently with `GOWORK=off` on the initial Go 1.27
+release as well as the current patch release.
+
+Generic methods are used where the receiver owns a boundary but an individual
+operation introduces its own result type. The runtime test owner now observes typed
+results from its goroutine through one `running.fromLoop[T]` method instead of a
+package function that repeated the test owner beside its dispatch target. The production
+generic audit found no erased-value API to repair: generic component state already
+lives on generic receiver types, while `Bind`, `Options`, and generic constructors are
+package-level creation operations and remain functions rather than acquiring
+artificial namespace receivers.
+
+Breaking. Go 1.27 is the minimum supported toolchain for every module.
+
+The pinned formatter, linter, reachability, API-diff and vulnerability toolchain is
+updated to revisions that understand the Go 1.27 syntax. In particular, gofumpt is
+pinned to the first upstream revision with method-type-parameter support rather than
+silently dropping formatting enforcement until its next tagged release.
+
 ## [0.12.0] — 2026-08-14
 
 Every value here has one owner and one boundary where ownership changes hands, and

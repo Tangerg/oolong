@@ -855,7 +855,11 @@ Public APIs follow these rules:
 12. **No global mutable service state.** Themes, host services, clocks, and resources
     are explicit values.
 13. **Generics remove repeated algorithms.** They do not create a component type
-    hierarchy or a universal state container.
+    hierarchy or a universal state container. Put a type parameter on a receiver type
+    when its stored state depends on that type, and on a method when a concrete
+    receiver owns the operation but only that call introduces the type. Construction
+    and adaptation with no honest receiver remain package functions; never invent a
+    factory, utility, or namespace receiver merely to use method syntax.
 14. **One semantic operation, one entry point at each layer.** Do not export a default
     wrapper, `With` variant, lossy adapter, or convenience alias when a useful zero
     value or explicit argument makes the canonical call clear. A second entry must

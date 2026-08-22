@@ -1,6 +1,6 @@
 module github.com/Tangerg/oolong/examples
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/Tangerg/oolong/components v0.12.0

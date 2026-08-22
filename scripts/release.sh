@@ -39,7 +39,7 @@ while IFS= read -r module; do
 	[[ -n "$module" ]] && PUBLIC_MODULES+=("$module")
 done < <(scripts/modules.sh --public)
 
-GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20260727155853-b88d891fe743
+GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20260820142414-ca536658362e
 
 execute=false
 version=""

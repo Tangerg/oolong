@@ -11,8 +11,8 @@ interactive tail remains live below it. Full-screen interfaces use the same grid
 input, layout, component, and runtime layers.
 
 Oolong is pre-1.0. Releases may break exported APIs and document every break in the
-[changelog](CHANGELOG.md). The complete workspace requires Go 1.26; modules that
-declare Go 1.25 are tested at that floor.
+[changelog](CHANGELOG.md). Every module requires Go 1.27 and is tested at that
+language floor.
 
 ## Start here
 

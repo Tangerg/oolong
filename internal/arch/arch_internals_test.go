@@ -340,6 +340,37 @@ func TestEveryModuleIsDeclaredAndEveryDeclaredModuleExists(t *testing.T) {
 	}
 }
 
+// TestEveryModuleSharesTheWorkspaceLanguageFloor makes the coordinated release
+// train one language contract as well as one source tree. A workspace uses its own
+// directive while compiling, so without this check an individual module could claim
+// an older floor that its repository tests never actually exercise.
+func TestEveryModuleSharesTheWorkspaceLanguageFloor(t *testing.T) {
+	root := repoRoot(t)
+	want := goDirective(t, filepath.Join(root, "go.work"))
+	for dir := range modules {
+		path := filepath.Join(root, dir, "go.mod")
+		if got := goDirective(t, path); got != want {
+			t.Errorf("%s declares Go %s; go.work and the coordinated module floor declare %s", dir, got, want)
+		}
+	}
+}
+
+func goDirective(t *testing.T, path string) string {
+	t.Helper()
+	body, err := readRepositoryFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	for line := range strings.SplitSeq(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "go" {
+			return fields[1]
+		}
+	}
+	t.Fatalf("%s has no Go directive", path)
+	return ""
+}
+
 // TestEveryDirectoryBelongsToARing catches a package added outside the layering.
 func TestEveryDirectoryBelongsToARing(t *testing.T) {
 	root := repoRoot(t)

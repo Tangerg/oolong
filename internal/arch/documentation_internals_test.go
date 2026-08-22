@@ -37,7 +37,7 @@ func TestGettingStartedProgramCompiles(t *testing.T) {
 
 	dir := t.TempDir()
 	mod := "module example.com/oolong-getting-started\n\n" +
-		"go 1.25.0\n\n" +
+		"go 1.27.0\n\n" +
 		"require github.com/Tangerg/oolong/core v0.0.0\n\n" +
 		"replace github.com/Tangerg/oolong/core => " + strconv.Quote(filepath.ToSlash(filepath.Join(root, "core"))) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o600); err != nil {

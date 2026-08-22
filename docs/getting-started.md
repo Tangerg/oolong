@@ -14,7 +14,7 @@ component library.
 
 ## Prerequisites
 
-Use Go 1.26 or newer and a terminal that can enter raw mode. The program also runs
+Use Go 1.27 or newer and a terminal that can enter raw mode. The program also runs
 on Windows Terminal and through an SSH session that supplies a terminal.
 
 ## Create the module

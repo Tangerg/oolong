@@ -529,14 +529,19 @@ func onLoop(t *testing.T, runtime dispatching, fn func()) {
 	}
 }
 
-func fromLoop[T any](t *testing.T, runtime dispatching, fn func() T) T {
-	t.Helper()
+func (r *running) onLoop(fn func()) { onLoop(r.t, r.root.runtime, fn) }
+
+// fromLoop observes one typed result from an owner goroutine. The result type belongs
+// to this call rather than to running itself, which is exactly the case a generic
+// method expresses: running owns the test's wait boundary without becoming a generic
+// fixture. runtime remains explicit because startOn may run a component other than
+// running.root.
+func (r *running) fromLoop[T any](runtime dispatching, fn func() T) T {
+	r.t.Helper()
 	result := make(chan T, 1)
-	onLoop(t, runtime, func() { result <- fn() })
+	onLoop(r.t, runtime, func() { result <- fn() })
 	return <-result
 }
-
-func (r *running) onLoop(fn func()) { onLoop(r.t, r.root.runtime, fn) }
 
 func (r *running) quit() { r.onLoop(r.root.runtime.Quit) }
 
@@ -2064,7 +2069,7 @@ func TestCopyGoesToTheHost(t *testing.T) {
 	// Who does the copying is the host's business. A component asks, and what it
 	// asked for is observable without anyone parsing an escape sequence.
 	r, rec := startRecording(t)
-	if !fromLoop(t, rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
+	if !r.fromLoop(rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
 		t.Fatal("a copy the host accepts was reported as refused")
 	}
 	if got := r.host.copies(); len(got) != 1 || got[0] != "hello" {
@@ -2078,7 +2083,7 @@ func TestCopyReportsAHostThatWillNotTakeIt(t *testing.T) {
 	r.host.refuse = true
 	r.host.clipMu.Unlock()
 
-	if fromLoop(t, rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
+	if r.fromLoop(rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
 		t.Error("a refused copy was reported as asked for")
 	}
 	if got := r.host.copies(); len(got) != 0 {
@@ -2095,7 +2100,7 @@ func TestPasteComesBackAsAPaste(t *testing.T) {
 	r.host.pasteFor = "copied"
 	r.host.clipMu.Unlock()
 
-	if !fromLoop(t, rec.runtime, rec.runtime.Clipboard().Paste) {
+	if !r.fromLoop(rec.runtime, rec.runtime.Clipboard().Paste) {
 		t.Fatal("the host refused a paste request")
 	}
 	r.until("the answer to arrive as a paste", func() bool { return len(rec.pasted()) == 1 })
@@ -2108,7 +2113,7 @@ func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
 	// Most terminals refuse to be read, and a refusal has no reply. Asking has to
 	// be safe and silent.
 	r, rec := startRecording(t)
-	if !fromLoop(t, rec.runtime, rec.runtime.Clipboard().Paste) {
+	if !r.fromLoop(rec.runtime, rec.runtime.Clipboard().Paste) {
 		t.Fatal("the host refused a paste request")
 	}
 	r.until("the host to be asked", func() bool { return r.host.timesAsked() == 1 })

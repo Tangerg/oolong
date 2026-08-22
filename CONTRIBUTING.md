@@ -7,14 +7,17 @@ exported API, read the module and ring boundaries in the
 
 ## Requirements
 
-- Go 1.26 or newer for the complete workspace. `core`, `internal` and `ptytest`
-  also test their declared Go 1.25 floor without the workspace; higher modules
-  still depend on existing Oolong tags whose own directives require 1.26.
-- `golangci-lint` v2 (CI pins v2.12.2), `deadcode` from `golang.org/x/tools`
-  (v0.44.0), `gofumpt` (v0.11.0), `shfmt` (v3.13.1), and `govulncheck`
-  (v1.6.0). API and release checks pin `golang.org/x/exp/cmd/apidiff` and
+- Go 1.27 or newer. Every module declares and independently tests that same language
+  floor, so a workspace build cannot hide a newer language dependency from a
+  downstream user.
+- `golangci-lint` v2 (CI pins v2.13.1), `deadcode` from `golang.org/x/tools`
+  (v0.49.0), `gofumpt` (`v0.11.1-0.20260820074422-a2bc6805583d`), `shfmt`
+  (v3.13.1), and `govulncheck` (v1.7.0). API and release checks pin
+  `golang.org/x/exp/cmd/apidiff` and
   `golang.org/x/exp/cmd/gorelease` at
-  `v0.0.0-20260727155853-b88d891fe743`.
+  `v0.0.0-20260820142414-ca536658362e`. The gofumpt pseudo-version is the first
+  upstream revision that understands Go 1.27 methods with type parameters; keep it
+  exact until that support has a tagged release.
 - Node.js 22 or newer when changing Markdown or preparing a release. The exact
   documentation toolchain is in `package-lock.json`. Its VitePress preview pin is
   deliberate: the current stable line still resolves to dependencies with

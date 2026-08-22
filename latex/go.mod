@@ -1,6 +1,6 @@
 module github.com/Tangerg/oolong/latex
 
-go 1.26.0
+go 1.27.0
 
 require (
 	codeberg.org/go-latex/latex v0.3.0
