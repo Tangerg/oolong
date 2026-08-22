@@ -111,9 +111,9 @@ func TestOpenOnKeepsTheCapabilitiesOfItsTerminalEnvironment(t *testing.T) {
 }
 
 func TestASessionSaysWhatItIsTurningOn(t *testing.T) {
-	tty, watch := open(t, term.Config{
+	tty, watch := open(t, term.Config{Features: term.Features{
 		Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
-	})
+	}})
 
 	seen := read(t, watch, 500*time.Millisecond)
 	for name, seq := range map[string]string{
@@ -134,7 +134,7 @@ func TestASessionSaysWhatItIsTurningOn(t *testing.T) {
 }
 
 func TestASessionGivesTheTerminalBack(t *testing.T) {
-	tty, watch := open(t, term.Config{Mouse: true})
+	tty, watch := open(t, term.Config{Features: term.Features{Mouse: true}})
 	read(t, watch, 300*time.Millisecond)
 
 	if err := tty.Close(); err != nil {
@@ -155,7 +155,7 @@ func TestASessionGivesTheTerminalBack(t *testing.T) {
 
 func TestCloseStillAttemptsRawModeRestoreAfterItsOutputFails(t *testing.T) {
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Config{Mouse: true}, nil)
+	tty, err := term.OpenOn(replica, replica, term.Config{Features: term.Features{Mouse: true}}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}
@@ -296,7 +296,9 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	// order, which is what closing does — so handing the terminal to a child is that
 	// twice, and the child gets a terminal with no idea a program was using it.
 	primary, replica := pty(t)
-	tty, err := term.OpenOn(replica, replica, term.Config{AltScreen: true, Mouse: true}, nil)
+	tty, err := term.OpenOn(replica, replica, term.Config{
+		Features: term.Features{Mouse: true}, AltScreen: true,
+	}, nil)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}

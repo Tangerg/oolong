@@ -25,7 +25,7 @@ import (
 func main() {
 	if err := program.Run(context.Background(), program.Config{
 		Root:     func(runtime *program.Runtime) program.Component { return newLatex(runtime) },
-		Terminal: term.Config{Probe: true},
+		Terminal: term.Features{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "latex:", err)
 		os.Exit(1)

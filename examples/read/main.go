@@ -39,7 +39,7 @@ import (
 func main() {
 	if err := program.Run(context.Background(), program.Config{
 		Inline:   func(runtime *program.InlineRuntime) program.Component { return newReader(runtime) },
-		Terminal: term.Config{Probe: true},
+		Terminal: term.Features{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "read:", err)
 		os.Exit(1)

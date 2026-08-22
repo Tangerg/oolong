@@ -45,7 +45,7 @@ func main() {
 
 	err := program.Run(context.Background(), program.Config{
 		Root:     func(runtime *program.Runtime) program.Component { return dress(runtime, form) },
-		Terminal: term.Config{Probe: true},
+		Terminal: term.Features{Probe: true},
 	})
 	switch {
 	case errors.Is(err, term.ErrNotTerminal):

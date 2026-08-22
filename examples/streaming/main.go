@@ -33,7 +33,7 @@ func main() {
 		Inline: func(runtime *program.InlineRuntime) program.Component {
 			return headless.NewRoot(newChat(runtime))
 		},
-		Terminal: term.Config{Probe: true},
+		Terminal: term.Features{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "streaming:", err)
 		os.Exit(1)

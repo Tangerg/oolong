@@ -39,6 +39,34 @@ updated to revisions that understand the Go 1.27 syntax. In particular, gofumpt 
 pinned to the first upstream revision with method-type-parameter support rather than
 silently dropping formatting enforcement until its next tagged release.
 
+Terminal feature requests and terminal screen ownership are now different types.
+`program.Config.Root` or `Inline` is the sole rendering-model decision; its
+`Terminal` field can request mouse, focus, keyboard and capability probing but can no
+longer express a contradictory alternate-screen choice that validation must reject or
+the runtime must overwrite. `program.Config.TerminalConfig` is the one adapter
+projection used by local and SSH transports, combining those shared `term.Features`
+with the screen selected by the program root.
+
+Breaking. `program.Config.Terminal` now accepts `term.Features`. Direct terminal
+owners put the same feature value in `term.Config.Features`; `term.Config.AltScreen`
+remains only on that lower-level session configuration.
+
+`kit.NewForm` no longer materializes a default key map into its caller-owned
+`headless.Form`. The appearance resolves the same public defaults read-only for help
+text, so constructing a view cannot mutate controller behavior and a later explicit
+key map still drives both input and hints.
+
+### Breaking API migration
+
+#### core
+
+- `program.Config.Terminal` changed from `term.Config` to `term.Features`. Supply
+  only optional feature requests there; `Root` and `Inline` now decide screen
+  ownership exclusively.
+- `term.Config.Mouse`, `term.Config.Focus`, `term.Config.Keyboard`, and
+  `term.Config.Probe` moved together to `term.Config.Features`. A direct terminal
+  owner uses `term.Config{Features: term.Features{...}, AltScreen: ...}`.
+
 ## [0.12.0] — 2026-08-14
 
 Every value here has one owner and one boundary where ownership changes hands, and

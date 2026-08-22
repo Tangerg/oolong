@@ -52,11 +52,10 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 
 	env := newEnvironment(session.Environ())
 	env.set("TERM", pty.Term)
-	terminalConfig := cfg.Terminal
+	terminalConfig := cfg.TerminalConfig()
 	// A root program owns an alternate screen on every transport. program.Run makes
 	// the same decision for a local terminal; a supplied Host deliberately leaves
 	// transport setup to its adapter.
-	terminalConfig.AltScreen = cfg.Root != nil
 	ctx := session.Context()
 	host := newHost(
 		ctx.Done(), session, pty.Window, windows,

@@ -148,9 +148,13 @@ err := program.Run(context.Background(), program.Config{
     Root: func(runtime *program.Runtime) program.Component {
         return headless.NewRoot(newPicker(runtime, files()))
     },
-    Terminal: term.Config{Probe: true, Mouse: true},
+    Terminal: term.Features{Probe: true, Mouse: true},
 })
 ```
+
+`program.Config.Terminal` 只接受可选的 `term.Features`。`Root` 已经表示拥有备用屏幕，
+`Inline` 已经表示使用终端普通屏幕，因此不存在需要保持一致的第二个 `AltScreen` 开关。
+传输适配器在取得底层终端会话时使用 `program.Config.TerminalConfig()`。
 
 已完成的 Markdown 文档等被动内容不需要该事务。只有在把它放进实时组件树时，才使用
 `headless.Static` 适配。

@@ -44,7 +44,8 @@ const KeyboardCompatible = input.KeyboardDisambiguate | input.KeyboardReportAlte
 
 // Modes is the immutable set of terminal modes a session turns on and later puts
 // back. Its fields stay private so the only way to construct one is from [Config],
-// keeping the public configuration and the wire representation from drifting.
+// keeping feature requests, screen ownership, and the wire representation from
+// drifting.
 //
 // Enter and Leave are encodings rather than writes. A local terminal writes them
 // around raw-mode ownership; a transport such as SSH queues them around its own
@@ -67,9 +68,9 @@ type Modes struct {
 func (c Config) Modes(lookup func(string) (string, bool)) Modes {
 	return Modes{
 		altScreen: c.AltScreen,
-		mouse:     c.Mouse,
-		focus:     c.Focus,
-		keyboard:  compatibleKeyboard(c.Keyboard, lookup),
+		mouse:     c.Features.Mouse,
+		focus:     c.Features.Focus,
+		keyboard:  compatibleKeyboard(c.Features.Keyboard, lookup),
 	}
 }
 

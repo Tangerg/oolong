@@ -4,6 +4,7 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
@@ -35,8 +36,8 @@ type Form struct {
 // FormConfig is the complete construction state of [Form].
 //
 // Controller is required and remains the sole owner of fields, keys, validation and
-// submission. Nil Controller.Keys is materialized as the standard form map so the
-// same map can drive both behavior and visible hints.
+// submission. A nil Controller.Keys reads through the standard form map for both
+// behavior and visible hints; dressing the form does not mutate its configuration.
 type FormConfig struct {
 	// Theme and Glyphs define field roles and choice marks.
 	Theme  Theme
@@ -53,9 +54,6 @@ type FormConfig struct {
 func NewForm(config FormConfig) *Form {
 	if config.Controller == nil {
 		panic("kit: form requires a controller")
-	}
-	if config.Controller.Keys == nil {
-		config.Controller.Keys = headless.DefaultFormKeys()
 	}
 	return &Form{
 		Theme: config.Theme, Glyphs: config.Glyphs, controller: config.Controller,
@@ -97,7 +95,7 @@ func (f *Form) Draw(v headless.Frame) {
 	}
 	f.controller.DrawWith(bands[1], f.Theme.Look(f.Glyphs))
 	if f.hintRows() > 0 {
-		Help{Theme: f.Theme, Keys: f.controller.Keys, Show: f.Hints}.Draw(bands[2].View)
+		Help{Theme: f.Theme, Keys: f.keys(), Show: f.Hints}.Draw(bands[2].View)
 	}
 }
 
@@ -145,9 +143,21 @@ func (f *Form) titleRows() int {
 // bound to something.
 func (f *Form) hintRows() int {
 	for _, action := range f.Hints {
-		if len(f.controller.Keys.Keys(action)) > 0 {
+		if len(f.keys().Keys(action)) > 0 {
 			return 1
 		}
 	}
 	return 0
+}
+
+// defaultFormKeys is read-only and never escapes this package. It is a separate map
+// from the controller's private default because neither layer owns the other's
+// mutable configuration; both are derived from the one public default definition.
+var defaultFormKeys = sync.OnceValue(headless.DefaultFormKeys)
+
+func (f *Form) keys() *keymap.Map {
+	if f.controller.Keys != nil {
+		return f.controller.Keys
+	}
+	return defaultFormKeys()
 }

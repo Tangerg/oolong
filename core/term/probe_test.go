@@ -31,7 +31,7 @@ func answered(t *testing.T, answer string) (*term.Terminal, *os.File) {
 		t.Fatalf("staging the terminal's answer: %v", err)
 	}
 
-	tty, err := term.OpenOn(replica, replica, term.Config{Probe: true}, os.LookupEnv)
+	tty, err := term.OpenOn(replica, replica, term.Config{Features: term.Features{Probe: true}}, os.LookupEnv)
 	if err != nil {
 		t.Fatalf("opening a pty as a terminal: %v", err)
 	}

@@ -30,16 +30,15 @@ type Config struct {
 	// Returning nil is an error.
 	Inline func(*InlineRuntime) Component
 
-	// Terminal says which of the terminal's optional behaviours to ask for. Run
-	// applies it when opening the local terminal; a transport adapter may interpret
-	// it before supplying Host. A Host passed directly to Run already owns its setup
-	// and receives none of these settings.
+	// Terminal says which optional terminal features to request. Run applies them
+	// when opening the local terminal; a transport adapter may interpret them before
+	// supplying Host. A Host passed directly to Run already owns its setup and
+	// receives none of these settings.
 	//
-	// AltScreen is the program's to decide rather than the caller's, because where
-	// frames go is the rendering model and not an input capability: it follows from
-	// which of Root and Inline was set. Asking for it alongside Inline is a
-	// contradiction and is reported as one.
-	Terminal term.Config
+	// Screen ownership is deliberately absent. Root owns the alternate screen and
+	// Inline owns the terminal's ordinary screen, so the rendering model has exactly
+	// one entry point and cannot be contradicted by terminal configuration.
+	Terminal term.Features
 
 	// Color says how much colour the terminal can show. The zero value, [grid.Auto],
 	// asks the host's optional [ColorHost]. A local terminal derives that answer with
@@ -59,6 +58,20 @@ type Config struct {
 	FrameInterval time.Duration
 }
 
+// TerminalConfig derives the complete terminal-session configuration selected by c.
+//
+// It is the adapter boundary between a program's rendering model and a concrete
+// terminal transport. Root owns the alternate screen, Inline owns the ordinary
+// screen, and Terminal contributes only optional features. Keeping that projection
+// here gives local, SSH, and future transports one answer instead of making each
+// reconstruct the ownership rule.
+//
+// Call [Config.Validate] before acquiring transport resources; this projection does
+// not make an otherwise invalid root selection runnable.
+func (c Config) TerminalConfig() term.Config {
+	return term.Config{Features: c.Terminal, AltScreen: c.Root != nil}
+}
+
 // Validate reports contradictions in c without opening a terminal or invoking a
 // component builder. Transport adapters call it before acquiring their own session
 // resources; Run calls it as well, so there is one definition of a runnable
@@ -66,9 +79,6 @@ type Config struct {
 func (c Config) Validate() error {
 	if (c.Root == nil) == (c.Inline == nil) {
 		return errors.New("program: exactly one of Root and Inline is required")
-	}
-	if c.Inline != nil && c.Terminal.AltScreen {
-		return errors.New("program: an inline interface cannot take the alternate screen")
 	}
 	if c.FrameInterval < 0 {
 		return errors.New("program: frame interval cannot be negative")

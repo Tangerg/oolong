@@ -48,7 +48,7 @@ func main() {
 		Inline: func(runtime *program.InlineRuntime) program.Component {
 			return newRunner(runtime, command)
 		},
-		Terminal: term.Config{Probe: true},
+		Terminal: term.Features{Probe: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "run:", err)
 		os.Exit(1)

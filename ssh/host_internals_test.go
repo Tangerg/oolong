@@ -34,7 +34,7 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 		Root: func(runtime *program.Runtime) program.Component {
 			return quittingComponent{runtime: runtime}
 		},
-		Terminal: term.Config{
+		Terminal: term.Features{
 			Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
 		},
 	})
@@ -43,7 +43,8 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 	}
 
 	all := term.Config{
-		AltScreen: true, Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
+		AltScreen: true,
+		Features:  term.Features{Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible},
 	}.Modes(nil)
 	written := session.output.String()
 	if !strings.HasPrefix(written, all.Enter()) {
@@ -75,7 +76,7 @@ func TestRunUsesTheClientEnvironmentForKeyboardCompatibility(t *testing.T) {
 		Root: func(runtime *program.Runtime) program.Component {
 			return quittingComponent{runtime: runtime}
 		},
-		Terminal: term.Config{Keyboard: input.KeyboardAll},
+		Terminal: term.Features{Keyboard: input.KeyboardAll},
 	})
 	if err != nil {
 		t.Fatal(err)

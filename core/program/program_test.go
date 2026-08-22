@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -1696,7 +1697,23 @@ func waitFor(t *testing.T, done chan error, h *host, what string, cond func() bo
 
 func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 	// Which of the two is set decides the rendering model, so neither and both are
-	// equally unanswerable.
+	// equally unanswerable. Terminal features are shared with transport adapters, but
+	// cannot acquire a second spelling for the same screen decision.
+	if _, exists := reflect.TypeFor[term.Features]().FieldByName("AltScreen"); exists {
+		t.Fatal("terminal features acquired a second screen-ownership setting")
+	}
+	features := term.Features{Mouse: true, Probe: true}
+	rootTerminal := (program.Config{Root: func(*program.Runtime) program.Component {
+		return &component{}
+	}, Terminal: features}).TerminalConfig()
+	inlineTerminal := (program.Config{Inline: func(*program.InlineRuntime) program.Component {
+		return &printer{}
+	}, Terminal: features}).TerminalConfig()
+	if !rootTerminal.AltScreen || inlineTerminal.AltScreen ||
+		rootTerminal.Features != features || inlineTerminal.Features != features {
+		t.Fatalf("terminal projection: root=%+v inline=%+v features=%+v",
+			rootTerminal, inlineTerminal, features)
+	}
 	both := program.Config{
 		Root:   func(*program.Runtime) program.Component { return &component{} },
 		Inline: func(*program.InlineRuntime) program.Component { return &printer{} },
@@ -1708,22 +1725,6 @@ func TestExactlyOneRootSaysWhereTheInterfaceGoes(t *testing.T) {
 		if err := program.Run(t.Context(), cfg); err == nil {
 			t.Errorf("%s root was accepted", what)
 		}
-	}
-}
-
-func TestAnInlineInterfaceCannotTakeTheAlternateScreen(t *testing.T) {
-	// A caller who asked for both believes something false: an interface on a screen
-	// of its own has no session output to sit among, and nowhere to print.
-	cfg := program.Config{
-		Inline:   func(*program.InlineRuntime) program.Component { return &printer{} },
-		Terminal: term.Config{AltScreen: true},
-		Host:     newHost(t),
-	}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("asking for an inline interface on the alternate screen passed validation")
-	}
-	if err := program.Run(t.Context(), cfg); err == nil {
-		t.Fatal("asking for an inline interface on the alternate screen was accepted")
 	}
 }
 

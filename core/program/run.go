@@ -56,9 +56,7 @@ func (c Config) openHost() (hostSession, error) {
 	if c.Host != nil {
 		return hostSession{Host: c.Host}, nil
 	}
-	terminalConfig := c.Terminal
-	terminalConfig.AltScreen = c.Root != nil
-	terminal, err := term.Open(terminalConfig)
+	terminal, err := term.Open(c.TerminalConfig())
 	if err != nil {
 		return hostSession{}, err
 	}

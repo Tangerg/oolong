@@ -33,7 +33,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newPrompt(runtime))
 		},
-		Terminal: term.Config{Probe: true, Mouse: true},
+		Terminal: term.Features{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "composer:", err)
 		os.Exit(1)

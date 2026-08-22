@@ -33,7 +33,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newPicker(runtime, files(), &chosen))
 		},
-		Terminal: term.Config{Probe: true},
+		Terminal: term.Features{Probe: true},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "picker:", err)

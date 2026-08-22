@@ -37,7 +37,7 @@ func main() {
 		Root: func(runtime *program.Runtime) program.Component {
 			return headless.NewRoot(newBrowser(runtime, read(root, 2)))
 		},
-		Terminal: term.Config{Probe: true, Mouse: true},
+		Terminal: term.Features{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "files:", err)
 		os.Exit(1)

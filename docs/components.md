@@ -157,9 +157,14 @@ err := program.Run(context.Background(), program.Config{
     Root: func(runtime *program.Runtime) program.Component {
         return headless.NewRoot(newPicker(runtime, files()))
     },
-    Terminal: term.Config{Probe: true, Mouse: true},
+    Terminal: term.Features{Probe: true, Mouse: true},
 })
 ```
+
+`program.Config.Terminal` accepts only optional `term.Features`. `Root` already means
+alternate-screen ownership and `Inline` already means the ordinary terminal screen,
+so there is no second `AltScreen` switch to keep consistent. A transport adapter uses
+`program.Config.TerminalConfig()` when it acquires the underlying terminal session.
 
 Passive content such as a finished Markdown document does not need this transaction.
 Adapt it with `headless.Static` only when placing it inside a live widget tree.

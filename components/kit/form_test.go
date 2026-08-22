@@ -57,6 +57,22 @@ func TestAFormAppearanceDoesNotReplaceTheControllersLook(t *testing.T) {
 	}
 }
 
+func TestAFormAppearanceDoesNotTakeOwnershipOfControllerKeys(t *testing.T) {
+	form := headless.NewForm(&headless.Text{Label: "Name"})
+	view := kit.NewForm(kit.FormConfig{
+		Controller: form,
+		Hints:      []keymap.Action{headless.Submit},
+	})
+
+	rows := paintWidget(20, view.Measure(20), view)
+	if form.Keys != nil {
+		t.Fatal("dressing a form materialized behavior configuration on its controller")
+	}
+	if drawn := strings.Join(rows, "\n"); !strings.Contains(drawn, "enter submit") {
+		t.Fatalf("default form hint was not projected: %q", drawn)
+	}
+}
+
 func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	theme := kit.Dark()
 	field := &headless.Text{Label: "Name", Check: func(string) error { return errors.New("required") }}

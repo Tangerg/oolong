@@ -37,7 +37,7 @@ func main() {
 		Inline: func(runtime *program.InlineRuntime) program.Component {
 			return headless.NewRoot(newAgent(runtime, mockBackend{delay: 18 * time.Millisecond}))
 		},
-		Terminal: term.Config{Probe: true, Mouse: true},
+		Terminal: term.Features{Probe: true, Mouse: true},
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "agent:", err)
 		os.Exit(1)

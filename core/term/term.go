@@ -35,15 +35,14 @@ var ErrNotTerminal = errors.New("term: not a terminal")
 // older image that can still be present, so the session refuses another transmission.
 var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
 
-// Config says which terminal behaviours a session wants.
+// Features are the optional terminal behaviours a session requests.
 //
-// The zero value asks for none of them, which is a legitimate choice for a
-// session that only wants raw keys, and is why each is named for what turning it
-// on gets you rather than for turning it off.
-type Config struct {
-	// AltScreen draws on a screen of its own, leaving the user's scrollback as it
-	// was. Without it, frames are drawn in place among whatever else is on screen.
-	AltScreen bool
+// They are separate from [Config] because screen ownership is not an optional
+// terminal capability. A program's root kind decides whether it owns the alternate
+// screen; transports can therefore carry Features without acquiring a second way to
+// contradict that decision. The zero value asks for none of them, which is a
+// legitimate choice for a session that only wants raw keys.
+type Features struct {
 	// Mouse asks for mouse reporting, including movement and not only clicks.
 	Mouse bool
 	// Focus asks to be told when the terminal window gains or loses focus, which is
@@ -63,6 +62,20 @@ type Config struct {
 	// a session cannot get any other way. A theme that has to be told whether the
 	// terminal is light is a theme that is wrong for half the people who run it.
 	Probe bool
+}
+
+// Config is the complete construction state of a terminal session.
+//
+// Features are requests the driven terminal may or may not support. AltScreen is
+// ownership: it decides whether closing the session restores the screen that was
+// present before it opened. Keeping the two facts distinct lets adapters share
+// feature requests without exposing screen ownership as a second program setting.
+type Config struct {
+	// Features are the optional behaviours to request.
+	Features Features
+	// AltScreen draws on a screen of its own, leaving the user's scrollback as it
+	// was. Without it, frames are drawn in place among whatever else is on screen.
+	AltScreen bool
 }
 
 // Terminal is a terminal taken over for a session.
@@ -247,7 +260,7 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	// listening for the answer, and any later means two readers race for it.
 	parser := &input.Parser{}
 	var early []input.Event
-	if cfg.Probe {
+	if cfg.Features.Probe {
 		pr := &probe{raw: raw, out: t.out, parser: parser}
 		t.said = pr.run()
 		early = pr.early
@@ -427,7 +440,7 @@ func (t *Terminal) Wheel() input.Wheel {
 //
 // It is the environment and the terminal's own claims together, which is what it
 // takes: the environment names the terminal, and only the terminal names sixel. A
-// session that did not ask — see [Config.Probe] — gets the answer
+// session that did not ask — see [Features.Probe] — gets the answer
 // [graphics.Detect] derives from its environment alone.
 func (t *Terminal) Graphics() graphics.Protocol {
 	return t.imageProtocol
