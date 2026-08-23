@@ -152,7 +152,7 @@ func (t *Transcript) reveal(content headless.TranscriptLayout, scroll *headless.
 		return
 	}
 	start := content.StartRow()
-	scroll.RevealRange(m.Row-start, m.Row-start+len(m.Spans)-1)
+	scroll.Reveal(m.Row-start, m.Row-start+len(m.Spans)-1)
 }
 
 // drawHeader draws the pinned block and the rule under it.

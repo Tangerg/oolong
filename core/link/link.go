@@ -20,7 +20,9 @@
 package link
 
 import (
+	"cmp"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -275,11 +277,7 @@ func startsWord(s string, at int) bool {
 // the same cells would stamp one target on top of the other — leaving whichever ran
 // last, which is not a rule anybody could predict from the text.
 func inOrder(found []Link) Links {
-	for i := 1; i < len(found); i++ {
-		for j := i; j > 0 && found[j].Start < found[j-1].Start; j-- {
-			found[j-1], found[j] = found[j], found[j-1]
-		}
-	}
+	slices.SortStableFunc(found, func(a, b Link) int { return cmp.Compare(a.Start, b.Start) })
 	out := found[:0]
 	end := 0
 	for _, l := range found {

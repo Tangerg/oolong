@@ -20,8 +20,8 @@ type Code struct {
 }
 
 var (
-	_ headless.Block    = (*Code)(nil)
-	_ headless.Copyable = (*Code)(nil)
+	_ headless.Block         = (*Code)(nil)
+	_ headless.TextProjector = (*Code)(nil)
 )
 
 // NewCode returns a code block that owns a copy of lines.

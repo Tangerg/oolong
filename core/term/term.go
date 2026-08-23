@@ -83,7 +83,8 @@ type Config struct {
 // reading input, and the writer frames go through. [Terminal.Close] gives all of
 // it back, in the order that leaves the terminal as it was found, and is safe to
 // call more than once — including from a deferred call on a path that already
-// failed.
+// failed. A Terminal must not be copied after construction; the files, modes,
+// goroutines and restoration obligation are one session.
 type Terminal struct {
 	in, out  *os.File
 	modes    Modes

@@ -255,7 +255,7 @@ func (e *Editor) drawMultiline(
 	// it must to keep the cursor visible: a field that jumped to the end would lose
 	// the line the user is typing on.
 	scroll := e.scroll.Stage(frame, len(rows), height)
-	scroll.Reveal(cursorRow)
+	scroll.Reveal(cursorRow, cursorRow)
 	first := scroll.Offset()
 	presentation := editorPresentation{width: width, gutter: gutter, first: first}
 	last := min(layout.Sum(first, height), len(rows))

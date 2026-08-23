@@ -46,7 +46,8 @@
 //	quiet := theme
 //	quiet.Selection = quiet.Sunken
 //
-// The exception is text. [Label] and [Paragraph] take a [github.com/Tangerg/oolong/core/grid.Style],
-// because the same label is a heading in one place and a warning in another, and
-// which it is here is the caller's to say and nothing a theme can work out.
+// The exception is text. [Label], [Paragraph], and the label on [Entry] take a
+// [github.com/Tangerg/oolong/core/grid.Style], because the same words are a heading
+// in one place and a warning in another, and which they are here is the caller's to
+// say and nothing a theme can work out.
 package kit

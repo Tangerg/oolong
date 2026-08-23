@@ -48,7 +48,9 @@ func (c *conversation) Handle(event input.Event) bool { return c.view.Handle(eve
 
 func (c *conversation) User(prompt string) {
 	c.FlushMarkdown()
-	id := c.append(&kit.Message{Theme: c.theme, Speaker: "you", Body: prompt, Own: true})
+	id := c.append(&kit.Entry{
+		Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt,
+	})
 	c.sticky.Add(id)
 }
 

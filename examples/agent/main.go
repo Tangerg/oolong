@@ -127,7 +127,7 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
 
 func (a *agent) Draw(frame headless.Frame) {
 	a.stack.Draw(frame)
-	if a.stack.Empty() && a.completion.Open() {
+	if a.stack.Depth() == 0 && a.completion.Open() {
 		a.drawCompletion(frame)
 	}
 }
@@ -147,7 +147,7 @@ func (a *agent) Handle(event input.Event) bool {
 		}
 	}
 
-	if !a.stack.Empty() {
+	if a.stack.Depth() != 0 {
 		return a.stack.Handle(event)
 	}
 	if a.completion.Handle(event) {
@@ -188,8 +188,8 @@ func (a *agent) registerCommands() {
 	a.commands.Add(headless.Command{
 		Name: "help", Title: "show the commands available in this session",
 		Run: func(string) {
-			a.conversation.Append(&kit.Message{
-				Theme: a.theme, Speaker: "commands",
+			a.conversation.Append(&kit.Entry{
+				Theme: a.theme, Label: "commands",
 				Body: "/clear — release the live transcript\n/model <fast|careful> — choose the mock plan\n/quit — leave",
 			})
 		},
@@ -346,7 +346,7 @@ func (a *agent) finishRun(err error) {
 	case err != nil:
 		a.status.Doing = "failed: " + err.Error()
 		native.State = term.ProgressError
-		a.conversation.Append(&kit.Message{Theme: a.theme, Speaker: "runtime", Body: err.Error()})
+		a.conversation.Append(&kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()})
 	default:
 		a.status.Doing = "complete"
 		a.runtime.Session().Notify("mock agent completed")

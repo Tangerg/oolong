@@ -407,16 +407,16 @@ func (t *Transcript) Visible(from, rows int) (first, last BlockID) {
 	return t.first + blockOffset(a), t.first + blockOffset(b)
 }
 
-// Copyable is a block that can say what it draws, so a selection can be copied out
-// of it.
+// TextProjector is a block that can project its meaningful text at a width.
 //
-// It is separate from drawing because copying is not drawing: what a user expects on
-// the clipboard is the text, without the box around it, without the accent in the
-// gutter, and without the padding that made it look right. A block that cannot answer
-// this contributes empty rows to a selection rather than nothing at all — it still
-// occupies the rows, and a selection dragged across it has to come out with as many
-// lines as the user dragged over.
-type Copyable interface {
+// It is separate from drawing because text projection is not painting: selection,
+// search and copying need the words without the box around them, the accent in a
+// gutter, or the padding that made them look right. Naming the lower capability after
+// its projection rather than one consumer also avoids suggesting that its Go value is
+// safe to copy. A block without the capability contributes empty rows to a selection
+// rather than nothing at all — it still occupies the rows, and a selection dragged
+// across it has to produce as many lines as the user dragged over.
+type TextProjector interface {
 	// Rows is what the block's rows say at a width, and there are as many of them as
 	// Measure reports at that width.
 	Rows(width int) []text.Row
@@ -424,8 +424,8 @@ type Copyable interface {
 
 // Rows is what the transcript says over [from, from+count), one entry per row.
 //
-// Rows belonging to a block that cannot be copied come back empty and unjoined. The
-// count is what was asked for, clamped to what exists, so a caller can index the
+// Rows belonging to a block that cannot project text come back empty and unjoined.
+// The count is what was asked for, clamped to what exists, so a caller can index the
 // result by row and get the row it meant.
 func (t *Transcript) Rows(from, count int) []text.Row {
 	from, count, ok := t.window(from, count)
@@ -440,11 +440,11 @@ func (t *Transcript) Rows(from, count int) []text.Row {
 		if b.height == 0 {
 			continue
 		}
-		copyable, ok := b.block.(Copyable)
+		projector, ok := b.block.(TextProjector)
 		if !ok {
 			continue
 		}
-		rows := copyable.Rows(t.width)
+		rows := projector.Rows(t.width)
 		for row := range b.height {
 			at := layout.Relative(layout.Sum(b.top, row), from)
 			if at < 0 || at >= count || row >= len(rows) {

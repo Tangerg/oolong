@@ -240,9 +240,6 @@ func (s *Stack) top() (stackLayer, bool) {
 // Depth is how many layers there are.
 func (s *Stack) Depth() int { return len(s.layers) }
 
-// Empty reports whether the interface underneath has its input back.
-func (s *Stack) Empty() bool { return len(s.layers) == 0 }
-
 // Area is where the top layer was last drawn, and whether there is one.
 func (s *Stack) Area() (image.Rectangle, bool) {
 	presented := s.presentation.Value()

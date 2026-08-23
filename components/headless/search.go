@@ -64,7 +64,8 @@ type Result struct {
 // and posts what it gets back to the event owner. This package does not prescribe the
 // dispatcher used to cross that boundary. Each submission owns its row snapshot until
 // it finishes or is superseded; Search does not retain an older transcript generation
-// after the work that needs it is gone.
+// after the work that needs it is gone. A Search must not be copied after construction;
+// its worker, mailboxes and cancellation state are one owner.
 type Search struct {
 	mu sync.Mutex
 	// next is the one scan waiting to start. A newer submission replaces it and

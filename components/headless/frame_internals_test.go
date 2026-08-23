@@ -268,7 +268,7 @@ type resizeScrollFixture struct {
 
 func (f *resizeScrollFixture) Draw(frame Frame) {
 	layout := f.scroll.Stage(frame, 20, 10)
-	layout.Reveal(12)
+	layout.Reveal(12, 12)
 	f.before = layout.Offset()
 	layout.Resize(5)
 	f.after = layout.Offset()

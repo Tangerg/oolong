@@ -244,9 +244,9 @@ func kitDrawPurityCases() []drawPurityCase {
 		draw: func(view grid.View) { numbers.Draw(view, rows) },
 	})
 
-	message := &Message{Speaker: "assistant", Body: "a passive message"}
+	entry := &Entry{Label: "source", Body: "passive content"}
 	cases = append(cases, drawPurityCase{
-		name: "*Message", width: 16, height: 4, draw: message.Draw, measure: message.Measure,
+		name: "*Entry", width: 16, height: 4, draw: entry.Draw, measure: entry.Measure,
 	})
 
 	overlay := Overlay{Width: 8, Height: 2}

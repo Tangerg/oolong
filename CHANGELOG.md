@@ -119,6 +119,22 @@ marker still implements the methods the analyzer recognizes. The runtime reachab
 gate excludes exactly those two static-only marker methods through a self-tested
 filter instead of inventing calls that can never be part of the program.
 
+That ownership contract is now checked in both directions. Every exported struct
+with a direct `copylocks` marker must also tell its caller that it must not be copied,
+so search workers, byte ingress, terminal sessions and writers, and both testing
+harnesses no longer hide pointer-identity requirements in private synchronization
+fields.
+
+The polished passive transcript block is now `kit.Entry`: generic labelled text whose
+label role is supplied explicitly by the application. The shared component no longer
+names a speaker or decides whether content is a user's own rather than an answer;
+conversation roles, process roles and their visual emphasis are product grammar.
+
+Boolean inverses and degenerate range wrappers were removed from headless state.
+Selection has one presence query, modal stacks have one cardinality query, and both
+committed and frame-local scrolling reveal one inclusive range through the same
+method. A single row is that range with equal endpoints rather than a second API.
+
 Terminal directory reports now construct file URLs with `net/url`, preserving path
 separators while escaping URL syntax, control bytes and platform separators through
 one standard-library path. The handwritten partial percent encoder was removed.
@@ -159,6 +175,20 @@ use the same one representation.
 
 #### components
 
+- `kit.Message` was replaced by `kit.Entry`. Put the generic source name in `Label`,
+  and put application-owned emphasis such as `theme.Accent` in `LabelStyle`; there is
+  no replacement for the product-specific `Speaker` and `Own` decisions.
+- `headless.Copyable` was renamed to `headless.TextProjector`. Its `Rows(width)`
+  method projects meaningful text for selection, search and copying; the name no
+  longer implies that a mutable Go value is safe to copy.
+- `headless.(*Selection).Empty` was removed. Use `!selection.Active()` so selection
+  presence has one query.
+- `headless.(*Stack).Empty` was removed. Use `stack.Depth() == 0` so layer count has
+  one query.
+- `headless.(*Scroll).Reveal` and `headless.(*ScrollLayout).Reveal` now accept the
+  inclusive `first, last` row range. Pass the same row twice for one row.
+- `headless.(*Scroll).RevealRange` and `headless.(*ScrollLayout).RevealRange` were
+  removed; use the corresponding `Reveal(first, last)` method.
 - `headless.Root.Of` was removed. Use `root.SetContent(widget)` to replace the next
   tree and `root.Content()` to observe it; `headless.NewRoot` remains the sole
   construction entry.

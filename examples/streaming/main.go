@@ -171,7 +171,7 @@ func (c *chat) Handle(event input.Event) bool {
 		}
 		// While a modal is open, its form owns Enter and Escape. Offering Enter to the
 		// application first would make one keystroke mean both send and approve.
-		if c.stack.Empty() {
+		if c.stack.Depth() == 0 {
 			switch action {
 			case send:
 				c.requestApproval()
@@ -227,7 +227,9 @@ func (c *chat) reject() {
 func (c *chat) startReply(prompt string) {
 	c.composer.Editor().Clear()
 	c.selection.Clear()
-	c.appendFinished(&kit.Message{Theme: c.theme, Speaker: "you", Body: prompt, Own: true})
+	c.appendFinished(&kit.Entry{
+		Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt,
+	})
 	c.stream.Reset()
 	c.open, c.hasOpen = nil, false
 	c.active = true
@@ -323,8 +325,8 @@ func (c *chat) finishReply(err error) {
 		c.status.Doing = "cancelled"
 	case err != nil:
 		c.status.Doing = "failed: " + err.Error()
-		c.appendFinished(&kit.Message{
-			Theme: c.theme, Speaker: "source", Body: err.Error(),
+		c.appendFinished(&kit.Entry{
+			Theme: c.theme, Label: "source", Body: err.Error(),
 		})
 	default:
 		c.status.Doing = "complete"

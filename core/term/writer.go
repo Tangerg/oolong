@@ -45,7 +45,9 @@ const DrainGrace = 250 * time.Millisecond
 //
 // Every method is safe for concurrent use. Frames are assigned a sequence while
 // they are appended to one FIFO, so sequence order and write order cannot diverge
-// when several goroutines queue terminal commands at once.
+// when several goroutines queue terminal commands at once. A Writer must not be
+// copied after construction; its queue, watermarks and worker are one publication
+// owner.
 type Writer struct {
 	dst io.Writer
 

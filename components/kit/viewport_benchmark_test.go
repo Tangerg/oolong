@@ -98,13 +98,13 @@ func BenchmarkPaletteClippedDraw(b *testing.B) {
 	}
 }
 
-func BenchmarkMessageClippedDraw(b *testing.B) {
+func BenchmarkEntryClippedDraw(b *testing.B) {
 	const (
 		rows    = 10_000
 		visible = 40
 	)
-	message := kit.Message{Speaker: "assistant", Body: strings.Repeat("content\n", rows)}
-	height := message.Measure(80)
+	entry := kit.Entry{Label: "source", Body: strings.Repeat("content\n", rows)}
+	height := entry.Measure(80)
 	surface := grid.NewSurface(80, visible)
 	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
 
@@ -112,6 +112,6 @@ func BenchmarkMessageClippedDraw(b *testing.B) {
 	b.ReportMetric(visible, "visible-rows/op")
 	b.ResetTimer()
 	for b.Loop() {
-		message.Draw(view)
+		entry.Draw(view)
 	}
 }

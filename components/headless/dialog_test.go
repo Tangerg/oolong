@@ -55,7 +55,7 @@ func TestDialogOwnsOpenStateAndRestoresFocus(t *testing.T) {
 	}
 
 	dialog.Dismiss()
-	if dialog.Open() || !stack.Empty() {
+	if dialog.Open() || stack.Depth() != 0 {
 		t.Fatal("dismiss left the dialog open or in the stack")
 	}
 	if !base.focused || content.focused {
@@ -129,7 +129,7 @@ func TestDialogSettlesEveryStackDismissalIntoControlledState(t *testing.T) {
 	}
 	open = false
 	dialog.Sync()
-	if !stack.Empty() {
+	if stack.Depth() != 0 {
 		t.Fatal("sync did not apply caller-written closed state")
 	}
 }

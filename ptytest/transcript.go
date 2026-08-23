@@ -10,7 +10,9 @@ import (
 // Transcript is everything a session has written, accumulated as it arrives.
 //
 // It is safe to read while the program is still running, which is the whole point:
-// a test types something, waits for the frame that answers it, and types again.
+// a test types something, waits for the frame that answers it, and types again. A
+// Transcript must not be copied after first use; its buffer and wake-up generation
+// are one concurrent snapshot source.
 type Transcript struct {
 	mu   sync.Mutex
 	buf  bytes.Buffer

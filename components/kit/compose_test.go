@@ -177,10 +177,10 @@ func TestStatusDropsTheElapsedTimeWithNoRoomForIt(t *testing.T) {
 	}
 }
 
-func TestAMessageMeasuresWhatItThenDraws(t *testing.T) {
+func TestAnEntryMeasuresWhatItThenDraws(t *testing.T) {
 	// Printing takes a row count before there is a view, so the two have to agree or
-	// the block below lands on top of the message.
-	m := kit.Message{Speaker: "you", Body: "one two three four five six seven eight nine"}
+	// the block below lands on top of the entry.
+	m := kit.Entry{Label: "build", Body: "one two three four five six seven eight nine"}
 	width := 20
 	rows := paint(width, m.Measure(width)+3, func(v grid.View) { m.Draw(v) })
 
@@ -195,26 +195,26 @@ func TestAMessageMeasuresWhatItThenDraws(t *testing.T) {
 	}
 }
 
-func TestAMessageWithoutASpeakerUsesTheWholeWidth(t *testing.T) {
-	message := kit.Message{Body: "12345"}
-	if got := message.Measure(5); got != 2 { // one body row and the trailing row
-		t.Fatalf("height = %d, want the body to fit one row without a speaker gutter", got)
+func TestAnEntryWithoutALabelUsesTheWholeWidth(t *testing.T) {
+	entry := kit.Entry{Body: "12345"}
+	if got := entry.Measure(5); got != 2 { // one body row and the trailing row
+		t.Fatalf("height = %d, want the body to fit one row without a label gutter", got)
 	}
-	rows := paint(5, 2, message.Draw)
+	rows := paint(5, 2, entry.Draw)
 	if rows[0] != "12345" {
 		t.Fatalf("body row = %q, want it to begin in the first column", rows[0])
 	}
-	copyRows := message.Rows(5)
+	copyRows := entry.Rows(5)
 	if len(copyRows) == 0 || copyRows[0].Offset != 0 {
 		t.Fatalf("copy rows = %+v, want no hidden gutter offset", copyRows)
 	}
 }
 
-func TestAMessageLeavesRoomAfterItself(t *testing.T) {
-	// Consecutive messages that ran together would read as one.
-	m := kit.Message{Speaker: "you", Body: "short"}
+func TestAnEntryLeavesRoomAfterItself(t *testing.T) {
+	// Consecutive entries that ran together would read as one.
+	m := kit.Entry{Label: "build", Body: "short"}
 	if got := m.Measure(20); got != 3 {
-		t.Fatalf("= %d rows, want the speaker, the body and a blank row", got)
+		t.Fatalf("= %d rows, want the label, the body and a blank row", got)
 	}
 	m.Trailing = 2
 	if got := m.Measure(20); got != 4 {
@@ -222,51 +222,70 @@ func TestAMessageLeavesRoomAfterItself(t *testing.T) {
 	}
 }
 
-func TestAMessageWithNoSpeakerHasNoLabelRow(t *testing.T) {
-	m := kit.Message{Body: "just this"}
+func TestAnEntryWithNoLabelHasNoLabelRow(t *testing.T) {
+	m := kit.Entry{Body: "just this"}
 	if got := m.Measure(20); got != 2 {
 		t.Fatalf("= %d rows, want the body and a blank row and no label", got)
 	}
 }
 
-func TestAMessageIndentsItsBodyUnderItsSpeaker(t *testing.T) {
-	m := kit.Message{Speaker: "you", Body: "said"}
+func TestAnEntryIndentsItsBodyUnderItsLabel(t *testing.T) {
+	m := kit.Entry{Label: "build", Body: "said"}
 	rows := paint(20, 3, func(v grid.View) { m.Draw(v) })
-	if !strings.HasPrefix(rows[0], "you") {
-		t.Fatalf("first row = %q, want the speaker", rows[0])
+	if !strings.HasPrefix(rows[0], "build") {
+		t.Fatalf("first row = %q, want the label", rows[0])
 	}
 	if !strings.HasPrefix(rows[1], "..said") {
 		t.Fatalf("second row = %q, want the body indented under it", rows[1])
 	}
 }
 
-func TestAMessageWrapsToTheWidthItIsGiven(t *testing.T) {
-	m := kit.Message{Body: "one two three four five six seven eight"}
+func TestAnEntryLeavesItsLabelRoleWithTheCaller(t *testing.T) {
+	muted := grid.Style{FG: grid.RGBColor(1, 2, 3)}
+	emphasis := grid.Style{FG: grid.RGBColor(4, 5, 6), Attr: grid.Bold}
+	e := kit.Entry{
+		Theme: kit.Theme{Muted: muted}, Label: "source", LabelStyle: emphasis, Body: "said",
+	}
+	surface := grid.NewSurface(20, e.Measure(20))
+	e.Draw(surface.View())
+	if got := cellAt(surface, 0, 0).Style; got != emphasis {
+		t.Fatalf("label style = %+v, want caller-owned role %+v", got, emphasis)
+	}
+
+	e.LabelStyle = grid.Style{}
+	e.Draw(surface.View())
+	if got := cellAt(surface, 0, 0).Style; got != muted {
+		t.Fatalf("default label style = %+v, want muted role %+v", got, muted)
+	}
+}
+
+func TestAnEntryWrapsToTheWidthItIsGiven(t *testing.T) {
+	m := kit.Entry{Body: "one two three four five six seven eight"}
 	wide, narrow := m.Measure(40), m.Measure(12)
 	if narrow <= wide {
 		t.Fatalf("narrow = %d rows and wide = %d, want the narrow one taller", narrow, wide)
 	}
 }
 
-func TestAMessageCanBeCopiedWithoutCopyingItsVisualGutter(t *testing.T) {
-	m := kit.Message{Speaker: "assistant", Body: "answer", Trailing: 1}
+func TestAnEntryCanBeCopiedWithoutCopyingItsVisualGutter(t *testing.T) {
+	m := kit.Entry{Label: "source", Body: "result", Trailing: 1}
 	rows := m.Rows(20)
-	if len(rows) != 3 || rows[0].Text != "assistant" ||
-		rows[1].Text != "answer" || rows[1].Offset != 2 || rows[2].Text != "" {
-		t.Fatalf("message rows = %+v", rows)
+	if len(rows) != 3 || rows[0].Text != "source" ||
+		rows[1].Text != "result" || rows[1].Offset != 2 || rows[2].Text != "" {
+		t.Fatalf("entry rows = %+v", rows)
 	}
 }
 
-func TestMessageMutationInvalidatesItsPrivateWrap(t *testing.T) {
+func TestEntryMutationInvalidatesItsPrivateWrap(t *testing.T) {
 	old := grid.Style{FG: grid.RGBColor(1, 2, 3)}
 	newStyle := grid.Style{FG: grid.RGBColor(4, 5, 6)}
-	message := kit.Message{Body: "old body", Theme: kit.Theme{Text: old}}
-	message.Measure(20)
+	entry := kit.Entry{Body: "old body", Theme: kit.Theme{Text: old}}
+	entry.Measure(20)
 
-	message.Body = "new body"
-	message.Theme.Text = newStyle
-	surface := grid.NewSurface(20, message.Measure(20))
-	message.Draw(surface.View())
+	entry.Body = "new body"
+	entry.Theme.Text = newStyle
+	surface := grid.NewSurface(20, entry.Measure(20))
+	entry.Draw(surface.View())
 	if got := rowOf(surface.View(), 0, 20); !strings.HasPrefix(got, "new body") || strings.Contains(got, "old") {
 		t.Fatalf("drawn body = %q, want only the replacement", got)
 	}

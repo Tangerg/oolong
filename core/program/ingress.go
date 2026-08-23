@@ -34,7 +34,8 @@ type ByteBatch struct {
 // program stops first, blocked writes return [ErrStopped], pending bytes are released,
 // and the consumer is not called from a background goroutine. A ByteIngress must be
 // closed by its producer; its internal cancellation waiter then exits. The zero value
-// is stopped.
+// is stopped. A ByteIngress must not be copied after construction: its pending bytes,
+// backpressure and final delivery belong to one stream.
 type ByteIngress struct {
 	dispatch Dispatcher
 	limit    int

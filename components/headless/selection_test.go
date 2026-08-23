@@ -111,7 +111,7 @@ func TestSelectionCoversWhatWasDraggedOver(t *testing.T) {
 	if s.Covers(2, 0) {
 		t.Error("a cleared selection still covers a cell")
 	}
-	if !s.Empty() {
+	if s.Active() {
 		t.Error("a cleared selection is not empty")
 	}
 	if s.Clicks.Within != 250*time.Millisecond {

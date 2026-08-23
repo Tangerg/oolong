@@ -33,7 +33,9 @@ const assertionTimeout = 5 * time.Second
 //
 // Every method is safe to call from the test goroutine while [program.Run] owns the
 // program goroutine. New arranges cleanup; Close is also available when a test wants
-// to settle the frame writer earlier. The zero Host is inert and refuses events.
+// to settle the frame writer earlier. The zero Host is inert and refuses events. A
+// Host must not be copied after first use: its event stream, frame writer and captured
+// output are one test session.
 type Host struct {
 	input  *eventSource
 	writer *term.Writer

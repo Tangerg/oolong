@@ -11,13 +11,14 @@ import (
 	"testing"
 )
 
-// TestNonCopyableOwnersCarryAVetMarker keeps a public ownership promise executable.
-// A comment alone cannot stop a value copy from giving two mutable owners the same
-// slice, tree or terminal model. A direct noCopy or synchronization field makes the
-// standard copylocks analyzer reject that copy, and keeping it on the advertised
-// owner means a later representation change cannot silently remove the protection
-// inherited from one of its current fields.
-func TestNonCopyableOwnersCarryAVetMarker(t *testing.T) {
+// TestNonCopyableOwnersStateAndEnforceTheirContract keeps public ownership and its
+// mechanical representation in both directions. A comment alone cannot stop a value
+// copy from giving two mutable owners the same slice, tree or terminal model, while a
+// lock hidden in an exported struct makes ordinary assignment invalid whether or not
+// its documentation warned the caller. A direct noCopy or synchronization field
+// makes the standard copylocks analyzer reject that copy; the matching public promise
+// tells users why the pointer identity matters.
+func TestNonCopyableOwnersStateAndEnforceTheirContract(t *testing.T) {
 	root := repoRoot(t)
 	markerPackages := make(map[string]bool)
 	walk(t, root, func(_, path string) {
@@ -34,12 +35,13 @@ func TestNonCopyableOwnersCarryAVetMarker(t *testing.T) {
 			}
 			for _, raw := range group.Specs {
 				spec, ok := raw.(*ast.TypeSpec)
-				if !ok || !declaresNoCopyContract(typeDocumentation(group, spec)) {
+				if !ok {
 					continue
 				}
+				documented := declaresNoCopyContract(typeDocumentation(group, spec))
 				structure, ok := spec.Type.(*ast.StructType)
 				protected, marker := noCopyStructProtection(structure, imports)
-				if marker {
+				if marker && documented {
 					directory := filepath.Dir(path)
 					defined, known := markerPackages[directory]
 					if !known {
@@ -48,14 +50,37 @@ func TestNonCopyableOwnersCarryAVetMarker(t *testing.T) {
 					}
 					protected = protected && defined
 				}
-				if !ok || !protected {
-					position := set.Position(spec.Pos())
+				position := set.Position(spec.Pos())
+				switch nonCopyContractProblem(ast.IsExported(spec.Name.Name), documented, ok && protected) {
+				case noNonCopyProblem:
+				case missingProtection:
 					t.Errorf("%s: %s promises not to be copied but has no direct go vet copylocks marker",
+						position, spec.Name.Name)
+				case missingDocumentation:
+					t.Errorf("%s: %s has a direct go vet copylocks marker but does not state that it must not be copied",
 						position, spec.Name.Name)
 				}
 			}
 		}
 	})
+}
+
+type nonCopyProblem uint8
+
+const (
+	noNonCopyProblem nonCopyProblem = iota
+	missingProtection
+	missingDocumentation
+)
+
+func nonCopyContractProblem(exported, documented, protected bool) nonCopyProblem {
+	if documented && !protected {
+		return missingProtection
+	}
+	if exported && protected && !documented {
+		return missingDocumentation
+	}
+	return noNonCopyProblem
 }
 
 func declaresNoCopyContract(doc string) bool {
@@ -204,6 +229,23 @@ func TestNonCopyableOwnerRuleRecognizesProtection(t *testing.T) {
 			got, _ := noCopyStructProtection(structure, importNames(file))
 			if got != test.want {
 				t.Errorf("protected = %v, want %v", got, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name                            string
+		exported, documented, protected bool
+		want                            nonCopyProblem
+	}{
+		{name: "public contract and marker", exported: true, documented: true, protected: true},
+		{name: "contract without marker", exported: true, documented: true, want: missingProtection},
+		{name: "marker without public contract", exported: true, protected: true, want: missingDocumentation},
+		{name: "private implementation lock", protected: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := nonCopyContractProblem(test.exported, test.documented, test.protected); got != test.want {
+				t.Errorf("problem = %v, want %v", got, test.want)
 			}
 		})
 	}

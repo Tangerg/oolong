@@ -70,13 +70,13 @@ func ExampleComposer_typing() {
 	// |› hello     |
 }
 
-func ExampleMessage() {
-	m := kit.Message{Speaker: "you", Body: "what is this"}
+func ExampleEntry() {
+	m := kit.Entry{Label: "build", Body: "what changed"}
 	show(20, m.Measure(20), m.Draw)
 
 	// Output:
-	// |you                 |
-	// |  what is this      |
+	// |build               |
+	// |  what changed      |
 	// |                    |
 }
 

@@ -542,7 +542,7 @@ func TestScrollRevealMovesAsLittleAsItCan(t *testing.T) {
 			var s headless.Scroll
 			stageScroll(&s, 100, 5)
 			s.By(tc.offset)
-			s.Reveal(tc.row)
+			s.Reveal(tc.row, tc.row)
 			if got := s.Offset(); got != tc.wantOffset {
 				t.Errorf("offset = %d, want %d", got, tc.wantOffset)
 			}
@@ -558,7 +558,7 @@ func TestScrollRevealStopsFollowing(t *testing.T) {
 	if !s.AtBottom() {
 		t.Fatal("not following to begin with")
 	}
-	s.Reveal(3)
+	s.Reveal(3, 3)
 	if s.AtBottom() {
 		t.Error("still following after a row was asked for")
 	}
@@ -567,18 +567,18 @@ func TestScrollRevealStopsFollowing(t *testing.T) {
 	}
 }
 
-func TestScrollRevealRangeShowsWhereReadingBegins(t *testing.T) {
+func TestScrollRevealShowsWhereReadingBegins(t *testing.T) {
 	// A match taller than the window: its start wins, or the reader is shown the end
 	// of something and left to scroll back for what it was part of.
 	var s headless.Scroll
 	stageScroll(&s, 100, 3)
-	s.RevealRange(20, 40)
+	s.Reveal(20, 40)
 	if got := s.Offset(); got != 20 {
 		t.Errorf("offset = %d, want the start of the range", got)
 	}
 
 	// And a range that fits is brought in whole.
-	s.RevealRange(60, 62)
+	s.Reveal(60, 62)
 	if got := s.Offset(); got != 60 {
 		t.Errorf("offset = %d, want 60", got)
 	}
@@ -587,7 +587,7 @@ func TestScrollRevealRangeShowsWhereReadingBegins(t *testing.T) {
 func TestScrollRevealBackwardsRangeIsTheSameRange(t *testing.T) {
 	var s headless.Scroll
 	stageScroll(&s, 100, 5)
-	s.RevealRange(40, 20)
+	s.Reveal(40, 20)
 	if got := s.Offset(); got != 20 {
 		t.Errorf("offset = %d, want 20", got)
 	}
@@ -595,7 +595,7 @@ func TestScrollRevealBackwardsRangeIsTheSameRange(t *testing.T) {
 
 func TestScrollRevealWithNoWindowDoesNothing(t *testing.T) {
 	var s headless.Scroll
-	s.Reveal(50)
+	s.Reveal(50, 50)
 	if got := s.Offset(); got != 0 {
 		t.Errorf("offset = %d before any layout", got)
 	}

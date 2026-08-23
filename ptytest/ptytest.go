@@ -85,7 +85,8 @@ type Config struct {
 // as it arrives.
 //
 // Writing and resizing are safe while it runs, which is the point: a test types,
-// waits for what it typed to come back, and types again.
+// waits for what it typed to come back, and types again. A Session must not be copied
+// after construction; its child, pty and reaping goroutines are one lifetime.
 type Session struct {
 	primary    *os.File
 	process    *os.Process

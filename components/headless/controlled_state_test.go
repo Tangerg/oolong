@@ -61,11 +61,11 @@ func TestEveryAccessorOwnerObservesCallerTransitions(t *testing.T) {
 			stack := &headless.Stack{}
 			dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Open: value, Content: &panel{}})
 			value.value = true
-			if !dialog.Open() || !dialog.Sync() || dialog.Sync() || stack.Empty() {
+			if !dialog.Open() || !dialog.Sync() || dialog.Sync() || stack.Depth() == 0 {
 				t.Fatal("dialog did not settle one owner-written open transition")
 			}
 			value.value = false
-			if !dialog.Sync() || dialog.Sync() || !stack.Empty() {
+			if !dialog.Sync() || dialog.Sync() || stack.Depth() != 0 {
 				t.Fatal("dialog did not settle one owner-written close transition")
 			}
 		},

@@ -257,7 +257,7 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 	total := len(l.items)
 	scroll := l.scroll.Stage(v, total, height)
 	if selected >= 0 {
-		scroll.Reveal(selected)
+		scroll.Reveal(selected, selected)
 	}
 	first := scroll.Offset()
 	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total})

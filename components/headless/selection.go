@@ -114,9 +114,6 @@ func (s *Selection) Range() (start, end Point) {
 	return s.anchor, s.extent
 }
 
-// Empty reports whether the selection covers no cells at all.
-func (s *Selection) Empty() bool { return !s.active }
-
 // Covers reports whether a cell is inside the selection, which is what painting the
 // highlight asks once per cell.
 func (s *Selection) Covers(row, col int) bool {

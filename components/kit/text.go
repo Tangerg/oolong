@@ -325,7 +325,7 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 func (p *Paragraph) rows(width int) []row {
 	// Measurement still needs a truthful height before a parent has assigned any
 	// width. A zero answer would let that parent collapse the paragraph permanently,
-	// so text follows the same rule here as Message, Diff and Markdown: lay it out at
+	// so text follows the same rule here as Entry, Diff and Markdown: lay it out at
 	// one column even when the eventual view has no drawable interior.
 	room := max(layout.Remaining(width, p.Indent), 1)
 	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows {

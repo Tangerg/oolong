@@ -86,25 +86,21 @@ func (s *Scroll) Discard(rows int) {
 	s.current.discard(rows)
 }
 
-// Reveal scrolls as little as it can to bring a row into the window.
+// Reveal scrolls as little as it can to bring as much of [first, last] into the
+// window as will fit.
 //
 // As little as it can, rather than centring it: a reader stepping through search
 // results wants the surrounding text to stay put where it already fits, and a view
 // that jumped every time would lose the context that made the result worth finding.
-// A row already visible moves nothing at all.
+// A range already visible moves nothing at all. Passing the same row twice reveals
+// one row; there is deliberately no second spelling for that degenerate range.
 //
-// It stops following the end, because a row was asked for and following would
+// It stops following the end, because a range was asked for and following would
 // immediately scroll away from it.
-func (s *Scroll) Reveal(row int) {
-	s.RevealRange(row, row)
-}
-
-// RevealRange brings as much of [first, last] into the window as will fit.
-//
 // When the range is taller than the window its start wins, because that is where
 // reading begins. Anything else would show the end of a match and leave the reader
 // to scroll backwards to find out what it was part of.
-func (s *Scroll) RevealRange(first, last int) {
+func (s *Scroll) Reveal(first, last int) {
 	s.current.revealRange(first, last)
 }
 
@@ -171,7 +167,7 @@ func (s *Scroll) Do(action keymap.Action) bool {
 //
 // The returned layout is the one drawing should use. Its bounds and offset become
 // current only when the complete [Root] frame commits, so input during a nested draw
-// continues to see the previous frame. Reveal and RevealRange update this staged
+// continues to see the previous frame. [ScrollLayout.Reveal] updates this staged
 // layout rather than the committed scroll. One Scroll may be staged once per frame;
 // use the returned ScrollLayout to refine that one pending value.
 func (s *Scroll) Stage(frame Frame, total, window int) ScrollLayout {
@@ -200,11 +196,9 @@ func (l *ScrollLayout) Offset() int {
 	return l.state.offset
 }
 
-// Reveal brings row into this staged window with the least movement.
-func (l *ScrollLayout) Reveal(row int) { l.RevealRange(row, row) }
-
-// RevealRange brings as much of [first, last] into this staged window as fits.
-func (l *ScrollLayout) RevealRange(first, last int) {
+// Reveal brings as much of [first, last] into this staged window as fits. Passing the
+// same row twice reveals one row, matching [Scroll.Reveal].
+func (l *ScrollLayout) Reveal(first, last int) {
 	if l == nil || l.scroll == nil || l.state.window <= 0 {
 		return
 	}

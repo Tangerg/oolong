@@ -77,7 +77,7 @@ func TestAnEmptyStackConsumesNothing(t *testing.T) {
 	if s.Handle(esc()) {
 		t.Fatal("an empty stack consumed a key")
 	}
-	if !s.Empty() || s.Top() != nil || s.Depth() != 0 {
+	if s.Depth() != 0 || s.Top() != nil {
 		t.Fatal("the zero stack is not empty")
 	}
 	draw(&s, 10, 10) // must not panic
@@ -137,7 +137,7 @@ func TestEscapePopsTheTopLayer(t *testing.T) {
 	}
 	draw(&s, 20, 10)
 	s.Handle(esc())
-	if !s.Empty() {
+	if s.Depth() != 0 {
 		t.Fatal("the second escape did not empty the stack")
 	}
 }
@@ -191,7 +191,7 @@ func TestAnInsistentLayerRefusesToBeDismissed(t *testing.T) {
 	// And stops insisting once it has what it needs.
 	p.insist = false
 	s.Handle(esc())
-	if !s.Empty() {
+	if s.Depth() != 0 {
 		t.Fatal("the layer stopped insisting and was still not dismissed")
 	}
 }
@@ -208,7 +208,7 @@ func TestAPressOutsideTheLayerPopsIt(t *testing.T) {
 	}
 	outside := image.Pt(area.Min.X-2, area.Min.Y)
 	s.Handle(input.Mouse{Pos: outside, Action: input.MouseDown, Button: input.ButtonLeft})
-	if !s.Empty() {
+	if s.Depth() != 0 {
 		t.Fatal("a press outside the layer did not dismiss it")
 	}
 }
@@ -223,7 +223,7 @@ func TestAPressOutsideCanBeKept(t *testing.T) {
 	s.Handle(input.Mouse{
 		Pos: image.Pt(area.Min.X-2, area.Min.Y), Action: input.MouseDown, Button: input.ButtonLeft,
 	})
-	if s.Empty() {
+	if s.Depth() == 0 {
 		t.Fatal("the layer was dismissed by a press it was told to ignore")
 	}
 }
@@ -240,7 +240,7 @@ func TestTheWheelOutsideTheLayerBelongsToWhatIsUnderIt(t *testing.T) {
 	if s.Handle(input.Mouse{Pos: outside, Action: input.WheelDown}) {
 		t.Fatal("the stack swallowed a wheel event outside the layer")
 	}
-	if s.Empty() {
+	if s.Depth() == 0 {
 		t.Fatal("scrolling outside the layer dismissed it")
 	}
 }
@@ -387,7 +387,7 @@ func TestClearPopsFromTheTopDown(t *testing.T) {
 	s.Push(mark("c"))
 	s.Clear()
 
-	if !s.Empty() {
+	if s.Depth() != 0 {
 		t.Fatal("the stack was not emptied")
 	}
 	want := []string{"c", "b", "a"}
@@ -415,7 +415,7 @@ func TestPoppingAnEmptyStackIsNotAPanic(t *testing.T) {
 func TestPushingNothingIsIgnored(t *testing.T) {
 	var s headless.Stack
 	s.Push(nil)
-	if !s.Empty() {
+	if s.Depth() != 0 {
 		t.Fatal("a nil layer went onto the stack, where it would panic on the next frame")
 	}
 }
@@ -429,11 +429,11 @@ func TestTheEscapeBindingCanBeRebound(t *testing.T) {
 	draw(&s, 20, 10)
 
 	s.Handle(esc())
-	if s.Empty() {
+	if s.Depth() == 0 {
 		t.Fatal("escape closed a stack that was rebound away from it")
 	}
 	s.Handle(input.Key{Code: input.Character, Rune: 'q'})
-	if !s.Empty() {
+	if s.Depth() != 0 {
 		t.Fatal("the rebound key did not close the stack")
 	}
 }
