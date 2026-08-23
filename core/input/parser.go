@@ -72,9 +72,11 @@ const (
 // tells the difference. [Parser.Pending] reports that something is waiting, and
 // [Parser.Flush] declares the wait over.
 //
-// Not safe for concurrent use: it belongs to whichever goroutine reads the
-// terminal.
+// A Parser belongs to whichever goroutine reads the terminal and must not be copied
+// after first use. It is not safe for concurrent use.
 type Parser struct {
+	noCopy noCopy
+
 	buf []byte
 	// pasting is set between a paste's opening and closing sequences, when bytes
 	// are text rather than input to interpret.
@@ -89,6 +91,13 @@ type Parser struct {
 	// until that sequence ends. See [Parser.skipParams] and [Parser.skipString].
 	dropping dropping
 }
+
+// noCopy makes the parser's single-owner contract visible to go vet. Its methods
+// are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // Feed adds bytes and returns everything now decodable.
 func (p *Parser) Feed(b []byte) []Event {

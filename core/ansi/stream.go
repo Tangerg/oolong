@@ -23,8 +23,16 @@ const maxPending = 1 << 16
 // A Scanner belongs to one goroutine and must not be copied after its first use.
 // Its zero value is ready to use.
 type Scanner struct {
-	held strings.Builder
+	noCopy noCopy
+	held   strings.Builder
 }
+
+// noCopy makes the scanner's single-owner contract visible to go vet. Its methods
+// are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // Feed scans chunk and visits every piece that became complete.
 //

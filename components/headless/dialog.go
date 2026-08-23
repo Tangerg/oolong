@@ -17,8 +17,11 @@ import (
 // the owning [Stack]. Show, Dismiss and Sync are the only open-state transitions; they
 // keep caller-owned state, stack membership and focus restoration in one state machine.
 // Dialog chooses no border, colour, placement or product wording beyond the semantic
-// title supplied by its caller.
+// title supplied by its caller. A Dialog must not be copied after first use: its
+// content carries a back-reference to this controller and its stack membership.
 type Dialog struct {
+	noCopy noCopy
+
 	stack   *Stack
 	content *DialogContent
 	open    ownedValue[bool]

@@ -25,8 +25,11 @@ import (
 // all. Duplicates that are not consecutive are kept, because the order tells the
 // truth about what happened.
 //
-// The zero value is an empty history.
+// The zero value is an empty history. A History must not be copied after first use;
+// its retained entries, draft and current walk are one mutable sequence.
 type History struct {
+	noCopy noCopy
+
 	entries []string
 	// at is where the walk has got to, counted from the end: zero is the draft, one
 	// is the newest entry. It is not an index into the slice, so that entries added

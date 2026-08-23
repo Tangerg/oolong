@@ -53,6 +53,8 @@ import (
 //
 // A Decoder must not be copied after its first use.
 type Decoder struct {
+	noCopy noCopy
+
 	// Base is what text arrives in before any sequence says otherwise, and what a
 	// reset goes back to. It is how output is drawn in the interface's own body
 	// style while still being recoloured by whatever wrote it.
@@ -75,6 +77,13 @@ type Decoder struct {
 	open  Line
 	dirty bool
 }
+
+// noCopy makes the decoder's single-owner contract visible to go vet. Its methods
+// are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // decodedRun is the mutable, decoder-owned form of a [Span]. Keeping it private
 // lets many small reads extend one run without rebuilding the immutable string a

@@ -42,13 +42,15 @@ const (
 	Primary
 )
 
-// maxPayload bounds how much text one sequence will carry.
+// MaxPayload is the largest text [Channel.Copy] will carry, in bytes.
 //
 // The bound exists because the far end has one too, and theirs is silent: a
 // terminal handed more than it will take does not copy the first part, it discards
 // the lot. Multiplexers impose another bound. A conservative size that survives
-// both is more useful than a larger request that reports success and vanishes.
-const maxPayload = 100_000
+// both is more useful than a larger request that reports success and vanishes. The
+// exported constant lets an application explain a refusal before it looks like a
+// copy that did nothing.
+const MaxPayload = 100_000
 
 // responseTimeout bounds ownership of one read request. A response is a terminal
 // round trip, including an SSH round trip when remote; ten seconds leaves room for a
@@ -98,9 +100,9 @@ func New(lookup func(string) (string, bool)) *Channel {
 // text — pasted, downloaded, or produced by something hostile upstream — can end
 // the sequence early and have the rest of itself read as commands.
 //
-// It reports false for text too large to carry. See [Limit].
+// It reports false for text too large to carry. See [MaxPayload].
 func (c *Channel) Copy(sel Selection, text string) (string, bool) {
-	if c == nil || len(text) > maxPayload {
+	if c == nil || len(text) > MaxPayload {
 		return "", false
 	}
 	return c.wrap(encode(sel, base64.StdEncoding.EncodeToString([]byte(text)))), true
@@ -210,11 +212,11 @@ func parse(params string) (Selection, string, bool) {
 	if payload == "" {
 		return 0, "", false
 	}
-	if len(payload) > base64.StdEncoding.EncodedLen(maxPayload) {
+	if len(payload) > base64.StdEncoding.EncodedLen(MaxPayload) {
 		return 0, "", false
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil || len(raw) > maxPayload {
+	if err != nil || len(raw) > MaxPayload {
 		return 0, "", false
 	}
 	return which, strings.ToValidUTF8(string(raw), "�"), true
@@ -240,7 +242,3 @@ func selectionCode(sel Selection) byte {
 	}
 	return 'c'
 }
-
-// Limit is the largest text [Channel.Copy] will carry, in bytes. It is here so a
-// refusal can be explained as a size instead of appearing as a copy that did nothing.
-func Limit() int { return maxPayload }

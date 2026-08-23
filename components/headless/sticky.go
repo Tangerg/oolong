@@ -28,7 +28,12 @@ import (
 // All of it is a question about rows: which block is pinned, how many of its rows are
 // left, and how far along the push is. None of that needs a cell, so none of it is
 // here. What draws a header takes these numbers and draws.
+//
+// The zero value has no pinnable blocks. A Sticky must not be copied after first
+// use; its ordered identity set has one mutable owner.
 type Sticky struct {
+	noCopy noCopy
+
 	// blocks are the identities of the blocks that can be pinned, in order. They are
 	// private because discarding a committed prefix mutates this collection; retaining
 	// a caller-owned slice would clear the caller's data while reclaiming ours.

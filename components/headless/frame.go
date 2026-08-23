@@ -67,8 +67,11 @@ func (f Frame) Subs(rects []image.Rectangle) []Frame {
 // staged rich-model value through the value returned by its Stage operation rather
 // than staging the same owner again.
 //
-// The zero value contains the zero T and is ready to stage.
+// The zero value contains the zero T and is ready to stage. A Snapshot must not be
+// copied after first use: its pending value is enlisted with exactly one transaction.
 type Snapshot[T any] struct {
+	noCopy noCopy
+
 	current T
 	pending T
 	staged  *transaction

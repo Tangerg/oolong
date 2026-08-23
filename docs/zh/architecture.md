@@ -471,6 +471,7 @@ import 该适配器的应用才承担它的外部依赖。
 | 失败与所有权结算 | [`program` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 覆盖输入原因、分配前的非法或过量宿主几何、部分输出、失败后不再写入、排空超时、能力缺席；[`term` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) 覆盖真实 PTY 拆除，[`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) 覆盖短写/部分写与有界关闭 | 切片 1 及每一个新宿主 |
 | 公开构造只有一种语言 | `internal/arch` 拒绝函数式选项、导出的 `Options` 配置、拥有三个以上位置输入却没有显式 `Config` 的构造器，以及返回同一具体类型却未声明的多个 `New...` 或 `Open...` 入口；罕见的第二个资源获取入口必须点明精确的所有权或生命周期边界 | 每次 CI |
 | 语义状态与焦点只有一个拥有者 | [`internal/arch`](https://github.com/Tangerg/oolong/blob/main/internal/arch/facade_internals_test.go) 拒绝 kit 方法镜像 controller 或 editor 的部分状态 API；组件所有权测试要求重复安装可证明为同一身份的孩子及重复报告同一焦点状态保持幂等，而模块私有的身份原语为开放组件接口提供共享的保守比较 | 每次 CI，以及每一个新组件包装器 |
+| 可变所有者始终只有一个拥有者 | `internal/arch` 从生产文档中推导所有声明不可复制的导出类型，并要求它直接带有 `noCopy`、`sync` 或 `sync/atomic` 字段；随后 `go vet` 会在共享可变存储取得两个拥有者之前拒绝值复制 | 每次 CI，以及每一项新的不可复制契约 |
 | 每一条可调用路径都有可执行证据 | 钉住版本的 `golang.org/x/tools/cmd/deadcode` 带测试分析每个模块在 Linux、macOS 与 Windows 上的源码；私有不可达代码应当删除，公开不可达操作应当获得调用方视角的契约覆盖，而保留或删除必须由独立 API 设计评审决定 | 每次 CI 与发布 |
 | 公开模块兼容性 | 每个模块在没有 `go.work` 的情况下构建；每次变更都由钉住版本的 `apidiff` 把各公开模块与前一个不可变 tag 比对，并要求每个不兼容的导出 API 变更以精确名称出现在 Unreleased 迁移清单中；发布流程还会运行钉住版本的 `gorelease`，报告 pre-1.0 的变更并拒绝违反 Go 兼容性的 v1+ tag 提案；日常 CI 检查声明的 Go 下限与受支持源码集 | 每次 CI、打 tag 前的手动发布检查，以及每一个公开模块 tag |
 

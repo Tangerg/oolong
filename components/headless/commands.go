@@ -43,7 +43,12 @@ type Command struct {
 // no amount of scoring the names will discover that. So ties are broken by how
 // recently a command was used, and an empty query lists the recent ones first. It is
 // the only part of the ranking that knows anything about this particular user.
+//
+// The zero value is an empty registry. A Commands value must not be copied after
+// first use; registration and recency are one mutable index.
 type Commands struct {
+	noCopy noCopy
+
 	list []Command
 	// used holds the names most recently run, newest first.
 	used []string

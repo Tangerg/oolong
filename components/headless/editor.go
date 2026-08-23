@@ -126,13 +126,6 @@ type Editor struct {
 	presentation Snapshot[editorPresentation]
 }
 
-// noCopy is the standard go vet marker for mutable owners whose internal references
-// make copying after first use unsafe. Its methods are never called.
-type noCopy struct{}
-
-func (*noCopy) Lock()   {}
-func (*noCopy) Unlock() {}
-
 type editorPresentation struct {
 	width, gutter, first, left int
 }

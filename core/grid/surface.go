@@ -13,8 +13,11 @@ import (
 
 // Surface is a rectangle of cells in row-major order. It is storage and
 // geometry; drawing happens through the [View] it hands out, so no caller has to
-// carry a clip rectangle alongside the buffer it is clipping.
+// carry a clip rectangle alongside the buffer it is clipping. A Surface must not
+// be copied after first use: its cells and paint regions have one mutable owner.
 type Surface struct {
+	noCopy noCopy
+
 	w, h  int
 	cells []Cell
 	// ground is what a default colour in these cells resolves to. It lives on the
@@ -27,6 +30,13 @@ type Surface struct {
 	// are what this frame is, and a frame is drawn from nothing every time.
 	paints []painted
 }
+
+// noCopy makes mutable grid ownership visible to go vet. Its methods are never
+// called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // NewSurface returns a blank surface of the given size. Negative dimensions
 // collapse to zero. It panics with a grid error when the dimensions' product

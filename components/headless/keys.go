@@ -164,25 +164,39 @@ func DefaultEditorKeys() *keymap.Map {
 
 // DefaultListKeys are the keystrokes a terminal list is expected to answer.
 func DefaultListKeys() *keymap.Map {
-	m := &keymap.Map{}
-	m.Bind(SelectPrev, input.Chord{Code: input.Up})
-	m.Bind(SelectNext, input.Chord{Code: input.Down})
-	m.Bind(SelectPageUp, input.Chord{Code: input.PageUp})
-	m.Bind(SelectPageDown, input.Chord{Code: input.PageDown})
-	m.Bind(SelectFirst, input.Chord{Code: input.Home})
-	m.Bind(SelectLast, input.Chord{Code: input.End})
-	return m
+	return verticalKeys(verticalActions{
+		up: SelectPrev, down: SelectNext,
+		pageUp: SelectPageUp, pageDown: SelectPageDown,
+		first: SelectFirst, last: SelectLast,
+	})
 }
 
 // DefaultScrollKeys are the keystrokes a terminal reader is expected to answer.
 func DefaultScrollKeys() *keymap.Map {
+	return verticalKeys(verticalActions{
+		up: ScrollUp, down: ScrollDown,
+		pageUp: ScrollPageUp, pageDown: ScrollPageDown,
+		first: ScrollTop, last: ScrollBottom,
+	})
+}
+
+// verticalActions names the six semantic destinations of the conventional terminal
+// navigation keys. Lists and readers share the physical policy without sharing an
+// action vocabulary.
+type verticalActions struct {
+	up, down         keymap.Action
+	pageUp, pageDown keymap.Action
+	first, last      keymap.Action
+}
+
+func verticalKeys(actions verticalActions) *keymap.Map {
 	m := &keymap.Map{}
-	m.Bind(ScrollUp, input.Chord{Code: input.Up})
-	m.Bind(ScrollDown, input.Chord{Code: input.Down})
-	m.Bind(ScrollPageUp, input.Chord{Code: input.PageUp})
-	m.Bind(ScrollPageDown, input.Chord{Code: input.PageDown})
-	m.Bind(ScrollTop, input.Chord{Code: input.Home})
-	m.Bind(ScrollBottom, input.Chord{Code: input.End})
+	m.Bind(actions.up, input.Chord{Code: input.Up})
+	m.Bind(actions.down, input.Chord{Code: input.Down})
+	m.Bind(actions.pageUp, input.Chord{Code: input.PageUp})
+	m.Bind(actions.pageDown, input.Chord{Code: input.PageDown})
+	m.Bind(actions.first, input.Chord{Code: input.Home})
+	m.Bind(actions.last, input.Chord{Code: input.End})
 	return m
 }
 

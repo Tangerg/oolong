@@ -110,9 +110,28 @@ declared Go floor. All four analyzers were first run across every module with ze
 production findings; maintainability deliberately excludes table-driven tests and
 architecture registries whose job is to keep a complete contract together.
 
+Mutable stream, key-map and rendering owners now make their no-copy contract visible
+to `go vet` instead of relying on prose. In particular, copying a populated
+`keymap.Map` can no longer silently create one binding slice and one stale lookup tree
+that disagree. A source-derived architecture gate requires every exported type that
+states this contract to carry a direct `copylocks` marker, and verifies that a private
+marker still implements the methods the analyzer recognizes. The runtime reachability
+gate excludes exactly those two static-only marker methods through a self-tested
+filter instead of inventing calls that can never be part of the program.
+
+Terminal directory reports now construct file URLs with `net/url`, preserving path
+separators while escaping URL syntax, control bytes and platform separators through
+one standard-library path. The handwritten partial percent encoder was removed.
+
+The OSC 52 payload bound is now the constant `clipboard.MaxPayload`. A fixed protocol
+fact no longer has a function-shaped accessor, so compile-time and runtime consumers
+use the same one representation.
+
 ### Breaking API migration
 
 #### core
+
+- `clipboard.Limit` was removed. Use the byte constant `clipboard.MaxPayload`.
 
 - `program.Config.Terminal` changed from `term.Config` to `term.Features`. Supply
   only optional feature requests there; `Root` and `Inline` now decide screen

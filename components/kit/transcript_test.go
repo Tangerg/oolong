@@ -451,14 +451,14 @@ func TestNoCurrentMatchScrollsNowhere(t *testing.T) {
 	sc.ToBottom()
 	s := grid.NewSurface(20, 2)
 
-	for _, view := range []kit.Transcript{
+	for _, view := range []*kit.Transcript{
 		{Content: tr, Scroll: &sc},
 		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}, Current: 9},
 		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}, Current: -1},
 		// A match with no columns to show is not somewhere to go.
 		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}},
 	} {
-		drawTranscript(s.View(), &view)
+		drawTranscript(s.View(), view)
 		if !sc.AtBottom() {
 			t.Errorf("%+v moved the view off the end", view.Matches)
 			sc.ToBottom()
@@ -580,19 +580,19 @@ func TestTheTranscriptLeavesAloneWhatIsNotItsToAnswer(t *testing.T) {
 	var sel headless.Selection
 	for _, tc := range []struct {
 		name string
-		view kit.Transcript
+		view *kit.Transcript
 		ev   input.Mouse
 	}{
-		{name: "no content", view: kit.Transcript{Selection: &sel}, ev: press(0, time.Time{})},
-		{name: "no selection", view: kit.Transcript{Content: tr}, ev: press(0, time.Time{})},
+		{name: "no content", view: &kit.Transcript{Selection: &sel}, ev: press(0, time.Time{})},
+		{name: "no selection", view: &kit.Transcript{Content: tr}, ev: press(0, time.Time{})},
 		{
 			name: "the wrong button",
-			view: kit.Transcript{Content: tr, Selection: &sel},
+			view: &kit.Transcript{Content: tr, Selection: &sel},
 			ev:   input.Mouse{Action: input.MouseDown, Button: input.ButtonRight},
 		},
 		{
 			name: "the wheel",
-			view: kit.Transcript{Content: tr, Selection: &sel},
+			view: &kit.Transcript{Content: tr, Selection: &sel},
 			ev:   input.Mouse{Action: input.WheelDown},
 		},
 	} {

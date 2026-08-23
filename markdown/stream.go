@@ -43,6 +43,8 @@ import (
 // by the goroutine feeding and rendering one source and is not safe for concurrent
 // use. Its zero value is ready.
 type Stream struct {
+	noCopy noCopy
+
 	// look is how the blocks are drawn. Changing it affects what is published after
 	// the change and not what was published before it, which is the one thing a
 	// stream cannot go back on.
@@ -72,6 +74,13 @@ type Stream struct {
 	open  []Block
 	fresh bool
 }
+
+// noCopy makes the stream's single-owner contract visible to go vet. Its methods
+// are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // SetLook changes how unpublished text is rendered. Blocks already returned by
 // Feed cannot change; the open tail and everything published afterwards use look.

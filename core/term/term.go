@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	xterm "golang.org/x/term"
@@ -340,7 +340,7 @@ func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
 }
 
 // Copy asks the terminal to put text on the system clipboard, reporting false for
-// text too large to carry — see [clipboard.Limit].
+// text too large to carry — see [clipboard.MaxPayload].
 //
 // The terminal does it rather than the process, because the terminal is the only
 // part of this on the user's side of the connection. Over ssh, in a container, or
@@ -475,29 +475,13 @@ func (t *Terminal) ReportDirectory(path string) error {
 	// ssh connection that the path is not one of its own. A machine that cannot name
 	// itself reports none, which is the form's own way of saying "wherever this is".
 	host, _ := os.Hostname()
-	t.writer.Queue([]byte("\x1b]7;file://" + host + pathEscape(abs) + "\x1b\\"))
+	location := (&url.URL{
+		Scheme: "file",
+		Host:   host,
+		Path:   filepath.ToSlash(abs),
+	}).String()
+	t.writer.Queue([]byte("\x1b]7;" + location + "\x1b\\"))
 	return nil
-}
-
-// pathEscape percent-encodes the bytes of a path that cannot appear in a URL.
-//
-// url.PathEscape is not it: that escapes the separators too, and a path whose slashes
-// are %2F is a path no terminal will resolve. What has to go is the small set that
-// would end the sequence or be read as part of the URL's own syntax.
-func pathEscape(path string) string {
-	const hex = "0123456789ABCDEF"
-	var b strings.Builder
-	for i := range len(path) {
-		switch c := path[i]; {
-		case c > 0x20 && c < 0x7f && c != '%' && c != '#' && c != '?':
-			b.WriteByte(c)
-		default:
-			b.WriteByte('%')
-			b.WriteByte(hex[c>>4])
-			b.WriteByte(hex[c&0x0f])
-		}
-	}
-	return b.String()
 }
 
 // Size is the terminal's size in cells.

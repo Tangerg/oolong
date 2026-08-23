@@ -34,8 +34,12 @@ import (
 // width is what every height is a function of.
 //
 // The zero value is an empty transcript at width zero. Its first [Transcript.Stage]
-// establishes the width; subsequent appends reuse the last committed width.
+// establishes the width; subsequent appends reuse the last committed width. A
+// Transcript must not be copied after first use: retained blocks and pending layout
+// are one publication owner.
 type Transcript struct {
+	noCopy noCopy
+
 	// transcriptState is embedded because these are the transcript's committed
 	// values, not a cache beside it. A frame derives another complete state and swaps
 	// it in atomically; keeping both as the same entity prevents commit and Layout

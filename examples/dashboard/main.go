@@ -62,7 +62,7 @@ type dashboard struct {
 
 	pane   int
 	tabs   *headless.Tabs
-	strip  kit.Tabs
+	strip  *kit.Tabs
 	work   *queue
 	watch  *activity
 	prefs  *kit.Settings[preference]
@@ -89,7 +89,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 		Value: d.preferenceValue, Change: d.changePreference,
 	})
 
-	d.strip = *kit.NewTabs(kit.TabsConfig{
+	d.strip = kit.NewTabs(kit.TabsConfig{
 		Theme: theme, Glyphs: glyphs, Selection: headless.Bind(&d.pane),
 		Items: []headless.Tab{
 			{Title: "tasks", Of: d.work},

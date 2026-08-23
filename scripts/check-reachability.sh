@@ -16,10 +16,33 @@ command -v deadcode >/dev/null || {
 	exit 2
 }
 
+# noCopy.Lock and Unlock are consumed as a method set by go vet's copylocks
+# analyzer. A runtime call would be fake reachability and would contradict the
+# marker's contract, so remove exactly those two static-only methods from deadcode's
+# runtime graph. internal/arch independently derives every public no-copy promise and
+# verifies that both marker methods still exist.
+actionable_findings() {
+	sed -E '/: unreachable func: noCopy\.(Lock|Unlock)$/d'
+}
+
+# Keep the exception's boundary executable: changing the expression must not make an
+# ordinary unreachable method disappear with the marker pair.
+probe=$(
+	printf '%s\n' \
+		'owner.go:1: unreachable func: noCopy.Lock' \
+		'owner.go:2: unreachable func: noCopy.Unlock' \
+		'owner.go:3: unreachable func: owner.release' |
+		actionable_findings
+)
+if [[ "$probe" != 'owner.go:3: unreachable func: owner.release' ]]; then
+	echo "internal error: reachability exception lost its noCopy boundary" >&2
+	exit 2
+fi
+
 failed=false
 for goos in linux darwin windows; do
 	for module in $(scripts/modules.sh); do
-		findings=$(cd "$module" && GOOS="$goos" CGO_ENABLED=0 deadcode -test ./...)
+		findings=$(cd "$module" && GOOS="$goos" CGO_ENABLED=0 deadcode -test ./... | actionable_findings)
 		if [[ -n "$findings" ]]; then
 			printf '%s (%s):\n%s\n' "$module" "$goos" "$findings" >&2
 			failed=true

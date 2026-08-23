@@ -40,7 +40,12 @@ const eraseLine = "\x1b[K"
 // the next frame repaints in full from where the cursor was left. That is exact
 // when the terminal did not reflow and approximate when it did, which is the same
 // bargain every inline interface makes.
+//
+// An Inline must not be copied after first use. Its pending transcript, paired
+// surfaces and terminal cursor model are one publication owner.
 type Inline struct {
+	noCopy noCopy
+
 	buffers frameBuffer
 	// scratch is where printed rows are drawn before being encoded. It belongs to
 	// the block so it is always the block's width, which is the one width a printed

@@ -243,7 +243,7 @@ func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
 
 func TestCopyRefusesMoreThanItCanCarry(t *testing.T) {
 	tty, _ := open(t, term.Config{})
-	if tty.Copy(strings.Repeat("x", clipboard.Limit()+1)) {
+	if tty.Copy(strings.Repeat("x", clipboard.MaxPayload+1)) {
 		t.Error("a copy past the limit was reported as asked for")
 	}
 }
@@ -476,15 +476,16 @@ func TestNoAnswerIsReadAsTyping(t *testing.T) {
 
 func TestReportingTheDirectory(t *testing.T) {
 	tty, primary := open(t, term.Config{})
-	if err := tty.ReportDirectory("/tmp/some dir/x"); err != nil {
+	if err := tty.ReportDirectory("/tmp/some dir/%?#\x1b/x"); err != nil {
 		t.Fatalf("ReportDirectory: %v", err)
 	}
 	got := read(t, primary, time.Second)
 	if !strings.Contains(got, "\x1b]7;file://") {
 		t.Errorf("the terminal was sent %q, which does not report a directory", got)
 	}
-	// The separators survive and the space does not, or no terminal resolves it.
-	if !strings.Contains(got, "/tmp/some%20dir/x") {
+	// Separators survive while URL syntax and control bytes cannot become part of
+	// either the location or the surrounding terminal sequence.
+	if !strings.Contains(got, "/tmp/some%20dir/%25%3F%23%1B/x") {
 		t.Errorf("the path came out as %q", got)
 	}
 }

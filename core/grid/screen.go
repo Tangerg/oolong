@@ -77,8 +77,11 @@ type Cursor struct {
 //
 // A flush that would change nothing writes nothing at all — not even the frame
 // markers — because an idle UI should be silent on the wire and should leave the
-// cursor's blink undisturbed.
+// cursor's blink undisturbed. A Screen must not be copied after first use; its two
+// surfaces and terminal-state model are one publication owner.
 type Screen struct {
+	noCopy noCopy
+
 	buffers frameBuffer
 	cursor  cursorState
 	// placed is where this frame's drawing asked the cursor to go, reset by every

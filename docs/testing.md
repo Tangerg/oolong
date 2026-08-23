@@ -135,11 +135,31 @@ points may intentionally have no repository production call. Give that operation
 external-package behavioral test. Retain or remove it only after a separate review of
 its responsibility, abstraction level, overlap, and contract.
 
+The only static-only exception is `noCopy.Lock` and `noCopy.Unlock`. Their method set
+is consumed by `go vet`, and calling them merely to satisfy a runtime reachability
+tool would be fake evidence. The script filters exactly those two names and tests its
+own filter with synthetic marker and ordinary-method findings; the architecture gate
+separately proves the marker methods still exist.
+
 Reachability never authorizes removal. `scripts/check-api-changelog.sh` separately
 uses pinned `apidiff` against each preceding public module tag and requires every
 incompatible exported API change by exact name in the Unreleased migration ledger.
 That evidence cannot prove the design decision, but it prevents deletion or reshaping
 from being the silent way to satisfy the reachability gate.
+
+## Make single-owner types mechanically single-owner
+
+An exported mutable type whose documentation says it must not be copied after first
+use carries a direct `noCopy`, `sync`, or `sync/atomic` field. `go vet` therefore
+rejects value copies with the standard `copylocks` analyzer. The architecture gate
+derives these contracts from production documentation and also verifies that a
+private `noCopy` marker still implements both `Lock` and `Unlock`; neither the type
+list nor the marker's meaning can silently become stale.
+
+Use this contract only where copying would share mutable storage or lifecycle state.
+A deliberately copyable value should instead own immutable data or detach before a
+mutation, as `markdown.Doc` does. Do not add a marker merely because methods happen
+to use pointer receivers.
 
 Keep caller-visible behavior in external-package tests (`foo_test`). A white-box
 test may use the implementation package only when the property has no public form,

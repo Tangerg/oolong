@@ -38,6 +38,8 @@ type Resolver func(wait time.Duration, resolve func()) (cancel func())
 // The zero value is ready to use. A Matcher belongs to one goroutine and must not be
 // copied after first use.
 type Matcher struct {
+	noCopy noCopy
+
 	keys   input.Keys
 	at     time.Time
 	exact  Action
@@ -80,9 +82,11 @@ func (b Binding) String() string { return b.Keys.String() + " " + b.Action.Strin
 
 // Map associates chord sequences with actions.
 //
-// The zero value is an empty map. Use Map by pointer after binding keys; copying a
-// populated Map would share its internal tree.
+// The zero value is an empty map. A Map must not be copied after first use: a copy
+// would share the binding store and lookup tree while rebuilding only one of them.
 type Map struct {
+	noCopy noCopy
+
 	// Timeout controls how long a partially typed sequence remains current. Zero
 	// and negative values use [DefaultTimeout].
 	Timeout time.Duration
@@ -96,6 +100,13 @@ type Map struct {
 	bound []Binding
 	root  *trieNode
 }
+
+// noCopy makes the ownership contract above visible to go vet. Its methods are
+// never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // Bind associates keys with action, replacing an existing binding for the same
 // sequence. Empty actions and empty sequences are ignored.

@@ -216,21 +216,21 @@ func TestAnswerSanitizesWhatTheTerminalGaveBack(t *testing.T) {
 
 func TestCopyRefusesMoreThanATerminalWillTake(t *testing.T) {
 	channel := &clipboard.Channel{}
-	if _, ok := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.Limit())); !ok {
+	if _, ok := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.MaxPayload)); !ok {
 		t.Error("text exactly at the limit was refused")
 	}
-	if _, ok := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.Limit()+1)); ok {
+	if _, ok := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.MaxPayload+1)); ok {
 		t.Error("text past the limit was accepted")
 	}
 }
 
 func TestAnswerRefusesContentPastTheLimit(t *testing.T) {
-	over := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", clipboard.Limit()+1)))
+	over := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", clipboard.MaxPayload+1)))
 	if text, ok := answer(&clipboard.Channel{}, clipboard.System, "c;"+over); ok {
 		t.Errorf("an answer of %d bytes was accepted", len(text))
 	}
 
-	absurd := strings.Repeat("A", base64.StdEncoding.EncodedLen(clipboard.Limit())+4)
+	absurd := strings.Repeat("A", base64.StdEncoding.EncodedLen(clipboard.MaxPayload)+4)
 	if text, ok := answer(&clipboard.Channel{}, clipboard.System, "c;"+absurd); ok {
 		t.Errorf("an answer of %d bytes was accepted", len(text))
 	}
@@ -309,8 +309,8 @@ func FuzzAnswerNeverPanicsAndProducesOnlyValidText(f *testing.F) {
 		if !utf8.ValidString(text) {
 			t.Fatalf("accepted %q, which is not valid UTF-8", text)
 		}
-		if len(text) > clipboard.Limit() {
-			t.Fatalf("accepted %d bytes, past the limit of %d", len(text), clipboard.Limit())
+		if len(text) > clipboard.MaxPayload {
+			t.Fatalf("accepted %d bytes, past the limit of %d", len(text), clipboard.MaxPayload)
 		}
 	})
 }

@@ -33,9 +33,12 @@ type screenCell struct {
 // answers one testing question: what text occupies each cell after these renderer
 // writes?
 //
-// A Screen has a fixed positive size and is not safe for concurrent use. Obtain a
-// snapshot from [Transcript.Screen] when output may still be arriving.
+// A Screen has a fixed positive size and is not safe for concurrent use. It must not
+// be copied after first use. Obtain a snapshot from [Transcript.Screen] when output
+// may still be arriving.
 type Screen struct {
+	noCopy noCopy
+
 	size        Size
 	cells       []screenCell
 	at          image.Point
@@ -44,6 +47,13 @@ type Screen struct {
 	end         int
 	scan        ansi.Scanner
 }
+
+// noCopy makes the assertion model's single-owner contract visible to go vet. Its
+// methods are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
 
 // NewScreen returns a blank screen-state assertion model.
 func NewScreen(size Size) (*Screen, error) {
