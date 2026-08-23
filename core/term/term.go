@@ -37,11 +37,10 @@ var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
 
 // Features are the optional terminal behaviours a session requests.
 //
-// They are separate from [Config] because screen ownership is not an optional
-// terminal capability. A program's root kind decides whether it owns the alternate
-// screen; transports can therefore carry Features without acquiring a second way to
-// contradict that decision. The zero value asks for none of them, which is a
-// legitimate choice for a session that only wants raw keys.
+// They are separate from [Config] because optional capability requests can travel
+// between terminal transports without carrying the session's screen-ownership
+// decision with them. The zero value asks for none of them, which is a legitimate
+// choice for a session that only wants raw keys.
 type Features struct {
 	// Mouse asks for mouse reporting, including movement and not only clicks.
 	Mouse bool
@@ -69,7 +68,7 @@ type Features struct {
 // Features are requests the driven terminal may or may not support. AltScreen is
 // ownership: it decides whether closing the session restores the screen that was
 // present before it opened. Keeping the two facts distinct lets adapters share
-// feature requests without exposing screen ownership as a second program setting.
+// feature requests without duplicating that ownership decision.
 type Config struct {
 	// Features are the optional behaviours to request.
 	Features Features

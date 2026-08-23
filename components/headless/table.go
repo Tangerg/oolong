@@ -72,9 +72,9 @@ func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 	return t.column, t.descending, t.sorted
 }
 
-// Unsorted forgets the order, leaving the rows where they are. It is what a caller
+// ClearSort forgets the order, leaving the rows where they are. It is what a caller
 // calls when it has replaced the rows with something whose order means something.
-func (t *Table[T]) Unsorted() { t.sorted = false }
+func (t *Table[T]) ClearSort() { t.sorted = false }
 
 // SetItems replaces the rows, keeping the order the table is sorted by.
 //

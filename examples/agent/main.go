@@ -290,7 +290,7 @@ func (a *agent) startRun(prompt string) {
 	a.started = time.Now()
 	a.stopClock = a.runtime.Every(120*time.Millisecond, a.tick)
 
-	ingress, err := program.NewByteIngress(a.runtime.Dispatcher(), ingressSize, a.accept)
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: a.runtime.Dispatcher(), Limit: ingressSize, Consume: a.accept})
 	if err != nil {
 		a.finishRun(err)
 		return

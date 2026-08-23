@@ -87,9 +87,9 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	// A window shows the part of something taller than the room there is. The preview
 	// is ordinary wrapped text and knows nothing about being scrolled.
 	b.window = headless.NewViewport(headless.Static{Of: b.preview})
-	b.treeBox = kit.NewPanel(theme, glyphs, b.dressed)
+	b.treeBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs}, Content: b.dressed})
 	b.treeBox.Box.Title = "files"
-	b.viewBox = kit.NewPanel(theme, glyphs, b.window)
+	b.viewBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs}, Content: b.window})
 	b.viewBox.Box.Title = "preview"
 
 	// The two framed panes, with a column between them. A panel translates from its

@@ -30,7 +30,7 @@ func (c *component) Handle(event input.Event) bool {
 }
 
 func TestHostDrivesAProgramWithoutATerminal(t *testing.T) {
-	host := programtest.New(t, 30, 4)
+	host := programtest.New(t, programtest.Config{Width: 30, Height: 4})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
@@ -51,7 +51,7 @@ func TestHostDrivesAProgramWithoutATerminal(t *testing.T) {
 }
 
 func TestHostDoesNotInventOptionalCapabilities(t *testing.T) {
-	host := programtest.New(t, 20, 3)
+	host := programtest.New(t, programtest.Config{Width: 20, Height: 3})
 	if _, ok := any(host).(program.GroundHost); ok {
 		t.Fatal("test host implements GroundHost; capability absence cannot be tested")
 	}
@@ -64,7 +64,7 @@ func TestHostDoesNotInventOptionalCapabilities(t *testing.T) {
 }
 
 func TestEventsCanBeQueuedBeforeTheProgramStarts(t *testing.T) {
-	host := programtest.New(t, 20, 3)
+	host := programtest.New(t, programtest.Config{Width: 20, Height: 3})
 	for range 1_000 {
 		if !host.Send(input.Key{Code: input.Down}) {
 			t.Fatal("open host refused an event")
@@ -73,7 +73,7 @@ func TestEventsCanBeQueuedBeforeTheProgramStarts(t *testing.T) {
 }
 
 func TestResizeUsesTheProgramSurfaceBound(t *testing.T) {
-	host := programtest.New(t, 20, 3)
+	host := programtest.New(t, programtest.Config{Width: 20, Height: 3})
 	for _, size := range []struct{ width, height int }{
 		{0, 3}, {-1, 3}, {program.MaxCells, 2},
 	} {

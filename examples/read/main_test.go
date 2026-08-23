@@ -39,7 +39,7 @@ func (h *observedHost) state() (string, int) {
 }
 
 func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
-	host := &observedHost{Host: programtest.New(t, 72, 10)}
+	host := &observedHost{Host: programtest.New(t, programtest.Config{Width: 72, Height: 10})}
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

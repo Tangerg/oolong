@@ -21,8 +21,10 @@ func BenchmarkDiffFrame(b *testing.B) {
 					New:  i + 1,
 				}
 			}
-			d := kit.NewDiff(kit.Dark(), kit.Unicode(), []diff.Hunk{{Lines: script}})
-			d.ShowNumbers(true)
+			d := kit.NewDiff(kit.DiffConfig{
+				Theme: kit.Dark(), Glyphs: kit.Unicode(),
+				Hunks: []diff.Hunk{{Lines: script}}, Numbers: true,
+			})
 			view := grid.NewSurface(100, 60).View()
 			_ = d.Measure(100) // Measure one cold frame before reporting steady-state work.
 

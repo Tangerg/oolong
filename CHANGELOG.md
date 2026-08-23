@@ -56,6 +56,31 @@ remains only on that lower-level session configuration.
 text, so constructing a view cannot mutate controller behavior and a later explicit
 key map still drives both input and hints.
 
+Lower-layer documentation now rejects unqualified references to uniquely owned upper
+types as well as package-qualified links. The same dependency direction therefore
+governs API vocabulary even when a concrete type was written as `Runtime.After`
+without its package name.
+
+`term.LogTo` has been removed. Opening and configuring a diagnostic file is ordinary
+application logging policy; the terminal neither owns that file nor adds semantics to
+`os.OpenFile`, so keeping a wrapper in infrastructure created a second entry point for
+an operation outside its responsibility.
+
+Construction APIs now name complete state with explicit Config values. Diff
+appearance, hunks and initial line-number policy are one `kit.DiffConfig`; a panel's
+box and focusable content are one `kit.PanelConfig`; and bounded ingress ownership is
+one `program.ByteIngressConfig`. Runtime setters remain the one path for later state
+changes. The invariant-free `kit.NewCell` spelling was removed because `kit.Cell`
+already exposes the same two fields and normalizes its preferred width when measured.
+
+`headless.Root` now owns root replacement through `SetContent` and exposes the next
+tree through `Content`. The transaction boundary, committed input target and held
+pointer gesture can no longer be bypassed by assigning a semantic owner field.
+
+Clearing a `headless.Selection` now resets only its selected range and in-progress
+click run. It preserves the caller's configured `Clicks.Within` policy instead of
+silently replacing configuration while removing transient state.
+
 ### Breaking API migration
 
 #### core
@@ -66,6 +91,28 @@ key map still drives both input and hints.
 - `term.Config.Mouse`, `term.Config.Focus`, `term.Config.Keyboard`, and
   `term.Config.Probe` moved together to `term.Config.Features`. A direct terminal
   owner uses `term.Config{Features: term.Features{...}, AltScreen: ...}`.
+- `term.LogTo` was removed. Applications open and configure their diagnostic sink
+  directly with the standard library or their logging package.
+- `program.NewByteIngress` now accepts one `program.ByteIngressConfig`. Name the
+  dispatcher, byte limit and owner-side consumer in that value.
+- `programtest.New` now accepts `programtest.Config` beside the owning `testing.TB`.
+  Name the test terminal's positive `Width` and `Height` there.
+
+#### components
+
+- `headless.Root.Of` was removed. Use `root.SetContent(widget)` to replace the next
+  tree and `root.Content()` to observe it; `headless.NewRoot` remains the sole
+  construction entry.
+- `headless.(*Table[T]).Unsorted` was renamed to `headless.(*Table[T]).ClearSort`. The
+  name now describes a state-changing operation rather than reading like a bool query.
+- `kit.NewDiff` now accepts one `kit.DiffConfig`. Put `Theme`, `Glyphs`, `Hunks`, and
+  the optional initial `Numbers` policy in that value.
+- `kit.(*Diff).ShowNumbers` was renamed to `kit.(*Diff).SetNumbers`, matching the
+  other explicit lifetime mutations on Diff.
+- `kit.NewPanel` now accepts one `kit.PanelConfig`. Put the complete `Box` and
+  focusable `Content` in that value.
+- `kit.NewCell` was removed. Construct `kit.Cell{Preferred: ..., Paint: ...}` directly;
+  `kit.LabelCell` remains the one adapter for plain labels.
 
 ## [0.12.0] — 2026-08-14
 

@@ -8,7 +8,7 @@ import (
 )
 
 func TestItDrawsAndAnswersAndStops(t *testing.T) {
-	host := programtest.New(t, 60, 12)
+	host := programtest.New(t, programtest.Config{Width: 60, Height: 12})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

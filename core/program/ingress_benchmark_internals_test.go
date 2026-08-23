@@ -23,11 +23,11 @@ func BenchmarkByteIngressProducerBurst(b *testing.B) {
 				queue := newTaskQueue()
 				consumed := 0
 				final := false
-				ingress, err := NewByteIngress(Dispatcher{tasks: queue}, limit, func(batch ByteBatch) {
+				ingress, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: queue}, Limit: limit, Consume: func(batch ByteBatch) {
 					consumed += len(batch.Data)
 					final = batch.Final
 					batches++
-				})
+				}})
 				if err != nil {
 					b.Fatal(err)
 				}

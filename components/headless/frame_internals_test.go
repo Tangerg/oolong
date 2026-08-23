@@ -106,7 +106,10 @@ func TestRootPublishesItsOwnTargetWithTheCompleteFrame(t *testing.T) {
 		t.Fatal("a root handled input before it presented a target")
 	}
 	root.Draw(view)
-	root.Of = next
+	root.SetContent(next)
+	if root.Content() != next {
+		t.Fatal("root did not expose the replacement selected for its next frame")
+	}
 	root.Handle(input.Key{Code: input.Enter})
 	if old.events != 1 || next.events != 0 {
 		t.Fatalf("unpublished replacement received input: old=%d next=%d", old.events, next.events)
@@ -125,7 +128,7 @@ func TestAnAbortedRootReplacementKeepsThePresentedTarget(t *testing.T) {
 	root := NewRoot(old)
 	view := grid.NewSurface(1, 1).View()
 	root.Draw(view)
-	root.Of = next
+	root.SetContent(next)
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -149,7 +152,7 @@ func TestRootDoesNotTransferAPointerGestureToItsReplacement(t *testing.T) {
 	root.Draw(view)
 
 	root.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
-	root.Of = next
+	root.SetContent(next)
 	root.Draw(view)
 	root.Handle(input.Mouse{Action: input.MouseDrag, Pos: image.Pt(2, 2)})
 	root.Handle(input.Mouse{Action: input.MouseUp, Pos: image.Pt(2, 2)})

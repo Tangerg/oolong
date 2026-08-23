@@ -34,10 +34,23 @@ type Diff struct {
 
 var _ headless.Block = (*Diff)(nil)
 
-// NewDiff returns a diff that owns a copy of hunks.
-func NewDiff(theme Theme, glyphs Glyphs, hunks []diff.Hunk) *Diff {
-	d := &Diff{theme: theme, glyphs: glyphs}
-	d.SetHunks(hunks)
+// DiffConfig is the complete initial state of a [Diff]. Its zero value constructs
+// an empty, unnumbered diff with the package's zero appearance.
+type DiffConfig struct {
+	Theme   Theme
+	Glyphs  Glyphs
+	Hunks   []diff.Hunk
+	Numbers bool
+}
+
+// NewDiff returns a diff that owns a copy of config.Hunks.
+func NewDiff(config DiffConfig) *Diff {
+	d := &Diff{
+		theme:   config.Theme,
+		glyphs:  config.Glyphs,
+		numbers: config.Numbers,
+	}
+	d.SetHunks(config.Hunks)
 	return d
 }
 
@@ -79,10 +92,10 @@ func (d *Diff) SetGlyphs(glyphs Glyphs) {
 	d.invalidate()
 }
 
-// ShowNumbers controls whether each line's number in both texts appears down the
+// SetNumbers controls whether each line's number in both texts appears down the
 // left. Without numbers only the marks remain, which is what a narrow pane has room
 // for.
-func (d *Diff) ShowNumbers(show bool) {
+func (d *Diff) SetNumbers(show bool) {
 	if d == nil || d.numbers == show {
 		return
 	}

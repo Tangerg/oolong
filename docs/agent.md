@@ -97,9 +97,11 @@ adapter. The byte limit is an application policy based on expected chunking and
 acceptable memory.
 
 ```go
-ingress, err := program.NewByteIngress(
-    runtime.Dispatcher(), 64<<10, agent.accept,
-)
+ingress, err := program.NewByteIngress(program.ByteIngressConfig{
+    Dispatcher: runtime.Dispatcher(),
+    Limit:      64 << 10,
+    Consume:    agent.accept,
+})
 if err != nil {
     agent.finishRun(err)
     return

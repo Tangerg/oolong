@@ -33,22 +33,20 @@ type Cell struct {
 	Paint func(view grid.View, base grid.Style)
 }
 
-// NewCell builds a cell from its preferred width and painter.
-func NewCell(preferred int, paint func(view grid.View, base grid.Style)) Cell {
-	return Cell{Preferred: max(preferred, 0), Paint: paint}
-}
-
 // LabelCell adapts a [Label] into a measured table cell.
 //
 // The row's base style is merged under the label's style, so a selection or band is
 // retained unless the label deliberately replaces it.
 func LabelCell(label Label) Cell {
 	style := label.Style
-	return NewCell(text.Width(label.Text), func(view grid.View, base grid.Style) {
-		shown := label
-		shown.Style = base.Merge(style)
-		shown.Draw(view)
-	})
+	return Cell{
+		Preferred: text.Width(label.Text),
+		Paint: func(view grid.View, base grid.Style) {
+			shown := label
+			shown.Style = base.Merge(style)
+			shown.Draw(view)
+		},
+	}
 }
 
 // Measure reports the cell's intrinsic width.
@@ -85,8 +83,8 @@ type Table struct {
 	//			Align: columns[col].Align, Ellipsis: "…"})
 	//	}
 	//
-	// A custom cell uses [NewCell]. Its painter receives the row's base style — a
-	// band or selection — because replacing the cells over a filled row without it
+	// A custom cell uses a Cell literal. Its painter receives the row's base style —
+	// a band or selection — because replacing the cells over a filled row without it
 	// would erase the band. Cell and Paint are projection callbacks: they may run
 	// repeatedly during measurement and drawing and must be observationally pure.
 	Cell func(row, column int) Cell

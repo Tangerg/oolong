@@ -28,10 +28,21 @@ type Host struct {
 	ground grid.Ground
 }
 
+// Config is the complete initial state of a visual-test [Host]. Width and Height
+// must be positive terminal-cell dimensions. The zero Ground models an unknown
+// terminal background.
+type Config struct {
+	Width, Height int
+	Ground        grid.Ground
+}
+
 // New returns a visual host at size with the given terminal colours.
-func New(tb testing.TB, width, height int, ground grid.Ground) *Host {
+func New(tb testing.TB, config Config) *Host {
 	tb.Helper()
-	return &Host{Host: programtest.New(tb, width, height), ground: ground}
+	return &Host{
+		Host:   programtest.New(tb, programtest.Config{Width: config.Width, Height: config.Height}),
+		ground: config.Ground,
+	}
 }
 
 // Ground reports the terminal colours used to build the example's theme.

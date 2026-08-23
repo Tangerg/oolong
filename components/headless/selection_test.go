@@ -81,7 +81,10 @@ func TestSelectionIgnoresAPointerWithNoButtonDown(t *testing.T) {
 }
 
 func TestSelectionCoversWhatWasDraggedOver(t *testing.T) {
-	var s headless.Selection
+	s := headless.Selection{Clicks: headless.Clicks{Within: 250 * time.Millisecond}}
+	when := time.Unix(100, 0)
+	s.Clicks.Press(input.Mouse{Pos: image.Pt(1, 1), At: when})
+	s.Clicks.Press(input.Mouse{Pos: image.Pt(1, 1), At: when.Add(time.Millisecond)})
 	s.Begin(headless.Point{Row: 1, Col: 2})
 	s.Extend(headless.Point{Row: 3, Col: 4})
 
@@ -110,6 +113,12 @@ func TestSelectionCoversWhatWasDraggedOver(t *testing.T) {
 	}
 	if !s.Empty() {
 		t.Error("a cleared selection is not empty")
+	}
+	if s.Clicks.Within != 250*time.Millisecond {
+		t.Errorf("Clear changed the multi-click window to %v", s.Clicks.Within)
+	}
+	if got := s.Clicks.Press(input.Mouse{Pos: image.Pt(1, 1), At: when.Add(2 * time.Millisecond)}); got != 1 {
+		t.Errorf("first press after Clear = %d, want a new click run", got)
 	}
 }
 

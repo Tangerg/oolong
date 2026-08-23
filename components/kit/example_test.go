@@ -191,8 +191,10 @@ func ExampleNewDialog_controlled() {
 func ExampleDiff() {
 	before := strings.Split("keep\nold\nkeep", "\n")
 	after := strings.Split("keep\nnew\nkeep", "\n")
-	view := kit.NewDiff(kit.Dark(), kit.ASCII(), diff.Between(before, after).Hunks(1))
-	view.ShowNumbers(true)
+	view := kit.NewDiff(kit.DiffConfig{
+		Theme: kit.Dark(), Glyphs: kit.ASCII(),
+		Hunks: diff.Between(before, after).Hunks(1), Numbers: true,
+	})
 	show(16, view.Measure(16), view.Draw)
 
 	// Output:

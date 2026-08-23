@@ -190,7 +190,7 @@ func (t *transaction) abort() {
 //
 // The zero Root draws nothing and declines input.
 type Root struct {
-	Of Widget
+	of Widget
 
 	presentation Snapshot[Widget]
 	tx           transaction
@@ -201,7 +201,30 @@ type Root struct {
 }
 
 // NewRoot wraps a live widget tree in its presentation transaction.
-func NewRoot(of Widget) *Root { return &Root{Of: of} }
+func NewRoot(of Widget) *Root {
+	r := &Root{}
+	r.SetContent(of)
+	return r
+}
+
+// Content returns the widget tree used to build the next frame. Input continues to
+// target the last completely drawn tree until another Draw commits the replacement.
+func (r *Root) Content() Widget {
+	if r == nil {
+		return nil
+	}
+	return r.of
+}
+
+// SetContent replaces the widget tree used to build the next frame. An accepted
+// pointer gesture remains owned by its original target through release; replacing a
+// root cannot hand half a gesture to a different tree.
+func (r *Root) SetContent(of Widget) {
+	if r == nil {
+		return
+	}
+	r.of = of
+}
 
 // Draw builds and atomically commits one logical component frame.
 func (r *Root) Draw(view grid.View) {
@@ -215,9 +238,9 @@ func (r *Root) Draw(view grid.View) {
 		}
 	}()
 	frame := Frame{View: view, transaction: &r.tx, generation: r.tx.generation}
-	r.presentation.Stage(frame, r.Of)
-	if r.Of != nil {
-		r.Of.Draw(frame)
+	r.presentation.Stage(frame, r.of)
+	if r.of != nil {
+		r.of.Draw(frame)
 	}
 	r.tx.commit()
 }

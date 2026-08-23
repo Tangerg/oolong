@@ -288,15 +288,18 @@ func (q *queue) cell(row, column int) kit.Cell {
 	case 1:
 		return kit.LabelCell(kit.Label{Text: item.state, Style: q.state(item), Ellipsis: "…"})
 	default:
-		return kit.NewCell(12, func(v grid.View, _ grid.Style) {
-			kit.Progress{
-				Theme:   q.theme,
-				Glyphs:  q.view.Glyphs,
-				Done:    item.done,
-				Total:   item.total,
-				Percent: true,
-			}.Draw(v)
-		})
+		return kit.Cell{
+			Preferred: 12,
+			Paint: func(v grid.View, _ grid.Style) {
+				kit.Progress{
+					Theme:   q.theme,
+					Glyphs:  q.view.Glyphs,
+					Done:    item.done,
+					Total:   item.total,
+					Percent: true,
+				}.Draw(v)
+			},
+		}
 	}
 }
 

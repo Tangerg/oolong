@@ -11,9 +11,9 @@ func TestByteIngressBurstOccupiesOneOwnerTask(t *testing.T) {
 	tasks := newTaskQueue()
 	dispatch := Dispatcher{tasks: tasks}
 	var batches []ByteBatch
-	ingress, err := NewByteIngress(dispatch, 64, func(batch ByteBatch) {
+	ingress, err := NewByteIngress(ByteIngressConfig{Dispatcher: dispatch, Limit: 64, Consume: func(batch ByteBatch) {
 		batches = append(batches, batch)
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,9 +49,9 @@ func TestByteIngressBurstOccupiesOneOwnerTask(t *testing.T) {
 
 func TestByteIngressStopReleasesPendingBytes(t *testing.T) {
 	tasks := newTaskQueue()
-	ingress, err := NewByteIngress(Dispatcher{tasks: tasks}, 1<<20, func(ByteBatch) {
+	ingress, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: tasks}, Limit: 1 << 20, Consume: func(ByteBatch) {
 		t.Fatal("stopped ingress invoked its consumer")
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +88,9 @@ func TestByteIngressFinalDeliverySettlesCrossBoundaryReferences(t *testing.T) {
 	tasks := newTaskQueue()
 	cause := errors.New("source ended")
 	var delivered error
-	ingress, err := NewByteIngress(Dispatcher{tasks: tasks}, 16, func(batch ByteBatch) {
+	ingress, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: tasks}, Limit: 16, Consume: func(batch ByteBatch) {
 		delivered = batch.Err
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +118,9 @@ func TestByteIngressFinalDeliverySettlesCrossBoundaryReferences(t *testing.T) {
 
 func TestByteIngressOwnerShutdownSettlesAPanickingFinalConsumer(t *testing.T) {
 	tasks := newTaskQueue()
-	ingress, err := NewByteIngress(Dispatcher{tasks: tasks}, 16, func(ByteBatch) {
+	ingress, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: tasks}, Limit: 16, Consume: func(ByteBatch) {
 		panic("consumer failed")
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

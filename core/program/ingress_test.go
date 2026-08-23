@@ -19,9 +19,9 @@ func TestByteIngressPreservesDataAndFinalResultOrder(t *testing.T) {
 
 	cause := errors.New("source failed")
 	var batches []program.ByteBatch
-	ingress, err := program.NewByteIngress(r.root.runtime.Dispatcher(), 8, func(batch program.ByteBatch) {
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: r.root.runtime.Dispatcher(), Limit: 8, Consume: func(batch program.ByteBatch) {
 		batches = append(batches, batch)
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,9 +83,9 @@ func TestByteIngressBackpressuresTheProducer(t *testing.T) {
 		<-ready
 
 		var received atomic.Int64
-		ingress, err := program.NewByteIngress(root.runtime.Dispatcher(), 4, func(batch program.ByteBatch) {
+		ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: root.runtime.Dispatcher(), Limit: 4, Consume: func(batch program.ByteBatch) {
 			received.Add(int64(len(batch.Data)))
-		})
+		}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -153,9 +153,9 @@ func TestByteIngressCancellationUnblocksAndReleasesTheProducer(t *testing.T) {
 	<-ready
 
 	var consumed atomic.Bool
-	ingress, err := program.NewByteIngress(root.runtime.Dispatcher(), 4, func(program.ByteBatch) {
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: root.runtime.Dispatcher(), Limit: 4, Consume: func(program.ByteBatch) {
 		consumed.Store(true)
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,19 +192,19 @@ func TestByteIngressCancellationUnblocksAndReleasesTheProducer(t *testing.T) {
 
 func TestByteIngressRefusesInvalidConstructionAndRepeatedClose(t *testing.T) {
 	var dispatch program.Dispatcher
-	if _, err := program.NewByteIngress(dispatch, 1, func(program.ByteBatch) {}); !errors.Is(err, program.ErrStopped) {
+	if _, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: dispatch, Limit: 1, Consume: func(program.ByteBatch) {}}); !errors.Is(err, program.ErrStopped) {
 		t.Fatalf("zero dispatcher error = %v, want ErrStopped", err)
 	}
 
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	if _, err := program.NewByteIngress(r.root.runtime.Dispatcher(), 0, func(program.ByteBatch) {}); err == nil {
+	if _, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: r.root.runtime.Dispatcher(), Limit: 0, Consume: func(program.ByteBatch) {}}); err == nil {
 		t.Fatal("a zero byte limit was accepted")
 	}
-	if _, err := program.NewByteIngress(r.root.runtime.Dispatcher(), 1, nil); err == nil {
+	if _, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: r.root.runtime.Dispatcher(), Limit: 1, Consume: nil}); err == nil {
 		t.Fatal("a nil consumer was accepted")
 	}
-	ingress, err := program.NewByteIngress(r.root.runtime.Dispatcher(), 1, func(program.ByteBatch) {})
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: r.root.runtime.Dispatcher(), Limit: 1, Consume: func(program.ByteBatch) {}})
 	if err != nil {
 		t.Fatal(err)
 	}

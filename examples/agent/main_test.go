@@ -14,7 +14,7 @@ import (
 
 func runAgent(t *testing.T, backend agentBackend) (*programtest.Host, func()) {
 	t.Helper()
-	host := programtest.New(t, 90, 24)
+	host := programtest.New(t, programtest.Config{Width: 90, Height: 24})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {

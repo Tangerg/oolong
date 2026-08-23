@@ -43,7 +43,7 @@ func (h *observedHost) attention() (int, int) {
 }
 
 func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) {
-	host := &observedHost{Host: programtest.New(t, 60, 8)}
+	host := &observedHost{Host: programtest.New(t, programtest.Config{Width: 60, Height: 8})}
 	var r *runner
 	done := make(chan error, 1)
 	ready := make(chan error, 1)
@@ -58,7 +58,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 					command: []string{"a", "command"}, status: "running",
 				}
 				var err error
-				r.ingress, err = program.NewByteIngress(runtime.Dispatcher(), 8, r.accept)
+				r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 8, Consume: r.accept})
 				ready <- err
 				return r
 			},

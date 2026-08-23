@@ -52,19 +52,27 @@ type ByteIngress struct {
 	once sync.Once
 }
 
+// ByteIngressConfig owns the complete construction contract of a [ByteIngress].
+// Dispatcher and Consume are required. Limit is the maximum number of bytes accepted
+// but not yet taken by the interface owner and must be positive.
+type ByteIngressConfig struct {
+	Dispatcher Dispatcher
+	Limit      int
+	Consume    func(ByteBatch)
+}
+
 // NewByteIngress makes a bounded byte ingress.
 //
-// limit is the maximum number of bytes accepted but not yet taken by the interface
-// owner. It must be positive. consume must be non-nil. A stopped or zero dispatcher
-// is refused because it has no owner on which to invoke consume.
-func NewByteIngress(dispatch Dispatcher, limit int, consume func(ByteBatch)) (*ByteIngress, error) {
-	if limit <= 0 {
+// A stopped or zero dispatcher is refused because it has no owner on which to invoke
+// config.Consume.
+func NewByteIngress(config ByteIngressConfig) (*ByteIngress, error) {
+	if config.Limit <= 0 {
 		return nil, errors.New("program: byte ingress limit must be positive")
 	}
-	if consume == nil {
+	if config.Consume == nil {
 		return nil, errors.New("program: byte ingress requires a consumer")
 	}
-	ownerDone := dispatch.Done()
+	ownerDone := config.Dispatcher.Done()
 	select {
 	case <-ownerDone:
 		return nil, ErrStopped
@@ -72,9 +80,9 @@ func NewByteIngress(dispatch Dispatcher, limit int, consume func(ByteBatch)) (*B
 	}
 
 	i := &ByteIngress{
-		dispatch: dispatch,
-		limit:    limit,
-		consume:  consume,
+		dispatch: config.Dispatcher,
+		limit:    config.Limit,
+		consume:  config.Consume,
 		room:     make(chan struct{}, 1),
 		done:     make(chan struct{}),
 	}

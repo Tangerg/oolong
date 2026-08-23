@@ -278,10 +278,11 @@ func kitDrawPurityCases() []drawPurityCase {
 		name: "Table", width: 12, height: 2, draw: table.Draw, measure: table.Measure,
 	})
 
-	diffView := NewDiff(Dark(), Unicode(), []diff.Hunk{{
+	diffView := NewDiff(DiffConfig{Theme: Dark(), Glyphs: Unicode(), Hunks: []diff.Hunk{{
 		Lines: diff.Script{{Kind: diff.Added, Text: "one two three"}},
-	}})
-	diffView.ShowNumbers(true)
+	}}})
+
+	diffView.SetNumbers(true)
 	cases = append(cases, drawPurityCase{
 		name: "*Diff", width: 10, height: 3,
 		draw: diffView.Draw, measure: diffView.Measure,
@@ -310,7 +311,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	panelBody := &headless.Editor{}
 	panelBody.Insert("body")
 	panelBody.Focus(true)
-	panel := NewPanel(Theme{}, Unicode(), panelBody)
+	panel := NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Unicode()}, Content: panelBody})
 	panel.Box.Title = "panel"
 	cases = append(cases, widgetPurityCase("*Panel", panel, func() any {
 		return meaningOfEditor(panelBody)

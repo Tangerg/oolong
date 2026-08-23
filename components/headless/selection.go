@@ -68,7 +68,9 @@ func (s *Selection) Done() { s.dragging = false }
 
 // Clear removes the selection.
 func (s *Selection) Clear() {
-	*s = Selection{}
+	s.anchor, s.extent = Point{}, Point{}
+	s.active, s.dragging = false, false
+	s.Clicks.Reset()
 }
 
 // DiscardBefore removes the part of a selection whose rows no longer belong to the
@@ -265,7 +267,9 @@ func (c *Clicks) press(at image.Point, when time.Time) int {
 
 // Reset forgets the run, which a caller does when something else has happened that
 // makes the next press a first one.
-func (c *Clicks) Reset() { c.count = 0 }
+func (c *Clicks) Reset() {
+	c.at, c.last, c.count = image.Point{}, time.Time{}, 0
+}
 
 func coordinatesNear(a, b, slack int) bool {
 	if slack < 0 {

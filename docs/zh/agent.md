@@ -90,9 +90,11 @@ type conversation struct {
 应根据预期分块方式和可接受内存决定。
 
 ```go
-ingress, err := program.NewByteIngress(
-    runtime.Dispatcher(), 64<<10, agent.accept,
-)
+ingress, err := program.NewByteIngress(program.ByteIngressConfig{
+    Dispatcher: runtime.Dispatcher(),
+    Limit:      64 << 10,
+    Consume:    agent.accept,
+})
 if err != nil {
     agent.finishRun(err)
     return

@@ -15,8 +15,7 @@ import (
 // the frame, and participate in a [headless.Container] without pretending a passive
 // child is focusable.
 //
-// Use [NewPanel] for the ordinary rounded panel. The zero Panel has no child and
-// draws the zero Box.
+// The zero Panel has no child and draws the zero Box.
 type Panel struct {
 	// Box is the panel's frame, fill, padding, title, and footer. Replacing it changes
 	// appearance and interior geometry, never the child's behavior.
@@ -27,10 +26,18 @@ type Panel struct {
 	content headless.PointerRegion
 }
 
-// NewPanel returns a rounded panel around of.
-func NewPanel(theme Theme, glyphs Glyphs, of headless.Focusable) *Panel {
-	p := &Panel{Box: Box{Theme: theme, Glyphs: glyphs}}
-	p.SetContent(of)
+// PanelConfig is the complete initial state of a [Panel]. Box owns appearance and
+// interior geometry; Content owns the interaction lifecycle inside it. The zero
+// value constructs an empty panel.
+type PanelConfig struct {
+	Box     Box
+	Content headless.Focusable
+}
+
+// NewPanel returns a panel with config's frame and content.
+func NewPanel(config PanelConfig) *Panel {
+	p := &Panel{Box: config.Box}
+	p.SetContent(config.Content)
 	return p
 }
 

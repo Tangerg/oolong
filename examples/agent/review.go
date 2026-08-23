@@ -119,10 +119,9 @@ func (a *agent) buildReview() {
 		Hints: []keymap.Action{headless.Submit, headless.Cancel},
 	})
 	a.reviewPane = reviewPane{
-		diff: kit.NewDiff(a.theme, a.glyphs, nil),
+		diff: kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Numbers: true}),
 		form: dressed, theme: a.theme,
 	}
-	a.reviewPane.diff.ShowNumbers(true)
 	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
 		Stack: &a.stack, Theme: a.theme, Glyphs: a.glyphs,
 		Title: "Review tool call", Body: &a.reviewPane,
@@ -169,9 +168,10 @@ func (a *agent) showTool(result toolResult) {
 	a.conversation.Append(&kit.Message{
 		Theme: a.theme, Speaker: result.Name, Body: oneLine(result.Summary),
 	})
-	shown := kit.NewDiff(a.theme, a.glyphs,
-		diff.Between(result.Change.Before, result.Change.After).Hunks(2))
-	shown.ShowNumbers(true)
+	shown := kit.NewDiff(kit.DiffConfig{
+		Theme: a.theme, Glyphs: a.glyphs,
+		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
+	})
 	a.conversation.Append(shown)
 	a.conversation.Retain(a.runtime)
 }

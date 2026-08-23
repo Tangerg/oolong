@@ -21,7 +21,7 @@ var visualGround = grid.Ground{
 
 func runVisualAgent(t *testing.T, width, height int, depth grid.Depth) (*visualtest.Host, func()) {
 	t.Helper()
-	host := visualtest.New(t, width, height, visualGround)
+	host := visualtest.New(t, visualtest.Config{Width: width, Height: height, Ground: visualGround})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {

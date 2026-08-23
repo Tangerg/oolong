@@ -177,7 +177,7 @@ func (c *panelChild) Handle(event input.Event) bool {
 
 func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: child})
 	panel.Box.Padding = layout.Uniform(1)
 	panel.Box.Title = "pane"
 
@@ -195,7 +195,7 @@ func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 
 func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: child})
 	panel.Box.Padding = layout.Uniform(1)
 	root := headless.NewRoot(panel)
 	root.Draw(grid.NewSurface(12, 6).View())
@@ -219,7 +219,7 @@ func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
 	first := &panelChild{}
 	second := &panelChild{}
-	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), first)
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: first})
 	if panel.Content() != first || !first.focused {
 		t.Fatal("a new panel did not give its content the keyboard")
 	}
@@ -244,7 +244,7 @@ func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
 // release, leaving the child believing it is still being dragged.
 func TestPanelKeepsAGestureThatLeavesItsInterior(t *testing.T) {
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: child})
 	headless.NewRoot(panel).Draw(grid.NewSurface(10, 6).View())
 
 	press := input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}
@@ -274,7 +274,7 @@ func TestPanelKeepsAGestureThatLeavesItsInterior(t *testing.T) {
 // belonging to whatever the pointer is really over.
 func TestPanelDoesNotTakeAGestureItsChildRefused(t *testing.T) {
 	child := &panelChild{deaf: true}
-	panel := kit.NewPanel(kit.Theme{}, kit.Unicode(), child)
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: child})
 	headless.NewRoot(panel).Draw(grid.NewSurface(10, 6).View())
 
 	if panel.Handle(input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}) {

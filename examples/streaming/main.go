@@ -234,7 +234,7 @@ func (c *chat) startReply(prompt string) {
 	c.status.Doing = "receiving — ctrl+x cancels"
 	c.runtime.Session().SetTitle("receiving")
 
-	ingress, err := program.NewByteIngress(c.runtime.Dispatcher(), ingressLimit, c.accept)
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: c.runtime.Dispatcher(), Limit: ingressLimit, Consume: c.accept})
 	if err != nil {
 		c.finishReply(err)
 		return

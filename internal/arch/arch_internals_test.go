@@ -212,6 +212,7 @@ func TestEveryImportPointsDown(t *testing.T) {
 func TestDocumentationPointsDown(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()
+	typeRings := uniqueExportedTypeRings(t, root)
 	targets := []string{
 		"core/anim", "core/ansi", "core/clipboard", "core/diff", "core/fuzzy",
 		"core/graphics", "core/grid", "core/input", "core/layout", "core/link",
@@ -234,8 +235,83 @@ func TestDocumentationPointsDown(t *testing.T) {
 						dir, target, from, to)
 				}
 			}
+			for name, to := range typeRings {
+				if mayImport(from, to) || !mentionsType(comment, name) {
+					continue
+				}
+				t.Errorf("%s documents %s from %s without its package name (%s -> %s): lower contracts must not name upper types",
+					dir, name, to, from, to)
+			}
 		}
 	})
+}
+
+// uniqueExportedTypeRings finds type names whose owning ring is unambiguous. A
+// package-qualified documentation link is checked above; this set catches the other
+// easy leak, spelling an upper type as `Runtime.After` or [Runtime] and thereby
+// evading the package-name check. Names such as Config and Image that honestly exist
+// in several rings are left alone rather than guessed about.
+func uniqueExportedTypeRings(t *testing.T, root string) map[string]string {
+	t.Helper()
+	owners := make(map[string]map[string]bool)
+	walk(t, root, func(dir, path string) {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.TYPE {
+				continue
+			}
+			for _, specification := range general.Specs {
+				typeSpec := specification.(*ast.TypeSpec)
+				if !typeSpec.Name.IsExported() {
+					continue
+				}
+				if owners[typeSpec.Name.Name] == nil {
+					owners[typeSpec.Name.Name] = make(map[string]bool)
+				}
+				owners[typeSpec.Name.Name][ringOf(dir)] = true
+			}
+		}
+	})
+
+	unique := make(map[string]string)
+	for name, rings := range owners {
+		if len(rings) != 1 {
+			continue
+		}
+		for ring := range rings {
+			unique[name] = ring
+		}
+	}
+	return unique
+}
+
+func mentionsType(comment, name string) bool {
+	return strings.Contains(comment, "["+name+"]") ||
+		strings.Contains(comment, "["+name+".") ||
+		strings.Contains(comment, "`"+name+"`") ||
+		strings.Contains(comment, "`"+name+".")
+}
+
+func TestDocumentationRuleRecognizesUnqualifiedTypeReferences(t *testing.T) {
+	for _, test := range []struct {
+		comment string
+		want    bool
+	}{
+		{"assign `Runtime.After`", true},
+		{"see [Runtime.After]", true},
+		{"a [Runtime] owns it", true},
+		{"the `Runtime` value", true},
+		{"runtime schedules it", false},
+		{"Runtime prose without API markup", false},
+	} {
+		if got := mentionsType(test.comment, "Runtime"); got != test.want {
+			t.Errorf("mentionsType(%q, Runtime) = %t, want %t", test.comment, got, test.want)
+		}
+	}
 }
 
 // TestEachModuleDependsOnWhatItSaidItWould is the promise that makes this usable.
@@ -674,6 +750,84 @@ func TestConstructorRuleRecognizesConcreteResults(t *testing.T) {
 		function := file.Decls[0].(*ast.FuncDecl)
 		if got := constructedType(function); got != test.want {
 			t.Errorf("constructedType(%q) = %q, want %q", test.source, got, test.want)
+		}
+	}
+}
+
+// TestConstructorsNameRelatedSettings prevents a constructor from growing a list of
+// positional settings. One or two parameters commonly name the content or owner at
+// the boundary; once a constructor needs three, the complete setting vocabulary must
+// be visible in an explicit Config value. This is deliberately about construction,
+// not arbitrary functions whose arguments describe an operation.
+func TestConstructorsNameRelatedSettings(t *testing.T) {
+	root := repoRoot(t)
+	walk(t, root, func(_, path string) {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || constructedType(function) == "" || parameterCount(function.Type.Params) < 3 ||
+				hasConfigParameter(function.Type.Params) {
+				continue
+			}
+			position := fset.Position(function.Pos())
+			relative, relErr := filepath.Rel(root, position.Filename)
+			if relErr != nil {
+				t.Fatalf("make %s relative: %v", position.Filename, relErr)
+			}
+			t.Errorf("%s:%d declares the positional constructor %s with three or more inputs; name related settings in one Config value",
+				filepath.ToSlash(relative), position.Line, function.Name.Name)
+		}
+	})
+}
+
+func parameterCount(fields *ast.FieldList) int {
+	if fields == nil {
+		return 0
+	}
+	count := 0
+	for _, field := range fields.List {
+		count += max(len(field.Names), 1)
+	}
+	return count
+}
+
+func hasConfigParameter(fields *ast.FieldList) bool {
+	if fields == nil {
+		return false
+	}
+	for _, field := range fields.List {
+		if strings.HasSuffix(typeName(field.Type), "Config") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestConstructorSettingsRuleRecognizesConfiguration(t *testing.T) {
+	tests := []struct {
+		source string
+		want   bool
+	}{
+		{"func NewThing(a, b, c int) *Thing", true},
+		{"func NewThing(a int, b string, config Config) *Thing", false},
+		{"func OpenThing(a, b int, config transport.Config) (*Thing, error)", false},
+		{"func NewThing(a, b int) *Thing", false},
+		{"func ParseThing(a, b, c int) *Thing", false},
+	}
+	for _, test := range tests {
+		file, err := parser.ParseFile(token.NewFileSet(), "rule.go", "package rule\n"+test.source, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %q: %v", test.source, err)
+		}
+		function := file.Decls[0].(*ast.FuncDecl)
+		got := constructedType(function) != "" && parameterCount(function.Type.Params) >= 3 &&
+			!hasConfigParameter(function.Type.Params)
+		if got != test.want {
+			t.Errorf("positionalConstructor(%q) = %t, want %t", test.source, got, test.want)
 		}
 	}
 }

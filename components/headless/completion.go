@@ -124,8 +124,8 @@ func (c Candidate) shown() string {
 // should know about.
 //
 // It draws itself into the space it is given, and knows nothing about floating. A
-// caller that wants it over the text puts it in an [Overlay], which is the piece that
-// owns placement.
+// caller that wants it over the text composes it with an appearance-layer placement
+// wrapper; that wrapper, not completion behavior, owns the geometry.
 type Completion struct {
 	// Look is how the rows are drawn: the text, the row under the cursor, the
 	// characters the query matched, and the detail beside a candidate. It is the one

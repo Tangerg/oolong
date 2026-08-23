@@ -24,7 +24,7 @@ func tree() []headless.Node[entry] {
 }
 
 func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
-	host := programtest.New(t, 70, 14)
+	host := programtest.New(t, programtest.Config{Width: 70, Height: 14})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

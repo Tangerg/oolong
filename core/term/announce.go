@@ -1,8 +1,6 @@
 package term
 
 import (
-	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -149,31 +147,3 @@ func printable(s string) string {
 }
 
 func unprintable(r rune) bool { return r < 0x20 || r == 0x7f }
-
-// LogTo opens a file for a program's diagnostics while the terminal is taken.
-//
-// An interface owns the screen: a line printed to standard output lands in the
-// middle of a frame, moves everything below it, and is gone by the next repaint. So
-// a program being debugged needs somewhere else to write, and the usual somewhere is
-// a file being followed in another window.
-//
-// It is opened for appending, so a run does not lose the run before it, and it is
-// the caller's to close. Pointing the standard library's logger at it is one line
-// and is deliberately not done here — a library that reached into a program's global
-// logging would be deciding something that is not its to decide:
-//
-//	f, err := term.LogTo("debug.log")
-//	if err != nil {
-//		return err
-//	}
-//	defer f.Close()
-//	log.SetOutput(f)
-func LogTo(path string) (*os.File, error) {
-	//nolint:gosec // G304: the path is the caller's, and opening the file they named
-	// is the whole of what this does.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("term: open a log: %w", err)
-	}
-	return f, nil
-}

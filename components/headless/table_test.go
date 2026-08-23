@@ -99,7 +99,7 @@ func TestReplacingTheRowsKeepsTheOrder(t *testing.T) {
 
 	// Until the order is given up, which is what a caller does when the rows arrive
 	// in an order that means something.
-	tbl.Unsorted()
+	tbl.ClearSort()
 	tbl.SetItems([]row{{"delta", 9}, {"charlie", 8}})
 	if got := ordered(tbl); got != "delta charlie" {
 		t.Fatalf("after giving up the order the rows are %q", got)

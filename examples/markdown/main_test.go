@@ -8,7 +8,7 @@ import (
 )
 
 func TestTheDocumentReflowsAndQuits(t *testing.T) {
-	host := programtest.New(t, 72, 20)
+	host := programtest.New(t, programtest.Config{Width: 72, Height: 20})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

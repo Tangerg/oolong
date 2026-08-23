@@ -11,7 +11,7 @@ import (
 
 func runPrompt(t *testing.T) (*programtest.Host, <-chan error) {
 	t.Helper()
-	host := programtest.New(t, 80, 16)
+	host := programtest.New(t, programtest.Config{Width: 80, Height: 16})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

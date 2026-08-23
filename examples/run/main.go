@@ -84,7 +84,7 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	runtime.Session().SetTitle(strings.Join(command, " "))
 	runtime.Every(120*time.Millisecond, r.spinner.Tick)
 	var err error
-	r.ingress, err = program.NewByteIngress(runtime.Dispatcher(), 64<<10, r.accept)
+	r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 64 << 10, Consume: r.accept})
 	if err != nil {
 		r.finish(err)
 		return r

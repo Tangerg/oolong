@@ -8,7 +8,7 @@ import (
 )
 
 func TestThePeerRenderersComposeAndQuit(t *testing.T) {
-	host := programtest.New(t, 88, 22)
+	host := programtest.New(t, programtest.Config{Width: 88, Height: 22})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

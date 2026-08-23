@@ -27,9 +27,9 @@ const DefaultTimeout = time.Second
 // Resolver schedules resolve after wait and returns a function that cancels it.
 //
 // It is the policy seam for a binding that is both an exact match and a prefix of a
-// longer binding. `Runtime.After` has this shape, but keymap deliberately
-// does not import the program package or own a clock. Resolve must run on the same
-// goroutine that calls [Matcher.Handle]. Calling it after cancellation is harmless.
+// longer binding. An event owner's one-shot scheduler has this shape; keymap neither
+// imports that owner nor owns a clock. Resolve must run on the same goroutine that
+// calls [Matcher.Handle]. Calling it after cancellation is harmless.
 type Resolver func(wait time.Duration, resolve func()) (cancel func())
 
 // Matcher reads one [Map] for one event owner.
@@ -88,9 +88,9 @@ type Map struct {
 	Timeout time.Duration
 	// Resolve decides when an exact binding that is also a prefix should run. Nil
 	// waits for another key: a continuation takes the longer binding, while a key
-	// that cannot continue it settles the exact binding first. Assign
-	// `Runtime.After` to make the exact binding run after Timeout even when
-	// no further input arrives.
+	// that cannot continue it settles the exact binding first. Assign the event
+	// owner's one-shot scheduler to make the exact binding run after Timeout even
+	// when no further input arrives.
 	Resolve Resolver
 
 	bound []Binding

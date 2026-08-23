@@ -8,7 +8,7 @@ import (
 )
 
 func TestTheFormulaDrawsDirectlyAndQuits(t *testing.T) {
-	host := programtest.New(t, 72, 16)
+	host := programtest.New(t, programtest.Config{Width: 72, Height: 16})
 	done := make(chan error, 1)
 	go func() {
 		done <- program.Run(t.Context(), program.Config{

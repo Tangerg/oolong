@@ -65,11 +65,11 @@ Create ingress on the interface goroutine. The limit counts accepted bytes that 
 owner has not consumed:
 
 ```go
-ingress, err := program.NewByteIngress(
-    runtime.Dispatcher(),
-    64<<10,
-    chat.accept,
-)
+ingress, err := program.NewByteIngress(program.ByteIngressConfig{
+    Dispatcher: runtime.Dispatcher(),
+    Limit:      64 << 10,
+    Consume:    chat.accept,
+})
 if err != nil {
     chat.finish(err)
     return

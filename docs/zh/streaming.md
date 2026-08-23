@@ -57,11 +57,11 @@ HTTP 响应体、`exec.Cmd.Stdout` 或模型流都可以适配这个形状。数
 在界面 goroutine 上创建摄入对象。容量表示已经接收但尚未被所有者消费的字节数：
 
 ```go
-ingress, err := program.NewByteIngress(
-    runtime.Dispatcher(),
-    64<<10,
-    chat.accept,
-)
+ingress, err := program.NewByteIngress(program.ByteIngressConfig{
+    Dispatcher: runtime.Dispatcher(),
+    Limit:      64 << 10,
+    Consume:    chat.accept,
+})
 if err != nil {
     chat.finish(err)
     return

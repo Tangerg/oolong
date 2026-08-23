@@ -44,13 +44,20 @@ type Host struct {
 	closed atomic.Bool
 }
 
-// New returns a host of the given positive cell size.
+// Config is the complete initial state of a test [Host]. Width and Height must be
+// positive terminal-cell dimensions.
+type Config struct {
+	Width  int
+	Height int
+}
+
+// New returns a host of the configured positive cell size.
 //
 // t owns the host. Its cleanup closes the asynchronous frame writer after the test
 // context has been cancelled, so a failed test cannot leave a goroutine behind.
-func New(tb testing.TB, width, height int) *Host {
+func New(tb testing.TB, config Config) *Host {
 	tb.Helper()
-	if err := program.ValidateSize(width, height); err != nil {
+	if err := program.ValidateSize(config.Width, config.Height); err != nil {
 		tb.Fatalf("programtest: %v", err)
 	}
 	out := newSink()
@@ -58,8 +65,8 @@ func New(tb testing.TB, width, height int) *Host {
 		input:  newEventSource(),
 		writer: term.NewWriter(out),
 		out:    out,
-		w:      width,
-		h:      height,
+		w:      config.Width,
+		h:      config.Height,
 	}
 	tb.Cleanup(func() {
 		if err := host.Close(); err != nil {
