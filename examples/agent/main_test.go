@@ -12,6 +12,27 @@ import (
 	"github.com/Tangerg/oolong/core/programtest"
 )
 
+func TestParseCommandKeepsProductSyntaxInTheApplication(t *testing.T) {
+	for _, tc := range []struct {
+		line      string
+		name, arg string
+		ok        bool
+	}{
+		{line: "/clear", name: "clear", ok: true},
+		{line: "/model gpt-5", name: "model", arg: "gpt-5", ok: true},
+		{line: "/model   spaced  out  ", name: "model", arg: "spaced  out", ok: true},
+		{line: "/", ok: true},
+		{line: "not a command", ok: false},
+		{line: "", ok: false},
+		{line: " /clear", ok: false},
+	} {
+		name, arg, ok := parseCommand(tc.line)
+		if ok != tc.ok || name != tc.name || arg != tc.arg {
+			t.Errorf("%q = (%q, %q, %v), want (%q, %q, %v)", tc.line, name, arg, ok, tc.name, tc.arg, tc.ok)
+		}
+	}
+}
+
 func runAgent(t *testing.T, backend agentBackend) (*programtest.Host, func()) {
 	t.Helper()
 	host := programtest.New(t, programtest.Config{Width: 90, Height: 24})

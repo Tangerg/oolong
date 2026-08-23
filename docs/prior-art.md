@@ -335,6 +335,12 @@ application policy attached to ordinary reusable mechanisms.
 | **Asynchronous completion sources** | agentui and pi-tui file, shell and reference providers | `Completion.Offer(token, candidates)` remains the presentation seam. The application owns I/O, cancellation and validating the token/editor snapshot before offering a result. |
 | **A file picker** | bubbles `filepicker` | `Tree`, `Editor`, `Completion`, `Scroll` and `Selection` already provide the mechanics. Filesystem roots, hidden-file rules and traversal permissions are application security policy, not a shared widget. |
 
+`Commands[T]` therefore indexes only searchable command descriptions and an opaque
+caller-owned value. It does not prescribe an argument shape, store an execution
+callback of its own type, or parse a slash-prefixed product language; the application
+chooses `T` and its input grammar. This keeps registry metadata and application meaning
+in one registration without moving either execution policy or syntax into `headless`.
+
 `examples/composer` and `examples/agent` are two consumers of `Completion.Offer` and
 can produce their application-owned candidates directly. A generic `Source` would
 make the component start I/O, import cancellation policy and become a second owner of

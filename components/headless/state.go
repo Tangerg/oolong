@@ -79,12 +79,15 @@ func (v *valueState[T]) get(binding Accessor[T]) T {
 }
 
 func (v *valueState[T]) set(binding Accessor[T], value T) bool {
-	if v.get(binding) == value {
+	before := v.get(binding)
+	if before == value {
 		return false
 	}
 	if binding != nil {
 		binding.Set(value)
-		return true
+		// The accessor owns acceptance. It may validate or normalize value, and its
+		// postcondition makes the accepted Value the only truthful change result.
+		return binding.Value() != before
 	}
 	v.local = value
 	return true

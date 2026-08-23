@@ -243,6 +243,9 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 }
 
 // expired reports whether timed input can no longer continue the held sequence.
+// A chord arriving exactly at the timeout is still in the sequence: Timeout is an
+// inclusive interaction window, while a Resolver callback is an owner-queue task
+// that settles the prefix once that window has elapsed without another chord.
 // Synthetic events with no arrival time never expire because no elapsed time can be
 // inferred from them.
 func (m *Matcher) expired(timeout time.Duration, now time.Time) bool {

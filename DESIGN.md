@@ -332,7 +332,8 @@ row each of them starts at. One coordinate space that everything else answers in
 runs off the interface's goroutine and keeps only the newest query, and **sticky
 headers** that keep the question on screen while the answer scrolls past. Plus the two
 halves of a prompt: **history** that gives back the draft it interrupted, and a
-**command registry** ranked by what was typed and by what was used last.
+**command registry** ranked by what was typed and by what was used last, carrying an
+opaque caller value without learning how that application parses or runs a command.
 
 Nothing here decides what any of it looks like. A list draws a row by calling back to
 whoever does, which is the one design decision that makes the ring above it optional.
@@ -348,8 +349,8 @@ scrollbar, help row, table with a sortable header, tab strip, tree, a floating l
 with shading, a transcript view that lays selection and search results over what was
 drawn, a command palette that picks out the characters a query matched, a diff, a
 dressed form, the same form as a conversation in words, and the three pieces a
-streaming interface is actually made of — a composer, a status line, and a printed
-message. Plus a semantic palette, `Theme`, whose
+streaming interface is actually made of — a composer, a status line, and a labelled
+entry. Plus a semantic palette, `Theme`, whose
 names are roles rather than colours and which follows what the terminal said it draws
 on, and a glyph set with an ASCII fallback for a terminal whose locale says it cannot
 draw the other one.

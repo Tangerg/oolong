@@ -121,7 +121,7 @@ func (c *Channel) Request(sel Selection) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.clock()
-	if c.pending && !now.After(c.until) {
+	if c.live(now) {
 		return "", false
 	}
 	sel = normalized(sel)
@@ -144,10 +144,7 @@ func (c *Channel) Answer(params string) (string, bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.pending {
-		return "", false
-	}
-	if c.clock().After(c.until) {
+	if !c.live(c.clock()) {
 		c.pending = false
 		return "", false
 	}
@@ -159,6 +156,12 @@ func (c *Channel) Answer(params string) (string, bool) {
 	_, text, ok := parse(params)
 	return text, ok
 }
+
+// live is the one ownership rule for both issuing a request and settling its answer.
+// A deadline is the first instant no request is live, matching context and network
+// deadline semantics; keeping the comparison here prevents the two operations from
+// disagreeing at that exact boundary.
+func (c *Channel) live(now time.Time) bool { return c.pending && now.Before(c.until) }
 
 func (c *Channel) clock() time.Time {
 	if c.now != nil {

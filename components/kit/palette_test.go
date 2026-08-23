@@ -9,11 +9,11 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 )
 
-func commands(t *testing.T) *headless.Commands {
+func commands(t *testing.T) *headless.Commands[struct{}] {
 	t.Helper()
-	var c headless.Commands
-	c.Add(headless.Command{Name: "new-session", Title: "start again"})
-	c.Add(headless.Command{Name: "clear", Title: "empty the screen"})
+	var c headless.Commands[struct{}]
+	c.Add(headless.Command{Name: "new-session", Title: "start again"}, struct{}{})
+	c.Add(headless.Command{Name: "clear", Title: "empty the screen"}, struct{}{})
 	return &c
 }
 

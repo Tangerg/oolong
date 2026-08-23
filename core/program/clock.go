@@ -53,12 +53,13 @@ func (c *clockLifetime) Stop() {
 	})
 }
 
-// After schedules fn once on the interface goroutine after d. The returned stop
-// function is concurrency-safe and idempotent. Stop prevents work that has not begun;
-// when it races with the callback starting, either may win.
+// After schedules fn once on the interface goroutine after d. A non-positive delay
+// makes fn ready for the next owner turn; it does not call fn inline. The returned
+// stop function is concurrency-safe and idempotent. Stop prevents work that has not
+// begun; when it races with the callback starting, either may win.
 func (r *Runtime) After(d time.Duration, fn func()) (stop func()) {
 	p := r.owner()
-	if p == nil || d <= 0 || fn == nil {
+	if p == nil || fn == nil {
 		return func() {}
 	}
 	lifetime := newClockLifetime()
@@ -83,7 +84,8 @@ func (r *Runtime) After(d time.Duration, fn func()) (stop func()) {
 	return lifetime.Stop
 }
 
-// Every schedules coalesced ticks on the interface goroutine.
+// Every schedules coalesced ticks on the interface goroutine. A non-positive
+// interval or nil fn schedules nothing.
 func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
 	p := r.owner()
 	if p == nil || d <= 0 || fn == nil {

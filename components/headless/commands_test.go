@@ -6,15 +6,15 @@ import (
 	"github.com/Tangerg/oolong/components/headless"
 )
 
-func registry() *headless.Commands {
-	var c headless.Commands
+func registry() *headless.Commands[string] {
+	var c headless.Commands[string]
 	for _, cmd := range []headless.Command{
 		{Name: "new-session", Title: "start again"},
 		{Name: "clear", Title: "empty the screen", Aliases: []string{"cls"}},
-		{Name: "model", Title: "choose a model", Takes: true},
+		{Name: "model", Title: "choose a model"},
 		{Name: "quit", Title: "leave"},
 	} {
-		c.Add(cmd)
+		c.Add(cmd, "value:"+cmd.Name)
 	}
 	return &c
 }
@@ -118,15 +118,15 @@ func TestCommandsIgnoreUseOfSomethingUnregistered(t *testing.T) {
 func TestCommandsReplaceByName(t *testing.T) {
 	c := registry()
 	before := c.Len()
-	c.Add(headless.Command{Name: "clear", Title: "something else"})
+	c.Add(headless.Command{Name: "clear", Title: "something else"}, "replacement")
 	if c.Len() != before {
 		t.Errorf("adding a command of an existing name made %d of them", c.Len())
 	}
-	cmd, ok := c.Lookup("clear")
-	if !ok || cmd.Title != "something else" {
-		t.Errorf("lookup found %+v (%v)", cmd, ok)
+	cmd, value, ok := c.Lookup("clear")
+	if !ok || cmd.Title != "something else" || value != "replacement" {
+		t.Errorf("lookup found %+v, %q (%v)", cmd, value, ok)
 	}
-	c.Add(headless.Command{})
+	c.Add(headless.Command{}, "ignored")
 	if c.Len() != before {
 		t.Errorf("a command with no name was registered")
 	}
@@ -134,22 +134,22 @@ func TestCommandsReplaceByName(t *testing.T) {
 
 func TestCommandsOwnAliasesAcrossTheirBoundary(t *testing.T) {
 	aliases := []string{"old-name"}
-	var commands headless.Commands
-	commands.Add(headless.Command{Name: "current", Aliases: aliases})
+	var commands headless.Commands[string]
+	commands.Add(headless.Command{Name: "current", Aliases: aliases}, "meaning")
 	aliases[0] = "changed-outside"
 
-	if _, ok := commands.Lookup("old-name"); !ok {
+	if _, _, ok := commands.Lookup("old-name"); !ok {
 		t.Fatal("changing the Add input changed the registered aliases")
 	}
-	command, _ := commands.Lookup("current")
+	command, _, _ := commands.Lookup("current")
 	command.Aliases[0] = "changed-result"
-	if _, ok := commands.Lookup("old-name"); !ok {
+	if _, _, ok := commands.Lookup("old-name"); !ok {
 		t.Fatal("changing a Lookup result changed the registered aliases")
 	}
 
 	found := commands.Find("")
 	found[0].Command.Aliases[0] = "changed-found"
-	if _, ok := commands.Lookup("old-name"); !ok {
+	if _, _, ok := commands.Lookup("old-name"); !ok {
 		t.Fatal("changing a Find result changed the registered aliases")
 	}
 }
@@ -160,7 +160,7 @@ func TestCommandsRemove(t *testing.T) {
 	if !c.Remove("quit") {
 		t.Fatal("removing a registered command reported false")
 	}
-	if _, ok := c.Lookup("quit"); ok {
+	if _, _, ok := c.Lookup("quit"); ok {
 		t.Error("it is still there")
 	}
 	// And it is gone from the recent list too, or an empty query would list a
@@ -176,58 +176,41 @@ func TestCommandsRemove(t *testing.T) {
 }
 
 func TestLookupTakesAnAlias(t *testing.T) {
-	if _, ok := registry().Lookup("cls"); !ok {
+	if _, _, ok := registry().Lookup("cls"); !ok {
 		t.Error("an alias did not find its command")
 	}
-	if _, ok := registry().Lookup("nothing"); ok {
+	if _, _, ok := registry().Lookup("nothing"); ok {
 		t.Error("a name nobody registered found something")
 	}
 }
 
 func TestAnExactCommandNameOutranksAnotherCommandsAlias(t *testing.T) {
-	var commands headless.Commands
-	commands.Add(headless.Command{Name: "old", Aliases: []string{"current"}})
-	commands.Add(headless.Command{Name: "current"})
-	got, ok := commands.Lookup("current")
+	var commands headless.Commands[int]
+	commands.Add(headless.Command{Name: "old", Aliases: []string{"current"}}, 1)
+	commands.Add(headless.Command{Name: "current"}, 2)
+	got, value, ok := commands.Lookup("current")
 	if !ok || got.Name != "current" {
 		t.Fatalf("Lookup(current) = %+v, %v; want the exact command", got, ok)
 	}
-}
-
-func TestParseSplitsACommandFromItsArgument(t *testing.T) {
-	for _, tc := range []struct {
-		line      string
-		name, arg string
-		ok        bool
-	}{
-		{line: "/clear", name: "clear", ok: true},
-		{line: "/model gpt-5", name: "model", arg: "gpt-5", ok: true},
-		{line: "/model   spaced  out  ", name: "model", arg: "spaced  out", ok: true},
-		{line: "/", ok: true},
-		{line: "not a command", ok: false},
-		{line: "", ok: false},
-		{line: " /clear", ok: false},
-	} {
-		name, arg, ok := headless.Parse(tc.line)
-		if ok != tc.ok || name != tc.name || arg != tc.arg {
-			t.Errorf("%q = (%q, %q, %v), want (%q, %q, %v)", tc.line, name, arg, ok, tc.name, tc.arg, tc.ok)
-		}
+	if value != 2 {
+		t.Fatalf("Lookup(current) value = %d, want the exact command's value", value)
 	}
 }
 
-func TestFindIgnoresTheSlash(t *testing.T) {
-	// A palette is fed the whole line, slash and all.
-	if got := names(registry().Find("/clear")); len(got) == 0 || got[0] != "clear" {
-		t.Errorf("found %v", got)
+func TestCommandsDoNotInterpretApplicationSyntax(t *testing.T) {
+	// A slash is one application's command introducer, not part of searching a
+	// registry. The application extracts its query before it reaches this layer.
+	if got := names(registry().Find("/clear")); len(got) != 0 {
+		t.Errorf("a generic registry interpreted slash syntax and found %v", got)
 	}
 }
 
 func TestCommandsRememberOnlyRecently(t *testing.T) {
 	// Past a handful, "recently" stops meaning anything and the list is just the
 	// registry again.
-	var c headless.Commands
+	var c headless.Commands[struct{}]
 	for i := range 40 {
-		c.Add(headless.Command{Name: string(rune('a'+i%26)) + string(rune('0'+i/26))})
+		c.Add(headless.Command{Name: string(rune('a'+i%26)) + string(rune('0'+i/26))}, struct{}{})
 	}
 	for i := range 40 {
 		c.Used(string(rune('a'+i%26)) + string(rune('0'+i/26)))

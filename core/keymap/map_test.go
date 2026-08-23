@@ -179,6 +179,19 @@ func TestASequenceLeftTooLongIsOver(t *testing.T) {
 	}
 }
 
+func TestASequenceAtItsTimeoutStillCompletes(t *testing.T) {
+	m := &keymap.Map{Timeout: 100 * time.Millisecond}
+	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+	var matcher keymap.Matcher
+	now := time.Unix(1700000000, 0)
+
+	match(&matcher, m, at(input.Chord{Rune: 'g'}, now))
+	action, mine := match(&matcher, m, at(input.Chord{Rune: 'g'}, now.Add(m.Timeout)))
+	if !mine || action != "go-to-top" {
+		t.Fatalf("chord at timeout = %q (mine=%v), want the sequence completed", action, mine)
+	}
+}
+
 func TestASequenceFromTheFutureDoesNotJoinThePresent(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})

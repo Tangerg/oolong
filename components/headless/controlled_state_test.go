@@ -22,6 +22,15 @@ type countedAccessor[T any] struct {
 	writes int
 }
 
+type rejectingIntAccessor struct {
+	value  int
+	writes int
+}
+
+func (a *rejectingIntAccessor) Value() int { return a.value }
+
+func (a *rejectingIntAccessor) Set(int) { a.writes++ }
+
 func (a *countedAccessor[T]) Value() T { return a.value }
 
 func (a *countedAccessor[T]) Set(value T) {
@@ -263,6 +272,18 @@ func TestControlledScalarsWriteOnlyTransitions(t *testing.T) {
 		}
 		if !slider.Set(6) || slider.Set(6) || value.value != 6 || value.writes != 1 {
 			t.Fatalf("slider=%d writes=%d, want 6 after one", value.value, value.writes)
+		}
+	})
+
+	t.Run("slider reports the value its owner accepted", func(t *testing.T) {
+		value := &rejectingIntAccessor{value: 5}
+		slider := headless.NewSlider(headless.SliderConfig{Value: value, Minimum: 0, Maximum: 10})
+		if slider.Set(6) {
+			t.Fatal("Set reported a change the state owner rejected")
+		}
+		if value.value != 5 || value.writes != 1 || slider.Value() != 5 {
+			t.Fatalf("value=%d writes=%d slider=%d, want one rejected write and value 5",
+				value.value, value.writes, slider.Value())
 		}
 	})
 

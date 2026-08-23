@@ -18,6 +18,28 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+The command registry now owns only reusable command mechanics: canonical names,
+aliases, descriptions, fuzzy ranking and recency. `headless.Commands[T]` carries an
+opaque caller value beside that metadata, so an application keeps behavior and
+registration in one place without teaching the framework its argument shape or
+execution callback. Slash-prefixed parsing has moved into the agent example that owns
+that product grammar.
+
+Clipboard read ownership now expires at its deadline, not one clock tick after it.
+Issuing a replacement and accepting an answer share one live-request predicate, so
+they cannot disagree about who owns an unidentified OSC 52 response at the boundary.
+
+Controlled scalar operations now report whether the caller-owned accessor actually
+accepted a different value, rather than reporting that the component merely requested
+one. Accessor validation and normalization therefore remain the single source of truth
+for `Slider.Set`, `Slider.Sync`, and tab synchronization results.
+
+Breaking. `headless.Command.Takes` and `headless.Command.Run` were removed. Store that
+application policy in the value passed to `headless.(*Commands[T]).Add`; retrieve both
+the command description and value from `headless.(*Commands[T]).Lookup`.
+`headless.Parse` was removed; parse the application's command syntax at its input
+boundary.
+
 Every module now requires Go 1.27. The repository has one language floor rather than
 letting workspace builds hide a newer dependency from modules that claimed an older
 one. CI exercises every module independently with `GOWORK=off` on the initial Go 1.27
@@ -175,6 +197,15 @@ use the same one representation.
 
 #### components
 
+- `headless.Commands` now has a caller-value type parameter. Declare, for example,
+  `headless.Commands[Action]`, pass the value beside its description to `Add`, and
+  receive the description, value, and presence result from `Lookup`.
+- `headless.Command.Takes` was removed. Keep argument policy in the value registered
+  with `headless.Commands[T]`.
+- `headless.Command.Run` was removed. Keep execution behavior in that same opaque
+  caller value; the registry never invokes it.
+- `headless.Parse` was removed. Parse slash commands or any other product input
+  grammar in the application before searching the registry.
 - `kit.Message` was replaced by `kit.Entry`. Put the generic source name in `Label`,
   and put application-owned emphasis such as `theme.Accent` in `LabelStyle`; there is
   no replacement for the product-specific `Speaker` and `Own` decisions.
@@ -686,6 +717,10 @@ the lower `grid.Drawable` contract, and both `grid.Inline.Print` and
 private wrap cache.
 
 ### Changed
+
+- `program.(*Runtime).After` now schedules non-positive delays for the next owner
+  turn instead of silently discarding them, matching one-shot timer semantics without
+  calling application code inline.
 
 - **The reader path now grows from the actual minimum.** `examples/hello` uses only
   `core` and states the complete two-method component contract. The README, first

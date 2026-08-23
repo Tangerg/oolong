@@ -869,6 +869,32 @@ func TestAfterRunsOnceOnTheInterfaceOwner(t *testing.T) {
 	})
 }
 
+func TestNonPositiveAfterRunsOnTheNextOwnerTurn(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+
+		var calls atomic.Int64
+		r.onLoop(func() {
+			for _, delay := range []time.Duration{0, -time.Nanosecond} {
+				r.root.runtime.After(delay, func() { calls.Add(1) })
+			}
+			if calls.Load() != 0 {
+				t.Fatal("a non-positive delay ran inline instead of returning to the owner queue")
+			}
+		})
+		r.until("both ready callbacks", func() bool { return calls.Load() == 2 })
+		time.Sleep(time.Millisecond)
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("ready callbacks ran %d times, want once each", got)
+		}
+		r.quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
+	})
+}
+
 func TestAfterCanBeStopped(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r := start(t, nil)

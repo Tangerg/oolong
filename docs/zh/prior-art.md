@@ -287,6 +287,11 @@ resize_viewport_height,
 | **异步 completion source** | agentui 与 pi-tui 的 file、shell 和 reference provider | `Completion.Offer(token, candidates)` 继续是呈现接缝。应用拥有 I/O、取消，并在 offer 结果前验证 token/editor snapshot。 |
 | **file picker** | bubbles `filepicker` | `Tree`、`Editor`、`Completion`、`Scroll` 与 `Selection` 已经提供机制。文件系统根、隐藏文件规则与遍历权限是应用安全 policy，不是共享 widget。 |
 
+因此，`Commands[T]` 只索引可搜索的命令描述与一个由调用方拥有的不透明值。它不规定参数
+形状，不存储由自己定义类型的执行回调，也不解析以斜杠开头的产品语言；应用自行选择 `T`
+和输入语法。这样，registry metadata 与应用含义仍在一次注册中保持一致，又不会把执行 policy
+或语法下沉到 `headless`。
+
 `examples/composer` 与 `examples/agent` 是 `Completion.Offer` 的两个消费方，都能直接
 产生由应用拥有的候选。通用 `Source` 会让组件开始 I/O、导入取消 policy，并成为 editor
 状态的第二个 owner。agentui 的 generation check 与 pi-tui 的 text/line/column/request-id check

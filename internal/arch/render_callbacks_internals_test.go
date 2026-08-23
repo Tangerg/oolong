@@ -18,7 +18,6 @@ const (
 	callbackProjection callbackPhase = "projection"
 	callbackSemantic   callbackPhase = "semantic"
 	callbackEvent      callbackPhase = "event"
-	callbackCarried    callbackPhase = "carried"
 )
 
 type callbackRule struct {
@@ -28,11 +27,10 @@ type callbackRule struct {
 
 // renderingCallbacks classifies every function value retained by a projection
 // package. Projection callbacks are the only ones Draw or Measure may invoke. A
-// semantic callback belongs to an explicit model update, an event callback belongs to
-// input handling, and a carried callback is data this library returns but never calls.
-// Exact source-derived keys make both a new unclassified callback and a stale rule fail.
+// semantic callback belongs to an explicit model update, and an event callback belongs
+// to input handling. Exact source-derived keys make both a new unclassified callback
+// and a stale rule fail.
 var renderingCallbacks = map[string]callbackRule{
-	"components/headless:Command.Run":       {callbackCarried, "commands carry application behavior for the caller to invoke"},
 	"components/headless:Completion.Accept": {callbackEvent, "acceptance follows an input action after the completion closes"},
 	"components/headless:Confirm.Check":     {callbackEvent, "validation follows an answer change or form submission"},
 	"components/headless:Filter.Row":        {callbackProjection, "a matched row paints only its assigned frame"},
@@ -118,14 +116,14 @@ func callbackPhaseProblems(found map[string]bool, rules map[string]callbackRule)
 		rule, ok := rules[callback]
 		if !ok {
 			problems = append(problems,
-				fmt.Sprintf("retained rendering callback %s has no projection, semantic, event, or carried phase", callback))
+				fmt.Sprintf("retained rendering callback %s has no projection, semantic, or event phase", callback))
 			continue
 		}
 		if rule.reason == "" {
 			problems = append(problems, fmt.Sprintf("rendering callback %s has no phase reason", callback))
 		}
 		switch rule.phase {
-		case callbackProjection, callbackSemantic, callbackEvent, callbackCarried:
+		case callbackProjection, callbackSemantic, callbackEvent:
 		default:
 			problems = append(problems,
 				fmt.Sprintf("rendering callback %s has unknown phase %q", callback, rule.phase))
@@ -155,7 +153,7 @@ func TestRenderingCallbackPhaseRegistryRejectsIncompleteClaims(t *testing.T) {
 		"rendering callback phase sample:Stale is stale",
 		"rendering callback sample:Blank has no phase reason",
 		`rendering callback sample:Unknown has unknown phase "surprise"`,
-		"retained rendering callback sample:Missing has no projection, semantic, event, or carried phase",
+		"retained rendering callback sample:Missing has no projection, semantic, or event phase",
 	}
 	if got := callbackPhaseProblems(found, rules); !slices.Equal(got, want) {
 		t.Fatalf("phase problems = %q, want %q", got, want)

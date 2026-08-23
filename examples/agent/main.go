@@ -55,7 +55,7 @@ type agent struct {
 	workflow     workflow
 	status       kit.Status
 	composer     kit.Composer
-	commands     headless.Commands
+	commands     headless.Commands[commandAction]
 	completion   headless.Completion
 	body         *headless.Container
 	stack        headless.Stack
@@ -72,6 +72,11 @@ type agent struct {
 	stopClock         func()
 	stopProgressReset func()
 	started           time.Time
+}
+
+type commandAction struct {
+	takesArgument bool
+	run           func(string)
 }
 
 func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
@@ -169,7 +174,7 @@ func (a *agent) submit() {
 	if line == "" {
 		return
 	}
-	if name, arg, command := headless.Parse(line); command {
+	if name, arg, command := parseCommand(line); command {
 		a.composer.Editor().Clear()
 		a.completion.Dismiss()
 		a.runCommand(name, arg)
@@ -185,18 +190,18 @@ func (a *agent) submit() {
 }
 
 func (a *agent) registerCommands() {
-	a.commands.Add(headless.Command{
-		Name: "help", Title: "show the commands available in this session",
-		Run: func(string) {
+	a.commands.Add(
+		headless.Command{Name: "help", Title: "show the commands available in this session"},
+		commandAction{run: func(string) {
 			a.conversation.Append(&kit.Entry{
 				Theme: a.theme, Label: "commands",
 				Body: "/clear — release the live transcript\n/model <fast|careful> — choose the mock plan\n/quit — leave",
 			})
-		},
-	})
-	a.commands.Add(headless.Command{
-		Name: "clear", Title: "release the live transcript",
-		Run: func(string) {
+		}},
+	)
+	a.commands.Add(
+		headless.Command{Name: "clear", Title: "release the live transcript"},
+		commandAction{run: func(string) {
 			if a.run != nil {
 				a.status.Doing = "the active run owns the transcript"
 				return
@@ -204,11 +209,11 @@ func (a *agent) registerCommands() {
 			a.conversation.Reset()
 			a.workflow.Reset()
 			a.status.Doing = "cleared"
-		},
-	})
-	a.commands.Add(headless.Command{
-		Name: "model", Title: "choose fast or careful planning", Takes: true,
-		Run: func(arg string) {
+		}},
+	)
+	a.commands.Add(
+		headless.Command{Name: "model", Title: "choose fast or careful planning"},
+		commandAction{takesArgument: true, run: func(arg string) {
 			switch arg {
 			case "fast", "careful":
 				a.model = arg
@@ -216,26 +221,34 @@ func (a *agent) registerCommands() {
 			default:
 				a.status.Doing = "usage: /model fast|careful"
 			}
-		},
-	})
-	a.commands.Add(headless.Command{
-		Name: "quit", Title: "leave the agent", Aliases: []string{"exit"},
-		Run: func(string) { a.runtime.Quit() },
-	})
+		}},
+	)
+	a.commands.Add(
+		headless.Command{Name: "quit", Title: "leave the agent", Aliases: []string{"exit"}},
+		commandAction{run: func(string) { a.runtime.Quit() }},
+	)
 }
 
 func (a *agent) runCommand(name, arg string) {
-	command, ok := a.commands.Lookup(name)
-	if !ok || command.Run == nil {
+	command, action, ok := a.commands.Lookup(name)
+	if !ok || action.run == nil {
 		a.status.Doing = "unknown command: /" + name
 		return
 	}
-	if command.Takes && arg == "" {
+	if action.takesArgument && arg == "" {
 		a.status.Doing = "/" + command.Name + " needs an argument"
 		return
 	}
 	a.commands.Used(command.Name)
-	command.Run(arg)
+	action.run(arg)
+}
+
+func parseCommand(line string) (name, arg string, ok bool) {
+	if !strings.HasPrefix(line, "/") {
+		return "", "", false
+	}
+	name, arg, _ = strings.Cut(strings.TrimPrefix(line, "/"), " ")
+	return name, strings.TrimSpace(arg), true
 }
 
 func (a *agent) refreshCompletion() {
