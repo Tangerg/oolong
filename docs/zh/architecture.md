@@ -302,9 +302,12 @@ flowchart BT
     SSH["可选 SSH 传输适配器"] --> Program
     ProgramTest["in-process program harness"] --> Program
     Harness["PTY and screen assertions"] --> Model
+    ComponentIdentity["模块私有的组件身份"]
     Headless["headless components"] --> Interaction
     Headless --> Model
+    Headless --> ComponentIdentity
     Kit["default appearance"] --> Headless
+    Kit --> ComponentIdentity
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     Latex["mathematical layout"] --> Model
@@ -317,6 +320,11 @@ flowchart BT
     App --> Highlight
     App --> Latex
 ```
+
+组件身份不是第五层公开阶梯。它是一个模块私有的实现包，唯一职责是在不要求外部
+widget 可比较的前提下，安全判断两个开放接口值是否可以证明为同一个拥有者。
+headless 路由与 kit 所有权转移都需要这条规则；焦点、指针和布局策略仍然留在使用
+该答案的领域类型中。
 
 同级内容模块通过消费方拥有的语义块接缝组合，而不是彼此 import。Markdown 拥有
 语法识别，并暴露 fenced code、display mathematics 这类稳定语义；renderer 只接收
@@ -462,6 +470,7 @@ import 该适配器的应用才承担它的外部依赖。
 | 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
 | 失败与所有权结算 | [`program` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 覆盖输入原因、分配前的非法或过量宿主几何、部分输出、失败后不再写入、排空超时、能力缺席；[`term` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) 覆盖真实 PTY 拆除，[`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) 覆盖短写/部分写与有界关闭 | 切片 1 及每一个新宿主 |
 | 公开构造只有一种语言 | `internal/arch` 拒绝函数式选项、导出的 `Options` 配置、拥有三个以上位置输入却没有显式 `Config` 的构造器，以及返回同一具体类型却未声明的多个 `New...` 或 `Open...` 入口；罕见的第二个资源获取入口必须点明精确的所有权或生命周期边界 | 每次 CI |
+| 语义状态与焦点只有一个拥有者 | [`internal/arch`](https://github.com/Tangerg/oolong/blob/main/internal/arch/facade_internals_test.go) 拒绝 kit 方法镜像 controller 或 editor 的部分状态 API；组件所有权测试要求重复安装可证明为同一身份的孩子及重复报告同一焦点状态保持幂等，而模块私有的身份原语为开放组件接口提供共享的保守比较 | 每次 CI，以及每一个新组件包装器 |
 | 每一条可调用路径都有可执行证据 | 钉住版本的 `golang.org/x/tools/cmd/deadcode` 带测试分析每个模块在 Linux、macOS 与 Windows 上的源码；私有不可达代码应当删除，公开不可达操作应当获得调用方视角的契约覆盖，而保留或删除必须由独立 API 设计评审决定 | 每次 CI 与发布 |
 | 公开模块兼容性 | 每个模块在没有 `go.work` 的情况下构建；每次变更都由钉住版本的 `apidiff` 把各公开模块与前一个不可变 tag 比对，并要求每个不兼容的导出 API 变更以精确名称出现在 Unreleased 迁移清单中；发布流程还会运行钉住版本的 `gorelease`，报告 pre-1.0 的变更并拒绝违反 Go 兼容性的 v1+ tag 提案；日常 CI 检查声明的 Go 下限与受支持源码集 | 每次 CI、打 tag 前的手动发布检查，以及每一个公开模块 tag |
 

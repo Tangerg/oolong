@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -63,6 +64,9 @@ func (p *Viewport) Content() Sized {
 // position is preserved and clamped to the new content on its next layout.
 func (p *Viewport) SetContent(content Sized) {
 	if p == nil {
+		return
+	}
+	if identity.Same(p.content, content) {
 		return
 	}
 	tell(p.content, false)

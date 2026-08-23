@@ -20,8 +20,8 @@ import (
 // to stop someone finding out whether the library is any good.
 //
 // Enter is left alone, as [headless.Editor] leaves it: whether it sends or breaks the
-// line is the interface's decision and not a widget's. Ask [Composer.Text] for what
-// was typed and [Composer.Reset] to clear it.
+// line is the interface's decision and not a widget's. [Composer.Editor] is the one
+// behavior surface for reading, replacing and clearing what was typed.
 type Composer struct {
 	Theme Theme
 	// Prompt marks the first row of the field. Empty draws no marker and gives the
@@ -49,21 +49,9 @@ var composerKeys = sync.OnceValue(headless.DefaultEditorKeys)
 // enough for a paragraph, few enough to leave the transcript visible above it.
 const DefaultComposerRows = 8
 
-// Text is what has been typed.
-func (c *Composer) Text() string { return c.editor.Text() }
-
-// SetText replaces what has been typed and puts the cursor at the end.
-func (c *Composer) SetText(s string) { c.editor.SetText(s) }
-
-// Empty reports whether nothing has been typed.
-func (c *Composer) Empty() bool { return c.editor.Empty() }
-
-// Reset empties the field, which is what to do once a message has been sent.
-func (c *Composer) Reset() { c.editor.Clear() }
-
 // Editor is the field itself. Its Placeholder, Keys, Clipboard and editing options
-// configure composer input directly; its cursor, history and completion operations
-// remain available without a second facade over the same state.
+// configure composer input directly. Text, cursor, history and completion operations
+// all remain on that owner instead of acquiring a partial second facade on Composer.
 func (c *Composer) Editor() *headless.Editor { return &c.editor }
 
 // Focus takes the keyboard, or gives it up, and passes the news to the field. A

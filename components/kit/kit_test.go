@@ -149,6 +149,7 @@ func TestBoxOverheadMatchesWhatItDraws(t *testing.T) {
 
 type panelChild struct {
 	focused bool
+	focuses int
 	across  int
 	event   input.Event
 	// deaf refuses every event, which is how a press that begins no interaction is
@@ -165,7 +166,10 @@ func (c *panelChild) Measure(across int) int {
 	return 2
 }
 
-func (c *panelChild) Focus(has bool) { c.focused = has }
+func (c *panelChild) Focus(has bool) {
+	c.focused = has
+	c.focuses++
+}
 
 func (c *panelChild) Handle(event input.Event) bool {
 	if c.deaf {
@@ -222,6 +226,10 @@ func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
 	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: first})
 	if panel.Content() != first || !first.focused {
 		t.Fatal("a new panel did not give its content the keyboard")
+	}
+	panel.SetContent(first)
+	if first.focuses != 1 {
+		t.Fatalf("same panel content received %d focus transitions, want only construction", first.focuses)
 	}
 
 	panel.Focus(false)
@@ -1026,7 +1034,7 @@ func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 func TestTheComposerShowsASelection(t *testing.T) {
 	th := kit.Dark()
 	c := &kit.Composer{Theme: th, Prompt: "> "}
-	c.SetText("hello world")
+	c.Editor().SetText("hello world")
 	c.Editor().SetCursor(0, 0)
 	for range 5 {
 		c.Handle(input.Key{Code: input.Right, Mods: input.Shift})
@@ -1123,7 +1131,7 @@ func TestParagraphStillHyperlinksAURL(t *testing.T) {
 // tries.
 func TestTheComposerCanBeClickedInto(t *testing.T) {
 	c := &kit.Composer{Theme: kit.Dark(), Prompt: "> "}
-	c.SetText("hello world")
+	c.Editor().SetText("hello world")
 	c.Editor().SetCursor(0, 0)
 
 	s := grid.NewSurface(30, 3)
@@ -1141,7 +1149,7 @@ func TestTheComposerCanBeClickedInto(t *testing.T) {
 func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
 	// A click is about a frame, and there has not been one.
 	c := &kit.Composer{Theme: kit.Dark()}
-	c.SetText("hello")
+	c.Editor().SetText("hello")
 	if c.Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Error("it answered a click about a frame that was never drawn")
 	}
@@ -1213,7 +1221,7 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 
 func TestNilTreeIsAnEmptyWidget(t *testing.T) {
 	var tree *kit.Tree[string]
-	if tree.Controller() != nil || tree.Focused() || tree.Handle(input.Key{Code: input.Enter}) {
+	if tree.Controller() != nil || tree.Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("a nil tree reported controller, focus, or handled input")
 	}
 	if got := tree.Measure(20); got != 0 {
@@ -1339,7 +1347,7 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 	// With a handle and a cell size it keeps the room, and the cells stay blank: what
 	// goes there is written by the frame, not drawn into it.
 	shown := kit.Image{
-		Of:   graphics.Image{ID: 3, Width: 200, Height: 100},
+		Of:   graphics.Image{ID: 3, Size: image.Pt(200, 100)},
 		Cell: image.Pt(10, 20),
 	}
 	if got := shown.Measure(40); got != 5 {
@@ -1362,7 +1370,7 @@ func TestALayerPassesTheKeyboardToWhatIsInIt(t *testing.T) {
 	body := &spy{}
 	stack := &headless.Stack{}
 	dialog := kit.NewDialog(kit.DialogConfig{Stack: stack, Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: body})
-	dialog.Show()
+	dialog.Controller().Show()
 	stack.Focus(true)
 
 	if !body.focused {

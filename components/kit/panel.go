@@ -2,6 +2,7 @@ package kit
 
 import (
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
 )
@@ -54,6 +55,9 @@ func (p *Panel) Content() headless.Focusable {
 // truthful; use [Box] directly for passive content.
 func (p *Panel) SetContent(child headless.Focusable) {
 	if p == nil {
+		return
+	}
+	if identity.Same(p.child, child) {
 		return
 	}
 	if p.child != nil {

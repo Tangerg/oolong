@@ -935,7 +935,7 @@ type falliblePicture struct {
 	eraseErr error
 }
 
-func (p *falliblePicture) Paint(w io.Writer, _, _ int) error {
+func (p *falliblePicture) Paint(w io.Writer, _ image.Point) error {
 	if p.paintErr != nil {
 		return p.paintErr
 	}
@@ -1106,8 +1106,8 @@ func TestChangingOnlyAPaintRegionStillProducesAFrame(t *testing.T) {
 	}
 }
 
-func (p picture) Paint(w io.Writer, cols, rows int) error {
-	*p.log = append(*p.log, fmt.Sprintf("paint %s %dx%d", p.name, cols, rows))
+func (p picture) Paint(w io.Writer, size image.Point) error {
+	*p.log = append(*p.log, fmt.Sprintf("paint %s %dx%d", p.name, size.X, size.Y))
 	_, err := io.WriteString(w, "<"+p.name+">")
 	return err
 }

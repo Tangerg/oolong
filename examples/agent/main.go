@@ -165,12 +165,12 @@ func (a *agent) Handle(event input.Event) bool {
 }
 
 func (a *agent) submit() {
-	line := strings.TrimSpace(a.composer.Text())
+	line := strings.TrimSpace(a.composer.Editor().Text())
 	if line == "" {
 		return
 	}
 	if name, arg, command := headless.Parse(line); command {
-		a.composer.Reset()
+		a.composer.Editor().Clear()
 		a.completion.Dismiss()
 		a.runCommand(name, arg)
 		return
@@ -179,7 +179,7 @@ func (a *agent) submit() {
 		a.status.Doing = "finish or cancel the current run first"
 		return
 	}
-	a.composer.Reset()
+	a.composer.Editor().Clear()
 	a.completion.Dismiss()
 	a.startRun(line)
 }
@@ -239,7 +239,7 @@ func (a *agent) runCommand(name, arg string) {
 }
 
 func (a *agent) refreshCompletion() {
-	lines := strings.Split(a.composer.Text(), "\n")
+	lines := strings.Split(a.composer.Editor().Text(), "\n")
 	line, column := a.composer.Editor().Cursor()
 	if line < 0 || line >= len(lines) {
 		a.completion.Dismiss()

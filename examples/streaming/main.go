@@ -193,7 +193,7 @@ func (c *chat) Handle(event input.Event) bool {
 }
 
 func (c *chat) requestApproval() {
-	prompt := strings.TrimSpace(c.composer.Text())
+	prompt := strings.TrimSpace(c.composer.Editor().Text())
 	if prompt == "" || c.active || c.dialogOpen {
 		return
 	}
@@ -201,7 +201,7 @@ func (c *chat) requestApproval() {
 	c.approval = true
 	c.confirm.Say(true)
 	c.dialog.Controller().SetDescription("Send “" + clip(prompt) + "” to the source?")
-	c.dialog.Show()
+	c.dialog.Controller().Show()
 }
 
 func (c *chat) settleApproval() {
@@ -211,7 +211,7 @@ func (c *chat) settleApproval() {
 	}
 	prompt := c.pending
 	c.pending = ""
-	c.dialog.Dismiss()
+	c.dialog.Controller().Dismiss()
 	if prompt == "" {
 		return
 	}
@@ -221,11 +221,11 @@ func (c *chat) settleApproval() {
 func (c *chat) reject() {
 	c.pending = ""
 	c.approval = true
-	c.dialog.Dismiss()
+	c.dialog.Controller().Dismiss()
 }
 
 func (c *chat) startReply(prompt string) {
-	c.composer.Reset()
+	c.composer.Editor().Clear()
 	c.selection.Clear()
 	c.appendFinished(&kit.Message{Theme: c.theme, Speaker: "you", Body: prompt, Own: true})
 	c.stream.Reset()

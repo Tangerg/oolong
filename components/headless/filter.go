@@ -20,7 +20,7 @@ import (
 // Owning a text field as well would make this two widgets in a trench coat, and
 // would decide where the field goes for everyone.
 //
-//	filter.SetPattern(composer.Text())
+//	filter.SetPattern(composer.Editor().Text())
 //
 // The zero Filter shows everything, in the order it was given.
 type Filter[T any] struct {

@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/crc32"
+	"image"
 	"io"
 	"strconv"
 	"strings"
@@ -14,15 +16,17 @@ import (
 	"github.com/Tangerg/oolong/core/graphics"
 )
 
-// png builds the first 24 bytes of a PNG — the part this package reads — padded
-// to total, with the given dimensions.
+// png builds a complete IHDR — the part DecodeConfig reads — padded to total, with
+// the given dimensions.
 func png(w, h uint32, total int) []byte {
-	buf := make([]byte, max(total, 24))
+	buf := make([]byte, max(total, 33))
 	copy(buf, []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
 	binary.BigEndian.PutUint32(buf[8:12], 13) // the IHDR chunk's length
 	copy(buf[12:16], "IHDR")
 	binary.BigEndian.PutUint32(buf[16:20], w)
 	binary.BigEndian.PutUint32(buf[20:24], h)
+	buf[24], buf[25] = 8, 6 // eight-bit RGBA
+	binary.BigEndian.PutUint32(buf[29:33], crc32.ChecksumIEEE(buf[12:29]))
 	return buf
 }
 
@@ -149,7 +153,7 @@ func TestProtocolNames(t *testing.T) {
 func TestInlineCarriesThePNGAndItsBox(t *testing.T) {
 	var b strings.Builder
 	data := png(320, 240, 16)
-	if err := graphics.Inline(&b, data, 20, 10); err != nil {
+	if err := graphics.Inline(&b, data, image.Pt(20, 10)); err != nil {
 		t.Fatalf("Inline: %v", err)
 	}
 	out := b.String()
@@ -175,7 +179,7 @@ func TestInlineCarriesThePNGAndItsBox(t *testing.T) {
 
 func TestInlineRefusesWhatIsNotAPNG(t *testing.T) {
 	var b strings.Builder
-	if err := graphics.Inline(&b, []byte("not a png at all, truly"), 4, 2); err == nil {
+	if err := graphics.Inline(&b, []byte("not a png at all, truly"), image.Pt(4, 2)); err == nil {
 		t.Error("something that is not a PNG was written anyway")
 	}
 	if b.Len() != 0 {
@@ -187,7 +191,7 @@ func TestInlineBoxIsNeverEmpty(t *testing.T) {
 	// A box of no cells would ask the terminal to draw nothing, which is not what a
 	// caller who passed a zero meant.
 	var b strings.Builder
-	if err := graphics.Inline(&b, png(8, 8, 8), 0, 0); err != nil {
+	if err := graphics.Inline(&b, png(8, 8, 8), image.Point{}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(b.String(), "width=1") || !strings.Contains(b.String(), "height=1") {
@@ -198,15 +202,15 @@ func TestInlineBoxIsNeverEmpty(t *testing.T) {
 func TestFitDoesNotOverflowAtIntegerLimits(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 
-	cols, rows := graphics.Fit(maxInt, 1, maxInt-1, 1, maxInt, maxInt)
-	if cols != 2 || rows != 1 {
-		t.Fatalf("ceiling fit = %dx%d, want 2x1", cols, rows)
+	box := graphics.Fit(image.Pt(maxInt, 1), image.Pt(maxInt-1, 1), image.Pt(maxInt, maxInt))
+	if box != image.Pt(2, 1) {
+		t.Fatalf("ceiling fit = %v, want (2,1)", box)
 	}
 
 	limit := maxInt / 2
-	cols, rows = graphics.Fit(maxInt, maxInt, 1, 1, limit, maxInt)
-	if cols != limit || rows != limit {
-		t.Fatalf("scaled fit = %dx%d, want %dx%d", cols, rows, limit, limit)
+	box = graphics.Fit(image.Pt(maxInt, maxInt), image.Pt(1, 1), image.Pt(limit, maxInt))
+	if box != image.Pt(limit, limit) {
+		t.Fatalf("scaled fit = %v, want (%d,%d)", box, limit, limit)
 	}
 }
 
@@ -219,14 +223,7 @@ func TestTheZeroProtocolShowsNothing(t *testing.T) {
 	}
 }
 
-func TestPNGSizeReadsTheHeader(t *testing.T) {
-	w, h, err := graphics.PNGSize(png(640, 480, 64))
-	if err != nil || w != 640 || h != 480 {
-		t.Fatalf("= %dx%d, %v; want 640x480", w, h, err)
-	}
-}
-
-func TestPNGSizeRefusesWhatItCannotSize(t *testing.T) {
+func TestTransmitRefusesWhatTheStandardPNGDecoderCannotSize(t *testing.T) {
 	corruptTag := png(1, 1, 32)
 	copy(corruptTag[12:16], "JUNK")
 	wrongSignature := png(1, 1, 32)
@@ -242,8 +239,12 @@ func TestPNGSizeRefusesWhatItCannotSize(t *testing.T) {
 		"no width":           png(0, 480, 64),
 		"no height":          png(640, 0, 64),
 	} {
-		if _, _, err := graphics.PNGSize(bad); !errors.Is(err, graphics.ErrNotPNG) {
-			t.Errorf("%s: accepted, want graphics.ErrNotPNG", name)
+		var output bytes.Buffer
+		if _, err := graphics.Transmit(&output, 1, bad); err == nil {
+			t.Errorf("%s: accepted invalid PNG data", name)
+		}
+		if output.Len() != 0 {
+			t.Errorf("%s: wrote %q before refusing the image", name, output.String())
 		}
 	}
 }
@@ -259,17 +260,17 @@ func TestTransmitWritesNothingForDataItCannotSize(t *testing.T) {
 }
 
 func TestTransmitSendsOneEscapeWhenItFits(t *testing.T) {
-	image := png(12, 34, 64)
+	data := png(12, 34, 64)
 	var buf bytes.Buffer
-	got, err := graphics.Transmit(&buf, 7, image)
+	got, err := graphics.Transmit(&buf, 7, data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (graphics.Image{ID: 7, Width: 12, Height: 34}) {
+	if got != (graphics.Image{ID: 7, Size: image.Pt(12, 34)}) {
 		t.Fatalf("= %+v, want id 7 at 12x34", got)
 	}
 	want := fmt.Sprintf("\x1b_Ga=T,f=100,i=7,q=2,m=0;%s\x1b\\",
-		base64.StdEncoding.EncodeToString(image))
+		base64.StdEncoding.EncodeToString(data))
 	if buf.String() != want {
 		t.Fatalf("wrote\n %q\nwant\n %q", buf.String(), want)
 	}
@@ -309,9 +310,9 @@ func TestTransmitChunksWhatDoesNotFit(t *testing.T) {
 }
 
 func TestPaintAndEraseNameTheImage(t *testing.T) {
-	image := graphics.Image{ID: 9}
+	transmitted := graphics.Image{ID: 9}
 	var buf bytes.Buffer
-	if err := image.Paint(&buf, 20, 10); err != nil {
+	if err := transmitted.Paint(&buf, image.Pt(20, 10)); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "i=9") ||
@@ -319,7 +320,7 @@ func TestPaintAndEraseNameTheImage(t *testing.T) {
 		t.Fatalf("place = %q, want the id and the cell box in it", got)
 	}
 	buf.Reset()
-	if err := image.Erase(&buf); err != nil {
+	if err := transmitted.Erase(&buf); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "a=d") || !strings.Contains(got, "i=9") {
@@ -332,15 +333,15 @@ type shortWriter struct{}
 func (shortWriter) Write(p []byte) (int, error) { return max(len(p)-1, 0), nil }
 
 func TestGraphicsWritesRejectSilentTruncation(t *testing.T) {
-	image := png(1, 1, 24)
+	data := png(1, 1, 24)
 	operations := map[string]func() error{
 		"transmit": func() error {
-			_, err := graphics.Transmit(shortWriter{}, 1, image)
+			_, err := graphics.Transmit(shortWriter{}, 1, data)
 			return err
 		},
-		"paint":  func() error { return (graphics.Image{ID: 1}).Paint(shortWriter{}, 1, 1) },
+		"paint":  func() error { return (graphics.Image{ID: 1}).Paint(shortWriter{}, image.Pt(1, 1)) },
 		"erase":  func() error { return (graphics.Image{ID: 1}).Erase(shortWriter{}) },
-		"inline": func() error { return graphics.Inline(shortWriter{}, image, 1, 1) },
+		"inline": func() error { return graphics.Inline(shortWriter{}, data, image.Pt(1, 1)) },
 	}
 	for name, operation := range operations {
 		if err := operation(); !errors.Is(err, io.ErrShortWrite) {
@@ -363,9 +364,10 @@ func TestFit(t *testing.T) {
 		{"no cell size gives one cell", 100, 100, 0, 0, 80, 24, 1, 1},
 		{"a zero cap is still one cell", 100, 100, 10, 20, 0, 0, 1, 1},
 	} {
-		c, r := graphics.Fit(tc.pxW, tc.pxH, tc.cellW, tc.cellH, tc.maxCols, tc.maxRows)
-		if c != tc.wantC || r != tc.wantR {
-			t.Errorf("%s: = %dx%d cells, want %dx%d", tc.name, c, r, tc.wantC, tc.wantR)
+		got := graphics.Fit(image.Pt(tc.pxW, tc.pxH), image.Pt(tc.cellW, tc.cellH), image.Pt(tc.maxCols, tc.maxRows))
+		want := image.Pt(tc.wantC, tc.wantR)
+		if got != want {
+			t.Errorf("%s: = %v cells, want %v", tc.name, got, want)
 		}
 	}
 }
@@ -373,14 +375,14 @@ func TestFit(t *testing.T) {
 func TestFitKeepsTheProportionsItWasGiven(t *testing.T) {
 	// A box that squashed the image against one edge would be worse than one that
 	// left space beside it.
-	cols, rows := graphics.Fit(1000, 500, 10, 20, 40, 40)
-	if cols != 40 {
-		t.Fatalf("cols = %d, want the cap", cols)
+	box := graphics.Fit(image.Pt(1000, 500), image.Pt(10, 20), image.Pt(40, 40))
+	if box.X != 40 {
+		t.Fatalf("cols = %d, want the cap", box.X)
 	}
 	// 1000x500 at 10x20 per cell is 100x25 cells, an aspect of 4:1. Capped to 40
 	// wide that is 10 tall.
-	if rows != 10 {
-		t.Fatalf("rows = %d, want the height that keeps a 4:1 box", rows)
+	if box.Y != 10 {
+		t.Fatalf("rows = %d, want the height that keeps a 4:1 box", box.Y)
 	}
 }
 

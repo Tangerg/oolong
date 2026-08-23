@@ -51,10 +51,14 @@ linters:
     - iface
     - inamedparam
     - ineffassign
+    - interfacebloat
     - intrange
+    - iotamixing
     - makezero
+    - maintidx
     - mirror
     - misspell
+    - modernize
     - nakedret
     - nilerr
     - nilnesserr
@@ -145,8 +149,15 @@ linters:
       - path: _test\.go
         linters:
           - forcetypeassert
+
+      # Production functions have one readable responsibility. Table-driven tests,
+      # fault scripts and architecture registries deliberately combine many cases;
+      # splitting those would hide the complete contract they audit.
+      - path: _test\.go
+        linters:
           - gocognit
           - gocyclo
+          - maintidx
 
 issues:
   # Truncating output turns "clean" into "clean as far as we looked".

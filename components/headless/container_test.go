@@ -141,6 +141,25 @@ func TestEveryChildIsToldWhereItStands(t *testing.T) {
 	}
 }
 
+func TestContainerFocusAndUnrelatedChildrenDoNotReassignTheCurrentOwner(t *testing.T) {
+	first, passive := &field{name: "first"}, headless.Static{}
+	c := headless.NewContainer(layout.Down, headless.Item{Of: first})
+	want := first.told
+
+	c.Focus(true)
+	c.Add(headless.Item{Of: passive})
+	c.Set(c.Items()...)
+	if first.told != want || !first.focused {
+		t.Fatalf("unchanged owner was told %d times, want %d", first.told, want)
+	}
+
+	c.Focus(false)
+	c.Focus(false)
+	if first.told != want+1 || first.focused {
+		t.Fatalf("one real focus loss produced %d total notifications, want %d", first.told, want+1)
+	}
+}
+
 func TestTabMovesTheKeyboardOnlyAfterTheFieldDeclinesIt(t *testing.T) {
 	greedy, plain := &field{name: "greedy", takes: true}, &field{name: "plain"}
 	c := headless.NewContainer(layout.Down,

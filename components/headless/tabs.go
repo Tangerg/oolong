@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 )
@@ -45,9 +46,8 @@ type Tabs struct {
 
 	holder      Widget
 	holderIndex int
-	settled     bool
-	blurred     bool
-	matcher     keymap.Matcher
+	focusState
+	matcher keymap.Matcher
 }
 
 // TabsConfig is the complete construction state of [Tabs].
@@ -228,13 +228,7 @@ func (t *Tabs) Focus(has bool) {
 	if !has {
 		t.matcher.Clear()
 	}
-	blurred := !has
-	if t.blurred == blurred && t.settled {
-		return
-	}
-	t.blurred = blurred
-	t.settled = false
-	t.settle()
+	t.change(has, func() { t.settle() }, &t.holder)
 }
 
 // Measure is what the selected pane asks for.
@@ -296,8 +290,9 @@ func (t *Tabs) settle() bool {
 		return false
 	}
 	from := t.holder
+	kept := identity.Same(from, want)
 	t.holder, t.holderIndex, t.settled = want, wantIndex, true
-	if from != nil {
+	if from != nil && !kept {
 		tell(from, false)
 	}
 	for i, tab := range t.items {
@@ -305,7 +300,9 @@ func (t *Tabs) settle() bool {
 			tell(tab.Of, false)
 		}
 	}
-	tell(want, !t.blurred)
+	if !kept {
+		tell(want, !t.blurred)
+	}
 	return true
 }
 

@@ -158,10 +158,12 @@ func TestAnAnswerIsCheckedOnTheWayOutAndNotOnTheWayIn(t *testing.T) {
 	// not given yet would be a form nobody finishes.
 	missing := errors.New("required")
 	var name string
+	checks := 0
 	field := &headless.Text{
 		Label: "Name",
 		Value: headless.Bind(&name),
 		Check: func(s string) error {
+			checks++
 			if s == "" {
 				return missing
 			}
@@ -179,6 +181,15 @@ func TestAnAnswerIsCheckedOnTheWayOutAndNotOnTheWayIn(t *testing.T) {
 	field.Focus(false)
 	if !errors.Is(field.Error(), missing) {
 		t.Fatalf("error on the way out = %v, want the check's", field.Error())
+	}
+	field.Focus(false)
+	if checks != 1 {
+		t.Fatalf("one real focus loss ran the check %d times", checks)
+	}
+	field.Focus(true)
+	field.Focus(false)
+	if checks != 2 {
+		t.Fatalf("a second visit and loss ran %d total checks, want 2", checks)
 	}
 }
 

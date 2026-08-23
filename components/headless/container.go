@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
@@ -125,12 +126,7 @@ type Container struct {
 	// holder is the concrete child last told it had the keyboard. Keeping it beside
 	// the index lets Set release a removed child without comparing interface values.
 	holder Widget
-	// settled says whether the children have been told where they stand. Until they
-	// have, every one of them believes it has the keyboard — see [Focusable].
-	settled bool
-	// blurred says this container has been told it does not have the keyboard, so
-	// the child it would focus must not be told that it does.
-	blurred bool
+	focusState
 
 	// presentation is the child identities and areas from the last complete root
 	// frame. Identity belongs in the snapshot with geometry: if Items is reordered
@@ -238,9 +234,7 @@ func (c *Container) Focus(has bool) {
 	if !has {
 		c.matcher.Clear()
 	}
-	c.blurred = !has
-	c.settle()
-	tell(c.holder, has)
+	c.change(has, c.settle, &c.holder)
 }
 
 // Draw arranges the children and draws each into the room it got.
@@ -437,7 +431,7 @@ func (p childPlacement) sameOwner(other childPlacement) bool {
 	if p.key != "" && p.key == other.key {
 		return true
 	}
-	return sameIdentity(p.child, other.child)
+	return identity.Same(p.child, other.child)
 }
 
 func (p childPlacement) sameSlot(other childPlacement) bool {
@@ -474,12 +468,14 @@ func (c *Container) move(to int) {
 		return
 	}
 	from := c.holder
+	next := c.widgetAt(to)
+	kept := identity.Same(from, next)
 	c.focused = to
-	c.holder = c.widgetAt(to)
+	c.holder = next
 	// The one that had it is told first and by name, because it may be the reason
 	// the keyboard moved at all: a child taken out of the items is no longer in the
 	// loop below, and would otherwise go on believing it has the keyboard.
-	if from != nil {
+	if from != nil && !kept {
 		tell(from, false)
 	}
 	for i, item := range c.items {
@@ -487,7 +483,9 @@ func (c *Container) move(to int) {
 			tell(item.Of, false)
 		}
 	}
-	tell(c.holder, !c.blurred)
+	if !kept {
+		tell(c.holder, !c.blurred)
+	}
 }
 
 // step moves the keyboard along the ring by one, in the given direction.

@@ -67,6 +67,46 @@ func TestDialogOwnsOpenStateAndRestoresFocus(t *testing.T) {
 	}
 }
 
+func TestAStackDoesNotTransferOwnershipToTheSameBase(t *testing.T) {
+	base := &focusProbe{}
+	stack := headless.NewStack(base)
+	stack.SetBase(base)
+	stack.Focus(true)
+	if len(base.changes) != 1 || !base.focused {
+		t.Fatalf("same base received focus transitions %v, want only construction", base.changes)
+	}
+	stack.Focus(false)
+	stack.Focus(false)
+	if len(base.changes) != 2 || base.focused {
+		t.Fatalf("one real focus loss produced transitions %v", base.changes)
+	}
+}
+
+func TestReplacingAStackBaseDoesNotReassignTheOpenLayer(t *testing.T) {
+	first, second, modal := &focusProbe{}, &focusProbe{}, &focusedPanel{}
+	stack := headless.NewStack(first)
+	stack.Push(modal)
+	want := len(modal.changes)
+	stack.SetBase(second)
+	if len(modal.changes) != want || !modal.focused {
+		t.Fatalf("unchanged top layer received focus transitions %v", modal.changes)
+	}
+	if second.focused || len(second.changes) != 1 {
+		t.Fatalf("new covered base received transitions %v, want one loss", second.changes)
+	}
+}
+
+func TestABaseInstalledWhileBlurredBecomesTheSettledOwner(t *testing.T) {
+	base := &focusProbe{}
+	stack := &headless.Stack{}
+	stack.Focus(false)
+	stack.SetBase(base)
+	stack.Focus(true)
+	if len(base.changes) != 2 || !base.focused || base.changes[0] || !base.changes[1] {
+		t.Fatalf("base focus transitions = %v, want [false true]", base.changes)
+	}
+}
+
 func TestDialogSettlesEveryStackDismissalIntoControlledState(t *testing.T) {
 	open := false
 	stack := &headless.Stack{}
@@ -132,6 +172,10 @@ func TestDialogTriggerTransfersFocusWithItsAppearance(t *testing.T) {
 	trigger := dialog.Trigger("Open", first)
 	if trigger.Appearance() != first || !first.focused {
 		t.Fatal("a new trigger did not give its appearance the keyboard")
+	}
+	trigger.SetAppearance(first)
+	if len(first.changes) != 1 {
+		t.Fatalf("same appearance received focus transitions %v, want only construction", first.changes)
 	}
 
 	trigger.SetAppearance(second)

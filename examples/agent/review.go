@@ -142,7 +142,7 @@ func (a *agent) openReview(request *reviewRequest) {
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
 	a.status.Doing = "waiting for tool approval"
-	a.reviewDialog.Show()
+	a.reviewDialog.Controller().Show()
 }
 
 func (a *agent) answerReview(approved bool) {
@@ -151,7 +151,7 @@ func (a *agent) answerReview(approved bool) {
 		return
 	}
 	a.review = nil
-	a.reviewDialog.Dismiss()
+	a.reviewDialog.Controller().Dismiss()
 	request.answer <- approved
 	if approved {
 		a.status.Doing = "applying approved change"

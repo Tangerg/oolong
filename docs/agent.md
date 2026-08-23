@@ -231,7 +231,7 @@ func (a *agent) answerReview(approved bool) {
         return
     }
     a.review = nil
-    a.reviewDialog.Dismiss()
+    a.reviewDialog.Controller().Dismiss()
     request.answer <- approved
 }
 ```

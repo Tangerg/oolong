@@ -120,9 +120,9 @@ func stateOf(t *testing.T, c *chat) state {
 	result := make(chan state, 1)
 	c.runtime.Dispatcher().Post(func() {
 		result <- state{
-			active: c.active, open: c.hasOpen, dialog: c.dialog.Open(),
+			active: c.active, open: c.hasOpen, dialog: c.dialog.Controller().Open(),
 			blocks: c.content.Len(), first: c.content.FirstBlock(), status: c.status.Doing,
-			prompt: c.composer.Text(),
+			prompt: c.composer.Editor().Text(),
 		}
 	})
 	select {

@@ -4,6 +4,7 @@ import (
 	"image"
 	"strings"
 
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -289,6 +290,9 @@ func (t *DialogTrigger) Appearance() Widget {
 // ownership. Activation and semantics remain owned by the trigger.
 func (t *DialogTrigger) SetAppearance(appearance Widget) {
 	if t == nil {
+		return
+	}
+	if identity.Same(t.appearance, appearance) {
 		return
 	}
 	tell(t.appearance, false)

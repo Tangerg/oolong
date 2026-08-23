@@ -3,6 +3,7 @@ package headless
 import (
 	"image"
 
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -90,7 +91,7 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 			r.held = nil
 			r.heldFrame = frameStamp{}
 		}
-		if (presented.frame != ownerFrame && !sameIdentity(presented.child, owner)) || presented.area.Empty() {
+		if (presented.frame != ownerFrame && !identity.Same(presented.child, owner)) || presented.area.Empty() {
 			return false, false
 		}
 		return r.deliver(presented, event), true

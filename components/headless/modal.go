@@ -4,6 +4,7 @@ import (
 	"image"
 	"slices"
 
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -123,10 +124,7 @@ type Stack struct {
 	holder     Widget
 	holderID   LayerID
 	holderBase bool
-	settled    bool
-	// blurred says the stack itself has been told it does not have the keyboard,
-	// which is what a stack inside something larger is told.
-	blurred bool
+	focusState
 	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher keymap.Matcher
 	// held is the layer that accepted a pointer press. Drag and release stay with it
@@ -154,7 +152,17 @@ func (s *Stack) SetBase(base Widget) {
 	if s == nil {
 		return
 	}
+	if identity.Same(s.base, base) {
+		return
+	}
 	s.base = base
+	if s.settled && s.holderID != 0 {
+		// A layer owns the keyboard. The new base starts in the state every lone
+		// widget assumes — focused — so it must hear the one real transition to its
+		// covered state; the layer above it has not changed owners at all.
+		tell(s.base, false)
+		return
+	}
 	s.settled = false
 	s.settle()
 }
@@ -455,9 +463,7 @@ func (s *Stack) Focus(has bool) {
 	if !has {
 		s.matcher.Clear()
 	}
-	s.blurred = !has
-	s.settled = false
-	s.settle()
+	s.change(has, s.settle, &s.holder)
 }
 
 // settle makes sure the keyboard is where the layers say it should be, and that

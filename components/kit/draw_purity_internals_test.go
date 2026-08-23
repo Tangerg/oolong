@@ -300,7 +300,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	dialogBody.Insert("body")
 	dialogBody.Focus(true)
 	dialog := NewDialog(DialogConfig{Stack: &headless.Stack{}, Glyphs: Unicode(), Title: "title", Body: dialogBody})
-	dialog.Show()
+	dialog.Controller().Show()
 	cases = append(cases, widgetPurityCase("*DialogPanel", dialog.Panel(), func() any {
 		return struct {
 			semantic headless.SemanticNode
@@ -359,7 +359,7 @@ func kitDrawPurityCases() []drawPurityCase {
 			selected int
 			values   []string
 			changes  int
-		}{settings.Selected(), slices.Clone(settingValues), settingChanges}
+		}{settings.Controller().Selected(), slices.Clone(settingValues), settingChanges}
 	}))
 
 	content := &headless.Transcript{}
@@ -395,7 +395,7 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	composer := &Composer{Prompt: "> ", MaxRows: 3}
 	composer.Editor().Placeholder = "say something"
-	composer.SetText("hello")
+	composer.Editor().SetText("hello")
 	composer.Editor().MoveLeft()
 	composer.Focus(true)
 	cases = append(cases, widgetPurityCase("*Composer", composer, func() any {

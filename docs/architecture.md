@@ -494,9 +494,12 @@ flowchart BT
     SSH["optional SSH transport"] --> Program
     ProgramTest["in-process program harness"] --> Program
     Harness["PTY and screen assertions"] --> Model
+    ComponentIdentity["module-private component identity"]
     Headless["headless components"] --> Interaction
     Headless --> Model
+    Headless --> ComponentIdentity
     Kit["default appearance"] --> Headless
+    Kit --> ComponentIdentity
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     Latex["mathematical layout"] --> Model
@@ -509,6 +512,12 @@ flowchart BT
     App --> Highlight
     App --> Latex
 ```
+
+Component identity is not a fifth public rung. It is a module-private implementation
+package with one responsibility: safely deciding whether two open interface values
+demonstrably name the same owner without requiring external widgets to be comparable.
+Both headless routing and kit ownership transfer need that rule; focus, pointer and
+layout policy remain in the domain types that use its answer.
 
 Peer content modules compose through a consumer-owned semantic-block seam, not by
 importing one another. Markdown owns syntax recognition and exposes stable meanings
@@ -736,6 +745,7 @@ invariant it makes enforceable.
 | idle rendering and publication work is zero | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) and timer tests prove no unconditional frame clock or repeated bytes; a platform observer that must sample external state is bounded, emits nothing for an unchanged observation, and stops with the session | every CI run |
 | failure and ownership settlement | [`program` fault tests](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) cover input cause, invalid or excessive host geometry before allocation, partial output, no later writes, drain timeout, and capability absence; [`term` fault tests](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) cover real-PTY teardown and [`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) covers short/partial writes and bounded close | required by slice 1 and each new host |
 | public construction has one language | `internal/arch` rejects functional options, exported `Options` configuration, constructors with three or more positional inputs but no explicit `Config`, and undeclared multiple `New...` or `Open...` entries returning the same concrete type; a rare second resource-acquisition entry must name its exact ownership or lifecycle boundary | every CI run |
+| semantic state and focus have one owner | [`internal/arch`](https://github.com/Tangerg/oolong/blob/main/internal/arch/facade_internals_test.go) rejects kit methods that mirror selected controller or editor state; component ownership tests require repeated assignment of a demonstrably identical child and repeated focus reports to be idempotent, while the module-private identity primitive supplies the shared conservative comparison for open component interfaces | every CI run and every new component wrapper |
 | callable code has executable evidence | the pinned `golang.org/x/tools/cmd/deadcode` analyzes each module with tests across Linux, macOS, and Windows; private unreachable code is removed, while an unreachable export receives caller-side contract coverage and is retained or removed only through an independent API-design review | every CI run and release |
 | public module compatibility | every module builds without `go.work`; pinned `apidiff` compares each public module with its preceding immutable tag on every change and requires every incompatible exported API change by exact API name in the Unreleased migration ledger; the release workflow additionally runs pinned `gorelease`, reporting pre-1.0 changes and rejecting a proposed v1+ tag that violates Go compatibility; ordinary CI checks the declared Go floor and supported source sets | every CI run, the manual release check before tagging, and every public module tag |
 

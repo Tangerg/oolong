@@ -1,6 +1,7 @@
 package grid_test
 
 import (
+	"image"
 	"io"
 	"strings"
 	"testing"
@@ -155,7 +156,7 @@ func (w *byteCounter) Write(p []byte) (int, error) {
 
 type benchmarkPicture struct{}
 
-func (benchmarkPicture) Paint(w io.Writer, _, _ int) error {
+func (benchmarkPicture) Paint(w io.Writer, _ image.Point) error {
 	_, err := io.WriteString(w, "<image>")
 	return err
 }

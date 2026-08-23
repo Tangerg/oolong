@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
@@ -87,31 +88,6 @@ func (d *Dialog) Panel() *DialogPanel {
 	return d.panel
 }
 
-// Show opens the dialog.
-func (d *Dialog) Show() {
-	if d != nil && d.controller != nil {
-		d.controller.Show()
-	}
-}
-
-// Dismiss closes the dialog and restores focus below it.
-func (d *Dialog) Dismiss() {
-	if d != nil && d.controller != nil {
-		d.controller.Dismiss()
-	}
-}
-
-// Open reports whether the dialog is open.
-func (d *Dialog) Open() bool { return d != nil && d.controller != nil && d.controller.Open() }
-
-// Trigger constructs a headless activation part for this dialog.
-func (d *Dialog) Trigger(label string, of headless.Widget) *headless.DialogTrigger {
-	if d == nil || d.controller == nil {
-		return nil
-	}
-	return d.controller.Trigger(label, of)
-}
-
 // Semantics returns the underlying structural semantic projection.
 func (d *Dialog) Semantics() headless.SemanticNode {
 	if d == nil || d.controller == nil {
@@ -159,6 +135,9 @@ func (d *DialogPanel) Body() headless.Widget {
 // body that answers input receives it after the stack chooses this layer.
 func (d *DialogPanel) SetBody(body headless.Widget) {
 	if d == nil {
+		return
+	}
+	if identity.Same(d.body, body) {
 		return
 	}
 	if old, ok := d.body.(headless.Focusable); ok {

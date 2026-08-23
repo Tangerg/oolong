@@ -81,6 +81,35 @@ Clearing a `headless.Selection` now resets only its selected range and in-progre
 click run. It preserves the caller's configured `Clicks.Within` policy instead of
 silently replacing configuration while removing transient state.
 
+Terminal image geometry now has one representation. Pixel sizes, cell sizes and
+cell limits travel as `image.Point`, matching the rectangles and points already used
+by the grid instead of splitting every two-dimensional fact into swappable integer
+parameters. PNG configuration is read by the standard `image/png` decoder; graphics
+owns terminal transport and no longer publishes a second partial PNG parser.
+
+Kit appearances no longer mirror selected operations from their headless behavior
+owners. A composer exposes its complete editor through `Editor`, while dialogs,
+settings and trees expose their complete headless state through `Controller`.
+The appearance still implements the capability methods required for composition,
+but state has one discoverable API rather than an arbitrary façade subset that can
+drift from the owner below. A source-derived gate rejects future one-call state
+forwarders from kit to its controller or editor.
+
+Component ownership changes are now idempotent. Reinstalling a demonstrably identical
+viewport content, stack base, dialog appearance or body, or panel child no longer
+fabricates a focus loss and gain. Containers, tabs and stacks likewise notify the
+current holder only when either the holder or the outer focus state changes. Field
+validation now consumes one actual focus-loss transition instead of treating every
+later `Focus(false)` as another departure. The safe identity rule for open interface
+implementations lives once in a module-private package shared by headless routing and
+kit ownership boundaries.
+
+The permanent lint gate now also enforces bounded public interfaces, unambiguous iota
+blocks, production maintainability and the modern syntax available at the repository's
+declared Go floor. All four analyzers were first run across every module with zero
+production findings; maintainability deliberately excludes table-driven tests and
+architecture registries whose job is to keep a complete contract together.
+
 ### Breaking API migration
 
 #### core
@@ -97,6 +126,17 @@ silently replacing configuration while removing transient state.
   dispatcher, byte limit and owner-side consumer in that value.
 - `programtest.New` now accepts `programtest.Config` beside the owning `testing.TB`.
   Name the test terminal's positive `Width` and `Height` there.
+- `graphics.Image.Width` and `graphics.Image.Height` were replaced by
+  `graphics.Image.Size`. Read `Size.X` and `Size.Y`; the point is in pixels.
+- `graphics.Fit` now accepts three `image.Point` values for pixel size, cell size and
+  cell limit and returns the fitted cell size as one point.
+- `graphics.Image.Paint` and `grid.Painter.Paint` now accept the painted cell size as
+  one `image.Point` instead of separate column and row parameters.
+- `graphics.Inline` now accepts its cell box as one `image.Point`.
+- `graphics.PNGSize` and `graphics.ErrNotPNG` were removed. Call
+  `png.DecodeConfig` when an application independently needs PNG dimensions or format
+  validation; terminal transmission still validates its own input and returns the
+  standard decoder error with graphics context.
 
 #### components
 
@@ -113,6 +153,18 @@ silently replacing configuration while removing transient state.
   focusable `Content` in that value.
 - `kit.NewCell` was removed. Construct `kit.Cell{Preferred: ..., Paint: ...}` directly;
   `kit.LabelCell` remains the one adapter for plain labels.
+- `kit.(*Composer).Text`, `kit.(*Composer).SetText`, `kit.(*Composer).Empty`, and
+  `kit.(*Composer).Reset` were removed. Use `composer.Editor().Text`, `SetText`,
+  `Empty`, and `Clear`; the editor is the sole owner of content and history.
+- `kit.(*Dialog).Show`, `kit.(*Dialog).Dismiss`, `kit.(*Dialog).Open`, and
+  `kit.(*Dialog).Trigger` were removed. Use the same operations on
+  `dialog.Controller()` so every dialog behavior remains discoverable on one owner.
+- `kit.(*Settings[T]).SetItems`, `kit.(*Settings[T]).Items`,
+  `kit.(*Settings[T]).Current`, `kit.(*Settings[T]).Selected`, and
+  `kit.(*Settings[T]).Scroll` were removed. Use the settings `Controller()` for all
+  list state and navigation.
+- `kit.(*Tree[T]).Focused` was removed. Use `tree.Controller().Focused()` beside the
+  tree's other hierarchy and selection operations.
 
 ## [0.12.0] — 2026-08-14
 

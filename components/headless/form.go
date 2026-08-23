@@ -202,7 +202,11 @@ func (f *field) leaving(has bool) bool {
 		f.held = true
 		return false
 	}
-	return f.held
+	if !f.held {
+		return false
+	}
+	f.held = false
+	return true
 }
 
 // Form is a set of fields, one of which has the keyboard.
@@ -385,7 +389,11 @@ func (f *Form) Focus(has bool) {
 	if !has {
 		f.matcher.Clear()
 	}
-	f.blurred = !has
+	blurred := !has
+	if f.blurred == blurred {
+		return
+	}
+	f.blurred = blurred
 	f.body.Keys = f.keys()
 	f.body.Focus(has)
 }

@@ -135,15 +135,15 @@ func (p *prompt) Handle(event input.Event) bool {
 	if key, ok := event.(input.Key); ok && key.Down() {
 		switch key.Code {
 		case input.Up:
-			if value, moved := p.history.Back(p.composer.Text()); moved {
-				p.composer.SetText(value)
+			if value, moved := p.history.Back(p.composer.Editor().Text()); moved {
+				p.composer.Editor().SetText(value)
 			}
 			p.releaseRemovedPastes()
 			p.refreshCompletion()
 			return true
 		case input.Down:
 			if value, moved := p.history.Forward(); moved {
-				p.composer.SetText(value)
+				p.composer.Editor().SetText(value)
 			}
 			p.releaseRemovedPastes()
 			p.refreshCompletion()
@@ -193,7 +193,7 @@ func (p *prompt) releaseRemovedPastes() {
 }
 
 func (p *prompt) submit() {
-	body := strings.TrimSpace(p.composer.Text())
+	body := strings.TrimSpace(p.composer.Editor().Text())
 	if body == "" {
 		return
 	}
@@ -204,7 +204,7 @@ func (p *prompt) submit() {
 		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),
 	})
 	p.status = "submitted; up restores it without losing the current draft"
-	p.composer.Reset()
+	p.composer.Editor().Clear()
 	p.completion.Dismiss()
 	clear(p.pastes)
 }
@@ -215,7 +215,7 @@ func (p *prompt) refreshCompletion() {
 		p.completion.Dismiss()
 		return
 	}
-	token, ok := headless.TokenAt(p.composer.Text(), column, headless.Trigger{Prefix: "@"})
+	token, ok := headless.TokenAt(p.composer.Editor().Text(), column, headless.Trigger{Prefix: "@"})
 	if !ok {
 		p.completion.Dismiss()
 		return

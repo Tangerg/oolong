@@ -62,7 +62,7 @@ func ExampleComposer_typing() {
 	for _, r := range "hello" {
 		c.Handle(input.Key{Code: input.Character, Rune: r})
 	}
-	fmt.Println(c.Text())
+	fmt.Println(c.Editor().Text())
 	showWidget(12, 1, &c)
 
 	// Output:
@@ -176,12 +176,12 @@ func ExampleNewDialog_controlled() {
 		Stack: &headless.Stack{}, Open: headless.Bind(&open), Glyphs: kit.ASCII(),
 		Title: "Confirm", Body: headless.Static{Of: kit.Label{Text: "Continue?"}},
 	})
-	dialog.Show()
+	dialog.Controller().Show()
 	fmt.Println(open)
 
 	open = false
 	dialog.Controller().Sync()
-	fmt.Println(dialog.Open())
+	fmt.Println(dialog.Controller().Open())
 
 	// Output:
 	// true

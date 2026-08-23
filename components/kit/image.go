@@ -82,7 +82,7 @@ func (i Image) Draw(v grid.View) {
 // fit is the box the picture should occupy at a width, and whether there is a
 // picture to fit at all.
 func (i Image) fit(width int) (cols, rows int, ok bool) {
-	if i.Of.ID == 0 || i.Of.Width <= 0 || i.Of.Height <= 0 || i.Cell.X <= 0 || i.Cell.Y <= 0 {
+	if i.Of.ID == 0 || i.Of.Size.X <= 0 || i.Of.Size.Y <= 0 || i.Cell.X <= 0 || i.Cell.Y <= 0 {
 		return 0, 0, false
 	}
 	if width <= 0 {
@@ -92,8 +92,8 @@ func (i Image) fit(width int) (cols, rows int, ok bool) {
 	if limit <= 0 {
 		limit = defaultMaxRows
 	}
-	cols, rows = graphics.Fit(i.Of.Width, i.Of.Height, i.Cell.X, i.Cell.Y, width, limit)
-	return cols, rows, true
+	box := graphics.Fit(i.Of.Size, i.Cell, image.Pt(width, limit))
+	return box.X, box.Y, true
 }
 
 // Width is the cell width of the alternative text. It lets Image satisfy a

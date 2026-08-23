@@ -89,10 +89,6 @@ func (t *Tree[T]) Focus(has bool) {
 	}
 }
 
-// Focused reports whether the tree has the keyboard, which is what a row asks to
-// decide how a selection nobody is typing at should look.
-func (t *Tree[T]) Focused() bool { return t != nil && t.controller != nil && t.controller.Focused() }
-
 // Measure is one row per row the tree is showing.
 func (t *Tree[T]) Measure(across int) int {
 	if t == nil || t.controller == nil {

@@ -136,7 +136,7 @@ func (p *picker) Handle(event input.Event) bool {
     before := p.query.Editor().Revision()
     handled := p.query.Handle(event)
     if p.query.Editor().Revision() != before {
-        p.list.SetPattern(p.query.Text())
+        p.list.SetPattern(p.query.Editor().Text())
     }
     return handled
 }

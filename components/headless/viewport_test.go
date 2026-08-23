@@ -134,6 +134,15 @@ func TestAWindowTransfersKeyboardOwnershipWithItsContent(t *testing.T) {
 	}
 }
 
+func TestAWindowDoesNotTransferOwnershipToTheSameContent(t *testing.T) {
+	content := &tall{rows: 4}
+	p := headless.NewViewport(content)
+	p.SetContent(content)
+	if content.told != 1 || !content.focused {
+		t.Fatalf("same content received %d focus grants, want only construction", content.told)
+	}
+}
+
 func TestAnEmptyWindowDrawsNothingAndAnswersNothing(t *testing.T) {
 	var p headless.Viewport
 	paintWidget(6, 3, &p) // must not panic

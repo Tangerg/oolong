@@ -89,6 +89,7 @@ var rings = []struct {
 	{"core/", "foundation"},
 	{"components/headless/", "headless"},
 	{"components/kit/", "kit"},
+	{"components/internal/", "componentbase"},
 	{"markdown/", "markdown"},
 	{"highlight/", "highlight"},
 	{"latex/", "latex"},
@@ -129,8 +130,9 @@ var dependencies = map[string][]string{
 
 	// Headless components combine interaction policy with derived text. Kit adds one
 	// appearance and nothing about the host that eventually runs it.
-	"headless": {"interaction", "model"},
-	"kit":      {"headless"},
+	"componentbase": nil,
+	"headless":      {"componentbase", "interaction", "model"},
+	"kit":           {"componentbase", "headless"},
 
 	// Optional content modules terminate at the common text model and remain peers:
 	// no parser, highlighter or typesetter owns another.
@@ -498,14 +500,18 @@ func TestWhiteBoxTestsNameTheirBoundary(t *testing.T) {
 
 // TestConfigurationUsesExplicitValues rejects the conventional API shapes that would
 // reintroduce functional options: an Options struct, a function type named Option, or
-// a function type that mutates configuration. A functional option is not just another
-// spelling: it hides the complete configuration from documentation, comparison and
-// composition, and gives one operation a second configuration language.
+// a named or inline function value that mutates, validates or returns configuration.
+// A functional option is not just another spelling: it hides the complete configuration
+// from documentation, comparison and composition, and gives one operation a second
+// configuration language.
 //
-// This deliberately does not guess whether every struct named Settings, Params or
-// something else is configuration. Those names also describe real domain values;
-// their responsibility belongs to API review, not a naming heuristic. Domain values
-// such as headless.Option remain structs and therefore do not match this rule.
+// Private spellings are covered too. An unexported option type behind exported With
+// functions is still the same second language, and internal construction code follows
+// the same repository rule. This deliberately does not guess whether every struct
+// named Settings, Params or something else is configuration. Those names also describe
+// real domain values; their responsibility belongs to API review, not a naming
+// heuristic. Domain values such as headless.Option remain structs and therefore do not
+// match this rule.
 func TestConfigurationUsesExplicitValues(t *testing.T) {
 	root := repoRoot(t)
 	walk(t, root, func(_, path string) {
@@ -515,40 +521,60 @@ func TestConfigurationUsesExplicitValues(t *testing.T) {
 			t.Fatalf("parse %s: %v", path, err)
 		}
 		ast.Inspect(file, func(node ast.Node) bool {
-			spec, ok := node.(*ast.TypeSpec)
-			if !ok || !spec.Name.IsExported() {
-				return true
-			}
-			position := fset.Position(spec.Pos())
-			relative, relErr := filepath.Rel(root, position.Filename)
-			if relErr != nil {
-				t.Fatalf("make %s relative: %v", position.Filename, relErr)
-			}
-			location := filepath.ToSlash(relative)
+			switch value := node.(type) {
+			case *ast.TypeSpec:
+				position := fset.Position(value.Pos())
+				location := repositoryLocation(t, root, position.Filename)
 
-			if spec.Name.Name == "Options" {
-				if _, isStruct := spec.Type.(*ast.StructType); isStruct {
-					t.Errorf("%s:%d declares Options as configuration; use one explicit Config value",
-						location, position.Line)
+				if strings.EqualFold(value.Name.Name, "options") {
+					if _, isStruct := value.Type.(*ast.StructType); isStruct {
+						t.Errorf("%s:%d declares Options as configuration; use one explicit Config value",
+							location, position.Line)
+					}
 				}
-			}
-			function, isFunction := spec.Type.(*ast.FuncType)
-			if !isFunction {
-				return true
-			}
-			if spec.Name.Name == "Option" || mutatesConfig(function) {
-				t.Errorf("%s:%d declares the functional option %s; use an explicit Config struct",
-					location, position.Line, spec.Name.Name)
+				function, isFunction := value.Type.(*ast.FuncType)
+				if isFunction && (strings.EqualFold(value.Name.Name, "option") || configures(function)) {
+					t.Errorf("%s:%d declares the functional option %s; use an explicit Config struct",
+						location, position.Line, value.Name.Name)
+				}
+			case *ast.FuncDecl:
+				if value.Type.Params == nil {
+					return true
+				}
+				for _, parameter := range value.Type.Params.List {
+					function := inlineFunction(parameter.Type)
+					if function == nil || !configures(function) {
+						continue
+					}
+					position := fset.Position(parameter.Pos())
+					location := repositoryLocation(t, root, position.Filename)
+					t.Errorf("%s:%d accepts an inline functional option in %s; use an explicit Config struct",
+						location, position.Line, value.Name.Name)
+				}
 			}
 			return true
 		})
 	})
 }
 
-func mutatesConfig(function *ast.FuncType) bool {
-	if function.Results != nil && len(function.Results.List) != 0 {
-		return false
+func repositoryLocation(t *testing.T, root, path string) string {
+	t.Helper()
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatalf("make %s relative: %v", path, err)
 	}
+	return filepath.ToSlash(relative)
+}
+
+func inlineFunction(expression ast.Expr) *ast.FuncType {
+	if variadic, ok := expression.(*ast.Ellipsis); ok {
+		expression = variadic.Elt
+	}
+	function, _ := expression.(*ast.FuncType)
+	return function
+}
+
+func configures(function *ast.FuncType) bool {
 	if function.Params == nil || len(function.Params.List) != 1 {
 		return false
 	}
@@ -556,12 +582,35 @@ func mutatesConfig(function *ast.FuncType) bool {
 	if len(parameter.Names) > 1 {
 		return false
 	}
-	pointer, ok := parameter.Type.(*ast.StarExpr)
-	if !ok {
+	input, pointer := configType(parameter.Type)
+	if !configurationName(input) {
 		return false
 	}
-	name := typeName(pointer.X)
-	return name == "config" || strings.HasSuffix(name, "Config") || strings.HasSuffix(name, "Options")
+	if function.Results == nil || len(function.Results.List) == 0 {
+		return pointer
+	}
+	if len(function.Results.List) != 1 || len(function.Results.List[0].Names) > 1 {
+		return false
+	}
+	result := function.Results.List[0].Type
+	if pointer && typeName(result) == "error" {
+		return true
+	}
+	output, _ := configType(result)
+	return output == input
+}
+
+func configType(expression ast.Expr) (string, bool) {
+	pointer, ok := expression.(*ast.StarExpr)
+	if ok {
+		return typeName(pointer.X), true
+	}
+	return typeName(expression), false
+}
+
+func configurationName(name string) bool {
+	name = strings.ToLower(name)
+	return name == "config" || strings.HasSuffix(name, "config") || strings.HasSuffix(name, "options")
 }
 
 func TestConfigurationRuleRecognizesFunctionalOptions(t *testing.T) {
@@ -572,7 +621,11 @@ func TestConfigurationRuleRecognizesFunctionalOptions(t *testing.T) {
 		{"func(*Config)", true},
 		{"func(*transport.Config)", true},
 		{"func(*sessionOptions)", true},
-		{"func(*Config) error", false},
+		{"func(*Config) error", true},
+		{"func(Config) Config", true},
+		{"func(config) config", true},
+		{"func(*Config) Widget", false},
+		{"func(Config)", false},
 		{"func(string)", false},
 		{"func(a, b *Config)", false},
 		{"func(*Widget)", false},
@@ -586,9 +639,24 @@ func TestConfigurationRuleRecognizesFunctionalOptions(t *testing.T) {
 		if !ok {
 			t.Fatalf("%q parsed as %T", test.source, expression)
 		}
-		if got := mutatesConfig(function); got != test.want {
-			t.Errorf("mutatesConfig(%q) = %t, want %t", test.source, got, test.want)
+		if got := configures(function); got != test.want {
+			t.Errorf("configures(%q) = %t, want %t", test.source, got, test.want)
 		}
+	}
+}
+
+func TestConfigurationRuleRecognizesInlineFunctionalOptions(t *testing.T) {
+	function := &ast.FuncType{
+		Params: &ast.FieldList{List: []*ast.Field{{Type: &ast.StarExpr{X: ast.NewIdent("Config")}}}},
+	}
+	if got := inlineFunction(function); got != function {
+		t.Fatal("an inline function parameter was not inspected")
+	}
+	if got := inlineFunction(&ast.Ellipsis{Elt: function}); got != function {
+		t.Fatal("a variadic inline function parameter was not inspected")
+	}
+	if got := inlineFunction(ast.NewIdent("Option")); got != nil {
+		t.Fatalf("a named option is owned by its type declaration, got %T", got)
 	}
 }
 
@@ -902,6 +970,7 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"core/grid", "components/headless", true},
 		{"core/layout", "components/kit", true},
 		{"components/headless", "components/kit", true},
+		{"components/internal/identity", "core/grid", true},
 
 		// The rule the host exists under: the runtime must not know the widgets. The
 		// module graph would not catch it — core could require components and Go
@@ -948,7 +1017,9 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 
 		// The edges the rings are made of.
 		{"components/headless", "core/grid", false},
+		{"components/headless", "components/internal/identity", false},
 		{"components/kit", "components/headless", false},
+		{"components/kit", "components/internal/identity", false},
 		{"components/kit", "core/layout", false},
 		{"core/program", "core/term", false},
 		{"core/programtest", "core/program", false},

@@ -1,6 +1,7 @@
 package grid
 
 import (
+	"image"
 	"io"
 	"strings"
 	"testing"
@@ -9,8 +10,8 @@ import (
 
 type retainedPainter struct{ payload []byte }
 
-func (*retainedPainter) Paint(io.Writer, int, int) error { return nil }
-func (*retainedPainter) Erase(io.Writer) error           { return nil }
+func (*retainedPainter) Paint(io.Writer, image.Point) error { return nil }
+func (*retainedPainter) Erase(io.Writer) error              { return nil }
 
 func TestReusableFrameStorageReleasesDiscardedPayloads(t *testing.T) {
 	surface := NewSurface(2, 2)

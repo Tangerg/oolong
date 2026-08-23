@@ -25,10 +25,10 @@ func TestAZeroComposerTakesText(t *testing.T) {
 	// One that looked finished and answered no keys would be the worse kind of broken.
 	var c kit.Composer
 	typeInto(&c, "hello")
-	if got := c.Text(); got != "hello" {
+	if got := c.Editor().Text(); got != "hello" {
 		t.Fatalf("text = %q, want what was typed", got)
 	}
-	if c.Empty() {
+	if c.Editor().Empty() {
 		t.Fatal("the composer reports empty after being typed into")
 	}
 }
@@ -36,9 +36,9 @@ func TestAZeroComposerTakesText(t *testing.T) {
 func TestComposerResetEmptiesTheField(t *testing.T) {
 	var c kit.Composer
 	typeInto(&c, "sent")
-	c.Reset()
-	if !c.Empty() {
-		t.Fatalf("text = %q, want nothing left after a reset", c.Text())
+	c.Editor().Clear()
+	if !c.Editor().Empty() {
+		t.Fatalf("text = %q, want nothing left after a reset", c.Editor().Text())
 	}
 }
 
@@ -132,7 +132,7 @@ func TestComposerUsesOneDefaultMapForEditingAndHints(t *testing.T) {
 	if !c.Handle(input.Key{Code: input.Character, Rune: 'y', Mods: input.Ctrl}) {
 		t.Fatal("the default editor binding was not active through Composer.Handle")
 	}
-	if got := c.Text(); got != "restored" {
+	if got := c.Editor().Text(); got != "restored" {
 		t.Fatalf("text = %q, want the default yank binding to restore it", got)
 	}
 	rows := paintWidget(24, c.Measure(24), &c)
@@ -289,7 +289,7 @@ func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) 
 		Body: headless.Static{Of: kit.Label{Text: "really?"}},
 	})
 	dialog.Controller().SetDescription("A structural description")
-	dialog.Show()
+	dialog.Controller().Show()
 
 	rows := paintWidget(20, 5, stack)
 	if !strings.Contains(rows[0], "Confirm") || !strings.Contains(strings.Join(rows, "\n"), "really?") {
@@ -303,11 +303,11 @@ func TestNewDialogComposesPolishedAppearanceOverHeadlessOwnership(t *testing.T) 
 
 func TestDialogTriggerOpensTheDialogThroughItsAction(t *testing.T) {
 	dialog := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Title: "title"})
-	trigger := dialog.Trigger("open", nil)
+	trigger := dialog.Controller().Trigger("open", nil)
 	if !trigger.Do(headless.Activate) {
 		t.Fatal("the dialog trigger declined its activation action")
 	}
-	if !dialog.Open() {
+	if !dialog.Controller().Open() {
 		t.Fatal("the dialog trigger did not open its owner")
 	}
 }
@@ -316,16 +316,22 @@ func TestDialogPanelTransfersFocusWithItsBody(t *testing.T) {
 	first := &panelChild{}
 	second := &panelChild{}
 	dialog := kit.NewDialog(kit.DialogConfig{Stack: &headless.Stack{}, Glyphs: kit.Unicode(), Body: first})
-	dialog.Show()
+	dialog.Controller().Show()
 	if dialog.Panel().Body() != first || !first.focused {
 		t.Fatal("the open dialog did not give its body the keyboard")
+	}
+	dialog.Panel().SetBody(first)
+	if first.focuses != 2 {
+		// Construction focuses the body, opening the dialog grants focus again; the
+		// repeated setter must add neither a blur nor a third grant.
+		t.Fatalf("same dialog body received %d focus transitions, want construction and opening", first.focuses)
 	}
 
 	dialog.Panel().SetBody(second)
 	if first.focused || !second.focused {
 		t.Fatalf("focus after replacement: first=%v second=%v", first.focused, second.focused)
 	}
-	dialog.Dismiss()
+	dialog.Controller().Dismiss()
 	if second.focused {
 		t.Fatal("the dialog body kept focus after dismissal")
 	}

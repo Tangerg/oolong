@@ -70,6 +70,10 @@ func TestTheKeyboardFollowsThePaneThatIsShowing(t *testing.T) {
 	if first.told != 1 {
 		t.Fatal("the pane showing was not told it has the keyboard")
 	}
+	tabs.Set(tabs.Items()...)
+	if first.told != 1 {
+		t.Fatalf("reinstalling the same panes granted focus %d times, want once", first.told)
+	}
 	tabs.Select(1)
 	if second.told != 1 {
 		t.Fatal("the pane moved to was not told it has the keyboard")

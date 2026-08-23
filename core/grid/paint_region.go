@@ -34,9 +34,9 @@ import (
 // written. A painter whose output is only cells has nothing to undo and writes
 // nothing.
 type Painter interface {
-	// Paint writes what puts this in a region of cols by rows cells, with the
+	// Paint writes what puts this in a region of size cells, with the
 	// terminal's cursor already at its top-left corner, and leaves the cursor there.
-	Paint(w io.Writer, cols, rows int) error
+	Paint(w io.Writer, size image.Point) error
 	// Erase writes what takes it off the terminal again, for a terminal that
 	// remembers what it was shown, and leaves the cursor alone.
 	Erase(w io.Writer) error
@@ -123,7 +123,7 @@ func repaint(out io.Writer, was, now []painted, move func(image.Point)) error {
 			continue
 		}
 		move(region.rect.Min)
-		if err := region.by.Paint(out, region.rect.Dx(), region.rect.Dy()); err != nil {
+		if err := region.by.Paint(out, region.rect.Size()); err != nil {
 			return err
 		}
 	}

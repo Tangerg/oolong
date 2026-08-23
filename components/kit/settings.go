@@ -72,46 +72,6 @@ func (s *Settings[T]) Controller() *headless.Settings[T] {
 	return s.controller
 }
 
-// SetItems replaces the rows while preserving the selected index where possible.
-func (s *Settings[T]) SetItems(items []T) {
-	if s != nil && s.controller != nil {
-		s.controller.SetItems(items)
-	}
-}
-
-// Items returns a copy of the rows.
-func (s *Settings[T]) Items() []T {
-	if s == nil || s.controller == nil {
-		return nil
-	}
-	return s.controller.Items()
-}
-
-// Current is the selected application item.
-func (s *Settings[T]) Current() (T, bool) {
-	if s != nil && s.controller != nil {
-		return s.controller.Current()
-	}
-	var zero T
-	return zero, false
-}
-
-// Selected is the selected row, or -1 when the list is empty.
-func (s *Settings[T]) Selected() int {
-	if s == nil || s.controller == nil {
-		return -1
-	}
-	return s.controller.Selected()
-}
-
-// Scroll exposes the list's scrolling state.
-func (s *Settings[T]) Scroll() *headless.Scroll {
-	if s == nil || s.controller == nil {
-		return nil
-	}
-	return s.controller.Scroll()
-}
-
 // Measure is one row per setting.
 func (s *Settings[T]) Measure(int) int {
 	if s == nil || s.controller == nil {

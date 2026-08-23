@@ -55,7 +55,7 @@ func TestSettingsOwnTheirItemSlice(t *testing.T) {
 		Value: func(string) string { return "" },
 	})
 	items[0] = "changed"
-	if got := settings.Items(); !reflect.DeepEqual(got, []string{"one", "two"}) {
+	if got := settings.Controller().Items(); !reflect.DeepEqual(got, []string{"one", "two"}) {
 		t.Fatalf("Items = %v, want the controller-owned input", got)
 	}
 }
