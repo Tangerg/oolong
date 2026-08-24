@@ -2,7 +2,7 @@ module github.com/Tangerg/oolong/components
 
 go 1.27.0
 
-require github.com/Tangerg/oolong/core v0.12.0
+require github.com/Tangerg/oolong/core v0.13.0
 
 require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
