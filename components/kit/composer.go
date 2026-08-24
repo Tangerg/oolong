@@ -22,7 +22,12 @@ import (
 // Enter is left alone, as [headless.Editor] leaves it: whether it sends or breaks the
 // line is the interface's decision and not a widget's. [Composer.Editor] is the one
 // behavior surface for reading, replacing and clearing what was typed.
+//
+// The zero value is ready. A Composer must not be copied after first use: its editor,
+// pointer routing and presentation cache are one mutable owner.
 type Composer struct {
+	noCopy noCopy
+
 	Theme Theme
 	// Prompt marks the first row of the field. Empty draws no marker and gives the
 	// columns back to the text.

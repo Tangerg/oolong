@@ -14,8 +14,11 @@ import "slices"
 // Where the columns are is not here either. A row is drawn by [List.Row] into a view
 // of the whole row, and how that row is divided belongs to its appearance layer.
 //
-// The zero Table is an empty list in no particular order.
+// The zero Table is an empty list in no particular order. A Table must not be copied
+// after first use: its rows, cursor, ordering and scroll are one mutable owner.
 type Table[T any] struct {
+	noCopy noCopy
+
 	List[T]
 
 	// less orders two rows by a column: true when a comes before b. Nil means the

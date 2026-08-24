@@ -217,8 +217,11 @@ func (f *field) leaving(has bool) bool {
 // field a click landed in — is the container's, because it is the same question there
 // as anywhere else.
 //
-// The zero Form has no fields and answers nothing.
+// The zero Form has no fields and answers nothing. A Form must not be copied after
+// first use: its fields, focus, matcher and validation state are one mutable owner.
 type Form struct {
+	noCopy noCopy
+
 	// fields are what the form collects, in the order the keyboard walks them. They
 	// are private for the same reason Container's children are: replacing a focused
 	// field has to release the old owner before the new one can receive input.

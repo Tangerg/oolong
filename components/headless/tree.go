@@ -56,8 +56,12 @@ type treeNode[T any] struct {
 // branch mark is, which is a matter of taste and belongs a layer up. What is here is
 // which branches are open, which row the cursor is on, and what the keys do.
 //
-// The zero Tree shows nothing and answers nothing.
+// The zero Tree shows nothing and answers nothing. A Tree must not be copied after
+// first use: its owned hierarchy, branch identities, rows and matcher are one mutable
+// owner.
 type Tree[T any] struct {
+	noCopy noCopy
+
 	// nodes are private so replacing the hierarchy cannot bypass selection
 	// settlement or retain open identities that no longer name a branch.
 	nodes []treeNode[T]

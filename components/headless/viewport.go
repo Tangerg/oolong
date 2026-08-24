@@ -28,8 +28,12 @@ import (
 // every frame; a field taller than its box scrolls to keep its own cursor in view. Both
 // would fight a window that also had an opinion.
 //
-// The zero Viewport is empty and shows nothing.
+// The zero Viewport is empty and shows nothing. A Viewport must not be copied after
+// first use: its content focus, scroll and committed routing geometry are one mutable
+// owner.
 type Viewport struct {
+	noCopy noCopy
+
 	// Keys say which keystrokes scroll — see [Scroll]. Nil reads through
 	// [DefaultScrollKeys], and they are tried only after the content has declined the
 	// keystroke, so content with arrow keys of its own keeps them.

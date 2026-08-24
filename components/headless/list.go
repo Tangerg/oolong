@@ -18,7 +18,12 @@ import (
 // Selection and scrolling are separate concerns that have to agree: moving the
 // selection past the edge of the window scrolls to keep it visible, because a
 // selection the user cannot see is a selection they will act on by mistake.
+//
+// The zero value is ready. A List must not be copied after first use: its items,
+// matcher, scroll and committed routing state are one mutable owner.
 type List[T any] struct {
+	noCopy noCopy
+
 	// items are private so replacing them cannot bypass selection clamping or leave
 	// committed routing totals describing a collection the list no longer owns.
 	items []T

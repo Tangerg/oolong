@@ -93,8 +93,12 @@ type Item struct {
 // those are appearance, they belong a layer up, and a container that had an opinion
 // about them would be one nobody could dress differently.
 //
-// The zero Container is an empty column, ready to have items appended.
+// The zero Container is an empty column, ready to have items appended. A Container
+// must not be copied after first use: children, focus, pointer capture and committed
+// routing geometry are one mutable owner.
 type Container struct {
+	noCopy noCopy
+
 	// Axis is which way the children are arranged. The zero value stacks them down
 	// the region.
 	Axis layout.Axis

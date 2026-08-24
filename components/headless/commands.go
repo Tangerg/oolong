@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -151,41 +152,49 @@ type Found struct {
 // An empty query is every command, most recently used first, which is what a palette
 // shows when it opens.
 func (c *Commands[T]) Find(query string) []Found {
-	if query == "" {
-		out := make([]Found, 0, len(c.list))
-		for _, cmd := range c.byRecency() {
-			out = append(out, Found{Command: cloneCommand(cmd)})
-		}
-		return out
-	}
-
-	// Names first, so that what is shown is what was matched.
-	names := make([]string, len(c.list))
-	for i, entry := range c.list {
-		names[i] = entry.command.Name
-	}
-	out := make([]Found, 0, len(c.list))
-	matched := make([]bool, len(c.list))
-	for _, r := range fuzzy.Filter(query, names) {
-		matched[r.Index] = true
-		out = append(out, Found{Command: cloneCommand(c.list[r.Index].command), At: r.Match.At})
-	}
-	// Then the aliases, for commands the name did not find. An alias match has
-	// nothing to underline in the name, which is honest: the user typed something
-	// else.
-	for i, entry := range c.list {
-		if matched[i] {
+	matches := make([]commandMatch, 0, len(c.list))
+	for _, command := range c.byRecency() {
+		if match, ok := fuzzy.Score(query, command.Name); ok {
+			matches = append(matches, commandMatch{command: command, match: match})
 			continue
 		}
-		cmd := entry.command
-		for _, alias := range cmd.Aliases {
-			if _, ok := fuzzy.Score(query, alias); ok {
-				out = append(out, Found{Command: cloneCommand(cmd)})
-				break
+		best, found := fuzzy.Match{}, false
+		for _, alias := range command.Aliases {
+			if match, ok := fuzzy.Score(query, alias); ok && (!found || match.Score > best.Score) {
+				best, found = match, true
 			}
+		}
+		if found {
+			matches = append(matches, commandMatch{command: command, match: best, alias: true})
+		}
+	}
+	// What is shown is a name, so every name match precedes an alias match. Within
+	// each class the fuzzy score leads and the stable input order breaks ties by
+	// recency. An empty query gives every name score zero and therefore needs no
+	// separate sorting path.
+	slices.SortStableFunc(matches, func(a, b commandMatch) int {
+		if a.alias != b.alias {
+			if a.alias {
+				return 1
+			}
+			return -1
+		}
+		return cmp.Compare(b.match.Score, a.match.Score)
+	})
+	out := make([]Found, len(matches))
+	for i, found := range matches {
+		out[i].Command = cloneCommand(found.command)
+		if !found.alias {
+			out[i].At = found.match.At
 		}
 	}
 	return out
+}
+
+type commandMatch struct {
+	command Command
+	match   fuzzy.Match
+	alias   bool
 }
 
 // cloneCommand makes the registry the owner of its values on the way in and gives
@@ -208,12 +217,12 @@ func (c *Commands[T]) byRecency() []Command {
 	out := make([]Command, 0, len(c.list))
 	for _, name := range c.used {
 		if entry, ok := c.lookup(name); ok {
-			out = append(out, cloneCommand(entry.command))
+			out = append(out, entry.command)
 		}
 	}
 	for _, entry := range c.list {
 		if !slices.Contains(c.used, entry.command.Name) {
-			out = append(out, cloneCommand(entry.command))
+			out = append(out, entry.command)
 		}
 	}
 	return out

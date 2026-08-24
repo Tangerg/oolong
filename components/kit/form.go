@@ -17,7 +17,11 @@ import (
 // The fields draw themselves, because a field is generic over what it holds and nothing
 // here could name every kind of one — see [headless.Look]. So this projects the theme
 // as the handful of roles a field has, without changing the controller's own look.
+// A Form must not be copied after first use: its controller and committed pointer
+// routing are one dressed component owner.
 type Form struct {
+	noCopy noCopy
+
 	// Theme is the look, and Glyphs the characters the marks beside a choice are drawn
 	// with.
 	Theme  Theme

@@ -16,8 +16,11 @@ import (
 // the frame, and participate in a [headless.Container] without pretending a passive
 // child is focusable.
 //
-// The zero Panel has no child and draws the zero Box.
+// The zero Panel has no child and draws the zero Box. A Panel must not be copied after
+// first use: its child focus and committed pointer routing are one mutable owner.
 type Panel struct {
+	noCopy noCopy
+
 	// Box is the panel's frame, fill, padding, title, and footer. Replacing it changes
 	// appearance and interior geometry, never the child's behavior.
 	Box Box

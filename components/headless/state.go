@@ -40,6 +40,14 @@ type bound[T any] struct{ at *T }
 func (b bound[T]) Value() T { return *b.at }
 func (b bound[T]) Set(v T)  { *b.at = v }
 
+// setAccessor applies one requested value and returns the one its owner accepted.
+// Accessor's synchronous postcondition is the only source of truth for validation or
+// normalization; no controlled component may keep the requested value as a shadow.
+func setAccessor[T any](binding Accessor[T], value T) T {
+	binding.Set(value)
+	return binding.Value()
+}
+
 // ownedValue is local storage unless an accessor gives ownership to a caller.
 //
 // It stays private because ownership is part of each controller's configuration, not
@@ -84,10 +92,9 @@ func (v *valueState[T]) set(binding Accessor[T], value T) bool {
 		return false
 	}
 	if binding != nil {
-		binding.Set(value)
 		// The accessor owns acceptance. It may validate or normalize value, and its
 		// postcondition makes the accepted Value the only truthful change result.
-		return binding.Value() != before
+		return setAccessor(binding, value) != before
 	}
 	v.local = value
 	return true

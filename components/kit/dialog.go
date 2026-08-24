@@ -100,8 +100,11 @@ func (d *Dialog) Semantics() headless.SemanticNode {
 //
 // The behavior — open state, focus restoration, escape and outside-click policy — is
 // owned below by the controller and stack. This part owns only border, palette,
-// placement and body composition.
+// placement and body composition. A DialogPanel must not be copied after first use:
+// body focus and committed pointer routing are one appearance owner.
 type DialogPanel struct {
+	noCopy noCopy
+
 	Theme Theme
 	// Where the dialog goes. The zero value centres it and fills what the margin
 	// leaves, which is what a dialog with a lot in it wants.

@@ -191,8 +191,11 @@ func (t *transaction) abort() {
 // a mixture of children from a frame still being built. Root depends only on grid and
 // input; program sees it structurally as its consumer-defined Component.
 //
-// The zero Root draws nothing and declines input.
+// The zero Root draws nothing and declines input. A Root must not be copied after
+// first use: its transaction, committed tree and held gesture are one frame owner.
 type Root struct {
+	noCopy noCopy
+
 	of Widget
 
 	presentation Snapshot[Widget]

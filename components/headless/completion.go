@@ -126,7 +126,12 @@ func (c Candidate) shown() string {
 // It draws itself into the space it is given, and knows nothing about floating. A
 // caller that wants it over the text composes it with an appearance-layer placement
 // wrapper; that wrapper, not completion behavior, owns the geometry.
+//
+// The zero value is closed and ready. A Completion must not be copied after first use:
+// its candidates, matcher and acceptance lifecycle are one mutable owner.
 type Completion struct {
+	noCopy noCopy
+
 	// Look is how the rows are drawn: the text, the row under the cursor, the
 	// characters the query matched, and the detail beside a candidate. It is the one
 	// way anything here that draws itself is dressed — see [Look].

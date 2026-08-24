@@ -11,7 +11,12 @@ import (
 // Change owns the one behaviour a plain list does not have: left, right or
 // activation changes the selected value. What an item is and how a change is stored
 // remain the caller's domain; this controller only routes an action to it.
+//
+// The zero value is an empty read-only list. A Settings value must not be copied after
+// first use: its list navigation and value-action matcher are one mutable owner.
 type Settings[T any] struct {
+	noCopy noCopy
+
 	List[T]
 	// Change applies an action to the selected item. It reports whether the item
 	// accepted it. Nil makes the list read-only.

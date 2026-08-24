@@ -18,8 +18,11 @@ import (
 // regardless of how the track looks.
 //
 // Construct a slider with [NewSlider]. Its zero value is the inert range [0, 0] with
-// a step of one.
+// a step of one. A Slider must not be copied after first use: its controlled value,
+// gesture, matcher and committed track are one mutable owner.
 type Slider struct {
+	noCopy noCopy
+
 	minimum, maximum int
 	step             int
 	value            ownedValue[int]

@@ -31,8 +31,11 @@ type Tab struct {
 //
 // Construct it with [NewTabs] so selection ownership is explicit in one configuration.
 // The zero value is an empty locally owned controller and is safe, but Set is the only
-// way to give it parts.
+// way to give it parts. A Tabs value must not be copied after first use: its parts,
+// selection, focus and matcher are one mutable owner.
 type Tabs struct {
+	noCopy noCopy
+
 	items     []Tab
 	selection ownedValue[int]
 

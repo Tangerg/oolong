@@ -22,8 +22,11 @@ import (
 //
 //	filter.SetPattern(composer.Editor().Text())
 //
-// The zero Filter shows everything, in the order it was given.
+// The zero Filter shows everything, in the order it was given. A Filter must not be
+// copied after first use: its source, ranked list and cursor are one mutable owner.
 type Filter[T any] struct {
+	noCopy noCopy
+
 	// items are private because replacing them must invalidate the ranked matches.
 	// A public slice let the source change while the filter kept results from its old
 	// contents.

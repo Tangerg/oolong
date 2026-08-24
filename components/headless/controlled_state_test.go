@@ -27,6 +27,22 @@ type rejectingIntAccessor struct {
 	writes int
 }
 
+type transformingAccessor[T any] struct {
+	value     T
+	writes    int
+	transform func(T) T
+}
+
+func (a *transformingAccessor[T]) Value() T { return a.value }
+
+func (a *transformingAccessor[T]) Set(value T) {
+	a.writes++
+	if a.transform != nil {
+		value = a.transform(value)
+	}
+	a.value = value
+}
+
 func (a *rejectingIntAccessor) Value() int { return a.value }
 
 func (a *rejectingIntAccessor) Set(int) { a.writes++ }
@@ -322,6 +338,33 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		}
 	})
 
+	t.Run("text adopts the value its owner accepted", func(t *testing.T) {
+		value := &transformingAccessor[string]{value: "old", transform: strings.ToUpper}
+		field := &headless.Text{Value: value}
+		if !field.Handle(input.Key{Text: "x"}) {
+			t.Fatal("text input was not handled")
+		}
+		if got := field.Editor().Text(); got != "OLDX" || value.value != "OLDX" || value.writes != 1 {
+			t.Fatalf("editor=%q binding=%q writes=%d, want the accepted OLDX after one write",
+				got, value.value, value.writes)
+		}
+	})
+
+	t.Run("text settles caller content onto one line", func(t *testing.T) {
+		value := &countedAccessor[string]{value: "one\ntwo"}
+		field := &headless.Text{Value: value}
+		if err := field.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if err := field.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		if got := field.Editor().Text(); got != "one two" || value.value != "one two" || value.writes != 1 {
+			t.Fatalf("editor=%q binding=%q writes=%d, want one canonical write",
+				got, value.value, value.writes)
+		}
+	})
+
 	t.Run("single choice", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "a"}
 		field := &headless.Select[string]{Value: value}
@@ -382,6 +425,27 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		}
 		if len(value.value) != 1 || value.value[0] != "b" || value.writes != 1 {
 			t.Fatalf("choices=%v writes=%d, want b after one", value.value, value.writes)
+		}
+	})
+
+	t.Run("multiple choice reports the set its owner accepted", func(t *testing.T) {
+		value := &transformingAccessor[[]string]{
+			value: []string{"a"},
+			transform: func([]string) []string {
+				return []string{"a"}
+			},
+		}
+		field := &headless.MultiSelect[string]{Value: value}
+		field.SetOptions(headless.Options("a", "b"))
+		_ = field.Taken()
+		if !field.Do(headless.SelectNext) {
+			t.Fatal("second option was not selected")
+		}
+		if field.Toggle() {
+			t.Fatal("Toggle reported a change the state owner rejected")
+		}
+		if got := field.Taken(); !slices.Equal(got, []string{"a"}) || value.writes != 1 {
+			t.Fatalf("taken=%v writes=%d, want accepted a after one rejected write", got, value.writes)
 		}
 	})
 

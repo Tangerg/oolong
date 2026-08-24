@@ -187,8 +187,12 @@ func (d *Dialog) closed(content *DialogContent) {
 //
 // It delegates drawing, placement and input to an appearance-supplied Modal while
 // keeping closure and focus in the controller. Callers receive it from
-// [Dialog.Content]; constructing one directly would leave it without an owner.
+// [Dialog.Content]; constructing one directly would leave it without an owner. A
+// DialogContent must not be copied: its identity is how the Dialog recognizes the
+// one stack member whose closure settles the controller.
 type DialogContent struct {
+	noCopy noCopy
+
 	dialog  *Dialog
 	modal   Modal
 	focused bool
@@ -268,7 +272,11 @@ func (c *DialogContent) Semantics() SemanticNode {
 //
 // Of supplies appearance only. The trigger owns activation, pointer capture, focus and
 // semantic state, so a different appearance cannot accidentally change behavior.
+// A DialogTrigger must not be copied after first use: those transitions and its
+// committed hit region have one owner.
 type DialogTrigger struct {
+	noCopy noCopy
+
 	// Keys maps activation. Nil reads through [DefaultActivationKeys].
 	Keys *keymap.Map
 

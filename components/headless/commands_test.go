@@ -95,6 +95,35 @@ func TestCommandsPutTheRecentOnesFirst(t *testing.T) {
 	}
 }
 
+func TestCommandsBreakEqualSearchScoresByRecency(t *testing.T) {
+	var commands headless.Commands[struct{}]
+	commands.Add(headless.Command{Name: "alpha-one"}, struct{}{})
+	commands.Add(headless.Command{Name: "alpha-two"}, struct{}{})
+	commands.Used("alpha-two")
+
+	got := names(commands.Find("alpha"))
+	if len(got) != 2 || got[0] != "alpha-two" {
+		t.Fatalf("equal-score search order = %v, want the most recently used first", got)
+	}
+}
+
+func TestCommandsRankAliasMatchesWithoutPuttingThemBeforeNames(t *testing.T) {
+	var commands headless.Commands[struct{}]
+	commands.Add(headless.Command{Name: "first", Aliases: []string{"far-a-b"}}, struct{}{})
+	commands.Add(headless.Command{Name: "second", Aliases: []string{"ab"}}, struct{}{})
+
+	got := names(commands.Find("ab"))
+	if len(got) != 2 || got[0] != "second" {
+		t.Fatalf("alias search order = %v, want the best alias match first", got)
+	}
+
+	commands.Add(headless.Command{Name: "a---b"}, struct{}{})
+	got = names(commands.Find("ab"))
+	if len(got) != 3 || got[0] != "a---b" {
+		t.Fatalf("name and alias search order = %v, want every name match before aliases", got)
+	}
+}
+
 func TestCommandsRecordAliasUseUnderTheCanonicalName(t *testing.T) {
 	c := registry()
 	c.Used("cls")

@@ -17,7 +17,12 @@ import (
 // It owns no content. The blocks, where the view is scrolled to, what is selected and
 // what a search turned up are all the caller's, held in the headless types that answer
 // those questions — this decides what they look like and nothing else.
+//
+// A Transcript must not be copied after first use: its committed window and captured
+// selection gesture are one appearance owner even though the content remains external.
 type Transcript struct {
+	noCopy noCopy
+
 	// Content is what to draw.
 	Content *headless.Transcript
 	// Scroll is where in it the window sits.

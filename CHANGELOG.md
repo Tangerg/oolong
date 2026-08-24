@@ -25,6 +25,11 @@ registration in one place without teaching the framework its argument shape or
 execution callback. Slash-prefixed parsing has moved into the agent example that owns
 that product grammar.
 
+Command search now uses one ranking path for empty, canonical-name and alias queries.
+Fuzzy score leads within name and alias matches, recent use breaks equal scores, and a
+name match remains ahead of every alias match because the canonical name is what the
+result presents.
+
 Clipboard read ownership now expires at its deadline, not one clock tick after it.
 Issuing a replacement and accepting an answer share one live-request predicate, so
 they cannot disagree about who owns an unidentified OSC 52 response at the boundary.
@@ -38,6 +43,18 @@ Controlled scalar operations now report whether the caller-owned accessor actual
 accepted a different value, rather than reporting that the component merely requested
 one. Accessor validation and normalization therefore remain the single source of truth
 for `Slider.Set`, `Slider.Sync`, and tab synchronization results.
+
+The same accessor postcondition now governs every controlled field. Text immediately
+adopts a normalized or rejected edit and settles externally supplied text onto its
+one-line storage form; single and multiple choice fields likewise reconcile their
+cursor or chosen set to what the owner accepted. `MultiSelect.Toggle` no longer reports
+a change rejected by its accessor.
+
+Every exported mutable owner now states and mechanically enforces its no-copy contract
+directly, including headless controllers, frame-local scroll refinement and kit
+appearances that own committed routing state. The architecture gate follows value
+containment transitively across repository packages, so a future wrapper cannot become
+copylocked through a nested owner without documenting and marking its own identity.
 
 Breaking. `headless.Command.Takes` and `headless.Command.Run` were removed. Store that
 application policy in the value passed to `headless.(*Commands[T]).Add`; retrieve both

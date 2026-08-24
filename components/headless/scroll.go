@@ -19,7 +19,12 @@ import (
 //
 // The zero value shows the start and does not follow, which is what a list of items
 // wants. A transcript asks to follow, once, with [Scroll.ToBottom].
+//
+// A Scroll must not be copied after first use: its committed and staged positions,
+// wheel remainder and key sequence are one mutable owner.
 type Scroll struct {
+	noCopy noCopy
+
 	// current is the committed position and bounds. Keeping the four values in the
 	// same entity used by a staged frame gives scrolling one implementation: input
 	// changes current, while Draw changes a copy until the root commits it.
@@ -182,7 +187,13 @@ func (s *Scroll) Stage(frame Frame, total, window int) ScrollLayout {
 //
 // It is a short-lived value returned by [Scroll.Stage]. Offset is used to paint the
 // frame; adjustments are staged with the same root transaction.
+//
+// A ScrollLayout must not be copied after construction. Two copies would carry two
+// refinements of one pending Scroll, and whichever wrote last would silently erase
+// the other's geometry.
 type ScrollLayout struct {
+	noCopy noCopy
+
 	scroll *Scroll
 	frame  Frame
 	state  scrollState

@@ -35,8 +35,11 @@ import (
 // whatever took its place.
 //
 // The zero value has no child and declines everything. It must be staged during
-// [Root.Draw] and read only from Handle.
+// [Root.Draw] and read only from Handle. A PointerRegion must not be copied after
+// first use: its committed child and captured gesture are one routing owner.
 type PointerRegion struct {
+	noCopy noCopy
+
 	presented Snapshot[pointerRegionFrame]
 	// held is the child that accepted a press. Identity is checked without comparing
 	// interface values directly, so an external value implementation can never turn

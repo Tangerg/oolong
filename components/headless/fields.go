@@ -23,12 +23,19 @@ import (
 //
 // One of these on its own is a [Form] with one field in it, which is where its look
 // comes from and is what an interface that wants a single input asks for.
+//
+// The zero value is ready. A Text value must not be copied after first use: its editor,
+// validation and caller-owned reconciliation are one mutable field.
 type Text struct {
+	noCopy noCopy
+
 	field
 	// Label is what the field is asking for.
 	Label string
 	// Value is the caller-owned text. A caller change is observed at the next semantic
-	// operation and by drawing; edits write it immediately. Nil keeps the text local.
+	// operation and by drawing; that operation writes back the one-line canonical form.
+	// Edits write immediately and adopt the value the owner accepts. Nil keeps the text
+	// local.
 	Value Accessor[string]
 	// Check says what is wrong with what has been entered, or nil. It is asked when the
 	// keyboard leaves the field and when the form is submitted.
@@ -168,21 +175,36 @@ func (t *Text) ensure() {
 		t.seeded = true
 		return
 	}
-	value := oneLineText(t.Value.Value())
+	owned := t.Value.Value()
+	value := oneLineText(owned)
+	if value != owned {
+		value = oneLineText(setAccessor(t.Value, value))
+	}
 	if !t.seeded || value != t.editor.Text() {
-		t.editor.SetText(value)
-		// Reconciliation is a new owner state, not a user edit inside the old one.
-		// Keeping the previous editor snapshots would let Undo overwrite the accessor
-		// with a value that stopped being current before this operation began.
-		t.editor.history.clear()
+		t.adopt(value)
 	}
 	t.seeded = true
 }
 
-// store puts what has been typed where the caller keeps it.
+// adopt replaces the editor with an owner-written or owner-accepted value.
+// Reconciliation is a new owner state, not a user edit inside the old one. Keeping
+// previous snapshots would let Undo overwrite an accessor with a value that stopped
+// being current before this operation began.
+func (t *Text) adopt(value string) {
+	t.editor.SetText(value)
+	t.editor.history.clear()
+}
+
+// store offers what has been typed to its owner and immediately adopts the value the
+// owner accepted. A validator or normalizer must not leave the editor as a private
+// shadow of the request it declined or changed.
 func (t *Text) store() {
 	if t.Value != nil {
-		t.Value.Set(t.editor.Text())
+		requested := t.editor.Text()
+		accepted := oneLineText(setAccessor(t.Value, requested))
+		if accepted != requested {
+			t.adopt(accepted)
+		}
 	}
 }
 
@@ -246,7 +268,12 @@ func Options[T ~string](values ...T) []Option[T] {
 // The choice follows the cursor: what is under it is what is chosen, and there is
 // nothing to press to confirm. A list that made somebody move to a row and then take it
 // is a list that can be left on a row nobody took.
+//
+// The zero value is empty and ready. A Select must not be copied after first use: its
+// options, cursor, scroll and controlled-state settlement are one mutable field.
 type Select[T any] struct {
+	noCopy noCopy
+
 	field
 	// Label is what the field is asking for.
 	Label string
@@ -255,8 +282,9 @@ type Select[T any] struct {
 	options []Option[T]
 	// Value is the caller-owned choice. A caller change moves the cursor at the next
 	// semantic operation and is projected by drawing; cursor movement writes it
-	// immediately. A value that names no option falls back to the current choice and is
-	// written when the field is validated. Nil keeps the choice local.
+	// immediately and adopts the value the owner accepts. A value that names no option
+	// falls back to the current choice and is written when the field is validated. Nil
+	// keeps the choice local.
 	Value Accessor[T]
 	// Same says whether two values are the same one, which is what puts the cursor on
 	// the choice already made. Nil matches a bound string or Stringer value against
@@ -432,9 +460,13 @@ func (s *Select[T]) sync() {
 	if s.Value == nil {
 		return
 	}
+	s.syncValue(s.Value.Value())
+}
+
+func (s *Select[T]) syncValue(value T) {
 	// The cursor starts on the choice already made, which is what makes a form somebody
 	// is coming back to show what they said last time.
-	at, matched := s.indexOf(s.Value.Value())
+	at, matched := s.indexOf(value)
 	s.list.Select(at)
 	s.stored, s.synced = s.list.Selected(), matched
 }
@@ -448,8 +480,7 @@ func (s *Select[T]) store() {
 		return
 	}
 	if chosen, ok := s.list.Current(); ok {
-		s.Value.Set(chosen.Value)
-		s.stored, s.synced = at, true
+		s.syncValue(setAccessor(s.Value, chosen.Value))
 	}
 }
 
@@ -458,7 +489,12 @@ func (s *Select[T]) store() {
 // The cursor and the choice are two things here, unlike in a [Select]: moving is not
 // choosing, and something has to be pressed. That is the whole difference between
 // picking one and picking some.
+//
+// The zero value is empty and ready. A MultiSelect must not be copied after first use:
+// its options, chosen set, cursor and matcher are one mutable field.
 type MultiSelect[T any] struct {
+	noCopy noCopy
+
 	field
 	// Label is what the field is asking for.
 	Label string
@@ -467,8 +503,9 @@ type MultiSelect[T any] struct {
 	options []Option[T]
 	// Value is the caller-owned set, in option order. A caller change is observed at the
 	// next semantic operation and by drawing. Unavailable choices are discarded,
-	// duplicates are folded and option order is restored through one write; a value
-	// already in canonical form is not rewritten. Nil keeps the set local.
+	// duplicates are folded and option order is restored through one write; the field
+	// then adopts the set the owner accepts. A value already in canonical form is not
+	// rewritten. Nil keeps the set local.
 	Value Accessor[[]T]
 	// Same says whether two values are the same one — see [Select.Same]. It is a pure
 	// projection callback and may run during drawing.
@@ -630,9 +667,10 @@ func (m *MultiSelect[T]) Toggle() bool {
 	if !m.taken[at] && m.limit > 0 && m.takenCount() >= m.limit {
 		return false
 	}
+	before := slices.Clone(m.taken)
 	m.taken[at] = !m.taken[at]
 	m.store()
-	return true
+	return !slices.Equal(before, m.taken)
 }
 
 // Measure is the label, the options within their cap, and the problem if there is one.
@@ -660,12 +698,16 @@ func (m *MultiSelect[T]) drawField(v Frame, look Look) {
 }
 
 func (m *MultiSelect[T]) selection() ([]bool, bool) {
-	taken := make([]bool, len(m.options))
 	if m.Value == nil {
+		taken := make([]bool, len(m.options))
 		copy(taken, m.taken)
 		return taken, !clampTaken(taken, m.limit)
 	}
-	bound := m.Value.Value()
+	return m.selectionOf(m.Value.Value())
+}
+
+func (m *MultiSelect[T]) selectionOf(bound []T) ([]bool, bool) {
+	taken := make([]bool, len(m.options))
 	for _, want := range bound {
 		for i, option := range m.options {
 			if option.holds(want, m.Same) {
@@ -765,7 +807,8 @@ func (m *MultiSelect[T]) sync() {
 
 func (m *MultiSelect[T]) store() {
 	if m.Value != nil {
-		m.Value.Set(m.takenValues())
+		accepted := setAccessor(m.Value, m.takenValues())
+		m.taken, _ = m.selectionOf(accepted)
 	}
 }
 
@@ -777,7 +820,12 @@ func (m *MultiSelect[T]) keys() *keymap.Map {
 }
 
 // Confirm is a field holding a yes or a no.
+//
+// The zero value answers no and is ready. A Confirm must not be copied after first
+// use: its answer, matcher and committed pointer split are one mutable field.
 type Confirm struct {
+	noCopy noCopy
+
 	field
 	// Label is what the field is asking.
 	Label string

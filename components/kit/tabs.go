@@ -21,7 +21,12 @@ const tabGap = 2
 // goes, what marks the one selected, whether there is a rule under it — and this is
 // one answer to it. A press on a name selects that pane; everything else is offered
 // to the pane, in the pane's own coordinates.
+//
+// A Tabs value must not be copied after first use: its controller, committed strip
+// geometry and pane pointer routing are one dressed component owner.
 type Tabs struct {
+	noCopy noCopy
+
 	// Theme is the look: the name of the pane showing is the thing the interface is
 	// about, and the rest are there for reference.
 	Theme Theme

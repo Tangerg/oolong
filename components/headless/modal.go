@@ -92,8 +92,12 @@ type stackLayer struct {
 // is the whole focus and pointer model between layers. Within a layer, or within the
 // interface underneath, a [Container] is what decides.
 //
-// The zero Stack is empty and ready.
+// The zero Stack is empty and ready. A Stack must not be copied after first use: its
+// layer identities, focus, pointer capture and committed geometry are one mutable
+// owner.
 type Stack struct {
+	noCopy noCopy
+
 	// base is private because replacing the focused root has to release the old one.
 	// SetBase is the ownership transition; an exported field could bypass it.
 	base Widget
