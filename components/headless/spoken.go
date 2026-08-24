@@ -19,9 +19,9 @@ func (t *Text) Ask() string {
 // Reply takes what was said as the whole of the answer.
 func (t *Text) Reply(said string) error {
 	t.ensure()
-	before := t.editor.Revision()
+	edit := t.beginEdit()
 	t.editor.SetText(said)
-	t.storeSince(before)
+	t.storeSince(edit)
 	return t.Validate()
 }
 

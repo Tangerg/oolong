@@ -114,31 +114,32 @@ func (t *Text) projection() *Editor {
 // Handle passes input to the field and keeps the value in step with it.
 func (t *Text) Handle(ev input.Event) bool {
 	t.ensure()
-	before := t.editor.Revision()
 	if mouse, ok := ev.(input.Mouse); ok {
 		local, in := t.within(mouse)
 		if !in {
 			return false
 		}
+		edit := t.beginEdit()
 		handled := t.editor.Handle(local)
-		t.storeSince(before)
+		t.storeSince(edit)
 		return handled
 	}
+	edit := t.beginEdit()
 	if !t.editor.Handle(ev) {
 		return false
 	}
-	t.storeSince(before)
+	t.storeSince(edit)
 	return true
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (t *Text) Do(action keymap.Action) bool {
 	t.ensure()
-	before := t.editor.Revision()
+	edit := t.beginEdit()
 	if !t.editor.Do(action) {
 		return false
 	}
-	t.storeSince(before)
+	t.storeSince(edit)
 	return true
 }
 
@@ -195,25 +196,47 @@ func (t *Text) adopt(value string) {
 	t.editor.history.clear()
 }
 
-// store offers what has been typed to its owner and immediately adopts the value the
-// owner accepted. A validator or normalizer must not leave the editor as a private
-// shadow of the request it declined or changed.
-func (t *Text) store() {
+// store offers what has been typed to its owner and settles the same edit onto the
+// value that owner accepted. A validator or normalizer must not leave the editor as a
+// private shadow of the request it declined or changed, but its answer is not a new
+// external state transition and therefore must not clear this edit's history.
+func (t *Text) store(edit textEdit) {
 	if t.Value != nil {
 		requested := t.editor.Text()
 		accepted := oneLineText(setAccessor(t.Value, requested))
-		if accepted != requested {
-			t.adopt(accepted)
+		switch {
+		case accepted == requested:
+		case edit.checkpointed && accepted == edit.checkpoint.text:
+			t.editor.rejectEdit(edit.checkpoint)
+		default:
+			t.editor.reconcileEdit(accepted)
 		}
 	}
+}
+
+type textEdit struct {
+	revision     uint64
+	checkpoint   editorCheckpoint
+	checkpointed bool
+}
+
+func (t *Text) beginEdit() textEdit {
+	edit := textEdit{revision: t.editor.Revision()}
+	// Bind is an exact assignment and therefore cannot reject or normalize. Every
+	// open Accessor implementation gets a rollback checkpoint because its Set
+	// postcondition, not its requested argument, decides whether an edit existed.
+	if _, exact := t.Value.(bound[string]); t.Value != nil && !exact {
+		edit.checkpoint, edit.checkpointed = t.editor.checkpointEdit(), true
+	}
+	return edit
 }
 
 // storeSince writes through a controlled field only when its semantic answer changed.
 // Handling a cursor key or an impossible deletion is not an assignment merely because
 // the editor consumed the action.
-func (t *Text) storeSince(before uint64) {
-	if t.editor.Revision() != before {
-		t.store()
+func (t *Text) storeSince(edit textEdit) {
+	if t.editor.Revision() != edit.revision {
+		t.store(edit)
 	}
 }
 

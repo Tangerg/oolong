@@ -350,6 +350,79 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		}
 	})
 
+	t.Run("text settles normalization inside the edit transaction", func(t *testing.T) {
+		value := &transformingAccessor[string]{value: "hello world", transform: strings.ToUpper}
+		field := &headless.Text{Value: value}
+		if err := field.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		field.Editor().SetCursor(0, 5)
+		before := field.Editor().Revision()
+		if !field.Handle(input.Key{Text: "x"}) {
+			t.Fatal("text input was not handled")
+		}
+		line, column := field.Editor().Cursor()
+		if got := field.Editor().Text(); got != "HELLOX WORLD" || line != 0 || column != 6 {
+			t.Fatalf("after normalization text=%q cursor=(%d,%d), want HELLOX WORLD at (0,6)",
+				got, line, column)
+		}
+		if got := field.Editor().Revision(); got != before+1 {
+			t.Fatalf("one normalized edit advanced revision from %d to %d", before, got)
+		}
+
+		if !field.Do(headless.Undo) {
+			t.Fatal("undo was not handled")
+		}
+		line, column = field.Editor().Cursor()
+		if got := field.Editor().Text(); got != "HELLO WORLD" || line != 0 || column != 5 {
+			t.Fatalf("undo text=%q cursor=(%d,%d), want HELLO WORLD at (0,5)", got, line, column)
+		}
+		if !field.Do(headless.Redo) || field.Editor().Text() != "HELLOX WORLD" {
+			t.Fatal("normalization discarded the edit's redo history")
+		}
+	})
+
+	t.Run("text rolls a rejected edit back without opening a typing run", func(t *testing.T) {
+		value := &transformingAccessor[string]{
+			value: "hello",
+			transform: func(value string) string {
+				if value == "helloX" {
+					return "hello"
+				}
+				return value
+			},
+		}
+		field := &headless.Text{Value: value}
+		if err := field.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		before := field.Editor().Revision()
+		if !field.Handle(input.Key{Text: "X"}) {
+			t.Fatal("rejected text input was not handled")
+		}
+		line, column := field.Editor().Cursor()
+		if got := field.Editor().Text(); got != "hello" || line != 0 || column != 5 {
+			t.Fatalf("after rejection text=%q cursor=(%d,%d), want hello at (0,5)", got, line, column)
+		}
+		if got := field.Editor().Revision(); got != before {
+			t.Fatalf("rejected edit advanced revision from %d to %d", before, got)
+		}
+
+		if !field.Handle(input.Key{Text: "y"}) || field.Editor().Text() != "helloy" {
+			t.Fatal("an accepted edit after rejection did not take effect")
+		}
+		if !field.Do(headless.Undo) || field.Editor().Text() != "hello" {
+			t.Fatal("rejection left the next accepted edit without an undo snapshot")
+		}
+		before = field.Editor().Revision()
+		if !field.Handle(input.Key{Text: "X"}) || field.Editor().Revision() != before {
+			t.Fatal("a rejection after Undo changed content or revision")
+		}
+		if !field.Do(headless.Redo) || field.Editor().Text() != "helloy" {
+			t.Fatal("a rejected edit discarded the existing redo history")
+		}
+	})
+
 	t.Run("text settles caller content onto one line", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "one\ntwo"}
 		field := &headless.Text{Value: value}

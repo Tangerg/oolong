@@ -44,11 +44,13 @@ accepted a different value, rather than reporting that the component merely requ
 one. Accessor validation and normalization therefore remain the single source of truth
 for `Slider.Set`, `Slider.Sync`, and tab synchronization results.
 
-The same accessor postcondition now governs every controlled field. Text immediately
-adopts a normalized or rejected edit and settles externally supplied text onto its
-one-line storage form; single and multiple choice fields likewise reconcile their
-cursor or chosen set to what the owner accepted. `MultiSelect.Toggle` no longer reports
-a change rejected by its accessor.
+The same accessor postcondition now governs every controlled field. Text settles a
+normalized edit inside the editing transaction that produced it, preserving caret,
+selection, undo/redo and one revision; a rejected edit restores the prior content and
+history while closing the attempted typing run. Externally supplied text remains a
+distinct owner transition onto one-line storage. Single and multiple choice fields
+likewise reconcile their cursor or chosen set to what the owner accepted, and
+`MultiSelect.Toggle` no longer reports a change rejected by its accessor.
 
 Every exported mutable owner now states and mechanically enforces its no-copy contract
 directly, including headless controllers, frame-local scroll refinement and kit

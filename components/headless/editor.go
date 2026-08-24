@@ -143,6 +143,18 @@ type editorState struct {
 	marks []text.Mark
 }
 
+// editorCheckpoint is the part of an edit that a controlled owner may reject after
+// the editor has applied it. It owns its slice headers so history mutation during the
+// attempted operation cannot erase the state needed to settle that rejection.
+type editorCheckpoint struct {
+	text      string
+	state     editorState
+	history   editorHistory
+	anchor    Caret
+	selecting bool
+	revision  uint64
+}
+
 // Text is the whole content, lines joined by newlines.
 func (e *Editor) Text() string {
 	e.ensure()
@@ -241,6 +253,120 @@ func (e *Editor) SetText(s string) {
 	}
 	e.snapshot()
 	e.replaceRange(start, end, s)
+}
+
+// reconcileEdit replaces the representation accepted for the content mutation that
+// just completed. It is still that mutation: revision and history have already been
+// advanced by the editing operation and must not acquire a second step merely because
+// a controlled owner normalized its result.
+//
+// Interaction positions are translated through the changed interval. Text before and
+// after that interval keeps its exact position; a position inside it keeps its byte
+// distance from the start as far as the accepted interval permits, then snaps to a
+// valid grapheme and element boundary.
+func (e *Editor) reconcileEdit(s string) {
+	e.ensure()
+	s = e.canonicalText(s)
+	requested := e.Text()
+	if requested == s {
+		return
+	}
+
+	cursor := reconciledOffset(requested, s, e.offsetOf(Caret{Line: e.line, Col: e.col}))
+	anchor := reconciledOffset(requested, s, e.offsetOf(e.anchor))
+	rowEnd := reconciledOffset(requested, s, e.offsetOf(e.rowEnd))
+	selecting, rowEndSet := e.selecting, e.rowEndSet
+
+	start := Caret{}
+	end := Caret{Line: len(e.lines) - 1, Col: len(e.lines[len(e.lines)-1])}
+	e.removed(start, end, s)
+	e.lines = strings.Split(s, "\n")
+	for i := range e.lines {
+		e.lines[i] = strings.Clone(e.lines[i])
+	}
+
+	caret := e.caretAt(cursor)
+	e.line, e.col = caret.Line, e.snapElement(caret.Line, caret.Col, true)
+	e.anchor = e.caretAt(anchor)
+	e.anchor.Col = e.snapElement(e.anchor.Line, e.anchor.Col, false)
+	e.rowEnd = e.caretAt(rowEnd)
+	e.rowEnd.Col = e.snapElement(e.rowEnd.Line, e.rowEnd.Col, false)
+	e.selecting, e.rowEndSet = selecting, rowEndSet
+	e.wantColumn = -1
+	e.layout.stale = true
+}
+
+func (e *Editor) checkpointEdit() editorCheckpoint {
+	return editorCheckpoint{
+		text: e.Text(), state: e.state(),
+		history: editorHistory{
+			undo: slices.Clone(e.history.undo),
+			redo: slices.Clone(e.history.redo),
+		},
+		anchor: e.anchor, selecting: e.selecting, revision: e.revision,
+	}
+}
+
+// rejectEdit restores the semantic state and history from before a controlled edit.
+// The rejected action still ends typing and interaction affinity, just like any other
+// handled edit with no effect; otherwise the next insertion could coalesce without a
+// snapshot of its own.
+func (e *Editor) rejectEdit(checkpoint editorCheckpoint) {
+	e.lines, e.marks = checkpoint.state.lines, checkpoint.state.marks
+	e.line, e.col = checkpoint.state.line, checkpoint.state.col
+	e.anchor, e.selecting = checkpoint.anchor, checkpoint.selecting
+	e.history, e.revision = checkpoint.history, checkpoint.revision
+	e.endTyping()
+	e.wantColumn = -1
+	e.layout.stale = true
+}
+
+// reconciledOffset maps one position through the smallest single replacement that
+// turns before into after. Equal-rune prefix and suffix boundaries keep the edit valid
+// for UTF-8 whose leading bytes happen to agree even when the runes do not.
+func reconciledOffset(before, after string, at int) int {
+	at = min(max(at, 0), len(before))
+	prefix := commonRunePrefix(before, after)
+	beforeEnd, afterEnd := commonRuneSuffixStarts(before, after, prefix)
+	switch {
+	case at < prefix:
+		return at
+	case at == prefix:
+		if beforeEnd == prefix {
+			return afterEnd
+		}
+		return prefix
+	case at >= beforeEnd:
+		return afterEnd + at - beforeEnd
+	default:
+		return prefix + min(at-prefix, afterEnd-prefix)
+	}
+}
+
+func commonRunePrefix(a, b string) int {
+	at := 0
+	for at < len(a) && at < len(b) {
+		ra, sa := utf8.DecodeRuneInString(a[at:])
+		rb, sb := utf8.DecodeRuneInString(b[at:])
+		if ra != rb || sa != sb {
+			break
+		}
+		at += sa
+	}
+	return at
+}
+
+func commonRuneSuffixStarts(a, b string, prefix int) (int, int) {
+	aEnd, bEnd := len(a), len(b)
+	for aEnd > prefix && bEnd > prefix {
+		ra, sa := utf8.DecodeLastRuneInString(a[:aEnd])
+		rb, sb := utf8.DecodeLastRuneInString(b[:bEnd])
+		if ra != rb || sa != sb || aEnd-sa < prefix || bEnd-sb < prefix {
+			break
+		}
+		aEnd, bEnd = aEnd-sa, bEnd-sb
+	}
+	return aEnd, bEnd
 }
 
 // Empty reports whether there is nothing in the field.
