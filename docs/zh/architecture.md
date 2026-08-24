@@ -157,6 +157,8 @@ finished live value -> publication
 
 **不存在通用的 effect 系统。** `context.Context` 跨调用边界携带取消和截止时间；它不会变成服务定位器或状态口袋。
 
+时间边界必须说明自己回答的是两种问题中的哪一种。**截止时间**是所有权边界：到达截止时刻时，旧操作已经不再存活，因此区间是左闭右开的（`now < deadline`）。**交互窗口**根据事件到达时间进行分类：不晚于给定上限的事件仍可以属于同一个手势或按键序列，因此上边界可以包含在内。公开文档和边界测试必须写明这一选择。当多个操作判断同一份截止所有权时，它们必须共享一个 predicate，而不能分别重复一对可能在精确时刻产生分歧的反向比较。
+
 ## 5. 从前端与 Flutter 体系里拿什么
 
 先前技艺的价值在于**职责的划分**。实现机制是语言和平台特有的。
@@ -464,13 +466,14 @@ import 该适配器的应用才承担它的外部依赖。
 | 集中的 primitive 保持集中 | `dupl` 拒绝在范围、坐标、writer、身份和 ANSI framing primitive 的唯一实现旁边出现第二份结构性拷贝。它按模块运行，因此跨模块拷贝仍超出其视野，需要人工审读 | 每次 CI，在单个模块内 |
 | 有界的活动生命期（3.2） | 一个确定性组件测试证明交付移除了强载荷引用与每块的放置记录；一个在全新进程里跑的压力测试比较 `N` 与 `2N` 的大量已交付流在 GC 之后的保留堆，拒绝与 `N` 成正比的增长 | 切片 1 及每一个 transcript 实现 |
 | 无损增量摄入 | burst、取消、关闭、部分尾部、生产者快于消费者等测试，证明顺序、批量、声明的上限以及不丢数据 | 切片 1 |
+| 明确的时间边界语义 | clipboard 测试证明请求所有权采用左闭右开区间，并在精确截止时刻过期；keymap 测试证明交互序列包含恰好在超时时刻到达的 chord。两者都直接测试文档声明的边界，而不依赖调度时机 | 每一个新的截止时间或交互窗口 |
 | 可观察意义上纯粹的测量与绘制 | [`headless`](https://github.com/Tangerg/oolong/blob/main/components/headless/draw_purity_internals_test.go)、[`kit`](https://github.com/Tangerg/oolong/blob/main/components/kit/draw_purity_internals_test.go)、[`markdown`](https://github.com/Tangerg/oolong/blob/main/markdown/draw_purity_internals_test.go) 和 [`latex`](https://github.com/Tangerg/oolong/blob/main/latex/draw_purity_internals_test.go) 从源码推导每一个生产用的 `Measure` 与 `Draw*` 接收者，并逐一执行两次；有状态用例保持语义投影不变，全部用例都返回相同尺寸和帧，事件回调计数也属于被观察状态。[`internal/arch` 渲染副作用关卡](https://github.com/Tangerg/oolong/blob/main/internal/arch/render_effects_internals_test.go)从这些入口沿类型解析后的包内调用图追踪，拒绝 goroutine、I/O、时钟、随机性、日志、发布和非投影回调。[回调阶段关卡](https://github.com/Tangerg/oolong/blob/main/internal/arch/render_callbacks_internals_test.go)要求每一个被保留的函数值都必须有且只有一条不过期的投影、语义或事件声明 | 每一个实现测量或绘制的包；未分类接收者、回调、固有副作用、未解析本地调用或阶段违规都会直接失败 |
 | 单帧路由几何与兄弟顺序无关性（6.3） | 路由测试在新的根绘制暂存期间观察到旧快照，提交后观察到完整的新快照。`Snapshot`、`Scroll` 和 transcript 放置每帧只登记一次；重复生产者会 panic，帧代次会拒绝保存下来的旧帧，中止会释放待定状态，而一个已暂存的充血布局值无需二次登记即可继续细化 | 切片 2，以及每一种新的暂存呈现拥有者 |
 | 受支持平台的尺寸变化投递 | 一个真实的 Unix PTY 改变几何后必须产生后续的 `Resize`；Windows 的轮询状态机用确定性时钟测试变化检测、错误恢复、去重和关闭；Windows 源码在 CI 中构建并测试 | 每次终端测试，以及每个受支持的 OS 源码集 |
 | 空闲时零渲染与零发布工作 | [`TestAnIdleProgramStopsWriting`](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 与定时器测试证明没有无条件帧时钟、没有重复字节；一个必须采样外部状态的平台观察者是有界的、对未变化的观察不发出任何东西、并随会话停止 | 每次 CI |
 | 失败与所有权结算 | [`program` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/program/program_test.go) 覆盖输入原因、分配前的非法或过量宿主几何、部分输出、失败后不再写入、排空超时、能力缺席；[`term` 故障测试](https://github.com/Tangerg/oolong/blob/main/core/term/terminal_test.go) 覆盖真实 PTY 拆除，[`Writer`](https://github.com/Tangerg/oolong/blob/main/core/term/writer_test.go) 覆盖短写/部分写与有界关闭 | 切片 1 及每一个新宿主 |
 | 公开构造只有一种语言 | `internal/arch` 拒绝函数式选项、导出的 `Options` 配置、拥有三个以上位置输入却没有显式 `Config` 的构造器，以及返回同一具体类型却未声明的多个 `New...` 或 `Open...` 入口；罕见的第二个资源获取入口必须点明精确的所有权或生命周期边界 | 每次 CI |
-| 语义状态与焦点只有一个拥有者 | [`internal/arch`](https://github.com/Tangerg/oolong/blob/main/internal/arch/facade_internals_test.go) 拒绝 kit 方法镜像 controller 或 editor 的部分状态 API；组件所有权测试要求重复安装可证明为同一身份的孩子及重复报告同一焦点状态保持幂等，而模块私有的身份原语为开放组件接口提供共享的保守比较 | 每次 CI，以及每一个新组件包装器 |
+| 语义状态与焦点只有一个拥有者 | headless 中由源码推导的受控状态测试要求该包每一个导出的 `Accessor` owner 证明调用方写入转移、实际接受的写入以及 no-op 写入。kit 中由源码推导的组合测试要求每一个接受这条所有权接缝的 Config 都提供一个可执行的双向 controlled example；[`internal/arch`](https://github.com/Tangerg/oolong/blob/main/internal/arch/facade_internals_test.go) 另行拒绝 kit 方法镜像 controller 或 editor 的部分状态 API。组件所有权测试要求重复安装可证明为同一身份的孩子及重复报告同一焦点状态保持幂等，而模块私有的身份原语为开放组件接口提供共享的保守比较 | 每次 CI，以及每一个新的受控 owner 或组件包装器 |
 | 可变所有者始终只有一个拥有者 | `internal/arch` 从生产文档中推导所有声明不可复制的导出类型，并要求它直接带有 `noCopy`、`sync` 或 `sync/atomic` 字段；随后 `go vet` 会在共享可变存储取得两个拥有者之前拒绝值复制 | 每次 CI，以及每一项新的不可复制契约 |
 | 每一条可调用路径都有可执行证据 | 钉住版本的 `golang.org/x/tools/cmd/deadcode` 带测试分析每个模块在 Linux、macOS 与 Windows 上的源码；私有不可达代码应当删除，公开不可达操作应当获得调用方视角的契约覆盖，而保留或删除必须由独立 API 设计评审决定 | 每次 CI 与发布 |
 | 公开模块兼容性 | 每个模块在没有 `go.work` 的情况下构建；每次变更都由钉住版本的 `apidiff` 把各公开模块与前一个不可变 tag 比对，并要求每个不兼容的导出 API 变更以精确名称出现在 Unreleased 迁移清单中；发布流程还会运行钉住版本的 `gorelease`，报告 pre-1.0 的变更并拒绝违反 Go 兼容性的 v1+ tag 提案；日常 CI 检查声明的 Go 下限与受支持源码集 | 每次 CI、打 tag 前的手动发布检查，以及每一个公开模块 tag |

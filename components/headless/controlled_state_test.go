@@ -38,11 +38,13 @@ func (a *countedAccessor[T]) Set(value T) {
 	a.writes++
 }
 
-// TestEveryAccessorOwnerObservesCallerTransitions is both the ownership contract and
-// its coverage gate. The case names are checked against every exported production
-// struct that accepts an Accessor, so a new controlled component cannot inherit only
-// the convenient write half of the contract.
-func TestEveryAccessorOwnerObservesCallerTransitions(t *testing.T) {
+// TestEveryHeadlessAccessorOwnerObservesCallerTransitions is both the ownership
+// contract and its coverage gate. The case names are checked against every exported
+// production struct in package headless that accepts an Accessor, so a new controlled
+// owner cannot inherit only the convenient write half of the contract. Kit values are
+// appearances over these owners; internal/arch separately rejects a second kit state
+// facade.
+func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 	cases := map[string]func(*testing.T){
 		"Confirm": func(t *testing.T) {
 			t.Helper()
@@ -168,10 +170,10 @@ func TestEveryAccessorOwnerObservesCallerTransitions(t *testing.T) {
 	for _, name := range names {
 		t.Run(name, cases[name])
 	}
-	assertAccessorOwnersCovered(t, cases)
+	assertHeadlessAccessorOwnersCovered(t, cases)
 }
 
-func assertAccessorOwnersCovered(t *testing.T, covered map[string]func(*testing.T)) {
+func assertHeadlessAccessorOwnersCovered(t *testing.T, covered map[string]func(*testing.T)) {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {

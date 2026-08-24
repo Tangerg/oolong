@@ -29,6 +29,11 @@ Clipboard read ownership now expires at its deadline, not one clock tick after i
 Issuing a replacement and accepting an answer share one live-request predicate, so
 they cannot disagree about who owns an unidentified OSC 52 response at the boundary.
 
+`program.(*Runtime).After` now schedules a non-positive delay for the next owner turn
+instead of silently discarding its callback. It still never calls application code
+inline. `Runtime.Every` continues to schedule nothing for a non-positive interval,
+because a repeating clock with no positive period has no stable cadence.
+
 Controlled scalar operations now report whether the caller-owned accessor actually
 accepted a different value, rather than reporting that the component merely requested
 one. Accessor validation and normalization therefore remain the single source of truth
@@ -717,10 +722,6 @@ the lower `grid.Drawable` contract, and both `grid.Inline.Print` and
 private wrap cache.
 
 ### Changed
-
-- `program.(*Runtime).After` now schedules non-positive delays for the next owner
-  turn instead of silently discarding them, matching one-shot timer semantics without
-  calling application code inline.
 
 - **The reader path now grows from the actual minimum.** `examples/hello` uses only
   `core` and states the complete two-method component contract. The README, first

@@ -146,10 +146,14 @@ func ExampleNewTabs_controlled() {
 	fmt.Println(tabs.Controller().Selected())
 	tabs.Controller().Select(0)
 	fmt.Println(selected)
+	selected = 1
+	tabs.Controller().Sync()
+	fmt.Println(tabs.Controller().Selected())
 
 	// Output:
 	// 1
 	// 0
+	// 1
 }
 
 func ExampleNewSlider_controlled() {
