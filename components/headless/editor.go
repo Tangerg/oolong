@@ -322,25 +322,35 @@ func (e *Editor) rejectEdit(checkpoint editorCheckpoint) {
 }
 
 // reconciledOffset maps one position through the smallest single replacement that
-// turns before into after. Equal-rune prefix and suffix boundaries keep the edit valid
-// for UTF-8 whose leading bytes happen to agree even when the runes do not.
+// turns before into after. Equal-rune prefix and suffix boundaries keep matching
+// valid for UTF-8 whose leading bytes happen to agree even when the runes do not. A
+// byte distance preserved inside the changed interval can still land inside a
+// multi-byte rune, so this mapping owns the UTF-8 boundary. Its consumers convert the
+// result back to a line position and apply their directional grapheme and element
+// policy there, without rescanning the whole document here.
 func reconciledOffset(before, after string, at int) int {
 	at = min(max(at, 0), len(before))
 	prefix := commonRunePrefix(before, after)
 	beforeEnd, afterEnd := commonRuneSuffixStarts(before, after, prefix)
+	var mapped int
 	switch {
 	case at < prefix:
-		return at
+		mapped = at
 	case at == prefix:
 		if beforeEnd == prefix {
-			return afterEnd
+			mapped = afterEnd
+		} else {
+			mapped = prefix
 		}
-		return prefix
 	case at >= beforeEnd:
-		return afterEnd + at - beforeEnd
+		mapped = afterEnd + at - beforeEnd
 	default:
-		return prefix + min(at-prefix, afterEnd-prefix)
+		mapped = prefix + min(at-prefix, afterEnd-prefix)
 	}
+	for mapped > 0 && mapped < len(after) && !utf8.RuneStart(after[mapped]) {
+		mapped--
+	}
+	return mapped
 }
 
 func commonRunePrefix(a, b string) int {

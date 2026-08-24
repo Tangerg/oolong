@@ -47,7 +47,9 @@ for `Slider.Set`, `Slider.Sync`, and tab synchronization results.
 The same accessor postcondition now governs every controlled field. Text settles a
 normalized edit inside the editing transaction that produced it, preserving caret,
 selection, undo/redo and one revision; a rejected edit restores the prior content and
-history while closing the attempted typing run. Externally supplied text remains a
+history while closing the attempted typing run. Reconciled offsets now settle on a
+UTF-8 rune boundary before becoming line positions, so a changed representation cannot
+send its consumers into the middle of an encoding. Externally supplied text remains a
 distinct owner transition onto one-line storage. Single and multiple choice fields
 likewise reconcile their cursor or chosen set to what the owner accepted, and
 `MultiSelect.Toggle` no longer reports a change rejected by its accessor.
