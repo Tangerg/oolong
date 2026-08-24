@@ -18,6 +18,33 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-24
+
+A boundary is only real if it says what it owns. This release walks every one in the
+framework and makes the answer singular. A command registry owns names and ranking
+while the caller owns what a command means. A terminal accepts feature requests while
+the root kind decides screen ownership. An accessor's postcondition is the value, not
+the request a component made of it. An appearance composes a controller instead of
+mirroring selected pieces of it back. Pixel, cell and limit geometry travels as one
+point rather than four loose integers that a caller can pair wrongly.
+
+The naming is mechanical wherever a comment would otherwise be the only evidence.
+Every exported type that promises not to be copied carries a `copylocks` marker, and
+every type carrying one states the promise — checked in both directions and
+transitively, because `go vet` follows value fields into nested owners whether or not
+the outer type ever mentioned it. A package that accepts caller-owned state must prove
+it observes writes from that owner as well as sending them, and each kit `Config` on
+the same seam must demonstrate it with a compiled example. A time bound must declare
+whether it is a deadline or an interaction window, and one predicate must decide each.
+
+Controlled text is where those rules had the furthest to travel. An owner that
+normalizes or rejects an edit now settles inside the transaction that produced it:
+the caret, selection, undo history and revision all belong to the one keystroke,
+whatever bytes come back from the accessor.
+
+Breaking. Go 1.27 is the floor for every module, and the workspace directive is the
+single source of that fact.
+
 The command registry now owns only reusable command mechanics: canonical names,
 aliases, descriptions, fuzzy ranking and recency. `headless.Commands[T]` carries an
 opaque caller value beside that metadata, so an application keeps behavior and
