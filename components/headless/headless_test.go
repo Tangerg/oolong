@@ -54,10 +54,10 @@ func paint(w, h int, draw func(grid.View)) []string {
 			c := cellAt(s, x, y)
 			switch {
 			case c.Width() == 0:
-			case c.Content == "":
+			case c.Content() == "":
 				b.WriteByte('.')
 			default:
-				b.WriteString(c.Content)
+				b.WriteString(c.Content())
 			}
 		}
 		rows = append(rows, b.String())

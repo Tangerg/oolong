@@ -267,6 +267,23 @@ func TestScreenClearsAWholeWideGlyphWhenAddressedThroughItsTrail(t *testing.T) {
 	assertScreenRows(t, shown, " xa ")
 }
 
+func TestScreenModelsAtomsWiderThanTwoColumns(t *testing.T) {
+	shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := shown.Apply([]byte("あﾞz")); err != nil {
+		t.Fatal(err)
+	}
+	assertScreenRows(t, shown, "あﾞz")
+
+	// Addressing either continuation clears the complete atom before writing.
+	if err := shown.Apply([]byte("\x1b[1;3Hx")); err != nil {
+		t.Fatal(err)
+	}
+	assertScreenRows(t, shown, "  xz")
+}
+
 func TestScreenRejectsInvalidErasureAndScrollMargins(t *testing.T) {
 	shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 3})
 	if err != nil {

@@ -1,6 +1,7 @@
 package term_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -53,9 +54,13 @@ func TestRelaunchStartsTheProgramAgain(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), os.Args[0], //nolint:gosec // G204: this test binary.
 		"-test.run=TestRelaunchHelper")
 	cmd.Env = append(os.Environ(), stageEnv+"=1")
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("the helper failed: %v\n%s", err, out)
+		var diagnostic []byte
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+			diagnostic = exit.Stderr
+		}
+		t.Fatalf("the helper failed: %v\nstdout:\n%s\nstderr:\n%s", err, out, diagnostic)
 	}
 
 	var stages, pids []string

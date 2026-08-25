@@ -1,11 +1,12 @@
 // Package text lays styled text out in terminal columns: measuring it, wrapping
 // it, truncating it, and drawing it onto a [grid.View].
 //
-// Everything here counts columns rather than bytes or runes. A CJK or emoji
-// cluster is two columns wide and is never split; a combining mark is none. Text
-// that is measured one way and drawn another is the source of every misaligned
-// terminal UI, so measuring and drawing live in the same place and agree by
-// construction.
+// Everything here counts columns rather than bytes or runes. A display atom is
+// never split: ordinary CJK and emoji clusters occupy two columns, while spacing
+// modifiers can make one Unicode grapheme wider still. A combining mark on its
+// own occupies none. Text that is measured one way and drawn another is the source
+// of every misaligned terminal UI, so measuring and drawing live in the same place
+// and agree by construction.
 //
 // # Text that arrives already styled
 //
@@ -297,14 +298,13 @@ func (w *wrapper) hardBreak(units []unit, from, to int) int {
 			w.place(u)
 			from++
 		case len(w.row) == 0:
-			// A cluster wider than the whole row — a double-width one where the
-			// width is one. It gets a row to itself and overflows it, because the
-			// alternative is dropping it forever.
+			// A display atom wider than the whole row gets a row to itself and
+			// overflows it, because the alternative is splitting or dropping it.
 			w.place(u)
 			from++
 			w.breakRow()
 		default:
-			// Leaves the row a column short rather than splitting a wide cluster.
+			// Leaves the row short rather than splitting a display atom.
 			w.breakRow()
 		}
 	}
@@ -333,6 +333,9 @@ func (w *wrapper) finish(units []unit) []Wrapped {
 // so it reads as part of the sentence it is ending.
 //
 // The result can fall a column short of width: a cut never splits a wide cluster.
+// When a cut occurs, each retained source tab is returned as the spaces it occupied
+// from its original column. An uncut line is returned unchanged. Expanding tabs in a
+// truncated result keeps its measured width stable when the result is placed elsewhere.
 func (l Line) Truncate(width int, ellipsis string) Line {
 	if width <= 0 {
 		return nil
@@ -343,7 +346,6 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 	if Width(ellipsis) > width {
 		ellipsis = prefix(ellipsis, width)
 	}
-	budget := width - Width(ellipsis)
 
 	units := l.units()
 	kept := make([]unit, 0, len(units))
@@ -351,7 +353,10 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 	style := grid.Style{}
 	for _, u := range units {
 		next := layout.Sum(used, u.width)
-		if next > budget {
+		// A tab in the suffix expands from where the retained text ends, not from
+		// column zero. Asking the canonical advance function keeps the result within
+		// width for every suffix rather than only ordinary ellipses.
+		if advance(ellipsis, next) > width {
 			break
 		}
 		kept = append(kept, u)
@@ -375,19 +380,11 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 // Width is how many columns s would occupy, with tabs expanded from column zero.
 func Width(s string) int { return advance(s, 0) }
 
-// Truncate cuts plain text to at most width columns, ending it with ellipsis
-// when anything was cut.
+// Truncate cuts plain text to at most width columns, ending it with ellipsis when
+// anything was cut. When a cut occurs, retained source tabs are expanded as described
+// by [Line.Truncate]; an uncut string is returned unchanged.
 func Truncate(s string, width int, ellipsis string) string {
-	if width <= 0 {
-		return ""
-	}
-	if Width(s) <= width {
-		return s
-	}
-	if Width(ellipsis) > width {
-		return prefix(ellipsis, width)
-	}
-	return prefix(s, width-Width(ellipsis)) + ellipsis
+	return Of(s, grid.Style{}).Truncate(width, ellipsis).String()
 }
 
 // unit is one grapheme cluster with everything wrapping needs to know about it.
@@ -574,13 +571,16 @@ func advance(s string, col int) int {
 	}
 	g := uniseg.NewGraphemes(s)
 	for g.Next() {
-		if cluster := g.Str(); cluster == "\t" {
-			col = layout.Sum(col, TabStop-col%TabStop)
-		} else {
-			col = layout.Sum(col, clusterWidth(cluster))
-		}
+		col = advanceCluster(g.Str(), col)
 	}
 	return col
+}
+
+func advanceCluster(cluster string, col int) int {
+	if cluster == "\t" {
+		return layout.Sum(col, TabStop-col%TabStop)
+	}
+	return layout.Sum(col, clusterWidth(cluster))
 }
 
 // plainASCII reports whether every byte is one printable, one-column cluster.
@@ -607,11 +607,11 @@ func prefix(s string, budget int) string {
 	col, end := 0, 0
 	g := uniseg.NewGraphemes(s)
 	for g.Next() {
-		w := clusterWidth(g.Str())
-		if layout.Sum(col, w) > budget {
+		next := advanceCluster(g.Str(), col)
+		if next > budget {
 			break
 		}
-		col = layout.Sum(col, w)
+		col = next
 		_, end = g.Positions()
 	}
 	return s[:end]

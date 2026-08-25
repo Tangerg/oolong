@@ -190,8 +190,8 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	NewRoot(fieldProjection(func(frame Frame) { selection.drawField(frame, look) })).Draw(selectSurface.View())
 	first, _ := selectSurface.CellAt(0, 0)
 	second, _ := selectSurface.CellAt(0, 1)
-	if first.Content != "-" || second.Content != "x" || selection.list.Selected() != 0 || one.writes != 0 {
-		t.Fatalf("select projection marks=(%q,%q) cursor=%d writes=%d", first.Content, second.Content, selection.list.Selected(), one.writes)
+	if first.Content() != "-" || second.Content() != "x" || selection.list.Selected() != 0 || one.writes != 0 {
+		t.Fatalf("select projection marks=(%q,%q) cursor=%d writes=%d", first.Content(), second.Content(), selection.list.Selected(), one.writes)
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"one"}}
@@ -204,8 +204,8 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	NewRoot(fieldProjection(func(frame Frame) { multiple.drawField(frame, look) })).Draw(multiSurface.View())
 	first, _ = multiSurface.CellAt(0, 0)
 	second, _ = multiSurface.CellAt(0, 1)
-	if first.Content != "-" || second.Content != "x" || !slices.Equal(multiple.taken, beforeTaken) || many.writes != 0 {
-		t.Fatalf("multi projection marks=(%q,%q) taken=%v writes=%d", first.Content, second.Content, multiple.taken, many.writes)
+	if first.Content() != "-" || second.Content() != "x" || !slices.Equal(multiple.taken, beforeTaken) || many.writes != 0 {
+		t.Fatalf("multi projection marks=(%q,%q) taken=%v writes=%d", first.Content(), second.Content(), multiple.taken, many.writes)
 	}
 
 	answer := &observedAccessor[bool]{}
@@ -214,8 +214,8 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	confirmSurface := grid.NewSurface(16, 1)
 	NewRoot(fieldProjection(func(frame Frame) { confirmation.drawField(frame, look) })).Draw(confirmSurface.View())
 	first, _ = confirmSurface.CellAt(0, 0)
-	if first.Content != "x" || confirmation.answer.local || answer.writes != 0 {
-		t.Fatalf("confirm projection mark=%q local=%t writes=%d", first.Content, confirmation.answer.local, answer.writes)
+	if first.Content() != "x" || confirmation.answer.local || answer.writes != 0 {
+		t.Fatalf("confirm projection mark=%q local=%t writes=%d", first.Content(), confirmation.answer.local, answer.writes)
 	}
 }
 

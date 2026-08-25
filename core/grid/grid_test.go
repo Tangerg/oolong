@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,10 +34,10 @@ func text(s *grid.Surface, y int) string {
 		c := cellAt(s, x, y)
 		switch {
 		case c.Width() == 0:
-		case c.Content == "":
+		case c.Content() == "":
 			b.WriteByte('.')
 		default:
-			b.WriteString(c.Content)
+			b.WriteString(c.Content())
 		}
 	}
 	return b.String()
@@ -144,7 +145,9 @@ func TestTextWritesAndClips(t *testing.T) {
 		t.Fatalf("row 0 = %q", got)
 	}
 	// Past the right edge: written where it fits, dropped where it does not.
-	v.Text(4, 1, "abcd", grid.Style{})
+	if got := v.Text(4, 1, "abcd", grid.Style{}); got != 4 {
+		t.Fatalf("clipped advance = %d, want the complete 4 columns", got)
+	}
 	if got := text(s, 1); got != "....ab" {
 		t.Fatalf("row 1 = %q, want the overflow dropped", got)
 	}
@@ -168,13 +171,34 @@ func TestWideClustersOccupyTwoColumns(t *testing.T) {
 	}
 }
 
+func TestDisplayAtomsCanOccupyMoreThanTwoColumns(t *testing.T) {
+	s := grid.NewSurface(4, 1)
+	if got := s.View().Text(0, 0, "あﾞx", grid.Style{}); got != 4 {
+		t.Fatalf("advance = %d, want a three-column atom and one letter", got)
+	}
+	if got := cellAt(s, 0, 0).Width(); got != 3 {
+		t.Fatalf("head width = %d, want 3", got)
+	}
+	for x := 1; x < 3; x++ {
+		if got := cellAt(s, x, 0).Width(); got != 0 {
+			t.Fatalf("continuation %d width = %d, want 0", x, got)
+		}
+	}
+	if got := s.Rows(); len(got) != 1 || got[0] != "あﾞx" {
+		t.Fatalf("Rows = %q, want the atom emitted once", got)
+	}
+	if got := grid.EncodeRow(s.Row(0), grid.TrueColor); got != "あﾞx" {
+		t.Fatalf("EncodeRow = %q, want the atom emitted once", got)
+	}
+}
+
 func TestInspectionCannotMutateTheSurface(t *testing.T) {
 	s := grid.NewSurface(3, 1)
 	s.View().Text(0, 0, "中x", grid.Style{})
 
 	cell := cellAt(s, 0, 0)
-	cell.Content = "broken"
-	if cell.Content != "broken" {
+	cell.Style = grid.Style{Attr: grid.Bold}
+	if !cell.Style.Attr.Has(grid.Bold) {
 		t.Fatal("the detached inspection value could not be changed")
 	}
 	row := s.Row(0)
@@ -188,19 +212,25 @@ func TestInspectionCannotMutateTheSurface(t *testing.T) {
 	}
 }
 
-func TestMergeStyleCannotBreakTheCellPair(t *testing.T) {
+func TestMergeStyleUsesTheAtomHeadWithoutBreakingIt(t *testing.T) {
 	s := grid.NewSurface(2, 1)
 	v := s.View()
 	v.Text(0, 0, "中", grid.Style{})
 	over := grid.Style{Attr: grid.Bold}
-	if !v.MergeStyle(0, 0, over) || !v.MergeStyle(1, 0, over) {
-		t.Fatal("visible cells were not restyled")
+	if !v.MergeStyle(0, 0, over) {
+		t.Fatal("atom head was not restyled")
+	}
+	if v.MergeStyle(1, 0, grid.Style{Attr: grid.Italic}) {
+		t.Fatal("continuation claimed ownership of the atom's appearance")
 	}
 	if cellAt(s, 0, 0).Width() != 2 || cellAt(s, 1, 0).Width() != 0 {
 		t.Fatal("restyling broke a wide-cell pair")
 	}
 	if !cellAt(s, 0, 0).Style.Attr.Has(grid.Bold) || !cellAt(s, 1, 0).Style.Attr.Has(grid.Bold) {
 		t.Fatal("style was not merged onto both cells")
+	}
+	if cellAt(s, 0, 0).Style.Attr.Has(grid.Italic) {
+		t.Fatal("continuation-only style reached the atom head")
 	}
 }
 
@@ -249,14 +279,173 @@ func TestOverwritingHalfOfAWidePairBlanksTheOther(t *testing.T) {
 	}
 }
 
+func TestOverwritingAnyColumnOfAnAtomBlanksTheWholeAtom(t *testing.T) {
+	for at, want := range []string{"x..", ".x.", "..x"} {
+		t.Run(fmt.Sprintf("column_%d", at), func(t *testing.T) {
+			s := grid.NewSurface(3, 1)
+			v := s.View()
+			v.Text(0, 0, "あﾞ", grid.Style{})
+			v.Text(at, 0, "x", grid.Style{})
+			if got := text(s, 0); got != want {
+				t.Fatalf("row = %q, want %q", got, want)
+			}
+			for x := range 3 {
+				if width := cellAt(s, x, 0).Width(); width != 1 {
+					t.Fatalf("cell %d width = %d, want an independent cell", x, width)
+				}
+			}
+		})
+	}
+}
+
+func TestClippingNeverSplitsAMultiColumnAtom(t *testing.T) {
+	s := grid.NewSurface(5, 1)
+	v := s.View().Sub(grid.Rect(1, 0, 3, 1))
+	if got := v.Text(-1, 0, "あﾞz", grid.Style{}); got != 4 {
+		t.Fatalf("advance = %d, want the complete 4 columns", got)
+	}
+	if got := text(s, 0); got != "...z." {
+		t.Fatalf("row = %q, want the clipped atom blank and the following letter visible", got)
+	}
+}
+
+func TestSubViewCanOnlyRepairAnIntersectedAtomOutsideItsClip(t *testing.T) {
+	oldStyle := grid.Style{FG: grid.RGBColor(1, 2, 3)}
+	newStyle := grid.Style{FG: grid.RGBColor(4, 5, 6)}
+	s := grid.NewSurface(10, 1)
+	v := s.View()
+	v.Text(0, 0, "あﾞkeepあﾞ", oldStyle)
+	v.Link(0, 0, 10, "https://example.test")
+	untouched := append([]grid.Cell(nil), s.Row(0)[7:]...)
+
+	// The first atom occupies columns 0..2 and crosses the child's left edge.
+	// Replacing its visible continuation at column 2 must clear the complete old
+	// atom, but may not install the child's style or content in columns 0 and 1.
+	v.Sub(grid.Rect(2, 0, 5, 1)).Text(0, 0, "X", newStyle)
+
+	for x := range 2 {
+		cell := cellAt(s, x, 0)
+		if !cell.Blank() || cell.Width() != 1 || cell.Style != oldStyle || cell.Link != "" {
+			t.Errorf("repaired column %d = %+v, want an old-style unlinked blank", x, cell)
+		}
+	}
+	if got := cellAt(s, 2, 0); got.Content() != "X" || got.Style != newStyle {
+		t.Errorf("written column = %+v, want the child's X and style", got)
+	}
+	if got := s.Row(0)[7:]; !slices.Equal(got, untouched) {
+		t.Errorf("non-intersecting atom outside clip changed from %+v to %+v", untouched, got)
+	}
+}
+
+func TestAppearanceOperationsAreOwnedByTheAtomHead(t *testing.T) {
+	base := grid.Style{
+		FG: grid.RGBColor(240, 240, 240),
+		BG: grid.RGBColor(20, 20, 20),
+	}
+	tests := []struct {
+		name  string
+		apply func(grid.View)
+		want  func(grid.Cell) bool
+	}{
+		{
+			name:  "merge style",
+			apply: func(v grid.View) { v.MergeStyle(0, 0, grid.Style{Attr: grid.Bold}) },
+			want:  func(c grid.Cell) bool { return c.Style.Attr.Has(grid.Bold) },
+		},
+		{
+			name:  "blend",
+			apply: func(v grid.View) { v.Blend(v.Bounds(), grid.RGBColor(0, 0, 0), 0.5) },
+			want:  func(c grid.Cell) bool { return c.Style != base },
+		},
+		{
+			name:  "fade",
+			apply: func(v grid.View) { v.Fade(v.Bounds(), 0.5) },
+			want:  func(c grid.Cell) bool { return c.Style != base },
+		},
+		{
+			name:  "link",
+			apply: func(v grid.View) { v.Link(0, 0, 1, "https://example.test") },
+			want:  func(c grid.Cell) bool { return c.Link == "https://example.test" },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			s := grid.NewSurface(3, 1)
+			s.View().Text(0, 0, "あﾞ", base)
+			// The child owns only the head. Applying appearance there changes the
+			// complete atom, including continuations outside the child's clip.
+			test.apply(s.View().Sub(grid.Rect(0, 0, 1, 1)))
+
+			head := cellAt(s, 0, 0)
+			if !test.want(head) {
+				t.Fatalf("head = %+v, want the requested appearance", head)
+			}
+			for x := 1; x < 3; x++ {
+				cell := cellAt(s, x, 0)
+				if cell.Style != head.Style || cell.Link != head.Link {
+					t.Fatalf("column %d appearance = %+v/%q, head = %+v/%q", x, cell.Style, cell.Link, head.Style, head.Link)
+				}
+			}
+
+			untouched := grid.NewSurface(3, 1)
+			untouched.View().Text(0, 0, "あﾞ", base)
+			before := untouched.Row(0)
+			// A child containing only continuations does not own the glyph's
+			// appearance and therefore cannot apply the operation to it.
+			test.apply(untouched.View().Sub(grid.Rect(1, 0, 2, 1)))
+			if got := untouched.Row(0); !slices.Equal(got, before) {
+				t.Fatalf("continuation-only appearance changed %+v to %+v", before, got)
+			}
+		})
+	}
+}
+
+func TestAdjacentAppearanceRegionsApplyToEachAtomOnce(t *testing.T) {
+	base := grid.Style{
+		FG: grid.RGBColor(200, 200, 200),
+		BG: grid.RGBColor(0, 0, 0),
+	}
+	operations := []struct {
+		name  string
+		apply func(grid.View)
+	}{
+		{"blend", func(v grid.View) { v.Blend(v.Bounds(), grid.RGBColor(0, 0, 0), 0.5) }},
+		{"fade", func(v grid.View) { v.Fade(v.Bounds(), 0.5) }},
+	}
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			makeSurface := func() *grid.Surface {
+				s := grid.NewSurface(9, 1)
+				s.View().Text(0, 0, "abあﾞ fgh", base)
+				return s
+			}
+
+			whole := makeSurface()
+			operation.apply(whole.View())
+
+			partitioned := makeSurface()
+			view := partitioned.View()
+			operation.apply(view.Sub(grid.Rect(0, 0, 3, 1)))
+			operation.apply(view.Sub(grid.Rect(3, 0, 6, 1)))
+
+			if got, want := partitioned.Row(0), whole.Row(0); !slices.Equal(got, want) {
+				t.Fatalf("adjacent regions = %+v, one whole region = %+v", got, want)
+			}
+			if got := cellAt(partitioned, 2, 0).Style.FG.RGB(); got != (grid.RGB{R: 100, G: 100, B: 100}) {
+				t.Fatalf("atom crossing the partition has foreground %+v, want one application", got)
+			}
+		})
+	}
+}
+
 func TestZeroWidthClusterJoinsTheCellToItsLeft(t *testing.T) {
 	s := grid.NewSurface(3, 1)
 	// A combining acute arriving on its own after the letter it modifies.
 	s.View().Text(0, 0, "éx", grid.Style{})
-	if got := cellAt(s, 0, 0).Content; got != "é" {
+	if got := cellAt(s, 0, 0).Content(); got != "é" {
 		t.Fatalf("cell 0 = %q, want the mark folded into the letter", got)
 	}
-	if got := cellAt(s, 1, 0).Content; got != "x" {
+	if got := cellAt(s, 1, 0).Content(); got != "x" {
 		t.Fatalf("cell 1 = %q, want the next letter to have kept its column", got)
 	}
 }
@@ -389,7 +578,7 @@ func TestBlendMixesEveryCellItCoversAndKeepsTheContent(t *testing.T) {
 	v.Text(0, 0, "ab", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0, 0, 0)})
 	v.Blend(grid.Rect(0, 0, 1, 1), grid.RGBColor(0, 0, 0), 0.5)
 
-	if got := cellAt(s, 0, 0).Content; got != "a" {
+	if got := cellAt(s, 0, 0).Content(); got != "a" {
 		t.Errorf("content = %q, want the cell mixed rather than erased", got)
 	}
 	if got := cellAt(s, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
@@ -758,6 +947,47 @@ func TestEncodeRowSkipsTrailingHalvesOfWideClusters(t *testing.T) {
 	}
 }
 
+func TestEncodeRowDoesNotEmitAnAtomPastItsSlice(t *testing.T) {
+	s := grid.NewSurface(8, 1)
+	s.View().Text(0, 0, "あﾞ xyz", grid.Style{})
+	row := s.Row(0)
+	tests := []struct {
+		name string
+		end  int
+		want string
+	}{
+		{name: "one visible column", end: 1, want: " "},
+		{name: "two visible columns", end: 2, want: "  "},
+		{name: "complete atom", end: 3, want: "あﾞ"},
+		{name: "complete row", end: 8, want: "あﾞ xyz"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := grid.EncodeRow(row[:test.end], grid.TrueColor); got != test.want {
+				t.Fatalf("EncodeRow(row[:%d]) = %q, want %q", test.end, got, test.want)
+			}
+		})
+	}
+}
+
+func TestEncodeRowDropsAppearanceThatCannotOwnATruncatedAtom(t *testing.T) {
+	s := grid.NewSurface(3, 1)
+	v := s.View()
+	v.Text(0, 0, "あﾞ", grid.Style{FG: grid.RGBColor(1, 2, 3)})
+	v.Link(0, 0, 3, "https://example.test")
+
+	got := grid.EncodeRow(s.Row(0)[:2], grid.TrueColor)
+	if strings.Contains(got, "あ") || strings.Contains(got, "ﾞ") {
+		t.Fatalf("truncated row = %q, want no partial display atom", got)
+	}
+	if strings.Contains(got, "\x1b]8;;") {
+		t.Fatalf("truncated row = %q, want no hyperlink owned by an omitted atom", got)
+	}
+	if strings.Count(got, " ") != 2 {
+		t.Fatalf("truncated row = %q, want two visible blank columns", got)
+	}
+}
+
 // failWriter fails after letting n bytes through.
 type failWriter struct{ n int }
 
@@ -840,8 +1070,8 @@ func TestControlCharactersNeverReachACell(t *testing.T) {
 	s.View().Text(0, 0, "a\x1b]0;title\x07b\tc\rd", grid.Style{})
 
 	for x := range 20 {
-		if c := cellAt(s, x, 0); strings.ContainsAny(c.Content, "\x1b\x07\t\r") {
-			t.Fatalf("cell %d holds a control character: %q", x, c.Content)
+		if c := cellAt(s, x, 0); strings.ContainsAny(c.Content(), "\x1b\x07\t\r") {
+			t.Fatalf("cell %d holds a control character: %q", x, c.Content())
 		}
 	}
 	if got := text(s, 0); got != "a]0;titlebcd........" {
@@ -855,7 +1085,7 @@ func TestControlCharactersAreNotFoldedIntoTheCellBefore(t *testing.T) {
 	// printable.
 	s := grid.NewSurface(4, 1)
 	s.View().Text(0, 0, "a\x1b", grid.Style{})
-	if got := cellAt(s, 0, 0).Content; got != "a" {
+	if got := cellAt(s, 0, 0).Content(); got != "a" {
 		t.Fatalf("cell 0 = %q, want the escape dropped rather than appended", got)
 	}
 }
@@ -1101,6 +1331,33 @@ func TestChangingOnlyAPaintRegionStillProducesAFrame(t *testing.T) {
 			}
 			if got := strings.Join(log, ","); got != "erase first,paint second 4x2" {
 				t.Fatalf("region operations = %q", got)
+			}
+		})
+	}
+}
+
+func TestAZeroPaintIdentityNeverClaimsThePreviousFrame(t *testing.T) {
+	for name, makeCanvas := range map[string]func() regionCanvas{
+		"screen": func() regionCanvas { return grid.NewScreen(10, 4) },
+		"inline": func() regionCanvas { return grid.NewInline(10, 4) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var log []string
+			canvas := makeCanvas()
+			var out bytes.Buffer
+			draw := func() {
+				canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 0, picture{name: "live", log: &log})
+				if err := canvas.Flush(&out); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			draw()
+			log = nil
+			out.Reset()
+			draw()
+			if got := strings.Join(log, ","); got != "erase live,paint live 4x2" {
+				t.Fatalf("second zero-identity frame did %q, want erase and paint", got)
 			}
 		})
 	}

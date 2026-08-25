@@ -54,11 +54,11 @@ func rows(t *testing.T, width int, blocks []markdown.Block) []string {
 			if c.Width() == 0 {
 				continue
 			}
-			if c.Content == "" {
+			if c.Content() == "" {
 				b.WriteString(" ")
 				continue
 			}
-			b.WriteString(c.Content)
+			b.WriteString(c.Content())
 		}
 		out = append(out, strings.TrimRight(b.String(), " "))
 	}
@@ -270,7 +270,7 @@ func TestATableWrapsCellsInsideAllocatedColumnsWithoutLosingLinks(t *testing.T) 
 		for x := range width {
 			cell := cellAt(surface, x, y)
 			if cell.Link == "https://example.test" && cell.Width() > 0 {
-				linked.WriteString(cell.Content)
+				linked.WriteString(cell.Content())
 			}
 		}
 	}

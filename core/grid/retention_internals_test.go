@@ -15,10 +15,10 @@ func (*retainedPainter) Erase(io.Writer) error              { return nil }
 
 func TestReusableFrameStorageReleasesDiscardedPayloads(t *testing.T) {
 	surface := NewSurface(2, 2)
-	surface.cells[3] = Cell{Content: "secret", Link: "https://example.test"}
+	surface.cells[3] = Cell{content: "secret", Link: "https://example.test"}
 	surface.Resize(1, 1)
 	for i, cell := range surface.cells[:cap(surface.cells)] {
-		if i >= len(surface.cells) && (cell.Content != "" || cell.Link != "") {
+		if i >= len(surface.cells) && (cell.content != "" || cell.Link != "") {
 			t.Fatalf("cell %d retained discarded content %+v", i, cell)
 		}
 	}
@@ -60,7 +60,7 @@ func TestCellsOwnTextAndLinksAtTheDrawingBoundary(t *testing.T) {
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	sourceEnd := sourceStart + uintptr(len(source))
 	cell, _ := surface.CellAt(0, 0)
-	for name, value := range map[string]string{"content": cell.Content, "link": cell.Link} {
+	for name, value := range map[string]string{"content": cell.Content(), "link": cell.Link} {
 		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 		if at >= sourceStart && at < sourceEnd {
 			t.Errorf("cell %s still shares the caller's source allocation", name)

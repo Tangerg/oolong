@@ -130,13 +130,9 @@ func diffCostFloor(prev, next *Surface) int {
 	for y := range next.h {
 		for x := 0; x < next.w; {
 			i := y*next.w + x
-			c := &next.cells[i]
-			width := 1
-			if c.span == spanWide && x+1 < next.w {
-				width = 2
-			}
-			if !dirty(i, width) {
-				x += width
+			unit := paintUnitAt(next.cells, i, next.w-x)
+			if !dirty(i, unit.width) {
+				x += unit.width
 				continue
 			}
 			if cost == 0 {
@@ -146,13 +142,9 @@ func diffCostFloor(prev, next *Surface) int {
 			if !known || at.X != x || at.Y != y {
 				cost += cupCost(x, y)
 			}
-			if c.Content == "" {
-				cost += width
-			} else {
-				cost += len(c.Content)
-			}
-			at, known = image.Pt(x+width, y), true
-			x += width
+			cost += unit.byteCost()
+			at, known = image.Pt(x+unit.width, y), true
+			x += unit.width
 		}
 	}
 	return cost

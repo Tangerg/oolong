@@ -8,6 +8,7 @@ package headless
 // ask how many steps are held, so this asks from inside.
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -382,9 +383,13 @@ func transcriptHeap(t *testing.T, blocks int) uint64 {
 		"OOLONG_TRANSCRIPT_HEAP_PROBE=1",
 		"OOLONG_TRANSCRIPT_BLOCKS="+strconv.Itoa(blocks),
 	)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("heap probe for %d blocks: %v\n%s", blocks, err, out)
+		var diagnostic []byte
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+			diagnostic = exit.Stderr
+		}
+		t.Fatalf("heap probe for %d blocks: %v\nstdout:\n%s\nstderr:\n%s", blocks, err, out, diagnostic)
 	}
 	for line := range strings.SplitSeq(string(out), "\n") {
 		if value, ok := strings.CutPrefix(line, "OOLONG_HEAP="); ok {

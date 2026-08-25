@@ -23,10 +23,10 @@ func show(w, h int, draw func(grid.View)) {
 			c := cellAt(s, x, y)
 			switch {
 			case c.Width() == 0:
-			case c.Content == "":
+			case c.Content() == "":
 				line.WriteString(" ")
 			default:
-				line.WriteString(c.Content)
+				line.WriteString(c.Content())
 			}
 		}
 		fmt.Printf("|%s|\n", line.String())

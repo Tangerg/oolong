@@ -203,31 +203,27 @@ func (g Ground) Resolve(s Style) Style {
 	return s
 }
 
-// span says how wide a cell is and whether it is the second column of a wide
-// one. It is unexported so the head/trail pairing cannot be broken from outside
-// the package: only [View.Text] creates wide cells, and it always writes both
-// halves.
-type span uint8
-
-const (
-	// spanSingle is the zero value, which makes a zeroed grid a grid of blanks
-	// rather than a grid of orphaned continuation cells.
-	spanSingle span = iota
-	spanWide
-	spanTrail
-)
+// span describes one display atom. Zero is an ordinary one-column cell, a
+// positive value is the width stored on an atom's head, and a negative value is
+// a continuation cell's distance back to that head.
+//
+// It is unexported so an atom cannot be split from outside the package. Unicode
+// grapheme boundaries and terminal columns are related but not identical: a
+// grapheme containing a spacing modifier can occupy more than two columns, so a
+// head/trail pair is not a sufficient storage model.
+type span int
 
 // Cell is one terminal cell.
 //
 // The zero Cell is a blank single-width cell in the terminal's own style, so a
 // freshly allocated or cleared surface is already valid.
 //
-// Content is a whole grapheme cluster. A double-width cluster occupies two
-// cells: the head carries the content, and the cell to its right is a trailing
-// cell with no content of its own. Nothing outside this package can create half
-// of such a pair.
+// A cell's content is read through [Cell.Content] rather than a writable field.
+// Only drawing through a [View] can create content, which keeps its measured span
+// and continuation cells inseparable. Style and Link remain writable on copied
+// rows because changing appearance cannot invalidate that geometry.
 type Cell struct {
-	Content string
+	content string
 	Style   Style
 	// Link is an OSC 8 hyperlink target. It is cell metadata rather than part of
 	// Style because a hyperlink has its own open/close protocol on the wire,
@@ -237,18 +233,18 @@ type Cell struct {
 	span span
 }
 
-// Width is how many columns the cell occupies: 2 for the head of a wide
-// cluster, 0 for the trailing half of one, 1 otherwise.
+// Content returns the complete grapheme cluster stored on an atom's head. It is
+// empty for a blank or continuation cell.
+func (c Cell) Content() string { return c.content }
+
+// Width is how many columns the cell occupies: the complete display width on an
+// atom's head, zero on a continuation cell, and one otherwise.
 func (c Cell) Width() int {
-	switch c.span {
-	case spanWide:
-		return 2
-	case spanTrail:
+	if c.span < 0 {
 		return 0
-	default:
-		return 1
 	}
+	return max(int(c.span), 1)
 }
 
 // Blank reports whether the cell would print as empty space.
-func (c Cell) Blank() bool { return c.Content == "" && c.span != spanTrail }
+func (c Cell) Blank() bool { return c.content == "" && c.span >= 0 }

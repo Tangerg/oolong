@@ -42,10 +42,10 @@ func paint(w, h int, draw func(grid.View)) []string {
 			c := cellAt(s, x, y)
 			switch {
 			case c.Width() == 0:
-			case c.Content == "":
+			case c.Content() == "":
 				b.WriteByte('.')
 			default:
-				b.WriteString(c.Content)
+				b.WriteString(c.Content())
 			}
 		}
 		rows = append(rows, b.String())
@@ -610,7 +610,7 @@ func TestTableLayoutOwnsTheColumnDefinitionItMeasured(t *testing.T) {
 	tableLayout.Titles(surface.View())
 	var rendered strings.Builder
 	for x := range 6 {
-		rendered.WriteString(cellAt(surface, x, 0).Content)
+		rendered.WriteString(cellAt(surface, x, 0).Content())
 	}
 	if got := rendered.String(); !strings.HasPrefix(got, "old") || strings.Contains(got, "new") {
 		t.Fatalf("layout drew %q after its source columns changed", got)
@@ -818,7 +818,7 @@ func TestOverlayShadeRecedesWhatIsBehindWithoutErasingIt(t *testing.T) {
 	theme := kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(0, 0, 0), Opacity: 0.5}}
 	kit.Overlay{Width: 2, Height: 1, Theme: theme}.Draw(s.View())
 
-	if got := cellAt(s, 0, 0).Content; got != "b" {
+	if got := cellAt(s, 0, 0).Content(); got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
 	}
 	if got := cellAt(s, 0, 0).Style.FG.RGB(); got != (grid.RGB{R: 128, G: 128, B: 128}) {
@@ -981,7 +981,7 @@ func TestParagraphDoesNotLinkATruncatedRow(t *testing.T) {
 			if target == "" {
 				continue
 			}
-			if c := cellAt(v, x, y); c.Content == "…" {
+			if c := cellAt(v, x, y); c.Content() == "…" {
 				t.Errorf("the ellipsis at (%d,%d) is linked to %q", x, y, target)
 			}
 		}

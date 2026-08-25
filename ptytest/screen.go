@@ -36,6 +36,11 @@ type screenCell struct {
 // A Screen has a fixed positive size and is not safe for concurrent use. It must not
 // be copied after first use. Obtain a snapshot from [Transcript.Screen] when output
 // may still be arriving.
+//
+// Screen deliberately shares the renderer's text-width estimator. Its independent
+// evidence is the terminal-side state machine that applies those widths: pending
+// wrap, overwrite, erasure and scrolling. Width fixtures, not this model, are the
+// estimator's oracle.
 type Screen struct {
 	noCopy noCopy
 
@@ -120,7 +125,7 @@ func (s *Screen) Flush() error {
 }
 
 // At returns the grapheme whose head occupies a zero-based cell. Blank cells,
-// trailing halves of wide graphemes, and coordinates outside the screen return empty.
+// continuation columns, and coordinates outside the screen return empty.
 func (s *Screen) At(column, row int) string {
 	if s == nil || column < 0 || row < 0 || column >= s.size.Cols || row >= s.size.Rows {
 		return ""
@@ -128,9 +133,9 @@ func (s *Screen) At(column, row int) string {
 	return s.cells[s.index(column, row)].text
 }
 
-// Rows returns the visible text as fixed-width rows. Trailing halves of wide
-// graphemes contribute no extra bytes: the grapheme itself already occupies both
-// cells. The returned slice owns its strings.
+// Rows returns the visible text as fixed-width rows. Continuation columns contribute
+// no extra bytes: the grapheme at their head already occupies the complete display
+// atom. The returned slice owns its strings.
 func (s *Screen) Rows() []string {
 	if s == nil {
 		return nil

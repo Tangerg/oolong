@@ -103,6 +103,9 @@ func TestWrapNeverSplitsAWideCluster(t *testing.T) {
 	equal(t, rows(text.Of("a中文", grid.Style{}).Wrap(2)), []string{"a", "中", "文"})
 	// At width one nothing can hold it, so it gets a row of its own and overflows.
 	equal(t, rows(text.Of("中", grid.Style{}).Wrap(1)), []string{"中"})
+	// A Unicode grapheme can occupy more than two terminal columns when it
+	// contains a spacing modifier. It remains one indivisible display atom.
+	equal(t, rows(text.Of("aあﾞb", grid.Style{}).Wrap(3)), []string{"a", "あﾞ", "b"})
 }
 
 func TestWrapKeepsStylesAcrossBreaks(t *testing.T) {
@@ -181,6 +184,65 @@ func TestTruncateLineNeverSplitsAWideCluster(t *testing.T) {
 	}
 }
 
+func TestTruncateUsesOneTabAwareGeometry(t *testing.T) {
+	tests := []struct {
+		name     string
+		in       string
+		width    int
+		ellipsis string
+		want     string
+	}{
+		{name: "tab gap is clipped", in: "a\tb", width: 4, want: "a   "},
+		{name: "tab reaches the edge", in: "a\tb", width: 8, want: "a       "},
+		{name: "complete tabbed text", in: "a\tb", width: 9, want: "a\tb"},
+		{
+			name: "suffix tab expands after retained text", in: "abcdefghijklmnopqrst",
+			width: 15, ellipsis: "X\t", want: "abcdefX\t",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plain := text.Truncate(test.in, test.width, test.ellipsis)
+			styled := text.Of(test.in, grid.Style{}).Truncate(test.width, test.ellipsis).String()
+			if plain != test.want || styled != test.want {
+				t.Fatalf("plain/styled truncate = %q/%q, want %q", plain, styled, test.want)
+			}
+			if got := text.Width(plain); got > test.width {
+				t.Fatalf("truncated width = %d, exceeds %d", got, test.width)
+			}
+		})
+	}
+}
+
+func FuzzTruncateMatchesStyledLineAndFits(f *testing.F) {
+	for _, seed := range []struct {
+		text, ellipsis string
+		width          int
+	}{
+		{text: "plain text", ellipsis: "…", width: 5},
+		{text: "a\tb", ellipsis: "", width: 4},
+		{text: "abcdefghijklmnopqrst", ellipsis: "X\t", width: 15},
+		{text: "あﾞ xyz", ellipsis: "…", width: 4},
+		{text: "👩‍💻\tend", ellipsis: "..", width: 7},
+	} {
+		f.Add(seed.text, seed.width, seed.ellipsis)
+	}
+	f.Fuzz(func(t *testing.T, source string, width int, ellipsis string) {
+		if len(source) > 256 || len(ellipsis) > 64 {
+			return
+		}
+		width = min(max(width, 0), 64)
+		plain := text.Truncate(source, width, ellipsis)
+		styled := text.Of(source, grid.Style{}).Truncate(width, ellipsis).String()
+		if plain != styled {
+			t.Fatalf("plain/styled truncate = %q/%q", plain, styled)
+		}
+		if got := text.Width(plain); got > width {
+			t.Fatalf("Truncate(%q, %d, %q) = %q at width %d", source, width, ellipsis, plain, got)
+		}
+	})
+}
+
 func TestDrawPlacesTextOnTheView(t *testing.T) {
 	s := grid.NewSurface(12, 1)
 	red := grid.Style{FG: grid.RGBColor(255, 0, 0)}
@@ -189,10 +251,10 @@ func TestDrawPlacesTextOnTheView(t *testing.T) {
 	if got := line.Draw(s.View(), 1, 0); got != 4 {
 		t.Fatalf("advance = %d, want 4", got)
 	}
-	if got := cellAt(s, 1).Content; got != "a" {
+	if got := cellAt(s, 1).Content(); got != "a" {
 		t.Fatalf("cell 1 = %q", got)
 	}
-	if got := cellAt(s, 3); got.Content != "c" || got.Style != red {
+	if got := cellAt(s, 3); got.Content() != "c" || got.Style != red {
 		t.Fatalf("cell 3 = %+v, want the styled span", got)
 	}
 }
@@ -203,7 +265,7 @@ func TestDrawExpandsTabsIntoColumns(t *testing.T) {
 	if got := line.Draw(s.View(), 0, 0); got != 9 {
 		t.Fatalf("advance = %d, want 9", got)
 	}
-	if got := cellAt(s, 0).Content; got != "a" {
+	if got := cellAt(s, 0).Content(); got != "a" {
 		t.Fatalf("cell 0 = %q", got)
 	}
 	// The tab is a gap, not a byte: the next letter lands on the tab stop.
@@ -212,7 +274,7 @@ func TestDrawExpandsTabsIntoColumns(t *testing.T) {
 			t.Fatalf("cell %d = %+v, want the tab to have left it blank", x, c)
 		}
 	}
-	if got := cellAt(s, 8).Content; got != "b" {
+	if got := cellAt(s, 8).Content(); got != "b" {
 		t.Fatalf("cell 8 = %q, want the letter on the tab stop", got)
 	}
 }

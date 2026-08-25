@@ -167,8 +167,8 @@ func TestBoxDrawsWithTheGlyphsItWasGiven(t *testing.T) {
 func rowOf(v grid.View, y, width int) string {
 	var b strings.Builder
 	for x := range width {
-		if c := cellAt(v, x, y); c.Content != "" {
-			b.WriteString(c.Content)
+		if c := cellAt(v, x, y); c.Content() != "" {
+			b.WriteString(c.Content())
 		} else {
 			b.WriteByte(' ')
 		}

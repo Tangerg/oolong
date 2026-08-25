@@ -42,6 +42,19 @@ func TestTheWidthTableHasNotChangedItsMind(t *testing.T) {
 		{"precomposed e-acute", "é", 1},
 		{"decomposed e-acute", "é", 1},
 		{"han with a combining mark", "中́", 2},
+		// Some spacing combining marks are grouped with their base but still hit
+		// go-runewidth's two-column grapheme cap. Terminals do not agree enough to
+		// replace that answer with a general rune-sum rule without breaking emoji;
+		// pinning the dependency's answer makes this known boundary reviewable.
+		{"han with a devanagari spacing mark", "中ा", 2},
+
+		// Unicode groups halfwidth katakana sound marks with their base, while
+		// terminals still give each mark a column. A display atom can therefore
+		// exceed the usual two-column grapheme width.
+		{"halfwidth katakana", "ｶ", 1},
+		{"halfwidth voiced mark", "ﾞ", 1},
+		{"voiced halfwidth katakana", "ｶﾞ", 2},
+		{"wide base with halfwidth voiced mark", "あﾞ", 3},
 
 		// Emoji are wide; a warning sign is not, with or without the variation
 		// selector that asks for an emoji presentation. That last one is the answer

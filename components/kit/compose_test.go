@@ -397,7 +397,7 @@ func TestADialogBackdropDimsWhatIsBehindWithoutErasingIt(t *testing.T) {
 	s.View().Text(0, 0, "behind", theme.Text)
 	(&kit.DialogPanel{Theme: theme}).Backdrop(s.View())
 
-	if got := cellAt(s, 0, 0).Content; got != "b" {
+	if got := cellAt(s, 0, 0).Content(); got != "b" {
 		t.Fatalf("cell = %q, want what was behind still there", got)
 	}
 	dimmed := cellAt(s, 0, 0).Style.FG.RGB()

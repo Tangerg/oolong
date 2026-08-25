@@ -24,10 +24,10 @@ func formulaRows(t *testing.T, formula *latex.Formula, width int) []string {
 			if !ok || cell.Width() == 0 {
 				continue
 			}
-			if cell.Content == "" {
+			if cell.Content() == "" {
 				row.WriteByte(' ')
 			} else {
-				row.WriteString(cell.Content)
+				row.WriteString(cell.Content())
 			}
 		}
 		rows[y] = strings.TrimRight(row.String(), " ")

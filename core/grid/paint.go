@@ -2,6 +2,7 @@ package grid
 
 import (
 	"image"
+	"slices"
 	"strconv"
 )
 
@@ -118,12 +119,12 @@ func (p *painter) cell(c *Cell, width int) {
 		p.appendStyle(c.Style)
 	}
 	p.appendLink(c.Link)
-	if c.Content == "" {
+	if c.content == "" {
 		for range width {
 			p.out = append(p.out, ' ')
 		}
 	} else {
-		p.out = append(p.out, c.Content...)
+		p.out = append(p.out, c.content...)
 	}
 	p.at.X += width
 }
@@ -231,25 +232,21 @@ func (p *painter) closeLink() { p.appendLink("") }
 // cursor only where a run breaks.
 //
 // dirty is given the index of the unit's head cell and its width so it can judge
-// a wide pair as one thing: if either half changed, the head glyph has to be
-// rewritten, and repainting only the trailing half would print nothing.
+// a multi-column atom as one thing: if any column changed, the head glyph has to
+// be rewritten, and repainting only a continuation would print nothing.
 func (p *painter) paint(s *Surface, y0, y1 int, dirty func(i, width int) bool) {
 	for y := max(y0, 0); y < min(y1, s.h); y++ {
 		for x := 0; x < s.w; {
 			i := y*s.w + x
-			c := &s.cells[i]
-			width := 1
-			if c.span == spanWide && x+1 < s.w {
-				width = 2
-			}
-			if !dirty(i, width) {
-				x += width
+			unit := paintUnitAt(s.cells, i, s.w-x)
+			if !dirty(i, unit.width) {
+				x += unit.width
 				continue
 			}
 			p.begin()
 			p.moveTo(x, y)
-			p.cell(c, width)
-			x += width
+			unit.paint(p)
+			x += unit.width
 		}
 	}
 }
@@ -257,10 +254,7 @@ func (p *painter) paint(s *Surface, y0, y1 int, dirty func(i, width int) bool) {
 // changedAgainst reports cells that differ from the same position in prev.
 func changedAgainst(prev, next *Surface) func(i, width int) bool {
 	return func(i, width int) bool {
-		if next.cells[i] != prev.cells[i] {
-			return true
-		}
-		return width == 2 && next.cells[i+1] != prev.cells[i+1]
+		return !slices.Equal(next.cells[i:i+width], prev.cells[i:i+width])
 	}
 }
 
@@ -268,11 +262,52 @@ func changedAgainst(prev, next *Surface) func(i, width int) bool {
 // terminal has just cleared for us.
 func changedAgainstBlank(next *Surface) func(i, width int) bool {
 	return func(i, width int) bool {
-		if next.cells[i] != (Cell{}) {
-			return true
+		for offset := range width {
+			if next.cells[i+offset] != (Cell{}) {
+				return true
+			}
 		}
-		return width == 2 && next.cells[i+1] != (Cell{span: spanTrail})
+		return false
 	}
+}
+
+// paintUnit is one atom as it can be represented by the cells available to a
+// painter. A complete unit emits its head; a truncated or malformed unit emits
+// styled blanks for exactly the columns it owns. That distinction keeps the
+// painter's cursor accounting and the terminal's advance identical.
+type paintUnit struct {
+	cell  *Cell
+	width int
+}
+
+func paintUnitAt(cells []Cell, i, remaining int) paintUnit {
+	cell := &cells[i]
+	available := min(remaining, len(cells)-i)
+	width := cell.Width()
+	if width < 1 {
+		width = 1
+	} else if width > available {
+		width = available
+	}
+	return paintUnit{cell: cell, width: width}
+}
+
+func (u paintUnit) complete() bool { return u.cell.Width() == u.width }
+
+func (u paintUnit) paint(p *painter) {
+	if u.complete() {
+		p.cell(u.cell, u.width)
+		return
+	}
+	blank := Cell{Style: u.cell.Style}
+	p.cell(&blank, u.width)
+}
+
+func (u paintUnit) byteCost() int {
+	if u.complete() && u.cell.content != "" {
+		return len(u.cell.content)
+	}
+	return u.width
 }
 
 // everything accepts every cell, for a full repaint.
@@ -306,22 +341,21 @@ func printableTarget(target string) bool {
 // It is how a finished transcript line is printed into the terminal's own
 // scrollback, where the line must survive on its own with no screen to address.
 // The result always closes an open hyperlink and returns to the default style, so
-// rows can be concatenated safely.
+// rows can be concatenated safely. If cells ends inside a multi-column display
+// atom, EncodeRow emits styled blanks for the visible columns rather than a
+// partial atom that would advance the terminal beyond the slice.
 func EncodeRow(cells []Cell, depth Depth) string {
 	cells = trimBlankTail(cells)
 	p := painter{depth: depth}
 	for i := 0; i < len(cells); {
 		c := &cells[i]
-		if c.span == spanTrail {
+		if c.span < 0 {
 			i++
 			continue
 		}
-		width := 1
-		if c.span == spanWide && i+1 < len(cells) {
-			width = 2
-		}
-		p.cell(c, width)
-		i += width
+		unit := paintUnitAt(cells, i, len(cells)-i)
+		unit.paint(&p)
+		i += unit.width
 	}
 	p.closeLink()
 	if p.style != (Style{}) {
@@ -335,7 +369,7 @@ func EncodeRow(cells []Cell, depth Depth) string {
 // Printing them costs bytes for nothing, and on a row as wide as the terminal it
 // pushes the cursor onto the next line before the caller asked for one. Only the
 // zero cell is dropped: a blank carrying a background colour or a hyperlink is
-// visible, and the trailing half of a wide cluster must stay with its head.
+// visible, and a continuation column must stay with its atom's head.
 func trimBlankTail(cells []Cell) []Cell {
 	end := len(cells)
 	for end > 0 && cells[end-1] == (Cell{}) {

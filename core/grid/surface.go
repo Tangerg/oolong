@@ -115,7 +115,7 @@ func (s *Surface) View() View {
 
 // CellAt returns a copy of the cell at (x, y) and whether the coordinates are
 // inside the surface. Content can only be changed by drawing through a [View],
-// which preserves wide grapheme pairs.
+// which preserves complete display atoms.
 func (s *Surface) CellAt(x, y int) (Cell, bool) {
 	c := s.cellAt(x, y)
 	if c == nil {
@@ -163,29 +163,79 @@ func (s *Surface) CopyRows(src *Surface, srcTop, dstTop, n int) {
 	}
 }
 
-// repairPair keeps the wide-pair invariant across an overwrite of (x, y): when
-// the cell about to be replaced is half of a wide cluster, its partner is blanked
-// so no orphaned head or trailing cell survives.
-func (s *Surface) repairPair(x, y int) {
-	i := y*s.w + x
-	c := &s.cells[i]
-	if c.span == spanTrail && x > 0 {
-		if head := &s.cells[i-1]; head.span == spanWide {
-			*head = Cell{Style: head.Style}
-		}
+// repairAtom keeps the display-atom invariant across an overwrite of (x, y).
+// When that cell belongs to a multi-column atom, the whole atom is blanked so no
+// orphaned head or continuation survives. Each column keeps its own style: an
+// overwrite changes content ownership, not appearance outside the overwritten
+// region.
+func (s *Surface) repairAtom(x, y int) {
+	from, to := s.atomAt(x, y)
+	if to-from < 2 {
+		return
 	}
-	if c.span == spanWide && x+1 < s.w {
-		if trail := &s.cells[i+1]; trail.span == spanTrail {
-			*trail = Cell{Style: trail.Style}
+	row := s.row(y)
+	for column := from; column < to; column++ {
+		row[column] = Cell{Style: row[column].Style}
+	}
+}
+
+// atomAt returns the complete display atom containing (x, y). An ordinary cell
+// is a one-column atom. Invalid private metadata is conservatively treated as one
+// cell; public drawing operations never create it, and white-box tests reject it.
+func (s *Surface) atomAt(x, y int) (from, to int) {
+	if x < 0 || x >= s.w || y < 0 || y >= s.h {
+		return x, x
+	}
+	row := s.row(y)
+	from = x
+	if row[x].span < 0 {
+		from = layout.Translate(x, int(row[x].span))
+	}
+	if from < 0 || from >= s.w || row[from].span < 2 {
+		return x, x + 1
+	}
+	to = min(layout.Translate(from, int(row[from].span)), s.w)
+	if x >= to {
+		return x, x + 1
+	}
+	return from, to
+}
+
+// mutateAppearance applies mutate once to every display atom whose head is in area.
+// The head owns appearance because it is the only column the painter emits. Anchoring
+// ownership there also makes adjacent areas a true partition: an atom crossing their
+// edge belongs to exactly one of them, so non-idempotent blends cannot accumulate.
+//
+// The callback can reach only appearance fields. Content geometry remains owned by
+// the drawing operations that repair and replace atoms.
+func (s *Surface) mutateAppearance(area image.Rectangle, mutate func(*Style, *string)) {
+	area = area.Intersect(s.Bounds())
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		row := s.row(y)
+		for x := area.Min.X; x < area.Max.X; {
+			from, to := s.atomAt(x, y)
+			if from != x {
+				x++
+				continue
+			}
+			for column := from; column < to; column++ {
+				mutate(&row[column].Style, &row[column].Link)
+			}
+			x = max(x+1, to)
 		}
 	}
 }
 
 // View is a clipped window onto a [Surface], addressed in its own coordinates.
 //
-// A view is a drawing capability bounded to one box. A caller cannot draw outside
-// that box: coordinates are local,
-// and anything landing beyond the clip is discarded rather than trusted.
+// A view bounds drawing intent to one box: coordinates are local, and an operation
+// that meets no cell inside the clip does nothing. The clip is not a storage
+// isolation barrier because a multi-column display atom is indivisible. Replacing
+// any of its columns blanks the complete old atom, preserving the old style on
+// repaired columns outside the clip. Appearance belongs to the atom's head column:
+// an appearance area containing that head changes the complete atom, including
+// Style and Link outside the clip; an area containing only continuations does not.
+// These are the only mutations a view may cause beyond its clip.
 //
 // The zero View draws nowhere and reports a size of zero, which is the right
 // answer for content laid out into no space at all.
@@ -197,8 +247,9 @@ type View struct {
 	// it may draw on: content half scrolled off the screen still lays out for
 	// its whole size and simply loses the part outside the clip.
 	size image.Point
-	// clip is the region of the surface this view may touch, in surface
-	// coordinates, never wider than the surface itself.
+	// clip is the region an operation must intersect, in surface coordinates,
+	// never wider than the surface itself. Content repair and head-owned appearance
+	// changes may settle an old atom across this edge as described on View.
 	clip image.Rectangle
 	// cursor is where the frame's terminal cursor is recorded, shared by every
 	// view of the frame. It is nil for a surface that is not a frame, where
@@ -225,7 +276,10 @@ func (v View) Visible() image.Rectangle {
 func (v View) Empty() bool { return v.surface == nil || v.clip.Empty() }
 
 // Sub returns a view onto r, expressed in this view's coordinates. Clipping only
-// ever narrows: a caller cannot hand a child room it does not have itself.
+// ever narrows: a caller cannot hand a child room it does not have itself. As with
+// every View, replacing a column at the narrowed edge may blank the rest of an old
+// display atom that crosses that edge. An appearance operation applies to a complete
+// atom only when its head remains inside the narrowed view.
 func (v View) Sub(r image.Rectangle) View {
 	if v.surface == nil {
 		return View{}
@@ -275,7 +329,7 @@ func (v View) PlaceCursor(x, y int, style CursorStyle) {
 
 // CellAt returns a copy of the cell at local (x, y) and whether it is inside the
 // clip. Use drawing operations such as [View.Text], [View.Fill], [View.MergeStyle]
-// and [View.Link] to change content.
+// and [View.Link] to change content or appearance.
 func (v View) CellAt(x, y int) (Cell, bool) {
 	c := v.cellAt(x, y)
 	if c == nil {
@@ -293,17 +347,24 @@ func (v View) cellAt(x, y int) *Cell {
 	return v.surface.cellAt(p.X, p.Y)
 }
 
-// MergeStyle lays style over the cell at local (x, y), preserving any roles the
-// cell already carries. It reports whether the cell was inside the view.
+// MergeStyle lays style over the display atom whose head is at local (x, y),
+// preserving any roles it already carries. It reports whether the coordinates named
+// an atom head inside the view. A multi-column atom is restyled as one glyph even
+// when its continuations cross the clip, as described on [View].
 //
 // Styling is an operation rather than a mutable Cell pointer so changing appearance
 // cannot also replace one half of a wide grapheme.
 func (v View) MergeStyle(x, y int, style Style) bool {
-	c := v.cellAt(x, y)
-	if c == nil {
+	p := translatePoint(image.Pt(x, y), v.origin)
+	if v.surface == nil || !p.In(v.clip) {
 		return false
 	}
-	c.Style = c.Style.Merge(style)
+	if head, _ := v.surface.atomAt(p.X, p.Y); head != p.X {
+		return false
+	}
+	v.surface.mutateAppearance(image.Rectangle{Min: p, Max: p.Add(image.Pt(1, 1))}, func(current *Style, _ *string) {
+		*current = current.Merge(style)
+	})
 	return true
 }
 
@@ -326,7 +387,8 @@ func (v View) Ground() Ground { return v.surface.Ground() }
 // A cell whose colour is the terminal's own is resolved through [View.Ground]
 // first. Where that has no answer the cell keeps the colour it had, which is the
 // rule stated on [Color.Blend] and the reason a program asks the terminal what it
-// draws on before the first frame.
+// draws on before the first frame. A multi-column atom whose head is in r is blended
+// as one glyph even when its continuations cross an edge, as described on [View].
 func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	if v.surface == nil || over.Default() || opacity <= 0 {
 		return
@@ -336,14 +398,11 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 		return
 	}
 	ground := v.surface.ground
-	for y := area.Min.Y; y < area.Max.Y; y++ {
-		row := v.surface.row(y)
-		for x := area.Min.X; x < area.Max.X; x++ {
-			style := ground.Resolve(row[x].Style)
-			row[x].Style.FG = style.FG.Blend(over, opacity)
-			row[x].Style.BG = style.BG.Blend(over, opacity)
-		}
-	}
+	v.surface.mutateAppearance(area, func(current *Style, _ *string) {
+		style := ground.Resolve(*current)
+		current.FG = style.FG.Blend(over, opacity)
+		current.BG = style.BG.Blend(over, opacity)
+	})
 }
 
 // Fade dissolves what is in r into whatever it is drawn on: each cell's foreground
@@ -357,7 +416,9 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 // different colour over the themed part than over the plain part.
 //
 // A cell whose colours are the terminal's own is resolved through [View.Ground]
-// first, and where that has no answer the cell is left alone.
+// first, and where that has no answer the cell is left alone. A multi-column atom
+// whose head is in r is faded as one glyph even when its continuations cross an edge,
+// as described on [View].
 func (v View) Fade(r image.Rectangle, amount float64) {
 	if v.surface == nil || amount <= 0 {
 		return
@@ -367,16 +428,15 @@ func (v View) Fade(r image.Rectangle, amount float64) {
 		return
 	}
 	ground := v.surface.ground
-	for y := area.Min.Y; y < area.Max.Y; y++ {
-		row := v.surface.row(y)
-		for x := area.Min.X; x < area.Max.X; x++ {
-			style := ground.Resolve(row[x].Style)
-			row[x].Style.FG = style.FG.Blend(style.BG, amount)
-		}
-	}
+	v.surface.mutateAppearance(area, func(current *Style, _ *string) {
+		style := ground.Resolve(*current)
+		current.FG = style.FG.Blend(style.BG, amount)
+	})
 }
 
 // Fill blanks every cell in r, in this view's coordinates, and gives it style.
+// An old display atom crossing an edge of the filled area is blanked completely,
+// including any part outside the view's clip, as described on [View].
 func (v View) Fill(r image.Rectangle, style Style) {
 	if v.surface == nil {
 		return
@@ -387,10 +447,10 @@ func (v View) Fill(r image.Rectangle, style Style) {
 	}
 	s := v.surface
 	for y := area.Min.Y; y < area.Max.Y; y++ {
-		// A fill edge can land in the middle of a wide cluster; repairing both
-		// edges first keeps the half left outside the fill from being orphaned.
-		s.repairPair(area.Min.X, y)
-		s.repairPair(area.Max.X-1, y)
+		// A fill edge can land in the middle of a multi-column atom; repairing
+		// both edges first keeps the part outside the fill from being orphaned.
+		s.repairAtom(area.Min.X, y)
+		s.repairAtom(area.Max.X-1, y)
 		row := s.row(y)
 		for x := area.Min.X; x < area.Max.X; x++ {
 			row[x] = Cell{Style: style}
@@ -401,11 +461,12 @@ func (v View) Fill(r image.Rectangle, style Style) {
 // Text writes s at local (x, y) and returns how many columns it advanced,
 // including any it advanced outside the clip.
 //
-// Text is grapheme-aware. A double-width cluster takes two columns and is never
-// split: one that would straddle the right edge is dropped and its first column
-// blanked, because half a glyph is worse than a gap. A zero-width cluster — a
-// combining mark arriving on its own — joins the cell to its left instead of
-// consuming a column of its own.
+// Text is grapheme-aware. A multi-column cluster is never split: one that would
+// straddle an edge is dropped and its visible columns are blanked, because part
+// of a glyph is worse than a gap. A zero-width cluster — a combining mark
+// arriving on its own — joins the display atom to its left instead of consuming
+// a column of its own. Replacing an old atom that crosses a clip edge may blank
+// the rest of that old atom outside the clip, as described on [View].
 func (v View) Text(x, y int, s string, style Style) int {
 	if v.surface == nil {
 		return 0
@@ -430,35 +491,40 @@ func (v View) Text(x, y int, s string, style Style) int {
 			v.combine(cx, p.Y, cluster)
 			continue
 		}
-		if cx >= v.clip.Max.X {
-			break
-		}
-		switch {
-		case layout.Translate(cx, w) <= v.clip.Min.X:
-			// Entirely left of the clip.
-		case cx < v.clip.Min.X:
-			// A wide cluster straddling the left edge: blank the column that is
-			// inside rather than print a glyph the terminal would place wrong.
-			surf.repairPair(v.clip.Min.X, p.Y)
-			*surf.cellAt(v.clip.Min.X, p.Y) = Cell{Style: style}
-		case w == 2 && layout.Translate(cx, 2) > v.clip.Max.X:
-			surf.repairPair(cx, p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Style: style}
-			// Nothing wider than one column can follow on this row.
-			return layout.Sum(advanced, 1)
-		case w == 2:
-			surf.repairPair(cx, p.Y)
-			surf.repairPair(layout.Translate(cx, 1), p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Content: ownedCluster(cluster), Style: style, span: spanWide}
-			*surf.cellAt(layout.Translate(cx, 1), p.Y) = Cell{Style: style, span: spanTrail}
-		default:
-			surf.repairPair(cx, p.Y)
-			*surf.cellAt(cx, p.Y) = Cell{Content: ownedCluster(cluster), Style: style}
-		}
-		cx = layout.Translate(cx, w)
+		end := layout.Translate(cx, w)
 		advanced = layout.Sum(advanced, w)
+		switch {
+		case end <= v.clip.Min.X || cx >= v.clip.Max.X:
+			// Entirely outside the clip.
+		case cx < v.clip.Min.X || end > v.clip.Max.X:
+			// The atom straddles a clip edge. Blank every visible column rather
+			// than leave pieces of either the old or the new atom behind.
+			v.blank(min(max(cx, v.clip.Min.X), v.clip.Max.X), min(end, v.clip.Max.X), p.Y, style)
+		default:
+			for offset := range w {
+				surf.repairAtom(layout.Translate(cx, offset), p.Y)
+			}
+			head := Cell{content: ownedCluster(cluster), Style: style}
+			if w > 1 {
+				head.span = span(w)
+			}
+			*surf.cellAt(cx, p.Y) = head
+			for offset := 1; offset < w; offset++ {
+				*surf.cellAt(layout.Translate(cx, offset), p.Y) = Cell{Style: style, span: span(-offset)}
+			}
+		}
+		cx = end
 	}
 	return advanced
+}
+
+// blank replaces [from,to) with styled single cells while preserving the atom
+// invariant around both ends. Coordinates are on the surface and already clipped.
+func (v View) blank(from, to, y int, style Style) {
+	for column := from; column < to; column++ {
+		v.surface.repairAtom(column, y)
+		*v.surface.cellAt(column, y) = Cell{Style: style}
+	}
 }
 
 // asciiClusters gives the most common cells package-owned storage without one
@@ -479,22 +545,26 @@ func ownedCluster(cluster string) string {
 	return strings.Clone(cluster)
 }
 
-// combine appends a zero-width cluster to the cell that owns the column to the
-// left, stepping over a trailing cell to reach its head.
+// combine appends a zero-width cluster to the display atom that owns the column
+// to the left, stepping over a continuation cell to reach its head.
 func (v View) combine(cx, y int, cluster string) {
-	prev := v.surface.cellAt(layout.Translate(cx, -1), y)
-	if prev != nil && prev.span == spanTrail {
-		prev = v.surface.cellAt(layout.Translate(cx, -2), y)
+	head := layout.Translate(cx, -1)
+	prev := v.surface.cellAt(head, y)
+	if prev != nil && prev.span < 0 {
+		head = layout.Translate(head, int(prev.span))
+		prev = v.surface.cellAt(head, y)
 	}
-	if prev == nil || prev.span == spanTrail {
+	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clip) {
 		return
 	}
-	prev.Content += cluster
+	prev.content += cluster
 }
 
-// Link stamps target onto w columns starting at local (x, y), turning text that
-// has already been written into a hyperlink. It is separate from [View.Text]
-// because a link usually spans a run that was drawn in several pieces.
+// Link stamps target onto the display atoms whose heads occupy w columns starting
+// at local (x, y), turning text that has already been written into a hyperlink. It
+// is separate from [View.Text] because a link usually spans a run that was drawn
+// in several pieces. A multi-column atom receives one link even when it crosses
+// an edge, as described on [View].
 func (v View) Link(x, y, w int, target string) {
 	if v.surface == nil || w <= 0 {
 		return
@@ -509,9 +579,9 @@ func (v View) Link(x, y, w int, target string) {
 		return
 	}
 	target = strings.Clone(target)
-	for column := from; column < to; column++ {
-		v.surface.cellAt(column, at.Y).Link = target
-	}
+	v.surface.mutateAppearance(Rect(from, at.Y, to-from, 1), func(_ *Style, link *string) {
+		*link = target
+	})
 }
 
 // graphemeWidth is how many columns s would occupy.
@@ -537,17 +607,48 @@ func graphemeWidth(s string) int {
 // terminal not told otherwise does with them.
 var columns = &runewidth.Condition{EastAsianWidth: false, StrictEmojiNeutral: false}
 
-// ClusterWidth is how many columns one grapheme cluster occupies, clamped to what
-// a cell can hold. A control character measures zero.
+// ClusterWidth returns Oolong's deterministic estimate of how many terminal
+// columns one grapheme cluster occupies. A control character measures zero.
 //
 // Everything that lays text out shares this function. Measuring text one way and
 // drawing it another is the cause of every misaligned terminal UI, so there is one
 // answer and one place it comes from.
+//
+// Display width is terminal behavior, not a complete Unicode property. Different
+// terminals may shape an unusual cluster differently. This estimate fixes
+// ambiguous-width characters to one column, follows go-runewidth's grapheme rules,
+// and separately counts U+FF9E and U+FF9F because common terminals render those
+// halfwidth-katakana sound marks as spacing characters. Other spacing combining
+// marks retain the dependency's answer until terminal evidence supports a rule
+// that does not also break emoji and other ligated clusters.
 func ClusterWidth(cluster string) int {
 	if control(cluster) {
 		return 0
 	}
-	return min(max(columns.StringWidth(cluster), 0), 2)
+	width := max(columns.StringWidth(cluster), 0)
+	// A sound mark alone, or one after an ASCII base, is the only adjusted shape
+	// that can fit in four UTF-8 bytes; go-runewidth already measures both correctly.
+	// Every shape in which its two-column cap can hide a sound mark is longer.
+	if len(cluster) <= utf8.UTFMax {
+		return width
+	}
+	// Halfwidth katakana sound marks are Unicode extenders but spacing terminal
+	// characters. Grapheme segmentation therefore keeps them with their base while
+	// terminal geometry still gives each mark a column. go-runewidth caps a complete
+	// grapheme at two columns, so measure the base and these spacing extenders
+	// separately when one occurs. The uncommon path may allocate; ordinary text and
+	// emoji stay on the dependency's optimized grapheme measurement.
+	marks := strings.Count(cluster, "ﾞ") + strings.Count(cluster, "ﾟ")
+	if marks == 0 {
+		return width
+	}
+	base := strings.Map(func(r rune) rune {
+		if r == '\uff9e' || r == '\uff9f' {
+			return -1
+		}
+		return r
+	}, cluster)
+	return layout.Sum(max(columns.StringWidth(base), 0), marks)
 }
 
 // control reports whether a cluster begins with a control character.
@@ -598,12 +699,12 @@ func (s *Surface) Rows() []string {
 		var b strings.Builder
 		for _, c := range s.row(y) {
 			switch {
-			case c.span == spanTrail:
-				// The second column of a wide cluster, which the head already wrote.
-			case c.Content == "":
+			case c.span < 0:
+				// A continuation column, which the atom's head already wrote.
+			case c.content == "":
 				b.WriteByte(' ')
 			default:
-				b.WriteString(c.Content)
+				b.WriteString(c.content)
 			}
 		}
 		out = append(out, strings.TrimRight(b.String(), " "))

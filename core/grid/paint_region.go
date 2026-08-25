@@ -54,7 +54,11 @@ type painted struct {
 
 // same reports whether two regions are showing the same thing in the same place,
 // which is what lets an unchanged frame write nothing at all.
-func (p painted) same(other painted) bool { return p.id == other.id && p.rect == other.rect }
+// Zero is deliberately not an identity: it is the caller's way to request a fresh
+// paint when it has no stable generation of its own.
+func (p painted) same(other painted) bool {
+	return p.id != 0 && p.id == other.id && p.rect == other.rect
+}
 
 // Paint keeps the region r of the frame for something that draws itself — see
 // [Painter].
