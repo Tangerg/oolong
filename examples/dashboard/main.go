@@ -5,6 +5,9 @@
 // everything else reaches the pane in the pane's own coordinates. And the table has
 // a cursor: the rows and their order are one thing, where the columns go is another,
 // and the two meet in four lines rather than in a widget that owns both.
+// The activity pane projects those same tasks as progress, a bounded sparkline, and
+// category bars; the application owns sampling and labels while the charts remain
+// passive blocks.
 //
 // Alt+left and alt+right or 1–3 move between panes, the arrows move in them, a press
 // on a heading sorts by it, and q leaves.
@@ -138,6 +141,7 @@ func (d *dashboard) Handle(ev input.Event) bool {
 
 func (d *dashboard) advance() {
 	d.work.advance(d.watch.rateValue)
+	d.watch.record()
 	if d.motion {
 		d.watch.tick()
 	}
@@ -348,6 +352,7 @@ type activity struct {
 	glyphs  kit.Glyphs
 	of      *queue
 	spinner kit.Spinner
+	samples []float64
 	// rateValue belongs to the dashboard rather than its appearance. The slider and
 	// settings pane both edit this one value, so neither can drift from the other.
 	rateValue int
@@ -355,7 +360,10 @@ type activity struct {
 }
 
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
-	activity := &activity{theme: theme, glyphs: glyphs, of: of, rateValue: 1}
+	activity := &activity{
+		theme: theme, glyphs: glyphs, of: of, rateValue: 1,
+		samples: make([]float64, 0, 64),
+	}
 	activity.rate = kit.NewSlider(kit.SliderConfig{
 		Theme: theme, Glyphs: glyphs, Value: headless.Bind(&activity.rateValue),
 		Minimum: 1, Maximum: 4, Label: "rate",
@@ -364,12 +372,15 @@ func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 	activity.spinner = kit.Spinner{
 		Theme: theme, Glyphs: glyphs, Label: "watching",
 	}
+	activity.record()
 	return activity
 }
 
-func (a *activity) tick() { a.spinner.Tick() }
+func (a *activity) tick() {
+	a.spinner.Tick()
+}
 
-func (a *activity) Measure(int) int { return 4 }
+func (a *activity) Measure(int) int { return 4 + a.of.rows.Len() }
 
 func (a *activity) Draw(v headless.Frame) {
 	finished, total := a.of.remaining()
@@ -377,7 +388,8 @@ func (a *activity) Draw(v headless.Frame) {
 		{Size: layout.Fixed(1)},
 		{Size: layout.Fixed(1)},
 		{Size: layout.Fixed(1)},
-		{Size: layout.Flex(1)},
+		{Size: layout.Fixed(1)},
+		{Size: layout.Flex(1).AtLeast(a.of.rows.Len())},
 	}))
 	kit.Progress{
 		Theme:   a.theme,
@@ -388,20 +400,63 @@ func (a *activity) Draw(v headless.Frame) {
 		Percent: true,
 	}.Draw(rows[0].View)
 	a.rate.Draw(rows[1])
+	kit.Sparkline{
+		Theme: a.theme, Glyphs: a.glyphs, Values: a.samples,
+		Minimum: 0, Maximum: 1,
+	}.Draw(rows[2].View)
 
 	// A spinner is for work with no total and a bar is for work with one. Both are
 	// here because the two questions are different: how far along, and is anything
 	// happening at all.
 	if finished >= total {
 		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[3].View)
-		return
+	} else {
+		a.spinner.Draw(rows[3].View)
 	}
-	a.spinner.Draw(rows[3].View)
+	kit.BarChart{
+		Theme: a.theme, Glyphs: a.glyphs, Maximum: 100,
+		Bars: a.bars(),
+	}.Draw(rows[4].View)
 }
 
 func (a *activity) Handle(event input.Event) bool { return a.rate.Handle(event) }
 
 func (a *activity) Focus(has bool) { a.rate.Focus(has) }
+
+// record keeps a bounded history of aggregate completion. The dashboard owns this
+// sampling policy; Sparkline only projects the values it is given.
+func (a *activity) record() {
+	finished, total := a.of.remaining()
+	value := 0.0
+	if total > 0 {
+		value = float64(finished) / float64(total)
+	}
+	if len(a.samples) == cap(a.samples) {
+		copy(a.samples, a.samples[1:])
+		a.samples[len(a.samples)-1] = value
+		return
+	}
+	a.samples = append(a.samples, value)
+}
+
+// bars projects the task model into chart categories. Labels, percentage formatting,
+// and the decision to compare completion are application grammar, not kit policy.
+func (a *activity) bars() []kit.Bar {
+	items := a.of.rows.Items()
+	bars := make([]kit.Bar, len(items))
+	for i, item := range items {
+		percent := 0.0
+		if item.total > 0 {
+			percent = float64(item.done) / float64(item.total) * 100
+		}
+		bars[i] = kit.Bar{
+			Label: item.name,
+			Value: percent,
+			Text:  fmt.Sprintf("%.0f%%", percent),
+		}
+	}
+	return bars
+}
 
 func tasks() []task {
 	return []task{

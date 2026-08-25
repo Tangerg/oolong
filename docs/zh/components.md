@@ -68,21 +68,48 @@ func newPicker(runtime *program.Runtime, items []string) *picker {
 
 ## 让过滤器拥有过滤行为
 
-通过方法配置会改变状态的行为。`SetItems`、`SetText` 和 `SetPattern` 会使过滤器缓存的
-排序失效，因此调用方无法在过时结果仍可见时修改数据源。
+通过方法配置会改变状态的行为。`SetItems` 将值与“如何将值读成文本”的投影作为同一
+数据源一起替换，`SetPattern` 再收窄该数据源。两者都会使缓存的排序失效，因此不存在
+数据与投影不一致的中间状态，也不会让过时结果继续可见。
 
 ```go
 func (p *picker) configureItems(items []string) {
     p.list = &headless.Filter[string]{
         Row: p.drawRow,
     }
-    p.list.SetText(func(item string) string { return item })
-    p.list.SetItems(items)
+    p.list.SetItems(items, func(item string) string { return item })
 }
 ```
 
 行回调是外观接缝。它会收到项目、模糊匹配偏移和选中状态。若要用另一种形状绘制同一
 行为，请替换这个回调，而不是替换 `Filter`。
+
+## 绘制被动图表
+
+图表是已完成内容，不是控制器。`Sparkline` 与 `BarChart` 直接绘制到 `grid.View`，实现
+`headless.Block`，但不拥有选择、时钟或历史。应用继续持有测量数据，并决定它们何时
+变化。
+
+```go
+trend := kit.Sparkline{
+    Theme: theme, Glyphs: glyphs,
+    Values: []float64{0.12, 0.18, 0.15, 0.24, 0.31},
+    Minimum: 0, Maximum: 1,
+}
+
+usage := kit.BarChart{
+    Theme: theme, Glyphs: glyphs, Maximum: 100,
+    Bars: []kit.Bar{
+        {Label: "CPU", Value: 42, Text: "42%"},
+        {Label: "RAM", Value: 68, Text: "68%"},
+    },
+}
+```
+
+Sparkline 使用能够放入视口的最新样本。有效的 `Minimum`/`Maximum` 组合会固定量程，
+完成度与资源指标通常需要这种语义；两个字段取零时则从可见窗口推导刻度。BarChart
+有意只做水平、非负图表：它解决带标签的仪表盘比较，而不引入坐标轴、画布或约束
+求解器。任一图表都可以通过 `headless.Static`、转录区、面板正文或应用自己的布局进行组合。
 
 ## 划分已分配的区域
 

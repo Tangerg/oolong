@@ -55,7 +55,7 @@ These examples combine reusable behavior while the application keeps product lay
 | [`picker`](https://github.com/Tangerg/oolong/tree/main/examples/picker) | `go run ./examples/picker` | Type to filter; arrows move; `Enter` picks | Text field, fuzzy ranking, list, highlighted matches |
 | [`composer`](https://github.com/Tangerg/oolong/tree/main/examples/composer) | `go run ./examples/composer` | Type `@`; arrows choose; `Enter` submits | Completion, draft history, atomic paste elements |
 | [`files`](https://github.com/Tangerg/oolong/tree/main/examples/files) | `go run ./examples/files .` | `Tab` changes pane; arrows navigate; `q` quits | Focus, tree identity, viewport, pointer routing |
-| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | Press `1`–`3`, sort headers, adjust sliders | Caller-owned tabs and slider, tables, progress, animation lifetime |
+| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | Press `1`–`3`, sort headers, adjust sliders | Caller-owned tabs and slider, tables, passive charts, bounded samples, animation lifetime |
 
 The library does not add a second `Picker` or `FileBrowser` API. Each product interaction is a composition over the same controllers.
 

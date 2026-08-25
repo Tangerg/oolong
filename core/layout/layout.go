@@ -24,6 +24,12 @@
 // compose its rectangles when they need nesting, and callers needing a layout engine
 // should use one above this package rather than making this allocator know their
 // item lifecycle.
+//
+// [Down] makes rows and [Across] makes columns; both use the same operation because
+// only the divided axis changes:
+//
+//	rows := (layout.Flow{Axis: layout.Down}).Rects(space, slots)
+//	columns := (layout.Flow{Axis: layout.Across}).Rects(space, slots)
 package layout
 
 import (

@@ -73,6 +73,7 @@
     "shfmt",
     "SIGWINCH",
     "sixel",
+    "sparkline",
     "strconv",
     "stringly",
     "subresources",

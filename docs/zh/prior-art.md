@@ -62,7 +62,7 @@ cursor 外观，`examples/agent` 把原生进度用于真实任务生命周期�
 
 ## Ratatui：吸收可执行政策与对抗性几何，不复制它的框架形状
 
-2026-08-24 的 Ratatui 审计把它当作基础设施而不是组件目录来看。四条经验在这里挣到了
+2026-08-24 的 Ratatui 审计把它当作基础设施而不是组件目录来看。五条经验在这里挣到了
 完整的纵向切片。
 
 1. Ratatui 的 `xtask` 把仓库政策做成编译代码。Oolong 没有照搬一个全能任务运行器：
@@ -84,6 +84,10 @@ cursor 外观，`examples/agent` 把原生进度用于真实任务生命周期�
    `examples/state` 现在把本地 `Text`、精确 `Bind`、归一化 `Accessor` 与拒绝型 `Accessor`
    并排放在一起。它们仍是同一套 field API 的四种结果，不是四种 widget 变体。钉住版本的
    CSpell 也会守住这些契约所在的人工散文。
+5. Ratatui 的仪表盘词汇暴露了一处真实能力缺口，但不足以成为复制其 widget 形状的理由。
+   `kit.Sparkline` 与 `kit.BarChart` 是绘制调用方数值的被动 block：没有 canvas、axis 层级、
+   chart state 或约束求解器。BarChart 与 `kit.Progress` 共享同一个私有、cell 精度的 bar；
+   采样窗口、标签、格式与产品含义仍由应用持有。
 
 几项机制被明确拒绝。pre-v1 阶段，协同模块版本仍比兼容矩阵更简单；模块按依赖边界与证据
 区分，而不是按发布列车区分。在具体纵向切片真正需要之前，不增加 `x/` 实验命名空间，因为
@@ -286,7 +290,7 @@ resize_viewport_height,
 
 | | 组件 | 说明 |
 | --- | --- | --- |
-| 本仓库 | 约 70 个行为类型（`headless`）之上的 25 个已绘制组件（`kit`） | 另有 `Theme`、`Glyphs`、`Border`、`Cell`、`Column`、`LineNumbers`、`TableLayout`、`Scrim`、`Printer` 等支撑值 |
+| 本仓库 | 约 70 个行为类型（`headless`）之上的 27 个已绘制组件（`kit`） | 另有 `Theme`、`Glyphs`、`Border`、`Cell`、`Column`、`LineNumbers`、`TableLayout`、`Scrim`、`Printer` 等支撑值 |
 | opentui | 20 个 renderable | `ASCIIFont`、`Box`、`Code`、`Diff`、`EditBuffer`、`FrameBuffer`、`Image`、`Input`、`LineNumber`、`Markdown`、`ScrollBar`、`ScrollBox`、`Select`、`Slider`、`TabSelect`、`Text`、`TextNode`、`Textarea`、`TextTable`、`TimeToFirstDraw` |
 | bubbles | 14 | `cursor`、`filepicker`、`help`、`key`、`list`、`paginator`、`progress`、`spinner`、`stopwatch`、`table`、`textarea`、`textinput`、`timer`、`viewport` |
 | pi-tui | 12 | `box`、`cancellable-loader`、`editor`、`image`、`input`、`loader`、`markdown`、`select-list`、`settings-list`、`spacer`、`text`、`truncated-text` |
@@ -449,7 +453,7 @@ snapshot policy。状态转换仍用行为断言；golden 只守住少数“关�
 | agentui | detector 应当报告带原因的拒绝项 | 产品语法、第二套 transcript 引擎、detector 内部的路径 policy |
 | Charm | cursor 形态/闪烁、terminal 原生任务进度、一次性 owner 调度 | `Cmd`、styled-string rendering、widget 内的文件系统 policy |
 | Codex | 响应式语义表格、不截断 diff、键盘 feature 协商、client clipboard transport、ground-fitted theme 与选择性的多维视觉测试 | agent command 与 status 语法、native desktop clipboard policy、第二套 renderer 或 Ratatui 形状的 widget model |
-| Ratatui | 经过测试的仓库政策、由编译器证明的源码可移植性、对抗性宽度 fixture 与比较式概念示例 | 它的 immediate-mode widget 形状、独立版本矩阵、投机实验命名空间、覆盖率目标或 forced-width payload 逃生舱 |
+| Ratatui | 经过测试的仓库政策、由编译器证明的源码可移植性、对抗性宽度 fixture、比较式概念示例与被动仪表盘图表 | 它的 immediate-mode widget 形状、chart canvas/axis 层级、独立版本矩阵、投机实验命名空间、覆盖率目标或 forced-width payload 逃生舱 |
 
 ## 有序候选项
 

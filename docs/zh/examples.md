@@ -55,7 +55,7 @@ go run ./examples/form | cat
 | [`picker`](https://github.com/Tangerg/oolong/tree/main/examples/picker) | `go run ./examples/picker` | 输入以过滤；方向键移动；`Enter` 选择 | 文本字段、模糊排序、列表、匹配高亮 |
 | [`composer`](https://github.com/Tangerg/oolong/tree/main/examples/composer) | `go run ./examples/composer` | 输入 `@`；方向键选择；`Enter` 提交 | 补全、草稿历史、原子粘贴元素 |
 | [`files`](https://github.com/Tangerg/oolong/tree/main/examples/files) | `go run ./examples/files .` | `Tab` 换栏；方向键导航；`q` 退出 | 焦点、树身份、viewport、指针路由 |
-| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | 按 `1`–`3`、排序表头、调整滑块 | 调用方拥有的标签与滑块、表格、进度、动画生命周期 |
+| [`dashboard`](https://github.com/Tangerg/oolong/tree/main/examples/dashboard) | `go run ./examples/dashboard` | 按 `1`–`3`、排序表头、调整滑块 | 调用方拥有的标签与滑块、表格、被动图表、有界采样与动画生命周期 |
 
 库不会在已有原语之外添加第二套 `Picker` 或 `FileBrowser` API。每种产品交互都组合自同一批控制器。
 

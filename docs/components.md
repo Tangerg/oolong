@@ -71,23 +71,52 @@ answers a different question: which characters this terminal can represent.
 
 ## Let the filter own filtering
 
-Configure state-changing behavior through methods. `SetItems`, `SetText`, and
-`SetPattern` invalidate the filter's cached ranking, so callers cannot mutate the
-source while stale results remain visible.
+Configure state-changing behavior through methods. `SetItems` replaces the values and
+the projection that says how they read as one source; `SetPattern` narrows that source.
+Both invalidate the cached ranking, so no intermediate source can disagree with its
+visible results.
 
 ```go
 func (p *picker) configureItems(items []string) {
     p.list = &headless.Filter[string]{
         Row: p.drawRow,
     }
-    p.list.SetText(func(item string) string { return item })
-    p.list.SetItems(items)
+    p.list.SetItems(items, func(item string) string { return item })
 }
 ```
 
 The row callback is the appearance seam. It receives the item, fuzzy-match offsets,
 and selection state. Draw the same behavior with a different shape by replacing this
 callback, not by replacing `Filter`.
+
+## Draw passive charts
+
+Charts are completed content, not controllers. `Sparkline` and `BarChart` draw into a
+`grid.View`, implement `headless.Block`, and own no selection, clock, or history. The
+application retains the measurements and decides when they change.
+
+```go
+trend := kit.Sparkline{
+    Theme: theme, Glyphs: glyphs,
+    Values: []float64{0.12, 0.18, 0.15, 0.24, 0.31},
+    Minimum: 0, Maximum: 1,
+}
+
+usage := kit.BarChart{
+    Theme: theme, Glyphs: glyphs, Maximum: 100,
+    Bars: []kit.Bar{
+        {Label: "CPU", Value: 42, Text: "42%"},
+        {Label: "RAM", Value: 68, Text: "68%"},
+    },
+}
+```
+
+Sparkline uses the newest samples that fit. A valid `Minimum`/`Maximum` pair fixes
+its domain, as completion and resource metrics usually require; the zero pair derives
+the scale from the visible window. BarChart is deliberately horizontal and
+non-negative: it serves labelled dashboard comparisons without introducing axes, a
+canvas, or a constraint solver. Compose either block inside `headless.Static`, a
+transcript, a panel body, or any application-owned layout.
 
 ## Divide the assigned region
 

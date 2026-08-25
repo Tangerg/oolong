@@ -69,7 +69,7 @@ answers to which scope owns an event. It is therefore rejected, not deferred.
 ## Ratatui: take executable policy and adversarial geometry, not its framework shape
 
 The 2026-08-24 Ratatui audit approached the repository as infrastructure rather than
-as a widget catalogue. Four lessons earned complete vertical slices here.
+as a widget catalogue. Five lessons earned complete vertical slices here.
 
 1. Ratatui's `xtask` makes repository policy compiled code. Oolong has not copied an
    all-purpose task runner: most of its shell is short orchestration over standard
@@ -97,6 +97,11 @@ as a widget catalogue. Four lessons earned complete vertical slices here.
    normalizing `Accessor`, and rejecting `Accessor` beside one another. They remain
    four outcomes of one field API, not four widget variants. Pinned CSpell also guards
    the human prose where these contracts live.
+5. Ratatui's dashboard vocabulary exposed a real capability gap, but not a reason to
+   import its widget shape. `kit.Sparkline` and `kit.BarChart` are passive blocks over
+   caller-owned numbers: no canvas, axis hierarchy, chart state, or constraint solver.
+   BarChart shares the same private cell-precise bar as `kit.Progress`, while the
+   application keeps sampling windows, labels, formatting, and product meaning.
 
 Several mechanisms were deliberately declined. Coordinated module versions remain
 simpler than a compatibility matrix while Oolong is pre-v1; modules differ by
@@ -342,7 +347,7 @@ has a countable answer.
 
 | | components | notes |
 | --- | --- | --- |
-| this repository | 25 drawn (`kit`) over ~70 behaviour types (`headless`) | plus `Theme`, `Glyphs`, `Border`, `Cell`, `Column`, `LineNumbers`, `TableLayout`, `Scrim`, `Printer` as supporting values |
+| this repository | 27 drawn (`kit`) over ~70 behaviour types (`headless`) | plus `Theme`, `Glyphs`, `Border`, `Cell`, `Column`, `LineNumbers`, `TableLayout`, `Scrim`, `Printer` as supporting values |
 | opentui | 20 renderables | `ASCIIFont`, `Box`, `Code`, `Diff`, `EditBuffer`, `FrameBuffer`, `Image`, `Input`, `LineNumber`, `Markdown`, `ScrollBar`, `ScrollBox`, `Select`, `Slider`, `TabSelect`, `Text`, `TextNode`, `Textarea`, `TextTable`, `TimeToFirstDraw` |
 | bubbles | 14 | `cursor`, `filepicker`, `help`, `key`, `list`, `paginator`, `progress`, `spinner`, `stopwatch`, `table`, `textarea`, `textinput`, `timer`, `viewport` |
 | pi-tui | 12 | `box`, `cancellable-loader`, `editor`, `image`, `input`, `loader`, `markdown`, `select-list`, `settings-list`, `spacer`, `text`, `truncated-text` |
@@ -534,7 +539,7 @@ guard the few layouts whose relationships are the behaviour.
 | agentui | the idea that a detector should report refusals with reasons | product grammar; a second transcript engine; path policy inside a detector |
 | Charm | cursor shape/blink, native task progress and one-shot owner scheduling | `Cmd`, styled-string rendering, filesystem policy inside a widget |
 | Codex | responsive semantic tables, non-truncating diffs, keyboard feature negotiation, client clipboard transport, ground-fitted themes and selective dimensional visual tests | agent commands and status grammar, native desktop clipboard policy, a second renderer or Ratatui-shaped widget model |
-| Ratatui | tested repository policy, compiler-proved source portability, adversarial width fixtures, and comparative concept examples | its immediate-mode widget shape, independent-version matrix, speculative experiment namespace, coverage target, or forced-width payload escape hatch |
+| Ratatui | tested repository policy, compiler-proved source portability, adversarial width fixtures, comparative concept examples, and passive dashboard charts | its immediate-mode widget shape, chart canvas/axis hierarchy, independent-version matrix, speculative experiment namespace, coverage target, or forced-width payload escape hatch |
 
 ## Ordered candidates
 
