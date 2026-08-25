@@ -43,6 +43,12 @@ point of tagging them low rather than not at all.
   a reader arrives with: how to get text out of the grid without a terminal, how a
   clipped view addresses itself, how to match a keystroke, and where work done on
   another goroutine comes back.
+- The architecture guide opens with a generated map of every public module, the
+  packages `core` is built from, and the seam each boundary is drawn at. It is rendered
+  from a specification that cites the file behind each component, so a node that stops
+  matching its source is a correction anyone can make. `internal/arch` now resolves
+  site-absolute documentation links from the documentation root, which is where the
+  site serves them from, so a published asset can be linked and a broken one is caught.
 
 ## [0.15.0] — 2026-08-25
 

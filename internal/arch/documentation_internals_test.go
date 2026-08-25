@@ -343,6 +343,27 @@ func documentationLinkTarget(root, source string, parsed *url.URL) (string, bool
 		return linked, true, nil
 	}
 
+	// A leading slash is the documentation site's root rather than the filesystem's,
+	// and the site serves both its pages and docs/public from there. Resolving such a
+	// link against the linking file's directory would refuse every correct link to a
+	// static asset, so both roots are tried; the public one is reported when neither
+	// exists, because that is where an author who wrote one meant to put the file.
+	if strings.HasPrefix(parsed.Path, "/") {
+		path, err := url.PathUnescape(parsed.EscapedPath())
+		if err != nil {
+			return "", false, err
+		}
+		site := filepath.Join(root, "docs")
+		assets := filepath.Join(site, "public")
+		for _, base := range []string{assets, site} {
+			candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(path)))
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				return candidate, true, nil
+			}
+		}
+		return filepath.Clean(filepath.Join(assets, filepath.FromSlash(path))), true, nil
+	}
+
 	linked := source
 	if parsed.Path != "" {
 		path, err := url.PathUnescape(parsed.EscapedPath())
@@ -369,6 +390,13 @@ func TestRepositoryMarkdownLinksRemainCheckoutContracts(t *testing.T) {
 	if err := os.WriteFile(target, []byte("package grid\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	asset := filepath.Join(root, "docs", "public", "diagrams", "map.html")
+	if err := os.MkdirAll(filepath.Dir(asset), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(asset, []byte("<!doctype html>\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name        string
@@ -380,6 +408,11 @@ func TestRepositoryMarkdownLinksRemainCheckoutContracts(t *testing.T) {
 		{name: "missing repository file", destination: "https://github.com/Tangerg/oolong/blob/main/core/grid/missing.go", wantChecked: true, wantErr: true},
 		{name: "escaped checkout", destination: "https://github.com/Tangerg/oolong/blob/main/%2e%2e/outside.go", wantChecked: true, wantErr: true},
 		{name: "external website", destination: "https://example.com/not-checked-here"},
+		// A site-absolute link is resolved from the documentation root, where the
+		// site serves docs/public, rather than from the linking file's directory.
+		{name: "published asset", destination: "/diagrams/map.html", wantChecked: true},
+		{name: "published page", destination: "/guide", wantChecked: true, wantErr: true},
+		{name: "missing published asset", destination: "/diagrams/gone.html", wantChecked: true, wantErr: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

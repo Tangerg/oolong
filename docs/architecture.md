@@ -23,6 +23,17 @@ The words **must**, **should**, and **may** are deliberate. A must is an invaria
 should is the default and needs a concrete reason to be violated. A may is an option,
 not a roadmap commitment.
 
+## 0. The map
+
+[Open the layered architecture diagram](/diagrams/oolong-architecture.html) — every
+public module, the packages `core` is built from, and the seam each boundary is drawn
+at. It is generated from
+[a specification](https://github.com/Tangerg/oolong/blob/main/docs/diagrams/oolong.architecture.json)
+that cites the file behind each component, so a node that stops matching its source is
+a diagram anyone can correct rather than a picture nobody trusts.
+
+Read it for the shape. The sections below say why the shape is that one.
+
 ## 1. Decision
 
 Oolong is a streaming-first terminal UI substrate for Go.

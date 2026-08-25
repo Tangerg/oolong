@@ -15,6 +15,12 @@ outline: deep
 
 **必须**、**应当**、**可以** 三个词是刻意区分的。必须是不变式。应当是默认做法，违反它需要具体理由。可以是一个选项，不是路线图上的承诺。
 
+## 0. 全景图
+
+[打开分层架构图](/diagrams/oolong-architecture.html)——每一个公开模块、`core` 由哪些包构成，以及每条边界画在哪道缝上。它由[一份规格](https://github.com/Tangerg/oolong/blob/main/docs/diagrams/oolong.architecture.json)生成，规格为每个组件标注了它背后的源文件，所以一个与源码脱节的节点是任何人都能纠正的错误，而不是一张没人敢信的图。
+
+看图是为了拿到形状。下面的章节讲的是为什么是这个形状。
+
 ## 1. 决定
 
 Oolong 是一个面向 Go 的、流式优先的终端界面底座。

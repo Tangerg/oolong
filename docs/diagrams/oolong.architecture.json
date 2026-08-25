@@ -1,0 +1,427 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "oolong — a terminal interface library built in layers",
+    "output": "oolong-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1140,
+      430
+    ],
+    "repository": {
+      "url": "https://github.com/Tangerg/oolong",
+      "revision": "dfd86f9026fc7d798e6c155932c228150ddf2c23"
+    },
+    "views": [
+      {
+        "id": "main-path",
+        "label": "One frame's path",
+        "focus": [
+          "terminal",
+          "term",
+          "program",
+          "headless",
+          "kit"
+        ],
+        "note": "core/term hands the terminal to the runtime, the runtime drives a component tree, and appearance only decides how it looks."
+      },
+      {
+        "id": "host-seam",
+        "label": "The Host seam",
+        "focus": [
+          "term",
+          "ssh",
+          "program",
+          "terminal"
+        ],
+        "note": "program.Host is the runtime's only transport boundary. A local terminal and an SSH session are two implementations of it."
+      },
+      {
+        "id": "core-dag",
+        "label": "core's one-way dependencies",
+        "focus": [
+          "layout",
+          "grid",
+          "text",
+          "input",
+          "term",
+          "program"
+        ],
+        "note": "core has no cycles. layout imports nothing internal; each layer above it knows more, never less."
+      },
+      {
+        "id": "split",
+        "label": "Behaviour and appearance",
+        "focus": [
+          "headless",
+          "kit",
+          "content"
+        ],
+        "note": "headless never imports kit, which is what keeps the door open to drop the whole appearance layer and keep every behaviour."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "ssh",
+      "type": "cloud",
+      "label": "ssh",
+      "sublabel": "remote session host",
+      "tag": "module",
+      "pos": [
+        40,
+        50
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "ssh/ssh.go",
+          "label": "SSH server"
+        }
+      ]
+    },
+    {
+      "id": "terminal",
+      "type": "external",
+      "label": "Terminal",
+      "sublabel": "TERM · PTY · escape stream",
+      "tag": "outside the library",
+      "pos": [
+        40,
+        180
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "ptytest",
+      "type": "cloud",
+      "label": "ptytest",
+      "sublabel": "spawns a real pty",
+      "tag": "nothing imports it",
+      "pos": [
+        40,
+        310
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "ptytest/ptytest.go",
+          "label": "PTY test host"
+        }
+      ]
+    },
+    {
+      "id": "kit",
+      "type": "frontend",
+      "label": "components/kit",
+      "sublabel": "theme, glyphs, widgets",
+      "tag": "replaceable whole",
+      "pos": [
+        940,
+        50
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "components/kit/kit.go",
+          "label": "appearance layer"
+        }
+      ]
+    },
+    {
+      "id": "headless",
+      "type": "backend",
+      "label": "components/headless",
+      "sublabel": "behaviour without appearance",
+      "tag": "40+ controllers",
+      "pos": [
+        640,
+        50
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "components/headless/frame.go",
+          "label": "Root and frame transaction"
+        }
+      ]
+    },
+    {
+      "id": "term",
+      "type": "backend",
+      "label": "core/term",
+      "sublabel": "ownership and capability probe",
+      "pos": [
+        340,
+        180
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "core/term/term.go",
+          "label": "local terminal"
+        }
+      ]
+    },
+    {
+      "id": "program",
+      "type": "backend",
+      "label": "core/program",
+      "sublabel": "one goroutine, one frame schedule",
+      "tag": "runtime",
+      "pos": [
+        340,
+        50
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "core/program/program.go",
+          "label": "Run and Host"
+        }
+      ]
+    },
+    {
+      "id": "grid",
+      "type": "backend",
+      "label": "core/grid",
+      "sublabel": "cells, display atoms, diffing",
+      "tag": "the heart",
+      "pos": [
+        640,
+        180
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "core/grid/surface.go",
+          "label": "Surface and View"
+        }
+      ]
+    },
+    {
+      "id": "input",
+      "type": "backend",
+      "label": "core/input",
+      "sublabel": "keys, mouse, Kitty protocol",
+      "pos": [
+        340,
+        310
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "core/input/parser.go",
+          "label": "escape decoding"
+        }
+      ]
+    },
+    {
+      "id": "layout",
+      "type": "backend",
+      "label": "core/layout",
+      "sublabel": "one-dimensional allocator",
+      "tag": "no internal deps",
+      "pos": [
+        640,
+        310
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "core/layout/layout.go",
+          "label": "Flow and Sizing"
+        }
+      ]
+    },
+    {
+      "id": "text",
+      "type": "backend",
+      "label": "core/text",
+      "sublabel": "styled lines and wrapping",
+      "pos": [
+        940,
+        180
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "core/text/text.go",
+          "label": "Line and Row"
+        }
+      ]
+    },
+    {
+      "id": "content",
+      "type": "backend",
+      "label": "content modules",
+      "sublabel": "markdown · highlight · latex",
+      "tag": "peer modules",
+      "pos": [
+        940,
+        310
+      ],
+      "size": [
+        160,
+        68
+      ],
+      "sources": [
+        {
+          "path": "markdown/markdown.go",
+          "label": "Markdown rendering"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "components — two layers",
+      "wraps": [
+        "headless",
+        "kit"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "terminal-to-term",
+      "from": "terminal",
+      "to": "term",
+      "label": "owns and returns",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ptytest-spawns-pty",
+      "from": "ptytest",
+      "to": "terminal",
+      "label": "drives a real pty",
+      "variant": "dashed"
+    },
+    {
+      "id": "term-hosts-program",
+      "from": "term",
+      "to": "program",
+      "label": "Host: events in, frames out",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ssh-hosts-program",
+      "from": "ssh",
+      "to": "program",
+      "label": "same Host interface",
+      "variant": "dashed"
+    },
+    {
+      "id": "program-runs-root",
+      "from": "program",
+      "to": "headless",
+      "label": "structural, no import",
+      "variant": "dashed"
+    },
+    {
+      "id": "kit-composes-headless",
+      "from": "kit",
+      "to": "headless",
+      "label": "composes, not mirrors",
+      "variant": "emphasis"
+    },
+    {
+      "id": "headless-draws-grid",
+      "from": "headless",
+      "to": "grid",
+      "label": "draws into a clipped View",
+      "labelDy": 44
+    },
+    {
+      "id": "term-parses-input",
+      "from": "term",
+      "to": "input",
+      "label": "decodes keys and mouse",
+      "labelDy": 44
+    },
+    {
+      "id": "text-on-grid",
+      "from": "text",
+      "to": "grid"
+    },
+    {
+      "id": "grid-uses-layout",
+      "from": "grid",
+      "to": "layout",
+      "label": "rectangles",
+      "labelDy": 44
+    },
+    {
+      "id": "content-to-text",
+      "from": "content",
+      "to": "text",
+      "label": "produces text.Line",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The layering is checkable",
+      "items": [
+        "core's internal dependency graph is acyclic and four deep; layout, ansi and diff import nothing internal",
+        "core has four direct external dependencies: uniseg, go-runewidth, x/sys, x/term",
+        "internal/arch fails CI when a boundary is crossed, so the rules are not advice in a document"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Behaviour really is separable",
+      "items": [
+        "headless owns state, input and semantics, and decides how nothing looks",
+        "kit answers what headless refuses: which characters draw a border, which grey is muted text",
+        "headless never imports kit, so dropping the appearance layer and keeping the behaviour stays possible"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "One concurrency rule",
+      "items": [
+        "one goroutine draws and handles input; state reached only from it needs no lock",
+        "work that happens elsewhere returns through Runtime.Dispatcher and runs there",
+        "the program parks when there is nothing to do — no clock runs regardless"
+      ]
+    }
+  ]
+}
