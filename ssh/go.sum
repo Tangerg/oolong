@@ -1,7 +1,7 @@
 charm.land/ssh v0.4.3 h1:hr5cYmlUYsP+KxyG/ug7ZMzKKN9f6VOD9yPpcGqdzzM=
 charm.land/ssh v0.4.3/go.mod h1:so/3IECPNlYZSnE7JKn7NFmcUyyxJqIAeM4TJy35qPk=
-github.com/Tangerg/oolong/core v0.15.0 h1:NdG8e6FOniroWKbw6y8Q9twhqwSMGHEPKwGtFGSOe7A=
-github.com/Tangerg/oolong/core v0.15.0/go.mod h1:6uqwbr0GETMhMq+ECVDBxF/86Hvb83JRBGlvZVb674I=
+github.com/Tangerg/oolong/core v0.16.0 h1:vPhRyASMC4wG0fdQhHtdeEiiWEmPaiXk6MIwtD5huy0=
+github.com/Tangerg/oolong/core v0.16.0/go.mod h1:6uqwbr0GETMhMq+ECVDBxF/86Hvb83JRBGlvZVb674I=
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFIImctFaOjnTIavg87rW78vTPkQqLI8=
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be/go.mod h1:ySMOLuWl6zY27l47sB3qLNK6tF2fkHG55UZxx8oIVo4=
 github.com/charmbracelet/x/conpty v0.2.0 h1:eKtA2hm34qNfgJCDp/M6Dc0gLy7e07YEK4qAdNGOvVY=

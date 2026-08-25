@@ -2,8 +2,8 @@ codeberg.org/go-fonts/dejavu v0.4.0 h1:2yn58Vkh4CFK3ipacWUAIE3XVBGNa0y1bc95Bmfx9
 codeberg.org/go-fonts/dejavu v0.4.0/go.mod h1:abni088lmhQJvso2Lsb7azCKzwkfcnttl6tL1UTWKzg=
 codeberg.org/go-latex/latex v0.3.0 h1:LKTaDHFbEC2PH1sh0sYv6PZ1pzs/g2aoeV1HItWj/bg=
 codeberg.org/go-latex/latex v0.3.0/go.mod h1:8ETijTpK2bFtwRAXLXe1RZJrYxnc5pibibZfQBj+Lk4=
-github.com/Tangerg/oolong/core v0.15.0 h1:NdG8e6FOniroWKbw6y8Q9twhqwSMGHEPKwGtFGSOe7A=
-github.com/Tangerg/oolong/core v0.15.0/go.mod h1:6uqwbr0GETMhMq+ECVDBxF/86Hvb83JRBGlvZVb674I=
+github.com/Tangerg/oolong/core v0.16.0 h1:vPhRyASMC4wG0fdQhHtdeEiiWEmPaiXk6MIwtD5huy0=
+github.com/Tangerg/oolong/core v0.16.0/go.mod h1:6uqwbr0GETMhMq+ECVDBxF/86Hvb83JRBGlvZVb674I=
 github.com/clipperhouse/uax29/v2 v2.2.0 h1:ChwIKnQN3kcZteTXMgb1wztSgaU+ZemkgWdohwgs8tY=
 github.com/clipperhouse/uax29/v2 v2.2.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/mattn/go-runewidth v0.0.27 h1:Feg/Oou5zI/wnpgDF6omIU0OokC9GxLC/WRknhVlIR0=
