@@ -18,6 +18,119 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-25
+
+A rule that cannot fail is not a rule, and a check that cannot report failure is not
+a check. The last release made every boundary say what it owns; this one goes back
+over those claims and gives each of them a way to come out false.
+
+Terminal geometry led. A grapheme is not one or two columns: a halfwidth katakana
+sound mark is a Unicode extender that terminals still give a column of its own, so
+segmentation and geometry disagree and a head/trail pair stops being a sufficient
+storage model. Grid storage now holds an arbitrary-width display atom with one
+locator, and appearance belongs to the head column the painter actually emits — which
+is what makes adjacent regions partition even a non-idempotent blend exactly once,
+stated as a law a fuzz target checks directly rather than as an intention. Encoding
+applies the same indivisibility to a caller's slice instead of printing past its end,
+because the rule the drawing code already followed was that part of a glyph is worse
+than a gap.
+
+Repository policy got the same treatment. The migration ledger decided whether a
+release could proceed and had never been shown to refuse anything; it is now a tested
+program that can be made to fail on demand. Public module membership had four
+hand-maintained copies claiming in their own comments to be one, and is now derived
+once from whether a module exposes an externally importable package. Derivation can
+fail where a list could not, so it fails closed: every source set must be readable, an
+empty answer is invalid, and results publish only after the complete pass succeeds.
+
+Where evidence runs out, the documentation now says so. `ptytest.Screen` shares the
+one width estimator and independently models the terminal's storage state machine; it
+is not a second width oracle. `grid.ClusterWidth` states that it is a deterministic
+estimate and names the boundary where no general rule is safe for both spacing scripts
+and emoji ligatures. Truncation says what it returns and not only how wide it is.
+
+Breaking. `grid.Cell.Content` is now a read-only method: content and its private
+display span are one invariant, and `grid.View` is the only way to construct a legal
+atom. Go 1.27 remains the floor for every module.
+
+### Added
+
+- `examples/state` places local text, exact `headless.Bind`, a normalizing
+  `headless.Accessor`, and a rejecting accessor beside one another. The executable
+  comparison demonstrates four ownership outcomes through one field API rather than
+  introducing controlled-widget variants.
+
+### Changed
+
+- Grid storage now represents an arbitrary-width display atom instead of assuming a
+  grapheme occupies at most two terminal columns. Halfwidth katakana sound marks,
+  including a spacing mark attached to a wide base, now measure, clip, overwrite,
+  diff, scroll, and encode through one geometry. `ptytest.Screen` shares that width
+  estimator and independently models how the terminal applies the resulting atom to
+  storage. `grid.Cell.Width` can consequently report widths
+  greater than two. `grid.ClusterWidth` now states that this is a deterministic
+  terminal-width estimate and pins the known spacing-mark boundary where no general
+  rule is safe for both spacing scripts and emoji ligatures. Clipping no longer
+  shortens the complete advance returned by `grid.View.Text`. A view now treats each
+  display atom as one appearance fact as well as one content fact. Appearance belongs
+  to the head column that the painter emits: `MergeStyle`, `Blend`, `Fade`, and `Link`
+  affect the complete atom only when their range contains its head, so adjacent
+  regions partition even non-idempotent blends exactly once. Content replacement
+  remains intersection-based: it clears the complete intersected old atom and
+  preserves styles outside the clip. `grid.View.MergeStyle` consequently reports
+  false when its coordinate names only a continuation column. `grid.EncodeRow`
+  now applies the same indivisibility rule to caller-provided cell slices: a slice
+  ending inside an atom emits styled blanks for its visible columns instead of
+  printing content beyond the slice and desynchronizing terminal advance.
+- `grid.View.Paint` now treats identity zero as the documented absence of a stable
+  identity, repainting the region on every frame instead of accidentally considering
+  two zero-identity frames equal.
+- Plain and styled text truncation now share the styled-line implementation and the
+  same tab-aware column advance. A tab in source text or in the ellipsis can no longer
+  make a result wider than the requested limit. When a cut occurs, a retained source
+  tab is returned as the spaces it occupied; an uncut value remains byte-for-byte
+  unchanged.
+
+### Breaking API migration
+
+#### core
+
+- `grid.Cell.Content` is now the read-only method `grid.Cell.Content()`. Cell content
+  and its private display span form one invariant and can only be created by drawing
+  through `grid.View`; callers may still change `Style` and `Link` on row copies
+  before passing them to `grid.EncodeRow`.
+
+### Tooling
+
+- The breaking-API migration ledger is now the tested Go command
+  `internal/cmd/apiledger`. It consumes the canonical public set from
+  `scripts/modules.sh`, reports a public module that has no released baseline,
+  compares the latest immutable tag on Linux, macOS, and Windows, and owns
+  release-section and module-ledger parsing. The old Shell implementation was
+  removed. CI tag validation, dispatch input, and the language-floor job consume the
+  same inventory instead of maintaining parallel module lists; `internal/arch`
+  proves that the complete inventory covers every declared workspace module and that
+  the public subset equals the modules exposing externally importable production
+  packages. No module-name exclusion list remains. Inventory inference now fails
+  closed: every supported source set must be readable, an empty answer is invalid,
+  results are published only after the complete pass succeeds, and consumers capture
+  that result before iterating it. Command diagnostics remain on standard error and
+  can no longer be parsed as module names. Physical repository paths keep copied or
+  symlinked checkouts attached to the `go.work` they actually contain.
+- CI and the release gate now vet and build every module for `wasip1/wasm` and
+  `js/wasm`. This proves target source and dependencies remain buildable; it is not
+  a claim that the runtime is I/O-free or that the repository supplies a WebAssembly
+  terminal adapter.
+- The pinned documentation toolchain now runs CSpell over human-written Markdown and
+  NOTICE prose before linting and building the site.
+
+### Documentation
+
+- The Ratatui source audit records which repository-policy, portability, terminal
+  geometry, and concept-example ideas were adopted, and why independent module
+  versions, a speculative experiment namespace, coverage targets, and a forced-width
+  cell escape hatch were declined.
+
 ## [0.13.0] — 2026-08-24
 
 A boundary is only real if it says what it owns. This release walks every one in the
