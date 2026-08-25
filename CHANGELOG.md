@@ -18,6 +18,72 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-08-25
+
+Half of something is not a smaller something. This release walks the places where the
+framework was still handing out partial values and makes each of them travel whole.
+
+A number is the clearest case. A percentage clipped to the room available reads as a
+different, valid percentage: seven thousand becomes seven hundred and nothing on
+screen says otherwise. A truncated label announces itself with an ellipsis; a
+truncated number does not. Progress, Slider and BarChart now treat their value column
+as atomic — when the complete value cannot fit, the column yields to the visual track
+instead — and because that rule lives in the one geometry all three already shared,
+no caller can obtain a partial value column at all.
+
+A ranked source is the same shape of fact. The values and the projection that says how
+they read were two setters, which left a reachable state in which new items were
+ranked by an old projection, or the reverse. They travel together now, and replacing a
+source returns the selection to its first match rather than keeping an index that
+points at a different item.
+
+Charts arrive, and deliberately as passive blocks. Sparkline and BarChart own no
+selection, clock or history; the application keeps its sampling policy and its labels.
+They are not a second widget family: one scale owns NaN, infinity, constant-series and
+clamp policy for every shape rather than each drawing loop repeating it, a
+caller-fixed domain falls back to the derived one by the same rule BarChart already
+used for its maximum, and Progress lends the cell-precise bar it already had. There
+are no axes, no canvas and no constraint solver, because a dashboard comparison does
+not need one.
+
+The last change needed saying rather than building. Dividing a region is one operation
+with two axes, and nothing said so where a reader arrives; the package comment now
+spells both spellings out, which is cheaper than a second entry point for the same
+allocator.
+
+Breaking. `headless.Filter.SetItems` takes the matching-text projection alongside the
+values it belongs to, and `SetText` is gone. Go 1.27 remains the floor for every
+module.
+
+### Added
+
+- `kit.Sparkline` and `kit.BarChart` add passive, themeable dashboard charts without
+  inventing a second widget tree or headless state owner. Sparkline shows the newest
+  visible finite samples with an automatic or caller-fixed domain; BarChart compares
+  labelled non-negative categories. Both reuse the kit glyph and theme vocabulary,
+  while BarChart and `kit.Progress` share one cell-precise bar renderer. An empty
+  Sparkline still measures one row, so its first sample cannot move surrounding
+  content.
+
+### Changed
+
+- `headless.Filter.SetItems` now replaces values and their matching-text projection
+  atomically. Ranked rows can no longer pass through an intermediate state in which
+  new items are interpreted by an old projection or vice versa, and a new source
+  consistently returns selection to its first match.
+- Progress, Slider, and BarChart now treat their right-aligned value as an atomic
+  field. When the complete value cannot fit, its column yields to the visual track
+  instead of silently clipping into a different, plausible number.
+
+### Breaking API migration
+
+#### components
+
+- `headless.(*Filter[T]).SetItems` now accepts `items` and the matching-text function
+  together. Pass both facts in the same call.
+- `headless.(*Filter[T]).SetText` was removed. Replace the source through
+  `filter.SetItems(items, text)`; there is no independent text-projection state.
+
 ## [0.14.0] — 2026-08-25
 
 A rule that cannot fail is not a rule, and a check that cannot report failure is not
