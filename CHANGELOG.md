@@ -38,6 +38,11 @@ point of tagging them low rather than not at all.
   Nothing a terminal sends, a user types, a file holds or a network returns may reach
   a panic; and a comment inside a function body earns its place by saying why a line
   is the way it is, because the line already says what it does.
+- `core/grid`, `core/input` and `core/program` gained runnable examples, which
+  `pkg.go.dev` shows beside the API and `go test` keeps true. They cover the questions
+  a reader arrives with: how to get text out of the grid without a terminal, how a
+  clipped view addresses itself, how to match a keystroke, and where work done on
+  another goroutine comes back.
 
 ## [0.15.0] — 2026-08-25
 
