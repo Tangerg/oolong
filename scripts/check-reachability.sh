@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$root"
 
 command -v deadcode >/dev/null || {
@@ -40,8 +40,9 @@ if [[ "$probe" != 'owner.go:3: unreachable func: owner.release' ]]; then
 fi
 
 failed=false
+modules=$(scripts/modules.sh)
 for goos in linux darwin windows; do
-	for module in $(scripts/modules.sh); do
+	for module in $modules; do
 		findings=$(cd "$module" && GOOS="$goos" CGO_ENABLED=0 deadcode -test ./... | actionable_findings)
 		if [[ -n "$findings" ]]; then
 			printf '%s (%s):\n%s\n' "$module" "$goos" "$findings" >&2

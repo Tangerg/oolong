@@ -7,9 +7,11 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "docs:lint": "markdownlint-cli2",
-    "docs:check": "npm audit --audit-level=moderate && npm run docs:lint && npm run docs:build"
+    "spell": "cspell --no-progress --no-summary",
+    "docs:check": "npm audit --audit-level=moderate && npm run spell && npm run docs:lint && npm run docs:build"
   },
   "devDependencies": {
+    "cspell": "10.1.0",
     "markdownlint-cli2": "0.23.2",
     "vitepress": "2.0.0-alpha.19"
   }

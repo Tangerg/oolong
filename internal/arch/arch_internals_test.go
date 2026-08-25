@@ -26,12 +26,18 @@
 package arch
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -416,6 +422,339 @@ func TestEveryModuleIsDeclaredAndEveryDeclaredModuleExists(t *testing.T) {
 			t.Errorf("the table declares a module in %s and there is no go.mod there", dir)
 		}
 	}
+}
+
+// TestModuleScriptCoversEveryDeclaredModule closes the executable-policy chain:
+// go.mod files are checked against modules above, while every CI and release loop
+// consumes this script rather than that Go test table.
+func TestModuleScriptCoversEveryDeclaredModule(t *testing.T) {
+	root := repoRoot(t)
+	all := moduleScript(t, root)
+	workspace := workspaceModules(t, root)
+	if !slices.Equal(all, workspace) {
+		t.Fatalf("scripts/modules.sh = %q, want every go.work use %q", all, workspace)
+	}
+	want := make([]string, 0, len(modules))
+	for module := range modules {
+		want = append(want, module)
+	}
+	slices.Sort(want)
+	if !slices.Equal(all, want) {
+		t.Fatalf("scripts/modules.sh = %q, want every declared module %q", all, want)
+	}
+
+	public := moduleScript(t, root, "--public")
+	if len(public) != len(slices.Compact(slices.Clone(public))) {
+		t.Fatalf("scripts/modules.sh --public contains duplicates: %q", public)
+	}
+	wantPublic := externallyImportableModules(t, root, want)
+	if !slices.Equal(public, wantPublic) {
+		t.Fatalf("scripts/modules.sh --public = %q, want modules with an externally importable production package %q", public, wantPublic)
+	}
+}
+
+type workFile struct {
+	Use []struct {
+		DiskPath string
+	}
+}
+
+func workspaceModules(t *testing.T, root string) []string {
+	t.Helper()
+	// The command and go.work path are fixed repository policy, not input.
+	//nolint:gosec // Go's own parser is the independent authority for workspace membership.
+	command := exec.CommandContext(t.Context(), "go", "work", "edit", "-json", filepath.Join(root, "go.work"))
+	out, commandErr := command.Output()
+	if commandErr != nil {
+		var detail string
+		if exit, ok := errors.AsType[*exec.ExitError](commandErr); ok {
+			detail = strings.TrimSpace(string(exit.Stderr))
+		}
+		t.Fatalf("read go.work membership: %v: %s", commandErr, detail)
+	}
+	var work workFile
+	if decodeErr := json.Unmarshal(out, &work); decodeErr != nil {
+		t.Fatalf("decode go.work membership: %v", decodeErr)
+	}
+	if len(work.Use) == 0 {
+		t.Fatal("go.work declares no modules")
+	}
+
+	physicalRoot, rootErr := filepath.EvalSymlinks(root)
+	if rootErr != nil {
+		t.Fatalf("resolve physical repository root: %v", rootErr)
+	}
+	found := make([]string, 0, len(work.Use))
+	for _, use := range work.Use {
+		diskPath := filepath.FromSlash(use.DiskPath)
+		if !filepath.IsAbs(diskPath) {
+			diskPath = filepath.Join(root, diskPath)
+		}
+		absolute, pathErr := filepath.Abs(diskPath)
+		if pathErr != nil {
+			t.Fatalf("resolve go.work use %q: %v", use.DiskPath, pathErr)
+		}
+		physical, linkErr := filepath.EvalSymlinks(absolute)
+		if linkErr != nil {
+			t.Fatalf("resolve physical go.work use %q: %v", use.DiskPath, linkErr)
+		}
+		relative, relativeErr := filepath.Rel(physicalRoot, physical)
+		if relativeErr != nil {
+			t.Fatalf("relativize go.work use %q: %v", use.DiskPath, relativeErr)
+		}
+		relative = filepath.ToSlash(relative)
+		if relative == ".." || strings.HasPrefix(relative, "../") {
+			t.Fatalf("go.work use %q is outside the repository", use.DiskPath)
+		}
+		found = append(found, relative)
+	}
+	slices.Sort(found)
+	unique := slices.Compact(found)
+	if len(unique) != len(found) {
+		t.Fatal("go.work declares a module more than once")
+	}
+	return unique
+}
+
+func TestModuleScriptFailsClosedWhenPackageFactsAreUnavailable(t *testing.T) {
+	root := repoRoot(t)
+	name := filepath.Join(root, "scripts", "modules.sh")
+	// The executable and argument are fixed repository policy, not input.
+	//nolint:gosec // Running the module inventory is the contract under test.
+	command := exec.CommandContext(t.Context(), "sh", name, "--public")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GOFLAGS=-mod=bogus")
+	out, err := command.Output()
+	if err == nil {
+		t.Fatal("scripts/modules.sh --public accepted unavailable package facts")
+	}
+	if len(out) != 0 {
+		t.Fatalf("failed module inventory published partial data %q", out)
+	}
+	exit, ok := errors.AsType[*exec.ExitError](err)
+	if !ok {
+		t.Fatalf("failed module inventory error = %T %v, want an exit status", err, err)
+	}
+	if !strings.Contains(string(exit.Stderr), "modules.sh: cannot inspect") {
+		t.Fatalf("failed module inventory diagnostic = %q", exit.Stderr)
+	}
+}
+
+func TestModuleScriptResolvesItsPhysicalRepository(t *testing.T) {
+	root := repoRoot(t)
+	link := filepath.Join(t.TempDir(), "repository")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("cannot create repository symlink: %v", err)
+	}
+	got := moduleScript(t, link, "--public")
+	want := moduleScript(t, root, "--public")
+	if !slices.Equal(got, want) {
+		t.Fatalf("module inventory through symlink = %q, want %q", got, want)
+	}
+}
+
+func TestModuleInventoryConsumersSeparateAcquisitionFromIteration(t *testing.T) {
+	root := repoRoot(t)
+	paths := []string{
+		filepath.Join(root, "CONTRIBUTING.md"),
+		filepath.Join(root, ".github", "workflows", "ci.yml"),
+	}
+	err := filepath.WalkDir(filepath.Join(root, "scripts"), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invocation := regexp.MustCompile(`(?:\$|[<>])\([^\n)]*modules\.sh`)
+	assignment := regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*=\$\(`)
+	for _, path := range paths {
+		body, err := readRepositoryFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(body)
+		for number, line := range strings.Split(text, "\n") {
+			if invocation.MatchString(line) && !assignment.MatchString(line) {
+				t.Errorf("%s:%d consumes the module inventory inline; acquire it in a checked assignment before interpreting its data", filepath.ToSlash(path), number+1)
+			}
+		}
+		if filepath.Base(path) == "ci.yml" {
+			assertInventoryAcquisitionsFailFast(t, path, text, "run: |", "set -euo pipefail", "outside a fail-fast run block")
+		}
+		if filepath.Base(path) == "CONTRIBUTING.md" {
+			assertInventoryAcquisitionsFailFast(t, path, text, "```sh", "set -e", "without fail-fast shell semantics")
+		}
+	}
+}
+
+func assertInventoryAcquisitionsFailFast(t *testing.T, path, text, boundary, guard, problem string) {
+	t.Helper()
+	const marker = "=$(scripts/modules.sh"
+	for offset := 0; ; {
+		at := strings.Index(text[offset:], marker)
+		if at < 0 {
+			return
+		}
+		at += offset
+		block := strings.LastIndex(text[:at], boundary)
+		if block < 0 || !strings.Contains(text[block:at], guard) {
+			t.Errorf("%s acquires the module inventory %s", filepath.ToSlash(path), problem)
+		}
+		offset = at + len(marker)
+	}
+}
+
+func TestRepositoryScriptsAcquireCommandOutputBeforeInterpretingIt(t *testing.T) {
+	root := repoRoot(t)
+	assignment := regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*=["']?$`)
+	err := filepath.WalkDir(filepath.Join(root, "scripts"), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		body, err := readRepositoryFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(body)
+		if !strings.Contains(text, "\nset -e") {
+			t.Errorf("%s does not make command failure fatal", filepath.ToSlash(path))
+		}
+		for number, line := range strings.Split(text, "\n") {
+			if at := processSubstitution(line); at >= 0 {
+				t.Errorf("%s:%d uses process substitution; acquire command output in a checked assignment so producer failure cannot be detached", filepath.ToSlash(path), number+1)
+				continue
+			}
+			at := commandSubstitution(line)
+			if at >= 0 && !assignment.MatchString(strings.TrimSpace(line[:at])) {
+				t.Errorf("%s:%d interprets command output before proving the command succeeded", filepath.ToSlash(path), number+1)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func processSubstitution(line string) int {
+	input := strings.Index(line, "<(")
+	output := strings.Index(line, ">(")
+	switch {
+	case input < 0:
+		return output
+	case output < 0:
+		return input
+	default:
+		return min(input, output)
+	}
+}
+
+func commandSubstitution(line string) int {
+	for offset := 0; offset < len(line); {
+		at := strings.Index(line[offset:], "$(")
+		if at < 0 {
+			return -1
+		}
+		at += offset
+		if at+2 == len(line) || line[at+2] != '(' {
+			return at
+		}
+		offset = at + 3
+	}
+	return -1
+}
+
+type listedPackage struct {
+	ImportPath string
+	Name       string
+	GoFiles    []string
+	CgoFiles   []string
+}
+
+func externallyImportableModules(t *testing.T, root string, modules []string) []string {
+	t.Helper()
+	var found []string
+	for _, module := range modules {
+		if moduleHasExternallyImportablePackage(t, root, module) {
+			found = append(found, module)
+		}
+	}
+	return found
+}
+
+func moduleHasExternallyImportablePackage(t *testing.T, root, module string) bool {
+	t.Helper()
+	found := false
+	for _, goos := range [...]string{"linux", "darwin", "windows"} {
+		command := exec.CommandContext(t.Context(), "go", "list", "-json", "./...")
+		command.Dir = filepath.Join(root, filepath.FromSlash(module))
+		command.Env = append(os.Environ(),
+			"GOWORK="+filepath.Join(root, "go.work"),
+			"GOOS="+goos,
+			"GOARCH=amd64",
+			"CGO_ENABLED=0",
+		)
+		out, err := command.Output()
+		if err != nil {
+			var detail string
+			if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+				detail = strings.TrimSpace(string(exit.Stderr))
+			}
+			t.Fatalf("go list %s for %s: %v: %s", goos, module, err, detail)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(out))
+		for {
+			var pkg listedPackage
+			if err := decoder.Decode(&pkg); err != nil {
+				if err == io.EOF {
+					break
+				}
+				t.Fatalf("decode go list %s for %s: %v", goos, module, err)
+			}
+			if pkg.Name != "main" && len(pkg.GoFiles)+len(pkg.CgoFiles) > 0 && !internalImportPath(pkg.ImportPath) {
+				found = true
+			}
+		}
+	}
+	return found
+}
+
+func internalImportPath(importPath string) bool {
+	return strings.Contains("/"+importPath+"/", "/internal/")
+}
+
+func moduleScript(t *testing.T, root string, args ...string) []string {
+	t.Helper()
+	name := filepath.Join(root, "scripts", "modules.sh")
+	arguments := append([]string{name}, args...)
+	// The executable and every argument are fixed repository policy, not input.
+	//nolint:gosec // Running the module inventory is the contract under test.
+	command := exec.CommandContext(t.Context(), "sh", arguments...)
+	command.Dir = root
+	out, err := command.Output()
+	if err != nil {
+		var detail string
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+			detail = strings.TrimSpace(string(exit.Stderr))
+		}
+		t.Fatalf("sh %s: %v: %s", strings.Join(arguments, " "), err, detail)
+	}
+	modules := strings.Fields(string(out))
+	if len(modules) == 0 {
+		t.Fatalf("sh %s returned no modules", strings.Join(arguments, " "))
+	}
+	slices.Sort(modules)
+	return modules
 }
 
 // TestEveryModuleSharesTheWorkspaceLanguageFloor makes the coordinated release

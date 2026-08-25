@@ -18,7 +18,7 @@ exported API, read the module and ring boundaries in the
   `v0.0.0-20260820142414-ca536658362e`. The gofumpt pseudo-version is the first
   upstream revision that understands Go 1.27 methods with type parameters; keep it
   exact until that support has a tagged release.
-- Node.js 22 or newer when changing Markdown or preparing a release. The exact
+- Node.js 22.18 or newer when changing Markdown or preparing a release. The exact
   documentation toolchain is in `package-lock.json`. Its VitePress preview pin is
   deliberate: the current stable line still resolves to dependencies with
   published advisories, while this lock audits clean. Re-evaluate the pin rather
@@ -26,28 +26,37 @@ exported API, read the module and ring boundaries in the
 - Tests written with the standard `testing` package.
 
 This is a workspace of several modules. `go.work` is committed and a checkout
-does not build without it.
+does not build without it. `scripts/modules.sh` is the executable inventory for all
+workspace modules and its `--public` form is the only tooling source for tagged
+modules. Public membership is derived from externally importable production packages,
+not an exclusion list; `internal/arch` independently reads Go's package facts and
+rejects drift from either set.
 
 ## Development workflow
 
 While iterating:
 
 ```sh
+set -eu
 gofumpt -w .
 shfmt -w scripts
-for m in $(scripts/modules.sh); do (cd "$m" && go test ./...); done
+modules=$(scripts/modules.sh)
+for m in $modules; do (cd "$m" && go test ./...); done
 ```
 
 Before opening a pull request, the whole gate CI runs:
 
 ```sh
-test -z "$(gofumpt -l .)"
+set -eu
+unformatted=$(gofumpt -l .)
+test -z "$unformatted"
 shfmt -d scripts
-for m in $(scripts/modules.sh); do (cd "$m" && \
+modules=$(scripts/modules.sh)
+for m in $modules; do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...) || break; done
 scripts/check-reachability.sh
-scripts/check-api-changelog.sh
+go -C internal run ./cmd/apiledger -root ..
 go work sync && git diff --quiet -- go.work
 npm ci
 npm run docs:check
@@ -114,9 +123,10 @@ Repository usage is not an API-retention criterion. A library operation may exis
 solely for downstream callers or to satisfy a consumer-owned interface. A `deadcode`
 finding on an export asks for caller-side contract coverage; removal additionally
 requires an API review showing that the responsibility is misplaced, duplicated, or
-cannot be given a coherent contract. Every removal since the preceding published tag
-must also appear by its exact old name in the Unreleased migration ledger; the pinned
-`apidiff` gate enforces that evidence independently of reachability.
+cannot be given a coherent contract. Every incompatible API symbol since the preceding
+published tag must also appear in the Unreleased migration ledger, either exactly as
+`apidiff` reports it or qualified by a root module's ledger name; the pinned gate
+enforces that evidence independently of reachability.
 
 Adding a method to an exported interface is breaking. Raising the `go` directive
 raises every dependent's toolchain floor. Both are compatibility decisions rather

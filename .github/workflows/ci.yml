@@ -4,21 +4,17 @@ on:
   push:
     branches: [main]
     tags:
-      - "core/v*"
-      - "components/v*"
-      - "markdown/v*"
-      - "highlight/v*"
-      - "latex/v*"
-      - "ptytest/v*"
-      - "ssh/v*"
+      # The compatibility job validates the module against the canonical public
+      # list before doing any release work. The trigger therefore describes the
+      # tag grammar, not a second module inventory.
+      - "**/v*"
   pull_request:
   workflow_dispatch:
     inputs:
       module:
         description: Public module to validate before tagging
         required: true
-        type: choice
-        options: [core, components, markdown, highlight, latex, ptytest, ssh]
+        type: string
       version:
         description: Proposed canonical version, for example v1.2.3
         required: true
@@ -38,8 +34,8 @@ concurrency:
 
 # Every job runs over every module. `go test ./...` covers the module it is
 # standing in and no other, so a workspace has to be walked rather than trusted.
-# scripts/modules.sh derives membership from go.work; the release script consumes
-# the same list, so adding a module cannot update one gate and silently miss another.
+# scripts/modules.sh derives membership from go.work and owns the public subset;
+# release and compatibility checks consume those outputs rather than copying them.
 
 jobs:
   test:
@@ -73,13 +69,16 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          for m in $(scripts/modules.sh); do
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do
             (
               cd "$m"
               # A module holding a command builds into a scratch directory: the
               # binary would otherwise be written next to, and over, the directory
               # it was built from.
-              if go list -f '{{.Name}}' ./... | grep -qx main; then
+              package_names=$(go list -f '{{.Name}}' ./...)
+              if grep -qx main <<<"$package_names"; then
                 go build -o "$RUNNER_TEMP/build/" ./...
               else
                 go build ./...
@@ -89,14 +88,20 @@ jobs:
 
       - name: Vet
         shell: bash
-        run: for m in $(scripts/modules.sh); do (cd "$m" && go vet ./...) || exit 1; done
+        run: |
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do (cd "$m" && go vet ./...); done
 
       # The race detector is the point of running the tests at all: the whole
       # concurrency model is "one goroutine owns the state", and the only way
       # that stays true is if something checks.
       - name: Test
         shell: bash
-        run: for m in $(scripts/modules.sh); do (cd "$m" && go test -race -count=1 ./...) || exit 1; done
+        run: |
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do (cd "$m" && go test -race -count=1 ./...); done
 
   standalone:
     name: modules without workspace
@@ -120,7 +125,8 @@ jobs:
           set -euo pipefail
           standalone_root="$RUNNER_TEMP/oolong-standalone"
           cp -R . "$standalone_root"
-          for m in $(scripts/modules.sh); do
+          modules=$(scripts/modules.sh)
+          for m in $modules; do
             (
               cd "$standalone_root/$m"
               "$standalone_root/scripts/replace-local-modules.sh" "$standalone_root"
@@ -166,11 +172,13 @@ jobs:
             current_tag="$GITHUB_REF_NAME"
           fi
 
-          case " $(scripts/modules.sh --public | tr '\n' ' ') " in
+          public_modules=$(scripts/modules.sh --public)
+          case " ${public_modules//$'\n'/ } " in
             *" $module "*) ;;
             *) echo "unknown public module: $module" >&2; exit 2 ;;
           esac
 
+          tag_candidates=$(git tag --list "$module/v*" --sort=-v:refname)
           previous=""
           while IFS= read -r candidate; do
             if [[ "$candidate" == "$current_tag" ]]; then
@@ -178,7 +186,7 @@ jobs:
             fi
             previous="$candidate"
             break
-          done < <(git tag --list "$module/v*" --sort=-v:refname)
+          done <<<"$tag_candidates"
           base=none
           if [[ -n "$previous" ]]; then
             base="v${previous#*/v}"
@@ -201,11 +209,6 @@ jobs:
   floor:
     name: Go 1.27 module floor
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # Every module makes the same language promise. Test each without go.work so
-        # one module cannot borrow that promise from the repository root.
-        module: [core, components, examples, highlight, internal, latex, markdown, ptytest, ssh]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -213,19 +216,26 @@ jobs:
           go-version: "1.27.0"
           cache: false
       - name: Test declared floor on every supported source set
-        working-directory: ${{ matrix.module }}
         env:
           GOTOOLCHAIN: local
           GOWORK: "off"
         run: |
-          # A replacement does not add a requirement. Point every dependency the
-          # module already declares at this coordinated checkout; undeclared imports
-          # still fail, while unreleased cross-module changes can be tested together.
-          "$GITHUB_WORKSPACE/scripts/replace-local-modules.sh" "$GITHUB_WORKSPACE"
-          go test -count=1 ./...
-          for os in windows darwin; do
-            GOOS="$os" CGO_ENABLED=0 \
-              go test -run '^$' -exec /usr/bin/true ./...
+          set -euo pipefail
+          # Every module makes the same language promise. Test each without go.work
+          # so one cannot borrow that promise from the repository root. A replacement
+          # does not add a requirement: undeclared imports still fail while coordinated
+          # unreleased dependencies resolve to this checkout.
+          modules=$(scripts/modules.sh)
+          for module in $modules; do
+            (
+              cd "$module"
+              "$GITHUB_WORKSPACE/scripts/replace-local-modules.sh" "$GITHUB_WORKSPACE"
+              go test -count=1 ./...
+              for os in windows darwin; do
+                GOOS="$os" CGO_ENABLED=0 \
+                  go test -run '^$' -exec /usr/bin/true ./...
+              done
+            )
           done
 
   quality:
@@ -252,8 +262,10 @@ jobs:
       # invisible on a macOS run, which is how it reached main.
       - name: golangci-lint
         run: |
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
           for os in linux darwin windows; do
-            for m in $(scripts/modules.sh); do
+            for m in $modules; do
               (cd "$m" && GOOS=$os golangci-lint run ./...) || exit 1
             done
           done
@@ -270,11 +282,14 @@ jobs:
       # each incompatible change before review or release can proceed.
       - run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260820142414-ca536658362e
       - name: breaking APIs have migration entries
-        run: scripts/check-api-changelog.sh
+        run: go -C internal run ./cmd/apiledger -root ..
 
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
       - name: govulncheck
-        run: for m in $(scripts/modules.sh); do (cd "$m" && govulncheck ./...) || exit 1; done
+        run: |
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do (cd "$m" && govulncheck ./...); done
 
   # The committed seed corpus runs as part of `go test`, which only replays inputs
   # somebody already found; internal/arch also proves every corpus directory still
@@ -336,6 +351,7 @@ jobs:
       - run: go install mvdan.cc/gofumpt@v0.11.1-0.20260820074422-a2bc6805583d
       - name: gofumpt
         run: |
+          set -euo pipefail
           unformatted="$(gofumpt -l .)"
           if [ -n "$unformatted" ]; then
             echo "these files are not gofumpt'd:"
@@ -361,7 +377,8 @@ jobs:
           set -euo pipefail
           tidy_root="$RUNNER_TEMP/oolong-tidy"
           cp -R . "$tidy_root"
-          for m in $(scripts/modules.sh); do
+          modules=$(scripts/modules.sh)
+          for m in $modules; do
             (
               cd "$tidy_root/$m"
               "$tidy_root/scripts/replace-local-modules.sh" "$tidy_root"
@@ -400,6 +417,13 @@ jobs:
             goarch: arm64
           - goos: freebsd
             goarch: amd64
+          # These are source-portability contracts, not claims that Oolong owns
+          # a browser or WASI terminal adapter. Vet includes target-specific test
+          # sources; build proves every library package remains consumable there.
+          - goos: wasip1
+            goarch: wasm
+          - goos: js
+            goarch: wasm
     steps:
       - uses: actions/checkout@v7
 
@@ -417,20 +441,26 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: for m in $(scripts/modules.sh); do (cd "$m" && go vet ./...) || exit 1; done
+        run: |
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do (cd "$m" && go vet ./...); done
 
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          for m in $(scripts/modules.sh); do
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do
             (
               cd "$m"
               # A module holding a command builds into a scratch directory: the
               # binary would otherwise be written next to, and over, the directory
               # it was built from.
-              if go list -f '{{.Name}}' ./... | grep -qx main; then
+              package_names=$(go list -f '{{.Name}}' ./...)
+              if grep -qx main <<<"$package_names"; then
                 go build -o "$RUNNER_TEMP/cross/" ./...
               else
                 go build ./...
