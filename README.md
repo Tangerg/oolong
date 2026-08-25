@@ -98,7 +98,7 @@ memory bound and ordered owner-side delivery.
 Use `programtest` for application behavior and `ptytest` for terminal ownership:
 
 ```go
-host := programtest.New(t, 80, 24)
+host := programtest.New(t, programtest.Config{Width: 80, Height: 24})
 go program.Run(t.Context(), program.Config{Host: host, Root: build})
 host.Shows(t, "ready")
 host.Type("q")

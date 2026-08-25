@@ -6,9 +6,10 @@
 // that capability, so absence and partial support remain testable rather than being
 // hidden by an all-powerful fake.
 //
-// Frames are terminal escape streams, not a simulated screen. Repaint requests a full
-// frame before an assertion, which keeps this package small and keeps renderer tests
-// honest about the bytes a host actually receives.
+// Frames are terminal escape streams, not a simulated screen. Shows and Hides request
+// a full frame and inspect its appearance-free text runs: style and hyperlink changes
+// are transparent, while cursor movement and erasure remain boundaries. Tests that
+// need terminal cell state use package ptytest instead.
 package programtest
 
 import (
@@ -21,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/core/ansi"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/internal/fifo"
 	"github.com/Tangerg/oolong/core/program"
@@ -204,26 +206,85 @@ func (h *Host) Until(tb testing.TB, what string, cond func() bool) {
 	}
 }
 
-// Shows waits until a full repaint contains text.
+// Shows waits until one visible text run in a full repaint contains text.
+// Appearance changes do not split a run; terminal geometry operations do. This is a
+// content assertion rather than a raw escape-stream assertion — use Frame or Frames
+// when exact transport bytes are the subject of the test.
 func (h *Host) Shows(tb testing.TB, text string) {
 	tb.Helper()
 	h.Until(tb, "the interface to show "+text, func() bool {
 		if !h.Repaint() {
 			return false
 		}
-		return strings.Contains(h.Frame(), text)
+		return h.frameContains(tb, text)
 	})
 }
 
-// Hides waits until a full repaint does not contain text.
+// Hides waits until no visible text run in a full repaint contains text. It uses the
+// same appearance-free projection as [Host.Shows].
 func (h *Host) Hides(tb testing.TB, text string) {
 	tb.Helper()
 	h.Until(tb, "the interface to stop showing "+text, func() bool {
 		if !h.Repaint() {
 			return false
 		}
-		return !strings.Contains(h.Frame(), text)
+		return !h.frameContains(tb, text)
 	})
+}
+
+func (h *Host) frameContains(tb testing.TB, text string) bool {
+	tb.Helper()
+	visible, err := visibleRuns(h.Frame())
+	if err != nil {
+		tb.Fatalf("programtest: inspect repaint: %v", err)
+	}
+	return strings.Contains(visible, text)
+}
+
+// visibleRuns projects a renderer frame into contiguous visible text runs without
+// becoming a second terminal model. SGR and OSC metadata change appearance around
+// adjacent cells and therefore disappear. A sequence that changes cell geometry
+// inserts a boundary so text on different rows or across an erasure cannot become a
+// false match merely because its escape bytes were removed.
+func visibleRuns(frame string) (string, error) {
+	var visible strings.Builder
+	for frame != "" {
+		piece, n, ok := ansi.Next(frame)
+		if !ok {
+			return "", fmt.Errorf("incomplete escape stream %q", frame)
+		}
+		frame = frame[n:]
+		switch piece.Kind {
+		case ansi.Plain:
+			visible.WriteString(piece.Raw)
+		case ansi.String:
+			// OSC hyperlinks and other string commands change metadata, not cell
+			// adjacency. Hosts with graphics are outside programtest's deliberately
+			// minimal capability set.
+		case ansi.Control:
+			if !transparentControl(piece.Final) {
+				visible.WriteByte(0)
+			}
+		case ansi.Other:
+			if !strings.HasPrefix(piece.Raw, "\x1b(") {
+				visible.WriteByte(0)
+			}
+		case ansi.Malformed:
+			return "", fmt.Errorf("malformed escape stream at %q", piece.Raw)
+		}
+	}
+	return visible.String(), nil
+}
+
+// transparentControl names renderer controls that cannot change which cells are
+// adjacent. Everything not on this short list is a geometry boundary by default.
+func transparentControl(final byte) bool {
+	switch final {
+	case 'c', 'h', 'l', 'm', 'q', 't':
+		return true
+	default:
+		return false
+	}
 }
 
 // Close stops the frame writer. It is idempotent.

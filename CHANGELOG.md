@@ -23,6 +23,9 @@ point of tagging them low rather than not at all.
 - Grid painting now compares the SGR state a terminal actually receives after colour
   depth is applied. Distinct truecolor styles that collapse to one palette style no
   longer restate identical SGR, and NoColor no longer emits colour-only transitions.
+- `programtest.Host.Shows` and `Hides` now inspect appearance-free visible text runs.
+  Style and hyperlink boundaries no longer split a content assertion, while cursor
+  movement and erasure still prevent unrelated cells from being joined.
 
 ## [0.15.0] — 2026-08-25
 

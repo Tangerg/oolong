@@ -16,7 +16,7 @@ contentType: How-to
 
 ```go
 func TestCounterQuits(t *testing.T) {
-    host := programtest.New(t, 60, 12)
+    host := programtest.New(t, programtest.Config{Width: 60, Height: 12})
     done := make(chan error, 1)
     go func() {
         done <- program.Run(t.Context(), program.Config{
@@ -35,7 +35,10 @@ func TestCounterQuits(t *testing.T) {
 }
 ```
 
-`Shows` 和 `Hides` 会先请求一次完整重绘，再检查文字。测试需要观察最近一次差量帧时使用 `Frame`，需要观察多次写入顺序时使用 `Frames`。
+`Shows` 和 `Hides` 会请求一次完整重绘并检查其中的可见文本段。样式与超链接不会切断
+相邻文字，光标移动与擦除则仍然是边界。需要检查原始的最近一次差量帧时使用 `Frame`，
+需要观察多次原始写入的顺序时使用 `Frames`；断言依赖真实终端单元格状态时使用
+`ptytest.Screen`。
 
 ## 只添加一个可选 host 能力
 

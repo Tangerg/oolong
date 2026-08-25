@@ -19,7 +19,7 @@ events and records frames without opening a terminal:
 
 ```go
 func TestCounterQuits(t *testing.T) {
-    host := programtest.New(t, 60, 12)
+    host := programtest.New(t, programtest.Config{Width: 60, Height: 12})
     done := make(chan error, 1)
     go func() {
         done <- program.Run(t.Context(), program.Config{
@@ -38,9 +38,11 @@ func TestCounterQuits(t *testing.T) {
 }
 ```
 
-`Shows` and `Hides` request a complete repaint before checking text. Use `Frame`
-when a test deliberately inspects the latest diff, and `Frames` when ordering across
-several writes matters.
+`Shows` and `Hides` request a complete repaint and inspect its visible text runs.
+Styles and hyperlinks do not split adjacent text, while cursor movement and erasure
+remain boundaries. Use `Frame` when a test deliberately inspects the raw latest diff,
+and `Frames` when ordering across raw writes matters. Use `ptytest.Screen` when the
+claim needs actual terminal cell state rather than content runs.
 
 ## Add one optional host capability
 
