@@ -596,8 +596,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 			view.Text(0, 0, item, grid.Style{})
 		},
 	}
-	filter.SetText(func(item string) string { return item })
-	filter.SetItems([]string{"alpha", "beta", "alphabet"})
+	filter.SetItems([]string{"alpha", "beta", "alphabet"}, func(item string) string { return item })
 	filter.SetPattern("alp")
 	filter.Select(1)
 	filter.Focus(true)

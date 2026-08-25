@@ -11,8 +11,7 @@ import (
 
 func filtered() *headless.Filter[string] {
 	f := new(headless.Filter[string])
-	f.SetText(func(s string) string { return s })
-	f.SetItems([]string{"core/term/pty.go", "core/grid/inline.go", "README.md"})
+	f.SetItems([]string{"core/term/pty.go", "core/grid/inline.go", "README.md"}, func(s string) string { return s })
 	return f
 }
 
@@ -88,7 +87,7 @@ func TestAFilterThatCannotReadAnItemMatchesNothing(t *testing.T) {
 	// An item is whatever the caller says it is, so a filter with no way to read one
 	// says so rather than guessing.
 	f := &headless.Filter[string]{}
-	f.SetItems([]string{"a", "b"})
+	f.SetItems([]string{"a", "b"}, nil)
 	if f.Matched() != 0 {
 		t.Fatalf("%d items matched with no way to read them", f.Matched())
 	}
@@ -97,8 +96,7 @@ func TestAFilterThatCannotReadAnItemMatchesNothing(t *testing.T) {
 func TestFilterOwnsItsSourceAndReturnsSnapshots(t *testing.T) {
 	items := []string{"alpha", "beta"}
 	f := new(headless.Filter[string])
-	f.SetText(func(s string) string { return s })
-	f.SetItems(items)
+	f.SetItems(items, func(s string) string { return s })
 	items[0] = "changed input"
 	f.SetPattern("alpha")
 	if got, ok := f.Current(); !ok || got != "alpha" {
@@ -112,17 +110,26 @@ func TestFilterOwnsItsSourceAndReturnsSnapshots(t *testing.T) {
 	}
 }
 
-func TestChangingHowItemsReadInvalidatesMatches(t *testing.T) {
+func TestReplacingTheSourceChangesItemsAndTheirProjectionTogether(t *testing.T) {
 	f := new(headless.Filter[string])
-	f.SetText(func(s string) string { return s })
-	f.SetItems([]string{"alpha", "beta"})
+	items := []string{"alpha", "beta"}
+	f.SetItems(items, func(s string) string { return s })
 	f.SetPattern("alpha")
 	if f.Matched() != 1 {
 		t.Fatalf("initial matches = %d", f.Matched())
 	}
 
-	f.SetText(func(string) string { return "alpha" })
+	f.SetItems(items, func(string) string { return "alpha" })
 	if f.Matched() != 2 {
 		t.Fatalf("matches after changing the projection = %d", f.Matched())
+	}
+}
+
+func TestReplacingTheSourceMovesSelectionToItsFirstMatch(t *testing.T) {
+	f := filtered()
+	f.Select(2)
+	f.SetItems([]string{"new", "source"}, func(s string) string { return s })
+	if got := f.Selected(); got != 0 {
+		t.Fatalf("selection after replacing the source = %d, want 0", got)
 	}
 }

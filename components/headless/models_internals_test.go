@@ -188,9 +188,9 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 	}
 
 	var filter Filter[*retainedWidget]
-	filter.SetText(func(*retainedWidget) string { return "item" })
-	filter.SetItems(children)
-	filter.SetItems(children[:1])
+	readWidget := func(*retainedWidget) string { return "item" }
+	filter.SetItems(children, readWidget)
+	filter.SetItems(children[:1], readWidget)
 	if cap(filter.items) > 2*len(filter.items)+16 {
 		t.Fatalf("filter retains capacity %d for %d item", cap(filter.items), len(filter.items))
 	}
@@ -252,7 +252,7 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	assertDetached("slider label", slider.Label())
 
 	var filter Filter[string]
-	filter.SetText(func(item string) string { return item })
+	filter.SetItems(nil, func(item string) string { return item })
 	filter.SetPattern(source)
 	assertDetached("filter pattern", filter.Pattern())
 

@@ -67,10 +67,9 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 	p.list = &headless.Filter[string]{
 		Row: p.row,
 	}
-	// What an item reads as. An item is whatever the caller says it is, so this is
-	// the one thing the filter cannot work out for itself.
-	p.list.SetText(func(s string) string { return s })
-	p.list.SetItems(items)
+	// What an item reads as travels with the items: an item is whatever the caller
+	// says it is, so this is the one thing the filter cannot work out for itself.
+	p.list.SetItems(items, func(s string) string { return s })
 	return p
 }
 

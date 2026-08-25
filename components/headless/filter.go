@@ -74,18 +74,14 @@ func (f *Filter[T]) SetPattern(pattern string) {
 	f.list.Select(0)
 }
 
-// SetItems replaces what there is to choose from and matches the pattern again. The
-// filter copies the slice; the caller may reuse or change its input afterwards.
-func (f *Filter[T]) SetItems(items []T) {
-	f.items, f.fresh = own(f.items, items), false
-	f.match()
-}
-
-// SetText says how an item reads for matching and recalculates the ranked rows. Nil
-// makes no item match. The function is behavior rather than a field because changing
-// it must invalidate every cached match.
-func (f *Filter[T]) SetText(read func(item T) string) {
-	f.text, f.fresh = read, false
+// SetItems replaces the source: the values there are to choose from and the one
+// projection that says how each value reads for matching. They travel together
+// because ranked matches are a fact about both; separate setters would expose a
+// transient source whose values and projection disagree. Nil text makes no item
+// match. The filter copies items, so the caller may reuse or change its input.
+func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
+	f.items = own(f.items, items)
+	f.text, f.fresh = text, false
 	f.match()
 	f.list.Select(0)
 }
