@@ -18,6 +18,48 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-08-25
+
+Something can be true and still be invisible. This release is about that gap, which
+turns out to be where a surprising number of defects live.
+
+A style is the clearest case. Frames were built from `Style` values and compared as
+`Style` values, but a terminal below truecolor never receives one: several collapse
+into a single palette entry, and without colour they collapse into nothing at all. The
+comparison was true about the program and wrong about the wire, so a row of forty
+near-identical reds restated sequences the terminal already held — 404 bytes at
+sixteen colours and 284 with none, against 120 bytes of text. Painting now compares the
+state a terminal actually receives, and an attribute this renderer has no code for
+stops being a difference at all.
+
+The same gap made a test lie. `Shows` and `Hides` matched a substring of the escape
+stream, so a phrase crossing a style boundary was on screen and absent from the
+assertion. `Hides` was the dangerous half: a secret split by a highlight was reported
+hidden while it was being displayed, which is a test going green for exactly the thing
+it was written to catch. Both now read the visible text of a repaint, while anything
+that changes which cells are adjacent still keeps unrelated text apart.
+
+A rule can be invisible too. Twenty-one preconditions on exported API ended a program
+when a caller violated them, and seventeen said so nowhere the caller could read before
+running — the rule existed only in the message the crash printed, which is the one
+place it is too late to be useful. Each is now named in `go doc` alongside what
+continuing would have cost instead, and a gate keeps it that way by separating a
+precondition a caller can violate from an assertion no argument can reach.
+
+What is left is the documentation that was true and unseen. Three packages a reader
+meets first had no examples, so the answers to their first questions existed only in
+prose; they now have examples the compiler checks and `go test` runs. The architecture
+guide stated its boundaries and never showed them; it opens with a generated map that
+cites the file behind each component. Drawing that map immediately caught one of its
+own claims, which is the argument for generating it from evidence rather than memory.
+
+One rule here has no gate, and says so. A comment inside a function body must explain
+why a line is the way it is, because the line already says what it does. Two mechanical
+checks were built for it and both failed — lexical overlap catches nothing, since a
+comment restating Go does it in English the identifiers never contained, and requiring
+a causal marker flagged thirteen good comments and no bad ones. It is kept by reading,
+which is why it is now written down.
+
 ### Changed
 
 - Grid painting now compares the SGR state a terminal actually receives after colour
