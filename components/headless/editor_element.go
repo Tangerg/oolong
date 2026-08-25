@@ -66,6 +66,11 @@ func (el Element) Text(e *Editor) string {
 // A separator space follows it, which is what makes a chip in a prompt something a
 // user can type after. The space is ordinary text and not part of the element: it is
 // there to be deleted.
+//
+// An empty body inserts nothing and returns the zero [Element]. Identities are never
+// reused, and InsertElement panics once every one has been issued: an [Element] the
+// caller kept in order to replace or remove what it stands for would otherwise begin
+// naming a different insertion.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	body = oneLineText(body)
 	if body == "" {

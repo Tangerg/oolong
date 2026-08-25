@@ -249,7 +249,8 @@ type Form struct {
 	blurred bool
 }
 
-// NewForm constructs a form from fields in keyboard order.
+// NewForm constructs a form from fields in keyboard order. A nil field is a programmer
+// error and panics here, on the same terms as [Form.Set].
 func NewForm(fields ...Field) *Form {
 	f := &Form{}
 	f.Set(fields...)

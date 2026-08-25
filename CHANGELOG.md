@@ -27,6 +27,18 @@ point of tagging them low rather than not at all.
   Style and hyperlink boundaries no longer split a content assertion, while cursor
   movement and erasure still prevent unrelated cells from being joined.
 
+### Documentation
+
+- Every panicking precondition on exported API now names itself in `go doc`, together
+  with what continuing would have cost instead. A caller who cannot see the rule
+  before running learns it from a crash, which is the outcome the panic exists to
+  prevent. `internal/arch` fails when a new precondition appears undocumented, when an
+  unexported panic has no recorded guard, and when a recorded guard outlives its code.
+- The architecture principles now state the panic policy and what a comment is for.
+  Nothing a terminal sends, a user types, a file holds or a network returns may reach
+  a panic; and a comment inside a function body earns its place by saying why a line
+  is the way it is, because the line already says what it does.
+
 ## [0.15.0] — 2026-08-25
 
 Half of something is not a smaller something. This release walks the places where the

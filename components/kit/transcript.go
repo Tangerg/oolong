@@ -276,7 +276,10 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 //
 // limit is the most blocks to transfer. Zero transfers every finished block; a
 // positive limit lets an application retain a recent window and publish only its
-// excess stable prefix. A negative limit is a programmer error.
+// excess stable prefix. A negative limit is a programmer error and panics: zero
+// already means "all of them", and committing is irreversible, so reading a negative
+// limit as either none or all would be a guess about output the caller cannot take
+// back. A nil printer or content transfers nothing and reports zero.
 func (t *Transcript) Commit(p Printer, limit int) int {
 	if limit < 0 {
 		panic("kit: transcript commit limit cannot be negative")

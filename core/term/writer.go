@@ -103,7 +103,12 @@ type frame struct {
 	data []byte
 }
 
-// NewWriter starts a writer over dst.
+// NewWriter starts a writer over dst. The caller ends it with [Writer.Close].
+//
+// A nil destination is a programmer error and panics here. A writer accepts frames
+// from the goroutine that draws them and writes on one of its own, so a nil surfaced
+// on first use would report the fault on that second goroutine, in a stack that no
+// longer names whoever failed to open the terminal.
 func NewWriter(dst io.Writer) *Writer {
 	if dst == nil {
 		panic("term: nil writer")

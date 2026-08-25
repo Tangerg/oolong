@@ -16,6 +16,12 @@ import (
 // A Frame is created by [Root]. Components must not construct one: the transaction is
 // what prevents routing geometry from becoming visible before the complete root frame
 // has been built.
+//
+// Staging presentation state through a Frame no active [Root.Draw] owns — a zero value,
+// or one kept past the frame it came from — is a programmer error and panics, as does
+// staging one state object twice in a frame or from two roots. Each is two producers
+// for a value only one can win, and the losing write would otherwise surface much
+// later as a widget scrolled or focused somewhere nobody asked it to be.
 type Frame struct {
 	grid.View
 	transaction *transaction
@@ -233,6 +239,12 @@ func (r *Root) SetContent(of Widget) {
 }
 
 // Draw builds and atomically commits one logical component frame.
+//
+// It is not reentrant, and a widget that reaches it again while it is running — by
+// drawing a nested Root, or by drawing from a callback this frame invoked — is a
+// programmer error and panics. The commit is what makes routing geometry appear all at
+// once; an inner Draw would publish a tree the outer one had not finished building, so
+// [Root.Handle] would route the next event against a mixture of two frames.
 func (r *Root) Draw(view grid.View) {
 	if r == nil {
 		return

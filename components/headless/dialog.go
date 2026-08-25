@@ -52,6 +52,11 @@ type DialogConfig struct {
 // With Open set, controller operations write the accessor directly. When its owner
 // writes it independently, it calls [Dialog.Sync] to perform the corresponding stack
 // and focus transition.
+//
+// [DialogConfig.Stack] and [DialogConfig.Content] are required; omitting either is a
+// programmer error and panics here. They are what a dialog is — somewhere to open and
+// something to open there — and a dialog missing one would construct, accept an open
+// and then present nothing, which reads to the user as the keystroke having been lost.
 func NewDialog(config DialogConfig) *Dialog {
 	if config.Stack == nil {
 		panic("headless: dialog requires a stack")

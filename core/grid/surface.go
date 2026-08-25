@@ -495,7 +495,10 @@ func (v View) Text(x, y int, s string, style Style) int {
 		advanced = layout.Sum(advanced, w)
 		switch {
 		case end <= v.clip.Min.X || cx >= v.clip.Max.X:
-			// Entirely outside the clip.
+			// Nothing to do: the atom never meets the clip, so there is no old atom
+			// to repair here and no column this view is allowed to write. The column
+			// still advances, because a caller measuring what it drew is asking about
+			// the text and not about how much of it landed.
 		case cx < v.clip.Min.X || end > v.clip.Max.X:
 			// The atom straddles a clip edge. Blank every visible column rather
 			// than leave pieces of either the old or the new atom behind.

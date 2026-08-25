@@ -149,6 +149,11 @@ type Container struct {
 
 // NewContainer constructs a container that arranges its children along axis.
 // [layout.Down] stacks rows and [layout.Across] places columns side by side.
+//
+// Repeating a non-empty [Item.Key] is a programmer error and panics, here and in
+// [Container.Set] and [Container.Add]. A key exists so focus and an in-progress
+// pointer gesture follow a child that moves; two children answering to one key would
+// send them to whichever was found first, which changes as the children are reordered.
 func NewContainer(axis layout.Axis, items ...Item) *Container {
 	c := &Container{Axis: axis}
 	c.Set(items...)
@@ -156,7 +161,8 @@ func NewContainer(axis layout.Axis, items ...Item) *Container {
 }
 
 // Set replaces the children. Focus follows a non-empty [Item.Key], or the old position
-// for an unnamed item.
+// for an unnamed item. A repeated key is a programmer error and panics, as described
+// on [NewContainer].
 func (c *Container) Set(items ...Item) {
 	checkItemKeys(items)
 	key := c.focusKey()
@@ -176,7 +182,8 @@ func (c *Container) Set(items ...Item) {
 }
 
 // Add appends a child and returns the container, so a tree can be built in one
-// expression.
+// expression. A key already used by a child that is staying is a programmer error and
+// panics, as described on [NewContainer].
 func (c *Container) Add(items ...Item) *Container {
 	checkItemKeys(append(slices.Clone(c.items), items...))
 	c.items = append(c.items, items...)

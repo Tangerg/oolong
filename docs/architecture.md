@@ -889,15 +889,36 @@ Public APIs follow these rules:
     cancellation, and optional behavior, replace it with a named domain object.
 11. **Errors add operational context and preserve causes.** Do not log and return the
     same error inside library code.
-12. **No global mutable service state.** Themes, host services, clocks, and resources
+12. **Panic is for the caller's mistake, never for anyone else's data.** A panic says
+    a program was written wrong — a nil dependency a constructor cannot substitute for,
+    two bounds that contradict each other, a frame drawn from inside another frame, an
+    identity counter that has run out. Nothing a terminal sends, a user types, a file
+    holds, or a network returns may reach one; that is what the parser fuzz targets
+    exist to keep true. Every panicking precondition is named in the doc comment of the
+    exported API that has it, along with what continuing would have cost instead —
+    a caller who cannot see the rule in `go doc` learns it at runtime, which is the
+    outcome the panic was supposed to prevent.
+13. **A comment says why, not what.** The code beside it already says what happens.
+    A doc comment is the one exception: stating the contract is its job, for as many
+    sentences as the edge cases a caller cannot guess require. What it must not do is
+    narrate the implementation — once the contract is stated, the only thing left worth
+    adding is why the contract is this one and not another. Inside a function body
+    there is no contract to state, so a comment a
+    reader could recover by reading the next line is worse than none — it costs time on
+    every pass, and the first time that line changes without it the file disagrees with
+    itself. This is the only rule here with no gate behind it. A lexical check cannot
+    separate restatement from explanation, because a comment that restates does so in
+    English the identifiers never contained; it is kept by reading, which is why it is
+    written down.
+14. **No global mutable service state.** Themes, host services, clocks, and resources
     are explicit values.
-13. **Generics remove repeated algorithms.** They do not create a component type
+15. **Generics remove repeated algorithms.** They do not create a component type
     hierarchy or a universal state container. Put a type parameter on a receiver type
     when its stored state depends on that type, and on a method when a concrete
     receiver owns the operation but only that call introduces the type. Construction
     and adaptation with no honest receiver remain package functions; never invent a
     factory, utility, or namespace receiver merely to use method syntax.
-14. **One semantic operation, one entry point at each layer.** Do not export a default
+16. **One semantic operation, one entry point at each layer.** Do not export a default
     wrapper, `With` variant, lossy adapter, or convenience alias when a useful zero
     value or explicit argument makes the canonical call clear. A second entry must
     cross a named boundary — ownership, lifecycle, abstraction layer, or result

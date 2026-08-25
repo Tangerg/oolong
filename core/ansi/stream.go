@@ -40,6 +40,10 @@ func (*noCopy) Unlock() {}
 // a semantic consumer that rejected a complete piece cannot safely resume midway
 // through the same chunk. [ErrSequenceTooLong] likewise clears the runaway suffix,
 // leaving the Scanner ready for a later independent chunk.
+//
+// A nil visit is a programmer error and panics. Scanning without it would consume the
+// chunk and advance the Scanner's held remainder, so the bytes would be gone by the
+// time anyone noticed nothing had been delivered.
 func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 	if visit == nil {
 		panic("ansi: nil Scanner visitor")

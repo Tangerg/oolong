@@ -99,6 +99,11 @@ func (t *Transcript) Width() int { return t.width }
 
 // Append adds a block at the end, measures it, and returns its stable identity.
 // Appending nil changes nothing and returns the next available identity.
+//
+// Identities are never reused, and Append panics once every one has been issued.
+// A session that wrapped would let a [BlockID] a caller is holding — a scroll
+// anchor, a search result, a selection — name a different block than the one it was
+// taken from, so the interface would jump somewhere the user never asked to go.
 func (t *Transcript) Append(b Block) BlockID {
 	live := BlockID(len(t.blocks))
 	if live >= exhaustedBlockID-t.first {

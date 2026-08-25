@@ -47,7 +47,9 @@ type History struct {
 const DefaultHistoryLimit = 1000
 
 // SetLimit changes how many entries to keep, dropping the oldest if there are already
-// more. Zero restores [DefaultHistoryLimit]. A negative limit is a programmer error.
+// more. Zero restores [DefaultHistoryLimit]. A negative limit is a programmer error
+// and panics, because zero is already the way to ask for the default and there is no
+// number of entries below none.
 func (h *History) SetLimit(n int) {
 	if n < 0 {
 		panic("headless: history limit cannot be negative")

@@ -80,8 +80,8 @@ func (s *Slider) Bounds() (minimum, maximum int) {
 // SetBounds changes the inclusive range and clamps the current value.
 //
 // A reversed range or one whose span cannot be represented by int is a programmer
-// error. The latter cannot be mapped onto a finite terminal extent without giving the
-// same position two incompatible integer meanings.
+// error and panics. The latter cannot be mapped onto a finite terminal extent without
+// giving the same position two incompatible integer meanings.
 func (s *Slider) SetBounds(minimum, maximum int) {
 	if s == nil {
 		return
@@ -102,7 +102,10 @@ func (s *Slider) Step() int {
 	return s.step
 }
 
-// SetStep changes the keyboard increment. A non-positive step is a programmer error.
+// SetStep changes the keyboard increment. A non-positive step is a programmer error
+// and panics: zero would make an arrow key do nothing and a negative one would make
+// it move the value the way the other arrow does, neither of which a slider can
+// report to the user as anything but being broken.
 func (s *Slider) SetStep(step int) {
 	if step <= 0 {
 		panic("headless: slider step must be positive")

@@ -588,9 +588,10 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 func (m *MultiSelect[T]) Options() []Option[T] { return slices.Clone(m.options) }
 
 // SetLimit changes how many choices may be taken at once. Zero allows every option;
-// a negative limit is a programmer error. Lowering the limit keeps the earliest
-// choices in option order and writes the settled set back to a bound value. A nil
-// receiver ignores the change.
+// a negative limit is a programmer error and panics, because zero already means "no
+// limit" and there is no smaller quantity of choices for a negative one to name.
+// Lowering the limit keeps the earliest choices in option order and writes the settled
+// set back to a bound value. A nil receiver ignores the change.
 func (m *MultiSelect[T]) SetLimit(limit int) {
 	if m == nil {
 		return

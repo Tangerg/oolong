@@ -55,6 +55,11 @@ type FormConfig struct {
 }
 
 // NewForm dresses one headless form without creating a second behavior surface.
+//
+// [FormConfig.Controller] is required; a nil one is a programmer error and panics
+// here. Supplying a default would be this package creating the behavior surface it
+// exists not to own, and the caller would then hold a form whose fields answer to
+// state they cannot reach.
 func NewForm(config FormConfig) *Form {
 	if config.Controller == nil {
 		panic("kit: form requires a controller")

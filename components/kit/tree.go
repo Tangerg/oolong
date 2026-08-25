@@ -51,6 +51,11 @@ type TreeConfig[T any] struct {
 }
 
 // NewTree dresses one headless tree with the kit appearance.
+//
+// [TreeConfig.Controller] is required; a nil one is a programmer error and panics
+// here. Supplying a default would be this package creating the behavior surface it
+// exists not to own, and the caller would then hold a tree whose selection and
+// expansion answer to state they cannot reach.
 func NewTree[T any](config TreeConfig[T]) *Tree[T] {
 	if config.Controller == nil {
 		panic("kit: tree requires a controller")

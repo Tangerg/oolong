@@ -172,6 +172,12 @@ func (s *Stack) SetBase(base Widget) {
 }
 
 // Push puts a layer on top, gives it the keyboard, and returns its stable handle.
+// A nil modal is not a layer: it is ignored and reported as the zero [LayerID].
+//
+// Handles are drawn from a counter that never reuses one, and Push panics once every
+// handle has been issued. Wrapping would let a handle held by a caller name a
+// different layer than the one it was given for, so a dismissal aimed at a closed
+// dialog would close whatever had since taken its number.
 func (s *Stack) Push(m Modal) LayerID {
 	if m == nil {
 		return 0
