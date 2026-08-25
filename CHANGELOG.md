@@ -18,6 +18,12 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Changed
+
+- Grid painting now compares the SGR state a terminal actually receives after colour
+  depth is applied. Distinct truecolor styles that collapse to one palette style no
+  longer restate identical SGR, and NoColor no longer emits colour-only transitions.
+
 ## [0.15.0] — 2026-08-25
 
 Half of something is not a smaller something. This release walks the places where the

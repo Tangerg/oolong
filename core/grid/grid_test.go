@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -913,6 +914,72 @@ func TestStyleIsStatedOncePerRun(t *testing.T) {
 	// One SGR for the run, plus the frame's opening and closing resets.
 	if got := strings.Count(out, "\x1b[0;38;2;255;0;0m"); got != 1 {
 		t.Fatalf("frame = %q, want one style statement, got %d", out, got)
+	}
+}
+
+// sgrSequences finds the style statements in a frame. Everything else the renderer
+// emits — cursor positions, mode changes, the cursor shape — is addressed elsewhere.
+var sgrSequences = regexp.MustCompile(`\x1b\[0[0-9;]*m`)
+
+// TestStyleIsComparedAfterColourDepthIsApplied. Four truecolor reds are four colours
+// on a terminal that can show them, one palette entry on terminals that cannot, and
+// no colour at all without one. The comparison that decides whether to restate a
+// style has to be the representation the terminal receives, because restating a style
+// it already holds costs bytes and changes nothing on screen.
+//
+// The truecolor row is the half that keeps this honest: collapsing everything would
+// satisfy the other three rows and lose colours the terminal was able to draw.
+func TestStyleIsComparedAfterColourDepthIsApplied(t *testing.T) {
+	styles := []grid.Style{
+		{FG: grid.RGBColor(128, 0, 0)},
+		{FG: grid.RGBColor(130, 0, 0)},
+		{FG: grid.RGBColor(132, 0, 0)},
+		{FG: grid.RGBColor(134, 0, 0)},
+	}
+	// Every frame opens and closes with a reset, so one statement is the fewest a
+	// coloured frame can hold and two is the fewest a colourless one can.
+	for _, test := range []struct {
+		name  string
+		depth grid.Depth
+		want  int
+	}{
+		{name: "distinct colours stay distinct", depth: grid.TrueColor, want: 6},
+		{name: "one palette entry is stated once", depth: grid.Depth256, want: 3},
+		{name: "one ANSI colour is stated once", depth: grid.Depth16, want: 3},
+		{name: "colourless states no colour", depth: grid.NoColor, want: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			screen := grid.NewScreen(len(styles), 1)
+			screen.SetDepth(test.depth)
+			out := flush(t, screen, grid.Cursor{}, func(v grid.View) {
+				for x, style := range styles {
+					v.Text(x, 0, "x", style)
+				}
+			})
+			if got := len(sgrSequences.FindAllString(out, -1)); got != test.want {
+				t.Fatalf("frame = %q, want %d style statements, got %d", out, test.want, got)
+			}
+		})
+	}
+}
+
+// TestAttributesWithNoTerminalCodeDoNotRestateAStyle covers the other half of what a
+// style becomes on the wire. An attribute this renderer has no SGR code for is never
+// emitted, so two styles differing only in one are the same style to the terminal and
+// the second must not provoke a sequence that would say exactly what is already true.
+func TestAttributesWithNoTerminalCodeDoNotRestateAStyle(t *testing.T) {
+	const unmapped grid.Attr = 1 << 7
+
+	screen := grid.NewScreen(6, 1)
+	out := flush(t, screen, grid.Cursor{}, func(v grid.View) {
+		v.Text(0, 0, "abc", grid.Style{Attr: grid.Bold})
+		v.Text(3, 0, "def", grid.Style{Attr: grid.Bold | unmapped})
+	})
+	if got := strings.Count(out, "\x1b[0;1m"); got != 1 {
+		t.Fatalf("frame = %q, want one bold statement, got %d", out, got)
+	}
+	if !strings.Contains(out, "abcdef") {
+		t.Fatalf("frame = %q, want both runs under one style statement", out)
 	}
 }
 

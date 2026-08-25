@@ -26,9 +26,12 @@ const (
 // a full repaint, a diff, and the rows a scroll exposed differ only in which
 // cells they consider dirty, not in how a cell reaches the wire.
 type painter struct {
-	out   []byte
-	style Style
-	link  string
+	out []byte
+	// sourceStyle avoids quantizing an unchanged logical style for every cell;
+	// style is the state actually established after that quantization.
+	sourceStyle Style
+	style       wireStyle
+	link        string
 	// depth is how much colour the terminal is being asked to show. It is applied
 	// here and nowhere else: a frame is built in truecolor all the way down, and
 	// this is the one place a style becomes bytes.
@@ -46,7 +49,8 @@ type painter struct {
 // frame.
 func (p *painter) restart() {
 	p.out = p.out[:0]
-	p.style = Style{}
+	p.sourceStyle = Style{}
+	p.style = wireStyle{}
 	p.link = ""
 	p.known = false
 	p.begun = false
@@ -66,7 +70,8 @@ func (p *painter) begin() {
 	}
 	p.begun = true
 	p.out = append(p.out, sgrReset...)
-	p.style = Style{}
+	p.sourceStyle = Style{}
+	p.style = wireStyle{}
 	p.known = false
 }
 
@@ -78,10 +83,13 @@ func (p *painter) end() {
 	}
 	p.closeLink()
 	p.out = append(p.out, sgrReset...)
+	p.sourceStyle = Style{}
+	p.style = wireStyle{}
 }
 
 // adopt continues from the terminal state another painter established.
 func (p *painter) adopt(other *painter) {
+	p.sourceStyle = other.sourceStyle
 	p.style = other.style
 	p.link = other.link
 	p.at = other.at
@@ -115,8 +123,12 @@ func (p *painter) moveTo(x, y int) {
 // cell writes one cell unit spanning width columns, emitting only the state
 // changes it needs first. It assumes the cursor is already in place.
 func (p *painter) cell(c *Cell, width int) {
-	if c.Style != p.style {
-		p.appendStyle(c.Style)
+	if c.Style != p.sourceStyle {
+		p.sourceStyle = c.Style
+		next := styleOnWire(c.Style, p.depth)
+		if next != p.style {
+			p.appendStyle(next)
+		}
 	}
 	p.appendLink(c.Link)
 	if c.content == "" {
@@ -134,26 +146,80 @@ func (p *painter) cell(c *Cell, width int) {
 // Reset-then-set rather than a minimal difference: one deterministic sequence per
 // change is shorter to reason about than a per-attribute diff, and terminals
 // disagree about how to turn individual attributes off.
-func (p *painter) appendStyle(next Style) {
+func (p *painter) appendStyle(next wireStyle) {
 	p.style = next
-	if next == (Style{}) {
+	if next == (wireStyle{}) {
 		p.out = append(p.out, sgrReset...)
 		return
 	}
 	p.out = append(p.out, "\x1b[0"...)
 	for _, a := range attrCodes {
-		if next.Attr.Has(a.attr) {
+		if next.attr.Has(a.attr) {
 			p.out = append(p.out, ';')
 			p.out = strconv.AppendInt(p.out, a.code, 10)
 		}
 	}
-	if !next.FG.Default() {
-		p.appendColor(foreground, next.FG.rgb)
+	if next.fg.kind != defaultWireColor {
+		p.appendColor(foreground, next.fg)
 	}
-	if !next.BG.Default() {
-		p.appendColor(background, next.BG.rgb)
+	if next.bg.kind != defaultWireColor {
+		p.appendColor(background, next.bg)
 	}
 	p.out = append(p.out, 'm')
+}
+
+// wireStyle is the terminal state established by one SGR at a particular depth.
+// It deliberately is not Style: two truecolor values can become one palette index,
+// and NoColor drops both colours. Tracking the representation the terminal receives
+// makes equality mean that another SGR would have no effect.
+type wireStyle struct {
+	fg, bg wireColor
+	attr   Attr
+}
+
+type wireColor struct {
+	kind  wireColorKind
+	rgb   RGB
+	index uint8
+}
+
+type wireColorKind uint8
+
+const (
+	defaultWireColor wireColorKind = iota
+	truecolorWireColor
+	indexed256WireColor
+	indexed16WireColor
+)
+
+func styleOnWire(style Style, depth Depth) wireStyle {
+	return wireStyle{
+		fg:   colorOnWire(style.FG, depth),
+		bg:   colorOnWire(style.BG, depth),
+		attr: attrsOnWire(style.Attr),
+	}
+}
+
+func attrsOnWire(attr Attr) Attr {
+	var supported Attr
+	for _, code := range attrCodes {
+		supported |= attr & code.attr
+	}
+	return supported
+}
+
+func colorOnWire(color Color, depth Depth) wireColor {
+	if color.Default() || depth == NoColor {
+		return wireColor{}
+	}
+	switch depth {
+	case Depth16:
+		return wireColor{kind: indexed16WireColor, index: color.rgb.Index16()}
+	case Depth256:
+		return wireColor{kind: indexed256WireColor, index: color.rgb.Index256()}
+	default:
+		return wireColor{kind: truecolorWireColor, rgb: color.rgb}
+	}
 }
 
 // The SGR bases for the two colours a cell has. The sixteen-colour forms are
@@ -164,17 +230,17 @@ const (
 	background int64 = 48
 )
 
-// appendColor writes one colour at the depth the terminal is being asked for.
+// appendColor writes one colour after depth has chosen its terminal representation.
 //
 // The parameters are appended to an SGR that is already open, which is why every
 // branch starts with a semicolon and none of them ends the sequence.
-func (p *painter) appendColor(base int64, c RGB) {
-	switch p.depth {
-	case NoColor:
-		return
-
-	case Depth16:
-		index := c.Index16()
+func (p *painter) appendColor(base int64, color wireColor) {
+	switch color.kind {
+	case defaultWireColor:
+		// appendStyle excludes defaults; keep the representation exhaustive so a
+		// new wire colour kind cannot silently acquire truecolor semantics.
+	case indexed16WireColor:
+		index := color.index
 		// 30–37 and 40–47 are the eight; 90–97 and 100–107 are the bright ones,
 		// which are 60 above their plain forms in both cases.
 		code := base - 8 + int64(index%8)
@@ -184,21 +250,21 @@ func (p *painter) appendColor(base int64, c RGB) {
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, code, 10)
 
-	case Depth256:
+	case indexed256WireColor:
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, base, 10)
 		p.out = append(p.out, ";5;"...)
-		p.out = strconv.AppendInt(p.out, int64(c.Index256()), 10)
+		p.out = strconv.AppendInt(p.out, int64(color.index), 10)
 
-	default:
+	case truecolorWireColor:
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, base, 10)
 		p.out = append(p.out, ";2;"...)
-		p.out = strconv.AppendInt(p.out, int64(c.R), 10)
+		p.out = strconv.AppendInt(p.out, int64(color.rgb.R), 10)
 		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, int64(c.G), 10)
+		p.out = strconv.AppendInt(p.out, int64(color.rgb.G), 10)
 		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, int64(c.B), 10)
+		p.out = strconv.AppendInt(p.out, int64(color.rgb.B), 10)
 	}
 }
 
@@ -358,7 +424,7 @@ func EncodeRow(cells []Cell, depth Depth) string {
 		i += unit.width
 	}
 	p.closeLink()
-	if p.style != (Style{}) {
+	if p.style != (wireStyle{}) {
 		p.out = append(p.out, sgrReset...)
 	}
 	return string(p.out)
