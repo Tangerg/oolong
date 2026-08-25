@@ -50,6 +50,14 @@ func TestTheNumberBesideABarDoesNotMoveTheBar(t *testing.T) {
 	equalRows(t, paint(14, 1, hundred.Draw), []string{"#########.100%"})
 }
 
+func TestTheNumberBesideABarIsNeverClippedIntoAnotherNumber(t *testing.T) {
+	p := kit.Progress{Glyphs: kit.ASCII(), Done: 30, Total: 100, Percent: true}
+	equalRows(t, paint(1, 1, p.Draw), []string{"-"})
+	equalRows(t, paint(2, 1, p.Draw), []string{"--"})
+	equalRows(t, paint(3, 1, p.Draw), []string{"---"})
+	equalRows(t, paint(4, 1, p.Draw), []string{".30%"})
+}
+
 func TestABarWithNoGlyphsDrawsNothing(t *testing.T) {
 	// The rule the whole package keeps: a widget given no glyphs draws no furniture,
 	// because which characters a terminal can draw is a fact about the terminal and

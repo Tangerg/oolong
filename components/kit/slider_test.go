@@ -31,3 +31,11 @@ func TestSliderMayFormatItsValue(t *testing.T) {
 	slider.Format = func(value int) string { return strconv.Itoa(value) + "x" }
 	equalRows(t, paintWidget(18, 1, slider), []string{"workers.-O-----.3x"})
 }
+
+func TestSliderNeverClipsAFormattedValueIntoAnotherNumber(t *testing.T) {
+	slider := kit.NewSlider(kit.SliderConfig{Glyphs: kit.ASCII(), Maximum: 100})
+	slider.Controller().Set(50)
+	slider.Format = func(int) string { return "7000%" }
+	equalRows(t, paintWidget(3, 1, slider), []string{"-O-"})
+	equalRows(t, paintWidget(5, 1, slider), []string{"7000%"})
+}

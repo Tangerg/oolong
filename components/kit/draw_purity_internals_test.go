@@ -265,6 +265,24 @@ func kitDrawPurityCases() []drawPurityCase {
 		name: "Progress", width: 20, height: 1, draw: progress.Draw, measure: progress.Measure,
 	})
 
+	sparkline := Sparkline{Glyphs: Unicode(), Values: []float64{1, 3, 2}}
+	cases = append(cases, drawPurityCase{
+		name: "Sparkline", width: 8, height: 1, draw: sparkline.Draw, measure: sparkline.Measure,
+	})
+
+	barChart := BarChart{
+		Glyphs: ASCII(),
+		Bars:   []Bar{{Label: "one", Value: 1}, {Label: "two", Value: 2}},
+	}
+	cases = append(cases, drawPurityCase{
+		name: "BarChart", width: 16, height: 2, draw: barChart.Draw, measure: barChart.Measure,
+	})
+
+	meter := bar{fraction: 0.5, glyphs: Unicode()}
+	cases = append(cases, drawPurityCase{
+		name: "bar", width: 8, height: 1, draw: meter.Draw,
+	})
+
 	scrollbar := Scrollbar{Total: 20, Window: 5, Offset: 4, Glyphs: ASCII()}
 	cases = append(cases, drawPurityCase{
 		name: "Scrollbar", width: 1, height: 5, draw: scrollbar.Draw,

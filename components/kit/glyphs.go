@@ -46,6 +46,8 @@ type Glyphs struct {
 	// separate design.
 	BarFull, BarEmpty string
 	BarSteps          []string
+	// Sparkline is the ordered set of sample heights, from lowest to highest.
+	Sparkline []string
 	// Expanded and Collapsed are the two states of a branch in a tree: one showing
 	// what is under it, and one inviting the reader to look. Like Taken and Free they
 	// are drawn in the same column and have to be the same width.
@@ -72,6 +74,7 @@ func Unicode() Glyphs {
 		SliderTrack: "─", SliderThumb: "●",
 		BarFull: "█", BarEmpty: "░",
 		BarSteps:  []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
+		Sparkline: []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"},
 		Expanded:  "▾",
 		Collapsed: "▸",
 		Ascending: "↑", Descending: "↓",
@@ -100,7 +103,8 @@ func ASCII() Glyphs {
 		ScrollTrack: "|", ScrollThumb: "#",
 		SliderTrack: "-", SliderThumb: "O",
 		BarFull: "#", BarEmpty: "-",
-		Expanded: "-", Collapsed: "+",
+		Sparkline: []string{".", ":", "-", "=", "+", "*", "#", "@"},
+		Expanded:  "-", Collapsed: "+",
 		Ascending: "^", Descending: "v",
 		Spinner: []string{".", "o", "O", "o"},
 	}

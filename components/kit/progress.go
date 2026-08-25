@@ -43,7 +43,9 @@ type Progress struct {
 	// belongs here rather than above because a bar with no name is a bar nobody can
 	// act on when two of them are on screen.
 	Label string
-	// Percent writes the fraction after the bar as a number.
+	// Percent writes the fraction after the bar as a number. The field is omitted
+	// when it cannot fit in full; clipping a percentage could display another,
+	// plausible percentage.
 	Percent bool
 }
 
@@ -83,36 +85,11 @@ func (p Progress) Draw(v grid.View) {
 			Draw(v.Sub(boxes.value))
 	}
 	if !boxes.track.Empty() {
-		p.bar(v.Sub(boxes.track))
-	}
-}
-
-// bar paints the track and the part of it that is done.
-//
-// The cell the bar ends in is drawn as a fraction of itself where the glyph set has
-// the pieces for it, which is what keeps a bar from moving in jumps of a whole cell
-// on a narrow terminal: eight steps a column is the difference between a bar that
-// reads as a measurement and one that reads as a row of blocks.
-func (p Progress) bar(v grid.View) {
-	w, _ := v.Size()
-	if w <= 0 || p.Glyphs.BarFull == "" || p.Glyphs.BarEmpty == "" {
-		return
-	}
-	filled := p.Fraction() * float64(w)
-	whole := int(filled)
-	steps := p.Glyphs.BarSteps
-	step := 0
-	if len(steps) > 0 {
-		step = min(int((filled-float64(whole))*float64(len(steps)+1)), len(steps))
-	}
-	for x := range w {
-		switch {
-		case x < whole:
-			v.Text(x, 0, p.Glyphs.BarFull, p.Theme.Accent)
-		case x == whole && step > 0:
-			v.Text(x, 0, steps[step-1], p.Theme.Accent)
-		default:
-			v.Text(x, 0, p.Glyphs.BarEmpty, p.Theme.Subtle)
-		}
+		bar{
+			fraction: p.Fraction(),
+			glyphs:   p.Glyphs,
+			full:     p.Theme.Accent,
+			empty:    p.Theme.Subtle,
+		}.Draw(v.Sub(boxes.track))
 	}
 }

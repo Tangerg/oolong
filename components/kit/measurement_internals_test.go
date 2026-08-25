@@ -50,3 +50,18 @@ func TestLineNumberWidthDoesNotWrapAtIntegerLimits(t *testing.T) {
 		t.Fatalf("line-number width = %d, want %d", got, want)
 	}
 }
+
+func TestMeterValueColumnIsAtomic(t *testing.T) {
+	narrow := layoutMeter(3, 20, 5)
+	if !narrow.value.Empty() {
+		t.Fatalf("narrow value rectangle = %v, want no partial value", narrow.value)
+	}
+	if narrow.track.Empty() {
+		t.Fatal("narrow meter did not return omitted-value space to its track")
+	}
+
+	exact := layoutMeter(5, 20, 5)
+	if got := exact.value.Dx(); got != 5 {
+		t.Fatalf("exact value width = %d, want 5", got)
+	}
+}

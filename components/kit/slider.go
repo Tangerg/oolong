@@ -21,8 +21,10 @@ type Slider struct {
 	Theme  Theme
 	Glyphs Glyphs
 	// Format turns the integer value into its right-hand label. Nil uses strconv.Itoa;
-	// returning an empty string omits the value and leaves that room to the track.
-	// Format runs during drawing and must be an observationally pure projection.
+	// returning an empty string omits the value and leaves that room to the track. A
+	// non-empty value is likewise omitted when it cannot fit in full, because clipped
+	// digits can read as another value. Format runs during drawing and must be an
+	// observationally pure projection.
 	Format func(int) string
 
 	controller *headless.Slider
