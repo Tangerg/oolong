@@ -8,15 +8,27 @@ contentType: How-to
 
 Language: English | [简体中文](zh/releasing.md)
 
-This maintainer guide cuts one immutable version across every public module. The
-release script derives module order from `go.work` and `go.mod`; do not create tags
-or edit dependency versions by hand.
+This maintainer guide cuts one immutable version across every public module.
+`scripts/modules.sh --public` is the executable release inventory; it derives
+complete membership from `go.work` and the public subset from externally importable
+production packages across the supported source sets. The release script derives
+dependency order from the modules' `go.mod` files. Do not create tags or edit
+dependency versions by hand.
+
+Inventory derivation is a fallible query, not a best-effort filter. Every supported
+source set must be readable before the script publishes any names; failure and an
+empty public set stop the release. Consumers first capture a successful inventory and
+only then iterate it, while diagnostics remain on standard error. This distinction
+prevents an unavailable toolchain, dependency graph, or checkout from being mistaken
+for a repository with nothing to release.
 
 ## Know what is released
 
 The public release train contains `core`, `components`, `markdown`, `highlight`,
 `latex`, `ptytest`, and `ssh`. Every public module receives the same version even when its
 own files did not change. `examples` and `internal` are tested but never tagged.
+This prose list explains the current train; tooling must consume
+`scripts/modules.sh --public` rather than copy it.
 
 Before v1, every exported API may change. From v1 onward, the release must preserve
 Go source compatibility with the previous v1 release. The pinned `gorelease` check

@@ -5,7 +5,7 @@ contentType: Conceptual
 outline: deep
 ---
 
-# Prior art: six terminal UI families, and what to take from them
+# Prior art: terminal UI systems, and what to take from them
 
 Language: English | [简体中文](zh/prior-art.md)
 
@@ -32,6 +32,7 @@ today. A survey that turns into a backlog has stopped being a survey.
 | [lipgloss](https://github.com/charmbracelet/lipgloss) | `5696b28`, 2026-07-20 | Go | Charm's string styling and layout layer. |
 | pi-tui | `7df73a00c`, 2026-07-24 | TypeScript | "Minimal terminal UI framework with differential rendering." |
 | [Codex](https://github.com/openai/codex) | `e4e040881`, 2026-08-03 | Rust | An agent CLI whose TUI is implemented over Ratatui. |
+| [Ratatui](https://github.com/ratatui/ratatui) | `597113438`, 2026-08-24 | Rust, ~80,000 lines | A mature immediate-mode TUI workspace with split core, widgets, backends, macros, examples, and repository tasks. |
 
 The first pass was a survey. The 2026-08-09 pass is a source audit of the relevant
 runtime, renderer, keymap, editor, completion and terminal-lifecycle implementations.
@@ -64,6 +65,48 @@ form the scope system: the focused child is offered an event first, a declined e
 falls through to its parent, and the committed frame owns pointer identity and
 geometry. A central keymap-layer registry would duplicate that tree and create two
 answers to which scope owns an event. It is therefore rejected, not deferred.
+
+## Ratatui: take executable policy and adversarial geometry, not its framework shape
+
+The 2026-08-24 Ratatui audit approached the repository as infrastructure rather than
+as a widget catalogue. Four lessons earned complete vertical slices here.
+
+1. Ratatui's `xtask` makes repository policy compiled code. Oolong has not copied an
+   all-purpose task runner: most of its shell is short orchestration over standard
+   tools, and `release.sh` has a real dry-run lifecycle. The one policy dense enough
+   to deserve a program was the API migration ledger. `internal/cmd/apiledger` now
+   owns workspace discovery, immutable-baseline selection, three-platform `apidiff`
+   comparison, release-section parsing, and module-ledger attribution. Its parsers,
+   platform coverage, and failure propagation are unit-tested; the previous Shell
+   implementation was removed rather than kept as another entry point.
+2. Ratatui's `no_std` build is valuable as a compiler proof, not as a market label.
+   Oolong applies that lesson at its own boundary: all nine modules vet and build for
+   `wasip1/wasm` and `js/wasm` in CI and before release. This proves the selected
+   source files and dependencies remain type-checkable on those targets. It does
+   **not** prove an I/O-free runtime or promise a browser, xterm.js, or WASI terminal
+   adapter.
+3. Ratatui's terminal-width regression corpus exposes a deeper distinction: one
+   Unicode grapheme is not necessarily a one- or two-column terminal atom. Halfwidth
+   katakana sound marks remain spacing terminal characters even when segmentation
+   attaches them to a base. Oolong therefore generalized its private grid span from a
+   two-cell pair to an arbitrary-width display atom. Width is still owned once by the
+   grid and never re-derived from payload bytes; overwrite, clipping, diffing,
+   scrolling, inline encoding, and `ptytest.Screen` all consume that same geometry.
+4. Ratatui's concept examples answer “which ownership model fits?” rather than only
+   “what should I learn next?”. `examples/state` now puts local `Text`, exact `Bind`,
+   normalizing `Accessor`, and rejecting `Accessor` beside one another. They remain
+   four outcomes of one field API, not four widget variants. Pinned CSpell also guards
+   the human prose where these contracts live.
+
+Several mechanisms were deliberately declined. Coordinated module versions remain
+simpler than a compatibility matrix while Oolong is pre-v1; modules differ by
+dependency boundary and evidence, not release train. An `x/` experiment namespace is
+not added before a concrete vertical slice needs one, because a speculative escape
+hatch becomes a second quality tier. Coverage percentages, broad license tooling, and
+a full repository-task framework do not replace an invariant that can fail for a
+named reason. Finally, device payload does not need a forced-width cell escape hatch:
+`grid.Painter` already owns non-cell device output, while ordinary cell content
+rejects controls and keeps its span private.
 
 ## 1. opentui/keymap answers a limitation this repository has written down
 
@@ -491,6 +534,7 @@ guard the few layouts whose relationships are the behaviour.
 | agentui | the idea that a detector should report refusals with reasons | product grammar; a second transcript engine; path policy inside a detector |
 | Charm | cursor shape/blink, native task progress and one-shot owner scheduling | `Cmd`, styled-string rendering, filesystem policy inside a widget |
 | Codex | responsive semantic tables, non-truncating diffs, keyboard feature negotiation, client clipboard transport, ground-fitted themes and selective dimensional visual tests | agent commands and status grammar, native desktop clipboard policy, a second renderer or Ratatui-shaped widget model |
+| Ratatui | tested repository policy, compiler-proved source portability, adversarial width fixtures, and comparative concept examples | its immediate-mode widget shape, independent-version matrix, speculative experiment namespace, coverage target, or forced-width payload escape hatch |
 
 ## Ordered candidates
 

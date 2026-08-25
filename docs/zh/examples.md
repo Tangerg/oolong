@@ -1,6 +1,6 @@
 ---
 title: 从可运行示例逐步学习
-description: 通过十四个经过测试的 Oolong 命令，从核心运行时学习到有界模拟 Agent。
+description: 通过十五个经过测试的 Oolong 命令，从核心运行时学习到有界模拟 Agent。
 contentType: Tutorial
 ---
 
@@ -36,6 +36,7 @@ go test ./...
 | [`hello`](https://github.com/Tangerg/oolong/tree/main/examples/hello) | `go run ./examples/hello` | 任意键计数；`q` 或 `Ctrl+C` 退出 | `program.Component`、`Config.Root`、`grid.View` |
 | [`keys`](https://github.com/Tangerg/oolong/tree/main/examples/keys) | `go run ./examples/keys` | `g` 延时移动；`gg` 跳转；`q` 退出 | 具名 action、精确前缀序列、调用方超时 |
 | [`form`](https://github.com/Tangerg/oolong/tree/main/examples/form) | `go run ./examples/form` | `Tab` 换字段；方向键选择；`Enter` 提交 | 受控字段、验证、网格和语音渲染 |
+| [`state`](https://github.com/Tangerg/oolong/tree/main/examples/state) | `go run ./examples/state` | 在四个字段中输入；`Tab` 前进；`Enter` 提交 | 通过同一条 `Accessor` 接缝表达本地状态、精确绑定、归一化与拒绝 |
 
 通过管道运行表单，可以在没有终端时使用同一组 headless 字段：
 

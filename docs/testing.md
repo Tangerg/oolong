@@ -104,6 +104,12 @@ erasure, bounded scrolling, wide cells, and the terminal's delayed wrap at the r
 margin; unsupported device traffic returns an error instead of being guessed. Assert
 protocol sequences directly when the sequence itself is the contract.
 
+This is independent evidence for terminal-side application and storage, not a second
+width oracle. `ptytest.Screen` deliberately uses the same text-width estimator as the
+renderer, while the width fixtures are the single authority for that estimator. The
+screen model independently decides when a printable atom wraps, overwrites, erases, or
+scrolls after those widths have been supplied.
+
 ## Keep time and background work deterministic
 
 Prefer explicit channels, `testing/synctest`, and runtime callbacks over sleeps. A
@@ -141,11 +147,51 @@ tool would be fake evidence. The script filters exactly those two names and test
 own filter with synthetic marker and ordinary-method findings; the architecture gate
 separately proves the marker methods still exist.
 
-Reachability never authorizes removal. `scripts/check-api-changelog.sh` separately
-uses pinned `apidiff` against each preceding public module tag and requires every
-incompatible exported API change by exact name in the Unreleased migration ledger.
+Reachability never authorizes removal. `go -C internal run ./cmd/apiledger -root ..`
+separately uses pinned `apidiff` against each preceding public module tag and requires
+every incompatible exported API change by exact name in the Unreleased migration
+ledger. Its Go implementation has isolated tests for report parsing, release-section
+selection, module-ledger ownership, all three platform passes, and command failures;
+there is no second shell implementation of that policy. Public membership comes from
+`scripts/modules.sh --public`, the same inventory consumed by CI and release. The
+script derives that subset from externally importable production packages rather than
+module names. Derivation must read every supported source set, publishes no partial
+answer, and rejects an empty public set. Every executable consumer captures that
+successful answer before iterating it; standard error is diagnostic data and never a
+module name. The architecture gate exercises those failure and symlinked-checkout
+paths, independently reads Go's package facts, and proves both the complete and public
+sets are exact. The checker reports a public module with no released tag instead of
+silently omitting it from compatibility evidence.
 That evidence cannot prove the design decision, but it prevents deletion or reshaping
 from being the silent way to satisfy the reachability gate.
+
+An entry may use the exact name emitted by `apidiff`, such as `grid.Cell.Width`, or
+qualify it with the module ledger name. The latter keeps a root-package entry readable
+as `latex.GlyphsFor` instead of the context-free `GlyphsFor`; a different qualifier
+does not satisfy the gate. Both forms must appear as one exact token enclosed in
+backticks.
+
+The ledger is minimum migration evidence, not a closed inventory. Extra names may be
+part of a rename explanation or a coordinated migration, so the checker does not
+reject them as stale; `apidiff` alone decides which current breaks must be present.
+
+## Compile terminal-neutral layers where no terminal exists
+
+CI vets and builds every workspace module for both `wasip1/wasm` and `js/wasm`, and
+the release gate repeats the same check. This proves source separation: a rendering
+or component package cannot quietly acquire a dependency or source file with no
+implementation on those targets. It does not prove that a package performs no I/O,
+or claim that Oolong supplies a browser, xterm.js, or WASI terminal adapter. A
+downstream adapter still owns transport and terminal facts through `program.Host`.
+
+## Spell-check human prose
+
+`npm run spell` checks the Markdown corpus and NOTICE with the exact CSpell version
+locked in `package-lock.json`; `npm run docs:check` includes it in CI and releases.
+The project dictionary contains deliberate product names, Go tools, protocol terms,
+and repository vocabulary. It deliberately does not scan every identifier and test
+fixture: accepting thousands of generated or synthetic tokens would make the
+dictionary broad enough to hide the prose errors this gate exists to catch.
 
 ## Make single-owner types mechanically single-owner
 

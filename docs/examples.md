@@ -1,6 +1,6 @@
 ---
 title: Learn from runnable examples
-description: Follow fourteen tested Oolong commands from the core runtime to a bounded mock agent.
+description: Follow fifteen tested Oolong commands from the core runtime to a bounded mock agent.
 contentType: Tutorial
 ---
 
@@ -36,6 +36,7 @@ These examples introduce drawing, input ownership, key sequences, and headless f
 | [`hello`](https://github.com/Tangerg/oolong/tree/main/examples/hello) | `go run ./examples/hello` | Any key counts; `q` or `Ctrl+C` quits | `program.Component`, `Config.Root`, `grid.View` |
 | [`keys`](https://github.com/Tangerg/oolong/tree/main/examples/keys) | `go run ./examples/keys` | `g` moves after a deadline; `gg` jumps; `q` quits | Named actions, exact-prefix sequences, caller-owned timeout |
 | [`form`](https://github.com/Tangerg/oolong/tree/main/examples/form) | `go run ./examples/form` | `Tab` changes field; arrows choose; `Enter` submits | Controlled fields, validation, grid and spoken rendering |
+| [`state`](https://github.com/Tangerg/oolong/tree/main/examples/state) | `go run ./examples/state` | Type in four fields; `Tab` advances; `Enter` submits | Local state, exact binding, normalization, and rejection through one `Accessor` seam |
 
 Pipe the form to exercise the same headless fields without a terminal:
 

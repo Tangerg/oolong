@@ -5,7 +5,7 @@ contentType: Conceptual
 outline: deep
 ---
 
-# 先行者：六个终端 UI 家族，以及该从它们那里拿什么
+# 先行者：终端 UI 系统，以及该从它们那里拿什么
 
 语言：[English](../prior-art.md) | 简体中文
 
@@ -31,6 +31,7 @@ outline: deep
 | [lipgloss](https://github.com/charmbracelet/lipgloss) | `5696b28`，2026-07-20 | Go | Charm 的字符串样式与布局层。 |
 | pi-tui | `7df73a00c`，2026-07-24 | TypeScript | “最小化的差量渲染终端 UI 框架”。 |
 | [Codex](https://github.com/openai/codex) | `e4e040881`，2026-08-03 | Rust | 一个基于 Ratatui 自行实现 TUI 的 agent CLI。 |
+| [Ratatui](https://github.com/ratatui/ratatui) | `597113438`，2026-08-24 | Rust，约 80,000 行 | 一个成熟的 immediate-mode TUI 工作区，拆分了 core、widgets、backends、macros、examples 与仓库任务。 |
 
 第一轮是调研。2026-08-09 这一轮是对相关运行时、渲染器、keymap、
 editor、completion 与 terminal lifecycle 实现的源码审计。下文引语来自这些
@@ -58,6 +59,37 @@ cursor 外观，`examples/agent` 把原生进度用于真实任务生命周期�
 先把 event 交给焦点子项，子项拒绝后再下落给父级，已交付帧拥有 pointer 身份与
 几何。中央 keymap layer registry 会复制这棵树，并制造两个“哪个 scope 拥有事件”的
 答案。因此它被否决，而不是暂缓。
+
+## Ratatui：吸收可执行政策与对抗性几何，不复制它的框架形状
+
+2026-08-24 的 Ratatui 审计把它当作基础设施而不是组件目录来看。四条经验在这里挣到了
+完整的纵向切片。
+
+1. Ratatui 的 `xtask` 把仓库政策做成编译代码。Oolong 没有照搬一个全能任务运行器：
+   大部分 Shell 只是对标准工具的短编排，`release.sh` 也拥有真实的 dry-run 生命周期。
+   唯一复杂到值得成为程序的政策，是 API 迁移台账。`internal/cmd/apiledger` 现在拥有
+   工作区发现、不可变基线选择、三个产品平台的 `apidiff` 比较、发布章节解析与模块清单
+   归属。它的解析器、平台覆盖与失败传播都有单元测试；旧 Shell 实现已经删除，没有保留
+   第二个入口。
+2. Ratatui 的 `no_std` 构建有价值，是因为它是编译器证明，而不是市场标签。Oolong 在自己
+   的边界上应用这条经验：九个模块都会在 CI 与发布前面向 `wasip1/wasm` 和 `js/wasm`
+   执行 vet 与 build。它证明所选源码文件与依赖在这些目标上仍能通过类型检查，**不证明**
+   运行时无 I/O，也不承诺浏览器、xterm.js 或 WASI 终端适配器。
+3. Ratatui 的终端宽度回归语料暴露了更深的区别：一个 Unicode grapheme 不一定是一个
+   一列或两列的终端原子。即使分段把半宽片假名浊音符附到 base 上，它仍是占列的终端
+   字符。因此 Oolong 把私有 grid span 从二 cell pair 推广成任意宽度的显示原子。宽度仍然
+   只由 grid 拥有一次，绝不从 payload byte 重新推导；覆盖、裁剪、diff、scroll、inline
+   编码与 `ptytest.Screen` 全部消费同一份几何。
+4. Ratatui 的概念示例回答“哪一种所有权模型适合我”，而不只回答“下一步学什么”。
+   `examples/state` 现在把本地 `Text`、精确 `Bind`、归一化 `Accessor` 与拒绝型 `Accessor`
+   并排放在一起。它们仍是同一套 field API 的四种结果，不是四种 widget 变体。钉住版本的
+   CSpell 也会守住这些契约所在的人工散文。
+
+几项机制被明确拒绝。pre-v1 阶段，协同模块版本仍比兼容矩阵更简单；模块按依赖边界与证据
+区分，而不是按发布列车区分。在具体纵向切片真正需要之前，不增加 `x/` 实验命名空间，因为
+投机式逃生舱会变成第二个质量层级。覆盖率百分比、宽泛 license 工具与全仓任务框架，都不能
+替代一条会因具名理由而失败的不变式。最后，device payload 不需要 forced-width cell 逃生舱：
+`grid.Painter` 已经拥有非 cell device output；普通 cell content 拒绝 control 并保持 span 私有。
 
 ## 1. opentui/keymap 回答了本仓库已经写下的一项限制
 
@@ -417,6 +449,7 @@ snapshot policy。状态转换仍用行为断言；golden 只守住少数“关�
 | agentui | detector 应当报告带原因的拒绝项 | 产品语法、第二套 transcript 引擎、detector 内部的路径 policy |
 | Charm | cursor 形态/闪烁、terminal 原生任务进度、一次性 owner 调度 | `Cmd`、styled-string rendering、widget 内的文件系统 policy |
 | Codex | 响应式语义表格、不截断 diff、键盘 feature 协商、client clipboard transport、ground-fitted theme 与选择性的多维视觉测试 | agent command 与 status 语法、native desktop clipboard policy、第二套 renderer 或 Ratatui 形状的 widget model |
+| Ratatui | 经过测试的仓库政策、由编译器证明的源码可移植性、对抗性宽度 fixture 与比较式概念示例 | 它的 immediate-mode widget 形状、独立版本矩阵、投机实验命名空间、覆盖率目标或 forced-width payload 逃生舱 |
 
 ## 有序候选项
 
