@@ -25,9 +25,15 @@
 // should use one above this package rather than making this allocator know their
 // item lifecycle.
 //
-// [Down] makes rows and [Across] makes columns; both use the same operation because
-// only the divided axis changes:
+// Each [Slot] carries one [Sizing] policy in Size. [Fixed] reserves an exact extent,
+// [Flex] shares what remains, [Part] takes a fraction of the whole, and [Measured]
+// asks Slot.Of. [Down] makes rows and [Across] makes columns; both use the same
+// operation because only the divided axis changes:
 //
+//	slots := []layout.Slot{
+//		{Size: layout.Fixed(1)},
+//		{Size: layout.Flex(1)},
+//	}
 //	rows := (layout.Flow{Axis: layout.Down}).Rects(space, slots)
 //	columns := (layout.Flow{Axis: layout.Across}).Rects(space, slots)
 package layout
@@ -175,7 +181,12 @@ func Part(part, whole int) Sizing {
 func Flex(share int) Sizing { return Sizing{kind: flexSizing, amount: max(share, 0)} }
 
 // Measured is a slot as big as its [Measurer] asks to be, within bounds. A zero
-// maximum means no cap.
+// maximum means no cap. Negative bounds are normalized to zero.
+//
+// A non-zero maximum below the minimum is a programmer error and panics here. The
+// two bounds are a contradiction the caller wrote, and clamping either of them would
+// hand back a slot sized by neither, in a division whose other slots then absorb the
+// difference somewhere the caller never looks.
 func Measured(minimum, maximum int) Sizing {
 	minimum, maximum = max(minimum, 0), max(maximum, 0)
 	if maximum > 0 && maximum < minimum {
@@ -190,6 +201,11 @@ func Measured(minimum, maximum int) Sizing {
 // flexible and measured sizing. Applying one to a fixed or zero sizing is a
 // programmer error: the former is already exact, and the latter names no sizing
 // policy to constrain.
+//
+// That error panics, as does a floor above a measured slot's non-zero maximum.
+// Both are contradictions in one slot's own description, and a Sizing is passed to
+// [Flow.Rects] far from where it was built — a silently corrected one would surface
+// as a neighbouring slot being the wrong size, which is the wrong place to look.
 func (s Sizing) AtLeast(minimum int) Sizing {
 	minimum = max(minimum, 0)
 	switch s.kind {
