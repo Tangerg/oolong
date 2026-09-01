@@ -11,7 +11,7 @@
     "docs:check": "npm audit --audit-level=moderate && npm run spell && npm run docs:lint && npm run docs:build"
   },
   "devDependencies": {
-    "cspell": "10.1.0",
+    "cspell": "10.1.1",
     "markdownlint-cli2": "0.23.2",
     "vitepress": "2.0.0-alpha.19"
   }
