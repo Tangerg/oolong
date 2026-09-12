@@ -48,6 +48,9 @@ Complete these steps on `main`:
 4. Run the complete CI workflow and resolve every failure
 5. Confirm `main` is clean and matches `origin/main`
 
+CI checks the newest version's migration ledger while any public module lacks that
+version's tag. Once the entire train is tagged, it checks `Unreleased` again.
+
 Do not place a `replace` directive in any module. A workspace replacement is not
 part of a published module and would make local verification test a different graph
 from the one consumers receive.
@@ -70,7 +73,7 @@ Review these facts in its output:
 - A module is tagged after every Oolong module it imports
 - The proposed changelog section exists
 - Every incompatible exported API change appears by exact API name in its module's
-  Unreleased migration ledger
+  migration ledger for the proposed version
 - `gorelease` reports the expected pre-1.0 break or v1 compatibility result
 - No local or remote tag already uses the version
 

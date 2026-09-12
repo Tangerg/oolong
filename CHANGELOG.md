@@ -58,6 +58,8 @@ point of tagging them low rather than not at all.
   Markdown replaces malformed UTF-8 before parsing, including an incomplete final rune.
 - The API ledger command-error test handles native Windows paths. Documentation
   tooling pins the fixed TOML parser and passes the full dependency audit.
+- CI checks the prepared version's migration ledger until every public module has
+  its release tag, then resumes checking Unreleased.
 
 ### Breaking API migration
 
