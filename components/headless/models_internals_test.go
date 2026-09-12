@@ -62,8 +62,8 @@ func TestEditorHistoryClearsPoppedSnapshots(t *testing.T) {
 
 type retainedWidget struct{ payload []byte }
 
-func (*retainedWidget) Draw(Frame)      {}
-func (*retainedWidget) Measure(int) int { return 1 }
+func (*retainedWidget) Draw(Frame)             {}
+func (*retainedWidget) HeightForWidth(int) int { return 1 }
 
 type retainedField struct{ retainedWidget }
 
@@ -85,9 +85,9 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 		Item{Size: layout.Measured(1, 0), Of: children[1]},
 		Item{Size: layout.Measured(1, 0), Of: children[2]},
 	)
-	container.Measure(10)
+	container.HeightForWidth(10)
 	container.Set(Item{Size: layout.Measured(1, 0), Of: children[0]})
-	container.Measure(10)
+	container.HeightForWidth(10)
 	for i, item := range container.items[:cap(container.items)] {
 		if i >= len(container.items) && item.Of != nil {
 			t.Fatalf("container item %d retained a removed child", i)
@@ -113,9 +113,9 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 
 	fields := []*retainedField{{}, {}, {}}
 	form := NewForm(fields[0], fields[1], fields[2])
-	form.Measure(10)
+	form.HeightForWidth(10)
 	form.Set(fields[0])
-	form.Measure(10)
+	form.HeightForWidth(10)
 	for i, item := range form.body.items[:cap(form.body.items)] {
 		if i >= len(form.body.items) && item.Of != nil {
 			t.Fatalf("form item %d retained a removed field", i)
@@ -164,9 +164,9 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 
 	var container Container
 	container.Set(items...)
-	container.Measure(10)
+	container.HeightForWidth(10)
 	container.Set(one...)
-	container.Measure(10)
+	container.HeightForWidth(10)
 	if cap(container.items) > 2*len(container.items)+16 {
 		t.Fatalf("container retains capacity %d for %d child", cap(container.items), len(container.items))
 	}
@@ -203,9 +203,9 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 		fields[i] = &retainedField{retainedWidget{payload: []byte{byte(i)}}}
 	}
 	form := NewForm(fields...)
-	form.Measure(10)
+	form.HeightForWidth(10)
 	form.Set(fields[0])
-	form.Measure(10)
+	form.HeightForWidth(10)
 	if cap(form.fields) > 2*len(form.fields)+16 {
 		t.Fatalf("form retains capacity %d for %d field", cap(form.fields), len(form.fields))
 	}
@@ -260,7 +260,7 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	editor.SetText(source)
 	assertDetached("editor text", editor.Text())
 
-	var selectField Select[string]
+	selectField := Select[string]{Same: Equal[string]}
 	selectField.SetOptions([]Option[string]{{Label: source, Value: "value"}})
 	assertDetached("option label", selectField.Options()[0].Label)
 }
@@ -275,8 +275,8 @@ func makeTabs(children []*retainedWidget) []Tab {
 
 type retainedBlock struct{ payload []byte }
 
-func (b *retainedBlock) Measure(int) int { return 1 }
-func (b *retainedBlock) Draw(grid.View)  {}
+func (b *retainedBlock) HeightForWidth(int) int { return 1 }
+func (b *retainedBlock) Draw(grid.View)         {}
 func (b *retainedBlock) Rows(int) []text.Row {
 	return []text.Row{{Text: string(b.payload)}}
 }

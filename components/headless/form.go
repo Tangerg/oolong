@@ -20,7 +20,7 @@ import (
 // look travels the other way, as a [Look] the form hands down.
 type Field interface {
 	Focusable
-	layout.Measurer
+	HeightForWidth(width int) int
 
 	// Prompt is what the field is asking for.
 	Prompt() string
@@ -32,23 +32,9 @@ type Field interface {
 	Error() error
 }
 
-// Look is how a widget here draws itself, for the few that draw themselves at all.
-//
-// Most of this package draws nothing: a list calls back to whoever knows what a row
-// looks like, and that is what makes the ring above it optional. The exceptions are
-// the widgets whose drawing cannot be handed out — a field is generic over what it
-// holds, so nothing above could name every kind of one; an editor lays a selection
-// over text it alone knows the shape of; a completion picks out the characters a
-// query matched. They take this, and there is one of it rather than a style field
-// per part, keeping one coherent appearance value for the whole field.
-//
-// A field is given one by the form it is in, and a form is given one by whatever
-// appearance layer dressed it. A single field is a [Form] with one field in it: that is
-// a widget like any other, it goes wherever a widget goes, and it is the whole of the
-// wiring.
-//
-// The zero value draws in the terminal's own colours with no marks beside a choice,
-// which is legible and plain, and is what a widget nobody dressed gets.
+// Look supplies semantic styles and choice marks to the default field, editor and
+// completion renderers. Its zero value uses terminal colors. Custom choice rows and
+// completion renderers receive the same roles while owning their own row layout.
 type Look struct {
 	// Text is the answer, Label what the field is asking for, and Subtle a placeholder
 	// or a hint.
@@ -103,10 +89,9 @@ func (l Look) choice(v grid.View, label string, under, taken bool) {
 	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), "…"), style)
 }
 
-// fieldDrawer is a built-in field that can project a Look without storing it. An
-// external Field draws itself and remains entirely outside the form's appearance
-// vocabulary.
-type fieldDrawer interface{ drawField(frame Frame, look Look) }
+// ThemedField optionally receives a Form look for one frame. Built-in and external
+// fields use the same capability; the look must not replace stored configuration.
+type ThemedField interface{ DrawWith(frame Frame, look Look) }
 
 // field is what every field in this package has in common: whether it has the
 // keyboard, what was wrong with the answer, and the committed geometry used by
@@ -334,9 +319,9 @@ func (f *Form) Cancel() {
 	}
 }
 
-// Measure is how tall the fields are altogether, which is what a form in a measured
+// HeightForWidth is how tall the fields are altogether, which is what a form in a measured
 // slot asks for.
-func (f *Form) Measure(across int) int {
+func (f *Form) HeightForWidth(across int) int {
 	return f.body.measureWith(across, f.flow())
 }
 
@@ -352,8 +337,8 @@ func (f *Form) Draw(v Frame) {
 // controller without the last one silently becoming its configuration.
 func (f *Form) DrawWith(v Frame, look Look) {
 	f.body.drawWith(v, f.flow(), func(frame Frame, child Widget) {
-		if field, ok := child.(fieldDrawer); ok {
-			field.drawField(frame, look)
+		if field, ok := child.(ThemedField); ok {
+			field.DrawWith(frame, look)
 			return
 		}
 		child.Draw(frame)

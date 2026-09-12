@@ -51,15 +51,16 @@ type Focusable interface {
 // Item is one child of a [Container]: what goes there, and how much room it gets.
 type Item struct {
 	// Key is the child's stable identity across [Container.Set]. Empty uses its
-	// position. Name a child when it may move: focus and an in-progress pointer
-	// gesture then follow the part rather than whichever part took its old slot.
+	// position. Name a child when it may move: focus follows its logical slot.
+	// Pointer gestures follow the same concrete child in that slot. Replacing a
+	// child cancels its gesture; non-comparable value widgets are replacements
+	// on every Set, so use a pointer when retaining their identity matters.
 	// Non-empty keys must be unique within one container.
 	Key string
 	// Size is how much of the divided axis this child takes. It means exactly what
 	// it means in [layout.Slot], including the zero value, which asks for nothing —
-	// deliberately, because [layout.Fixed] of zero is that same zero value, and a
-	// container that read it as "however much you want" would put back a row a
-	// caller had just asked to have none of.
+	// [layout.Fixed] of zero also allocates nothing, but explicitly names a fixed
+	// policy; [layout.Sizing.IsZero] distinguishes it from omission.
 	//
 	// A child as big as its content wants to be is [layout.Measured].
 	Size layout.Sizing
@@ -106,7 +107,7 @@ type Container struct {
 	// replacing them cannot bypass focus settlement or leave pointer capture owned by
 	// a child that is no longer present.
 	//
-	items []Item
+	items []containerItem
 	// Gap is how many blank rows or columns go between one child and the next. Zero
 	// puts them against each other.
 	//
@@ -167,10 +168,21 @@ func (c *Container) Set(items ...Item) {
 	checkItemKeys(items)
 	key := c.focusKey()
 	at := c.focused
-	c.items = own(c.items, items)
-	for i := range c.items {
-		c.items[i].Key = strings.Clone(c.items[i].Key)
+	next := make([]containerItem, len(items))
+	for i, item := range items {
+		next[i].Item = item
+		next[i].Key = strings.Clone(item.Key)
+		old := i
+		if item.Key != "" {
+			old = c.indexOfKey(item.Key)
+		}
+		if old >= 0 && old < len(c.items) && c.items[old].Key == item.Key && identity.Same(c.items[old].Of, item.Of) {
+			next[i].identity = c.items[old].identity
+		} else {
+			next[i].identity = new(byte)
+		}
 	}
+	c.items = next
 	if key != "" {
 		at = c.indexOfKey(key)
 	} else if len(c.items) > 0 {
@@ -185,10 +197,10 @@ func (c *Container) Set(items ...Item) {
 // expression. A key already used by a child that is staying is a programmer error and
 // panics, as described on [NewContainer].
 func (c *Container) Add(items ...Item) *Container {
-	checkItemKeys(append(slices.Clone(c.items), items...))
-	c.items = append(c.items, items...)
-	for i := len(c.items) - len(items); i < len(c.items); i++ {
-		c.items[i].Key = strings.Clone(c.items[i].Key)
+	checkItemKeys(append(c.Items(), items...))
+	for _, item := range items {
+		item.Key = strings.Clone(item.Key)
+		c.items = append(c.items, containerItem{Item: item, identity: new(byte)})
 	}
 	c.settled = false
 	c.settle()
@@ -200,7 +212,11 @@ func (c *Container) Items() []Item {
 	if c == nil {
 		return nil
 	}
-	return slices.Clone(c.items)
+	items := make([]Item, len(c.items))
+	for i, child := range c.items {
+		items[i] = child.Item
+	}
+	return items
 }
 
 // Len reports how many children the container owns.
@@ -217,11 +233,11 @@ func (c *Container) Focused() Widget {
 	return c.widgetAt(c.focused)
 }
 
-// Give hands the keyboard to the child at index, reporting whether it took it. An
+// FocusIndex hands the keyboard to the child at index, reporting whether it took it. An
 // index that does not exist, or a child that does not want the keyboard, is declined.
 // Addressing the item rather than comparing Widget interface values keeps this API
 // valid for every implementation the interface permits.
-func (c *Container) Give(index int) bool {
+func (c *Container) FocusIndex(index int) bool {
 	if !c.focusable(index) {
 		return false
 	}
@@ -262,7 +278,7 @@ func (c *Container) drawWith(v Frame, flow layout.Flow, draw func(Frame, Widget)
 	placed := make([]childPlacement, len(items))
 	for i, item := range items {
 		placed[i] = childPlacement{
-			index: i, key: item.Key, child: item.Of, area: rects[i], frame: v.stamp(),
+			identity: item.identity, child: item.Of, area: rects[i],
 		}
 	}
 	c.presentation.Stage(v, placed)
@@ -279,10 +295,39 @@ func (c *Container) drawWith(v Frame, flow layout.Flow, draw func(Frame, Widget)
 	}
 }
 
-// Measure is how much of the divided axis the children want altogether, which is
-// what a container inside a measured slot answers with.
-func (c *Container) Measure(across int) int {
-	return c.measureWith(across, c.flow())
+// HeightForWidth reports the container height after allocating its children at width.
+func (c *Container) HeightForWidth(width int) int { return c.Measure(layout.Down, width) }
+
+// WidthForHeight reports the container width after allocating its children at height.
+func (c *Container) WidthForHeight(height int) int { return c.Measure(layout.Across, height) }
+
+// Measure computes an intrinsic extent along the explicitly requested axis.
+// Along the container's flow it sums child requests; across its flow it allocates
+// the supplied extent first, then takes the largest child cross-axis request.
+func (c *Container) Measure(axis layout.Axis, across int) int {
+	if axis == c.Axis {
+		return c.measureWith(across, c.flow())
+	}
+	sizes := c.flow().Divide(across, 0, c.arrange())
+	wanted := 0
+	for i, item := range c.items {
+		wanted = max(wanted, measureWidget(item.Of, axis, sizes[i]))
+	}
+	return wanted
+}
+
+func measureWidget(widget Widget, axis layout.Axis, across int) int {
+	if measurer, ok := widget.(layout.Measurer); ok {
+		return measurer.Measure(axis, across)
+	}
+	if axis == layout.Down {
+		if sized, ok := widget.(Sized); ok {
+			return sized.HeightForWidth(across)
+		}
+	} else if sized, ok := widget.(interface{ WidthForHeight(height int) int }); ok {
+		return sized.WidthForHeight(across)
+	}
+	return 0
 }
 
 func (c *Container) measureWith(across int, flow layout.Flow) int {
@@ -316,8 +361,8 @@ func (c *Container) Handle(ev input.Event) bool {
 	return handled
 }
 
-// Do runs one of the container's actions by name, reporting whether it was one a
-// container knows and whether it changed anything. See [Doer].
+// Do runs one of the container's actions by name, reporting whether the action
+// was accepted. See [Doer].
 func (c *Container) Do(action keymap.Action) bool {
 	switch action {
 	case FocusNext:
@@ -346,7 +391,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 				c.held = childPlacement{}
 				c.holding = false
 			}
-			if !found || !current.sameOwner(owner) {
+			if !found || c.currentIndex(current) < 0 {
 				c.held = childPlacement{}
 				c.holding = false
 				return false
@@ -356,7 +401,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		}
 	}
 	at, found := c.at(ev.Pos)
-	if !found {
+	if !found || c.currentIndex(at) < 0 {
 		return false
 	}
 	if ev.Action != input.MouseDown {
@@ -364,7 +409,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 	}
 	// A press moves the keyboard whether or not the child does anything with the
 	// press itself: clicking a pane is how a user says they mean that one.
-	c.Give(at.index)
+	c.FocusIndex(c.currentIndex(at))
 	if !c.deliver(at, ev) {
 		return false
 	}
@@ -388,7 +433,7 @@ func (c *Container) deliver(to childPlacement, ev input.Mouse) bool {
 	return handler.Handle(local)
 }
 
-// at is the child a point is over, or -1.
+// at finds the child under a point in the last complete frame.
 func (c *Container) at(p image.Point) (childPlacement, bool) {
 	for _, child := range c.presentation.Value() {
 		if p.In(child.area) {
@@ -400,7 +445,7 @@ func (c *Container) at(p image.Point) (childPlacement, bool) {
 
 func (c *Container) placed(want childPlacement) (childPlacement, bool) {
 	for _, child := range c.presentation.Value() {
-		if child.sameSlot(want) {
+		if child.identity == want.identity {
 			return child, true
 		}
 	}
@@ -413,13 +458,13 @@ func (c *Container) arrange() []layout.Slot {
 	return c.arrangeItems(c.items)
 }
 
-func (c *Container) arrangeItems(items []Item) []layout.Slot {
+func (c *Container) arrangeItems(items []containerItem) []layout.Slot {
 	clear(c.slots)
 	c.slots = c.slots[:0]
 	for _, item := range items {
-		slot := layout.Slot{Size: item.Size}
-		if measurer, ok := item.Of.(layout.Measurer); ok {
-			slot.Of = measurer
+		slot := layout.Slot{
+			Size: item.Size,
+			Of:   layout.MeasureFunc(func(axis layout.Axis, across int) int { return measureWidget(item.Of, axis, across) }),
 		}
 		c.slots = append(c.slots, slot)
 	}
@@ -427,29 +472,23 @@ func (c *Container) arrangeItems(items []Item) []layout.Slot {
 	return c.slots
 }
 
+// containerItem owns a child and its attachment identity together. A replacement
+// cannot update one without constructing the other.
+type containerItem struct {
+	Item
+	identity *byte
+}
+
 type childPlacement struct {
-	index int
-	key   string
-	child Widget
-	area  image.Rectangle
-	frame frameStamp
+	identity *byte
+	child    Widget
+	area     image.Rectangle
 }
 
-func (p childPlacement) sameOwner(other childPlacement) bool {
-	if p.frame == other.frame {
-		return true
-	}
-	if p.key != "" && p.key == other.key {
-		return true
-	}
-	return identity.Same(p.child, other.child)
-}
-
-func (p childPlacement) sameSlot(other childPlacement) bool {
-	if p.key != "" || other.key != "" {
-		return p.key != "" && p.key == other.key
-	}
-	return p.index == other.index
+// currentIndex resolves a presented attachment, never an index from another frame.
+// Removed and replaced children are inert until their replacements are drawn.
+func (c *Container) currentIndex(p childPlacement) int {
+	return slices.IndexFunc(c.items, func(item containerItem) bool { return item.identity == p.identity })
 }
 
 // settle makes sure the keyboard is somewhere it can be, and that every child has

@@ -30,7 +30,7 @@ func ExampleForm() {
 		model string
 		sure  bool
 	)
-	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField := &headless.Select[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
 	form := headless.NewForm(
 		&headless.Text{
@@ -58,7 +58,7 @@ func ExampleForm() {
 	form.Handle(input.Key{Code: input.Left})  // which is yes
 	form.Handle(input.Key{Code: input.Enter}) // done
 
-	showWidget(16, form.Measure(16), form)
+	showWidget(16, form.HeightForWidth(16), form)
 
 	// Output:
 	// collected: ada good true

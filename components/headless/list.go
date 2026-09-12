@@ -21,12 +21,14 @@ import (
 //
 // The zero value is ready. A List must not be copied after first use: its items,
 // matcher, scroll and committed routing state are one mutable owner.
+// A nil *List is a programmer error; methods panic.
 type List[T any] struct {
 	noCopy noCopy
 
 	// items are private so replacing them cannot bypass selection clamping or leave
 	// committed routing totals describing a collection the list no longer owns.
-	items []T
+	items   []T
+	itemsID *byte
 	// Row draws one item. at is where it sits among the items and selected says
 	// whether it is the one under the cursor, which the caller renders however it
 	// likes — a list does not know what selected looks like in its surroundings.
@@ -77,8 +79,11 @@ func (l *List[T]) Current() (T, bool) {
 
 // Select moves the cursor to an index, clamped to the list.
 func (l *List[T]) Select(i int) {
-	l.selected = l.clampIndex(i)
-	l.reveal()
+	next := l.clampIndex(i)
+	if next != l.selected {
+		l.selected = next
+		l.reveal()
+	}
 }
 
 // Move shifts the selection by n items, wrapping only if asked to.
@@ -96,32 +101,33 @@ func (l *List[T]) Move(n int) {
 // Keeping the index rather than the item: a list that is refreshed while the user is
 // reading it should not jump, and following an item by identity would need this
 // widget to know how to compare items, which is knowledge it has no business
-// holding.
+// holding. Pointer selection waits for the replacement collection to be drawn; old
+// row coordinates cannot identify an item in a new collection.
 func (l *List[T]) SetItems(items []T) {
+	l.matcher.Clear()
 	l.items = own(l.items, items)
-	l.selected = l.clampIndex(l.selected)
+	l.itemsID = new(byte)
+	if len(l.items) == 0 {
+		l.scroll.ToTop()
+	}
+	l.Select(l.selected)
 }
 
 // Items returns a copy of the items in list order.
 func (l *List[T]) Items() []T {
-	if l == nil {
-		return nil
-	}
 	return slices.Clone(l.items)
 }
 
 // Len reports how many items the list owns.
 func (l *List[T]) Len() int {
-	if l == nil {
-		return 0
-	}
 	return len(l.items)
 }
 
 // At returns the item at index and whether it exists.
 func (l *List[T]) At(index int) (T, bool) {
-	if l != nil && index >= 0 && index < len(l.items) {
-		return l.items[index], true
+	items := l.items
+	if index >= 0 && index < len(items) {
+		return items[index], true
 	}
 	var zero T
 	return zero, false
@@ -143,6 +149,7 @@ func (l *List[T]) Handle(ev input.Event) bool {
 // Do runs one of the list's actions by name, reporting whether it was one this list
 // knows. See [Doer].
 func (l *List[T]) Do(action keymap.Action) bool {
+	before := l.Selected()
 	page := max(l.presentation.Value().window-1, 1)
 	switch action {
 	case SelectPrev:
@@ -159,6 +166,11 @@ func (l *List[T]) Do(action keymap.Action) bool {
 		l.Select(len(l.items) - 1)
 	default:
 		return false
+	}
+	if l.Selected() == before {
+		// An explicit navigation action still asks to see the cursor at a boundary.
+		// Ordinary selection synchronization and Draw do not make that request.
+		l.reveal()
 	}
 	return true
 }
@@ -195,7 +207,7 @@ func (l *List[T]) mouse(ev input.Mouse) bool {
 // and is about the one on screen.
 func (l *List[T]) reach(y int) bool {
 	presented := l.presentation.Value()
-	if presented.window <= 0 || y < 0 || y >= presented.window {
+	if presented.itemsID != l.itemsID || presented.window <= 0 || y < 0 || y >= presented.window {
 		return false
 	}
 	at := presented.first + y
@@ -216,9 +228,9 @@ func (l *List[T]) keys() *keymap.Map {
 	return listKeys()
 }
 
-// Measure is one row per item, which is what a container needs to decide whether the
+// HeightForWidth is one row per item, which is what a container needs to decide whether the
 // list can have all the room it wants.
-func (l *List[T]) Measure(int) int { return len(l.items) }
+func (l *List[T]) HeightForWidth(int) int { return len(l.items) }
 
 // Focus takes the keyboard, or gives it up.
 //
@@ -261,11 +273,13 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 	width, height := v.Size()
 	total := len(l.items)
 	scroll := l.scroll.Stage(v, total, height)
-	if selected >= 0 {
+	// A controller may project an external choice before Sync moves our cursor.
+	// Reveal that projection once; owned cursor movement already uses Scroll.Reveal.
+	if selected >= 0 && selected != l.selected && selected != l.presentation.Value().selected {
 		scroll.Reveal(selected, selected)
 	}
 	first := scroll.Offset()
-	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total})
+	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total, selected: selected, itemsID: l.itemsID})
 	if draw == nil {
 		return
 	}
@@ -281,22 +295,16 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 
 // reveal scrolls the least amount that brings the selection into the window.
 func (l *List[T]) reveal() {
-	window := l.presentation.Value().window
-	if window <= 0 || len(l.items) == 0 {
+	if len(l.items) == 0 {
 		return
 	}
-	l.scroll.layout(len(l.items), window)
-	first := l.scroll.Offset()
-	switch last := first + window - 1; {
-	case l.selected < first:
-		l.scroll.By(l.selected - first)
-	case l.selected > last:
-		l.scroll.By(l.selected - last)
-	}
+	l.scroll.layout(len(l.items), l.presentation.Value().window)
+	l.scroll.Reveal(l.selected, l.selected)
 }
 
 type listPresentation struct {
-	window, first, total int
+	itemsID                        *byte
+	window, first, total, selected int
 }
 
 func (l *List[T]) clampIndex(i int) int {

@@ -18,7 +18,7 @@ func (t *Text) Ask() string {
 
 // Reply takes what was said as the whole of the answer.
 func (t *Text) Reply(said string) error {
-	t.ensure()
+	t.Sync()
 	edit := t.beginEdit()
 	t.editor.SetText(said)
 	t.storeSince(edit)
@@ -27,14 +27,13 @@ func (t *Text) Reply(said string) error {
 
 // Ask is the label and the choices, numbered.
 func (s *Select[T]) Ask() string {
-	s.ensure()
-	return s.Label + choices(s.options)
+	return s.Label + choices(s.list.items)
 }
 
 // Reply takes a number or one of the labels.
 func (s *Select[T]) Reply(said string) error {
-	s.ensure()
-	at, err := choose(said, s.options)
+	s.Sync()
+	at, err := choose(said, s.list.items)
 	if err != nil {
 		return s.check(err)
 	}
@@ -45,21 +44,20 @@ func (s *Select[T]) Reply(said string) error {
 
 // Ask is the label and the choices, numbered, with a word about giving several.
 func (m *MultiSelect[T]) Ask() string {
-	m.ensure()
-	return m.Label + choices(m.options) + " — several, separated by commas"
+	return m.Label + choices(m.list.items) + " — several, separated by commas"
 }
 
 // Reply takes numbers or labels, separated by commas. Nothing at all takes nothing,
 // which is how a reader says they want none of them.
 func (m *MultiSelect[T]) Reply(said string) error {
-	m.ensure()
-	taken := make([]bool, len(m.options))
+	m.Sync()
+	taken := make([]bool, len(m.list.items))
 	count := 0
 	for part := range strings.SplitSeq(said, ",") {
 		if strings.TrimSpace(part) == "" {
 			continue
 		}
-		at, err := choose(part, m.options)
+		at, err := choose(part, m.list.items)
 		if err != nil {
 			return m.check(err)
 		}

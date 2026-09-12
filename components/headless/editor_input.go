@@ -24,7 +24,16 @@ func (e *Editor) Handle(ev input.Event) bool {
 		return e.handleMouse(mouse, e.presentation.Value())
 	}
 	key, ok := ev.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
+		return false
+	}
+	return e.handleKey(key, e.Do, e.typed)
+}
+
+// handleKey leaves action and insertion ownership with the controller. Deferred
+// keymap resolution must re-enter that same controller's acceptance boundary.
+func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed func(input.Key) bool) bool {
+	if !key.Down() {
 		return false
 	}
 	e.ensure()
@@ -46,9 +55,9 @@ func (e *Editor) Handle(ev input.Event) bool {
 		}
 	}
 
-	matched, handled := e.matcher.Handle(e.keys(), key, e.Do)
+	matched, handled := e.matcher.Handle(e.keys(), key, do)
 	if !matched {
-		return e.typed(key)
+		return typed(key)
 	}
 	return handled
 }

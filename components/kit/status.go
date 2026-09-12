@@ -27,8 +27,8 @@ type Status struct {
 // Tick advances the spinner by one frame.
 func (s *Status) Tick() { s.spinner.Tick() }
 
-// Measure is one row.
-func (s *Status) Measure(int) int { return 1 }
+// HeightForWidth is one row.
+func (s *Status) HeightForWidth(int) int { return 1 }
 
 // Draw paints the spinner, the label and the elapsed time.
 func (s *Status) Draw(v grid.View) {

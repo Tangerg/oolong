@@ -78,12 +78,12 @@ func (f *Form) Controller() *headless.Form {
 	return f.controller
 }
 
-// Measure is the title, the fields, and the hints.
-func (f *Form) Measure(across int) int {
+// HeightForWidth is the title, the fields, and the hints.
+func (f *Form) HeightForWidth(across int) int {
 	if f == nil || f.controller == nil {
 		return 0
 	}
-	return layout.Sum(f.rows(), f.controller.Measure(across))
+	return layout.Sum(f.rows(), f.controller.HeightForWidth(across))
 }
 
 // Draw dresses the form and paints it.

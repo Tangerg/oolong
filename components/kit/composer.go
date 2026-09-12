@@ -77,10 +77,10 @@ func (c *Composer) Handle(ev input.Event) bool {
 	return c.editor.Handle(ev)
 }
 
-// Measure is how many rows the composer needs at this width: the field, and a row
+// HeightForWidth is how many rows the composer needs at this width: the field, and a row
 // for the hints when there are any.
-func (c *Composer) Measure(width int) int {
-	rows := c.editor.Measure(layout.Remaining(width, c.markerWidth()))
+func (c *Composer) HeightForWidth(width int) int {
+	rows := c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth()))
 	rows = min(rows, c.rows())
 	return layout.Sum(rows, c.hintRows())
 }

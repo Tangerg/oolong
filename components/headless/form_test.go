@@ -3,6 +3,7 @@ package headless_test
 import (
 	"errors"
 	"image"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,14 +16,14 @@ import (
 // read off a surface.
 func bare() headless.Look { return headless.Look{Taken: "x", Free: "-"} }
 
-func selectWith[T any](options []headless.Option[T]) *headless.Select[T] {
-	field := new(headless.Select[T])
+func selectWith[T comparable](options []headless.Option[T]) *headless.Select[T] {
+	field := &headless.Select[T]{Same: headless.Equal[T]}
 	field.SetOptions(options)
 	return field
 }
 
-func multiWith[T any](options []headless.Option[T]) *headless.MultiSelect[T] {
-	field := new(headless.MultiSelect[T])
+func multiWith[T comparable](options []headless.Option[T]) *headless.MultiSelect[T] {
+	field := &headless.MultiSelect[T]{Same: headless.Equal[T]}
 	field.SetOptions(options)
 	return field
 }
@@ -40,7 +41,7 @@ type observedField struct {
 }
 
 func (*observedField) Draw(headless.Frame)       {}
-func (*observedField) Measure(int) int           { return 1 }
+func (*observedField) HeightForWidth(int) int    { return 1 }
 func (*observedField) Prompt() string            { return "" }
 func (*observedField) Validate() error           { return nil }
 func (*observedField) Error() error              { return nil }
@@ -147,7 +148,7 @@ func TestAFieldStartsFromWhatTheCallerAlreadyHas(t *testing.T) {
 	// time, rather than an empty one they have to fill in again.
 	name := "ada"
 	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
-	rows := paintWidget(12, field.Measure(12), field)
+	rows := paintWidget(12, field.HeightForWidth(12), field)
 	if !strings.Contains(strings.Join(rows, "\n"), "ada") {
 		t.Fatalf("drawn:\n%s\nwant what the caller already had", strings.Join(rows, "\n"))
 	}
@@ -252,7 +253,7 @@ func TestReplacingChoicesPreservesTheChosenValueRatherThanItsOldPosition(t *test
 
 func TestAChoiceOwnsItsOptionsAndReturnsSnapshots(t *testing.T) {
 	options := headless.Options("a", "b")
-	field := new(headless.Select[string])
+	field := &headless.Select[string]{Same: headless.Equal[string]}
 	field.SetOptions(options)
 	options[0].Label = "changed input"
 	if got := field.Options()[0].Label; got != "a" {
@@ -339,7 +340,12 @@ func TestMultipleChoiceLimitRejectsNegativeValues(t *testing.T) {
 	new(headless.MultiSelect[string]).SetLimit(-1)
 }
 
-func TestNilMultipleChoiceIgnoresLimitChanges(*testing.T) {
+func TestNilMultipleChoiceRejectsLimitChanges(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil MultiSelect silently ignored mutation")
+		}
+	}()
 	var field *headless.MultiSelect[string]
 	field.SetLimit(-1)
 }
@@ -366,14 +372,15 @@ func TestReplacingMultipleChoicesMovesTheTakenSetByValue(t *testing.T) {
 	}
 }
 
-func TestReplacingChoicesUsesLabelsForArbitraryValues(t *testing.T) {
+func TestReplacingChoicesUsesExplicitValueIdentity(t *testing.T) {
 	type payload []int
 	options := []headless.Option[payload]{
 		{Label: "one", Value: payload{1}},
 		{Label: "two", Value: payload{2}},
 	}
 
-	one := selectWith(options)
+	one := &headless.Select[payload]{Same: slices.Equal[payload]}
+	one.SetOptions(options)
 	one.Do(headless.SelectNext)
 	one.SetOptions([]headless.Option[payload]{options[1], options[0]})
 	chosen, ok := one.Chosen()
@@ -381,7 +388,8 @@ func TestReplacingChoicesUsesLabelsForArbitraryValues(t *testing.T) {
 		t.Fatalf("single choice after reorder = %+v, %v; want label two", chosen, ok)
 	}
 
-	many := multiWith(options)
+	many := &headless.MultiSelect[payload]{Same: slices.Equal[payload]}
+	many.SetOptions(options)
 	many.Do(headless.SelectNext)
 	many.Do(headless.Toggle)
 	many.SetOptions([]headless.Option[payload]{options[1], options[0]})
@@ -511,14 +519,14 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 	}
 	form := headless.NewForm(field)
 	form.Look = bare()
-	if before := field.Measure(20); before != 2 {
+	if before := field.HeightForWidth(20); before != 2 {
 		t.Fatalf("a field with no problem is %d rows, want the label and the answer", before)
 	}
 	form.Submit()
-	if after := field.Measure(20); after != 3 {
+	if after := field.HeightForWidth(20); after != 3 {
 		t.Fatalf("a field with a problem is %d rows, want a row for it", after)
 	}
-	rows := paintWidget(20, field.Measure(20), form)
+	rows := paintWidget(20, field.HeightForWidth(20), form)
 	if !strings.HasPrefix(rows[0], "Name") {
 		t.Fatalf("first row = %q, want what the field is asking for", rows[0])
 	}
@@ -618,8 +626,7 @@ type kind int
 func (k kind) String() string { return [...]string{"file", "folder"}[k] }
 
 func TestAChoiceOfSomethingThatIsNotAStringFindsWhatWasAlreadyChosen(t *testing.T) {
-	// Go will not compare two values of a type parameter, so with no rule the labels
-	// are compared — which is right whenever what is shown is what it means.
+	// Comparable values use explicit equality even when they also implement Stringer.
 	picked := kind(1)
 	shown := selectWith([]headless.Option[kind]{{Label: "file", Value: 0}, {Label: "folder", Value: 1}})
 	shown.Value = headless.Bind(&picked)
@@ -687,11 +694,11 @@ func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
 	headless.NewRoot(form).Draw(grid.NewSurface(20, 6).View())
 
 	form.Focus(false)
-	if first.Editor().Handle(input.Key{Code: input.Character, Rune: 'x'}); first.Editor().Text() != "x" {
+	if first.Handle(input.Key{Code: input.Character, Rune: 'x'}); first.Text() != "x" {
 		t.Fatal("the field itself stopped taking text")
 	}
 	form.Focus(true)
-	if got := form.Measure(20); got != 4 {
+	if got := form.HeightForWidth(20); got != 4 {
 		t.Fatalf("a form of two one-line fields with labels is %d rows", got)
 	}
 }

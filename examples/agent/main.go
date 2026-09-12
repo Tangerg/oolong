@@ -119,7 +119,7 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
 
 	a.body = headless.NewContainer(layout.Down,
 		headless.Item{Size: layout.Flex(1), Of: a.conversation},
-		headless.Item{Size: layout.Fixed(a.workflow.Measure(0)), Of: headless.Static{Of: &a.workflow}},
+		headless.Item{Size: layout.Fixed(a.workflow.HeightForWidth(0)), Of: headless.Static{Of: &a.workflow}},
 		headless.Item{Size: layout.Fixed(1), Of: headless.Static{Of: agentStatus{owner: a}}},
 		headless.Item{Size: layout.Measured(1, 0), Of: &a.composer},
 	)
@@ -276,7 +276,7 @@ func (a *agent) refreshCompletion() {
 
 func (a *agent) drawCompletion(frame headless.Frame) {
 	width, height := frame.Size()
-	rows := a.completion.Measure(width)
+	rows := a.completion.HeightForWidth(width)
 	if width <= 2 || rows <= 0 || height <= 2 {
 		return
 	}
@@ -287,7 +287,7 @@ func (a *agent) drawCompletion(frame headless.Frame) {
 	}
 	popupWidth := min(max(a.completion.Width()+4, 32), width-2)
 	popupHeight := min(rows+2, height)
-	composerRows := a.composer.Measure(width)
+	composerRows := a.composer.HeightForWidth(width)
 	y := max(height-composerRows-popupHeight, 0)
 	area := grid.Rect(1, y, popupWidth, popupHeight)
 	inner := box.InnerRect(area.Size())
@@ -415,7 +415,7 @@ func (r *agentRun) Cancel() { r.cancel() }
 // rather than showing a frozen promise of work.
 type agentStatus struct{ owner *agent }
 
-func (agentStatus) Measure(int) int { return 1 }
+func (agentStatus) HeightForWidth(int) int { return 1 }
 
 func (s agentStatus) Draw(view grid.View) {
 	if s.owner.run != nil {

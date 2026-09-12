@@ -485,7 +485,7 @@ not.
 `markdown_render.rs` keeps styled cells and classifies columns before choosing an
 aligned grid or key/value records. Oolong now makes the same decision at the right
 boundary: `markdown.Block` retains table cells, alignments and styles, then allocates
-readable columns in `Measure`/`Draw`; a table that cannot remain scannable becomes
+readable columns in `HeightForWidth`/`Draw`; a table that cannot remain scannable becomes
 labeled records. Parsing no longer freezes one wide textual rendering that a later
 layout can only truncate.
 

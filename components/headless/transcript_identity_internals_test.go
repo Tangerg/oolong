@@ -8,8 +8,8 @@ import (
 
 type identityBlock struct{}
 
-func (identityBlock) Measure(int) int { return 1 }
-func (identityBlock) Draw(grid.View)  {}
+func (identityBlock) HeightForWidth(int) int { return 1 }
+func (identityBlock) Draw(grid.View)         {}
 
 func TestTranscriptIdentityExhaustionCannotReuseAnOldIdentity(t *testing.T) {
 	transcript := Transcript{first: exhaustedBlockID - 1}

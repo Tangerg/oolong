@@ -19,7 +19,7 @@ func ExampleStream() {
 		fmt.Printf("published %d, open %d\n", doc.Len(), len(stream.Open()))
 	}
 	doc.Append(stream.Flush()...)
-	fmt.Printf("published %d, %d rows at 20 columns\n", doc.Len(), doc.Measure(20))
+	fmt.Printf("published %d, %d rows at 20 columns\n", doc.Len(), doc.HeightForWidth(20))
 
 	// Output:
 	// published 0, open 2

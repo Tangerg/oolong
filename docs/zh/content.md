@@ -51,13 +51,18 @@ blocks := markdown.Render(source, markdown.Look{})
 doc := new(markdown.Doc)
 doc.SetBlocks(blocks)
 
-height := doc.Measure(width)
+height := doc.HeightForWidth(width)
 doc.Draw(view)
 rows := doc.Rows(width)
 ```
 
 零值外观仍会使用终端默认颜色生成可读内容。产品可以把自己的语义主题映射到
 `markdown.Look`；Markdown 模块不会导入组件主题，也不会假定调色板。
+
+高度测量有明确单位：`grid.Drawable` 提供 `HeightForWidth(width)`。
+`layout.Measurer.Measure(axis, across)` 显式指定所求轴与另一轴的可用空间。
+实时容器的纵向槽使用 `HeightForWidth`，横向槽使用可选的 `WidthForHeight`；
+固定与弹性槽无需内容测量能力。
 
 ## 不通过 Markdown 高亮源码
 
@@ -94,7 +99,7 @@ if err := formula.Err(); err != nil {
 formula.Draw(view)
 ```
 
-`Formula` 还提供 `Measure`、`Width`、`Lines`、`Rows` 和 `Source`。它没有仅图像的路径，
+`Formula` 还提供 `HeightForWidth`、`Width`、`Lines`、`Rows` 和 `Source`。它没有仅图像的路径，
 因此数学内容在 ASCII 终端上仍可搜索、可选择且有意义。
 
 ## 在 Markdown 中组合语义渲染器

@@ -26,83 +26,99 @@ func (e *Editor) rows(width int) []editorRow {
 	return e.layout.rowsFor(e.lines, width)
 }
 
-// drawLine paints a field that holds one line, and places the cursor.
-func (e *Editor) drawLine(v grid.View, left int, look Look) {
-	width, _ := v.Size()
-	if e.Empty() && e.Placeholder != "" {
-		v.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
-		e.placeCursor(v, 0, 0)
-		return
-	}
-
-	shown := e.shown()
-	cursor := text.ColumnOf(shown, e.shownAt(e.col))
-
-	text.Of(shown, look.Text).Draw(v, -left, 0)
-	if start, end, ok := e.Selection(); ok {
-		from := text.ColumnOf(shown, e.shownAt(start.Col)) - left
-		to := text.ColumnOf(shown, e.shownAt(end.Col)) - left
-		for x := max(from, 0); x < min(to, width); x++ {
-			v.MergeStyle(x, 0, look.Selection)
-		}
-	}
-	e.placeCursor(v, cursor-left, 0)
+// editorLineView is read-only rendering input, shared by Editor and controlled Text.
+// It owns no editor history, input matcher, mutable document or frame transaction.
+type editorLineView struct {
+	value, placeholder, mask string
+	cursor, anchor, left     int
+	selecting, blurred       bool
+	gutter                   RowGutter
+	cursorStyle              grid.CursorStyle
 }
 
-// lineOffset moves the window the least it can to keep the cursor in it, and no further
-// than there is text to show.
-//
-// The second half is what stops a field from being left showing its end after a
-// deletion, with blank columns to the right of text that would have fitted. The cursor
-// may sit one column past the last character, which is why the window has to reach one
-// column further than the text does.
-func (e *Editor) lineOffset(width int) int {
-	shown := e.shown()
-	cursor := text.ColumnOf(shown, e.shownAt(e.col))
-	total := text.Width(shown)
-	if width <= 0 {
-		return 0
+func (e *Editor) lineView(value string) editorLineView {
+	view := editorLineView{
+		value: value, placeholder: e.Placeholder, mask: e.mask,
+		cursor: e.col, anchor: e.anchor.Col, selecting: e.selecting,
+		blurred: e.blurred, left: e.presentation.Value().left,
+		gutter: e.Gutter, cursorStyle: e.CursorStyle,
 	}
-	left := min(cursor, e.presentation.Value().left)
+	if value != e.Text() {
+		view.cursor, view.selecting = len(value), false
+	}
+	return view
+}
+
+func (e editorLineView) shown() string {
+	if e.mask == "" {
+		return e.value
+	}
+	var shown strings.Builder
+	for range text.Clusters(e.value) {
+		shown.WriteString(e.mask)
+	}
+	return shown.String()
+}
+
+func (e editorLineView) shownAt(column int) int {
+	if e.mask == "" {
+		return column
+	}
+	at := 0
+	for offset := range text.Clusters(e.value) {
+		if offset >= column {
+			break
+		}
+		at += len(e.mask)
+	}
+	return at
+}
+
+func (e editorLineView) draw(frame Frame, look Look, presented *Snapshot[editorPresentation]) {
+	total, height := frame.Size()
+	gutter := 0
+	if e.gutter != nil {
+		gutter = min(max(e.gutter.Width(1), 0), max(total, 0))
+	}
+	width := layout.Remaining(total, gutter)
+	if width <= 0 || height <= 0 {
+		presented.Stage(frame, editorPresentation{})
+		return
+	}
+	shown := e.shown()
+	cursor := text.ColumnOf(shown, e.shownAt(e.cursor))
+	left := min(cursor, e.left)
 	if cursor > layout.Sum(left, width-1) {
 		left = layout.Remaining(cursor, width-1)
 	}
-	left = min(left, layout.Remaining(total, width-1))
-	return max(left, 0)
+	left = max(min(left, layout.Remaining(text.Width(shown), width-1)), 0)
+	if e.gutter != nil {
+		e.gutter.Draw(frame.Sub(grid.Rect(0, 0, gutter, height)).View, []text.Row{{Text: shown, Line: 1}})
+	}
+	view := frame.Sub(grid.Rect(gutter, 0, width, height)).View
+	if e.value == "" && e.placeholder != "" {
+		view.Text(0, 0, text.Truncate(e.placeholder, width, "…"), look.Subtle)
+	} else {
+		text.Of(shown, look.Text).Draw(view, -left, 0)
+		if e.selecting {
+			from := text.ColumnOf(shown, e.shownAt(min(e.anchor, e.cursor))) - left
+			to := text.ColumnOf(shown, e.shownAt(max(e.anchor, e.cursor))) - left
+			for x := max(from, 0); x < min(to, width); x++ {
+				view.MergeStyle(x, 0, look.Selection)
+			}
+		}
+	}
+	if !e.blurred {
+		view.PlaceCursor(cursor-left, 0, e.cursorStyle)
+	}
+	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left})
 }
 
 // shown is the text as it is drawn: the line itself, or the mask once per cluster for
 // a field holding something the screen should not show.
 func (e *Editor) shown() string {
 	e.ensure()
-	line := e.lines[0]
-	if e.mask == "" {
-		return line
-	}
-	var b strings.Builder
-	for range text.Clusters(line) {
-		b.WriteString(e.mask)
-	}
-	return b.String()
-}
-
-// shownAt is an offset into the line as one into what is drawn.
-//
-// A mask is one cluster per cluster, so the two are the same count of clusters and a
-// different count of bytes. Nothing else in the field has to know that: the cursor, the
-// selection and a click all pass through here and through [Editor.lineAt].
-func (e *Editor) shownAt(col int) int {
-	if e.mask == "" {
-		return col
-	}
-	at := 0
-	for offset := range text.Clusters(e.lines[0]) {
-		if offset >= col {
-			break
-		}
-		at += len(e.mask)
-	}
-	return at
+	return e.lineView(e.lines[0]).shown()
 }
 
 // lineAt is an offset into what is drawn as one into the line.

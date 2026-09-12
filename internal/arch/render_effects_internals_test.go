@@ -15,7 +15,7 @@ import (
 )
 
 // renderingPackages are the retained and passive projection packages whose Draw and
-// Measure contracts section 4.2 governs. Lower grid and text primitives mutate only
+// HeightForWidth contracts section 4.2 governs. Lower grid and text primitives mutate only
 // the new frame they are handed; these packages are where application-owned state,
 // callbacks and composition first meet that frame.
 var renderingPackages = []string{
@@ -60,7 +60,7 @@ func TestRenderingCannotReachIntrinsicEffects(t *testing.T) {
 		t.Run(strings.ReplaceAll(directory, "/", "_"), func(t *testing.T) {
 			model := loadRenderPackage(t, filepath.Join(root, directory), directory)
 			for _, entry := range model.functions {
-				if entry.receiver == "" || (entry.name != "Measure" && !strings.HasPrefix(entry.name, "Draw")) {
+				if entry.receiver == "" || (entry.name != "HeightForWidth" && !strings.HasPrefix(entry.name, "Draw")) {
 					continue
 				}
 				for _, finding := range model.effectsFrom(entry) {
@@ -373,7 +373,7 @@ func TestRenderEffectRuleFollowsHelpersAndDistinguishesPureCalls(t *testing.T) {
 			source: `package sample
 				import "os"
 				type Widget struct{}
-				func (Widget) Measure(int) int { load(); return 1 }
+				func (Widget) HeightForWidth(int) int { load(); return 1 }
 				func load() { _, _ = os.ReadFile("state") }`,
 			want: []string{"I/O through os.ReadFile"},
 		},
@@ -459,7 +459,7 @@ func TestRenderEffectRuleFollowsHelpersAndDistinguishesPureCalls(t *testing.T) {
 			}
 			var got []string
 			for _, function := range model.functions {
-				if function.name != "Draw" && function.name != "Measure" {
+				if function.name != "Draw" && function.name != "HeightForWidth" {
 					continue
 				}
 				for _, finding := range model.effectsFrom(function) {

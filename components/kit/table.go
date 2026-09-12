@@ -49,8 +49,8 @@ func LabelCell(label Label) Cell {
 	}
 }
 
-// Measure reports the cell's intrinsic width.
-func (c Cell) Measure(int) int { return max(c.Preferred, 0) }
+// HeightForWidth reports the cell's intrinsic width.
+func (c Cell) HeightForWidth(int) int { return max(c.Preferred, 0) }
 
 // Draw paints the cell over its row style.
 func (c Cell) Draw(view grid.View, base grid.Style) {
@@ -152,7 +152,7 @@ func (t Table) slots() []layout.Slot {
 		column := i
 		slots[i] = layout.Slot{
 			Size: size,
-			Of: layout.MeasureFunc(func(int) int {
+			Of: layout.MeasureFunc(func(layout.Axis, int) int {
 				return t.preferred(column)
 			}),
 		}
@@ -167,7 +167,7 @@ func (t Table) preferred(column int) int {
 		return widest
 	}
 	for row := range max(t.Rows, 0) {
-		widest = max(widest, t.Cell(row, column).Measure(1))
+		widest = max(widest, t.Cell(row, column).HeightForWidth(1))
 	}
 	return widest
 }
@@ -183,8 +183,8 @@ func (t Table) flow() layout.Flow {
 	return layout.Flow{Axis: layout.Across, Gap: max(t.Gap, 1)}
 }
 
-// Measure is the rows plus the header, which is what a container measures against.
-func (t Table) Measure(int) int {
+// HeightForWidth is the rows plus the header, which is what a container measures against.
+func (t Table) HeightForWidth(int) int {
 	rows := max(t.Rows, 0)
 	if t.Header {
 		rows = layout.Sum(rows, 1)

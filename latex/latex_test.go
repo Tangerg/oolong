@@ -13,7 +13,7 @@ import (
 
 func formulaRows(t *testing.T, formula *latex.Formula, width int) []string {
 	t.Helper()
-	height := formula.Measure(width)
+	height := formula.HeightForWidth(width)
 	surface := grid.NewSurface(width, height)
 	formula.Draw(surface.View())
 	rows := make([]string, height)
@@ -43,8 +43,8 @@ func TestFormulaUsesOneLayoutForMeasureDrawAndRows(t *testing.T) {
 
 	drawn := formulaRows(t, formula, 40)
 	selected := formula.Rows(40)
-	if len(drawn) != formula.Measure(40) || len(selected) != len(drawn) {
-		t.Fatalf("measure=%d, drawn=%d, selected=%d", formula.Measure(40), len(drawn), len(selected))
+	if len(drawn) != formula.HeightForWidth(40) || len(selected) != len(drawn) {
+		t.Fatalf("measure=%d, drawn=%d, selected=%d", formula.HeightForWidth(40), len(drawn), len(selected))
 	}
 	for i, row := range selected {
 		if got := strings.Repeat(" ", row.Offset) + row.Text; got != drawn[i] {
@@ -205,7 +205,7 @@ func TestLinesReturnsAnOwnedSnapshot(t *testing.T) {
 
 func TestNilFormulaIsEmpty(t *testing.T) {
 	var formula *latex.Formula
-	if formula.Source() != "" || formula.Err() != nil || formula.Width() != 0 || formula.Measure(20) != 0 || formula.Lines() != nil || formula.Rows(20) != nil {
+	if formula.Source() != "" || formula.Err() != nil || formula.Width() != 0 || formula.HeightForWidth(20) != 0 || formula.Lines() != nil || formula.Rows(20) != nil {
 		t.Fatal("nil Formula is not empty")
 	}
 	formula.Draw(grid.View{})

@@ -1,11 +1,12 @@
 package headless
 
 import (
+	"image"
+
 	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
 )
 
 // Viewport shows a window onto content taller than the room there is for it.
@@ -44,6 +45,7 @@ type Viewport struct {
 	// presentation identifies the content and offset shown by the last complete
 	// root frame, so pointer routing cannot observe a half-built window.
 	presentation Snapshot[viewportPresentation]
+	body         PointerRegion
 	// blurred says the window has been told it does not have the keyboard, which it
 	// passes on to whatever is inside it.
 	blurred bool
@@ -81,13 +83,13 @@ func (p *Viewport) SetContent(content Sized) {
 // Scroll is the window's position, for a scrollbar drawn beside it.
 func (p *Viewport) Scroll() *Scroll { return &p.scroll }
 
-// Measure is how tall the content wants to be, which is what a window inside a
+// HeightForWidth is how tall the content wants to be, which is what a window inside a
 // measured slot asks for: a window that is never scrolled is a window nobody notices.
-func (p *Viewport) Measure(across int) int {
+func (p *Viewport) HeightForWidth(across int) int {
 	if p.content == nil {
 		return 0
 	}
-	return p.content.Measure(across)
+	return p.content.HeightForWidth(across)
 }
 
 // Draw paints as much of the content as fits.
@@ -96,24 +98,27 @@ func (p *Viewport) Draw(v Frame) {
 	content := p.content
 	if content == nil || w <= 0 || h <= 0 {
 		p.presentation.Stage(v, viewportPresentation{})
+		p.body.Stage(v, image.Rectangle{}, nil)
 		return
 	}
-	total := content.Measure(w)
+	total := content.HeightForWidth(w)
 	scroll := p.scroll.Stage(v, total, h)
 	p.presentation.Stage(v, viewportPresentation{
 		content: content,
-		offset:  scroll.Offset(),
+		area:    v.Bounds(),
 	})
 	// Above the window by however far it is scrolled. The content is given its whole
 	// height and draws into it as though nothing were in the way, which is what keeps
 	// the scrolling out of everything that is ever put in here.
 	top := -scroll.Offset()
-	content.Draw(v.Sub(grid.Rect(0, top, w, total)))
+	area := grid.Rect(0, top, w, total)
+	p.body.stage(v, area, v.Bounds(), content)
+	content.Draw(v.Sub(area))
 }
 
 type viewportPresentation struct {
 	content Sized
-	offset  int
+	area    image.Rectangle
 }
 
 // Handle scrolls, and gives the content whatever is not about scrolling.
@@ -132,16 +137,11 @@ func (p *Viewport) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp, input.WheelDown:
-			return p.scroll.Handle(mouse, p.Keys)
+			return mouse.Pos.In(presented.area) && p.scroll.Handle(mouse, p.Keys)
 		default:
 		}
-		handler, ok := presented.content.(Interactive)
-		if !ok {
-			return false
-		}
-		local := mouse
-		local.Pos.Y = layout.Translate(local.Pos.Y, presented.offset)
-		return handler.Handle(local)
+		handled, _ := p.body.Handle(mouse)
+		return handled
 	}
 	if handler, ok := p.content.(Interactive); ok && !p.blurred && handler.Handle(ev) {
 		return true

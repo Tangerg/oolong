@@ -154,6 +154,14 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 // press is aimed at what is on the screen. Routing one against a width that was never
 // presented would answer a question nobody asked.
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
+	if ev.Action == input.MouseUp {
+		wasDragging := e.dragging
+		e.dragging = false
+		return wasDragging
+	}
+	if ev.Action == input.MouseDown {
+		e.dragging = false
+	}
 	if presented.width <= 0 || ev.Pos.X < presented.gutter {
 		return false
 	}
@@ -175,9 +183,11 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 		// start of the next. It is the only way a cursor comes to be at a soft break
 		// and belong to the earlier side.
 		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(ev.Pos.X, ev.Pos.Y, presented.width)
+		e.dragging = true
+		e.revealCursor()
 		return true
 	case input.MouseDrag:
-		if !e.selecting {
+		if !e.dragging {
 			return false
 		}
 		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
@@ -185,13 +195,7 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 			return false
 		}
 		e.line, e.col, e.wantColumn = at.Line, at.Col, -1
-		return true
-	case input.MouseUp:
-		if !e.selecting {
-			return false
-		}
-		// An anchor still on the cursor is a click and not a selection, which
-		// [Editor.Selection] already reports as nothing selected. Nothing to undo.
+		e.revealCursor()
 		return true
 	default:
 		return false

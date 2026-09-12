@@ -99,7 +99,7 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 		"MultiSelect": func(t *testing.T) {
 			t.Helper()
 			value := &countedAccessor[[]string]{value: []string{"a"}}
-			field := &headless.MultiSelect[string]{Value: value}
+			field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
 			field.SetOptions(headless.Options("a", "b"))
 			_ = field.Taken()
 			value.value = []string{"b"}
@@ -116,7 +116,7 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 		"Select": func(t *testing.T) {
 			t.Helper()
 			value := &countedAccessor[string]{value: "a"}
-			field := &headless.Select[string]{Value: value}
+			field := &headless.Select[string]{Same: headless.Equal[string], Value: value}
 			field.SetOptions(headless.Options("a", "b"))
 			_, _ = field.Chosen()
 			value.value = "b"
@@ -169,10 +169,10 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 			if err := field.Validate(); err != nil {
 				t.Fatal(err)
 			}
-			if got := field.Editor().Text(); got != "b" || value.writes != 0 {
+			if got := field.Text(); got != "b" || value.writes != 0 {
 				t.Fatalf("text=%q writes=%d, want caller-owned b without a rewrite", got, value.writes)
 			}
-			if !field.Do(headless.Undo) || field.Editor().Text() != "b" || value.writes != 0 {
+			if !field.Do(headless.Undo) || field.Text() != "b" || value.writes != 0 {
 				t.Fatal("undo restored state from before an owner-written replacement")
 			}
 		},
@@ -344,7 +344,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		if !field.Handle(input.Key{Text: "x"}) {
 			t.Fatal("text input was not handled")
 		}
-		if got := field.Editor().Text(); got != "OLDX" || value.value != "OLDX" || value.writes != 1 {
+		if got := field.Text(); got != "OLDX" || value.value != "OLDX" || value.writes != 1 {
 			t.Fatalf("editor=%q binding=%q writes=%d, want the accepted OLDX after one write",
 				got, value.value, value.writes)
 		}
@@ -356,28 +356,28 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		if err := field.Validate(); err != nil {
 			t.Fatal(err)
 		}
-		field.Editor().SetCursor(0, 5)
-		before := field.Editor().Revision()
+		field.SetCursor(5)
+		before := field.Revision()
 		if !field.Handle(input.Key{Text: "x"}) {
 			t.Fatal("text input was not handled")
 		}
-		line, column := field.Editor().Cursor()
-		if got := field.Editor().Text(); got != "HELLOX WORLD" || line != 0 || column != 6 {
+		column := field.Cursor()
+		if got := field.Text(); got != "HELLOX WORLD" || column != 6 {
 			t.Fatalf("after normalization text=%q cursor=(%d,%d), want HELLOX WORLD at (0,6)",
-				got, line, column)
+				got, 0, column)
 		}
-		if got := field.Editor().Revision(); got != before+1 {
+		if got := field.Revision(); got != before+1 {
 			t.Fatalf("one normalized edit advanced revision from %d to %d", before, got)
 		}
 
 		if !field.Do(headless.Undo) {
 			t.Fatal("undo was not handled")
 		}
-		line, column = field.Editor().Cursor()
-		if got := field.Editor().Text(); got != "HELLO WORLD" || line != 0 || column != 5 {
-			t.Fatalf("undo text=%q cursor=(%d,%d), want HELLO WORLD at (0,5)", got, line, column)
+		column = field.Cursor()
+		if got := field.Text(); got != "HELLO WORLD" || column != 5 {
+			t.Fatalf("undo text=%q cursor=(%d,%d), want HELLO WORLD at (0,5)", got, 0, column)
 		}
-		if !field.Do(headless.Redo) || field.Editor().Text() != "HELLOX WORLD" {
+		if !field.Do(headless.Redo) || field.Text() != "HELLOX WORLD" {
 			t.Fatal("normalization discarded the edit's redo history")
 		}
 	})
@@ -396,29 +396,29 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		if err := field.Validate(); err != nil {
 			t.Fatal(err)
 		}
-		before := field.Editor().Revision()
+		before := field.Revision()
 		if !field.Handle(input.Key{Text: "X"}) {
 			t.Fatal("rejected text input was not handled")
 		}
-		line, column := field.Editor().Cursor()
-		if got := field.Editor().Text(); got != "hello" || line != 0 || column != 5 {
-			t.Fatalf("after rejection text=%q cursor=(%d,%d), want hello at (0,5)", got, line, column)
+		column := field.Cursor()
+		if got := field.Text(); got != "hello" || column != 5 {
+			t.Fatalf("after rejection text=%q cursor=(%d,%d), want hello at (0,5)", got, 0, column)
 		}
-		if got := field.Editor().Revision(); got != before {
+		if got := field.Revision(); got != before {
 			t.Fatalf("rejected edit advanced revision from %d to %d", before, got)
 		}
 
-		if !field.Handle(input.Key{Text: "y"}) || field.Editor().Text() != "helloy" {
+		if !field.Handle(input.Key{Text: "y"}) || field.Text() != "helloy" {
 			t.Fatal("an accepted edit after rejection did not take effect")
 		}
-		if !field.Do(headless.Undo) || field.Editor().Text() != "hello" {
+		if !field.Do(headless.Undo) || field.Text() != "hello" {
 			t.Fatal("rejection left the next accepted edit without an undo snapshot")
 		}
-		before = field.Editor().Revision()
-		if !field.Handle(input.Key{Text: "X"}) || field.Editor().Revision() != before {
+		before = field.Revision()
+		if !field.Handle(input.Key{Text: "X"}) || field.Revision() != before {
 			t.Fatal("a rejection after Undo changed content or revision")
 		}
-		if !field.Do(headless.Redo) || field.Editor().Text() != "helloy" {
+		if !field.Do(headless.Redo) || field.Text() != "helloy" {
 			t.Fatal("a rejected edit discarded the existing redo history")
 		}
 	})
@@ -432,7 +432,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		if err := field.Validate(); err != nil {
 			t.Fatal(err)
 		}
-		if got := field.Editor().Text(); got != "one two" || value.value != "one two" || value.writes != 1 {
+		if got := field.Text(); got != "one two" || value.value != "one two" || value.writes != 1 {
 			t.Fatalf("editor=%q binding=%q writes=%d, want one canonical write",
 				got, value.value, value.writes)
 		}
@@ -440,7 +440,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("single choice", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "a"}
-		field := &headless.Select[string]{Value: value}
+		field := &headless.Select[string]{Same: headless.Equal[string], Value: value}
 		field.SetOptions(headless.Options("a", "b"))
 		if chosen, ok := field.Chosen(); !ok || chosen.Value != "a" {
 			t.Fatalf("initial choice = %+v, %t", chosen, ok)
@@ -464,7 +464,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("single choice settles an unmatched initial value once", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "missing"}
-		field := &headless.Select[string]{Value: value}
+		field := &headless.Select[string]{Same: headless.Equal[string], Value: value}
 		field.SetOptions(headless.Options("a", "b"))
 		if chosen, ok := field.Chosen(); !ok || chosen.Value != "a" || value.writes != 0 {
 			t.Fatalf("choice=%+v ok=%t writes=%d before validation", chosen, ok, value.writes)
@@ -482,7 +482,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("multiple choice reply", func(t *testing.T) {
 		value := &countedAccessor[[]string]{value: []string{"a"}}
-		field := &headless.MultiSelect[string]{Value: value}
+		field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
 		field.SetOptions(headless.Options("a", "b"))
 		if got := field.Taken(); len(got) != 1 || got[0] != "a" {
 			t.Fatalf("initial choices = %v", got)
@@ -508,7 +508,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 				return []string{"a"}
 			},
 		}
-		field := &headless.MultiSelect[string]{Value: value}
+		field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
 		field.SetOptions(headless.Options("a", "b"))
 		_ = field.Taken()
 		if !field.Do(headless.SelectNext) {
@@ -536,11 +536,15 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				value := &countedAccessor[[]string]{value: tc.value}
-				field := &headless.MultiSelect[string]{Value: value}
+				field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
 				field.SetOptions(headless.Options("a", "b"))
 				if got := field.Taken(); !slices.Equal(got, tc.want) {
 					t.Fatalf("taken = %v, want %v", got, tc.want)
 				}
+				if value.writes != 0 {
+					t.Fatal("Taken wrote its owner")
+				}
+				field.Sync()
 				if !slices.Equal(value.value, tc.want) || value.writes != tc.writes {
 					t.Fatalf("binding=%v writes=%d, want %v after %d", value.value, value.writes, tc.want, tc.writes)
 				}
@@ -566,7 +570,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 func TestControlledMultipleChoiceSettlesOneOperationWithOneWrite(t *testing.T) {
 	value := &countedAccessor[[]string]{value: []string{"a", "b"}}
-	field := &headless.MultiSelect[string]{Value: value}
+	field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
 	field.SetOptions(headless.Options("a", "b"))
 	_ = field.Taken()
 

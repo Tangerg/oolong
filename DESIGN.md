@@ -400,9 +400,9 @@ which is short by construction. Where it cuts is written down, and so is what th
 costs.
 
 What comes out is `core/text` lines, so wrapping happens where the width is known, and
-the drawable form is a `Drawer` and a `Measurer` and nothing else — which is what lets
-a document go into a slot, a container or a viewport belonging to a package this module
-has never heard of. It does not highlight code or typeset mathematics. A single
+the drawable form satisfies `grid.Drawable`: `Draw` and `HeightForWidth`. A live
+container adapts that height capability for vertical layout. Horizontal measurement
+uses `WidthForHeight`, while `layout.Measurer` receives the requested axis explicitly. It does not highlight code or typeset mathematics. A single
 semantic-block registry hands fenced code and display mathematics to consumer-supplied
 functions over `core/text` lines. Goldmark nodes never cross that boundary, and
 missing renderers keep source readable.

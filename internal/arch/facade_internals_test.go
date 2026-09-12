@@ -14,12 +14,12 @@ import (
 // component protocols. They are not a second state API: a Container can only compose
 // a dressed controller when the dressed value itself implements these capabilities.
 var kitCapabilityMethods = map[string]bool{
-	"Do":        true,
-	"Draw":      true,
-	"Focus":     true,
-	"Handle":    true,
-	"Measure":   true,
-	"Semantics": true,
+	"Do":             true,
+	"Draw":           true,
+	"Focus":          true,
+	"Handle":         true,
+	"HeightForWidth": true,
+	"Semantics":      true,
 }
 
 // TestKitDoesNotMirrorControllerState keeps appearance and behavior as two layers,

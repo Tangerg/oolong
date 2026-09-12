@@ -35,8 +35,8 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 	editor.Gutter = numberedGutter{}
 	editor.SetText("alpha beta\nx")
 
-	if got := editor.Measure(7); got != 3 {
-		t.Fatalf("Measure(7) = %d, want 3 wrapped rows", got)
+	if got := editor.HeightForWidth(7); got != 3 {
+		t.Fatalf("HeightForWidth(7) = %d, want 3 wrapped rows", got)
 	}
 	equalRows(t, paintWidget(7, 3, editor), []string{
 		"1.alpha",

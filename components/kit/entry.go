@@ -21,7 +21,7 @@ import (
 //
 // It owns no interaction lifecycle or routing state. Its transcript or printer
 // decides how long it remains live. Entry is a pointer only because wrapping is
-// memoised between Measure and Draw; that private cache is presentation state.
+// memoised between HeightForWidth and Draw; that private cache is presentation state.
 //
 // Entry knows only labelled text. Whether a label denotes a person, process, log
 // source or anything else is application grammar and remains with the caller.
@@ -50,8 +50,8 @@ var (
 	_ headless.TextProjector = (*Entry)(nil)
 )
 
-// Measure is how many rows the entry needs at this width.
-func (e *Entry) Measure(width int) int {
+// HeightForWidth is how many rows the entry needs at this width.
+func (e *Entry) HeightForWidth(width int) int {
 	if e == nil {
 		return 0
 	}
@@ -85,7 +85,7 @@ func (e *Entry) Rows(width int) []text.Row {
 	if e == nil {
 		return nil
 	}
-	out := make([]text.Row, 0, e.Measure(width))
+	out := make([]text.Row, 0, e.HeightForWidth(width))
 	if e.head() > 0 {
 		out = append(out, text.Row{Text: e.Label})
 	}

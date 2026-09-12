@@ -66,8 +66,8 @@ func (c Clipboard) Paste() bool { return c.host.paste() }
 
 // Session controls the live terminal session around rendered frames. It groups
 // operations that must remain ordered with the interface owner's state. Its zero
-// value performs harmless notification no-ops and can hand control to a callback,
-// but cannot suspend a process.
+// value performs harmless notification no-ops; Hand and Suspend return
+// [errors.ErrUnsupported].
 //
 // It holds the runtime rather than the resolved services the other capabilities
 // hold, because two of its methods need the owner itself and not what the host can
@@ -91,13 +91,16 @@ func (s Session) ReportDirectory(path string) error { return s.host().reportDire
 
 // Hand gives exclusive display ownership to run and repaints after it returns. If
 // pending frames cannot drain, it returns [ErrFrameTimeout] without calling run.
+// A live owner and a [HandoverHost] are required; otherwise it returns
+// [errors.ErrUnsupported] without calling run or disturbing the display.
+// A nil callback is a no-op.
 func (s Session) Hand(run func() error) error {
 	if run == nil {
 		return nil
 	}
 	p := s.runtime.owner()
-	if p == nil {
-		return run()
+	if p == nil || !p.host.canHandOver() {
+		return errors.ErrUnsupported
 	}
 	// Repaint is part of settling the handover, including when the child panics and
 	// the host restores terminal ownership from a defer.

@@ -199,6 +199,41 @@ theme.Selection = grid.Style{BG: grid.RGBColor(0x32, 0x27, 0x3B)}
 把修改后的值传给 kit 组件，无外观状态不会改变。若要构建完全自定义的设计系统，请保留
 `components/headless`，并用自己的包绘制每个外观接缝；`headless` 永远不会导入 `kit`。
 
+## 明确值身份与导航意图
+
+受控字段通过 accessor 提交编辑。在安装选项前设置 `Select.Same` 或
+`MultiSelect.Same`；普通可比较值可以使用 `headless.Equal[T]`。标签只负责显示，
+翻译标签不会改变选中值的身份。`Chosen`、`Taken` 和 `Ask` 只投影状态；调用 `Sync`
+可显式同步外部变更，输入和校验也会经过同步边界。
+
+`Text` 直接提供文本、光标、遮罩、剪贴板、行旁装饰和光标样式。通过 `SetText`、
+`SetCursor`、`Handle` 或 `Do` 编辑，使结果经过 accessor 的接受规则。
+`Text` 不再暴露内部 Editor。`kit.Composer` 是编辑器的外观包装，仍然公开它的 Editor。
+
+列表选择变化和 Editor 光标导航都只请求显示一次。`Scroll.Reveal` 会保留到完整帧提交，中断绘制不会丢失请求。
+后续手动滚动优先，`Scroll.FollowingEnd` 表示跟随末尾的策略。
+`kit.Transcript.Current` 只改变匹配高亮，跳转请调用 `RevealMatch(index)`。
+Editor 请求在下一帧的实际换行宽度下解析；已完成导航后的尺寸变化保留手动滚动位置。
+Filter 查询重置会回到第一个结果。
+
+容器中的孩子需要移动时，应设置稳定 Key 并保留同一组件实例。`FocusIndex` 接受当前集合
+索引；指针输入按已呈现的实例身份定位，移除或替换孩子后不会把旧点击或捕获交给新实例。
+需要跨 `Set` 保持身份的组件应使用指针。
+
+每个控件拥有自己的 `Pointer`。Draw 中调用 `Stage(frame, area)`；事件处理中调用
+`Handle` 和 `Clicked(button)`。绘制只读取 `Over()`、`Pressing()`，快速按下再松开
+不需要中间绘制一帧。`PointerRegion` 根据孩子的连续呈现生命周期路由：孩子消失后重新
+出现，也不会接回旧手势。Tabs 和 Viewport 使用同一规则。
+
+`List.SetItems` 后，鼠标选择等待新集合完成绘制。自定义页签条用
+`Tabs.SelectPresented(index)` 处理已提交页签条上的点击；`Tabs.Select(index)`
+仍然用于当前集合中的程序导航。修改按键绑定会取消未完成序列；替换选项集合或模态层时，
+新对象不会继承延迟动作。Settings 的值编辑始终属于开始该按键序列时的那一行。
+
+`Completion.Renderer` 同时提供 `DrawRow` 与 `Width`，可以替换完整候选行布局。
+`Select.Row` 和 `MultiSelect.Row` 可自定义单行选项。外部字段实现
+`ThemedField.DrawWith` 后，就能通过与内置字段相同的通道接收该帧的 Form 外观。
+
 ## 运行并验证这个切片
 
 ```sh

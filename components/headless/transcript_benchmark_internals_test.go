@@ -9,7 +9,7 @@ import (
 
 type benchmarkBlock struct{ bytes int }
 
-func (b benchmarkBlock) Measure(width int) int {
+func (b benchmarkBlock) HeightForWidth(width int) int {
 	if width <= 0 {
 		return 0
 	}

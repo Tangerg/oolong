@@ -20,7 +20,7 @@ type tall struct {
 	focused bool
 }
 
-func (c *tall) Measure(int) int { return c.rows }
+func (c *tall) HeightForWidth(int) int { return c.rows }
 
 func (c *tall) Draw(v headless.Frame) {
 	for y := range c.rows {
@@ -101,7 +101,7 @@ func TestAWindowScrollsOnlyWhatItsContentDeclined(t *testing.T) {
 	if !p.Handle(input.Key{Code: input.Down}) || p.Scroll().Offset() != 1 {
 		t.Fatalf("the window did not scroll a key its content had no use for")
 	}
-	if !p.Handle(input.Key{Code: input.End}) || !p.Scroll().AtBottom() {
+	if !p.Handle(input.Key{Code: input.End}) || !p.Scroll().FollowingEnd() {
 		t.Fatal("the window did not go to the end")
 	}
 	if p.Handle(input.Key{Code: input.Enter}) {
@@ -146,7 +146,7 @@ func TestAWindowDoesNotTransferOwnershipToTheSameContent(t *testing.T) {
 func TestAnEmptyWindowDrawsNothingAndAnswersNothing(t *testing.T) {
 	var p headless.Viewport
 	paintWidget(6, 3, &p) // must not panic
-	if p.Measure(6) != 0 {
+	if p.HeightForWidth(6) != 0 {
 		t.Fatal("a window with nothing in it asked for room")
 	}
 	if p.Handle(input.Key{Code: input.Down}) {
@@ -160,7 +160,7 @@ func TestAWindowAnswersToTheNameOfWhatItDoes(t *testing.T) {
 	p := headless.NewViewport(&tall{rows: 20})
 	paintWidget(6, 4, p)
 
-	if !p.Do(headless.ScrollBottom) || !p.Scroll().AtBottom() {
+	if !p.Do(headless.ScrollBottom) || !p.Scroll().FollowingEnd() {
 		t.Fatal("the window did not go to the end")
 	}
 	if !p.Do(headless.ScrollTop) || p.Scroll().Offset() != 0 {

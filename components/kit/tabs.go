@@ -82,12 +82,12 @@ func (t *Tabs) Controller() *headless.Tabs {
 	return t.controller
 }
 
-// Measure is the strip, the rule, and whatever the pane showing asks for.
-func (t *Tabs) Measure(across int) int {
+// HeightForWidth is the strip, the rule, and whatever the pane showing asks for.
+func (t *Tabs) HeightForWidth(across int) int {
 	if t.controller == nil {
 		return 0
 	}
-	return layout.Sum(t.rows(), t.controller.Measure(across))
+	return layout.Sum(t.rows(), t.controller.HeightForWidth(across))
 }
 
 // Draw paints the strip, the rule under it, and the pane in what is left.
@@ -155,8 +155,7 @@ func (t *Tabs) Handle(ev input.Event) bool {
 			return false
 		}
 		if at, on := spanAt(presented.spans, mouse.Pos.X); on {
-			presented.of.Select(at)
-			return true
+			return presented.of.SelectPresented(at)
 		}
 		return false
 	}

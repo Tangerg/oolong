@@ -22,7 +22,7 @@ type block struct {
 	measure int // how many times it was measured
 }
 
-func (b *block) Measure(width int) int {
+func (b *block) HeightForWidth(width int) int {
 	b.measure++
 	if width <= 0 {
 		return 0
@@ -43,7 +43,7 @@ func (b *block) Draw(v grid.View) {
 
 // Rows makes the block copyable, which is what a selection needs.
 func (b *block) Rows(width int) []text.Row {
-	rows := b.Measure(width)
+	rows := b.HeightForWidth(width)
 	out := make([]text.Row, rows)
 	for y := range rows {
 		out[y] = text.Row{Text: fmt.Sprintf("%s:%d", b.name, y)}
@@ -55,8 +55,8 @@ func (b *block) Rows(width int) []text.Row {
 // it without losing count of the rows.
 type plain struct{ lines int }
 
-func (p *plain) Measure(int) int  { return p.lines }
-func (p *plain) Draw(v grid.View) { v.Text(0, 0, "plain", grid.Style{}) }
+func (p *plain) HeightForWidth(int) int { return p.lines }
+func (p *plain) Draw(v grid.View)       { v.Text(0, 0, "plain", grid.Style{}) }
 
 func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 	var tr headless.Transcript
@@ -490,9 +490,9 @@ func TestTranscriptStepsOverEmptyBlocksWhileDrawing(t *testing.T) {
 // a block whose content changed between measuring and copying looks like.
 type short struct{ rows int }
 
-func (s *short) Measure(int) int     { return s.rows }
-func (s *short) Draw(v grid.View)    { v.Text(0, 0, "short", grid.Style{}) }
-func (s *short) Rows(int) []text.Row { return []text.Row{{Text: "only one"}} }
+func (s *short) HeightForWidth(int) int { return s.rows }
+func (s *short) Draw(v grid.View)       { v.Text(0, 0, "short", grid.Style{}) }
+func (s *short) Rows(int) []text.Row    { return []text.Row{{Text: "only one"}} }
 
 func TestTranscriptTextSurvivesABlockThatSaysTooLittle(t *testing.T) {
 	var tr headless.Transcript
@@ -555,11 +555,11 @@ func TestScrollRevealStopsFollowing(t *testing.T) {
 	var s headless.Scroll
 	s.ToBottom()
 	stageScroll(&s, 100, 5)
-	if !s.AtBottom() {
+	if !s.FollowingEnd() {
 		t.Fatal("not following to begin with")
 	}
 	s.Reveal(3, 3)
-	if s.AtBottom() {
+	if s.FollowingEnd() {
 		t.Error("still following after a row was asked for")
 	}
 	if got := s.Offset(); got != 3 {

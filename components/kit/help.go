@@ -33,8 +33,8 @@ type Help struct {
 	Separator string
 }
 
-// Measure is one row.
-func (h Help) Measure(int) int { return 1 }
+// HeightForWidth is one row.
+func (h Help) HeightForWidth(int) int { return 1 }
 
 // Draw writes as many hints as fit, in order, dropping the rest.
 //

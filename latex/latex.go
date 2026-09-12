@@ -230,9 +230,9 @@ func (f *Formula) Width() int {
 	return f.width
 }
 
-// Measure reports the formula's fixed row count. A formula does not wrap: changing
+// HeightForWidth reports the formula's fixed row count. A formula does not wrap: changing
 // mathematical line breaks changes the expression, so a narrow view clips it.
-func (f *Formula) Measure(int) int {
+func (f *Formula) HeightForWidth(int) int {
 	if f == nil {
 		return 0
 	}

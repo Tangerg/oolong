@@ -15,7 +15,7 @@ type wants struct {
 	asked  bool
 }
 
-func (w *wants) Measure(across int) int {
+func (w *wants) Measure(_ layout.Axis, across int) int {
 	w.across, w.asked = across, true
 	return w.give
 }
@@ -92,7 +92,7 @@ func TestAMeasuredSlotIsAskedAcrossTheOtherAxis(t *testing.T) {
 }
 
 func TestMeasuringWorksAcrossBothAxes(t *testing.T) {
-	// The reason Measure takes the axis it is not deciding: a slot divided Across is
+	// The reason HeightForWidth takes the axis it is not deciding: a slot divided Across is
 	// asked for a width at a height, and one method means the same thing in both.
 	w := &wants{give: 4}
 	views := (layout.Flow{Axis: layout.Across}).Rects(image.Pt(30, 5), []layout.Slot{
@@ -583,7 +583,7 @@ func BenchmarkDivide(b *testing.B) {
 				{Size: layout.Fixed(4)},
 				{Size: layout.Flex(1)},
 				{Size: layout.Flex(2)},
-				{Size: layout.Measured(2, 20), Of: layout.MeasureFunc(func(int) int { return 8 })},
+				{Size: layout.Measured(2, 20), Of: layout.MeasureFunc(func(layout.Axis, int) int { return 8 })},
 			},
 		},
 		{

@@ -15,8 +15,8 @@ import (
 // text it is dragging over.
 type lines struct{ rows []text.Row }
 
-func (l *lines) Measure(int) int     { return len(l.rows) }
-func (l *lines) Rows(int) []text.Row { return l.rows }
+func (l *lines) HeightForWidth(int) int { return len(l.rows) }
+func (l *lines) Rows(int) []text.Row    { return l.rows }
 func (l *lines) Draw(v grid.View) {
 	for y, r := range l.rows {
 		v.Text(0, y, r.Text, grid.Style{})

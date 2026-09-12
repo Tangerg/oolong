@@ -26,9 +26,9 @@ type Sparkline struct {
 	Minimum, Maximum float64
 }
 
-// Measure is always one row. An empty stream leaves that row blank rather than
+// HeightForWidth is always one row. An empty stream leaves that row blank rather than
 // moving the surrounding layout when its first sample arrives.
-func (s Sparkline) Measure(int) int { return 1 }
+func (s Sparkline) HeightForWidth(int) int { return 1 }
 
 // Draw paints the newest samples from left to right in the first row of v.
 func (s Sparkline) Draw(v grid.View) {
@@ -71,8 +71,8 @@ type BarChart struct {
 	Maximum float64
 }
 
-// Measure is one row per bar.
-func (b BarChart) Measure(int) int { return len(b.Bars) }
+// HeightForWidth is one row per bar.
+func (b BarChart) HeightForWidth(int) int { return len(b.Bars) }
 
 // Draw paints the visible category rows of v with shared label, track, and value
 // columns, so changing one value never moves another bar's geometry.

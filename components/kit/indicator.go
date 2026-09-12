@@ -27,8 +27,8 @@ type Spinner struct {
 // Tick advances the animation by one frame.
 func (s *Spinner) Tick() { s.frame++ }
 
-// Measure is one row.
-func (s *Spinner) Measure(int) int { return 1 }
+// HeightForWidth is one row.
+func (s *Spinner) HeightForWidth(int) int { return 1 }
 
 // Draw writes the current frame and its label.
 func (s *Spinner) Draw(v grid.View) {

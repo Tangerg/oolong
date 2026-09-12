@@ -61,8 +61,8 @@ func (p Progress) Fraction() float64 {
 // deciding whether the bar is still worth showing.
 func (p Progress) Finished() bool { return p.Total > 0 && p.Done >= p.Total }
 
-// Measure is one row, whatever the width.
-func (p Progress) Measure(int) int { return 1 }
+// HeightForWidth is one row, whatever the width.
+func (p Progress) HeightForWidth(int) int { return 1 }
 
 // Draw writes the label, the bar and the percentage into the first row of v.
 func (p Progress) Draw(v grid.View) {

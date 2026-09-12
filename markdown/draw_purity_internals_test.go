@@ -53,15 +53,15 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 				first := tc.measure(tc.width)
 				if tc.state != nil {
 					if after := tc.state(); !reflect.DeepEqual(after, before) {
-						t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+						t.Fatalf("first HeightForWidth changed semantic state\n before: %#v\n  after: %#v", before, after)
 					}
 				}
 				if second := tc.measure(tc.width); second != first {
-					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
+					t.Fatalf("two HeightForWidth calls from the same state returned %d and %d", first, second)
 				}
 				if tc.state != nil {
 					if after := tc.state(); !reflect.DeepEqual(after, before) {
-						t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+						t.Fatalf("second HeightForWidth changed semantic state\n before: %#v\n  after: %#v", before, after)
 					}
 				}
 			}
@@ -125,7 +125,7 @@ func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 			switch {
 			case strings.HasPrefix(fn.Name.Name, "Draw"):
 				found = append(found, name)
-			case fn.Name.Name == "Measure":
+			case fn.Name.Name == "HeightForWidth":
 				measured = append(measured, name)
 			}
 		}
@@ -138,7 +138,7 @@ func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 	}
 	for _, name := range measured {
 		if !covered[name] {
-			t.Errorf("Measure receiver %s has no executable purity case", name)
+			t.Errorf("HeightForWidth receiver %s has no executable purity case", name)
 		}
 	}
 	for name := range covered {
@@ -219,7 +219,7 @@ func plain(s string) text.Line { return text.Of(s, grid.Style{}) }
 func markdownDrawPurityCases() []drawPurityCase {
 	block := Block{lines: []text.Line{plain("passive block")}}
 	cases := []drawPurityCase{{
-		name: "Block", width: 14, height: 2, draw: block.Draw, measure: block.Measure,
+		name: "Block", width: 14, height: 2, draw: block.Draw, measure: block.HeightForWidth,
 	}}
 
 	// One document carrying every shape Draw computes from a width rather than reads
@@ -253,7 +253,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 	})
 	return append(cases, drawPurityCase{
 		name: "*Doc", width: 14, height: 6,
-		draw: doc.Draw, measure: doc.Measure,
+		draw: doc.Draw, measure: doc.HeightForWidth,
 		state: func() any { return meaningOfDoc(doc) },
 	})
 }

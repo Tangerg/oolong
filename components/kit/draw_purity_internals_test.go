@@ -50,15 +50,15 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 				first := tc.measure(tc.width)
 				if tc.state != nil {
 					if after := tc.state(); !reflect.DeepEqual(after, before) {
-						t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+						t.Fatalf("first HeightForWidth changed semantic state\n before: %#v\n  after: %#v", before, after)
 					}
 				}
 				if second := tc.measure(tc.width); second != first {
-					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
+					t.Fatalf("two HeightForWidth calls from the same state returned %d and %d", first, second)
 				}
 				if tc.state != nil {
 					if after := tc.state(); !reflect.DeepEqual(after, before) {
-						t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+						t.Fatalf("second HeightForWidth changed semantic state\n before: %#v\n  after: %#v", before, after)
 					}
 				}
 			}
@@ -122,7 +122,7 @@ func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 			switch {
 			case strings.HasPrefix(fn.Name.Name, "Draw"):
 				found = append(found, name)
-			case fn.Name.Name == "Measure":
+			case fn.Name.Name == "HeightForWidth":
 				measured = append(measured, name)
 			}
 		}
@@ -135,7 +135,7 @@ func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 	}
 	for _, name := range measured {
 		if !covered[name] {
-			t.Errorf("Measure receiver %s has no executable purity case", name)
+			t.Errorf("HeightForWidth receiver %s has no executable purity case", name)
 		}
 	}
 	for name := range covered {
@@ -167,7 +167,7 @@ type purityBlock struct {
 
 func (b *purityBlock) Draw(view grid.View) { view.Text(0, 0, b.text, grid.Style{}) }
 
-func (b *purityBlock) Measure(int) int { return max(b.height, 1) }
+func (b *purityBlock) HeightForWidth(int) int { return max(b.height, 1) }
 
 type editorMeaning struct {
 	text         string
@@ -198,8 +198,8 @@ func meaningOfEditor(editor *headless.Editor) editorMeaning {
 func widgetPurityCase(name string, widget headless.Widget, state func() any) drawPurityCase {
 	root := headless.NewRoot(widget)
 	var measure func(int) int
-	if sized, ok := widget.(layout.Measurer); ok {
-		measure = sized.Measure
+	if sized, ok := widget.(interface{ HeightForWidth(width int) int }); ok {
+		measure = sized.HeightForWidth
 	}
 	return drawPurityCase{
 		name: name, width: 24, height: 6,
@@ -219,22 +219,22 @@ func kitDrawPurityCases() []drawPurityCase {
 	cell := LabelCell(Label{Text: "cell"})
 	cases = append(cases, drawPurityCase{
 		name: "Cell", width: 8, height: 1,
-		draw: func(view grid.View) { cell.Draw(view, grid.Style{}) }, measure: cell.Measure,
+		draw: func(view grid.View) { cell.Draw(view, grid.Style{}) }, measure: cell.HeightForWidth,
 	})
 
 	help := Help{Show: []keymap.Action{"accept"}}
 	cases = append(cases, drawPurityCase{
-		name: "Help", width: 16, height: 1, draw: help.Draw, measure: help.Measure,
+		name: "Help", width: 16, height: 1, draw: help.Draw, measure: help.HeightForWidth,
 	})
 
 	imageView := Image{Alt: "unavailable"}
 	cases = append(cases, drawPurityCase{
-		name: "Image", width: 16, height: 1, draw: imageView.Draw, measure: imageView.Measure,
+		name: "Image", width: 16, height: 1, draw: imageView.Draw, measure: imageView.HeightForWidth,
 	})
 
 	label := Label{Text: "label", Ellipsis: "…"}
 	cases = append(cases, drawPurityCase{
-		name: "Label", width: 8, height: 1, draw: label.Draw, measure: label.Measure,
+		name: "Label", width: 8, height: 1, draw: label.Draw, measure: label.HeightForWidth,
 	})
 
 	numbers := LineNumbers{Separator: "│"}
@@ -246,7 +246,7 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	entry := &Entry{Label: "source", Body: "passive content"}
 	cases = append(cases, drawPurityCase{
-		name: "*Entry", width: 16, height: 4, draw: entry.Draw, measure: entry.Measure,
+		name: "*Entry", width: 16, height: 4, draw: entry.Draw, measure: entry.HeightForWidth,
 	})
 
 	overlay := Overlay{Width: 8, Height: 2}
@@ -257,17 +257,17 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	palette := Palette{Empty: "nothing found"}
 	cases = append(cases, drawPurityCase{
-		name: "Palette", width: 16, height: 2, draw: palette.Draw, measure: palette.Measure,
+		name: "Palette", width: 16, height: 2, draw: palette.Draw, measure: palette.HeightForWidth,
 	})
 
 	progress := Progress{Glyphs: ASCII(), Done: 1, Total: 3, Label: "work", Percent: true}
 	cases = append(cases, drawPurityCase{
-		name: "Progress", width: 20, height: 1, draw: progress.Draw, measure: progress.Measure,
+		name: "Progress", width: 20, height: 1, draw: progress.Draw, measure: progress.HeightForWidth,
 	})
 
 	sparkline := Sparkline{Glyphs: Unicode(), Values: []float64{1, 3, 2}}
 	cases = append(cases, drawPurityCase{
-		name: "Sparkline", width: 8, height: 1, draw: sparkline.Draw, measure: sparkline.Measure,
+		name: "Sparkline", width: 8, height: 1, draw: sparkline.Draw, measure: sparkline.HeightForWidth,
 	})
 
 	barChart := BarChart{
@@ -275,7 +275,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		Bars:   []Bar{{Label: "one", Value: 1}, {Label: "two", Value: 2}},
 	}
 	cases = append(cases, drawPurityCase{
-		name: "BarChart", width: 16, height: 2, draw: barChart.Draw, measure: barChart.Measure,
+		name: "BarChart", width: 16, height: 2, draw: barChart.Draw, measure: barChart.HeightForWidth,
 	})
 
 	meter := bar{fraction: 0.5, glyphs: Unicode()}
@@ -293,7 +293,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		Cell: func(int, int) Cell { return LabelCell(Label{Text: "value"}) },
 	}
 	cases = append(cases, drawPurityCase{
-		name: "Table", width: 12, height: 2, draw: table.Draw, measure: table.Measure,
+		name: "Table", width: 12, height: 2, draw: table.Draw, measure: table.HeightForWidth,
 	})
 
 	diffView := NewDiff(DiffConfig{Theme: Dark(), Glyphs: Unicode(), Hunks: []diff.Hunk{{
@@ -303,7 +303,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	diffView.SetNumbers(true)
 	cases = append(cases, drawPurityCase{
 		name: "*Diff", width: 10, height: 3,
-		draw: diffView.Draw, measure: diffView.Measure,
+		draw: diffView.Draw, measure: diffView.HeightForWidth,
 		state: func() any {
 			return struct {
 				hunks   []diff.Hunk
@@ -392,7 +392,7 @@ func kitDrawPurityCases() []drawPurityCase {
 			following                    bool
 		}{
 			content.Len(), content.Width(), content.Height(), content.StartRow(),
-			transcriptScroll.Offset(), transcriptScroll.AtBottom(),
+			transcriptScroll.Offset(), transcriptScroll.FollowingEnd(),
 		}
 	})
 	transcriptCase.height = 3
@@ -401,7 +401,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	spinner := &Spinner{Glyphs: Glyphs{Spinner: []string{"a", "b"}}, Label: "working", frame: 1}
 	cases = append(cases, drawPurityCase{
 		name: "*Spinner", width: 24, height: 1,
-		draw: func(view grid.View) { spinner.Draw(view) }, measure: spinner.Measure,
+		draw: func(view grid.View) { spinner.Draw(view) }, measure: spinner.HeightForWidth,
 		state: func() any {
 			return struct {
 				frame  int
@@ -424,7 +424,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	paragraph.Indent = 1
 	cases = append(cases, drawPurityCase{
 		name: "*Paragraph", width: 10, height: 3,
-		draw: func(view grid.View) { paragraph.Draw(view) }, measure: paragraph.Measure,
+		draw: func(view grid.View) { paragraph.Draw(view) }, measure: paragraph.HeightForWidth,
 		state: func() any {
 			return struct {
 				lines         any
@@ -441,7 +441,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	code.Gutter = LineNumbers{}
 	cases = append(cases, drawPurityCase{
 		name: "*Code", width: 18, height: 3,
-		draw: code.Draw, measure: code.Measure,
+		draw: code.Draw, measure: code.HeightForWidth,
 		state: func() any {
 			return code.Lines()
 		},
@@ -463,11 +463,12 @@ func kitDrawPurityCases() []drawPurityCase {
 		return struct {
 			focused   headless.Field
 			value     string
-			editor    editorMeaning
+			cursor    int
+			revision  uint64
 			err       error
 			callbacks [4]int
 		}{
-			formController.Focused(), formValue, meaningOfEditor(formField.Editor()), formController.Error(),
+			formController.Focused(), formValue, formField.Cursor(), formField.Revision(), formController.Error(),
 			[4]int{fieldChecks, formChecks, formDone, formGaveUp},
 		}
 	}))
@@ -476,7 +477,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	status.Tick()
 	cases = append(cases, drawPurityCase{
 		name: "*Status", width: 24, height: 1,
-		draw: func(view grid.View) { status.Draw(view) }, measure: status.Measure,
+		draw: func(view grid.View) { status.Draw(view) }, measure: status.HeightForWidth,
 		state: func() any {
 			return struct {
 				doing, elapsed string

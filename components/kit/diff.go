@@ -103,9 +103,9 @@ func (d *Diff) SetNumbers(show bool) {
 	d.invalidate()
 }
 
-// Measure reports the physical rows needed at width. Long lines wrap through the
+// HeightForWidth reports the physical rows needed at width. Long lines wrap through the
 // same layout Draw consumes, so measurement cannot promise rows drawing truncates.
-func (d *Diff) Measure(width int) int {
+func (d *Diff) HeightForWidth(width int) int {
 	if d == nil {
 		return 0
 	}
@@ -136,7 +136,7 @@ func (d *Diff) Draw(v grid.View) {
 }
 
 // diffLayout is one width's complete physical representation. Diff memoises one
-// layout because Measure and Draw ask for the same width in every frame. It is private
+// layout because HeightForWidth and Draw ask for the same width in every frame. It is private
 // presentation state, not semantic component state.
 type diffLayout struct {
 	width int
@@ -152,7 +152,7 @@ type diffRow struct {
 }
 
 func (d *Diff) layout(width int) []diffRow {
-	// Measure(0) still answers the content's height, as other text measurers do. Draw
+	// HeightForWidth(0) still answers the content's height, as other text measurers do. Draw
 	// cannot paint a zero-width view, but pretending the content has no rows would
 	// make a parent collapse it permanently.
 	width = max(width, 1)
@@ -162,7 +162,7 @@ func (d *Diff) layout(width int) []diffRow {
 	gutter := d.gutter(width)
 	contentWidth := max(layout.Remaining(width, gutter.width()), 1)
 	// A completed layout is immutable. Starting a new one with independent storage
-	// makes a Diff copied after Measure safe to change without clearing the original
+	// makes a Diff copied after HeightForWidth safe to change without clearing the original
 	// value's still-valid presentation snapshot.
 	var rows []diffRow
 	for hunkIndex, hunk := range d.hunks {

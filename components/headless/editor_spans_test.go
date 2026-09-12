@@ -325,7 +325,7 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 
 	// Only the rows the text actually has: below them a click means the end, which is
 	// a different promise and has its own test.
-	for y := range e.Measure(width) {
+	for y := range e.HeightForWidth(width) {
 		for x := range width {
 			mouseAt(e, click(x, y), width)
 			frame := screen.Frame()

@@ -72,8 +72,8 @@ func (s *Settings[T]) Controller() *headless.Settings[T] {
 	return s.controller
 }
 
-// Measure is one row per setting.
-func (s *Settings[T]) Measure(int) int {
+// HeightForWidth is one row per setting.
+func (s *Settings[T]) HeightForWidth(int) int {
 	if s == nil || s.controller == nil {
 		return 0
 	}

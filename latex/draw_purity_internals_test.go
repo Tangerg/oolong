@@ -20,11 +20,11 @@ func TestFormulaMeasurementAndDrawingAreObservationallyPure(t *testing.T) {
 
 	formula := Render(`x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`, Look{})
 	before := formulaMeaningOf(formula)
-	firstHeight := formula.Measure(24)
+	firstHeight := formula.HeightForWidth(24)
 	if got := formulaMeaningOf(formula); !reflect.DeepEqual(got, before) {
-		t.Fatalf("Measure changed formula meaning\n before: %#v\n  after: %#v", before, got)
+		t.Fatalf("HeightForWidth changed formula meaning\n before: %#v\n  after: %#v", before, got)
 	}
-	if secondHeight := formula.Measure(24); secondHeight != firstHeight {
+	if secondHeight := formula.HeightForWidth(24); secondHeight != firstHeight {
 		t.Fatalf("two measures returned %d and %d", firstHeight, secondHeight)
 	}
 	first := captureFormula(t, formula, 24, firstHeight)
@@ -100,7 +100,7 @@ func assertFormulaIsEveryDrawingReceiver(t *testing.T) {
 			switch {
 			case strings.HasPrefix(fn.Name.Name, "Draw"):
 				drawers = append(drawers, receiver)
-			case fn.Name.Name == "Measure":
+			case fn.Name.Name == "HeightForWidth":
 				measurers = append(measurers, receiver)
 			}
 		}
@@ -111,7 +111,7 @@ func assertFormulaIsEveryDrawingReceiver(t *testing.T) {
 		t.Fatalf("Draw receivers = %v; purity cases cover only *Formula", drawers)
 	}
 	if !reflect.DeepEqual(measurers, []string{"*Formula"}) {
-		t.Fatalf("Measure receivers = %v; purity cases cover only *Formula", measurers)
+		t.Fatalf("HeightForWidth receivers = %v; purity cases cover only *Formula", measurers)
 	}
 }
 

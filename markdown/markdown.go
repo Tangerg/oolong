@@ -40,14 +40,13 @@ import (
 	"slices"
 
 	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
 // Doc is a rendered document, ready to be measured and drawn.
 //
 // It draws into a grid view and is a
-// [github.com/Tangerg/oolong/core/layout.Measurer], which is what lets it go into a
+// [grid.Drawable], which is what lets it go into a
 // slot, container or viewport belonging to a package this one has never heard of.
 // Copies detach block and row storage before either can be changed.
 type Doc struct {
@@ -117,8 +116,8 @@ func (d *Doc) Blocks() []Block {
 	return slices.Clone(d.blocks)
 }
 
-// Measure is how many rows the document needs at this width.
-func (d *Doc) Measure(width int) int { return len(d.wrap(width)) }
+// HeightForWidth is how many rows the document needs at this width.
+func (d *Doc) HeightForWidth(width int) int { return len(d.wrap(width)) }
 
 // Draw writes the document, one wrapped row per row of v.
 func (d *Doc) Draw(v grid.View) {
@@ -291,4 +290,4 @@ func (l *Look) heading(level int) grid.Style {
 // A Doc is a Measurer, which is what lets it go in a slot without an adapter. The
 // assertion is here so that a change to either side is a build failure rather than a
 // surprise at a call site in somebody else's program.
-var _ layout.Measurer = (*Doc)(nil)
+var _ grid.Drawable = (*Doc)(nil)

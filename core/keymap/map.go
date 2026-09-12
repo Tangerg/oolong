@@ -36,16 +36,19 @@ type Resolver func(wait time.Duration, resolve func()) (cancel func())
 //
 // It owns partial sequence progress, exact-prefix resolution and action dispatch.
 // The zero value is ready to use. A Matcher belongs to one goroutine and must not be
-// copied after first use.
+// copied after first use. Changing bindings or switching maps abandons pending
+// sequences; a delayed resolver cannot execute a binding from an older map version.
 type Matcher struct {
 	noCopy noCopy
 
-	keys   input.Keys
-	at     time.Time
-	exact  Action
-	do     func(Action) bool
-	cancel func()
-	ticket uint64
+	bindings *Map
+	version  *byte
+	keys     input.Keys
+	at       time.Time
+	exact    Action
+	do       func(Action) bool
+	cancel   func()
+	ticket   uint64
 }
 
 // Keys returns a copy of the chords typed so far.
@@ -63,6 +66,7 @@ func (m *Matcher) Clear() {
 	}
 	cancel := m.cancel
 	m.keys, m.at, m.exact, m.do, m.cancel = nil, time.Time{}, "", nil, nil
+	m.bindings, m.version = nil, nil
 	m.ticket++
 	if cancel != nil {
 		cancel()
@@ -97,8 +101,9 @@ type Map struct {
 	// when no further input arrives.
 	Resolve Resolver
 
-	bound []Binding
-	root  *trieNode
+	bound   []Binding
+	root    *trieNode
+	version *byte
 }
 
 // noCopy makes the ownership contract above visible to go vet. Its methods are
@@ -203,8 +208,15 @@ func (m *Map) Action(keys ...input.Chord) (Action, bool) {
 // independently and the result reports whether the new key belongs. A nil Matcher,
 // Map or callback handles nothing.
 func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (matched, handled bool) {
-	if m == nil || bindings == nil || do == nil || !key.Down() {
+	if m == nil || !key.Down() {
 		return false, false
+	}
+	if bindings == nil || do == nil {
+		m.Clear()
+		return false, false
+	}
+	if m.bindings != nil && (m.bindings != bindings || m.version != bindings.version) {
+		m.Clear()
 	}
 	if m.expired(bindings.timeout(), key.At) {
 		m.resolveExact()
@@ -236,6 +248,7 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 	prefix = append(prefix, chord)
 	m.keys = prefix
 	m.at = key.At
+	m.bindings, m.version = bindings, bindings.version
 	if node.action != "" {
 		m.deferExact(bindings, node.action, do)
 	}
@@ -286,6 +299,9 @@ func (m *Matcher) resolveExact() {
 		return
 	}
 	action, do := m.exact, m.do
+	if m.bindings == nil || m.version != m.bindings.version {
+		do = nil
+	}
 	m.Clear()
 	if action != "" && do != nil {
 		do(action)
@@ -330,6 +346,7 @@ func (m *Map) rebuild() {
 		node.action = binding.Action
 	}
 	m.root = root
+	m.version = new(byte)
 }
 
 func (m *Map) timeout() time.Duration {

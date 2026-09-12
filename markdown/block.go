@@ -31,10 +31,10 @@ type Block struct {
 	blankBefore bool
 }
 
-// Measure reports how many rows the block needs at width. It excludes the blank
+// HeightForWidth reports how many rows the block needs at width. It excludes the blank
 // row that may separate this block from the one before it; [Block.BlankBefore]
 // exposes that relationship to custom composers.
-func (b Block) Measure(width int) int { return len(b.appendRows(nil, width)) }
+func (b Block) HeightForWidth(width int) int { return len(b.appendRows(nil, width)) }
 
 // Draw writes the block into v. It excludes any blank row before the block, because
 // only the composer knows whether a preceding block exists.
@@ -148,4 +148,4 @@ func stretch(lines []text.Line, room int) text.Line {
 	return text.Line{span}.Truncate(room, "")
 }
 
-var _ layout.Measurer = Block{}
+var _ grid.Drawable = Block{}

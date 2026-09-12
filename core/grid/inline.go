@@ -182,7 +182,7 @@ func (i *Inline) Print(content Drawable) {
 		return
 	}
 	w, _ := i.buffers.size()
-	rows := content.Measure(w)
+	rows := content.HeightForWidth(w)
 	if rows <= 0 {
 		return
 	}

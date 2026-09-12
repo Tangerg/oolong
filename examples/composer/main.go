@@ -99,7 +99,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 
 func (p *prompt) Draw(frame headless.Frame) {
 	width, height := frame.Size()
-	composerRows := min(p.composer.Measure(width), height)
+	composerRows := min(p.composer.HeightForWidth(width), height)
 	rects := (layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
 		{Size: layout.Fixed(2)},
 		{Size: layout.Flex(1)},
@@ -237,7 +237,7 @@ func (p *prompt) refreshCompletion() {
 
 func (p *prompt) drawCompletion(frame headless.Frame, composerRows int) {
 	width, height := frame.Size()
-	rows := p.completion.Measure(width)
+	rows := p.completion.HeightForWidth(width)
 	if width <= 2 || rows <= 0 {
 		return
 	}

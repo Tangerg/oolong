@@ -44,97 +44,94 @@ type Text struct {
 	Placeholder string
 	// Keys say which keystrokes edit. Nil reads through [DefaultEditorKeys].
 	Keys *keymap.Map
+	// Clipboard supplies copy, cut and paste services. Nil disables those actions.
+	Clipboard Clipboard
+	// Gutter optionally draws beside the single text row.
+	Gutter RowGutter
+	// CursorStyle chooses the focused terminal cursor's shape and blink.
+	CursorStyle grid.CursorStyle
 
 	editor Editor
 	seeded bool
 }
 
-// Editor is the field itself, for a caller that needs the cursor, clipboard, or
-// one-line appearance such as [Editor.SetMask].
-func (t *Text) Editor() *Editor { return &t.editor }
+// Text reads the accepted one-line value without synchronizing or writing its owner.
+func (t *Text) Text() string {
+	if t.Value != nil {
+		return oneLineText(t.Value.Value())
+	}
+	return t.editor.Text()
+}
+
+// SetText replaces the answer through the same acceptance and history boundary as input.
+func (t *Text) SetText(value string) {
+	t.Sync()
+	edit := t.beginEdit()
+	t.editor.SetText(value)
+	t.storeSince(edit)
+}
+
+// Cursor returns the byte column in the current one-line projection.
+func (t *Text) Cursor() int { return t.editor.lineView(t.Text()).cursor }
+
+// SetCursor synchronizes the answer, then moves to a grapheme boundary.
+func (t *Text) SetCursor(column int) { t.Sync(); t.editor.SetCursor(0, column) }
+
+// Revision reports the accepted editor content generation, after the last Sync or edit.
+func (t *Text) Revision() uint64 { return t.editor.Revision() }
+
+// SetMask chooses one visible grapheme per input grapheme; empty removes masking.
+// Invalid masks panic on the same terms as [Editor.SetMask].
+func (t *Text) SetMask(mask string) { t.editor.SetMask(mask) }
+
+// Mask returns the configured mask.
+func (t *Text) Mask() string { return t.editor.Mask() }
 
 // Prompt is what the field is asking for.
 func (t *Text) Prompt() string { return t.Label }
 
-// Measure is the label, a row of text, and the problem with it if there is one.
-func (t *Text) Measure(int) int { return layout.Sum(1, t.rows(t.Label)) }
+// HeightForWidth is the label, a row of text, and the problem with it if there is one.
+func (t *Text) HeightForWidth(int) int { return layout.Sum(1, t.rows(t.Label)) }
 
 // Draw paints the label, the field and whatever was wrong with the answer.
 func (t *Text) Draw(v Frame) {
-	t.drawField(v, Look{})
+	t.DrawWith(v, Look{})
 }
 
-func (t *Text) drawField(v Frame, look Look) {
-	editor := t.projection()
-	editor.drawWith(t.frame(v, t.Label, look), look, &t.editor.presentation)
-}
-
-// projection is the field as it should appear without making presentation the event
-// that initializes its semantic editor. A form normally focuses every field before
-// its first frame, but a lone field must still show a caller-owned initial value and
-// Draw must remain a pure read of that value.
-func (t *Text) projection() *Editor {
-	// drawWith receives its look explicitly; keys and the clipboard are input
-	// services; MaxRows and scrolling are multi-line concerns; element identity has
-	// no distinct appearance. This is the complete state a one-line draw reads.
-	projected := &Editor{
-		Placeholder: t.Placeholder,
-		Gutter:      t.editor.Gutter,
-		CursorStyle: t.editor.CursorStyle,
-		blurred:     t.editor.blurred,
-		singleLine:  true,
-		mask:        t.editor.mask,
-		presentation: Snapshot[editorPresentation]{
-			current: t.editor.presentation.Value(),
-		},
-	}
-	value := ""
-	if t.Value != nil {
-		value = oneLineText(t.Value.Value())
-	}
-	if t.Value == nil || t.seeded && value == t.editor.Text() {
-		// A render projection owns its storage and directly expresses Text's one-line
-		// view. Editor is intentionally a mutable owner, not a value safe to copy and
-		// then mutate: its history, marks and kill ring all contain slice headers.
-		lines := t.editor.lines
-		if len(lines) == 0 {
-			lines = []string{""}
-		}
-		projected.lines = []string{strings.Join(lines, " ")}
-		projected.col = offsetInLines(lines, Caret{Line: t.editor.line, Col: t.editor.col})
-		projected.anchor.Col = offsetInLines(lines, t.editor.anchor)
-		projected.selecting = t.editor.selecting
-		return projected
-	}
-	projected.lines = []string{value}
-	projected.col = len(value)
-	return projected
+// DrawWith paints the field using this frame's look without changing configuration.
+func (t *Text) DrawWith(v Frame, look Look) {
+	view := t.editor.lineView(t.Text())
+	view.placeholder, view.gutter, view.cursorStyle = t.Placeholder, t.Gutter, t.CursorStyle
+	view.draw(t.frame(v, t.Label, look), look, &t.editor.presentation)
 }
 
 // Handle passes input to the field and keeps the value in step with it.
 func (t *Text) Handle(ev input.Event) bool {
-	t.ensure()
+	t.Sync()
+	if key, ok := ev.(input.Key); ok {
+		return t.editor.handleKey(key, t.Do, func(key input.Key) bool {
+			edit := t.beginEdit()
+			handled := t.editor.typed(key)
+			t.storeSince(edit)
+			return handled
+		})
+	}
 	if mouse, ok := ev.(input.Mouse); ok {
 		local, in := t.within(mouse)
 		if !in {
 			return false
 		}
-		edit := t.beginEdit()
-		handled := t.editor.Handle(local)
-		t.storeSince(edit)
-		return handled
+		ev = local
 	}
 	edit := t.beginEdit()
-	if !t.editor.Handle(ev) {
-		return false
-	}
+	handled := t.editor.Handle(ev)
 	t.storeSince(edit)
-	return true
+	return handled
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (t *Text) Do(action keymap.Action) bool {
-	t.ensure()
+	t.Sync()
 	edit := t.beginEdit()
 	if !t.editor.Do(action) {
 		return false
@@ -145,7 +142,7 @@ func (t *Text) Do(action keymap.Action) bool {
 
 // Validate checks what has been entered.
 func (t *Text) Validate() error {
-	t.ensure()
+	t.Sync()
 	if t.Check == nil {
 		return t.check(nil)
 	}
@@ -158,20 +155,21 @@ func (t *Text) Validate() error {
 // complaints about answers they have not given yet would be a form nobody finishes. A
 // field that has never had the keyboard has nothing to check.
 func (t *Text) Focus(has bool) {
-	t.ensure()
+	t.Sync()
 	t.editor.Focus(has)
 	if t.leaving(has) {
 		_ = t.Validate()
 	}
 }
 
-// ensure makes the caller-owned value authoritative at semantic boundaries. Drawing
+// Sync makes the caller-owned value authoritative at semantic boundaries. Drawing
 // projects that value without mutating the editor; input first reconciles the editor
 // so cursor, history and the subsequent write all describe the same text.
-func (t *Text) ensure() {
+func (t *Text) Sync() {
 	t.editor.SetSingleLine(true)
 	t.editor.Placeholder = t.Placeholder
 	t.editor.Keys = t.Keys
+	t.editor.Clipboard, t.editor.Gutter, t.editor.CursorStyle = t.Clipboard, t.Gutter, t.CursorStyle
 	if t.Value == nil {
 		t.seeded = true
 		return
@@ -248,33 +246,11 @@ type Option[T any] struct {
 	Value T
 }
 
-// holds reports whether the option is the one standing for a value, by the caller's
-// rule or, with none, by what the option is shown as.
-//
-// Comparing what is shown is the only thing possible without a rule: Go will not
-// compare two values of a type parameter, and a type it cannot compare at all — a
-// slice, a map — would panic on the attempt.
-func (o Option[T]) holds(want T, same func(a, b T) bool) bool {
-	if same != nil {
-		return same(o.Value, want)
-	}
-	switch shown := any(want).(type) {
-	case string:
-		return o.Label == shown
-	case interface{ String() string }:
-		return o.Label == shown.String()
-	}
-	return false
-}
+// Equal compares values by Go equality. Use Equal[T] as Same for comparable choices.
+func Equal[T comparable](a, b T) bool { return a == b }
 
-// sameOption reports whether two complete options are the same choice. Unlike
-// holds, this comparison has both labels available, so arbitrary values do not need
-// to become comparable merely to preserve a choice while options are reordered.
-func (o Option[T]) sameOption(other Option[T], same func(a, b T) bool) bool {
-	if same != nil {
-		return same(o.Value, other.Value)
-	}
-	return o.Label == other.Label
+func (o Option[T]) holds(want T, same func(a, b T) bool) bool {
+	return same(o.Value, want)
 }
 
 // Options is the usual case, where what is shown is what it means.
@@ -300,21 +276,16 @@ type Select[T any] struct {
 	field
 	// Label is what the field is asking for.
 	Label string
-	// options are private because replacing them has to reconcile the selected value
-	// with the list cursor and its bound accessor.
-	options []Option[T]
 	// Value is the caller-owned choice. A caller change moves the cursor at the next
 	// semantic operation and is projected by drawing; cursor movement writes it
 	// immediately and adopts the value the owner accepts. A value that names no option
 	// falls back to the current choice and is written when the field is validated. Nil
 	// keeps the choice local.
 	Value Accessor[T]
-	// Same says whether two values are the same one, which is what puts the cursor on
-	// the choice already made. Nil matches a bound string or Stringer value against
-	// the label, and matches old and new options by label when they are replaced. A
-	// different value type whose initial bound value must identify an option supplies
-	// Same; Go cannot safely compare an arbitrary T on the field's behalf. Same may run
-	// during drawing and must not mutate either value or unrelated state.
+	// Same defines value identity, independently of Label. It is required before
+	// installing non-empty options. Use Equal[T] for comparable values, or supply
+	// domain equality for arbitrary T. It must be pure and remain stable while options
+	// are installed; changing the identity rule requires constructing a new field.
 	Same func(a, b T) bool
 	// Check says what is wrong with the choice, or nil.
 	Check func(v T) error
@@ -323,8 +294,12 @@ type Select[T any] struct {
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
 	Keys *keymap.Map
 
-	list   List[Option[T]]
-	seeded bool
+	// Row optionally draws a one-row choice with its cursor and taken states.
+	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
+	Row func(grid.View, Option[T], bool, bool, Look)
+
+	list    List[Option[T]]
+	matcher keymap.Matcher
 	// stored is the selected index last written to Value. synced distinguishes that
 	// state from an unmatched initial value that happened to fall back to the same
 	// index. Validation settles the latter once; it never uses an accessor write as
@@ -337,28 +312,34 @@ type Select[T any] struct {
 func (s *Select[T]) Prompt() string { return s.Label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
-// choice still exists under Same, or has the same label when Same is nil, the cursor
+// choice still exists under Same, the cursor
 // follows it to its new position; otherwise the cursor is clamped and the bound
-// value follows the resulting choice.
+// value follows the resulting choice. Non-empty options require Same; omitting it
+// is a programmer error and panics. The initial unmatched value is settled by Validate.
 func (s *Select[T]) SetOptions(options []Option[T]) {
+	s.matcher.Clear()
 	previous, hadPrevious := s.list.Current()
-	s.options = own(s.options, options)
-	for i := range s.options {
-		s.options[i].Label = strings.Clone(s.options[i].Label)
+	if hadPrevious && s.Value != nil {
+		previous, hadPrevious = s.Chosen()
 	}
-	s.list.SetItems(s.options)
-	if !s.seeded {
-		return
+	if len(options) > 0 && s.Same == nil {
+		panic("headless: Select requires Same before SetOptions")
+	}
+	s.list.SetItems(options)
+	for i := range s.list.items {
+		s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
 	}
 	if s.Value != nil {
-		s.sync()
-		s.store()
+		if hadPrevious {
+			s.sync()
+			s.store()
+		}
 		return
 	}
 	s.synced = false
 	if hadPrevious {
-		for i, option := range s.options {
-			if option.sameOption(previous, s.Same) {
+		for i, option := range s.list.items {
+			if option.holds(previous.Value, s.Same) {
 				s.list.Select(i)
 				s.store()
 				return
@@ -369,17 +350,20 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 }
 
 // Options returns a copy of what is on offer.
-func (s *Select[T]) Options() []Option[T] { return slices.Clone(s.options) }
+func (s *Select[T]) Options() []Option[T] { return slices.Clone(s.list.items) }
 
-// Chosen is the option under the cursor, and whether there is one.
+// Chosen projects the current choice without changing the cursor or writing Value.
 func (s *Select[T]) Chosen() (Option[T], bool) {
-	s.ensure()
-	return s.list.Current()
+	at := s.list.Selected()
+	if s.Value != nil {
+		at, _ = s.indexOf(s.Value.Value())
+	}
+	return s.list.At(at)
 }
 
-// Measure is the label, the options within their cap, and the problem if there is one.
-func (s *Select[T]) Measure(int) int {
-	rows := len(s.options)
+// HeightForWidth is the label, the options within their cap, and the problem if there is one.
+func (s *Select[T]) HeightForWidth(int) int {
+	rows := len(s.list.items)
 	if s.Rows > 0 {
 		rows = min(rows, s.Rows)
 	}
@@ -388,21 +372,26 @@ func (s *Select[T]) Measure(int) int {
 
 // Draw paints the label, the options and whatever was wrong with the choice.
 func (s *Select[T]) Draw(v Frame) {
-	s.drawField(v, Look{})
+	s.DrawWith(v, Look{})
 }
 
-func (s *Select[T]) drawField(v Frame, look Look) {
+// DrawWith paints the field using this frame's look without changing configuration.
+func (s *Select[T]) DrawWith(v Frame, look Look) {
 	selected := s.list.Selected()
 	if s.Value != nil {
 		selected, _ = s.indexOf(s.Value.Value())
 	}
 	s.list.drawRows(s.frame(v, s.Label, look), selected, func(v grid.View, _ int, option Option[T], under bool) {
-		look.choice(v, option.Label, under, under)
+		if s.Row != nil {
+			s.Row(v, option, under, under, look)
+		} else {
+			look.choice(v, option.Label, under, under)
+		}
 	})
 }
 
 func (s *Select[T]) indexOf(want T) (int, bool) {
-	for i, option := range s.options {
+	for i, option := range s.list.items {
 		if option.holds(want, s.Same) {
 			return i, true
 		}
@@ -412,7 +401,11 @@ func (s *Select[T]) indexOf(want T) (int, bool) {
 
 // Handle moves the cursor, and takes the choice with it.
 func (s *Select[T]) Handle(ev input.Event) bool {
-	s.ensure()
+	s.Sync()
+	if key, ok := ev.(input.Key); ok {
+		_, handled := s.matcher.Handle(s.list.keys(), key, s.Do)
+		return handled
+	}
 	if mouse, ok := ev.(input.Mouse); ok {
 		local, in := s.within(mouse)
 		if !in {
@@ -421,18 +414,16 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 		ev = local
 	}
 	before := s.list.Selected()
-	if !s.list.Handle(ev) {
-		return false
-	}
+	handled := s.list.Handle(ev)
 	if s.list.Selected() != before {
 		s.store()
 	}
-	return true
+	return handled
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (s *Select[T]) Do(action keymap.Action) bool {
-	s.ensure()
+	s.Sync()
 	before := s.list.Selected()
 	if !s.list.Do(action) {
 		return false
@@ -445,7 +436,7 @@ func (s *Select[T]) Do(action keymap.Action) bool {
 
 // Validate checks the choice.
 func (s *Select[T]) Validate() error {
-	s.ensure()
+	s.Sync()
 	// An initial value that named no option is settled here, at the semantic validation
 	// boundary rather than during presentation. Once settled, checking it again is not
 	// another assignment.
@@ -463,16 +454,19 @@ func (s *Select[T]) Validate() error {
 
 // Focus takes the keyboard or gives it up, and checks the choice on the way out.
 func (s *Select[T]) Focus(has bool) {
-	s.ensure()
+	if !has {
+		s.matcher.Clear()
+	}
+	s.Sync()
 	s.list.Focus(has)
 	if s.leaving(has) {
 		_ = s.Validate()
 	}
 }
 
-func (s *Select[T]) ensure() {
+// Sync reconciles the cursor with Value without accepting an unavailable value.
+func (s *Select[T]) Sync() {
 	s.list.Keys = s.Keys
-	s.seeded = true
 	s.sync()
 }
 
@@ -521,11 +515,8 @@ type MultiSelect[T any] struct {
 	field
 	// Label is what the field is asking for.
 	Label string
-	// options are private because replacing them has to move the taken set by value,
-	// not attach old boolean positions to unrelated new choices.
-	options []Option[T]
-	// Value is the caller-owned set, in option order. A caller change is observed at the
-	// next semantic operation and by drawing. Unavailable choices are discarded,
+	// Value is the caller-owned set. Reads and drawing project it in option order.
+	// Sync and semantic operations discard unavailable choices;
 	// duplicates are folded and option order is restored through one write; the field
 	// then adopts the set the owner accepts. A value already in canonical form is not
 	// rewritten. Nil keeps the set local.
@@ -541,10 +532,13 @@ type MultiSelect[T any] struct {
 	// [DefaultMultiSelectKeys].
 	Keys *keymap.Map
 
+	// Row optionally draws a one-row choice with its cursor and taken states.
+	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
+	Row func(grid.View, Option[T], bool, bool, Look)
+
 	list    List[Option[T]]
 	taken   []bool
 	limit   int
-	seeded  bool
 	matcher keymap.Matcher
 }
 
@@ -552,29 +546,32 @@ type MultiSelect[T any] struct {
 func (m *MultiSelect[T]) Prompt() string { return m.Label }
 
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
-// each taken choice that remains available under Same, or under its label when Same
-// is nil, wherever it moved.
+// each taken choice that remains available under Same, wherever it moved.
+// Non-empty options require Same; omitting it is a programmer error and panics.
 func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
+	m.matcher.Clear()
+	hadOptions := m.list.Len() > 0
 	var previous []Option[T]
-	if m.seeded && m.Value == nil {
+	if m.Value == nil {
 		previous = m.takenOptions()
 	}
-	m.options = own(m.options, options)
-	for i := range m.options {
-		m.options[i].Label = strings.Clone(m.options[i].Label)
+	if len(options) > 0 && m.Same == nil {
+		panic("headless: MultiSelect requires Same before SetOptions")
 	}
-	m.list.SetItems(m.options)
-	m.taken = make([]bool, len(m.options))
-	if !m.seeded {
-		return
+	m.list.SetItems(options)
+	for i := range m.list.items {
+		m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
 	}
+	m.taken = make([]bool, len(m.list.items))
 	if m.Value != nil {
-		m.sync()
+		if hadOptions {
+			m.sync()
+		}
 		return
 	}
 	for _, want := range previous {
-		for i, option := range m.options {
-			if !m.taken[i] && option.sameOption(want, m.Same) {
+		for i, option := range m.list.items {
+			if !m.taken[i] && option.holds(want.Value, m.Same) {
 				m.taken[i] = true
 				break
 			}
@@ -585,52 +582,40 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 }
 
 // Options returns a copy of what is on offer.
-func (m *MultiSelect[T]) Options() []Option[T] { return slices.Clone(m.options) }
+func (m *MultiSelect[T]) Options() []Option[T] { return slices.Clone(m.list.items) }
 
 // SetLimit changes how many choices may be taken at once. Zero allows every option;
 // a negative limit is a programmer error and panics, because zero already means "no
 // limit" and there is no smaller quantity of choices for a negative one to name.
 // Lowering the limit keeps the earliest choices in option order and writes the settled
-// set back to a bound value. A nil receiver ignores the change.
+// set back to a bound value.
 func (m *MultiSelect[T]) SetLimit(limit int) {
-	if m == nil {
-		return
-	}
 	if limit < 0 {
 		panic("headless: multi-select limit cannot be negative")
 	}
-	if m.limit == limit {
-		if m.seeded {
-			m.sync()
-		}
-		return
-	}
 	m.limit = limit
-	if m.seeded {
-		// Reconcile against the new limit once. Canonicalizing against the old limit
-		// first could publish two intermediate values for one semantic operation.
-		m.sync()
-	}
+	// Settle against the new limit directly, without publishing an intermediate set.
+	m.sync()
 }
 
 // Limit reports how many choices may be taken at once. Zero allows every option.
 func (m *MultiSelect[T]) Limit() int {
-	if m == nil {
-		return 0
-	}
 	return m.limit
 }
 
-// Taken is what has been chosen, in the order the options are listed.
+// Taken projects the available choices in option order without writing Value.
+// Use Sync to explicitly settle duplicates, unavailable choices and the limit.
 func (m *MultiSelect[T]) Taken() []T {
-	m.ensure()
-	return m.takenValues()
+	taken, _ := m.selection()
+	return m.valuesOf(taken)
 }
 
-func (m *MultiSelect[T]) takenValues() []T {
+func (m *MultiSelect[T]) takenValues() []T { return m.valuesOf(m.taken) }
+
+func (m *MultiSelect[T]) valuesOf(taken []bool) []T {
 	var out []T
-	for i, option := range m.options {
-		if i < len(m.taken) && m.taken[i] {
+	for i, option := range m.list.items {
+		if i < len(taken) && taken[i] {
 			out = append(out, option.Value)
 		}
 	}
@@ -639,7 +624,7 @@ func (m *MultiSelect[T]) takenValues() []T {
 
 func (m *MultiSelect[T]) takenOptions() []Option[T] {
 	var out []Option[T]
-	for i, option := range m.options {
+	for i, option := range m.list.items {
 		if i < len(m.taken) && m.taken[i] {
 			out = append(out, option)
 		}
@@ -683,7 +668,7 @@ func clampTaken(taken []bool, limit int) bool {
 // Toggle takes the option under the cursor, or gives it back, and reports whether
 // anything changed. Nothing changes when the limit is reached.
 func (m *MultiSelect[T]) Toggle() bool {
-	m.ensure()
+	m.Sync()
 	at := m.list.Selected()
 	if at < 0 || at >= len(m.taken) {
 		return false
@@ -697,9 +682,9 @@ func (m *MultiSelect[T]) Toggle() bool {
 	return !slices.Equal(before, m.taken)
 }
 
-// Measure is the label, the options within their cap, and the problem if there is one.
-func (m *MultiSelect[T]) Measure(int) int {
-	rows := len(m.options)
+// HeightForWidth is the label, the options within their cap, and the problem if there is one.
+func (m *MultiSelect[T]) HeightForWidth(int) int {
+	rows := len(m.list.items)
 	if m.Rows > 0 {
 		rows = min(rows, m.Rows)
 	}
@@ -708,22 +693,28 @@ func (m *MultiSelect[T]) Measure(int) int {
 
 // Draw paints the label, the options and whatever was wrong with the choices.
 func (m *MultiSelect[T]) Draw(v Frame) {
-	m.drawField(v, Look{})
+	m.DrawWith(v, Look{})
 }
 
-func (m *MultiSelect[T]) drawField(v Frame, look Look) {
+// DrawWith paints the field using this frame's look without changing configuration.
+func (m *MultiSelect[T]) DrawWith(v Frame, look Look) {
 	taken := m.taken
-	if !m.seeded || m.Value != nil {
+	if m.Value != nil {
 		taken, _ = m.selection()
 	}
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
-		look.choice(v, option.Label, under, at < len(taken) && taken[at])
+		chosen := at < len(taken) && taken[at]
+		if m.Row != nil {
+			m.Row(v, option, under, chosen, look)
+		} else {
+			look.choice(v, option.Label, under, chosen)
+		}
 	})
 }
 
 func (m *MultiSelect[T]) selection() ([]bool, bool) {
 	if m.Value == nil {
-		taken := make([]bool, len(m.options))
+		taken := make([]bool, len(m.list.items))
 		copy(taken, m.taken)
 		return taken, !clampTaken(taken, m.limit)
 	}
@@ -731,9 +722,9 @@ func (m *MultiSelect[T]) selection() ([]bool, bool) {
 }
 
 func (m *MultiSelect[T]) selectionOf(bound []T) ([]bool, bool) {
-	taken := make([]bool, len(m.options))
+	taken := make([]bool, len(m.list.items))
 	for _, want := range bound {
-		for i, option := range m.options {
+		for i, option := range m.list.items {
 			if option.holds(want, m.Same) {
 				taken[i] = true
 				break
@@ -751,7 +742,7 @@ func (m *MultiSelect[T]) selectionOf(bound []T) ([]bool, bool) {
 		return taken, false
 	}
 	at := 0
-	for i, option := range m.options {
+	for i, option := range m.list.items {
 		if !taken[i] {
 			continue
 		}
@@ -765,7 +756,7 @@ func (m *MultiSelect[T]) selectionOf(bound []T) ([]bool, bool) {
 
 // Handle moves the cursor and takes choices.
 func (m *MultiSelect[T]) Handle(ev input.Event) bool {
-	m.ensure()
+	m.Sync()
 	if key, ok := ev.(input.Key); ok {
 		_, handled := m.matcher.Handle(m.keys(), key, m.Do)
 		return handled
@@ -783,7 +774,7 @@ func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 
 // Do runs one of the field's actions by name. See [Doer].
 func (m *MultiSelect[T]) Do(action keymap.Action) bool {
-	m.ensure()
+	m.Sync()
 	if action == Toggle {
 		m.Toggle()
 		return true
@@ -793,7 +784,7 @@ func (m *MultiSelect[T]) Do(action keymap.Action) bool {
 
 // Validate checks the choices.
 func (m *MultiSelect[T]) Validate() error {
-	m.ensure()
+	m.Sync()
 	if m.Check == nil {
 		return m.check(nil)
 	}
@@ -802,7 +793,7 @@ func (m *MultiSelect[T]) Validate() error {
 
 // Focus takes the keyboard or gives it up, and checks the choices on the way out.
 func (m *MultiSelect[T]) Focus(has bool) {
-	m.ensure()
+	m.Sync()
 	if !has {
 		m.matcher.Clear()
 	}
@@ -811,11 +802,11 @@ func (m *MultiSelect[T]) Focus(has bool) {
 	}
 }
 
-func (m *MultiSelect[T]) ensure() {
+// Sync adopts Value and writes its canonical selection once when needed.
+func (m *MultiSelect[T]) Sync() {
 	// The list inside has no map of its own: this field resolves every keystroke
 	// against one that has the movement and the key that takes a choice in it, and
 	// drives the list by name. Offering the event to both would resolve it twice.
-	m.seeded = true
 	m.sync()
 }
 
@@ -882,15 +873,16 @@ func (c *Confirm) Say(yes bool) {
 	c.answer.set(c.Value, yes)
 }
 
-// Measure is the label, the two answers on one row, and the problem if there is one.
-func (c *Confirm) Measure(int) int { return layout.Sum(1, c.rows(c.Label)) }
+// HeightForWidth is the label, the two answers on one row, and the problem if there is one.
+func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.Label)) }
 
 // Draw paints the label and the two answers.
 func (c *Confirm) Draw(v Frame) {
-	c.drawField(v, Look{})
+	c.DrawWith(v, Look{})
 }
 
-func (c *Confirm) drawField(v Frame, look Look) {
+// DrawWith paints the field using this frame's look without changing configuration.
+func (c *Confirm) DrawWith(v Frame, look Look) {
 	answer := c.Answer()
 	row := c.frame(v, c.Label, look)
 	w, h := row.Size()

@@ -12,7 +12,7 @@ func (*rejectingChoice) Set(string)      {}
 
 func TestSelectSettlesItsCursorToTheValueItsOwnerAccepted(t *testing.T) {
 	value := &rejectingChoice{value: "a"}
-	field := &Select[string]{Value: value}
+	field := &Select[string]{Same: Equal[string], Value: value}
 	field.SetOptions(Options("a", "b"))
 	_, _ = field.Chosen()
 

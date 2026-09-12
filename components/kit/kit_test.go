@@ -161,7 +161,7 @@ func (c *panelChild) Draw(frame headless.Frame) {
 	frame.Text(0, 0, "inside", grid.Style{})
 }
 
-func (c *panelChild) Measure(across int) int {
+func (c *panelChild) HeightForWidth(across int) int {
 	c.across = across
 	return 2
 }
@@ -189,8 +189,8 @@ func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 	if !strings.Contains(rows[0], "pane") || !strings.Contains(rows[2], "inside") {
 		t.Fatalf("panel drew:\n%s\nwant its title and child inside the frame", strings.Join(rows, "\n"))
 	}
-	if got := panel.Measure(12); got != 6 {
-		t.Fatalf("Measure = %d, want child height 2 plus four rows of chrome", got)
+	if got := panel.HeightForWidth(12); got != 6 {
+		t.Fatalf("HeightForWidth = %d, want child height 2 plus four rows of chrome", got)
 	}
 	if child.across != 8 {
 		t.Fatalf("child measured at width %d, want the 12 columns minus four columns of chrome", child.across)
@@ -342,23 +342,23 @@ func TestLabelAlignment(t *testing.T) {
 
 func TestParagraphHeightFollowsWidth(t *testing.T) {
 	p := kit.NewParagraph("one two three four", grid.Style{})
-	if got := p.Measure(9); got != 3 {
+	if got := p.HeightForWidth(9); got != 3 {
 		t.Fatalf("height at 9 = %d, want 3", got)
 	}
-	if got := p.Measure(4); got != 5 {
+	if got := p.HeightForWidth(4); got != 5 {
 		t.Fatalf("height at 4 = %d, want 5", got)
 	}
 	// And what it reports is what it draws, or a container's layout is a guess.
-	rows := paint(9, p.Measure(9), func(v grid.View) { p.Draw(v) })
+	rows := paint(9, p.HeightForWidth(9), func(v grid.View) { p.Draw(v) })
 	equalRows(t, rows, []string{"one two..", "three....", "four....."})
 }
 
 func TestParagraphMeasuresContentBeforeItHasDrawableWidth(t *testing.T) {
 	p := kit.NewParagraph("one two\nthree", grid.Style{})
 	p.Indent = 3
-	want := p.Measure(p.Indent + 1)
+	want := p.HeightForWidth(p.Indent + 1)
 	for _, width := range []int{-1, 0, 1, p.Indent} {
-		if got := p.Measure(width); got != want {
+		if got := p.HeightForWidth(width); got != want {
 			t.Errorf("height at width %d = %d, want one-column height %d", width, got, want)
 		}
 	}
@@ -366,7 +366,7 @@ func TestParagraphMeasuresContentBeforeItHasDrawableWidth(t *testing.T) {
 
 func TestParagraphKeepsNewlinesAsLineBreaks(t *testing.T) {
 	p := kit.NewParagraph("first\nsecond", grid.Style{})
-	if got := p.Measure(20); got != 2 {
+	if got := p.HeightForWidth(20); got != 2 {
 		t.Fatalf("height = %d, want a row per line", got)
 	}
 }
@@ -381,7 +381,7 @@ func TestParagraphIndentsEveryRow(t *testing.T) {
 func TestParagraphCapsItsHeight(t *testing.T) {
 	p := kit.NewParagraph("one two three four five", grid.Style{})
 	p.MaxRows = 2
-	if got := p.Measure(6); got != 2 {
+	if got := p.HeightForWidth(6); got != 2 {
 		t.Fatalf("height = %d, want the cap", got)
 	}
 	rows := paint(6, 2, func(v grid.View) { p.Draw(v) })
@@ -394,11 +394,11 @@ func TestParagraphCapsItsHeight(t *testing.T) {
 
 func TestParagraphRewrapsWhenItsRowCapChanges(t *testing.T) {
 	p := kit.NewParagraph("one two three four five", grid.Style{})
-	if got := p.Measure(6); got <= 2 {
+	if got := p.HeightForWidth(6); got <= 2 {
 		t.Fatalf("uncapped height = %d, want more than two rows", got)
 	}
 	p.MaxRows = 2
-	if got := p.Measure(6); got != 2 {
+	if got := p.HeightForWidth(6); got != 2 {
 		t.Fatalf("height after changing the cap = %d, want 2", got)
 	}
 }
@@ -407,11 +407,11 @@ func TestParagraphRewrapsWhenItsTextChanges(t *testing.T) {
 	// The wrap is memoised because it is asked for twice a frame. A memo that
 	// outlived its content would show the old text forever.
 	p := kit.NewParagraph("short", grid.Style{})
-	if got := p.Measure(20); got != 1 {
+	if got := p.HeightForWidth(20); got != 1 {
 		t.Fatalf("height = %d", got)
 	}
 	p.SetText(kit.NewParagraph("one\ntwo\nthree", grid.Style{}).Lines())
-	if got := p.Measure(20); got != 3 {
+	if got := p.HeightForWidth(20); got != 3 {
 		t.Fatalf("height after the text changed = %d, want 3", got)
 	}
 }
@@ -522,8 +522,8 @@ func TestHelpShowsWhatFitsAndDropsTheRest(t *testing.T) {
 	keys.Bind("quit", input.Ctrl.Rune('c'))
 	keys.Bind("tasks", input.Ctrl.Rune('g'))
 	help := kit.Help{Keys: keys, Show: []keymap.Action{"send", "quit", "tasks"}}
-	if got := help.Measure(40); got != 1 {
-		t.Fatalf("Help.Measure = %d, want its one display row", got)
+	if got := help.HeightForWidth(40); got != 1 {
+		t.Fatalf("Help.HeightForWidth = %d, want its one display row", got)
 	}
 	full := paint(40, 1, func(v grid.View) { help.Draw(v) })
 	for _, want := range []string{"enter send", "ctrl+c quit", "ctrl+g tasks"} {
@@ -592,10 +592,10 @@ func TestTableColumnWidthsFillTheSpaceExactly(t *testing.T) {
 }
 
 func TestTableMeasureNormalizesInvalidRowCounts(t *testing.T) {
-	if got := (kit.Table{Rows: -3}).Measure(10); got != 0 {
+	if got := (kit.Table{Rows: -3}).HeightForWidth(10); got != 0 {
 		t.Fatalf("negative rows measured %d, want 0", got)
 	}
-	if got := (kit.Table{Rows: -3, Header: true}).Measure(10); got != 1 {
+	if got := (kit.Table{Rows: -3, Header: true}).HeightForWidth(10); got != 1 {
 		t.Fatalf("header over negative rows measured %d, want 1", got)
 	}
 }
@@ -750,7 +750,7 @@ func TestTableDrawsHeaderAndRows(t *testing.T) {
 		"a1...alpha..",
 		"b2...bravo..",
 	})
-	if got := table.Measure(12); got != 3 {
+	if got := table.HeightForWidth(12); got != 3 {
 		t.Fatalf("height = %d, want the rows plus the header", got)
 	}
 }
@@ -1070,7 +1070,7 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 		},
 	})
 	detected := lookups
-	p.Measure(40)
+	p.HeightForWidth(40)
 	p.Draw(s.View())
 
 	destination, ok := p.LinkAt(len("edited "), 0, 40)
@@ -1081,7 +1081,7 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 		t.Errorf("a click found %+v, want the path at line 42", destination)
 	}
 	if lookups != detected {
-		t.Fatalf("Measure, Draw or LinkAt performed %d new filesystem lookups", lookups-detected)
+		t.Fatalf("HeightForWidth, Draw or LinkAt performed %d new filesystem lookups", lookups-detected)
 	}
 	// A relative path gets no OSC 8: the terminal knows the directory and offers to
 	// open it in the editor the user actually uses.
@@ -1224,7 +1224,7 @@ func TestNilTreeIsAnEmptyWidget(t *testing.T) {
 	if tree.Controller() != nil || tree.Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("a nil tree reported controller, focus, or handled input")
 	}
-	if got := tree.Measure(20); got != 0 {
+	if got := tree.HeightForWidth(20); got != 0 {
 		t.Fatalf("nil tree measured %d rows, want zero", got)
 	}
 	paintWidget(20, 1, tree)
@@ -1258,7 +1258,7 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 		model string
 		sure  bool
 	)
-	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField := &headless.Select[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
 	form := headless.NewForm(
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Check: func(s string) error {
@@ -1336,8 +1336,8 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 	none.Alt = "a diagram"
 	none.Theme = kit.Dark()
 	equalRows(t, paint(12, 1, none.Draw), []string{"a diagram..."})
-	if none.Measure(12) != 1 {
-		t.Fatalf("a picture that cannot be shown asked for %d rows", none.Measure(12))
+	if none.HeightForWidth(12) != 1 {
+		t.Fatalf("a picture that cannot be shown asked for %d rows", none.HeightForWidth(12))
 	}
 	var width interface{ Width() int } = none
 	if got := width.Width(); got != 9 {
@@ -1350,7 +1350,7 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 		Of:   graphics.Image{ID: 3, Size: image.Pt(200, 100)},
 		Cell: image.Pt(10, 20),
 	}
-	if got := shown.Measure(40); got != 5 {
+	if got := shown.HeightForWidth(40); got != 5 {
 		t.Fatalf("a 200x100 picture in 10x20 cells took %d rows, want five", got)
 	}
 	equalRows(t, paint(8, 2, shown.Draw), []string{"........", "........"})

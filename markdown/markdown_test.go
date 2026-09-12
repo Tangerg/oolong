@@ -42,7 +42,7 @@ func rows(t *testing.T, width int, blocks []markdown.Block) []string {
 	// document given new blocks under it would draw what it used to say.
 	doc := &markdown.Doc{}
 	doc.SetBlocks(blocks)
-	height := doc.Measure(width)
+	height := doc.HeightForWidth(width)
 	surface := grid.NewSurface(width, height)
 	doc.Draw(surface.View())
 
@@ -150,10 +150,10 @@ func TestStreamLookIsOwnedAndInvalidatesTheOpenRendering(t *testing.T) {
 
 	style := func() grid.Style {
 		blocks := stream.Open()
-		if len(blocks) == 0 || blocks[0].Measure(40) == 0 {
+		if len(blocks) == 0 || blocks[0].HeightForWidth(40) == 0 {
 			t.Fatalf("open heading = %+v", blocks)
 		}
-		surface := grid.NewSurface(40, blocks[0].Measure(40))
+		surface := grid.NewSurface(40, blocks[0].HeightForWidth(40))
 		blocks[0].Draw(surface.View())
 		return cellAt(surface, 0, 0).Style
 	}
@@ -261,7 +261,7 @@ func TestATableWrapsCellsInsideAllocatedColumnsWithoutLosingLinks(t *testing.T) 
 	doc := &markdown.Doc{}
 	doc.SetBlocks(blocks)
 	const width = 16
-	height := doc.Measure(width)
+	height := doc.HeightForWidth(width)
 	surface := grid.NewSurface(width, height)
 	doc.Draw(surface.View())
 
@@ -298,7 +298,7 @@ func TestATableLayoutStaysInsideEveryUsableWidth(t *testing.T) {
 				t.Fatalf("width %d row %d ends at %d: %q", width, rowIndex, end, row.Text)
 			}
 		}
-		surface := grid.NewSurface(width, doc.Measure(width))
+		surface := grid.NewSurface(width, doc.HeightForWidth(width))
 		doc.Draw(surface.View())
 	}
 }
@@ -309,7 +309,7 @@ func TestTheWordsCarryWhereTheyPoint(t *testing.T) {
 	blocks := markdown.Render("see [the docs](http://x/y) for more", look())
 	doc := &markdown.Doc{}
 	doc.SetBlocks(blocks)
-	s := grid.NewSurface(40, doc.Measure(40))
+	s := grid.NewSurface(40, doc.HeightForWidth(40))
 	doc.Draw(s.View())
 	if got := cellAt(s, 4, 0).Link; got != "http://x/y" {
 		t.Fatalf("the cell under the linked words points at %q", got)

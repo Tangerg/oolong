@@ -58,7 +58,7 @@ func (s *latexScreen) Draw(view grid.View) {
 	kit.Label{Text: "LaTeX", Style: s.theme.Heading}.Draw(rows[0])
 
 	width, height := rows[1].Size()
-	wanted := min(s.formula.Measure(width), height)
+	wanted := min(s.formula.HeightForWidth(width), height)
 	top := max((height-wanted)/2, 0)
 	s.formula.Draw(rows[1].Sub(grid.Rect(0, top, width, wanted)))
 

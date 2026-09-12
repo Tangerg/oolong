@@ -59,7 +59,7 @@ func TestEmptyMathRenderingIsDifferentFromDeclining(t *testing.T) {
 	if len(blocks) != 1 {
 		t.Fatalf("blocks = %d, want 1", len(blocks))
 	}
-	if got := blocks[0].Measure(20); got != 0 {
+	if got := blocks[0].HeightForWidth(20); got != 0 {
 		t.Fatalf("empty rendering measures %d rows, want 0", got)
 	}
 	if got := blocks[0].Rows(20); len(got) != 0 {
@@ -85,8 +85,8 @@ func TestMathLayoutIsClippedRatherThanReflowed(t *testing.T) {
 	})
 	blocks := markdown.Render("$$\nx\n$$", appearance)
 
-	if got := blocks[0].Measure(3); got != 1 {
-		t.Fatalf("Measure(3) = %d, want one fixed row", got)
+	if got := blocks[0].HeightForWidth(3); got != 1 {
+		t.Fatalf("HeightForWidth(3) = %d, want one fixed row", got)
 	}
 	equal(t, rows(t, 3, blocks), []string{"abc"})
 }

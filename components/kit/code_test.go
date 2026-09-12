@@ -17,8 +17,8 @@ func TestCodeNumbersLogicalLinesAndLeavesContinuationsBlank(t *testing.T) {
 	})
 	code.Gutter = numbers
 
-	if got := code.Measure(8); got != 3 {
-		t.Fatalf("Measure(8) = %d, want 3 wrapped rows", got)
+	if got := code.HeightForWidth(8); got != 3 {
+		t.Fatalf("HeightForWidth(8) = %d, want 3 wrapped rows", got)
 	}
 	equalRows(t, paint(8, 3, code.Draw), []string{
 		"1│.alpha",

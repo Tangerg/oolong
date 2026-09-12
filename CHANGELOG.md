@@ -18,6 +18,111 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Changed
+
+- Input always requests a coalesced logical frame. Event consumption controls
+  propagation independently of changes made while handling an event.
+- Container pointer routing and focus resolve the same presented attachment.
+  Reordering retains a concrete child; removal or replacement cancels its gesture.
+  Non-comparable value widgets are replaced on Set; use pointers for retained identity.
+- Selection navigation and explicit scroll reveals are consumed by a complete frame.
+  Ordinary redraws preserve manual scrolling. Transcript search navigation uses
+  `RevealMatch`; setting `Current` only changes highlighting.
+- Choice identity requires `Same`, with `Equal[T]` for comparable values. Labels only
+  control display. Internal lists exclusively own option collections. `Chosen`,
+  `Taken`, and `Ask` are projections; `Sync`, validation and editing settle values.
+- Text owns all controlled edits and shares a read-only single-line renderer with
+  Editor. Rejected edits and accepted normalization retain their undo semantics.
+- Completion exposes paired row drawing and width measurement through Renderer;
+  choice fields expose Row, and external fields can receive Form looks via ThemedField.
+- Token lookup continues left past invalid occurrences of the same trigger.
+  Completion snapshots copy mutable match offsets without recopying owned strings.
+- Session.Hand requires a live HandoverHost and returns errors.ErrUnsupported without
+  running the callback when that capability is missing. Frame timers use current Go
+  channel semantics. Nil Snapshot, List and MultiSelect owners no longer discard calls.
+
+- Pointer owns one control's committed hit region. Stage replaces draw-time Claim;
+  buttons process press and release without an intervening draw, and sliders share
+  this gesture owner. Capture ends at a presentation gap, a new press or focus loss.
+  PointerRegion gives tabs and viewports the same child-lifetime rule.
+- Lists decline row hits after SetItems until the new collection is drawn. Tab strips
+  use SelectPresented for the same guarantee. Filter resets reveal the first result.
+- Editor navigation is a cancellable, single-use scroll request resolved at the next
+  wrap width. Resizing refines reveals from their original offset. Releasing a drag
+  retains text selection without keeping the gesture active.
+- Key sequences cannot cross binding versions, replaced choice collections or modal
+  owners. Deferred setting edits stay with the original row.
+
+### Breaking API migration
+
+#### components
+
+- `github.com/Tangerg/oolong/core/grid.Drawable.HeightForWidth` is the required height-at-width capability; implement it on custom content and fields.
+- `headless.(*Completion).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Confirm).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Container).Give` was replaced by `FocusIndex(index)` on the current collection.
+- `headless.(*Container).Measure` now takes `(axis, across)`. Use `HeightForWidth` or `WidthForHeight` for one dimension.
+- `headless.(*DialogTrigger).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Editor).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Filter[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Form).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*List[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*List[T]).Measure, method set of *Settings` was replaced by `HeightForWidth(width)`.
+- `headless.(*List[T]).Measure, method set of *Table` was replaced by `HeightForWidth(width)`.
+- `headless.(*MultiSelect[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Pointer).Claim` was removed. Each control owns a Pointer and calls `Stage(frame, area)` from Draw; Handle owns capture.
+- `headless.(*Pointer).Clicked` now takes only the button; consume it from the event handler after Handle.
+- `headless.(*Pointer).Over` now takes no rectangle and observes the committed region.
+- `headless.(*Pointer).Pressing` now takes no rectangle and observes the control's live gesture.
+- `headless.(*Scroll).AtBottom` was renamed to `FollowingEnd()`; it reports policy, not geometric position.
+- `headless.(*Select[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Tabs).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Text).Editor` was removed. Configure the field directly and use its `SetText`, `SetCursor`, `Handle` and `Do` entry points.
+- `headless.(*Text).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Tree[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.(*Viewport).Measure` was replaced by `HeightForWidth(width)`.
+- `headless.Field.HeightForWidth` is the required height-at-width capability; implement it on custom content and fields.
+- `headless.Sized.HeightForWidth` is the required height-at-width capability; implement it on custom content and fields.
+- `headless.Static.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Code).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Composer).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Diff).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Entry).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Form).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Panel).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Paragraph).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Settings[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Slider).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Spinner).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Status).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Tabs).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.(*Tree[T]).Measure` was replaced by `HeightForWidth(width)`.
+- `kit.BarChart.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Cell.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Help.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Image.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Label.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Palette.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Progress.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Sparkline.Measure` was replaced by `HeightForWidth(width)`.
+- `kit.Table.Measure` was replaced by `HeightForWidth(width)`.
+
+#### core
+
+- `grid.Drawable.HeightForWidth` is the required height-at-width capability; implement it on custom content and fields.
+- `layout.MeasureFunc` now receives the requested `Axis` before the cross extent.
+- `layout.MeasureFunc.Measure` now receives the requested `Axis` before the cross extent.
+- `layout.Measurer.Measure` now receives the requested `Axis` before the cross extent.
+
+#### latex
+
+- `(*Formula).Measure` was replaced by `HeightForWidth(width)`.
+
+#### markdown
+
+- `(*Doc).Measure` was replaced by `HeightForWidth(width)`.
+- `Block.Measure` was replaced by `HeightForWidth(width)`.
+
 ## [0.16.0] — 2026-08-25
 
 Something can be true and still be invisible. This release is about that gap, which

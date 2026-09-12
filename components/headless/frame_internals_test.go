@@ -32,51 +32,25 @@ func (p *routingProbe) Draw(Frame) {
 }
 
 func TestRootPublishesNestedRoutingGeometryAtomically(t *testing.T) {
-	oldTop := &routingTarget{}
-	oldBottom := &routingTarget{}
-	newTop := &routingTarget{}
-	newBottom := &routingTarget{}
-
-	inner := NewContainer(layout.Down,
-		Item{Size: layout.Fixed(2), Of: oldTop},
-		Item{Size: layout.Fixed(1), Of: oldBottom},
-	)
+	a, b, c, d := &routingTarget{}, &routingTarget{}, &routingTarget{}, &routingTarget{}
+	item := func(key string, target *routingTarget) Item { return Item{Key: key, Size: layout.Fixed(1), Of: target} }
+	inner := NewContainer(layout.Down, item("a", a), item("b", b), item("c", c), item("d", d))
 	probe := &routingProbe{point: image.Pt(0, 2)}
-	outer := NewContainer(layout.Down,
-		Item{Size: layout.Fixed(3), Of: inner},
-		Item{Size: layout.Fixed(0), Of: probe},
-	)
+	outer := NewContainer(layout.Down, Item{Key: "inner", Size: layout.Fixed(4), Of: inner}, Item{Key: "probe", Of: probe})
 	root := NewRoot(outer)
 	probe.root = root
-	root.Draw(grid.NewSurface(4, 4).View())
-
-	// Both levels change before the next frame. At the probe point, the old outer
-	// snapshot maps to inner row 2 and the old inner snapshot maps that row to
-	// oldBottom. The new outer maps it to inner row 1, where the new inner maps to
-	// newTop. Either mixed pair would reach one of the other two targets.
-	inner.Set(
-		Item{Size: layout.Fixed(2), Of: newTop},
-		Item{Size: layout.Fixed(1), Of: newBottom},
-	)
-	outer.Set(
-		Item{Size: layout.Fixed(1)},
-		Item{Size: layout.Fixed(3), Of: inner},
-		Item{Size: layout.Fixed(0), Of: probe},
-	)
+	root.Draw(grid.NewSurface(4, 5).View())
+	// Old/old reaches c; new/new reaches a. Either mixed geometry reaches b or d.
+	inner.Set(item("b", b), item("a", a), item("d", d), item("c", c))
+	outer.Set(Item{Size: layout.Fixed(1)}, Item{Key: "inner", Size: layout.Fixed(4), Of: inner}, Item{Key: "probe", Of: probe})
 	probe.armed = true
-	root.Draw(grid.NewSurface(4, 4).View())
-
-	if oldBottom.events != 1 {
-		t.Fatalf("input during Draw reached old bottom %d times, want once", oldBottom.events)
+	root.Draw(grid.NewSurface(4, 5).View())
+	if c.events != 1 || a.events != 0 || b.events != 0 || d.events != 0 {
+		t.Fatal("input during Draw observed mixed geometry")
 	}
-	if oldTop.events != 0 || newTop.events != 0 || newBottom.events != 0 {
-		t.Fatalf("input during Draw observed mixed geometry: old top=%d new top=%d new bottom=%d",
-			oldTop.events, newTop.events, newBottom.events)
-	}
-
 	root.Handle(input.Mouse{Pos: probe.point, Action: input.MouseMove})
-	if newTop.events != 1 {
-		t.Fatalf("input after Draw reached new top %d times, want once", newTop.events)
+	if a.events != 1 || b.events != 0 || d.events != 0 {
+		t.Fatal("committed frame did not publish both levels")
 	}
 }
 
@@ -278,8 +252,8 @@ func TestOneScrollLayoutCanBeRefinedWithinItsFrame(t *testing.T) {
 	var scroll Scroll
 	fixture := &resizeScrollFixture{scroll: &scroll}
 	NewRoot(fixture).Draw(grid.NewSurface(1, 10).View())
-	if fixture.before != 3 || fixture.after != 3 || scroll.Offset() != 3 {
-		t.Fatalf("offset before resize=%d after=%d committed=%d; want 3, 3, 3",
+	if fixture.before != 3 || fixture.after != 8 || scroll.Offset() != 8 {
+		t.Fatalf("offset before resize=%d after=%d committed=%d; want 3, 8, 8 to retain row 12 in the smaller window",
 			fixture.before, fixture.after, scroll.Offset())
 	}
 }
@@ -314,7 +288,7 @@ type wrappingBlock struct{}
 
 func (wrappingBlock) Draw(grid.View) {}
 
-func (wrappingBlock) Measure(width int) int {
+func (wrappingBlock) HeightForWidth(width int) int {
 	if width < 10 {
 		return 2
 	}
@@ -359,7 +333,7 @@ type extremeBlock struct{ height int }
 
 func (extremeBlock) Draw(grid.View) {}
 
-func (b extremeBlock) Measure(int) int { return b.height }
+func (b extremeBlock) HeightForWidth(int) int { return b.height }
 
 func TestTranscriptPendingRowsCannotWrap(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
@@ -372,5 +346,17 @@ func TestTranscriptPendingRowsCannotWrap(t *testing.T) {
 	if fixture.drawnHeight != maxInt || transcript.Height() != maxInt {
 		t.Fatalf("pending height = %d, committed height = %d, want saturation at %d",
 			fixture.drawnHeight, transcript.Height(), maxInt)
+	}
+}
+
+func TestScrollRefinementKeepsTheOriginBeforeProvisionalClamping(t *testing.T) {
+	var scroll Scroll
+	stageScrollForTest(&scroll, 20, 5)
+	scroll.ToBottom()
+	fixture := &resizeScrollFixture{scroll: &scroll}
+	NewRoot(fixture).Draw(grid.NewSurface(1, 10).View())
+	if fixture.before != 10 || fixture.after != 12 || scroll.Offset() != 12 {
+		t.Fatalf("refinement lost original offset 15: before=%d after=%d committed=%d",
+			fixture.before, fixture.after, scroll.Offset())
 	}
 }

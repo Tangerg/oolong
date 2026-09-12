@@ -407,7 +407,7 @@ Codex 在这里有价值，因为它是一个大型 agent 产品，其终端代�
 
 **Markdown 表格把结构保留到宽度已知。** Codex 的 `markdown_render.rs` 保留带样式的
 cell 并对 column 分类，然后才选择对齐网格或 key/value records。Oolong 现在也在正确
-边界做这项决定：`markdown.Block` 保留表格 cell、alignment 与 style，再在 `Measure`/
+边界做这项决定：`markdown.Block` 保留表格 cell、alignment 与 style，再在 `HeightForWidth`/
 `Draw` 中分配可读列；无法保持可扫描性的表格会转为带 label 的 records。解析阶段不再
 冻结一份过宽文本，让后续 layout 只剩截断这一条路。
 

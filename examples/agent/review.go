@@ -43,7 +43,7 @@ func (w *workflow) Apply(update stepUpdate) {
 	w.steps[update.Index].state = update.State
 }
 
-func (*workflow) Measure(int) int { return 6 }
+func (*workflow) HeightForWidth(int) int { return 6 }
 
 func (w *workflow) Draw(view grid.View) {
 	box := kit.Box{
@@ -88,7 +88,7 @@ type reviewPane struct {
 
 func (p *reviewPane) Draw(frame headless.Frame) {
 	width, height := frame.Size()
-	formRows := min(p.form.Measure(width), height)
+	formRows := min(p.form.HeightForWidth(width), height)
 	rows := frame.Subs((layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
 		{Size: layout.Fixed(1)},
 		{Size: layout.Flex(1)},

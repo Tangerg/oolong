@@ -53,7 +53,7 @@ blocks := markdown.Render(source, markdown.Look{})
 doc := new(markdown.Doc)
 doc.SetBlocks(blocks)
 
-height := doc.Measure(width)
+height := doc.HeightForWidth(width)
 doc.Draw(view)
 rows := doc.Rows(width)
 ```
@@ -61,6 +61,12 @@ rows := doc.Rows(width)
 The zero look remains readable in terminal-default colors. A product can map its own
 semantic theme into `markdown.Look`; the Markdown module does not import a component
 theme or assume a palette.
+
+Height is explicit: `grid.Drawable` provides `HeightForWidth(width)`, never a width
+request disguised as a height request. `layout.Measurer.Measure(axis, across)` names
+both the requested axis and the available cross extent. A live container uses
+`HeightForWidth` for vertical slots and the optional `WidthForHeight` capability for
+horizontal slots; fixed and flexible slots need neither.
 
 ## Highlight source without Markdown
 
@@ -98,7 +104,7 @@ if err := formula.Err(); err != nil {
 formula.Draw(view)
 ```
 
-`Formula` also provides `Measure`, `Width`, `Lines`, `Rows`, and `Source`. There is
+`Formula` also provides `HeightForWidth`, `Width`, `Lines`, `Rows`, and `Source`. There is
 no image-only path, so mathematics remains searchable, selectable, and useful on an
 ASCII terminal.
 

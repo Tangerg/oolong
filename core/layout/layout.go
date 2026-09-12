@@ -116,22 +116,18 @@ func (i Inset) normalized() Inset {
 	return i
 }
 
-// Measurer reports how much of one axis something wants, given how much room it has
-// across the other.
-//
-// Which axis is which is decided by whoever is asking: [Down] divides height and
-// asks for a height at a width, [Across] divides width and asks for a width at a
-// height. A type that can only answer for one axis is a type that belongs in only
-// one of them, and saying so is the caller's business rather than this package's.
+// Measurer reports the desired extent along axis given the available cross extent.
+// Down asks for height at a width; Across asks for width at a height. Implementations
+// must interpret the explicit axis, so height-only content cannot satisfy this seam.
 type Measurer interface {
-	Measure(across int) int
+	Measure(axis Axis, across int) int
 }
 
-// MeasureFunc adapts a function to [Measurer].
-type MeasureFunc func(across int) int
+// MeasureFunc adapts an axis-aware function to [Measurer].
+type MeasureFunc func(axis Axis, across int) int
 
-// Measure calls f.
-func (f MeasureFunc) Measure(across int) int { return f(across) }
+// Measure calls f with the requested axis and cross extent.
+func (f MeasureFunc) Measure(axis Axis, across int) int { return f(axis, across) }
 
 // Sizing says how much of an axis a slot wants.
 //
@@ -325,13 +321,13 @@ func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 // Divide splits total among the slots, holding back the gaps between them first.
 func (f Flow) Divide(total, across int, slots []Slot) []int {
 	available := max(total, 0)
-	return divide(Remaining(available, f.gaps(len(slots))), across, slots)
+	return divide(f.Axis, Remaining(available, f.gaps(len(slots))), across, slots)
 }
 
 // Wanted is how much of the divided axis the slots ask for altogether, the gaps
 // between them included.
 func (f Flow) Wanted(across int, slots []Slot) int {
-	wanted, gaps := wanted(across, slots), f.gaps(len(slots))
+	wanted, gaps := wanted(f.Axis, across, slots), f.gaps(len(slots))
 	return Sum(wanted, gaps)
 }
 
@@ -352,11 +348,11 @@ func (f Flow) gaps(slots int) int {
 // It is what a group made of slots answers when it is itself measured. A flexible slot has
 // nothing to ask for — a share is a share of a total, and there is no total yet — so
 // it counts as its floor.
-func wanted(across int, slots []Slot) int {
+func wanted(axis Axis, across int, slots []Slot) int {
 	across = max(across, 0)
 	total := 0
 	for _, slot := range slots {
-		total = Sum(total, slot.wanted(across))
+		total = Sum(total, slot.wanted(axis, across))
 	}
 	return total
 }
@@ -364,7 +360,7 @@ func wanted(across int, slots []Slot) int {
 // wanted is what a slot can ask for before the divided extent exists. A fraction
 // and a flexible share therefore ask only for their floor; both need a named whole
 // before their proportional part has meaning.
-func (s Slot) wanted(across int) int {
+func (s Slot) wanted(axis Axis, across int) int {
 	switch s.Size.kind {
 	case fixedSizing:
 		return s.Size.amount
@@ -373,7 +369,7 @@ func (s Slot) wanted(across int) int {
 	case measuredSizing:
 		want := s.Size.minimum
 		if s.Of != nil {
-			want = max(s.Of.Measure(across), s.Size.minimum)
+			want = max(s.Of.Measure(axis, across), s.Size.minimum)
 		}
 		if s.Size.maximum > 0 {
 			want = min(want, s.Size.maximum)
@@ -386,8 +382,9 @@ func (s Slot) wanted(across int) int {
 
 // divide splits total among slots, measuring against across, and returns each slot's
 // size. The sizes always add up to at most total.
-func divide(total, across int, slots []Slot) []int {
+func divide(axis Axis, total, across int, slots []Slot) []int {
 	d := division{
+		axis:    axis,
 		total:   max(total, 0),
 		across:  max(across, 0),
 		slots:   slots,
@@ -404,6 +401,7 @@ func divide(total, across int, slots []Slot) []int {
 // sum together makes it impossible for the rigid and flexible passes to update only
 // half of the same state.
 type division struct {
+	axis          Axis
 	total, across int
 	left, flex    int
 	maxFlex       int
@@ -424,7 +422,7 @@ func (d *division) reserve() {
 			want := Scale(d.total, slot.Size.amount, slot.Size.whole)
 			d.allocate(i, max(want, slot.Size.minimum))
 		default:
-			d.allocate(i, slot.wanted(d.across))
+			d.allocate(i, slot.wanted(d.axis, d.across))
 		}
 	}
 }

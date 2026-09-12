@@ -468,3 +468,38 @@ func TestAConfigurationFileIsToldWhatItGotWrong(t *testing.T) {
 		t.Fatalf("the error is %q, want it to name what it could not read", err)
 	}
 }
+
+func TestPendingSequenceCannotCrossBindingLifetimes(t *testing.T) {
+	for _, mode := range []string{"unbind", "rebind", "replace map", "disable map"} {
+		t.Run(mode, func(t *testing.T) {
+			var resolve func()
+			bindings := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
+				resolve = fn
+				return func() {}
+			}}
+			g := input.Chord{Code: input.Character, Rune: 'g'}
+			bindings.Bind("short", g)
+			bindings.Bind("long", g, g)
+			var matcher keymap.Matcher
+			var called []keymap.Action
+			do := func(action keymap.Action) bool { called = append(called, action); return true }
+			matcher.Handle(bindings, input.Key{Code: input.Character, Rune: 'g'}, do)
+			switch mode {
+			case "unbind":
+				bindings.Unbind(g)
+			case "rebind":
+				bindings.Bind("replacement", g)
+			case "replace map":
+				bindings = &keymap.Map{}
+				bindings.Bind("replacement", g, g)
+				matcher.Handle(bindings, input.Key{Code: input.Character, Rune: 'g'}, do)
+			case "disable map":
+				matcher.Handle(nil, input.Key{Code: input.Character, Rune: 'g'}, do)
+			}
+			resolve()
+			if len(called) != 0 {
+				t.Fatalf("expired bindings dispatched %v", called)
+			}
+		})
+	}
+}

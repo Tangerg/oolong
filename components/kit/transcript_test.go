@@ -16,7 +16,7 @@ import (
 // said is a block of plain rows, standing in for anything a session prints.
 type said struct{ rows []string }
 
-func (s *said) Measure(int) int { return len(s.rows) }
+func (s *said) HeightForWidth(int) int { return len(s.rows) }
 
 func (s *said) Draw(v grid.View) {
 	for y, row := range s.rows {
@@ -291,7 +291,7 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 type recordingPrinter struct{ rows []int }
 
 func (p *recordingPrinter) Print(content grid.Drawable) {
-	rows := content.Measure(20)
+	rows := content.HeightForWidth(20)
 	p.rows = append(p.rows, rows)
 	content.Draw(grid.NewSurface(20, rows).View())
 }
@@ -414,6 +414,7 @@ func TestSteppingToAMatchScrollsToIt(t *testing.T) {
 		},
 		Current: 1,
 	}
+	view.RevealMatch(1)
 	drawTranscript(s.View(), &view)
 
 	if got := sc.Offset(); got > 40 || got+5 <= 40 {
@@ -432,13 +433,15 @@ func TestSteppingToAMatchShowsTheWholeOfIt(t *testing.T) {
 	var sc headless.Scroll
 	s := grid.NewSurface(20, 5)
 
-	drawTranscript(s.View(), &kit.Transcript{
+	view := kit.Transcript{
 		Content: tr,
 		Scroll:  &sc,
 		Matches: []headless.Match{{Row: 30, Spans: []headless.Span{
 			{Col: 0, Width: 4}, {Col: 0, Width: 4}, {Col: 0, Width: 4},
 		}}},
-	})
+	}
+	view.RevealMatch(0)
+	drawTranscript(s.View(), &view)
 
 	if got := sc.Offset(); got > 30 || got+5 < 33 {
 		t.Errorf("the window starts at %d, which does not show rows 30 to 32", got)
@@ -459,7 +462,7 @@ func TestNoCurrentMatchScrollsNowhere(t *testing.T) {
 		{Content: tr, Scroll: &sc, Matches: []headless.Match{{Row: 0}}},
 	} {
 		drawTranscript(s.View(), view)
-		if !sc.AtBottom() {
+		if !sc.FollowingEnd() {
 			t.Errorf("%+v moved the view off the end", view.Matches)
 			sc.ToBottom()
 		}
@@ -615,5 +618,38 @@ func TestADoubleClickInTheMarginStartsASelection(t *testing.T) {
 	view.Handle(press(20, base.Add(80*time.Millisecond)))
 	if !sel.Dragging() {
 		t.Error("a double-click past the text did not start a selection")
+	}
+}
+
+func TestMatchNavigationSurvivesStickyResizeWithoutRepeatingOnScroll(t *testing.T) {
+	rows := make([]string, 50)
+	for i := range rows {
+		rows[i] = "line"
+	}
+	content := session(t, 20, []string{"header"}, rows)
+	var scroll headless.Scroll
+	sticky := &headless.Sticky{Gap: 1}
+	sticky.SetBlocks([]headless.BlockID{0})
+	view := kit.Transcript{
+		Content: content, Scroll: &scroll, Sticky: sticky,
+		Matches: []headless.Match{{Row: 30, Spans: []headless.Span{{Col: 0, Width: 1}, {Col: 0, Width: 1}, {Col: 0, Width: 1}}}},
+	}
+	root := headless.NewRoot(&view)
+	surface := grid.NewSurface(20, 5)
+	if !view.RevealMatch(0) {
+		t.Fatal("valid match rejected")
+	}
+	root.Draw(surface.View())
+	if scroll.Offset() != 30 {
+		t.Fatalf("sticky header clipped the requested match: offset=%d", scroll.Offset())
+	}
+	scroll.By(-5)
+	root.Draw(surface.View())
+	root.Draw(grid.NewSurface(20, 6).View())
+	if scroll.Offset() != 25 {
+		t.Fatalf("redraw or resize replayed navigation: offset=%d", scroll.Offset())
+	}
+	if view.RevealMatch(-1) {
+		t.Fatal("invalid match was accepted")
 	}
 }

@@ -75,8 +75,8 @@ func (s *Slider) Controller() *headless.Slider {
 	return s.controller
 }
 
-// Measure is one row whenever a controller is present.
-func (s *Slider) Measure(int) int {
+// HeightForWidth is one row whenever a controller is present.
+func (s *Slider) HeightForWidth(int) int {
 	if s == nil || s.controller == nil {
 		return 0
 	}

@@ -26,7 +26,7 @@ type callbackRule struct {
 }
 
 // renderingCallbacks classifies every function value retained by a projection
-// package. Projection callbacks are the only ones Draw or Measure may invoke. A
+// package. Projection callbacks are the only ones Draw or HeightForWidth may invoke. A
 // semantic callback belongs to an explicit model update, and an event callback belongs
 // to input handling. Exact source-derived keys make both a new unclassified callback
 // and a stale rule fail.
@@ -38,6 +38,8 @@ var renderingCallbacks = map[string]callbackRule{
 	"components/headless:Form.Check":        {callbackEvent, "whole-form validation follows submission"},
 	"components/headless:Form.Done":         {callbackEvent, "completion follows successful submission"},
 	"components/headless:Form.GaveUp":       {callbackEvent, "abandonment follows an input action"},
+	"components/headless:Select.Row":        {callbackProjection, "choice rows project current cursor and taken states"},
+	"components/headless:MultiSelect.Row":   {callbackProjection, "choice rows project current cursor and taken states"},
 	"components/headless:List.Row":          {callbackProjection, "a list row paints only its assigned frame"},
 	"components/headless:MultiSelect.Check": {callbackEvent, "validation follows a selection change"},
 	"components/headless:MultiSelect.Same":  {callbackProjection, "equality is a read-only projection of two values"},

@@ -72,6 +72,7 @@ func (f *Filter[T]) SetPattern(pattern string) {
 	f.pattern, f.fresh = strings.Clone(pattern), false
 	f.match()
 	f.list.Select(0)
+	f.list.Scroll().ToTop()
 }
 
 // SetItems replaces the source: the values there are to choose from and the one
@@ -84,6 +85,7 @@ func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
 	f.text, f.fresh = text, false
 	f.match()
 	f.list.Select(0)
+	f.list.Scroll().ToTop()
 }
 
 // Items returns a copy of everything there is to choose from, matched or not.
@@ -151,9 +153,9 @@ func (f *Filter[T]) Focus(has bool) { f.list.Focus(has) }
 // Focused reports whether this list has the keyboard.
 func (f *Filter[T]) Focused() bool { return f.list.Focused() }
 
-// Measure is one row per match. Match state is rebuilt by semantic operations, so
+// HeightForWidth is one row per match. Match state is rebuilt by semantic operations, so
 // measuring only observes the last complete projection.
-func (f *Filter[T]) Measure(int) int { return f.list.Len() }
+func (f *Filter[T]) HeightForWidth(int) int { return f.list.Len() }
 
 // Draw paints the matches that fit.
 func (f *Filter[T]) Draw(v Frame) {

@@ -809,7 +809,7 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 
 	var session program.Session
 	called := false
-	if err := session.Hand(func() error { called = true; return nil }); err != nil || !called {
+	if err := session.Hand(func() error { called = true; return nil }); !errors.Is(err, errors.ErrUnsupported) || called {
 		t.Fatalf("zero Session.Hand = %v, called %v", err, called)
 	}
 	if err := session.Suspend(); !errors.Is(err, errors.ErrUnsupported) {
@@ -1486,9 +1486,14 @@ func TestZeroRuntimesAreInert(t *testing.T) {
 func TestSuspendRequiresAHandoverHost(t *testing.T) {
 	host := newHost(t)
 	result := make(chan error, 1)
+	called := false
 	err := program.Run(t.Context(), program.Config{
 		Host: &minimalHost{events: host.events, writer: host.writer, w: host.w, h: host.h},
 		Root: func(runtime *program.Runtime) program.Component {
+			handErr := runtime.Session().Hand(func() error { called = true; return nil })
+			if !errors.Is(handErr, errors.ErrUnsupported) {
+				t.Errorf("Hand without capability = %v", handErr)
+			}
 			result <- runtime.Session().Suspend()
 			runtime.Quit()
 			return &component{text: "ready"}
@@ -1496,6 +1501,9 @@ func TestSuspendRequiresAHandoverHost(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("program: %v", err)
+	}
+	if called {
+		t.Fatal("Hand ran without host ownership capability")
 	}
 	if err := <-result; !errors.Is(err, errors.ErrUnsupported) {
 		t.Fatalf("Suspend = %v, want errors.ErrUnsupported", err)
@@ -1853,8 +1861,8 @@ type measurer struct {
 	draw    func(v grid.View)
 }
 
-func (m measurer) Measure(width int) int { return m.measure(width) }
-func (m measurer) Draw(v grid.View)      { m.draw(v) }
+func (m measurer) HeightForWidth(width int) int { return m.measure(width) }
+func (m measurer) Draw(v grid.View)             { m.draw(v) }
 
 func TestPrintingMeasuresAgainstTheBlocksOwnWidth(t *testing.T) {
 	// The width is the program's to know. A caller that had to remember how wide the

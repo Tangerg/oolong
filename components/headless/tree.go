@@ -294,9 +294,9 @@ func (t *Tree[T]) Focus(has bool) {
 // Focused reports whether this tree has the keyboard.
 func (t *Tree[T]) Focused() bool { return t.list.Focused() }
 
-// Measure is one row per row showing, which is what a container needs to decide how
+// HeightForWidth is one row per row showing, which is what a container needs to decide how
 // much room to give it.
-func (t *Tree[T]) Measure(int) int { return t.list.Len() }
+func (t *Tree[T]) HeightForWidth(int) int { return t.list.Len() }
 
 // Scroll exposes the position, for a scrollbar drawn beside the tree.
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }

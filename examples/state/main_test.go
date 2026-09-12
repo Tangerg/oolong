@@ -36,7 +36,7 @@ func TestOneFieldAPIExpressesEveryStateOwnershipOutcome(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if got := local.Editor().Text(); got != "draft" {
+	if got := local.Text(); got != "draft" {
 		t.Fatalf("local value = %q, want draft", got)
 	}
 	if values.bound != "owner" || values.normalized != "MIXED" || values.guarded != "12345678" {

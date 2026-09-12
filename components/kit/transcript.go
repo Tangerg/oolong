@@ -35,7 +35,7 @@ type Transcript struct {
 	// Sticky pins a header above the window. Nil pins nothing.
 	Sticky *headless.Sticky
 	// Matches are highlighted where they fall inside the window, and Current is the
-	// index of the one being stepped to, which is drawn differently. Matches must be
+	// index of the highlighted match. Use [Transcript.RevealMatch] to navigate to it. Matches must be
 	// in row order and non-overlapping; [headless.Result.Matches] already has that
 	// shape. The order is what lets drawing depend on the visible window rather than
 	// on the age of the session. A Current outside the matches means none is current.
@@ -100,16 +100,11 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 	// output notices immediately; sizing the header against the reduced height makes
 	// the header's own presence change how much of it there is, which has no fixed
 	// point at all.
-	// The current match is brought into view before anything is laid out against the
-	// scroll, because stepping to a match that cannot be seen is not stepping to it.
-	// It is done here rather than left to a caller because the caller has no way to
-	// know how tall the window turned out to be.
 	bodyRect := grid.Rect(0, 0, w, h)
 	from := content.StartRow()
 	var scroll headless.ScrollLayout
 	if t.Scroll != nil {
 		scroll = t.Scroll.Stage(frame, content.Height(), h)
-		t.reveal(content, &scroll)
 		from = content.StartRow() + scroll.Offset()
 	}
 	window := transcriptWindow{
@@ -143,21 +138,21 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 	return window
 }
 
-// reveal brings the current match into the window.
-//
-// The whole match, when it fits: a match that crosses a break the width made covers
-// several rows, and showing the first and cutting the rest is showing half of what the
-// reader asked to see.
-func (t *Transcript) reveal(content headless.TranscriptLayout, scroll *headless.ScrollLayout) {
-	if scroll == nil || t.Current < 0 || t.Current >= len(t.Matches) {
-		return
+// RevealMatch highlights index and requests that match's rows in the next complete
+// frame. It returns false for an unavailable match, content or scroll. Current on
+// its own only controls highlighting; redraws never repeat a navigation request.
+func (t *Transcript) RevealMatch(index int) bool {
+	if t.Content == nil || t.Scroll == nil || index < 0 || index >= len(t.Matches) {
+		return false
 	}
-	m := t.Matches[t.Current]
-	if len(m.Spans) == 0 {
-		return
+	match := t.Matches[index]
+	if len(match.Spans) == 0 {
+		return false
 	}
-	start := content.StartRow()
-	scroll.Reveal(m.Row-start, m.Row-start+len(m.Spans)-1)
+	t.Current = index
+	first := match.Row - t.Content.StartRow()
+	t.Scroll.Reveal(first, layout.Sum(first, len(match.Spans)-1))
+	return true
 }
 
 // drawHeader draws the pinned block and the rule under it.

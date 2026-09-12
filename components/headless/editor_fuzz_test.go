@@ -126,7 +126,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 		if len(data) > 0 {
 			width += int(data[0] % 12)
 		}
-		paintWidget(width, max(editor.Measure(width), 1), &editor)
+		paintWidget(width, max(editor.HeightForWidth(width), 1), &editor)
 	})
 }
 

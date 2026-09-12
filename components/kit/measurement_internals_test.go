@@ -15,15 +15,15 @@ type maximumWidget struct{}
 func (*maximumWidget) Draw(headless.Frame)     {}
 func (*maximumWidget) Handle(input.Event) bool { return false }
 func (*maximumWidget) Focus(bool)              {}
-func (*maximumWidget) Measure(int) int         { return int(^uint(0) >> 1) }
+func (*maximumWidget) HeightForWidth(int) int  { return int(^uint(0) >> 1) }
 
 func TestCompositeMeasurementsSaturateAtMaxInt(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	child := &maximumWidget{}
 	cases := map[string]int{
-		"panel": NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Glyphs{}}, Content: child}).Measure(80),
-		"tabs":  NewTabs(TabsConfig{Items: []headless.Tab{{Title: "one", Of: child}}}).Measure(80),
-		"entry": (&Entry{Trailing: maxInt}).Measure(80),
+		"panel": NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Glyphs{}}, Content: child}).HeightForWidth(80),
+		"tabs":  NewTabs(TabsConfig{Items: []headless.Tab{{Title: "one", Of: child}}}).HeightForWidth(80),
+		"entry": (&Entry{Trailing: maxInt}).HeightForWidth(80),
 	}
 	for name, got := range cases {
 		if got != maxInt {

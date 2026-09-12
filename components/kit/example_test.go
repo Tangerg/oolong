@@ -49,7 +49,7 @@ func ExampleComposer() {
 	}
 	c.Editor().Placeholder = "Ask something"
 	c.Editor().Keys = keys
-	showWidget(28, c.Measure(28), &c)
+	showWidget(28, c.HeightForWidth(28), &c)
 
 	// Output:
 	// |› Ask something             |
@@ -72,7 +72,7 @@ func ExampleComposer_typing() {
 
 func ExampleEntry() {
 	m := kit.Entry{Label: "build", Body: "what changed"}
-	show(20, m.Measure(20), m.Draw)
+	show(20, m.HeightForWidth(20), m.Draw)
 
 	// Output:
 	// |build               |
@@ -96,7 +96,7 @@ func ExampleForm() {
 	// A theme becomes the handful of roles a field draws itself in, and a glyph set
 	// becomes the marks beside a choice. That is the whole of dressing a form.
 	var name, model string
-	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField := &headless.Select[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
 	form := headless.NewForm(
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
@@ -108,7 +108,7 @@ func ExampleForm() {
 		Theme: kit.Dark(), Glyphs: kit.ASCII(), Controller: form, Title: "New session",
 		Hints: []keymap.Action{headless.Submit},
 	})
-	showWidget(22, view.Measure(22), view)
+	showWidget(22, view.HeightForWidth(22), view)
 
 	// Output:
 	// |New session           |
@@ -131,7 +131,7 @@ func ExampleProgress() {
 		Total:   8,
 		Percent: true,
 	}
-	show(28, p.Measure(28), p.Draw)
+	show(28, p.HeightForWidth(28), p.Draw)
 
 	// Output:
 	// |fetching █████▎░░░░░░░░  38%|
@@ -199,7 +199,7 @@ func ExampleDiff() {
 		Theme: kit.Dark(), Glyphs: kit.ASCII(),
 		Hunks: diff.Between(before, after).Hunks(1), Numbers: true,
 	})
-	show(16, view.Measure(16), view.Draw)
+	show(16, view.HeightForWidth(16), view.Draw)
 
 	// Output:
 	// |1 1  keep       |

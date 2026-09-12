@@ -52,9 +52,9 @@ type Image struct {
 // third of a terminal, which leaves room to read around it.
 const defaultMaxRows = 8
 
-// Measure is how many rows the picture takes at this width, or one row for the
+// HeightForWidth is how many rows the picture takes at this width, or one row for the
 // alternative text where it cannot be shown.
-func (i Image) Measure(width int) int {
+func (i Image) HeightForWidth(width int) int {
 	if _, rows, ok := i.fit(width); ok {
 		return rows
 	}

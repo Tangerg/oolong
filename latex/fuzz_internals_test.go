@@ -15,7 +15,7 @@ func FuzzRenderNeverPanics(f *testing.F) {
 		_ = formula.Err()
 		_ = formula.Lines()
 		_ = formula.Width()
-		_ = formula.Measure(80)
+		_ = formula.HeightForWidth(80)
 		_ = formula.Rows(80)
 	})
 }

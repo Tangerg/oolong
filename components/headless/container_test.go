@@ -43,7 +43,7 @@ type valueField struct {
 func (f valueField) Draw(v headless.Frame)      { f.target.Draw(v) }
 func (f valueField) Handle(ev input.Event) bool { return f.target.Handle(ev) }
 func (f valueField) Focus(has bool)             { f.target.Focus(has) }
-func (valueField) Measure(int) int              { return 1 }
+func (valueField) HeightForWidth(int) int       { return 1 }
 
 func (f *field) Draw(v headless.Frame) {
 	w, h := v.Size()
@@ -104,7 +104,7 @@ func TestAKeyGoesToWhicheverChildHasTheKeyboard(t *testing.T) {
 		t.Errorf("the second field got %d keys, and it does not have the keyboard", len(second.keys))
 	}
 
-	c.Give(1)
+	c.FocusIndex(1)
 	c.Handle(input.Key{Code: input.Character, Rune: 'b'})
 	if len(second.keys) != 1 {
 		t.Errorf("after being given the keyboard the second field got %d keys", len(second.keys))
@@ -349,18 +349,19 @@ func TestContainerIdentityDoesNotRequireComparableWidgets(t *testing.T) {
 	value := valueField{target: target, payload: []byte("not comparable")}
 	c := headless.NewContainer(layout.Down, headless.Item{Key: "value", Size: layout.Fixed(1), Of: value})
 	drawn(c, 1)
-	if !c.Give(0) {
+	if !c.FocusIndex(0) {
 		t.Fatal("container refused a valid value widget")
 	}
 	if !c.Handle(pressAt(0, 0)) {
 		t.Fatal("value widget declined its configured press")
 	}
 
-	// A keyed semantic part may be rebuilt and moved without interface comparison.
+	// Reinstalling a non-comparable value is a replacement. Its old gesture must
+	// not transfer to a new attachment solely because it reused the key.
 	c.Set(headless.Item{Key: "value", Size: layout.Fixed(1), Of: value})
 	drawn(c, 1)
-	if !c.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDrag}) {
-		t.Fatal("keyed value widget lost its gesture across a frame")
+	if c.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDrag}) {
+		t.Fatal("replacement inherited the old value widget gesture")
 	}
 }
 
@@ -408,7 +409,7 @@ func TestAContainerInsideAContainerPassesTheAnswerDown(t *testing.T) {
 		t.Fatal("a child of an unfocused container believes it has the keyboard")
 	}
 
-	outer.Give(1)
+	outer.FocusIndex(1)
 	if !right.focused {
 		t.Fatal("giving the inner container the keyboard did not reach the widget in it")
 	}
@@ -456,7 +457,7 @@ func TestOnlyTheFocusedFieldPlacesTheCursor(t *testing.T) {
 		t.Fatalf("the cursor is %+v, want it in the first field", got)
 	}
 
-	c.Give(1)
+	c.FocusIndex(1)
 	root.Draw(s.Frame())
 	if got := s.Cursor(); !got.Visible || got.Pos.Y != 1 {
 		t.Fatalf("the cursor is %+v, want it in the field with the keyboard", got)
@@ -512,7 +513,7 @@ func TestAContainerAsksItsChildrenHowBigTheyWant(t *testing.T) {
 		headless.Item{Size: layout.Fixed(1), Of: &field{name: "header"}},
 		headless.Item{Size: layout.Measured(0, 0), Of: &editor},
 	)
-	if got := c.Measure(20); got != 4 {
+	if got := c.HeightForWidth(20); got != 4 {
 		t.Errorf("the container wants %d rows, want the header and three lines", got)
 	}
 }

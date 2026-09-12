@@ -410,8 +410,8 @@ type counting struct {
 	calls int
 }
 
-func (c *counting) Measure(int) int { return len(c.rows) }
-func (c *counting) Draw(grid.View)  {}
+func (c *counting) HeightForWidth(int) int { return len(c.rows) }
+func (c *counting) Draw(grid.View)         {}
 
 func (c *counting) Rows(int) []text.Row {
 	c.calls++

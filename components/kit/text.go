@@ -25,8 +25,8 @@ type Label struct {
 	Ellipsis string
 }
 
-// Measure is one row, whatever the width.
-func (l Label) Measure(int) int { return 1 }
+// HeightForWidth is one row, whatever the width.
+func (l Label) HeightForWidth(int) int { return 1 }
 
 // Draw writes the label into the first row of v.
 func (l Label) Draw(v grid.View) {
@@ -71,7 +71,7 @@ type Paragraph struct {
 // Enabled finds URLs and file paths. Exists additionally decides whether ambiguous
 // bare names such as "main.go" are files; nil leaves those names as prose. The
 // callback runs only from [Paragraph.SetLinks] and [Paragraph.SetText], never from
-// Measure, Draw or [Paragraph.LinkAt], so it may consult the filesystem without
+// HeightForWidth, Draw or [Paragraph.LinkAt], so it may consult the filesystem without
 // turning frame projection into I/O.
 //
 // The zero value disables detection.
@@ -130,10 +130,10 @@ func (p *Paragraph) Lines() []text.Line {
 	return text.CloneLines(p.lines)
 }
 
-// Measure is how many rows the paragraph needs at this width. A width no larger
+// HeightForWidth is how many rows the paragraph needs at this width. A width no larger
 // than Indent is measured with one text column: there is nothing to draw yet, but
 // reporting no content would let a parent collapse the paragraph permanently.
-func (p *Paragraph) Measure(width int) int { return len(p.rows(width)) }
+func (p *Paragraph) HeightForWidth(width int) int { return len(p.rows(width)) }
 
 // Draw writes the paragraph, one wrapped row per row of v.
 func (p *Paragraph) Draw(v grid.View) {

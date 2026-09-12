@@ -15,7 +15,7 @@ type drawable struct {
 	draw func(grid.View)
 }
 
-func (d drawable) Measure(int) int { return d.rows }
+func (d drawable) HeightForWidth(int) int { return d.rows }
 
 func (d drawable) Draw(view grid.View) {
 	if d.draw != nil {

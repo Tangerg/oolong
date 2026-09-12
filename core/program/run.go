@@ -256,44 +256,30 @@ func (p *program) run(ctx context.Context) (err error) {
 			}
 
 		case <-due.channel():
-			due.fired()
 		}
 	}
 	return nil
 }
 
-// frameTimer owns the drain-before-reset protocol of a reusable timer. Keeping the
-// armed bit beside the timer prevents the event loop from having two independent
-// accounts of whether a value may still be waiting on its channel.
-type frameTimer struct {
-	timer *time.Timer
-	armed bool
-}
+// frameTimer reuses one timer under the Go 1.27 channel-timer contract.
+type frameTimer struct{ timer *time.Timer }
 
 func newFrameTimer() *frameTimer {
 	timer := time.NewTimer(0)
-	if !timer.Stop() {
-		<-timer.C
-	}
+	timer.Stop()
 	return &frameTimer{timer: timer}
 }
 
 func (t *frameTimer) schedule(at time.Time, pending bool) {
-	if t.armed && !t.timer.Stop() {
-		<-t.timer.C
-	}
-	t.armed = false
 	if pending {
 		t.timer.Reset(max(time.Until(at), 0))
-		t.armed = true
+	} else {
+		t.timer.Stop()
 	}
 }
 
 func (t *frameTimer) channel() <-chan time.Time { return t.timer.C }
-
-func (t *frameTimer) fired() { t.armed = false }
-
-func (t *frameTimer) stop() { t.timer.Stop() }
+func (t *frameTimer) stop()                     { t.timer.Stop() }
 
 // runTasks takes one scheduling turn. Work posted while this batch runs leaves
 // another wake-up, so a burst already waiting cannot keep input out of the select.
@@ -351,9 +337,9 @@ func (p *program) handle(ev input.Event) error {
 		p.present.RequestFull()
 		return nil
 	}
-	if p.root.Handle(ev) {
-		p.present.RequestBy(time.Now(), p.frameInterval)
-	}
+	// Consumption controls propagation, not whether handling changed application state.
+	p.root.Handle(ev)
+	p.present.RequestBy(time.Now(), p.frameInterval)
 	return nil
 }
 

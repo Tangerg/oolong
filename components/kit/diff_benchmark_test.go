@@ -26,12 +26,12 @@ func BenchmarkDiffFrame(b *testing.B) {
 				Hunks: []diff.Hunk{{Lines: script}}, Numbers: true,
 			})
 			view := grid.NewSurface(100, 60).View()
-			_ = d.Measure(100) // Measure one cold frame before reporting steady-state work.
+			_ = d.HeightForWidth(100) // HeightForWidth one cold frame before reporting steady-state work.
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				_ = d.Measure(100)
+				_ = d.HeightForWidth(100)
 				d.Draw(view)
 			}
 		})

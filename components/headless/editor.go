@@ -73,6 +73,7 @@ type Editor struct {
 	// is the cursor, so a selection needs nothing kept in step with movement.
 	anchor    Caret
 	selecting bool
+	dragging  bool
 
 	// rowEnd is where a click landed that meant the end of a wrapped row rather than
 	// the start of the next, and set says there was one.
@@ -119,7 +120,10 @@ type Editor struct {
 	mask       string
 
 	scroll Scroll
-	layout editorLayout
+	// cursorReveal identifies the pending navigation request. Scroll owns its
+	// consumption and cancellation; drawing only resolves its row at the new width.
+	cursorReveal *scrollRange
+	layout       editorLayout
 	// presentation is the committed wrap width and viewport origin used by pointer
 	// and vertical cursor routing.
 	presentation Snapshot[editorPresentation]
@@ -214,6 +218,7 @@ func (e *Editor) SetMask(mask string) {
 
 // oneLineChanged maintains the storage invariant after a mode transition.
 func (e *Editor) oneLineChanged(wasOneLine bool) {
+	defer e.revealCursor()
 	nowOneLine := e.oneLine()
 	if wasOneLine == nowOneLine {
 		return
@@ -417,6 +422,7 @@ func (e *Editor) Cursor() (line, col int) {
 // its caret was and not be told where to put it, which made the round trip only
 // half a round.
 func (e *Editor) SetCursor(line, col int) {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.line = min(max(line, 0), len(e.lines)-1)
@@ -740,6 +746,7 @@ func (e *Editor) YankPop() {
 
 // MoveLeft moves one cluster left, over a line break when there is nowhere else.
 func (e *Editor) MoveLeft() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.wantColumn = -1
@@ -757,6 +764,7 @@ func (e *Editor) MoveLeft() {
 
 // MoveRight moves one cluster right, over a line break when there is nowhere else.
 func (e *Editor) MoveRight() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.wantColumn = -1
@@ -772,6 +780,7 @@ func (e *Editor) MoveRight() {
 
 // MoveWordLeft moves to the start of the word behind the cursor.
 func (e *Editor) MoveWordLeft() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.wantColumn = -1
@@ -784,6 +793,7 @@ func (e *Editor) MoveWordLeft() {
 
 // MoveWordRight moves past the end of the word in front of the cursor.
 func (e *Editor) MoveWordRight() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.wantColumn = -1
@@ -796,6 +806,7 @@ func (e *Editor) MoveWordRight() {
 
 // MoveLineStart moves to the start of the logical line.
 func (e *Editor) MoveLineStart() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.wantColumn = -1
@@ -804,6 +815,7 @@ func (e *Editor) MoveLineStart() {
 
 // MoveLineEnd moves to the end of the logical line.
 func (e *Editor) MoveLineEnd() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.wantColumn = -1
@@ -862,6 +874,7 @@ func (e *Editor) contentChanged() {
 	e.revision++
 	e.layout.stale = true
 	e.wantColumn = -1
+	e.revealCursor()
 }
 
 // requireContentRevision keeps exhaustion on the caller's side of a mutation, so a
@@ -880,6 +893,7 @@ func (e *Editor) requireContentRevision() {
 // the cursor is assigned. A bit that every one of those had to reset would be reset in
 // thirty-nine of them.
 func (e *Editor) endTyping() {
+	e.dragging = false
 	e.typing = false
 	e.rowEndSet = false
 	e.breakContinuation()

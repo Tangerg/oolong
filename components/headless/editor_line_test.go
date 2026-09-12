@@ -58,7 +58,7 @@ func TestAFieldThatHoldsOneLineNeverGetsASecond(t *testing.T) {
 	if got := e.Text(); got != "one two three four" {
 		t.Fatalf("after Newline = %q", got)
 	}
-	if got := e.Measure(4); got != 1 {
+	if got := e.HeightForWidth(4); got != 1 {
 		t.Fatalf("measured %d rows", got)
 	}
 }
@@ -200,14 +200,13 @@ func TestOneLineModeCannotRestoreMultilineHistory(t *testing.T) {
 
 func TestDrawingTextDoesNotChangeItsEditorsHistory(t *testing.T) {
 	field := &headless.Text{}
-	editor := field.Editor()
+	editor := field
 	editor.SetText("one")
 	editor.SetText("one\ntwo")
-	editor.SetSingleLine(false)
 
 	rows := paintWidget(20, 1, field)
 	equalRows(t, rows, []string{"one two............."})
-	editor.Undo()
+	editor.Do(headless.Undo)
 	if got := editor.Text(); got != "one" {
 		t.Fatalf("undo after Draw restored %q, want one", got)
 	}
@@ -236,7 +235,7 @@ func TestTextRejectsAnInvalidMaskBeforeDrawing(t *testing.T) {
 				}
 			}()
 			field := &headless.Text{}
-			field.Editor().SetMask(mask)
+			field.SetMask(mask)
 		})
 	}
 }
@@ -244,8 +243,8 @@ func TestTextRejectsAnInvalidMaskBeforeDrawing(t *testing.T) {
 func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
 	value := "secret"
 	field := &headless.Text{Value: headless.Bind(&value)}
-	field.Editor().SetMask("*")
-	if got := field.Editor().Mask(); got != "*" {
+	field.SetMask("*")
+	if got := field.Mask(); got != "*" {
 		t.Fatalf("Mask() = %q, want *", got)
 	}
 	rows := paintWidget(8, 1, field)
@@ -255,8 +254,8 @@ func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
 func TestControlledTextUsesOneProjectionBeforeAndAfterInitialization(t *testing.T) {
 	value := "a\r\nb\x7f"
 	field := &headless.Text{Value: headless.Bind(&value)}
-	field.Editor().Gutter = numberedGutter{}
-	field.Editor().SetMask("*")
+	field.Gutter = numberedGutter{}
+	field.SetMask("*")
 
 	before := paintWidget(8, 1, field)
 	field.Focus(true)

@@ -54,15 +54,15 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 				first := tc.measure(tc.width)
 				if tc.state != nil {
 					if after := tc.state(); !reflect.DeepEqual(after, before) {
-						t.Fatalf("first Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+						t.Fatalf("first HeightForWidth changed semantic state\n before: %#v\n  after: %#v", before, after)
 					}
 				}
 				if second := tc.measure(tc.width); second != first {
-					t.Fatalf("two Measure calls from the same state returned %d and %d", first, second)
+					t.Fatalf("two HeightForWidth calls from the same state returned %d and %d", first, second)
 				}
 				if tc.state != nil {
 					if after := tc.state(); !reflect.DeepEqual(after, before) {
-						t.Fatalf("second Measure changed semantic state\n before: %#v\n  after: %#v", before, after)
+						t.Fatalf("second HeightForWidth changed semantic state\n before: %#v\n  after: %#v", before, after)
 					}
 				}
 			}
@@ -102,25 +102,25 @@ func (a *observedAccessor[T]) Set(value T) {
 
 func TestMeasurementDoesNotInitializeControlledChoices(t *testing.T) {
 	one := &observedAccessor[string]{value: "two"}
-	selection := &Select[string]{Value: one}
+	selection := &Select[string]{Same: Equal[string], Value: one}
 	selection.SetOptions(Options("one", "two"))
-	if got := selection.Measure(20); got != 2 {
+	if got := selection.HeightForWidth(20); got != 2 {
 		t.Fatalf("select measured %d rows, want 2", got)
 	}
-	if selection.seeded || one.reads != 0 || one.writes != 0 {
-		t.Fatalf("select measurement initialized state: seeded=%t, reads=%d, writes=%d",
-			selection.seeded, one.reads, one.writes)
+	if one.reads != 0 || one.writes != 0 {
+		t.Fatalf("select measurement initialized state: reads=%d, writes=%d",
+			one.reads, one.writes)
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"two"}}
-	multiple := &MultiSelect[string]{Value: many}
+	multiple := &MultiSelect[string]{Same: Equal[string], Value: many}
 	multiple.SetOptions(Options("one", "two"))
-	if got := multiple.Measure(20); got != 2 {
+	if got := multiple.HeightForWidth(20); got != 2 {
 		t.Fatalf("multi-select measured %d rows, want 2", got)
 	}
-	if multiple.seeded || many.reads != 0 || many.writes != 0 {
-		t.Fatalf("multi-select measurement initialized state: seeded=%t, reads=%d, writes=%d",
-			multiple.seeded, many.reads, many.writes)
+	if many.reads != 0 || many.writes != 0 {
+		t.Fatalf("multi-select measurement initialized state: reads=%d, writes=%d",
+			many.reads, many.writes)
 	}
 }
 
@@ -137,22 +137,22 @@ func TestDrawingProjectsControlledFieldsWithoutInitializingThem(t *testing.T) {
 	}
 
 	one := &observedAccessor[string]{value: "two"}
-	selection := &Select[string]{Value: one}
+	selection := &Select[string]{Same: Equal[string], Value: one}
 	selection.SetOptions(Options("one", "two"))
 	captureDraw(t, 20, 2, NewRoot(selection).Draw)
-	if selection.seeded || selection.list.Selected() != 0 || one.reads == 0 || one.writes != 0 {
-		t.Fatalf("select draw changed ownership: seeded=%t, selected=%d, reads=%d, writes=%d",
-			selection.seeded, selection.list.Selected(), one.reads, one.writes)
+	if selection.list.Selected() != 0 || one.reads == 0 || one.writes != 0 {
+		t.Fatalf("select draw changed ownership: selected=%d, reads=%d, writes=%d",
+			selection.list.Selected(), one.reads, one.writes)
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"two"}}
-	multiple := &MultiSelect[string]{Value: many}
+	multiple := &MultiSelect[string]{Same: Equal[string], Value: many}
 	multiple.SetOptions(Options("one", "two"))
 	beforeTaken := slices.Clone(multiple.taken)
 	captureDraw(t, 20, 2, NewRoot(multiple).Draw)
-	if multiple.seeded || !slices.Equal(multiple.taken, beforeTaken) || many.reads == 0 || many.writes != 0 {
-		t.Fatalf("multi-select draw changed ownership: seeded=%t, taken=%v, reads=%d, writes=%d",
-			multiple.seeded, multiple.taken, many.reads, many.writes)
+	if !slices.Equal(multiple.taken, beforeTaken) || many.reads == 0 || many.writes != 0 {
+		t.Fatalf("multi-select draw changed ownership: taken=%v, reads=%d, writes=%d",
+			multiple.taken, many.reads, many.writes)
 	}
 
 	answer := &observedAccessor[bool]{value: true}
@@ -173,7 +173,7 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 
 	textValue := &observedAccessor[string]{value: "old"}
 	textField := &Text{Value: textValue}
-	textField.ensure()
+	textField.Sync()
 	textValue.value = "new"
 	beforeText := meaningOfEditor(&textField.editor)
 	frame := captureDraw(t, 8, 1, NewRoot(textField).Draw)
@@ -182,12 +182,12 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	}
 
 	one := &observedAccessor[string]{value: "one"}
-	selection := &Select[string]{Value: one}
+	selection := &Select[string]{Same: Equal[string], Value: one}
 	selection.SetOptions(Options("one", "two"))
-	selection.ensure()
+	selection.Sync()
 	one.value = "two"
 	selectSurface := grid.NewSurface(8, 2)
-	NewRoot(fieldProjection(func(frame Frame) { selection.drawField(frame, look) })).Draw(selectSurface.View())
+	NewRoot(fieldProjection(func(frame Frame) { selection.DrawWith(frame, look) })).Draw(selectSurface.View())
 	first, _ := selectSurface.CellAt(0, 0)
 	second, _ := selectSurface.CellAt(0, 1)
 	if first.Content() != "-" || second.Content() != "x" || selection.list.Selected() != 0 || one.writes != 0 {
@@ -195,13 +195,13 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"one"}}
-	multiple := &MultiSelect[string]{Value: many}
+	multiple := &MultiSelect[string]{Same: Equal[string], Value: many}
 	multiple.SetOptions(Options("one", "two"))
-	multiple.ensure()
+	multiple.Sync()
 	many.value = []string{"two"}
 	beforeTaken := slices.Clone(multiple.taken)
 	multiSurface := grid.NewSurface(8, 2)
-	NewRoot(fieldProjection(func(frame Frame) { multiple.drawField(frame, look) })).Draw(multiSurface.View())
+	NewRoot(fieldProjection(func(frame Frame) { multiple.DrawWith(frame, look) })).Draw(multiSurface.View())
 	first, _ = multiSurface.CellAt(0, 0)
 	second, _ = multiSurface.CellAt(0, 1)
 	if first.Content() != "-" || second.Content() != "x" || !slices.Equal(multiple.taken, beforeTaken) || many.writes != 0 {
@@ -212,7 +212,7 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	confirmation := &Confirm{Value: answer}
 	answer.value = true
 	confirmSurface := grid.NewSurface(16, 1)
-	NewRoot(fieldProjection(func(frame Frame) { confirmation.drawField(frame, look) })).Draw(confirmSurface.View())
+	NewRoot(fieldProjection(func(frame Frame) { confirmation.DrawWith(frame, look) })).Draw(confirmSurface.View())
 	first, _ = confirmSurface.CellAt(0, 0)
 	if first.Content() != "x" || confirmation.answer.local || answer.writes != 0 {
 		t.Fatalf("confirm projection mark=%q local=%t writes=%d", first.Content(), confirmation.answer.local, answer.writes)
@@ -260,7 +260,7 @@ func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 			switch {
 			case strings.HasPrefix(fn.Name.Name, "Draw"):
 				found = append(found, name)
-			case fn.Name.Name == "Measure":
+			case fn.Name.Name == "HeightForWidth":
 				measured = append(measured, name)
 			}
 		}
@@ -273,7 +273,7 @@ func assertDrawersCovered(t *testing.T, covered map[string]bool) {
 	}
 	for _, name := range measured {
 		if !covered[name] {
-			t.Errorf("Measure receiver %s has no executable purity case", name)
+			t.Errorf("HeightForWidth receiver %s has no executable purity case", name)
 		}
 	}
 	for name := range covered {
@@ -311,13 +311,13 @@ type purityBlock struct {
 
 func (b purityBlock) Draw(view grid.View) { view.Text(0, 0, b.text, grid.Style{}) }
 
-func (b purityBlock) Measure(int) int { return max(b.height, 1) }
+func (b purityBlock) HeightForWidth(int) int { return max(b.height, 1) }
 
 func (w *purityWidget) Draw(frame Frame) {
 	frame.Text(0, 0, w.text, grid.Style{})
 }
 
-func (w *purityWidget) Measure(int) int { return max(w.height, 1) }
+func (w *purityWidget) HeightForWidth(int) int { return max(w.height, 1) }
 
 func (w *purityWidget) Focus(has bool) { w.focused = has }
 
@@ -399,8 +399,8 @@ func cloneEditorKills(kills []editorKill) []editorKill {
 func widgetPurityCase(name string, widget Widget, state func() any) drawPurityCase {
 	root := NewRoot(widget)
 	var measure func(int) int
-	if sized, ok := widget.(layout.Measurer); ok {
-		measure = sized.Measure
+	if sized, ok := widget.(interface{ HeightForWidth(width int) int }); ok {
+		measure = sized.HeightForWidth
 	}
 	return drawPurityCase{
 		name: name, width: 24, height: 6,
@@ -410,11 +410,21 @@ func widgetPurityCase(name string, widget Widget, state func() any) drawPurityCa
 
 func headlessDrawPurityCases() []drawPurityCase {
 	var cases []drawPurityCase
+	candidate := Candidate{Text: "choice", Detail: "detail", Matched: []int{0, 2}}
+	renderer := DefaultCompletionRenderer{}
+	cases = append(cases, drawPurityCase{
+		name: "DefaultCompletionRenderer", width: 24, height: 1,
+		draw:    func(v grid.View) { renderer.DrawRow(v, candidate, true, Look{}) },
+		measure: func(int) int { return renderer.Width(candidate) },
+		state: func() any {
+			return Candidate{Text: candidate.Text, Detail: candidate.Detail, Matched: slices.Clone(candidate.Matched)}
+		},
+	})
 
 	static := Static{Of: purityBlock{text: "static", height: 1}}
 	cases = append(cases, drawPurityCase{
 		name: "Static", width: 24, height: 2,
-		draw: func(view grid.View) { static.Draw(Frame{View: view}) }, measure: static.Measure,
+		draw: func(view grid.View) { static.Draw(Frame{View: view}) }, measure: static.HeightForWidth,
 	})
 
 	transcriptBlock := purityBlock{text: "transcript", height: 1}
@@ -455,7 +465,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 		Label: "name", Value: Bind(&textValue),
 		Check: func(string) error { textChecks++; return nil },
 	}
-	textField.ensure()
+	textField.Sync()
 	textField.Focus(true)
 	textField.editor.KillToStart()
 	textField.editor.Undo()
@@ -472,11 +482,12 @@ func headlessDrawPurityCases() []drawPurityCase {
 	selectedValue := "two"
 	selectChecks := 0
 	selectField := &Select[string]{
+		Same:  Equal[string],
 		Label: "choice", Value: Bind(&selectedValue),
 		Check: func(string) error { selectChecks++; return nil },
 	}
 	selectField.SetOptions(Options("one", "two", "three"))
-	selectField.ensure()
+	selectField.Sync()
 	selectField.Focus(true)
 	cases = append(cases, widgetPurityCase("*Select", selectField, func() any {
 		chosen, ok := selectField.Chosen()
@@ -492,11 +503,12 @@ func headlessDrawPurityCases() []drawPurityCase {
 	takenValue := []string{"two"}
 	multiChecks := 0
 	multiField := &MultiSelect[string]{
+		Same:  Equal[string],
 		Label: "many", Value: Bind(&takenValue),
 		Check: func([]string) error { multiChecks++; return nil },
 	}
 	multiField.SetOptions(Options("one", "two", "three"))
-	multiField.ensure()
+	multiField.Sync()
 	multiField.Focus(true)
 	multiField.list.Select(2)
 	cases = append(cases, widgetPurityCase("*MultiSelect", multiField, func() any {
@@ -636,7 +648,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 			value   string
 			editor  editorMeaning
 			err     error
-		}{form.Focused(), formValue, meaningOfEditor(formText.Editor()), form.Error()}
+		}{form.Focused(), formValue, meaningOfEditor(&formText.editor), form.Error()}
 	}))
 
 	viewportContent := &purityWidget{text: "tall", height: 8}

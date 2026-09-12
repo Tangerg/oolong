@@ -246,7 +246,7 @@ func (q *queue) Draw(v headless.Frame) {
 	})
 }
 
-func (q *queue) Measure(int) int { return q.rows.Len() + 1 }
+func (q *queue) HeightForWidth(int) int { return q.rows.Len() + 1 }
 
 // Handle sorts by a heading that was pressed, and hands everything else to the rows
 // — one row down, because the header took the first one.
@@ -380,7 +380,7 @@ func (a *activity) tick() {
 	a.spinner.Tick()
 }
 
-func (a *activity) Measure(int) int { return 4 + a.of.rows.Len() }
+func (a *activity) HeightForWidth(int) int { return 4 + a.of.rows.Len() }
 
 func (a *activity) Draw(v headless.Frame) {
 	finished, total := a.of.remaining()

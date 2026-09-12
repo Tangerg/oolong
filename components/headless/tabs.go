@@ -36,8 +36,11 @@ type Tab struct {
 type Tabs struct {
 	noCopy noCopy
 
-	items     []Tab
-	selection ownedValue[int]
+	items        []Tab
+	itemsID      *byte
+	presentation Snapshot[*byte]
+	body         PointerRegion
+	selection    ownedValue[int]
 
 	// Keys say which keystrokes move between panes. Nil reads through
 	// [DefaultTabsKeys].
@@ -89,7 +92,9 @@ func (t *Tabs) Set(items ...Tab) {
 	if t == nil {
 		return
 	}
+	t.matcher.Clear()
 	t.items = own(t.items, items)
+	t.itemsID = new(byte)
 	for i := range t.items {
 		t.items[i].Title = strings.Clone(t.items[i].Title)
 	}
@@ -153,6 +158,18 @@ func (t *Tabs) Select(at int) {
 	t.settle()
 }
 
+// SelectPresented selects a tab by its index in the last complete frame. It
+// declines invalid indices and a collection replaced by Set since that frame.
+// Appearance layers use this for pointer hits on their committed tab strip; Select
+// remains the operation for navigation in the current collection.
+func (t *Tabs) SelectPresented(at int) bool {
+	if t == nil || t.presentation.Value() != t.itemsID || at < 0 || at >= len(t.items) {
+		return false
+	}
+	t.Select(at)
+	return true
+}
+
 // Sync applies a caller-written controlled selection to pane focus and reports
 // whether focus or the stored selection changed. An index outside the current parts
 // is clamped and written back, so the caller and controller keep one valid selection
@@ -188,6 +205,10 @@ func (t *Tabs) Move(n int) bool {
 func (t *Tabs) Handle(event input.Event) bool {
 	if t == nil {
 		return false
+	}
+	if mouse, ok := event.(input.Mouse); ok {
+		handled, _ := t.body.Handle(mouse)
+		return handled
 	}
 	if pane, ok := t.Current(); ok {
 		if handler, can := pane.Of.(Interactive); can && handler.Handle(event) {
@@ -234,21 +255,24 @@ func (t *Tabs) Focus(has bool) {
 	t.change(has, func() { t.settle() }, &t.holder)
 }
 
-// Measure is what the selected pane asks for.
-func (t *Tabs) Measure(across int) int {
+// HeightForWidth is what the selected pane asks for.
+func (t *Tabs) HeightForWidth(across int) int {
 	pane, ok := t.Current()
 	if !ok {
 		return 0
 	}
 	if sized, can := pane.Of.(Sized); can {
-		return sized.Measure(across)
+		return sized.HeightForWidth(across)
 	}
 	return 0
 }
 
 // Draw paints the selected pane into the whole frame.
 func (t *Tabs) Draw(frame Frame) {
-	if pane, ok := t.Current(); ok && pane.Of != nil {
+	t.presentation.Stage(frame, t.itemsID)
+	pane, ok := t.Current()
+	t.body.Stage(frame, frame.Bounds(), pane.Of)
+	if ok && pane.Of != nil {
 		pane.Of.Draw(frame)
 	}
 }

@@ -86,17 +86,17 @@ func (p *Panel) Draw(frame headless.Frame) {
 	}
 }
 
-// Measure reports the child's measured height plus the frame and padding.
-func (p *Panel) Measure(across int) int {
+// HeightForWidth reports the child's measured height plus the frame and padding.
+func (p *Panel) HeightForWidth(across int) int {
 	if p == nil {
 		return 0
 	}
 	overhead := p.Box.Overhead()
-	measurer, ok := p.child.(layout.Measurer)
+	measurer, ok := p.child.(interface{ HeightForWidth(width int) int })
 	if !ok {
 		return overhead.Y
 	}
-	return layout.Sum(overhead.Y, measurer.Measure(layout.Remaining(across, overhead.X)))
+	return layout.Sum(overhead.Y, measurer.HeightForWidth(layout.Remaining(across, overhead.X)))
 }
 
 // Focus passes keyboard ownership to the child.

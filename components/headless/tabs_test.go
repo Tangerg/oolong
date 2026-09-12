@@ -24,7 +24,7 @@ func TestOnePaneShowsAndTheRestWait(t *testing.T) {
 	if tabs.Selected() != 1 {
 		t.Fatalf("the pane showing is %d", tabs.Selected())
 	}
-	if got := tabs.Measure(6); got != 3 {
+	if got := tabs.HeightForWidth(6); got != 3 {
 		t.Fatalf("the tabs asked for %d rows, want what the pane showing asks for", got)
 	}
 
@@ -55,6 +55,7 @@ func TestThePaneShowingAnswersBeforeTheTabsDo(t *testing.T) {
 	pane := &tall{rows: 4}
 	tabs := headless.NewTabs(headless.TabsConfig{Items: []headless.Tab{{Title: "one", Of: pane}, {Title: "two"}}})
 
+	paintWidget(6, 4, tabs)
 	if !tabs.Handle(input.Mouse{Action: input.MouseDown}) {
 		t.Fatal("the pane was not offered the event")
 	}
@@ -161,7 +162,7 @@ func TestAListCanHoldTheKeyboard(t *testing.T) {
 
 	// A container can therefore hold one, which is the point.
 	body := headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(1), Of: &list})
-	if !body.Give(0) {
+	if !body.FocusIndex(0) {
 		t.Fatal("a container would not hand the keyboard to a list")
 	}
 	if !list.Focused() {

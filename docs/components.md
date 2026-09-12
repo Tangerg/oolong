@@ -212,6 +212,49 @@ Pass the modified value to kit components. Headless state remains unchanged. For
 fully custom design system, keep `components/headless` and draw every appearance seam
 with your own package; `headless` never imports `kit`.
 
+## Keep value identity and navigation explicit
+
+A controlled field owns edits through its accessor. Configure `Select.Same` and
+`MultiSelect.Same` before installing options; `headless.Equal[T]` compares ordinary
+comparable values. Labels remain display text, so translating a label cannot change
+which value is selected. `Chosen`, `Taken`, and `Ask` only project state. Call `Sync`
+to explicitly reconcile external changes; input and validation also synchronize.
+
+`Text` exposes its answer, cursor, mask, clipboard, gutter and cursor style directly.
+Use `SetText`, `SetCursor`, `Handle`, or `Do` to edit through the accessor's acceptance
+boundary. `Text` does not expose its private Editor. `kit.Composer` still exposes its
+Editor because the composer is an appearance wrapper around that editor.
+
+Moving a list selection or navigating an Editor cursor requests visibility once. `Scroll.Reveal` survives an aborted
+frame and is consumed when a complete frame presents it. Subsequent manual scrolling
+wins, and `Scroll.FollowingEnd` reports the follow policy. On `kit.Transcript`, set
+`Current` to highlight a match and call `RevealMatch(index)` to navigate to one.
+Editor requests resolve at the next frame's wrap width; resizing an already settled
+view preserves manual scrolling. Filter query resets return to the first result.
+
+For container children that move, assign stable keys and retain the same widget
+instances. `FocusIndex` addresses the current collection. Pointer input resolves the
+presented attachment, so a removed or replaced child cannot give its old click or
+capture to a new instance. Use pointer widgets when identity must survive `Set`.
+
+A `Pointer` belongs to one control. Call `Stage(frame, area)` in Draw, then Handle
+and `Clicked(button)` in the event handler. Draw only reads `Over()` and `Pressing()`;
+a fast press and release needs no frame between them. `PointerRegion` routes a child
+by its continuous presentation lifetime: an absent child returning later cannot
+resume an old gesture. Tabs and Viewport use that same owner.
+
+After `List.SetItems`, pointer selection waits for the replacement to be drawn.
+Custom tab strips use `Tabs.SelectPresented(index)` for hits in their committed strip;
+`Tabs.Select(index)` remains programmatic navigation in the current collection.
+Changing key bindings cancels pending sequences, and replaced choice collections or
+modal owners do not inherit delayed actions. Settings value actions remain tied to
+the row where their sequence began.
+
+`Completion.Renderer` pairs `DrawRow` with `Width`; replacing it can change the entire
+candidate-row layout. `Select.Row` and `MultiSelect.Row` customize one-row choices.
+An external field can implement `ThemedField.DrawWith` to receive the Form look for
+one frame, using the same channel as built-in fields.
+
 ## Run and verify the slice
 
 ```sh

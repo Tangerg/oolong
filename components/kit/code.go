@@ -42,12 +42,12 @@ func (c *Code) Lines() []text.Line {
 	return c.body.Lines()
 }
 
-// Measure is how many wrapped rows the code needs at width.
-func (c *Code) Measure(width int) int {
+// HeightForWidth is how many wrapped rows the code needs at width.
+func (c *Code) HeightForWidth(width int) int {
 	if c == nil {
 		return 0
 	}
-	return c.body.Measure(c.textWidth(width))
+	return c.body.HeightForWidth(c.textWidth(width))
 }
 
 // Draw paints the number gutter and source text.

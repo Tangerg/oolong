@@ -28,7 +28,7 @@ func ExampleFlow_Rects() {
 func ExampleMeasured() {
 	// A measured slot is asked about the axis being divided, given the room across
 	// the other one — so Measured means the same thing in a row and in a column.
-	wide := layout.MeasureFunc(func(across int) int { return across / 4 })
+	wide := layout.MeasureFunc(func(_ layout.Axis, across int) int { return across / 4 })
 	rows := (layout.Flow{Axis: layout.Down}).Rects(image.Pt(20, 10), []layout.Slot{
 		{Size: layout.Measured(0, 0), Of: wide},
 		{Size: layout.Flex(1)},

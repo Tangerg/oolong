@@ -140,6 +140,7 @@ func (e *Editor) MoveDown() { e.moveRow(1) }
 // travelling down through a short line and out the other side comes back to where it
 // went in. Recomputing it each step would drag the cursor left and leave it there.
 func (e *Editor) moveRow(delta int) {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	width := e.presentation.Value().width
@@ -174,8 +175,8 @@ func (e *Editor) moveRow(delta int) {
 	e.wantColumn = column
 }
 
-// Measure is how many rows the field needs at a width, within its cap.
-func (e *Editor) Measure(width int) int {
+// HeightForWidth is how many rows the field needs at a width, within its cap.
+func (e *Editor) HeightForWidth(width int) int {
 	e.ensure()
 	width = e.textWidth(width)
 	if e.oneLine() {
@@ -200,13 +201,16 @@ func (e *Editor) Draw(frame Frame) {
 // editor remains the single owner of its text, cursor and input configuration; drawing
 // it through another look does not make that look its configuration.
 func (e *Editor) DrawWith(frame Frame, look Look) {
-	e.drawWith(frame, look, &e.presentation)
+	e.drawWith(frame, look)
 }
 
-// drawWith separates the state being projected from the routing geometry that will
-// receive the next event. A wrapper may render a temporary projection while staging
-// its geometry into the durable editor it owns.
-func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPresentation]) {
+// drawWith projects the editor through the appropriate line or multiline renderer.
+func (e *Editor) drawWith(frame Frame, look Look) {
+	presented := &e.presentation
+	if e.oneLine() {
+		e.lineView(e.Text()).draw(frame, look, presented)
+		return
+	}
 	v := frame.View
 	total, height := v.Size()
 	if total <= 0 || height <= 0 {
@@ -222,24 +226,8 @@ func (e *Editor) drawWith(frame Frame, look Look, presented *Snapshot[editorPres
 		presented.Stage(frame, editorPresentation{})
 		return
 	}
-	if e.oneLine() {
-		presentation := e.drawOneLine(v, gutterView, look, width, gutter)
-		presented.Stage(frame, presentation)
-		return
-	}
 	presentation := e.drawMultiline(frame, v, gutterView, look, width, height, gutter)
 	presented.Stage(frame, presentation)
-}
-
-func (e *Editor) drawOneLine(
-	view, gutterView grid.View,
-	look Look,
-	width, gutter int,
-) editorPresentation {
-	left := e.lineOffset(width)
-	e.drawGutter(gutterView, e.rows(width))
-	e.drawLine(view, left, look)
-	return editorPresentation{width: width, gutter: gutter, left: left}
 }
 
 func (e *Editor) drawMultiline(
@@ -251,11 +239,12 @@ func (e *Editor) drawMultiline(
 	rows := e.rows(width)
 	cursorRow, cursorColumn := e.rowAt(width)
 
-	// The field scrolls only when it is taller than its box, and then only as far as
-	// it must to keep the cursor visible: a field that jumped to the end would lose
-	// the line the user is typing on.
 	scroll := e.scroll.Stage(frame, len(rows), height)
-	scroll.Reveal(cursorRow, cursorRow)
+	if e.cursorReveal != nil && e.scroll.reveal == e.cursorReveal {
+		// Wrapping may have changed since navigation. Resolve the logical cursor
+		// using this frame, but only while its request has not been superseded.
+		scroll.Reveal(cursorRow, cursorRow)
+	}
 	first := scroll.Offset()
 	presentation := editorPresentation{width: width, gutter: gutter, first: first}
 	last := min(layout.Sum(first, height), len(rows))
@@ -346,5 +335,21 @@ func (e *Editor) placeCursor(v grid.View, x, y int) {
 	v.PlaceCursor(x, y, e.CursorStyle)
 }
 
+// revealCursor is the semantic navigation boundary. A draw may refine the visual
+// row but never creates a new request; manual scrolling can therefore cancel it.
+func (e *Editor) revealCursor() {
+	if e.oneLine() {
+		return
+	}
+	e.ensure()
+	width := e.presentation.Value().width
+	row, _ := e.rowAt(width)
+	e.scroll.layout(len(e.rows(width)), e.scroll.current.window)
+	e.scroll.Reveal(row, row)
+	e.cursorReveal = e.scroll.reveal
+}
+
 // Scroll exposes the field's position, for a scrollbar beside a tall field.
+// Editing and cursor navigation reveal the cursor once. Manual scrolling remains
+// in effect through redraws and resizes until the next navigation or edit.
 func (e *Editor) Scroll() *Scroll { return &e.scroll }

@@ -180,7 +180,7 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 	for i, current := range t.blocks {
 		height := 0
 		if width > 0 && current.block != nil {
-			height = max(current.block.Measure(width), 0)
+			height = max(current.block.HeightForWidth(width), 0)
 		}
 		blocks[i] = placed{
 			block: current.block, height: height, top: top, finished: current.finished,
@@ -350,7 +350,7 @@ func (t *Transcript) measure(b Block) int {
 	if t.width <= 0 {
 		return 0
 	}
-	return max(b.Measure(t.width), 0)
+	return max(b.HeightForWidth(t.width), 0)
 }
 
 // Extent is the rows block i covers: the first, and how many.
@@ -423,7 +423,7 @@ func (t *Transcript) Visible(from, rows int) (first, last BlockID) {
 // across it has to produce as many lines as the user dragged over.
 type TextProjector interface {
 	// Rows is what the block's rows say at a width, and there are as many of them as
-	// Measure reports at that width.
+	// HeightForWidth reports at that width.
 	Rows(width int) []text.Row
 }
 

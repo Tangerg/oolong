@@ -94,12 +94,12 @@ func (t *Tree[T]) Focus(has bool) {
 	}
 }
 
-// Measure is one row per row the tree is showing.
-func (t *Tree[T]) Measure(across int) int {
+// HeightForWidth is one row per row the tree is showing.
+func (t *Tree[T]) HeightForWidth(across int) int {
 	if t == nil || t.controller == nil {
 		return 0
 	}
-	return t.controller.Measure(across)
+	return t.controller.HeightForWidth(across)
 }
 
 // Draw paints the rows that fit.

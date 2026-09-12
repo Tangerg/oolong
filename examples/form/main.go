@@ -66,11 +66,13 @@ func main() {
 // and where the answers go, and no more.
 func ask(into *answers) *headless.Form {
 	model := &headless.Select[string]{
+		Same:  headless.Equal[string],
 		Label: "Which model?",
 		Value: headless.Bind(&into.model),
 	}
 	model.SetOptions(headless.Options("fast", "balanced", "careful"))
 	tools := &headless.MultiSelect[string]{
+		Same:  headless.Equal[string],
 		Label: "Which tools may it use?",
 		Value: headless.Bind(&into.tools),
 	}

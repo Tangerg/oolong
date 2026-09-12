@@ -76,7 +76,8 @@ func ValidateSize(width, height int) error {
 //
 // It is handed a view that is already positioned and clipped, so its coordinates are
 // its own. An event it does not consume is dropped by the program — a component is the
-// root of its own tree and there is nobody above it to pass one on to.
+// root of its own tree and there is nobody above it to pass one on to. Handling
+// any application event requests a coalesced frame, regardless of consumption.
 type Component interface {
 	Draw(view grid.View)
 	Handle(event input.Event) bool

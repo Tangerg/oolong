@@ -129,7 +129,7 @@ func (r *reader) finish() {
 // Draw is what is still being written, and a row under it.
 func (r *reader) Draw(v grid.View) {
 	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Measured(0, 0), Of: layout.MeasureFunc(r.open.Measure)},
+		{Size: layout.Measured(0, 0), Of: layout.MeasureFunc(func(_ layout.Axis, width int) int { return r.open.HeightForWidth(width) })},
 		{Size: layout.Fixed(1)},
 	}))
 	r.open.Draw(rows[0])

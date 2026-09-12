@@ -219,7 +219,7 @@ func (s hostServices) hand(run func() error) error {
 		return nil
 	}
 	if s.handover == nil {
-		return run()
+		return errors.ErrUnsupported
 	}
 	return s.handover.Hand(run)
 }

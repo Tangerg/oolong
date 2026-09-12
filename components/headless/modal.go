@@ -121,6 +121,7 @@ type Stack struct {
 	// identity with geometry keeps input on what is visible if the semantic stack is
 	// changed while another frame is being prepared.
 	presentation Snapshot[stackPresentation]
+	basePointer  PointerRegion
 
 	// holder is whatever was last told it has the keyboard, and settled says
 	// anything has been told at all. Until then every one of them believes it does —
@@ -130,7 +131,8 @@ type Stack struct {
 	holderBase bool
 	focusState
 	// matcher owns how far into a multi-chord binding the keys have got.
-	matcher keymap.Matcher
+	matcher      keymap.Matcher
+	matcherLayer LayerID
 	// held is the layer that accepted a pointer press. Drag and release stay with it
 	// even after the pointer leaves its rectangle, matching capture inside containers.
 	held LayerID
@@ -268,7 +270,12 @@ func (s *Stack) Area() (image.Rectangle, bool) {
 // somewhere the user cannot see.
 func (s *Stack) Handle(ev input.Event) bool {
 	presented := s.presentation.Value()
+	if mouse, ok := ev.(input.Mouse); ok {
+		return s.mouse(presented, mouse)
+	}
 	if len(presented.layers) == 0 {
+		s.matcher.Clear()
+		s.matcherLayer = 0
 		if handler, ok := presented.base.(Interactive); ok {
 			return handler.Handle(ev)
 		}
@@ -276,10 +283,13 @@ func (s *Stack) Handle(ev input.Event) bool {
 	}
 	top := presented.layers[len(presented.layers)-1]
 
-	if mouse, ok := ev.(input.Mouse); ok {
-		return s.mouse(presented, mouse)
+	if top.id != s.matcherLayer {
+		s.matcher.Clear()
+		s.matcherLayer = top.id
 	}
-
+	if !s.Contains(top.id) {
+		return true
+	}
 	if top.modal.Handle(ev) {
 		return true
 	}
@@ -305,9 +315,15 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 		// The input protocol carries one pointer gesture. A new press supersedes an
 		// incomplete old one, including when its new target declines the press.
 		s.held = 0
+		s.basePointer.held = nil
+	}
+	if s.basePointer.held != nil && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
+		handled, _ := s.basePointer.Handle(mouse)
+		return handled
 	}
 	if s.held != 0 && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
 		held, found := presented.placed(s.held)
+		found = found && s.Contains(s.held)
 		if mouse.Action == input.MouseUp {
 			s.held = 0
 		}
@@ -322,7 +338,7 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 
 	top := len(presented.layers) - 1
 	if top < 0 {
-		return s.deliverBase(presented.base, mouse)
+		return s.deliverBase(mouse)
 	}
 	placed := presented.layers[top]
 	if !mouse.Pos.In(placed.area) {
@@ -350,18 +366,21 @@ func (s *Stack) below(presented stackPresentation, before int, mouse input.Mouse
 			return true
 		}
 	}
-	return s.deliverBase(presented.base, mouse)
+	return s.deliverBase(mouse)
 }
 
 func (s *Stack) deliver(placed layerPlacement, mouse input.Mouse) bool {
+	if !s.Contains(placed.id) {
+		return false
+	}
 	local := mouse
 	local.Pos = mouse.Pos.Sub(placed.area.Min)
 	return placed.modal.Handle(local)
 }
 
-func (s *Stack) deliverBase(base Widget, mouse input.Mouse) bool {
-	handler, ok := base.(Interactive)
-	return ok && handler.Handle(mouse)
+func (s *Stack) deliverBase(mouse input.Mouse) bool {
+	handled, _ := s.basePointer.Handle(mouse)
+	return handled
 }
 
 // Do runs one of the stack's actions by name, reporting whether it was one a stack
@@ -404,9 +423,6 @@ func (s *Stack) remove(at int) bool {
 		return false
 	}
 	layer := s.layers[at]
-	if s.held == layer.id {
-		s.held = 0
-	}
 	copy(s.layers[at:], s.layers[at+1:])
 	s.layers[len(s.layers)-1] = stackLayer{}
 	s.layers = s.layers[:len(s.layers)-1]
@@ -431,6 +447,7 @@ func (s *Stack) Draw(v Frame) {
 		}
 	}
 	s.presentation.Stage(v, presented)
+	s.basePointer.Stage(v, v.Bounds(), base)
 
 	if base != nil {
 		base.Draw(v)
@@ -487,6 +504,7 @@ func (s *Stack) settle() {
 	if s.settled && wantID == s.holderID && wantBase == s.holderBase {
 		return
 	}
+	s.matcher.Clear()
 	from := s.holder
 	s.holder, s.holderID, s.holderBase, s.settled = want, wantID, wantBase, true
 	if from != nil {

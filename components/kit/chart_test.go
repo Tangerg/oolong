@@ -13,8 +13,8 @@ func TestSparklineDrawsTheNewestVisibleSamples(t *testing.T) {
 		Glyphs: kit.Unicode(),
 		Values: []float64{-10, -5, 0, 1, 2, 3},
 	}
-	if got := chart.Measure(4); got != 1 {
-		t.Fatalf("Measure = %d, want one row", got)
+	if got := chart.HeightForWidth(4); got != 1 {
+		t.Fatalf("HeightForWidth = %d, want one row", got)
 	}
 	equalRows(t, paint(4, 1, chart.Draw), []string{"▁▃▆█"})
 }
@@ -41,8 +41,8 @@ func TestSparklineDerivesItsDomainWhenBoundsAreInvalid(t *testing.T) {
 }
 
 func TestSparklineKeepsItsRowBeforeTheFirstSample(t *testing.T) {
-	if got := (kit.Sparkline{}).Measure(80); got != 1 {
-		t.Fatalf("Measure = %d, want one stable row", got)
+	if got := (kit.Sparkline{}).HeightForWidth(80); got != 1 {
+		t.Fatalf("HeightForWidth = %d, want one stable row", got)
 	}
 }
 
@@ -65,8 +65,8 @@ func TestBarChartSharesStableColumnsAcrossRows(t *testing.T) {
 			{Label: "ten", Value: 10, Text: "10"},
 		},
 	}
-	if got := chart.Measure(20); got != 2 {
-		t.Fatalf("Measure = %d, want two rows", got)
+	if got := chart.HeightForWidth(20); got != 2 {
+		t.Fatalf("HeightForWidth = %d, want two rows", got)
 	}
 	equalRows(t, paint(20, 2, chart.Draw), []string{
 		"one.######-------..5",

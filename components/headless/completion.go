@@ -52,20 +52,25 @@ func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
 		if trigger.Prefix == "" {
 			continue
 		}
-		opened := strings.LastIndex(line[:cursor], trigger.Prefix)
-		if opened < 0 || opened < at {
-			continue
-		}
-		if trigger.AtStart && opened != 0 {
-			continue
-		}
-		if !trigger.AtStart && opened > 0 {
-			// A trigger inside a word is part of the word: the @ of an email address
-			// is not a request to complete a filename.
-			prev, _ := utf8.DecodeLastRuneInString(line[:opened])
-			if unicode.IsLetter(prev) || unicode.IsDigit(prev) || prev == '_' {
-				continue
+		opened := -1
+		for end := cursor; end >= len(trigger.Prefix); {
+			candidate := strings.LastIndex(line[:end], trigger.Prefix)
+			if candidate < 0 || candidate < at {
+				break
 			}
+			valid := !trigger.AtStart || candidate == 0
+			if valid && !trigger.AtStart && candidate > 0 {
+				prev, _ := utf8.DecodeLastRuneInString(line[:candidate])
+				valid = !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prev != '_'
+			}
+			if valid {
+				opened = candidate
+				break
+			}
+			end = candidate + len(trigger.Prefix) - 1
+		}
+		if opened < 0 {
+			continue
 		}
 		start := opened + len(trigger.Prefix)
 		if cursor < start {
@@ -132,10 +137,12 @@ func (c Candidate) shown() string {
 type Completion struct {
 	noCopy noCopy
 
-	// Look is how the rows are drawn: the text, the row under the cursor, the
-	// characters the query matched, and the detail beside a candidate. It is the one
-	// way anything here that draws itself is dressed — see [Look].
+	// Look supplies the renderer with styles for labels, selection, matched
+	// characters and candidate details. Renderer owns the row layout.
 	Look Look
+	// Renderer owns the one-row layout and its intrinsic width. Nil uses
+	// DefaultCompletionRenderer. Callbacks must be observationally pure.
+	Renderer CompletionRenderer
 	// MaxRows caps how tall the list gets, so a thousand files do not become a
 	// thousand rows. Zero uses [DefaultCompletionRows].
 	MaxRows int
@@ -170,6 +177,7 @@ const DefaultCompletionRows = 8
 // The completion copies the token and candidates, including match offsets; the caller
 // may reuse or change its inputs after this returns.
 func (c *Completion) Offer(t Token, candidates []Candidate) {
+	c.matcher.Clear()
 	if len(candidates) == 0 {
 		c.Dismiss()
 		return
@@ -179,11 +187,8 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 	for i := range c.list.items {
 		c.list.items[i] = cloneCandidate(c.list.items[i])
 	}
-	// The row renderer is wired here rather than while drawing: a Draw that assigns
-	// to the thing it is about to draw is a Draw with a side effect, and this is the
-	// one place the list's contents change anyway.
-	c.list.Row = c.drawRow
 	c.list.Select(0)
+	c.list.Scroll().ToTop()
 }
 
 // Dismiss closes the completion.
@@ -208,7 +213,8 @@ func (c *Completion) Current() (Candidate, bool) {
 		return Candidate{}, false
 	}
 	candidate, ok := c.list.Current()
-	return cloneCandidate(candidate), ok
+	candidate.Matched = slices.Clone(candidate.Matched)
+	return candidate, ok
 }
 
 func cloneToken(token Token) Token {
@@ -278,8 +284,8 @@ func (c *Completion) Do(action keymap.Action) bool {
 	return c.list.Do(action)
 }
 
-// Measure is how tall the list wants to be: a row per candidate, capped.
-func (c *Completion) Measure(int) int {
+// HeightForWidth is how tall the list wants to be: a row per candidate, capped.
+func (c *Completion) HeightForWidth(int) int {
 	if !c.Open() {
 		return 0
 	}
@@ -290,14 +296,37 @@ func (c *Completion) Measure(int) int {
 // does not have to measure the candidates itself.
 func (c *Completion) Width() int {
 	widest := 0
+	renderer := c.renderer()
 	for _, candidate := range c.list.items {
-		w := text.Width(candidate.shown())
-		if candidate.Detail != "" {
-			w = layout.Sum(w, detailGap, text.Width(candidate.Detail))
-		}
-		widest = max(widest, w)
+		widest = max(widest, renderer.Width(candidate))
 	}
 	return widest
+}
+
+// CompletionRenderer draws and measures one candidate row. The row is one cell tall;
+// Width reports its intrinsic columns. The caller retains candidate ownership.
+type CompletionRenderer interface {
+	DrawRow(view grid.View, candidate Candidate, selected bool, look Look)
+	Width(candidate Candidate) int
+}
+
+// DefaultCompletionRenderer shows a highlighted label with right-aligned detail.
+type DefaultCompletionRenderer struct{}
+
+// Width includes the label, the detail and their gap.
+func (DefaultCompletionRenderer) Width(candidate Candidate) int {
+	width := text.Width(candidate.shown())
+	if candidate.Detail != "" {
+		width = layout.Sum(width, detailGap, text.Width(candidate.Detail))
+	}
+	return width
+}
+
+func (c *Completion) renderer() CompletionRenderer {
+	if c.Renderer != nil {
+		return c.Renderer
+	}
+	return DefaultCompletionRenderer{}
 }
 
 // detailGap is what separates a row's label from its detail.
@@ -309,24 +338,27 @@ func (c *Completion) Draw(v Frame) {
 		return
 	}
 	width, height := v.Size()
-	c.list.Draw(v.Sub(grid.Rect(0, 0, width, min(height, c.rows()))))
+	renderer := c.renderer()
+	c.list.DrawRows(v.Sub(grid.Rect(0, 0, width, min(height, c.rows()))), func(view grid.View, _ int, candidate Candidate, selected bool) {
+		renderer.DrawRow(view, candidate, selected, c.Look)
+	})
 }
 
-// drawRow draws one candidate: its label with the matched characters picked out, and
+// DrawRow draws one candidate: its label with the matched characters picked out, and
 // its detail pushed to the right.
-func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected bool) {
+func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selected bool, look Look) {
 	width, _ := v.Size()
-	base := c.Look.Text
+	base := look.Text
 	if selected {
-		base = base.Merge(c.Look.Selection)
+		base = base.Merge(look.Selection)
 		v.Fill(v.Bounds(), base)
 	}
-	at := c.drawMatched(v, candidate.shown(), candidate.Matched, base)
+	at := drawMatched(v, candidate.shown(), candidate.Matched, base, look.Accent)
 
 	if candidate.Detail == "" {
 		return
 	}
-	detail := base.Merge(c.Look.Subtle)
+	detail := base.Merge(look.Subtle)
 	room := layout.Remaining(width, at, detailGap)
 	if room <= 0 {
 		return
@@ -341,8 +373,8 @@ func (c *Completion) drawRow(v grid.View, _ int, candidate Candidate, selected b
 // The matched offsets can land inside a grapheme cluster, so a cluster is emphasised
 // when it contains one rather than when it begins at one: a pattern character that
 // matched a combining mark is still that cluster being matched.
-func (c *Completion) drawMatched(v grid.View, label string, matched []int, base grid.Style) int {
-	hit := base.Merge(c.Look.Accent)
+func drawMatched(v grid.View, label string, matched []int, base, accent grid.Style) int {
+	hit := base.Merge(accent)
 	next, at := 0, 0
 	for off, cluster := range text.Clusters(label) {
 		for next < len(matched) && matched[next] < off {

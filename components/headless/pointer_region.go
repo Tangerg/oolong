@@ -41,19 +41,17 @@ type PointerRegion struct {
 	noCopy noCopy
 
 	presented Snapshot[pointerRegionFrame]
-	// held is the child that accepted a press. Identity is checked without comparing
-	// interface values directly, so an external value implementation can never turn
-	// routing into a comparability panic.
-	held      Interactive
-	heldFrame frameStamp
+	// held identifies one continuously presented child, even across moving frames.
+	// A removed child returning later starts a different presentation lifetime.
+	held *byte
 }
 
 // pointerRegionFrame is one child and where it was drawn, published together so that
 // neither can be read against the other's frame.
 type pointerRegionFrame struct {
-	area  image.Rectangle
-	child Interactive
-	frame frameStamp
+	area, clip image.Rectangle
+	child      Interactive
+	identity   *byte
 }
 
 // Stage publishes where child was drawn, to take effect with the complete root frame.
@@ -61,14 +59,28 @@ type pointerRegionFrame struct {
 // A child that does not answer input is staged as an absence: the region is still not
 // somewhere a press can land, and saying so here keeps the caller from having to.
 func (r *PointerRegion) Stage(frame Frame, area image.Rectangle, child Widget) {
+	r.stage(frame, area, area, child)
+}
+
+// stage separates the child's coordinate origin from its visible hit region.
+// A viewport clips the content without changing the coordinates the content owns.
+func (r *PointerRegion) stage(frame Frame, area, clip image.Rectangle, child Widget) {
 	if r == nil {
 		return
 	}
+	clip = clip.Intersect(area)
 	target, _ := child.(Interactive)
 	if target == nil {
 		area = image.Rectangle{}
 	}
-	r.presented.Stage(frame, pointerRegionFrame{area: area, child: target, frame: frame.stamp()})
+	previous := r.presented.Value()
+	id := previous.identity
+	if target == nil || clip.Empty() {
+		id = nil
+	} else if id == nil || !identity.Same(previous.child, target) {
+		id = new(byte)
+	}
+	r.presented.Stage(frame, pointerRegionFrame{area: area, clip: clip, child: target, identity: id})
 }
 
 // Handle offers a pointer event to the child, in the child's own coordinates.
@@ -83,38 +95,31 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 	}
 	presented := r.presented.Value()
 
-	// The owner is read before ownership can end, because the release that ends it is
-	// also the last event it is owed.
+	// Every new press settles the previous gesture, including one outside this box.
+	if event.Action == input.MouseDown {
+		r.held = nil
+	}
 	if owner := r.held; owner != nil &&
 		(event.Action == input.MouseDrag || event.Action == input.MouseUp) {
-		ownerFrame := r.heldFrame
-		// The gesture is over once its release has been offered, whether or not the
-		// child wanted it: consuming and owning are separate questions.
 		if event.Action == input.MouseUp {
 			r.held = nil
-			r.heldFrame = frameStamp{}
 		}
-		if (presented.frame != ownerFrame && !identity.Same(presented.child, owner)) || presented.area.Empty() {
+		// Keep the dead token through release: dropping it early would send the
+		// remaining events to a replacement. Tokens never return after an absence.
+		if presented.identity != owner {
 			return false, false
 		}
 		return r.deliver(presented, event), true
 	}
 
-	if presented.child == nil || presented.area.Empty() || !event.Pos.In(presented.area) {
+	if presented.child == nil || presented.clip.Empty() || !event.Pos.In(presented.clip) {
 		return false, false
-	}
-	// A press supersedes a gesture that never ended. Forgetting the old owner before
-	// the child is called is what keeps a panic or a refusal from leaving it installed.
-	if event.Action == input.MouseDown {
-		r.held = nil
-		r.heldFrame = frameStamp{}
 	}
 	handled = r.deliver(presented, event)
 	if event.Action == input.MouseDown && handled {
 		// Only a press the child wanted begins an interaction. Holding one it refused
 		// would swallow the release belonging to whatever the pointer is really over.
-		r.held = presented.child
-		r.heldFrame = presented.frame
+		r.held = presented.identity
 	}
 	return handled, true
 }

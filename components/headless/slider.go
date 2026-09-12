@@ -31,10 +31,9 @@ type Slider struct {
 	// Keys maps slider actions. Nil reads through [DefaultSliderKeys].
 	Keys *keymap.Map
 
-	focused  bool
-	dragging bool
-	matcher  keymap.Matcher
-	track    Snapshot[image.Rectangle]
+	focused bool
+	pointer Pointer
+	matcher keymap.Matcher
 }
 
 // SliderConfig is the complete construction state of [Slider].
@@ -192,7 +191,7 @@ func (s *Slider) Stage(frame Frame, track image.Rectangle) {
 	if s == nil {
 		return
 	}
-	s.track.Stage(frame, track.Intersect(frame.Bounds()))
+	s.pointer.Stage(frame, track)
 }
 
 // Handle applies bound keys and a left-button drag to the value.
@@ -229,27 +228,13 @@ func (s *Slider) Do(action keymap.Action) bool {
 }
 
 func (s *Slider) mouse(mouse input.Mouse) bool {
-	track := s.track.Value()
+	handled := s.pointer.Handle(mouse)
+	if !handled || s.pointer.button != input.ButtonLeft {
+		return false
+	}
 	switch mouse.Action {
-	case input.MouseDown:
-		if mouse.Button != input.ButtonLeft || track.Empty() || !mouse.Pos.In(track) {
-			return false
-		}
-		s.dragging = true
-		s.setAt(mouse.Pos.X, track)
-		return true
-	case input.MouseDrag:
-		if !s.dragging {
-			return false
-		}
-		s.setAt(mouse.Pos.X, track)
-		return true
-	case input.MouseUp:
-		if !s.dragging {
-			return false
-		}
-		s.dragging = false
-		s.setAt(mouse.Pos.X, track)
+	case input.MouseDown, input.MouseDrag, input.MouseUp:
+		s.setAt(mouse.Pos.X, s.pointer.presentation.Value().area)
 		return true
 	default:
 		return false
@@ -270,6 +255,7 @@ func (s *Slider) setAt(x int, track image.Rectangle) {
 func (s *Slider) Focus(has bool) {
 	if s != nil {
 		if !has {
+			s.pointer.Left()
 			s.matcher.Clear()
 		}
 		s.focused = has

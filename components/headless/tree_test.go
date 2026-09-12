@@ -127,7 +127,7 @@ func TestATreeDrawsTheRowsThatFit(t *testing.T) {
 	tree.Open(0)
 	rows := paintWidget(10, 3, tree)
 	equalRows(t, rows, []string{">core.....", "  grid....", "  term...."})
-	if tree.Measure(10) != 4 {
-		t.Fatalf("a tree showing four rows asked for %d", tree.Measure(10))
+	if tree.HeightForWidth(10) != 4 {
+		t.Fatalf("a tree showing four rows asked for %d", tree.HeightForWidth(10))
 	}
 }

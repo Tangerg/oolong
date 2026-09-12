@@ -31,7 +31,7 @@ func BenchmarkOpenMarkdownUpdate(b *testing.B) {
 }
 
 // BenchmarkOpenMarkdownCachedRead separates parsing from the defensive ownership
-// copy returned to callers. Measure and Draw may ask for the same open tail in one
+// copy returned to callers. HeightForWidth and Draw may ask for the same open tail in one
 // frame; the second call must not parse it again.
 func BenchmarkOpenMarkdownCachedRead(b *testing.B) {
 	var stream Stream

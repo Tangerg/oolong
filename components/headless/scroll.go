@@ -28,7 +28,8 @@ type Scroll struct {
 	// current is the committed position and bounds. Keeping the four values in the
 	// same entity used by a staged frame gives scrolling one implementation: input
 	// changes current, while Draw changes a copy until the root commits it.
-	current scrollState
+	current              scrollState
+	reveal, stagedReveal *scrollRange
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
 	wheel input.Advance
@@ -61,24 +62,27 @@ func (s *Scroll) Wheel(w input.Wheel) { s.wheel.Wheel(w) }
 // a hit test both want.
 func (s *Scroll) Offset() int { return s.current.offset }
 
-// AtBottom reports whether the window is following the end of the content.
-func (s *Scroll) AtBottom() bool { return s.current.following }
+// FollowingEnd reports whether the window is following the end of the content.
+func (s *Scroll) FollowingEnd() bool { return s.current.following }
 
 // By scrolls a number of rows: negative towards the start, positive towards the end.
 //
 // Reaching the end starts following again, which is what every log viewer does and
 // what a reader means by scrolling to the bottom.
 func (s *Scroll) By(rows int) {
+	s.reveal = nil
 	s.current.by(rows)
 }
 
 // ToBottom follows the end of the content.
 func (s *Scroll) ToBottom() {
+	s.reveal = nil
 	s.current.toBottom()
 }
 
 // ToTop shows the start of the content and stops following.
 func (s *Scroll) ToTop() {
+	s.reveal = nil
 	s.current.toTop()
 }
 
@@ -89,6 +93,12 @@ func (s *Scroll) ToTop() {
 // stays at the new end; a reader above the new start lands on the first retained row.
 func (s *Scroll) Discard(rows int) {
 	s.current.discard(rows)
+	if s.reveal != nil {
+		s.reveal = &scrollRange{
+			first: layout.Remaining(s.reveal.first, rows), last: layout.Remaining(s.reveal.last, rows),
+			origin: layout.Remaining(s.reveal.origin, rows),
+		}
+	}
 }
 
 // Reveal scrolls as little as it can to bring as much of [first, last] into the
@@ -98,7 +108,9 @@ func (s *Scroll) Discard(rows int) {
 // results wants the surrounding text to stay put where it already fits, and a view
 // that jumped every time would lose the context that made the result worth finding.
 // A range already visible moves nothing at all. Passing the same row twice reveals
-// one row; there is deliberately no second spelling for that degenerate range.
+// one row. The request is applied again against the next complete frame
+// before being consumed, so it also works before the first layout or after a resize.
+// Manual scrolling cancels an uncommitted request.
 //
 // It stops following the end, because a range was asked for and following would
 // immediately scroll away from it.
@@ -106,12 +118,15 @@ func (s *Scroll) Discard(rows int) {
 // reading begins. Anything else would show the end of a match and leave the reader
 // to scroll backwards to find out what it was part of.
 func (s *Scroll) Reveal(first, last int) {
+	s.reveal = &scrollRange{first: first, last: last, origin: s.current.offset}
+	s.current.following = false
 	s.current.revealRange(first, last)
 }
 
 // Pages scrolls whole windows, keeping one row of overlap so the reader has
 // something to recognise on the other side of the jump.
 func (s *Scroll) Pages(n int) {
+	s.reveal = nil
 	s.current.pages(n)
 }
 
@@ -177,10 +192,18 @@ func (s *Scroll) Do(action keymap.Action) bool {
 // use the returned ScrollLayout to refine that one pending value.
 func (s *Scroll) Stage(frame Frame, total, window int) ScrollLayout {
 	state := s.current
+	if s.reveal != nil {
+		state.offset = s.reveal.origin
+	}
+	origin := state.offset
 	state.layout(total, window)
+	if s.reveal != nil {
+		state.revealRange(s.reveal.first, s.reveal.last)
+	}
 	frame.enlist(s, &s.staged)
 	s.pendingLayout = state
-	return ScrollLayout{scroll: s, frame: frame, state: state}
+	s.stagedReveal = s.reveal
+	return ScrollLayout{scroll: s, frame: frame, state: state, reveal: s.reveal, origin: origin}
 }
 
 // ScrollLayout is the derived position of one Scroll in a component frame.
@@ -197,6 +220,8 @@ type ScrollLayout struct {
 	scroll *Scroll
 	frame  Frame
 	state  scrollState
+	reveal *scrollRange
+	origin int
 }
 
 // Offset is the first row shown by this layout.
@@ -210,9 +235,11 @@ func (l *ScrollLayout) Offset() int {
 // Reveal brings as much of [first, last] into this staged window as fits. Passing the
 // same row twice reveals one row, matching [Scroll.Reveal].
 func (l *ScrollLayout) Reveal(first, last int) {
-	if l == nil || l.scroll == nil || l.state.window <= 0 {
+	if l == nil || l.scroll == nil {
 		return
 	}
+	l.reveal = &scrollRange{first: first, last: last}
+	l.state.offset = l.origin
 	l.state.revealRange(first, last)
 	l.scroll.updateState(l.frame, l.state)
 }
@@ -225,7 +252,13 @@ func (l *ScrollLayout) Resize(window int) {
 	if l == nil || l.scroll == nil {
 		return
 	}
+	if l.reveal != nil {
+		l.state.offset = l.origin
+	}
 	l.state.layout(l.state.total, window)
+	if target := l.reveal; target != nil {
+		l.state.revealRange(target.first, target.last)
+	}
 	l.scroll.updateState(l.frame, l.state)
 }
 
@@ -241,7 +274,11 @@ func (s *Scroll) commit(tx *transaction) {
 		return
 	}
 	s.current = s.pendingLayout
+	if s.current.window > 0 && s.reveal == s.stagedReveal {
+		s.reveal = nil
+	}
 	s.pendingLayout = scrollState{}
+	s.stagedReveal = nil
 	s.staged = nil
 }
 
@@ -250,7 +287,15 @@ func (s *Scroll) abort(tx *transaction) {
 		return
 	}
 	s.pendingLayout = scrollState{}
+	s.stagedReveal = nil
 	s.staged = nil
+}
+
+type scrollRange struct {
+	first, last int
+	// origin is the position before an eager Reveal. A new frame resolves the
+	// request from there so its old window cannot over-scroll a larger new one.
+	origin int
 }
 
 type scrollState struct {

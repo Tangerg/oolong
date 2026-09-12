@@ -285,13 +285,12 @@ type DialogTrigger struct {
 	// Keys maps activation. Nil reads through [DefaultActivationKeys].
 	Keys *keymap.Map
 
-	dialog       *Dialog
-	appearance   Widget
-	label        string
-	blurred      bool
-	pointer      Pointer
-	presentation Snapshot[image.Rectangle]
-	matcher      keymap.Matcher
+	dialog     *Dialog
+	appearance Widget
+	label      string
+	blurred    bool
+	pointer    Pointer
+	matcher    keymap.Matcher
 }
 
 // Appearance returns the widget that paints the trigger.
@@ -316,29 +315,28 @@ func (t *DialogTrigger) SetAppearance(appearance Widget) {
 	tell(t.appearance, !t.blurred)
 }
 
-// Draw paints the appearance and claims a pending press over its committed box.
+// Draw paints the appearance and stages its hit region.
 func (t *DialogTrigger) Draw(frame Frame) {
 	if t == nil {
 		return
 	}
 	area := frame.Bounds()
-	t.presentation.Stage(frame, area)
-	t.pointer.Claim(area)
+	t.pointer.Stage(frame, area)
 	if t.appearance != nil {
 		t.appearance.Draw(frame)
 	}
 }
 
-// Measure delegates to a measured appearance.
-func (t *DialogTrigger) Measure(across int) int {
+// HeightForWidth delegates to a measured appearance.
+func (t *DialogTrigger) HeightForWidth(across int) int {
 	if t == nil {
 		return 0
 	}
-	measurer, ok := t.appearance.(layout.Measurer)
+	measurer, ok := t.appearance.(interface{ HeightForWidth(width int) int })
 	if !ok {
 		return 0
 	}
-	return measurer.Measure(across)
+	return measurer.HeightForWidth(across)
 }
 
 // Handle opens the dialog on an activation key or completed primary click.
@@ -347,14 +345,11 @@ func (t *DialogTrigger) Handle(event input.Event) bool {
 		return false
 	}
 	if _, ok := event.(input.Mouse); ok {
-		if t.presentation.Value().Empty() {
-			return false
-		}
-		t.pointer.Handle(event)
-		if t.pointer.Clicked(t.presentation.Value(), input.ButtonLeft) {
+		handled := t.pointer.Handle(event)
+		if t.pointer.Clicked(input.ButtonLeft) {
 			t.dialog.Show()
 		}
-		return true
+		return handled
 	}
 	key, ok := event.(input.Key)
 	if !ok {
@@ -379,6 +374,7 @@ func (t *DialogTrigger) Focus(has bool) {
 		return
 	}
 	if !has {
+		t.pointer.Left()
 		t.matcher.Clear()
 	}
 	if t.blurred == !has {

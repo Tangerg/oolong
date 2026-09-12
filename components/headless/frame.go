@@ -28,18 +28,6 @@ type Frame struct {
 	generation  uint64
 }
 
-type frameStamp struct {
-	transaction *transaction
-	generation  uint64
-}
-
-func (f Frame) stamp() frameStamp {
-	if !f.active() {
-		return frameStamp{}
-	}
-	return frameStamp{transaction: f.transaction, generation: f.generation}
-}
-
 // Sub returns a child frame over r, whose coordinates begin at zero.
 func (f Frame) Sub(r image.Rectangle) Frame {
 	return Frame{View: f.View.Sub(r), transaction: f.transaction, generation: f.generation}
@@ -75,6 +63,7 @@ func (f Frame) Subs(rects []image.Rectangle) []Frame {
 //
 // The zero value contains the zero T and is ready to stage. A Snapshot must not be
 // copied after first use: its pending value is enlisted with exactly one transaction.
+// A nil *Snapshot is a programmer error; methods panic.
 type Snapshot[T any] struct {
 	noCopy noCopy
 
@@ -86,10 +75,6 @@ type Snapshot[T any] struct {
 // Value returns the last completely drawn value by ordinary Go assignment. See
 // [Snapshot] for the ownership rule when T contains references.
 func (s *Snapshot[T]) Value() T {
-	if s == nil {
-		var zero T
-		return zero
-	}
 	return s.current
 }
 
@@ -97,9 +82,6 @@ func (s *Snapshot[T]) Value() T {
 // called at most once for this Snapshot in one frame. See [Snapshot] for the ownership
 // rule when value contains references.
 func (s *Snapshot[T]) Stage(frame Frame, value T) {
-	if s == nil {
-		return
-	}
 	frame.enlist(s, &s.staged)
 	s.pending = value
 }

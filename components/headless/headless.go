@@ -45,7 +45,6 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -58,24 +57,12 @@ type Widget interface {
 	Draw(frame Frame)
 }
 
-// Sized is a widget whose size along the axis being divided follows from the room it
-// has across the other: wrapped text, a list of variable-height rows, anything that
-// reflows.
-//
-// It is [layout.Measurer] and nothing more, so a sized widget goes straight into a
-// [layout.Slot]:
-//
-//	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-//		{Size: layout.Measured(0, 3), Of: header},
-//		{Size: layout.Flex(1)},
-//	})
-//
-// Measure is asked before Draw and must agree with it. A widget that reports one
-// size and draws another gets clipped or leaves a gap, and both look like a defect
-// elsewhere in the layout tree.
+// Sized is a widget that reports its height at a width. HeightForWidth is asked
+// before Draw and must agree with it. Horizontal intrinsic sizing is a separate
+// optional WidthForHeight(height int) int capability.
 type Sized interface {
 	Widget
-	layout.Measurer
+	HeightForWidth(width int) int
 }
 
 // Block is finished or deliberately retained drawable content.
@@ -117,12 +104,12 @@ func (s Static) Draw(frame Frame) {
 	}
 }
 
-// Measure forwards the block's measurement.
-func (s Static) Measure(across int) int {
+// HeightForWidth forwards the block's measurement.
+func (s Static) HeightForWidth(across int) int {
 	if s.Of == nil {
 		return 0
 	}
-	return s.Of.Measure(across)
+	return s.Of.HeightForWidth(across)
 }
 
 // Interactive is a widget that answers input.
@@ -142,9 +129,10 @@ type Interactive interface {
 // lets the same action be reached from somewhere that is not the keyboard at all — a
 // menu, a command typed by name, a test that presses nothing.
 //
-// Do reports whether the action was one this widget knows. An action it does not know
-// is not an error: one keymap often drives a whole interface, and every widget reading
-// through it answers what it recognises and lets the rest past.
+// Do reports whether the widget accepts the action in its current state. False
+// lets the caller offer it to another handler; true does not promise a state change.
+// For example, a list may accept movement at its end, while a container declines
+// focus traversal when it cannot move so a containing focus ring can handle it.
 type Doer interface {
 	Do(action keymap.Action) bool
 }

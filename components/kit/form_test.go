@@ -16,7 +16,7 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 	// nothing here could name every kind of one. So this is where the look goes in.
 	var name string
 	var model string
-	modelField := &headless.Select[string]{Label: "Model", Value: headless.Bind(&model)}
+	modelField := &headless.Select[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)}
 	modelField.SetOptions(headless.Options("fast", "good"))
 	form := headless.NewForm(
 		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
@@ -29,7 +29,7 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 		Hints: []keymap.Action{headless.Submit, headless.Cancel},
 	})
 
-	rows := paintWidget(24, view.Measure(24), view)
+	rows := paintWidget(24, view.HeightForWidth(24), view)
 	drawn := strings.Join(rows, "\n")
 	for _, want := range []string{"New session", "Name", "who?", "Model", "fast", "good", "enter submit"} {
 		if !strings.Contains(drawn, want) {
@@ -44,14 +44,14 @@ func TestAFormIsDressedByTheThemeAndDrawsItself(t *testing.T) {
 }
 
 func TestAFormAppearanceDoesNotReplaceTheControllersLook(t *testing.T) {
-	field := new(headless.Select[string])
+	field := &headless.Select[string]{Same: headless.Equal[string]}
 	field.SetOptions(headless.Options("one", "two"))
 	form := headless.NewForm(field)
 	form.Look = headless.Look{Taken: "C", Free: "-"}
 	view := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.Unicode(), Controller: form})
 
-	_ = paintWidget(12, view.Measure(12), view)
-	rows := paintWidget(12, form.Measure(12), form)
+	_ = paintWidget(12, view.HeightForWidth(12), view)
+	rows := paintWidget(12, form.HeightForWidth(12), form)
 	if len(rows) == 0 || !strings.HasPrefix(rows[0], "C") {
 		t.Fatalf("form after appearance draw = %q, want the controller's C mark", rows)
 	}
@@ -64,7 +64,7 @@ func TestAFormAppearanceDoesNotTakeOwnershipOfControllerKeys(t *testing.T) {
 		Hints:      []keymap.Action{headless.Submit},
 	})
 
-	rows := paintWidget(20, view.Measure(20), view)
+	rows := paintWidget(20, view.HeightForWidth(20), view)
 	if form.Keys != nil {
 		t.Fatal("dressing a form materialized behavior configuration on its controller")
 	}
@@ -80,7 +80,7 @@ func TestAFormShowsWhatWasWrongInTheColourForIt(t *testing.T) {
 	view := kit.NewForm(kit.FormConfig{Theme: theme, Controller: form})
 	form.Submit()
 
-	s := grid.NewSurface(20, view.Measure(20))
+	s := grid.NewSurface(20, view.HeightForWidth(20))
 	headless.NewRoot(view).Draw(s.View())
 	// The row under the field is the problem, drawn in the one style a theme has for
 	// saying something is wrong.

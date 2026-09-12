@@ -78,11 +78,11 @@ func TestComposerPlaceholderGivesWayToText(t *testing.T) {
 
 func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 	c := kit.Composer{Prompt: "› "}
-	if got := c.Measure(20); got != 1 {
+	if got := c.HeightForWidth(20); got != 1 {
 		t.Fatalf("an empty composer with no hints = %d rows, want 1", got)
 	}
 	c.Editor().Keys, c.Hints = sendKeys(), []keymap.Action{"send"}
-	if got := c.Measure(20); got != 2 {
+	if got := c.HeightForWidth(20); got != 2 {
 		t.Fatalf("with a hint row = %d rows, want the field and the hints", got)
 	}
 }
@@ -91,7 +91,7 @@ func TestComposerHintsNobodyCanPressTakeNoRow(t *testing.T) {
 	// A hint row with nothing in it is a blank line the user cannot account for.
 	c := kit.Composer{Hints: []keymap.Action{"unbound"}}
 	c.Editor().Keys = sendKeys()
-	if got := c.Measure(20); got != 1 {
+	if got := c.HeightForWidth(20); got != 1 {
 		t.Fatalf("= %d rows, want no room given to hints nobody is shown", got)
 	}
 }
@@ -106,7 +106,7 @@ func sendKeys() *keymap.Map {
 func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
 	c := kit.Composer{MaxRows: 2}
 	typeInto(&c, "one two three four five six seven eight")
-	if got := c.Measure(10); got != 2 {
+	if got := c.HeightForWidth(10); got != 2 {
 		t.Fatalf("= %d rows, want it capped at 2", got)
 	}
 }
@@ -135,7 +135,7 @@ func TestComposerUsesOneDefaultMapForEditingAndHints(t *testing.T) {
 	if got := c.Editor().Text(); got != "restored" {
 		t.Fatalf("text = %q, want the default yank binding to restore it", got)
 	}
-	rows := paintWidget(24, c.Measure(24), &c)
+	rows := paintWidget(24, c.HeightForWidth(24), &c)
 	if !strings.Contains(rows[len(rows)-1], "y yank") {
 		t.Fatalf("hint row = %q, want the binding used by the editor", rows[len(rows)-1])
 	}
@@ -182,7 +182,7 @@ func TestAnEntryMeasuresWhatItThenDraws(t *testing.T) {
 	// the block below lands on top of the entry.
 	m := kit.Entry{Label: "build", Body: "one two three four five six seven eight nine"}
 	width := 20
-	rows := paint(width, m.Measure(width)+3, func(v grid.View) { m.Draw(v) })
+	rows := paint(width, m.HeightForWidth(width)+3, func(v grid.View) { m.Draw(v) })
 
 	last := -1
 	for i, row := range rows {
@@ -190,14 +190,14 @@ func TestAnEntryMeasuresWhatItThenDraws(t *testing.T) {
 			last = i
 		}
 	}
-	if last >= m.Measure(width) {
-		t.Fatalf("drew content on row %d, but measured only %d rows", last, m.Measure(width))
+	if last >= m.HeightForWidth(width) {
+		t.Fatalf("drew content on row %d, but measured only %d rows", last, m.HeightForWidth(width))
 	}
 }
 
 func TestAnEntryWithoutALabelUsesTheWholeWidth(t *testing.T) {
 	entry := kit.Entry{Body: "12345"}
-	if got := entry.Measure(5); got != 2 { // one body row and the trailing row
+	if got := entry.HeightForWidth(5); got != 2 { // one body row and the trailing row
 		t.Fatalf("height = %d, want the body to fit one row without a label gutter", got)
 	}
 	rows := paint(5, 2, entry.Draw)
@@ -213,18 +213,18 @@ func TestAnEntryWithoutALabelUsesTheWholeWidth(t *testing.T) {
 func TestAnEntryLeavesRoomAfterItself(t *testing.T) {
 	// Consecutive entries that ran together would read as one.
 	m := kit.Entry{Label: "build", Body: "short"}
-	if got := m.Measure(20); got != 3 {
+	if got := m.HeightForWidth(20); got != 3 {
 		t.Fatalf("= %d rows, want the label, the body and a blank row", got)
 	}
 	m.Trailing = 2
-	if got := m.Measure(20); got != 4 {
+	if got := m.HeightForWidth(20); got != 4 {
 		t.Fatalf("= %d rows, want the trailing rows asked for", got)
 	}
 }
 
 func TestAnEntryWithNoLabelHasNoLabelRow(t *testing.T) {
 	m := kit.Entry{Body: "just this"}
-	if got := m.Measure(20); got != 2 {
+	if got := m.HeightForWidth(20); got != 2 {
 		t.Fatalf("= %d rows, want the body and a blank row and no label", got)
 	}
 }
@@ -246,7 +246,7 @@ func TestAnEntryLeavesItsLabelRoleWithTheCaller(t *testing.T) {
 	e := kit.Entry{
 		Theme: kit.Theme{Muted: muted}, Label: "source", LabelStyle: emphasis, Body: "said",
 	}
-	surface := grid.NewSurface(20, e.Measure(20))
+	surface := grid.NewSurface(20, e.HeightForWidth(20))
 	e.Draw(surface.View())
 	if got := cellAt(surface, 0, 0).Style; got != emphasis {
 		t.Fatalf("label style = %+v, want caller-owned role %+v", got, emphasis)
@@ -261,7 +261,7 @@ func TestAnEntryLeavesItsLabelRoleWithTheCaller(t *testing.T) {
 
 func TestAnEntryWrapsToTheWidthItIsGiven(t *testing.T) {
 	m := kit.Entry{Body: "one two three four five six seven eight"}
-	wide, narrow := m.Measure(40), m.Measure(12)
+	wide, narrow := m.HeightForWidth(40), m.HeightForWidth(12)
 	if narrow <= wide {
 		t.Fatalf("narrow = %d rows and wide = %d, want the narrow one taller", narrow, wide)
 	}
@@ -280,11 +280,11 @@ func TestEntryMutationInvalidatesItsPrivateWrap(t *testing.T) {
 	old := grid.Style{FG: grid.RGBColor(1, 2, 3)}
 	newStyle := grid.Style{FG: grid.RGBColor(4, 5, 6)}
 	entry := kit.Entry{Body: "old body", Theme: kit.Theme{Text: old}}
-	entry.Measure(20)
+	entry.HeightForWidth(20)
 
 	entry.Body = "new body"
 	entry.Theme.Text = newStyle
-	surface := grid.NewSurface(20, entry.Measure(20))
+	surface := grid.NewSurface(20, entry.HeightForWidth(20))
 	entry.Draw(surface.View())
 	if got := rowOf(surface.View(), 0, 20); !strings.HasPrefix(got, "new body") || strings.Contains(got, "old") {
 		t.Fatalf("drawn body = %q, want only the replacement", got)

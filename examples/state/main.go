@@ -33,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("local=%q bound=%q normalized=%q guarded=%q\n",
-		local.Editor().Text(), values.bound, values.normalized, values.guarded)
+		local.Text(), values.bound, values.normalized, values.guarded)
 }
 
 type answers struct {

@@ -89,10 +89,10 @@ func TestThePaletteSaysWhenNothingMatched(t *testing.T) {
 
 func TestThePaletteIsAtLeastOneRowTall(t *testing.T) {
 	// The message needs somewhere to go.
-	if got := (kit.Palette{}).Measure(40); got != 1 {
+	if got := (kit.Palette{}).HeightForWidth(40); got != 1 {
 		t.Errorf("an empty palette measures %d rows, want 1", got)
 	}
-	if got := (kit.Palette{Found: commands(t).Find("")}).Measure(40); got != 2 {
+	if got := (kit.Palette{Found: commands(t).Find("")}).HeightForWidth(40); got != 2 {
 		t.Errorf("measured %d rows for two commands", got)
 	}
 }

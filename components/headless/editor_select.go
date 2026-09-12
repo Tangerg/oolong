@@ -48,12 +48,14 @@ func (e *Editor) Anchor() {
 
 // SelectNone drops the selection, leaving the cursor where it is.
 func (e *Editor) SelectNone() {
+	e.dragging = false
 	e.breakContinuation()
 	e.selecting = false
 }
 
 // SelectAll selects the whole text.
 func (e *Editor) SelectAll() {
+	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
 	e.anchor, e.selecting = Caret{}, true
@@ -148,6 +150,7 @@ func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
 // selection no longer describes an active range. Revision, history and layout remain
 // separate because an identity replacement changes none of them.
 func (e *Editor) finishReplacement(at Caret) {
+	defer e.revealCursor()
 	e.selecting = false
 	e.line = min(max(at.Line, 0), len(e.lines)-1)
 	e.col = e.snapElement(e.line, at.Col, true)
@@ -160,6 +163,7 @@ func (e *Editor) finishReplacement(at Caret) {
 // it needs.
 func (e *Editor) replaceRange(start, end Caret, s string) {
 	e.requireContentRevision()
+	e.layout.stale = true
 	e.removed(start, end, s)
 	head := e.lines[start.Line][:start.Col]
 	tail := e.lines[end.Line][end.Col:]

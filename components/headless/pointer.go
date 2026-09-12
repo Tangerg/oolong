@@ -6,127 +6,105 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// Pointer tracks the mouse across the frames of one interface.
+// Pointer owns hover, capture and completed clicks for one interactive control.
+// Stage publishes the control's hit region with a complete root frame. Handle
+// settles gestures against that region, so a press and release need no intervening
+// draw. Over and Pressing are pure appearance queries; Clicked consumes a completed
+// click from the event handler.
 //
-// A mouse event says where the pointer is; it does not say what is there. Working that
-// out is layout's business, and layout only exists while a frame is being drawn — so a
-// widget learns it was clicked by claiming the region it drew itself into, and asking.
-//
-// # Why a press is remembered
-//
-// A button that fired on the way down fires when the user was aiming at it and changed
-// their mind. Every interface people already use commits on release, over the same
-// target that took the press, which means something has to remember which target that
-// was between two events. That is what this type is for, and it is why hover and press
-// cannot be answered by a widget looking at one event on its own.
-//
-// It belongs to the goroutine that draws and holds no lock.
+// Each control owns its Pointer. Containers and PointerRegion route between controls;
+// rectangles describe geometry and never identify different controls. A Pointer must
+// not be copied after first use. Its zero value declines input until Stage commits.
 type Pointer struct {
-	// at is where the pointer is, and inside says whether it is anywhere at all: a
-	// pointer that has never been reported is not at the origin, it is nowhere.
-	at     image.Point
-	inside bool
+	noCopy noCopy
 
-	// captured is the region that took the press, and holding says whether one is being
-	// held. A release outside it is not a click on it.
-	captured image.Rectangle
-	holding  bool
-	button   input.Button
+	presentation Snapshot[pointerFrame]
+	at           image.Point
+	inside       bool
+	held         *byte
+	button       input.Button
+	clicked      bool
 }
 
-// Handle takes a mouse event, reporting whether it was one.
-//
-// Everything else is left alone: a pointer that consumed keys would be a pointer that
-// swallowed typing.
-func (p *Pointer) Handle(ev input.Event) bool {
-	mouse, ok := ev.(input.Mouse)
+type pointerFrame struct {
+	area     image.Rectangle
+	identity *byte
+}
+
+// Stage publishes the control's local hit region, clipped to its frame. A gesture
+// follows the same control when its region moves or resizes. An empty committed
+// region ends that presentation lifetime, so showing it again cannot revive capture.
+func (p *Pointer) Stage(frame Frame, area image.Rectangle) {
+	area = area.Intersect(frame.Bounds())
+	id := p.presentation.Value().identity
+	if area.Empty() {
+		id = nil
+	} else if id == nil {
+		id = new(byte)
+	}
+	p.presentation.Stage(frame, pointerFrame{area: area, identity: id})
+}
+
+// Handle updates position and settles a pointer event against the committed region.
+// An accepted press owns dragging and release even outside the region. A new press
+// supersedes it. Other events are delivered only while over the visible control.
+func (p *Pointer) Handle(event input.Event) bool {
+	mouse, ok := event.(input.Mouse)
 	if !ok {
 		return false
 	}
-	p.at, p.inside = mouse.Pos, true
+	p.at, p.inside, p.clicked = mouse.Pos, true, false
+	presented := p.presentation.Value()
 	switch mouse.Action {
 	case input.MouseDown:
-		// The region is not known yet — nothing has been drawn since this event. It is
-		// filled in by whichever widget claims the press on the next frame.
-		p.holding, p.button, p.captured = true, mouse.Button, image.Rectangle{}
-	case input.MouseUp:
-		p.holding = false
-		// The gesture is over, and whether it was a click was decided here: a release
-		// somewhere other than where the press landed is how a user takes back a press
-		// they did not mean. Deciding it now rather than a frame later keeps the answer
-		// where the evidence is.
-		if !p.captured.Empty() && !mouse.Pos.In(p.captured) {
-			p.captured = image.Rectangle{}
+		p.held, p.button = nil, input.ButtonNone
+		if !p.Over() {
+			return false
 		}
+		p.held, p.button = presented.identity, mouse.Button
+		return true
+	case input.MouseDrag, input.MouseUp:
+		owner := p.held
+		if mouse.Action == input.MouseUp {
+			p.held = nil
+		}
+		if owner == nil || owner != presented.identity {
+			return false
+		}
+		if mouse.Action == input.MouseUp {
+			p.clicked = p.Over()
+		}
+		return true
 	default:
-		// Movement, dragging and the wheel change where the pointer is and nothing
-		// else, and where it is was recorded above. A drag in particular must not
-		// touch the held press: following the pointer rather than the press is what
-		// makes a button let go when you slide off it, which no interface does.
+		return p.Over()
 	}
-	return true
 }
 
-// Left reports that the pointer is no longer over the interface, so nothing is hovered.
-// A terminal does not report the mouse leaving, but a window losing focus is as close as
-// it gets and is worth honouring: a hover left highlighted under an unfocused window
-// looks like the interface is still live.
+// Left ends hover, capture and any unconsumed click, such as when focus is lost.
 func (p *Pointer) Left() {
-	p.inside = false
-	p.holding = false
-	// Leaving cancels the whole gesture, not only its pressed appearance. Keeping the
-	// claimed region would turn the next frame into a click even though no release
-	// happened in this interface.
-	p.captured = image.Rectangle{}
-	p.button = input.ButtonNone
+	p.inside, p.clicked = false, false
+	p.held, p.button = nil, input.ButtonNone
 }
 
-// Position is where the pointer is, and whether it is anywhere.
+// Position reports the last pointer coordinates and whether it is in the interface.
 func (p *Pointer) Position() (image.Point, bool) { return p.at, p.inside }
 
-// Over reports whether the pointer is inside a region, in the coordinates of whatever
-// drew it. A widget passes the box it is drawing into.
-func (p *Pointer) Over(region image.Rectangle) bool {
-	return p.inside && p.at.In(region)
+// Over reports whether the pointer is over the control's committed region.
+func (p *Pointer) Over() bool {
+	return p.inside && p.at.In(p.presentation.Value().area)
 }
 
-// Pressing reports whether a press is being held over a region, which is what draws a
-// control as pushed in.
-//
-// It follows the press rather than the pointer: dragging off a button and back again
-// keeps it pushed, because the press was never released.
-func (p *Pointer) Pressing(region image.Rectangle) bool {
-	if !p.holding {
-		return false
-	}
-	if p.captured.Empty() {
-		// The press has not been claimed yet. Whoever is under it claims it now, which is
-		// how the region gets recorded in the first place.
-		return p.at.In(region)
-	}
-	return p.captured == region
+// Pressing reports a live captured press, even while the pointer is outside.
+func (p *Pointer) Pressing() bool {
+	return p.held != nil && p.held == p.presentation.Value().identity
 }
 
-// Claim records that a region owns the press being held, if one is unclaimed and landed
-// inside it. It is called while drawing, by the widget that drew the region.
-func (p *Pointer) Claim(region image.Rectangle) {
-	if p.holding && p.captured.Empty() && p.at.In(region) {
-		p.captured = region
-	}
-}
-
-// Clicked reports that a press taken by a region has been released over it, and takes
-// the click so nothing else can answer the same one.
-//
-// Taken, rather than reported repeatedly: a click is an event, and a widget asking twice
-// in one frame — or two widgets asking in turn — must not both act on it.
-func (p *Pointer) Clicked(region image.Rectangle, button input.Button) bool {
-	if p.holding || p.captured.Empty() || p.captured != region {
+// Clicked consumes a completed click of button. Call it after Handle in the event
+// handler. Drawing observes Over and Pressing without consuming input.
+func (p *Pointer) Clicked(button input.Button) bool {
+	if !p.clicked || p.button != button {
 		return false
 	}
-	if p.button != button {
-		return false
-	}
-	p.captured = image.Rectangle{}
+	p.clicked = false
 	return true
 }

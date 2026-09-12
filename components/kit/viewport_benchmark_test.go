@@ -20,7 +20,7 @@ func BenchmarkParagraphClippedDraw(b *testing.B) {
 		visible = 40
 	)
 	paragraph := kit.NewParagraph(strings.Repeat("content\n", rows), grid.Style{})
-	height := paragraph.Measure(80)
+	height := paragraph.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
 	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
 
@@ -39,7 +39,7 @@ func BenchmarkParagraphWrappedLinksDraw(b *testing.B) {
 		grid.Style{},
 	)
 	paragraph.SetLinks(kit.LinkConfig{Enabled: true})
-	height := paragraph.Measure(40)
+	height := paragraph.HeightForWidth(40)
 	surface := grid.NewSurface(40, visible)
 	view := surface.View().Sub(grid.Rect(0, -height/2, 40, height))
 
@@ -62,7 +62,7 @@ func BenchmarkCodeClippedDraw(b *testing.B) {
 	}
 	code := kit.NewCode(lines)
 	code.Gutter = kit.LineNumbers{Separator: "│"}
-	height := code.Measure(80)
+	height := code.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
 	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
 
@@ -104,7 +104,7 @@ func BenchmarkEntryClippedDraw(b *testing.B) {
 		visible = 40
 	)
 	entry := kit.Entry{Label: "source", Body: strings.Repeat("content\n", rows)}
-	height := entry.Measure(80)
+	height := entry.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
 	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
 

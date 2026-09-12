@@ -51,8 +51,8 @@ func (p Palette) empty() string {
 	return p.Empty
 }
 
-// Measure is one row per command, or one for the message when nothing matched.
-func (p Palette) Measure(int) int { return max(len(p.Found), 1) }
+// HeightForWidth is one row per command, or one for the message when nothing matched.
+func (p Palette) HeightForWidth(int) int { return max(len(p.Found), 1) }
 
 // Draw writes the list into v, one command per row.
 func (p Palette) Draw(v grid.View) {

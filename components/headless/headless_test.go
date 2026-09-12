@@ -338,7 +338,7 @@ func TestAnEmptyOfferIsADismissal(t *testing.T) {
 	if c.Open() {
 		t.Fatal("an offer of nothing left the completion open")
 	}
-	if c.Measure(20) != 0 {
+	if c.HeightForWidth(20) != 0 {
 		t.Fatal("a closed completion asked for room")
 	}
 }
@@ -475,11 +475,11 @@ func TestTheMeasuredHeightIsARowPerCandidateUpToTheCap(t *testing.T) {
 	var c headless.Completion
 	c.MaxRows = 3
 	offer(&c, "one", "two")
-	if got := c.Measure(20); got != 2 {
+	if got := c.HeightForWidth(20); got != 2 {
 		t.Fatalf("height = %d, want a row each", got)
 	}
 	offer(&c, "one", "two", "three", "four", "five")
-	if got := c.Measure(20); got != 3 {
+	if got := c.HeightForWidth(20); got != 3 {
 		t.Fatalf("height = %d, want the cap", got)
 	}
 }
@@ -858,7 +858,7 @@ func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 	// would move the cursor somewhere the user cannot see the reason for.
 	e := &headless.Editor{}
 	e.Insert("aaa bbb ccc ddd")
-	if got := e.Measure(8); got != 2 {
+	if got := e.HeightForWidth(8); got != 2 {
 		t.Fatalf("height at width 8 = %d, want the text wrapped onto 2 rows", got)
 	}
 	cursorAt(e, 8, 4)
@@ -915,13 +915,13 @@ func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
 func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
 	e := &headless.Editor{}
 	e.Insert("one two three four five six seven")
-	wide := e.Measure(40)
-	narrow := e.Measure(10)
+	wide := e.HeightForWidth(40)
+	narrow := e.HeightForWidth(10)
 	if narrow <= wide {
 		t.Fatalf("height at 10 = %d, at 40 = %d, want narrower to be taller", narrow, wide)
 	}
 	e.MaxRows = 2
-	if got := e.Measure(10); got != 2 {
+	if got := e.HeightForWidth(10); got != 2 {
 		t.Fatalf("height with a cap of 2 = %d", got)
 	}
 }
@@ -1041,7 +1041,7 @@ func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 	e := &headless.Editor{}
 	e.Insert("alpha beta gamma delta")
 	const width = 12
-	rows := paintWidget(width, e.Measure(width), e)
+	rows := paintWidget(width, e.HeightForWidth(width), e)
 	joined := strings.Join(rows, "")
 	for _, word := range []string{"alpha", "beta", "gamma", "delta"} {
 		if !strings.Contains(joined, word) {
@@ -1054,8 +1054,8 @@ func TestAFreshScrollShowsTheStart(t *testing.T) {
 	// Which is what a list of items wants. Following is asked for, not assumed.
 	var s headless.Scroll
 	stageScroll(&s, 10, 5)
-	if s.AtBottom() || s.Offset() != 0 {
-		t.Fatalf("offset = %d, following = %v, want the start", s.Offset(), s.AtBottom())
+	if s.FollowingEnd() || s.Offset() != 0 {
+		t.Fatalf("offset = %d, following = %v, want the start", s.Offset(), s.FollowingEnd())
 	}
 }
 
@@ -1083,7 +1083,7 @@ func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
 	if got := s.Offset(); got != before {
 		t.Fatalf("offset moved from %d to %d as content arrived", before, got)
 	}
-	if s.AtBottom() {
+	if s.FollowingEnd() {
 		t.Fatal("scrolled up but still claims to be following the end")
 	}
 }
@@ -1097,7 +1097,7 @@ func TestScrollClampsToTheContent(t *testing.T) {
 		t.Fatalf("offset = %d, want the start", got)
 	}
 	s.By(1000)
-	if !s.AtBottom() || s.Offset() != 5 {
+	if !s.FollowingEnd() || s.Offset() != 5 {
 		t.Fatalf("offset = %d, want the end", s.Offset())
 	}
 	// Content that shrank under a scrolled window must not leave it out of bounds.
@@ -1115,21 +1115,21 @@ func TestScrollMovementCannotWrapPastItsBounds(t *testing.T) {
 	var s headless.Scroll
 	stageScroll(&s, maxInt, 2)
 	s.By(maxInt)
-	if got := s.Offset(); got != maxInt-2 || !s.AtBottom() {
-		t.Fatalf("largest forward movement stopped at %d (following %v), want %d", got, s.AtBottom(), maxInt-2)
+	if got := s.Offset(); got != maxInt-2 || !s.FollowingEnd() {
+		t.Fatalf("largest forward movement stopped at %d (following %v), want %d", got, s.FollowingEnd(), maxInt-2)
 	}
 	s.By(minInt)
-	if got := s.Offset(); got != 0 || s.AtBottom() {
-		t.Fatalf("largest backward movement stopped at %d (following %v), want the start", got, s.AtBottom())
+	if got := s.Offset(); got != 0 || s.FollowingEnd() {
+		t.Fatalf("largest backward movement stopped at %d (following %v), want the start", got, s.FollowingEnd())
 	}
 
 	s.Pages(maxInt)
-	if got := s.Offset(); got != maxInt-2 || !s.AtBottom() {
-		t.Fatalf("largest forward page movement stopped at %d (following %v), want %d", got, s.AtBottom(), maxInt-2)
+	if got := s.Offset(); got != maxInt-2 || !s.FollowingEnd() {
+		t.Fatalf("largest forward page movement stopped at %d (following %v), want %d", got, s.FollowingEnd(), maxInt-2)
 	}
 	s.Pages(minInt)
-	if got := s.Offset(); got != 0 || s.AtBottom() {
-		t.Fatalf("largest backward page movement stopped at %d (following %v), want the start", got, s.AtBottom())
+	if got := s.Offset(); got != 0 || s.FollowingEnd() {
+		t.Fatalf("largest backward page movement stopped at %d (following %v), want the start", got, s.FollowingEnd())
 	}
 }
 
@@ -1177,7 +1177,7 @@ func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
 	if s.Offset() != 1+3 {
 		t.Fatalf("offset after a whole notch = %d, want three rows on from where it began", s.Offset())
 	}
-	if !s.Handle(key(input.End), keys) || !s.AtBottom() {
+	if !s.Handle(key(input.End), keys) || !s.FollowingEnd() {
 		t.Fatal("End did not go to the end")
 	}
 	if !s.Handle(key(input.Home), keys) || s.Offset() != 0 {
@@ -1376,6 +1376,7 @@ func TestAZeroEditorAnswersTheKeysItDocuments(t *testing.T) {
 
 func TestPointerTracksWhereItIs(t *testing.T) {
 	var p headless.Pointer
+	stagePointer(&p, grid.Rect(0, 0, 12, 12))
 	if _, inside := p.Position(); inside {
 		// A pointer that has never been reported is nowhere, not at the origin.
 		t.Fatal("a fresh pointer claims to be somewhere")
@@ -1395,12 +1396,13 @@ func TestPointerTracksWhereItIs(t *testing.T) {
 func TestPointerHover(t *testing.T) {
 	var p headless.Pointer
 	box := grid.Rect(2, 2, 4, 2)
+	stagePointer(&p, box)
 	p.Handle(press(3, 3, input.MouseMove, input.ButtonNone))
-	if !p.Over(box) {
+	if !p.Over() {
 		t.Fatal("the pointer is inside the box but does not say so")
 	}
 	p.Handle(press(9, 9, input.MouseMove, input.ButtonNone))
-	if p.Over(box) {
+	if p.Over() {
 		t.Fatal("the pointer left the box and still says it is over it")
 	}
 }
@@ -1410,17 +1412,17 @@ func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
 	// changed their mind.
 	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
+	stagePointer(&p, box)
 
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
-	p.Claim(box)
-	if p.Clicked(box, input.ButtonLeft) {
+	if p.Clicked(input.ButtonLeft) {
 		t.Fatal("the click fired on the way down")
 	}
-	if !p.Pressing(box) {
+	if !p.Pressing() {
 		t.Fatal("the control does not know it is being pushed")
 	}
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonLeft))
-	if !p.Clicked(box, input.ButtonLeft) {
+	if !p.Clicked(input.ButtonLeft) {
 		t.Fatal("the click never fired")
 	}
 }
@@ -1429,16 +1431,16 @@ func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
 	// It follows the press, not the pointer: the press was never released.
 	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
+	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
-	p.Claim(box)
 
 	p.Handle(press(9, 9, input.MouseDrag, input.ButtonLeft))
-	if !p.Pressing(box) {
+	if !p.Pressing() {
 		t.Fatal("dragging away released a press that was still held")
 	}
 	p.Handle(press(1, 0, input.MouseDrag, input.ButtonLeft))
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonLeft))
-	if !p.Clicked(box, input.ButtonLeft) {
+	if !p.Clicked(input.ButtonLeft) {
 		t.Fatal("coming back and releasing did not click")
 	}
 }
@@ -1447,32 +1449,11 @@ func TestAReleaseSomewhereElseIsNotAClick(t *testing.T) {
 	// Which is how a user takes back a press they did not mean.
 	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
+	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
-	p.Claim(box)
 	p.Handle(press(9, 9, input.MouseUp, input.ButtonLeft))
-	if p.Clicked(box, input.ButtonLeft) {
+	if p.Clicked(input.ButtonLeft) {
 		t.Fatal("releasing away from the target still clicked it")
-	}
-	if p.Clicked(grid.Rect(8, 9, 4, 1), input.ButtonLeft) {
-		t.Fatal("releasing over something else clicked that instead")
-	}
-}
-
-func TestAPressBelongsToOneTarget(t *testing.T) {
-	// Two overlapping regions must not both answer the same press.
-	var p headless.Pointer
-	outer := grid.Rect(0, 0, 10, 4)
-	inner := grid.Rect(1, 1, 4, 1)
-	p.Handle(press(2, 1, input.MouseDown, input.ButtonLeft))
-	p.Claim(inner)
-	p.Claim(outer)
-	p.Handle(press(2, 1, input.MouseUp, input.ButtonLeft))
-
-	if p.Clicked(outer, input.ButtonLeft) {
-		t.Fatal("the region that did not take the press answered the click")
-	}
-	if !p.Clicked(inner, input.ButtonLeft) {
-		t.Fatal("the region that took the press did not answer the click")
 	}
 }
 
@@ -1481,14 +1462,14 @@ func TestAClickIsAnsweredOnce(t *testing.T) {
 	// act on the same click.
 	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
+	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
-	p.Claim(box)
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonLeft))
 
-	if !p.Clicked(box, input.ButtonLeft) {
+	if !p.Clicked(input.ButtonLeft) {
 		t.Fatal("the click never fired")
 	}
-	if p.Clicked(box, input.ButtonLeft) {
+	if p.Clicked(input.ButtonLeft) {
 		t.Fatal("the same click fired twice")
 	}
 }
@@ -1496,13 +1477,13 @@ func TestAClickIsAnsweredOnce(t *testing.T) {
 func TestAClickIsTheButtonThatWasPressed(t *testing.T) {
 	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
+	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonRight))
-	p.Claim(box)
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonRight))
-	if p.Clicked(box, input.ButtonLeft) {
+	if p.Clicked(input.ButtonLeft) {
 		t.Fatal("a right press answered a left click")
 	}
-	if !p.Clicked(box, input.ButtonRight) {
+	if !p.Clicked(input.ButtonRight) {
 		t.Fatal("the right click never fired")
 	}
 }
@@ -1512,32 +1493,18 @@ func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
 	// still live.
 	var p headless.Pointer
 	box := grid.Rect(0, 0, 4, 1)
+	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
-	p.Claim(box)
 
 	p.Left()
-	if p.Over(box) {
+	if p.Over() {
 		t.Fatal("still hovering after the pointer left")
 	}
-	if p.Pressing(box) {
+	if p.Pressing() {
 		t.Fatal("still holding a press after the pointer left")
 	}
-	if p.Clicked(box, input.ButtonLeft) {
+	if p.Clicked(input.ButtonLeft) {
 		t.Fatal("leaving turned an unfinished press into a click")
-	}
-}
-
-func TestAnUnclaimedPressPushesWhateverIsUnderIt(t *testing.T) {
-	// Nothing has been drawn since the press, so the first frame after it is where a
-	// control finds out it was pushed.
-	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
-	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
-	if !p.Pressing(box) {
-		t.Fatal("a control under an unclaimed press does not draw as pushed")
-	}
-	if p.Pressing(grid.Rect(8, 8, 2, 1)) {
-		t.Fatal("a control nowhere near the press draws as pushed")
 	}
 }
 
