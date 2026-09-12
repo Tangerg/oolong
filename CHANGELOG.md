@@ -18,6 +18,8 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-09-13
+
 ### Changed
 
 - Input always requests a coalesced logical frame. Event consumption controls
