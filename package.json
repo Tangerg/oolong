@@ -14,5 +14,10 @@
     "cspell": "10.1.0",
     "markdownlint-cli2": "0.23.2",
     "vitepress": "2.0.0-alpha.19"
+  },
+  "overrides": {
+    "markdownlint-cli2": {
+      "smol-toml": "1.8.0"
+    }
   }
 }

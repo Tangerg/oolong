@@ -52,6 +52,10 @@ point of tagging them low rather than not at all.
   retains text selection without keeping the gesture active.
 - Key sequences cannot cross binding versions, replaced choice collections or modal
   owners. Deferred setting edits stay with the original row.
+- Streaming Markdown holds incomplete UTF-8 runes until the next chunk. Finished
+  Markdown replaces malformed UTF-8 before parsing, including an incomplete final rune.
+- The API ledger command-error test handles native Windows paths. Documentation
+  tooling pins the fixed TOML parser and passes the full dependency audit.
 
 ### Breaking API migration
 

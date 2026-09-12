@@ -41,6 +41,7 @@ var parser = sync.OnceValue(func() gparser.Parser {
 })
 
 // Render turns a whole markdown document into blocks.
+// Invalid UTF-8 runs become replacement text before parsing.
 //
 // It is the form for text that has finished arriving. Anything still being written
 // wants a [Stream], which is this applied to the part that is certainly finished and
@@ -50,7 +51,7 @@ func Render(source string, look Look) []Block {
 		return nil
 	}
 	look = cloneLook(look)
-	r := &renderer{look: look, source: []byte(source)}
+	r := &renderer{look: look, source: []byte(strings.ToValidUTF8(source, "�"))}
 	root := parse(r.source)
 	r.render(root, frame{body: look.Text})
 	return r.blocks

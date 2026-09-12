@@ -122,7 +122,7 @@ func TestCheckerReportsTheCommandAndItsOutput(t *testing.T) {
 	writeChangelog(t, root, "## [Unreleased]\n")
 	want := errors.New("exit status 1")
 	err := newChecker(Config{Root: root}, failingRunner{err: want}).check(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "scripts/modules.sh --public: exit status 1: broken workspace") {
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("scripts", "modules.sh")+" --public: exit status 1: broken workspace") {
 		t.Fatalf("command error = %v", err)
 	}
 }

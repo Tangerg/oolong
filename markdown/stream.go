@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Stream renders markdown that is still arriving.
@@ -155,10 +156,21 @@ func (s *Stream) Feed(chunk string) []Block {
 // It is a rendering of a prefix, so it says what the text says so far: a heading
 // halfway through its own words is a heading, and a fenced block of code with no
 // closing fence yet is a block of code. That is what a reader sees while an answer
-// is written, and it is what they would see if it stopped there.
+// is written. A trailing incomplete UTF-8 rune waits for the next Feed; Flush
+// settles it as replacement text if the source ends there.
 func (s *Stream) Open() []Block {
 	if !s.fresh {
-		s.open, s.fresh = Render(s.held.String(), s.look), true
+		source := s.held.String()
+		if len(source) > 0 {
+			start := len(source) - 1
+			for start > 0 && !utf8.RuneStart(source[start]) {
+				start--
+			}
+			if !utf8.FullRuneInString(source[start:]) {
+				source = source[:start]
+			}
+		}
+		s.open, s.fresh = Render(source, s.look), true
 	}
 	return slices.Clone(s.open)
 }

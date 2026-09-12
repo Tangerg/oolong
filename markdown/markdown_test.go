@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/text"
@@ -388,6 +389,34 @@ func TestAStreamPublishesWhatIsFinishedAndHoldsWhatIsNot(t *testing.T) {
 	if got := rows(t, 30, stream.Open()); len(got) == 0 || got[len(got)-1] != "a heading half w" {
 		t.Fatalf("the open part reads as %q", got)
 	}
+}
+
+func TestStreamOpenWaitsForCompleteUTF8(t *testing.T) {
+	for _, source := range []string{"I’ll read 中文 🌍", "# 中文", "```text\n中文 🌍"} {
+		var stream markdown.Stream
+		for i := range len(source) {
+			stream.Feed(source[i : i+1])
+			for _, row := range rows(t, 40, stream.Open()) {
+				if !utf8.ValidString(row) || strings.ContainsRune(row, utf8.RuneError) {
+					t.Fatalf("prefix %q rendered as %q", source[:i+1], row)
+				}
+			}
+		}
+		equal(t, rows(t, 40, stream.Flush()), render(t, 40, source))
+	}
+	var stream markdown.Stream
+	stream.Feed("word \xe2\x80")
+	equal(t, rows(t, 40, stream.Open()), []string{"word"})
+	equal(t, rows(t, 40, stream.Flush()), []string{"word �"})
+}
+
+func TestMarkdownReplacesMalformedUTF8(t *testing.T) {
+	const source = "# bad \xff\xfe\n\n```text\n\xff\n```"
+	want := []string{"bad �", "", "�"}
+	equal(t, render(t, 40, source), want)
+	var stream markdown.Stream
+	stream.Feed(source)
+	equal(t, rows(t, 40, stream.Open()), want)
 }
 
 func TestAStreamKeepsThePendingCutInsideItsNewTail(t *testing.T) {

@@ -22,7 +22,9 @@ exported API, read the module and ring boundaries in the
   documentation toolchain is in `package-lock.json`. Its VitePress preview pin is
   deliberate: the current stable line still resolves to dependencies with
   published advisories, while this lock audits clean. Re-evaluate the pin rather
-  than floating it or suppressing the audit.
+  than floating it or suppressing the audit. The `markdownlint-cli2` override pins
+  `smol-toml` 1.8.0 because the CLI still requires vulnerable 1.7.0; remove the
+  override when the CLI requires a fixed parser.
 - Tests written with the standard `testing` package.
 
 This is a workspace of several modules. `go.work` is committed and a checkout
