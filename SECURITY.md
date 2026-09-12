@@ -1,4 +1,4 @@
-# Report a security vulnerability
+# Security policy
 
 Report vulnerabilities privately so a fix can be prepared before public details
 make users easier to attack. Do not include exploit details in a public issue.
@@ -16,7 +16,7 @@ the latest release train only:
 Upgrade every public Oolong module together before reporting a problem that may
 already be fixed.
 
-## Send a private report
+## Report a vulnerability
 
 Use [GitHub private vulnerability reporting](https://github.com/Tangerg/oolong/security/advisories/new).
 Include enough information to reproduce and bound the issue:

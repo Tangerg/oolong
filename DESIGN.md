@@ -1,8 +1,11 @@
-# oolong — what it is, where it came from, what is missing
+# oolong — what it is, where it came from, what is built
 
 This is the orientation document. [README](README.md) is the front door; this is the
 part that says why the library is shaped the way it is, what was taken from whom, what
-has actually been built, and what has not.
+has actually been built, and what it costs.
+
+What is still worth building, and what has been refused on purpose, live in
+[ROADMAP.md](./ROADMAP.md).
 
 ---
 
@@ -464,47 +467,15 @@ runtime or input model.
 
 ---
 
-## 4. Deliberately not here
+## 4. What is refused, and what is left
 
-Not "later" — these are decisions:
-
-- **Application grammar.** What a candidate is, where candidates come from, what
-  accepting one means, what a slash command is, what `@` refers to. A library that knew
-  would be a framework for one program.
-- **A retry layer, a logger, an observability abstraction.** A library that owns none of
-  these is one that fits into a program that already has them.
-- **Colour degradation and terminfo.** A colour is the terminal's default or a
-  truecolor value, and optional behaviours are asked for rather than detected — a
-  terminal that does not implement a request ignores it. See the limits below: this is a
-  decision with a known cost, not a free one.
-- **A widget for everything.** `kit` holds the ones a streaming interface actually
-  needs, and `headless` the behaviour worth sharing underneath them. A library whose
-  widget count is its selling point ends up with fifty widgets and no layering.
+Both are stated once, in [ROADMAP.md](./ROADMAP.md): the decisions this library will not revisit, and the two
+or three things still worth building. They are kept there so a reader asking "should I add this?" has one
+place to look.
 
 ---
 
-## 5. What is missing
-
-Ordered by what would be built next.
-
-1. **Sixel, and mermaid.** Sixel is reported and not written, because producing it
-   means decoding an image into pixels and a decoder is the dependency
-   `core/graphics` exists without — a caller holding an encoder of its own is told
-   the terminal will take what it makes. Mermaid is a renderer for a diagram
-   language, which is somebody else's parser again and belongs wherever it lands.
-2. **A trackpad scrolling differently from a wheel.** A mouse report now carries
-   when it arrived, so the two can be told apart by rate — what is missing is not
-   the mechanism but the number. How far a trackpad report should scroll relative
-   to a wheel report is a feel decision, the prior art's table points the opposite
-   way from the reasoning here, and inventing one without evidence would be worse
-   than the current behaviour, which is at least proportional and consistent.
-
-Not in the list because they are not the library's: syntax-aware editing, a shell,
-process management.
-
----
-
-## 6. Known limits
+## 5. Known limits
 
 Stated because a limit nobody wrote down is a bug report waiting to happen.
 
@@ -594,7 +565,7 @@ Stated because a limit nobody wrote down is a bug report waiting to happen.
 
 ---
 
-## 7. Provenance and licence
+## 6. Provenance and licence
 
 Apache-2.0. The derived parts and their upstream are named in [NOTICE](NOTICE), which
 is an obligation and not a courtesy.
