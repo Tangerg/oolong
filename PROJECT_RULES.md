@@ -13,3 +13,6 @@ for this repository, and each one resolves a question `AGENTS.md` deliberately l
   code in this repository does or does not call them.
 - **Use explicit `Config` structs** for related construction settings, and give optional fields useful zero
   meanings. Do not introduce functional-options APIs.
+- **The import graph owns the layering, and inventories are derived.** `internal/arch` reads Go's package
+  facts directly rather than consulting a maintained list, and `scripts/modules.sh` is the executable module
+  inventory. Never add a second hand-maintained count, catalog, or exclusion list beside a derived one.
