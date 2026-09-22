@@ -29,7 +29,8 @@ point of tagging them low rather than not at all.
 - Mermaid selects the official CLI's headless shell for both browser resolution
   and launch arguments, reports failed resource URLs, and preserves browser spawn
   errors. Backend tests share a readiness deadline with their render context and
-  cancel and join calls before cleaning fixture files.
+  cancel and join calls before cleaning fixture files. Windows Job tests receive
+  child PIDs through standard output instead of racing with file publication.
 - Upgrade `x/image` to v0.45.0 and `x/crypto` to v0.56.0 for the reported image and
   SSH fixes; their required Go versions remain below the repository's Go 1.27 floor.
 

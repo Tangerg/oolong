@@ -3,12 +3,13 @@
 package mermaid
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,11 +36,7 @@ func TestJobTreeProcess(_ *testing.T) {
 	if err := child.Start(); err != nil {
 		os.Exit(3)
 	}
-	ready := os.Args[index+2]
-	if err := os.WriteFile(ready+".tmp", []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil { //nolint:gosec // G703: the test parent supplies its own temporary readiness path.
-		os.Exit(4)
-	}
-	if err := os.Rename(ready+".tmp", ready); err != nil { //nolint:gosec // G703: both readiness paths are owned by the test parent.
+	if _, err := fmt.Fprintln(os.Stdout, child.Process.Pid); err != nil {
 		os.Exit(4)
 	}
 	if os.Args[index+1] == "exit" {
@@ -58,41 +55,38 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			ready := filepath.Join(t.TempDir(), "child.pid")
-			command := exec.CommandContext(ctx, executable, "-test.run=^TestJobTreeProcess$", "--", "--job-tree", mode, ready) //nolint:gosec // G204: the test executable and fixed arguments are parent-owned.
+			command := exec.CommandContext(ctx, executable, "-test.run=^TestJobTreeProcess$", "--", "--job-tree", mode) //nolint:gosec // G204: the test executable and fixed arguments are parent-owned.
 			command.Dir = t.TempDir()
 			command.Stdin = strings.NewReader("")
-			command.Stdout = new(bytes.Buffer)
+			output, writer := io.Pipe()
+			command.Stdout = writer
+			ready := make(chan struct{})
+			var pidText string
+			var readErr error
+			go func() {
+				pidText, readErr = bufio.NewReader(output).ReadString('\n')
+				_ = output.Close()
+				close(ready)
+			}()
 			done := make(chan struct{})
 			var runErr error
-			go func() { runErr = run(ctx, command); close(done) }()
-			t.Cleanup(func() { cancel(); <-done })
-			var pid uint64
-			for pid == 0 {
-				data, readErr := os.ReadFile(ready) //nolint:gosec // G304: readiness file is owned by this test.
-				if readErr == nil {
-					pid, err = strconv.ParseUint(string(data), 10, 32)
-					if err != nil {
-						t.Fatal(err)
-					}
-					break
+			go func() {
+				runErr = run(ctx, command)
+				_ = writer.CloseWithError(runErr)
+				close(done)
+			}()
+			t.Cleanup(func() { cancel(); <-done; <-ready })
+			select {
+			case <-ready:
+				if readErr != nil {
+					t.Fatalf("process ended before readiness: %v", readErr)
 				}
-				if !errors.Is(readErr, os.ErrNotExist) {
-					t.Fatal(readErr)
-				}
-				select {
-				case <-done:
-					if runErr != nil {
-						t.Fatalf("process ended before readiness: %v", runErr)
-					}
-					// Normal parent exit can win the poll after publishing its PID.
-					if _, readyErr := os.Stat(ready); readyErr != nil {
-						t.Fatalf("process exited without readiness: %v", readyErr)
-					}
-				case <-ctx.Done():
-					t.Fatal(context.Cause(ctx))
-				case <-time.After(time.Millisecond):
-				}
+			case <-ctx.Done():
+				t.Fatal(context.Cause(ctx))
+			}
+			pid, err := strconv.ParseUint(strings.TrimSpace(pidText), 10, 32)
+			if err != nil || pid == 0 {
+				t.Fatalf("invalid child PID %q: %v", pidText, err)
 			}
 			handle, openErr := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 			if openErr != nil && mode != "exit" {
