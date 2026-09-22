@@ -1,5 +1,5 @@
-github.com/Tangerg/oolong/core v0.18.1 h1:zBAycK7XVx+0h4HTEiZSKKdkWHPbHihT+wmz+nKiu5U=
-github.com/Tangerg/oolong/core v0.18.1/go.mod h1:6uqwbr0GETMhMq+ECVDBxF/86Hvb83JRBGlvZVb674I=
+github.com/Tangerg/oolong/core v0.18.2 h1:8i9sw6arEIVfPsTB+3LNrfu7gghVXyzOjAkXDRCbvQc=
+github.com/Tangerg/oolong/core v0.18.2/go.mod h1:6uqwbr0GETMhMq+ECVDBxF/86Hvb83JRBGlvZVb674I=
 github.com/clipperhouse/uax29/v2 v2.2.0 h1:ChwIKnQN3kcZteTXMgb1wztSgaU+ZemkgWdohwgs8tY=
 github.com/clipperhouse/uax29/v2 v2.2.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/mattn/go-runewidth v0.0.27 h1:Feg/Oou5zI/wnpgDF6omIU0OokC9GxLC/WRknhVlIR0=
