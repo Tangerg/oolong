@@ -470,7 +470,11 @@ commit it names."
 		pushed+=("$module/$version")
 	done
 	if [[ ${#pushed[@]} -gt 0 ]]; then
-		git push --quiet origin "${pushed[@]}"
+		# GitHub creates no tag push events when more than three tags arrive at
+		# once. Prepare the whole phase first, then give each tag its own event.
+		for tag in "${pushed[@]}"; do
+			git push --quiet origin "$tag"
+		done
 		note "tagged ${pushed[*]}"
 	fi
 done

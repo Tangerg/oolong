@@ -87,8 +87,12 @@ scripts/release.sh X.Y.Z --execute
 
 The script asks for the version again when attached to a terminal. It then updates
 downstream requirements phase by phase, tests each published dependency graph,
-commits and pushes dependency bumps, runs compatibility at the last safe point, and
-pushes annotated module tags.
+commits and pushes dependency bumps, runs compatibility at the last safe point,
+prepares all annotated module tags in that phase, and pushes each tag separately.
+[GitHub does not create tag push events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)
+when more than three tags are pushed at once;
+individual pushes let every module trigger its release contract check. A failed
+push stops the release before later tags or dependency phases are published.
 
 Do not interrupt the process after the first tag is pushed. A tag recorded by the Go
 proxy or checksum database is immutable, even if it is later deleted from GitHub.
@@ -106,6 +110,13 @@ GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod \
 Check one downstream module as well, then create GitHub release notes from the same
 changelog section. Do not publish a second set of release notes with different
 behavioral claims.
+
+Confirm that every module tag has a successful CI run, including its public API
+release contract. A tag's existence alone does not establish that its checks ran.
+If a tag has no run, use the existing `ci` workflow's manual dispatch with that
+actual tag as the ref and its module and version as inputs. For a failed run whose
+external blocker has cleared, rerun its failed jobs. Keep the original tag unchanged;
+running on `main` can select a different API comparison baseline.
 
 ## Recover from a partial release
 

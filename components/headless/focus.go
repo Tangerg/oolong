@@ -22,6 +22,8 @@ func (s *focusState) change(has bool, settle func(), holder *Widget) {
 	s.blurred = blurred
 	settle()
 	if wasSettled {
-		tell(*holder, has)
+		// Settlement can accept a nested Focus call. Both the holder and its
+		// focus must come from the current owner, never the superseded request.
+		tell(*holder, !s.blurred)
 	}
 }

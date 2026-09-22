@@ -90,7 +90,7 @@ independent dependency set.
 | `components` | Imports nothing outside `core` and the standard library |
 | `markdown`, `highlight`, `latex` | Parser, lexers and palettes, and mathematical parsing with terminal layout. Peers that may not import one another |
 | `mermaid` | Owns CLI/browser preparation, process lifetime and validated PNG output; Windows system calls stay in its process adapter |
-| `ptytest` | Depends on neither, and nothing depends on it |
+| `ptytest` | Test harness above the product graph; reuses core's terminal-neutral ANSI and text primitives. Product production packages must not depend on it |
 
 Anything wanting a heavy dependency — markdown, syntax highlighting, mathematics — becomes a module of its
 own, so that neither `core` nor `components` hears about it. Consumer-owned core content and drawable contracts are how

@@ -18,6 +18,18 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-09-22
+
+### Fixed
+
+- Compound focus notifications read the current owner's state after synchronous
+  callbacks, so closing a modal cannot overwrite restored editor focus and hide
+  its cursor. The same rule covers controlled tab selection.
+- Coordinated releases push prepared module tags individually so every tag can
+  trigger GitHub CI, including dependency phases with more than three modules.
+- Correct the contribution guide's `ptytest` boundary: the test harness may reuse
+  core's terminal-neutral primitives; product production packages cannot depend on it.
+
 ## [0.18.0] — 2026-09-22
 
 ### Changed

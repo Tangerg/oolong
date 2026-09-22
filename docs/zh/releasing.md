@@ -63,7 +63,9 @@ Dry run 会执行本地关卡、检查第一阶段 API 兼容性、推导依赖�
 scripts/release.sh X.Y.Z --execute
 ```
 
-连接终端时，脚本会再次要求输入版本。随后它会分阶段更新下游依赖、测试每个已发布依赖图、提交并推送依赖升级、在最后一个安全点运行兼容性检查，并推送带注释的模块 tag。
+连接终端时，脚本会再次要求输入版本。随后它会分阶段更新下游依赖、测试每个已发布依赖图、提交并推送依赖升级、在最后一个安全点运行兼容性检查，准备好该阶段所有带注释的模块 tag 后，再逐个推送。
+[GitHub 不会为一次推送超过三个 tag 创建 tag push 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)；逐个推送能让每个模块触发发布合同检查。
+任何一次推送失败都会停止发布，后续 tag 和依赖阶段不会继续发布。
 
 第一个 tag 推送后不要中断流程。Go proxy 或 checksum database 记录的 tag 是不可变的，即使稍后从 GitHub 删除也不会改变。
 
@@ -77,6 +79,11 @@ GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod \
 ```
 
 再检查一个下游模块，然后根据同一个 changelog 章节创建 GitHub release notes。不要发布另一套包含不同能力主张的说明。
+
+确认每个模块 tag 都有成功的 CI 运行，包括其公开 API 发布合同检查。tag 存在本身不能证明检查已执行。
+如果某个 tag 没有运行记录，使用现有 `ci` 工作流的手动触发功能，把该实际 tag 作为 ref，
+并填写它的模块名与版本。若失败运行的外部阻塞已经解除，重跑其中失败的作业。
+保持原 tag 不变；在 `main` 上运行可能选择不同的 API 比较基线。
 
 ## 从部分发布中恢复
 
