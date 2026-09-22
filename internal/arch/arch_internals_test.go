@@ -567,19 +567,20 @@ func TestModuleInventoryConsumersSeparateAcquisitionFromIteration(t *testing.T) 
 	root := repoRoot(t)
 	paths := []string{
 		filepath.Join(root, "CONTRIBUTING.md"),
-		filepath.Join(root, ".github", "workflows", "ci.yml"),
 	}
-	err := filepath.WalkDir(filepath.Join(root, "scripts"), func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	for _, directory := range []string{"scripts", ".github/workflows"} {
+		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if !entry.IsDir() {
+				paths = append(paths, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !entry.IsDir() {
-			paths = append(paths, path)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	invocation := regexp.MustCompile(`(?:\$|[<>])\([^\n)]*modules\.sh`)
@@ -595,7 +596,7 @@ func TestModuleInventoryConsumersSeparateAcquisitionFromIteration(t *testing.T) 
 				t.Errorf("%s:%d consumes the module inventory inline; acquire it in a checked assignment before interpreting its data", filepath.ToSlash(path), number+1)
 			}
 		}
-		if filepath.Base(path) == "ci.yml" {
+		if strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".yaml") {
 			assertInventoryAcquisitionsFailFast(t, path, text, "run: |", "set -euo pipefail", "outside a fail-fast run block")
 		}
 		if filepath.Base(path) == "CONTRIBUTING.md" {

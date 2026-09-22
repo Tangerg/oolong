@@ -111,10 +111,16 @@ Check one downstream module as well, then create GitHub release notes from the s
 changelog section. Do not publish a second set of release notes with different
 behavioral claims.
 
-Confirm that every module tag has a successful CI run, including its public API
-release contract. A tag's existence alone does not establish that its checks ran.
-If a tag has no run, use the existing `ci` workflow's manual dispatch with that
-actual tag as the ref and its module and version as inputs. For a failed run whose
+Full workspace CI runs on branches and pull requests. Module tags trigger the
+separate `release contract` workflow, which validates the tagged module against
+its published dependencies. A phase's snapshot can still contain unfinished higher
+modules, so workspace checks belong to the branch and must pass again on the final
+dependency-bump commit.
+
+Confirm that every module tag has a successful release contract run. A tag's
+existence alone does not establish that its checks ran. If a tag has no run, use
+`release-contract.yml` with that actual tag as the ref and its module and version
+as inputs. For a failed run whose
 external blocker has cleared, rerun its failed jobs. Keep the original tag unchanged;
 running on `main` can select a different API comparison baseline.
 

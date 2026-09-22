@@ -172,6 +172,10 @@ scripts/release.sh X.Y.Z
 scripts/release.sh X.Y.Z --execute
 ```
 
+Branch CI validates the complete workspace before publishing and after the final dependency phase.
+The separate `release contract` workflow validates each module tag against its published dependencies;
+unfinished higher phases in that tag's snapshot are not part of its module contract.
+
 No release tag may contain a `replace` directive. Do not create module tags or edit Oolong dependency versions
 by hand; that would introduce a second release path whose ordering and failure semantics are not guarded.
 

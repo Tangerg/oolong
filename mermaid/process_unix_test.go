@@ -5,7 +5,6 @@ package mermaid_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,8 +21,8 @@ func TestUnresponsiveRendererCannotLeaveTheBrowserRunning(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), cfg.Timeout)
 	defer cancel()
-	ready := filepath.Join(t.TempDir(), "browser.pid")
-	call := startRender(ctx, t, renderer, "spin:"+ready)
+	endpoint, ready := readinessServer(t)
+	call := startRender(ctx, t, renderer, "spin:"+endpoint)
 	data, err := waitReady(ctx, ready, call)
 	if err != nil {
 		t.Fatal(err)

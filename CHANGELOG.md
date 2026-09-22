@@ -18,6 +18,18 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.18.2] — 2026-09-22
+
+### Fixed
+
+- Deliver Mermaid backend fixture readiness over loopback HTTP instead of reading
+  a file during a Windows rename. Cancellation, deadlines, backend failures and
+  process cleanup retain their existing assertions.
+- Separate module-tag release contracts from full workspace CI. A tag validates
+  its own published dependency graph; branch CI still checks every module, including
+  examples after the final dependency phase. Unfinished higher phases no longer
+  make a valid module tag fail unrelated workspace checks.
+
 ## [0.18.1] — 2026-09-22
 
 ### Fixed

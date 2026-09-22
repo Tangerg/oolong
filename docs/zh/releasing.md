@@ -80,8 +80,12 @@ GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod \
 
 再检查一个下游模块，然后根据同一个 changelog 章节创建 GitHub release notes。不要发布另一套包含不同能力主张的说明。
 
-确认每个模块 tag 都有成功的 CI 运行，包括其公开 API 发布合同检查。tag 存在本身不能证明检查已执行。
-如果某个 tag 没有运行记录，使用现有 `ci` 工作流的手动触发功能，把该实际 tag 作为 ref，
+分支与拉取请求运行完整工作区 CI。模块 tag 触发独立的 `release contract` 工作流，
+检查该模块及其已发布依赖。某阶段的快照可能仍包含尚未完成发布的上层模块，
+因此工作区检查属于分支，并且必须在最终依赖升级 commit 上再次通过。
+
+确认每个模块 tag 都有成功的发布合同运行。tag 存在本身不能证明检查已执行。
+如果某个 tag 没有运行记录，手动触发 `release-contract.yml`，把该实际 tag 作为 ref，
 并填写它的模块名与版本。若失败运行的外部阻塞已经解除，重跑其中失败的作业。
 保持原 tag 不变；在 `main` 上运行可能选择不同的 API 比较基线。
 

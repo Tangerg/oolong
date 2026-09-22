@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,14 +50,17 @@ func backendConfig(t *testing.T, startupDelay time.Duration) mermaid.Config {
 	}
 	write("node_modules/@mermaid-js/mermaid-cli/package.json", `{"name":"@mermaid-js/mermaid-cli","type":"module","exports":"./index.js","bin":{"mmdc":"cli.js"}}`)
 	write("node_modules/@mermaid-js/mermaid-cli/cli.js", "// entry locator")
-	write("node_modules/@mermaid-js/mermaid-cli/index.js", fmt.Sprintf(`import {writeFile, rename} from 'node:fs/promises';
- import {appendFileSync} from 'node:fs';
+	write("node_modules/@mermaid-js/mermaid-cli/index.js", fmt.Sprintf(`import {appendFileSync} from 'node:fs';
  const stages = %q;
  const stage = name => appendFileSync(stages, JSON.stringify({pid:process.pid,stage:name,time:Date.now()})+'\n');
  globalThis.backendStage = stage;
  stage('module loaded');
  await new Promise(resolve=>setTimeout(resolve,%d));
- const ready = async (path, value) => {await writeFile(path+'.tmp',value); await rename(path+'.tmp',path); stage('ready');};
+ const ready = async (url, value) => {
+   const response = await fetch(url+'?ready='+encodeURIComponent(value));
+   if (!response.ok) throw Error('readiness delivery failed');
+   stage('ready');
+ };
  process.on('exit',()=>stage('launcher exit'));
  export async function renderMermaid(browser,source) {
  stage('render entered');
@@ -147,7 +152,7 @@ func TestRenderTimeoutIncludesBackendStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := timed.Render(t.Context(), "wait:"+filepath.Join(t.TempDir(), "ready")); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := timed.Render(t.Context(), "png"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
 }
@@ -179,31 +184,26 @@ func startRender(ctx context.Context, t *testing.T, renderer *mermaid.Renderer, 
 	return call
 }
 
-func waitReady(ctx context.Context, path string, call *renderCall) ([]byte, error) {
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-call.done:
-			return nil, errors.Join(errors.New("backend ended before readiness"), call.err)
-		case <-ctx.Done():
-			return nil, context.Cause(ctx)
-		default:
-		}
-		data, err := os.ReadFile(path) //nolint:gosec // G304: readiness is published atomically in the fixture directory.
-		if err == nil {
-			return data, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		select {
-		case <-call.done:
-			return nil, errors.Join(errors.New("backend ended before readiness"), call.err)
-		case <-ctx.Done():
-			return nil, context.Cause(ctx)
-		case <-ticker.C:
-		}
+// A loopback request publishes readiness without opening a file that another
+// process may still hold during a Windows rename. Render remains the result owner.
+func readinessServer(t *testing.T) (string, <-chan []byte) {
+	t.Helper()
+	ready := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		ready <- []byte(request.URL.Query().Get("ready"))
+	}))
+	t.Cleanup(server.Close)
+	return server.URL, ready
+}
+
+func waitReady(ctx context.Context, ready <-chan []byte, call *renderCall) ([]byte, error) {
+	select {
+	case <-call.done:
+		return nil, errors.Join(errors.New("backend ended before readiness"), call.err)
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	case data := <-ready:
+		return data, nil
 	}
 }
 
@@ -217,8 +217,8 @@ func TestQueuedCancellationAndSlotReuseThroughPublicRender(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), cfg.Timeout)
 			defer cancel()
-			ready := filepath.Join(t.TempDir(), "ready")
-			call := startRender(ctx, t, renderer, "wait:"+ready)
+			endpoint, ready := readinessServer(t)
+			call := startRender(ctx, t, renderer, "wait:"+endpoint)
 			if data, err := waitReady(ctx, ready, call); err != nil || string(data) != "ready" {
 				t.Fatalf("readiness=%q error=%v", data, err)
 			}
@@ -249,8 +249,8 @@ func TestReadinessReportsBackendFailureAndCancellation(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), cfg.Timeout)
 			defer cancel()
-			ready := filepath.Join(t.TempDir(), "ready")
-			source := "wait:" + ready
+			endpoint, ready := readinessServer(t)
+			source := "wait:" + endpoint
 			if mode == "fail" {
 				source = "fail"
 			}
@@ -274,7 +274,7 @@ func TestReadinessReportsBackendFailureAndCancellation(t *testing.T) {
 				stop()
 			}
 			defer stop()
-			if _, err := waitReady(waiting, ready+".absent", call); !errors.Is(err, want) {
+			if _, err := waitReady(waiting, nil, call); !errors.Is(err, want) {
 				t.Fatalf("readiness: %v", err)
 			}
 			// Cleanup cancels and joins the still-running render before its files disappear.
