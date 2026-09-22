@@ -6,13 +6,17 @@ package term
 // the same properties end to end against a real terminal.
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"math"
 	"os"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/Tangerg/oolong/core/graphics"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -419,4 +423,57 @@ func FuzzParseXParseColorNeverPanicsAndStaysInRange(f *testing.F) {
 			t.Fatalf("accepted %q as the colour %+v", spec, got)
 		}
 	})
+}
+
+func TestPumpExpiryPreservesSlowUTF8(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d := newDriver(time.Millisecond)
+		defer func() { close(d.stop); <-d.done }()
+		d.raw <- []byte{0xe4}
+		time.Sleep(2 * time.Millisecond)
+		d.raw <- []byte{0xb8, 0xad}
+		event := d.next(t)
+		if key, ok := event.(input.Key); !ok || key.Rune != '中' {
+			t.Fatalf("slow UTF-8: %#v", event)
+		}
+	})
+}
+
+func TestPumpArmsTransferredEscape(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		parser := &input.Parser{}
+		parser.Feed([]byte{27})
+		stop := make(chan struct{})
+		out := make(chan input.Event, 1)
+		done := make(chan struct{})
+		p := &pump{parser: parser, stop: stop, out: out, grace: time.Millisecond}
+		go func() { defer close(done); _ = p.run() }()
+		defer func() { close(stop); <-done }()
+		time.Sleep(2 * time.Millisecond)
+		select {
+		case event := <-out:
+			if key, ok := event.(input.Key); !ok || key.Code != input.Esc {
+				t.Fatalf("event: %#v", event)
+			}
+		default:
+			t.Fatal("transferred Escape never expired")
+		}
+	})
+}
+
+func TestTerminalImageReleaseUsesTheOrderedFrameWriter(t *testing.T) {
+	var out bytes.Buffer
+	writer := NewWriter(&out)
+	defer func() { _ = writer.Close() }()
+	terminal := Terminal{writer: writer}
+	writer.Queue([]byte("prior-frame"))
+	if err := terminal.ReleaseImage(graphics.Image{ID: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out.String(), "prior-frame\x1b_Ga=d,d=I,i=9") {
+		t.Fatalf("release order: %q", out.String())
+	}
 }

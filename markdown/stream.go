@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/yuin/goldmark/ast"
 )
 
 // Stream renders markdown that is still arriving.
@@ -21,10 +23,14 @@ import (
 // by construction and is re-rendered as often as anybody likes.
 //
 //	for chunk := range answer {
-//	    doc.Append(stream.Feed(chunk)...)
-//	    live = stream.Open()
+//	    blocks, feedErr := stream.Feed(chunk)
+//	    doc.Append(blocks...)
+//	    live, openErr = stream.Open()
+//	    report(errors.Join(feedErr, openErr))
 //	}
-//	doc.Append(stream.Flush()...)
+//	blocks, err := stream.Flush()
+//	doc.Append(blocks...)
+//	report(err)
 //
 // # Where it cuts
 //
@@ -72,8 +78,9 @@ type Stream struct {
 
 	// open is the last rendering of what is still arriving, kept so that asking for it
 	// twice in one frame — to measure and to draw — parses once.
-	open  []Block
-	fresh bool
+	open    []Block
+	openErr error
+	fresh   bool
 }
 
 // noCopy makes the stream's single-owner contract visible to go vet. Its methods
@@ -91,6 +98,7 @@ func (s *Stream) SetLook(look Look) {
 	s.look = cloneLook(look)
 	clear(s.open)
 	s.open = nil
+	s.openErr = nil
 	s.fresh = false
 }
 
@@ -118,21 +126,22 @@ func cloneLook(look Look) Look {
 // deliberately not Write — this is not an io.Writer,
 // and something wired to a command's output is written to from a goroutine that may
 // not touch what is on screen.
-func (s *Stream) Feed(chunk string) []Block {
+func (s *Stream) Feed(chunk string) ([]Block, error) {
 	if chunk == "" {
-		return nil
+		return nil, nil
 	}
 	_, _ = s.held.WriteString(chunk)
 	clear(s.open)
 	s.open = nil
+	s.openErr = nil
 	s.fresh = false
 
 	cut := s.scan()
-	if cut <= 0 {
-		return nil
+	if cut <= 0 || s.insideHTML(cut) {
+		return nil, nil
 	}
 	source := s.held.String()
-	done := Render(source[:cut], s.look)
+	done, err := Render(source[:cut], s.look)
 	// A substring shares the complete builder allocation. Copy the short tail into a
 	// fresh builder at the ownership cut so it cannot retain the published prefix.
 	// Reset releases the old buffer; tail keeps it alive only until WriteString has
@@ -148,7 +157,7 @@ func (s *Stream) Feed(chunk string) []Block {
 	} else {
 		s.blank = 0
 	}
-	return done
+	return done, err
 }
 
 // Open is what is still being written, rendered.
@@ -158,7 +167,7 @@ func (s *Stream) Feed(chunk string) []Block {
 // closing fence yet is a block of code. That is what a reader sees while an answer
 // is written. A trailing incomplete UTF-8 rune waits for the next Feed; Flush
 // settles it as replacement text if the source ends there.
-func (s *Stream) Open() []Block {
+func (s *Stream) Open() ([]Block, error) {
 	if !s.fresh {
 		source := s.held.String()
 		if len(source) > 0 {
@@ -170,16 +179,17 @@ func (s *Stream) Open() []Block {
 				source = source[:start]
 			}
 		}
-		s.open, s.fresh = Render(source, s.look), true
+		s.open, s.openErr = Render(source, s.look)
+		s.fresh = true
 	}
-	return slices.Clone(s.open)
+	return slices.Clone(s.open), s.openErr
 }
 
 // Flush publishes whatever is left, which is what the end of an answer is.
-func (s *Stream) Flush() []Block {
-	done := Render(s.held.String(), s.look)
+func (s *Stream) Flush() ([]Block, error) {
+	done, err := Render(s.held.String(), s.look)
 	s.Reset()
-	return done
+	return done, err
 }
 
 // Reset forgets everything, for a stream about to be given a different answer.
@@ -188,6 +198,7 @@ func (s *Stream) Reset() {
 	s.scanned, s.searched, s.blank = 0, 0, 0
 	s.fenced, s.fence = false, ""
 	s.open, s.fresh = nil, false
+	s.openErr = nil
 }
 
 // scan reads the complete lines that have arrived since the last call and returns
@@ -208,7 +219,7 @@ func (s *Stream) scan() int {
 			return cut
 		}
 		end := s.searched + nl
-		line := source[s.scanned:end]
+		line := strings.TrimSuffix(source[s.scanned:end], "\r")
 		s.scanned = end + 1
 		s.searched = s.scanned
 		trimmed := strings.TrimRight(line, " \t")
@@ -219,7 +230,7 @@ func (s *Stream) scan() int {
 				s.fenced, s.fence = false, ""
 			}
 		case fenceOf(trimmed) != "":
-			s.fenced, s.fence = true, fenceOf(trimmed)
+			s.fenced, s.fence = true, strings.Clone(fenceOf(trimmed))
 			s.blank = 0
 		case trimmed == "":
 			// A cut, if what follows says so. The whole run of blank lines goes with
@@ -282,4 +293,28 @@ func closes(line, fence string) bool {
 // and a block of code by indent carry on across a blank line.
 func indented(line string) bool {
 	return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+}
+
+// The Markdown parser owns raw-block boundaries, including all seven HTML forms.
+// A lexical blank line is not evidence that such a block has ended.
+func (s *Stream) insideHTML(cut int) bool {
+	source := []byte(s.held.String())
+	inside := false
+	_ = ast.Walk(parse(source), func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		block, ok := node.(*ast.HTMLBlock)
+		if !ok || block.Lines().Len() == 0 {
+			return ast.WalkContinue, nil
+		}
+		first := block.Lines().At(0)
+		last := block.Lines().At(block.Lines().Len() - 1)
+		if first.Start < cut && last.Stop > cut {
+			inside = true
+			return ast.WalkStop, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return inside
 }

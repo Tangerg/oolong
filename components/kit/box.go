@@ -167,7 +167,7 @@ func (b Box) label(v grid.View, y, w int, label string, style grid.Style, align 
 		return
 	}
 	room := w - 4
-	label = text.Truncate(label, room, "…")
+	label = text.Truncate(label, room, b.Glyphs.Ellipsis)
 	width := text.Width(label)
 	x := 2 + align.Offset(room, width)
 	v.Text(x, y, label, style)

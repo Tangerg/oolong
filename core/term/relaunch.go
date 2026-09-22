@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -82,7 +83,15 @@ func lastWins(env []string) []string {
 	at := make(map[string]int, len(env))
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
-		name, _, found := strings.Cut(entry, "=")
+		start := 0
+		if strings.HasPrefix(entry, "=") {
+			start = 1
+		}
+		suffix, _, found := strings.Cut(entry[start:], "=")
+		name := entry[:start] + suffix
+		if runtime.GOOS == "windows" {
+			name = strings.ToUpper(name)
+		}
 		if !found {
 			// Not a setting. Passed through rather than dropped: it is not this
 			// function's place to decide what a caller's environment may contain.

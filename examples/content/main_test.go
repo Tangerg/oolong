@@ -20,9 +20,15 @@ func TestThePeerRenderersComposeAndQuit(t *testing.T) {
 	}()
 
 	host.Shows(t, "Three peers, one document")
-	host.Shows(t, "SetRenderer")
+	host.Shows(t, "explicitly bind")
 	host.Shows(t, "√")
-	host.Shows(t, "styled text")
+	host.Shows(t, "drawable contract")
+	host.Type("2")
+	host.Shows(t, "println")
+	host.Type("3")
+	host.Shows(t, "√")
+	host.Type("1")
+	host.Shows(t, "Three peers, one document")
 
 	host.Type("q")
 	if err := <-done; err != nil {

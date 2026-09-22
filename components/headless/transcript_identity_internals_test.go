@@ -33,3 +33,20 @@ func TestTranscriptIdentityExhaustionCannotReuseAnOldIdentity(t *testing.T) {
 	}()
 	transcript.Append(identityBlock{})
 }
+
+func TestTranscriptReleasesTheFullAllocationAfterPrefixCommits(t *testing.T) {
+	var transcript Transcript
+	stageTranscriptForTest(&transcript, 1)
+	for range 2000 {
+		transcript.Finish(transcript.Append(identityBlock{}))
+	}
+	oldLast := &transcript.blocks[len(transcript.blocks)-1]
+	remaining := 1900
+	transcript.Commit(func(Block, int) bool { remaining--; return remaining >= 0 })
+	if len(transcript.blocks) != 100 {
+		t.Fatalf("retained %d blocks", len(transcript.blocks))
+	}
+	if oldLast == &transcript.blocks[len(transcript.blocks)-1] {
+		t.Fatal("small suffix pinned the original allocation")
+	}
+}

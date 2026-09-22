@@ -347,3 +347,30 @@ func kindOf(label int) ElementKind {
 	}
 	return ElementKind(label)
 }
+
+// RetainedElementIDs returns identities reachable from the document or undo/redo
+// history. Applications may release associated payloads only after they disappear
+// from this set. The returned slice is owned by the caller.
+func (e *Editor) RetainedElementIDs() []uint64 {
+	ids := make(map[uint64]struct{})
+	for _, mark := range e.marks {
+		ids[mark.ID] = struct{}{}
+	}
+	for _, stack := range [][]editorState{e.history.undo, e.history.redo} {
+		for _, state := range stack {
+			for _, mark := range state.marks {
+				ids[mark.ID] = struct{}{}
+			}
+		}
+	}
+	out := make([]uint64, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// ForgetHistory ends the lifetime of edits no longer available to Undo or Redo.
+// Current document elements remain live.
+func (e *Editor) ForgetHistory() { e.endTyping(); e.history.clear() }

@@ -68,8 +68,9 @@ These examples prove that each content module works independently before composi
 | Example | Run | Controls | Focus |
 | --- | --- | --- | --- |
 | [`markdown`](https://github.com/Tangerg/oolong/tree/main/examples/markdown) | `go run ./examples/markdown` | `q` quits | Finished blocks, measurement, width-dependent layout |
+| [`mermaid`](https://github.com/Tangerg/oolong/tree/main/examples/mermaid) | `go run ./examples/mermaid` | `r` replaces, `q` quits | Worker diagram preparation, stale results, image upload and release |
 | [`latex`](https://github.com/Tangerg/oolong/tree/main/examples/latex) | `go run ./examples/latex` | `q` quits | Standalone formula, two-dimensional text layout |
-| [`content`](https://github.com/Tangerg/oolong/tree/main/examples/content) | `go run ./examples/content` | `q` quits | Markdown with Highlight and LaTeX peer renderers |
+| [`content`](https://github.com/Tangerg/oolong/tree/main/examples/content) | `go run ./examples/content` | `1`/`2`/`3` selects format; `q` quits | Shared registry for top-level content and Markdown extensions |
 
 Read [Render Markdown, code, and mathematics](content.md) to use the three natural entry points and their consumer-owned composition seam.
 

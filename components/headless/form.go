@@ -48,6 +48,8 @@ type Look struct {
 	// still on offer. They are drawn in the same column, so they are the same width or
 	// nothing beside them lines up.
 	Taken, Free string
+	// Ellipsis is the truncation marker. Empty clips without a marker.
+	Ellipsis string
 }
 
 // mark is the mark for a choice, and how many columns the pair of them takes. The pair
@@ -86,7 +88,7 @@ func (l Look) choice(v grid.View, label string, under, taken bool) {
 		v.Text(x, 0, mark, marked)
 		x = width
 	}
-	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), "…"), style)
+	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), l.Ellipsis), style)
 }
 
 // ThemedField optionally receives a Form look for one frame. Built-in and external
@@ -134,12 +136,12 @@ func (f *field) frame(v Frame, label string, look Look) Frame {
 	}
 	top, bottom := 0, 0
 	if label != "" {
-		v.Text(0, 0, text.Truncate(label, w, "…"), look.Label)
+		v.Text(0, 0, text.Truncate(label, w, look.Ellipsis), look.Label)
 		top = 1
 	}
 	if f.problem != nil && h > top {
 		bottom = 1
-		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, "…"), look.Danger)
+		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, look.Ellipsis), look.Danger)
 	}
 	inner := v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
 	innerW, innerH := inner.Size()
@@ -322,7 +324,11 @@ func (f *Form) Cancel() {
 // HeightForWidth is how tall the fields are altogether, which is what a form in a measured
 // slot asks for.
 func (f *Form) HeightForWidth(across int) int {
-	return f.body.measureWith(across, f.flow())
+	extra := 0
+	if f.problem != nil {
+		extra = 1
+	}
+	return layout.Sum(extra, f.body.measureWith(across, f.flow()))
 }
 
 // Draw dresses the fields with Look and lays them out down the region.
@@ -336,6 +342,13 @@ func (f *Form) Draw(v Frame) {
 // Neither the form nor its fields store look, so two appearances can project the same
 // controller without the last one silently becoming its configuration.
 func (f *Form) DrawWith(v Frame, look Look) {
+	if f.problem != nil {
+		w, h := v.Size()
+		if h > 0 {
+			v.Text(0, h-1, text.Truncate(f.problem.Error(), w, look.Ellipsis), look.Danger)
+			v = v.Sub(grid.Rect(0, 0, w, h-1))
+		}
+	}
 	f.body.drawWith(v, f.flow(), func(frame Frame, child Widget) {
 		if field, ok := child.(ThemedField); ok {
 			field.DrawWith(frame, look)
@@ -347,8 +360,7 @@ func (f *Form) DrawWith(v Frame, look Look) {
 
 // Handle gives the event to the field with the keyboard, then to the form itself.
 func (f *Form) Handle(ev input.Event) bool {
-	f.body.Keys = f.keys()
-	if f.body.Handle(ev) {
+	if f.body.handleChild(ev) {
 		return true
 	}
 	key, ok := ev.(input.Key)
@@ -367,7 +379,7 @@ func (f *Form) Do(action keymap.Action) bool {
 	case Cancel:
 		f.Cancel()
 	default:
-		return false
+		return f.body.Do(action)
 	}
 	return true
 }

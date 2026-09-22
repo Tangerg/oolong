@@ -1,7 +1,7 @@
 package term
 
 import (
-	"os"
+	"io"
 	"strings"
 	"time"
 
@@ -75,7 +75,7 @@ const (
 // that a sequence which straddles the handover still decodes as one.
 type probe struct {
 	raw    <-chan []byte
-	out    *os.File
+	out    io.StringWriter
 	parser *input.Parser
 
 	// early holds what was decoded during the probe and was not an answer.

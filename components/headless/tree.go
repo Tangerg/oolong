@@ -106,6 +106,7 @@ func (t *Tree[T]) SetNodes(nodes []Node[T]) {
 		return
 	}
 	t.replaceNodes(nodes)
+	t.matcher.Clear()
 	t.rebuild()
 }
 
@@ -344,10 +345,15 @@ func (t *Tree[T]) retainOpenBranches(branches map[uint64]struct{}) {
 // treeCopy owns one iterative transfer from caller-owned nodes into the tree. Its
 // active slice identities make a cycle an explicit state transition instead of an
 // accidental exhaustion of stack or heap.
+type treeSlice[T any] struct {
+	first  *Node[T]
+	length int
+}
+
 type treeCopy[T any] struct {
 	ids      identitySequence
 	branches map[uint64]struct{}
-	active   map[*Node[T]]struct{}
+	active   map[treeSlice[T]]struct{}
 	stack    []treeCopyFrame[T]
 }
 
@@ -356,7 +362,7 @@ type treeCopyFrame[T any] struct {
 	old    []treeNode[T]
 	target []treeNode[T]
 	at     int
-	key    *Node[T]
+	key    treeSlice[T]
 }
 
 func copyTree[T any](
@@ -366,11 +372,11 @@ func copyTree[T any](
 	branchCapacity int,
 ) ([]treeNode[T], identitySequence, map[uint64]struct{}) {
 	target := make([]treeNode[T], len(source))
-	rootKey := &source[0]
+	rootKey := treeSlice[T]{&source[0], len(source)}
 	copying := treeCopy[T]{
 		ids:      ids,
 		branches: make(map[uint64]struct{}, branchCapacity),
-		active:   map[*Node[T]]struct{}{rootKey: {}},
+		active:   map[treeSlice[T]]struct{}{rootKey: {}},
 		stack: []treeCopyFrame[T]{
 			{source: source, old: old, target: target, key: rootKey},
 		},
@@ -401,7 +407,7 @@ func (c *treeCopy[T]) copyNext(current *treeCopyFrame[T]) {
 		return
 	}
 	c.branches[id] = struct{}{}
-	key := &source.Children[0]
+	key := treeSlice[T]{&source.Children[0], len(source.Children)}
 	if _, cyclic := c.active[key]; cyclic {
 		panic("headless: cyclic tree node collection")
 	}

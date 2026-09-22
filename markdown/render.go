@@ -1,6 +1,9 @@
 package markdown
 
 import (
+	"errors"
+	"html"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,20 +44,21 @@ var parser = sync.OnceValue(func() gparser.Parser {
 })
 
 // Render turns a whole markdown document into blocks.
-// Invalid UTF-8 runs become replacement text before parsing.
+// Invalid UTF-8 runs become replacement text before parsing. Extension failures
+// return readable blocks alongside errors; callers must observe both results.
 //
 // It is the form for text that has finished arriving. Anything still being written
 // wants a [Stream], which is this applied to the part that is certainly finished and
 // again to the part that is not.
-func Render(source string, look Look) []Block {
+func Render(source string, look Look) ([]Block, error) {
 	if source == "" {
-		return nil
+		return nil, nil
 	}
 	look = cloneLook(look)
 	r := &renderer{look: look, source: []byte(strings.ToValidUTF8(source, "�"))}
 	root := parse(r.source)
 	r.render(root, frame{body: look.Text})
-	return r.blocks
+	return r.blocks, errors.Join(r.errors...)
 }
 
 // frame is where a block sits: how far in its text starts, what is drawn beside it,
@@ -104,6 +108,7 @@ type renderer struct {
 	look   Look
 	source []byte
 	blocks []Block
+	errors []error
 	// marker waits for the next block pushed, which is how a list item's bullet
 	// reaches the first line of whatever the item begins with — a paragraph, a nested
 	// list, a block of code.
@@ -311,23 +316,43 @@ func (r *renderer) math(n ast.Node, in frame) {
 }
 
 func (r *renderer) extension(kind Extension, info, source string, in frame) {
-	var lines []text.Line
-	handled := false
+	var child grid.Drawable
+	var err error
 	if render := r.look.renderer(kind); render != nil {
-		if rendered := render(info, source); rendered != nil {
-			lines = text.CloneLines(rendered)
-			handled = true
+		child, err = render(info, source)
+		if err == ErrUnhandled { //nolint:errorlint // Only an explicit decline suppresses diagnostics; joined failures remain observable.
+			child, err = nil, nil
+		} else if nilDrawable(child) {
+			child = nil
+			if err == nil {
+				err = errors.New("renderer returned nil content without an error")
+			}
 		}
 	}
-	if !handled {
+	if err != nil {
+		r.errors = append(r.errors, &ExtensionError{Block: len(r.blocks), Extension: kind, Info: info, Err: err})
+	}
+	if child == nil {
+		var lines []text.Line
 		for line := range strings.SplitSeq(source, "\n") {
 			lines = append(lines, text.Of(line, r.look.Block))
 		}
+		child = text.NewBlock(text.BlockConfig{Lines: lines, Wrap: kind != DisplayMath})
 	}
-	r.push(Block{
-		indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
-		lines: lines, fixed: kind == DisplayMath,
-	})
+	r.push(Block{indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, content: child})
+}
+
+func nilDrawable(value grid.Drawable) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func (r *renderer) sourceLines(n ast.Node) []string {
@@ -369,7 +394,11 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 	}
 	switch node := action.node.(type) {
 	case *ast.Text:
-		out.add(string(node.Segment.Value(r.source)), action.style, action.link)
+		value := string(node.Segment.Value(r.source))
+		if !node.IsRaw() {
+			value = markdownText(value)
+		}
+		out.add(value, action.style, action.link)
 		switch {
 		case node.HardLineBreak():
 			out.breakLine()
@@ -377,9 +406,13 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 			out.add(" ", action.style, action.link)
 		}
 	case *ast.String:
-		out.add(string(node.Value), action.style, action.link)
+		value := string(node.Value)
+		if !node.IsRaw() && !node.IsCode() {
+			value = markdownText(value)
+		}
+		out.add(value, action.style, action.link)
 	case *ast.CodeSpan:
-		out.add(r.plain(node), action.style.Merge(r.look.Code), action.link)
+		out.add(r.codeSpan(node), action.style.Merge(r.look.Code), action.link)
 	case *ast.Emphasis:
 		if node.Level >= 2 {
 			pushInlineChildren(stack, node, action.style.Merge(r.look.Strong), action.link)
@@ -391,7 +424,7 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 	case *ast.Link:
 		// Push the target before the children: the stack visits the words first and
 		// then writes the optional address, preserving document order.
-		target := string(node.Destination)
+		target := markdownText(string(node.Destination))
 		*stack = append(*stack, inlineAction{
 			target: true, destination: target, shown: r.plain(node), style: action.style,
 		})
@@ -403,7 +436,7 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 		// A picture is not something a row of cells can hold — see the graphics
 		// package for what a terminal will take — so what is left is what it was
 		// called and where it is.
-		target := string(node.Destination)
+		target := markdownText(string(node.Destination))
 		out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
 		r.target(out, target, "", action.style)
 	case *east.TaskCheckBox:
@@ -521,7 +554,13 @@ func (r *renderer) plain(n ast.Node) string {
 		stack = stack[:last]
 		switch node := node.(type) {
 		case *ast.Text:
-			b.Write(node.Segment.Value(r.source))
+			value := string(node.Segment.Value(r.source))
+			if !node.IsRaw() {
+				value = markdownText(value)
+			}
+			b.WriteString(value)
+		case *ast.CodeSpan:
+			b.WriteString(r.codeSpan(node))
 		case *ast.String:
 			b.Write(node.Value)
 		default:
@@ -529,4 +568,75 @@ func (r *renderer) plain(n ast.Node) string {
 		}
 	}
 	return b.String()
+}
+
+func markdownText(source string) string {
+	if !strings.ContainsAny(source, "\\&\x00") {
+		return source
+	}
+	var out strings.Builder
+	for i := 0; i < len(source); {
+		if source[i] == '\\' && i+1 < len(source) && util.IsPunct(source[i+1]) {
+			out.WriteByte(source[i+1])
+			i += 2
+			continue
+		}
+		if source[i] == '&' {
+			if end := strings.IndexByte(source[i:min(i+33, len(source))], ';'); end >= 0 && end <= 32 {
+				entity := source[i : i+end+1]
+				resolved, valid := markdownEntity(entity)
+				if valid {
+					out.WriteString(resolved)
+					i += end + 1
+					continue
+				}
+			}
+		}
+		if source[i] == 0 {
+			out.WriteRune('�')
+		} else {
+			out.WriteByte(source[i])
+		}
+		i++
+	}
+	return out.String()
+}
+
+func markdownEntity(entity string) (string, bool) {
+	name := entity[1 : len(entity)-1]
+	if !strings.HasPrefix(name, "#") {
+		value, ok := util.LookUpHTML5EntityByName(name)
+		if !ok {
+			return "", false
+		}
+		return string(value.Characters), true
+	}
+	digits, base, limit := name[1:], 10, 7
+	if strings.HasPrefix(digits, "x") || strings.HasPrefix(digits, "X") {
+		digits, base, limit = digits[1:], 16, 6
+	}
+	if len(digits) == 0 || len(digits) > limit {
+		return "", false
+	}
+	if _, err := strconv.ParseUint(digits, base, 32); err != nil {
+		return "", false
+	}
+	return html.UnescapeString(entity), true
+}
+
+func (r *renderer) codeSpan(node *ast.CodeSpan) string {
+	var out strings.Builder
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		textNode, ok := child.(*ast.Text)
+		if !ok {
+			continue
+		}
+		segment := textNode.Segment
+		value := string(segment.Value(r.source))
+		value = strings.ReplaceAll(value, "\r\n", " ")
+		value = strings.ReplaceAll(value, "\n", " ")
+		value = strings.ReplaceAll(value, "\r", " ")
+		out.WriteString(value)
+	}
+	return out.String()
 }

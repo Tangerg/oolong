@@ -171,7 +171,7 @@ func (e Edit) opens(at int) int {
 		return at + e.delta()
 	default:
 		// Inside what was replaced. What began there begins where the new text does.
-		return e.Start + len(e.Text)
+		return e.Start
 	}
 }
 

@@ -162,3 +162,7 @@ func (i Images) CellSize() (image.Point, bool) { return i.host.cellSize() }
 
 // Transmit sends one PNG and returns the image handle used by frames.
 func (i Images) Transmit(png []byte) (graphics.Image, error) { return i.host.transmit(png) }
+
+// Release ends the transmitted image's lifetime. Remove all its placements before
+// calling this; the handle must not be placed again without retransmission.
+func (i Images) Release(img graphics.Image) error { return i.host.releaseImage(img) }

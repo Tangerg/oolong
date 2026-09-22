@@ -43,19 +43,16 @@ func parse(source string) (node ast.Node, err error) {
 			node, err = nil, parseFailure(recovered)
 		}
 	}()
-	node, err = golatex.ParseExpr("$" + braceNumericScripts(source) + "$")
+	node, err = golatex.ParseExpr("$" + braceScriptAtoms(source) + "$")
 	if err != nil {
 		return nil, &parseError{message: err.Error()}
 	}
 	return node, nil
 }
 
-// braceNumericScripts adapts TeX's script tokens to the external parser's Go
-// scanner. text/scanner accepts underscores inside numeric literals, while TeX
-// always treats an underscore as a new script. Making the numeric atom explicit
-// keeps x^2_1 equivalent to x^{2}_{1} without teaching the layout layer about a
-// dependency's tokenization.
-func braceNumericScripts(source string) string {
+// braceScriptAtoms makes TeX's single-character script atoms explicit before
+// handing them to a parser whose scanner otherwise groups letters and numbers.
+func braceScriptAtoms(source string) string {
 	var out strings.Builder
 	out.Grow(len(source))
 	for at := 0; at < len(source); {
@@ -68,15 +65,16 @@ func braceNumericScripts(source string) string {
 
 		out.WriteByte(source[at])
 		at++
-		start := at
-		for at < len(source) && source[at] >= '0' && source[at] <= '9' {
+		for at < len(source) && (source[at] == ' ' || source[at] == '\t' || source[at] == '\r' || source[at] == '\n') {
 			at++
 		}
-		if start == at {
+		if at == len(source) || source[at] == '{' || source[at] == '\\' {
 			continue
 		}
+		_, size := utf8.DecodeRuneInString(source[at:])
 		out.WriteByte('{')
-		out.WriteString(source[start:at])
+		out.WriteString(source[at : at+size])
+		at += size
 		out.WriteByte('}')
 	}
 	return out.String()
@@ -96,9 +94,9 @@ func validateSource(source string) error {
 		return &parseError{message: "source is not valid UTF-8"}
 	}
 	depth := 0
-	scriptDepth := 0
+	bracketDepth := 0
 	escaped := false
-	for _, r := range source {
+	for at, r := range source {
 		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
 			return &parseError{message: fmt.Sprintf("source contains control character %U", r)}
 		}
@@ -107,29 +105,33 @@ func validateSource(source string) error {
 			continue
 		}
 		if r == '\\' {
+			if at+1 < len(source) && strings.ContainsRune("([])", rune(source[at+1])) {
+				return &parseError{message: "source must not contain math delimiters"}
+			}
 			escaped = true
-			scriptDepth = 0
 			continue
 		}
 		if r == '^' || r == '_' {
-			scriptDepth++
-			if scriptDepth > 256 {
-				return &parseError{message: "source nesting exceeds 256 scripts"}
+			rest := strings.TrimLeft(source[at+1:], " \t\r\n")
+			if rest == "" || strings.ContainsRune("^_}$%", rune(rest[0])) {
+				return &parseError{message: "script has no atom"}
 			}
-		} else {
-			scriptDepth = 0
 		}
 		switch r {
+		case '[':
+			bracketDepth++
+		case ']':
+			bracketDepth = max(0, bracketDepth-1)
 		case '{':
 			depth++
-			if depth > 256 {
-				return &parseError{message: "source nesting exceeds 256 groups"}
-			}
 		case '}':
 			depth--
 			if depth < 0 {
 				return &parseError{message: "source has an unmatched closing brace"}
 			}
+		}
+		if depth+bracketDepth > 256 {
+			return &parseError{message: "source nesting exceeds 256 groups"}
 		}
 	}
 	if depth != 0 {
@@ -138,9 +140,17 @@ func validateSource(source string) error {
 	return nil
 }
 
-type formulaRenderer struct{ look Look }
+type formulaRenderer struct {
+	look  Look
+	depth int
+}
 
 func (r *formulaRenderer) node(node ast.Node, style grid.Style) (box, error) {
+	if r.depth >= 256 {
+		return box{}, errors.New("formula nesting exceeds 256 nodes")
+	}
+	r.depth++
+	defer func() { r.depth-- }()
 	switch node := node.(type) {
 	case ast.List:
 		return r.sequence(node, style)
@@ -167,7 +177,7 @@ func (r *formulaRenderer) node(node ast.Node, style grid.Style) (box, error) {
 	case *ast.Sup:
 		return r.node(node.Node, style)
 	case nil:
-		return box{}, nil
+		return box{}, errors.New("missing formula atom")
 	default:
 		return box{}, fmt.Errorf("unsupported syntax %T", node)
 	}
@@ -374,14 +384,13 @@ func (r *formulaRenderer) appearanceMacro(name string, args ast.List, style grid
 
 func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Style) (box, error) {
 	if len(args) > 0 {
-		label := strings.TrimPrefix(name, `\`)
-		content, err := r.node(args[len(args)-1], style)
-		if err != nil {
-			return box{}, err
-		}
-		return horizontal(atom(label, style), content), nil
+		return box{}, fmt.Errorf("unsupported macro %s", name)
 	}
 
+	resolved, resolveErr := symbolsForTerminal.resolve(name)
+	if resolveErr == nil && grid.ClusterWidth(resolved) == 0 {
+		return box{}, fmt.Errorf("unsupported combining accent %s", name)
+	}
 	symbol, err := terminalSymbol(name, r.look.Glyphs.Plain)
 	if err != nil {
 		// Function names such as sin are lettered operators rather than font glyphs.

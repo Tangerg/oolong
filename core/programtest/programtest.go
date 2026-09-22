@@ -157,8 +157,7 @@ func (h *Host) Repaint() bool {
 	if h == nil || h.input == nil {
 		return false
 	}
-	width, height, _ := h.Size()
-	return h.Send(input.Resize{Width: width, Height: height})
+	return h.input.postRepaint(nil)
 }
 
 // Frames returns every byte written so far as a string.
@@ -212,33 +211,49 @@ func (h *Host) Until(tb testing.TB, what string, cond func() bool) {
 // when exact transport bytes are the subject of the test.
 func (h *Host) Shows(tb testing.TB, text string) {
 	tb.Helper()
-	h.Until(tb, "the interface to show "+text, func() bool {
-		if !h.Repaint() {
-			return false
-		}
-		return h.frameContains(tb, text)
-	})
+	h.assertText(tb, text, true)
 }
 
-// Hides waits until no visible text run in a full repaint contains text. It uses the
-// same appearance-free projection as [Host.Shows].
+// Hides waits for a completed full repaint that contains no visible text run matching text.
 func (h *Host) Hides(tb testing.TB, text string) {
 	tb.Helper()
-	h.Until(tb, "the interface to stop showing "+text, func() bool {
-		if !h.Repaint() {
-			return false
-		}
-		return !h.frameContains(tb, text)
-	})
+	h.assertText(tb, text, false)
 }
 
-func (h *Host) frameContains(tb testing.TB, text string) bool {
+func (h *Host) assertText(tb testing.TB, text string, want bool) {
 	tb.Helper()
-	visible, err := visibleRuns(h.Frame())
-	if err != nil {
-		tb.Fatalf("programtest: inspect repaint: %v", err)
+	ctx, cancel := context.WithTimeout(tb.Context(), assertionTimeout)
+	defer cancel()
+	for {
+		result := make(chan error, 1)
+		var frame string
+		if h == nil || h.input == nil || !h.input.postRepaint(func(err error) { frame = h.Frame(); result <- err }) {
+			tb.Fatal("programtest: repaint source is closed")
+		}
+		select {
+		case err := <-result:
+			if err != nil {
+				tb.Fatalf("programtest: repaint failed: %v", err)
+			}
+			visible, err := visibleRuns(frame)
+			if err != nil {
+				tb.Fatal(err)
+			}
+			if strings.Contains(visible, text) == want {
+				return
+			}
+		case <-ctx.Done():
+			tb.Fatalf("programtest: timed out waiting for visibility %t of %q; last frame %q", want, text, h.Frame())
+		}
 	}
-	return strings.Contains(visible, text)
+}
+
+// Repaints is the ordered complete-frame request stream consumed by program.Run.
+func (h *Host) Repaints() <-chan func(error) {
+	if h == nil || h.input == nil {
+		return nil
+	}
+	return h.input.repaints
 }
 
 // visibleRuns projects a renderer frame into contiguous visible text runs without
@@ -309,27 +324,40 @@ func (h *Host) Close() error {
 // tests choose how many events they retain by how many they send.
 type eventSource struct {
 	mu     sync.Mutex
-	queue  fifo.Queue[input.Event]
+	queue  fifo.Queue[hostEvent]
 	closed bool
 
-	events chan input.Event
-	wake   chan struct{}
-	done   chan struct{}
-	ended  chan struct{}
+	events   chan input.Event
+	repaints chan func(error)
+	wake     chan struct{}
+	done     chan struct{}
+	ended    chan struct{}
 }
 
 func newEventSource() *eventSource {
 	source := &eventSource{
-		events: make(chan input.Event),
-		wake:   make(chan struct{}, 1),
-		done:   make(chan struct{}),
-		ended:  make(chan struct{}),
+		events:   make(chan input.Event),
+		repaints: make(chan func(error)),
+		wake:     make(chan struct{}, 1),
+		done:     make(chan struct{}),
+		ended:    make(chan struct{}),
 	}
 	go source.run()
 	return source
 }
 
-func (s *eventSource) post(event input.Event) bool {
+type hostEvent struct {
+	input   input.Event
+	repaint bool
+	reply   func(error)
+}
+
+func (s *eventSource) post(event input.Event) bool { return s.enqueue(hostEvent{input: event}) }
+func (s *eventSource) postRepaint(reply func(error)) bool {
+	return s.enqueue(hostEvent{repaint: true, reply: reply})
+}
+
+func (s *eventSource) enqueue(event hostEvent) bool {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -347,11 +375,20 @@ func (s *eventSource) post(event input.Event) bool {
 func (s *eventSource) run() {
 	defer close(s.ended)
 	defer close(s.events)
+	defer close(s.repaints)
 	for {
 		event, ok := s.take()
 		if ok {
+			if event.repaint {
+				select {
+				case s.repaints <- event.reply:
+				case <-s.done:
+					return
+				}
+				continue
+			}
 			select {
-			case s.events <- event:
+			case s.events <- event.input:
 			case <-s.done:
 				return
 			}
@@ -365,7 +402,7 @@ func (s *eventSource) run() {
 	}
 }
 
-func (s *eventSource) take() (input.Event, bool) {
+func (s *eventSource) take() (hostEvent, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.queue.Pop()

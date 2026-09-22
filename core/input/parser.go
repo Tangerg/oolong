@@ -24,11 +24,8 @@ const DefaultEscapeTimeout = 30 * time.Millisecond
 const esc = ansi.Escape
 
 const (
-	// maxSequenceBody caps a control sequence's parameter section. A real key or
-	// mouse report is an order of magnitude shorter; anything longer is garbage,
-	// and buffering it would let a stream that never sends a final byte grow
-	// memory without limit.
-	maxSequenceBody = 64
+	// maxSequenceBody bounds control parameters, including Kitty associated text.
+	maxSequenceBody = 64 << 10
 
 	// maxPaste bounds what one paste may accumulate. A terminal that opens a
 	// paste and never closes it would otherwise swallow everything typed
@@ -77,7 +74,9 @@ const (
 type Parser struct {
 	noCopy noCopy
 
-	buf []byte
+	buf       []byte
+	expiring  bool
+	controlAt int
 	// pasting is set between a paste's opening and closing sequences, when bytes
 	// are text rather than input to interpret.
 	pasting bool
@@ -120,11 +119,28 @@ func (p *Parser) Flush() []Event { return p.drain(true) }
 // keystroke that happened to be a parameter byte would vanish into it.
 func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.dropping != droppingNothing }
 
+// Ambiguous reports whether an Escape timeout can resolve pending input.
+// Incomplete UTF-8, paste payloads and string bodies must wait for more bytes.
+func (p *Parser) Ambiguous() bool {
+	return p.dropping != droppingNothing || (!p.pasting && p.str == noString && len(p.buf) > 0 && p.buf[0] == esc)
+}
+
+// Expire resolves Escape ambiguity without declaring the byte stream finished.
+func (p *Parser) Expire() []Event {
+	if !p.Ambiguous() {
+		return nil
+	}
+	p.expiring = true
+	defer func() { p.expiring = false }()
+	return p.drain(true)
+}
+
 // drain decodes as much as it can. When final, trailing ambiguity is resolved
 // rather than kept.
 func (p *Parser) drain(final bool) (events []Event) {
+	initial := len(p.buf)
 	defer func() {
-		if len(p.buf) > 0 {
+		if len(p.buf) > 0 && len(p.buf) < initial/2 {
 			// The undecided tail is short by construction. Clone it after draining so
 			// a lone escape or partial UTF-8 sequence cannot keep an otherwise consumed
 			// terminal read buffer alive while input is idle.
@@ -197,7 +213,7 @@ func (p *Parser) advanceInput(final bool) (Event, bool) {
 		p.take(n)
 		return event, true
 	}
-	if !final {
+	if !final || (p.expiring && p.buf[0] != esc) {
 		return nil, false
 	}
 	if p.buf[0] == esc {
@@ -248,6 +264,7 @@ func (p *Parser) skipParams() bool {
 // take drops n decoded bytes, releasing the buffer once it is empty so an idle
 // parser holds nothing.
 func (p *Parser) take(n int) {
+	p.controlAt = 0
 	p.buf = p.buf[n:]
 	if len(p.buf) == 0 {
 		p.buf = nil
@@ -259,28 +276,31 @@ func (p *Parser) take(n int) {
 func (p *Parser) readPaste() (string, bool) {
 	i := 0
 	for i < len(p.buf) {
-		if p.buf[i] != esc {
-			p.paste = append(p.paste, p.buf[i])
-			i++
-			if len(p.paste) >= maxPaste {
+		if p.buf[i] == esc {
+			rest := p.buf[i:]
+			switch shared := commonPrefix(rest, pasteClose); {
+			case shared == len(pasteClose):
+				p.take(i + len(pasteClose))
+				return p.closePaste(), true
+			case shared == len(rest):
 				p.take(i)
-				return p.takePaste(), true
+				return "", false
 			}
-			continue
 		}
-		rest := p.buf[i:]
-		switch shared := commonPrefix(rest, pasteClose); {
-		case shared == len(pasteClose):
-			p.take(i + len(pasteClose))
-			return p.closePaste(), true
-		case shared == len(rest):
-			// What is left could still become the closing sequence.
-			p.buf = p.buf[i:]
-			return "", false
-		default:
-			// It was not the closing sequence, so it is pasted text.
-			p.paste = append(p.paste, esc)
-			i++
+		p.paste = append(p.paste, p.buf[i])
+		i++
+		if len(p.paste) >= maxPaste {
+			end := len(p.paste) - 1
+			for end > 0 && !utf8.RuneStart(p.paste[end]) {
+				end--
+			}
+			if utf8.FullRune(p.paste[end:]) {
+				end = len(p.paste)
+			}
+			text := string(p.paste[:end])
+			p.paste = bytes.Clone(p.paste[end:])
+			p.take(i)
+			return text, true
 		}
 	}
 	p.buf = nil
@@ -416,14 +436,13 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	case second == esc:
 		// Two in a row: the first was the key, and the second starts again.
 		return 1, Key{Code: Esc}, true
-	case second == 0x0d:
-		// Alt+Enter, which terminals send this way rather than as a modified-key
-		// report.
-		return 2, Key{Code: Enter, Mods: Alt}, true
 	case second < 0x20, second == 0x7f:
-		// A control byte cannot continue the sequence, so the escape stood alone
-		// and the control byte is read on the next pass.
-		return 1, Key{Code: Esc}, true
+		consumed, event, ready := p.decode(b[1:], false)
+		if key, ok := event.(Key); ok {
+			key.Mods |= Alt
+			event = key
+		}
+		return consumed + 1, event, ready
 	default:
 		return decodeAlt(b)
 	}
@@ -445,7 +464,7 @@ func decodeAlt(b []byte) (n int, ev Event, done bool) {
 // decodeControl reads a control sequence: a parameter section, then a final byte
 // that says what the sequence was.
 func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
-	i := 2
+	i := max(2, p.controlAt)
 	for i < len(b) && ansi.Body(b[i]) {
 		i++
 	}
@@ -460,6 +479,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return i, nil, true
 	}
 	if i >= len(b) {
+		p.controlAt = i
 		return 0, nil, false
 	}
 	final := b[i]
@@ -469,7 +489,11 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return i, nil, true
 	}
 	n = i + 1
-	ps := parseParams(string(b[2:i]))
+	piece, _, valid := ansi.Next(string(b[:n]))
+	if !valid || piece.Kind != ansi.Control || piece.Intermediates != "" {
+		return n, nil, true
+	}
+	ps := parseParams(piece.Parameters)
 
 	// A private marker says the sequence is a report and not a key, because a key
 	// never carries one. So anything with a marker is answered as a report or
@@ -553,7 +577,7 @@ func (ps params) extendedKey() Event {
 		return nil // a bare sequence here is a cursor report, not a key
 	}
 	primary := ps.Group(0)
-	if primary.Len() == 0 || primary.Len() > 3 || primary.At(0) <= 0 {
+	if primary.Len() == 0 || primary.Len() > 3 || primary.At(0) < 0 {
 		return nil
 	}
 	// Alternate key codes are accepted and then ignored: reporting the key that
@@ -572,6 +596,12 @@ func (ps params) extendedKey() Event {
 	text, ok := ps.text()
 	if !ok {
 		return nil
+	}
+	if primary.At(0) == 0 {
+		if text == "" {
+			return nil
+		}
+		return Key{Code: Character, Text: text, Mods: mods, Transition: transition}
 	}
 	code, r, ok := extendedKeyCode(primary.At(0))
 	if !ok {
@@ -625,7 +655,7 @@ func (ps params) mouse(down bool) Event {
 		return nil
 	}
 	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
-	if bits < 0 || x < 0 || y < 0 {
+	if bits < 0 || bits & ^127 != 0 || x < 0 || y < 0 {
 		return nil // a malformed report says nothing about where the mouse is
 	}
 	// The terminal counts from one; everything above this package counts from zero.

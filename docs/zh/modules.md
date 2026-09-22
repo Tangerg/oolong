@@ -21,6 +21,7 @@ Oolong 只在依赖集合发生变化时建立模块边界。请从 `core` 开�
 | `markdown` | 已完成或增量的 GitHub Flavored Markdown (GFM) | `goldmark` |
 | `highlight` | 带样式的源码 | `chroma` |
 | `latex` | 可选择的终端数学公式 | `go-latex` |
+| `mermaid` | 后台准备 Mermaid PNG 图表 | Windows 使用 `x/sys`；外部官方 CLI 与 Chromium |
 | `ssh` | 在已接受的 SSH 会话中运行 Oolong | `charm.land/ssh` |
 | `ptytest` | 针对真实伪终端 (PTY) 断言 | `x/sys` |
 
@@ -73,9 +74,10 @@ flowchart TD
     latex --> core
     ssh --> core
     ptytest --> core
+    mermaid[mermaid: neutral PNG]
 ```
 
-可选内容模块彼此平级。请在应用中通过核心文本值组合它们，不要在它们之间建立 import。
+可选内容模块彼此平级。请在应用中通过核心 drawable 契约组合它们，不要在它们之间建立 import。
 
 ## 验证消费方依赖图
 

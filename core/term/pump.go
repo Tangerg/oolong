@@ -84,6 +84,10 @@ func (p *pump) run() error {
 		armed = false
 	}
 
+	if parser.Ambiguous() {
+		timer.Reset(grace)
+		armed = true
+	}
 	for {
 		select {
 		case chunk := <-p.raw:
@@ -91,7 +95,7 @@ func (p *pump) run() error {
 			if !p.deliver(parser.Feed(chunk)) {
 				return nil
 			}
-			if parser.Pending() {
+			if parser.Ambiguous() {
 				// Something is waiting on bytes that may never come. Only time can
 				// settle it.
 				timer.Reset(grace)
@@ -99,7 +103,7 @@ func (p *pump) run() error {
 			}
 		case <-timer.C:
 			armed = false
-			if !p.deliver(parser.Flush()) {
+			if !p.deliver(parser.Expire()) {
 				return nil
 			}
 		case resized := <-p.resized:

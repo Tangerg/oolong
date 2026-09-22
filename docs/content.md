@@ -24,11 +24,12 @@ core text and grid model.
 
 ## Choose the modules your content needs
 
-The three modules are peers with different natural results:
+Content modules are peers with different natural results:
 
 | Module | Primary entry point | Result | Use it for |
 | --- | --- | --- | --- |
 | `markdown` | `markdown.Render` | `[]markdown.Block` | Structured prose and GFM |
+| `mermaid` | `mermaid.New` / `Render` | `*mermaid.Image, error` | PNG diagram preparation |
 | `highlight` | `highlight.New` | `highlight.Renderer` | Reusable styled source rendering |
 | `latex` | `latex.Render` | `*latex.Formula` | Measured, selectable mathematics |
 
@@ -49,7 +50,10 @@ value should measure, draw, expose rows for selection, and memoize width-depende
 layout.
 
 ```go
-blocks := markdown.Render(source, markdown.Look{})
+blocks, err := markdown.Render(source, markdown.Look{})
+if err != nil {
+    log.Printf("markdown: %v", err)
+}
 doc := new(markdown.Doc)
 doc.SetBlocks(blocks)
 
@@ -123,46 +127,33 @@ look := markdown.Look{
     Marker:   theme.Accent,
 }
 highlighter := highlight.New("github-dark")
-look.SetRenderer(markdown.FencedCode, highlighter.Lines)
-look.SetRenderer(markdown.DisplayMath,
-    func(_ string, source string) []text.Line {
-        return latex.Render(source, formulaLook).Lines()
+look.SetRenderer(markdown.FencedCode,
+    func(info, source string) (grid.Drawable, error) {
+        return text.NewBlock(text.BlockConfig{
+            Lines: highlighter.Lines(info, source), Wrap: true,
+        }), nil
     },
 )
-
-doc.SetBlocks(markdown.Render(source, look))
-```
-
-The shared seam is a consumer-owned function shape:
-
-```go
-type Renderer func(info, source string) []text.Line
-```
-
-No parser tree crosses the boundary. Highlight and LaTeX return core styled text,
-and neither knows that Markdown is the consumer.
-
-## Observe domain results while composing
-
-There is no second, lossy LaTeX entry point. The same `latex.Render` call used on its
-own is wrapped at the consumer boundary, so an application can count, log, or display
-parse failures before it returns the lines Markdown needs:
-
-```go
 look.SetRenderer(markdown.DisplayMath,
-    func(_ string, source string) []text.Line {
+    func(_ string, source string) (grid.Drawable, error) {
         formula := latex.Render(source, formulaLook)
-        if err := formula.Err(); err != nil {
-            metrics.RecordFormulaFailure(source, err)
-        }
-        return formula.Lines()
+        return formula, formula.Err()
     },
 )
+blocks, err := markdown.Render(source, look)
+doc.SetBlocks(blocks)
+if err != nil {
+    log.Printf("markdown: %v", err)
+}
 ```
 
-Returning `nil` declines an extension and asks Markdown to show its source. Returning
-a non-nil empty slice deliberately produces no rows. Markdown retains block layout:
-code may wrap, while two-dimensional mathematics clips instead of reflowing.
+Extensions return `grid.Drawable` and an error, optionally implementing `Rows(width int) []text.Row`. Children own layout; Markdown owns indentation, decoration and block positions. Content without text projection contributes blank rows of the same height.
+
+## Handle extension results explicitly
+
+Content and errors may coexist. Markdown retains readable content and returns `ExtensionError` with the block index, extension and info; `errors.Is/As` preserve backend diagnostics. `nil, nil` is a contract error. Return `ErrUnhandled` to display source explicitly, or an empty `text.Block` for zero rows.
+
+Published children must remain semantically stable. Replace document snapshots instead of mutating drawable values retained by published blocks. Do not launch a browser or perform other expensive work inside the synchronous callback.
 
 ## Apply the same composition to a stream
 
@@ -175,10 +166,19 @@ stream.SetLook(look)
 var stable, open markdown.Doc
 
 for chunk := range answer {
-    stable.Append(stream.Feed(chunk)...)
-    open.SetBlocks(stream.Open())
+    blocks, feedErr := stream.Feed(chunk)
+    stable.Append(blocks...)
+    tail, openErr := stream.Open()
+    open.SetBlocks(tail)
+    if err := errors.Join(feedErr, openErr); err != nil {
+        log.Printf("stream: %v", err)
+    }
 }
-stable.Append(stream.Flush()...)
+blocks, err := stream.Flush()
+stable.Append(blocks...)
+if err != nil {
+    log.Printf("stream: %v", err)
+}
 open.SetBlocks(nil)
 ```
 
@@ -204,3 +204,56 @@ go test ./markdown ./latex ./content
 
 Continue with [Build bounded streaming output](streaming.md) for background bytes,
 then [Build a bounded agent interface](agent.md) for the complete application shape.
+
+## Register a common consumer contract
+
+`core/content.Registry` dispatches explicit format names without importing implementations or using global registration. Names are trimmed and lowercased. Duplicate names, invalid names and nil callbacks fail construction; unknown formats return `ErrUnknownFormat`. The registry does not schedule goroutines, retry failures or guess formats.
+
+```go
+registry, err := content.New(content.Config{Bindings: []content.Binding{
+    {Format: "latex", Render: func(_ context.Context, source string) (grid.Drawable, error) {
+        formula := latex.Render(source, formulaLook)
+        return formula, formula.Err()
+    }},
+}})
+if err != nil {
+    return err
+}
+body, err := registry.Render(ctx, "latex", source)
+```
+
+`examples/content` uses one registry for top-level format selection and Markdown embedded dispatch. Direct single-format calls remain useful; rendering a document does not require a registry.
+
+## Mermaid
+
+`mermaid` is an independent Go module using the application-installed [official Mermaid CLI](https://github.com/mermaid-js/mermaid-cli). It does not implement a partial ASCII syntax subset. The process backend supports macOS, Linux and Windows 10 or later; other platforms return `errors.ErrUnsupported` at construction. CLI and Chromium are optional external dependencies and are never downloaded automatically.
+
+Install the backend version verified for this change and run the example:
+
+```sh
+npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11.17.0
+PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
+```
+
+Set `OOLONG_MERMAID_BROWSER` to select an existing Chromium executable in the example. Module `Config` explicitly sets the executable, trusted prefix arguments, browser, theme, viewport, timeout and source/output/pixel/edge limits. Defaults are 30 seconds (plus at most one second for shutdown), 64 KiB source, 8 MiB PNG, 16 million pixels and 500 edges. These limit accepted data, not browser peak memory or disk use.
+
+Call `Renderer.Render(ctx, source)` in a worker to prepare an owned PNG. The content owner validates the generation and its source/theme before uploading through `Runtime.Images().Transmit` and composing a passive `kit.Image`. On Unix, cancellation first sends SIGINT to the official CLI so Puppeteer closes its detached browser group, then bounds CLI shutdown. Custom Unix launchers must preserve this signal cleanup behavior. Windows creates the CLI inside a Job Object atomically, prevents browser descendants escaping the job, and terminates and waits for the entire job before removing temporary files. npm `.cmd` launchers resolve to the installed package entry point and run through `node.exe`, without a command shell.
+
+`examples/mermaid` demonstrates worker preparation, stale-result rejection, source replacement, visible errors and joining workers on exit. Replacement and shutdown erase the image placement before releasing its data. Never release an image still retained by a document.
+
+Syntax stability, image readiness and `Transcript.Finish` are separate states. Never Finish or Commit a pending image placeholder. Only the owner accepting final content or a final visible error may mark it finished. `Stream` does not own asynchronous image jobs; applications retain the matching source and replace uncommitted documents when results arrive.
+
+### Image display and actions
+
+The example checks both live image protocol support and cell geometry before uploading. A terminal supporting the Kitty graphics protocol can display the image inline. Other terminals show the source and keep the image available through **Open Image**, **Copy Image Path** and **Copy Source**. Use `o`, `p`, `c`, or click the toolbar; `r` replaces the diagram and `q` quits.
+
+Opening an image uses the system viewer on macOS and Windows. Export files are created only when opening or copying an image path. They remain in the operating system's temporary directory after replacement or exit, so copied paths stay usable until those files are removed. Intermediate render files and browser profiles are always task-owned and cleaned up.
+
+On Windows, install Node.js and the official CLI, then run from PowerShell:
+
+```powershell
+npm install -g @mermaid-js/mermaid-cli@11.17.0
+go -C examples run ./mermaid
+```
+
+The native backend CI job runs the official renderer on macOS and Windows. Ordinary tests also cover unsupported terminals, clipboard actions, persistent exports, and rejection of stale work. Windows-specific tests verify that cancellation and normal parent exit both terminate surviving descendants.

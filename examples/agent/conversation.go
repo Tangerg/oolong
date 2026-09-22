@@ -13,6 +13,8 @@ const retainedAgentBlocks = 8
 // conversation owns the active, interactive tail of the session. It is an application
 // entity rather than a component alias: publication, sticky prompts, streaming tails,
 // selection and their shared lifetime are one invariant here.
+const renderErrorLabel = "render"
+
 type conversation struct {
 	theme  kit.Theme
 	glyphs kit.Glyphs
@@ -67,14 +69,26 @@ func (c *conversation) append(block headless.Block) headless.BlockID {
 }
 
 func (c *conversation) Markdown(chunk string) {
-	if stable := c.stream.Feed(chunk); len(stable) > 0 {
+	stable, err := c.stream.Feed(chunk)
+	if err != nil {
+		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
+	}
+	if len(stable) > 0 {
 		c.finishOpen(stable)
 	}
-	c.stageOpen(c.stream.Open())
+	open, err := c.stream.Open()
+	if err != nil {
+		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
+	}
+	c.stageOpen(open)
 }
 
 func (c *conversation) FlushMarkdown() {
-	if stable := c.stream.Flush(); len(stable) > 0 {
+	stable, err := c.stream.Flush()
+	if err != nil {
+		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
+	}
+	if len(stable) > 0 {
 		c.finishOpen(stable)
 	}
 	c.open, c.hasOpen = nil, false

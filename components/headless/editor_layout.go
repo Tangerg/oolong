@@ -64,7 +64,7 @@ func (l *editorLayout) wrapLine(index int, line string, width int) {
 		if cluster == "\t" {
 			step = text.TabStop - column%text.TabStop
 		}
-		if column+step > width && at > start {
+		for column+step > width && at > start {
 			end := at
 			if lastBreak > start {
 				end = lastBreak
@@ -74,6 +74,9 @@ func (l *editorLayout) wrapLine(index int, line string, width int) {
 			})
 			start = end
 			column = text.ColumnOf(line[start:at], at-start)
+			if cluster == "\t" {
+				step = text.TabStop - column%text.TabStop
+			}
 		}
 		if cluster == " " {
 			lastBreak = at + len(cluster)
@@ -251,7 +254,7 @@ func (e *Editor) drawMultiline(
 	e.drawGutter(gutterView, rows[first:last])
 
 	if e.Empty() && e.Placeholder != "" {
-		view.Text(0, 0, text.Truncate(e.Placeholder, width, "…"), look.Subtle)
+		view.Text(0, 0, text.Truncate(e.Placeholder, width, look.Ellipsis), look.Subtle)
 		e.placeCursor(view, 0, 0)
 		return presentation
 	}

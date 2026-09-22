@@ -61,7 +61,13 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 		// here, and narrowing first would let a large one wrap into a modifier
 		// nobody held — the same class of mistake as reading a rune out of an
 		// integer and asking afterwards whether it was one.
-		mods = Mods((group.At(0) - 1) & int(Shift|Alt|Ctrl|Super))
+		bits := group.At(0) - 1
+		// Caps/Num lock describe text generation; unsupported identity modifiers
+		// must never become an unmodified key binding.
+		if bits & ^(int(Shift|Alt|Ctrl|Super)|64|128) != 0 {
+			return 0, Press, false
+		}
+		mods = Mods(bits & int(Shift|Alt|Ctrl|Super))
 	}
 	if group.Len() < 2 {
 		return mods, Press, true

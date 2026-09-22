@@ -122,7 +122,10 @@ func (b BarChart) maximum() float64 {
 			maximum = max(maximum, item.Value)
 		}
 	}
-	return max(maximum, 1)
+	if maximum > 0 {
+		return maximum
+	}
+	return 1
 }
 
 // chartScale owns normalization for every chart shape. The rendered components ask
@@ -161,7 +164,16 @@ func (s chartScale) Fraction(value float64) (float64, bool) {
 	if !finite(value) || !s.valid() {
 		return 0, false
 	}
-	return min(max((value-s.minimum)/(s.maximum-s.minimum), 0), 1), true
+	if value <= s.minimum {
+		return 0, true
+	}
+	if value >= s.maximum {
+		return 1, true
+	}
+	if math.IsInf(s.maximum-s.minimum, 0) {
+		return (value/2 - s.minimum/2) / (s.maximum/2 - s.minimum/2), true
+	}
+	return (value - s.minimum) / (s.maximum - s.minimum), true
 }
 
 func (s chartScale) valid() bool {

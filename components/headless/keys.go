@@ -301,7 +301,6 @@ func DefaultConfirmKeys() *keymap.Map {
 	m.Bind(SelectPrev, input.Chord{Code: input.Left})
 	m.Bind(SelectNext, input.Chord{Code: input.Right})
 	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})
-	m.Bind(Toggle, input.Chord{Code: input.Tab})
 	return m
 }
 

@@ -17,16 +17,18 @@ import (
 //
 // Blocks come from [Render] and [Stream]. Their zero value is empty. They can be
 // retained, copied, measured and drawn independently; [Doc] is the convenient way
-// to compose them with their inter-block spacing.
+// to compose them with their inter-block spacing. Extension renderers must uphold
+// the same stability contract: published children cannot be mutated or released
+// while retained blocks still refer to them.
 type Block struct {
-	lines []text.Line
-	table *table
+	lines   []text.Line
+	table   *table
+	content grid.Drawable
 
 	indent int
 	marker text.Line
 	rail   text.Line
 	rule   bool
-	fixed  bool
 
 	blankBefore bool
 }
@@ -34,7 +36,7 @@ type Block struct {
 // HeightForWidth reports how many rows the block needs at width. It excludes the blank
 // row that may separate this block from the one before it; [Block.BlankBefore]
 // exposes that relationship to custom composers.
-func (b Block) HeightForWidth(width int) int { return len(b.appendRows(nil, width)) }
+func (b Block) HeightForWidth(width int) int { return b.layout(width).height }
 
 // Draw writes the block into v. It excludes any blank row before the block, because
 // only the composer knows whether a preceding block exists.
@@ -43,17 +45,72 @@ func (b Block) Draw(v grid.View) {
 		return
 	}
 	width, _ := v.Size()
-	drawRows(v, b.appendRows(nil, width))
+	b.layout(width).draw(v)
 }
 
 // Rows returns the meaningful text and offsets of the block's physical rows at
 // width. Markers and quotation rails are decoration and are not included in Text.
-func (b Block) Rows(width int) []text.Row { return publicRows(b.appendRows(nil, width)) }
+func (b Block) Rows(width int) []text.Row { return b.layout(width).project() }
 
 // BlankBefore reports whether the renderer asked for a blank row before this block.
 // It is false for the first block of a document and between the items of a tight
 // list, and true where separate prose blocks need to read as separate things.
 func (b Block) BlankBefore() bool { return b.blankBefore }
+
+// blockLayout keeps an embedded child's geometry without flattening its drawing.
+type blockLayout struct {
+	rows                []row
+	child               grid.Drawable
+	left, width, height int
+	rail, marker        text.Line
+}
+
+func (b Block) layout(width int) blockLayout {
+	if width <= 0 {
+		return blockLayout{}
+	}
+	if b.content == nil {
+		rows := b.appendRows(nil, width)
+		return blockLayout{rows: rows, width: width, height: len(rows)}
+	}
+	left := min(max(b.indent, 0), width)
+	room := width - left
+	height := 0
+	if room > 0 {
+		height = max(0, b.content.HeightForWidth(room))
+	}
+	return blockLayout{child: b.content, left: left, width: room, height: height, rail: b.rail, marker: b.marker}
+}
+
+func (p blockLayout) draw(v grid.View) {
+	if p.child == nil {
+		drawRows(v, p.rows)
+		return
+	}
+	p.child.Draw(v.Sub(grid.Rect(p.left, 0, p.width, p.height)))
+	visible := v.Visible()
+	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
+		prefix := p.rail
+		if y == 0 && len(p.marker) > 0 {
+			prefix = p.marker
+		}
+		prefix.Draw(v, p.left-prefix.Width(), y)
+	}
+}
+
+func (p blockLayout) project() []text.Row {
+	if p.child == nil {
+		return publicRows(p.rows)
+	}
+	rows := make([]text.Row, p.height)
+	if projector, ok := p.child.(interface{ Rows(width int) []text.Row }); ok {
+		copy(rows, projector.Rows(p.width))
+	}
+	for i := range rows {
+		rows[i].Offset += p.left
+	}
+	return rows
+}
 
 // row is one physical row: what it says, where it starts, and the decoration that
 // ends immediately before it.
@@ -73,10 +130,6 @@ func (b Block) appendRows(dst []row, width int) []row {
 		dst = b.table.appendRows(dst, room)
 	case b.rule:
 		dst = append(dst, row{Line: stretch(b.lines, room)})
-	case b.fixed:
-		for _, line := range b.lines {
-			dst = append(dst, row{Line: line.Truncate(room, "")})
-		}
 	default:
 		for _, line := range b.lines {
 			dst = appendWrapped(dst, line, room)

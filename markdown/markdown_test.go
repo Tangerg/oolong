@@ -75,7 +75,7 @@ func equal(t *testing.T, got, want []string) {
 
 func render(t *testing.T, width int, source string) []string {
 	t.Helper()
-	return rows(t, width, markdown.Render(source, look()))
+	return rows(t, width, mustRender(t, source, look()))
 }
 
 func TestProseIsWrappedAtTheWidthItIsDrawnIn(t *testing.T) {
@@ -93,7 +93,7 @@ func TestProseIsWrappedAtTheWidthItIsDrawnIn(t *testing.T) {
 
 func TestDocumentRowsSeparateMeaningfulTextFromItsRenderedOffset(t *testing.T) {
 	doc := &markdown.Doc{}
-	doc.SetBlocks(markdown.Render("- one two", look()))
+	doc.SetBlocks(mustRender(t, "- one two", look()))
 	got := doc.Rows(6)
 	if len(got) != 2 {
 		t.Fatalf("rows = %+v, want two wrapped rows", got)
@@ -107,23 +107,23 @@ func TestDocumentRowsSeparateMeaningfulTextFromItsRenderedOffset(t *testing.T) {
 }
 
 func TestDocumentOwnsItsBlocksAndReturnsSnapshots(t *testing.T) {
-	input := markdown.Render("original", look())
+	input := mustRender(t, "original", look())
 	var doc markdown.Doc
 	doc.SetBlocks(input)
 
-	input[0] = markdown.Render("changed input", look())[0]
+	input[0] = mustRender(t, "changed input", look())[0]
 	if got := doc.Rows(40)[0].Text; got != "original" {
 		t.Fatalf("document text = %q after input slice mutation", got)
 	}
 	first := doc.Blocks()
-	first[0] = markdown.Render("changed snapshot", look())[0]
+	first[0] = mustRender(t, "changed snapshot", look())[0]
 	if got := doc.Blocks()[0].Rows(40)[0].Text; got != "original" {
 		t.Fatalf("document text = %q after snapshot mutation", got)
 	}
 
-	appended := markdown.Render("appended", look())
+	appended := mustRender(t, "appended", look())
 	doc.Append(appended...)
-	appended[0] = markdown.Render("changed append input", look())[0]
+	appended[0] = mustRender(t, "changed append input", look())[0]
 	if got := doc.Blocks()[1].Rows(40)[0].Text; got != "appended" {
 		t.Fatalf("appended text = %q after caller mutation", got)
 	}
@@ -131,14 +131,14 @@ func TestDocumentOwnsItsBlocksAndReturnsSnapshots(t *testing.T) {
 
 func TestStreamOpenReturnsAnOwnedSnapshot(t *testing.T) {
 	var stream markdown.Stream
-	stream.Feed("still being written")
-	first := stream.Open()
+	mustFeed(t, &stream, "still being written")
+	first := mustOpen(t, &stream)
 	if len(first) == 0 || len(first[0].Rows(40)) == 0 {
 		t.Fatalf("open rendering = %+v, want text", first)
 	}
 	want := first[0].Rows(40)[0].Text
-	first[0] = markdown.Render("caller mutation", look())[0]
-	if got := stream.Open()[0].Rows(40)[0].Text; got != want {
+	first[0] = mustRender(t, "caller mutation", look())[0]
+	if got := mustOpen(t, &stream)[0].Rows(40)[0].Text; got != want {
 		t.Fatalf("cached open rendering changed to %q, want %q", got, want)
 	}
 }
@@ -147,10 +147,10 @@ func TestStreamLookIsOwnedAndInvalidatesTheOpenRendering(t *testing.T) {
 	headings := []grid.Style{{Attr: grid.Bold}}
 	var stream markdown.Stream
 	stream.SetLook(markdown.Look{Headings: headings})
-	stream.Feed("# heading")
+	mustFeed(t, &stream, "# heading")
 
 	style := func() grid.Style {
-		blocks := stream.Open()
+		blocks := mustOpen(t, &stream)
 		if len(blocks) == 0 || blocks[0].HeightForWidth(40) == 0 {
 			t.Fatalf("open heading = %+v", blocks)
 		}
@@ -258,7 +258,7 @@ func TestATableBecomesLabeledRecordsWhenColumnsStopReading(t *testing.T) {
 
 func TestATableWrapsCellsInsideAllocatedColumnsWithoutLosingLinks(t *testing.T) {
 	source := "| label | target |\n| --- | --- |\n| row | [documentation](https://example.test) |"
-	blocks := markdown.Render(source, look())
+	blocks := mustRender(t, source, look())
 	doc := &markdown.Doc{}
 	doc.SetBlocks(blocks)
 	const width = 16
@@ -290,7 +290,7 @@ func TestATableLayoutStaysInsideEveryUsableWidth(t *testing.T) {
 		"| :--- | :---: | ---: |\n" +
 		"| 名称 | 東京 and a considerably longer value | ✅ |\n" +
 		"| emoji | 👩🏽‍💻 handles grapheme clusters | ready |"
-	blocks := markdown.Render(source, look())
+	blocks := mustRender(t, source, look())
 	doc := &markdown.Doc{}
 	doc.SetBlocks(blocks)
 	for width := 2; width <= 64; width++ {
@@ -307,7 +307,7 @@ func TestATableLayoutStaysInsideEveryUsableWidth(t *testing.T) {
 func TestTheWordsCarryWhereTheyPoint(t *testing.T) {
 	// A hyperlink survives the wrap and reaches the cells, which is what a terminal
 	// is told and what makes the words themselves clickable.
-	blocks := markdown.Render("see [the docs](http://x/y) for more", look())
+	blocks := mustRender(t, "see [the docs](http://x/y) for more", look())
 	doc := &markdown.Doc{}
 	doc.SetBlocks(blocks)
 	s := grid.NewSurface(40, doc.HeightForWidth(40))
@@ -327,7 +327,7 @@ func TestTheWordsCarryWhereTheyPoint(t *testing.T) {
 	})
 	spelled := look()
 	spelled.Target = grid.Style{Attr: grid.Dim}
-	equal(t, rows(t, 40, markdown.Render("see [the docs](http://x/y) for more", spelled)), []string{
+	equal(t, rows(t, 40, mustRender(t, "see [the docs](http://x/y) for more", spelled)), []string{
 		"see the docs (http://x/y) for more",
 	})
 
@@ -361,9 +361,9 @@ func TestAStreamComesToTheSameThingHoweverItArrives(t *testing.T) {
 		stream.SetLook(look())
 		var blocks []markdown.Block
 		for i := 0; i < len(source); i += size {
-			blocks = append(blocks, stream.Feed(source[i:min(i+size, len(source))])...)
+			blocks = append(blocks, mustFeed(t, &stream, source[i:min(i+size, len(source))])...)
 		}
-		blocks = append(blocks, stream.Flush()...)
+		blocks = append(blocks, mustFlush(t, &stream)...)
 		if got := rows(t, 28, blocks); !slices.Equal(got, want) {
 			t.Fatalf("in chunks of %d:\n%s\nwhole:\n%s",
 				size, strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -377,16 +377,16 @@ func TestAStreamPublishesWhatIsFinishedAndHoldsWhatIsNot(t *testing.T) {
 
 	// A paragraph is not finished by a blank line alone: a list, and a block of code
 	// written with an indent, both carry on across one.
-	if got := stream.Feed("- one\n\n"); len(got) != 0 {
+	if got := mustFeed(t, &stream, "- one\n\n"); len(got) != 0 {
 		t.Fatalf("a blank line published %d blocks before anything followed it", len(got))
 	}
-	if got := stream.Feed("  more of one\n\nnext\n"); len(got) == 0 {
+	if got := mustFeed(t, &stream, "  more of one\n\nnext\n"); len(got) == 0 {
 		t.Fatal("a line at the left margin published nothing")
 	}
 	// What is still arriving is rendered as what it says so far, which is what a
 	// reader sees while it is being written.
-	stream.Feed("## a heading half w")
-	if got := rows(t, 30, stream.Open()); len(got) == 0 || got[len(got)-1] != "a heading half w" {
+	mustFeed(t, &stream, "## a heading half w")
+	if got := rows(t, 30, mustOpen(t, &stream)); len(got) == 0 || got[len(got)-1] != "a heading half w" {
 		t.Fatalf("the open part reads as %q", got)
 	}
 }
@@ -395,19 +395,19 @@ func TestStreamOpenWaitsForCompleteUTF8(t *testing.T) {
 	for _, source := range []string{"I’ll read 中文 🌍", "# 中文", "```text\n中文 🌍"} {
 		var stream markdown.Stream
 		for i := range len(source) {
-			stream.Feed(source[i : i+1])
-			for _, row := range rows(t, 40, stream.Open()) {
+			mustFeed(t, &stream, source[i:i+1])
+			for _, row := range rows(t, 40, mustOpen(t, &stream)) {
 				if !utf8.ValidString(row) || strings.ContainsRune(row, utf8.RuneError) {
 					t.Fatalf("prefix %q rendered as %q", source[:i+1], row)
 				}
 			}
 		}
-		equal(t, rows(t, 40, stream.Flush()), render(t, 40, source))
+		equal(t, rows(t, 40, mustFlush(t, &stream)), render(t, 40, source))
 	}
 	var stream markdown.Stream
-	stream.Feed("word \xe2\x80")
-	equal(t, rows(t, 40, stream.Open()), []string{"word"})
-	equal(t, rows(t, 40, stream.Flush()), []string{"word �"})
+	mustFeed(t, &stream, "word \xe2\x80")
+	equal(t, rows(t, 40, mustOpen(t, &stream)), []string{"word"})
+	equal(t, rows(t, 40, mustFlush(t, &stream)), []string{"word �"})
 }
 
 func TestMarkdownReplacesMalformedUTF8(t *testing.T) {
@@ -415,16 +415,16 @@ func TestMarkdownReplacesMalformedUTF8(t *testing.T) {
 	want := []string{"bad �", "", "�"}
 	equal(t, render(t, 40, source), want)
 	var stream markdown.Stream
-	stream.Feed(source)
-	equal(t, rows(t, 40, stream.Open()), want)
+	mustFeed(t, &stream, source)
+	equal(t, rows(t, 40, mustOpen(t, &stream)), want)
 }
 
 func TestAStreamKeepsThePendingCutInsideItsNewTail(t *testing.T) {
 	var stream markdown.Stream
-	if got := stream.Feed("one\n\ntwo\n\n"); len(got) != 1 || got[0].Rows(20)[0].Text != "one" {
+	if got := mustFeed(t, &stream, "one\n\ntwo\n\n"); len(got) != 1 || got[0].Rows(20)[0].Text != "one" {
 		t.Fatalf("first publication = %+v", got)
 	}
-	if got := stream.Feed("three\n"); len(got) != 1 || got[0].Rows(20)[0].Text != "two" {
+	if got := mustFeed(t, &stream, "three\n"); len(got) != 1 || got[0].Rows(20)[0].Text != "two" {
 		t.Fatalf("second publication = %+v", got)
 	}
 }
@@ -434,10 +434,10 @@ func TestAStreamNeverCutsInsideCode(t *testing.T) {
 	// there would publish half a function and render the rest as prose.
 	var stream markdown.Stream
 	stream.SetLook(look())
-	if got := stream.Feed("```\none\n\ntwo\n\nthree\n"); len(got) != 0 {
+	if got := mustFeed(t, &stream, "```\none\n\ntwo\n\nthree\n"); len(got) != 0 {
 		t.Fatalf("%d blocks were published from inside a fence", len(got))
 	}
-	if got := stream.Feed("```\n\nafter\n"); len(got) == 0 {
+	if got := mustFeed(t, &stream, "```\n\nafter\n"); len(got) == 0 {
 		t.Fatal("a closed fence published nothing")
 	}
 }

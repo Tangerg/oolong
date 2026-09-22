@@ -134,7 +134,7 @@ func (t *Table[T]) reorder() {
 			moved = at
 		}
 	}
-	t.items = items
+	t.List.SetItems(items)
 	if moved >= 0 {
 		t.Select(moved)
 	}

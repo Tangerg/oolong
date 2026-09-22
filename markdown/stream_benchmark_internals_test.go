@@ -16,7 +16,7 @@ func BenchmarkOpenMarkdownUpdate(b *testing.B) {
 		b.Run(fmt.Sprintf("tail=%d", size), func(b *testing.B) {
 			tail := "```text\n" + strings.Repeat("streaming text ", size/15)
 			var stream Stream
-			stream.Feed(tail)
+			mustFeed(b, &stream, tail)
 			b.ReportAllocs()
 			b.ReportMetric(float64(len(tail)), "tail-bytes/update")
 			for b.Loop() {
@@ -24,7 +24,7 @@ func BenchmarkOpenMarkdownUpdate(b *testing.B) {
 				// directly holds the tail size constant, so Go's adaptive benchmark
 				// calibration measures the render rather than an ever-growing input.
 				stream.fresh = false
-				benchmarkBlocks = stream.Open()
+				benchmarkBlocks = mustOpen(b, &stream)
 			}
 		})
 	}
@@ -35,11 +35,11 @@ func BenchmarkOpenMarkdownUpdate(b *testing.B) {
 // frame; the second call must not parse it again.
 func BenchmarkOpenMarkdownCachedRead(b *testing.B) {
 	var stream Stream
-	stream.Feed("```text\n" + strings.Repeat("streaming text ", 4<<10/15))
-	stream.Open()
+	mustFeed(b, &stream, "```text\n"+strings.Repeat("streaming text ", 4<<10/15))
+	mustOpen(b, &stream)
 
 	b.ReportAllocs()
 	for b.Loop() {
-		benchmarkBlocks = stream.Open()
+		benchmarkBlocks = mustOpen(b, &stream)
 	}
 }

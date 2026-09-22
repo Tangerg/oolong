@@ -112,11 +112,7 @@ func (l Line) String() string {
 
 // Width is how many columns the line would occupy unwrapped, with tabs expanded.
 func (l Line) Width() int {
-	col := 0
-	for _, s := range l {
-		col = advance(s.Text, col)
-	}
-	return col
+	return advance(l.String(), 0)
 }
 
 // Draw writes the line onto v at (x, y) and returns how many columns it advanced.
@@ -128,14 +124,16 @@ func (l Line) Width() int {
 // two is stamped on both halves, which is how one hyperlink covers two rows.
 func (l Line) Draw(v grid.View, x, y int) int {
 	col := 0
-	for _, s := range l {
-		for _, piece := range expand(s.Text, &col) {
-			at := layout.Translate(x, piece.at)
-			width := v.Text(at, y, piece.text, s.Style)
-			if s.Link != "" {
-				v.Link(at, y, width, s.Link)
-			}
+	for _, u := range l.units() {
+		at := layout.Translate(x, col)
+		width := u.width
+		if u.linked {
+			v.Text(at, y, u.cluster, u.source.Style)
 		}
+		if u.linked && u.source.Link != "" {
+			v.Link(at, y, width, u.source.Link)
+		}
+		col = layout.Sum(col, u.width)
 	}
 	return col
 }
@@ -430,40 +428,47 @@ func (l Line) units() []unit {
 	}
 	units := make([]unit, 0, capacity)
 	col, at := 0, 0
-	for i := range l {
-		s := &l[i]
-		g := uniseg.NewGraphemes(s.Text)
-		for g.Next() {
-			cluster := g.Str()
-			switch {
-			case cluster == "\t":
-				n := TabStop - col%TabStop
-				for range n {
-					units = append(units, unit{
-						cluster: " ", source: s, width: 1, space: true,
-						at: at, size: len(cluster),
-					})
-				}
-				col = layout.Sum(col, n)
-			case dropped(cluster):
-				// A control character has no width to lay out and no business
-				// reaching a cell.
-			case cluster == " ":
-				units = append(units, unit{
-					cluster: " ", source: s, linked: true, width: 1, space: true,
-					at: at, size: len(cluster),
-				})
-				col++
-			default:
-				w := clusterWidth(cluster)
-				units = append(units, unit{
-					cluster: cluster, source: s, linked: true, width: w,
-					at: at, size: len(cluster),
-				})
-				col = layout.Sum(col, w)
-			}
-			at += len(cluster)
+	spanIndex, spanEnd := 0, 0
+	if len(l) > 0 {
+		spanEnd = len(l[0].Text)
+	}
+	g := uniseg.NewGraphemes(l.String())
+	for g.Next() {
+		for spanIndex+1 < len(l) && at >= spanEnd {
+			spanIndex++
+			spanEnd += len(l[spanIndex].Text)
 		}
+		// A cell has one appearance; the span containing the cluster start owns it.
+		s := &l[spanIndex]
+		cluster := g.Str()
+		switch {
+		case cluster == "\t":
+			n := TabStop - col%TabStop
+			for range n {
+				units = append(units, unit{
+					cluster: " ", source: s, width: 1, space: true,
+					at: at, size: len(cluster),
+				})
+			}
+			col = layout.Sum(col, n)
+		case dropped(cluster):
+			// A control character has no width to lay out and no business
+			// reaching a cell.
+		case cluster == " ":
+			units = append(units, unit{
+				cluster: " ", source: s, linked: true, width: 1, space: true,
+				at: at, size: len(cluster),
+			})
+			col++
+		default:
+			w := clusterWidth(cluster)
+			units = append(units, unit{
+				cluster: cluster, source: s, linked: true, width: w,
+				at: at, size: len(cluster),
+			})
+			col = layout.Sum(col, w)
+		}
+		at += len(cluster)
 	}
 	return units
 }
@@ -519,49 +524,6 @@ func (u unit) link() string {
 
 func (u unit) sameRun(other unit) bool {
 	return u.style() == other.style() && u.link() == other.link()
-}
-
-// piece is a run of text and the column it starts at, after tab expansion.
-type piece struct {
-	at   int
-	text string
-}
-
-// expand splits s into drawable pieces, turning tabs into the gaps they stand
-// for and advancing col past everything it produced.
-func expand(s string, col *int) []piece {
-	if !strings.ContainsAny(s, "\t") {
-		p := []piece{{at: *col, text: s}}
-		*col = advance(s, *col)
-		return p
-	}
-	var pieces []piece
-	var run strings.Builder
-	start := *col
-	flush := func() {
-		if run.Len() == 0 {
-			return
-		}
-		pieces = append(pieces, piece{at: start, text: run.String()})
-		run.Reset()
-	}
-	g := uniseg.NewGraphemes(s)
-	for g.Next() {
-		cluster := g.Str()
-		if cluster == "\t" {
-			flush()
-			*col = layout.Sum(*col, TabStop-*col%TabStop)
-			start = *col
-			continue
-		}
-		if run.Len() == 0 {
-			start = *col
-		}
-		run.WriteString(cluster)
-		*col = layout.Sum(*col, clusterWidth(cluster))
-	}
-	flush()
-	return pieces
 }
 
 // advance is where col ends up after s, with tabs expanded.

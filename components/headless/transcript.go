@@ -38,7 +38,8 @@ import (
 // Transcript must not be copied after first use: retained blocks and pending layout
 // are one publication owner.
 type Transcript struct {
-	noCopy noCopy
+	releasedPrefix int
+	noCopy         noCopy
 
 	// transcriptState is embedded because these are the transcript's committed
 	// values, not a cache beside it. A frame derives another complete state and swaps
@@ -114,6 +115,9 @@ func (t *Transcript) Append(b Block) BlockID {
 		return id
 	}
 	height := t.measure(b)
+	if len(t.blocks) == cap(t.blocks) {
+		t.releasedPrefix = 0
+	}
 	t.blocks = append(t.blocks, placed{block: b, height: height, top: t.EndRow()})
 	t.rows = layout.Sum(t.rows, height)
 	return id
@@ -536,16 +540,20 @@ func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 // only after the unused prefix is larger than the live suffix makes repeated commits
 // amortized linear rather than copying the retained transcript on every block.
 func (t *Transcript) release(n int) {
+	allocation := cap(t.blocks) + t.releasedPrefix
 	clear(t.blocks[:n])
 	t.blocks = t.blocks[n:]
+	t.releasedPrefix += n
 	if len(t.blocks) == 0 {
+		t.releasedPrefix = 0
 		t.blocks = nil
 		return
 	}
-	if cap(t.blocks) <= 2*len(t.blocks)+64 {
+	if allocation <= 2*len(t.blocks)+64 {
 		return
 	}
 	blocks := make([]placed, len(t.blocks))
 	copy(blocks, t.blocks)
 	t.blocks = blocks
+	t.releasedPrefix = 0
 }

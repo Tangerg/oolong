@@ -18,6 +18,88 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Changed
+
+- Mermaid uses Windows Job Objects to own the CLI and browser process tree from
+  process creation through shutdown. npm command shims resolve to Node.js entry
+  points without shell evaluation. macOS retains native process-group cleanup.
+- The Mermaid example checks terminal image capabilities before upload and keeps
+  source readable on text-only terminals. Open-image, copy-path and copy-source
+  actions are available by keyboard and mouse. Explicitly exported image paths
+  remain usable after replacement and exit.
+
+- Add instance-local `core/content.Registry` and immutable `text.Block`. Markdown
+  composes passive content without flattening child layout. Embedded diagnostics
+  remain observable during finished and streaming rendering.
+- Add the independent `mermaid` PNG preparation module using an installed official
+  CLI on macOS, Linux and Windows 10+, with cancellation and resource limits; the Mermaid example owns
+  background preparation, generation acceptance, image upload and release.
+
+- Terminal shutdown restores raw mode independently of output backpressure, cancels
+  pending writes within its drain deadline, and joins the writer before returning.
+  Handover restores current title and progress state in output order.
+- Input expiry preserves partial UTF-8; paste limits cover every byte and preserve
+  rune boundaries. Kitty associated text, legacy Alt controls, modifier rejection,
+  mouse button validation and default wheel classification follow their contracts.
+  Incremental ANSI and CSI scanning retain progress across chunks.
+- Image placements own their cleanup across resize; image-only updates restore the
+  cursor and disable cell-only hardware scrolling. Text segmentation spans style
+  boundaries, and terminal text and link targets reject raw control bytes.
+- Editor replacement ranges, normalized edits, wrapped tabs and masked spans share
+  their actual text geometry. Form traversal and key sequences have one dispatcher.
+  Cross-field validation errors reserve and render their own row.
+- Dialog state controls dismissal; table and tree replacement invalidate stale
+  input. Pointer capture respects clipping and consumes cancelled gestures.
+  Transcript retention accounts for removed prefixes; gap-only search matches remain visible.
+- Markdown normalizes escaped text, entities and code spans; streaming handles CRLF
+  and raw HTML boundaries without retaining released fence buffers. LaTeX bounds
+  nesting, consumes one unbraced script atom, and rejects unsupported accents.
+- Charts handle finite extrema and fractional automatic domains. PTY screen output
+  is independent of grapheme chunk boundaries. Configured truncation glyphs are used
+  by fields, boxes, tables, palettes, settings and image alternatives.
+- Composer retains attachment payloads while undo or redo can reach them. File
+  previews run outside drawing and read bounded regular files. The run example
+  accepts the documented `--` separator. Release comparison failures stop the
+  release, and post-bump tests use the published dependency graph with `GOWORK=off`.
+- Program test text assertions request and await an ordered full repaint. Panic
+  cleanup does not invoke a failing component's draw method again.
+
+### Breaking API migration
+
+#### core
+
+- `program.ImageHost.ReleaseImage` is now required with signature
+  `ReleaseImage(graphics.Image) error`. Image hosts
+  own both transmission and release; applications call `runtime.Images().Release`
+  after removing the image from their view.
+- `graphics.Image.Paint` was removed. Create `image.Placement(nonzeroID)` and use
+  its `Paint` method. Placement IDs distinguish simultaneous uses of one image.
+- `graphics.Image.Erase` was removed. Use the placement's `Erase` to hide it while
+  retaining image data; call `Image.Release` when the image data is no longer needed.
+
+#### components
+
+- `kit.Image` accepts a `Placement` ID (zero selects 1). Use distinct IDs when
+  displaying the same image in multiple places.
+- `headless.Look.Ellipsis` controls truncation (empty means clip). Theme-generated
+  looks inherit the configured glyphs; custom looks must choose their marker.
+- Controlled dialogs may reject `Stack.Pop`, `Remove`, or `Clear`; the accessor is
+  authoritative and a rejected dismissal leaves its layer mounted.
+- Attachment owners can use `Editor.RetainedElementIDs` to retain payloads reachable
+  through current text, undo and redo. Call `ForgetHistory` when committing a draft.
+
+#### markdown
+
+- `markdown.Render` now returns `([]Block, error)`. Consume readable blocks even
+  when diagnostics are returned, and handle the error explicitly.
+- `markdown.Renderer` now returns `(grid.Drawable, error)`. Return a stable passive
+  child, optionally exposing `Rows(width) []text.Row`. Wrap highlighter lines with
+  `text.NewBlock`; return LaTeX formulas directly with `formula.Err()`.
+- `(*Stream).Feed`, `(*Stream).Open`, and `(*Stream).Flush` now
+  return `([]Block, error)`. Consume both values. `nil, nil` from an extension is an
+  error; return `markdown.ErrUnhandled` to explicitly display source, or an empty
+  drawable for zero rows. Pending asynchronous images must not be marked finished.
+
 ## [0.17.0] — 2026-09-13
 
 ### Changed

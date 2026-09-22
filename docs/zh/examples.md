@@ -68,8 +68,9 @@ go run ./examples/form | cat
 | 示例 | 运行 | 操作 | 重点 |
 | --- | --- | --- | --- |
 | [`markdown`](https://github.com/Tangerg/oolong/tree/main/examples/markdown) | `go run ./examples/markdown` | `q` 退出 | 完成块、测量、宽度相关布局 |
+| [`mermaid`](https://github.com/Tangerg/oolong/tree/main/examples/mermaid) | `go run ./examples/mermaid` | `r` 替换，`q` 退出 | 后台生成图表、拒绝过期结果、上传与释放图片 |
 | [`latex`](https://github.com/Tangerg/oolong/tree/main/examples/latex) | `go run ./examples/latex` | `q` 退出 | 独立公式、二维文本布局 |
-| [`content`](https://github.com/Tangerg/oolong/tree/main/examples/content) | `go run ./examples/content` | `q` 退出 | Markdown 组合 Highlight 与 LaTeX 平级渲染器 |
+| [`content`](https://github.com/Tangerg/oolong/tree/main/examples/content) | `go run ./examples/content` | `1`/`2`/`3` 选择格式；`q` 退出 | 顶层内容和 Markdown 扩展共用注册表 |
 
 请阅读[渲染 Markdown、代码与数学公式](content.md)，使用三个自然入口及消费方拥有的组合接缝。
 

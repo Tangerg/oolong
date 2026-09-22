@@ -273,10 +273,18 @@ func (c *chat) accept(batch program.ByteBatch) {
 }
 
 func (c *chat) acceptMarkdown(chunk string) {
-	if stable := c.stream.Feed(chunk); len(stable) > 0 {
+	stable, err := c.stream.Feed(chunk)
+	if err != nil {
+		c.appendFinished(&kit.Entry{Theme: c.theme, Label: "render", Body: err.Error()})
+	}
+	if len(stable) > 0 {
 		c.finishOpen(stable)
 	}
-	c.stageOpen(c.stream.Open())
+	open, err := c.stream.Open()
+	if err != nil {
+		c.status.Doing = err.Error()
+	}
+	c.stageOpen(open)
 }
 
 // finishOpen converts the existing open tail into one immutable stable block. The
@@ -315,7 +323,9 @@ func (c *chat) stageOpen(blocks []markdown.Block) {
 }
 
 func (c *chat) finishReply(err error) {
-	if stable := c.stream.Flush(); len(stable) > 0 {
+	stable, renderErr := c.stream.Flush()
+	err = errors.Join(err, renderErr)
+	if len(stable) > 0 {
 		c.finishOpen(stable)
 	}
 	c.open, c.hasOpen = nil, false

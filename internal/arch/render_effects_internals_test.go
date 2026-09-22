@@ -19,6 +19,7 @@ import (
 // the new frame they are handed; these packages are where application-owned state,
 // callbacks and composition first meet that frame.
 var renderingPackages = []string{
+	"core/content",
 	"components/headless",
 	"components/kit",
 	"latex",

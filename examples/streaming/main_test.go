@@ -350,3 +350,5 @@ func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 
 // Commit's consumer contract remains structural across modules.
 var _ kit.Printer = (*program.InlineRuntime)(nil)
+
+func (h *host) ReleaseImage(graphics.Image) error { return nil }

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	xterm "golang.org/x/term"
 
@@ -86,9 +87,11 @@ type Config struct {
 // failed. A Terminal must not be copied after construction; the files, modes,
 // goroutines and restoration obligation are one session.
 type Terminal struct {
-	in, out  *os.File
-	modes    Modes
-	oldState *xterm.State
+	in, out     *os.File
+	inFD, outFD int
+	output      *terminalOutput
+	modes       Modes
+	oldState    *xterm.State
 
 	events chan input.Event
 	writer *Writer
@@ -206,7 +209,8 @@ func newTerminal(
 	oldState *xterm.State,
 ) *Terminal {
 	return &Terminal{
-		in:         in,
+		in:   in,
+		inFD: int(in.Fd()), outFD: int(out.Fd()),
 		out:        out,
 		modes:      cfg.Modes(lookup),
 		oldState:   oldState,
@@ -225,11 +229,20 @@ func newTerminal(
 // takeOver acquires the output-side resources in order. Any failure rolls back the
 // complete prefix already acquired, leaving start to run only for a usable session.
 func (t *Terminal) takeOver(inFD int) error {
-	if _, err := t.out.WriteString(t.modes.enter()); err != nil {
+	output, err := newTerminalOutput(t.out)
+	if err != nil {
+		return errors.Join(err, xterm.Restore(t.inFD, t.oldState))
+	}
+	t.output = output
+	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
+		return t.abortOpen(err)
+	}
+	defer func() { _ = t.output.SetWriteDeadline(time.Time{}) }()
+	if _, err := t.output.WriteString(t.modes.enter()); err != nil {
 		return t.abortOpen(fmt.Errorf("term: take over the terminal: %w", err))
 	}
 
-	t.writer = NewWriter(t.out)
+	t.writer = NewWriter(t.output)
 	waker, wakeErr := newWaker(inFD)
 	if wakeErr != nil {
 		return t.abortOpen(wakeErr)
@@ -261,7 +274,7 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	parser := &input.Parser{}
 	var early []input.Event
 	if cfg.Features.Probe {
-		pr := &probe{raw: raw, out: t.out, parser: parser}
+		pr := &probe{raw: raw, out: t.output, parser: parser}
 		t.said = pr.run()
 		early = pr.early
 	}
@@ -292,6 +305,9 @@ func (t *Terminal) abortOpen(cause error) error {
 		}
 	}
 	errs = append(errs, t.giveBack()...)
+	if t.output != nil {
+		errs = append(errs, t.output.Close())
+	}
 	return errors.Join(errs...)
 }
 
@@ -487,7 +503,7 @@ func (t *Terminal) ReportDirectory(path string) error {
 
 // Size is the terminal's size in cells.
 func (t *Terminal) Size() (w, h int, err error) {
-	return xterm.GetSize(int(t.out.Fd()))
+	return xterm.GetSize(t.outFD)
 }
 
 // CellSize is how many pixels one cell is, and whether the terminal said.
@@ -498,7 +514,7 @@ func (t *Terminal) Size() (w, h int, err error) {
 // invented cell size is a picture the wrong shape, and not showing one is the better
 // answer.
 func (t *Terminal) CellSize() (image.Point, bool) {
-	pxW, pxH, ok := windowPixels(int(t.out.Fd()))
+	pxW, pxH, ok := windowPixels(t.outFD)
 	if !ok {
 		return image.Point{}, false
 	}
@@ -510,7 +526,7 @@ func (t *Terminal) CellSize() (image.Point, bool) {
 }
 
 // Transmit sends a picture to the terminal and returns the handle it now knows it
-// by, which is what puts one in a frame — see [graphics.Image.Paint].
+// by, which is what puts one in a frame — see [graphics.Image.Placement].
 //
 // The number is this session's to allocate, because two pictures under one name are
 // one picture: nothing above this can know what else has been sent. It is sent
@@ -533,6 +549,17 @@ func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
 	}
 	t.writer.Queue(payload.Bytes())
 	return img, nil
+}
+
+// ReleaseImage queues deletion of transmitted image data and all its placements.
+// The caller must stop drawing the image before releasing it.
+func (t *Terminal) ReleaseImage(img graphics.Image) error {
+	var payload bytes.Buffer
+	if err := img.Release(&payload); err != nil {
+		return err
+	}
+	t.writer.Queue(payload.Bytes())
+	return nil
 }
 
 func imageID(id uint64) uint32 {
@@ -558,13 +585,22 @@ func (t *Terminal) Close() error {
 		<-t.resizeDone
 		<-t.task.done
 
-		// Frames first: the writer may still hold one, and writing it after the
-		// modes have been put back would draw onto the user's restored screen.
+		// Raw mode must settle independently of output backpressure. The same
+		// deadline covers queued frames and the final restore sequences.
 		var errs []error
-		if err := t.writer.Close(); err != nil {
-			errs = append(errs, err)
+		if err := xterm.Restore(t.inFD, t.oldState); err != nil {
+			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
 		}
-		errs = append(errs, t.giveBack()...)
+		errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+		t.writer.Queue([]byte(t.task.leave() + t.title.leave() + t.modes.leave()))
+		errs = append(errs, t.writer.Close())
+		// Deadline cancellation ends the active write before another display owner
+		// can emit output. No abandoned writer can later publish an old frame.
+		<-t.writer.loopDone
+		errs = append(errs, t.writer.Err())
+		if err := t.output.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
+		}
 		// The pump owns the event channel, so it has to have finished before anyone
 		// could observe the channel closed.
 		<-t.pumpDone
@@ -573,21 +609,16 @@ func (t *Terminal) Close() error {
 	return t.closeErr
 }
 
-// giveBack puts the terminal back the way it was found: every mode this session
-// turned on, turned off in the opposite order, and then cooked mode.
-//
-// It is the whole of what taking a terminal over has to be undone by, which is why
-// closing the session and handing it to a child both go through here. Two of these
-// would drift, and the way they would drift is one of them forgetting a mode — a
-// terminal the user has to close.
+// giveBack restores modes during startup rollback or a handover. The caller owns
+// an output deadline; Close instead queues these sequences behind pending frames.
 func (t *Terminal) giveBack() []error {
 	var errs []error
 	// Session metadata is cleared before modes, so neither a task nor a title leaks
 	// into the next owner.
-	if _, err := t.out.WriteString(t.task.leave() + t.title.leave() + t.modes.leave()); err != nil {
+	if _, err := t.output.WriteString(t.task.leave() + t.title.leave() + t.modes.leave()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
 	}
-	if err := xterm.Restore(int(t.in.Fd()), t.oldState); err != nil {
+	if err := xterm.Restore(t.inFD, t.oldState); err != nil {
 		errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
 	}
 	return errs

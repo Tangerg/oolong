@@ -33,16 +33,19 @@ func main() {
 }
 
 type markdownScreen struct {
-	runtime *program.Runtime
-	theme   kit.Theme
-	doc     markdown.Doc
+	runtime   *program.Runtime
+	theme     kit.Theme
+	doc       markdown.Doc
+	renderErr error
 }
 
 func newMarkdown(runtime *program.Runtime) *markdownScreen {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	screen := &markdownScreen{runtime: runtime, theme: theme}
-	screen.doc.SetBlocks(markdown.Render(markdownSource, markdownlook.New(theme, glyphs)))
+	blocks, err := markdown.Render(markdownSource, markdownlook.New(theme, glyphs))
+	screen.renderErr = err
+	screen.doc.SetBlocks(blocks)
 	return screen
 }
 
@@ -54,6 +57,10 @@ func (s *markdownScreen) Draw(view grid.View) {
 	}))
 	kit.Label{Text: "Markdown", Style: s.theme.Heading}.Draw(rows[0])
 	s.doc.Draw(rows[1])
+	if s.renderErr != nil {
+		kit.Label{Text: s.renderErr.Error(), Style: s.theme.Danger}.Draw(rows[2])
+		return
+	}
 	kit.Label{Text: "q quits · Render → Blocks → Doc", Style: s.theme.Subtle}.Draw(rows[2])
 }
 

@@ -30,6 +30,9 @@ type Image struct {
 	// Of is the picture, as the terminal knows it. The zero value is no picture,
 	// which draws the alternative text.
 	Of graphics.Image
+	// Placement is the placement identity within Of. Zero uses 1; simultaneous
+	// views of one image must choose distinct nonzero identities.
+	Placement uint32
 	// Cell is how many pixels one terminal cell is, as reported by the host.
 	// The zero value is a terminal that never said, which draws the alternative text:
 	// a picture scaled by an invented cell size is a picture the wrong shape.
@@ -45,7 +48,8 @@ type Image struct {
 	Align layout.Align
 	// Theme is the look of the alternative text, which is text present for reference
 	// rather than for reading.
-	Theme Theme
+	Theme  Theme
+	Glyphs Glyphs
 }
 
 // defaultMaxRows is how tall a picture is allowed to be when nothing said: about a
@@ -69,14 +73,19 @@ func (i Image) Draw(v grid.View) {
 	}
 	cols, rows, ok := i.fit(width)
 	if !ok {
-		Label{Text: i.Alt, Style: i.Theme.Muted, Align: i.Align, Ellipsis: "…"}.Draw(v)
+		Label{Text: i.Alt, Style: i.Theme.Muted, Align: i.Align, Ellipsis: i.Glyphs.Ellipsis}.Draw(v)
 		return
 	}
 	at := i.Align.Offset(width, cols)
 	// The identity is the picture's own: two frames that show the same picture in the
 	// same place say nothing between them, which is what a terminal wants to hear
 	// about something it is already showing.
-	v.Paint(grid.Rect(at, 0, cols, min(rows, height)), uint64(i.Of.ID), i.Of)
+	placement := i.Placement
+	if placement == 0 {
+		placement = 1
+	}
+	id := uint64(i.Of.ID)<<32 | uint64(placement)
+	v.Paint(grid.Rect(at, 0, cols, min(rows, height)), id, i.Of.Placement(placement))
 }
 
 // fit is the box the picture should occupy at a width, and whether there is a

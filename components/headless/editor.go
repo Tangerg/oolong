@@ -276,6 +276,8 @@ func (e *Editor) reconcileEdit(s string) {
 		return
 	}
 
+	// Accepted text owns edit coordinates; normalization ends kill/yank continuation.
+	e.breakContinuation()
 	cursor := reconciledOffset(requested, s, e.offsetOf(Caret{Line: e.line, Col: e.col}))
 	anchor := reconciledOffset(requested, s, e.offsetOf(e.anchor))
 	rowEnd := reconciledOffset(requested, s, e.offsetOf(e.rowEnd))
@@ -707,10 +709,12 @@ func (e *Editor) Yank() {
 	if selected, _, ok := e.Selection(); ok {
 		start = selected
 	}
+	killed = e.canonicalText(killed)
+	offset := e.offsetOf(start)
 	e.Insert(killed)
 	e.yank = editorYank{
 		start: start,
-		end:   Caret{Line: e.line, Col: e.col},
+		end:   e.caretAt(offset + len(killed)),
 	}
 	e.continuation = editorContinuationYank
 }
@@ -729,6 +733,7 @@ func (e *Editor) YankPop() {
 		return
 	}
 	yank := e.yank
+	offset := e.offsetOf(yank.start)
 	killed, changed := e.prepareReplacement(yank.start, yank.end, killed)
 	if changed {
 		e.snapshot()
@@ -738,7 +743,7 @@ func (e *Editor) YankPop() {
 	}
 	e.yank = editorYank{
 		start: yank.start,
-		end:   Caret{Line: e.line, Col: e.col},
+		end:   e.caretAt(offset + len(killed)),
 		ring:  next,
 	}
 	e.continuation = editorContinuationYank

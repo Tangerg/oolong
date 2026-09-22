@@ -310,7 +310,7 @@ fi
 # tagged — which is the coordinated change these phases exist to make possible.
 # Checking everything first refuses exactly the releases this script was written for.
 compatibility() {
-	local module="$1" previous base suggestion
+	local module="$1" previous base report status
 	if ! previous=$(git tag --list "$module/v*" --sort=-v:refname | sed -n '1p'); then
 		die "released tags cannot be inspected for $module."
 	fi
@@ -322,9 +322,13 @@ compatibility() {
 	if [[ "$version" == v0.* ]]; then
 		(cd "$module" && GOWORK=off "$gorelease_bin" -base=none -version="$version" >/dev/null) ||
 			die "$module: $version is not a usable version for this module."
-		suggestion=$(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" 2>&1 |
-			grep -i 'Suggested version' || true)
-		printf '%s\n' "${suggestion:-reported by CI; advice only before 1.0}"
+		if report=$(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" 2>&1); then
+			printf '%s\n' "$report"
+		else
+			status=$?
+			printf '%s\n' "$report" >&2
+			die "$module: compatibility comparison failed (status $status)."
+		fi
 	else
 		(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" -version="$version" >/dev/null) ||
 			die "$module: $version violates Go compatibility against $base."
@@ -436,8 +440,8 @@ for ((phase = 1; phase <= phases; phase++)); do
 		for index in "${!order[@]}"; do
 			[[ "${phase_of[index]}" == "$phase" ]] || continue
 			module="${order[index]}"
-			(cd "$module" && go mod tidy -diff >/dev/null 2>&1) || die "$module is not tidy after the bump."
-			(cd "$module" && go test -count=1 ./... >/dev/null) || die "$module fails after the bump."
+			(cd "$module" && GOWORK=off go mod tidy -diff >/dev/null 2>&1) || die "$module is not tidy after the bump."
+			(cd "$module" && GOWORK=off go test -count=1 ./... >/dev/null) || die "$module fails after the bump."
 		done
 		git add -A
 		git commit --quiet -m "build: point phase $phase at $version

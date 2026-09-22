@@ -3,6 +3,7 @@ package ansi
 import (
 	"errors"
 	"strings"
+	"unicode/utf8"
 )
 
 // ErrSequenceTooLong means an unfinished escape sequence crossed the amount a
@@ -23,8 +24,10 @@ const maxPending = 1 << 16
 // A Scanner belongs to one goroutine and must not be copied after its first use.
 // Its zero value is ready to use.
 type Scanner struct {
-	noCopy noCopy
-	held   strings.Builder
+	noCopy        noCopy
+	held          strings.Builder
+	scanned       int
+	intermediates bool
 }
 
 // noCopy makes the scanner's single-owner contract visible to go vet. Its methods
@@ -57,13 +60,20 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 	if buffered {
 		s.held.WriteString(chunk)
 		source = s.held.String()
+		if s.incomplete(source) {
+			if len(source) > maxPending {
+				s.Reset()
+				return ErrSequenceTooLong
+			}
+			return nil
+		}
 	}
 	for at := 0; at < len(source); {
 		piece, n, ok := Next(source[at:])
 		if !ok {
 			tail := source[at:]
 			if len(tail) > maxPending {
-				s.held.Reset()
+				s.Reset()
 				return ErrSequenceTooLong
 			}
 			if buffered && at == 0 {
@@ -74,11 +84,11 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 		}
 		at += n
 		if err := visit(piece); err != nil {
-			s.held.Reset()
+			s.Reset()
 			return err
 		}
 	}
-	s.held.Reset()
+	s.Reset()
 	return nil
 }
 
@@ -87,10 +97,57 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 func (s *Scanner) Pending() string { return s.held.String() }
 
 // Reset drops an undecided suffix and returns the Scanner to its zero state.
-func (s *Scanner) Reset() { s.held.Reset() }
+func (s *Scanner) Reset() {
+	s.held.Reset()
+	s.scanned = 0
+	s.intermediates = false
+}
 
 func (s *Scanner) hold(tail string) {
-	s.held.Reset()
+	s.Reset()
 	s.held.Grow(len(tail))
 	s.held.WriteString(tail)
+}
+
+// incomplete scans only the newly arrived suffix. Next constructs the piece once
+// its terminator is known, so one-byte feeds do not repeatedly scan the prefix.
+func (s *Scanner) incomplete(source string) bool {
+	if source[0] != Escape {
+		return !utf8.FullRuneInString(source)
+	}
+	if len(source) < 2 {
+		return true
+	}
+	start := 1
+	if source[1] == '[' || introduces(source[1]) {
+		start = 2
+	}
+	if s.scanned < start {
+		s.scanned = start
+	}
+	for s.scanned < len(source) {
+		at := s.scanned
+		b := source[at]
+		switch {
+		case source[1] == '[':
+			if intermediate(b) {
+				s.intermediates = true
+			} else if !parameter(b) || s.intermediates {
+				return false
+			}
+		case introduces(source[1]):
+			if b == Bell {
+				return false
+			}
+			if b == Escape {
+				return at+1 == len(source)
+			}
+		default:
+			if !intermediate(b) {
+				return false
+			}
+		}
+		s.scanned++
+	}
+	return true
 }

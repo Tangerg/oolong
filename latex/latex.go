@@ -174,8 +174,9 @@ type Formula struct {
 
 // Render lays out source. Source is the body of one math expression; surrounding
 // $, $$, \( and \[ delimiters are not part of it. To keep untrusted input off the
-// goroutine stack, brace-group and consecutive-script nesting beyond 256 levels is
-// reported through [Formula.Err] and shown as source.
+// goroutine stack, structural group nesting and rendered AST depth are bounded
+// at 256 levels. Missing script atoms and unsupported accents are reported through
+// [Formula.Err] and shown as source.
 func Render(source string, look Look) *Formula {
 	look = look.normalized()
 	f := &Formula{source: strings.Clone(source), look: look}

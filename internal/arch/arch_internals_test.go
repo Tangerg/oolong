@@ -67,12 +67,13 @@ var modules = map[string][]string{
 	// else's code, and this is where they are allowed to be — which is what the two
 	// modules above buy by refusing them.
 	"markdown":  {"github.com/yuin/goldmark"},
+	"mermaid":   {"golang.org/x/sys"},
 	"highlight": {"github.com/alecthomas/chroma"},
 	"latex":     {"codeberg.org/go-latex/latex"},
 	"internal":  nil,
 	"ptytest":   {"golang.org/x/sys"},
 	"ssh":       {"charm.land/ssh"},
-	"examples":  nil,
+	"examples":  {"golang.org/x/sys"},
 }
 
 // The repository root is deliberately not a module. A module is a unit of
@@ -89,6 +90,7 @@ var rings = []struct {
 	{"core/program/", "runtime"},
 	{"core/term/", "infrastructure"},
 	{"core/text/", "model"},
+	{"core/content/", "content"},
 	{"core/keymap/", "interaction"},
 	{"core/input/", "protocol"},
 	{"core/present/", "coordination"},
@@ -97,6 +99,7 @@ var rings = []struct {
 	{"components/kit/", "kit"},
 	{"components/internal/", "componentbase"},
 	{"markdown/", "markdown"},
+	{"mermaid/", "mermaid"},
 	{"highlight/", "highlight"},
 	{"latex/", "latex"},
 	{"ptytest/", "harness"},
@@ -121,6 +124,7 @@ var dependencies = map[string][]string{
 	// Styled text and frame coordination are independent derivations over the
 	// foundation, not vocabulary for one another.
 	"model":        {"foundation"},
+	"content":      {"foundation"},
 	"coordination": {"foundation"},
 
 	// The OS terminal adapts decoded protocols. Runtime composes that adapter with
@@ -143,6 +147,7 @@ var dependencies = map[string][]string{
 	// Optional content modules terminate at the common text model and remain peers:
 	// no parser, highlighter or typesetter owns another.
 	"markdown":  {"model"},
+	"mermaid":   nil,
 	"highlight": {"model"},
 	"latex":     {"model"},
 
@@ -151,7 +156,7 @@ var dependencies = map[string][]string{
 	// every public branch, but no production ring depends on either test layer.
 	"harness":  {"model"},
 	"ssh":      {"runtime"},
-	"examples": {"testharness", "kit", "markdown", "highlight", "latex", "harness", "ssh"},
+	"examples": {"mermaid", "content", "testharness", "kit", "markdown", "highlight", "latex", "harness", "ssh"},
 
 	// The architecture module contains only tests and imports no production ring.
 	"internal": nil,
@@ -373,6 +378,11 @@ func TestOnlyCoreOwnsCoreDependencies(t *testing.T) {
 			return
 		}
 		for _, imported := range imports(t, fset, path) {
+			// These adapters own external Windows processes, not terminal text,
+			// input or transport. Other packages and core dependencies stay barred.
+			if imported == "golang.org/x/sys/windows" && (dir == "mermaid" || dir == "examples/mermaid") {
+				continue
+			}
 			for _, dep := range modules["core"] {
 				if imported == dep || strings.HasPrefix(imported, dep+"/") {
 					t.Errorf("%s imports %s: only core may own a core implementation dependency",

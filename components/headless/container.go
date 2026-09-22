@@ -346,11 +346,7 @@ func (c *Container) flow() layout.Flow {
 // child did not want it. Anything nobody wanted is declined, so a container inside a
 // container passes what it cannot use back up rather than swallowing it.
 func (c *Container) Handle(ev input.Event) bool {
-	c.settle()
-	if mouse, ok := ev.(input.Mouse); ok {
-		return c.mouse(mouse)
-	}
-	if handler, ok := c.holder.(Interactive); ok && handler.Handle(ev) {
+	if c.handleChild(ev) {
 		return true
 	}
 	key, ok := ev.(input.Key)
@@ -359,6 +355,17 @@ func (c *Container) Handle(ev input.Event) bool {
 	}
 	_, handled := c.matcher.Handle(c.keys(), key, c.Do)
 	return handled
+}
+
+func (c *Container) handleChild(ev input.Event) bool {
+	c.settle()
+	if mouse, ok := ev.(input.Mouse); ok {
+		return c.mouse(mouse)
+	}
+	if handler, ok := c.holder.(Interactive); ok && handler.Handle(ev) {
+		return true
+	}
+	return false
 }
 
 // Do runs one of the container's actions by name, reporting whether the action
@@ -392,8 +399,6 @@ func (c *Container) mouse(ev input.Mouse) bool {
 				c.holding = false
 			}
 			if !found || c.currentIndex(current) < 0 {
-				c.held = childPlacement{}
-				c.holding = false
 				return false
 			}
 			return c.deliver(current, ev)

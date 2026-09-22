@@ -36,6 +36,8 @@
 package markdown
 
 import (
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 
@@ -48,9 +50,10 @@ import (
 // It draws into a grid view and is a
 // [grid.Drawable], which is what lets it go into a
 // slot, container or viewport belonging to a package this one has never heard of.
-// Copies detach block and row storage before either can be changed.
+// Copies detach block and layout storage before either can be changed. Embedded
+// content remains shared and must obey Renderer's stable-result contract.
 type Doc struct {
-	// blocks are private because every mutation must invalidate rows. Exposing this
+	// blocks are private because every mutation must invalidate placements. Exposing this
 	// slice made it possible to change the document while its cached wrap still
 	// described the old one.
 	blocks []Block
@@ -59,9 +62,9 @@ type Doc struct {
 	// other's logical document through a shared backing array.
 	blocksOwner *Doc
 
-	// rows memoises the wrap, which is asked for twice per frame — once to measure and
-	// once to draw — and is the most expensive thing this does.
-	rows    []row
+	// places is an immutable layout snapshot shared by measurement and drawing.
+	places  []placedBlock
+	height  int
 	atWidth int
 	fresh   bool
 }
@@ -95,7 +98,8 @@ func (d *Doc) ownBlocks() {
 
 // invalidate releases the immutable presentation snapshot.
 func (d *Doc) invalidate() {
-	d.rows = nil
+	d.places = nil
+	d.height = 0
 	d.fresh = false
 }
 
@@ -116,49 +120,59 @@ func (d *Doc) Blocks() []Block {
 	return slices.Clone(d.blocks)
 }
 
-// HeightForWidth is how many rows the document needs at this width.
-func (d *Doc) HeightForWidth(width int) int { return len(d.wrap(width)) }
+// HeightForWidth reports the composed physical height at width.
+func (d *Doc) HeightForWidth(width int) int { d.arrange(width); return d.height }
 
-// Draw writes the document, one wrapped row per row of v.
+// Draw delegates to each block using the same geometry as measurement and Rows.
 func (d *Doc) Draw(v grid.View) {
 	if v.Empty() {
 		return
 	}
 	width, _ := v.Size()
-	drawRows(v, d.wrap(width))
-}
-
-// Rows returns the meaningful text of each drawn row for selection and search.
-//
-// Markers and rails are decoration and stay out of Text. Offset carries the content
-// indent separately, so a selection addresses the same columns Draw used without
-// copying a bullet or quotation bar. The result uses core text vocabulary and does
-// not make markdown depend on a component package.
-func (d *Doc) Rows(width int) []text.Row {
-	return publicRows(d.wrap(width))
-}
-
-// wrap lays every block out at a width, once per width.
-func (d *Doc) wrap(width int) []row {
-	if d.fresh && d.atWidth == width {
-		return d.rows
-	}
-	// Wrapped rows are immutable memo snapshots. A new width gets new storage so a
-	// copied document cannot rewrite another value's cached presentation.
-	var rows []row
-	for _, block := range d.blocks {
-		if block.blankBefore && len(rows) > 0 {
-			rows = append(rows, row{})
+	d.arrange(width)
+	visible := v.Visible()
+	for _, placed := range d.places {
+		if placed.top >= visible.Max.Y || placed.top+placed.layout.height <= visible.Min.Y {
+			continue
 		}
-		rows = block.appendRows(rows, width)
+		placed.layout.draw(v.Sub(grid.Rect(0, placed.top, width, placed.layout.height)))
 	}
-	if len(rows) == 0 {
-		rows = nil
-	} else if cap(rows) > 2*len(rows)+16 {
-		rows = slices.Clone(rows)
+}
+
+// Rows projects visible text using the same block placements as Draw. A child
+// without Rows contributes blank physical rows, preserving selection coordinates.
+func (d *Doc) Rows(width int) []text.Row {
+	d.arrange(width)
+	rows := make([]text.Row, d.height)
+	for _, placed := range d.places {
+		copy(rows[placed.top:], placed.layout.project())
 	}
-	d.rows, d.atWidth, d.fresh = rows, width, true
 	return rows
+}
+
+type placedBlock struct {
+	top    int
+	layout blockLayout
+}
+
+func (d *Doc) arrange(width int) {
+	if d.fresh && d.atWidth == width {
+		return
+	}
+	var places []placedBlock
+	height := 0
+	for _, block := range d.blocks {
+		placed := block.layout(width)
+		if placed.height == 0 {
+			continue
+		}
+		if block.blankBefore && height > 0 {
+			height++
+		}
+		places = append(places, placedBlock{top: height, layout: placed})
+		height += placed.height
+	}
+	d.places, d.height, d.atWidth, d.fresh = places, height, width, true
 }
 
 // Look is how a document is drawn: a style for every part of one, and the characters
@@ -233,12 +247,33 @@ const (
 	DisplayMath
 )
 
-// Renderer turns one extension body into logical styled lines. Markdown retains the
-// layout semantics: fenced code wraps like code already did, while display
-// mathematics clips rather than reflowing its two-dimensional arrangement.
-// Returning nil asks Markdown to show the source in [Look.Block]; returning a
-// non-nil empty slice intentionally draws no rows.
-type Renderer func(info, source string) []text.Line
+// Renderer prepares one semantic block. The result owns layout and may optionally
+// implement Rows(width int) []text.Row. Its semantics must remain stable for the
+// lifetime of every published Block: replace content rather than mutating it.
+// Calls are synchronous preparation, never Draw/HeightForWidth/Rows callbacks.
+// Expensive backends must be prepared separately and return accepted snapshots.
+// A result and error may coexist. ErrUnhandled explicitly requests source text;
+// nil content without an error violates this contract.
+type Renderer func(info, source string) (grid.Drawable, error)
+
+// ErrUnhandled explicitly declines an extension body; Markdown displays its source.
+var ErrUnhandled = errors.New("markdown: extension not handled")
+
+// ExtensionError locates an extension failure in the blocks returned by one
+// Render, Feed, Open or Flush call. Block is a zero-based index in that result.
+type ExtensionError struct {
+	Block     int
+	Extension Extension
+	Info      string
+	Err       error
+}
+
+func (e *ExtensionError) Error() string {
+	return fmt.Sprintf("markdown: block %d extension %d (%s): %v", e.Block, e.Extension, e.Info, e.Err)
+}
+
+// Unwrap preserves the backend's diagnostic identity.
+func (e *ExtensionError) Unwrap() error { return e.Err }
 
 // SetRenderer sets the sole renderer for extension. A nil renderer removes it.
 //

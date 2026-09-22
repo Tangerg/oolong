@@ -182,8 +182,8 @@ func (p *prompt) insertPaste(body string) {
 
 func (p *prompt) releaseRemovedPastes() {
 	live := make(map[uint64]struct{})
-	for _, element := range p.composer.Editor().Elements() {
-		live[element.ID] = struct{}{}
+	for _, id := range p.composer.Editor().RetainedElementIDs() {
+		live[id] = struct{}{}
 	}
 	for id := range p.pastes {
 		if _, ok := live[id]; !ok {
@@ -197,7 +197,12 @@ func (p *prompt) submit() {
 	if body == "" {
 		return
 	}
-	attached := len(p.pastes)
+	attached := 0
+	for _, element := range p.composer.Editor().Elements() {
+		if _, ok := p.pastes[element.ID]; ok {
+			attached++
+		}
+	}
 	p.history.Add(body)
 	p.output.SetText([]text.Line{
 		text.Of("sent: "+body, p.theme.Text),
@@ -205,6 +210,7 @@ func (p *prompt) submit() {
 	})
 	p.status = "submitted; up restores it without losing the current draft"
 	p.composer.Editor().Clear()
+	p.composer.Editor().ForgetHistory()
 	p.completion.Dismiss()
 	clear(p.pastes)
 }

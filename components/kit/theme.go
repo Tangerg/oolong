@@ -91,6 +91,7 @@ func (s Scrim) Over(v grid.View) { v.Blend(v.Bounds(), s.Color, s.Opacity) }
 // looks like.
 func (t Theme) Look(g Glyphs) headless.Look {
 	return headless.Look{
+		Ellipsis:  g.Ellipsis,
 		Text:      t.Text,
 		Label:     t.Strong,
 		Subtle:    t.Subtle,

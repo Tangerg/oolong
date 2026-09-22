@@ -318,6 +318,7 @@ flowchart BT
     Headless --> ComponentIdentity
     Kit["default appearance"] --> Headless
     Kit --> ComponentIdentity
+    Content["explicit content dispatch"] --> Foundation
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     Latex["mathematical layout"] --> Model
@@ -329,6 +330,8 @@ flowchart BT
     App --> Markdown
     App --> Highlight
     App --> Latex
+    App --> Content
+    App --> Mermaid["neutral PNG preparation"]
 ```
 
 组件身份不是第五层公开阶梯。它是一个模块私有的实现包，唯一职责是在不要求外部
@@ -338,7 +341,9 @@ headless 路由与 kit 所有权转移都需要这条规则；焦点、指针和
 
 同级内容模块通过消费方拥有的语义块接缝组合，而不是彼此 import。Markdown 拥有
 语法识别，并暴露 fenced code、display mathematics 这类稳定语义；renderer 只接收
-info 字符串、source 与 `core/text` 值。Goldmark node、LaTeX AST node、Chroma lexer
+info 字符串和 source，返回被动 `core/grid.Drawable` 及显式错误。可选的
+`Rows(width) []text.Row` 提供文本投影。`core/content` 拥有实例内的格式分派，
+应用显式绑定独立模块。Mermaid 在 worker 中准备中立 PNG，只有应用 owner 上传和释放终端图片。Goldmark node、LaTeX AST node、Chroma lexer
 及其配置都不得跨越模块边界。未来的 Markdown 语法扩展必须保持这个方向，不能把
 某个实现解析器变成公开插件协议。
 

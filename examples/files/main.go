@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,7 +66,8 @@ type browser struct {
 	viewBox *kit.Panel
 	body    *headless.Container
 
-	showing string
+	showing    string
+	generation uint64
 }
 
 func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser {
@@ -101,12 +103,12 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	)
 	b.body.Gap = 1
 	b.body.Focus(true)
+	b.show()
 	return b
 }
 
 // Draw paints the two panes, and a hint row under them.
 func (b *browser) Draw(v headless.Frame) {
-	b.show()
 	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
 		{Size: layout.Flex(1)},
 		{Size: layout.Fixed(1)},
@@ -126,8 +128,20 @@ func (b *browser) show() {
 		return
 	}
 	b.showing = row.Item.path
-	b.preview.SetText(preview(row.Item, b.theme))
+	b.generation++
+	generation := b.generation
+	selected, theme := row.Item, b.theme
+	b.preview.SetText([]text.Line{text.Of("Loading "+selected.path, theme.Muted)})
 	b.window.Scroll().ToTop()
+	dispatcher := b.runtime.Dispatcher()
+	go func() {
+		lines := preview(selected, theme)
+		dispatcher.Post(func() {
+			if b.generation == generation {
+				b.preview.SetText(lines)
+			}
+		})
+	}()
 }
 
 func (b *browser) Handle(ev input.Event) bool {
@@ -135,7 +149,9 @@ func (b *browser) Handle(ev input.Event) bool {
 		b.runtime.Quit()
 		return true
 	}
-	return b.body.Handle(ev)
+	handled := b.body.Handle(ev)
+	b.show()
+	return handled
 }
 
 // preview is what to show beside the tree: the first part of a file, or what a
@@ -146,7 +162,19 @@ func preview(of entry, theme kit.Theme) []text.Line {
 	}
 	// A real browser would read as much as the window can show. Reading a fixed
 	// amount is the same idea with the size decided here rather than there.
-	body, err := os.ReadFile(of.path)
+	file, err := openPreview(of.path)
+	if err != nil {
+		return []text.Line{text.Of(err.Error(), theme.Danger)}
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return []text.Line{text.Of(err.Error(), theme.Danger)}
+	}
+	if !info.Mode().IsRegular() {
+		return []text.Line{text.Of("Preview requires a regular file", theme.Danger)}
+	}
+	body, err := io.ReadAll(io.LimitReader(file, 64<<10))
 	if err != nil {
 		return []text.Line{text.Of(err.Error(), theme.Danger)}
 	}

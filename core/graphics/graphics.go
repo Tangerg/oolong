@@ -37,6 +37,7 @@ package graphics
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -124,8 +125,8 @@ func (p Protocol) Supports(where Placement) bool {
 
 // Image is a transmitted image and the size it arrived at.
 type Image struct {
-	// ID is the number the terminal now knows the image by. It also makes a stable
-	// identity for [github.com/Tangerg/oolong/core/grid.View.Paint].
+	// ID is the resource identity known to the terminal. Each placement adds its
+	// own identity so several views can share the same transmitted data.
 	ID uint32
 	// Size is the image's size in pixels, for working out how many cells it should
 	// occupy with [Fit].
@@ -169,12 +170,12 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 		if len(payload) > 0 {
 			more = 1
 		}
-		// a=T transmits and shows, f=100 says the payload is PNG, q=2 asks the
+		// a=t transmits without placing, f=100 says the payload is PNG, q=2 asks the
 		// terminal not to answer — there is nobody reading for a reply, and an
 		// unread one would arrive in the middle of the next keystroke.
 		var sequence string
 		if first {
-			sequence = fmt.Sprintf("\x1b_Ga=T,f=100,i=%d,q=2,m=%d;%s\x1b\\", id, more, chunk)
+			sequence = fmt.Sprintf("\x1b_Ga=t,f=100,i=%d,q=2,m=%d;%s\x1b\\", id, more, chunk)
 		} else {
 			sequence = fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
 		}
@@ -187,36 +188,48 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 	}
 }
 
-// Paint shows a transmitted image at the cursor, scaled into size cells.
-//
-// The cursor is positioned by the caller, and the escape belongs after the cell
-// diff of the frame it appears in: the diff would otherwise write over the image
-// with the blanks it thinks are underneath it.
-//
-// The cursor is left where it was found. That is what lets an image go in a frame
-// at all — every position in a frame is a movement from the last known one, and an
-// inline block's whole position is relative — and it is the property the protocols
-// that cannot be told to move an image also lack.
-//
-// Paint and [Image.Erase] are what a frame asks of anything that writes itself onto
-// the terminal rather than into cells. They satisfy
-// [github.com/Tangerg/oolong/core/grid.Painter] without either package knowing about
-// the other.
-func (i Image) Paint(w io.Writer, size image.Point) error {
-	// z=-1 puts the image behind the text, so a caller can still write over it, and
-	// C=1 keeps the cursor where it is.
-	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\",
-		i.ID, size.X, size.Y))
+// ImagePlacement is one independently removable placement of transmitted data.
+// ID is nonzero and unique among simultaneous placements of the same image.
+type ImagePlacement struct {
+	Image Image
+	ID    uint32
 }
 
-// Erase removes every placement of the image and forgets it.
-func (i Image) Erase(w io.Writer) error {
+// Placement names one placement without transmitting or drawing it. It panics
+// when id is zero.
+// Reusing an ID moves that placement; use different IDs to show one image twice.
+func (i Image) Placement(id uint32) ImagePlacement {
+	if id == 0 {
+		panic("graphics: placement identity must be nonzero")
+	}
+	return ImagePlacement{Image: i, ID: id}
+}
+
+// Paint shows this placement at the cursor without moving the cursor.
+func (p ImagePlacement) Paint(w io.Writer, size image.Point) error {
+	if p.ID == 0 {
+		return errors.New("graphics: placement identity must be nonzero")
+	}
+	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", p.Image.ID, p.ID, size.X, size.Y))
+}
+
+// Erase removes only this placement, retaining the image for later Paint calls.
+func (p ImagePlacement) Erase(w io.Writer) error {
+	if p.ID == 0 {
+		return errors.New("graphics: placement identity must be nonzero")
+	}
+	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=2;\x1b\\", p.Image.ID, p.ID))
+}
+
+// Release destroys transmitted data and all placements. The handle must not be
+// painted again after Release; retransmission requires a fresh image identity.
+func (i Image) Release(w io.Writer) error {
 	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", i.ID))
 }
 
 // Inline writes an image at the cursor over iTerm2's protocol.
 //
-// There is no counterpart to [Image.Paint] or [Image.Erase], because the protocol has none:
+// There is no counterpart to [ImagePlacement.Paint] or [ImagePlacement.Erase], because the protocol has none:
 // the image goes where the cursor is and the program never hears of it again. That
 // is why it is only for [Printed] output — see the package comment — and why this
 // takes the payload every time rather than an identifier.

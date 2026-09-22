@@ -21,6 +21,7 @@ This table maps each public module to the reason for importing it:
 | `markdown` | Finished or incremental GitHub Flavored Markdown (GFM) | `goldmark` |
 | `highlight` | Styled source code | `chroma` |
 | `latex` | Selectable terminal mathematics | `go-latex` |
+| `mermaid` | Prepare Mermaid PNG diagrams in a worker | `x/sys` on Windows; external official CLI and Chromium |
 | `ssh` | Oolong over an accepted SSH session | `charm.land/ssh` |
 | `ptytest` | Assertions against a real pseudoterminal (PTY) | `x/sys` |
 
@@ -73,9 +74,10 @@ flowchart TD
     latex --> core
     ssh --> core
     ptytest --> core
+    mermaid[mermaid: neutral PNG]
 ```
 
-Optional content modules remain peers. Compose them in the application through core text values; do not create imports between them.
+Optional content modules remain peers. Compose them in the application through the core drawable contract; do not create imports between them.
 
 ## Verify the consumer graph
 

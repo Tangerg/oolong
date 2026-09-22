@@ -111,7 +111,7 @@ func (p *taskProgress) to(next Progress, queue func([]byte) uint64) {
 func (p *taskProgress) pause() {
 	p.mu.Lock()
 	p.paused = true
-	p.dirty = false
+	p.dirty = p.current.State != ProgressNone
 	p.mu.Unlock()
 	p.signal()
 }
@@ -127,27 +127,6 @@ func (p *taskProgress) restore(queue func([]byte) uint64) {
 	p.dirty = false
 	p.mu.Unlock()
 	p.signal()
-}
-
-// resume follows a real terminal reacquisition, whose direct write already restated
-// the latest progress.
-func (p *taskProgress) resume() {
-	p.mu.Lock()
-	p.paused = false
-	p.dirty = false
-	p.mu.Unlock()
-	p.signal()
-}
-
-// enter restates active progress after a handover. None needs no sequence because
-// giving the terminal away already cleared it.
-func (p *taskProgress) enter() string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.current.State == ProgressNone {
-		return ""
-	}
-	return p.current.sequence()
 }
 
 // leave clears active progress without forgetting it, so a handover can restore it.

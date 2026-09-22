@@ -148,7 +148,10 @@ func (t *Terminal) release() error {
 	// The reader comes off only after output has settled. From here on, what the
 	// terminal says belongs to whoever it is being handed to.
 	t.park()
-	if err := errors.Join(t.giveBack()...); err != nil {
+	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
+		return errors.Join(err, t.resume())
+	}
+	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
 		// release is transactional: on failure no child runs and the session is made
 		// live again before the error reaches the caller.
 		return errors.Join(err, t.resume())
@@ -159,13 +162,16 @@ func (t *Terminal) release() error {
 // resume takes the terminal back.
 func (t *Terminal) resume() error {
 	var errs []error
-	if _, err := xterm.MakeRaw(int(t.in.Fd())); err != nil {
+	errs = append(errs, t.output.active(true))
+	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+	if _, err := xterm.MakeRaw(t.inFD); err != nil {
 		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
 	}
-	if _, err := t.out.WriteString(t.modes.enter() + t.title.enter() + t.task.enter()); err != nil {
+	if _, err := t.output.WriteString(t.modes.enter() + t.title.enter()); err != nil {
 		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
 	}
-	t.task.resume()
+	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
+	t.task.restore(t.writer.Queue)
 	t.handed.release()
 
 	// The same latest-value mailbox a window resize uses, rather than the public

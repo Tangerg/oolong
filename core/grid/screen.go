@@ -188,7 +188,7 @@ func (s *Screen) Flush(w io.Writer) error {
 	}
 	// A frame that began is a frame that wrote cells, which is also what tells the
 	// cursor it has to re-anchor.
-	s.cursor.emit(&s.frame, s.placed, s.frame.begun)
+	s.cursor.emit(&s.frame, s.placed, len(s.frame.out) > 0)
 
 	if len(s.frame.out) == 0 {
 		s.buffers.swap()
@@ -258,6 +258,10 @@ func (s *Screen) paintCells() {
 // against a floor rather than against the diff itself means the diff is never
 // built twice.
 func (s *Screen) paintScroll() bool {
+	// Terminal scrolling moves placements too; use ordinary diff while images exist.
+	if len(s.buffers.front.paints) > 0 || len(s.buffers.back.paints) > 0 {
+		return false
+	}
 	shifts := detectShifts(s.buffers.front, s.buffers.back)
 	if len(shifts) == 0 {
 		return false

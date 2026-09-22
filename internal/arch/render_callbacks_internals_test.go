@@ -63,6 +63,7 @@ var renderingCallbacks = map[string]callbackRule{
 	"components/kit:Table.Sorted":           {callbackProjection, "sort geometry reads caller-owned ordering without changing it"},
 	"components/kit:Tree.Text":              {callbackProjection, "node text is a read-only visible projection of an item"},
 	"components/kit:TreeConfig.Text":        {callbackProjection, "construction retains the visible node projection"},
+	"core/content:Renderer":                 {callbackSemantic, "configured renderers prepare passive content during explicit dispatch"},
 	"markdown:Renderer":                     {callbackSemantic, "extensions render while source is parsed into an owned document"},
 }
 

@@ -269,3 +269,15 @@ func TestAFailedDrawDoesNotClaimTheFrame(t *testing.T) {
 		t.Fatal("the full-repaint requirement disappeared after a failed draw")
 	}
 }
+
+func TestThrottledRequestCannotDelayAnImmediateRepaint(t *testing.T) {
+	var p present.Presenter
+	var d drew
+	p.Request()
+	presented(t, &p, epoch, d.draw)
+	p.RequestFull()
+	p.RequestBy(epoch, time.Hour)
+	if !presented(t, &p, epoch, d.draw) || !d.full {
+		t.Fatal("immediate full repaint was postponed")
+	}
+}

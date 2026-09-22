@@ -149,12 +149,17 @@ func (s *Surface) row(y int) []Cell {
 // CopyRows copies n whole rows out of src, starting at srcTop, into s starting at
 // dstTop. Rows that fall outside either surface are skipped, which is what lets a
 // caller render an over-tall item into a scratch surface and lift the visible
-// slice of it into place.
+// slice of it into place. Overlapping rows on the same surface preserve the source
+// contents as if copied through a temporary buffer.
 func (s *Surface) CopyRows(src *Surface, srcTop, dstTop, n int) {
 	if s == nil || src == nil || src.w != s.w {
 		return
 	}
-	for i := range n {
+	for step := range n {
+		i := step
+		if s == src && dstTop > srcTop {
+			i = n - 1 - step
+		}
 		sy, dy := srcTop+i, dstTop+i
 		if sy < 0 || sy >= src.h || dy < 0 || dy >= s.h {
 			continue
@@ -667,8 +672,11 @@ func control(cluster string) bool {
 	if cluster == "" {
 		return false
 	}
-	b := cluster[0]
-	return b < 0x20 || b == 0x7f
+	if !utf8.ValidString(cluster) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(cluster)
+	return r < 0x20 || r >= 0x7f && r <= 0x9f
 }
 
 // Render draws something at a size and returns what it came to, one string per

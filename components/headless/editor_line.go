@@ -97,7 +97,7 @@ func (e editorLineView) draw(frame Frame, look Look, presented *Snapshot[editorP
 	}
 	view := frame.Sub(grid.Rect(gutter, 0, width, height)).View
 	if e.value == "" && e.placeholder != "" {
-		view.Text(0, 0, text.Truncate(e.placeholder, width, "…"), look.Subtle)
+		view.Text(0, 0, text.Truncate(e.placeholder, width, look.Ellipsis), look.Subtle)
 	} else {
 		text.Of(shown, look.Text).Draw(view, -left, 0)
 		if e.selecting {

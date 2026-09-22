@@ -364,7 +364,7 @@ func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selec
 		return
 	}
 	v.Text(width-min(room, text.Width(candidate.Detail)), 0,
-		text.Truncate(candidate.Detail, room, "…"), detail)
+		text.Truncate(candidate.Detail, room, look.Ellipsis), detail)
 }
 
 // drawMatched writes label, emphasising the clusters the query matched, and returns

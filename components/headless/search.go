@@ -364,7 +364,8 @@ func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Spa
 		})
 	}
 	if len(dst) == before {
-		return 0, dst, false
+		// A real match can live entirely in whitespace consumed by wrapping.
+		dst = append(dst, Span{Col: rows[first].Offset})
 	}
 	return first, dst, true
 }

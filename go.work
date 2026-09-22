@@ -18,6 +18,11 @@ use (
 	./internal
 	./latex
 	./markdown
+	./mermaid
 	./ptytest
 	./ssh
 )
+
+// Resolve the new module graph locally before its first coordinated release.
+// Remove this version-specific mapping when examples requires the first published tag.
+replace github.com/Tangerg/oolong/mermaid v0.17.0 => ./mermaid

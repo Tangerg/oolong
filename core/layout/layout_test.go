@@ -603,3 +603,11 @@ func BenchmarkDivide(b *testing.B) {
 		})
 	}
 }
+
+func TestMeasuredSlotUsesItsAssignedCrossSize(t *testing.T) {
+	w := &wants{give: 3}
+	rects := (layout.Flow{Axis: layout.Down}).Rects(image.Pt(40, 20), []layout.Slot{{Size: layout.Measured(0, 0), Cross: layout.Cross{Size: 8}, Of: w}})
+	if w.across != 8 || rects[0].Dx() != 8 {
+		t.Fatalf("measured %d, allocated %v", w.across, rects[0])
+	}
+}

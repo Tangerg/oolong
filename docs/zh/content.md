@@ -23,11 +23,12 @@ contentType: How-to
 
 ## 选择内容所需的模块
 
-三个模块彼此平级，各自拥有最自然的结果：
+内容模块彼此平级，各自拥有最自然的结果：
 
 | 模块 | 主入口 | 结果 | 用途 |
 | --- | --- | --- | --- |
 | `markdown` | `markdown.Render` | `[]markdown.Block` | 结构化文本与 GFM |
+| `mermaid` | `mermaid.New` / `Render` | `*mermaid.Image, error` | 后台生成 PNG 图表 |
 | `highlight` | `highlight.New` | `highlight.Renderer` | 可复用的源码样式渲染器 |
 | `latex` | `latex.Render` | `*latex.Formula` | 可测量、可选择的数学公式 |
 
@@ -47,7 +48,10 @@ go get github.com/Tangerg/oolong/latex@latest
 宽度相关布局时，请把它们放进 `Doc`。
 
 ```go
-blocks := markdown.Render(source, markdown.Look{})
+blocks, err := markdown.Render(source, markdown.Look{})
+if err != nil {
+    log.Printf("markdown: %v", err)
+}
 doc := new(markdown.Doc)
 doc.SetBlocks(blocks)
 
@@ -116,44 +120,33 @@ look := markdown.Look{
     Marker:   theme.Accent,
 }
 highlighter := highlight.New("github-dark")
-look.SetRenderer(markdown.FencedCode, highlighter.Lines)
-look.SetRenderer(markdown.DisplayMath,
-    func(_ string, source string) []text.Line {
-        return latex.Render(source, formulaLook).Lines()
+look.SetRenderer(markdown.FencedCode,
+    func(info, source string) (grid.Drawable, error) {
+        return text.NewBlock(text.BlockConfig{
+            Lines: highlighter.Lines(info, source), Wrap: true,
+        }), nil
     },
 )
-
-doc.SetBlocks(markdown.Render(source, look))
-```
-
-共享接缝是由消费方定义的函数形状：
-
-```go
-type Renderer func(info, source string) []text.Line
-```
-
-解析树不会越过边界。Highlight 与 LaTeX 只返回核心样式文本，也都不知道 Markdown 是
-消费方。
-
-## 在组合时观察领域结果
-
-LaTeX 不再提供第二个会丢失信息的入口。应用在消费方边界包装独立使用时同一个
-`latex.Render` 调用，因此可以在返回 Markdown 所需文本行之前统计、记录或展示解析失败：
-
-```go
 look.SetRenderer(markdown.DisplayMath,
-    func(_ string, source string) []text.Line {
+    func(_ string, source string) (grid.Drawable, error) {
         formula := latex.Render(source, formulaLook)
-        if err := formula.Err(); err != nil {
-            metrics.RecordFormulaFailure(source, err)
-        }
-        return formula.Lines()
+        return formula, formula.Err()
     },
 )
+blocks, err := markdown.Render(source, look)
+doc.SetBlocks(blocks)
+if err != nil {
+    log.Printf("markdown: %v", err)
+}
 ```
 
-返回 `nil` 表示拒绝处理扩展，并要求 Markdown 展示源码。返回非 nil 的空切片表示有意
-不生成任何行。Markdown 继续拥有块布局：代码可以折行，二维数学公式则会裁剪而不重排。
+扩展直接返回 `grid.Drawable` 和错误，可选实现 `Rows(width int) []text.Row`。子内容拥有布局，Markdown 只负责缩进、装饰和块位置；无文本投影的内容保留等高空行。
+
+## 显式处理扩展结果
+
+内容与错误可以同时返回，Markdown 会保留可读内容并返回 `ExtensionError`，其中包含块位置、扩展类型和 info，支持 `errors.Is/As`。`nil, nil` 是契约错误；返回 `ErrUnhandled` 明确选择显示源码，空 `text.Block` 明确选择零行。
+
+发布后的子内容必须保持语义稳定。替换文档快照，而不是修改已发布块引用的 drawable。不要在同步回调中启动浏览器或执行其他昂贵操作。
 
 ## 对流式内容使用同一组合
 
@@ -166,10 +159,19 @@ stream.SetLook(look)
 var stable, open markdown.Doc
 
 for chunk := range answer {
-    stable.Append(stream.Feed(chunk)...)
-    open.SetBlocks(stream.Open())
+    blocks, feedErr := stream.Feed(chunk)
+    stable.Append(blocks...)
+    tail, openErr := stream.Open()
+    open.SetBlocks(tail)
+    if err := errors.Join(feedErr, openErr); err != nil {
+        log.Printf("stream: %v", err)
+    }
 }
-stable.Append(stream.Flush()...)
+blocks, err := stream.Flush()
+stable.Append(blocks...)
+if err != nil {
+    log.Printf("stream: %v", err)
+}
 open.SetBlocks(nil)
 ```
 
@@ -195,3 +197,56 @@ go test ./markdown ./latex ./content
 
 接下来阅读[构建有界流式输出](streaming.md)以接入后台字节，再阅读
 [构建有界 Agent 界面](agent.md)以了解完整应用形态。
+
+## 注册共同的消费契约
+
+`core/content.Registry` 按显式格式名分派，不导入具体格式，没有全局注册。格式名会去空格并转为小写；重复名、非法名、空回调在构造时失败，未知格式返回 `ErrUnknownFormat`。注册表不安排 goroutine，也不自动重试或猜测格式。
+
+```go
+registry, err := content.New(content.Config{Bindings: []content.Binding{
+    {Format: "latex", Render: func(_ context.Context, source string) (grid.Drawable, error) {
+        formula := latex.Render(source, formulaLook)
+        return formula, formula.Err()
+    }},
+}})
+if err != nil {
+    return err
+}
+body, err := registry.Render(ctx, "latex", source)
+```
+
+`examples/content` 在顶层格式切换和 Markdown 内嵌分派中消费同一个注册表。直接的单格式调用依然适用；不需要创建注册表才能绘制文档。
+
+## Mermaid
+
+`mermaid` 是独立 Go 模块，使用应用安装的[官方 Mermaid CLI](https://github.com/mermaid-js/mermaid-cli)，不实现不完整的 ASCII 语法子集。进程后端支持 macOS、Linux 和 Windows 10 及以上版本；其他平台构造时返回 `errors.ErrUnsupported`。CLI 和 Chromium 是可选外部依赖，不会自动下载。
+
+安装经过本次验证的后端并运行示例：
+
+```sh
+npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11.17.0
+PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
+```
+
+可用 `OOLONG_MERMAID_BROWSER` 为示例选择已有 Chromium 可执行文件。模块 `Config` 显式设置可执行文件、受信任的前置参数、浏览器、主题、视口、超时和源码、输出字节、解码像素与边数限额。默认限额为 30 秒（关闭最多额外 1 秒）、64 KiB 源码、8 MiB PNG、1600 万像素和 500 条边。限额约束接收的数据，不是浏览器内存或磁盘沙箱。
+
+后台调用 `Renderer.Render(ctx, source)` 得到自持有的 PNG。内容 owner 校验任务代次及对应的源码和主题后，才通过 `Runtime.Images().Transmit` 上传，并用被动 `kit.Image` 组合进文档。Unix 取消时先向官方 CLI 发送 SIGINT，让 Puppeteer 清理独立浏览器进程组，再兜底终止 CLI 进程组；自定义 Unix 启动器必须保留该信号清理行为。Windows 在创建进程时就将 CLI 加入 Job Object，禁止浏览器子进程逃逸，并在临时文件清理前终止和等待整个作业。npm `.cmd` 启动器会解析到已安装包的入口，由 `node.exe` 直接运行，不经过命令解释器。
+
+`examples/mermaid` 展示后台生成、过期结果拒绝、源码替换、错误展示和退出时等待 worker。替换与退出会先移除图片 placement，再释放图片数据。图片被文档持有期间不可提前释放。
+
+语法稳定、图片准备完成、`Transcript.Finish` 是三个不同状态。等待图片的占位块不能 Finish 或 Commit；只有 owner 接受最终内容或最终错误展示后才能宣布完成。`Stream` 不负责异步图片任务，应用需要保留对应源码并在结果就绪时替换未提交的文档。
+
+### 图片显示和操作
+
+示例在上传前同时检查实时图片协议和单元格像素尺寸。支持 Kitty 图形协议的终端可内嵌显示图片；其他终端显示源码，仍提供 **Open Image**、**Copy Image Path** 和 **Copy Source**。使用 `o`、`p`、`c` 或点击操作栏；`r` 替换图表，`q` 退出。
+
+macOS 和 Windows 使用系统默认图片查看器。只有打开图片或复制图片路径时才导出文件。导出的图片保留在操作系统临时目录，替换图表或退出程序后仍可使用，直到文件被清理。中间生成文件和浏览器资料目录则始终归生成任务所有，并随任务清理。
+
+Windows 安装 Node.js 和官方 CLI 后，可在 PowerShell 运行：
+
+```powershell
+npm install -g @mermaid-js/mermaid-cli@11.17.0
+go -C examples run ./mermaid
+```
+
+原生后端 CI 任务在 macOS 和 Windows 上运行官方渲染器。常规测试覆盖不支持图片的终端、剪贴板操作、导出文件保留和过期结果拒绝；Windows 专属测试验证取消和父进程正常结束时，存活的子进程都被终止。

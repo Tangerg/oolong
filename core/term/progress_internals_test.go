@@ -56,15 +56,12 @@ func TestProgressChangesWaitWhileAnotherProcessOwnsTheTerminal(t *testing.T) {
 	if got := p.leave(); got != progressClear {
 		t.Fatalf("leave = %q, want progress cleared", got)
 	}
-	if got := p.enter(); got != "\x1b]9;4;2;100\x07" {
-		t.Fatalf("enter = %q, want the latest state", got)
-	}
-	p.resume()
+	p.restore(queue)
 
 	p.pause()
 	p.to(Progress{}, queue)
 	p.restore(queue)
-	if !slices.Equal(written, []string{"\x1b]9;4;1;20\x07", progressClear}) {
+	if !slices.Equal(written, []string{"\x1b]9;4;1;20\x07", "\x1b]9;4;2;100\x07", progressClear}) {
 		t.Fatalf("restored writes = %q", written)
 	}
 }

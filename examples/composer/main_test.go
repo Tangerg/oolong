@@ -55,6 +55,18 @@ func TestALargePasteIsOneApplicationOwnedElement(t *testing.T) {
 	quit(t, host, done)
 }
 
+func TestUndoRestoresTheOriginalPastePayload(t *testing.T) {
+	host, done := runPrompt(t)
+	host.Shows(t, "paste three or more lines")
+	host.Send(input.Paste{Text: "one\ntwo\nthree\nfour"})
+	host.Shows(t, "[paste 4 lines]")
+	host.Press(input.Backspace)
+	host.Send(input.Key{Code: input.Character, Rune: 'z', Mods: input.Ctrl})
+	host.Press(input.Enter)
+	host.Shows(t, "1 attached paste(s)")
+	quit(t, host, done)
+}
+
 func TestHistoryRestoresAnEntryWithoutLosingTheEditingPath(t *testing.T) {
 	host, done := runPrompt(t)
 	host.Shows(t, "Type @ to reference")

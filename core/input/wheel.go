@@ -53,10 +53,7 @@ const wheelDefault = 3
 // A fraction, because a report is very often worth less than a row and rounding each
 // one to zero would stop the view moving at all — see [Advance].
 func (w Wheel) Distance() float64 {
-	reports, rows := w.Reports, w.Rows
-	if reports <= 0 {
-		reports = wheelDefault
-	}
+	reports, rows := w.effectiveReports(), w.Rows
 	if rows <= 0 {
 		rows = wheelDefault
 	}
@@ -263,7 +260,7 @@ func (a *Advance) observe(when time.Time, reports int) bool {
 	// A gesture is a finger once it has sent more reports, faster, than a hand
 	// could turn a wheel. It stays one until the gesture ends, because a finger
 	// slowing to a stop is still a finger.
-	if !a.finger && a.wheel.Reports <= 1 && a.reports > fingerReports {
+	if !a.finger && a.wheel.effectiveReports() == 1 && a.reports > fingerReports {
 		a.finger = withinReportRate(when.Sub(a.began), a.reports)
 	}
 	return a.finger
@@ -320,4 +317,11 @@ func wholeRows(distance float64) (int, float64) {
 	}
 	rows := int(distance)
 	return rows, distance - float64(rows)
+}
+
+func (w Wheel) effectiveReports() int {
+	if w.Reports <= 0 {
+		return wheelDefault
+	}
+	return w.Reports
 }

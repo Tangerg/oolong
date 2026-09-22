@@ -369,6 +369,9 @@ func (s Slot) wanted(axis Axis, across int) int {
 	case measuredSizing:
 		want := s.Size.minimum
 		if s.Of != nil {
+			if s.Cross.Size > 0 {
+				across = min(across, s.Cross.Size)
+			}
 			want = max(s.Of.Measure(axis, across), s.Size.minimum)
 		}
 		if s.Size.maximum > 0 {

@@ -80,7 +80,7 @@ type Table struct {
 	//
 	//	Cell: func(row, col int) kit.Cell {
 	//		return kit.LabelCell(kit.Label{Text: data[row][col],
-	//			Align: columns[col].Align, Ellipsis: "…"})
+	//			Align: columns[col].Align, Ellipsis: glyphs.Ellipsis})
 	//	}
 	//
 	// A custom cell uses a Cell literal. Its painter receives the row's base style —
@@ -236,7 +236,7 @@ func (t Table) Draw(v grid.View) {
 func (l TableLayout) Titles(v grid.View) {
 	l.drawRow(v, 0, func(col int, cell grid.View) {
 		c := l.table.Columns[col]
-		Label{Text: c.Title + l.table.mark(col), Style: l.table.Theme.Heading, Align: c.Align, Ellipsis: "…"}.
+		Label{Text: c.Title + l.table.mark(col), Style: l.table.Theme.Heading, Align: c.Align, Ellipsis: l.table.Glyphs.Ellipsis}.
 			Draw(cell)
 	})
 }

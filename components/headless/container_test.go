@@ -538,3 +538,23 @@ func TestASlotOfNoRowsGetsNoRows(t *testing.T) {
 		t.Errorf("the rest of the region went to %d rows, want all three", got)
 	}
 }
+
+func TestReplacementDoesNotReceiveRemainderOfCancelledGesture(t *testing.T) {
+	old, next := &field{takes: true}, &field{takes: true}
+	c := headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(2), Of: old})
+	drawn(c, 2)
+	c.Handle(pressAt(0, 0))
+	c.Set(headless.Item{Size: layout.Fixed(2), Of: next})
+	drawn(c, 2)
+	for range 3 {
+		c.Handle(input.Mouse{Pos: image.Pt(0, 1), Action: input.MouseDrag})
+	}
+	c.Handle(input.Mouse{Pos: image.Pt(0, 1), Action: input.MouseUp})
+	if len(next.mice) != 0 {
+		t.Fatalf("replacement inherited %d events", len(next.mice))
+	}
+	c.Handle(pressAt(0, 0))
+	if len(next.mice) != 1 {
+		t.Fatal("new press did not start a gesture")
+	}
+}

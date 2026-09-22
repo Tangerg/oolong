@@ -49,6 +49,19 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 	if to.Before(from) {
 		from, to = to, from
 	}
+	if e.mask != "" {
+		view := e.lineView(e.Text())
+		shown := view.shown()
+		if from.Line != 0 || to.Line != 0 {
+			return nil
+		}
+		start := text.ColumnOf(shown, view.shownAt(from.Col))
+		end := text.ColumnOf(shown, view.shownAt(to.Col))
+		if end <= start {
+			return nil
+		}
+		return []RowSpan{{Row: 0, Col: start, Width: end - start}}
+	}
 	rows := e.rows(width)
 
 	var out []RowSpan

@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -52,12 +53,13 @@ type reader struct {
 	runtime *program.InlineRuntime
 	theme   kit.Theme
 
-	stream  markdown.Stream
-	open    markdown.Doc
-	pieces  []string
-	at      int
-	stop    func()
-	spinner kit.Spinner
+	stream    markdown.Stream
+	open      markdown.Doc
+	pieces    []string
+	at        int
+	stop      func()
+	spinner   kit.Spinner
+	renderErr error
 }
 
 // How fast the answer arrives. A model's is decided by a model; these two are what a
@@ -83,11 +85,14 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	// import edge and expose only their core text boundary to one another.
 	look := markdownlook.New(theme, glyphs)
 	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
-	look.SetRenderer(markdown.DisplayMath, func(_ string, source string) []text.Line {
-		return latex.Render(source, formulaLook).Lines()
+	look.SetRenderer(markdown.DisplayMath, func(_ string, source string) (grid.Drawable, error) {
+		formula := latex.Render(source, formulaLook)
+		return formula, formula.Err()
 	})
 	highlighter := highlight.New("github-dark")
-	look.SetRenderer(markdown.FencedCode, highlighter.Lines)
+	look.SetRenderer(markdown.FencedCode, func(info, source string) (grid.Drawable, error) {
+		return text.NewBlock(text.BlockConfig{Lines: highlighter.Lines(info, source), Wrap: true}), nil
+	})
 	r.stream.SetLook(look)
 
 	runtime.Session().SetTitle("reading")
@@ -105,17 +110,23 @@ func (r *reader) advance() {
 	// Everything the stream calls finished is printed, once, and is the terminal's
 	// from then on. A document is a Drawer and a Measurer and nothing else, which is
 	// what lets the runtime print one without either of them knowing about the other.
-	if blocks := r.stream.Feed(r.pieces[r.at]); len(blocks) > 0 {
+	blocks, err := r.stream.Feed(r.pieces[r.at])
+	r.renderErr = err
+	if len(blocks) > 0 {
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
 		r.runtime.Print(doc)
 	}
 	r.at++
-	r.open.SetBlocks(r.stream.Open())
+	open, err := r.stream.Open()
+	r.renderErr = errors.Join(r.renderErr, err)
+	r.open.SetBlocks(open)
 }
 
 func (r *reader) finish() {
-	if blocks := r.stream.Flush(); len(blocks) > 0 {
+	blocks, err := r.stream.Flush()
+	r.renderErr = err
+	if len(blocks) > 0 {
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
 		r.runtime.Print(doc)
@@ -133,6 +144,10 @@ func (r *reader) Draw(v grid.View) {
 		{Size: layout.Fixed(1)},
 	}))
 	r.open.Draw(rows[0])
+	if r.renderErr != nil {
+		kit.Label{Text: r.renderErr.Error(), Style: r.theme.Danger}.Draw(rows[1])
+		return
+	}
 	if r.at >= len(r.pieces) {
 		kit.Label{
 			Text:  "that is the whole answer — ctrl+c to leave",

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -51,6 +52,7 @@ type Screen struct {
 	top         int
 	end         int
 	scan        ansi.Scanner
+	grapheme    string
 }
 
 // noCopy makes the assertion model's single-owner contract visible to go vet. Its
@@ -116,6 +118,7 @@ func (s *Screen) Flush() error {
 	if s == nil {
 		return nil
 	}
+	s.settleGrapheme()
 	held := s.scan.Pending()
 	s.scan.Reset()
 	if held == "" {
@@ -130,6 +133,9 @@ func (s *Screen) At(column, row int) string {
 	if s == nil || column < 0 || row < 0 || column >= s.size.Cols || row >= s.size.Rows {
 		return ""
 	}
+	if s.grapheme != "" {
+		return s.projected().At(column, row)
+	}
 	return s.cells[s.index(column, row)].text
 }
 
@@ -139,6 +145,9 @@ func (s *Screen) At(column, row int) string {
 func (s *Screen) Rows() []string {
 	if s == nil {
 		return nil
+	}
+	if s.grapheme != "" {
+		return s.projected().Rows()
 	}
 	rows := make([]string, s.size.Rows)
 	for y := range s.size.Rows {
@@ -160,6 +169,9 @@ func (s *Screen) Rows() []string {
 }
 
 func (s *Screen) applySequence(piece ansi.Piece) error {
+	if piece.Kind != ansi.Plain && (piece.Kind != ansi.Control || piece.Final != 'm') && piece.Kind != ansi.String {
+		s.settleGrapheme()
+	}
 	switch piece.Kind {
 	case ansi.Plain:
 		s.writePlain(piece.Raw)
@@ -280,6 +292,7 @@ func (s *Screen) writePlain(raw string) {
 }
 
 func (s *Screen) controlByte(b byte) {
+	s.settleGrapheme()
 	switch b {
 	case '\b':
 		s.at.X = max(s.at.X-1, 0)
@@ -294,6 +307,31 @@ func (s *Screen) controlByte(b byte) {
 }
 
 func (s *Screen) writeText(raw string) {
+	if raw == "" {
+		return
+	}
+	source := s.grapheme + raw
+	s.grapheme = ""
+	last := ""
+	for _, cluster := range text.Clusters(source) {
+		s.putText(last)
+		last = cluster
+	}
+	s.grapheme = strings.Clone(last)
+}
+
+func (s *Screen) settleGrapheme() {
+	s.putText(s.grapheme)
+	s.grapheme = ""
+}
+
+func (s *Screen) projected() *Screen {
+	projection := &Screen{size: s.size, cells: slices.Clone(s.cells), at: s.at, pendingWrap: s.pendingWrap, top: s.top, end: s.end}
+	projection.putText(s.grapheme)
+	return projection
+}
+
+func (s *Screen) putText(raw string) {
 	for _, cluster := range text.Clusters(raw) {
 		width := text.Width(cluster)
 		if width <= 0 || width > s.size.Cols {

@@ -103,6 +103,34 @@ jobs:
           modules=$(scripts/modules.sh)
           for m in $modules; do (cd "$m" && go test -race -count=1 ./...); done
 
+  mermaid-backend:
+    name: Mermaid native backend
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: "**/go.sum"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install the official CLI and browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/mermaid" --no-audit --no-fund --save-exact @mermaid-js/mermaid-cli@11.17.0
+          cli="$RUNNER_TEMP/mermaid/node_modules/.bin/mmdc"
+          if [[ "$RUNNER_OS" == Windows ]]; then cli="$cli.cmd"; fi
+          echo "OOLONG_MERMAID_CLI=$cli" >> "$GITHUB_ENV"
+      - name: Test rendering, cancellation and process ownership
+        shell: bash
+        run: go -C mermaid test -race -count=1 ./...
+
   standalone:
     name: modules without workspace
     runs-on: ubuntu-latest

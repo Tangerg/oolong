@@ -4,6 +4,7 @@ import (
 	"image"
 	"slices"
 	"strconv"
+	"unicode/utf8"
 )
 
 const (
@@ -392,8 +393,11 @@ var attrCodes = [...]struct {
 }
 
 func printableTarget(target string) bool {
-	for i := range len(target) {
-		if target[i] < 0x20 || target[i] == 0x7f {
+	if !utf8.ValidString(target) {
+		return false
+	}
+	for _, r := range target {
+		if r < 0x20 || r >= 0x7f && r <= 0x9f {
 			return false
 		}
 	}

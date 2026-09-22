@@ -184,7 +184,6 @@ func (d *Dialog) closed(content *DialogContent) {
 	if d == nil || d.content != content {
 		return
 	}
-	d.open.set(false)
 	d.layer = 0
 }
 
@@ -249,6 +248,17 @@ func (c *DialogContent) Focus(has bool) {
 	}
 	c.focused = has
 	tell(c.modal, has)
+}
+
+// RequestClose asks the controlled owner before stack membership changes.
+func (c *DialogContent) RequestClose() bool {
+	if c == nil || c.dialog == nil {
+		return true
+	}
+	if c.dialog.Open() {
+		c.dialog.open.set(false)
+	}
+	return !c.dialog.Open()
 }
 
 // Closed settles controller state when any stack path removes the content.

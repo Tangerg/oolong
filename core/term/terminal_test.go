@@ -469,3 +469,24 @@ func TestWhatASessionSaysToTheTerminalBesideItsFrames(t *testing.T) {
 		t.Errorf("the terminal was given back as %q, want its own title and no task progress", seen)
 	}
 }
+
+func TestCloseBoundsBackpressuredOutput(t *testing.T) {
+	tty, primary := open(t, term.Config{})
+	tty.Writer().Queue([]byte(strings.Repeat("x", 1<<20)))
+	done := make(chan error, 1)
+	go func() { done <- tty.Close() }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("backpressured output unexpectedly succeeded")
+		}
+	case <-time.After(2 * time.Second):
+		_ = read(t, primary, 100*time.Millisecond)
+		t.Fatal("close blocked behind terminal output")
+	}
+	written := tty.Writer().Written()
+	_ = read(t, primary, 50*time.Millisecond)
+	if tty.Writer().Written() != written {
+		t.Fatal("writer advanced after terminal ownership ended")
+	}
+}

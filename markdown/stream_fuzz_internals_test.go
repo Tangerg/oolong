@@ -22,13 +22,13 @@ func FuzzStreamNeverPanics(f *testing.F) {
 		}
 		var stream Stream
 		for i := range len(source) {
-			for _, block := range stream.Feed(source[i : i+1]) {
+			for _, block := range mustFeed(t, &stream, source[i:i+1]) {
 				_ = block.HeightForWidth(80)
 				block.Draw(grid.NewSurface(80, block.HeightForWidth(80)).View())
 			}
-			_ = stream.Open()
+			_ = mustOpen(t, &stream)
 		}
-		for _, block := range stream.Flush() {
+		for _, block := range mustFlush(t, &stream) {
 			_ = block.Rows(80)
 		}
 	})

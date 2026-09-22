@@ -35,7 +35,7 @@ type pointerFrame struct {
 // follows the same control when its region moves or resizes. An empty committed
 // region ends that presentation lifetime, so showing it again cannot revive capture.
 func (p *Pointer) Stage(frame Frame, area image.Rectangle) {
-	area = area.Intersect(frame.Bounds())
+	area = area.Intersect(frame.Visible())
 	id := p.presentation.Value().identity
 	if area.Empty() {
 		id = nil

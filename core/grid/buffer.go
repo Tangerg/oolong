@@ -23,7 +23,10 @@ func (b *frameBuffer) resize(w, h int) bool {
 	if cw, ch := b.back.Size(); cw == w && ch == h {
 		return false
 	}
+	paints := b.front.paints
+	b.front.paints = nil
 	b.front.Resize(w, h)
+	b.front.paints = paints
 	b.back.Resize(w, h)
 	return true
 }

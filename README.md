@@ -67,7 +67,7 @@ compose the next one:
 | Runtime and adapters | `core/program`, `term`, `programtest` | Ownership, frame scheduling, the local terminal, and in-process tests |
 | Headless behavior | `components/headless` | Editors, forms, lists, trees, tables, dialogs, transcripts, and interaction state |
 | Default appearance | `components/kit` | Themeable renderers and compound components over headless behavior |
-| Optional content | `markdown`, `highlight`, `latex` | Incremental Markdown, syntax-highlighted source, and terminal mathematics without adding their dependencies to `core` |
+| Optional content | `markdown`, `highlight`, `latex`, `mermaid` | Incremental Markdown, syntax-highlighted source, terminal mathematics, and prepared diagrams without adding their dependencies to `core` |
 | External hosts and tests | `ssh`, `ptytest` | Accepted SSH sessions and real-PTY assertions |
 
 `headless` never imports `kit`. `program` never imports either component package.
@@ -121,6 +121,7 @@ released together under one version:
 | [`markdown`](https://pkg.go.dev/github.com/Tangerg/oolong/markdown) | `goldmark` |
 | [`highlight`](https://pkg.go.dev/github.com/Tangerg/oolong/highlight) | `chroma` |
 | [`latex`](https://pkg.go.dev/github.com/Tangerg/oolong/latex) | `go-latex` |
+| [`mermaid`](https://pkg.go.dev/github.com/Tangerg/oolong/mermaid) | `x/sys` on Windows; optional official CLI and Chromium |
 | [`ptytest`](https://pkg.go.dev/github.com/Tangerg/oolong/ptytest) | `x/sys` |
 | [`ssh`](https://pkg.go.dev/github.com/Tangerg/oolong/ssh) | `charm.land/ssh` |
 

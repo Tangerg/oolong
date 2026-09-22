@@ -15,10 +15,25 @@ func ExampleStream() {
 
 	var doc markdown.Doc
 	for _, chunk := range []string{"Two things:\n\n- th", "e first\n- the second\n\nAnd a l", "ast word."} {
-		doc.Append(stream.Feed(chunk)...)
-		fmt.Printf("published %d, open %d\n", doc.Len(), len(stream.Open()))
+		blocks, err := stream.Feed(chunk)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		doc.Append(blocks...)
+		open, err := stream.Open()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Printf("published %d, open %d\n", doc.Len(), len(open))
 	}
-	doc.Append(stream.Flush()...)
+	blocks, err := stream.Flush()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	doc.Append(blocks...)
 	fmt.Printf("published %d, %d rows at 20 columns\n", doc.Len(), doc.HeightForWidth(20))
 
 	// Output:

@@ -269,7 +269,7 @@ func TestTransmitSendsOneEscapeWhenItFits(t *testing.T) {
 	if got != (graphics.Image{ID: 7, Size: image.Pt(12, 34)}) {
 		t.Fatalf("= %+v, want id 7 at 12x34", got)
 	}
-	want := fmt.Sprintf("\x1b_Ga=T,f=100,i=7,q=2,m=0;%s\x1b\\",
+	want := fmt.Sprintf("\x1b_Ga=t,f=100,i=7,q=2,m=0;%s\x1b\\",
 		base64.StdEncoding.EncodeToString(data))
 	if buf.String() != want {
 		t.Fatalf("wrote\n %q\nwant\n %q", buf.String(), want)
@@ -312,7 +312,7 @@ func TestTransmitChunksWhatDoesNotFit(t *testing.T) {
 func TestPaintAndEraseNameTheImage(t *testing.T) {
 	transmitted := graphics.Image{ID: 9}
 	var buf bytes.Buffer
-	if err := transmitted.Paint(&buf, image.Pt(20, 10)); err != nil {
+	if err := transmitted.Placement(1).Paint(&buf, image.Pt(20, 10)); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "i=9") ||
@@ -320,11 +320,34 @@ func TestPaintAndEraseNameTheImage(t *testing.T) {
 		t.Fatalf("place = %q, want the id and the cell box in it", got)
 	}
 	buf.Reset()
-	if err := transmitted.Erase(&buf); err != nil {
+	if err := transmitted.Placement(1).Erase(&buf); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "a=d") || !strings.Contains(got, "i=9") {
 		t.Fatalf("delete = %q, want it to name the image", got)
+	}
+}
+
+func TestPlacementDeletionDoesNotReleaseSharedImageData(t *testing.T) {
+	img := graphics.Image{ID: 9}
+	var out bytes.Buffer
+	for _, id := range []uint32{1, 2} {
+		if err := img.Placement(id).Paint(&out, image.Pt(2, 1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := img.Placement(1).Erase(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "a=d,d=i,i=9,p=1") || strings.Contains(out.String(), "d=I") {
+		t.Fatalf("placement erased data: %q", out.String())
+	}
+	out.Reset()
+	if err := img.Release(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "a=d,d=I,i=9") {
+		t.Fatalf("data release: %q", out.String())
 	}
 }
 
@@ -339,8 +362,8 @@ func TestGraphicsWritesRejectSilentTruncation(t *testing.T) {
 			_, err := graphics.Transmit(shortWriter{}, 1, data)
 			return err
 		},
-		"paint":  func() error { return (graphics.Image{ID: 1}).Paint(shortWriter{}, image.Pt(1, 1)) },
-		"erase":  func() error { return (graphics.Image{ID: 1}).Erase(shortWriter{}) },
+		"paint":  func() error { return (graphics.Image{ID: 1}).Placement(1).Paint(shortWriter{}, image.Pt(1, 1)) },
+		"erase":  func() error { return (graphics.Image{ID: 1}).Placement(1).Erase(shortWriter{}) },
 		"inline": func() error { return graphics.Inline(shortWriter{}, data, image.Pt(1, 1)) },
 	}
 	for name, operation := range operations {

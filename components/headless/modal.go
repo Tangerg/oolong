@@ -54,6 +54,10 @@ type Closer interface {
 	Closed()
 }
 
+// CloseRequester owns whether a request to remove a modal is accepted.
+// The stack removes the layer only after RequestClose returns true.
+type CloseRequester interface{ RequestClose() bool }
+
 // Backdrop is a modal that wants to touch the space it is covering before it is
 // drawn into its own corner of it — dimming what is behind, usually.
 //
@@ -194,8 +198,9 @@ func (s *Stack) Push(m Modal) LayerID {
 	return layerID
 }
 
-// Pop removes the top layer and reports whether there was one. The keyboard goes
-// back to whatever was underneath.
+// Pop requests removal of the top layer and reports whether it was removed.
+// A CloseRequester can reject removal. On success the keyboard goes back to
+// whatever was underneath.
 func (s *Stack) Pop() bool {
 	n := len(s.layers)
 	if n == 0 {
@@ -204,8 +209,8 @@ func (s *Stack) Pop() bool {
 	return s.remove(n - 1)
 }
 
-// Remove takes the insertion named by id out of the stack and reports whether it was
-// present. A controller uses this when its layer closes while another is above it;
+// Remove requests removal of the insertion named by id and reports whether it was
+// removed. A CloseRequester can reject removal. A controller uses this when its layer closes while another is above it;
 // popping would dismiss a different control.
 func (s *Stack) Remove(id LayerID) bool {
 	if id == 0 {
@@ -227,7 +232,7 @@ func (s *Stack) Contains(id LayerID) bool {
 }
 
 // Clear pops every layer, from the top down, so each is told in the order it
-// would have been dismissed.
+// would have been dismissed. It stops if a CloseRequester rejects removal.
 func (s *Stack) Clear() {
 	for s.Pop() {
 	}
@@ -423,6 +428,9 @@ func (s *Stack) remove(at int) bool {
 		return false
 	}
 	layer := s.layers[at]
+	if owner, ok := layer.modal.(CloseRequester); ok && !owner.RequestClose() {
+		return false
+	}
 	copy(s.layers[at:], s.layers[at+1:])
 	s.layers[len(s.layers)-1] = stackLayer{}
 	s.layers = s.layers[:len(s.layers)-1]

@@ -60,10 +60,14 @@ func (p *Presenter) RequestFull() {
 // knows when to wake, and [Presenter.Present] holds the frame until then.
 func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 	p.rebaseClock(now)
+	if p.owed && p.dueAt.IsZero() {
+		return true
+	}
 	p.owed = true
 	if now.Sub(p.drawnAt) < minInterval {
-		if p.dueAt.IsZero() {
-			p.dueAt = p.drawnAt.Add(minInterval)
+		deadline := p.drawnAt.Add(minInterval)
+		if p.dueAt.IsZero() || deadline.Before(p.dueAt) {
+			p.dueAt = deadline
 		}
 		return false
 	}

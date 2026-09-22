@@ -64,7 +64,7 @@ func (p Palette) Draw(v grid.View) {
 		return
 	}
 	if len(p.Found) == 0 {
-		Label{Text: p.empty(), Style: p.Theme.Muted, Ellipsis: "…"}.Draw(v)
+		Label{Text: p.empty(), Style: p.Theme.Muted, Ellipsis: p.Glyphs.Ellipsis}.Draw(v)
 		return
 	}
 
@@ -110,7 +110,7 @@ func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.
 		return
 	}
 	x = layout.Sum(x, 2)
-	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: "…"}.
+	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: p.Glyphs.Ellipsis}.
 		Draw(v.Sub(grid.Rect(x, y, layout.Remaining(w, x), 1)))
 }
 

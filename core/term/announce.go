@@ -42,8 +42,8 @@ type title struct {
 	text   string
 }
 
-// to is what to write to show s, remembering it.
-func (t *title) to(s string) string {
+// to advances the retained title and its output in the same order.
+func (t *title) to(s string, queue func([]byte) uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	out := ""
@@ -55,7 +55,7 @@ func (t *title) to(s string) string {
 		t.pushed = true
 	}
 	t.text = strings.Clone(s)
-	return out + command(titleSet, s)
+	queue([]byte(out + command(titleSet, s)))
 }
 
 // enter is what to write to show the title again after the terminal has been given
@@ -91,7 +91,9 @@ func (t *title) leave() string {
 // one. A terminal that does not implement it ignores it, and one that does not
 // implement the title stack ignores the putting back — which is why a program that
 // cares should set something sensible on the way out rather than rely on it.
-func (t *Terminal) SetTitle(s string) { t.writer.Queue([]byte(t.title.to(s))) }
+func (t *Terminal) SetTitle(s string) {
+	t.title.to(s, t.writer.Queue)
+}
 
 // Bell asks the terminal for its attention.
 //
@@ -133,6 +135,7 @@ func command(intro, body string) string {
 // is the oldest trick there is. This is the same trust boundary a cell keeps and it
 // is kept here for the same reason.
 func printable(s string) string {
+	s = strings.ToValidUTF8(s, "�")
 	if !strings.ContainsFunc(s, unprintable) {
 		return s
 	}
@@ -146,4 +149,4 @@ func printable(s string) string {
 	return b.String()
 }
 
-func unprintable(r rune) bool { return r < 0x20 || r == 0x7f }
+func unprintable(r rune) bool { return r < 0x20 || r >= 0x7f && r <= 0x9f }

@@ -15,7 +15,8 @@ import (
 // setting without naming a product schema or storing a second copy of it. The value
 // column is fitted to its widest cell and the label receives the remaining width.
 type Settings[T any] struct {
-	Theme Theme
+	Theme  Theme
+	Glyphs Glyphs
 	// Label and Value are the two columns shown for an item. Nil returns an empty
 	// column. Both run during measurement and drawing and must be observationally
 	// pure; Change is the event-side mutation boundary.
@@ -34,7 +35,8 @@ type Settings[T any] struct {
 // positional function argument.
 type SettingsConfig[T any] struct {
 	// Theme defines row and value appearance.
-	Theme Theme
+	Theme  Theme
+	Glyphs Glyphs
 	// Items are copied into the constructed controller.
 	Items []T
 	// Label and Value project the two visible columns. Nil produces an empty column.
@@ -59,7 +61,7 @@ func NewSettings[T any](config SettingsConfig[T]) *Settings[T] {
 	controller.Wrap = config.Wrap
 	controller.SetItems(config.Items)
 	return &Settings[T]{
-		Theme: config.Theme, controller: controller, Label: config.Label,
+		Theme: config.Theme, Glyphs: config.Glyphs, controller: controller, Label: config.Label,
 		Value: config.Value, ValueWidth: config.ValueWidth,
 	}
 }
@@ -129,11 +131,11 @@ func (s *Settings[T]) table() Table {
 				return Cell{}
 			}
 			if column == 0 {
-				return LabelCell(Label{Text: project(s.Label, item), Ellipsis: "…"})
+				return LabelCell(Label{Text: project(s.Label, item), Ellipsis: s.Glyphs.Ellipsis})
 			}
 			return LabelCell(Label{
 				Text: project(s.Value, item), Style: s.Theme.Accent,
-				Align: layout.End, Ellipsis: "…",
+				Align: layout.End, Ellipsis: s.Glyphs.Ellipsis,
 			})
 		},
 	}

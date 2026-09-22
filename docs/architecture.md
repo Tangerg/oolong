@@ -534,6 +534,7 @@ flowchart BT
     Headless --> ComponentIdentity
     Kit["default appearance"] --> Headless
     Kit --> ComponentIdentity
+    Content["explicit content dispatch"] --> Foundation
     Markdown["markdown"] --> Model
     Highlight["highlighting"] --> Model
     Latex["mathematical layout"] --> Model
@@ -545,6 +546,8 @@ flowchart BT
     App --> Markdown
     App --> Highlight
     App --> Latex
+    App --> Content
+    App --> Mermaid["neutral PNG preparation"]
 ```
 
 Component identity is not a fifth public rung. It is a module-private implementation
@@ -556,7 +559,10 @@ layout policy remain in the domain types that use its answer.
 Peer content modules compose through a consumer-owned semantic-block seam, not by
 importing one another. Markdown owns syntax recognition and exposes stable meanings
 such as fenced code and display mathematics; renderers receive only info strings,
-source, and `core/text` values. Goldmark nodes, LaTeX AST nodes, Chroma lexers, and
+source, and passive `core/grid.Drawable` results with explicit errors. Optional
+`Rows(width) []text.Row` supplies text projection. `core/content` owns instance-local
+format dispatch; applications bind independent modules. Mermaid prepares neutral
+PNG data in workers; only the application owner uploads or releases terminal images. Goldmark nodes, LaTeX AST nodes, Chroma lexers, and
 their configuration never cross module boundaries. A future Markdown syntax
 extension must preserve that direction instead of turning an implementation parser
 into the public plug-in protocol.

@@ -8,6 +8,7 @@ require (
 	github.com/Tangerg/oolong/highlight v0.17.0
 	github.com/Tangerg/oolong/latex v0.17.0
 	github.com/Tangerg/oolong/markdown v0.17.0
+	github.com/Tangerg/oolong/mermaid v0.17.0
 	github.com/Tangerg/oolong/ptytest v0.17.0
 )
 
@@ -20,7 +21,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
 	golang.org/x/image v0.40.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 )

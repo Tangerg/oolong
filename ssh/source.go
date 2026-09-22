@@ -187,13 +187,13 @@ func (s *eventSource) run() {
 			if !s.deliver(s.stamp(parser.Feed(chunk))) {
 				return
 			}
-			if parser.Pending() {
+			if parser.Ambiguous() {
 				timer.Reset(input.DefaultEscapeTimeout)
 				armed = true
 			}
 		case <-timer.C:
 			armed = false
-			if !s.deliver(s.stamp(parser.Flush())) {
+			if !s.deliver(s.stamp(parser.Expire())) {
 				return
 			}
 		case resized := <-s.resized:

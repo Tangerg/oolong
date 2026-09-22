@@ -214,15 +214,29 @@ type program struct {
 
 // run is the event loop.
 func (p *program) run(ctx context.Context) (err error) {
-	// However this ends — asked to stop, input gone, terminal broken — an inline
-	// interface has one more frame to draw and a cursor to leave in a sane place.
-	defer func() { err = errors.Join(err, p.finish()) }()
+	completed := false
+	defer func() {
+		if !completed {
+			p.frameFailed = true
+		}
+		err = errors.Join(err, p.finish())
+	}()
+	err = p.loop(ctx)
+	completed = true
+	return err
+}
+
+func (p *program) loop(ctx context.Context) error {
 	// due fires when a frame that was turned away for arriving too soon becomes
 	// allowed. Without it the last update of a burst would sit undrawn until something
 	// else happened to wake the loop.
 	due := newFrameTimer()
 	defer due.stop()
 
+	var repaints <-chan func(error)
+	if source, ok := p.input.(RepaintSource); ok {
+		repaints = source.Repaints()
+	}
 	p.present.RequestFull()
 	for !p.quit.Load() {
 		if err := p.draw(); err != nil {
@@ -233,6 +247,19 @@ func (p *program) run(ctx context.Context) (err error) {
 		due.schedule(p.present.DueAt())
 
 		select {
+		case reply, ok := <-repaints:
+			if !ok {
+				repaints = nil
+				continue
+			}
+			repaintErr := p.repaint()
+			if reply != nil {
+				reply(repaintErr)
+			}
+			if repaintErr != nil {
+				p.frameFailed = true
+				return repaintErr
+			}
 		case <-ctx.Done():
 			return nil
 

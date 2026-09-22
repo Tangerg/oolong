@@ -45,16 +45,17 @@ type host struct {
 
 	// clip stands in for a system clipboard, so a test can assert on what was put
 	// there instead of on the bytes that would have asked a terminal to do it.
-	clipMu   sync.Mutex
-	copied   []string
-	refuse   bool
-	pasteFor string
-	asked    int
-	handed   int
-	title    string
-	progress term.Progress
-	rang     int
-	notified []string
+	clipMu         sync.Mutex
+	copied         []string
+	refuse         bool
+	pasteFor       string
+	asked          int
+	handed         int
+	title          string
+	progress       term.Progress
+	rang           int
+	notified       []string
+	releasedImages []graphics.Image
 }
 
 // minimalHost is the transport boundary and nothing else. Optional terminal
@@ -800,6 +801,9 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	}
 
 	var images program.Images
+	if err := images.Release(graphics.Image{}); !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatal(err)
+	}
 	if images.Protocol() != graphics.None {
 		t.Fatal("zero Images reported a protocol")
 	}
@@ -2324,4 +2328,9 @@ func TestAnInterfaceCanSayThingsThatAreNotDrawn(t *testing.T) {
 	if err := r.wait(); err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}
+}
+
+func (h *host) ReleaseImage(img graphics.Image) error {
+	h.releasedImages = append(h.releasedImages, img)
+	return nil
 }
