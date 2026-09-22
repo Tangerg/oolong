@@ -24,29 +24,24 @@ concurrency:
 # A tag promises its own module and already-published dependencies. Higher release
 # phases may still be unfinished in this snapshot; full workspace CI belongs to main.
 jobs:
-  compatibility:
-    name: public API release contract
+  module:
+    name: published module contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          # A release-tag check compares with the preceding immutable module tag.
-          # A shallow checkout cannot know which tag that is.
-          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version: "1.27.x"
           check-latest: true
           cache-dependency-path: "**/go.sum"
 
-      # gorelease owns both halves of this promise: exported Go API compatibility
-      # and the module/dependency facts that make a release usable. Pinning the
-      # x/exp revision keeps that interpretation from changing under an unrelated
-      # pull request.
+      # scripts/release.sh compares APIs before immutable tags are published.
+      # This check validates usability even after the version enters the proxy;
+      # gorelease's next-version suggestion is not a post-publication contract.
       - name: Install gorelease
         run: go install golang.org/x/exp/cmd/gorelease@v0.0.0-20260820142414-ca536658362e
 
-      - name: Compare the proposed module with its released baseline
+      - name: Validate the module and its published dependencies
         shell: bash
         env:
           GOWORK: "off"
@@ -56,11 +51,9 @@ jobs:
           set -euo pipefail
           module="$INPUT_MODULE"
           version="$INPUT_VERSION"
-          current_tag=""
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             module="${GITHUB_REF_NAME%%/v*}"
             version="v${GITHUB_REF_NAME#*/v}"
-            current_tag="$GITHUB_REF_NAME"
           fi
 
           public_modules=$(scripts/modules.sh --public)
@@ -69,30 +62,5 @@ jobs:
             *) echo "unknown public module: $module" >&2; exit 2 ;;
           esac
 
-          tag_candidates=$(git tag --list "$module/v*" --sort=-v:refname)
-          previous=""
-          while IFS= read -r candidate; do
-            if [[ "$candidate" == "$current_tag" ]]; then
-              continue
-            fi
-            previous="$candidate"
-            break
-          done <<<"$tag_candidates"
-          base=none
-          if [[ -n "$previous" ]]; then
-            base="v${previous#*/v}"
-          fi
-
           cd "$module"
-          # Major zero is the explicitly unstable development period: report
-          # every API change, but do not pretend patch-number compatibility is
-          # promised. From v1 onward the proposed tag must satisfy Go's
-          # compatibility rules against the preceding immutable release.
-          if [[ "$version" == v0.* ]]; then
-            # With no baseline gorelease validates the proposed canonical version
-            # without applying stable-series compatibility policy.
-            gorelease -base=none -version="$version" >/dev/null
-            gorelease -base="$base"
-          else
-            gorelease -base="$base" -version="$version"
-          fi
+          gorelease -base=none -version="$version"

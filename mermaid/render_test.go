@@ -85,18 +85,26 @@ func backendConfig(t *testing.T, startupDelay time.Duration) mermaid.Config {
  export const CDP_WEBSOCKET_ENDPOINT_REGEX = /./;
  export function launch(options) {
    if (options.detached !== false) throw Error('detached browser');
-   const child = spawn(process.execPath, ['-e', "process.on('SIGINT',()=>{});setInterval(()=>{},1000)"], {
-     detached: options.detached, stdio: 'ignore',
+   const child = spawn(process.execPath, ['-e', "process.on('SIGINT',()=>{});process.stdout.write('ready\\n');setInterval(()=>{},1000)"], {
+     detached: options.detached, stdio: ['ignore','pipe','ignore'],
    });
    globalThis.browserPID = child.pid;
    globalThis.backendStage('browser spawned');
+   const ready = new Promise((resolve, reject) => {
+     child.stdout.once('data', () => {
+       globalThis.backendStage('browser ready');
+       resolve('');
+     });
+     child.once('error', reject);
+     child.once('exit', () => reject(Error('browser exited before readiness')));
+   });
    const exited = new Promise(resolve => child.on('exit', () => {
      globalThis.backendStage('browser exited');
      resolve();
    }));
    return {
      nodeProcess: child,
-     waitForLineOutput: async () => '',
+     waitForLineOutput: () => ready,
      close: async () => {child.kill(); await exited},
    };
  }`)

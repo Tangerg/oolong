@@ -117,12 +117,16 @@ its published dependencies. A phase's snapshot can still contain unfinished high
 modules, so workspace checks belong to the branch and must pass again on the final
 dependency-bump commit.
 
+API comparison runs in `release.sh` before each tag is published. The tag workflow
+uses `gorelease -base=none -version=...` to validate module usability; asking it to
+suggest a next version after publication would depend on proxy cache timing.
+
 Confirm that every module tag has a successful release contract run. A tag's
 existence alone does not establish that its checks ran. If a tag has no run, use
 `release-contract.yml` with that actual tag as the ref and its module and version
 as inputs. For a failed run whose
 external blocker has cleared, rerun its failed jobs. Keep the original tag unchanged;
-running on `main` can select a different API comparison baseline.
+running on `main` checks different source and dependency requirements.
 
 ## Recover from a partial release
 

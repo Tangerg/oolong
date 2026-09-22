@@ -31,10 +31,11 @@ func run(ctx context.Context, cmd *exec.Cmd) error {
 	// The owned launcher places the browser in this same group. Killing does not
 	// depend on a JavaScript signal handler or a responsive rendering process.
 	killed := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	if errors.Is(killed, syscall.ESRCH) {
+	waited := waitGroup(cmd.Process.Pid)
+	if errors.Is(killed, syscall.ESRCH) || (errors.Is(killed, syscall.EPERM) && waited == nil) {
 		killed = nil
 	}
-	return errors.Join(context.Cause(ctx), err, killed, waitGroup(cmd.Process.Pid))
+	return errors.Join(context.Cause(ctx), err, killed, waited)
 }
 
 func waitGroup(pid int) error {
@@ -44,11 +45,14 @@ func waitGroup(pid int) error {
 		if errors.Is(err, syscall.ESRCH) {
 			return nil
 		}
-		if err != nil {
+		// Darwin can report EPERM while an exiting group's only members are
+		// zombies. Only ESRCH proves the group is gone; a persistent denial
+		// remains an error when the shutdown deadline expires.
+		if err != nil && !errors.Is(err, syscall.EPERM) {
 			return err
 		}
 		if !time.Now().Before(deadline) {
-			return fmt.Errorf("mermaid: process group %d did not finish shutdown", pid)
+			return errors.Join(fmt.Errorf("mermaid: process group %d did not finish shutdown", pid), err)
 		}
 		time.Sleep(time.Millisecond)
 	}

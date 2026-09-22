@@ -33,7 +33,7 @@ func TestUnresponsiveRendererCannotLeaveTheBrowserRunning(t *testing.T) {
 	}
 	call.cancel()
 	<-call.done
-	if !errors.Is(call.err, context.Canceled) || strings.Contains(call.err.Error(), "did not finish") {
+	if !errors.Is(call.err, context.Canceled) || errors.Is(call.err, syscall.EPERM) || strings.Contains(call.err.Error(), "did not finish") {
 		t.Fatalf("shutdown=%v", call.err)
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {

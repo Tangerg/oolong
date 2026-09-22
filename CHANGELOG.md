@@ -20,15 +20,24 @@ point of tagging them low rather than not at all.
 
 ## [0.18.2] — 2026-09-22
 
+Supersedes the v0.18.1 release attempt and includes its focus restoration and
+individual module-tag push fixes. The published v0.18.1 tags remain unchanged.
+
 ### Fixed
 
+- Wait for Unix browser process groups to disappear after termination. macOS can
+  report a temporary permission error while only zombie members remain; shutdown
+  now confirms group removal before returning, without hiding persistent errors.
 - Deliver Mermaid backend fixture readiness over loopback HTTP instead of reading
-  a file during a Windows rename. Cancellation, deadlines, backend failures and
-  process cleanup retain their existing assertions.
+  a file during a Windows rename. The browser fixture confirms its signal handler
+  is installed before reporting its endpoint. Cancellation, deadlines, backend
+  failures and process cleanup retain their existing assertions.
 - Separate module-tag release contracts from full workspace CI. A tag validates
   its own published dependency graph; branch CI still checks every module, including
   examples after the final dependency phase. Unfinished higher phases no longer
-  make a valid module tag fail unrelated workspace checks.
+  make a valid module tag fail unrelated workspace checks. API comparison runs
+  before publication; tag checks no longer request a next-version suggestion after
+  the version is already published.
 
 ## [0.18.1] — 2026-09-22
 
