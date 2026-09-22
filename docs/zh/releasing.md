@@ -17,7 +17,7 @@ contentType: How-to
 
 ## 了解发布范围
 
-公开发布列车包含 `core`、`components`、`markdown`、`highlight`、`latex`、`ptytest` 和 `ssh`。即使一个模块自身没有文件变化，它也会获得相同版本。`examples` 与 `internal` 会接受测试，但永远不会发布 tag。
+公开发布列车包含 `core`、`components`、`markdown`、`highlight`、`latex`、`mermaid`、`ptytest` 和 `ssh`。即使一个模块自身没有文件变化，它也会获得相同版本。`examples` 与 `internal` 会接受测试，但永远不会发布 tag。
 这份文字列表用于解释当前发布列车；工具必须消费 `scripts/modules.sh --public`，不得复制它。
 
 在 v1 之前，所有导出 API 都可能变化。从 v1 开始，发布必须保持与前一个 v1 版本的 Go 源码兼容性。固定版本的 `gorelease` 检查会强制执行这条边界。与此独立，钉住版本的 `apidiff` 会在每次变更中把工作 API 与前一个不可变 tag 比对。每个不兼容的导出 API 变更都必须以精确名称出现在 Unreleased 迁移清单中，使评审能够区分有意的契约决定与被仓库内可达性推动的删除。

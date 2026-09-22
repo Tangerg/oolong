@@ -25,7 +25,7 @@ for a repository with nothing to release.
 ## Know what is released
 
 The public release train contains `core`, `components`, `markdown`, `highlight`,
-`latex`, `ptytest`, and `ssh`. Every public module receives the same version even when its
+`latex`, `mermaid`, `ptytest`, and `ssh`. Every public module receives the same version even when its
 own files did not change. `examples` and `internal` are tested but never tagged.
 This prose list explains the current train; tooling must consume
 `scripts/modules.sh --public` rather than copy it.

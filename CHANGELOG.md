@@ -2,7 +2,7 @@
 
 All notable changes to this repository. Modules are tagged separately —
 `core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `highlight/vX.Y.Z`,
-`latex/vX.Y.Z`, `ptytest/vX.Y.Z`, `ssh/vX.Y.Z` — and share one version number: a release is a state of the
+`latex/vX.Y.Z`, `mermaid/vX.Y.Z`, `ptytest/vX.Y.Z`, `ssh/vX.Y.Z` — and share one version number: a release is a state of the
 repository.
 
 From 0.1.0 they are also one coordinated release train, as
@@ -17,6 +17,8 @@ these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
 ## [Unreleased]
+
+## [0.18.0] — 2026-09-22
 
 ### Changed
 
