@@ -2,6 +2,7 @@ package mermaid
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"image"
@@ -21,11 +22,11 @@ func TestOutputValidationAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, limits := range []struct{ bytes, pixels int64 }{{1, 100}, {10000, 11}} {
-		if _, err := readImage(path, limits.bytes, limits.pixels); !errors.Is(err, ErrLimit) {
+		if _, err := readImage(t.Context(), path, limits.bytes, limits.pixels); !errors.Is(err, ErrLimit) {
 			t.Fatal(err)
 		}
 	}
-	result, err := readImage(path, 10000, 12)
+	result, err := readImage(t.Context(), path, 10000, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,7 @@ func TestOutputValidationAndOwnership(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not png"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readImage(path, 10000, 100); err == nil {
+	if _, err := readImage(t.Context(), path, 10000, 100); err == nil {
 		t.Fatal("accepted invalid PNG")
 	}
 }
@@ -69,32 +70,38 @@ func TestRenderOwnsBrowserProfileAndSecurityConfiguration(t *testing.T) {
 	if output != filepath.Join(directory, "diagram.png") {
 		t.Fatal(output)
 	}
-	data, err := os.ReadFile(filepath.Join(directory, "puppeteer.json")) //nolint:gosec // G304: fixed configuration name in the test-owned temporary directory.
-	if err != nil {
-		t.Fatal(err)
-	}
-	var browser struct {
-		UserDataDir  string
-		HandleSIGINT bool
-	}
-	if err = json.Unmarshal(data, &browser); err != nil {
-		t.Fatal(err)
-	}
-	if browser.UserDataDir != filepath.Join(directory, "browser") || !browser.HandleSIGINT {
-		t.Fatalf("browser=%+v", browser)
-	}
-	data, err = os.ReadFile(filepath.Join(directory, "mermaid.json")) //nolint:gosec // G304: fixed configuration name in the test-owned temporary directory.
+	data, err := os.ReadFile(filepath.Join(directory, "config.json")) //nolint:gosec // G304: fixed name in a test-owned directory.
 	if err != nil {
 		t.Fatal(err)
 	}
 	var config struct {
-		SecurityLevel         string
-		MaxTextSize, MaxEdges int
+		Profile string
+		Mermaid struct {
+			SecurityLevel         string
+			MaxTextSize, MaxEdges int
+		}
 	}
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.SecurityLevel != "strict" || config.MaxTextSize != 1024 || config.MaxEdges != 10 {
+	if config.Profile != filepath.Join(directory, "browser") || config.Mermaid.SecurityLevel != "strict" || config.Mermaid.MaxTextSize != 1024 || config.Mermaid.MaxEdges != 10 {
 		t.Fatalf("config=%+v", config)
+	}
+}
+
+func TestImageValidationDoesNotAcceptCancelledWork(t *testing.T) {
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 4, 3))); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "image.png")
+	if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, err := readImage(ctx, path, 10000, 100)
+	if result != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("result=%v err=%v", result, err)
 	}
 }

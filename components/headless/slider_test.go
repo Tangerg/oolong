@@ -152,3 +152,15 @@ func TestSliderRejectsInvalidConfiguration(t *testing.T) {
 		}()
 	}
 }
+
+func TestClippedSliderUsesTheWholeTrackForValues(t *testing.T) {
+	slider := headless.NewSlider(headless.SliderConfig{Maximum: 100})
+	root := headless.NewRoot(sliderTrack{control: slider, rect: grid.Rect(0, 0, 11, 1)})
+	root.Draw(grid.NewSurface(6, 1).View())
+	if !slider.Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDown, Button: input.ButtonLeft}) || slider.Value() != 50 {
+		t.Fatalf("value=%d", slider.Value())
+	}
+	if slider.Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+		t.Fatal("clipped part accepted a press")
+	}
+}

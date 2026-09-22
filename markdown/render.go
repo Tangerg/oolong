@@ -55,7 +55,7 @@ func Render(source string, look Look) ([]Block, error) {
 		return nil, nil
 	}
 	look = cloneLook(look)
-	r := &renderer{look: look, source: []byte(strings.ToValidUTF8(source, "�"))}
+	r := &renderer{look: look, source: []byte(strings.ToValidUTF8(normalizeNewlines(source), "�"))}
 	root := parse(r.source)
 	r.render(root, frame{body: look.Text})
 	return r.blocks, errors.Join(r.errors...)
@@ -202,7 +202,7 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 		inner.body = r.look.Quote
 		r.scheduleChildren(stack, node, inner)
 	case *ast.FencedCodeBlock:
-		r.code(node, string(node.Language(r.source)), in)
+		r.code(node, markdownText(string(node.Language(r.source))), in)
 	case *ast.CodeBlock:
 		r.code(node, "", in)
 	case *mathBlock:
@@ -559,6 +559,9 @@ func (r *renderer) plain(n ast.Node) string {
 				value = markdownText(value)
 			}
 			b.WriteString(value)
+			if node.SoftLineBreak() || node.HardLineBreak() {
+				b.WriteByte(' ')
+			}
 		case *ast.CodeSpan:
 			b.WriteString(r.codeSpan(node))
 		case *ast.String:
@@ -639,4 +642,9 @@ func (r *renderer) codeSpan(node *ast.CodeSpan) string {
 		out.WriteString(value)
 	}
 	return out.String()
+}
+
+// Parser offsets refer to normalized Markdown source, where every line ending is LF.
+func normalizeNewlines(source string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 }

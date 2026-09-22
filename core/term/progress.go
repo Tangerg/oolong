@@ -74,11 +74,12 @@ const (
 // only while progress is active and this process owns the terminal. SetProgress may
 // be called from any goroutine, so state changes and keepalive writes share one lock.
 type taskProgress struct {
-	mu      sync.Mutex
-	current Progress
-	paused  bool
-	dirty   bool
-	closed  bool
+	mu        sync.Mutex
+	current   Progress
+	published bool
+	paused    bool
+	dirty     bool
+	closed    bool
 
 	wake chan struct{}
 	done chan struct{}
@@ -101,6 +102,7 @@ func (p *taskProgress) to(next Progress, queue func([]byte) uint64) {
 		p.dirty = true
 	} else {
 		queue([]byte(next.sequence()))
+		p.published = next.State != ProgressNone
 	}
 	p.mu.Unlock()
 	p.signal()
@@ -122,6 +124,7 @@ func (p *taskProgress) restore(queue func([]byte) uint64) {
 	p.mu.Lock()
 	if !p.closed && p.dirty {
 		queue([]byte(p.current.sequence()))
+		p.published = p.current.State != ProgressNone
 	}
 	p.paused = false
 	p.dirty = false
@@ -133,9 +136,10 @@ func (p *taskProgress) restore(queue func([]byte) uint64) {
 func (p *taskProgress) leave() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.current.State == ProgressNone {
+	if !p.published {
 		return ""
 	}
+	p.published = false
 	return progressClear
 }
 
@@ -191,6 +195,7 @@ func (p *taskProgress) repeat(queue func([]byte) uint64) {
 		return
 	}
 	queue([]byte(p.current.sequence()))
+	p.published = p.current.State != ProgressNone
 }
 
 // SetProgress changes task progress outside the cell grid. Unsupported terminals

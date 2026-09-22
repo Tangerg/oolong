@@ -402,12 +402,12 @@ certainly finished — published once, never looked at again — and the part th
 which is short by construction. Where it cuts is written down, and so is what the rule
 costs.
 
-What comes out is `core/text` lines, so wrapping happens where the width is known, and
-the drawable form satisfies `grid.Drawable`: `Draw` and `HeightForWidth`. A live
+Semantic blocks retain stable child content implementing `grid.Drawable`.
+`Draw` and `HeightForWidth` preserve child layout at the available width. A live
 container adapts that height capability for vertical layout. Horizontal measurement
 uses `WidthForHeight`, while `layout.Measurer` receives the requested axis explicitly. It does not highlight code or typeset mathematics. A single
 semantic-block registry hands fenced code and display mathematics to consumer-supplied
-functions over `core/text` lines. Goldmark nodes never cross that boundary, and
+functions returning a stable `grid.Drawable` and an observable error. Goldmark nodes never cross that boundary, and
 missing renderers keep source readable.
 
 ### highlight
@@ -434,7 +434,7 @@ contract. Unsupported or incomplete expressions remain visible as their source w
 an error. Composition uses the same `latex.Render` entry inside the Markdown
 extension registry's consumer-owned function shape, so it requires no import edge
 between the peer modules and introduces no second, lossy rendering API. An application
-can observe `Formula.Err`, `Source`, or `Width` before returning its lines.
+returns the formula itself together with `Formula.Err()`, preserving its two-dimensional layout.
 
 ### ssh
 

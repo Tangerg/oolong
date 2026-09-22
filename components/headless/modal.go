@@ -431,6 +431,11 @@ func (s *Stack) remove(at int) bool {
 	if owner, ok := layer.modal.(CloseRequester); ok && !owner.RequestClose() {
 		return false
 	}
+	// A synchronous owner notification may already remove or reorder this layer.
+	at = slices.IndexFunc(s.layers, func(current stackLayer) bool { return current.id == layer.id })
+	if at < 0 {
+		return true
+	}
 	copy(s.layers[at:], s.layers[at+1:])
 	s.layers[len(s.layers)-1] = stackLayer{}
 	s.layers = s.layers[:len(s.layers)-1]

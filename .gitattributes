@@ -2,3 +2,6 @@
 # according to the checkout platform before a visual test or fuzzer reads them.
 *.golden text eol=lf
 **/testdata/fuzz/** text eol=lf
+
+# Shell scripts must execute identically on Windows Git Bash and Unix.
+*.sh text eol=lf

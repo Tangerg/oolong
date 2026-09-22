@@ -66,6 +66,7 @@ type Stream struct {
 	// delivered one byte at a time searches each byte once without pretending an
 	// incomplete line can already be interpreted.
 	scanned, searched int
+	afterCR           bool
 	// fenced says the scan is inside a block of code, and fence is what would close
 	// it.
 	fenced bool
@@ -130,7 +131,12 @@ func (s *Stream) Feed(chunk string) ([]Block, error) {
 	if chunk == "" {
 		return nil, nil
 	}
-	_, _ = s.held.WriteString(chunk)
+	afterCR := strings.HasSuffix(chunk, "\r")
+	if s.afterCR {
+		chunk = strings.TrimPrefix(chunk, "\n")
+	}
+	s.afterCR = afterCR
+	_, _ = s.held.WriteString(normalizeNewlines(chunk))
 	clear(s.open)
 	s.open = nil
 	s.openErr = nil
@@ -196,6 +202,7 @@ func (s *Stream) Flush() ([]Block, error) {
 func (s *Stream) Reset() {
 	s.held.Reset()
 	s.scanned, s.searched, s.blank = 0, 0, 0
+	s.afterCR = false
 	s.fenced, s.fence = false, ""
 	s.open, s.fresh = nil, false
 	s.openErr = nil
@@ -310,7 +317,11 @@ func (s *Stream) insideHTML(cut int) bool {
 		}
 		first := block.Lines().At(0)
 		last := block.Lines().At(block.Lines().Len() - 1)
-		if first.Start < cut && last.Stop > cut {
+		stop := last.Stop
+		if block.HasClosure() {
+			stop = max(stop, block.ClosureLine.Stop)
+		}
+		if first.Start < cut && stop > cut {
 			inside = true
 			return ast.WalkStop, nil
 		}

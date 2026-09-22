@@ -228,9 +228,9 @@ npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11
 PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
 ```
 
-可用 `OOLONG_MERMAID_BROWSER` 为示例选择已有 Chromium 可执行文件。模块 `Config` 显式设置可执行文件、受信任的前置参数、浏览器、主题、视口、超时和源码、输出字节、解码像素与边数限额。默认限额为 30 秒（关闭最多额外 1 秒）、64 KiB 源码、8 MiB PNG、1600 万像素和 500 条边。限额约束接收的数据，不是浏览器内存或磁盘沙箱。
+可用 `OOLONG_MERMAID_BROWSER` 为示例选择已有 Chromium 可执行文件。模块 `Config` 显式设置已安装 CLI 的定位路径、Node.js 运行时、浏览器、主题、视口、超时和源码、输出字节、解码像素与边数限额。默认限额为 30 秒（额外有界的进程关闭等待）、64 KiB 源码、8 MiB PNG、1600 万像素和 500 条边。限额约束接收的数据，不是浏览器内存或磁盘沙箱。
 
-后台调用 `Renderer.Render(ctx, source)` 得到自持有的 PNG。内容 owner 校验任务代次及对应的源码和主题后，才通过 `Runtime.Images().Transmit` 上传，并用被动 `kit.Image` 组合进文档。Unix 取消时先向官方 CLI 发送 SIGINT，让 Puppeteer 清理独立浏览器进程组，再兜底终止 CLI 进程组；自定义 Unix 启动器必须保留该信号清理行为。Windows 在创建进程时就将 CLI 加入 Job Object，禁止浏览器子进程逃逸，并在临时文件清理前终止和等待整个作业。npm `.cmd` 启动器会解析到已安装包的入口，由 `node.exe` 直接运行，不经过命令解释器。
+后台调用 `Renderer.Render(ctx, source)` 得到自持有的 PNG。内容 owner 校验任务代次及对应的源码和主题后，才通过 `Runtime.Images().Transmit` 上传，并用被动 `kit.Image` 组合进文档。模块自带的 Node.js 启动器使用官方包的渲染 API，在 Unix 上将 Chromium 放入同一个进程组，强制关闭不再依赖 CLI 响应信号。Windows 在创建启动器时将其加入 Job Object，通过完成通知持有进程句柄，并等待进程对象确认退出后返回。`Executable` 用于定位安装的 npm 包，不再作为自定义命令执行；`Node` 指定 JavaScript 运行时。不支持任意启动参数透传。
 
 `examples/mermaid` 展示后台生成、过期结果拒绝、源码替换、错误展示和退出时等待 worker。替换与退出会先移除图片 placement，再释放图片数据。图片被文档持有期间不可提前释放。
 

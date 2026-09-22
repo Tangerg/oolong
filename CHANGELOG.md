@@ -20,6 +20,21 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- Parsing and streaming share comment, line-ending and HTML source boundaries.
+  Text output rejects invalid byte fragments before rebuilding lines. Complete
+  replacements destroy mark identities; modal removal revalidates identity after
+  synchronous owner notifications, and clipped sliders retain their full track.
+- Stable text blocks reuse a bounded width projection; drawing styled lines streams
+  graphemes without building wrapping arrays. Native progress remembers published
+  state through handover; frame timers park during output backpressure. PTY final
+  assertions wait for output collection with `Session.Drain`.
+- Mermaid owns browser launch through the official package rendering API. Unix
+  browsers share the launcher's process group; Windows completion waits on process
+  handles. Cancellation wins over completed PNG validation, and special output
+  files are rejected before opening. Release ledger selection uses the tagged
+  release's own module inventory. The examples use the new module's resolvable
+  commit version until its first coordinated tag, with no workspace replacement.
+
 - Mermaid uses Windows Job Objects to own the CLI and browser process tree from
   process creation through shutdown. npm command shims resolve to Node.js entry
   points without shell evaluation. macOS retains native process-group cleanup.
@@ -65,6 +80,13 @@ point of tagging them low rather than not at all.
   cleanup does not invoke a failing component's draw method again.
 
 ### Breaking API migration
+
+#### mermaid
+
+- `Config.Arguments` was removed. `Config.Executable` now locates an installed
+  official npm package, not an arbitrary command. Use `Config.Node` to select the
+  Node.js runtime and `Config.Browser` for Chromium. Browser launch and its process
+  ownership are fixed by the renderer rather than delegated to a CLI wrapper.
 
 #### core
 

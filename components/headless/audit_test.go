@@ -138,3 +138,29 @@ func TestTabReflowRechecksCarriedText(t *testing.T) {
 		}
 	}
 }
+
+type notifyingBool struct {
+	value   bool
+	changed func()
+}
+
+func (a *notifyingBool) Value() bool { return a.value }
+func (a *notifyingBool) Set(v bool) {
+	a.value = v
+	if a.changed != nil {
+		a.changed()
+	}
+}
+
+func TestDialogCanSynchronouslyPublishAcceptedClosure(t *testing.T) {
+	value := &notifyingBool{value: true}
+	stack := headless.NewStack(&focusProbe{})
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Open: value, Content: &panel{}})
+	value.changed = func() { dialog.Sync() }
+	root := headless.NewRoot(stack)
+	root.Draw(grid.NewSurface(20, 5).View())
+	root.Handle(input.Key{Code: input.Esc})
+	if dialog.Open() || stack.Top() != nil {
+		t.Fatal("accepted closure did not settle")
+	}
+}

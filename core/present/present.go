@@ -131,7 +131,8 @@ func (p *Presenter) Wrote(seq uint64) {
 // DueAt is when a turned-away throttled request becomes allowed, if one is pending.
 //
 // A driver that parks until something happens has to know to wake then, or the last
-// update of a burst is never drawn.
+// update of a burst is never drawn. While a frame is in flight, no timer is
+// actionable: Wrote is the wakeup that makes the retained deadline eligible.
 func (p *Presenter) DueAt() (time.Time, bool) {
-	return p.dueAt, !p.dueAt.IsZero()
+	return p.dueAt, p.inFlight == 0 && !p.dueAt.IsZero()
 }

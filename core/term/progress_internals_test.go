@@ -111,3 +111,19 @@ func TestActiveProgressKeepsItselfAliveAndIdleProgressDoesNoWork(t *testing.T) {
 		<-p.done
 	})
 }
+
+func TestPausedClearStillClearsPublishedProgressBeforeHandover(t *testing.T) {
+	p := newTaskProgress()
+	queue := func([]byte) uint64 { return 1 }
+	p.to(Progress{State: ProgressNormal, Percent: 50}, queue)
+	p.pause()
+	p.to(Progress{}, queue)
+	if got := p.leave(); got != progressClear {
+		t.Fatalf("leave=%q", got)
+	}
+	var restored string
+	p.restore(func(b []byte) uint64 { restored = string(b); return 2 })
+	if restored != progressClear {
+		t.Fatalf("restore=%q", restored)
+	}
+}

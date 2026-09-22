@@ -281,3 +281,24 @@ func TestThrottledRequestCannotDelayAnImmediateRepaint(t *testing.T) {
 		t.Fatal("immediate full repaint was postponed")
 	}
 }
+
+func TestInFlightFrameParksAnExpiredDeadlineUntilWriterProgress(t *testing.T) {
+	var p present.Presenter
+	d := drew{seq: 1}
+	p.Request()
+	presented(t, &p, epoch, d.draw)
+	p.RequestBy(epoch.Add(time.Millisecond), 10*time.Millisecond)
+	if _, armed := p.DueAt(); armed {
+		t.Fatal("timer armed while only writer progress can unblock drawing")
+	}
+	if presented(t, &p, epoch.Add(time.Second), d.draw) {
+		t.Fatal("drew into blocked writer")
+	}
+	p.Wrote(1)
+	if _, armed := p.DueAt(); !armed {
+		t.Fatal("pending deadline lost")
+	}
+	if !presented(t, &p, epoch.Add(time.Second), d.draw) || d.calls != 2 {
+		t.Fatal("owed frame lost")
+	}
+}

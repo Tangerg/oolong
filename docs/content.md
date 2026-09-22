@@ -226,7 +226,7 @@ body, err := registry.Render(ctx, "latex", source)
 
 ## Mermaid
 
-`mermaid` is an independent Go module using the application-installed [official Mermaid CLI](https://github.com/mermaid-js/mermaid-cli). It does not implement a partial ASCII syntax subset. The process backend supports macOS, Linux and Windows 10 or later; other platforms return `errors.ErrUnsupported` at construction. CLI and Chromium are optional external dependencies and are never downloaded automatically.
+`mermaid` is an independent Go module using the rendering API of the application-installed [official Mermaid CLI](https://github.com/mermaid-js/mermaid-cli). It does not implement a partial ASCII syntax subset. The process backend supports macOS, Linux and Windows 10 or later; other platforms return `errors.ErrUnsupported` at construction. CLI and Chromium are optional external dependencies and are never downloaded automatically.
 
 Install the backend version verified for this change and run the example:
 
@@ -235,9 +235,9 @@ npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11
 PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
 ```
 
-Set `OOLONG_MERMAID_BROWSER` to select an existing Chromium executable in the example. Module `Config` explicitly sets the executable, trusted prefix arguments, browser, theme, viewport, timeout and source/output/pixel/edge limits. Defaults are 30 seconds (plus at most one second for shutdown), 64 KiB source, 8 MiB PNG, 16 million pixels and 500 edges. These limit accepted data, not browser peak memory or disk use.
+Set `OOLONG_MERMAID_BROWSER` to select an existing Chromium executable in the example. Module `Config` explicitly sets the installed CLI locator, Node.js runtime, browser, theme, viewport, timeout and source/output/pixel/edge limits. Defaults are 30 seconds (plus bounded process shutdown), 64 KiB source, 8 MiB PNG, 16 million pixels and 500 edges. These limit accepted data, not browser peak memory or disk use.
 
-Call `Renderer.Render(ctx, source)` in a worker to prepare an owned PNG. The content owner validates the generation and its source/theme before uploading through `Runtime.Images().Transmit` and composing a passive `kit.Image`. On Unix, cancellation first sends SIGINT to the official CLI so Puppeteer closes its detached browser group, then bounds CLI shutdown. Custom Unix launchers must preserve this signal cleanup behavior. Windows creates the CLI inside a Job Object atomically, prevents browser descendants escaping the job, and terminates and waits for the entire job before removing temporary files. npm `.cmd` launchers resolve to the installed package entry point and run through `node.exe`, without a command shell.
+Call `Renderer.Render(ctx, source)` in a worker to prepare an owned PNG. The content owner validates the generation and its source/theme before uploading through `Runtime.Images().Transmit` and composing a passive `kit.Image`. The module owns a Node.js launcher that uses the official package's rendering API and launches Chromium in the same process group on Unix. Forced group shutdown therefore does not depend on a responsive CLI or its signal handlers. Windows attaches the launcher atomically to a Job Object, tracks process handles through completion notifications, and waits for process objects to signal before returning. The configured `Executable` locates the installed npm package; it is not executed as a custom command. `Node` selects the JavaScript runtime. Arbitrary launch arguments are not supported.
 
 `examples/mermaid` demonstrates worker preparation, stale-result rejection, source replacement, visible errors and joining workers on exit. Replacement and shutdown erase the image placement before releasing its data. Never release an image still retained by a document.
 

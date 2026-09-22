@@ -7,47 +7,51 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strings"
 )
 
-func resolveBackend(cfg Config) (Config, error) {
-	if cfg.Executable == "" {
-		cfg.Executable = "mmdc"
+type backend struct{ node, entry string }
+
+func resolveBackend(cfg Config) (backend, error) {
+	executable := cfg.Executable
+	if executable == "" {
+		executable = "mmdc"
 	}
-	executable, err := exec.LookPath(cfg.Executable)
+	resolved, err := exec.LookPath(executable)
 	if err != nil {
-		return cfg, fmt.Errorf("mermaid: locate backend: %w", err)
+		return backend{}, fmt.Errorf("mermaid: locate installed CLI: %w", err)
 	}
-	cfg.Executable, err = filepath.Abs(executable)
+	resolved, err = filepath.Abs(resolved)
 	if err != nil {
-		return cfg, err
+		return backend{}, err
 	}
-	extension := strings.ToLower(filepath.Ext(cfg.Executable))
-	if runtime.GOOS != "windows" || extension != ".cmd" && extension != ".bat" {
-		return cfg, nil
-	}
-	script, err := npmCLI(cfg.Executable)
+	entry, err := npmCLI(resolved)
 	if err != nil {
-		return cfg, err
+		return backend{}, err
 	}
-	node, err := exec.LookPath("node.exe")
+	node := cfg.Node
+	if node == "" {
+		node = "node"
+	}
+	node, err = exec.LookPath(node)
 	if err != nil {
-		return cfg, fmt.Errorf("mermaid: locate Node.js: %w", err)
+		return backend{}, fmt.Errorf("mermaid: locate Node.js: %w", err)
 	}
-	cfg.Executable, err = filepath.Abs(node)
-	if err != nil {
-		return cfg, err
-	}
-	cfg.Arguments = append([]string{script}, cfg.Arguments...)
-	return cfg, nil
+	node, err = filepath.Abs(node)
+	return backend{node: node, entry: entry}, err
 }
 
 // npm shims are shell programs. Resolve the official package's declared entry
 // point instead of feeding command arguments through cmd.exe or parsing a shim.
 func npmCLI(shim string) (string, error) {
 	directory := filepath.Dir(shim)
+	resolved, err := filepath.EvalSymlinks(shim)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
 	roots := []string{filepath.Join(directory, "node_modules", "@mermaid-js", "mermaid-cli"), filepath.Join(directory, "..", "@mermaid-js", "mermaid-cli")}
+	if err == nil {
+		roots = append(roots, filepath.Join(filepath.Dir(resolved), ".."))
+	}
 	for _, root := range roots {
 		data, err := os.ReadFile(filepath.Join(root, "package.json")) //nolint:gosec // G304: installed backend metadata selected by trusted executable configuration.
 		if errors.Is(err, os.ErrNotExist) {
@@ -80,5 +84,5 @@ func npmCLI(shim string) (string, error) {
 		}
 		return script, nil
 	}
-	return "", errors.New("mermaid: npm CLI package not found beside shim; configure node.exe with an absolute CLI script in Arguments")
+	return "", errors.New("mermaid: npm CLI package not found beside shim; configure Executable with the installed mmdc entry point")
 }

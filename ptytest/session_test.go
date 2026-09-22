@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,5 +179,25 @@ func TestAnUnsupportedPlatformSaysSoRatherThanHanging(t *testing.T) {
 	_, err := ptytest.Start(t.Context(), ptytest.Config{}, "echo")
 	if !errors.Is(err, ptytest.ErrUnsupported) {
 		t.Fatalf("= %v, want ptytest.ErrUnsupported", err)
+	}
+}
+
+func TestDrainCapturesTheFinalOutputAfterWait(t *testing.T) {
+	needPTY(t)
+	s, err := ptytest.Start(t.Context(), ptytest.Config{}, "sh", "-c", "printf 'final-tail'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := s.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(s.Transcript().Bytes()), "final-tail") {
+		t.Fatal("final bytes missing")
 	}
 }

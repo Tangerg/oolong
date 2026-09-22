@@ -18,8 +18,8 @@
 //
 // # Where it lives
 //
-// Beside the library rather than inside it. It is the only thing here allowed to
-// spawn a process, and nothing in the library imports it — a harness that the
+// Beside the library rather than inside it. It owns test subprocesses, and
+// nothing in the library imports it — a harness that the
 // thing it tests depends on is a harness that cannot be changed.
 package ptytest
 
@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -99,6 +100,7 @@ type Session struct {
 	// waitDone closes, and read only after — which is what makes it safe without
 	// a lock.
 	waitErr error
+	readErr error
 
 	closeOnce sync.Once
 }
@@ -166,6 +168,9 @@ func (s *Session) read() {
 			s.transcript.append(buf[:n])
 		}
 		if err != nil {
+			if !errors.Is(err, io.EOF) && !readClosed(err) {
+				s.readErr = err
+			}
 			return
 		}
 	}
@@ -207,6 +212,18 @@ func (s *Session) Wait(ctx context.Context) error {
 	select {
 	case <-s.waitDone:
 		return s.waitErr
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+
+// Drain waits until the PTY reader has collected all output and reached EOF.
+// Call it after Wait and before final transcript assertions. The context must
+// bound the wait: a descendant can retain the terminal after the direct child exits.
+func (s *Session) Drain(ctx context.Context) error {
+	select {
+	case <-s.readDone:
+		return s.readErr
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	}

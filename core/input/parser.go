@@ -104,7 +104,8 @@ func (p *Parser) Feed(b []byte) []Event {
 	return p.drain(false)
 }
 
-// Flush resolves what only time could resolve and returns the result.
+// Flush resolves pending input at the end of the byte stream.
+// Use Ambiguous and Expire for an Escape timer while input can still arrive.
 //
 // A buffered escape becomes the Escape key, and anything after it is re-read as
 // ordinary input. A half-arrived character is dropped, since the rest is never
@@ -112,11 +113,9 @@ func (p *Parser) Feed(b []byte) []Event {
 // ambiguous, and cutting it short would corrupt the text.
 func (p *Parser) Flush() []Event { return p.drain(true) }
 
-// Pending reports whether anything is waiting for more input to make sense of it:
-// bytes that might yet become a sequence, or a runaway one still being dropped. It
-// is what tells a caller to arm the timer that will call [Parser.Flush], and the
-// runaway counts because the state has to end somewhere — otherwise the next
-// keystroke that happened to be a parameter byte would vanish into it.
+// Pending reports whether the parser is waiting for more input. It does not
+// indicate a timeout: partial UTF-8 and paste data must continue waiting. Arm an
+// Escape timer only when Ambiguous reports true, and call Expire when it fires.
 func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.dropping != droppingNothing }
 
 // Ambiguous reports whether an Escape timeout can resolve pending input.

@@ -89,10 +89,11 @@ independent dependency set.
 | `core` | Carries the whole third-party list and everything the engine is |
 | `components` | Imports nothing outside `core` and the standard library |
 | `markdown`, `highlight`, `latex` | Parser, lexers and palettes, and mathematical parsing with terminal layout. Peers that may not import one another |
+| `mermaid` | Owns CLI/browser preparation, process lifetime and validated PNG output; Windows system calls stay in its process adapter |
 | `ptytest` | Depends on neither, and nothing depends on it |
 
 Anything wanting a heavy dependency — markdown, syntax highlighting, mathematics — becomes a module of its
-own, so that neither `core` nor `components` hears about it. Consumer-owned core-text seams are how
+own, so that neither `core` nor `components` hears about it. Consumer-owned core content and drawable contracts are how
 applications compose the peer modules.
 
 ### Rings

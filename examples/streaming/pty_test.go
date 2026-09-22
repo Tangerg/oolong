@@ -146,6 +146,9 @@ func TestTheSessionGivesTheTerminalBack(t *testing.T) {
 		t.Fatalf("the program did not exit: %v", err)
 	}
 
+	if err := s.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
 	transcript := s.Transcript().Bytes()
 	ptytest.RequireSymmetricModes(t, transcript,
 		ptytest.Mode{Name: "bracketed paste", On: "\x1b[?2004h", Off: "\x1b[?2004l"},
@@ -210,6 +213,9 @@ func TestWhatWasPrintedSurvivesTheProgram(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), settle)
 	defer cancel()
 	if err := s.Wait(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Drain(ctx); err != nil {
 		t.Fatal(err)
 	}
 	// Nothing after the last frame erases the screen or the scrollback: leaving is

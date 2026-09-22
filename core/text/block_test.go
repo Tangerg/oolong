@@ -1,6 +1,7 @@
 package text_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/grid"
@@ -36,5 +37,28 @@ func TestBlockOwnsSourceAndSharesLayoutWithProjection(t *testing.T) {
 	clipped := text.NewBlock(text.BlockConfig{Lines: []text.Line{{{Text: "abcdef"}}}})
 	if rows := clipped.Rows(3); len(rows) != 1 || rows[0].Text != "abc" {
 		t.Fatal(rows)
+	}
+}
+
+func TestBlockConcurrentWidthsAndReturnedRowMutation(t *testing.T) {
+	t.Parallel()
+	block := text.NewBlock(text.BlockConfig{Lines: []text.Line{text.Of("hello world", grid.Style{})}, Wrap: true})
+	for _, width := range []int{5, 20, 7, 5} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			t.Parallel()
+			for range 20 {
+				rows := block.Rows(width)
+				if len(rows) != block.HeightForWidth(width) {
+					t.Fatal("inconsistent projection")
+				}
+				if len(rows) > 0 {
+					rows[0].Text = "mutated"
+				}
+				if block.Rows(width)[0].Text == "mutated" {
+					t.Fatal("cache exposed")
+				}
+				block.Draw(grid.NewSurface(width, 3).View())
+			}
+		})
 	}
 }

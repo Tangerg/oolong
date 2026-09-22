@@ -35,6 +35,10 @@ func render(source string, look Look) (out box, err error) {
 // represents malformed untrusted input with panics in several paths; none of those
 // conventions cross the module API.
 func parse(source string) (node ast.Node, err error) {
+	if !utf8.ValidString(source) {
+		return nil, &parseError{message: "source is not valid UTF-8"}
+	}
+	source = withoutComments(source)
 	if validationErr := validateSource(source); validationErr != nil {
 		return nil, validationErr
 	}
@@ -87,6 +91,29 @@ func escapedAt(source string, at int) bool {
 		at--
 	}
 	return backslashes%2 != 0
+}
+
+// The parser treats an unescaped percent as a comment through LF (including CR).
+// Remove that trivia once so validation and script rewriting see the same tokens.
+func withoutComments(source string) string {
+	var out strings.Builder
+	for at := 0; at < len(source); at++ {
+		if source[at] == '\\' && at+1 < len(source) {
+			out.WriteString(source[at : at+2])
+			at++
+			continue
+		}
+		if source[at] == '%' {
+			for at < len(source) && source[at] != '\n' {
+				at++
+			}
+			if at == len(source) {
+				break
+			}
+		}
+		out.WriteByte(source[at])
+	}
+	return out.String()
 }
 
 func validateSource(source string) error {

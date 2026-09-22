@@ -50,6 +50,7 @@ func TestALargePasteIsOneApplicationOwnedElement(t *testing.T) {
 	host.Send(input.Paste{Text: "one\ntwo\nthree\nfour"})
 	host.Shows(t, "[paste 4 lines]")
 	host.Type(" summarize")
+	host.Shows(t, "[paste 4 lines]")
 	host.Press(input.Enter)
 	host.Shows(t, "1 attached paste(s)")
 	quit(t, host, done)
@@ -61,7 +62,10 @@ func TestUndoRestoresTheOriginalPastePayload(t *testing.T) {
 	host.Send(input.Paste{Text: "one\ntwo\nthree\nfour"})
 	host.Shows(t, "[paste 4 lines]")
 	host.Press(input.Backspace)
-	host.Send(input.Key{Code: input.Character, Rune: 'z', Mods: input.Ctrl})
+	host.Press(input.Backspace)
+	host.Shows(t, "Type @ to reference")
+	host.Send(input.Key{Code: input.Character, Rune: '_', Mods: input.Ctrl})
+	host.Shows(t, "[paste 4 lines]")
 	host.Press(input.Enter)
 	host.Shows(t, "1 attached paste(s)")
 	quit(t, host, done)
@@ -78,4 +82,23 @@ func TestHistoryRestoresAnEntryWithoutLosingTheEditingPath(t *testing.T) {
 	host.Press(input.Enter)
 	host.Shows(t, "sent: alpha-again")
 	quit(t, host, done)
+}
+
+func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
+	p := &prompt{pastes: make(map[uint64]string)}
+	body := "one\ntwo\nthree\nfour"
+	p.insertPaste(body)
+	editor := p.composer.Editor()
+	id := editor.Elements()[0].ID
+	editor.RemoveElement(id)
+	if len(editor.Elements()) != 0 {
+		t.Fatal("attachment was not removed")
+	}
+	p.releaseRemovedPastes()
+	editor.Undo()
+	p.releaseRemovedPastes()
+	elements := editor.Elements()
+	if len(elements) != 1 || elements[0].ID != id || p.pastes[id] != body {
+		t.Fatalf("elements=%v payload=%q", elements, p.pastes[id])
+	}
 }

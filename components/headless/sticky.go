@@ -42,6 +42,8 @@ type Sticky struct {
 	// worth pinning and the answers are not, and nothing here can tell one from the
 	// other.
 	blocks []BlockID
+	// releasedPrefix keeps the original allocation visible after advancing the slice.
+	releasedPrefix int
 	// MinHeight is how far a header may be collapsed before it stops shrinking and
 	// starts scrolling off instead. Zero means it does not collapse.
 	//
@@ -54,10 +56,18 @@ type Sticky struct {
 
 // SetBlocks replaces the identities that can be pinned. Sticky owns the slice; the
 // caller may reuse or change its input afterwards.
-func (s *Sticky) SetBlocks(blocks []BlockID) { s.blocks = own(s.blocks, blocks) }
+func (s *Sticky) SetBlocks(blocks []BlockID) {
+	s.blocks = slices.Clone(blocks)
+	s.releasedPrefix = 0
+}
 
 // Add appends pinnable block identities in transcript order.
-func (s *Sticky) Add(blocks ...BlockID) { s.blocks = append(s.blocks, blocks...) }
+func (s *Sticky) Add(blocks ...BlockID) {
+	if len(blocks) > cap(s.blocks)-len(s.blocks) {
+		s.releasedPrefix = 0
+	}
+	s.blocks = append(s.blocks, blocks...)
+}
 
 // Blocks returns a copy of the pinnable identities in transcript order.
 func (s *Sticky) Blocks() []BlockID {
@@ -190,7 +200,17 @@ func (s *Sticky) DiscardBefore(first BlockID) {
 	if n == 0 {
 		return
 	}
+	allocation := cap(s.blocks) + s.releasedPrefix
 	clear(s.blocks[:n])
 	s.blocks = s.blocks[n:]
-	s.blocks = trim(s.blocks)
+	s.releasedPrefix += n
+	if len(s.blocks) == 0 {
+		s.blocks = nil
+		s.releasedPrefix = 0
+		return
+	}
+	if allocation > 2*len(s.blocks)+16 {
+		s.blocks = slices.Clone(s.blocks)
+		s.releasedPrefix = 0
+	}
 }

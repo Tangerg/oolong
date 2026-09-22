@@ -12,6 +12,7 @@ github.com/Tangerg/oolong/latex v0.17.0 h1:8uBa22NCoxNDV+87mLRwEW9aOm7Q/2xA75sVO
 github.com/Tangerg/oolong/latex v0.17.0/go.mod h1:yZxKKxwp1EJaMneZWHuRVWKJJmNnsN6aygwRDDM1tG0=
 github.com/Tangerg/oolong/markdown v0.17.0 h1:eW+LQkvtB7qqTyCWGQihz8lgK2gWaUwCd4zgi0SYp/c=
 github.com/Tangerg/oolong/markdown v0.17.0/go.mod h1:Q+b+s4bGPS0Bu4l0VI3WRekrLczvhaYPnzH6mNDTHRk=
+github.com/Tangerg/oolong/mermaid v0.0.0-20260922030444-214a05ee1ca0 h1:dI+PRrIOHcv4iGT4MhAGg+bgPI72eWlQHu3PASbfsIU=
 github.com/Tangerg/oolong/ptytest v0.17.0 h1:57m+jGY04WJXZa8AiOsZ2bxk8nSve92w7vfk1KeJS68=
 github.com/Tangerg/oolong/ptytest v0.17.0/go.mod h1:6mvC+/q4Xbn/fbgCAVMbvBr0UVdKpx5Vjqyihy5laFw=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=

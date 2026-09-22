@@ -1,6 +1,10 @@
 package text
 
-import "github.com/Tangerg/oolong/core/grid"
+import (
+	"sync"
+
+	"github.com/Tangerg/oolong/core/grid"
+)
 
 // BlockConfig configures an immutable collection of styled logical lines.
 type BlockConfig struct {
@@ -15,25 +19,54 @@ type BlockConfig struct {
 type Block struct {
 	lines []Line
 	wrap  bool
+	cache *blockCache
 }
 
 // NewBlock copies the source, including strings retained by spans.
 func NewBlock(cfg BlockConfig) *Block {
-	return &Block{lines: CloneLines(cfg.Lines), wrap: cfg.Wrap}
+	return &Block{lines: CloneLines(cfg.Lines), wrap: cfg.Wrap, cache: &blockCache{}}
 }
 
-func (b *Block) physical(width int) []Wrapped {
-	if b == nil || width <= 0 {
+type blockRow struct {
+	Wrapped
+	logical int
+	gap     string
+}
+
+// A single width projection bounds retention during resize. Published rows are
+// immutable, so concurrent draws can keep using the previous projection.
+type blockCache struct {
+	mu    sync.Mutex
+	width int
+	rows  []blockRow
+}
+
+func (b *Block) physical(width int) []blockRow {
+	if b == nil || width <= 0 || len(b.lines) == 0 {
 		return nil
 	}
-	var rows []Wrapped
-	for _, line := range b.lines {
-		if b.wrap {
-			rows = append(rows, line.Wrap(width)...)
-		} else {
-			rows = append(rows, Wrapped{Line: line.Truncate(width, "")})
+	b.cache.mu.Lock()
+	defer b.cache.mu.Unlock()
+	if b.cache.width == width {
+		return b.cache.rows
+	}
+	var rows []blockRow
+	for index, line := range b.lines {
+		if !b.wrap {
+			rows = append(rows, blockRow{Line: line.Truncate(width, ""), logical: index + 1})
+			continue
+		}
+		source, previous := line.String(), 0
+		for _, wrapped := range line.Wrap(width) {
+			gap := ""
+			if wrapped.Joined {
+				gap = source[previous:wrapped.From]
+			}
+			rows = append(rows, blockRow{Wrapped: wrapped, logical: index + 1, gap: gap})
+			previous = wrapped.To
 		}
 	}
+	b.cache.width, b.cache.rows = width, rows
 	return rows
 }
 
@@ -55,21 +88,10 @@ func (b *Block) Rows(width int) []Row {
 	if b == nil || width <= 0 {
 		return nil
 	}
-	var rows []Row
-	for index, line := range b.lines {
-		if !b.wrap {
-			rows = append(rows, Row{Text: line.Truncate(width, "").String(), Line: index + 1})
-			continue
-		}
-		source, previous := line.String(), 0
-		for _, wrapped := range line.Wrap(width) {
-			gap := ""
-			if wrapped.Joined {
-				gap = source[previous:wrapped.From]
-			}
-			rows = append(rows, Row{Text: wrapped.Line.String(), Line: index + 1, Joined: wrapped.Joined, Gap: gap})
-			previous = wrapped.To
-		}
+	physical := b.physical(width)
+	rows := make([]Row, len(physical))
+	for i, row := range physical {
+		rows[i] = Row{Text: row.Line.String(), Line: row.logical, Joined: row.Joined, Gap: row.gap}
 	}
 	return rows
 }

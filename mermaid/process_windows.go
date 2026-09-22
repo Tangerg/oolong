@@ -5,11 +5,9 @@ package mermaid
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -33,6 +31,11 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 	if _, err = windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil { //nolint:gosec // G103: documented Windows job structure, exact size, live until the synchronous call returns.
 		return err
 	}
+	tree, err := newJobTree(job)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, tree.close()) }()
 	input, err := os.CreateTemp(cmd.Dir, "stdin-")
 	if err != nil {
 		return err
@@ -54,14 +57,14 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 		if process != nil {
 			stopErr := windows.TerminateJobObject(job, 1)
 			_, waitErr := process.Wait()
-			err = errors.Join(err, stopErr, waitErr, settleJob(job))
+			err = errors.Join(err, stopErr, waitErr, tree.wait())
 		}
 		return err
 	}
 	if err = writer.Close(); err != nil {
 		stopErr := windows.TerminateJobObject(job, 1)
 		_, waitErr := process.Wait()
-		return errors.Join(err, stopErr, waitErr, settleJob(job))
+		return errors.Join(err, stopErr, waitErr, tree.wait())
 	}
 	copied := make(chan error, 1)
 	go func() { _, copyErr := io.Copy(cmd.Stdout, output); copied <- copyErr }()
@@ -79,7 +82,10 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 	close(finished)
 	cancelErr := <-cancelled
 	terminateErr := windows.TerminateJobObject(job, 1)
-	settledErr := settleJob(job)
+	settledErr := tree.wait()
+	if terminateErr != nil || settledErr != nil {
+		settledErr = errors.Join(settledErr, output.Close())
+	}
 	copyErr := <-copied
 	if waitErr == nil && !state.Success() {
 		waitErr = &exec.ExitError{ProcessState: state}
@@ -135,23 +141,7 @@ func startInJob(cmd *exec.Cmd, job windows.Handle, input, output *os.File) (_ *o
 	defer func() { err = errors.Join(err, windows.CloseHandle(info.Thread), windows.CloseHandle(info.Process)) }()
 	process, err := os.FindProcess(int(info.ProcessId))
 	if err != nil {
-		return nil, errors.Join(err, windows.TerminateJobObject(job, 1), settleJob(job))
+		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	return process, nil
-}
-
-func settleJob(job windows.Handle) error {
-	var accounting struct {
-		TotalUserTime, TotalKernelTime, PeriodUserTime, PeriodKernelTime int64
-		PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses uint32
-	}
-	for {
-		if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil { //nolint:gosec // G103: documented JOBOBJECT_BASIC_ACCOUNTING_INFORMATION layout and exact size.
-			return fmt.Errorf("mermaid: settle process tree: %w", err)
-		}
-		if accounting.ActiveProcesses == 0 {
-			return nil
-		}
-		time.Sleep(time.Millisecond)
-	}
 }

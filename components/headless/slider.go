@@ -234,7 +234,7 @@ func (s *Slider) mouse(mouse input.Mouse) bool {
 	}
 	switch mouse.Action {
 	case input.MouseDown, input.MouseDrag, input.MouseUp:
-		s.setAt(mouse.Pos.X, s.pointer.presentation.Value().area)
+		s.setAt(mouse.Pos.X, s.pointer.presentation.Value().track)
 		return true
 	default:
 		return false

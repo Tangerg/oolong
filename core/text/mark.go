@@ -141,7 +141,7 @@ func (e Edit) Shift(marks []Mark, n int) []Mark {
 	}
 	kept := marks[:0]
 	for _, m := range marks {
-		if m.Atomic && e.reaches(m) {
+		if e.Start < e.End && e.Start <= m.Start && e.End >= m.End || m.Atomic && e.reaches(m) {
 			continue
 		}
 		m.Start, m.End = e.opens(m.Start), e.closes(m.End)

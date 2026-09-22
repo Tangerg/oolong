@@ -312,23 +312,7 @@ jobs:
       - name: breaking APIs have migration entries
         run: |
           set -euo pipefail
-          section=Unreleased
-          # Preparing a release moves its ledger out of Unreleased before tags
-          # exist. Keep checking that version until the entire train is published.
-          version=$(sed -n '/^## \[[0-9]/{s/^## \[\([^]]*\)\].*/\1/;p;q;}' CHANGELOG.md)
-          public_modules=$(scripts/modules.sh --public)
-          if [[ -n "$version" ]]; then
-            for module in $public_modules; do
-              if git show-ref --verify --quiet "refs/tags/$module/v$version"; then
-                continue
-              else
-                status=$?
-                [[ "$status" == 1 ]] || exit "$status"
-                section="$version"
-                break
-              fi
-            done
-          fi
+          section=$(sh scripts/ledger-section.sh)
           go -C internal run ./cmd/apiledger -root .. -section "$section"
 
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0

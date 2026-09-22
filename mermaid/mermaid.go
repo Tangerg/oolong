@@ -11,6 +11,7 @@ package mermaid
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,25 +23,26 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
 
 // Config describes one backend instance. Zero limits choose documented defaults.
-// Executable, Arguments and Browser are trusted application configuration, never
+// Executable, Node and Browser are trusted application configuration, never
 // diagram input. There is no shell interpolation or automatic package download.
 type Config struct {
-	// Executable defaults to mmdc. Arguments precede the fixed CLI arguments; for
-	// example Executable=node and Arguments=[/absolute/path/to/cli.js] also work on Unix.
+	// Executable locates the installed official mmdc package (default mmdc).
+	// Node selects its JavaScript runtime (default node). Arbitrary CLI launchers
+	// and argument injection are not supported; the renderer owns browser launch.
 	Executable string
-	Arguments  []string
+	Node       string
 	// Browser optionally selects a Chromium executable for Puppeteer.
 	Browser string
 	// Theme is default, dark, forest, neutral or base. Empty selects default.
 	Theme string
-	// Timeout defaults to 30 seconds, plus at most one second for backend shutdown.
+	// Timeout defaults to 30 seconds. Unix shutdown allows one second for graceful
+	// exit and one second to confirm forced process-group termination.
 	Timeout time.Duration
 	// MaxSourceBytes defaults to 64 KiB; MaxOutputBytes to 8 MiB.
 	MaxSourceBytes int
@@ -54,11 +56,11 @@ type Config struct {
 
 // Renderer owns immutable configuration and serializes generation per instance.
 // Waiting calls respect their contexts. Every call owns and removes its temporary
-// directory and closes the official CLI and its browser before returning. Custom launchers must
-// preserve Puppeteer’s SIGINT cleanup handler.
+// directory and owns browser launch and shutdown independently of CLI signal handlers.
 type Renderer struct {
-	cfg  Config
-	slot chan struct{}
+	cfg     Config
+	backend backend
+	slot    chan struct{}
 }
 
 // ErrLimit identifies rejected source or output resource limits.
@@ -91,8 +93,7 @@ func New(cfg Config) (*Renderer, error) {
 	if err := platformSupported(); err != nil {
 		return nil, err
 	}
-	var err error
-	cfg, err = resolveBackend(cfg)
+	resolved, err := resolveBackend(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +107,6 @@ func New(cfg Config) (*Renderer, error) {
 			return nil, fmt.Errorf("mermaid: browser path: %w", err)
 		}
 	}
-	cfg.Arguments = slices.Clone(cfg.Arguments)
 	if cfg.Theme == "" {
 		cfg.Theme = "default"
 	}
@@ -142,7 +142,7 @@ func New(cfg Config) (*Renderer, error) {
 	if int64(cfg.Width) > cfg.MaxPixels/int64(cfg.Height) {
 		return nil, fmt.Errorf("%w: viewport pixels", ErrLimit)
 	}
-	return &Renderer{cfg: cfg, slot: make(chan struct{}, 1)}, nil
+	return &Renderer{cfg: cfg, backend: resolved, slot: make(chan struct{}, 1)}, nil
 }
 
 // Render generates and validates PNG output. Source and diagnostics are bounded.
@@ -150,7 +150,7 @@ func New(cfg Config) (*Renderer, error) {
 // preserve context cancellation and process exit identities with errors.Is/As.
 // Limits bound accepted input/output, not the browser's peak memory or disk usage;
 // an application needing an adversarial sandbox must supply one around the CLI.
-func (r *Renderer) Render(ctx context.Context, source string) (_ *Image, err error) {
+func (r *Renderer) Render(ctx context.Context, source string) (result *Image, err error) {
 	if r == nil || r.slot == nil {
 		return nil, errors.New("mermaid: uninitialized renderer")
 	}
@@ -175,48 +175,61 @@ func (r *Renderer) Render(ctx context.Context, source string) (_ *Image, err err
 	if err != nil {
 		return nil, fmt.Errorf("mermaid: temporary directory: %w", err)
 	}
-	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+	defer func() {
+		err = errors.Join(err, os.RemoveAll(dir), context.Cause(ctx))
+		if err != nil {
+			result = nil
+		}
+	}()
 	args, output, err := r.arguments(dir)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, r.cfg.Executable, args...) //nolint:gosec // Trusted backend configuration, fixed flags, source only on stdin.
+	cmd := exec.CommandContext(ctx, r.backend.node, args...) //nolint:gosec // Trusted backend configuration, fixed flags, source only on stdin.
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(source)
 	diagnostics := &boundedOutput{limit: 64 << 10}
 	cmd.Stdout, cmd.Stderr = diagnostics, diagnostics
-	if err := run(ctx, cmd); err != nil {
-		return nil, fmt.Errorf("mermaid: backend: %w: %s", err, diagnostics.String())
+	if runErr := run(ctx, cmd); runErr != nil {
+		return nil, fmt.Errorf("mermaid: backend: %w: %s", runErr, diagnostics.String())
 	}
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause
 	}
-	return readImage(output, r.cfg.MaxOutputBytes, r.cfg.MaxPixels)
+	return readImage(ctx, output, r.cfg.MaxOutputBytes, r.cfg.MaxPixels)
 }
 
+//go:embed backend.mjs
+var backendSource string
+
 func (r *Renderer) arguments(dir string) ([]string, string, error) {
+	script := filepath.Join(dir, "backend.mjs")
+	if err := os.WriteFile(script, []byte(backendSource), 0o600); err != nil {
+		return nil, "", err
+	}
 	config := struct {
-		SecurityLevel string `json:"securityLevel"`
-		MaxTextSize   int    `json:"maxTextSize"`
-		MaxEdges      int    `json:"maxEdges"`
-	}{"strict", r.cfg.MaxSourceBytes, r.cfg.MaxEdges}
-	configPath := filepath.Join(dir, "mermaid.json")
+		Browser string `json:"browser"`
+		Profile string `json:"profile"`
+		Timeout int64  `json:"timeout"`
+		Width   int    `json:"width"`
+		Height  int    `json:"height"`
+		Mermaid struct {
+			SecurityLevel string `json:"securityLevel"`
+			MaxTextSize   int    `json:"maxTextSize"`
+			MaxEdges      int    `json:"maxEdges"`
+			Theme         string `json:"theme"`
+		} `json:"mermaid"`
+	}{Browser: r.cfg.Browser, Profile: filepath.Join(dir, "browser"), Timeout: r.cfg.Timeout.Milliseconds(), Width: r.cfg.Width, Height: r.cfg.Height}
+	config.Mermaid.SecurityLevel = "strict"
+	config.Mermaid.MaxTextSize = r.cfg.MaxSourceBytes
+	config.Mermaid.MaxEdges = r.cfg.MaxEdges
+	config.Mermaid.Theme = r.cfg.Theme
+	configPath := filepath.Join(dir, "config.json")
 	if err := writeJSON(configPath, config); err != nil {
 		return nil, "", err
 	}
 	output := filepath.Join(dir, "diagram.png")
-	args := append(slices.Clone(r.cfg.Arguments), "--input", "-", "--output", output, "--outputFormat", "png", "--configFile", configPath, "--theme", r.cfg.Theme, "--backgroundColor", "transparent", "--width", strconv.Itoa(r.cfg.Width), "--height", strconv.Itoa(r.cfg.Height), "--quiet")
-	browserPath := filepath.Join(dir, "puppeteer.json")
-	browser := struct {
-		ExecutablePath string `json:"executablePath,omitempty"`
-		UserDataDir    string `json:"userDataDir"`
-		HandleSIGINT   bool   `json:"handleSIGINT"`
-	}{r.cfg.Browser, filepath.Join(dir, "browser"), true}
-	if err := writeJSON(browserPath, browser); err != nil {
-		return nil, "", err
-	}
-	args = append(args, "--puppeteerConfigFile", browserPath)
-	return args, output, nil
+	return []string{script, r.backend.entry, configPath, output}, output, nil
 }
 
 func writeJSON(path string, value any) error {
@@ -227,13 +240,29 @@ func writeJSON(path string, value any) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-func readImage(path string, maxBytes, maxPixels int64) (*Image, error) {
+func readImage(ctx context.Context, path string, maxBytes, maxPixels int64) (result *Image, err error) {
+	defer func() {
+		if cause := context.Cause(ctx); cause != nil {
+			result = nil
+			err = errors.Join(err, cause)
+		}
+	}()
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("mermaid: inspect output: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxBytes {
+		return nil, fmt.Errorf("%w: output must be a bounded regular file", ErrLimit)
+	}
 	file, err := os.Open(path) //nolint:gosec // Fixed output name under the render's private directory.
 	if err != nil {
 		return nil, fmt.Errorf("mermaid: read output: %w", err)
 	}
 	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
+	info, err = file.Stat()
 	if err != nil {
 		return nil, err
 	}

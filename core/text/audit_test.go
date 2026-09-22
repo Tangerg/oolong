@@ -32,3 +32,33 @@ func TestPartialMarkStartReplacementIncludesReplacement(t *testing.T) {
 		t.Fatalf("marks: %#v", marks)
 	}
 }
+
+func TestCompleteReplacementDestroysMarkIdentity(t *testing.T) {
+	for _, atomic := range []bool{false, true} {
+		marks := text.Edit{Start: 4, End: 9, Text: "XYZ"}.Shift([]text.Mark{{Start: 4, End: 9, Atomic: atomic}}, 12)
+		if len(marks) != 0 {
+			t.Fatalf("replaced identity survived: %#v", marks)
+		}
+	}
+}
+
+func TestFilteredBytesCannotReassembleIntoWiderText(t *testing.T) {
+	source := "a\xc2\n\xa9bc"
+	if got := text.Truncate(source, 2, "…"); text.Width(got) > 2 {
+		t.Fatalf("overflow: %q", got)
+	}
+	for _, row := range text.Of(source, grid.Style{}).Wrap(2) {
+		if row.Line.Width() > 2 {
+			t.Fatalf("overflow: %q", row.Line.String())
+		}
+	}
+}
+
+func TestDroppedControlsCannotAttachStandaloneVariationSelectors(t *testing.T) {
+	line := text.Of("❤\n\ufe0f", grid.Style{})
+	for _, row := range line.Wrap(1) {
+		if row.Line.Width() > 1 {
+			t.Fatalf("reassembled cluster exceeds budget: %q", row.Line.String())
+		}
+	}
+}

@@ -18,12 +18,9 @@
 // A semantic content registry can call the same [Render] entry through a closure.
 // The registry's first argument is format information and the second is source:
 //
-//	render := func(_ string, source string) []text.Line {
+//	render := func(_ string, source string) (grid.Drawable, error) {
 //		formula := latex.Render(source, look)
-//		if err := formula.Err(); err != nil {
-//			report(source, err)
-//		}
-//		return formula.Lines()
+//		return formula, formula.Err()
 //	}
 //
 // The producer and consumer remain peers. Both know only core text and grid values;

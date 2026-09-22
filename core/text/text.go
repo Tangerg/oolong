@@ -124,7 +124,7 @@ func (l Line) Width() int {
 // two is stamped on both halves, which is how one hyperlink covers two rows.
 func (l Line) Draw(v grid.View, x, y int) int {
 	col := 0
-	for _, u := range l.units() {
+	for u := range l.eachUnit() {
 		at := layout.Translate(x, col)
 		width := u.width
 		if u.linked {
@@ -412,11 +412,6 @@ type unit struct {
 // units is the line as the things that occupy columns, with tabs expanded against the
 // running column.
 func (l Line) units() []unit {
-	// A grapheme never contains more units than runes, except that one tab expands
-	// to at most TabStop spaces. This exact upper bound for ordinary text avoids the
-	// repeated growth and copying of the comparatively rich unit value. It remains
-	// an upper bound for combining sequences and controls, which merely leave spare
-	// capacity for this call and never escape it.
 	capacity := 0
 	for _, span := range l {
 		for _, r := range span.Text {
@@ -427,50 +422,48 @@ func (l Line) units() []unit {
 		}
 	}
 	units := make([]unit, 0, capacity)
-	col, at := 0, 0
-	spanIndex, spanEnd := 0, 0
-	if len(l) > 0 {
-		spanEnd = len(l[0].Text)
-	}
-	g := uniseg.NewGraphemes(l.String())
-	for g.Next() {
-		for spanIndex+1 < len(l) && at >= spanEnd {
-			spanIndex++
-			spanEnd += len(l[spanIndex].Text)
-		}
-		// A cell has one appearance; the span containing the cluster start owns it.
-		s := &l[spanIndex]
-		cluster := g.Str()
-		switch {
-		case cluster == "\t":
-			n := TabStop - col%TabStop
-			for range n {
-				units = append(units, unit{
-					cluster: " ", source: s, width: 1, space: true,
-					at: at, size: len(cluster),
-				})
-			}
-			col = layout.Sum(col, n)
-		case dropped(cluster):
-			// A control character has no width to lay out and no business
-			// reaching a cell.
-		case cluster == " ":
-			units = append(units, unit{
-				cluster: " ", source: s, linked: true, width: 1, space: true,
-				at: at, size: len(cluster),
-			})
-			col++
-		default:
-			w := clusterWidth(cluster)
-			units = append(units, unit{
-				cluster: cluster, source: s, linked: true, width: w,
-				at: at, size: len(cluster),
-			})
-			col = layout.Sum(col, w)
-		}
-		at += len(cluster)
+	for u := range l.eachUnit() {
+		units = append(units, u)
 	}
 	return units
+}
+
+// eachUnit keeps drawing streaming while wrapping can retain provenance.
+func (l Line) eachUnit() iter.Seq[unit] {
+	return func(yield func(unit) bool) {
+		col, at := 0, 0
+		spanIndex, spanEnd := 0, 0
+		if len(l) > 0 {
+			spanEnd = len(l[0].Text)
+		}
+		g := uniseg.NewGraphemes(l.String())
+		for g.Next() {
+			for spanIndex+1 < len(l) && at >= spanEnd {
+				spanIndex++
+				spanEnd += len(l[spanIndex].Text)
+			}
+			s := &l[spanIndex]
+			cluster := g.Str()
+			switch {
+			case cluster == "\t":
+				n := TabStop - col%TabStop
+				for range n {
+					if !yield(unit{cluster: " ", source: s, width: 1, space: true, at: at, size: len(cluster)}) {
+						return
+					}
+				}
+				col = layout.Sum(col, n)
+			case dropped(cluster):
+			default:
+				w := clusterWidth(cluster)
+				if !yield(unit{cluster: cluster, source: s, linked: true, width: w, space: cluster == " ", at: at, size: len(cluster)}) {
+					return
+				}
+				col = layout.Sum(col, w)
+			}
+			at += len(cluster)
+		}
+	}
 }
 
 // bytes is how many bytes the line's text takes, without building it.
@@ -562,7 +555,13 @@ func plainASCIIByte(b byte) bool { return b >= ' ' && b <= '~' }
 // dropped reports whether a cluster is discarded rather than laid out. Measuring
 // has to agree with drawing about this, or a line's reported width will not be the
 // width it takes.
-func dropped(cluster string) bool { return cluster != "\t" && isControl(cluster) }
+func dropped(cluster string) bool {
+	if !utf8.ValidString(cluster) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(cluster)
+	return cluster != "\t" && (isControl(cluster) || r >= 0x7f && r <= 0x9f)
+}
 
 // prefix is the longest prefix of s, cut between clusters, that fits in budget.
 func prefix(s string, budget int) string {
