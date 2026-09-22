@@ -99,6 +99,7 @@ func (d *Dialog) Dismiss() {
 // Accessors are deliberately not observable. Making this transition explicit keeps
 // focus changes out of Draw and preserves the rule that drawing cannot advance
 // semantic state.
+// Like Stack.Push, Sync panics if the stack has exhausted all layer identities.
 func (d *Dialog) Sync() bool {
 	if d == nil || d.stack == nil || d.content == nil {
 		return false
@@ -106,7 +107,8 @@ func (d *Dialog) Sync() bool {
 	shown := d.stack.Contains(d.layer)
 	switch {
 	case d.open.get() && !shown:
-		d.layer = d.stack.Push(d.content)
+		d.layer = d.stack.insert(d.content)
+		d.stack.settle()
 		return true
 	case !d.open.get() && shown:
 		d.stack.Remove(d.layer)
@@ -180,20 +182,12 @@ func (d *Dialog) Semantics() SemanticNode {
 	}
 }
 
-func (d *Dialog) closed(content *DialogContent) {
-	if d == nil || d.content != content {
-		return
-	}
-	d.layer = 0
-}
-
 // DialogContent is the modal compound part of a [Dialog].
 //
 // It delegates drawing, placement and input to an appearance-supplied Modal while
 // keeping closure and focus in the controller. Callers receive it from
 // [Dialog.Content]; constructing one directly would leave it without an owner. A
-// DialogContent must not be copied: its identity is how the Dialog recognizes the
-// one stack member whose closure settles the controller.
+// DialogContent must not be copied: its focus and membership belong to its controller.
 type DialogContent struct {
 	noCopy noCopy
 
@@ -266,9 +260,8 @@ func (c *DialogContent) Closed() {
 	if c == nil {
 		return
 	}
-	c.focused = false
 	if c.dialog != nil {
-		c.dialog.closed(c)
+		c.dialog.layer = 0
 	}
 	if closer, ok := c.modal.(Closer); ok {
 		closer.Closed()

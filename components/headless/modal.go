@@ -49,6 +49,8 @@ type Insistent interface {
 
 // Closer is a modal that wants to know when it has been popped, whether that was
 // its own doing or the stack's.
+// Closed runs once after removal, before focus is transferred. It may reopen the
+// modal; the old removal will not close the new insertion.
 type Closer interface {
 	Modal
 	Closed()
@@ -130,9 +132,10 @@ type Stack struct {
 	// holder is whatever was last told it has the keyboard, and settled says
 	// anything has been told at all. Until then every one of them believes it does —
 	// see [Focusable].
-	holder     Widget
-	holderID   LayerID
-	holderBase bool
+	holder        Widget
+	holderID      LayerID
+	holderBase    bool
+	focusRevision uint64
 	focusState
 	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher      keymap.Matcher
@@ -185,6 +188,15 @@ func (s *Stack) SetBase(base Widget) {
 // different layer than the one it was given for, so a dismissal aimed at a closed
 // dialog would close whatever had since taken its number.
 func (s *Stack) Push(m Modal) LayerID {
+	id := s.insert(m)
+	if id != 0 {
+		s.settle()
+	}
+	return id
+}
+
+// insert commits membership before a controller can receive focus callbacks.
+func (s *Stack) insert(m Modal) LayerID {
 	if m == nil {
 		return 0
 	}
@@ -194,7 +206,6 @@ func (s *Stack) Push(m Modal) LayerID {
 	}
 	layerID := LayerID(id)
 	s.layers = append(s.layers, stackLayer{id: layerID, modal: m})
-	s.settle()
 	return layerID
 }
 
@@ -440,10 +451,10 @@ func (s *Stack) remove(at int) bool {
 	s.layers[len(s.layers)-1] = stackLayer{}
 	s.layers = s.layers[:len(s.layers)-1]
 	s.layers = trim(s.layers)
-	s.settle()
 	if closer, ok := layer.modal.(Closer); ok {
 		closer.Closed()
 	}
+	s.settle()
 	return true
 }
 
@@ -520,18 +531,31 @@ func (s *Stack) settle() {
 	s.matcher.Clear()
 	from := s.holder
 	s.holder, s.holderID, s.holderBase, s.settled = want, wantID, wantBase, true
+	s.focusRevision++
+	revision := s.focusRevision
+	// A notification can synchronously change membership and settle a new owner.
+	// The superseded transfer must not issue any more focus notifications.
 	if from != nil {
 		tell(from, false)
+		if s.focusRevision != revision {
+			return
+		}
 	}
 	// A layer that is no longer on top is covered by one that is, which is the same
 	// thing as not having the keyboard.
 	for _, layer := range s.layers {
 		if layer.id != wantID {
 			tell(layer.modal, false)
+			if s.focusRevision != revision {
+				return
+			}
 		}
 	}
 	if s.base != nil && !wantBase {
 		tell(s.base, false)
+		if s.focusRevision != revision {
+			return
+		}
 	}
 	tell(want, !s.blurred)
 }

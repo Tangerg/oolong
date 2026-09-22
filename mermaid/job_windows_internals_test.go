@@ -35,7 +35,11 @@ func TestJobTreeProcess(_ *testing.T) {
 	if err := child.Start(); err != nil {
 		os.Exit(3)
 	}
-	if err := os.WriteFile(os.Args[index+2], []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil { //nolint:gosec // G703: the test parent supplies its own temporary readiness path.
+	ready := os.Args[index+2]
+	if err := os.WriteFile(ready+".tmp", []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil { //nolint:gosec // G703: the test parent supplies its own temporary readiness path.
+		os.Exit(4)
+	}
+	if err := os.Rename(ready+".tmp", ready); err != nil { //nolint:gosec // G703: both readiness paths are owned by the test parent.
 		os.Exit(4)
 	}
 	if os.Args[index+1] == "exit" {
@@ -59,8 +63,10 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 			command.Dir = t.TempDir()
 			command.Stdin = strings.NewReader("")
 			command.Stdout = new(bytes.Buffer)
-			done := make(chan error, 1)
-			go func() { done <- run(ctx, command) }()
+			done := make(chan struct{})
+			var runErr error
+			go func() { runErr = run(ctx, command); close(done) }()
+			t.Cleanup(func() { cancel(); <-done })
 			var pid uint64
 			for pid == 0 {
 				data, readErr := os.ReadFile(ready) //nolint:gosec // G304: readiness file is owned by this test.
@@ -75,6 +81,14 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 					t.Fatal(readErr)
 				}
 				select {
+				case <-done:
+					if runErr != nil {
+						t.Fatalf("process ended before readiness: %v", runErr)
+					}
+					// Normal parent exit can win the poll after publishing its PID.
+					if _, readyErr := os.Stat(ready); readyErr != nil {
+						t.Fatalf("process exited without readiness: %v", readyErr)
+					}
 				case <-ctx.Done():
 					t.Fatal(context.Cause(ctx))
 				case <-time.After(time.Millisecond):
@@ -94,7 +108,8 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 			if mode == "wait" {
 				cancel()
 			}
-			err = <-done
+			<-done
+			err = runErr
 			if mode == "wait" && !errors.Is(err, context.Canceled) {
 				t.Fatal(err)
 			}

@@ -11,6 +11,7 @@ import (
 type focusProbe struct {
 	focused bool
 	changes []bool
+	changed func(bool)
 }
 
 func (*focusProbe) Draw(headless.Frame) {}
@@ -20,6 +21,87 @@ func (*focusProbe) Handle(input.Event) bool { return false }
 func (p *focusProbe) Focus(has bool) {
 	p.focused = has
 	p.changes = append(p.changes, has)
+	if p.changed != nil {
+		p.changed(has)
+	}
+}
+
+func TestDialogReopenedDuringClosureKeepsItsNewMembership(t *testing.T) {
+	for _, phase := range []string{"base focus", "content blur", "closed"} {
+		t.Run(phase, func(t *testing.T) {
+			base := &focusProbe{}
+			content := &reopeningPanel{}
+			stack := headless.NewStack(base)
+			dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Content: content})
+			dialog.Show()
+			reopen := func() {
+				base.changed, content.changed, content.onClose = nil, nil, nil
+				dialog.Show()
+			}
+			switch phase {
+			case "base focus":
+				base.changed = func(has bool) {
+					if has {
+						reopen()
+					}
+				}
+			case "content blur":
+				content.changed = func(has bool) {
+					if !has {
+						reopen()
+					}
+				}
+			case "closed":
+				content.onClose = func() {
+					if dialog.Semantics().State.Has(headless.StateFocused) != content.focused {
+						t.Fatal("close notification advanced focus before the focus owner")
+					}
+					reopen()
+				}
+			}
+			dialog.Dismiss()
+			if !dialog.Open() || stack.Depth() != 1 || base.focused || !content.focused ||
+				!dialog.Semantics().State.Has(headless.StateFocused) || content.closed != 1 {
+				t.Fatalf("reopened: open=%v depth=%d base=%v content=%v semantics=%v closed=%d",
+					dialog.Open(), stack.Depth(), base.focused, content.focused, dialog.Semantics(), content.closed)
+			}
+			if dialog.Sync() || stack.Depth() != 1 {
+				t.Fatal("Sync duplicated the reopened insertion")
+			}
+			dialog.Dismiss()
+			if dialog.Open() || stack.Depth() != 0 || !base.focused || content.focused || content.closed != 2 {
+				t.Fatal("final dismissal left a live insertion or incorrect focus/close count")
+			}
+		})
+	}
+}
+
+type reopeningPanel struct {
+	focusedPanel
+	onClose func()
+}
+
+func (p *reopeningPanel) Closed() {
+	p.closed++
+	if p.onClose != nil {
+		p.onClose()
+	}
+}
+
+func TestDialogCanDismissFromItsInitialFocusNotification(t *testing.T) {
+	base := &focusProbe{}
+	content := &focusedPanel{}
+	stack := headless.NewStack(base)
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Content: content})
+	content.changed = func(has bool) {
+		if has {
+			dialog.Dismiss()
+		}
+	}
+	dialog.Show()
+	if dialog.Open() || stack.Depth() != 0 || !base.focused || content.focused || content.closed != 1 || dialog.Sync() {
+		t.Fatal("focus callback could not close the current insertion")
+	}
 }
 
 type focusedPanel struct {

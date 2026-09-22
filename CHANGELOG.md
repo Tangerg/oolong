@@ -20,6 +20,17 @@ point of tagging them low rather than not at all.
 
 ### Changed
 
+- Dialog membership is committed before focus callbacks. Removed layers finish
+  `Closed` before focus restoration, and a superseded focus transfer stops issuing
+  notifications. Synchronous callbacks can reopen or dismiss a dialog without
+  duplicating layers or leaving stale semantic focus.
+- Mermaid selects the official CLI's headless shell for both browser resolution
+  and launch arguments, reports failed resource URLs, and preserves browser spawn
+  errors. Backend tests share a readiness deadline with their render context and
+  cancel and join calls before cleaning fixture files.
+- Upgrade `x/image` to v0.45.0 and `x/crypto` to v0.56.0 for the reported image and
+  SSH fixes; their required Go versions remain below the repository's Go 1.27 floor.
+
 - Parsing and streaming share comment, line-ending and HTML source boundaries.
   Text output rejects invalid byte fragments before rebuilding lines. Complete
   replacements destroy mark identities; modal removal revalidates identity after
@@ -101,6 +112,9 @@ point of tagging them low rather than not at all.
 
 #### components
 
+- `headless.Closer.Closed` now runs after removal and before focus restoration.
+  Put work that requires restored focus in `Focus(true)`. Both callbacks may
+  synchronously reopen the dialog; each close notification settles only the removed insertion.
 - `kit.Image` accepts a `Placement` ID (zero selects 1). Use distinct IDs when
   displaying the same image in multiple places.
 - `headless.Look.Ellipsis` controls truncation (empty means clip). Theme-generated

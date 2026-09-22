@@ -1140,7 +1140,10 @@ This slice is complete. `headless.Dialog` owns one modal state machine; its cont
 trigger are compound parts, every close path settles controlled or local open state,
 and `Stack.Remove` can close a covered dialog without dismissing a newer layer. Focus
 tests prove that opening removes keyboard ownership from the base and every dismissal
-restores it. `headless.Tabs` owns its tab parts and controlled or local selection;
+restores it. Membership is committed before focus callbacks, and `Closed` runs after
+removal but before focus restoration. A synchronous callback may reopen or dismiss
+the dialog; an older focus transfer stops when a newer transfer replaces it.
+`headless.Tabs` owns its tab parts and controlled or local selection;
 owner-written controlled state is applied through an explicit `Sync`, so drawing never
 performs a hidden focus transition. Both controls project the same typed `SemanticNode`
 tree without exposing visual boxes. `kit.NewDialog` and `kit.NewTabs` are the polished,

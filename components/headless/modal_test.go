@@ -405,6 +405,54 @@ type closingPanel struct {
 
 func (c *closingPanel) Closed() { c.note() }
 
+type requestingPanel struct {
+	panel
+	request func() bool
+}
+
+func (p *requestingPanel) RequestClose() bool { return p.request() }
+
+func TestCloseRequestSettlesOnlyItsOriginalInsertion(t *testing.T) {
+	for _, action := range []string{"remove below", "push above", "remove self"} {
+		t.Run(action, func(t *testing.T) {
+			stack := &headless.Stack{}
+			below, above := &panel{}, &panel{}
+			belowID := stack.Push(below)
+			content := &requestingPanel{}
+			id := stack.Push(content)
+			content.request = func() bool {
+				content.request = func() bool { return true }
+				switch action {
+				case "remove below":
+					stack.Remove(belowID)
+				case "push above":
+					stack.Push(above)
+				case "remove self":
+					stack.Remove(id)
+				}
+				return true
+			}
+			if !stack.Remove(id) || stack.Contains(id) || content.closed != 1 {
+				t.Fatal("close request did not settle exactly its original insertion")
+			}
+			switch action {
+			case "remove below":
+				if stack.Depth() != 0 || below.closed != 1 {
+					t.Fatal("removed lower layer remained")
+				}
+			case "push above":
+				if stack.Depth() != 2 || stack.Top() != above || above.closed != 0 {
+					t.Fatal("new upper layer was dismissed")
+				}
+			case "remove self":
+				if stack.Depth() != 1 || stack.Top() != below {
+					t.Fatal("lower layer was dismissed")
+				}
+			}
+		})
+	}
+}
+
 func TestPoppingAnEmptyStackIsNotAPanic(t *testing.T) {
 	var s headless.Stack
 	if s.Pop() {

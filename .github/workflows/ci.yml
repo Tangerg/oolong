@@ -63,6 +63,10 @@ jobs:
           # every module with dependencies without another hand-maintained list.
           cache-dependency-path: "**/go.sum"
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
       # Built into a scratch directory rather than in place: a module whose
       # only package is a command in a directory of the same name would
       # otherwise try to write the binary over that directory.
@@ -129,7 +133,7 @@ jobs:
           echo "OOLONG_MERMAID_CLI=$cli" >> "$GITHUB_ENV"
       - name: Test rendering, cancellation and process ownership
         shell: bash
-        run: go -C mermaid test -race -count=1 ./...
+        run: go -C mermaid test -race -v -count=1 ./...
 
   standalone:
     name: modules without workspace

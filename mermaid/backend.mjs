@@ -17,9 +17,11 @@ for await (const chunk of process.stdin) source += chunk;
 
 // The Go owner creates the process group/job. Browser launch must never create
 // a detached group: cleanup cannot depend on this JavaScript remaining responsive.
+// Keep both executable selection and arguments on the official CLI's browser mode.
+const browserOptions = {headless: 'shell', userDataDir: config.profile};
 const processHandle = launch({
-  executablePath: config.browser || await puppeteer.executablePath(),
-  args: [...await puppeteer.defaultArgs({headless: true, userDataDir: config.profile}), '--remote-debugging-port=0'],
+  executablePath: config.browser || await puppeteer.executablePath(browserOptions),
+  args: [...await puppeteer.defaultArgs(browserOptions), '--remote-debugging-port=0'],
   detached: false,
   handleSIGINT: false,
   handleSIGTERM: false,
@@ -29,6 +31,14 @@ let browser;
 try {
   const endpoint = await processHandle.waitForLineOutput(CDP_WEBSOCKET_ENDPOINT_REGEX, config.timeout);
   browser = await puppeteer.connect({browserWSEndpoint: endpoint});
+  browser.on('targetcreated', async target => {
+    try {
+      const page = await target.page();
+      if (page) page.on('requestfailed', request => console.error(JSON.stringify({
+        page: page.url(), url: request.url(), failure: request.failure(),
+      })));
+    } catch (error) { console.error('mermaid: page diagnostics:', error); }
+  });
   const {data} = await renderMermaid(browser, source, 'png', {
     viewport: {width: config.width, height: config.height},
     backgroundColor: 'transparent',
@@ -37,5 +47,8 @@ try {
   await writeFile(output, data, {mode: 0o600});
 } finally {
   try { if (browser) await browser.close(); }
-  finally { await processHandle.close(); }
+  finally {
+    // Failed spawn has no exit event; Puppeteer's close waits for that event.
+    if (processHandle.nodeProcess.pid) await processHandle.close();
+  }
 }

@@ -44,6 +44,7 @@ var internalAssertions = map[string]string{
 	// exported operations that can plausibly approach one say so anyway.
 	"components/headless:Editor.requireContentRevision": "revisions are uint64 and consumed one per content change",
 	"components/headless:blockOffset":                   "Transcript.Append documents the identity-exhaustion panic",
+	"components/headless:Stack.insert":                  "Stack.Push and Dialog.Sync document layer identity exhaustion",
 	"components/headless:treeCopy.identityAt":           "Tree.SetNodes documents identity exhaustion for node collections",
 
 	// Cycle detection during the ownership copy, which Tree.SetNodes documents.

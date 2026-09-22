@@ -37,7 +37,8 @@ type Config struct {
 	// and argument injection are not supported; the renderer owns browser launch.
 	Executable string
 	Node       string
-	// Browser optionally selects a Chromium executable for Puppeteer.
+	// Browser optionally selects a Chromium executable for Puppeteer. Empty uses
+	// its installed headless shell, matching the official CLI browser mode.
 	Browser string
 	// Theme is default, dark, forest, neutral or base. Empty selects default.
 	Theme string
