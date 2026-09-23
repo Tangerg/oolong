@@ -1219,6 +1219,23 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 	})
 }
 
+func TestATreeIndentsByTheWidthItWasGiven(t *testing.T) {
+	// Two columns is what the zero value means, not a floor under every width below
+	// it: a caller who asked for one column meant one.
+	tree := headless.NewTree(
+		headless.Node[string]{Item: "core", Children: []headless.Node[string]{{Item: "grid"}}},
+	)
+	tree.Open(0)
+	view := kit.NewTree(kit.TreeConfig[string]{
+		Theme: kit.Dark(), Controller: tree, Indent: 1,
+		Text: func(s string) string { return s },
+	})
+	equalRows(t, paintWidget(12, 2, view), []string{
+		"core........",
+		".grid.......",
+	})
+}
+
 func TestNilTreeIsAnEmptyWidget(t *testing.T) {
 	var tree *kit.Tree[string]
 	if tree.Controller() != nil || tree.Handle(input.Key{Code: input.Enter}) {

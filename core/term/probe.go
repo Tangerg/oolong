@@ -73,10 +73,24 @@ const (
 // the same bytes. Everything it decodes and did not ask for — a key the user
 // managed to press first — is kept and handed on, along with the parser itself, so
 // that a sequence which straddles the handover still decodes as one.
+// queryWriter is the terminal as a probe needs it: somewhere to write a question,
+// and a way to stop waiting to be allowed to. The second is not optional. A write
+// that cannot time out never reaches the wait that bounds the rest, and until Open
+// returns there is no owner whose Close could give raw mode back.
+type queryWriter interface {
+	io.StringWriter
+	SetWriteDeadline(deadline time.Time) error
+}
+
 type probe struct {
 	raw    <-chan []byte
-	out    io.StringWriter
+	out    queryWriter
 	parser *input.Parser
+	// deadline is when the whole exchange must be over, asking included. It is set
+	// by whoever started the probe, which is also what holds the transport to the
+	// same instant; measuring the wait from after the write would leave the write
+	// itself unbounded.
+	deadline time.Time
 
 	// early holds what was decoded during the probe and was not an answer.
 	early []input.Event
@@ -110,13 +124,17 @@ type answers struct {
 // without knowing any of this — so none of them is an error.
 func (p *probe) run() answers {
 	var got answers
+	// One budget for the whole exchange, held over the transport as well as the wait.
+	_ = p.out.SetWriteDeadline(p.deadline)
+	defer func() { _ = p.out.SetWriteDeadline(time.Time{}) }()
 	if _, err := p.out.WriteString(queryBackground + queryForeground + queryVersion +
 		queryDeviceVersion + queryKeyboard + queryAttributes); err != nil {
 		return got
 	}
 
-	// The wait ends when the attributes arrive, because they were sent last.
-	timer := time.NewTimer(answerGrace)
+	// The wait ends when the attributes arrive, because they were sent last. What is
+	// left of the budget is what asking did not spend.
+	timer := time.NewTimer(time.Until(p.deadline))
 	defer timer.Stop()
 	for !got.hasAttrs {
 		select {

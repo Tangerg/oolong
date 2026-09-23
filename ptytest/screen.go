@@ -297,7 +297,10 @@ func (s *Screen) controlByte(b byte) {
 	case '\b':
 		s.at.X = max(s.at.X-1, 0)
 	case '\t':
-		s.at.X = min((s.at.X/8+1)*8, s.size.Cols)
+		// With no further tab stop the cursor stops at the last column of this row.
+		// Clamping to the width instead would leave it one past the end, where the
+		// next character wraps onto a line the terminal never moved to.
+		s.at.X = min((s.at.X/8+1)*8, s.size.Cols-1)
 	case '\n':
 		s.lineFeed()
 	case '\r':

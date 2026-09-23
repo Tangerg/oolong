@@ -430,11 +430,36 @@ func (d *division) reserve() {
 	}
 }
 
-// distribute gives flexible slots shares of the same remainder. Floors are still
-// honoured for a zero-weight slot: Flex(0).AtLeast(n) asks for no proportional room,
-// but its explicit minimum remains a real constraint.
+// distribute gives flexible slots shares of the same remainder.
+//
+// A floor is a minimum, not a share. Slots whose weight cannot reach their own
+// minimum are settled at it first and leave the rest to share what remains; sharing
+// first and clamping to whatever happened to be left made an explicit minimum depend
+// on where its slot sat in the ring, so a slot earlier in it could spend room a later
+// one had already asked for by name. Flex(0).AtLeast(n) asks for no proportional room
+// and still gets its n.
 func (d *division) distribute() {
-	remainder := d.left
+	settled := make([]bool, len(d.slots))
+	room, weight := d.left, d.flex
+	for pinning := true; pinning; {
+		pinning = false
+		for i, slot := range d.slots {
+			if slot.Size.kind != flexSizing || settled[i] {
+				continue
+			}
+			share := d.share(slot)
+			want := 0
+			if weight > 0 {
+				want = Scale(room, share, weight)
+			}
+			if want >= slot.Size.minimum {
+				continue
+			}
+			settled[i], pinning = true, true
+			room, weight = Remaining(room, slot.Size.minimum), weight-share
+		}
+	}
+
 	lastWeighted := -1
 	for i, slot := range d.slots {
 		if slot.Size.kind != flexSizing {
@@ -442,11 +467,11 @@ func (d *division) distribute() {
 		}
 		share := d.share(slot)
 		want := slot.Size.minimum
-		if d.flex > 0 {
-			want = max(Scale(remainder, share, d.flex), want)
+		if !settled[i] && weight > 0 {
+			want = Scale(room, share, weight)
 		}
 		d.allocate(i, want)
-		if share > 0 {
+		if share > 0 && !settled[i] {
 			lastWeighted = i
 		}
 	}

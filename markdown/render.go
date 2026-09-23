@@ -195,6 +195,16 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	case *ast.List:
 		r.list(node, in, stack)
 	case *ast.ListItem:
+		if node.ChildCount() == 0 {
+			// An item with nothing in it is still an item. Its mark is waiting to be
+			// attached to the first block inside it, and with no block to attach it to
+			// the mark would be cleared and the item would vanish from the list.
+			r.push(Block{
+				indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
+				lines: []text.Line{nil},
+			})
+			return
+		}
 		r.scheduleChildren(stack, node, in)
 	case *ast.Blockquote:
 		inner := in
@@ -236,10 +246,10 @@ func (r *renderer) rule() []text.Line {
 // list renders a list, one item at a time, with the item's mark waiting for the
 // first block inside it.
 func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
-	number := n.Start
-	if number <= 0 {
-		number = 1
-	}
+	// An ordered list carries its own first number, and zero is one a document may
+	// legitimately write. Only a bullet list has no number at all, and it never asks
+	// for one — see [renderer.bullet].
+	number := max(n.Start, 0)
 	index := n.ChildCount() - 1
 	for item := n.LastChild(); item != nil; item = item.PreviousSibling() {
 		marker := r.bullet(n, ordinal(number, index))

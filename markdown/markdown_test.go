@@ -453,3 +453,28 @@ func TestABreakIsAsWideAsTheRoomItSeparates(t *testing.T) {
 		"below",
 	})
 }
+
+func TestAnOrderedListKeepsTheNumberItStartsFrom(t *testing.T) {
+	// Zero is a start a document may legitimately write, and renumbering it silently
+	// changes what the document says.
+	equal(t, render(t, 20, "0. zero\n1. one"), []string{
+		"0. zero",
+		"1. one",
+	})
+	equal(t, render(t, 20, "3. three\n4. four"), []string{
+		"3. three",
+		"4. four",
+	})
+}
+
+func TestAnEmptyListItemIsStillAnItem(t *testing.T) {
+	// Its mark waits for the first block inside it. With no block to attach the mark
+	// to, the item would leave the list without a trace of itself.
+	got := render(t, 20, "-\n- two")
+	if len(got) != 2 {
+		t.Fatalf("got %q, want a row for each item", got)
+	}
+	if strings.TrimRight(got[1], " ") == "" {
+		t.Fatalf("got %q, want the second item on the second row", got)
+	}
+}

@@ -229,3 +229,50 @@ func TestSpacingMacrosOccupyTheRoomTheyName(t *testing.T) {
 		}
 	}
 }
+
+func TestATextArgumentKeepsTheSpacesItWasWritten(t *testing.T) {
+	// The expression reaches the parser in math mode, where a space between two
+	// tokens is dropped before an AST exists. A font applied afterwards cannot put
+	// back what the parse never saw, and two words would come out as one.
+	for _, tc := range []struct {
+		source string
+		want   string
+	}{
+		{`\textbf{hello world}`, "hello world"},
+		{`\textit{hello world}`, "hello world"},
+		{`\texttt{hello world}`, "hello world"},
+		{`\operatorname{lim sup}`, "lim sup"},
+		{`\textbf{a \textit{b c}}`, "a b c"},
+		{`\textbf{one  two}`, "one  two"},
+	} {
+		if got := rendered(t, tc.source); !slices.Equal(got, []string{tc.want}) {
+			t.Errorf("Render(%q) = %q, want %q", tc.source, got, tc.want)
+		}
+	}
+}
+
+func TestMathModeStillIgnoresTheSpacesBetweenItsTokens(t *testing.T) {
+	// TeX is right to drop them there, and a math font macro is not a text one.
+	if got := rendered(t, `\mathbf{ab}`); !slices.Equal(got, []string{"ab"}) {
+		t.Fatalf("Render = %q, want %q", got, "ab")
+	}
+}
+
+func TestAControlSequenceThisPackageDoesNotImplementIsRefused(t *testing.T) {
+	// Stripping the backslash turns it into the letters it happens to be made of and
+	// reports success for input that was never rendered.
+	for _, source := range []string{`{\bf x}`, `{\rm x}`, `{\it x}`} {
+		err := latex.Render(source, latex.Look{}).Err()
+		if err == nil {
+			t.Errorf("Render(%q) reported no error", source)
+		}
+	}
+	// A lettered operator is spelled with its own letters and still is one.
+	for _, tc := range []struct{ source, want string }{
+		{`\sin`, "sin"}, {`\lim`, "lim"}, {`\log`, "log"}, {`\max`, "max"},
+	} {
+		if got := rendered(t, tc.source); !slices.Equal(got, []string{tc.want}) {
+			t.Errorf("Render(%q) = %q, want %q", tc.source, got, tc.want)
+		}
+	}
+}

@@ -273,3 +273,22 @@ func TestWhereTheOutputSaidItsWordsPointIsKept(t *testing.T) {
 		t.Fatalf("a cell outside the link points at %q", got)
 	}
 }
+
+func TestAPrivateCommandEndingInMIsNotStyle(t *testing.T) {
+	// XTerm's modifyOtherKeys is CSI > Ps m. Reading its numbers as select-graphic-
+	// rendition would underline and dim the text that follows it by accident.
+	for _, source := range []string{"\x1b[>4;2mX", "\x1b[?4mX", "\x1b[<1mX"} {
+		lines := text.Decode(source, grid.Style{})
+		if len(lines) != 1 || len(lines[0]) != 1 {
+			t.Fatalf("Decode(%q) = %+v, want one span", source, lines)
+		}
+		if got := lines[0][0]; got.Text != "X" || got.Style.Attr != 0 {
+			t.Errorf("Decode(%q) = %q attr %v, want unstyled X", source, got.Text, got.Style.Attr)
+		}
+	}
+	// The ordinary form still styles.
+	lines := text.Decode("\x1b[4mX", grid.Style{})
+	if lines[0][0].Style.Attr&grid.Underline == 0 {
+		t.Fatalf("Decode of plain SGR lost its attribute: %+v", lines[0][0])
+	}
+}

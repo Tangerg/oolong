@@ -363,3 +363,25 @@ func assertTrimmedScreenRows(t *testing.T, screen *ptytest.Screen, want []string
 		}
 	}
 }
+
+func TestTabStopsAtTheLastColumnOfItsRow(t *testing.T) {
+	// With no further tab stop the cursor belongs at the last column, not one past
+	// it: one past is where the next character wraps onto a row nothing moved to.
+	screen, err := ptytest.NewScreen(ptytest.Size{Cols: 8, Rows: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := screen.Apply([]byte("\x1b[1;7H\tX")); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	rows := screen.Rows()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %q", rows)
+	}
+	if strings.TrimRight(rows[1], " ") != "" {
+		t.Fatalf("tab wrapped onto the next row: %q", rows)
+	}
+	if want := "       X"; rows[0] != want {
+		t.Fatalf("row 0 = %q, want %q", rows[0], want)
+	}
+}

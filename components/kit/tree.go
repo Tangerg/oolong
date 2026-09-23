@@ -122,7 +122,12 @@ func (t *Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) 
 		v.Fill(grid.Area(0, 0, width, 1), t.Theme.Selection)
 	}
 
-	indent := max(t.Indent, treeIndent)
+	// The default belongs to the zero value, not to every width below it: a caller
+	// who asked for one column meant one.
+	indent := t.Indent
+	if indent <= 0 {
+		indent = treeIndent
+	}
 	depth := max(row.Depth, 0)
 	if depth > width/indent {
 		return

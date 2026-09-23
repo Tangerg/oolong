@@ -180,7 +180,12 @@ func (d *Decoder) piece(p ansi.Piece) []Line {
 		return d.write(p.Raw)
 	case ansi.Control:
 		if p.Final == 'm' && p.Intermediates == "" {
-			d.sgr(ansi.Parse(p.Parameters))
+			// A private marker makes this somebody else's command that happens to end
+			// in m — XTerm's modifyOtherKeys is CSI > Ps m — and reading its numbers as
+			// select-graphic-rendition would style the text that follows by accident.
+			if params := ansi.Parse(p.Parameters); params.Marker() == 0 {
+				d.sgr(params)
+			}
 		}
 	case ansi.String:
 		if p.Final == ']' {

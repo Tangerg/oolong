@@ -611,3 +611,53 @@ func TestMeasuredSlotUsesItsAssignedCrossSize(t *testing.T) {
 		t.Fatalf("measured %d, allocated %v", w.across, rects[0])
 	}
 }
+
+func TestASatisfiableFloorSurvivesASlotBeforeIt(t *testing.T) {
+	// A floor is a minimum, not a share, so it cannot depend on where its slot sits
+	// in the ring: an earlier slot must not spend room a later one asked for by name.
+	for _, tc := range []struct {
+		name  string
+		slots []layout.Slot
+		want  []int
+	}{
+		{
+			name: "floor after a weighted slot",
+			slots: []layout.Slot{
+				{Size: layout.Flex(1)},
+				{Size: layout.Flex(0).AtLeast(3)},
+			},
+			want: []int{7, 3},
+		},
+		{
+			name: "floor before a weighted slot",
+			slots: []layout.Slot{
+				{Size: layout.Flex(0).AtLeast(3)},
+				{Size: layout.Flex(1)},
+			},
+			want: []int{3, 7},
+		},
+		{
+			name: "a floor the weight already covers takes no more than its share",
+			slots: []layout.Slot{
+				{Size: layout.Flex(1).AtLeast(2)},
+				{Size: layout.Flex(1)},
+			},
+			want: []int{5, 5},
+		},
+		{
+			name: "floors that cannot all fit degrade in order",
+			slots: []layout.Slot{
+				{Size: layout.Flex(1).AtLeast(8)},
+				{Size: layout.Flex(1).AtLeast(8)},
+			},
+			want: []int{8, 2},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (layout.Flow{}).Divide(10, 1, tc.slots)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("Divide = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

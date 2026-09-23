@@ -47,11 +47,113 @@ func parse(source string) (node ast.Node, err error) {
 			node, err = nil, parseFailure(recovered)
 		}
 	}()
-	node, err = golatex.ParseExpr(mathDelimiter + braceScriptAtoms(source) + mathDelimiter)
+	node, err = golatex.ParseExpr(mathDelimiter + braceScriptAtoms(spacedTextArguments(source)) + mathDelimiter)
 	if err != nil {
 		return nil, explain(err.Error())
 	}
 	return node, nil
+}
+
+// textModeMacros take an argument the caller wrote as text. Everything else here is
+// mathematics, where the space between two tokens is not a character and TeX is right
+// to drop it.
+var textModeMacros = []string{
+	`\textbf`, `\textit`, `\texttt`, `\textsf`, `\textcal`, `\textdefault`,
+	`\textbb`, `\textfrak`, `\textscr`, `\textregular`, `\operatorname`,
+}
+
+// spacedTextArguments makes the spaces of a text-mode argument survive a math-mode
+// parser.
+//
+// The expression reaches that parser in math mode, where a space between two tokens
+// is dropped before an AST exists — so a font applied afterwards cannot put back what
+// the parse never saw, and two words come out as one. Each space is written as the
+// escape the parser does carry and this package already renders as one column. Like
+// [braceScriptAtoms], this is the boundary that owns the difference between the
+// source the caller wrote and the source the parser reads.
+func spacedTextArguments(source string) string {
+	var out strings.Builder
+	out.Grow(len(source))
+	for at := 0; at < len(source); {
+		name := textModeMacroAt(source, at)
+		if name == "" {
+			out.WriteByte(source[at])
+			at++
+			continue
+		}
+		out.WriteString(name)
+		at += len(name)
+		if at >= len(source) || source[at] != '{' {
+			continue
+		}
+		end, closed := groupEnd(source, at)
+		if !closed {
+			// Unbalanced source is validateSource's to report, with the braces the
+			// caller actually wrote.
+			continue
+		}
+		out.WriteByte('{')
+		out.WriteString(spacesAsAtoms(source[at+1 : end]))
+		out.WriteByte('}')
+		at = end + 1
+	}
+	return out.String()
+}
+
+// textModeMacroAt is the text-mode macro beginning at, or empty. A longer name is a
+// different macro: \textbfx is not \textbf.
+func textModeMacroAt(source string, at int) string {
+	if source[at] != '\\' || escapedAt(source, at) {
+		return ""
+	}
+	for _, name := range textModeMacros {
+		if !strings.HasPrefix(source[at:], name) {
+			continue
+		}
+		rest := source[at+len(name):]
+		if rest == "" || !isMacroLetter(rest[0]) {
+			return name
+		}
+	}
+	return ""
+}
+
+func isMacroLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// groupEnd is the offset of the brace closing the group that opens at open.
+func groupEnd(source string, open int) (int, bool) {
+	depth := 0
+	for at := open; at < len(source); at++ {
+		if escapedAt(source, at) {
+			continue
+		}
+		switch source[at] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return at, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// spacesAsAtoms writes every space the caller wrote as one this package renders.
+func spacesAsAtoms(argument string) string {
+	var out strings.Builder
+	out.Grow(len(argument))
+	for at := range len(argument) {
+		if argument[at] == ' ' && !escapedAt(argument, at) {
+			out.WriteString(`\,`)
+			continue
+		}
+		out.WriteByte(argument[at])
+	}
+	return out.String()
 }
 
 func braceScriptAtoms(source string) string {
@@ -414,6 +516,20 @@ func (r *formulaRenderer) appearanceMacro(name string, args ast.List, style grid
 	}
 }
 
+// letteredOperators are TeX's log-like operators: control sequences whose rendering
+// is their own letters rather than a glyph. They are named rather than derived
+// because "has no glyph" is also true of every control sequence this package does not
+// implement, and the two must not be confused.
+var letteredOperators = map[string]bool{
+	`\arccos`: true, `\arcsin`: true, `\arctan`: true, `\arg`: true,
+	`\cos`: true, `\cosh`: true, `\cot`: true, `\coth`: true, `\csc`: true,
+	`\deg`: true, `\det`: true, `\dim`: true, `\gcd`: true, `\hom`: true,
+	`\inf`: true, `\ker`: true, `\lg`: true, `\lim`: true, `\liminf`: true,
+	`\limsup`: true, `\ln`: true, `\log`: true, `\max`: true, `\min`: true,
+	`\Pr`: true, `\sec`: true, `\sin`: true, `\sinh`: true, `\sup`: true,
+	`\tan`: true, `\tanh`: true,
+}
+
 func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Style) (box, error) {
 	if len(args) > 0 {
 		return box{}, fmt.Errorf("unsupported macro %s", name)
@@ -425,7 +541,14 @@ func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Styl
 	}
 	symbol, err := terminalSymbol(name, r.look.Glyphs.Plain)
 	if err != nil {
-		// Function names such as sin are lettered operators rather than font glyphs.
+		// A lettered operator is spelled with its own letters and has no glyph, so
+		// failing to find one is how it is recognised. Only the ones TeX defines,
+		// though: stripping the backslash from anything else turns a control sequence
+		// this package does not implement into the letters it happens to be made of,
+		// and reports success for input it did not render.
+		if !letteredOperators[name] {
+			return box{}, fmt.Errorf("unsupported macro %s", name)
+		}
 		symbol = strings.TrimPrefix(name, `\`)
 	}
 	if symbols.IsSpaced(name) {

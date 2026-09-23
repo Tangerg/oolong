@@ -274,7 +274,12 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	parser := &input.Parser{}
 	var early []input.Event
 	if cfg.Features.Probe {
-		pr := &probe{raw: raw, out: t.output, parser: parser}
+		// One budget covers asking and being answered; the probe holds the transport
+		// to the same instant.
+		pr := &probe{
+			raw: raw, out: t.output, parser: parser,
+			deadline: time.Now().Add(answerGrace),
+		}
 		t.said = pr.run()
 		early = pr.early
 	}
