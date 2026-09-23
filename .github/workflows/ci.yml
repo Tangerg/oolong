@@ -343,12 +343,17 @@ jobs:
 
       # A workspace that has fallen out of step with the modules in it is a
       # checkout that builds for the person who wrote it and nobody else.
+      #
+      # Sync writes the workspace build list back into the member modules, so the
+      # evidence of drift is in their go.mod and go.sum files rather than in
+      # go.work. Watching only the file whose name matches the command is watching
+      # the one place the drift does not land.
       - name: go work sync is a no-op
         run: |
           go work sync
-          if ! git diff --quiet -- go.work; then
-            echo "go work sync changed go.work:"
-            git diff -- go.work
+          if ! git diff --quiet; then
+            echo "go work sync changed tracked files:"
+            git diff
             exit 1
           fi
 

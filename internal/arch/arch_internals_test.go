@@ -227,19 +227,13 @@ func TestDocumentationPointsDown(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()
 	typeRings := uniqueExportedTypeRings(t, root)
-	targets := []string{
-		"core/anim", "core/ansi", "core/clipboard", "core/diff", "core/fuzzy",
-		"core/graphics", "core/grid", "core/input", "core/layout", "core/link",
-		"core/keymap", "core/present", "core/program", "core/programtest", "core/term", "core/text",
-		"components/headless", "components/kit", "markdown", "highlight", "latex", "ptytest", "ssh",
-	}
+	targets := ringedPackages(t, root)
 
 	walk(t, root, func(dir, path string) {
 		from := ringOf(dir)
 		for _, comment := range comments(t, fset, path) {
-			for _, target := range targets {
-				to := ringOf(target)
-				if to == "" || mayImport(from, to) {
+			for target, to := range targets {
+				if mayImport(from, to) {
 					continue
 				}
 				name := filepath.Base(target)
@@ -258,6 +252,27 @@ func TestDocumentationPointsDown(t *testing.T) {
 			}
 		}
 	})
+}
+
+// ringedPackages is every package directory the ring graph governs, mapped to its
+// ring.
+//
+// The set is read off the tree rather than listed here. A list would be a second
+// place holding the same fact as the ring prefixes, and the one that goes quiet: a
+// package added and forgotten is a package whose name lower contracts may then use
+// freely, which is exactly what this check exists to refuse.
+func ringedPackages(t *testing.T, root string) map[string]string {
+	t.Helper()
+	packages := make(map[string]string)
+	walk(t, root, func(dir, _ string) {
+		if ring := ringOf(dir); ring != "" {
+			packages[dir] = ring
+		}
+	})
+	if len(packages) == 0 {
+		t.Fatal("no ringed packages were found, so this test proves nothing")
+	}
+	return packages
 }
 
 // uniqueExportedTypeRings finds type names whose owning ring is unambiguous. A

@@ -48,9 +48,10 @@ func TestASessionCapturesWhatTheCommandWrote(t *testing.T) {
 
 func TestASessionSendsWhatIsTyped(t *testing.T) {
 	needPTY(t)
-	// cat echoes its input back through the pty, which is the smallest thing that
-	// proves typing reaches the far end.
-	s, err := ptytest.Start(t.Context(), ptytest.Config{}, "cat")
+	// The line discipline echoes typing back by itself, so a child that repeats its
+	// input proves nothing: the same text would appear with no child reading at all.
+	// tr changes the case, and only the far end can have done that.
+	s, err := ptytest.Start(t.Context(), ptytest.Config{}, "tr", "a-z", "A-Z")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,32 @@ func TestASessionSendsWhatIsTyped(t *testing.T) {
 	if _, err := io.WriteString(s, "typed and echoed\n"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, s.Transcript(), "typed and echoed")
+	waitFor(t, s.Transcript(), "TYPED AND ECHOED")
+}
+
+func TestAnEnvironmentGivenReplacesTheOneInherited(t *testing.T) {
+	needPTY(t)
+	t.Setenv("OOLONG_PTYTEST_INHERITED", "from the parent")
+
+	for _, test := range []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{"nil inherits", nil, "inherited=from the parent given="},
+		{"empty replaces with nothing", []string{}, "inherited= given="},
+		{"a value replaces", []string{"OOLONG_PTYTEST_GIVEN=from the config"}, "inherited= given=from the config"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, err := ptytest.Start(t.Context(), ptytest.Config{Env: test.env},
+				"sh", "-c", `printf "inherited=%s given=%s\n" "$OOLONG_PTYTEST_INHERITED" "$OOLONG_PTYTEST_GIVEN"`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			waitFor(t, s.Transcript(), test.want)
+		})
+	}
 }
 
 func TestASessionReportsTheSizeItWasGiven(t *testing.T) {

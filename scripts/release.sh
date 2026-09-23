@@ -192,10 +192,10 @@ while ((${#remaining[@]} > 0)); do
 			still+=("$module")
 		fi
 	done
-	remaining=("${still[@]-}")
-	remaining=("${remaining[@]:-}")
-	[[ -n "${remaining[0]:-}" ]] || break
 	$progressed || die "the module dependency graph has a cycle among: ${remaining[*]}"
+	# An empty array stays empty: padding it with an empty element would make the
+	# loop condition above stop answering the question it asks.
+	remaining=("${still[@]+"${still[@]}"}")
 done
 
 step "Release order"

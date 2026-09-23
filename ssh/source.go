@@ -73,16 +73,36 @@ func (s *eventSource) Events() <-chan input.Event { return s.events }
 // synchronizes run's write with this read.
 func (s *eventSource) Err() error { return s.err }
 
+// Close stops decoding and waits for everything this source owns the end of.
+//
+// It does not wait for the session reader. That goroutine may be inside a read of
+// an SSH channel, which has no deadline and belongs to the caller, so waiting for
+// it would mean waiting for the client to send something or disconnect. It takes no
+// further bytes once this returns — see [eventSource.readInput] — and ends with the
+// channel. The consequence belongs in the contract of [Run]: the session's input is
+// this package's for the session's lifetime, not only for the call.
 func (s *eventSource) Close() {
 	s.closeOnce.Do(func() { close(s.stop) })
 	<-s.done
 	<-s.resizeDone
 }
 
+// readInput takes the session's bytes until the session ends or nobody is left to
+// want them.
+//
+// An SSH channel cannot be read with a deadline and this package does not own the
+// channel, so one read can still be in flight when the source is closed — see
+// [eventSource.Close]. That one is unavoidable; every one after it is not, which is
+// why ending is checked before a chunk is offered and again before the next read.
+// Offering it in a select alongside the stop signal would let a closed source go on
+// taking the caller's bytes for as long as the buffer had room.
 func (s *eventSource) readInput() {
 	buffer := make([]byte, 4096)
 	emptyReads := 0
 	for {
+		if s.ending() {
+			return
+		}
 		n, err := s.in.Read(buffer)
 		if n < 0 || n > len(buffer) {
 			s.reportRead(fmt.Errorf("ssh: reader returned invalid byte count %d", n))
@@ -90,6 +110,9 @@ func (s *eventSource) readInput() {
 		}
 		if n > 0 {
 			emptyReads = 0
+			if s.ending() {
+				return
+			}
 			chunk := append([]byte(nil), buffer[:n]...)
 			select {
 			case s.raw <- chunk:
@@ -108,6 +131,18 @@ func (s *eventSource) readInput() {
 			s.reportRead(err)
 			return
 		}
+	}
+}
+
+// ending reports whether anyone is still waiting for what this source produces.
+func (s *eventSource) ending() bool {
+	select {
+	case <-s.stop:
+		return true
+	case <-s.cancelled:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -15,7 +15,8 @@ import (
 // It does nothing to the terminal, which is what makes it a separate thing: a
 // program that stopped while holding the alternate screen leaves the user looking
 // at half an interface they cannot type into, so the terminal has to be given back
-// first. [Terminal.Suspend] is the two together and is what a session wants.
+// first. [Terminal.Hand] with this as its callback is the two together, and is what
+// a session wants.
 //
 // The stop signal is sent to this process and not handled, so the default action
 // takes it: the shell that started this program takes the terminal back, prints its

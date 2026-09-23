@@ -76,9 +76,14 @@ func (s Size) dims() (cols, rows uint16, err error) {
 type Config struct {
 	// Size is the terminal's opening size. The zero value is 80 by 24.
 	Size Size
-	// Dir is the child's working directory, and Env its environment. Both follow
-	// os/exec's rules: empty means inherit.
+	// Dir is the child's working directory; empty means this process's.
 	Dir string
+	// Env is the child's whole environment. Nil inherits this process's, and any
+	// other value replaces it — including an empty non-nil slice, which is how a
+	// test asks for a child with no environment at all. The distinction is
+	// os/exec's and is kept rather than smoothed over: a harness that turned an
+	// empty slice back into inheritance would silently answer a hermetic test with
+	// the developer's shell.
 	Env []string
 }
 
@@ -140,6 +145,10 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 	cmd.Dir = cfg.Dir
 	cmd.Env = cfg.Env
 	attach(cmd, replica)
+	// Cancellation ends the session, not just its leader — the same thing Close
+	// does, because it is the same promise: nothing this harness started is left
+	// behind on the terminal it allocated.
+	cmd.Cancel = func() error { return endSession(cmd.Process) }
 
 	if err := cmd.Start(); err != nil {
 		_ = primary.Close()
@@ -168,7 +177,9 @@ func (s *Session) read() {
 			s.transcript.append(buf[:n])
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) && !readClosed(err) {
+			// Close unblocks this read by closing under it, which is an ending and
+			// not a failure — the same as the far end going away.
+			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) && !readClosed(err) {
 				s.readErr = err
 			}
 			return
@@ -229,9 +240,13 @@ func (s *Session) Drain(ctx context.Context) error {
 	}
 }
 
-// Close ends the session: the program is killed if it is still running, the pty
-// is closed, and the goroutines reading it have finished by the time this
-// returns.
+// Close ends the session: everything the program started is killed if it is still
+// running, the pty is closed, and the goroutines reading it have finished by the
+// time this returns.
+//
+// The whole session goes, not only the program. A child that left something of its
+// own behind would leave it holding the terminal open, and a harness that allocated
+// a terminal for a test owes the test that the terminal is gone when the test is.
 //
 // It is idempotent, so a test can defer it and still close explicitly.
 func (s *Session) Close() error {
@@ -239,12 +254,11 @@ func (s *Session) Close() error {
 		select {
 		case <-s.waitDone:
 		default:
-			if s.process != nil {
-				_ = s.process.Kill()
-			}
+			_ = endSession(s.process)
 		}
-		// Closing the primary is what ends the read: a blocking read on a pty
-		// cannot be cancelled, and the child is already gone or going.
+		// Closing the primary is what ends the read. It ends it even when something
+		// outside this session still holds the replica: the descriptor is in the
+		// runtime's poller, so the pending read is unblocked rather than waited for.
 		_ = s.primary.Close()
 		<-s.readDone
 		<-s.waitDone

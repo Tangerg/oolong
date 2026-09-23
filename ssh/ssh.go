@@ -22,15 +22,26 @@ var (
 	ErrHostSet = errors.New("ssh: program host is already set")
 	// ErrWindowSize means an SSH window cannot safely describe a cell surface.
 	ErrWindowSize = errors.New("ssh: invalid PTY window size")
+	// ErrEmulatedPTY means the server is faking this session's terminal. The
+	// emulation rewrites what is written through it, and a frame is exact bytes.
+	ErrEmulatedPTY = errors.New("ssh: session emulates its PTY")
 )
 
 // Run runs cfg on session until the program stops, the client disconnects or the
 // transport fails.
 //
-// session must already have an accepted PTY. Run owns Oolong's input decoder, frame
-// writer and terminal modes for the duration of the call, but it does not own the
-// SSH channel itself and does not choose an exit status. The surrounding SSH
-// handler retains those decisions and can report a non-nil result before returning.
+// session must already have an accepted PTY, and a real one: a server that emulates
+// terminals rewrites what is written through the session, which a frame cannot
+// survive. Run owns Oolong's input decoder, frame writer and terminal modes for the
+// duration of the call, but it does not own the SSH channel itself and does not
+// choose an exit status. The surrounding SSH handler retains those decisions and can
+// report a non-nil result before returning.
+//
+// The session's input, however, is Run's for the session's lifetime and not only for
+// the call. An SSH channel cannot be read with a deadline, so a read already in
+// flight when the program stops ends when the channel does. A handler that reads the
+// session itself after Run returns would be taking bytes from that read; ending the
+// session, by returning or by [charm.land/ssh.Session.Exit], is what it is for.
 //
 // The zero cfg.Color is resolved from the client's PTY environment
 // rather than the server process environment. Terminal modes, character locale,
@@ -45,6 +56,14 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 	pty, windows, ok := session.Pty()
 	if !ok {
 		return ErrNoPTY
+	}
+	// An emulated PTY reports itself as one, and the session's writer then rewrites
+	// every newline that passes through it. A frame is exact bytes — cursor moves,
+	// erases and a carriage return that means the column and not the line — so the
+	// emulation would tear an interface apart and leave the terminal to be blamed
+	// for it. Refusing says so while the caller can still choose something else.
+	if session.EmulatedPty() {
+		return ErrEmulatedPTY
 	}
 	if sizeErr := validateInitialWindow(pty.Window); sizeErr != nil {
 		return sizeErr

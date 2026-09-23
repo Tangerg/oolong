@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/programtest"
@@ -50,6 +51,10 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	go func() {
 		done <- program.Run(t.Context(), program.Config{
 			Host: host,
+			// The depth is named rather than detected: a host that reports no colour
+			// makes the assertion below unfalsifiable, which is how the colour claim
+			// came to be written as "or the word red".
+			Color: grid.TrueColor,
 			Inline: func(runtime *program.InlineRuntime) program.Component {
 				// Not newRunner: that one starts a process, and what is being tested is
 				// what happens to what it says.
@@ -88,7 +93,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	// as the colour the palette gives it.
 	host.Until(t, "the output to keep its colour", func() bool {
 		host.Repaint()
-		return contains(host.Frames(), "128;0;0") || contains(host.Frames(), "red")
+		return contains(host.Frames(), "128;0;0")
 	})
 
 	if err := r.ingress.Close(); err != nil {

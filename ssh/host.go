@@ -133,6 +133,10 @@ func (h *host) resize(next charmssh.Window) (input.Resize, bool, error) {
 // Close settles output in ownership order: stop accepting input, queue the inverse
 // modes after the final frame, then close the writer that owns both. The SSH channel
 // remains the caller's so its handler can still send the chosen exit status.
+//
+// Stopping input stops the decoding of it. Reading the channel is the channel's own
+// lifetime — see [eventSource.Close] — so nothing here is waiting for a client that
+// may say nothing more.
 func (h *host) Close() error {
 	h.closeOnce.Do(func() {
 		h.source.Close()
