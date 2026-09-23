@@ -28,7 +28,6 @@
 package latex
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
@@ -299,15 +298,34 @@ type parseError struct{ message string }
 
 func (e *parseError) Error() string { return "latex: " + e.message }
 
+// mathDelimiter is what the expression is wrapped in for a parser that reads
+// documents rather than expressions. It is the one thing the parser sees that the
+// caller did not write.
+const mathDelimiter = "$"
+
+// explain is the one way an explanation becomes this package's error, so the rule
+// below is applied wherever one comes from.
+//
+// A parser complaining that it found the delimiter is a parser that reached the end
+// of the expression while it still wanted something, and that is what the caller
+// needs to be told; quoting the delimiter instead describes a character they never
+// typed, which is worse than saying less. The test is exact rather than a guess:
+// validateSource refuses a delimiter in the source, so one in a message can only
+// have come from the wrapper.
+func explain(message string) error {
+	if strings.Contains(message, mathDelimiter) {
+		message = "the expression ends while something is still open"
+	}
+	return &parseError{message: message}
+}
+
 func parseFailure(v any) error {
-	var err error
 	switch value := v.(type) {
 	case error:
-		err = value
+		return explain(value.Error())
 	case string:
-		err = errors.New(value)
+		return explain(value)
 	default:
-		err = errors.New("parser failed")
+		return explain("parser failed")
 	}
-	return &parseError{message: err.Error()}
 }

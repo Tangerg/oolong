@@ -339,7 +339,7 @@ func (c *Completion) Draw(v Frame) {
 	}
 	width, height := v.Size()
 	renderer := c.renderer()
-	c.list.DrawRows(v.Sub(grid.Rect(0, 0, width, min(height, c.rows()))), func(view grid.View, _ int, candidate Candidate, selected bool) {
+	c.list.DrawRows(v.Sub(grid.Area(0, 0, width, min(height, c.rows()))), func(view grid.View, _ int, candidate Candidate, selected bool) {
 		renderer.DrawRow(view, candidate, selected, c.Look)
 	})
 }

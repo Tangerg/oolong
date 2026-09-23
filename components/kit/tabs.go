@@ -186,7 +186,7 @@ func (t *Tabs) strip(v grid.View, presented tabsPresentation) {
 		}
 		tab, _ := presented.of.At(i)
 		Label{Text: tab.Title, Style: style, Ellipsis: t.Glyphs.Ellipsis}.
-			Draw(v.Sub(grid.Rect(box.from, 0, box.to-box.from, 1)))
+			Draw(v.Sub(grid.Area(box.from, 0, box.to-box.from, 1)))
 	}
 }
 

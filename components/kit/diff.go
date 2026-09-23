@@ -205,7 +205,7 @@ func (d *Diff) invalidate() {
 // the block of colour long before it reads the mark.
 func (d *Diff) line(v grid.View, y, width int, row diffRow) {
 	style := d.style(row.kind)
-	v.Fill(grid.Rect(0, y, width, 1), style)
+	v.Fill(grid.Area(0, y, width, 1), style)
 	x := v.Text(0, y, row.numbers, style.Merge(d.theme.Subtle))
 	markStyle := style
 	if row.mark != row.kind.String() {

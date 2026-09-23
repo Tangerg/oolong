@@ -186,9 +186,20 @@ type Ranked struct {
 // sorted its items meaningfully keeps that order for ties — which is where a caller's
 // own idea of importance belongs.
 func Filter(pattern string, candidates []string) []Ranked {
-	out := make([]Ranked, 0, len(candidates))
-	for i, candidate := range candidates {
-		if m, ok := Score(pattern, candidate); ok {
+	return FilterFunc(pattern, candidates, func(s string) string { return s })
+}
+
+// FilterFunc is Filter over items that are not strings, ranking each by the text
+// that text returns for it.
+//
+// Ranking one's own items is the ordinary case — files with a kind, commands with a
+// description — and the alternative is for every caller to build a parallel slice of
+// strings and then map the results back through it. [Ranked.Index] addresses items,
+// so nothing has to be mapped back at all.
+func FilterFunc[T any](pattern string, items []T, text func(T) string) []Ranked {
+	out := make([]Ranked, 0, len(items))
+	for i, item := range items {
+		if m, ok := Score(pattern, text(item)); ok {
 			out = append(out, Ranked{Index: i, Match: m})
 		}
 	}

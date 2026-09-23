@@ -238,7 +238,7 @@ func (t *Terminal) takeOver(inFD int) error {
 		return t.abortOpen(err)
 	}
 	defer func() { _ = t.output.SetWriteDeadline(time.Time{}) }()
-	if _, err := t.output.WriteString(t.modes.enter()); err != nil {
+	if _, err := t.output.WriteString(t.modes.Enter()); err != nil {
 		return t.abortOpen(fmt.Errorf("term: take over the terminal: %w", err))
 	}
 
@@ -592,7 +592,7 @@ func (t *Terminal) Close() error {
 			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
 		}
 		errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
-		t.writer.Queue([]byte(t.task.leave() + t.title.leave() + t.modes.leave()))
+		t.writer.Queue([]byte(t.task.leave() + t.title.leave() + t.modes.Leave()))
 		errs = append(errs, t.writer.Close())
 		// Deadline cancellation ends the active write before another display owner
 		// can emit output. No abandoned writer can later publish an old frame.
@@ -615,7 +615,7 @@ func (t *Terminal) giveBack() []error {
 	var errs []error
 	// Session metadata is cleared before modes, so neither a task nor a title leaks
 	// into the next owner.
-	if _, err := t.output.WriteString(t.task.leave() + t.title.leave() + t.modes.leave()); err != nil {
+	if _, err := t.output.WriteString(t.task.leave() + t.title.leave() + t.modes.Leave()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
 	}
 	if err := xterm.Restore(t.inFD, t.oldState); err != nil {

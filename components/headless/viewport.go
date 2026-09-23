@@ -111,7 +111,7 @@ func (p *Viewport) Draw(v Frame) {
 	// height and draws into it as though nothing were in the way, which is what keeps
 	// the scrolling out of everything that is ever put in here.
 	top := -scroll.Offset()
-	area := grid.Rect(0, top, w, total)
+	area := grid.Area(0, top, w, total)
 	p.body.stage(v, area, v.Bounds(), content)
 	content.Draw(v.Sub(area))
 }

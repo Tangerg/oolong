@@ -108,7 +108,7 @@ func (p *prompt) Draw(frame headless.Frame) {
 	rows := frame.Subs(rects)
 	kit.Label{Text: "Composable prompt", Style: p.theme.Heading}.Draw(rows[0].View)
 	kit.Label{Text: p.status, Style: p.theme.Subtle, Ellipsis: p.glyphs.Ellipsis}.
-		Draw(rows[0].View.Sub(grid.Rect(0, 1, width, 1)))
+		Draw(rows[0].View.Sub(grid.Area(0, 1, width, 1)))
 	p.output.Draw(rows[1].View)
 	p.field.Stage(frame, rects[2], &p.composer)
 	p.composer.Draw(rows[2])
@@ -226,11 +226,7 @@ func (p *prompt) refreshCompletion() {
 		p.completion.Dismiss()
 		return
 	}
-	names := make([]string, len(p.references))
-	for i, item := range p.references {
-		names[i] = item.name
-	}
-	matches := fuzzy.Filter(token.Query, names)
+	matches := fuzzy.FilterFunc(token.Query, p.references, func(r reference) string { return r.name })
 	candidates := make([]headless.Candidate, 0, len(matches))
 	for _, match := range matches {
 		item := p.references[match.Index]
@@ -254,7 +250,7 @@ func (p *prompt) drawCompletion(frame headless.Frame, composerRows int) {
 	popupWidth := min(max(p.completion.Width()+4, 38), width-2)
 	popupHeight := min(rows+2, height)
 	y := max(height-composerRows-popupHeight, 0)
-	area := grid.Rect(1, y, popupWidth, popupHeight)
+	area := grid.Area(1, y, popupWidth, popupHeight)
 	inner := box.InnerRect(area.Size())
 	box.Draw(frame.View.Sub(area))
 	p.completion.Draw(frame.Sub(area).Sub(inner))

@@ -214,7 +214,7 @@ func TestEveryModeTurnedOnIsTurnedBackOff(t *testing.T) {
 	// prints escape sequences when the user moves the mouse, and the alternate
 	// screen still on means whatever was on screen before is gone.
 	all := Modes{altScreen: true, mouse: true, focus: true, keyboard: input.KeyboardAll}
-	enter, leave := all.enter(), all.leave()
+	enter, leave := all.Enter(), all.Leave()
 
 	for _, pair := range all.sequence() {
 		if !strings.Contains(enter, pair.on) {
@@ -230,7 +230,7 @@ func TestModesAreUndoneInTheOppositeOrder(t *testing.T) {
 	// The alternate screen is entered first and has to be left last, or the modes
 	// underneath are put back onto a screen that is about to be discarded.
 	all := Modes{altScreen: true, mouse: true, focus: true, keyboard: input.KeyboardAll}
-	enter, leave := all.enter(), all.leave()
+	enter, leave := all.Enter(), all.Leave()
 
 	seq := all.sequence()
 	for i := range seq {
@@ -247,7 +247,7 @@ func TestModesAreUndoneInTheOppositeOrder(t *testing.T) {
 
 func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
 	none := Modes{}
-	enter, leave := none.enter(), none.leave()
+	enter, leave := none.Enter(), none.Leave()
 	for _, unwanted := range []string{altScreenOn, mouseOn, focusOn, keyboardOn(input.KeyboardAll)} {
 		if strings.Contains(enter, unwanted) {
 			t.Errorf("entering turned on %q without being asked", unwanted)
@@ -268,10 +268,10 @@ func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
 func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
 	// A frame may have hidden it or changed its shape. Either state leaking into the
 	// shell afterwards makes the terminal look broken.
-	if !strings.Contains(Modes{}.leave(), cursorDefault) {
+	if !strings.Contains(Modes{}.Leave(), cursorDefault) {
 		t.Error("leaving does not restore the cursor's default shape")
 	}
-	if !strings.HasSuffix(Modes{}.leave(), cursorShow) {
+	if !strings.HasSuffix(Modes{}.Leave(), cursorShow) {
 		t.Error("leaving does not end by showing the cursor")
 	}
 }

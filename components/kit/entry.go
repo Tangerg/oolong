@@ -75,7 +75,7 @@ func (e *Entry) Draw(v grid.View) {
 	body := e.body()
 	_, height := v.Size()
 	indent := e.indent()
-	body.Draw(v.Sub(grid.Rect(indent, y, e.wrapWidth(width), layout.Remaining(height, y))))
+	body.Draw(v.Sub(grid.Area(indent, y, e.wrapWidth(width), layout.Remaining(height, y))))
 }
 
 // Rows returns the entry without its visual gutter, with body offsets aligned to

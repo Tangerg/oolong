@@ -330,7 +330,7 @@ func (l TranscriptLayout) Draw(v grid.View, from int) {
 			continue
 		}
 		y := block.top - from
-		block.block.Draw(v.Sub(grid.Rect(0, y, w, block.height)))
+		block.block.Draw(v.Sub(grid.Area(0, y, w, block.height)))
 	}
 }
 

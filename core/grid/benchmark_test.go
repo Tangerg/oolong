@@ -144,7 +144,7 @@ func complexFrame(s *grid.Screen, picture benchmarkPicture) {
 	for y := range 40 {
 		line.Draw(v, 0, y)
 	}
-	v.Paint(grid.Rect(84, 3, 116, 15), 42, picture)
+	v.Paint(grid.Area(84, 3, 116, 15), 42, picture)
 }
 
 type byteCounter struct{ n int }

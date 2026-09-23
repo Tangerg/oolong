@@ -90,7 +90,7 @@ func (s *Slider) Draw(frame headless.Frame) {
 	}
 	width, height := frame.Size()
 	if width <= 0 || height <= 0 {
-		s.controller.Stage(frame, grid.Rect(0, 0, 0, 0))
+		s.controller.Stage(frame, grid.Area(0, 0, 0, 0))
 		return
 	}
 	value := s.format(s.controller.Value())

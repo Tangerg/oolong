@@ -204,11 +204,6 @@ func (e *Editor) Draw(frame Frame) {
 // editor remains the single owner of its text, cursor and input configuration; drawing
 // it through another look does not make that look its configuration.
 func (e *Editor) DrawWith(frame Frame, look Look) {
-	e.drawWith(frame, look)
-}
-
-// drawWith projects the editor through the appropriate line or multiline renderer.
-func (e *Editor) drawWith(frame Frame, look Look) {
 	presented := &e.presentation
 	if e.oneLine() {
 		e.lineView(e.Text()).draw(frame, look, presented)
@@ -223,8 +218,8 @@ func (e *Editor) drawWith(frame Frame, look Look) {
 	e.ensure()
 	gutter := min(e.gutterWidth(), total)
 	width := layout.Remaining(total, gutter)
-	gutterView := v.Sub(grid.Rect(0, 0, gutter, height))
-	v = v.Sub(grid.Rect(gutter, 0, width, height))
+	gutterView := v.Sub(grid.Area(0, 0, gutter, height))
+	v = v.Sub(grid.Area(gutter, 0, width, height))
 	if width <= 0 {
 		presented.Stage(frame, editorPresentation{})
 		return

@@ -64,11 +64,11 @@ func (c *Code) Draw(view grid.View) {
 		last := min(max(visible.Max.Y, first), max(height, 0))
 		rows := c.body.textRows(contentWidth, first, last)
 		c.Gutter.Draw(
-			view.Sub(grid.Rect(0, first, gutter, last-first)),
+			view.Sub(grid.Area(0, first, gutter, last-first)),
 			rows,
 		)
 	}
-	c.body.Draw(view.Sub(grid.Rect(gutter, 0, contentWidth, height)))
+	c.body.Draw(view.Sub(grid.Area(gutter, 0, contentWidth, height)))
 }
 
 // Rows returns the meaningful source text, with offsets aligned past its gutter.

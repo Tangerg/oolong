@@ -85,11 +85,11 @@ func TestZeroCellIsABlankSingleColumn(t *testing.T) {
 }
 
 func TestRectNormalizesInvalidAndOverflowingExtents(t *testing.T) {
-	if got := grid.Rect(4, 5, -2, -3); got != (image.Rectangle{Min: image.Pt(4, 5), Max: image.Pt(4, 5)}) {
+	if got := grid.Area(4, 5, -2, -3); got != (image.Rectangle{Min: image.Pt(4, 5), Max: image.Pt(4, 5)}) {
 		t.Fatalf("negative extent = %v, want an empty rectangle at the origin", got)
 	}
 	maxInt := int(^uint(0) >> 1)
-	if got := grid.Rect(maxInt-1, 0, 10, 1); got.Max.X != maxInt || got.Min.X != maxInt-1 {
+	if got := grid.Area(maxInt-1, 0, 10, 1); got.Max.X != maxInt || got.Min.X != maxInt-1 {
 		t.Fatalf("overflowing extent = %v, want it saturated", got)
 	}
 }
@@ -301,7 +301,7 @@ func TestOverwritingAnyColumnOfAnAtomBlanksTheWholeAtom(t *testing.T) {
 
 func TestClippingNeverSplitsAMultiColumnAtom(t *testing.T) {
 	s := grid.NewSurface(5, 1)
-	v := s.View().Sub(grid.Rect(1, 0, 3, 1))
+	v := s.View().Sub(grid.Area(1, 0, 3, 1))
 	if got := v.Text(-1, 0, "あﾞz", grid.Style{}); got != 4 {
 		t.Fatalf("advance = %d, want the complete 4 columns", got)
 	}
@@ -322,7 +322,7 @@ func TestSubViewCanOnlyRepairAnIntersectedAtomOutsideItsClip(t *testing.T) {
 	// The first atom occupies columns 0..2 and crosses the child's left edge.
 	// Replacing its visible continuation at column 2 must clear the complete old
 	// atom, but may not install the child's style or content in columns 0 and 1.
-	v.Sub(grid.Rect(2, 0, 5, 1)).Text(0, 0, "X", newStyle)
+	v.Sub(grid.Area(2, 0, 5, 1)).Text(0, 0, "X", newStyle)
 
 	for x := range 2 {
 		cell := cellAt(s, x, 0)
@@ -375,7 +375,7 @@ func TestAppearanceOperationsAreOwnedByTheAtomHead(t *testing.T) {
 			s.View().Text(0, 0, "あﾞ", base)
 			// The child owns only the head. Applying appearance there changes the
 			// complete atom, including continuations outside the child's clip.
-			test.apply(s.View().Sub(grid.Rect(0, 0, 1, 1)))
+			test.apply(s.View().Sub(grid.Area(0, 0, 1, 1)))
 
 			head := cellAt(s, 0, 0)
 			if !test.want(head) {
@@ -393,7 +393,7 @@ func TestAppearanceOperationsAreOwnedByTheAtomHead(t *testing.T) {
 			before := untouched.Row(0)
 			// A child containing only continuations does not own the glyph's
 			// appearance and therefore cannot apply the operation to it.
-			test.apply(untouched.View().Sub(grid.Rect(1, 0, 2, 1)))
+			test.apply(untouched.View().Sub(grid.Area(1, 0, 2, 1)))
 			if got := untouched.Row(0); !slices.Equal(got, before) {
 				t.Fatalf("continuation-only appearance changed %+v to %+v", before, got)
 			}
@@ -426,8 +426,8 @@ func TestAdjacentAppearanceRegionsApplyToEachAtomOnce(t *testing.T) {
 
 			partitioned := makeSurface()
 			view := partitioned.View()
-			operation.apply(view.Sub(grid.Rect(0, 0, 3, 1)))
-			operation.apply(view.Sub(grid.Rect(3, 0, 6, 1)))
+			operation.apply(view.Sub(grid.Area(0, 0, 3, 1)))
+			operation.apply(view.Sub(grid.Area(3, 0, 6, 1)))
 
 			if got, want := partitioned.Row(0), whole.Row(0); !slices.Equal(got, want) {
 				t.Fatalf("adjacent regions = %+v, one whole region = %+v", got, want)
@@ -456,7 +456,7 @@ func TestFillStylesAndBlanks(t *testing.T) {
 	v := s.View()
 	v.Text(0, 0, "abcd", grid.Style{})
 	style := grid.Style{FG: grid.RGBColor(1, 2, 3)}
-	v.Fill(grid.Rect(1, 0, 2, 1), style)
+	v.Fill(grid.Area(1, 0, 2, 1), style)
 	if got := text(s, 0); got != "a..d" {
 		t.Fatalf("row = %q, want the filled span blanked", got)
 	}
@@ -467,7 +467,7 @@ func TestFillStylesAndBlanks(t *testing.T) {
 
 func TestSubViewNarrowsAndKeepsItsOwnCoordinates(t *testing.T) {
 	s := grid.NewSurface(10, 4)
-	inner := s.View().Sub(grid.Rect(2, 1, 3, 2))
+	inner := s.View().Sub(grid.Area(2, 1, 3, 2))
 
 	if w, h := inner.Size(); w != 3 || h != 2 {
 		t.Fatalf("size = %dx%d, want 3x2", w, h)
@@ -477,7 +477,7 @@ func TestSubViewNarrowsAndKeepsItsOwnCoordinates(t *testing.T) {
 		t.Fatalf("row 1 = %q, want the write placed and clipped by the sub-view", got)
 	}
 	// A nested view cannot widen what it was given.
-	wider := inner.Sub(grid.Rect(-5, 0, 20, 1))
+	wider := inner.Sub(grid.Area(-5, 0, 20, 1))
 	wider.Text(0, 0, "ZZZZZZZZZZ", grid.Style{})
 	if got := text(s, 1); got != "..ZZZ....." {
 		t.Fatalf("row 1 = %q, want the nested view still clipped to its parent", got)
@@ -487,7 +487,7 @@ func TestSubViewNarrowsAndKeepsItsOwnCoordinates(t *testing.T) {
 func TestViewSizeIsNominalAndVisibleIsClipped(t *testing.T) {
 	s := grid.NewSurface(6, 2)
 	// A widget laid out half off the right edge still lays out for its whole box.
-	v := s.View().Sub(grid.Rect(4, 0, 6, 1))
+	v := s.View().Sub(grid.Area(4, 0, 6, 1))
 	if w, _ := v.Size(); w != 6 {
 		t.Fatalf("Size width = %d, want the box it was laid out into", w)
 	}
@@ -502,7 +502,7 @@ func TestZeroViewDrawsNowhere(t *testing.T) {
 		t.Fatal("the zero grid.View claims it can draw")
 	}
 	// None of these may panic: a widget given no room still runs its draw code.
-	v.Fill(grid.Rect(0, 0, 5, 5), grid.Style{})
+	v.Fill(grid.Area(0, 0, 5, 5), grid.Style{})
 	v.Link(0, 0, 3, "https://example.test")
 	if got := v.Text(0, 0, "hello", grid.Style{}); got != 0 {
 		t.Fatalf("advance = %d, want 0", got)
@@ -577,7 +577,7 @@ func TestBlendMixesEveryCellItCoversAndKeepsTheContent(t *testing.T) {
 	s := grid.NewSurface(4, 2)
 	v := s.View()
 	v.Text(0, 0, "ab", grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF), BG: grid.RGBColor(0, 0, 0)})
-	v.Blend(grid.Rect(0, 0, 1, 1), grid.RGBColor(0, 0, 0), 0.5)
+	v.Blend(grid.Area(0, 0, 1, 1), grid.RGBColor(0, 0, 0), 0.5)
 
 	if got := cellAt(s, 0, 0).Content(); got != "a" {
 		t.Errorf("content = %q, want the cell mixed rather than erased", got)
@@ -656,8 +656,8 @@ func TestBlendClipsToTheViewBecauseADrawingViewIsABox(t *testing.T) {
 	white := grid.Style{FG: grid.RGBColor(0xFF, 0xFF, 0xFF)}
 	s.View().Text(0, 0, "abcd", white)
 
-	inner := s.View().Sub(grid.Rect(0, 0, 2, 1))
-	inner.Blend(grid.Rect(0, 0, 100, 100), grid.RGBColor(0, 0, 0), 1)
+	inner := s.View().Sub(grid.Area(0, 0, 2, 1))
+	inner.Blend(grid.Area(0, 0, 100, 100), grid.RGBColor(0, 0, 0), 1)
 
 	if got := cellAt(s, 1, 0).Style.FG.RGB(); got != (grid.RGB{}) {
 		t.Errorf("a cell inside the view is %+v, want it painted", got)
@@ -1161,7 +1161,7 @@ func TestTheCursorBelongsToWhoeverDrawsIt(t *testing.T) {
 	s := grid.NewScreen(20, 5)
 	// A widget speaks in its own coordinates; nobody in between carries the answer.
 	out := flush(t, s, grid.Cursor{}, func(v grid.View) {
-		v.Sub(grid.Rect(4, 2, 10, 1)).PlaceCursor(3, 0, grid.CursorStyle{})
+		v.Sub(grid.Area(4, 2, 10, 1)).PlaceCursor(3, 0, grid.CursorStyle{})
 	})
 	if !strings.Contains(out, "\x1b[3;8H") {
 		t.Fatalf("frame = %q, want the cursor at row 3 column 8", out)
@@ -1184,7 +1184,7 @@ func TestAWidgetScrolledOffScreenCannotMoveTheCursor(t *testing.T) {
 	out := flush(t, s, grid.Cursor{}, func(v grid.View) {
 		// The box starts past the right edge, so it has nowhere to draw and no say
 		// over the cursor either.
-		v.Sub(grid.Rect(20, 0, 5, 1)).PlaceCursor(0, 0, grid.CursorStyle{})
+		v.Sub(grid.Area(20, 0, 5, 1)).PlaceCursor(0, 0, grid.CursorStyle{})
 	})
 	if strings.Contains(out, "\x1b[?25h") {
 		t.Fatalf("frame = %q, want no cursor from a view with nowhere to draw", out)
@@ -1310,7 +1310,7 @@ func TestAPainterFailureDoesNotPublishOrSettleTheFrame(t *testing.T) {
 			picture := &falliblePicture{paintErr: cause}
 			var out bytes.Buffer
 			draw := func() {
-				canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 1, picture)
+				canvas.Frame().Paint(grid.Area(1, 1, 4, 2), 1, picture)
 			}
 
 			draw()
@@ -1344,7 +1344,7 @@ func TestAPainterEraseFailureKeepsTheOldRegionUnsettled(t *testing.T) {
 			picture := &falliblePicture{}
 			var out bytes.Buffer
 
-			canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 1, picture)
+			canvas.Frame().Paint(grid.Area(1, 1, 4, 2), 1, picture)
 			if err := canvas.Flush(&out); err != nil {
 				t.Fatalf("opening frame: %v", err)
 			}
@@ -1383,7 +1383,7 @@ func TestChangingOnlyAPaintRegionStillProducesAFrame(t *testing.T) {
 			canvas := makeCanvas()
 			var out bytes.Buffer
 
-			canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 1, first)
+			canvas.Frame().Paint(grid.Area(1, 1, 4, 2), 1, first)
 			if err := canvas.Flush(&out); err != nil {
 				t.Fatal(err)
 			}
@@ -1392,7 +1392,7 @@ func TestChangingOnlyAPaintRegionStillProducesAFrame(t *testing.T) {
 
 			// The cells, bounds and cursor are unchanged; identity is the only
 			// difference and is still enough to replace what the terminal remembers.
-			canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 2, second)
+			canvas.Frame().Paint(grid.Area(1, 1, 4, 2), 2, second)
 			if err := canvas.Flush(&out); err != nil {
 				t.Fatal(err)
 			}
@@ -1413,7 +1413,7 @@ func TestAZeroPaintIdentityNeverClaimsThePreviousFrame(t *testing.T) {
 			canvas := makeCanvas()
 			var out bytes.Buffer
 			draw := func() {
-				canvas.Frame().Paint(grid.Rect(1, 1, 4, 2), 0, picture{name: "live", log: &log})
+				canvas.Frame().Paint(grid.Area(1, 1, 4, 2), 0, picture{name: "live", log: &log})
 				if err := canvas.Flush(&out); err != nil {
 					t.Fatal(err)
 				}
@@ -1458,7 +1458,7 @@ func TestAFrameKeepsRoomForSomethingItCannotDraw(t *testing.T) {
 		}
 	}
 
-	box := grid.Rect(1, 1, 6, 3)
+	box := grid.Area(1, 1, 6, 3)
 	draw(box, 1, "a")
 	if len(log) != 1 || log[0] != "paint a 6x3" {
 		t.Fatalf("the first frame did %v", log)
@@ -1478,7 +1478,7 @@ func TestAFrameKeepsRoomForSomethingItCannotDraw(t *testing.T) {
 	// Moved is erased and painted again, in that order: a terminal that remembers
 	// what it was shown would otherwise hold both until the old one was taken away.
 	log = nil
-	draw(grid.Rect(2, 1, 6, 3), 1, "a")
+	draw(grid.Area(2, 1, 6, 3), 1, "a")
 	if len(log) != 2 || log[0] != "erase a" || log[1] != "paint a 6x3" {
 		t.Fatalf("a region that moved did %v", log)
 	}
@@ -1486,7 +1486,7 @@ func TestAFrameKeepsRoomForSomethingItCannotDraw(t *testing.T) {
 	// A different picture in the same place replaces it, and a frame that asks for
 	// none takes it away.
 	log = nil
-	draw(grid.Rect(2, 1, 6, 3), 2, "b")
+	draw(grid.Area(2, 1, 6, 3), 2, "b")
 	if len(log) != 2 || log[0] != "erase a" || log[1] != "paint b 6x3" {
 		t.Fatalf("a region that changed did %v", log)
 	}
@@ -1508,7 +1508,7 @@ func TestARegionThatDoesNotFitIsNotPainted(t *testing.T) {
 	s := grid.NewScreen(10, 4)
 	var out bytes.Buffer
 	v := s.Frame()
-	v.Paint(grid.Rect(6, 2, 8, 4), 1, picture{name: "a", log: &log})
+	v.Paint(grid.Area(6, 2, 8, 4), 1, picture{name: "a", log: &log})
 	if err := s.Flush(&out); err != nil {
 		t.Fatal(err)
 	}
@@ -1526,7 +1526,7 @@ func TestWhatWasPaintedIsSaidAgainAfterAFullRepaint(t *testing.T) {
 	var out bytes.Buffer
 	paint := func() {
 		v := s.Frame()
-		v.Paint(grid.Rect(0, 0, 4, 2), 7, picture{name: "a", log: &log})
+		v.Paint(grid.Area(0, 0, 4, 2), 7, picture{name: "a", log: &log})
 		if err := s.Flush(&out); err != nil {
 			t.Fatal(err)
 		}

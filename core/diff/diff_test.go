@@ -2,7 +2,7 @@ package diff_test
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -74,17 +74,17 @@ func TestEveryLineOfBothTextsAppearsExactlyOnce(t *testing.T) {
 	// cases somebody thought to write down.
 	// A fixed seed, so a failure is one anybody can reproduce. Nothing here is a
 	// secret; the point is inputs nobody chose, not inputs nobody can predict.
-	r := rand.New(rand.NewSource(1)) //nolint:gosec // reproducibility is the point
+	r := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // reproducibility is the point
 	letters := []string{"a", "b", "c", "d", "e", "f"}
 	pick := func(n int) []string {
 		out := make([]string, n)
 		for i := range out {
-			out[i] = letters[r.Intn(len(letters))]
+			out[i] = letters[r.IntN(len(letters))]
 		}
 		return out
 	}
 	for range 300 {
-		before, after := pick(r.Intn(12)), pick(r.Intn(12))
+		before, after := pick(r.IntN(12)), pick(r.IntN(12))
 		lines := diff.Between(before, after)
 
 		var kept, added []string

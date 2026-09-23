@@ -46,6 +46,38 @@ type Host interface {
 	Size() (w, h int, err error)
 }
 
+// TerminalHost is how a local terminal becomes a Host. It promotes every optional
+// capability the terminal implements, so a program given this host is not weaker
+// than one that opened its own.
+//
+// [Run] uses it for the terminal it opens itself. It is exported because the
+// lifetimes differ: a caller that must reach the host after Run returns — to order
+// image release on the same writer, say — has to own the terminal and this
+// adaptation of it, and deriving that adaptation a second time would put the same
+// fact under two owners.
+//
+// It panics with a program error when terminal is nil.
+func TerminalHost(terminal *term.Terminal) Host {
+	if terminal == nil {
+		panic("program: terminal host requires a terminal")
+	}
+	return terminalHost{Terminal: terminal}
+}
+
+// terminalHost adapts the concrete terminal without making the substrate import
+// this package. Only the frame writer and input source need adapters, because Go
+// method results are not covariant.
+type terminalHost struct{ *term.Terminal }
+
+func (h terminalHost) Writer() FrameWriter { return h.Terminal.Writer() }
+func (h terminalHost) Input() EventSource  { return terminalInput(h) }
+
+// terminalInput adapts the terminal's concrete input result to EventSource. The
+// wrapper keeps term below program in the dependency graph.
+type terminalInput struct{ *term.Terminal }
+
+func (i terminalInput) Err() error { return i.InputErr() }
+
 // FrameWriter is the part of a frame queue the program needs.
 //
 // It is defined by the consumer rather than exposing [term.Writer] through [Host].

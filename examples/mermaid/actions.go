@@ -25,7 +25,7 @@ func diagramActions() [3]diagramAction {
 func (s *diagramScreen) drawActions(view grid.View) {
 	x := 0
 	for _, action := range diagramActions() {
-		kit.Label{Text: action.label, Style: s.theme.Accent}.Draw(view.Sub(grid.Rect(x, 0, text.Width(action.label), 1)))
+		kit.Label{Text: action.label, Style: s.theme.Accent}.Draw(view.Sub(grid.Area(x, 0, text.Width(action.label), 1)))
 		x += text.Width(action.label) + 2
 	}
 }

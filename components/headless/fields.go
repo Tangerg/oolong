@@ -565,7 +565,7 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	m.taken = make([]bool, len(m.list.items))
 	if m.Value != nil {
 		if hadOptions {
-			m.sync()
+			m.Sync()
 		}
 		return
 	}
@@ -595,7 +595,7 @@ func (m *MultiSelect[T]) SetLimit(limit int) {
 	}
 	m.limit = limit
 	// Settle against the new limit directly, without publishing an intermediate set.
-	m.sync()
+	m.Sync()
 }
 
 // Limit reports how many choices may be taken at once. Zero allows every option.
@@ -802,17 +802,14 @@ func (m *MultiSelect[T]) Focus(has bool) {
 	}
 }
 
-// Sync adopts Value and writes its canonical selection once when needed.
-func (m *MultiSelect[T]) Sync() {
-	// The list inside has no map of its own: this field resolves every keystroke
-	// against one that has the movement and the key that takes a choice in it, and
-	// drives the list by name. Offering the event to both would resolve it twice.
-	m.sync()
-}
-
-// sync makes the caller-owned set the selection model's source. Unlike Draw, this is
+// Sync makes the caller-owned set the selection model's source. Unlike Draw, this is
 // a semantic boundary, so it also settles a non-canonical value exactly once.
-func (m *MultiSelect[T]) sync() {
+//
+// Unlike [Select.Sync] it hands the list no key map. The list inside has none of its
+// own: this field resolves every keystroke against one that has the movement and the
+// key that takes a choice in it, and drives the list by name. Offering the event to
+// both would resolve it twice.
+func (m *MultiSelect[T]) Sync() {
 	var canonical bool
 	m.taken, canonical = m.selection()
 	if !canonical {

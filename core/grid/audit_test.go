@@ -17,7 +17,7 @@ func TestResizeKeepsPublishedImageCleanup(t *testing.T) {
 	}{"screen": grid.NewScreen(10, 4), "inline": grid.NewInline(10, 4)} {
 		t.Run(name, func(t *testing.T) {
 			var log []string
-			canvas.Frame().Paint(grid.Rect(1, 1, 2, 1), 1, picture{name: "old", log: &log})
+			canvas.Frame().Paint(grid.Area(1, 1, 2, 1), 1, picture{name: "old", log: &log})
 			var out bytes.Buffer
 			if err := canvas.Flush(&out); err != nil {
 				t.Fatal(err)
@@ -71,7 +71,7 @@ func TestImageOnlyChangeRestoresTheVisibleCursor(t *testing.T) {
 	var out bytes.Buffer
 	for id := uint64(1); id <= 2; id++ {
 		view := screen.Frame()
-		view.Paint(grid.Rect(0, 0, 2, 1), id, picture{name: "image", log: &log})
+		view.Paint(grid.Area(0, 0, 2, 1), id, picture{name: "image", log: &log})
 		view.PlaceCursor(9, 3, grid.CursorStyle{})
 		out.Reset()
 		if err := screen.Flush(&out); err != nil {
@@ -93,7 +93,7 @@ func TestCellScrollCannotMoveAnUnchangedImagePlacement(t *testing.T) {
 		for y := range 10 {
 			view.Text(0, y, rows[y+shift], grid.Style{})
 		}
-		view.Paint(grid.Rect(20, 3, 2, 1), 1, picture{name: "fixed", log: &log})
+		view.Paint(grid.Area(20, 3, 2, 1), 1, picture{name: "fixed", log: &log})
 		out.Reset()
 		if err := screen.Flush(&out); err != nil {
 			t.Fatal(err)

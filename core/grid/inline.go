@@ -94,6 +94,13 @@ type Inline struct {
 	full       bool
 	repaintAll bool
 
+	// left says the block has been finished with and nothing has been written since,
+	// so finishing it again has nothing to do. Whether the terminal has been given the
+	// block back is this type's fact: a caller that has to remember whether it already
+	// asked would be keeping a second copy of it, and two callers with reason to ask —
+	// an exit and a handover — would each keep their own.
+	left bool
+
 	// buf is one frame's payload and out the same wrapped for atomic application.
 	buf, out []byte
 }
@@ -280,6 +287,7 @@ func (i *Inline) Flush(w io.Writer) error {
 	}
 	clear(i.pending)
 	i.pending = i.pending[:0]
+	i.left = false
 	// What the terminal now has open is what was pending a moment ago.
 	i.flushed = i.tail
 	i.settle(used)
@@ -294,6 +302,9 @@ func (i *Inline) Flush(w io.Writer) error {
 // inline program has to draw one last frame before it exits: the last thing it
 // showed is the thing that stays.
 func (i *Inline) Finish(w io.Writer) error {
+	if i.left {
+		return nil
+	}
 	i.buf = i.buf[:0]
 	if i.rows > 0 {
 		if down := i.rows - 1 - i.at.Y; down > 0 {
@@ -308,6 +319,7 @@ func (i *Inline) Finish(w io.Writer) error {
 	// Whatever was left open stays as it is — it is the terminal's output now — but
 	// nothing further belongs on it: the cursor has moved below the block.
 	i.open, i.tail, i.flushed = false, 0, 0
+	i.left = true
 	i.Invalidate()
 	return writeAll(w, i.buf)
 }

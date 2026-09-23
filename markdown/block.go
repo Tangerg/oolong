@@ -87,7 +87,7 @@ func (p blockLayout) draw(v grid.View) {
 		drawRows(v, p.rows)
 		return
 	}
-	p.child.Draw(v.Sub(grid.Rect(p.left, 0, p.width, p.height)))
+	p.child.Draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
 	visible := v.Visible()
 	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
 		prefix := p.rail

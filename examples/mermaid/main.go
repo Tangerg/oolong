@@ -32,15 +32,6 @@ func main() {
 	}
 }
 
-type terminalHost struct{ *term.Terminal }
-
-func (h terminalHost) Writer() program.FrameWriter { return h.Terminal.Writer() }
-func (h terminalHost) Input() program.EventSource  { return terminalInput(h) }
-
-type terminalInput struct{ *term.Terminal }
-
-func (i terminalInput) Err() error { return i.InputErr() }
-
 func run(ctx context.Context) (err error) {
 	backend, err := mermaid.New(mermaid.Config{Browser: os.Getenv("OOLONG_MERMAID_BROWSER")})
 	if err != nil {
@@ -51,7 +42,7 @@ func run(ctx context.Context) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, terminal.Close()) }()
-	return runScreen(ctx, terminalHost{terminal}, backend.Render)
+	return runScreen(ctx, program.TerminalHost(terminal), backend.Render)
 }
 
 // The host outlives Run so image erasure and release remain ordered on its writer.
@@ -200,8 +191,8 @@ func (s *diagramScreen) Draw(view grid.View) {
 	if height < 1 {
 		return
 	}
-	s.drawActions(view.Sub(grid.Rect(0, 0, width, 1)))
-	s.doc.Draw(view.Sub(grid.Rect(0, 1, width, max(0, height-2))))
+	s.drawActions(view.Sub(grid.Area(0, 0, width, 1)))
+	s.doc.Draw(view.Sub(grid.Area(0, 1, width, max(0, height-2))))
 	status, style := "r replaces source · q quits", s.theme.Subtle
 	switch {
 	case s.err != nil:
@@ -211,7 +202,7 @@ func (s *diagramScreen) Draw(view grid.View) {
 	case s.notice != "":
 		status = s.notice
 	}
-	kit.Label{Text: status, Style: style}.Draw(view.Sub(grid.Rect(0, height-1, width, 1)))
+	kit.Label{Text: status, Style: style}.Draw(view.Sub(grid.Area(0, height-1, width, 1)))
 }
 
 func (s *diagramScreen) Handle(event input.Event) bool {

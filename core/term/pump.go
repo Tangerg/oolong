@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/core/clipboard"
+	"github.com/Tangerg/oolong/core/deadline"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -56,58 +57,32 @@ type pump struct {
 // close also makes the result safe to read. EOF and an explicit stop are clean
 // endings.
 func (p *pump) run() error {
-	grace := p.grace
-	if grace <= 0 {
-		grace = input.DefaultEscapeTimeout
-	}
-	if !p.deliver(p.early) {
+	if !p.send(p.early) {
 		return nil
 	}
 	p.early = nil
-	parser := p.parser
-	if parser == nil {
-		parser = &input.Parser{}
-	}
+	stream := input.NewStream(input.StreamConfig{
+		Parser: p.parser, Grace: p.grace, Clipboard: p.clipboard,
+	})
+	// The probe may have handed over a parser already holding an ambiguous sequence,
+	// which no feed has yet had the chance to notice.
+	stream.Arm(p.clock())
 
-	// A stopped timer with a drained channel, so arming and disarming it is a
-	// matter of Reset and Stop and never of a stale tick arriving late.
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-	if !timer.Stop() {
-		<-timer.C
-	}
-	armed := false
-	disarm := func() {
-		if armed && !timer.Stop() {
-			<-timer.C
-		}
-		armed = false
-	}
-
-	if parser.Ambiguous() {
-		timer.Reset(grace)
-		armed = true
-	}
+	due := deadline.NewTimer()
+	defer due.Stop()
 	for {
+		due.Schedule(stream.DueAt())
 		select {
 		case chunk := <-p.raw:
-			disarm()
-			if !p.deliver(parser.Feed(chunk)) {
+			if !p.send(stream.Feed(chunk, p.clock())) {
 				return nil
 			}
-			if parser.Ambiguous() {
-				// Something is waiting on bytes that may never come. Only time can
-				// settle it.
-				timer.Reset(grace)
-				armed = true
-			}
-		case <-timer.C:
-			armed = false
-			if !p.deliver(parser.Expire()) {
+		case <-due.Channel():
+			if !p.send(stream.Expire(p.clock())) {
 				return nil
 			}
 		case resized := <-p.resized:
-			if !p.deliver([]input.Event{resized}) {
+			if !p.send([]input.Event{resized}) {
 				return nil
 			}
 		case err := <-p.readErr:
@@ -116,10 +91,10 @@ func (p *pump) run() error {
 			// cannot be told to prefer one, so whichever this pass happened to see
 			// first says nothing about which happened first. Everything already
 			// waiting is taken before anything is given up.
-			if !p.drainRaw(parser) {
+			if !p.drainRaw(stream) {
 				return nil
 			}
-			p.deliver(parser.Flush())
+			p.send(stream.Flush(p.clock()))
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -132,11 +107,11 @@ func (p *pump) run() error {
 
 // drainRaw feeds everything already waiting on raw, reporting false when the pump was
 // asked to stop part-way through.
-func (p *pump) drainRaw(parser *input.Parser) bool {
+func (p *pump) drainRaw(stream *input.Stream) bool {
 	for {
 		select {
 		case chunk := <-p.raw:
-			if !p.deliver(parser.Feed(chunk)) {
+			if !p.send(stream.Feed(chunk, p.clock())) {
 				return false
 			}
 		default:
@@ -145,15 +120,11 @@ func (p *pump) drainRaw(parser *input.Parser) bool {
 	}
 }
 
-// deliver sends events on, reporting false when the pump was asked to stop
+// send passes decoded events on, reporting false when the pump was asked to stop
 // part-way through. Stopping mid-batch loses the rest, which is correct: nothing
 // downstream is listening any more.
-func (p *pump) deliver(events []input.Event) bool {
-	events = input.Stamp(events, p.clock())
+func (p *pump) send(events []input.Event) bool {
 	for _, ev := range events {
-		if pasted, ok := p.pasted(ev); ok {
-			ev = pasted
-		}
 		select {
 		case p.out <- ev:
 		case <-p.stop:
@@ -169,31 +140,4 @@ func (p *pump) clock() time.Time {
 		return p.now()
 	}
 	return time.Now()
-}
-
-// pasted turns the terminal's answer about the clipboard into the paste it means,
-// when this session was the one that asked.
-//
-// Reading a clipboard and pasting into a terminal are the same event to whatever
-// receives them, and giving them separate names would mean writing the insert
-// twice. The translation happens here because this is the layer that knows what an
-// operating system command is; nothing above it should have to.
-//
-// Only an answer that was asked for is turned into one. A terminal has no reason to
-// volunteer this and none is known to, but the alternative rule — any of them is a
-// paste — would let text arrive in a document nobody asked to put it in, which is
-// not a thing to relax about on the strength of what terminals are known to do.
-func (p *pump) pasted(ev input.Event) (input.Event, bool) {
-	osc, ok := ev.(input.OSC)
-	if !ok {
-		return nil, false
-	}
-	pasted, ok := osc.Paste(p.clipboard)
-	if !ok {
-		// A terminal that answered with nothing readable still answered. Turning
-		// that into an empty paste would clear a selection the user still has, so
-		// the answer is passed through as what it is.
-		return nil, false
-	}
-	return pasted, true
 }

@@ -26,7 +26,7 @@ func render(source string, look Look) (out box, err error) {
 	r := formulaRenderer{look: look}
 	out, err = r.node(node, look.Text)
 	if err != nil {
-		return box{}, &parseError{message: err.Error()}
+		return box{}, explain(err.Error())
 	}
 	return out, nil
 }
@@ -47,15 +47,13 @@ func parse(source string) (node ast.Node, err error) {
 			node, err = nil, parseFailure(recovered)
 		}
 	}()
-	node, err = golatex.ParseExpr("$" + braceScriptAtoms(source) + "$")
+	node, err = golatex.ParseExpr(mathDelimiter + braceScriptAtoms(source) + mathDelimiter)
 	if err != nil {
-		return nil, &parseError{message: err.Error()}
+		return nil, explain(err.Error())
 	}
 	return node, nil
 }
 
-// braceScriptAtoms makes TeX's single-character script atoms explicit before
-// handing them to a parser whose scanner otherwise groups letters and numbers.
 func braceScriptAtoms(source string) string {
 	var out strings.Builder
 	out.Grow(len(source))
@@ -130,6 +128,13 @@ func validateSource(source string) error {
 		if escaped {
 			escaped = false
 			continue
+		}
+		if r == '$' {
+			// The same rule as \( and \[, for the same reason and one more: this
+			// package delimits the expression with $ before handing it to the parser,
+			// so a $ of the caller's would make every position the parser reports
+			// ambiguous between their source and the wrapper around it.
+			return &parseError{message: "source must not contain math delimiters"}
 		}
 		if r == '\\' {
 			if at+1 < len(source) && strings.ContainsRune("([])", rune(source[at+1])) {
@@ -339,7 +344,7 @@ func (r *formulaRenderer) stackedRelation(name string, args ast.List, style grid
 	if err != nil {
 		return box{}, err
 	}
-	return scripted(base, annotation, box{}), nil
+	return annotated(base, annotation), nil
 }
 
 func (r *formulaRenderer) squareRoot(name string, args ast.List, style grid.Style) (box, error) {
@@ -356,7 +361,7 @@ func (r *formulaRenderer) squareRoot(name string, args ast.List, style grid.Styl
 		if err != nil {
 			return box{}, err
 		}
-		root = scripted(root, index, box{})
+		root = indexed(root, index)
 	}
 	return root, nil
 }

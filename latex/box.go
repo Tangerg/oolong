@@ -95,6 +95,45 @@ func scripted(base, superscript, subscript box) box {
 	return out
 }
 
+// annotated centres one box above another and leaves the lower one on the baseline.
+//
+// It is what distinguishes a stacked relation from a superscript: the annotation
+// belongs over the relation it qualifies, so the two read as one symbol, while a
+// superscript sits beside its base and reads as a second one.
+func annotated(base, annotation box) box {
+	if annotation.empty() {
+		return base
+	}
+	width := max(base.width, annotation.width)
+	out := box{
+		width: width,
+		above: base.above + annotation.above + annotation.below + 1,
+		below: base.below,
+	}
+	out.add(base, (width-base.width)/2, 0)
+	out.add(annotation, (width-annotation.width)/2, -base.above-1-annotation.below)
+	return out
+}
+
+// indexed puts a root's index above and to the left of the radical.
+//
+// TeX tucks it into the crook of the sign, which a grid of cells has no room for.
+// After the sign is where a power goes, so a cube root placed there would read as a
+// cube; before and above it cannot be read as anything else.
+func indexed(root, index box) box {
+	if index.empty() {
+		return root
+	}
+	out := box{
+		width: index.width + root.width,
+		above: max(root.above, index.above+index.below+1),
+		below: root.below,
+	}
+	out.add(index, 0, -1-index.below)
+	out.add(root, index.width, 0)
+	return out
+}
+
 func overlined(content box, glyphs Glyphs, style grid.Style) box {
 	if content.width == 0 {
 		return content

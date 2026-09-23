@@ -274,7 +274,7 @@ func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, select
 	base := q.theme.Text
 	if selected && q.rows.Focused() {
 		base = base.Merge(q.theme.Selection)
-		v.Fill(grid.Rect(0, 0, width, 1), q.theme.Selection)
+		v.Fill(grid.Area(0, 0, width, 1), q.theme.Selection)
 	}
 	columns.Cells(v, at, base)
 }

@@ -86,7 +86,7 @@ func (b Box) InnerRect(size image.Point) image.Rectangle {
 	if inner.Y > 0 {
 		y = edge + b.Padding.Top
 	}
-	return grid.Rect(x, y, inner.X, inner.Y)
+	return grid.Area(x, y, inner.X, inner.Y)
 }
 
 // Draw paints the frame and returns the region left for content, so the common use
@@ -111,7 +111,7 @@ func (b Box) paint(v grid.View) {
 		return
 	}
 	if fill := b.Theme.Surface; fill != (grid.Style{}) {
-		v.Fill(grid.Rect(0, 0, w, h), fill)
+		v.Fill(grid.Area(0, 0, w, h), fill)
 	}
 	if border := b.border(); border.drawn() {
 		b.drawBorder(v, border, w, h)

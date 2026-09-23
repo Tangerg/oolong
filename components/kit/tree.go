@@ -119,7 +119,7 @@ func (t *Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) 
 	style := t.Theme.Text
 	if selected {
 		style = t.Theme.Text.Merge(t.Theme.Selection)
-		v.Fill(grid.Rect(0, 0, width, 1), t.Theme.Selection)
+		v.Fill(grid.Area(0, 0, width, 1), t.Theme.Selection)
 	}
 
 	indent := max(t.Indent, treeIndent)

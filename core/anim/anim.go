@@ -15,8 +15,6 @@
 // driving it, which is the property the rest of this library is built on.
 package anim
 
-import "math"
-
 // EaseOutCubic maps a linear position in [0,1] to an eased one.
 //
 // Out-cubic rather than anything else because it is the curve that reads as
@@ -32,46 +30,6 @@ func EaseOutCubic(t float64) float64 {
 	}
 	u := 1 - t
 	return 1 - u*u*u
-}
-
-// The shape of the shimmer band: a gaussian highlight riding on a dim base,
-// sweeping left to right and wrapping.
-const (
-	shimmerBase  = 0.35
-	shimmerPeak  = 1.0
-	shimmerSigma = 3.0
-	// shimmerLead is how far outside the row the band's centre starts and ends, so
-	// the highlight fades in from the left edge and out past the right one instead
-	// of appearing and vanishing.
-	shimmerLead      = 8
-	shimmerMinPeriod = 24
-)
-
-// Shimmer is the brightness at one column of a row being swept by a moving
-// highlight — the "this is still arriving" effect on streamed text.
-//
-// pos is the column, width the row's width, and the result is in [0.35, 1]. It is
-// meant for [grid.View.Fade]: fade the column by one minus this, and the sweep reads
-// as light rather than as characters changing. A fade rather than a colour, because
-// what the text dissolves into is whatever that column is drawn on.
-func Shimmer(tick uint64, pos, width int) float64 {
-	if width <= 0 {
-		return shimmerBase
-	}
-	// The period may be wider than the largest int by the two off-screen leads,
-	// while tick already has the unsigned range that represents it exactly.
-	period := max(uint64(width)+2*shimmerLead, uint64(shimmerMinPeriod))
-	centre := float64(tick%period) - shimmerLead
-	d := float64(pos) - centre
-	return shimmerBase + (shimmerPeak-shimmerBase)*math.Exp(-(d*d)/(2*shimmerSigma*shimmerSigma))
-}
-
-// Wave is the brightness of one row of a running accent, offset per row so a
-// column of them reads as a wave travelling down rather than as everything
-// pulsing at once. The result is in [0.2, 1].
-func Wave(tick uint64, row int) float64 {
-	phase := float64(tick)*0.35 - float64(row)*(math.Pi/6)
-	return 0.2 + 0.8*(math.Sin(phase)+1)/2
 }
 
 // Transition moves a value toward a target over a number of ticks, eased.

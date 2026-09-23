@@ -524,6 +524,67 @@ func TestFinishingAnEmptyBlockJustHandsTheCursorBack(t *testing.T) {
 	}
 }
 
+func TestFinishingABlockThatIsAlreadyFinishedWritesNothing(t *testing.T) {
+	// Two things have reason to leave the block — an exit and a handover to a child —
+	// and on a path where both run, the second must not send the terminal a frame that
+	// says nothing it has not already been told.
+	i := grid.NewInline(10, 4)
+	v := i.Frame()
+	v.Text(0, 0, "prompt", grid.Style{})
+	var frame bytes.Buffer
+	if err := i.Flush(&frame); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	var first bytes.Buffer
+	if err := i.Finish(&first); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	if first.Len() == 0 {
+		t.Fatal("finishing a live block wrote nothing")
+	}
+	var second bytes.Buffer
+	if err := i.Finish(&second); err != nil {
+		t.Fatalf("Finish again: %v", err)
+	}
+	if second.Len() != 0 {
+		t.Fatalf("finishing an already finished block wrote %q", second.String())
+	}
+}
+
+func TestABlockDrawnAgainCanBeFinishedAgain(t *testing.T) {
+	// Handing the terminal to a child ends with the block finished, and the interface
+	// goes on drawing after the child returns. That block is live again and its exit
+	// still has to move the cursor below it.
+	i := grid.NewInline(10, 4)
+	v := i.Frame()
+	v.Text(0, 0, "prompt", grid.Style{})
+	var frame bytes.Buffer
+	if err := i.Flush(&frame); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if err := i.Finish(&bytes.Buffer{}); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+
+	v = i.Frame()
+	v.Text(0, 0, "again", grid.Style{})
+	var redrawn bytes.Buffer
+	if err := i.Flush(&redrawn); err != nil {
+		t.Fatalf("Flush after finishing: %v", err)
+	}
+	if redrawn.Len() == 0 {
+		t.Fatal("the block drew nothing after being finished and drawn again")
+	}
+	var last bytes.Buffer
+	if err := i.Finish(&last); err != nil {
+		t.Fatalf("Finish after redrawing: %v", err)
+	}
+	if last.Len() == 0 {
+		t.Fatal("a block that was drawn again was not finished again")
+	}
+}
+
 func TestAFailedInlineWriteKeepsWhatWasPrinted(t *testing.T) {
 	// Output the caller asked for is worth writing twice and not worth losing.
 	i := grid.NewInline(10, 4)

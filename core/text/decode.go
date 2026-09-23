@@ -123,8 +123,20 @@ func (d *Decoder) Feed(chunk string) []Line {
 //
 // It is what an interface draws while the rest is still arriving. The returned Line
 // is a read-only view owned by the decoder and may be replaced by a later decoder
-// call. A caller that will retain or modify it uses [Line.Clone].
-func (d *Decoder) Open() Line { return d.materialise() }
+// call. A caller that will retain or modify it uses [Line.Clone]. Repeated calls
+// without new input return the same view; Feed invalidates it only when it adds
+// visible text.
+func (d *Decoder) Open() Line {
+	if !d.dirty {
+		return d.open
+	}
+	d.open = make(Line, len(d.runs))
+	for i, run := range d.runs {
+		d.open[i] = Span{Text: string(run.text), Style: run.style, Link: run.link}
+	}
+	d.dirty = false
+	return d.open
+}
 
 // Flush ends the stream: the open line, if there is one, and nothing else.
 //
@@ -238,25 +250,10 @@ func (d *Decoder) append(s string) {
 	d.dirty = true
 }
 
-// materialise returns the immutable public view of the open runs. Repeated Open
-// calls without new input return the same view; Feed invalidates it only when it
-// adds visible text.
-func (d *Decoder) materialise() Line {
-	if !d.dirty {
-		return d.open
-	}
-	d.open = make(Line, len(d.runs))
-	for i, run := range d.runs {
-		d.open[i] = Span{Text: string(run.text), Style: run.style, Link: run.link}
-	}
-	d.dirty = false
-	return d.open
-}
-
 // takeLine transfers the current immutable line to the caller and starts a new
 // decoder-owned line. The returned line shares no mutable run storage.
 func (d *Decoder) takeLine() Line {
-	line := d.materialise()
+	line := d.Open()
 	d.runs = nil
 	d.open = nil
 	d.dirty = false

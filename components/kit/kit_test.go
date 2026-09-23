@@ -86,7 +86,7 @@ func TestBoxFramesAndReportsWhatIsLeft(t *testing.T) {
 func TestBoxDrawsAClippedMiddleWithoutInventingEdges(t *testing.T) {
 	box := kit.Box{Glyphs: kit.Unicode()}
 	rows := paint(8, 3, func(view grid.View) {
-		box.Draw(view.Sub(grid.Rect(0, -50, 8, 100)))
+		box.Draw(view.Sub(grid.Area(0, -50, 8, 100)))
 	})
 	equalRows(t, rows, []string{
 		"│......│",
@@ -635,7 +635,7 @@ func TestTableDrawsOnlyRowsInsideTheClip(t *testing.T) {
 		},
 	}
 	surface := grid.NewSurface(8, 3)
-	table.Draw(surface.View().Sub(grid.Rect(0, -50, 8, 100)))
+	table.Draw(surface.View().Sub(grid.Area(0, -50, 8, 100)))
 
 	want := []int{50, 51, 52}
 	if !reflect.DeepEqual(styled, want) {
@@ -644,7 +644,7 @@ func TestTableDrawsOnlyRowsInsideTheClip(t *testing.T) {
 	if !reflect.DeepEqual(painted, want) {
 		t.Fatalf("painted rows = %v, want %v", painted, want)
 	}
-	table.Draw(surface.View().Sub(grid.Rect(0, -200, 8, 100)))
+	table.Draw(surface.View().Sub(grid.Area(0, -200, 8, 100)))
 	if !reflect.DeepEqual(styled, want) || !reflect.DeepEqual(painted, want) {
 		t.Fatal("a fully clipped table evaluated hidden rows")
 	}

@@ -132,7 +132,7 @@ func (f *field) frame(v Frame, label string, look Look) Frame {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		f.presentation.Stage(v, fieldPresentation{})
-		return v.Sub(grid.Rect(0, 0, 0, 0))
+		return v.Sub(grid.Area(0, 0, 0, 0))
 	}
 	top, bottom := 0, 0
 	if label != "" {
@@ -143,7 +143,7 @@ func (f *field) frame(v Frame, label string, look Look) Frame {
 		bottom = 1
 		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, look.Ellipsis), look.Danger)
 	}
-	inner := v.Sub(grid.Rect(0, top, w, max(h-top-bottom, 0)))
+	inner := v.Sub(grid.Area(0, top, w, max(h-top-bottom, 0)))
 	innerW, innerH := inner.Size()
 	f.presentation.Stage(v, fieldPresentation{top: top, inner: image.Pt(innerW, innerH)})
 	return inner
@@ -233,7 +233,6 @@ type Form struct {
 	body    Container
 	problem error
 	matcher keymap.Matcher
-	blurred bool
 }
 
 // NewForm constructs a form from fields in keyboard order. A nil field is a programmer
@@ -346,7 +345,7 @@ func (f *Form) DrawWith(v Frame, look Look) {
 		w, h := v.Size()
 		if h > 0 {
 			v.Text(0, h-1, text.Truncate(f.problem.Error(), w, look.Ellipsis), look.Danger)
-			v = v.Sub(grid.Rect(0, 0, w, h-1))
+			v = v.Sub(grid.Area(0, 0, w, h-1))
 		}
 	}
 	f.body.drawWith(v, f.flow(), func(frame Frame, child Widget) {
@@ -386,16 +385,14 @@ func (f *Form) Do(action keymap.Action) bool {
 
 // Focus takes the keyboard, or gives it up, and passes the news to the field that has
 // it.
+//
+// Whether a form has the keyboard is the state of the container holding its fields,
+// and this keeps no second copy of it: a repeated report is settled there, where
+// changing children is settled too.
 func (f *Form) Focus(has bool) {
 	if !has {
 		f.matcher.Clear()
 	}
-	blurred := !has
-	if f.blurred == blurred {
-		return
-	}
-	f.blurred = blurred
-	f.body.Keys = f.keys()
 	f.body.Focus(has)
 }
 

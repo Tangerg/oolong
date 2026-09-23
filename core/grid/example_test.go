@@ -28,7 +28,7 @@ func ExampleRender() {
 // on screen it ended up.
 func ExampleView_Sub() {
 	rows := grid.Render(24, 2, func(v grid.View) {
-		right := v.Sub(grid.Rect(12, 0, 12, 2))
+		right := v.Sub(grid.Area(12, 0, 12, 2))
 		// Local coordinates: (0, 0) is the left edge of the sub-view, not the screen.
 		right.Text(0, 0, "right half", grid.Style{})
 		// Discarded rather than reported: the box is a boundary, not a convention a

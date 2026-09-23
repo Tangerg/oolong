@@ -289,7 +289,7 @@ func (a *agent) drawCompletion(frame headless.Frame) {
 	popupHeight := min(rows+2, height)
 	composerRows := a.composer.HeightForWidth(width)
 	y := max(height-composerRows-popupHeight, 0)
-	area := grid.Rect(1, y, popupWidth, popupHeight)
+	area := grid.Area(1, y, popupWidth, popupHeight)
 	inner := box.InnerRect(area.Size())
 	box.Draw(frame.View.Sub(area))
 	a.completion.Draw(frame.Sub(area).Sub(inner))

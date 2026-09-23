@@ -1,7 +1,7 @@
 package mermaid
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -61,8 +61,8 @@ func npmCLI(shim string) (string, error) {
 			return "", err
 		}
 		var metadata struct {
-			Name string
-			Bin  map[string]string
+			Name string            `json:"name"`
+			Bin  map[string]string `json:"bin"`
 		}
 		if err = json.Unmarshal(data, &metadata); err != nil {
 			return "", fmt.Errorf("mermaid: CLI package metadata: %w", err)

@@ -27,7 +27,8 @@ package arch
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -723,11 +724,13 @@ func moduleHasExternallyImportablePackage(t *testing.T, root, module string) boo
 			}
 			t.Fatalf("go list %s for %s: %v: %s", goos, module, err, detail)
 		}
-		decoder := json.NewDecoder(bytes.NewReader(out))
+		// go list writes one JSON value per package rather than an array, so the
+		// stream is read value by value instead of unmarshalled whole.
+		decoder := jsontext.NewDecoder(bytes.NewReader(out))
 		for {
 			var pkg listedPackage
-			if err := decoder.Decode(&pkg); err != nil {
-				if err == io.EOF {
+			if err := json.UnmarshalDecode(decoder, &pkg); err != nil {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				t.Fatalf("decode go list %s for %s: %v", goos, module, err)

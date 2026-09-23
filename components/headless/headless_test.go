@@ -1376,7 +1376,7 @@ func TestAZeroEditorAnswersTheKeysItDocuments(t *testing.T) {
 
 func TestPointerTracksWhereItIs(t *testing.T) {
 	var p headless.Pointer
-	stagePointer(&p, grid.Rect(0, 0, 12, 12))
+	stagePointer(&p, grid.Area(0, 0, 12, 12))
 	if _, inside := p.Position(); inside {
 		// A pointer that has never been reported is nowhere, not at the origin.
 		t.Fatal("a fresh pointer claims to be somewhere")
@@ -1395,7 +1395,7 @@ func TestPointerTracksWhereItIs(t *testing.T) {
 
 func TestPointerHover(t *testing.T) {
 	var p headless.Pointer
-	box := grid.Rect(2, 2, 4, 2)
+	box := grid.Area(2, 2, 4, 2)
 	stagePointer(&p, box)
 	p.Handle(press(3, 3, input.MouseMove, input.ButtonNone))
 	if !p.Over() {
@@ -1411,7 +1411,7 @@ func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
 	// A control that fired on the way down fires when the user was aiming at it and
 	// changed their mind.
 	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
+	box := grid.Area(0, 0, 4, 1)
 	stagePointer(&p, box)
 
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
@@ -1430,7 +1430,7 @@ func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
 func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
 	// It follows the press, not the pointer: the press was never released.
 	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
+	box := grid.Area(0, 0, 4, 1)
 	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 
@@ -1448,7 +1448,7 @@ func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
 func TestAReleaseSomewhereElseIsNotAClick(t *testing.T) {
 	// Which is how a user takes back a press they did not mean.
 	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
+	box := grid.Area(0, 0, 4, 1)
 	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Handle(press(9, 9, input.MouseUp, input.ButtonLeft))
@@ -1461,7 +1461,7 @@ func TestAClickIsAnsweredOnce(t *testing.T) {
 	// A widget asking twice in one frame, or two widgets asking in turn, must not both
 	// act on the same click.
 	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
+	box := grid.Area(0, 0, 4, 1)
 	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonLeft))
@@ -1476,7 +1476,7 @@ func TestAClickIsAnsweredOnce(t *testing.T) {
 
 func TestAClickIsTheButtonThatWasPressed(t *testing.T) {
 	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
+	box := grid.Area(0, 0, 4, 1)
 	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonRight))
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonRight))
@@ -1492,7 +1492,7 @@ func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
 	// A hover left highlighted under an unfocused window looks like the interface is
 	// still live.
 	var p headless.Pointer
-	box := grid.Rect(0, 0, 4, 1)
+	box := grid.Area(0, 0, 4, 1)
 	stagePointer(&p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 

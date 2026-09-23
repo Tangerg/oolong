@@ -10,6 +10,7 @@ import (
 	charmssh "charm.land/ssh"
 
 	"github.com/Tangerg/oolong/core/clipboard"
+	"github.com/Tangerg/oolong/core/deadline"
 	"github.com/Tangerg/oolong/core/input"
 )
 
@@ -163,37 +164,26 @@ func (s *eventSource) postResize(resized input.Resize) {
 	}
 }
 
+// run decodes the accepted session's bytes. How an escape is settled by time and how
+// a clipboard answer becomes a paste belong to [input.Stream]; what is left here is
+// this transport's own — which channels carry what, and when the session is over.
 func (s *eventSource) run() {
 	defer close(s.done)
 	defer close(s.events)
-	parser := &input.Parser{}
-	timer := time.NewTimer(0)
-	if !timer.Stop() {
-		<-timer.C
-	}
-	defer timer.Stop()
-	armed := false
-	disarm := func() {
-		if armed && !timer.Stop() {
-			<-timer.C
-		}
-		armed = false
-	}
+	stream := input.NewStream(input.StreamConfig{Clipboard: s.clip})
+
+	due := deadline.NewTimer()
+	defer due.Stop()
 
 	for {
+		due.Schedule(stream.DueAt())
 		select {
 		case chunk := <-s.raw:
-			disarm()
-			if !s.deliver(s.stamp(parser.Feed(chunk))) {
+			if !s.deliver(stream.Feed(chunk, time.Now())) {
 				return
 			}
-			if parser.Ambiguous() {
-				timer.Reset(input.DefaultEscapeTimeout)
-				armed = true
-			}
-		case <-timer.C:
-			armed = false
-			if !s.deliver(s.stamp(parser.Expire())) {
+		case <-due.Channel():
+			if !s.deliver(stream.Expire(time.Now())) {
 				return
 			}
 		case resized := <-s.resized:
@@ -204,8 +194,13 @@ func (s *eventSource) run() {
 			s.err = err
 			return
 		case err := <-s.read:
-			s.drainRaw(parser)
-			s.deliver(s.stamp(parser.Flush()))
+			// Bytes that arrived before the end are still the user's, and they arrive
+			// on a different channel from the end itself, so everything already waiting
+			// is taken before anything is given up.
+			if !s.drainRaw(stream) {
+				return
+			}
+			s.deliver(stream.Flush(time.Now()))
 			if !errors.Is(err, io.EOF) {
 				s.err = err
 			}
@@ -218,15 +213,17 @@ func (s *eventSource) run() {
 	}
 }
 
-func (s *eventSource) drainRaw(parser *input.Parser) {
+// drainRaw feeds everything already waiting on raw, reporting false when the session
+// ended part-way through.
+func (s *eventSource) drainRaw(stream *input.Stream) bool {
 	for {
 		select {
 		case chunk := <-s.raw:
-			if !s.deliver(s.stamp(parser.Feed(chunk))) {
-				return
+			if !s.deliver(stream.Feed(chunk, time.Now())) {
+				return false
 			}
 		default:
-			return
+			return true
 		}
 	}
 }
@@ -242,18 +239,4 @@ func (s *eventSource) deliver(events []input.Event) bool {
 		}
 	}
 	return true
-}
-
-func (s *eventSource) stamp(events []input.Event) []input.Event {
-	events = input.Stamp(events, time.Now())
-	for i, event := range events {
-		osc, ok := event.(input.OSC)
-		if !ok {
-			continue
-		}
-		if pasted, ok := osc.Paste(s.clip); ok {
-			events[i] = pasted
-		}
-	}
-	return events
 }

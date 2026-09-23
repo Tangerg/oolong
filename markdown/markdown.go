@@ -135,7 +135,7 @@ func (d *Doc) Draw(v grid.View) {
 		if placed.top >= visible.Max.Y || placed.top+placed.layout.height <= visible.Min.Y {
 			continue
 		}
-		placed.layout.draw(v.Sub(grid.Rect(0, placed.top, width, placed.layout.height)))
+		placed.layout.draw(v.Sub(grid.Area(0, placed.top, width, placed.layout.height)))
 	}
 }
 

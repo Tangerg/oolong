@@ -4,11 +4,11 @@ go 1.27.0
 
 require (
 	github.com/Tangerg/oolong/core v0.18.2
-	github.com/yuin/goldmark v1.8.5
+	github.com/yuin/goldmark v1.8.6
 )
 
 require (
-	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
-	github.com/mattn/go-runewidth v0.0.27 // indirect
+	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 )

@@ -60,7 +60,7 @@ func (s *latexScreen) Draw(view grid.View) {
 	width, height := rows[1].Size()
 	wanted := min(s.formula.HeightForWidth(width), height)
 	top := max((height-wanted)/2, 0)
-	s.formula.Draw(rows[1].Sub(grid.Rect(0, top, width, wanted)))
+	s.formula.Draw(rows[1].Sub(grid.Area(0, top, width, wanted)))
 
 	kit.Label{Text: "q quits · latex.Render → *latex.Formula", Style: s.theme.Subtle}.Draw(rows[2])
 }

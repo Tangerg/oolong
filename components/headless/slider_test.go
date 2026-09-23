@@ -96,7 +96,7 @@ func (s sliderTrack) Draw(frame headless.Frame) { s.control.Stage(frame, s.rect)
 
 func TestSliderDragsAgainstCommittedTrackGeometry(t *testing.T) {
 	slider := headless.NewSlider(headless.SliderConfig{Maximum: 100})
-	root := headless.NewRoot(sliderTrack{control: slider, rect: grid.Rect(2, 0, 5, 1)})
+	root := headless.NewRoot(sliderTrack{control: slider, rect: grid.Area(2, 0, 5, 1)})
 	root.Draw(grid.NewSurface(10, 1).View())
 
 	if slider.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
@@ -155,7 +155,7 @@ func TestSliderRejectsInvalidConfiguration(t *testing.T) {
 
 func TestClippedSliderUsesTheWholeTrackForValues(t *testing.T) {
 	slider := headless.NewSlider(headless.SliderConfig{Maximum: 100})
-	root := headless.NewRoot(sliderTrack{control: slider, rect: grid.Rect(0, 0, 11, 1)})
+	root := headless.NewRoot(sliderTrack{control: slider, rect: grid.Area(0, 0, 11, 1)})
 	root.Draw(grid.NewSurface(6, 1).View())
 	if !slider.Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDown, Button: input.ButtonLeft}) || slider.Value() != 50 {
 		t.Fatalf("value=%d", slider.Value())

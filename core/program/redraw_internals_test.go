@@ -2,7 +2,6 @@ package program
 
 import (
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/core/grid"
@@ -55,28 +54,4 @@ func TestDeclinedInputStillPresentsResolvedPrefixAction(t *testing.T) {
 	if present() {
 		t.Fatal("one input left repeated redraws pending")
 	}
-}
-
-func TestFrameTimerResetAndCancellationDiscardExpiredValues(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		timer := newFrameTimer()
-		defer timer.stop()
-		timer.schedule(time.Now().Add(time.Second), true)
-		time.Sleep(2 * time.Second)
-		timer.schedule(time.Now().Add(time.Second), true)
-		select {
-		case <-timer.channel():
-			t.Fatal("reset exposed old expiration")
-		default:
-		}
-		time.Sleep(2 * time.Second)
-		timer.schedule(time.Time{}, false)
-		select {
-		case <-timer.channel():
-			t.Fatal("cancel exposed old expiration")
-		default:
-		}
-		timer.schedule(time.Now(), true)
-		<-timer.channel()
-	})
 }

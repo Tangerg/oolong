@@ -192,7 +192,7 @@ func (*brokenPainter) Erase(io.Writer) error { return nil }
 type paintedComponent struct{ painter grid.Painter }
 
 func (c paintedComponent) Draw(v grid.View) {
-	v.Paint(grid.Rect(0, 0, 2, 1), 1, c.painter)
+	v.Paint(grid.Area(0, 0, 2, 1), 1, c.painter)
 }
 
 func (paintedComponent) Handle(input.Event) bool { return false }
@@ -222,13 +222,39 @@ type paintedHandover struct {
 }
 
 func (c *paintedHandover) Draw(v grid.View) {
-	v.Paint(grid.Rect(0, 0, 2, 1), c.id, c.painter)
+	v.Paint(grid.Area(0, 0, 2, 1), c.id, c.painter)
 }
 
 func (c *paintedHandover) Handle(input.Event) bool {
 	c.id++
 	c.handErr = c.runtime.Session().Hand(func() error { return nil })
 	return true
+}
+
+// insistentHandover asks for the display again after being told it could not have it.
+type insistentHandover struct {
+	paintedHandover
+	second error
+}
+
+func (c *insistentHandover) Handle(event input.Event) bool {
+	consumed := c.paintedHandover.Handle(event)
+	c.second = c.runtime.Session().Hand(func() error { return nil })
+	c.runtime.Quit()
+	return consumed
+}
+
+// quittingHandover reacts to a failed handover the way a component ordinarily would:
+// it stops the program. That leaves no further loop turn, which is the path a
+// recorded failure has to survive.
+type quittingHandover struct{ paintedHandover }
+
+func (c *quittingHandover) Handle(event input.Event) bool {
+	consumed := c.paintedHandover.Handle(event)
+	if c.handErr != nil {
+		c.runtime.Quit()
+	}
+	return consumed
 }
 
 func (h *protocolHost) Input() program.EventSource  { return h }
@@ -1466,6 +1492,74 @@ func TestAFrameFailureDuringHandoverEndsTheSameProgramState(t *testing.T) {
 	}
 	if host.timesHanded() != 0 {
 		t.Fatal("host received ownership after the handover frame failed")
+	}
+}
+
+func TestAFailedDisplayIsNotBuiltAgainForASecondHandover(t *testing.T) {
+	cause := errors.New("image erase failed")
+	host := newHost(t)
+	root := &insistentHandover{}
+	root.painter, root.id = &handoverPainter{cause: cause}, 1
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: host,
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				root.runtime = runtime
+				return root
+			},
+		})
+	}()
+	waitFor(t, done, host, "the opening picture", func() bool {
+		return strings.Contains(host.frames.String(), "<picture>")
+	})
+
+	host.send(input.Key{Code: input.Character, Rune: 'h'})
+	<-done
+	if !errors.Is(root.handErr, cause) {
+		t.Fatalf("first Hand = %v, want frame cause", root.handErr)
+	}
+	if !errors.Is(root.second, program.ErrDisplayFailed) {
+		t.Fatalf("second Hand = %v, want ErrDisplayFailed", root.second)
+	}
+	// The painter belongs to the application. A construction known to fail must not
+	// make its side effects happen again.
+	if root.painter.paintCalls != 1 || root.painter.eraseCalls != 1 {
+		t.Fatalf("painter calls = paint %d erase %d, want one of each",
+			root.painter.paintCalls, root.painter.eraseCalls)
+	}
+	if host.timesHanded() != 0 {
+		t.Fatal("host received ownership after the display failed")
+	}
+}
+
+func TestAHandoverFailureIsReportedWhenTheComponentStopsTheProgram(t *testing.T) {
+	cause := errors.New("image erase failed")
+	host := newHost(t)
+	root := &quittingHandover{paintedHandover{painter: &handoverPainter{cause: cause}, id: 1}}
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: host,
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				root.runtime = runtime
+				return root
+			},
+		})
+	}()
+	waitFor(t, done, host, "the opening picture", func() bool {
+		return strings.Contains(host.frames.String(), "<picture>")
+	})
+
+	host.send(input.Key{Code: input.Character, Rune: 'h'})
+	err := <-done
+	if !errors.Is(root.handErr, cause) {
+		t.Fatalf("Hand error = %v, want frame cause", root.handErr)
+	}
+	// Quit ends the loop before it can draw again, so nothing but the recorded
+	// failure is left to carry the cause out of Run.
+	if !errors.Is(err, cause) {
+		t.Fatalf("Run error = %v, want the recorded failure to survive Quit", err)
 	}
 }
 

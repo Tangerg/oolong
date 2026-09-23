@@ -65,11 +65,11 @@ func (k *keys) Draw(view grid.View) {
 		Theme: k.theme, Glyphs: k.glyphs, Title: "key sequences",
 		Padding: layout.Symmetric(0, 1),
 	}
-	area := grid.Rect(max((width-54)/2, 0), max((height-7)/2, 0), min(width, 54), min(height, 7))
+	area := grid.Area(max((width-54)/2, 0), max((height-7)/2, 0), min(width, 54), min(height, 7))
 	inside := box.Draw(view.Sub(area))
 	kit.Label{Text: "g: next after 400ms   gg: top   q: quit", Style: k.theme.Text}.Draw(inside)
 	kit.Label{Text: fmt.Sprintf("row %d — %s", k.row, k.last), Style: k.theme.Accent}.
-		Draw(inside.Sub(grid.Rect(0, 2, inside.Bounds().Dx(), 1)))
+		Draw(inside.Sub(grid.Area(0, 2, inside.Bounds().Dx(), 1)))
 }
 
 func (k *keys) Handle(event input.Event) bool {

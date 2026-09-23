@@ -103,7 +103,7 @@ func (s *Surface) Ground() Ground {
 }
 
 // Bounds is the surface's own rectangle, with its origin at zero.
-func (s *Surface) Bounds() image.Rectangle { return Rect(0, 0, s.w, s.h) }
+func (s *Surface) Bounds() image.Rectangle { return Area(0, 0, s.w, s.h) }
 
 // View returns a drawing view over the whole surface.
 func (s *Surface) View() View {
@@ -587,7 +587,7 @@ func (v View) Link(x, y, w int, target string) {
 		return
 	}
 	target = strings.Clone(target)
-	v.surface.mutateAppearance(Rect(from, at.Y, to-from, 1), func(_ *Style, link *string) {
+	v.surface.mutateAppearance(Area(from, at.Y, to-from, 1), func(_ *Style, link *string) {
 		*link = target
 	})
 }

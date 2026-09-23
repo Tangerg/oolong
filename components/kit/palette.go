@@ -111,7 +111,7 @@ func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.
 	}
 	x = layout.Sum(x, 2)
 	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: p.Glyphs.Ellipsis}.
-		Draw(v.Sub(grid.Rect(x, y, layout.Remaining(w, x), 1)))
+		Draw(v.Sub(grid.Area(x, y, layout.Remaining(w, x), 1)))
 }
 
 // matchedIn reports whether any match offset falls in a byte range.

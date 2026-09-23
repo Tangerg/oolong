@@ -57,13 +57,7 @@ func (p *program) finish() error {
 		p.outputFailed = true
 	}
 	if p.inline != nil && !p.outputFailed {
-		// A painter failure means the pending logical frame never existed. Repeating
-		// the same construction during teardown would only duplicate the failure, but
-		// the last successfully delivered block still needs its cursor moved below it.
-		if !p.frameFailed {
-			err = p.renderBlock()
-		}
-		err = errors.Join(err, p.finishBlock())
+		err = p.leaveBlock()
 	}
 	if drainErr := p.writer.Drain(term.DrainGrace); drainErr != nil {
 		return errors.Join(err, frameDrainError(p.writer, drainErr))
@@ -86,16 +80,27 @@ func frameDrainError(writer FrameWriter, drainErr error) error {
 // both mean "this block is finished with, and whatever writes next starts on a line
 // of its own". After it, the block has no position to write relative to, so the next
 // frame draws wherever the cursor has ended up.
+//
+// A construction already known to have failed is not repeated. The pending logical
+// frame never existed, so building it again would only run the application's painters
+// a second time to arrive at the same failure — while the block last delivered still
+// needs its cursor moved below it.
 func (p *program) leaveBlock() error {
-	if err := p.renderBlock(); err != nil {
-		return err
+	var err error
+	if !p.frameFailed {
+		err = p.renderBlock()
 	}
-	return p.finishBlock()
+	return errors.Join(err, p.finishBlock())
 }
 
+// renderBlock builds one inline frame. It owns the frameFailed transition because
+// construction is where it is discovered; no caller has to remember to record it.
 func (p *program) renderBlock() error {
 	p.root.Draw(p.inline.Frame())
 	_, err := p.flush()
+	if err != nil {
+		p.frameFailed = true
+	}
 	return err
 }
 

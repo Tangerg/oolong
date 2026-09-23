@@ -85,7 +85,7 @@ func (i Image) Draw(v grid.View) {
 		placement = 1
 	}
 	id := uint64(i.Of.ID)<<32 | uint64(placement)
-	v.Paint(grid.Rect(at, 0, cols, min(rows, height)), id, i.Of.Placement(placement))
+	v.Paint(grid.Area(at, 0, cols, min(rows, height)), id, i.Of.Placement(placement))
 }
 
 // fit is the box the picture should occupy at a width, and whether there is a

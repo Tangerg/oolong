@@ -100,7 +100,7 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 	// output notices immediately; sizing the header against the reduced height makes
 	// the header's own presence change how much of it there is, which has no fixed
 	// point at all.
-	bodyRect := grid.Rect(0, 0, w, h)
+	bodyRect := grid.Area(0, 0, w, h)
 	from := content.StartRow()
 	var scroll headless.ScrollLayout
 	if t.Scroll != nil {
@@ -127,12 +127,12 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 		scroll.Resize(layout.Remaining(h, pinned.Rows))
 		from = layout.Sum(content.StartRow(), scroll.Offset())
 	}
-	bodyRect = grid.Rect(0, pinned.Rows, w, layout.Remaining(h, pinned.Rows))
+	bodyRect = grid.Area(0, pinned.Rows, w, layout.Remaining(h, pinned.Rows))
 	window.body = frame.Sub(bodyRect).View
 	window.pinned = pinned
 	window.presentation.body, window.presentation.from = bodyRect, from
 	if top, _, exists := content.Extent(pinned.Block); exists && pinned.Visible() > 0 {
-		window.presentation.header = grid.Rect(0, 0, w, pinned.Visible())
+		window.presentation.header = grid.Area(0, 0, w, pinned.Visible())
 		window.presentation.headerFrom = layout.Sum(top, pinned.ClipTop)
 	}
 	return window

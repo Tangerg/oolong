@@ -199,11 +199,7 @@ func (f *Filter[T]) match() {
 		return
 	}
 
-	candidates := make([]string, 0, len(f.items))
-	for _, item := range f.items {
-		candidates = append(candidates, f.text(item))
-	}
-	ranked := fuzzy.Filter(f.pattern, candidates)
+	ranked := fuzzy.FilterFunc(f.pattern, f.items, f.text)
 	hits := make([]hit[T], 0, len(ranked))
 	for _, r := range ranked {
 		hits = append(hits, hit[T]{item: f.items[r.Index], match: r.Match})

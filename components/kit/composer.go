@@ -89,7 +89,7 @@ func (c *Composer) HeightForWidth(width int) int {
 func (c *Composer) Draw(v headless.Frame) {
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
-		c.field.Stage(v, grid.Rect(0, 0, 0, 0), nil)
+		c.field.Stage(v, grid.Area(0, 0, 0, 0), nil)
 		return
 	}
 	hints := c.hintRows()
@@ -110,7 +110,7 @@ func (c *Composer) drawField(v headless.Frame) {
 		v.Text(0, 0, c.Prompt, c.Theme.Accent)
 	}
 	width, height := v.Size()
-	field := grid.Rect(marker, 0, layout.Remaining(width, marker), height)
+	field := grid.Area(marker, 0, layout.Remaining(width, marker), height)
 	c.field.Stage(v, field, &c.editor)
 	c.editor.DrawWith(v.Sub(field), c.Theme.Look(Glyphs{}))
 }

@@ -92,7 +92,10 @@ func (s Session) ReportDirectory(path string) error { return s.host().reportDire
 // Hand gives exclusive display ownership to run and repaints after it returns. If
 // pending frames cannot drain, it returns [ErrFrameTimeout] without calling run.
 // A live owner and a [HandoverHost] are required; otherwise it returns
-// [errors.ErrUnsupported] without calling run or disturbing the display.
+// [errors.ErrUnsupported] without calling run or disturbing the display. Once a frame
+// or the transport has failed it returns [ErrDisplayFailed] on the same terms: the
+// display cannot be left in a describable state, so it is not given away and the
+// failure is not made to happen a second time.
 // A nil callback is a no-op.
 func (s Session) Hand(run func() error) error {
 	if run == nil {
@@ -102,14 +105,15 @@ func (s Session) Hand(run func() error) error {
 	if p == nil || !p.host.canHandOver() {
 		return errors.ErrUnsupported
 	}
+	if p.frameFailed || p.outputFailed {
+		return ErrDisplayFailed
+	}
 	// Repaint is part of settling the handover, including when the child panics and
 	// the host restores terminal ownership from a defer.
 	defer p.present.RequestFull()
 	if p.inline != nil && p.root != nil {
 		if err := p.leaveBlock(); err != nil {
-			p.frameFailed = true
-			p.failure = err
-			return err
+			return p.fail(err)
 		}
 	}
 	if err := p.writer.Drain(term.DrainGrace); err != nil {
@@ -117,19 +121,19 @@ func (s Session) Hand(run func() error) error {
 	}
 	if err := p.writer.Err(); err != nil {
 		p.outputFailed = true
-		p.failure = err
-		return err
+		return p.fail(err)
 	}
 	return p.host.hand(run)
 }
 
 // Suspend restores the terminal and stops the process until it is continued.
-func (s Session) Suspend() error {
-	if !s.host().canHandOver() {
-		return errors.ErrUnsupported
-	}
-	return s.Hand(term.Suspend)
-}
+//
+// It is [Session.Hand] with the child being this process stopping itself, and it
+// fails on exactly the same terms: [errors.ErrUnsupported] without a live owner or a
+// [HandoverHost], [ErrFrameTimeout] when pending frames cannot drain, and
+// [ErrDisplayFailed] once a frame or the transport has failed. Checking any of that
+// here as well would be a second answer to a question Hand already answers.
+func (s Session) Suspend() error { return s.Hand(term.Suspend) }
 
 // SetTitle names the host window when supported.
 func (s Session) SetTitle(title string) { s.host().setTitle(title) }

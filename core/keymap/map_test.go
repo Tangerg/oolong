@@ -1,7 +1,7 @@
 package keymap_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"testing"

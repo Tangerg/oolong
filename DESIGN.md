@@ -52,8 +52,9 @@ What is different is narrower and checkable:
 - **What it drags in.** Three dependencies against bubbletea + bubbles + lipgloss +
   glamour.
 
-None of that is proven yet — see the note on benchmarks in §6. Until it is, this
-section is a claim and should be read as one.
+None of that is proven yet — see the note on benchmarks under
+[known limits](#5-known-limits). Until it is, this section is a claim and should be
+read as one.
 
 That is the reason this library exists rather than being a wrapper over an existing
 one. Everything else here follows from it.
@@ -85,8 +86,8 @@ shape is what people already know:
 | derived core: `input`, `text`, `present` | decoded events, styled text, frame coordination | host infrastructure and runtime policy | DOM and scheduling |
 | interaction: `keymap` | decoded keystrokes and caller-defined action identifiers | terminal adapters, runtime and components | event bindings |
 | infrastructure: `term` | the operating-system terminal adapter | text models, runtime and widgets | browser platform adapter |
-| `components/headless` | what a list does, what a press means, where a cursor goes | what any of it looks like; goroutines; programs | Radix |
-| `components/kit` | what all that should look like, and a palette | goroutines, programs | shadcn |
+| `components/headless` | what a list does, what a press means, where a cursor goes | what any of it looks like; the program that runs it; a goroutine reached from drawing | Radix |
+| `components/kit` | what all that should look like, and a palette | the program that runs it; a goroutine reached from drawing | shadcn |
 | runtime: `program` | composition and the goroutine that owns the interface | the widgets | the browser |
 
 The last row is the one that is easy to get wrong, and the first version of this
@@ -97,6 +98,15 @@ the day every interface built on this library inherits its taste in widgets.
 Note that the module graph does *not* catch this: `core` could require `components`
 and Go would allow it. That is exactly why the edge is checked by hand, and why it
 is the rule `internal/arch` exists for above all the others.
+
+The goroutine column says "reached from drawing" rather than "never" because one
+widget needs a goroutine and says so: `headless.Search` scans a transcript off the
+interface's own goroutine, since the answer to a query three keystrokes old is worth
+nothing and the standard matcher cannot be interrupted. What is actually forbidden is
+narrower and is checked: the render-effects gate follows the call graph out of every
+`Draw` and `HeightForWidth` and rejects a goroutine, I/O, a clock or randomness found
+there. A rule stated more broadly than the guard behind it is a rule nobody can rely
+on, which is the failure this table is supposed to prevent.
 
 The split between `headless/` and `kit/` is the other thing worth stating plainly.
 Everything arguable lives in `kit`: what a border is made of, what a spinner looks

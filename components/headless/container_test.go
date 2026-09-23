@@ -47,7 +47,7 @@ func (valueField) HeightForWidth(int) int       { return 1 }
 
 func (f *field) Draw(v headless.Frame) {
 	w, h := v.Size()
-	f.area = grid.Rect(0, 0, w, h)
+	f.area = grid.Area(0, 0, w, h)
 	v.Text(0, 0, f.name, grid.Style{})
 }
 

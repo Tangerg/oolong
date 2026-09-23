@@ -34,7 +34,7 @@ func FuzzSurfaceMaintainsDisplayAtoms(f *testing.F) {
 			if c&8 != 0 {
 				left := int(d) % width
 				span := 1 + int(a)%(width-left)
-				draw = view.Sub(Rect(left, 0, span, 2))
+				draw = view.Sub(Area(left, 0, span, 2))
 			}
 			before := slices.Clone(surface.cells)
 			x := int(a)%24 - 4
@@ -50,16 +50,16 @@ func FuzzSurfaceMaintainsDisplayAtoms(f *testing.F) {
 				draw.Text(x, y, texts[int(d)%len(texts)], style)
 			case 1:
 				from := int(d)%24 - 4
-				draw.Fill(Rect(from, y, int(a)%8, 1), style)
+				draw.Fill(Area(from, y, int(a)%8, 1), style)
 			case 2:
 				kind = appearanceMutation
 				draw.MergeStyle(x, y, style)
 			case 3:
 				kind = appearanceMutation
-				draw.Blend(Rect(x, y, int(a)%8, 1), RGBColor(d, a, b), 0.5)
+				draw.Blend(Area(x, y, int(a)%8, 1), RGBColor(d, a, b), 0.5)
 			case 4:
 				kind = appearanceMutation
-				draw.Fade(Rect(x, y, int(a)%8, 1), 0.5)
+				draw.Fade(Area(x, y, int(a)%8, 1), 0.5)
 			case 5:
 				kind = appearanceMutation
 				draw.Link(x, y, int(a)%8, "https://example.test")
@@ -105,8 +105,8 @@ func FuzzAppearancePartitionsMatchWhole(f *testing.F) {
 
 		partitioned := makeSurface()
 		view := partitioned.View()
-		apply(view.Sub(Rect(0, 0, split, 1)))
-		apply(view.Sub(Rect(split, 0, width-split, 1)))
+		apply(view.Sub(Area(0, 0, split, 1)))
+		apply(view.Sub(Area(split, 0, width-split, 1)))
 		if !slices.Equal(partitioned.cells, whole.cells) {
 			t.Fatalf("partition at %d produced %+v, whole produced %+v", split, partitioned.cells, whole.cells)
 		}

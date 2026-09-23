@@ -224,9 +224,9 @@ func (t Table) Draw(v grid.View) {
 			band = t.RowStyle(row)
 		}
 		if band != (grid.Style{}) {
-			v.Fill(grid.Rect(0, y, width, 1), band)
+			v.Fill(grid.Area(0, y, width, 1), band)
 		}
-		columns.Cells(v.Sub(grid.Rect(0, y, width, 1)), row, band)
+		columns.Cells(v.Sub(grid.Area(0, y, width, 1)), row, band)
 	}
 }
 
@@ -288,7 +288,7 @@ func (t Table) mark(column int) string {
 func (l TableLayout) drawRow(v grid.View, y int, draw func(col int, cell grid.View)) {
 	for col, box := range l.boxes {
 		if box.Dx() > 0 {
-			draw(col, v.Sub(grid.Rect(box.Min.X, y, box.Dx(), 1)))
+			draw(col, v.Sub(grid.Area(box.Min.X, y, box.Dx(), 1)))
 		}
 	}
 }

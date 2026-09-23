@@ -22,7 +22,7 @@ func BenchmarkParagraphClippedDraw(b *testing.B) {
 	paragraph := kit.NewParagraph(strings.Repeat("content\n", rows), grid.Style{})
 	height := paragraph.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
-	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
+	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))
 
 	b.ReportAllocs()
 	b.ReportMetric(visible, "visible-rows/op")
@@ -41,7 +41,7 @@ func BenchmarkParagraphWrappedLinksDraw(b *testing.B) {
 	paragraph.SetLinks(kit.LinkConfig{Enabled: true})
 	height := paragraph.HeightForWidth(40)
 	surface := grid.NewSurface(40, visible)
-	view := surface.View().Sub(grid.Rect(0, -height/2, 40, height))
+	view := surface.View().Sub(grid.Area(0, -height/2, 40, height))
 
 	b.ReportAllocs()
 	b.ReportMetric(visible, "visible-rows/op")
@@ -64,7 +64,7 @@ func BenchmarkCodeClippedDraw(b *testing.B) {
 	code.Gutter = kit.LineNumbers{Separator: "│"}
 	height := code.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
-	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
+	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))
 
 	b.ReportAllocs()
 	b.ReportMetric(visible, "visible-rows/op")
@@ -88,7 +88,7 @@ func BenchmarkPaletteClippedDraw(b *testing.B) {
 	}
 	palette := kit.Palette{Found: found, Selected: rows / 2}
 	surface := grid.NewSurface(80, visible)
-	view := surface.View().Sub(grid.Rect(0, -rows/2, 80, rows))
+	view := surface.View().Sub(grid.Area(0, -rows/2, 80, rows))
 
 	b.ReportAllocs()
 	b.ReportMetric(visible, "visible-rows/op")
@@ -106,7 +106,7 @@ func BenchmarkEntryClippedDraw(b *testing.B) {
 	entry := kit.Entry{Label: "source", Body: strings.Repeat("content\n", rows)}
 	height := entry.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
-	view := surface.View().Sub(grid.Rect(0, -height/2, 80, height))
+	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))
 
 	b.ReportAllocs()
 	b.ReportMetric(visible, "visible-rows/op")

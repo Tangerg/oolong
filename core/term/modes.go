@@ -139,8 +139,9 @@ func (m Modes) sequence() []mode {
 	}
 }
 
-// enter is what to write to take the terminal over.
-func (m Modes) enter() string {
+// Enter is what to write to take the terminal over: every wanted mode, in
+// acquisition order.
+func (m Modes) Enter() string {
 	var b strings.Builder
 	for _, mode := range m.sequence() {
 		if mode.wanted {
@@ -150,10 +151,10 @@ func (m Modes) enter() string {
 	return b.String()
 }
 
-// leave is what to write to give the terminal back: every mode that was turned on,
+// Leave is what to write to give the terminal back: every mode that was turned on,
 // turned off in the opposite order, and then the cursor restored and shown, because
 // a frame may have changed its shape or hidden it.
-func (m Modes) leave() string {
+func (m Modes) Leave() string {
 	seq := m.sequence()
 	var b strings.Builder
 	for _, mode := range slices.Backward(seq) {
@@ -165,9 +166,3 @@ func (m Modes) leave() string {
 	b.WriteString(cursorShow)
 	return b.String()
 }
-
-// Enter encodes the modes in acquisition order.
-func (m Modes) Enter() string { return m.enter() }
-
-// Leave encodes the inverse modes in reverse order and restores the cursor.
-func (m Modes) Leave() string { return m.leave() }

@@ -2,6 +2,7 @@ package fuzzy_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/core/fuzzy"
@@ -154,5 +155,45 @@ func TestAnEmptyPatternMatchesEverythingAndHighlightsNothing(t *testing.T) {
 func TestNothingMatchesNothing(t *testing.T) {
 	if got := fuzzy.Filter("zz", []string{"a", "b"}); len(got) != 0 {
 		t.Fatalf("%d matched, want none", len(got))
+	}
+}
+
+func TestFilterFuncRanksItemsThatAreNotStrings(t *testing.T) {
+	// The reason it exists: a caller ranking its own items should not have to build a
+	// parallel slice of strings and map the answers back through it.
+	type file struct {
+		name string
+		kind int
+	}
+	files := []file{{name: "main.go", kind: 1}, {name: "readme", kind: 2}, {name: "makefile", kind: 3}}
+
+	ranked := fuzzy.FilterFunc("ma", files, func(f file) string { return f.name })
+	if len(ranked) != 2 {
+		t.Fatalf("got %d matches, want the two names holding \"ma\"", len(ranked))
+	}
+	for _, r := range ranked {
+		if r.Index < 0 || r.Index >= len(files) {
+			t.Fatalf("index %d does not address the items it was given", r.Index)
+		}
+	}
+	for _, r := range ranked {
+		got := files[r.Index]
+		// The whole item comes back, not the string it was ranked by.
+		if got.kind == 0 || !strings.HasPrefix(got.name, "ma") {
+			t.Fatalf("index %d addresses %+v, want one of the names holding \"ma\"", r.Index, got)
+		}
+	}
+}
+
+func TestFilterIsFilterFuncOverStrings(t *testing.T) {
+	candidates := []string{"main.go", "readme", "makefile"}
+	plain := fuzzy.Filter("ma", candidates)
+	byText := fuzzy.FilterFunc("ma", candidates, func(s string) string { return s })
+	same := slices.EqualFunc(plain, byText, func(a, b fuzzy.Ranked) bool {
+		return a.Index == b.Index && a.Match.Score == b.Match.Score &&
+			slices.Equal(a.Match.At, b.Match.At)
+	})
+	if !same {
+		t.Fatalf("Filter = %+v, FilterFunc = %+v", plain, byText)
 	}
 }

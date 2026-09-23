@@ -3,7 +3,7 @@ package mermaid
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"image"
 	"image/png"
@@ -75,11 +75,12 @@ func TestRenderOwnsBrowserProfileAndSecurityConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var config struct {
-		Profile string
+		Profile string `json:"profile"`
 		Mermaid struct {
-			SecurityLevel         string
-			MaxTextSize, MaxEdges int
-		}
+			SecurityLevel string `json:"securityLevel"`
+			MaxTextSize   int    `json:"maxTextSize"`
+			MaxEdges      int    `json:"maxEdges"`
+		} `json:"mermaid"`
 	}
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)

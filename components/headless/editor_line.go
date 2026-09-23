@@ -93,9 +93,9 @@ func (e editorLineView) draw(frame Frame, look Look, presented *Snapshot[editorP
 	}
 	left = max(min(left, layout.Remaining(text.Width(shown), width-1)), 0)
 	if e.gutter != nil {
-		e.gutter.Draw(frame.Sub(grid.Rect(0, 0, gutter, height)).View, []text.Row{{Text: shown, Line: 1}})
+		e.gutter.Draw(frame.Sub(grid.Area(0, 0, gutter, height)).View, []text.Row{{Text: shown, Line: 1}})
 	}
-	view := frame.Sub(grid.Rect(gutter, 0, width, height)).View
+	view := frame.Sub(grid.Area(gutter, 0, width, height)).View
 	if e.value == "" && e.placeholder != "" {
 		view.Text(0, 0, text.Truncate(e.placeholder, width, look.Ellipsis), look.Subtle)
 	} else {

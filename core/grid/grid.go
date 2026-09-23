@@ -24,10 +24,15 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
-// Rect builds a rectangle from a terminal-natural origin and size. The result is
+// Area builds a rectangle from a terminal-natural origin and size. The result is
 // half-open: it covers columns [x, x+w) and rows [y, y+h). Negative sizes become
 // zero and endpoints that exceed int range saturate.
-func Rect(x, y, w, h int) image.Rectangle {
+//
+// Not Rect, which is [image.Rect]'s name for the same four integers read as two
+// corners. Two functions with one signature, one return type and two meanings is a
+// mistake nothing catches: a caller reaching for the familiar one gets a rectangle
+// that compiles, draws, and is the wrong shape.
+func Area(x, y, w, h int) image.Rectangle {
 	w, h = max(w, 0), max(h, 0)
 	return image.Rectangle{
 		Min: image.Pt(x, y),

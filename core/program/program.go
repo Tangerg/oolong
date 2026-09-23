@@ -45,6 +45,12 @@ var ErrFrameTimeout = errors.New("program: frame writer did not drain")
 // frame to overtake output the presenter still owns, so publication stops instead.
 var ErrInvalidFrameSequence = errors.New("program: invalid frame writer sequence")
 
+// ErrDisplayFailed means a frame or the transport carrying it has already failed, so
+// the display can no longer be left in a state anything else could take over. It is
+// what [Session.Hand] refuses with: a child given a display nobody can describe is
+// worse than a handover that did not happen.
+var ErrDisplayFailed = errors.New("program: display failed")
+
 // ErrInvalidSize means a host reported geometry that cannot safely back a program
 // surface. Hosts are transport boundaries and their dimensions may come from an
 // untrusted peer, so invalid input is an error rather than a grid allocation or

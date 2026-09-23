@@ -52,6 +52,6 @@ func (s *Status) Draw(v grid.View) {
 		spinner.Draw(v)
 		return
 	}
-	spinner.Draw(v.Sub(grid.Rect(0, 0, width-elapsed-1, 1)))
+	spinner.Draw(v.Sub(grid.Area(0, 0, width-elapsed-1, 1)))
 	v.Text(width-elapsed, 0, s.Elapsed, s.Theme.Subtle)
 }

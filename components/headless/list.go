@@ -288,7 +288,7 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 		if index >= total {
 			break
 		}
-		row := v.Sub(grid.Rect(0, y, width, 1)).View
+		row := v.Sub(grid.Area(0, y, width, 1)).View
 		draw(row, index, l.items[index], index == selected)
 	}
 }

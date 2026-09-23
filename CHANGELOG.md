@@ -18,6 +18,117 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-09-23
+
+### Added
+
+- `program.TerminalHost` adapts a local terminal to `program.Host`. `Run` uses it for
+  the terminal it opens itself, so an application whose host must outlive `Run` — to
+  keep image release ordered on the same writer, say — shares that one adaptation
+  instead of deriving a second copy of it. The `mermaid` example now does.
+- `input.Stream` decodes one transport's byte stream: it settles an ambiguous escape
+  by time, stamps events with when they arrived, and turns an answered OSC 52 into a
+  `Paste`. Like `present.Presenter` it is state rather than machinery — no goroutine,
+  no reads, `Stream.DueAt` for a driver that parks. The local terminal and the SSH
+  session both drive it instead of each deciding those three things again.
+- `program.ErrDisplayFailed` is what `Session.Hand` refuses with once a frame or the
+  transport has failed.
+- `core/deadline` wakes a driver that parks. Three loops had grown their own copy of
+  the same timer — the runtime's frame deadline, the local terminal's escape timeout,
+  and the SSH session's — each arming it from the same `(moment, waiting)` pair that
+  `present.Presenter` and `input.Stream` report, and each repeating the one decision
+  in it: a deadline already past arms for zero rather than for a negative duration.
+  Written once, it is checked once.
+
+### Fixed
+
+- `Session.Hand` no longer rebuilds a frame already known to have failed. The rule
+  lived in teardown, which skips a construction that failed, but not in handover,
+  which performed the same construction: an application's painter — a side effect on
+  the terminal — ran a second time to reach the same failure. Both now go through one
+  operation that owns the rule, and a handover asked for after the display has failed
+  is refused rather than attempted.
+- Finishing an inline block that is already finished writes nothing. Both an exit and
+  a handover leave the block, and on a path where the handover fails the exit leaves
+  it again; the terminal was sent a second frame carrying only the sequences it had
+  just been given. Whether the block has been given back is now `grid.Inline`'s own
+  fact rather than something each caller has to remember.
+- `Session.Suspend` no longer repeats the capability check `Session.Hand` performs,
+  which could never have answered differently, and documents the failure modes it
+  inherits instead of none of them.
+- `\stackrel{above}{relation}` puts its annotation over the relation. It was built
+  as a superscript, which placed it beside the relation and read as a power.
+- `\sqrt[n]{x}` puts its index above and to the left of the radical. It was placed
+  after the sign, where a power goes, so a cube root read as a cube. Both were
+  reachable, documented, and had no test; `latex` coverage rose from 74.6% to 86.6%.
+- A fatal frame failure recorded by `Session.Hand` reaches `Run`'s result even when
+  the component stops the program in the same turn. The record was read only by the
+  next draw, so the ordinary reaction to a failed handover — quitting — left no turn
+  to read it in and `Run` returned success. It is now taken by whichever of the two
+  exits reaches it first, and taken exactly once.
+
+### Breaking API migration
+
+#### core
+
+- `grid.Rect` is now `grid.Area`, unchanged in signature and meaning. It took four
+  integers as an origin and a size and returned an `image.Rectangle`, which is the
+  same four integers, the same return type and a different meaning from
+  [`image.Rect`](https://pkg.go.dev/image#Rect), where they are two corners. A caller
+  reaching for the familiar name got a rectangle that compiled, drew, and was the
+  wrong shape. `Area` is the word this repository already used for the concept —
+  `kit.Overlay.Area`, `headless.Stack.Area`. Rename every call; nothing else changes.
+- `anim.Shimmer` and `anim.Wave` were removed. Both returned a brightness inside a
+  range they chose — `[0.35, 1]` and `[0.2, 1]` — from a sweep whose speed, spread
+  and direction no caller could adjust, which made them one designer's effect rather
+  than the arithmetic this package promises. Build the effect from what remains:
+  `Transition` and `Timeline` step a value, `Spring` settles one, and `EaseOutCubic`
+  shapes it, so a sweep is a phase of the caller's own choosing mapped onto the range
+  the caller wants to fade by.
+
+#### latex
+
+- A `$` in the source is refused alongside `\(`, `\[`, `\]` and `\)`. The expression
+  is wrapped in math delimiters before it reaches the parser, so one of the caller's
+  would make every position the parser reports ambiguous between their source and the
+  wrapper around it. Pass the body of a formula, not a math-mode document.
+
+### Changed
+
+- `fuzzy.FilterFunc` ranks items that are not strings, taking the text to rank each
+  one by. Callers with their own items were building a parallel slice of strings and
+  mapping the answers back through it; `Ranked.Index` already addressed the items, so
+  only the projection was missing. `Filter` is that function over strings, in the
+  shape the standard library uses for the pair.
+- Every module's dependencies are at their latest released versions: `uax29` 2.7.0,
+  `go-runewidth` 0.0.30, `regexp2` 2.8.0, `goldmark` 1.8.6, `go-proxyproto` 0.15.0,
+  and the `golang.org/x` set through `crypto` 0.57.0, `net` 0.59.0, `sys` 0.48.0,
+  `term` 0.46.0, `text` 0.42.0, `image` 0.46.0. No API of Oolong's own changed with
+  them. `golang.org/x/crypto/openpgp` remains flagged as unmaintained in `ssh`'s
+  module graph through `charm.land/ssh`; no Oolong code path reaches it and upstream
+  offers no fixed version.
+- `mermaid` matches installed CLI metadata against the exact member names
+  `package.json` uses. The repository moved to `encoding/json/v2` and
+  `math/rand/v2`, and v2 does not match field names case-insensitively; the names
+  are now written down rather than inferred.
+- An operation is reachable under one name. `Modes.Enter`, `Modes.Leave`,
+  `Decoder.Open`, `Editor.DrawWith` and `MultiSelect.Sync` each had an unexported
+  method of their own that did the same thing, and callers inside the repository
+  reached for whichever they found. `internal/arch` now refuses a method whose body
+  is one call to another method of the same type passing its own parameters through,
+  so a second name for one fact cannot come back. Exported signatures are unchanged.
+- The zero `input.Stream` is a decoder of its own — a fresh parser, the default escape
+  timeout, no clipboard — rather than a value that panics on first use. What an absent
+  setting means is answered where the setting is read, not once more in the
+  constructor.
+- Whether a form has the keyboard is the state of the container holding its fields.
+  `Form` kept a second copy of it and short-circuited on the strength of that copy,
+  which also left a write to the container's key map that nothing could read.
+- `DESIGN.md` said `components/headless` must never touch a goroutine. One widget
+  does — `headless.Search` scans off the interface goroutine and says why — and the
+  guard behind the claim was always narrower: drawing may reach no goroutine, which
+  the render-effects gate checks. The table now states the rule that is enforced.
+
 ## [0.18.2] — 2026-09-22
 
 Supersedes the v0.18.1 release attempt and includes its focus restoration and

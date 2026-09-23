@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Tangerg/oolong/core/deadline"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/present"
@@ -60,7 +61,7 @@ func (c Config) openHost() (hostSession, error) {
 	if err != nil {
 		return hostSession{}, err
 	}
-	return hostSession{Host: terminalHost{Terminal: terminal}, release: terminal.Close}, nil
+	return hostSession{Host: TerminalHost(terminal), release: terminal.Close}, nil
 }
 
 // newProgram binds a validated transport before invoking application code. That
@@ -145,21 +146,6 @@ func (p *program) buildInterface(cfg Config, width, height int, depth grid.Depth
 	return nil
 }
 
-// terminalHost adapts the concrete terminal to the consumer-defined Host without
-// making the substrate import this package. Every optional host capability is
-// promoted from Terminal; only the frame writer needs an adapter because Go method
-// results are not covariant.
-type terminalHost struct{ *term.Terminal }
-
-func (h terminalHost) Writer() FrameWriter { return h.Terminal.Writer() }
-func (h terminalHost) Input() EventSource  { return terminalInput(h) }
-
-// terminalInput adapts the terminal's concrete input result to EventSource. The
-// wrapper keeps term below program in the dependency graph.
-type terminalInput struct{ *term.Terminal }
-
-func (i terminalInput) Err() error { return i.InputErr() }
-
 // canvas is somewhere frames go: a screen of the program's own, or a block in the
 // terminal's. The program drives both the same way, and the difference between them
 // is entirely in how a frame reaches the wire.
@@ -207,9 +193,27 @@ type program struct {
 	frameFailed  bool
 	outputFailed bool
 	// failure is a fatal frame or transport result discovered through an owner-side
-	// capability call. The next loop turn returns it before drawing again, so the
-	// same failure has one meaning whether it arose in Present or Session.Hand.
+	// capability call, which has no return path into the loop of its own. It is the
+	// only record of such a result, and [program.takeFailure] is the only way to
+	// read one, so it is reported exactly once however the program ends.
 	failure error
+}
+
+// fail records a fatal result discovered outside the loop's own return path and
+// hands err back to the capability's caller. The caller learning of the failure is a
+// projection: it may report or recover, but only the record ends the program.
+func (p *program) fail(err error) error {
+	p.failure = err
+	return err
+}
+
+// takeFailure consumes the recorded failure. Draw takes it on the next loop turn
+// when there is one, and run takes it when Quit or cancellation means there is not.
+// Taking clears it, so the two paths cannot report the same failure twice.
+func (p *program) takeFailure() error {
+	err := p.failure
+	p.failure = nil
+	return err
 }
 
 // run is the event loop.
@@ -221,7 +225,10 @@ func (p *program) run(ctx context.Context) (err error) {
 		}
 		err = errors.Join(err, p.finish())
 	}()
-	err = p.loop(ctx)
+	// Taking the record here is what makes its consumption unconditional. A component
+	// that stops the program in the same turn it was handed a failure — the ordinary
+	// reaction to one — leaves no next turn for draw to take it in.
+	err = errors.Join(p.loop(ctx), p.takeFailure())
 	completed = true
 	return err
 }
@@ -230,8 +237,8 @@ func (p *program) loop(ctx context.Context) error {
 	// due fires when a frame that was turned away for arriving too soon becomes
 	// allowed. Without it the last update of a burst would sit undrawn until something
 	// else happened to wake the loop.
-	due := newFrameTimer()
-	defer due.stop()
+	due := deadline.NewTimer()
+	defer due.Stop()
 
 	var repaints <-chan func(error)
 	if source, ok := p.input.(RepaintSource); ok {
@@ -244,7 +251,7 @@ func (p *program) loop(ctx context.Context) error {
 			return err
 		}
 
-		due.schedule(p.present.DueAt())
+		due.Schedule(p.present.DueAt())
 
 		select {
 		case reply, ok := <-repaints:
@@ -282,31 +289,11 @@ func (p *program) loop(ctx context.Context) error {
 				return writeErr
 			}
 
-		case <-due.channel():
+		case <-due.Channel():
 		}
 	}
 	return nil
 }
-
-// frameTimer reuses one timer under the Go 1.27 channel-timer contract.
-type frameTimer struct{ timer *time.Timer }
-
-func newFrameTimer() *frameTimer {
-	timer := time.NewTimer(0)
-	timer.Stop()
-	return &frameTimer{timer: timer}
-}
-
-func (t *frameTimer) schedule(at time.Time, pending bool) {
-	if pending {
-		t.timer.Reset(max(time.Until(at), 0))
-	} else {
-		t.timer.Stop()
-	}
-}
-
-func (t *frameTimer) channel() <-chan time.Time { return t.timer.C }
-func (t *frameTimer) stop()                     { t.timer.Stop() }
 
 // runTasks takes one scheduling turn. Work posted while this batch runs leaves
 // another wake-up, so a burst already waiting cannot keep input out of the select.
@@ -372,8 +359,8 @@ func (p *program) handle(ev input.Event) error {
 
 // draw renders a frame, if one is owed and the terminal is keeping up.
 func (p *program) draw() error {
-	if p.failure != nil {
-		return p.failure
+	if err := p.takeFailure(); err != nil {
+		return err
 	}
 	_, err := p.present.Present(time.Now(), func(full bool) (uint64, error) {
 		if full {
