@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	charm.land/ssh v0.4.3
-	github.com/Tangerg/oolong/core v0.18.2
+	github.com/Tangerg/oolong/core v0.19.0
 )
 
 require (
