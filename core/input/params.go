@@ -37,6 +37,22 @@ func (ps params) deviceAttributes() DeviceAttributes {
 	return Attributes(class, features...)
 }
 
+// namesNoKey reports whether the group before the modifiers is what a report that
+// names its key by its final byte may carry there.
+//
+// A cursor key and shift-tab put nothing in it: the field is absent, or it is the
+// protocol's only value, one. Something else there is another sequence that happens
+// to end in the same byte, and a number too large to read is not a number at all.
+// Both used to arrive as the keystroke, because only the modifier group was ever
+// examined — so a report this package could not read fired a binding nobody pressed.
+func (ps params) namesNoKey() bool {
+	group := ps.Group(0)
+	if group.Len() == 0 {
+		return true
+	}
+	return group.Len() == 1 && group.At(0) >= 0 && group.At(0) <= 1
+}
+
 // keyMeta reads the modifier and transition group that key reports carry, and
 // that the Kitty keyboard protocol also adds to arrow and numbered-key reports.
 //

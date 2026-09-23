@@ -116,7 +116,14 @@ func (p *Parser) Flush() []Event { return p.drain(true) }
 // Pending reports whether the parser is waiting for more input. It does not
 // indicate a timeout: partial UTF-8 and paste data must continue waiting. Arm an
 // Escape timer only when Ambiguous reports true, and call Expire when it fires.
-func (p *Parser) Pending() bool { return len(p.buf) > 0 || p.dropping != droppingNothing }
+//
+// An open paste and a string being accumulated count even with nothing buffered.
+// Their bytes have been consumed into the payload rather than left in the buffer,
+// so a report drawn from the buffer alone would say a paste that had not reached
+// its terminator was nothing at all.
+func (p *Parser) Pending() bool {
+	return len(p.buf) > 0 || p.dropping != droppingNothing || p.pasting || p.str != noString
+}
 
 // Ambiguous reports whether an Escape timeout can resolve pending input.
 // Incomplete UTF-8, paste payloads and string bodies must wait for more bytes.
@@ -520,7 +527,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return n, p.decodeNumberedKey(ps), true
 	case 'Z':
 		mods, transition, ok := ps.keyMeta()
-		if !ok {
+		if !ok || !ps.namesNoKey() {
 			return n, nil, true
 		}
 		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
@@ -534,7 +541,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 			return n, nil, true // a sequence this decoder does not recognize
 		}
 		mods, transition, ok := ps.keyMeta()
-		if !ok {
+		if !ok || !ps.namesNoKey() {
 			return n, nil, true
 		}
 		return n, Key{Code: code, Mods: mods, Transition: transition}, true

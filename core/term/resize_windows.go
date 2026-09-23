@@ -11,11 +11,20 @@ import "time"
 // stream as SIGWINCH platforms.
 const resizePollInterval = 100 * time.Millisecond
 
-func (t *Terminal) startResizeWatcher(last dimensions) {
+// resizeSource is the clock this platform watches its console with. It is started
+// before the first measurement for the same reason a signal subscription is: what
+// happens between measuring and starting to watch has to be something the watcher
+// can still find out about.
+type resizeSource struct{ ticker *time.Ticker }
+
+func subscribeResize() resizeSource {
+	return resizeSource{ticker: time.NewTicker(resizePollInterval)}
+}
+
+func (t *Terminal) startResizeWatcher(source resizeSource) {
 	go func() {
 		defer close(t.resizeDone)
-		ticker := time.NewTicker(resizePollInterval)
-		defer ticker.Stop()
-		pollResize(t.stop, ticker.C, last, t.Size, t.reportResize)
+		defer source.ticker.Stop()
+		pollResize(t.stop, source.ticker.C, t.Size, t.noteResize)
 	}()
 }

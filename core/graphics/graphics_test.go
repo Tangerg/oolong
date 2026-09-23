@@ -451,3 +451,33 @@ func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestNothingIsWrittenWithoutAnIdentity(t *testing.T) {
+	// Kitty reads i=0 and p=0 as "not given". A transmission under one is
+	// unaddressable, a placement under one cannot be removed, and a deletion aimed at
+	// one is aimed at whatever the terminal takes an unnamed image to be — which is
+	// the sequence that can take somebody else's picture off the screen.
+	data := png(8, 8, 64)
+	var buf bytes.Buffer
+	if _, err := graphics.Transmit(&buf, 0, data); err == nil {
+		t.Error("a transmission with no identity was accepted")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("a refused transmission still wrote %q", buf.String())
+	}
+
+	var nothing graphics.Image
+	if err := nothing.Release(&buf); err == nil {
+		t.Error("releasing an image that was never transmitted was accepted")
+	}
+	placement := graphics.ImagePlacement{ID: 1}
+	if err := placement.Paint(&buf, image.Pt(2, 2)); err == nil {
+		t.Error("painting a placement of no image was accepted")
+	}
+	if err := placement.Erase(&buf); err == nil {
+		t.Error("erasing a placement of no image was accepted")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("refused operations wrote %q", buf.String())
+	}
+}

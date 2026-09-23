@@ -177,9 +177,11 @@ func (t *Terminal) resume() error {
 	// The same latest-value mailbox a window resize uses, rather than the public
 	// event queue: the pump owns and closes that queue. Report even an unchanged size
 	// because foreground signals belonged to the child while it held the terminal,
-	// and the program must rebuild the screen whose contents the child replaced.
+	// and the program must rebuild the screen whose contents the child replaced. The
+	// measurement becomes the watcher's too — those same signals are the ones it did
+	// not get, so what it remembers may be a size that has not been true for a while.
 	if width, height, err := t.Size(); err == nil {
-		t.reportResize(width, height)
+		t.retakeResize(width, height)
 	}
 	return errors.Join(errs...)
 }

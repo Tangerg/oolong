@@ -126,8 +126,13 @@ type Terminal struct {
 	// goroutine's business — a picture is usually fetched from somewhere else.
 	pictures atomicSequence
 
-	resized    chan input.Resize
-	resizeMu   sync.Mutex
+	resized  chan input.Resize
+	resizeMu sync.Mutex
+	// size is the last size anything measured, and the one thing that decides
+	// whether the next measurement is news. Both paths that measure — the platform
+	// watcher and taking the terminal back from a child — advance it. See
+	// [Terminal.noteResize].
+	size       dimensions
 	stop       chan struct{}
 	pumpDone   chan struct{}
 	resizeDone chan struct{}
@@ -256,11 +261,19 @@ func (t *Terminal) takeOver(inFD int) error {
 // are deliberately last: no partially opened Terminal is returned, and no rollback
 // path has to coordinate workers that escaped into the session.
 func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
+	// Subscribed before the size is measured, and for that reason: a change between
+	// the measurement and the subscription is one nothing would ever hear about.
+	// See [resizeSource].
+	// Subscribed before the size is measured, and for that reason: a change between
+	// the measurement and the subscription is one nothing would ever hear about.
+	// See [resizeSource].
+	resizes := subscribeResize()
+
 	// The size is delivered as an event rather than left to be asked for, so a
-	// session learns its size the same way it learns about every later change.
-	var opening dimensions
+	// session learns its size the same way it learns about every later change. No
+	// watcher is running yet, so this is the one write to size that needs no lock.
 	if w, h, err := t.Size(); err == nil {
-		opening = knownDimensions(w, h)
+		t.size = knownDimensions(w, h)
 		t.events <- input.Resize{Width: w, Height: h}
 	}
 
@@ -291,7 +304,7 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
 		out: t.events, parser: parser, early: early, clipboard: t.clipboard,
 	}
-	t.startResizeWatcher(opening)
+	t.startResizeWatcher(resizes)
 	go func() {
 		defer close(t.pumpDone)
 		t.inputErr = p.run()

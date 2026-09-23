@@ -49,13 +49,20 @@ func TestResizePollingReportsChangesAndStops(t *testing.T) {
 	ticks := make(chan time.Time)
 	reports := make(chan result, 4)
 	done := make(chan struct{})
+	// The terminal owns what counts as a change, so the loop is driven through one.
+	terminal := &Terminal{resized: make(chan input.Resize, 1), size: knownDimensions(80, 24)}
 	go func() {
 		defer close(done)
-		pollResize(stop, ticks, knownDimensions(80, 24), func() (int, int, error) {
+		pollResize(stop, ticks, func() (int, int, error) {
 			observation := <-observations
 			return observation.width, observation.height, observation.err
-		}, func(width, height int) {
-			reports <- result{width: width, height: height}
+		}, func(width, height int, err error) {
+			terminal.noteResize(width, height, err)
+			select {
+			case resized := <-terminal.resized:
+				reports <- result{width: resized.Width, height: resized.Height}
+			default:
+			}
 		})
 	}()
 
@@ -98,11 +105,40 @@ func TestResizePollingReportsChangesAndStops(t *testing.T) {
 
 func TestResizeMailboxKeepsTheNewestObservation(t *testing.T) {
 	terminal := &Terminal{resized: make(chan input.Resize, 1)}
-	terminal.reportResize(80, 24)
-	terminal.reportResize(100, 30)
+	terminal.retakeResize(80, 24)
+	terminal.retakeResize(100, 30)
 
 	got := <-terminal.resized
 	if got.Width != 100 || got.Height != 30 {
 		t.Fatalf("queued resize = %dx%d, want newest 100x30", got.Width, got.Height)
+	}
+}
+
+// TestTakingTheTerminalBackTellsTheWatcherWhatItMissed is the reason the last size
+// has one owner.
+//
+// While a child holds the terminal, its process group gets the resize signals and
+// this one does not, so the watcher comes back remembering a size that may not have
+// been true for a while. If the measurement taken on the way back is not also the
+// watcher's, a change back to the remembered size reads as no change at all — and
+// the session goes on drawing at a size the terminal is not.
+func TestTakingTheTerminalBackTellsTheWatcherWhatItMissed(t *testing.T) {
+	terminal := &Terminal{resized: make(chan input.Resize, 1), size: knownDimensions(80, 24)}
+
+	// The child resized it and nothing here was told.
+	terminal.retakeResize(100, 30)
+	if got := <-terminal.resized; got != (input.Resize{Width: 100, Height: 30}) {
+		t.Fatalf("taking the terminal back reported %+v", got)
+	}
+
+	// And now the user puts it back the way it was.
+	terminal.noteResize(80, 24, nil)
+	select {
+	case got := <-terminal.resized:
+		if got != (input.Resize{Width: 80, Height: 24}) {
+			t.Fatalf("the change back reported %+v", got)
+		}
+	default:
+		t.Fatal("the change back to the size the watcher remembered went unreported")
 	}
 }

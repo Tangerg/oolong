@@ -212,14 +212,18 @@ func parse(params string) (Selection, string, bool) {
 		return 0, "", false
 	}
 	_, payload, _ := strings.Cut(params, ";")
-	if payload == "" {
-		return 0, "", false
-	}
 	if len(payload) > base64.StdEncoding.EncodedLen(MaxPayload) {
 		return 0, "", false
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil || len(raw) > MaxPayload {
+		return 0, "", false
+	}
+	// Emptiness is decided after decoding, not before. The encoding ignores line
+	// breaks, so a payload of one newline is a non-empty field carrying no text at
+	// all — and an answer with nothing in it, delivered as a paste, replaces what the
+	// user had selected with nothing.
+	if len(raw) == 0 {
 		return 0, "", false
 	}
 	return which, strings.ToValidUTF8(string(raw), "�"), true

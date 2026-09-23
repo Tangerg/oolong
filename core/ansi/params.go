@@ -28,9 +28,15 @@ type Params struct {
 // parser's storage.
 type Parameter struct{ values []int }
 
-// Limit is well past any real parameter and short of anything that could overflow.
-// A number beyond it is treated as malformed.
-const Limit = 1 << 20
+// Limit is the largest value a parameter may hold; a number beyond it is treated
+// as malformed.
+//
+// The largest real parameter is a Unicode code point — a Kitty key report names the
+// key by its scalar value, and the last plane runs to U+10FFFF — so the bound is the
+// whole 21-bit space that can hold one. A tighter bound reads as generous and is
+// not: it refuses the top plane, and the refusal looks like a terminal sending
+// nonsense rather than like this deciding it was.
+const Limit = 1 << 21
 
 // Parse reads a control sequence's parameter section — everything between the
 // introducer and the final byte.

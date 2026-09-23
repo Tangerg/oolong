@@ -552,6 +552,27 @@ func TestFinishingABlockThatIsAlreadyFinishedWritesNothing(t *testing.T) {
 	}
 }
 
+func TestAFinishThatDidNotReachTheTerminalCanBeTriedAgain(t *testing.T) {
+	// Finishing is what gives the cursor back and puts the shell's next prompt below
+	// the interface. A failed write that recorded itself as done would make that
+	// permanent: the retry, and the exit behind it, would have nothing left to send.
+	i := grid.NewInline(10, 4)
+	inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(1, 0)}, lines("ab", "cd"))
+
+	if err := i.Finish(&failWriter{}); err == nil {
+		t.Fatal("a failed write was reported as a finish")
+	}
+	var again bytes.Buffer
+	if err := i.Finish(&again); err != nil {
+		t.Fatalf("Finish again: %v", err)
+	}
+	for _, want := range []string{"\x1b[0m", "\x1b[0 q", "\x1b[?25h"} {
+		if !strings.Contains(again.String(), want) {
+			t.Fatalf("the second Finish wrote %q, without %q", again.String(), want)
+		}
+	}
+}
+
 func TestABlockDrawnAgainCanBeFinishedAgain(t *testing.T) {
 	// Handing the terminal to a child ends with the block finished, and the interface
 	// goes on drawing after the child returns. That block is live again and its exit

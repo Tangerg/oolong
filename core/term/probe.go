@@ -139,7 +139,12 @@ func (p *probe) run() answers {
 	for !got.hasAttrs {
 		select {
 		case chunk := <-p.raw:
-			for _, ev := range p.parser.Feed(chunk) {
+			// Stamped here, where the arrival is. Everything the session sees later is
+			// stamped by the pump, and a key the user managed to press during startup
+			// is still a key the session will ask when about: a double-click, a
+			// trackpad's run of wheel reports and a two-chord binding are all decided
+			// by time, and against a zero one they are decided wrongly.
+			for _, ev := range input.Stamp(p.parser.Feed(chunk), time.Now()) {
 				p.take(ev, &got)
 			}
 		case <-timer.C:

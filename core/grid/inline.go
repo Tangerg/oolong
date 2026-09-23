@@ -315,13 +315,21 @@ func (i *Inline) Finish(w io.Writer) error {
 	i.buf = append(i.buf, sgrReset...)
 	i.buf = append(i.buf, defaultCursor...)
 	i.buf = append(i.buf, showCursor...)
+	if err := writeAll(w, i.buf); err != nil {
+		// The block has not been left, whatever prefix of this landed. Recording that
+		// it had would make the failure permanent: left is what makes finishing again
+		// do nothing, so a caller that retried — or an exit behind a failed handover —
+		// would leave the cursor hidden and the block never given back.
+		i.Invalidate()
+		return err
+	}
 	i.rows, i.at = 0, image.Point{}
 	// Whatever was left open stays as it is — it is the terminal's output now — but
 	// nothing further belongs on it: the cursor has moved below the block.
 	i.open, i.tail, i.flushed = false, 0, 0
 	i.left = true
 	i.Invalidate()
-	return writeAll(w, i.buf)
+	return nil
 }
 
 // used is how many rows the block needs: the rows up to the last one with anything

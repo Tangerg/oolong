@@ -617,3 +617,79 @@ func TestAttributesBuildsWhatTheParserWouldHave(t *testing.T) {
 		t.Error("Has(0) is true, but zero is never a claim")
 	}
 }
+
+func TestAReportThisPackageCannotReadIsNotAKeystroke(t *testing.T) {
+	// Only the modifier group used to be examined, so a sequence that ended in a
+	// cursor key's final byte became that key whatever stood before it — including a
+	// number too large to be one. A key nobody pressed fires a binding nobody asked
+	// for, which is worse than a report nobody decodes.
+	for _, sequence := range []string{
+		"\x1b[99999999;2A",
+		"\x1b[7;2A",
+		"\x1b[99999999;2Z",
+		"\x1b[4Z",
+		"\x1b[1:2;2A",
+	} {
+		if events := feed(sequence); len(events) != 0 {
+			t.Errorf("%q decoded as %+v, want nothing", sequence, events)
+		}
+	}
+	// What the protocol does say stays readable.
+	for sequence, want := range map[string]input.Key{
+		"\x1b[A":      {Code: input.Up},
+		"\x1b[1;2A":   {Code: input.Up, Mods: input.Shift},
+		"\x1b[;2A":    {Code: input.Up, Mods: input.Shift},
+		"\x1b[Z":      {Code: input.Tab, Mods: input.Shift},
+		"\x1b[1;5Z":   {Code: input.Tab, Mods: input.Shift | input.Ctrl},
+		"\x1b[1;3D":   {Code: input.Left, Mods: input.Alt},
+		"\x1b[1;2:1A": {Code: input.Up, Mods: input.Shift},
+	} {
+		if got := one(t, sequence); got != input.Event(want) {
+			t.Errorf("%q = %+v, want %+v", sequence, got, want)
+		}
+	}
+}
+
+func TestTheHighestUnicodePlaneIsAKeyLikeAnyOther(t *testing.T) {
+	// A Kitty report names its key by code point, and the last plane runs to
+	// U+10FFFF. A parameter bound below that refuses the top plane and blames the
+	// terminal for it.
+	got := one(t, "\x1b[1114109;1u")
+	want := input.Key{Code: input.Character, Rune: 0x10FFFD}
+	if got != input.Event(want) {
+		t.Fatalf("the top plane decoded as %+v, want %+v", got, want)
+	}
+}
+
+func TestAnOpenPasteIsStillPending(t *testing.T) {
+	// The bytes of a paste are consumed into its payload rather than left in the
+	// buffer, so a report drawn from the buffer alone says an unterminated paste is
+	// nothing at all — and a caller deciding whether the stream still owes it
+	// something believes it.
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b[200~hello")); len(events) != 0 {
+		t.Fatalf("an open paste produced %+v", events)
+	}
+	if !p.Pending() {
+		t.Fatal("Pending is false while a paste is still waiting for its terminator")
+	}
+	if p.Ambiguous() {
+		t.Fatal("a paste is incomplete, not ambiguous")
+	}
+	if events := p.Feed([]byte("\x1b[201~")); len(events) != 1 {
+		t.Fatalf("closing the paste produced %+v", events)
+	}
+	if p.Pending() {
+		t.Fatal("Pending is true after the paste closed")
+	}
+}
+
+func TestAStringStillBeingReadIsPending(t *testing.T) {
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b]52;c;")); len(events) != 0 {
+		t.Fatalf("an open string produced %+v", events)
+	}
+	if !p.Pending() {
+		t.Fatal("Pending is false while a string is still waiting for its terminator")
+	}
+}

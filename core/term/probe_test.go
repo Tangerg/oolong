@@ -167,6 +167,33 @@ func TestProbeDoesNotEatWhatTheUserTyped(t *testing.T) {
 	}
 }
 
+func TestAKeyTypedDuringTheProbeStillKnowsWhenItArrived(t *testing.T) {
+	// When a key arrived is a fact only the reader has, and the session asks it:
+	// a double-click, a trackpad's run of wheel reports and a two-chord binding are
+	// all decided by time. A key the user managed to press before the terminal
+	// answered used to reach the session with none.
+	before := time.Now()
+	tty, _ := answered(t, "a\x1b]11;rgb:0/0/0\x07\x1b[?62c")
+
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the key typed during the probe never arrived")
+		}
+		key, ok := ev.(input.Key)
+		if !ok {
+			continue
+		}
+		if key.At.IsZero() {
+			t.Fatalf("%+v arrived with no time on it", key)
+		}
+		if key.At.Before(before) {
+			t.Fatalf("%+v is stamped before the terminal was opened", key)
+		}
+		return
+	}
+}
+
 // TestProbeHandsOverASequenceItSplit is the reason the parser is handed over and
 // not just the events it produced. A sequence that straddles the moment the pump
 // takes over still has to decode as one.

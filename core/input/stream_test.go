@@ -122,6 +122,26 @@ func TestAnAnsweredClipboardRequestBecomesAPaste(t *testing.T) {
 	}
 }
 
+func TestAnAnswerCarryingNoTextIsNotAPaste(t *testing.T) {
+	// Base64 ignores line breaks, so a payload of one newline is a field with
+	// something in it that decodes to nothing. Delivered as a paste, it replaces the
+	// selection the user still has with an empty string.
+	for _, answer := range []string{"\x1b]52;c;\x1b\\", "\x1b]52;c;\n\x1b\\"} {
+		channel := &clipboard.Channel{}
+		if _, ok := channel.Request(clipboard.System); !ok {
+			t.Fatal("clipboard request was refused")
+		}
+		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+		events := stream.Feed([]byte(answer), time.Unix(1, 0))
+		if len(events) != 1 {
+			t.Fatalf("%q got %+v, want one event", answer, events)
+		}
+		if paste, ok := events[0].(input.Paste); ok {
+			t.Errorf("%q became a paste of %q", answer, paste.Text)
+		}
+	}
+}
+
 func TestAnUnaskedClipboardAnswerStaysTheCommandItWas(t *testing.T) {
 	// A terminal has no reason to volunteer one, and text arriving in a document
 	// nobody asked to put it in is not a thing to relax about.

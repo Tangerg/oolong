@@ -125,8 +125,15 @@ func (p Protocol) Supports(where Placement) bool {
 
 // Image is a transmitted image and the size it arrived at.
 type Image struct {
-	// ID is the resource identity known to the terminal. Each placement adds its
-	// own identity so several views can share the same transmitted data.
+	// ID is the resource identity known to the terminal, and is never zero. Each
+	// placement adds its own identity so several views can share the same
+	// transmitted data.
+	//
+	// Zero is the protocol's way of saying "no identity given", not an identity: a
+	// deletion naming it does not name this image, and a placement naming it does
+	// not name this image either. The zero Image is therefore not an image, which is
+	// why every operation here refuses it rather than putting an i=0 on the wire and
+	// letting the terminal decide what that meant.
 	ID uint32
 	// Size is the image's size in pixels, for working out how many cells it should
 	// occupy with [Fit].
@@ -144,6 +151,15 @@ func pngSize(data []byte) (image.Point, error) {
 	return image.Pt(config.Width, config.Height), nil
 }
 
+// The two identities this protocol carries, and what it means that neither may be
+// zero. Kitty reads i=0 and p=0 as "not given", so a sequence written with one
+// names nothing: the transmission is unaddressable, the placement unremovable, and
+// the deletion aimed at whatever the terminal decides an unnamed image is.
+var (
+	errImageIdentity     = errors.New("graphics: image identity must be nonzero")
+	errPlacementIdentity = errors.New("graphics: placement identity must be nonzero")
+)
+
 // chunkLimit is the most base64 the kitty protocol takes in one escape.
 const chunkLimit = 4096
 
@@ -154,6 +170,9 @@ const chunkLimit = 4096
 // the payload each frame would put a megabyte on the wire to move a picture by
 // one row.
 func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
+	if id == 0 {
+		return Image{}, errImageIdentity
+	}
 	size, err := pngSize(png)
 	if err != nil {
 		return Image{}, err
@@ -196,9 +215,12 @@ type ImagePlacement struct {
 }
 
 // Placement names one placement without transmitting or drawing it. It panics
-// when id is zero.
+// when id is zero or when the image has no identity of its own.
 // Reusing an ID moves that placement; use different IDs to show one image twice.
 func (i Image) Placement(id uint32) ImagePlacement {
+	if i.ID == 0 {
+		panic("graphics: image identity must be nonzero")
+	}
 	if id == 0 {
 		panic("graphics: placement identity must be nonzero")
 	}
@@ -207,16 +229,22 @@ func (i Image) Placement(id uint32) ImagePlacement {
 
 // Paint shows this placement at the cursor without moving the cursor.
 func (p ImagePlacement) Paint(w io.Writer, size image.Point) error {
+	if p.Image.ID == 0 {
+		return errImageIdentity
+	}
 	if p.ID == 0 {
-		return errors.New("graphics: placement identity must be nonzero")
+		return errPlacementIdentity
 	}
 	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", p.Image.ID, p.ID, size.X, size.Y))
 }
 
 // Erase removes only this placement, retaining the image for later Paint calls.
 func (p ImagePlacement) Erase(w io.Writer) error {
+	if p.Image.ID == 0 {
+		return errImageIdentity
+	}
 	if p.ID == 0 {
-		return errors.New("graphics: placement identity must be nonzero")
+		return errPlacementIdentity
 	}
 	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=2;\x1b\\", p.Image.ID, p.ID))
 }
@@ -224,6 +252,9 @@ func (p ImagePlacement) Erase(w io.Writer) error {
 // Release destroys transmitted data and all placements. The handle must not be
 // painted again after Release; retransmission requires a fresh image identity.
 func (i Image) Release(w io.Writer) error {
+	if i.ID == 0 {
+		return errImageIdentity
+	}
 	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", i.ID))
 }
 

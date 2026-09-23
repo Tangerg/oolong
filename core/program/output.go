@@ -25,7 +25,16 @@ func (p *program) flush() (uint64, error) {
 // queue transfers one non-empty frame and validates the watermark that now owns it.
 // Keeping this edge in one method makes ordinary frames and inline settlement obey
 // the same publication protocol.
+//
+// It is also where "no frame after the transport is known unusable" is enforced,
+// rather than at each place that publishes one. Spread across call sites, that rule
+// held wherever somebody remembered it and nowhere else: a host whose writer broke
+// the sequence contract once would be handed the next frame anyway, into a stream
+// whose position this program has just said it no longer knows.
 func (p *program) queue(frame []byte) (uint64, error) {
+	if p.outputFailed {
+		return 0, ErrDisplayFailed
+	}
 	seq := p.writer.Queue(frame)
 	if seq == 0 || seq <= p.queued {
 		p.outputFailed = true

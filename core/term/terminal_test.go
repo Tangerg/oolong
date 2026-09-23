@@ -490,3 +490,61 @@ func TestCloseBoundsBackpressuredOutput(t *testing.T) {
 		t.Fatal("writer advanced after terminal ownership ended")
 	}
 }
+
+// TestASizeChangeWhileOpeningIsNotLost is why the resize subscription is taken out
+// before the opening size is measured.
+//
+// Between measuring and subscribing, the signal goes to the default handler, which
+// ignores it. The probe puts a fifth of a second in that gap, and a window resized
+// during it would be one nothing ever reported: the session would draw at the size
+// it was started with until some later, unrelated change happened to correct it.
+func TestASizeChangeWhileOpeningIsNotLost(t *testing.T) {
+	primary, replica := pty(t)
+	_ = primary
+	if err := resizePTY(replica, 80, 24); err != nil {
+		t.Skipf("this pty cannot be resized: %v", err)
+	}
+
+	opened := make(chan *term.Terminal, 1)
+	failed := make(chan error, 1)
+	go func() {
+		tty, err := term.OpenOn(replica, replica,
+			term.Config{Features: term.Features{Probe: true}}, os.LookupEnv)
+		if err != nil {
+			failed <- err
+			return
+		}
+		opened <- tty
+	}()
+
+	// Nothing is going to answer the probe, so the start is held open for its whole
+	// grace and this lands inside it.
+	time.Sleep(50 * time.Millisecond)
+	if err := resizePTY(replica, 100, 30); err != nil {
+		t.Fatalf("resizing the pty mid-start: %v", err)
+	}
+
+	var tty *term.Terminal
+	select {
+	case tty = <-opened:
+	case err := <-failed:
+		t.Fatalf("opening a pty as a terminal: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("opening the terminal never finished")
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("the size change during startup never arrived")
+		}
+		resized, ok := ev.(input.Resize)
+		if !ok {
+			continue
+		}
+		if resized == (input.Resize{Width: 100, Height: 30}) {
+			return
+		}
+	}
+}
