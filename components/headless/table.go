@@ -1,15 +1,27 @@
 package headless
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/keymap"
+)
 
 // Table is a list of rows with more than one column: a cursor, a window onto more
 // rows than fit, and an order.
 //
-// It is a [List] and says so — everything about moving a selection, keeping it in
-// view, taking the wheel and answering a click is the same question in one column as
-// in six, and a table that answered it again would be a second place for it to be
+// It is a [List] inside — everything about moving a selection, keeping it in view,
+// taking the wheel and answering a click is the same question in one column as in
+// six, and a table that answered it again would be a second place for it to be
 // wrong. What a table has that a list does not is which column it is sorted by, so
 // that is all this adds.
+//
+// The list is held rather than embedded, and the difference is the order. A table's
+// rows are in the order the table decided, so the table has to be the only way to
+// replace them; an embedded list would hand every caller a second way, and a caller
+// who took it would leave the header saying the rows are sorted by a column they are
+// no longer in the order of.
 //
 // Where the columns are is not here either. A row is drawn by [List.Row] into a view
 // of the whole row, and how that row is divided belongs to its appearance layer.
@@ -19,7 +31,14 @@ import "slices"
 type Table[T any] struct {
 	noCopy noCopy
 
-	List[T]
+	// Row, Keys and Wrap configure the rows — see the [List] fields of the same
+	// names. They live here because the list does not belong to the caller.
+	Row  func(v grid.View, at int, item T, selected bool)
+	Keys *keymap.Map
+	Wrap bool
+
+	// rows owns the cursor, the window and the order this table put them in.
+	rows List[T]
 
 	// less orders two rows by a column: true when a comes before b. Nil means the
 	// table cannot be sorted, which is the right answer for rows that arrive in an
@@ -54,7 +73,7 @@ func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 // Asking for the column it is already sorted by turns the order round, which is what
 // a reader means by pressing the same header twice.
 func (t *Table[T]) SortBy(column int) bool {
-	if t.less == nil || column < 0 || len(t.items) == 0 {
+	if t.less == nil || column < 0 || t.rows.Len() == 0 {
 		return false
 	}
 	if t.sorted && t.column == column {
@@ -86,8 +105,77 @@ func (t *Table[T]) ClearSort() { t.sorted = false }
 // throws the order away. A table that lost its order every time its rows were
 // refreshed would be a table nobody could read while it was updating.
 func (t *Table[T]) SetItems(items []T) {
-	t.List.SetItems(items)
+	t.rows.SetItems(items)
 	t.reorder()
+}
+
+// The operations below are the list's, forwarded. Reading rows and moving a cursor
+// cannot disturb an order, so they pass straight through; what does not pass through
+// is anything that could replace the rows.
+
+// Items returns the rows in the order the table put them in.
+func (t *Table[T]) Items() []T { return t.rows.Items() }
+
+// Len is how many rows there are.
+func (t *Table[T]) Len() int { return t.rows.Len() }
+
+// At returns one row by index, and whether there is one.
+func (t *Table[T]) At(index int) (T, bool) { return t.rows.At(index) }
+
+// Selected is the index of the row under the cursor, or -1.
+func (t *Table[T]) Selected() int { return t.rows.Selected() }
+
+// Current is the row under the cursor, and whether there is one.
+func (t *Table[T]) Current() (T, bool) { return t.rows.Current() }
+
+// Select puts the cursor on a row.
+func (t *Table[T]) Select(i int) { t.rows.Select(i) }
+
+// Move steps the cursor by n rows.
+func (t *Table[T]) Move(n int) { t.rows.Move(n) }
+
+// Scroll is the table's position, for a scrollbar drawn beside it.
+func (t *Table[T]) Scroll() *Scroll { return t.rows.Scroll() }
+
+// Focus takes the keyboard, or gives it up — see [List.Focus].
+func (t *Table[T]) Focus(has bool) { t.rows.Focus(has) }
+
+// Focused reports whether this table has the keyboard.
+func (t *Table[T]) Focused() bool { return t.rows.Focused() }
+
+// Handle answers the keys, the wheel and a press that move the cursor.
+func (t *Table[T]) Handle(ev input.Event) bool {
+	t.configure()
+	return t.rows.Handle(ev)
+}
+
+// Do runs one of the list's actions by name. See [Doer].
+func (t *Table[T]) Do(action keymap.Action) bool {
+	t.configure()
+	return t.rows.Do(action)
+}
+
+// HeightForWidth is one row per row.
+func (t *Table[T]) HeightForWidth(width int) int { return t.rows.HeightForWidth(width) }
+
+// Draw paints the rows that fit.
+func (t *Table[T]) Draw(v Frame) {
+	t.configure()
+	t.rows.Draw(v)
+}
+
+// DrawRows paints the rows that fit with a caller's own row painter — see
+// [List.DrawRows].
+func (t *Table[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
+	t.configure()
+	t.rows.DrawRows(v, draw)
+}
+
+// configure copies this table's live configuration into the list before the list
+// acts on it. The table's fields are the owner; the list's are a cache that must not
+// be read a frame behind the caller.
+func (t *Table[T]) configure() {
+	t.rows.Row, t.rows.Keys, t.rows.Wrap = t.Row, t.Keys, t.Wrap
 }
 
 // reorder sorts the rows and carries the cursor with the row it was on.
@@ -97,10 +185,11 @@ func (t *Table[T]) SetItems(items []T) {
 // type to know how to tell two of them apart, which is knowledge only the caller
 // has — and would land on the wrong row whenever two of them were alike.
 func (t *Table[T]) reorder() {
-	if !t.sorted || t.less == nil || len(t.items) < 2 {
+	if !t.sorted || t.less == nil || t.rows.Len() < 2 {
 		return
 	}
-	order := make([]int, len(t.items))
+	items := t.rows.Items()
+	order := make([]int, len(items))
 	for i := range order {
 		order[i] = i
 	}
@@ -111,7 +200,7 @@ func (t *Table[T]) reorder() {
 	// them and a sort needs all three: rows it cannot separate must compare equal,
 	// or the sort has no ties to keep the order of.
 	slices.SortStableFunc(order, func(a, b int) int {
-		x, y := t.items[a], t.items[b]
+		x, y := items[a], items[b]
 		if t.descending {
 			x, y = y, x
 		}
@@ -125,17 +214,17 @@ func (t *Table[T]) reorder() {
 		}
 	})
 
-	was := t.Selected()
+	was := t.rows.Selected()
 	moved := was
-	items := make([]T, len(order))
+	sorted := make([]T, len(order))
 	for at, from := range order {
-		items[at] = t.items[from]
+		sorted[at] = items[from]
 		if from == was {
 			moved = at
 		}
 	}
-	t.List.SetItems(items)
+	t.rows.SetItems(sorted)
 	if moved >= 0 {
-		t.Select(moved)
+		t.rows.Select(moved)
 	}
 }

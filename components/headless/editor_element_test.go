@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/text"
 )
 
 const fileChip headless.ElementKind = 1
@@ -462,4 +463,57 @@ func TestReplacingTheWholeTextReleasesItsElements(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAnElementBeginsWhereACellBegins(t *testing.T) {
+	// An element is one contiguous run of cells and a run of cells begins at a
+	// grapheme boundary. Without that, its first cell is shared with a character it
+	// does not own: removing the element leaves a mark behind on that character,
+	// which is exactly the fragment atomicity exists to prevent.
+	for _, tc := range []struct {
+		name string
+		text string
+		body string
+		want string
+	}{
+		{
+			name: "a body that joins whatever is in front of it",
+			text: "abc",
+			body: "́def",
+			want: "abcdef ",
+		},
+		{
+			name: "a body that joins only this neighbour",
+			text: "\U0001F1EF",
+			body: "\U0001F1F5x",
+			want: "\U0001F1EF \U0001F1F5x ",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &headless.Editor{}
+			e.SetText(tc.text)
+			e.SetCursor(0, len(tc.text))
+			element := e.InsertElement(0, tc.body)
+			if e.Text() != tc.want {
+				t.Fatalf("text = %q, want %q", e.Text(), tc.want)
+			}
+			if got := boundariesOf(e.Text()); !got[element.Start] || !got[element.End] {
+				t.Fatalf("element %d..%d does not stand on cell boundaries of %q",
+					element.Start, element.End, e.Text())
+			}
+			if el, ok := e.ElementAt(0, element.Start); !ok || el.ID != element.ID {
+				t.Fatalf("the element is not at its own start")
+			}
+		})
+	}
+}
+
+// boundariesOf is the set of byte offsets where a cell begins or ends.
+func boundariesOf(s string) map[int]bool {
+	at := map[int]bool{0: true, len(s): true}
+	for start, cluster := range text.Clusters(s) {
+		at[start] = true
+		at[start+len(cluster)] = true
+	}
+	return at
 }

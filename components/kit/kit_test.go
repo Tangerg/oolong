@@ -1398,3 +1398,23 @@ func TestALayerPassesTheKeyboardToWhatIsInIt(t *testing.T) {
 		t.Fatal("what is inside the dialog was not told it lost the keyboard")
 	}
 }
+
+func TestACappedParagraphStillSaysWhatTheWrapSwallowed(t *testing.T) {
+	// Rows exist so a copy can put a paragraph back together: each one carries what
+	// the wrap consumed at the break above it, because neither a swallowed space nor
+	// a split word is recoverable from the rows afterwards. The row a cap ends with
+	// is still a row with a break above it.
+	p := kit.NewParagraph("one two three four five", grid.Style{})
+	p.MaxRows = 2
+
+	rows := p.Rows(6)
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want the cap", len(rows))
+	}
+	if !strings.Contains(rows[1].Text, "…") {
+		t.Fatalf("last row = %q, want it to say it was cut", rows[1].Text)
+	}
+	if rows[1].Gap != " " {
+		t.Fatalf("the capped row reports gap %q, want the space the wrap swallowed", rows[1].Gap)
+	}
+}

@@ -201,12 +201,13 @@ func (e *Editor) Mask() string { return e.mask }
 
 // SetMask changes what each text cluster is drawn as.
 //
-// A mask must be valid, visible terminal text without tabs or control characters;
-// invalid configuration panics. A non-empty mask makes the field one-line, applying
+// A mask must be visible terminal text without tabs or control characters, and must
+// still be itself when written twice in a row — see [maskable]; invalid
+// configuration panics. A non-empty mask makes the field one-line, applying
 // the same semantic transition as [Editor.SetSingleLine].
 func (e *Editor) SetMask(mask string) {
-	if mask != "" && (text.Printable(mask) != mask || strings.Contains(mask, "\t") || text.Width(mask) == 0) {
-		panic("headless: editor mask must be visible terminal text without controls")
+	if mask != "" && !maskable(mask) {
+		panic("headless: editor mask must be visible terminal text that does not join a copy of itself")
 	}
 	if e.mask == mask {
 		return
@@ -214,6 +215,30 @@ func (e *Editor) SetMask(mask string) {
 	wasOneLine := e.oneLine()
 	e.mask = strings.Clone(mask)
 	e.oneLineChanged(wasOneLine)
+}
+
+// maskable is what a mask has to be for the projection that consumes it: visible
+// terminal text, wide enough to see, and still itself when the next copy is written
+// beside it.
+//
+// The last condition is the one a mask judged on its own misses. A field draws one
+// mask per cluster of text and finds a column by multiplying, so a mask that joins
+// to a copy of itself — two regional indicators are a flag — draws fewer clusters
+// than the text has characters and leaves the cursor at a column the row does not
+// have.
+func maskable(mask string) bool {
+	return text.Printable(mask) == mask &&
+		!strings.Contains(mask, "\t") &&
+		text.Width(mask) > 0 &&
+		clusters(mask+mask) == 2*clusters(mask)
+}
+
+func clusters(s string) int {
+	n := 0
+	for range text.Clusters(s) {
+		n++
+	}
+	return n
 }
 
 // oneLineChanged maintains the storage invariant after a mode transition.

@@ -573,6 +573,32 @@ func headlessDrawPurityCases() []drawPurityCase {
 	listCase.height = 2
 	cases = append(cases, listCase)
 
+	table := &Table[string]{
+		Row: func(view grid.View, _ int, item string, _ bool) {
+			view.Text(0, 0, item, grid.Style{})
+		},
+	}
+	table.SetLess(func(a, b string, _ int) bool { return a < b })
+	table.SetItems([]string{"one", "two", "three"})
+	table.SortBy(0)
+	table.Select(1)
+	table.Focus(true)
+	stageScrollForTest(table.Scroll(), 3, 2)
+	tableCase := widgetPurityCase("*Table", table, func() any {
+		column, descending, sorted := table.Sorted()
+		return struct {
+			items      []string
+			selected   int
+			focused    bool
+			offset     int
+			column     int
+			descending bool
+			sorted     bool
+		}{table.Items(), table.Selected(), table.Focused(), table.Scroll().Offset(), column, descending, sorted}
+	})
+	tableCase.height = 2
+	cases = append(cases, tableCase)
+
 	tree := NewTree(Node[string]{Item: "root", Children: []Node[string]{{Item: "leaf"}}})
 	tree.Row = func(view grid.View, _ int, row Shown[string], _ bool) {
 		view.Text(0, 0, row.Item, grid.Style{})

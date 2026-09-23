@@ -91,6 +91,16 @@ var _ headless.Block = (*Paragraph)(nil)
 type row struct {
 	text.Wrapped
 	line int
+	// elided says the row ends in an ellipsis standing for everything a row cap
+	// dropped after it, so it no longer draws the text its byte range describes.
+	//
+	// It is a flag rather than an erased range because the range answers two
+	// questions. Links must not be stamped from it — a hyperlink over "…" is worse
+	// than none — but the break above the row is still a real break, and what the
+	// wrap swallowed there is still what a copy of these rows has to put back.
+	// Erasing the range answered the first and silently lost the second, so copying
+	// a capped paragraph ran its last two words together.
+	elided bool
 }
 
 // NewParagraph is a paragraph of one plain styled string. Its newlines are line
@@ -148,7 +158,7 @@ func (p *Paragraph) Draw(v grid.View) {
 	for y := first; y < last; y++ {
 		r := rows[y]
 		r.Draw(v, p.Indent, y)
-		if detected, ok := p.detectedLine(r.line); ok {
+		if detected, ok := p.detectedLine(r.line); ok && !r.elided {
 			p.stamp(v, y, detected.row(r))
 		}
 	}
@@ -300,7 +310,7 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 		return link.Link{}, false
 	}
 	detected, ok := p.detectedLine(rows[y].line)
-	if !ok {
+	if !ok || rows[y].elided {
 		return link.Link{}, false
 	}
 	row := detected.row(rows[y])
@@ -341,11 +351,7 @@ func (p *Paragraph) rows(width int) []row {
 		rows = rows[:p.MaxRows]
 		last := len(rows) - 1
 		rows[last].Line = cutOff(rows[last].Line, room)
-		// The row no longer draws the text its range describes — it ends in an
-		// ellipsis standing for everything dropped after it — so it has no
-		// provenance to offer. A link stamped from the old range would land on the
-		// ellipsis, and a hyperlink over "…" is worse than none.
-		rows[last].From, rows[last].To = 0, 0
+		rows[last].elided = true
 	}
 	if len(rows) == 0 {
 		rows = nil

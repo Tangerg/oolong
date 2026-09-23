@@ -259,9 +259,28 @@ func (t *table) ruleLine(widths []int) text.Line {
 		if i > 0 {
 			out = append(out, text.Span{Text: t.separator, Style: t.rail})
 		}
-		out = append(out, text.Span{Text: strings.Repeat(divider, width), Style: t.rule})
+		out = append(out, text.Span{Text: fillTo(divider, width), Style: t.rule})
 	}
 	return out
+}
+
+// fillTo repeats a glyph until it covers width columns, and no further.
+//
+// A divider is configuration: it may be two characters, or one a terminal draws two
+// columns wide. Counting repetitions rather than columns made such a rule overrun
+// its own column and push the rest of the row along, which is the one thing a table
+// cannot do. The remainder is left blank, because half a glyph is not one.
+func fillTo(glyph string, width int) string {
+	unit := text.Width(glyph)
+	if width <= 0 || unit <= 0 {
+		return ""
+	}
+	var filled strings.Builder
+	filled.Grow(width)
+	for at := 0; at+unit <= width; at += unit {
+		filled.WriteString(glyph)
+	}
+	return filled.String()
 }
 
 // appendRecords uses the heading cells as field names. No labels are invented for

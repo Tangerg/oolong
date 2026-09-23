@@ -41,6 +41,7 @@ var renderingCallbacks = map[string]callbackRule{
 	"components/headless:Select.Row":        {callbackProjection, "choice rows project current cursor and taken states"},
 	"components/headless:MultiSelect.Row":   {callbackProjection, "choice rows project current cursor and taken states"},
 	"components/headless:List.Row":          {callbackProjection, "a list row paints only its assigned frame"},
+	"components/headless:Table.Row":         {callbackProjection, "a table row paints only its assigned frame"},
 	"components/headless:MultiSelect.Check": {callbackEvent, "validation follows a selection change"},
 	"components/headless:MultiSelect.Same":  {callbackProjection, "equality is a read-only projection of two values"},
 	"components/headless:Select.Check":      {callbackEvent, "validation follows a selection change"},

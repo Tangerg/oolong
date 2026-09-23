@@ -65,14 +65,15 @@ func (el Element) Text(e *Editor) string {
 //
 // A separator space follows it, which is what makes a chip in a prompt something a
 // user can type after. The space is ordinary text and not part of the element: it is
-// there to be deleted.
+// there to be deleted. One goes in front as well when the body would otherwise join
+// what it lands after — see [Editor.joinsWhatPrecedes].
 //
 // An empty body inserts nothing and returns the zero [Element]. Identities are never
 // reused, and InsertElement panics once every one has been issued: an [Element] the
 // caller kept in order to replace or remove what it stands for would otherwise begin
 // naming a different insertion.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
-	body = oneLineText(body)
+	body = elementBody(body)
 	if body == "" {
 		return Element{}
 	}
@@ -87,8 +88,12 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	if selected, selectedEnd, ok := e.Selection(); ok {
 		start, end = selected, selectedEnd
 	}
-	at := e.offsetOf(start)
-	replacement, changedText := e.prepareReplacement(start, end, body+" ")
+	lead := ""
+	if e.joinsWhatPrecedes(start, body) {
+		lead = " "
+	}
+	at := e.offsetOf(start) + len(lead)
+	replacement, changedText := e.prepareReplacement(start, end, lead+body+" ")
 	if changedText {
 		e.replaceRange(start, end, replacement)
 	} else {
@@ -113,6 +118,50 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 		e.contentChanged()
 	}
 	return e.elementOf(mark)
+}
+
+// elementBody is a body with any prefix removed that could not begin a run of cells
+// anywhere.
+//
+// A combining character joins whatever is in front of it, a space included, so no
+// separator can give it a boundary of its own — it has none to give. A label that
+// begins with one is a fragment rather than a label, and it is projected to what it
+// can be shown as, the same way line breaks are flattened and controls removed.
+//
+// What remains may still join a particular neighbour — two regional indicators are a
+// flag — and that is a question about where it is going rather than about the body.
+// See [Editor.joinsWhatPrecedes].
+func elementBody(body string) string {
+	body = oneLineText(body)
+	for body != "" && clusters(" "+body) != 1+clusters(body) {
+		_, size := utf8.DecodeRuneInString(body)
+		body = body[size:]
+	}
+	return body
+}
+
+// joinsWhatPrecedes reports whether body would become part of the cluster in front
+// of it.
+//
+// An element is one contiguous run of cells, and a run of cells begins at a grapheme
+// boundary. A body that starts with a combining character has no boundary of its own:
+// dropped after a letter it joins that letter's cluster, so the element's first cell
+// belongs half to text the element does not own — and deleting the element leaves the
+// mark behind on a character that was never part of it.
+//
+// The question is asked of the text it is actually landing after rather than of the
+// body alone, because that is what decides it: two regional indicators are a flag,
+// and a flag is a perfectly good label except directly after another one.
+func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
+	if at.Line < 0 || at.Line >= len(e.lines) {
+		return false
+	}
+	line := e.lines[at.Line]
+	before := line[:min(max(at.Col, 0), len(line))]
+	if before == "" {
+		return false
+	}
+	return clusters(before+body) != clusters(before)+clusters(body)
 }
 
 // Elements is every element in the text, in the order they appear. The slice is a

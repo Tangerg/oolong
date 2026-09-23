@@ -6,10 +6,15 @@ import (
 	"unicode/utf8"
 )
 
-// ErrSequenceTooLong means an unfinished escape sequence crossed the amount a
-// stream scanner will retain. A sequence that has not ended within that bound is
-// more likely an accidental or hostile retention leak than terminal syntax.
-var ErrSequenceTooLong = errors.New("ansi: unfinished sequence exceeds 65536 bytes")
+// ErrSequenceTooLong means an escape sequence crossed the amount a stream scanner
+// will carry. A sequence that long is more likely an accidental or hostile
+// retention leak than terminal syntax.
+//
+// The bound is on the sequence and not on what happens to be held, because a
+// scanner's answer may not depend on where a read split. A sequence that arrived
+// whole and one assembled from sixteen chunks are the same bytes, and the one that
+// was refused while incomplete cannot become acceptable by finishing.
+var ErrSequenceTooLong = errors.New("ansi: sequence exceeds 65536 bytes")
 
 const maxPending = 1 << 16
 
@@ -81,6 +86,13 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 			}
 			s.hold(tail)
 			return nil
+		}
+		// Plain text is exempt: it is a run rather than a sequence, and nothing is
+		// waiting on a terminator for it. Everything else is bounded whether or not
+		// it ended, so that a chunk boundary cannot decide the answer.
+		if piece.Kind != Plain && n > maxPending {
+			s.Reset()
+			return ErrSequenceTooLong
 		}
 		at += n
 		if err := visit(piece); err != nil {

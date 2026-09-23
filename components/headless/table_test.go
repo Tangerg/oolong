@@ -1,6 +1,7 @@
 package headless_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -119,5 +120,28 @@ func TestATableWithNoComparisonCannotBeSorted(t *testing.T) {
 	}
 	if got := ordered(&tbl); got != "b a" {
 		t.Fatalf("the rows are %q", got)
+	}
+}
+
+func TestATablesRowsCanOnlyBeReplacedThroughTheTable(t *testing.T) {
+	// The order is the table's, so replacing the rows has to be the table's too. An
+	// embedded list gave every caller a second way in, and a caller who took it left
+	// the header saying the rows were sorted by a column they were no longer in the
+	// order of.
+	table := new(headless.Table[string])
+	table.SetLess(func(a, b string, _ int) bool { return a < b })
+	table.SetItems([]string{"pear", "apple", "fig"})
+	table.SortBy(0)
+	if got := table.Items(); !slices.Equal(got, []string{"apple", "fig", "pear"}) {
+		t.Fatalf("sorted rows = %v", got)
+	}
+
+	table.SetItems([]string{"plum", "cherry"})
+	column, descending, sorted := table.Sorted()
+	if !sorted || column != 0 || descending {
+		t.Fatalf("the order was lost when the rows were replaced: %d %t %t", column, descending, sorted)
+	}
+	if got := table.Items(); !slices.Equal(got, []string{"cherry", "plum"}) {
+		t.Fatalf("replaced rows = %v, want them in the order the header says", got)
 	}
 }

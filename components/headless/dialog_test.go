@@ -1,11 +1,13 @@
 package headless_test
 
 import (
+	"image"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 )
 
 type focusProbe struct {
@@ -278,3 +280,55 @@ func TestDialogTriggerDeclinesAPointerBeforeItHasAFrame(t *testing.T) {
 		t.Fatal("a trigger answered a pointer about no presented frame")
 	}
 }
+
+func TestAFocusReportIsMadeOnceAndNotRepeated(t *testing.T) {
+	// A widget with nothing above it assumes it has the keyboard, so an owner's
+	// first report is never empty — it is the moment the widget stops assuming.
+	// Every report after it that says the same thing is empty, and an appearance
+	// that does something on gaining focus should not do it twice. Three owners
+	// used to answer this question in three ways; a dialog's content answered it by
+	// repeating itself.
+	stack := &headless.Stack{}
+	modal := &placedFocusProbe{}
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Title: "Confirm", Content: modal})
+	content := dialog.Content()
+
+	content.Focus(true)
+	if len(modal.changes) != 1 || !modal.changes[0] {
+		t.Fatalf("the first report reached the modal as %v, want one gain", modal.changes)
+	}
+	content.Focus(true)
+	content.Focus(true)
+	if len(modal.changes) != 1 {
+		t.Fatalf("repeated reports reached the modal as %v, want only the first", modal.changes)
+	}
+	content.Focus(false)
+	if len(modal.changes) != 2 || modal.changes[1] {
+		t.Fatalf("losing the keyboard reached the modal as %v", modal.changes)
+	}
+}
+
+func TestAViewportTellsItsContentWhereItStandsOnce(t *testing.T) {
+	content := &sizedFocusProbe{}
+	window := headless.NewViewport(content)
+	if len(content.changes) != 1 || !content.changes[0] {
+		t.Fatalf("a new window told its content %v, want one gain", content.changes)
+	}
+	window.Focus(true)
+	if len(content.changes) != 1 {
+		t.Fatalf("a repeated report told the content %v, want only the first", content.changes)
+	}
+	window.Focus(false)
+	window.Focus(false)
+	if len(content.changes) != 2 || content.changes[1] {
+		t.Fatalf("losing the keyboard told the content %v", content.changes)
+	}
+}
+
+type sizedFocusProbe struct{ focusProbe }
+
+func (*sizedFocusProbe) HeightForWidth(int) int { return 1 }
+
+type placedFocusProbe struct{ focusProbe }
+
+func (*placedFocusProbe) Place(image.Point) layout.Placement { return middle(8, 3) }

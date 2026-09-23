@@ -440,8 +440,19 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 		})
 		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), target)
 	case *ast.AutoLink:
-		url := string(node.URL(r.source))
-		out.add(url, action.style.Merge(r.look.Link), url)
+		// What the document showed and where it goes are two things, and they differ
+		// whenever the protocol was inferred rather than written: "www.example.com"
+		// is what the reader wrote and "http://www.example.com" is what opens.
+		label := string(node.Label(r.source))
+		target := string(node.URL(r.source))
+		if node.AutoLinkType == ast.AutoLinkEmail {
+			// An address is not a destination. Without the scheme a terminal has
+			// nothing to hand to a mail client; with the one goldmark attaches it has
+			// "mailto://", which is not the scheme either. The address is the whole of
+			// what an email autolink says, so the destination is built from it.
+			target = "mailto:" + label
+		}
+		out.add(label, action.style.Merge(r.look.Link), target)
 	case *ast.Image:
 		// A picture is not something a row of cells can hold — see the graphics
 		// package for what a terminal will take — so what is left is what it was

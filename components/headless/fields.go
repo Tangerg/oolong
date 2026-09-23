@@ -80,7 +80,8 @@ func (t *Text) SetCursor(column int) { t.Sync(); t.editor.SetCursor(0, column) }
 // Revision reports the accepted editor content generation, after the last Sync or edit.
 func (t *Text) Revision() uint64 { return t.editor.Revision() }
 
-// SetMask chooses one visible grapheme per input grapheme; empty removes masking.
+// SetMask chooses what is drawn in place of each input grapheme; empty removes
+// masking.
 // Invalid masks panic on the same terms as [Editor.SetMask].
 func (t *Text) SetMask(mask string) { t.editor.SetMask(mask) }
 
@@ -118,7 +119,14 @@ func (t *Text) Handle(ev input.Event) bool {
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
 		local, in := t.within(mouse)
-		if !in {
+		// A release is a lifetime transition and not a hit test. Once this field took
+		// the press, the release that ends it has to arrive however far the pointer
+		// travelled in between — a selection dragged out of the field and let go is
+		// an ordinary thing to do. Dropping it leaves the editor believing a selection
+		// is still being made, and the next drag that crosses the field continues one
+		// nobody started here.
+		ending := mouse.Action == input.MouseUp && t.editor.dragging
+		if !in && !ending {
 			return false
 		}
 		ev = local

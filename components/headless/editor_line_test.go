@@ -343,3 +343,27 @@ func clusterOffset(line string, at int) bool {
 	}
 	return text.NextCluster(line, text.PrevCluster(line, at)) == at
 }
+
+func TestAMaskThatWouldJoinItsOwnNextCopyIsRefused(t *testing.T) {
+	// A field draws one mask per cluster of text and finds a column by multiplying,
+	// so the mask has to still be itself when the next one is written beside it. Two
+	// regional indicators are a flag: a field masked with one would draw one cluster
+	// for two characters and put the cursor at a column the row does not have.
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a mask that joins a copy of itself was accepted")
+		}
+	}()
+	e := &headless.Editor{}
+	e.SetMask("\U0001F1E6")
+}
+
+func TestAMaskOfSeveralClustersIsStillAMask(t *testing.T) {
+	// The rule is about joining, not about counting: a mask is whatever is drawn in
+	// place of one grapheme, and it may be more than one cluster of it.
+	e := &headless.Editor{}
+	e.SetMask("••")
+	if e.Mask() != "••" {
+		t.Fatalf("mask = %q", e.Mask())
+	}
+}

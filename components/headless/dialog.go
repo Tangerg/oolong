@@ -174,7 +174,7 @@ func (d *Dialog) Semantics() SemanticNode {
 	if d.Open() {
 		state |= StateOpen
 	}
-	if d.content != nil && d.content.focused {
+	if d.content != nil && d.content.settled && !d.content.blurred {
 		state |= StateFocused
 	}
 	return SemanticNode{
@@ -191,9 +191,11 @@ func (d *Dialog) Semantics() SemanticNode {
 type DialogContent struct {
 	noCopy noCopy
 
-	dialog  *Dialog
-	modal   Modal
-	focused bool
+	focusState
+	dialog *Dialog
+	modal  Modal
+	// holder is whatever was last told where it stands.
+	holder Widget
 }
 
 // Draw delegates to the appearance-supplied content.
@@ -240,8 +242,7 @@ func (c *DialogContent) Focus(has bool) {
 	if c == nil {
 		return
 	}
-	c.focused = has
-	tell(c.modal, has)
+	c.change(has, func() { c.settleOne(&c.holder, c.modal) }, &c.holder)
 }
 
 // RequestClose asks the controlled owner before stack membership changes.
@@ -288,12 +289,14 @@ type DialogTrigger struct {
 	// Keys maps activation. Nil reads through [DefaultActivationKeys].
 	Keys *keymap.Map
 
-	dialog     *Dialog
+	dialog *Dialog
+	focusState
 	appearance Widget
-	label      string
-	blurred    bool
-	pointer    Pointer
-	matcher    keymap.Matcher
+	// holder is whatever was last told where it stands.
+	holder  Widget
+	label   string
+	pointer Pointer
+	matcher keymap.Matcher
 }
 
 // Appearance returns the widget that paints the trigger.
@@ -313,9 +316,8 @@ func (t *DialogTrigger) SetAppearance(appearance Widget) {
 	if identity.Same(t.appearance, appearance) {
 		return
 	}
-	tell(t.appearance, false)
 	t.appearance = appearance
-	tell(t.appearance, !t.blurred)
+	t.settleOne(&t.holder, appearance)
 }
 
 // Draw paints the appearance and stages its hit region.
@@ -380,11 +382,7 @@ func (t *DialogTrigger) Focus(has bool) {
 		t.pointer.Left()
 		t.matcher.Clear()
 	}
-	if t.blurred == !has {
-		return
-	}
-	t.blurred = !has
-	tell(t.appearance, has)
+	t.change(has, func() { t.settleOne(&t.holder, t.appearance) }, &t.holder)
 }
 
 // Semantics returns the trigger as a button associated with the dialog's open state.

@@ -76,6 +76,14 @@ func (t *Transcript) Draw(v headless.Frame) {
 
 	if window.pinned.Rows > 0 {
 		t.drawHeader(content, v.View, window.pinned)
+		// A pinned header is the same content rows shown somewhere else, and what is
+		// selected is a property of the rows. A press lands in the header and the
+		// selection takes those rows — see [transcriptPresentation.rowAt] — so
+		// leaving the header unmarked meant dragging over it did something the screen
+		// never admitted to.
+		if header := window.presentation.header; !header.Empty() {
+			t.mark(v.View.Sub(header), window.presentation.headerFrom)
+		}
 	}
 	content.Draw(window.body, window.presentation.from)
 	t.mark(window.body, window.presentation.from)
@@ -358,8 +366,11 @@ func (t *Transcript) Handle(event input.Event) bool {
 }
 
 func (t *Transcript) press(event input.Mouse) bool {
-	// A new press supersedes a release the terminal never reported.
-	t.dragged = nil
+	// A new press supersedes a release the terminal never reported. The gesture it
+	// supersedes is ended and not merely forgotten: dropping the reference leaves
+	// the selection saying a drag is still in progress, and this is the only thing
+	// that was ever going to tell it otherwise.
+	t.release()
 	presented := t.presentation.Value()
 	if event.Button != input.ButtonLeft || presented.content == nil || presented.selection == nil {
 		return false
@@ -398,13 +409,18 @@ func (t *Transcript) drag(event input.Mouse) bool {
 	return true
 }
 
+// release settles whichever selection accepted the press, and reports whether there
+// was one.
+//
+// A release is a lifetime transition, not a hit test. Once this selection accepted
+// the press it must be settled, even when the pointer is now outside the transcript
+// or the visible window has collapsed — and a press standing in for a release the
+// terminal never sent has to settle it the same way, which is why this is the one
+// place a gesture ends.
 func (t *Transcript) release() bool {
 	if t.dragged == nil {
 		return false
 	}
-	// A release is a lifetime transition, not a hit test. Once this selection
-	// accepted the press, it must be settled even when the pointer is now outside the
-	// transcript or the visible window has collapsed.
 	dragged := t.dragged
 	t.dragged = nil
 	dragged.Done()

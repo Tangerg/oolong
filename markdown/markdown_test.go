@@ -478,3 +478,60 @@ func TestAnEmptyListItemIsStillAnItem(t *testing.T) {
 		t.Fatalf("got %q, want the second item on the second row", got)
 	}
 }
+
+func TestATableRuleIsAsWideAsItsColumnAndNoWider(t *testing.T) {
+	// The divider is configuration and may be more than one column: two characters,
+	// or one a terminal draws double-width. Counting repetitions rather than columns
+	// made the rule overrun its own column and push the rest of the row along, which
+	// is the one thing a table cannot do.
+	wide := look()
+	wide.Glyphs.Divider = "──"
+	source := "| ab | cd |\n| --- | --- |\n| 1 | 2 |"
+
+	got := rows(t, 40, mustRender(t, source, wide))
+	if len(got) < 2 {
+		t.Fatalf("drawn:\n%s", strings.Join(got, "\n"))
+	}
+	narrow := look()
+	narrow.Glyphs.Divider = "─"
+	want := rows(t, 40, mustRender(t, source, narrow))
+	for i := range min(len(got), len(want)) {
+		if text.Width(got[i]) != text.Width(want[i]) {
+			t.Fatalf("row %d is %d columns with a two-column divider and %d with a one-column one:\n%q\n%q",
+				i, text.Width(got[i]), text.Width(want[i]), got[i], want[i])
+		}
+	}
+}
+
+func TestAnAutolinkShowsWhatWasWrittenAndPointsWhereItGoes(t *testing.T) {
+	// The label and the destination are two facts. They differ whenever the protocol
+	// was inferred rather than written, and for an address they always differ: the
+	// address is what the document says, and a mail client needs a scheme.
+	for _, tc := range []struct {
+		source string
+		shown  string
+		target string
+	}{
+		{source: "<https://example.test/a>", shown: "https://example.test/a", target: "https://example.test/a"},
+		{source: "<ada@example.test>", shown: "ada@example.test", target: "mailto:ada@example.test"},
+	} {
+		doc := &markdown.Doc{}
+		doc.SetBlocks(mustRender(t, tc.source, look()))
+		s := grid.NewSurface(60, doc.HeightForWidth(60))
+		doc.Draw(s.View())
+
+		var shown strings.Builder
+		for x := range 60 {
+			cell := cellAt(s, x, 0)
+			if cell.Width() > 0 && cell.Content() != "" {
+				shown.WriteString(cell.Content())
+			}
+		}
+		if got := strings.TrimSpace(shown.String()); got != tc.shown {
+			t.Errorf("%s shows %q, want %q", tc.source, got, tc.shown)
+		}
+		if got := cellAt(s, 0, 0).Link; got != tc.target {
+			t.Errorf("%s points at %q, want %q", tc.source, got, tc.target)
+		}
+	}
+}

@@ -702,3 +702,25 @@ func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
 		t.Fatalf("a form of two one-line fields with labels is %d rows", got)
 	}
 }
+
+func TestAReleaseOutsideAFieldStillEndsTheSelectionItStarted(t *testing.T) {
+	// Dragging a selection out of a field and letting go there is an ordinary thing
+	// to do. A release is a lifetime transition and not a hit test: dropping it
+	// leaves the editor believing a selection is still being made, and the next drag
+	// that crosses the field continues one nobody started here.
+	field := &headless.Text{Label: "Name", Value: headless.Bind(new(string))}
+	field.SetText("abcdef")
+	headless.NewRoot(field).Draw(grid.NewSurface(20, 2).View())
+
+	if !field.Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft}) {
+		t.Fatal("the press inside the field was not answered")
+	}
+	// Let go well below the field, where a container would have routed it.
+	if !field.Handle(input.Mouse{Pos: image.Pt(2, 9), Action: input.MouseUp, Button: input.ButtonLeft}) {
+		t.Fatal("the release outside the field was not answered")
+	}
+	// A drag that begins somewhere else must now be nothing to do with this field.
+	if field.Handle(input.Mouse{Pos: image.Pt(5, 1), Action: input.MouseDrag, Button: input.ButtonLeft}) {
+		t.Fatal("a drag from elsewhere went on extending the field's selection")
+	}
+}

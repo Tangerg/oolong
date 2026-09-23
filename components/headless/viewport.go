@@ -40,15 +40,16 @@ type Viewport struct {
 	// keystroke, so content with arrow keys of its own keeps them.
 	Keys *keymap.Map
 
+	focusState
 	content Sized
 	scroll  Scroll
 	// presentation identifies the content and offset shown by the last complete
 	// root frame, so pointer routing cannot observe a half-built window.
 	presentation Snapshot[viewportPresentation]
 	body         PointerRegion
-	// blurred says the window has been told it does not have the keyboard, which it
-	// passes on to whatever is inside it.
-	blurred bool
+	// holder is whatever was last told where it stands, which is the content unless
+	// the content has just been replaced.
+	holder Widget
 }
 
 // NewViewport constructs a window around content.
@@ -75,9 +76,8 @@ func (p *Viewport) SetContent(content Sized) {
 	if identity.Same(p.content, content) {
 		return
 	}
-	tell(p.content, false)
 	p.content = content
-	tell(p.content, !p.blurred)
+	p.settleOne(&p.holder, content)
 }
 
 // Scroll is the window's position, for a scrollbar drawn beside it.
@@ -166,9 +166,5 @@ func (p *Viewport) Focus(has bool) {
 	if !has {
 		p.scroll.matcher.Clear()
 	}
-	if p.blurred == !has {
-		return
-	}
-	p.blurred = !has
-	tell(p.content, has)
+	p.change(has, func() { p.settleOne(&p.holder, p.content) }, &p.holder)
 }

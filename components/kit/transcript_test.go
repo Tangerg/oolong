@@ -653,3 +653,63 @@ func TestMatchNavigationSurvivesStickyResizeWithoutRepeatingOnScroll(t *testing.
 		t.Fatal("invalid match was accepted")
 	}
 }
+
+func TestAPressThatSupersedesAReleaseEndsTheDragItSuperseded(t *testing.T) {
+	// Terminals lose button releases: a window that loses focus mid-drag, a
+	// multiplexer that swallows one. The next press stands in for the missing
+	// release, and standing in means ending the gesture — forgetting the reference
+	// leaves the selection saying a drag is still in progress with nothing left that
+	// would ever say otherwise.
+	tr := session(t, 30, []string{"abcdef"})
+	var sel headless.Selection
+	view := kit.Transcript{Content: tr, Selection: &sel}
+	drawTranscript(grid.NewSurface(30, 1).View(), &view)
+
+	if !view.Handle(press(0, time.Unix(0, 0))) {
+		t.Fatal("the first press was not answered")
+	}
+	if !sel.Dragging() {
+		t.Fatal("the first press did not begin a drag")
+	}
+
+	// The release never arrives; the next press lands somewhere the transcript has
+	// nothing to select, so it begins nothing of its own.
+	view.Handle(input.Mouse{Pos: image.Pt(0, 5), Action: input.MouseDown, Button: input.ButtonLeft, At: time.Unix(1, 0)})
+	if sel.Dragging() {
+		t.Fatal("the superseded drag is still in progress")
+	}
+}
+
+func TestAPinnedHeaderShowsTheSelectionItCanTake(t *testing.T) {
+	// A press in the header selects the rows the header is showing, because they are
+	// the same content rows. Leaving the header unmarked meant dragging over it did
+	// something the screen never admitted to.
+	tr := session(t, 20,
+		[]string{"prompt"},
+		[]string{"a1", "a2", "a3", "a4", "a5", "a6"},
+	)
+	var sc headless.Scroll
+	sticky := &headless.Sticky{Gap: 1}
+	sticky.SetBlocks([]headless.BlockID{0})
+	var selection headless.Selection
+	selection.Begin(headless.Point{Row: 0, Col: 0})
+	selection.Extend(headless.Point{Row: 0, Col: 3})
+
+	s := grid.NewSurface(20, 4)
+	view := kit.Transcript{
+		Content: tr, Scroll: &sc, Sticky: sticky, Selection: &selection,
+		Theme:  kit.Suited(grid.Ground{}),
+		Glyphs: kit.Glyphs{Horizontal: "-"},
+	}
+	stageScroll(&sc, tr.Height(), 4)
+	sc.By(2)
+	drawTranscript(s.View(), &view)
+
+	if got := rowOf(s.View(), 0, 20); !strings.HasPrefix(got, "prompt") {
+		t.Fatalf("the pinned row is %q, want the prompt", got)
+	}
+	header := styles(s.View(), 0, 20)
+	if header[0] == header[5] {
+		t.Fatalf("the selected part of the pinned row is drawn like the rest of it: %+v", header[0])
+	}
+}
