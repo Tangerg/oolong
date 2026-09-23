@@ -195,10 +195,11 @@ func (b *box) lines() []text.Line {
 	out := make([]text.Line, len(rows))
 	for y, placed := range rows {
 		slices.SortStableFunc(placed, func(a, b mark) int { return a.x - b.x })
+		var run spanRun
 		at := 0
 		for _, item := range placed {
 			if item.x > at {
-				out[y] = appendSpan(out[y], text.Span{Text: strings.Repeat(" ", item.x-at)})
+				run.write(strings.Repeat(" ", item.x-at), grid.Style{})
 				at = item.x
 			}
 			// Composition is built not to overlap. Be conservative if a malformed
@@ -206,22 +207,50 @@ func (b *box) lines() []text.Line {
 			if item.x < at {
 				continue
 			}
-			out[y] = appendSpan(out[y], text.Span{Text: item.value, Style: item.style})
+			run.write(item.value, item.style)
 			at += text.Width(item.value)
 		}
+		out[y] = run.done()
 	}
 	return out
 }
 
-func appendSpan(line text.Line, span text.Span) text.Line {
-	if span.Text == "" {
-		return line
+// spanRun builds one row's spans without rewriting what it has already placed.
+//
+// Marks arrive one cell at a time and adjacent ones usually share a style. Merging
+// them by appending to the last span's string copies everything written so far on
+// every mark, which is quadratic in the length of the row: a formula of 56 KiB
+// allocated gigabytes to draw a few thousand columns. A builder holds the run open
+// until the style changes and copies it once.
+type spanRun struct {
+	line  text.Line
+	run   strings.Builder
+	style grid.Style
+	open  bool
+}
+
+func (r *spanRun) write(value string, style grid.Style) {
+	if value == "" {
+		return
 	}
-	if len(line) > 0 && line[len(line)-1].Style == span.Style && line[len(line)-1].Link == span.Link {
-		line[len(line)-1].Text += span.Text
-		return line
+	if r.open && r.style != style {
+		r.close()
 	}
-	return append(line, span)
+	r.style, r.open = style, true
+	r.run.WriteString(value)
+}
+
+func (r *spanRun) close() {
+	if r.run.Len() > 0 {
+		r.line = append(r.line, text.Span{Text: r.run.String(), Style: r.style})
+		r.run.Reset()
+	}
+	r.open = false
+}
+
+func (r *spanRun) done() text.Line {
+	r.close()
+	return r.line
 }
 
 func repeatToWidth(glyph string, width int) string {

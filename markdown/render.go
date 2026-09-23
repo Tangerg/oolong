@@ -92,6 +92,14 @@ type railChain struct {
 	depth    int
 }
 
+// len is how many segments this rail has.
+func (r *railChain) len() int {
+	if r == nil {
+		return 0
+	}
+	return r.depth
+}
+
 func (r *railChain) line() text.Line {
 	if r == nil {
 		return nil
@@ -113,11 +121,15 @@ type renderer struct {
 	// reaches the first line of whatever the item begins with — a paragraph, a nested
 	// list, a block of code.
 	marker text.Line
+	// markerDepth is how many rail segments stood outside the list the marker begins
+	// an item of. The mark goes after those and before anything the item quotes,
+	// because that is where it is: inside them and outside these.
+	markerDepth int
 }
 
 // push adds a block, giving it whatever marker is waiting.
 func (r *renderer) push(b Block) {
-	b.marker, r.marker = r.marker, nil
+	b.marker, b.markerDepth, r.marker = r.marker, r.markerDepth, nil
 	r.blocks = append(r.blocks, b)
 }
 
@@ -130,10 +142,11 @@ const (
 )
 
 type renderAction struct {
-	kind   renderActionKind
-	node   ast.Node
-	frame  frame
-	marker text.Line
+	kind        renderActionKind
+	node        ast.Node
+	frame       frame
+	marker      text.Line
+	markerDepth int
 }
 
 // render walks the block tree with explicit actions. Markdown nesting is input, not
@@ -148,7 +161,7 @@ func (r *renderer) render(root ast.Node, in frame) {
 		stack = stack[:last]
 		switch action.kind {
 		case setMarker:
-			r.marker = action.marker
+			r.marker, r.markerDepth = action.marker, action.markerDepth
 		case clearMarker:
 			r.marker = nil
 		case renderNode:
@@ -268,7 +281,7 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 		*stack = append(*stack,
 			renderAction{kind: clearMarker},
 			renderAction{kind: renderNode, node: item, frame: inner},
-			renderAction{kind: setMarker, marker: marker},
+			renderAction{kind: setMarker, marker: marker, markerDepth: in.rail.len()},
 		)
 		index--
 	}

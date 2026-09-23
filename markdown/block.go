@@ -27,8 +27,11 @@ type Block struct {
 
 	indent int
 	marker text.Line
-	rail   text.Line
-	rule   bool
+	// markerDepth is how many rail segments stand outside the marker. See
+	// [withMarker].
+	markerDepth int
+	rail        text.Line
+	rule        bool
 
 	blankBefore bool
 }
@@ -52,9 +55,14 @@ func (b Block) Draw(v grid.View) {
 // width. Markers and quotation rails are decoration and are not included in Text.
 func (b Block) Rows(width int) []text.Row { return b.layout(width).project() }
 
-// BlankBefore reports whether the renderer asked for a blank row before this block.
-// It is false for the first block of a document and between the items of a tight
-// list, and true where separate prose blocks need to read as separate things.
+// BlankBefore reports whether this block wants a blank row in front of it: false
+// between the items of a tight list, true where separate prose blocks need to read as
+// separate things.
+//
+// It is the block's own spacing and not a statement about the document. Whether
+// anything precedes this block is the composer's to know — the same reason
+// [Block.Draw] leaves the row out — and a stream settles its answer one piece at a
+// time, so no block can say whether it is the first one anybody will see.
 func (b Block) BlankBefore() bool { return b.blankBefore }
 
 // blockLayout keeps an embedded child's geometry without flattening its drawing.
@@ -63,6 +71,7 @@ type blockLayout struct {
 	child               grid.Drawable
 	left, width, height int
 	rail, marker        text.Line
+	markerDepth         int
 }
 
 func (b Block) layout(width int) blockLayout {
@@ -79,7 +88,33 @@ func (b Block) layout(width int) blockLayout {
 	if room > 0 {
 		height = max(0, b.content.HeightForWidth(room))
 	}
-	return blockLayout{child: b.content, left: left, width: room, height: height, rail: b.rail, marker: b.marker}
+	return blockLayout{child: b.content, left: left, width: room, height: height, rail: b.rail, marker: b.marker, markerDepth: b.markerDepth}
+}
+
+// withMarker is the first row's prefix: the quotation bars the item sits inside, the
+// mark that begins it, and then the bars of whatever the item itself quotes.
+//
+// The bars and the mark do not occupy the same columns, which is what replacing one
+// with the other got wrong: every item of a quoted list lost its bar and the list
+// drifted left by the width of it. Nor are they in a fixed order — a list in a
+// quotation is a bar then a bullet, and a quotation in a list item is a bullet then a
+// bar — which is why the mark is placed by how many bars stood outside the list it
+// begins an item of.
+func withMarker(rail, marker text.Line, depth, indent int) text.Line {
+	if len(marker) == 0 {
+		return rail
+	}
+	depth = min(max(depth, 0), len(rail))
+	out := make(text.Line, 0, len(rail)+len(marker)+1)
+	out = append(out, rail[:depth]...)
+	// Whatever the indent holds beyond the bars and this mark belongs to the lists
+	// this item is nested inside. Their marks were drawn on their own first rows and
+	// this one stands to the right of the room they took.
+	if gap := indent - rail.Width() - marker.Width(); gap > 0 {
+		out = append(out, text.Span{Text: strings.Repeat(" ", gap)})
+	}
+	out = append(out, marker...)
+	return append(out, rail[depth:]...)
 }
 
 func (p blockLayout) draw(v grid.View) {
@@ -92,9 +127,9 @@ func (p blockLayout) draw(v grid.View) {
 	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
 		prefix := p.rail
 		if y == 0 && len(p.marker) > 0 {
-			prefix = p.marker
+			prefix = withMarker(p.rail, p.marker, p.markerDepth, p.left)
 		}
-		prefix.Draw(v, p.left-prefix.Width(), y)
+		prefix.Draw(v, 0, y)
 	}
 }
 
@@ -141,9 +176,7 @@ func (b Block) appendRows(dst []row, width int) []row {
 		dst[i].prefix = b.rail
 	}
 	if start < len(dst) && len(b.marker) > 0 {
-		// A marker replaces the rail on the first row because the two occupy the
-		// same columns: a list inside a quotation is a bar and then a deeper bullet.
-		dst[start].prefix = b.marker
+		dst[start].prefix = withMarker(b.rail, b.marker, b.markerDepth, b.indent)
 	}
 	return dst
 }

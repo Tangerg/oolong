@@ -237,6 +237,13 @@ func (s *Stream) scan() int {
 				s.fenced, s.fence = false, ""
 			}
 		case fenceOf(trimmed) != "":
+			// A fence at the left margin after a blank line begins something new, the
+			// same as any other line does. Clearing the pending cut without taking it
+			// meant a document that opened a block of code after a paragraph never
+			// committed anything again.
+			if s.blank > 0 && !indented(line) {
+				cut = s.blank
+			}
 			s.fenced, s.fence = true, strings.Clone(fenceOf(trimmed))
 			s.blank = 0
 		case trimmed == "":
@@ -257,14 +264,18 @@ func (s *Stream) scan() int {
 // fenceOf is the run of backticks or tildes that opens a block of code, or nothing
 // when the line does not open one.
 //
-// Up to three spaces of indent, because that is what the syntax allows and what a
+// Any indent counts, which is more than the syntax allows at the top level and is
+// deliberate. A fence inside a list item is indented past three spaces, and this scan
+// does not know how deep the item is. Reading it as a fence holds the block together;
+// reading it as prose would let a blank line inside the code produce a cut, and a cut
+// inside a block of code splits a literal across two parses — the one thing a
+// streaming renderer must never do to text it is not allowed to interpret.
+//
+// The syntax otherwise allows up to three spaces, because that is what it allows and what a
 // list item's contents arrive with. Four would be a block of code by indent, which
 // needs no fence and ends by itself.
 func fenceOf(line string) string {
 	trimmed := strings.TrimLeft(line, " ")
-	if len(line)-len(trimmed) > 3 {
-		return ""
-	}
 	if strings.TrimRight(trimmed, " \t") == "$$" {
 		return "$$"
 	}
@@ -286,7 +297,7 @@ func fenceOf(line string) string {
 // — which is what lets a line of backticks inside a block of shell script not end it.
 func closes(line, fence string) bool {
 	trimmed := strings.TrimLeft(line, " ")
-	if len(line)-len(trimmed) > 3 || fence == "" {
+	if fence == "" {
 		return false
 	}
 	if fence == "$$" {

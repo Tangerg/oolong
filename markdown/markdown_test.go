@@ -415,8 +415,8 @@ func TestMarkdownReplacesMalformedUTF8(t *testing.T) {
 	want := []string{"bad �", "", "�"}
 	equal(t, render(t, 40, source), want)
 	var stream markdown.Stream
-	mustFeed(t, &stream, source)
-	equal(t, rows(t, 40, mustOpen(t, &stream)), want)
+	committed := mustFeed(t, &stream, source)
+	equal(t, rows(t, 40, append(committed, mustOpen(t, &stream)...)), want)
 }
 
 func TestAStreamKeepsThePendingCutInsideItsNewTail(t *testing.T) {
@@ -532,6 +532,22 @@ func TestAnAutolinkShowsWhatWasWrittenAndPointsWhereItGoes(t *testing.T) {
 		}
 		if got := cellAt(s, 0, 0).Link; got != tc.target {
 			t.Errorf("%s points at %q, want %q", tc.source, got, tc.target)
+		}
+	}
+}
+
+func TestAQuotationKeepsItsBarThroughAListAndTheOtherWayRound(t *testing.T) {
+	// A bar and a mark do not occupy the same columns, and they are not in a fixed
+	// order: a list in a quotation is a bar then a bullet, and a quotation in a list
+	// item is a bullet then a bar. Letting the mark replace the bar lost the bar from
+	// every item of a quoted list and shifted the list left by the width of it.
+	for source, want := range map[string][]string{
+		"> - one\n> - two":          {"│ • one", "│ • two"},
+		"- > quoted":                {"• │ quoted"},
+		"> para\n>\n> - a\n>   - b": {"│ para", "", "│ • a", "│   • b"},
+	} {
+		if got := render(t, 30, source); !slices.Equal(got, want) {
+			t.Errorf("%q drawn as\n%s\nwant\n%s", source, strings.Join(got, "\n"), strings.Join(want, "\n"))
 		}
 	}
 }
