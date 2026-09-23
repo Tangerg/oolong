@@ -70,8 +70,12 @@ type runner struct {
 	// it is a decoder and not a function.
 	out     text.Decoder
 	spinner kit.Spinner
-	status  string
-	done    bool
+	// stopSpinner ends the animation. A run that has finished is not doing anything,
+	// and a ticker that goes on waking the loop for an animation nobody is drawing is
+	// a program that never goes quiet.
+	stopSpinner func()
+	status      string
+	done        bool
 }
 
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
@@ -85,7 +89,7 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	// The window says what is happening to somebody looking at another window, which
 	// is the one thing an interface cannot say by drawing.
 	runtime.Session().SetTitle(strings.Join(command, " "))
-	runtime.Every(120*time.Millisecond, r.spinner.Tick)
+	r.stopSpinner = runtime.Every(120*time.Millisecond, r.spinner.Tick)
 	var err error
 	r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 64 << 10, Consume: r.accept})
 	if err != nil {
@@ -175,6 +179,10 @@ func (r *runner) finish(err error) {
 		r.runtime.Print(paragraph)
 	}
 	r.done = true
+	if r.stopSpinner != nil {
+		r.stopSpinner()
+		r.stopSpinner = nil
+	}
 	r.status = "done"
 	if err != nil {
 		r.status = err.Error()

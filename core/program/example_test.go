@@ -102,19 +102,19 @@ func ExampleRuntime_Dispatcher() {
 		post := p.runtime.Dispatcher()
 		go func() {
 			response, err := http.Get(endpoint) //nolint:noctx // an example, not a client
+			status := "unreachable"
+			if err == nil {
+				// Finished with here, on the goroutine that asked for it. Closing it
+				// from the posted work would leave the connection open until the
+				// program next ran anything — and open for good if it had already
+				// stopped, because then the work never runs.
+				status = response.Status
+				_, _ = io.Copy(io.Discard, response.Body)
+				_ = response.Body.Close()
+			}
 			// Back on the program goroutine: assigning p.status here is safe, and
 			// assigning it in the goroutine above would not have been.
-			post.Post(func() {
-				if err != nil {
-					p.status = "unreachable"
-					return
-				}
-				defer func() {
-					_, _ = io.Copy(io.Discard, response.Body)
-					_ = response.Body.Close()
-				}()
-				p.status = response.Status
-			})
+			post.Post(func() { p.status = status })
 		}()
 	}
 	_ = load

@@ -195,7 +195,9 @@ func read(root string, depth int) []headless.Node[entry] {
 	}
 	items, err := os.ReadDir(root)
 	if err != nil {
-		return nil
+		// A directory nobody may open is not an empty directory, and drawing it as one
+		// tells the reader something untrue about their own filesystem.
+		return []headless.Node[entry]{{Item: entry{name: filepath.Base(root) + ": " + err.Error()}}}
 	}
 	slices.SortFunc(items, func(a, b os.DirEntry) int {
 		if a.IsDir() != b.IsDir() {

@@ -64,6 +64,8 @@ func (c *conversation) Append(block headless.Block) {
 func (c *conversation) append(block headless.Block) headless.BlockID {
 	id := c.content.Append(block)
 	c.content.Finish(id)
+	// A new entry is a discrete thing that happened, not a chunk of one still
+	// arriving: showing it is the point of adding it.
 	c.scroll.ToBottom()
 	return id
 }
@@ -94,18 +96,34 @@ func (c *conversation) FlushMarkdown() {
 	c.open, c.hasOpen = nil, false
 }
 
-func (c *conversation) finishOpen(blocks []markdown.Block) {
-	if len(blocks) == 0 {
-		return
+// follow keeps the view at the end only while the reader is already there.
+//
+// Scrolling up is how somebody reads what has gone past, and an answer still being
+// written arrives in a great many pieces. Pulling the reader back on every one of
+// them makes reading impossible.
+func (c *conversation) follow() {
+	if c.scroll.FollowingEnd() {
+		c.scroll.ToBottom()
 	}
+}
+
+func (c *conversation) finishOpen(blocks []markdown.Block) {
 	if !c.hasOpen {
+		if len(blocks) == 0 {
+			return
+		}
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
 		c.append(doc)
 		return
 	}
-	c.open.SetBlocks(blocks)
-	c.content.Changed(c.openID)
+	// An answer that ends with nothing left to add still ends. Returning early left
+	// the block open for good, and retention stops at the first block that has not
+	// finished — so nothing after it could ever reach the terminal's own scrollback.
+	if len(blocks) > 0 {
+		c.open.SetBlocks(blocks)
+		c.content.Changed(c.openID)
+	}
 	c.content.Finish(c.openID)
 	c.open, c.hasOpen = nil, false
 }
@@ -123,7 +141,7 @@ func (c *conversation) stageOpen(blocks []markdown.Block) {
 		c.openID = c.content.Append(c.open)
 		c.hasOpen = true
 	}
-	c.scroll.ToBottom()
+	c.follow()
 }
 
 func (c *conversation) Retain(printer kit.Printer) {
@@ -141,7 +159,7 @@ func (c *conversation) Retain(printer kit.Printer) {
 	if excess := finished - retainedAgentBlocks; excess > 0 {
 		c.view.Commit(printer, excess)
 	}
-	c.scroll.ToBottom()
+	c.follow()
 }
 
 func (c *conversation) Reset() {

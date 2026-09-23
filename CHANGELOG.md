@@ -18,6 +18,185 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-09-24
+
+A repair release. An external audit of v0.19.0 reported 55 defects; 54 are fixed
+here, each with a test that fails against the old behaviour. The recurring shape is
+a fact with two owners, or a fact read somewhere it was not true.
+
+### Changed
+
+- `ansi.Limit` is the whole 21-bit space a Unicode code point fits in. The previous
+  bound stopped below U+10FFFF, so a Kitty key report from the top plane was refused
+  as malformed.
+- `ansi.ErrSequenceTooLong` bounds the sequence and not what a scanner happens to be
+  holding. The bound used to be measured against the retained suffix, so the same
+  bytes were refused when they arrived in pieces and accepted when they arrived
+  whole — a scanner's answer must not depend on where the read split.
+- `headless.Table` holds its list instead of embedding it. An embedded list gave
+  every caller a second way to replace the rows, and a caller who took it left the
+  header saying they were sorted by a column they were no longer in the order of.
+- `ssh.Run` refuses a session whose PTY the server emulates, with the new
+  `ssh.ErrEmulatedPTY`. Such a session rewrites every newline written through it,
+  and a frame is exact bytes.
+- `ptytest.Session.Close` ends the whole session it started, not only its leader.
+  Anything the child left running held the terminal open, which is also what left
+  the transcript reader's own read with nothing to end it.
+- `Editor.SetMask` requires a mask that is still itself when written twice in a row.
+  A mask judged on its own could join a copy of itself — two regional indicators are
+  a flag — and draw fewer clusters than the text had characters.
+- `Block.BlankBefore` documents what it is: the block's own spacing. Whether
+  anything precedes a block is the composer's to know, and a stream settles that one
+  piece at a time.
+- `ptytest.Config.Env` documents os/exec's rule rather than contradicting it: nil
+  inherits, and any other value replaces — an empty non-nil slice included.
+
+### Fixed
+
+Terminal and protocol:
+
+- A startup probe spends one budget on asking and being answered. The write had no
+  deadline of its own, so a terminal that never drained could hold the exchange open
+  while no owner existed to give raw mode back.
+- The probe stamps what it decodes with when it arrived. A key pressed before the
+  terminal answered reached the session with no time on it, and a double-click, a
+  trackpad's run of wheel reports and a two-chord binding are all decided by time.
+- The resize subscription is taken out before the opening size is measured. Anything
+  that happened in between — which is the whole of the probe — went to the default
+  signal handler and was ignored.
+- The terminal's last known size has one owner. Taking the terminal back from a
+  child measured it again without telling the watcher, so a change back to the size
+  the watcher still remembered read as no change at all.
+- An inline block records that it has been finished only once that reached the
+  terminal. A failed write made the failure permanent: the retry had nothing left to
+  send, and the cursor stayed hidden.
+- Cursor-key and shift-tab reports are decoded from the whole report. Reading the
+  modifier group alone let a sequence this package cannot read fire a key nobody
+  pressed.
+- `Parser.Pending` counts an open paste and a string still being read. Their bytes
+  are consumed into the payload rather than left in the buffer.
+- A clipboard answer is judged empty after decoding. Base64 ignores line breaks, so
+  a payload of one newline became a paste that cleared the selection the user had.
+- The graphics protocol reads `i=0` and `p=0` as "not given", and every operation
+  used to accept them: a transmission nothing can name, a placement nothing can remove, and
+  a deletion aimed at whatever the terminal took an unnamed image to be.
+- "No frame after the transport is known unusable" is enforced at the publication
+  edge rather than at some of the places that publish one.
+- Flex floors are minimums rather than shares. Applying them after the weights made
+  a slot's minimum depend on where it sat in the row.
+- SGR dispatch reads the private marker, so XTerm's `CSI > Ps m` no longer arrives
+  as style.
+
+Components:
+
+- Focus is settled in one place. Three owners shared the rule and three kept their
+  own; the part every copy got wrong or right by accident was the first report,
+  which is never empty — a widget with nothing above it assumes it has the keyboard.
+- A transcript's press that supersedes a release the terminal never sent ends the
+  gesture it supersedes instead of forgetting it.
+- A field answers the release that ends a selection dragged out of it. Dropping it
+  left the editor believing a selection was still being made, so the next drag
+  across the field went on extending it.
+- An atomic element begins where a cell begins. It could start inside a grapheme
+  cluster, so its first cell was shared with a character it did not own and removing
+  it left a mark behind.
+- A paragraph's row cap keeps what the wrap swallowed at the break above the row it
+  ends with. Copying a capped paragraph ran its last two words together.
+- A pinned transcript header shows the selection it can take.
+- A tree indents by the width it was given. The default was written as a floor, so a
+  caller asking for one column got two.
+
+Content:
+
+- A quotation keeps its bar through a list, and a list its mark inside a quotation.
+  The mark replaced the bar, so every item of a quoted list lost it and the list
+  drifted left by its width.
+- Streaming commits again after a block of code opens. A fence following a blank
+  line cleared the pending cut instead of taking it, so every feed re-parsed the
+  answer from the top. Fences indented past three spaces — which is every fence
+  inside a list item — are recognised, so a blank line inside one can no longer
+  produce a cut that splits a code literal.
+- An ordered list keeps the number it starts from, zero included.
+- A list item with nothing in it keeps its mark.
+- A table's rule is as wide as its column: the divider is filled by column rather
+  than repeated by count.
+- An autolink shows what was written and points where it goes. It showed its
+  destination, and used an email address as one, which is not one without a scheme.
+- A text-mode argument keeps the spaces it was written with. The whole expression
+  reached a math-mode parser, which drops them.
+- An unimplemented control sequence is refused rather than rendered as the letters
+  it happens to spell. Only TeX's log-like operators are spelled with their own.
+- Rendering a formula grows with the formula. A row was assembled by appending to
+  the last span's string, which copies everything written so far on every cell: 56
+  KiB of `a+a+a+…` allocated 3.4 GiB, and now allocates 51 MiB.
+
+Transports, harness and examples:
+
+- A pty's primary descriptor is in the runtime's poller, so closing it ends a
+  pending read instead of waiting for one.
+- An SSH session's reader stops taking bytes when the source closes. Offering a
+  chunk in a select beside the stop signal let a closed source go on consuming the
+  caller's channel for as long as its buffer had room.
+- A tab with no further stop stays in its row.
+- Streaming views follow the end only while the reader is already there.
+- An agent's open block is finished even when the answer ends with nothing left to
+  add. It stayed open for good, and retention stops at the first unfinished block.
+- A review pane keeps room for the change it is asking about, and the change
+  scrolls.
+- Recalling a composer entry restores what was attached to it, not only its words.
+- A directory that cannot be read says so instead of drawing as an empty one.
+- A finished run stops its spinner.
+- Pointer events reach the widget they were aimed at in the dashboard and the
+  composer's completion popup.
+
+### Breaking API migration
+
+#### core
+
+- `ansi.Limit` is now `1 << 21` rather than `1 << 20`. A parameter between the two
+  used to read as malformed and now reads as itself. Nothing to change unless a
+  decoder relied on the old bound to refuse a value; the values it refuses now are
+  the ones no protocol in this family carries.
+- `ansi.ErrSequenceTooLong` is reported for any escape sequence past the bound,
+  finished or not. Its message no longer says "unfinished". A caller that matched on
+  the text should match on the error.
+
+#### components
+
+- `headless.Table` no longer embeds `headless.List`. Every operation a table needs is
+  forwarded under the same name, so `table.Select`, `table.Items`, `table.Handle` and
+  the rest are unchanged; what is gone is the embedded field
+  `headless.Table.List`, which was a second way to replace the rows and therefore a
+  second owner of their order. `List.Row`, `List.Keys`
+  and `List.Wrap` are now `Table.Row`, `Table.Keys` and `Table.Wrap` — set them on the
+  table.
+- `Editor.SetMask` panics for a mask that joins a copy of itself, which no longer
+  includes only tabs, controls and zero-width text. A mask of ordinary visible
+  characters is unaffected.
+
+#### ssh
+
+- `ssh.Run` reports the new `ssh.ErrEmulatedPTY` for a session whose PTY the server
+  emulates. A server configured with `ssh.EmulatePty` previously drew a torn
+  interface; it now refuses before taking the session, so its handler can offer
+  something else.
+
+#### ptytest
+
+- `Session.Close` and cancelling the context passed to `Start` kill the child's whole
+  process group rather than the child alone. A test that relied on a descendant
+  outliving its session must start that descendant outside the session.
+
+### Internal
+
+- The documentation-direction rule reads the packages off the tree instead of a list
+  beside the derived ring prefixes; the list had already gone stale on two of them.
+- The workspace-sync check watches the files `go work sync` writes.
+- The release order loop's termination test answers its own question.
+- Repository checks that passed for the wrong reason are repaired: a pty input test
+  the line discipline satisfied by itself, a colour assertion that accepted the word
+  "red", and `ssh.Run`'s contract tests running inside the package they test.
+
 ## [0.19.0] — 2026-09-23
 
 ### Added

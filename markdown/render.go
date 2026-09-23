@@ -92,8 +92,8 @@ type railChain struct {
 	depth    int
 }
 
-// len is how many segments this rail has.
-func (r *railChain) len() int {
+// segments is how many bars this rail has.
+func (r *railChain) segments() int {
 	if r == nil {
 		return 0
 	}
@@ -281,7 +281,7 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 		*stack = append(*stack,
 			renderAction{kind: clearMarker},
 			renderAction{kind: renderNode, node: item, frame: inner},
-			renderAction{kind: setMarker, marker: marker, markerDepth: in.rail.len()},
+			renderAction{kind: setMarker, marker: marker, markerDepth: in.rail.segments()},
 		)
 		index--
 	}

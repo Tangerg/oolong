@@ -80,26 +80,39 @@ type reviewRequest struct {
 }
 
 type reviewPane struct {
-	diff  *kit.Diff
-	form  *kit.Form
-	theme kit.Theme
-	title string
+	diff *kit.Diff
+	// window scrolls the change. A diff is as tall as the change is, and a review
+	// pane is as tall as the terminal: without a window the part that did not fit was
+	// simply not there, and somebody was asked to allow a change they could not read.
+	window *headless.Viewport
+	form   *kit.Form
+	theme  kit.Theme
+	title  string
 }
 
 func (p *reviewPane) Draw(frame headless.Frame) {
 	width, height := frame.Size()
-	formRows := min(p.form.HeightForWidth(width), height)
+	// The form may not take the whole pane. On a narrow terminal it wraps, and a form
+	// as tall as the pane left the change no rows at all.
+	formRows := min(p.form.HeightForWidth(width), max(height-1, 0))
 	rows := frame.Subs((layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
 		{Size: layout.Fixed(1)},
 		{Size: layout.Flex(1)},
 		{Size: layout.Fixed(formRows)},
 	}))
 	kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: "…"}.Draw(rows[0].View)
-	p.diff.Draw(rows[1].View)
+	p.window.Draw(rows[1])
 	p.form.Draw(rows[2])
 }
 
-func (p *reviewPane) Handle(event input.Event) bool { return p.form.Handle(event) }
+// Handle gives the keyboard to the form and the wheel to the change. The form owns
+// the decision; the window owns being able to read what the decision is about.
+func (p *reviewPane) Handle(event input.Event) bool {
+	if p.form.Handle(event) {
+		return true
+	}
+	return p.window.Handle(event)
+}
 
 func (p *reviewPane) Focus(has bool) { p.form.Focus(has) }
 
@@ -118,9 +131,11 @@ func (a *agent) buildReview() {
 		Theme: a.theme, Glyphs: a.glyphs, Controller: a.reviewForm,
 		Hints: []keymap.Action{headless.Submit, headless.Cancel},
 	})
+	change := kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Numbers: true})
 	a.reviewPane = reviewPane{
-		diff: kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Numbers: true}),
-		form: dressed, theme: a.theme,
+		diff:   change,
+		window: headless.NewViewport(headless.Static{Of: change}),
+		form:   dressed, theme: a.theme,
 	}
 	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
 		Stack: &a.stack, Theme: a.theme, Glyphs: a.glyphs,

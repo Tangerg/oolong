@@ -357,6 +357,10 @@ type activity struct {
 	// settings pane both edit this one value, so neither can drift from the other.
 	rateValue int
 	rate      *kit.Slider
+	// slider is where the rate slider was drawn. A press arrives in this widget's
+	// coordinates and the slider reasons in its own, so handing the event straight on
+	// aimed it a row above where the user clicked.
+	slider headless.PointerRegion
 }
 
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
@@ -400,6 +404,7 @@ func (a *activity) Draw(v headless.Frame) {
 		Percent: true,
 	}.Draw(rows[0].View)
 	a.rate.Draw(rows[1])
+	a.slider.Stage(v, rows[1].Bounds(), a.rate)
 	kit.Sparkline{
 		Theme: a.theme, Glyphs: a.glyphs, Values: a.samples,
 		Minimum: 0, Maximum: 1,
@@ -419,7 +424,13 @@ func (a *activity) Draw(v headless.Frame) {
 	}.Draw(rows[4].View)
 }
 
-func (a *activity) Handle(event input.Event) bool { return a.rate.Handle(event) }
+func (a *activity) Handle(event input.Event) bool {
+	if mouse, ok := event.(input.Mouse); ok {
+		handled, _ := a.slider.Handle(mouse)
+		return handled
+	}
+	return a.rate.Handle(event)
+}
 
 func (a *activity) Focus(has bool) { a.rate.Focus(has) }
 

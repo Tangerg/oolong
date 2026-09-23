@@ -51,11 +51,20 @@ type prompt struct {
 	composer   kit.Composer
 	completion headless.Completion
 	history    headless.History
+	// sent remembers what was attached to each entry, in the order the chips appear
+	// in it. History carries text and a chip is not text: recalling an entry used to
+	// leave its label behind as ordinary words with the bytes already released, so
+	// the attachment was lost by the act of looking at it again.
+	sent       map[string][]string
 	output     kit.Paragraph
 	status     string
 	references []reference
 	pastes     map[uint64]string
 	field      headless.PointerRegion
+	// popup is where the completion was drawn. Without it the completion answered a
+	// press wherever it landed, in this widget's coordinates rather than its own —
+	// so a click on the editor picked a candidate, and picked the wrong one.
+	popup headless.PointerRegion
 }
 
 func newPrompt(runtime *program.Runtime) *prompt {
@@ -124,7 +133,7 @@ func (p *prompt) Handle(event input.Event) bool {
 			return true
 		}
 	}
-	if p.completion.Handle(event) {
+	if _, isMouse := event.(input.Mouse); !isMouse && p.completion.Handle(event) {
 		p.releaseRemovedPastes()
 		return true
 	}
@@ -136,14 +145,14 @@ func (p *prompt) Handle(event input.Event) bool {
 		switch key.Code {
 		case input.Up:
 			if value, moved := p.history.Back(p.composer.Editor().Text()); moved {
-				p.composer.Editor().SetText(value)
+				p.restore(value)
 			}
 			p.releaseRemovedPastes()
 			p.refreshCompletion()
 			return true
 		case input.Down:
 			if value, moved := p.history.Forward(); moved {
-				p.composer.Editor().SetText(value)
+				p.restore(value)
 			}
 			p.releaseRemovedPastes()
 			p.refreshCompletion()
@@ -156,6 +165,10 @@ func (p *prompt) Handle(event input.Event) bool {
 	}
 
 	if mouse, ok := event.(input.Mouse); ok {
+		if handled, _ := p.popup.Handle(mouse); handled {
+			p.releaseRemovedPastes()
+			return true
+		}
 		handled, _ := p.field.Handle(mouse)
 		if handled {
 			p.refreshCompletion()
@@ -171,13 +184,57 @@ func (p *prompt) Handle(event input.Event) bool {
 }
 
 func (p *prompt) insertPaste(body string) {
-	lines := strings.Count(body, "\n") + 1
-	element := p.composer.Editor().InsertElement(pasteElement, fmt.Sprintf("[paste %d lines]", lines))
+	p.attach(body)
+	p.status = fmt.Sprintf("%d-line paste attached; backspace removes it atomically",
+		strings.Count(body, "\n")+1)
+	p.refreshCompletion()
+}
+
+// attach puts one chip at the cursor and keeps the bytes it stands for.
+func (p *prompt) attach(body string) {
+	element := p.composer.Editor().InsertElement(pasteElement, pasteLabel(body))
 	if element.ID != 0 {
+		if p.pastes == nil {
+			p.pastes = make(map[uint64]string)
+		}
 		p.pastes[element.ID] = strings.Clone(body)
 	}
-	p.status = fmt.Sprintf("%d-line paste attached; backspace removes it atomically", lines)
-	p.refreshCompletion()
+}
+
+// restore puts a recalled entry back with its attachments, not merely its words.
+//
+// The chips are inserted again as elements so the bytes behind them are attached to
+// this draft as they were to the one that was sent. An entry nobody recorded
+// attachments for is exactly its text.
+func (p *prompt) restore(entry string) {
+	editor := p.composer.Editor()
+	bodies := p.sent[entry]
+	if len(bodies) == 0 {
+		editor.SetText(entry)
+		p.releaseRemovedPastes()
+		return
+	}
+	editor.SetText("")
+	p.releaseRemovedPastes()
+	rest := entry
+	for _, body := range bodies {
+		label := pasteLabel(body)
+		before, after, found := strings.Cut(rest, label)
+		if !found {
+			break
+		}
+		editor.Insert(before)
+		p.attach(body)
+		rest = after
+	}
+	editor.Insert(rest)
+}
+
+// pasteLabel is what a chip says. One function, because the label written when a
+// paste arrives and the label looked for when its entry comes back have to be the
+// same string.
+func pasteLabel(body string) string {
+	return fmt.Sprintf("[paste %d lines]", strings.Count(body, "\n")+1)
 }
 
 func (p *prompt) releaseRemovedPastes() {
@@ -197,13 +254,20 @@ func (p *prompt) submit() {
 	if body == "" {
 		return
 	}
-	attached := 0
+	var attachments []string
 	for _, element := range p.composer.Editor().Elements() {
-		if _, ok := p.pastes[element.ID]; ok {
-			attached++
+		if paste, ok := p.pastes[element.ID]; ok {
+			attachments = append(attachments, paste)
 		}
 	}
+	attached := len(attachments)
 	p.history.Add(body)
+	if attached > 0 {
+		if p.sent == nil {
+			p.sent = make(map[string][]string)
+		}
+		p.sent[body] = attachments
+	}
 	p.output.SetText([]text.Line{
 		text.Of("sent: "+body, p.theme.Text),
 		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),
@@ -254,4 +318,5 @@ func (p *prompt) drawCompletion(frame headless.Frame, composerRows int) {
 	inner := box.InnerRect(area.Size())
 	box.Draw(frame.View.Sub(area))
 	p.completion.Draw(frame.Sub(area).Sub(inner))
+	p.popup.Stage(frame, inner.Add(area.Min), &p.completion)
 }

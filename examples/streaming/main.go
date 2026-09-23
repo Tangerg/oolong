@@ -319,7 +319,18 @@ func (c *chat) stageOpen(blocks []markdown.Block) {
 		c.openID = c.content.Append(c.open)
 		c.hasOpen = true
 	}
-	c.scroll.ToBottom()
+	c.follow()
+}
+
+// follow keeps the view at the end only while the reader is already there.
+//
+// Scrolling up is how somebody reads what has gone past. Pulling them back on every
+// chunk that arrives makes that impossible, and an answer that is still being written
+// arrives in a great many chunks.
+func (c *chat) follow() {
+	if c.scroll.FollowingEnd() {
+		c.scroll.ToBottom()
+	}
 }
 
 func (c *chat) finishReply(err error) {
@@ -361,7 +372,7 @@ func (c *chat) stopReply() {
 func (c *chat) appendFinished(block headless.Block) {
 	id := c.content.Append(block)
 	c.content.Finish(id)
-	c.scroll.ToBottom()
+	c.follow()
 }
 
 // retainWindow deliberately keeps a small recent stable prefix interactive and gives
@@ -382,7 +393,7 @@ func (c *chat) retainWindow() {
 	if excess := finished - retainedFinished; excess > 0 {
 		c.view.Commit(c.runtime, excess)
 	}
-	c.scroll.ToBottom()
+	c.follow()
 }
 
 func markdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
