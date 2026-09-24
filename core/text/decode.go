@@ -112,9 +112,10 @@ func (d *Decoder) Feed(chunk string) []Line {
 		lines = append(lines, d.piece(piece)...)
 		return nil
 	})
-	// Scanner bounds unfinished syntax. Decoder deliberately drops a runaway
-	// sequence: it is neither visible text nor a recoverable terminal command, and
-	// the scanner has already returned to a state that can read the next chunk.
+	// A sequence too long to carry is one more sequence this cannot show, which is
+	// the ordinary case here and not a failure of the stream. The scanner consumes
+	// it to its end whatever it costs to find, so dropping it drops the sequence
+	// rather than leaving its body to be read as text.
 	_ = err
 	return lines
 }

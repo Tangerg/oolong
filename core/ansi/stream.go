@@ -33,6 +33,12 @@ type Scanner struct {
 	held          strings.Builder
 	scanned       int
 	intermediates bool
+	// refusing says the sequence being held has been refused for its length and
+	// will not be delivered. Its introducer is still held, because a refusal has to
+	// go on looking for where the sequence ends: a scanner that simply forgot would
+	// be back in ordinary text at whatever byte the next read began with, and the
+	// rest of a control string would come out as the text it is not.
+	refusing bool
 }
 
 // noCopy makes the scanner's single-owner contract visible to go vet. Its methods
@@ -46,8 +52,13 @@ func (*noCopy) Unlock() {}
 //
 // If visit returns an error, Feed stops and returns it. The remainder is discarded:
 // a semantic consumer that rejected a complete piece cannot safely resume midway
-// through the same chunk. [ErrSequenceTooLong] likewise clears the runaway suffix,
-// leaving the Scanner ready for a later independent chunk.
+// through the same chunk.
+//
+// [ErrSequenceTooLong] is reported differently, because it is about the stream and
+// not about the consumer. The refused sequence is consumed to its end — over as many
+// chunks as that takes — and nothing of it is ever visited. Scanning carries on with
+// the bytes after it, so a consumer that treats the error as "one more sequence I
+// cannot use" is not thereby shown a control string's body as text.
 //
 // A nil visit is a programmer error and panics. Scanning without it would consume the
 // chunk and advance the Scanner's held remainder, so the bytes would be gone by the
@@ -67,52 +78,92 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 		source = s.held.String()
 		if s.incomplete(source) {
 			if len(source) > maxPending {
-				s.Reset()
-				return ErrSequenceTooLong
+				return s.refuse(source)
 			}
 			return nil
 		}
 	}
+	var refused error
 	for at := 0; at < len(source); {
 		piece, n, ok := Next(source[at:])
 		if !ok {
+			// Anything unfinished and this long is an escape sequence: an unfinished
+			// character is three bytes at the outside.
 			tail := source[at:]
 			if len(tail) > maxPending {
-				s.Reset()
-				return ErrSequenceTooLong
+				return errors.Join(refused, s.refuse(tail))
 			}
 			if buffered && at == 0 {
-				return nil
+				return refused
 			}
 			s.hold(tail)
-			return nil
-		}
-		// Plain text is exempt: it is a run rather than a sequence, and nothing is
-		// waiting on a terminator for it. Everything else is bounded whether or not
-		// it ended, so that a chunk boundary cannot decide the answer.
-		if piece.Kind != Plain && n > maxPending {
-			s.Reset()
-			return ErrSequenceTooLong
+			return refused
 		}
 		at += n
+		// A refused sequence ends here, and only here is where it ends known. What
+		// follows it is ordinary and is read as such.
+		if s.refusing {
+			s.refusing = false
+			continue
+		}
+		// Plain text is exempt from the bound: it is a run rather than a sequence, and
+		// nothing is waiting on a terminator for it. Everything else is bounded whether
+		// or not it ended, so that a chunk boundary cannot decide the answer.
+		if piece.Kind != Plain && n > maxPending {
+			refused = ErrSequenceTooLong
+			continue
+		}
 		if err := visit(piece); err != nil {
 			s.Reset()
 			return err
 		}
 	}
 	s.Reset()
-	return nil
+	return refused
+}
+
+// refuse gives up on a sequence longer than any sequence may be, while going on
+// looking for where it ends.
+//
+// Only the introducer is kept, which is all that says which terminator to look for;
+// keeping the body is the thing the bound exists to refuse. The error is reported
+// once for the sequence rather than once per chunk it goes on arriving in.
+func (s *Scanner) refuse(sequence string) error {
+	kept := sequence[:min(len(sequence), 2)]
+	// A string sequence ends at ST, which is two bytes. Dropping the first of them
+	// would make the scan run on to the next terminator it found.
+	if len(sequence) > len(kept) && sequence[len(sequence)-1] == Escape {
+		kept += string(rune(Escape))
+	}
+	s.held.Reset()
+	s.held.WriteString(kept)
+	s.scanned = min(len(kept), 2)
+	if s.refusing {
+		return nil
+	}
+	s.refusing = true
+	return ErrSequenceTooLong
 }
 
 // Pending is the undecided suffix waiting for another chunk. The returned string
 // is valid until the next call to Feed or Reset.
-func (s *Scanner) Pending() string { return s.held.String() }
+//
+// A sequence already refused for its length is not part of it: an owner settling the
+// end of a stream is asking what it still owes its consumer, and a refused sequence
+// is owed to nobody.
+func (s *Scanner) Pending() string {
+	if s.refusing {
+		return ""
+	}
+	return s.held.String()
+}
 
 // Reset drops an undecided suffix and returns the Scanner to its zero state.
 func (s *Scanner) Reset() {
 	s.held.Reset()
 	s.scanned = 0
 	s.intermediates = false
+	s.refusing = false
 }
 
 func (s *Scanner) hold(tail string) {

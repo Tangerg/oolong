@@ -46,7 +46,7 @@ func TestProbeBudgetCoversTheQueryWrite(t *testing.T) {
 		p := &probe{
 			raw:      make(chan []byte),
 			out:      out,
-			parser:   &input.Parser{},
+			stream:   input.NewStream(input.StreamConfig{}),
 			deadline: deadline,
 		}
 		done := make(chan struct{})
@@ -74,7 +74,7 @@ func TestProbeBudgetIsOneBudgetForAskingAndAnswering(t *testing.T) {
 		p := &probe{
 			raw:      make(chan []byte),
 			out:      slowWriter{until: start.Add(answerGrace * 3 / 4)},
-			parser:   &input.Parser{},
+			stream:   input.NewStream(input.StreamConfig{}),
 			deadline: deadline,
 		}
 		done := make(chan struct{})

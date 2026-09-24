@@ -12,7 +12,26 @@ import "github.com/Tangerg/oolong/components/internal/identity"
 type focusState struct {
 	settled bool
 	blurred bool
+	// turn numbers the transfers of the keyboard this owner has made.
+	//
+	// Telling a widget where it stands is a call into somebody else's code, and that
+	// code may answer by moving the keyboard again before the first move has finished
+	// saying so. The rest of the interrupted transfer would then speak from premises
+	// that no longer hold — telling the newer holder it does not have the keyboard,
+	// and the one it replaced that it does — and its last words would be the ones the
+	// widgets kept. A transfer that finds a newer one has begun has nothing left to
+	// say: the newer one told everybody.
+	turn uint64
 }
+
+// begin claims the next transfer of the keyboard.
+func (s *focusState) begin() uint64 {
+	s.turn++
+	return s.turn
+}
+
+// superseded reports whether a newer transfer has replaced the one numbered turn.
+func (s *focusState) superseded(turn uint64) bool { return s.turn != turn }
 
 func (s *focusState) change(has bool, settle func(), holder *Widget) {
 	blurred := !has
@@ -45,10 +64,14 @@ func (s *focusState) settleOne(holder *Widget, child Widget) {
 	}
 	previous := *holder
 	*holder, s.settled = child, true
+	turn := s.begin()
 	// The one that had it is told first and by name: a widget replaced by another is
 	// no longer anybody's to report to, and would go on believing it has the keyboard.
 	if previous != nil && !identity.Same(previous, child) {
 		tell(previous, false)
+		if s.superseded(turn) {
+			return
+		}
 	}
 	tell(child, !s.blurred)
 }

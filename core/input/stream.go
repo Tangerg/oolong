@@ -22,9 +22,13 @@ import (
 // events go — stays with the transport, where it belongs.
 //
 // The zero value is a decoder of its own: a fresh parser, [DefaultEscapeTimeout], and
-// no clipboard. [NewStream] is for a transport that has something to say about any of
-// those three. A Stream belongs to whichever goroutine reads the transport and must
-// not be copied after first use: its parser and its deadline are one decoder.
+// no clipboard. [NewStream] is for a transport that has something to say about either
+// of the last two. The parser is never anyone else's: a half-decoded sequence and the
+// moment its ambiguity runs out are one fact, and a transport that could be handed a
+// parser without its deadline would be given a decoder whose waiting nobody was doing.
+//
+// A Stream belongs to whichever goroutine reads the transport and must not be copied
+// after first use: its parser and its deadline are one decoder.
 type Stream struct {
 	noCopy noCopy
 
@@ -40,11 +44,6 @@ type Stream struct {
 
 // StreamConfig owns the complete construction contract of a [Stream].
 type StreamConfig struct {
-	// Parser decodes the bytes. Nil starts a fresh one. A transport that had to read
-	// before its stream existed — a startup probe answering the terminal — hands over
-	// the parser holding what it read, so a sequence straddling that handover is not
-	// split in two.
-	Parser *Parser
 	// Grace is how long an ambiguous sequence waits for the bytes that would settle
 	// it. Zero uses [DefaultEscapeTimeout].
 	Grace time.Duration
@@ -57,7 +56,7 @@ type StreamConfig struct {
 // NewStream makes a decoder for one transport. Every setting it leaves out means
 // what it means in the zero Stream.
 func NewStream(cfg StreamConfig) *Stream {
-	return &Stream{parser: cfg.Parser, grace: cfg.Grace, clipboard: cfg.Clipboard}
+	return &Stream{grace: cfg.Grace, clipboard: cfg.Clipboard}
 }
 
 // decoder is the parser this stream reads through, made on first use so that the
@@ -84,7 +83,7 @@ func (s *Stream) escapeGrace() time.Duration {
 // answered by [Stream.DueAt], which every feed brings up to date.
 func (s *Stream) Feed(chunk []byte, at time.Time) []Event {
 	events := s.settle(s.decoder().Feed(chunk), at)
-	s.Arm(at)
+	s.arm(at)
 	return events
 }
 
@@ -108,11 +107,8 @@ func (s *Stream) Flush(at time.Time) []Event {
 // escape is never delivered at all.
 func (s *Stream) DueAt() (time.Time, bool) { return s.deadline, s.waiting }
 
-// Arm re-reads the parser's ambiguity against at, which is what every feed already
-// does. It is called directly for the one case a feed does not cover: a parser handed
-// over by a startup probe may already hold an ambiguous sequence, and nothing has fed
-// this stream yet to notice.
-func (s *Stream) Arm(at time.Time) {
+// arm re-reads the parser's ambiguity against at.
+func (s *Stream) arm(at time.Time) {
 	if s.decoder().Ambiguous() {
 		s.deadline, s.waiting = at.Add(s.escapeGrace()), true
 		return

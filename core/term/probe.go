@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/core/deadline"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -66,13 +67,6 @@ const (
 	answerGrace = 200 * time.Millisecond
 )
 
-// probe puts questions to the terminal during startup and collects the answers.
-//
-// It reads the terminal directly, which is only safe because it runs before the
-// pump goroutine does: a terminal has exactly one reader, and two would race for
-// the same bytes. Everything it decodes and did not ask for — a key the user
-// managed to press first — is kept and handed on, along with the parser itself, so
-// that a sequence which straddles the handover still decodes as one.
 // queryWriter is the terminal as a probe needs it: somewhere to write a question,
 // and a way to stop waiting to be allowed to. The second is not optional. A write
 // that cannot time out never reaches the wait that bounds the rest, and until Open
@@ -82,10 +76,24 @@ type queryWriter interface {
 	SetWriteDeadline(deadline time.Time) error
 }
 
+// probe puts questions to the terminal during startup and collects the answers.
+//
+// It reads the terminal directly, which is only safe because it runs before the
+// pump goroutine does: a terminal has exactly one reader, and two would race for
+// the same bytes. Everything it decodes and did not ask for — a key the user
+// managed to press first — is kept and handed on.
+//
+// It decodes through the session's own [input.Stream] rather than a parser of its
+// own, and that is the whole of what makes startup input ordinary input. A probe
+// with a bare parser answers "what bytes are these" and nothing else, so the two
+// decisions a stream owns — when an ambiguous escape has waited long enough, and
+// when each event arrived — would go unmade for as long as the probe held the
+// terminal. An Escape pressed while the questions were in flight would come back as
+// the Alt-modified form of whatever the user typed next.
 type probe struct {
 	raw    <-chan []byte
 	out    queryWriter
-	parser *input.Parser
+	stream *input.Stream
 	// deadline is when the whole exchange must be over, asking included. It is set
 	// by whoever started the probe, which is also what holds the transport to the
 	// same instant; measuring the wait from after the write would leave the write
@@ -136,15 +144,21 @@ func (p *probe) run() answers {
 	// left of the budget is what asking did not spend.
 	timer := time.NewTimer(time.Until(p.deadline))
 	defer timer.Stop()
+	// An ambiguous escape waits out its own grace here exactly as it would once the
+	// pump is running. The two deadlines are unrelated: one bounds the exchange, the
+	// other settles a keystroke, and a probe that woke only for the first would carry
+	// an escape past every byte that followed it.
+	due := deadline.NewTimer()
+	defer due.Stop()
 	for !got.hasAttrs {
+		due.Schedule(p.stream.DueAt())
 		select {
 		case chunk := <-p.raw:
-			// Stamped here, where the arrival is. Everything the session sees later is
-			// stamped by the pump, and a key the user managed to press during startup
-			// is still a key the session will ask when about: a double-click, a
-			// trackpad's run of wheel reports and a two-chord binding are all decided
-			// by time, and against a zero one they are decided wrongly.
-			for _, ev := range input.Stamp(p.parser.Feed(chunk), time.Now()) {
+			for _, ev := range p.stream.Feed(chunk, time.Now()) {
+				p.take(ev, &got)
+			}
+		case <-due.Channel():
+			for _, ev := range p.stream.Expire(time.Now()) {
 				p.take(ev, &got)
 			}
 		case <-timer.C:

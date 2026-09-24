@@ -724,3 +724,57 @@ func TestAReleaseOutsideAFieldStillEndsTheSelectionItStarted(t *testing.T) {
 		t.Fatal("a drag from elsewhere went on extending the field's selection")
 	}
 }
+
+// normalizingValue is a controlled value whose owner reacts to being written.
+//
+// It is the ordinary shape of a controlled field in an application: Set is the
+// change notification, and what an application does there is update its model and
+// tell the interface. Doing that synchronously is not exotic — it is what a
+// single-goroutine interface does, and the alternative would be to post the change
+// back to itself.
+type normalizingValue struct {
+	value string
+	field *headless.Text
+	// normalize is what the owner makes of what it was given.
+	normalize func(string) string
+}
+
+func (v *normalizingValue) Value() string { return v.value }
+
+func (v *normalizingValue) Set(value string) {
+	v.value = v.normalize(value)
+	// The owner tells the field its model changed, from inside the change itself.
+	v.field.Sync()
+}
+
+func TestAnOwnerNormalizingItsOwnWriteHasNotReplacedTheValue(t *testing.T) {
+	// The editor holds what was typed while the owner holds what it decided, so the
+	// two differ for as long as the write lasts. Reading that difference as somebody
+	// else having replaced the value turned the edit into an adoption: the cursor
+	// jumped to the end of the line, the undo history went, and the keystroke was
+	// counted as two changes.
+	value := &normalizingValue{normalize: strings.ToUpper}
+	field := &headless.Text{Value: value}
+	value.field = field
+	field.SetText("hello world")
+	field.SetCursor(5)
+	before := field.Revision()
+
+	field.Handle(input.Key{Code: input.Character, Rune: 'x'})
+
+	if value.value != "HELLOX WORLD" {
+		t.Fatalf("the owner holds %q", value.value)
+	}
+	if got := field.Cursor(); got != 6 {
+		t.Fatalf("the cursor is at %d, want it after the x that was typed", got)
+	}
+	if got := field.Revision() - before; got != 1 {
+		t.Fatalf("one keystroke moved the revision by %d, want one edit", got)
+	}
+	if !field.Do(headless.Undo) {
+		t.Fatal("undo did nothing after a normalized edit")
+	}
+	if value.value != "HELLO WORLD" {
+		t.Fatalf("undo left the owner holding %q", value.value)
+	}
+}

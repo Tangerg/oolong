@@ -264,9 +264,6 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	// Subscribed before the size is measured, and for that reason: a change between
 	// the measurement and the subscription is one nothing would ever hear about.
 	// See [resizeSource].
-	// Subscribed before the size is measured, and for that reason: a change between
-	// the measurement and the subscription is one nothing would ever hear about.
-	// See [resizeSource].
 	resizes := subscribeResize()
 
 	// The size is delivered as an event rather than left to be asked for, so a
@@ -284,13 +281,17 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	// Asking has to happen here, between the reader starting and the pump starting.
 	// A terminal has exactly one reader; asking any earlier means nothing is
 	// listening for the answer, and any later means two readers race for it.
-	parser := &input.Parser{}
+	//
+	// The decoder is this session's for the whole of it. Startup input is ordinary
+	// input — the same timing, the same escape grace — so the probe and the pump read
+	// through one stream rather than two agreeing decoders.
+	stream := input.NewStream(input.StreamConfig{Clipboard: t.clipboard})
 	var early []input.Event
 	if cfg.Features.Probe {
 		// One budget covers asking and being answered; the probe holds the transport
 		// to the same instant.
 		pr := &probe{
-			raw: raw, out: t.output, parser: parser,
+			raw: raw, out: t.output, stream: stream,
 			deadline: time.Now().Add(answerGrace),
 		}
 		t.said = pr.run()
@@ -302,7 +303,7 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 
 	p := &pump{
 		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
-		out: t.events, parser: parser, early: early, clipboard: t.clipboard,
+		out: t.events, stream: stream, early: early,
 	}
 	t.startResizeWatcher(resizes)
 	go func() {

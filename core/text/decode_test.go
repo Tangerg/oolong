@@ -229,10 +229,48 @@ func TestDecoderResetStartsAFreshStreamWithItsConfiguredBase(t *testing.T) {
 func TestASequenceThatNeverEndsIsNotHeldForEver(t *testing.T) {
 	var d text.Decoder
 	d.Feed("\x1b]0;" + strings.Repeat("x", 1<<17))
-	// Dropped, and the decoder is reading again rather than sitting on a buffer
-	// that only grows.
-	if lines := d.Feed("after\n"); len(lines) != 1 || lines[0].String() != "after" {
-		t.Fatalf("after a runaway sequence the stream read as %q", lines)
+	// Dropped rather than held: the decoder is reading again rather than sitting on
+	// a buffer that only grows. It is still reading that sequence, though, because
+	// that is what the bytes say — a control string's body does not become text
+	// because a read ended in the middle of it.
+	if lines := d.Feed("still the title\n"); len(lines) != 0 {
+		t.Fatalf("a refused command's body read as %q", lines)
+	}
+	if lines := d.Feed("\x07after\n"); len(lines) != 1 || lines[0].String() != "after" {
+		t.Fatalf("after the sequence ended the stream read as %q", lines)
+	}
+}
+
+// TestWhereTheReadSplitCannotTurnACommandsBodyIntoText.
+//
+// The scanner refuses a control string longer than any may be and the decoder drops
+// what it cannot use, which is right. Forgetting where the sequence ended at the
+// same time was not: the decoder was back in ordinary text at whatever byte the next
+// read happened to begin with, so the same bytes showed nothing when they arrived
+// whole and showed the command's body when they arrived in pieces.
+func TestWhereTheReadSplitCannotTurnACommandsBodyIntoText(t *testing.T) {
+	stream := "\x1b]0;" + strings.Repeat("s", 1<<17) + "SECRET\x07OK\n"
+	read := func(chunk int) string {
+		var d text.Decoder
+		var out strings.Builder
+		for at := 0; at < len(stream); at += chunk {
+			for _, line := range d.Feed(stream[at:min(at+chunk, len(stream))]) {
+				out.WriteString(line.String() + "\n")
+			}
+		}
+		for _, line := range d.Flush() {
+			out.WriteString(line.String() + "\n")
+		}
+		return out.String()
+	}
+	whole := read(len(stream))
+	if whole != "OK\n" {
+		t.Fatalf("the whole stream read as %q, want only what came after the command", whole)
+	}
+	for _, chunk := range []int{1, 7, 4096, 1 << 16} {
+		if got := read(chunk); got != whole {
+			t.Errorf("in %d-byte chunks the stream read as %q, want %q", chunk, got, whole)
+		}
 	}
 }
 

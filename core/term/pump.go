@@ -5,7 +5,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/deadline"
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -30,21 +29,16 @@ type pump struct {
 	// out receives the decoded events, and is closed when the pump returns so a
 	// consumer ranging over it learns that input is over.
 	out chan input.Event
-	// parser decodes the bytes. It is handed over rather than created here so that
-	// a startup probe, which had to read the terminal before this goroutine could,
-	// can pass on a sequence that straddles the handover.
-	parser *input.Parser
+	// stream decodes the bytes. It is handed over rather than created here because a
+	// startup probe had to read the terminal before this goroutine could, and what it
+	// left behind is not only half a sequence: an escape it saw is already waiting on
+	// a deadline this pump has to go on honouring.
+	stream *input.Stream
 	// early holds events decoded before the pump started. They are delivered from
 	// here rather than pushed into out directly, because nothing is reading out
 	// until this goroutine runs and a burst large enough to fill it would deadlock
 	// whoever pushed.
 	early []input.Event
-	// clipboard settles only the OSC 52 answer this session asked for. It is shared
-	// with whoever called Paste, while the request lifecycle remains owned by the
-	// value built for this terminal.
-	clipboard *clipboard.Channel
-	// grace overrides input.DefaultEscapeTimeout for tests.
-	grace time.Duration
 	// now overrides the clock, for tests. It stamps keystrokes and mouse reports with
 	// when they arrived, which is a fact only the reader has: a double-click, a
 	// trackpad's run of wheel reports and a two-chord keybinding are all questions
@@ -61,24 +55,18 @@ func (p *pump) run() error {
 		return nil
 	}
 	p.early = nil
-	stream := input.NewStream(input.StreamConfig{
-		Parser: p.parser, Grace: p.grace, Clipboard: p.clipboard,
-	})
-	// The probe may have handed over a parser already holding an ambiguous sequence,
-	// which no feed has yet had the chance to notice.
-	stream.Arm(p.clock())
 
 	due := deadline.NewTimer()
 	defer due.Stop()
 	for {
-		due.Schedule(stream.DueAt())
+		due.Schedule(p.stream.DueAt())
 		select {
 		case chunk := <-p.raw:
-			if !p.send(stream.Feed(chunk, p.clock())) {
+			if !p.send(p.stream.Feed(chunk, p.clock())) {
 				return nil
 			}
 		case <-due.Channel():
-			if !p.send(stream.Expire(p.clock())) {
+			if !p.send(p.stream.Expire(p.clock())) {
 				return nil
 			}
 		case resized := <-p.resized:
@@ -91,10 +79,10 @@ func (p *pump) run() error {
 			// cannot be told to prefer one, so whichever this pass happened to see
 			// first says nothing about which happened first. Everything already
 			// waiting is taken before anything is given up.
-			if !p.drainRaw(stream) {
+			if !p.drainRaw() {
 				return nil
 			}
-			p.send(stream.Flush(p.clock()))
+			p.send(p.stream.Flush(p.clock()))
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
@@ -107,11 +95,11 @@ func (p *pump) run() error {
 
 // drainRaw feeds everything already waiting on raw, reporting false when the pump was
 // asked to stop part-way through.
-func (p *pump) drainRaw(stream *input.Stream) bool {
+func (p *pump) drainRaw() bool {
 	for {
 		select {
 		case chunk := <-p.raw:
-			if !p.send(stream.Feed(chunk, p.clock())) {
+			if !p.send(p.stream.Feed(chunk, p.clock())) {
 				return false
 			}
 		default:

@@ -15,6 +15,12 @@ import (
 // empty field means are facts about the wire and belong to nobody in particular;
 // that the second group of a key report is a modifier mask plus one is a fact about
 // keyboards, and belongs here.
+//
+// The readers below that make a keystroke are reached only for a section
+// [ansi.Params.Valid] has already accepted, so none of them asks again whether a
+// number is a number. That question has one owner: a key form only ever looks at the
+// groups it uses, and what it does not look at is exactly where an unreadable number
+// went unnoticed.
 type params struct{ ansi.Params }
 
 func parseParams(body string) params { return params{ansi.Parse(body)} }
@@ -42,15 +48,14 @@ func (ps params) deviceAttributes() DeviceAttributes {
 //
 // A cursor key and shift-tab put nothing in it: the field is absent, or it is the
 // protocol's only value, one. Something else there is another sequence that happens
-// to end in the same byte, and a number too large to read is not a number at all.
-// Both used to arrive as the keystroke, because only the modifier group was ever
-// examined — so a report this package could not read fired a binding nobody pressed.
+// to end in the same byte, and it used to arrive as the keystroke because only the
+// modifier group was ever examined.
 func (ps params) namesNoKey() bool {
 	group := ps.Group(0)
 	if group.Len() == 0 {
 		return true
 	}
-	return group.Len() == 1 && group.At(0) >= 0 && group.At(0) <= 1
+	return group.Len() == 1 && group.At(0) <= 1
 }
 
 // keyMeta reads the modifier and transition group that key reports carry, and
@@ -64,7 +69,7 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 	if group.Len() == 0 {
 		return 0, Press, true
 	}
-	if group.Len() > 2 || group.At(0) < 0 {
+	if group.Len() > 2 {
 		return 0, Press, false
 	}
 

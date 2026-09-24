@@ -527,15 +527,22 @@ func (c *Container) move(to int) {
 	kept := identity.Same(from, next)
 	c.focused = to
 	c.holder = next
+	turn := c.begin()
 	// The one that had it is told first and by name, because it may be the reason
 	// the keyboard moved at all: a child taken out of the items is no longer in the
 	// loop below, and would otherwise go on believing it has the keyboard.
 	if from != nil && !kept {
 		tell(from, false)
+		if c.superseded(turn) {
+			return
+		}
 	}
 	for i, item := range c.items {
 		if i != to {
 			tell(item.Of, false)
+			if c.superseded(turn) {
+				return
+			}
 		}
 	}
 	if !kept {

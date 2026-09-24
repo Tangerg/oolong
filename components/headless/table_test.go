@@ -123,6 +123,22 @@ func TestATableWithNoComparisonCannotBeSorted(t *testing.T) {
 	}
 }
 
+func TestATableIsConfiguredBeforeItIsAsked(t *testing.T) {
+	// The table's fields own what wrapping means and the list works from a copy of
+	// them. Copying at the operations thought to need it left cursor movement out,
+	// so a table told to wrap did not wrap until something had drawn it — and what
+	// had drawn it is not something a caller moving a cursor knows about.
+	table := new(headless.Table[int])
+	table.SetItems([]int{1, 2})
+	table.Select(1)
+	table.Wrap = true
+
+	table.Move(1)
+	if got := table.Selected(); got != 0 {
+		t.Fatalf("selected %d after moving past the last row, want it wrapped to the first", got)
+	}
+}
+
 func TestATablesRowsCanOnlyBeReplacedThroughTheTable(t *testing.T) {
 	// The order is the table's, so replacing the rows has to be the table's too. An
 	// embedded list gave every caller a second way in, and a caller who took it left

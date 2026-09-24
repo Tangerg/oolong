@@ -46,11 +46,18 @@ func TestScannerBoundsAndReleasesAnUnfinishedSequence(t *testing.T) {
 	if pending := scanner.Pending(); pending != "" {
 		t.Fatalf("runaway sequence left %d bytes pending", len(pending))
 	}
+	// Refused but not forgotten. A sequence is over when its terminator says so and
+	// not when the next read begins, so the rest of its body is not handed on as the
+	// text it is not.
 	var got string
-	if err := scanner.Feed("after", func(piece ansi.Piece) error {
+	visit := func(piece ansi.Piece) error {
 		got += piece.Raw
 		return nil
-	}); err != nil || got != "after" {
+	}
+	if err := scanner.Feed("still the command", visit); err != nil || got != "" {
+		t.Fatalf("the refused sequence's body scanned as %q, %v", got, err)
+	}
+	if err := scanner.Feed("\x07after", visit); err != nil || got != "after" {
 		t.Fatalf("scanner after runaway = %q, %v", got, err)
 	}
 }

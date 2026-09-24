@@ -194,7 +194,7 @@ func TestAKeyTypedDuringTheProbeStillKnowsWhenItArrived(t *testing.T) {
 	}
 }
 
-// TestProbeHandsOverASequenceItSplit is the reason the parser is handed over and
+// TestProbeHandsOverASequenceItSplit is the reason the decoder is handed over and
 // not just the events it produced. A sequence that straddles the moment the pump
 // takes over still has to decode as one.
 func TestProbeHandsOverASequenceItSplit(t *testing.T) {
@@ -215,6 +215,50 @@ func TestProbeHandsOverASequenceItSplit(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+// TestAnEscapePressedDuringTheProbeIsStillTheEscapeKey.
+//
+// An escape is ambiguous for as long as the grace lasts and no longer, and which
+// answer it gets depends on time rather than on bytes. A probe that decoded with a
+// parser of its own had no way to let that grace run out, so an Escape pressed
+// while the questions were in flight was still ambiguous when the next keystroke
+// arrived — and came back as the Alt-modified form of it.
+func TestAnEscapePressedDuringTheProbeIsStillTheEscapeKey(t *testing.T) {
+	primary, replica := pty(t)
+	if _, err := xterm.MakeRaw(int(replica.Fd())); err != nil {
+		t.Skipf("cannot put this pty in raw mode: %v", err)
+	}
+	if _, err := primary.WriteString("\x1b"); err != nil {
+		t.Fatalf("staging the Escape: %v", err)
+	}
+	go func() {
+		time.Sleep(2 * input.DefaultEscapeTimeout)
+		_, _ = primary.WriteString("a\x1b]11;rgb:0/0/0\x07\x1b[?62c")
+	}()
+
+	tty, err := term.OpenOn(replica, replica, term.Config{Features: term.Features{Probe: true}}, os.LookupEnv)
+	if err != nil {
+		t.Fatalf("opening a pty as a terminal: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	var keys []input.Key
+	for len(keys) < 2 {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatalf("input ended after %+v", keys)
+		}
+		if key, ok := ev.(input.Key); ok {
+			keys = append(keys, key)
+		}
+	}
+	if keys[0].Code != input.Esc || keys[0].Mods != 0 {
+		t.Fatalf("first key = %+v, want the Escape key on its own", keys[0])
+	}
+	if keys[1].Rune != 'a' || keys[1].Mods != 0 {
+		t.Fatalf("second key = %+v, want an unmodified a", keys[1])
 	}
 }
 

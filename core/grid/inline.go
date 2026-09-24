@@ -76,6 +76,12 @@ type Inline struct {
 	// rows is how tall the block was after the last flush, and at is where that
 	// flush left the terminal's cursor, in the block's own coordinates. Together
 	// they are the anchor every frame is written relative to.
+	//
+	// They are where the terminal is, so only a write that reached it may advance
+	// them. Composing a frame works out where that frame would leave the cursor and
+	// hands the answer back to be committed with the rest of the frame; a frame that
+	// failed to reach the terminal left the cursor where the last one did, and a
+	// retry has to be written relative to that.
 	rows int
 	at   image.Point
 
@@ -264,7 +270,8 @@ func (i *Inline) Cursor() Cursor { return i.placed }
 func (i *Inline) Flush(w io.Writer) error {
 	used := i.used()
 	i.buf = i.buf[:0]
-	if err := i.compose(used); err != nil {
+	at, err := i.compose(used)
+	if err != nil {
 		// The frame never reached w, but a painter may have emitted a partial private
 		// payload before failing. Forget all terminal assumptions and preserve pending
 		// output so the caller may either report the failure or deliberately retry.
@@ -272,7 +279,7 @@ func (i *Inline) Flush(w io.Writer) error {
 		return err
 	}
 	if len(i.buf) == 0 {
-		i.settle(used)
+		i.settle(used, at)
 		return nil
 	}
 	i.out = append(i.out[:0], beginSync...)
@@ -290,7 +297,7 @@ func (i *Inline) Flush(w io.Writer) error {
 	i.left = false
 	// What the terminal now has open is what was pending a moment ago.
 	i.flushed = i.tail
-	i.settle(used)
+	i.settle(used, at)
 	return nil
 }
 
@@ -357,8 +364,9 @@ func (i *Inline) used() int {
 }
 
 // compose builds this frame's payload, or leaves it empty when the terminal is
-// already showing this frame.
-func (i *Inline) compose(used int) error {
+// already showing this frame. It returns where the payload would leave the cursor,
+// which is the anchor only a completed write may adopt.
+func (i *Inline) compose(used int) (image.Point, error) {
 	// Printing rewrites the rows the block's first rows were on and moves the block
 	// down past them, so nothing the block is showing survives it. A piece that goes
 	// onto the end of a row already published moves nothing: the row it goes on is
@@ -371,7 +379,7 @@ func (i *Inline) compose(used int) error {
 	// nothing that is above it.
 	extra := max(i.rows-advance-used, 0)
 	if !i.compositionNeeded(used, extra, full) {
-		return nil
+		return i.at, nil
 	}
 
 	// The terminal's style at the start of a frame is not knowable — another program
@@ -386,6 +394,15 @@ func (i *Inline) compose(used int) error {
 	i.composePending()
 	total := i.composeRows(used, extra, full)
 	return i.composeEnd(used, total, full)
+}
+
+// settle makes this frame the one the terminal is showing, from where composing it
+// said the frame would leave the cursor.
+func (i *Inline) settle(used int, at image.Point) {
+	i.buffers.swap()
+	i.rows = used
+	i.at = at
+	i.full = false
 }
 
 func (i *Inline) pendingAdvance() int {
@@ -484,15 +501,16 @@ func (i *Inline) rowChanged(y int, full bool) bool {
 }
 
 // composeEnd repaints non-cell regions and leaves the terminal cursor where the
-// frame asked, after the row encoder has returned it to a known column.
-func (i *Inline) composeEnd(used, total int, full bool) error {
+// frame asked, after the row encoder has returned it to a known column. It reports
+// the position this payload ends at.
+func (i *Inline) composeEnd(used, total int, full bool) (image.Point, error) {
 	// The regions something else paints, from where the rows left the cursor. They
 	// go after the rows for the reason they do on a screen — the rows would write the
 	// blanks they think are underneath over what was painted — and before the cursor,
 	// which has to end up where this frame asked whatever a painter did on the way.
 	cur, err := i.paintRegions(image.Pt(0, max(total-1, 0)), full)
 	if err != nil {
-		return err
+		return i.at, err
 	}
 
 	at := image.Pt(0, max(used-1, 0))
@@ -505,8 +523,7 @@ func (i *Inline) composeEnd(used, total int, full bool) error {
 	if cur.X > 0 {
 		i.buf = append(i.buf, '\r')
 	}
-	i.placeCursor(at)
-	return nil
+	return i.placeCursor(at), nil
 }
 
 // paintRegions writes what turns the regions the terminal is showing into the ones
@@ -559,16 +576,15 @@ func (i *Inline) cursorPending() bool {
 }
 
 // placeCursor moves the cursor from at, where writing the rows left it, to where
-// this frame's drawing asked for it.
-func (i *Inline) placeCursor(at image.Point) {
-	i.at = at
+// this frame's drawing asked for it, and reports where it ends up.
+func (i *Inline) placeCursor(at image.Point) image.Point {
 	defer func() { i.known, i.shown = true, i.placed.Visible }()
 
 	if !i.placed.Visible {
 		if !i.known || i.shown {
 			i.buf = append(i.buf, hideCursor...)
 		}
-		return
+		return at
 	}
 	style := i.placed.Style.normalized()
 	if !i.cursorStyleKnown || style != i.cursorStyle {
@@ -584,17 +600,10 @@ func (i *Inline) placeCursor(at image.Point) {
 	if i.placed.Pos.X > 0 {
 		i.csi(i.placed.Pos.X, 'C')
 	}
-	i.at = i.placed.Pos
 	if !i.known || !i.shown {
 		i.buf = append(i.buf, showCursor...)
 	}
-}
-
-// settle makes this frame the one the terminal is showing.
-func (i *Inline) settle(used int) {
-	i.buffers.swap()
-	i.rows = used
-	i.full = false
+	return i.placed.Pos
 }
 
 func (i *Inline) csi(n int, final byte) {

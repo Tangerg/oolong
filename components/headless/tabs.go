@@ -319,12 +319,19 @@ func (t *Tabs) settle() bool {
 	from := t.holder
 	kept := identity.Same(from, want)
 	t.holder, t.holderIndex, t.settled = want, wantIndex, true
+	turn := t.begin()
 	if from != nil && !kept {
 		tell(from, false)
+		if t.superseded(turn) {
+			return true
+		}
 	}
 	for i, tab := range t.items {
 		if i != wantIndex {
 			tell(tab.Of, false)
+			if t.superseded(turn) {
+				return true
+			}
 		}
 	}
 	if !kept {

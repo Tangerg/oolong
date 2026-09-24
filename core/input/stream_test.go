@@ -166,29 +166,6 @@ func TestATransportWithoutAClipboardPassesTheCommandThrough(t *testing.T) {
 	}
 }
 
-func TestAHandedOverParserKeepsTheSequenceItWasHoldingOnto(t *testing.T) {
-	// A startup probe reads before the stream exists. What it was left holding is
-	// ambiguous from the stream's first moment, with no feed to discover it.
-	parser := &input.Parser{}
-	if events := parser.Feed([]byte{0x1b}); len(events) != 0 {
-		t.Fatalf("the probe's escape decoded as %+v", events)
-	}
-	at := time.Unix(1, 0)
-	stream := input.NewStream(input.StreamConfig{Parser: parser, Grace: time.Second})
-
-	if _, waiting := stream.DueAt(); waiting {
-		t.Fatal("an unarmed stream reported a deadline")
-	}
-	stream.Arm(at)
-	due, waiting := stream.DueAt()
-	if !waiting || !due.Equal(at.Add(time.Second)) {
-		t.Fatalf("due = %v %t, want %v", due, waiting, at.Add(time.Second))
-	}
-	if events := stream.Expire(due); len(events) != 1 {
-		t.Fatalf("expiry produced %+v, want the Escape key", events)
-	}
-}
-
 func TestFlushEndsTheStreamAndDisarmsIt(t *testing.T) {
 	at := time.Unix(1, 0)
 	stream := input.NewStream(input.StreamConfig{})

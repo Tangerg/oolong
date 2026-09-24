@@ -513,6 +513,20 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return n, ps.report(final), true
 	}
 
+	// Everything past here turns a sequence into a keystroke, and a keystroke nobody
+	// pressed is worse than no keystroke at all — so the whole parameter section has
+	// to be readable, not merely the groups the form this happens to be looks at.
+	// Checking group by group asks a different question in every key form, and the
+	// group a form does not read is the one a terminal — or something pretending to
+	// be one — is free to put anything in.
+	//
+	// A report is the other way round and stays that way: an extension nobody can
+	// read is a claim nobody can act on, and the rest of the list is still worth
+	// having. See [params.deviceAttributes].
+	if !ps.Valid() {
+		return n, nil, true
+	}
+
 	switch {
 	case ps.Len() == 0 && final == 'I':
 		return n, FocusIn{}, true
@@ -583,7 +597,7 @@ func (ps params) extendedKey() Event {
 		return nil // a bare sequence here is a cursor report, not a key
 	}
 	primary := ps.Group(0)
-	if primary.Len() == 0 || primary.Len() > 3 || primary.At(0) < 0 {
+	if primary.Len() == 0 || primary.Len() > 3 {
 		return nil
 	}
 	// Alternate key codes are accepted and then ignored: reporting the key that

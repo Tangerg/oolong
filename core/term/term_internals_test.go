@@ -123,7 +123,7 @@ func newDriver(grace time.Duration) *driver {
 	}
 	p := &pump{
 		raw: d.raw, readErr: d.readErr, resized: d.resized, stop: d.stop,
-		out: d.events, grace: grace,
+		out: d.events, stream: input.NewStream(input.StreamConfig{Grace: grace}),
 	}
 	go func() {
 		defer close(d.done)
@@ -439,14 +439,17 @@ func TestPumpExpiryPreservesSlowUTF8(t *testing.T) {
 	})
 }
 
-func TestPumpArmsTransferredEscape(t *testing.T) {
+func TestPumpKeepsWaitingOutAnEscapeTheProbeWasLeftHolding(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		parser := &input.Parser{}
-		parser.Feed([]byte{27})
+		// The probe reads before the pump exists and hands over what it was reading
+		// through, deadline and all. A pump that only started counting from its own
+		// first turn would give that escape a second full grace.
+		stream := input.NewStream(input.StreamConfig{Grace: time.Millisecond})
+		stream.Feed([]byte{27}, time.Now())
 		stop := make(chan struct{})
 		out := make(chan input.Event, 1)
 		done := make(chan struct{})
-		p := &pump{parser: parser, stop: stop, out: out, grace: time.Millisecond}
+		p := &pump{stream: stream, stop: stop, out: out}
 		go func() { defer close(done); _ = p.run() }()
 		defer func() { close(stop); <-done }()
 		time.Sleep(2 * time.Millisecond)

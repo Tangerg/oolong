@@ -105,7 +105,7 @@ func (t *Table[T]) ClearSort() { t.sorted = false }
 // throws the order away. A table that lost its order every time its rows were
 // refreshed would be a table nobody could read while it was updating.
 func (t *Table[T]) SetItems(items []T) {
-	t.rows.SetItems(items)
+	t.list().SetItems(items)
 	t.reorder()
 }
 
@@ -114,68 +114,65 @@ func (t *Table[T]) SetItems(items []T) {
 // is anything that could replace the rows.
 
 // Items returns the rows in the order the table put them in.
-func (t *Table[T]) Items() []T { return t.rows.Items() }
+func (t *Table[T]) Items() []T { return t.list().Items() }
 
 // Len is how many rows there are.
-func (t *Table[T]) Len() int { return t.rows.Len() }
+func (t *Table[T]) Len() int { return t.list().Len() }
 
 // At returns one row by index, and whether there is one.
-func (t *Table[T]) At(index int) (T, bool) { return t.rows.At(index) }
+func (t *Table[T]) At(index int) (T, bool) { return t.list().At(index) }
 
 // Selected is the index of the row under the cursor, or -1.
-func (t *Table[T]) Selected() int { return t.rows.Selected() }
+func (t *Table[T]) Selected() int { return t.list().Selected() }
 
 // Current is the row under the cursor, and whether there is one.
-func (t *Table[T]) Current() (T, bool) { return t.rows.Current() }
+func (t *Table[T]) Current() (T, bool) { return t.list().Current() }
 
 // Select puts the cursor on a row.
-func (t *Table[T]) Select(i int) { t.rows.Select(i) }
+func (t *Table[T]) Select(i int) { t.list().Select(i) }
 
 // Move steps the cursor by n rows.
-func (t *Table[T]) Move(n int) { t.rows.Move(n) }
+func (t *Table[T]) Move(n int) { t.list().Move(n) }
 
 // Scroll is the table's position, for a scrollbar drawn beside it.
-func (t *Table[T]) Scroll() *Scroll { return t.rows.Scroll() }
+func (t *Table[T]) Scroll() *Scroll { return t.list().Scroll() }
 
 // Focus takes the keyboard, or gives it up — see [List.Focus].
-func (t *Table[T]) Focus(has bool) { t.rows.Focus(has) }
+func (t *Table[T]) Focus(has bool) { t.list().Focus(has) }
 
 // Focused reports whether this table has the keyboard.
-func (t *Table[T]) Focused() bool { return t.rows.Focused() }
+func (t *Table[T]) Focused() bool { return t.list().Focused() }
 
 // Handle answers the keys, the wheel and a press that move the cursor.
-func (t *Table[T]) Handle(ev input.Event) bool {
-	t.configure()
-	return t.rows.Handle(ev)
-}
+func (t *Table[T]) Handle(ev input.Event) bool { return t.list().Handle(ev) }
 
 // Do runs one of the list's actions by name. See [Doer].
-func (t *Table[T]) Do(action keymap.Action) bool {
-	t.configure()
-	return t.rows.Do(action)
-}
+func (t *Table[T]) Do(action keymap.Action) bool { return t.list().Do(action) }
 
 // HeightForWidth is one row per row.
-func (t *Table[T]) HeightForWidth(width int) int { return t.rows.HeightForWidth(width) }
+func (t *Table[T]) HeightForWidth(width int) int { return t.list().HeightForWidth(width) }
 
 // Draw paints the rows that fit.
-func (t *Table[T]) Draw(v Frame) {
-	t.configure()
-	t.rows.Draw(v)
-}
+func (t *Table[T]) Draw(v Frame) { t.list().Draw(v) }
 
 // DrawRows paints the rows that fit with a caller's own row painter — see
 // [List.DrawRows].
 func (t *Table[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
-	t.configure()
-	t.rows.DrawRows(v, draw)
+	t.list().DrawRows(v, draw)
 }
 
-// configure copies this table's live configuration into the list before the list
-// acts on it. The table's fields are the owner; the list's are a cache that must not
-// be read a frame behind the caller.
-func (t *Table[T]) configure() {
+// list is the rows, with this table's configuration in them. Every operation
+// forwarded from this type goes through it, and that is what it is for.
+//
+// The table's exported fields own what wrapping, which keys and which row painter
+// mean; the list keeps its own copy of them to work from. Copying them at the
+// operations that were thought to need it is a rule somebody has to keep, and the
+// one that was missed was cursor movement: a table told to wrap did not wrap until
+// something had drawn it. Going through here instead leaves no forwarded operation
+// that can read the copy a frame behind its owner.
+func (t *Table[T]) list() *List[T] {
 	t.rows.Row, t.rows.Keys, t.rows.Wrap = t.Row, t.Keys, t.Wrap
+	return &t.rows
 }
 
 // reorder sorts the rows and carries the cursor with the row it was on.

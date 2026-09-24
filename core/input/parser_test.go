@@ -619,16 +619,22 @@ func TestAttributesBuildsWhatTheParserWouldHave(t *testing.T) {
 }
 
 func TestAReportThisPackageCannotReadIsNotAKeystroke(t *testing.T) {
-	// Only the modifier group used to be examined, so a sequence that ended in a
-	// cursor key's final byte became that key whatever stood before it — including a
-	// number too large to be one. A key nobody pressed fires a binding nobody asked
-	// for, which is worse than a report nobody decodes.
+	// A key form reads the groups it uses and no others, so checking each of them
+	// where it is read leaves whatever the form does not read unexamined — and that
+	// is where an unreadable number goes unnoticed. A key nobody pressed fires a
+	// binding nobody asked for, which is worse than a report nobody decodes, so the
+	// whole parameter section has to be readable before any of it is a keystroke.
 	for _, sequence := range []string{
 		"\x1b[99999999;2A",
 		"\x1b[7;2A",
 		"\x1b[99999999;2Z",
 		"\x1b[4Z",
 		"\x1b[1:2;2A",
+		// Groups past the ones this form reads.
+		"\x1b[1;1;999999999999A",
+		"\x1b[1;1;999999999999Z",
+		// A subparameter of the group that names the key.
+		"\x1b[3:999999999999~",
 	} {
 		if events := feed(sequence); len(events) != 0 {
 			t.Errorf("%q decoded as %+v, want nothing", sequence, events)
@@ -647,6 +653,23 @@ func TestAReportThisPackageCannotReadIsNotAKeystroke(t *testing.T) {
 		if got := one(t, sequence); got != input.Event(want) {
 			t.Errorf("%q = %+v, want %+v", sequence, got, want)
 		}
+	}
+}
+
+func TestAPasteThisPackageCannotReadDoesNotOpenOne(t *testing.T) {
+	// The opener is the one key-family sequence whose effect is a state change
+	// rather than an event, so nothing coming out of it proves nothing. A paste
+	// opened by a sequence this package could not read swallows everything typed
+	// afterwards into a document as text.
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b[200;999999999999~")); len(events) != 0 {
+		t.Fatalf("an unreadable opener decoded as %+v", events)
+	}
+	if p.Pending() {
+		t.Fatal("an unreadable opener opened a paste")
+	}
+	if events := p.Feed([]byte("a")); len(events) != 1 {
+		t.Fatalf("what was typed afterwards decoded as %+v, want the a key", events)
 	}
 }
 

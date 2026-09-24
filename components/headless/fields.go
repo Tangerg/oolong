@@ -53,6 +53,16 @@ type Text struct {
 
 	editor Editor
 	seeded bool
+	// settling says an edit of this field's own is with its owner, waiting to be
+	// accepted, rejected or normalized.
+	//
+	// For the length of that call the editor holds what was typed and the owner holds
+	// what it has decided, so the two differ by construction — and an owner that
+	// normalizes from inside its own Set, then synchronizes this field, would find
+	// that difference and read it as somebody else having replaced the value. What
+	// followed was not a normalized edit but an adoption: the cursor at the end of the
+	// line, the history gone, and the keystroke counted twice.
+	settling bool
 }
 
 // Text reads the accepted one-line value without synchronizing or writing its owner.
@@ -182,10 +192,15 @@ func (t *Text) Sync() {
 		t.seeded = true
 		return
 	}
+	// An edit already with its owner has an owner: the operation that offered it,
+	// which is the only one that knows what the answer coming back is an answer to.
+	if t.settling {
+		return
+	}
 	owned := t.Value.Value()
 	value := oneLineText(owned)
 	if value != owned {
-		value = oneLineText(setAccessor(t.Value, value))
+		value = oneLineText(t.offer(value))
 	}
 	if !t.seeded || value != t.editor.Text() {
 		t.adopt(value)
@@ -209,7 +224,7 @@ func (t *Text) adopt(value string) {
 func (t *Text) store(edit textEdit) {
 	if t.Value != nil {
 		requested := t.editor.Text()
-		accepted := oneLineText(setAccessor(t.Value, requested))
+		accepted := oneLineText(t.offer(requested))
 		switch {
 		case accepted == requested:
 		case edit.checkpointed && accepted == edit.checkpoint.text:
@@ -218,6 +233,15 @@ func (t *Text) store(edit textEdit) {
 			t.editor.reconcileEdit(accepted)
 		}
 	}
+}
+
+// offer hands a value to the owner and returns what the owner has afterwards. The
+// exchange is this field's for the length of the call, whatever the owner does
+// inside it.
+func (t *Text) offer(value string) string {
+	t.settling = true
+	defer func() { t.settling = false }()
+	return setAccessor(t.Value, value)
 }
 
 type textEdit struct {

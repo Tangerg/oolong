@@ -573,6 +573,28 @@ func TestAFinishThatDidNotReachTheTerminalCanBeTriedAgain(t *testing.T) {
 	}
 }
 
+func TestAFlushThatDidNotReachTheTerminalKeepsTheAnchorItWasWrittenFrom(t *testing.T) {
+	// Every inline frame is written relative to where the last one left the cursor,
+	// so that anchor is where the terminal is rather than where a frame wanted it to
+	// be. Adopting it while composing made a frame that never reached the terminal
+	// move the anchor anyway, and the retry then climbed out of the block and
+	// rewrote finished output that was above it.
+	i := grid.NewInline(10, 8)
+	inline(t, i, grid.Cursor{}, lines("live"))
+
+	v := i.Frame()
+	v.PlaceCursor(0, 3, grid.CursorStyle{})
+	v.Text(0, 0, "live", grid.Style{})
+	if err := i.Flush(&failWriter{}); err == nil {
+		t.Fatal("a write that delivered nothing was reported as a flush")
+	}
+
+	out := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(0, 3)}, lines("live"))
+	if strings.Contains(out, "\x1b[3A") {
+		t.Fatalf("the retry = %q, want it written from the row the terminal is on", out)
+	}
+}
+
 func TestABlockDrawnAgainCanBeFinishedAgain(t *testing.T) {
 	// Handing the terminal to a child ends with the block finished, and the interface
 	// goes on drawing after the child returns. That block is live again and its exit
