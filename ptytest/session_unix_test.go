@@ -47,6 +47,41 @@ func TestClosingEndsTheWholeSessionItStarted(t *testing.T) {
 	}
 }
 
+// TestClosingEndsTheSessionAProgramLeftBehind is the other half of it.
+//
+// A program that exits having left something of its own running has not ended the
+// session: what it started is in the same group and holding the same terminal.
+// Waiting for the leader answers a question about the leader, and reading it as an
+// answer about the session let a close walk past everything the group still had in
+// it.
+func TestClosingEndsTheSessionAProgramLeftBehind(t *testing.T) {
+	needPTY(t)
+	s, err := ptytest.Start(t.Context(), ptytest.Config{}, "sh", "-c",
+		`(trap '' HUP; sleep 300 & wait) & printf 'descendant %d\n' "$!"; exit 0`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, s.Transcript(), "descendant ")
+	descendant := reportedPID(t, s.Transcript().String())
+	if err := s.Wait(t.Context()); err != nil {
+		t.Fatalf("waiting for the program: %v", err)
+	}
+	if !alive(descendant) {
+		t.Skip("the descendant did not outlive the program that started it")
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for alive(descendant) {
+		if time.Now().After(deadline) {
+			t.Fatalf("process %d outlived the session that started it", descendant)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func reportedPID(t *testing.T, transcript string) int {
 	t.Helper()
 	_, rest, ok := strings.Cut(transcript, "descendant ")

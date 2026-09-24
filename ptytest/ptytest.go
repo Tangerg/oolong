@@ -251,11 +251,11 @@ func (s *Session) Drain(ctx context.Context) error {
 // It is idempotent, so a test can defer it and still close explicitly.
 func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
-		select {
-		case <-s.waitDone:
-		default:
-			_ = endSession(s.process)
-		}
+		// Whether the program is still running says nothing about the session it
+		// started. A child that exited having left something of its own behind left
+		// it in the same group and holding the same terminal, and waiting for the
+		// leader is not waiting for that.
+		_ = endSession(s.process)
 		// Closing the primary is what ends the read. It ends it even when something
 		// outside this session still holds the replica: the descriptor is in the
 		// runtime's poller, so the pending read is unblocked rather than waited for.

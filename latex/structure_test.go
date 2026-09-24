@@ -261,10 +261,29 @@ func TestMathModeStillIgnoresTheSpacesBetweenItsTokens(t *testing.T) {
 func TestAControlSequenceThisPackageDoesNotImplementIsRefused(t *testing.T) {
 	// Stripping the backslash turns it into the letters it happens to be made of and
 	// reports success for input that was never rendered.
+	// In every repertoire. Plain says how a symbol this package has is spelled; it
+	// does not say that every control sequence is one, and deciding support inside
+	// the ASCII spelling made it say exactly that — \bf came out as the letters "bf".
 	for _, source := range []string{`{\bf x}`, `{\rm x}`, `{\it x}`} {
-		err := latex.Render(source, latex.Look{}).Err()
-		if err == nil {
-			t.Errorf("Render(%q) reported no error", source)
+		for name, look := range map[string]latex.Look{
+			"the default repertoire": {},
+			"a plain repertoire":     {Glyphs: latex.Glyphs{Plain: true}},
+		} {
+			if err := latex.Render(source, look).Err(); err == nil {
+				t.Errorf("Render(%q) in %s reported no error", source, name)
+			}
+		}
+	}
+	// A symbol this package does have is still spelled the plain way.
+	for _, tc := range []struct{ source, want string }{
+		{`\alpha`, "alpha"}, {`x \leq y`, "x <= y"},
+	} {
+		formula := latex.Render(tc.source, latex.Look{Glyphs: latex.Glyphs{Plain: true}})
+		if err := formula.Err(); err != nil {
+			t.Fatalf("Render(%q) plain: %v", tc.source, err)
+		}
+		if got := formulaRows(t, formula, 40); !slices.Equal(got, []string{tc.want}) {
+			t.Errorf("Render(%q) plain = %q, want %q", tc.source, got, tc.want)
 		}
 	}
 	// A lettered operator is spelled with its own letters and still is one.

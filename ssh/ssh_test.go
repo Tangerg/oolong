@@ -175,23 +175,26 @@ func TestRunRejectsAContradictoryTransport(t *testing.T) {
 	}
 }
 
-func TestRunRefusesAnEmulatedTerminal(t *testing.T) {
+func TestRunRefusesATerminalTheServerAllocated(t *testing.T) {
+	// The library starts copying the channel into that terminal, and draining its
+	// window changes, before the handler runs. Both are Run's, and neither can be
+	// shared: the keystroke that went to the other reader is gone.
 	session := &fakeSession{
-		ctx:      newFakeContext(t.Context()),
-		window:   charmssh.Window{Width: 80, Height: 24},
-		ptyOK:    true,
-		emulated: true,
+		ctx:       newFakeContext(t.Context()),
+		window:    charmssh.Window{Width: 80, Height: 24},
+		ptyOK:     true,
+		allocated: true,
 	}
 	err := ssh.Run(session, program.Config{
 		Root: func(runtime *program.Runtime) program.Component {
 			return quittingComponent{runtime: runtime}
 		},
 	})
-	if !errors.Is(err, ssh.ErrEmulatedPTY) {
-		t.Fatalf("error = %v, want ErrEmulatedPTY", err)
+	if !errors.Is(err, ssh.ErrAllocatedPTY) {
+		t.Fatalf("error = %v, want ErrAllocatedPTY", err)
 	}
 	if got := session.output.String(); got != "" {
-		t.Fatalf("an emulated terminal was written to: %q", got)
+		t.Fatalf("a session with a competing reader was written to: %q", got)
 	}
 }
 
@@ -240,11 +243,13 @@ func (quittingComponent) Handle(input.Event) bool { return false }
 
 type fakeSession struct {
 	charmssh.Session
-	ctx       charmssh.Context
-	window    charmssh.Window
-	windows   <-chan charmssh.Window
-	ptyOK     bool
-	emulated  bool
+	ctx     charmssh.Context
+	window  charmssh.Window
+	windows <-chan charmssh.Window
+	ptyOK   bool
+	// allocated is the server having given the session a terminal of its own, which
+	// is the mode Run refuses. The zero value is the library's default handling.
+	allocated bool
 	environ   []string
 	input     strings.Reader
 	output    lockedBuffer
@@ -257,7 +262,7 @@ func (s *fakeSession) Environ() []string         { return append([]string(nil), 
 func (s *fakeSession) Pty() (charmssh.Pty, <-chan charmssh.Window, bool) {
 	return charmssh.Pty{Term: "xterm-256color", Window: s.window}, s.windows, s.ptyOK
 }
-func (s *fakeSession) EmulatedPty() bool          { return s.emulated }
+func (s *fakeSession) EmulatedPty() bool          { return !s.allocated }
 func (s *fakeSession) Read(p []byte) (int, error) { return s.input.Read(p) }
 func (s *fakeSession) Write(p []byte) (int, error) {
 	if s.outputErr != nil {

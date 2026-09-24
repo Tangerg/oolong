@@ -535,12 +535,14 @@ func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Styl
 		return box{}, fmt.Errorf("unsupported macro %s", name)
 	}
 
-	resolved, resolveErr := symbolsForTerminal.resolve(name)
-	if resolveErr == nil && grid.ClusterWidth(resolved) == 0 {
-		return box{}, fmt.Errorf("unsupported combining accent %s", name)
-	}
-	symbol, err := terminalSymbol(name, r.look.Glyphs.Plain)
-	if err != nil {
+	// Whether this package implements a control sequence is a fact about the sequence,
+	// decided here and once. Letting the ASCII spelling decide it as well meant a look
+	// with Plain set implemented everything there is: \bf came back as the letters
+	// "bf" and no error, because that is what is left of its name without the
+	// backslash.
+	symbol, err := symbolsForTerminal.resolve(name)
+	switch {
+	case err != nil:
 		// A lettered operator is spelled with its own letters and has no glyph, so
 		// failing to find one is how it is recognised. Only the ones TeX defines,
 		// though: stripping the backslash from anything else turns a control sequence
@@ -550,6 +552,11 @@ func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Styl
 			return box{}, fmt.Errorf("unsupported macro %s", name)
 		}
 		symbol = strings.TrimPrefix(name, `\`)
+	case grid.ClusterWidth(symbol) == 0:
+		return box{}, fmt.Errorf("unsupported combining accent %s", name)
+	case r.look.Glyphs.Plain:
+		// Plain changes how a symbol this package has is spelled and nothing else.
+		symbol = asciiSymbol(name)
 	}
 	if symbols.IsSpaced(name) {
 		symbol = " " + symbol + " "
@@ -586,13 +593,6 @@ type symbolResult struct {
 type symbolResolver struct{ cache sync.Map }
 
 var symbolsForTerminal symbolResolver
-
-func terminalSymbol(name string, plain bool) (string, error) {
-	if plain {
-		return asciiSymbol(name), nil
-	}
-	return symbolsForTerminal.resolve(name)
-}
 
 func (r *symbolResolver) resolve(name string) (string, error) {
 	if cached, ok := r.cache.Load(name); ok {
