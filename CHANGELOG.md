@@ -16,7 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
-## [Unreleased]
+## [0.21.0] — 2026-09-24
 
 A second, third and fourth repair pass over the same audit. A review of v0.20.0 found
 18 of its 55 defects still open, plus six the repairs themselves introduced or left
@@ -190,6 +190,19 @@ Transports, harness and examples:
   what `charm.land/ssh` does by default — so `Run` refused every ordinary session and
   accepted the one the library was already reading. A server configured with
   `charm.land/ssh.AllocatePty` must stop doing so; nothing else changes.
+
+### Internal
+
+- The comments were cut back to what a reader cannot get from the code. Comments that
+  restated the signature above them are gone, and the multi-paragraph package and type
+  documentation is the contract and the constraint behind it, without the retelling.
+- The complexity gate was set at a bound nothing reached, so it recorded one rather
+  than holding one. `gocognit` is 20 and `gocyclo` 15, and the twenty-three functions
+  over the new line were each doing more than one job; each is now split along a seam
+  that was already there.
+- A type's methods live in the file that declares it. Twenty-three types had theirs
+  scattered across their package; the three still split are `Terminal`'s resize
+  watcher, `terminalOutput` and `waker`, which have one implementation per platform.
 
 ## [0.20.0] — 2026-09-24
 

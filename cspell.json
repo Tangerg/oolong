@@ -40,6 +40,8 @@
     "fuzztime",
     "getenv",
     "GOFLAGS",
+    "gocognit",
+    "gocyclo",
     "gofumpt",
     "golangci",
     "goldens",
