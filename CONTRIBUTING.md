@@ -58,10 +58,10 @@ shfmt -d scripts
 modules=$(scripts/modules.sh)
 for m in $modules; do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
-  golangci-lint run ./... && govulncheck ./...) || break; done
+  golangci-lint run ./... && govulncheck ./...); done
 scripts/check-reachability.sh
 go -C internal run ./cmd/apiledger -root ..
-go work sync && git diff --quiet -- go.work
+go work sync && git diff --quiet
 npm ci
 npm run docs:check
 ```

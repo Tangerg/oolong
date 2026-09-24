@@ -18,11 +18,136 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+A second repair pass. A review of v0.20.0 re-checked the same 55 defects against the
+released code and found 18 of them still open, plus six the repairs themselves
+introduced or left behind. All of them are fixed here, each with a test that fails
+against the released behaviour.
+
+The recurring shape is the same one as last time, one level further in: a fix that
+answered the case it was shown rather than the question it was asked. A bound that
+refused a sequence and then forgot where the sequence ended. A transfer that could
+be interrupted but not superseded. A configuration copied at the operations somebody
+thought of. A rule that held for the first row of a block and not the rest.
+
+### Changed
+
+- `ssh.Run` takes the session a server hands it by default and refuses one whose PTY
+  the server allocated, which is the opposite of what v0.20.0 did. `AllocatePty`
+  starts copying the channel into that terminal, and draining its window changes,
+  before the handler runs; the default handling starts nothing and only rewrites a
+  line feed on the way out, which a frame drawn on the alternate screen does not
+  contain. v0.20.0 refused the mode that works — see the migration note.
+- `input.Stream` owns its parser and is handed over whole. A startup probe used to
+  hand on a bare parser, which carries half a sequence but not the moment its
+  ambiguity runs out, so an Escape pressed during startup was still ambiguous when
+  the next keystroke arrived.
+- `ansi.Scanner` consumes a sequence it refused for its length to the end of that
+  sequence, over as many chunks as that takes, and delivers none of it. Forgetting it
+  instead put the scanner back in ordinary text at whatever byte the next read began
+  with.
+- `markdown.Stream` asks the parser whether a cut is safe rather than deciding for
+  itself. Its line scan now only proposes one.
+- `headless.Editor` drops an element whose boundary an edit has put inside a grapheme
+  cluster. Such an element cannot be stepped over or taken whole, which is the
+  fragment the type exists to prevent.
+- `latex` refuses a control sequence it does not implement in every glyph
+  repertoire, `Glyphs.Plain` included. Plain says how a symbol this package has is
+  spelled and not that every control sequence is one.
+- `ptytest.Session.Close` ends the whole process group whether or not the program is
+  still running. A child that exited having left something of its own behind left it
+  in the same group and holding the same terminal.
+
+### Fixed
+
+Terminal and protocol:
+
+- `grid.Inline.Flush` keeps the anchor it was written from when the write does not
+  reach the terminal. Adopting it while composing made a retry climb out of the block
+  and rewrite finished output above it.
+- The startup probe settles an Escape by time, exactly as the pump does afterwards.
+  The probe's own wait and the escape grace are separate deadlines and it now wakes
+  for both.
+- A control string too long to carry no longer has its body delivered as text
+  because a read ended in the middle of it. The same bytes now read the same way
+  whole and in pieces, through `text.Decoder` as well as through the scanner.
+- A control sequence becomes a keystroke only when its whole parameter section is
+  readable. Checking each group where it is read left the groups a key form does not
+  read unexamined: an extra group, a colon-separated field, and the bracketed-paste opener all
+  passed unreadable numbers through.
+
+Components:
+
+- A focus transfer interrupted by a synchronous `Focus` callback abandons what it had
+  left to say, in all four owners that make one. Its last words were the ones the
+  widgets kept, so a tab selected from inside the transfer ended up beside a pane
+  that held the keyboard, and two children believed they had it at once.
+- A controlled `Text` whose owner normalizes its own write no longer reads the
+  difference as somebody else having replaced the value. One keystroke became an
+  adoption: the cursor at the end of the line, the undo history gone, and the
+  revision counted twice.
+- `headless.Table` carries its configuration into its list at every forwarded
+  operation. Cursor movement was the one that was missed, so a table told to wrap did
+  not wrap until something had drawn it.
+- Ordinary editing beside an atomic element can no longer leave its boundary inside a
+  grapheme cluster.
+
+Content:
+
+- A stream's cut no longer splits a fenced block the top-level syntax cannot see:
+  a fence opened on a list item's own line, and backticks indented inside a block of
+  code, both ended it four lines early and turned a code literal into emphasis.
+- A quotation's bar stands in the quotation's columns on every row. A quoted list
+  item that wrapped drew its bar underneath its own second line.
+- A table's rule fills its column exactly. A divider glyph two columns wide left a
+  remainder, and every separator after it stood left of the one on the rows it
+  separates.
+- The guard on LaTeX rendering's growth measures bytes rather than allocation count,
+  which is the only form in which the defect it was written for was ever visible.
+
+Transports, harness and examples:
+
+- An Oolong program runs over SSH again, and the three facts it needs — sole reader,
+  sole window consumer, exact bytes — are shown against a real server and a real
+  client.
+- Closing a `ptytest` session ends what the program left behind after it exited.
+- The dashboard's slider answers the press that landed on it, and the agent's review
+  pane scrolls the change under the pointer and leaves the change a row on a short
+  terminal. All three staged a pointer region from a child frame's own bounds, which
+  begin at zero.
+- The composer keeps an unsent draft's attachments through a walk of the history, and
+  binds a recalled entry's attachments by where they were rather than by looking for
+  text that reads like one.
+- More of the same answer does not take a reader who scrolled up back to the end of
+  it, and an answer whose last piece renders to nothing still ends — which is what
+  lets everything after it reach the terminal's own scrollback.
+- The gate in `CONTRIBUTING.md` fails when a module fails, and watches everything
+  `go work sync` writes rather than the one file whose name matches the command.
+
+### Breaking API migration
+
+#### core
+
+- `input.StreamConfig.Parser` and `input.(*Stream).Arm` are removed. They existed so a
+  startup probe could read the terminal before its stream existed and hand the parser
+  on afterwards, and that seam is what made a probe decode without any of the
+  decisions a stream owns. A transport that read before its stream existed should
+  make the stream first and read through it; there is no longer a way to build a
+  `Stream` around a parser that is already holding bytes, and therefore no longer a
+  way to be handed one whose waiting nobody is doing.
+
+#### ssh
+
+- `ssh.ErrEmulatedPTY` is removed and `ssh.ErrAllocatedPTY` takes its place, refusing
+  the opposite mode. v0.20.0 refused a session whose PTY the server emulates, which is
+  what `charm.land/ssh` does by default — so `Run` refused every ordinary session and
+  accepted the one the library was already reading. A server configured with
+  `charm.land/ssh.AllocatePty` must stop doing so; nothing else changes.
+
 ## [0.20.0] — 2026-09-24
 
-A repair release. An external audit of v0.19.0 reported 55 defects; 54 are fixed
-here, each with a test that fails against the old behaviour. The recurring shape is
-a fact with two owners, or a fact read somewhere it was not true.
+A repair release. An external audit of v0.19.0 reported 55 defects; this release
+addressed 54 of them. A later review of the released code found 18 still open — see
+the section above, which fixes them.
 
 ### Changed
 

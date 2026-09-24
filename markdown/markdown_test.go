@@ -582,7 +582,13 @@ func TestATableRuleFillsItsColumnExactly(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("the table drew %d rows: %q", len(got), got)
 	}
-	column := func(row string) int { return text.Width(row[:strings.Index(row, "│")]) }
+	column := func(row string) int {
+		before, _, found := strings.Cut(row, "│")
+		if !found {
+			t.Fatalf("no column separator in %q", row)
+		}
+		return text.Width(before)
+	}
 	bar := column(got[0])
 	for _, row := range got {
 		if at := column(row); at != bar {

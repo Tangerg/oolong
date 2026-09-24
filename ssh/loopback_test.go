@@ -29,22 +29,26 @@ import (
 // serve accepts one SSH session and hands it to run, returning the client end.
 func serve(t *testing.T, run func(charmssh.Session), options ...charmssh.Option) *gossh.Session {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var listen net.ListenConfig
+	listener, err := listen.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := &charmssh.Server{Handler: run}
 	for _, option := range options {
-		if err := option(server); err != nil {
-			t.Fatal(err)
+		if optionErr := option(server); optionErr != nil {
+			t.Fatal(optionErr)
 		}
 	}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
 
 	client, err := gossh.Dial("tcp", listener.Addr().String(), &gossh.ClientConfig{
-		User:            "oolong",
-		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		User: "oolong",
+		// The server generates a key of its own on the first connection and the
+		// test has no way to know it in advance. What is being connected to is a
+		// listener this test just opened on the loopback interface.
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec // loopback test server
 		Timeout:         10 * time.Second,
 	})
 	if err != nil {

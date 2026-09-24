@@ -10,28 +10,11 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// drawn gives the conversation a width, which is what everything it owns is measured
-// against, and returns what it came to.
-func drawn(t *testing.T, c *conversation, width, height int) string {
+// draw gives the conversation a width, which is what everything it owns is measured
+// against, and a height, which is what decides whether it is scrolled.
+func draw(t *testing.T, c *conversation, height int) {
 	t.Helper()
-	surface := grid.NewSurface(width, height)
-	headless.NewRoot(c).Draw(surface.View())
-	var out strings.Builder
-	for y := range height {
-		for x := range width {
-			cell, ok := surface.CellAt(x, y)
-			if !ok || cell.Width() == 0 {
-				continue
-			}
-			if cell.Content() == "" {
-				out.WriteString(" ")
-				continue
-			}
-			out.WriteString(cell.Content())
-		}
-		out.WriteString("\n")
-	}
-	return out.String()
+	headless.NewRoot(c).Draw(grid.NewSurface(40, height).View())
 }
 
 func newTestConversation() *conversation {
@@ -56,7 +39,7 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 	// for good takes everything after it with it: the terminal's own scrollback never
 	// receives another line of the session.
 	c := newTestConversation()
-	drawn(t, c, 40, 10)
+	draw(t, c, 10)
 	c.Markdown("<")
 	c.Markdown("!-- hidden -->")
 	c.FlushMarkdown()
@@ -70,7 +53,7 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 		c.Markdown("a line\n\n")
 		c.FlushMarkdown()
 	}
-	drawn(t, c, 40, 10)
+	draw(t, c, 10)
 	var scrollback countingPrinter
 	c.Retain(&scrollback)
 	if scrollback.blocks == 0 {
@@ -90,14 +73,14 @@ func TestMoreOfTheSameAnswerDoesNotTakeTheReaderBackToIt(t *testing.T) {
 	c := newTestConversation()
 	c.User(strings.Repeat("a long prompt that fills the window\n", 20))
 	c.Markdown("first\n\n<!-- separator -->\n\n")
-	drawn(t, c, 40, 6)
+	draw(t, c, 6)
 	c.scroll.ToTop()
 	if c.scroll.FollowingEnd() {
 		t.Fatal("the reader is at the end after scrolling to the top")
 	}
 
 	c.Markdown("second\n\nthird\n")
-	drawn(t, c, 40, 6)
+	draw(t, c, 6)
 	if c.scroll.FollowingEnd() {
 		t.Fatal("more of the same answer took the reader back to the end of it")
 	}
