@@ -28,7 +28,8 @@ var (
 	// is already reading the channel into it. Run needs the channel to itself.
 	ErrAllocatedPTY = errors.New("ssh: session's PTY is allocated by the server")
 	// ErrLineFeed means a frame contained a line feed of its own, which this session
-	// cannot carry. See [Run].
+	// cannot carry. The frame is refused whole and the session is left as it was, so
+	// what [Run] owns is still given back on the way out. See [Run].
 	ErrLineFeed = errors.New("ssh: the session cannot carry a line feed")
 )
 
@@ -162,9 +163,12 @@ type exactChannel struct {
 
 func (c exactChannel) Write(p []byte) (int, error) {
 	if at := bareLineFeed(p); at >= 0 {
-		// Reported as bytes written, because nothing was: a frame is applied whole
-		// and a partial one is not a smaller frame.
-		return 0, fmt.Errorf("%w: byte %d", ErrLineFeed, at)
+		// Zero bytes written, because nothing was: a frame is applied whole and a
+		// partial one is not a smaller frame. The channel is untouched and still
+		// carries everything else, which is the difference [term.ErrFrameRefused]
+		// exists to say — a session that refused a frame has not gone away, and the
+		// terminal it was given still has to be handed back.
+		return 0, fmt.Errorf("%w: byte %d: %w", ErrLineFeed, at, term.ErrFrameRefused)
 	}
 	return c.to.Write(p)
 }

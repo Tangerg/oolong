@@ -24,6 +24,17 @@ var ErrClosed = errors.New("term: writer closed")
 // late frame arrive in the next owner's output.
 var ErrDrainTimeout = errors.New("term: writer did not drain")
 
+// ErrFrameRefused is how a destination says it declined a frame rather than failed
+// to write one: none of the frame was written, and the next one can still go out. A
+// destination wraps it in whatever says why.
+//
+// Any other error means the destination is gone, and everything queued behind it is
+// abandoned — a stream that has taken half a frame cannot be resumed. Both are
+// reported by [Writer.Err] and both are a reason to stop, because the display no
+// longer shows what the program believes it drew; only one of them also stops the
+// sequences that give the terminal back.
+var ErrFrameRefused = errors.New("term: destination refused the frame")
+
 // DrainGrace is how long to wait for queued frames to reach the terminal before
 // abandoning them. A terminal that has stopped accepting bytes must not be able to
 // hold up an exit, and no amount of waiting makes one start accepting them again.
@@ -173,11 +184,13 @@ func (w *Writer) Queued() uint64 { return w.queued.current() }
 // Written is the highest sequence that reached the terminal.
 func (w *Writer) Written() uint64 { return w.written.Load() }
 
-// Err is the first write failure, or nil.
+// Err is the first frame that did not reach the terminal, or nil.
 //
 // A terminal that has failed a write does not recover, and a UI that cannot reach
 // its terminal has nothing left to do, so this is a reason to exit rather than
-// something to retry.
+// something to retry. A refused frame — see [ErrFrameRefused] — is the same reason
+// to exit and not the same terminal: frames queued after it are still written, so
+// the exit can reach it.
 func (w *Writer) Err() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -263,6 +276,11 @@ func (w *Writer) run() {
 		w.dst = nil
 		close(w.loopDone)
 	}()
+	// A refused frame leaves the destination able to take the next one, so a frame
+	// can succeed after an earlier one never arrived. The watermark is what a caller
+	// waits on to know its output is on the screen, so it stops at the last frame
+	// that got there.
+	arrived := true
 	for {
 		f, ok := w.next()
 		if !ok {
@@ -272,7 +290,9 @@ func (w *Writer) run() {
 		if !w.discarding.Load() {
 			_, err = io.Copy(w.dst, bytes.NewReader(f.data))
 		}
-		if err == nil {
+		if err != nil {
+			arrived = false
+		} else if arrived {
 			w.written.Store(f.seq)
 		}
 		w.finish(f.seq, err)
@@ -306,9 +326,11 @@ func (w *Writer) finish(seq uint64, err error) {
 			w.failure = err
 		}
 		w.mu.Unlock()
-		// A failed terminal stays failed. Continuing to write would produce a
-		// stream of the same error and, worse, a partly-written frame after it.
-		w.discarding.Store(true)
+		if !errors.Is(err, ErrFrameRefused) {
+			// A failed terminal stays failed. Continuing to write would produce a
+			// stream of the same error and, worse, a partly-written frame after it.
+			w.discarding.Store(true)
+		}
 	}
 	// The wake-up is queued before the watermark moves, and the watermark moves
 	// before the broadcast. That order is what makes "Drain has returned" imply

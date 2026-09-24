@@ -259,6 +259,48 @@ func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	}
 }
 
+// refusing declines the frames it was told to and carries the rest untouched.
+type refusing struct {
+	b    bytes.Buffer
+	deny string
+}
+
+var errUnsupported = errors.New("this frame is not something I carry")
+
+func (r *refusing) Write(p []byte) (int, error) {
+	if string(p) == r.deny {
+		return 0, fmt.Errorf("%w: %w", errUnsupported, term.ErrFrameRefused)
+	}
+	return r.b.Write(p)
+}
+
+func TestARefusedFrameIsNotADestinationThatWentAway(t *testing.T) {
+	// A destination that cannot carry one frame can carry the next, and the frames
+	// after a refusal include the ones that give the terminal back. Nothing else can
+	// send those: the program is on its way out by then.
+	dst := &refusing{deny: "second"}
+	w := newTestWriter(t, dst)
+
+	w.Queue([]byte("first"))
+	w.Queue([]byte("second"))
+	w.Queue([]byte("third"))
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatalf("frames never settled: %v", err)
+	}
+
+	if err := w.Err(); !errors.Is(err, errUnsupported) {
+		t.Fatalf("Err = %v, want the refusal", err)
+	}
+	if got := dst.b.String(); got != "firstthird" {
+		t.Fatalf("terminal received %q, want everything but the refused frame", got)
+	}
+	// The refused frame never reached the terminal, so the watermark may not claim
+	// it did — it is what a caller waits on to know its output arrived.
+	if got := w.Written(); got != 1 {
+		t.Fatalf("watermark = %d, want the last frame before the refusal", got)
+	}
+}
+
 func TestFailureWakesChangesWithoutAdvancingTheWatermark(t *testing.T) {
 	w := newTestWriter(t, &failing{})
 	w.Queue([]byte("doomed"))

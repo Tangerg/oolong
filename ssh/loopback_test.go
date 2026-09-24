@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/program"
+	"github.com/Tangerg/oolong/core/term"
 	"github.com/Tangerg/oolong/ssh"
 )
 
@@ -314,30 +315,60 @@ func TestAFrameTheSessionCannotCarryIsRefusedRatherThanRewritten(t *testing.T) {
 	// line feed of its own. The emulation would add a carriage return to it and move
 	// what the painter drew next to the first column — so the session says it cannot
 	// carry that byte instead of carrying something else.
-	done := make(chan error, 1)
-	var session *recorded
-	client := serve(t, func(accepted charmssh.Session) {
-		session = &recorded{Session: accepted}
-		done <- ssh.Run(session, program.Config{
-			Root: func(runtime *program.Runtime) program.Component {
-				return &canvas{runtime: runtime, paint: lineFeedPainter{}}
-			},
-		})
-	})
-	if err := client.Shell(); err != nil {
-		t.Fatal(err)
-	}
+	//
+	// Refusing a frame is not the session breaking. Run turned the client's terminal
+	// on for the duration of the call and nothing else will turn it off, so the
+	// modes it entered have to be left on the way out of a refusal exactly as they
+	// are on the way out of a normal exit.
+	features := term.Features{Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible}
+	modes := term.Config{AltScreen: true, Features: features}.Modes(nil)
 
-	select {
-	case err := <-done:
-		if !errors.Is(err, ssh.ErrLineFeed) {
-			t.Fatalf("Run = %v, want ErrLineFeed", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("a frame the session cannot carry was neither sent nor refused")
-	}
-	if sent := session.written(); strings.Contains(sent, "\x1b7") {
-		t.Fatalf("the refused frame was handed to the session anyway: %q", sent)
+	for _, test := range []struct {
+		name    string
+		paint   grid.Painter
+		refused bool
+	}{
+		{name: "a line feed of its own", paint: lineFeedPainter{}, refused: true},
+		{name: "the same move asked for", paint: movingPainter{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			done := make(chan error, 1)
+			var session *recorded
+			client := serve(t, func(accepted charmssh.Session) {
+				session = &recorded{Session: accepted}
+				done <- ssh.Run(session, program.Config{
+					Root: func(runtime *program.Runtime) program.Component {
+						return &canvas{runtime: runtime, paint: test.paint}
+					},
+					Terminal: features,
+				})
+			})
+			if err := client.Shell(); err != nil {
+				t.Fatal(err)
+			}
+
+			select {
+			case err := <-done:
+				switch {
+				case test.refused && !errors.Is(err, ssh.ErrLineFeed):
+					t.Fatalf("Run = %v, want the frame refused with ErrLineFeed", err)
+				case !test.refused && err != nil:
+					t.Fatalf("Run = %v, want the frame carried", err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("the frame was neither sent nor refused")
+			}
+			sent := session.written()
+			if test.refused && strings.Contains(sent, "\x1b7") {
+				t.Fatalf("the refused frame was handed to the session anyway: %q", sent)
+			}
+			if !strings.HasPrefix(sent, modes.Enter()) {
+				t.Fatalf("the session never entered the modes Run asked for: %q", sent)
+			}
+			if !strings.HasSuffix(sent, modes.Leave()) {
+				t.Fatalf("the modes Run entered were left on: %q", sent)
+			}
+		})
 	}
 }
 

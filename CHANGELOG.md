@@ -18,11 +18,11 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
-A second and third repair pass over the same audit. A review of v0.20.0 found 18 of
-its 55 defects still open, plus six the repairs themselves introduced or left behind;
-a review of the repairs for those found two of them closed only halfway, and five
-further things they had left. Every one is fixed here, each with a test that fails
-against the behaviour it replaced.
+A second, third and fourth repair pass over the same audit. A review of v0.20.0 found
+18 of its 55 defects still open, plus six the repairs themselves introduced or left
+behind; a review of the repairs for those found two of them closed only halfway, and
+five further things they had left; a review of those found two more. Every one is
+fixed here, each with a test that fails against the behaviour it replaced.
 
 The recurring shape is the same one as before, one level further in each time: a fix
 that answered the case it was shown rather than the question it was asked. A bound
@@ -30,7 +30,10 @@ that refused a sequence and then forgot where the sequence ended — and then fo
 how far into its own syntax it had got. A transfer that could be interrupted but not
 superseded. A configuration copied at the operations somebody thought of. A line
 scanner that stopped deciding where a cut was allowed but went on deciding where one
-would be offered.
+would be offered. And, at the end, the same mistake at two different seams: a rule
+applied where it was convenient rather than where the fact it decides lives — which
+characters a line has, settled one span at a time, and a frame a session will not
+carry, said in the one way that also means the session is gone.
 
 ### Changed
 
@@ -43,7 +46,15 @@ would be offered.
 - `text.Line.Wrap` and `text.Line.Truncate` return text that could be drawn in the
   cases they used to return the line itself: no width to break at, nothing to lay
   out, and nothing cut. A block that does not wrap hands its rows back through the
-  last of those.
+  last of those. Which characters a line has is settled for the whole line, so a
+  style boundary falling inside one — which a reader cannot see and a caller is free
+  to write — cannot decide that it is two broken ones instead.
+- `term.Writer` tells a destination that refused a frame from one that went away. A
+  destination returns the new `term.ErrFrameRefused` to say it wrote none of the frame
+  and can still take the next; anything else abandons everything queued behind it,
+  which is what a half-written stream deserves and what the sequences giving the
+  terminal back do not. `term.Writer.Written` accordingly stops at the last frame that
+  arrived rather than the last one that went out.
 - `ssh.Run` takes the session a server hands it by default and refuses one whose PTY
   the server allocated, which is the opposite of what v0.20.0 did. `AllocatePty`
   starts copying the channel into that terminal, and draining its window changes,
@@ -171,6 +182,9 @@ Transports, harness and examples:
   of a carriage-return pair is refused, because the session would carry something else
   instead. Only a `grid.Painter` can put one in a frame; one that moves the cursor by
   asking the terminal to, rather than by writing the byte that means it, is unaffected.
+  The refusal costs the frame and nothing else: the channel still carries everything
+  after it, so what `Run` turned on in the client's terminal is still turned off before
+  it returns.
 - `ssh.ErrEmulatedPTY` is removed and `ssh.ErrAllocatedPTY` takes its place, refusing
   the opposite mode. v0.20.0 refused a session whose PTY the server emulates, which is
   what `charm.land/ssh` does by default — so `Run` refused every ordinary session and
