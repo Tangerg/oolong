@@ -18,16 +18,19 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
-A second repair pass. A review of v0.20.0 re-checked the same 55 defects against the
-released code and found 18 of them still open, plus six the repairs themselves
-introduced or left behind. All of them are fixed here, each with a test that fails
-against the released behaviour.
+A second and third repair pass over the same audit. A review of v0.20.0 found 18 of
+its 55 defects still open, plus six the repairs themselves introduced or left behind;
+a review of the repairs for those found two of them closed only halfway, and five
+further things they had left. Every one is fixed here, each with a test that fails
+against the behaviour it replaced.
 
-The recurring shape is the same one as last time, one level further in: a fix that
-answered the case it was shown rather than the question it was asked. A bound that
-refused a sequence and then forgot where the sequence ended. A transfer that could
-be interrupted but not superseded. A configuration copied at the operations somebody
-thought of. A rule that held for the first row of a block and not the rest.
+The recurring shape is the same one as before, one level further in each time: a fix
+that answered the case it was shown rather than the question it was asked. A bound
+that refused a sequence and then forgot where the sequence ended — and then forgot
+how far into its own syntax it had got. A transfer that could be interrupted but not
+superseded. A configuration copied at the operations somebody thought of. A line
+scanner that stopped deciding where a cut was allowed but went on deciding where one
+would be offered.
 
 ### Changed
 
@@ -45,11 +48,16 @@ thought of. A rule that held for the first row of a block and not the rest.
   sequence, over as many chunks as that takes, and delivers none of it. Forgetting it
   instead put the scanner back in ordinary text at whatever byte the next read began
   with.
-- `markdown.Stream` asks the parser whether a cut is safe rather than deciding for
-  itself. Its line scan now only proposes one.
+- `markdown.Stream` asks the parser whether a cut is allowed and no longer has an
+  opinion of its own. Its line scan proposes a cut at a blank line and nothing more:
+  tracking fences approximately meant three lines that only looked like one — an info
+  string with a backtick in it, a run of backticks inside an HTML comment, a closing
+  fence indented under a list item — left it believing it was inside a block of code
+  that nothing in the document could close, and from there it offered no cuts at all.
 - `headless.Editor` drops an element whose boundary an edit has put inside a grapheme
   cluster. Such an element cannot be stepped over or taken whole, which is the
-  fragment the type exists to prevent.
+  fragment the type exists to prevent: the text stays exactly as the edit left it, the
+  element is gone from `Elements`, and undo restores both. `headless.Element` says so.
 - `latex` refuses a control sequence it does not implement in every glyph
   repertoire, `Glyphs.Plain` included. Plain says how a symbol this package has is
   spelled and not that every control sequence is one.
@@ -67,9 +75,11 @@ Terminal and protocol:
 - The startup probe settles an Escape by time, exactly as the pump does afterwards.
   The probe's own wait and the escape grace are separate deadlines and it now wakes
   for both.
-- A control string too long to carry no longer has its body delivered as text
-  because a read ended in the middle of it. The same bytes now read the same way
-  whole and in pieces, through `text.Decoder` as well as through the scanner.
+- A sequence too long to carry no longer reads differently for having arrived in
+  pieces. Refusing one used to forget where it ended, so its body was delivered as
+  text; keeping only its introducer then forgot how far into its own syntax it had
+  got, so the byte that proved a control sequence malformed was read as an ordinary
+  parameter and what followed it was swallowed.
 - A control sequence becomes a keystroke only when its whole parameter section is
   readable. Checking each group where it is read left the groups a key form does not
   read unexamined: an extra group, a colon-separated field, and the bracketed-paste opener all
@@ -108,20 +118,27 @@ Transports, harness and examples:
 
 - An Oolong program runs over SSH again, and the three facts it needs — sole reader,
   sole window consumer, exact bytes — are shown against a real server and a real
-  client.
+  client, by comparing what the transport was handed with what the client received.
+  A frame carrying a line feed of its own, which only a `grid.Painter` can produce,
+  is refused with the new `ssh.ErrLineFeed` rather than carried with a carriage
+  return added to it.
 - Closing a `ptytest` session ends what the program left behind after it exited.
 - The dashboard's slider answers the press that landed on it, and the agent's review
   pane scrolls the change under the pointer and leaves the change a row on a short
   terminal. All three staged a pointer region from a child frame's own bounds, which
   begin at zero.
-- The composer keeps an unsent draft's attachments through a walk of the history, and
+- The composer keeps an unsent draft's attachments through a walk of the history,
   binds a recalled entry's attachments by where they were rather than by looking for
-  text that reads like one.
+  text that reads like one, and gives the draft back with the words it had — the
+  separator an inserted chip writes is not one the draft never contained.
 - More of the same answer does not take a reader who scrolled up back to the end of
-  it, and an answer whose last piece renders to nothing still ends — which is what
-  lets everything after it reach the terminal's own scrollback.
-- The gate in `CONTRIBUTING.md` fails when a module fails, and watches everything
-  `go work sync` writes rather than the one file whose name matches the command.
+  it; an answer whose last piece renders to nothing still ends, which is what lets
+  everything after it reach the terminal's own scrollback; and text that turned out
+  to be the beginning of an HTML comment stops being on the screen once the comment
+  closes.
+- The gate in `CONTRIBUTING.md` fails when a module fails or when `go work sync`
+  itself does, and watches everything that command writes rather than the one file
+  whose name matches it.
 
 ### Breaking API migration
 
@@ -137,6 +154,10 @@ Transports, harness and examples:
 
 #### ssh
 
+- `ssh.ErrLineFeed` is new. A frame containing a line feed that is not the second half
+  of a carriage-return pair is refused, because the session would carry something else
+  instead. Only a `grid.Painter` can put one in a frame; one that moves the cursor by
+  asking the terminal to, rather than by writing the byte that means it, is unaffected.
 - `ssh.ErrEmulatedPTY` is removed and `ssh.ErrAllocatedPTY` takes its place, refusing
   the opposite mode. v0.20.0 refused a session whose PTY the server emulates, which is
   what `charm.land/ssh` does by default — so `Run` refused every ordinary session and

@@ -1,7 +1,9 @@
 package markdown_test
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/markdown"
@@ -69,6 +71,48 @@ func TestWhereAStreamCutsDoesNotChangeWhatTheDocumentSays(t *testing.T) {
 				if got := rows(t, 40, blocks); !slices.Equal(got, want) {
 					t.Errorf("in %d-byte chunks the document reads\n%q\nwant\n%q", size, got, want)
 				}
+			}
+		})
+	}
+}
+
+// TestAFenceNobodyOpenedDoesNotStopTheStreamPublishing.
+//
+// A cut is proposed by a line scan and allowed by the parser, and the two have to
+// stay in those roles. When the scan tracked fences itself, a line that only looked
+// like one — an info string with a backtick in it, a run of backticks inside an HTML
+// comment, a closing fence indented under a list item — left it believing it was
+// inside a block of code that nothing in the document could close. From there it
+// offered no cuts at all, and a guard that can only refuse a candidate cannot
+// recover one that is never offered: everything after such a line waited for the end
+// of the answer, however long the answer was.
+func TestAFenceNobodyOpenedDoesNotStopTheStreamPublishing(t *testing.T) {
+	for name, prefix := range map[string]string{
+		"an info string with a backtick in it": "```a`b\n\n",
+		"backticks inside an HTML comment":     "<!--\n```\n-->\n\n",
+		"a closing fence under a list item":    "- ```go\n  x\n  ```\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var source strings.Builder
+			source.WriteString(prefix)
+			var stream markdown.Stream
+			stream.SetLook(look())
+			var blocks []markdown.Block
+			blocks = append(blocks, mustFeed(t, &stream, prefix)...)
+			for i := range 8 {
+				paragraph := fmt.Sprintf("paragraph %d\n\n", i)
+				source.WriteString(paragraph)
+				blocks = append(blocks, mustFeed(t, &stream, paragraph)...)
+			}
+			published := len(blocks)
+			blocks = append(blocks, mustFlush(t, &stream)...)
+
+			if published == 0 {
+				t.Errorf("nothing was published before the end: all %d blocks waited for Flush", len(blocks))
+			}
+			// And what it published is still what the document says.
+			if got, want := rows(t, 40, blocks), rows(t, 40, mustRender(t, source.String(), look())); !slices.Equal(got, want) {
+				t.Errorf("the document reads\n%q\nwant\n%q", got, want)
 			}
 		})
 	}

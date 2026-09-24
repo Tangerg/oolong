@@ -156,3 +156,26 @@ func TestARecalledEntryTakesTheAttachmentsItWasSentWith(t *testing.T) {
 		t.Fatalf("plain words came back with %d attachments", len(got))
 	}
 }
+
+func TestRecallingADraftGivesBackTheWordsItHad(t *testing.T) {
+	// InsertElement writes a separator after a chip, so putting a chip back writes
+	// one too. Where the recorded document has a separator that is the one it means;
+	// where the writer deleted it and carried straight on, the one the editor adds is
+	// a word this draft never had.
+	p := &prompt{pastes: make(map[uint64]string)}
+	p.history.Add("something earlier")
+	p.insertPaste("one\ntwo\nthree")
+	p.composer.Editor().DeleteBack()
+	p.composer.Editor().Insert("suffix")
+	before := p.composer.Editor().Text()
+
+	p.recallBack()
+	p.recallForward()
+
+	if got := p.composer.Editor().Text(); got != before {
+		t.Fatalf("the draft came back as %q, want %q", got, before)
+	}
+	if got := p.composer.Editor().Elements(); len(got) != 1 {
+		t.Fatalf("the draft came back with %d attachments, want the one it had", len(got))
+	}
+}

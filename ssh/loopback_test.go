@@ -2,9 +2,11 @@ package ssh_test
 
 import (
 	"errors"
+	"image"
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +27,28 @@ import (
 // the only consumer of its window changes, and its frames must reach the client as
 // the bytes it wrote. Nothing short of an accepted connection demonstrates any of
 // them — a stand-in session answers whatever it was told to.
+
+// recorded is a session that keeps what was written through it, and is otherwise
+// the session it was given. It stands in for nothing: every call reaches the real
+// session, and what it records is the argument the transport was handed.
+type recorded struct {
+	charmssh.Session
+	mu   sync.Mutex
+	sent []byte
+}
+
+func (r *recorded) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	r.sent = append(r.sent, p...)
+	r.mu.Unlock()
+	return r.Session.Write(p)
+}
+
+func (r *recorded) written() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return string(r.sent)
+}
 
 // serve accepts one SSH session and hands it to run, returning the client end.
 func serve(t *testing.T, run func(charmssh.Session), options ...charmssh.Option) *gossh.Session {
@@ -192,34 +216,63 @@ func TestAWindowChangeReachesTheProgramOverARealSession(t *testing.T) {
 	}
 }
 
-// painter draws one frame of known bytes and stops.
-type painter struct {
+// canvas draws one frame and stops, optionally with something painting a region of
+// it in bytes this library did not compose.
+type canvas struct {
 	runtime *program.Runtime
+	paint   grid.Painter
 	drawn   bool
 }
 
-func (p *painter) Draw(view grid.View) {
+func (c *canvas) Draw(view grid.View) {
 	view.Text(0, 0, "top", grid.Style{FG: grid.RGBColor(0x80, 0, 0)})
 	view.Text(0, 1, "bottom", grid.Style{})
-	if p.drawn {
-		p.runtime.Quit()
+	if c.paint != nil {
+		view.Paint(grid.Area(5, 2, 2, 2), 1, c.paint)
 	}
-	p.drawn = true
+	if c.drawn {
+		c.runtime.Quit()
+	}
+	c.drawn = true
 }
 
-func (*painter) Handle(input.Event) bool { return false }
+func (*canvas) Handle(input.Event) bool { return false }
+
+// lineFeedPainter keeps the one rule a painter has — it leaves the cursor where it
+// found it — and writes a line feed of its own to get to the row below.
+type lineFeedPainter struct{}
+
+func (lineFeedPainter) Paint(w io.Writer, _ image.Point) error {
+	_, err := io.WriteString(w, "\x1b7\nX\x1b8")
+	return err
+}
+
+func (lineFeedPainter) Erase(io.Writer) error { return nil }
+
+// movingPainter does the same thing the session can carry: it goes down a row by
+// asking the terminal to, rather than by writing the byte that means it.
+type movingPainter struct{}
+
+func (movingPainter) Paint(w io.Writer, _ image.Point) error {
+	_, err := io.WriteString(w, "\x1b7\x1b[BX\x1b8")
+	return err
+}
+
+func (movingPainter) Erase(io.Writer) error { return nil }
 
 func TestAFrameReachesTheClientAsTheBytesItWasWritten(t *testing.T) {
 	// The server's default handling emulates the terminal, and the emulation is a
 	// writer: it turns a line feed into a carriage return and a line feed. A frame is
-	// exact bytes, so the only reason this holds is that no frame contains a line
-	// feed that is not already the second half of one — which is a claim about the
-	// renderer and is therefore checked against a real client rather than asserted.
+	// exact bytes, so what is compared is what the transport was handed against what
+	// the client received — and not the shape of what arrived, which a rewritten
+	// frame satisfies just as well as an untouched one.
 	done := make(chan error, 1)
-	client := serve(t, func(session charmssh.Session) {
+	var session *recorded
+	client := serve(t, func(accepted charmssh.Session) {
+		session = &recorded{Session: accepted}
 		done <- ssh.Run(session, program.Config{
 			Root: func(runtime *program.Runtime) program.Component {
-				return &painter{runtime: runtime}
+				return &canvas{runtime: runtime, paint: movingPainter{}}
 			},
 		})
 	})
@@ -245,17 +298,46 @@ func TestAFrameReachesTheClientAsTheBytesItWasWritten(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the client never saw the session end")
 	}
-	for _, want := range []string{"\x1b[1;1H", "top", "\x1b[2;1H", "bottom"} {
+	if sent := session.written(); got != sent {
+		t.Fatalf("the client received %d bytes and the session was handed %d:\n got %q\nsent %q",
+			len(got), len(sent), got, sent)
+	}
+	for _, want := range []string{"top", "bottom", "\x1b7\x1b[BX\x1b8"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the client received %q, without %q", got, want)
 		}
 	}
-	// A lone line feed is what the emulation rewrites, and finding one means a frame
-	// reached the client as bytes it was not written as.
-	for at := range len(got) {
-		if got[at] == '\n' && (at == 0 || got[at-1] != '\r') {
-			t.Fatalf("the client received a rewritten frame at byte %d: %q", at, got)
+}
+
+func TestAFrameTheSessionCannotCarryIsRefusedRatherThanRewritten(t *testing.T) {
+	// A painter writes bytes this library did not compose, and is free to write a
+	// line feed of its own. The emulation would add a carriage return to it and move
+	// what the painter drew next to the first column — so the session says it cannot
+	// carry that byte instead of carrying something else.
+	done := make(chan error, 1)
+	var session *recorded
+	client := serve(t, func(accepted charmssh.Session) {
+		session = &recorded{Session: accepted}
+		done <- ssh.Run(session, program.Config{
+			Root: func(runtime *program.Runtime) program.Component {
+				return &canvas{runtime: runtime, paint: lineFeedPainter{}}
+			},
+		})
+	})
+	if err := client.Shell(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ssh.ErrLineFeed) {
+			t.Fatalf("Run = %v, want ErrLineFeed", err)
 		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a frame the session cannot carry was neither sent nor refused")
+	}
+	if sent := session.written(); strings.Contains(sent, "\x1b7") {
+		t.Fatalf("the refused frame was handed to the session anyway: %q", sent)
 	}
 }
 

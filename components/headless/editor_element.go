@@ -23,8 +23,23 @@ type ElementKind uint8
 // one, leaves a fragment that still looks like the thing and no longer is.
 //
 // So an element is atomic: the cursor steps over it, a delete takes all of it, and
-// nothing lands inside. Its identity survives editing around it, which is what lets a
-// program keep whatever the element stands for beside it.
+// nothing lands inside. Its identity ordinarily survives editing around it, which is
+// what lets a program keep whatever the element stands for beside it.
+//
+// # When an identity ends
+//
+// What makes an element atomic is that it begins and ends where a caret may sit, and
+// an edit beside one can take that away without touching a byte of it: a regional
+// indicator left next to another is one flag, and a single grapheme cluster cannot be
+// half an element and half the text around it. The cursor could then not be put at
+// its edge, so it could be neither stepped over nor taken whole — which is the
+// fragment this type exists to prevent.
+//
+// An element in that position loses its identity: the text stays exactly as the edit
+// left it and the element is gone from [Editor.Elements], as though it had been
+// deleted. Undo restores both, because it restores the document the element was
+// still an element in. A program keying a payload by [Element.ID] learns of it the
+// way it learns of a deletion — see [Editor.RetainedElementIDs].
 //
 // It is a [text.Mark] in the coordinates this editor speaks. The rule that keeps it
 // over the same words while the text around it changes is that type's, and it is the

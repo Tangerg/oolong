@@ -61,7 +61,8 @@ for m in $modules; do (cd "$m" && \
   golangci-lint run ./... && govulncheck ./...); done
 scripts/check-reachability.sh
 go -C internal run ./cmd/apiledger -root ..
-go work sync && git diff --quiet
+go work sync
+git diff --quiet
 npm ci
 npm run docs:check
 ```

@@ -552,6 +552,17 @@ func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) 
 	if got := e.Elements(); len(got) != 0 {
 		t.Fatalf("elements = %+v, want the one the merge destroyed to be gone", got)
 	}
+
+	// Undo restores the document the element was still an element in, so it restores
+	// the element: an identity ends with the edit that ended it and not before.
+	e.Undo()
+	if got := e.Text(); got != "\U0001F1EF \U0001F1F5x " {
+		t.Fatalf("undo left %q", got)
+	}
+	restored := e.Elements()
+	if len(restored) != 1 || restored[0].ID != el.ID {
+		t.Fatalf("undo restored %+v, want the element that was there", restored)
+	}
 }
 
 // onClusterBoundary reports whether a byte offset is a place a caret may sit.

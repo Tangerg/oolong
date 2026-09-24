@@ -243,18 +243,38 @@ func TestASequenceThatNeverEndsIsNotHeldForEver(t *testing.T) {
 
 // TestWhereTheReadSplitCannotTurnACommandsBodyIntoText.
 //
-// The scanner refuses a control string longer than any may be and the decoder drops
-// what it cannot use, which is right. Forgetting where the sequence ended at the
-// same time was not: the decoder was back in ordinary text at whatever byte the next
-// read happened to begin with, so the same bytes showed nothing when they arrived
-// whole and showed the command's body when they arrived in pieces.
+// The scanner refuses a sequence longer than any may be and the decoder drops what
+// it cannot use, which is right. Forgetting where that sequence ended at the same
+// time was not: the decoder was back in ordinary text at whatever byte the next read
+// happened to begin with, so the same bytes showed nothing when they arrived whole
+// and showed the command's body when they arrived in pieces.
 func TestWhereTheReadSplitCannotTurnACommandsBodyIntoText(t *testing.T) {
-	stream := "\x1b]0;" + strings.Repeat("s", 1<<17) + "SECRET\x07OK\n"
-	read := func(chunk int) string {
+	body := strings.Repeat("s", 1<<17) + "SECRET"
+	for name, tc := range map[string]struct{ sequence, after string }{
+		"a command that ends at a bell":      {"\x1b]0;" + body + "\x07", "OK\n"},
+		"a command that ends at ST":          {"\x1b]0;" + body + "\x1b\\", "OK\n"},
+		"a string the terminal began":        {"\x1bP" + body + "\x1b\\", "OK\n"},
+		"a control sequence that is not one": {"\x1b[" + strings.Repeat(" ", 1<<17), "1mOK\n"},
+	} {
+		t.Run(name, func(t *testing.T) { sameHoweverItArrives(t, tc.sequence, tc.after) })
+	}
+}
+
+// sameHoweverItArrives reads one refused sequence and what follows it at several
+// chunk boundaries and requires one answer.
+//
+// The boundary that matters most is the one between the two: that is where a scanner
+// that had given up on the sequence and forgotten it would be reading ordinary text,
+// while one reading the same bytes whole is still inside the sequence. Uniform chunk
+// sizes hardly ever land there.
+func sameHoweverItArrives(t *testing.T, sequence, after string) {
+	t.Helper()
+	stream := sequence + after
+	read := func(chunks ...string) string {
 		var d text.Decoder
 		var out strings.Builder
-		for at := 0; at < len(stream); at += chunk {
-			for _, line := range d.Feed(stream[at:min(at+chunk, len(stream))]) {
+		for _, chunk := range chunks {
+			for _, line := range d.Feed(chunk) {
 				out.WriteString(line.String() + "\n")
 			}
 		}
@@ -263,12 +283,20 @@ func TestWhereTheReadSplitCannotTurnACommandsBodyIntoText(t *testing.T) {
 		}
 		return out.String()
 	}
-	whole := read(len(stream))
-	if whole != "OK\n" {
-		t.Fatalf("the whole stream read as %q, want only what came after the command", whole)
+
+	whole := read(stream)
+	if strings.Contains(whole, "SECRET") {
+		t.Fatalf("the whole stream read as %q, which is the refused sequence's body", whole)
 	}
-	for _, chunk := range []int{1, 7, 4096, 1 << 16} {
-		if got := read(chunk); got != whole {
+	if got := read(sequence, after); got != whole {
+		t.Errorf("split where the sequence ends, the stream read as %q, want %q", got, whole)
+	}
+	for _, chunk := range []int{1, 7, 31, 4096, 1 << 16} {
+		var pieces []string
+		for at := 0; at < len(stream); at += chunk {
+			pieces = append(pieces, stream[at:min(at+chunk, len(stream))])
+		}
+		if got := read(pieces...); got != whole {
 			t.Errorf("in %d-byte chunks the stream read as %q, want %q", chunk, got, whole)
 		}
 	}

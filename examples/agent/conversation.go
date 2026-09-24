@@ -128,27 +128,32 @@ func (c *conversation) finishOpen(blocks []markdown.Block) {
 		c.follow()
 		return
 	}
-	if len(blocks) > 0 {
-		c.open.SetBlocks(blocks)
-		c.content.Changed(c.openID)
-	}
+	c.open.SetBlocks(blocks)
+	c.content.Changed(c.openID)
 	c.content.Finish(c.openID)
 	c.open, c.hasOpen = nil, false
 }
 
+// stageOpen shows what the answer says so far.
+//
+// Including when that is nothing. Text that turned out to be the beginning of an
+// HTML comment renders to nothing once the comment is closed, and leaving what it
+// looked like on the screen means the reader goes on seeing a stray "<" that the
+// document does not contain.
 func (c *conversation) stageOpen(blocks []markdown.Block) {
-	if len(blocks) == 0 {
-		return
-	}
-	if c.hasOpen {
-		c.open.SetBlocks(blocks)
-		c.content.Changed(c.openID)
-	} else {
+	if !c.hasOpen {
+		if len(blocks) == 0 {
+			return
+		}
 		c.open = new(markdown.Doc)
 		c.open.SetBlocks(blocks)
 		c.openID = c.content.Append(c.open)
 		c.hasOpen = true
+		c.follow()
+		return
 	}
+	c.open.SetBlocks(blocks)
+	c.content.Changed(c.openID)
 	c.follow()
 }
 

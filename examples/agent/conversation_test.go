@@ -14,7 +14,26 @@ import (
 // against, and a height, which is what decides whether it is scrolled.
 func draw(t *testing.T, c *conversation, height int) {
 	t.Helper()
-	headless.NewRoot(c).Draw(grid.NewSurface(40, height).View())
+	drawn(t, c, height)
+}
+
+// drawn draws the conversation and returns what it came to.
+func drawn(t *testing.T, c *conversation, height int) string {
+	t.Helper()
+	const width = 40
+	surface := grid.NewSurface(width, height)
+	headless.NewRoot(c).Draw(surface.View())
+	var out strings.Builder
+	for y := range height {
+		for x := range width {
+			cell, ok := surface.CellAt(x, y)
+			if !ok || cell.Width() == 0 {
+				continue
+			}
+			out.WriteString(cell.Content())
+		}
+	}
+	return out.String()
 }
 
 func newTestConversation() *conversation {
@@ -83,5 +102,25 @@ func TestMoreOfTheSameAnswerDoesNotTakeTheReaderBackToIt(t *testing.T) {
 	draw(t, c, 6)
 	if c.scroll.FollowingEnd() {
 		t.Fatal("more of the same answer took the reader back to the end of it")
+	}
+}
+
+func TestTextThatTurnedOutToBeACommentStopsBeingOnTheScreen(t *testing.T) {
+	// What is open is what the source says so far, and once the comment is closed
+	// the source says nothing. Leaving the last rendering that was not empty means a
+	// reader goes on seeing a stray "<" the document does not contain.
+	for _, settle := range []string{"open", "flushed"} {
+		t.Run(settle, func(t *testing.T) {
+			c := newTestConversation()
+			c.Markdown("<")
+			draw(t, c, 8)
+			c.Markdown("!-- hidden -->")
+			if settle == "flushed" {
+				c.FlushMarkdown()
+			}
+			if got := drawn(t, c, 8); strings.Contains(got, "<") {
+				t.Fatalf("the screen still says %q", got)
+			}
+		})
 	}
 }

@@ -125,15 +125,32 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 // refuse gives up on a sequence longer than any sequence may be, while going on
 // looking for where it ends.
 //
-// Only the introducer is kept, which is all that says which terminator to look for;
-// keeping the body is the thing the bound exists to refuse. The error is reported
-// once for the sequence rather than once per chunk it goes on arriving in.
+// What is kept is what the rest of the sequence has to be read against, and nothing
+// more: the introducer, which says which terminator ends it, and the point the body
+// had reached in its own syntax. Keeping the body is the thing the bound exists to
+// refuse; keeping only the introducer is not enough. A control sequence that had got
+// as far as its intermediate bytes is why the byte after them proves it malformed,
+// and a scan that forgot them reads that byte as an ordinary parameter and swallows
+// what follows it — so the same stream says different things depending on where the
+// read split, which is the thing this bound exists to prevent.
+//
+// Both facts are read off the bytes being discarded rather than off the scan's own
+// state, because a sequence long enough to refuse in a single chunk was never
+// scanned incrementally at all.
+//
+// The error is reported once for the sequence rather than once per chunk it goes on
+// arriving in.
 func (s *Scanner) refuse(sequence string) error {
 	kept := sequence[:min(len(sequence), 2)]
-	// A string sequence ends at ST, which is two bytes. Dropping the first of them
-	// would make the scan run on to the next terminator it found.
-	if len(sequence) > len(kept) && sequence[len(sequence)-1] == Escape {
+	last := sequence[len(sequence)-1]
+	switch {
+	case len(sequence) == len(kept):
+	case last == Escape:
+		// A string sequence ends at ST, which is two bytes. Dropping the first of
+		// them would make the scan run on to the next terminator it found.
 		kept += string(rune(Escape))
+	case sequence[1] == '[' && intermediate(last):
+		kept += string(rune(last))
 	}
 	s.held.Reset()
 	s.held.WriteString(kept)

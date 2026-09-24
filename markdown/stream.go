@@ -67,10 +67,6 @@ type Stream struct {
 	// incomplete line can already be interpreted.
 	scanned, searched int
 	afterCR           bool
-	// fenced says the scan is inside a block of code, and fence is what would close
-	// it.
-	fenced bool
-	fence  string
 	// blank is the offset just past the most recent run of blank lines, which is a
 	// cut waiting to be confirmed by whatever comes next. Zero is none of them: a cut
 	// at the very start of the held text would be a cut with nothing before it, so the
@@ -203,18 +199,38 @@ func (s *Stream) Reset() {
 	s.held.Reset()
 	s.scanned, s.searched, s.blank = 0, 0, 0
 	s.afterCR = false
-	s.fenced, s.fence = false, ""
 	s.open, s.fresh = nil, false
 	s.openErr = nil
 }
 
 // scan reads the complete lines that have arrived since the last call and returns
-// how much of the held text is certainly finished, or zero for none of it.
+// where the held text could be cut, or zero for nowhere.
+//
+// Could, not may. This reads lines and nothing else: a blank line, and then a line
+// at the left margin that begins something new. Whether a cut there would fall
+// inside text the parser is not allowed to interpret is [Stream.splitsARawBlock]'s
+// answer, and the scan does not try to have an opinion about it.
+//
+// It used to track fences itself, to save the parser the trouble. Tracking them
+// approximately is the trouble: three lines that only look like fences — an info
+// string with a backtick in it, a run of backticks inside an HTML comment, a closing
+// fence indented under a list item — left the scan believing it was inside a block
+// of code with nothing in the document able to close it. From there it proposed no
+// cuts at all, and a guard that can only refuse a candidate cannot recover a
+// candidate that is never offered. Everything after such a line waited for the end
+// of the answer.
+//
+// What that tracking bought was measured before it was given up. It saves a parse on
+// the feeds where the scan would otherwise offer a candidate from inside a block of
+// code — which needs unindented lines with blank lines between them, inside a fence,
+// to happen at all. In the loop this type documents, where every feed is followed by
+// [Stream.Open], that parse is 2.7% of what the feed already costs: Open renders the
+// whole unpublished tail, and the tail is exactly what is long in the case this was
+// protecting.
 //
 // Only whole lines are looked at. A line that has not ended cannot be told apart
-// from the beginning of a different one — "```" is a fence and "```go" is a fence
-// with a language, and "“" is neither yet — so the scan stops at the last newline
-// and takes up there when more arrives.
+// from the beginning of a different one, so the scan stops at the last newline and
+// takes up there when more arrives.
 func (s *Stream) scan() int {
 	cut := 0
 	source := s.held.String()
@@ -229,81 +245,20 @@ func (s *Stream) scan() int {
 		line := strings.TrimSuffix(source[s.scanned:end], "\r")
 		s.scanned = end + 1
 		s.searched = s.scanned
-		trimmed := strings.TrimRight(line, " \t")
 
-		switch {
-		case s.fenced:
-			if closes(trimmed, s.fence) {
-				s.fenced, s.fence = false, ""
-			}
-		case fenceOf(trimmed) != "":
-			// A fence at the left margin after a blank line begins something new, the
-			// same as any other line does. Clearing the pending cut without taking it
-			// meant a document that opened a block of code after a paragraph never
-			// committed anything again.
-			if s.blank > 0 && !indented(line) {
-				cut = s.blank
-			}
-			s.fenced, s.fence = true, strings.Clone(fenceOf(trimmed))
-			s.blank = 0
-		case trimmed == "":
+		if strings.TrimRight(line, " \t") == "" {
 			// A cut, if what follows says so. The whole run of blank lines goes with
 			// what came before it: they are what ended it.
 			s.blank = s.scanned
-		default:
-			if s.blank > 0 && !indented(line) {
-				// A line at the left margin after a blank one begins something new, and
-				// nothing before it can still be added to.
-				cut = s.blank
-			}
-			s.blank = 0
+			continue
 		}
-	}
-}
-
-// fenceOf is the run of backticks or tildes that opens a block of code, or nothing
-// when the line does not open one.
-//
-// Any indent counts, which is more than the top-level syntax allows and is
-// deliberate. A fence inside a list item is indented past three spaces, and this scan
-// does not know how deep the item is. Being wrong either way costs a parse and never
-// a cut: a line read as a fence that was not one holds back a candidate the stream
-// could have taken, and one read as prose that was a fence proposes a candidate
-// [Stream.splitsARawBlock] refuses.
-func fenceOf(line string) string {
-	trimmed := strings.TrimLeft(line, " ")
-	if strings.TrimRight(trimmed, " \t") == "$$" {
-		return "$$"
-	}
-	for _, mark := range []string{"```", "~~~"} {
-		if strings.HasPrefix(trimmed, mark) {
-			run := 0
-			for run < len(trimmed) && trimmed[run] == mark[0] {
-				run++
-			}
-			return trimmed[:run]
+		if s.blank > 0 && !indented(line) {
+			// A line at the left margin after a blank one begins something new, and
+			// nothing before it can still be added to.
+			cut = s.blank
 		}
+		s.blank = 0
 	}
-	return ""
-}
-
-// closes reports whether a line could end the fence that opened.
-//
-// Could, not does: a closing fence is the same character, at least as long, and has
-// nothing after it, but how far it may be indented depends on the container this scan
-// cannot see. It is read generously for the reason [fenceOf] is, and with the same
-// consequence — a line of backticks in the middle of a block of code ends the scan's
-// idea of the block and not the parser's, so the cut it lets through is refused.
-func closes(line, fence string) bool {
-	trimmed := strings.TrimLeft(line, " ")
-	if fence == "" {
-		return false
-	}
-	if fence == "$$" {
-		return strings.TrimRight(trimmed, " \t") == fence
-	}
-	run := fenceOf(trimmed)
-	return run != "" && run[0] == fence[0] && len(run) >= len(fence) && strings.TrimRight(trimmed[len(run):], " \t") == ""
 }
 
 // indented reports whether a line begins with room for it, which is how a list item

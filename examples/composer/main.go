@@ -265,11 +265,14 @@ func (p *prompt) restore(d draft) {
 		editor.Insert(d.text[at:c.at])
 		p.attach(c.body)
 		at = c.at + len(pasteLabel(c.body))
-		// InsertElement writes the separator that follows a chip, so the one already
-		// in the recorded text would otherwise be written twice.
+		// InsertElement writes the separator that follows a chip. Where the recorded
+		// document has one it is that one, and where it does not — the writer deleted
+		// it and carried straight on — it is a word this draft never had.
 		if at < len(d.text) && d.text[at] == ' ' {
 			at++
+			continue
 		}
+		editor.DeleteBack()
 	}
 	if at <= len(d.text) {
 		editor.Insert(d.text[at:])

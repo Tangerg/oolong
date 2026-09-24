@@ -1,8 +1,10 @@
 package ssh
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	charmssh "charm.land/ssh"
@@ -25,6 +27,9 @@ var (
 	// ErrAllocatedPTY means the server gave this session a terminal of its own and
 	// is already reading the channel into it. Run needs the channel to itself.
 	ErrAllocatedPTY = errors.New("ssh: session's PTY is allocated by the server")
+	// ErrLineFeed means a frame contained a line feed of its own, which this session
+	// cannot carry. See [Run].
+	ErrLineFeed = errors.New("ssh: the session cannot carry a line feed")
 )
 
 // Run runs cfg on session until the program stops, the client disconnects or the
@@ -41,10 +46,19 @@ var (
 //
 // The default handling emulates the terminal, which is only a writer: it turns a line
 // feed into a carriage return and a line feed, and then turns a doubled carriage
-// return back into one. A frame is exact bytes and would not survive being rewritten
-// — but no frame contains a line feed that is not already the second half of one, so
-// there is nothing in one for it to rewrite. Reads and window changes it does not
-// touch at all.
+// return back into one. Reads and window changes it does not touch at all.
+//
+// A frame is exact bytes and would not survive being rewritten. Nothing this library
+// composes contains a line feed that is not already the second half of one — the
+// alternate screen addresses every row, and an inline block writes only pairs — so
+// there is nothing in a frame for the emulation to find. A [grid.Painter] is the one
+// thing that writes bytes this library did not compose, and one is free to write a
+// line feed of its own: a carriage return would be added to it, and what it drew next
+// would move to the first column.
+//
+// So it is refused rather than rewritten, with [ErrLineFeed]. The session cannot
+// carry that byte, and a transport that cannot carry something has to say so — the
+// alternative is a frame that arrives changed with the terminal to blame for it.
 //
 // Run owns Oolong's input decoder, frame writer and terminal modes for the duration of
 // the call, but it does not own the SSH channel itself and does not choose an exit
@@ -90,7 +104,7 @@ func Run(session charmssh.Session, cfg program.Config) (err error) {
 	// transport setup to its adapter.
 	ctx := session.Context()
 	host := newHost(
-		ctx.Done(), session, pty.Window, windows,
+		ctx.Done(), exactly(session), pty.Window, windows,
 		terminalConfig.Modes(env.lookup), clipboard.New(env.lookup),
 		term.DetectLocale(env.lookup),
 		term.DetectDepth(env.lookup),
@@ -133,4 +147,40 @@ func (e environment) set(name, value string) {
 func (e environment) lookup(name string) (string, bool) {
 	value, ok := e[name]
 	return value, ok
+}
+
+// exactly is the session as a frame writer: its own reader, and a writer that
+// refuses the one byte the session would change on its way out.
+func exactly(session charmssh.Session) io.ReadWriter {
+	return exactChannel{Reader: session, to: session}
+}
+
+type exactChannel struct {
+	io.Reader
+	to io.Writer
+}
+
+func (c exactChannel) Write(p []byte) (int, error) {
+	if at := bareLineFeed(p); at >= 0 {
+		// Reported as bytes written, because nothing was: a frame is applied whole
+		// and a partial one is not a smaller frame.
+		return 0, fmt.Errorf("%w: byte %d", ErrLineFeed, at)
+	}
+	return c.to.Write(p)
+}
+
+// bareLineFeed is where a line feed stands on its own rather than after a carriage
+// return, or -1 for nowhere. It is the emulation's own rule, read from this side.
+func bareLineFeed(p []byte) int {
+	for at := 0; ; {
+		found := bytes.IndexByte(p[at:], '\n')
+		if found < 0 {
+			return -1
+		}
+		at += found
+		if at == 0 || p[at-1] != '\r' {
+			return at
+		}
+		at++
+	}
 }

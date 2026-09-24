@@ -77,9 +77,9 @@ func (s *eventSource) Err() error { return s.err }
 //
 // It does not wait for the session reader. That goroutine may be inside a read of
 // an SSH channel, which has no deadline and belongs to the caller, so waiting for
-// it would mean waiting for the client to send something or disconnect. It takes no
-// further bytes once this returns — see [eventSource.readInput] — and ends with the
-// channel. The consequence belongs in the contract of [Run]: the session's input is
+// it would mean waiting for the client to send something or disconnect. It begins no
+// further read once this returns — see [eventSource.readInput] — and the one already
+// in flight ends with the channel, having taken whatever it takes. The consequence belongs in the contract of [Run]: the session's input is
 // this package's for the session's lifetime, not only for the call.
 func (s *eventSource) Close() {
 	s.closeOnce.Do(func() { close(s.stop) })
