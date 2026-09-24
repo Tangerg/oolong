@@ -76,65 +76,6 @@ func PaletteRGB(index uint8) RGB {
 	}
 }
 
-// Index256 is the nearest entry of the xterm 256-colour palette.
-//
-// Both the colour cube and the grey ramp are searched and the closer of the two
-// wins. Searching only the cube would turn every near-grey into a muddy brown: the
-// cube's greys are the six points where all three channels agree, and the ramp has
-// twenty-four.
-//
-// The first sixteen indices are left out of the search on purpose. A terminal is
-// free to render those as anything at all — a theme's own palette, usually — so
-// choosing one because its default value happened to be close is choosing a colour
-// nobody can predict.
-func (c RGB) Index256() uint8 {
-	// All of this is uint8 arithmetic on purpose. Each cube index is at most 5, so
-	// the largest value reachable here is 16+36*5+6*5+5 = 231, and the largest grey
-	// index is 232+23 = 255 — both inside the type the answer is returned in. Doing
-	// the sums in a wider type and converting at the end would be the same numbers
-	// with a conversion nobody can check by reading it.
-	r, g, b := nearestCube(c.R), nearestCube(c.G), nearestCube(c.B)
-	best := 16 + 36*r + 6*g + b
-	bestDist := distance(c, RGB{cube[r], cube[g], cube[b]})
-
-	// The ramp runs 8, 18, 28 … 238. Rounding the luminance to the nearest step
-	// finds the candidate without walking all twenty-four.
-	lum := (int(c.R) + int(c.G) + int(c.B)) / 3
-	step := clampStep((lum - 8 + 5) / 10)
-
-	grey := 8 + step*10
-	if d := distance(c, RGB{grey, grey, grey}); d < bestDist {
-		return 232 + step
-	}
-	return best
-}
-
-// Dark reports whether this colour is dark enough that what goes on top of it
-// should be light.
-//
-// That, rather than "is it dark" in the abstract, is the question a theme asks
-// when it learns what the terminal draws on. The answer weights the channels by
-// how much of brightness the eye takes from each — green far more than blue — and
-// puts the line down the middle. An unweighted average would call a saturated
-// blue light and a saturated green dark, and get both backwards.
-func (c RGB) Dark() bool {
-	// The weights sum to a thousand, so the sum is a thousand times a value in
-	// 0–255 and the middle of that range is 128 thousand. Kept in integers because
-	// the answer is a threshold, and a threshold does not need the fraction.
-	return 299*int(c.R)+587*int(c.G)+114*int(c.B) < 128_000
-}
-
-// Index16 is the nearest of the sixteen colours every terminal has.
-func (c RGB) Index16() uint8 {
-	best, bestDist := uint8(0), distance(c, ansi16[0])
-	for i := 1; i < len(ansi16); i++ {
-		if d := distance(c, ansi16[i]); d < bestDist {
-			best, bestDist = uint8(i), d
-		}
-	}
-	return best
-}
-
 // nearestCube is the index into [cube] whose value is closest to v.
 func nearestCube(v uint8) uint8 {
 	best, bestDist := 0, diff(v, cube[0])

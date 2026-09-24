@@ -3,10 +3,8 @@ package main
 import (
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/diff"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -132,78 +130,3 @@ func (p *reviewPane) Handle(event input.Event) bool {
 }
 
 func (p *reviewPane) Focus(has bool) { p.form.Focus(has) }
-
-func (a *agent) buildReview() {
-	a.reviewAnswer = true
-	a.reviewConfirm = &headless.Confirm{
-		Label: "Allow this tool call?", Value: headless.Bind(&a.reviewAnswer),
-		Yes: "apply", No: "deny",
-	}
-	keys := headless.DefaultFormKeys()
-	a.reviewForm = headless.NewForm(a.reviewConfirm)
-	a.reviewForm.Keys = keys
-	a.reviewForm.Done = func() { a.answerReview(a.reviewAnswer) }
-	a.reviewForm.GaveUp = func() { a.answerReview(false) }
-	dressed := kit.NewForm(kit.FormConfig{
-		Theme: a.theme, Glyphs: a.glyphs, Controller: a.reviewForm,
-		Hints: []keymap.Action{headless.Submit, headless.Cancel},
-	})
-	change := kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Numbers: true})
-	a.reviewPane = reviewPane{
-		diff:   change,
-		window: headless.NewViewport(headless.Static{Of: change}),
-		form:   dressed, theme: a.theme,
-	}
-	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
-		Stack: &a.stack, Theme: a.theme, Glyphs: a.glyphs,
-		Title: "Review tool call", Body: &a.reviewPane,
-	})
-	a.reviewDialog.Panel().Where = layout.Placement{Width: 76, Height: 16, Margin: 1}
-}
-
-func (a *agent) openReview(request *reviewRequest) {
-	if a.review != nil {
-		a.answerReview(false)
-	}
-	a.conversation.FlushMarkdown()
-	a.conversation.Retain(a.runtime)
-	a.review = request
-	a.reviewAnswer = true
-	a.reviewConfirm.Say(true)
-	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
-	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
-	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
-	a.status.Doing = "waiting for tool approval"
-	a.reviewDialog.Controller().Show()
-}
-
-func (a *agent) answerReview(approved bool) {
-	request := a.review
-	if request == nil {
-		return
-	}
-	a.review = nil
-	a.reviewDialog.Controller().Dismiss()
-	request.answer <- approved
-	if approved {
-		a.status.Doing = "applying approved change"
-		return
-	}
-	a.status.Doing = "tool call denied"
-	a.conversation.Append(&kit.Entry{
-		Theme: a.theme, Label: "tool", Body: request.proposal.Path + " — denied",
-	})
-}
-
-func (a *agent) showTool(result toolResult) {
-	a.conversation.FlushMarkdown()
-	a.conversation.Append(&kit.Entry{
-		Theme: a.theme, Label: result.Name, Body: oneLine(result.Summary),
-	})
-	shown := kit.NewDiff(kit.DiffConfig{
-		Theme: a.theme, Glyphs: a.glyphs,
-		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
-	})
-	a.conversation.Append(shown)
-	a.conversation.Retain(a.runtime)
-}

@@ -696,3 +696,56 @@ func (r *renderer) codeSpan(node *ast.CodeSpan) string {
 func normalizeNewlines(source string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 }
+
+// table retains cells until layout. A table is the one markdown block whose shape
+// depends on its contents and on the final region at the same time; flattening it
+// during parsing loses the information needed to make a narrow table readable.
+func (r *renderer) table(n *east.Table, in frame) {
+	rows, header := r.cells(n)
+	if len(rows) == 0 {
+		return
+	}
+	r.push(Block{
+		indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
+		table: &table{
+			rows: rows, aligns: columnAlignments(n.Alignments), header: header,
+			separator: r.column(), divider: r.look.Glyphs.Divider,
+			rail: r.look.Rail, rule: r.look.Rule,
+		},
+	})
+}
+
+// cells reads the table into styled cells and says whether the first row is its
+// heading. Cells remain logical lines; wrapping belongs to table layout.
+func (r *renderer) cells(n *east.Table) (rows [][]text.Line, header bool) {
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		style := r.look.Text
+		if _, is := child.(*east.TableHeader); is {
+			style = r.look.Strong
+			header = header || len(rows) == 0
+		}
+		row := make([]text.Line, 0, 8)
+		for cell := child.FirstChild(); cell != nil; cell = cell.NextSibling() {
+			// Markdown table syntax cannot express a line break inside a cell. An
+			// empty cell can still produce no line, so make that case an empty one.
+			lines := r.inline(cell, style)
+			if len(lines) == 0 {
+				row = append(row, nil)
+				continue
+			}
+			row = append(row, lines[0])
+		}
+		rows = append(rows, row)
+	}
+	return rows, header
+}
+
+// column is what goes between two cells: the look's bar where it has one, and room
+// where it does not — because two columns run together is worse than a table with no
+// lines in it.
+func (r *renderer) column() string {
+	if r.look.Glyphs.Bar == "" {
+		return "  "
+	}
+	return " " + r.look.Glyphs.Bar + " "
+}

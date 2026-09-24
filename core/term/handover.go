@@ -1,12 +1,8 @@
 package term
 
 import (
-	"errors"
-	"fmt"
 	"sync"
 	"time"
-
-	xterm "golang.org/x/term"
 )
 
 // parkGrace is how long a handover waits for the reader to come off the terminal.
@@ -80,115 +76,5 @@ func (h *handover) park(stop <-chan struct{}) {
 	select {
 	case <-resume:
 	case <-stop:
-	}
-}
-
-// Hand gives the terminal to something else and takes it back when it returns.
-//
-// It is what opening an editor or a pager is made of. The session is put back exactly
-// as it was found — the modes it turned on, off in the opposite order, then cooked
-// mode — and then the whole of that is done again in reverse.
-//
-// The reader comes off the terminal first and goes back on last, which is the part
-// nothing else can do for a caller: a session that only restored the modes would
-// still be reading, and every second keystroke would go to this process.
-//
-// It runs on the caller's goroutine and does not return until run does, because an
-// interface that drew a frame while a child owned the terminal would draw it over the
-// child. The caller is responsible for nothing else writing meanwhile.
-//
-// The window may be a different size afterwards with nothing having reported it,
-// because the signal went to whichever process group was in the foreground. A fresh
-// size is asked for and delivered on [Terminal.Events].
-//
-// Where the reader cannot be taken off the terminal this reports
-// [errors.ErrUnsupported] and does nothing, because handing over while still reading
-// is a child that drops every other keystroke. Whether it can is a question about the
-// session rather than the platform: a console can be waited on, and a pipe pretending
-// to be one cannot.
-func (t *Terminal) Hand(run func() error) (err error) {
-	if run == nil {
-		return nil
-	}
-	if !t.waker.interruptible() {
-		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
-	}
-	if releaseErr := t.release(); releaseErr != nil {
-		return releaseErr
-	}
-	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
-	// with its terminal still parked. The panic continues after ownership is restored.
-	defer func() { err = errors.Join(err, t.resume()) }()
-	return run()
-}
-
-func (t *Terminal) release() error {
-	// Keepalives are output too. Pause before taking the writer's watermark so a
-	// refresh cannot appear after the drain and inside the child's output.
-	t.task.pause()
-	// Whatever the interface drew has to reach the terminal before the modes go
-	// back, for the same reason it does on the way out: a frame written after the
-	// alternate screen was given up is a frame drawn onto the user's own screen. Do
-	// this before changing any state, so a timeout leaves ownership exactly where it
-	// was and needs no compensating transition.
-	if err := t.writer.Drain(DrainGrace); err != nil {
-		t.task.restore(t.writer.Queue)
-		return fmt.Errorf("term: drain before handover: %w", err)
-	}
-	if err := t.writer.Err(); err != nil {
-		t.task.restore(t.writer.Queue)
-		return fmt.Errorf("term: drain before handover: %w", err)
-	}
-
-	// The reader comes off only after output has settled. From here on, what the
-	// terminal says belongs to whoever it is being handed to.
-	t.park()
-	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
-		return errors.Join(err, t.resume())
-	}
-	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
-		// release is transactional: on failure no child runs and the session is made
-		// live again before the error reaches the caller.
-		return errors.Join(err, t.resume())
-	}
-	return nil
-}
-
-func (t *Terminal) resume() error {
-	var errs []error
-	errs = append(errs, t.output.active(true))
-	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
-	if _, err := xterm.MakeRaw(t.inFD); err != nil {
-		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
-	}
-	if _, err := t.output.WriteString(t.modes.Enter() + t.title.enter()); err != nil {
-		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
-	}
-	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
-	t.task.restore(t.writer.Queue)
-	t.handed.release()
-
-	// The same latest-value mailbox a window resize uses, rather than the public
-	// event queue: the pump owns and closes that queue. Report even an unchanged size
-	// because foreground signals belonged to the child while it held the terminal,
-	// and the program must rebuild the screen whose contents the child replaced. The
-	// measurement becomes the watcher's too — those same signals are the ones it did
-	// not get, so what it remembers may be a size that has not been true for a while.
-	if width, height, err := t.Size(); err == nil {
-		t.retakeResize(width, height)
-	}
-	return errors.Join(errs...)
-}
-
-func (t *Terminal) park() {
-	parked := t.handed.hold()
-	t.waker.wake()
-
-	grace := time.NewTimer(parkGrace)
-	defer grace.Stop()
-	select {
-	case <-parked:
-	case <-grace.C:
-	case <-t.stop:
 	}
 }

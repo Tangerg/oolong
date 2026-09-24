@@ -3,36 +3,7 @@ package program
 import (
 	"sync"
 	"sync/atomic"
-	"time"
 )
-
-// Dispatcher returns the concurrency-safe handle for background work.
-func (r *Runtime) Dispatcher() Dispatcher {
-	p := r.owner()
-	if p == nil {
-		return Dispatcher{}
-	}
-	return Dispatcher{tasks: p.tasks}
-}
-
-// Refresh requests a frame without changing component state.
-func (r *Runtime) Refresh() {
-	if p := r.owner(); p != nil {
-		p.tasks.post(nil)
-	}
-}
-
-// Quit asks the program to stop.
-func (r *Runtime) Quit() {
-	p := r.owner()
-	if p == nil {
-		return
-	}
-	p.quit.Store(true)
-	// Wake a parked loop so it can observe the transition. The signal carries no
-	// task and coalesces with any wake-up already waiting.
-	p.tasks.signal()
-}
 
 // clockLifetime is the shared cancellation edge of one scheduled callback or
 // ticker. Stop may be called concurrently and more than once. Publishing cancelled
@@ -51,65 +22,6 @@ func (c *clockLifetime) Stop() {
 		c.cancelled.Store(true)
 		close(c.done)
 	})
-}
-
-// After schedules fn once on the interface goroutine after d. A non-positive delay
-// makes fn ready for the next owner turn; it does not call fn inline. The returned
-// stop function is concurrency-safe and idempotent. Stop prevents work that has not
-// begun; when it races with the callback starting, either may win.
-func (r *Runtime) After(d time.Duration, fn func()) (stop func()) {
-	p := r.owner()
-	if p == nil || fn == nil {
-		return func() {}
-	}
-	lifetime := newClockLifetime()
-	dispatch := r.Dispatcher()
-	go func() {
-		timer := time.NewTimer(d)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-			if lifetime.cancelled.Load() {
-				return
-			}
-			dispatch.Post(func() {
-				if !lifetime.cancelled.Load() {
-					fn()
-				}
-			})
-		case <-lifetime.done:
-		case <-p.tasks.done:
-		}
-	}()
-	return lifetime.Stop
-}
-
-// Every schedules coalesced ticks on the interface goroutine. A non-positive
-// interval or nil fn schedules nothing.
-func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
-	p := r.owner()
-	if p == nil || d <= 0 || fn == nil {
-		return func() {}
-	}
-	lifetime := newClockLifetime()
-	ticks := &coalescedTicks{lifetime: lifetime, dispatch: r.Dispatcher(), fn: fn}
-	go func() {
-		ticker := time.NewTicker(d)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if !ticks.post() {
-					return
-				}
-			case <-lifetime.done:
-				return
-			case <-p.tasks.done:
-				return
-			}
-		}
-	}()
-	return lifetime.Stop
 }
 
 // coalescedTicks carries one tick at a time to the interface goroutine. A tick that

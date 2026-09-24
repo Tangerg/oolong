@@ -181,7 +181,10 @@ func (w *Writer) Changes() <-chan struct{} { return w.changes }
 // Queued is the highest sequence handed to the writer.
 func (w *Writer) Queued() uint64 { return w.queued.current() }
 
-// Written is the highest sequence that reached the terminal.
+// Written is the highest sequence in the unbroken run of frames that reached the
+// terminal. A refused or failed frame stops it there, whatever is written afterwards:
+// it is what a caller waits on to know its output arrived, and a later frame cannot
+// vouch for an earlier one that never did.
 func (w *Writer) Written() uint64 { return w.written.Load() }
 
 // Err is the first frame that did not reach the terminal, or nil.

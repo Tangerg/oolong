@@ -445,3 +445,45 @@ func trimBlankTail(cells []Cell) []Cell {
 	}
 	return cells[:end]
 }
+
+// scroll asks the terminal to move rows and then paints what that exposed.
+//
+// The style is reset before the move so that terminals which erase with the
+// current background produce default-coloured blank rows, which is what the
+// exposed rows are then painted against.
+func (p *painter) scroll(next *Surface, shift verticalShift) {
+	p.begin()
+	region := shift.top != 0 || shift.bottom != next.h
+	if region {
+		p.setScrollRegion(shift.top, shift.bottom)
+	}
+	if shift.delta > 0 {
+		p.csi(shift.delta, 'S')
+	} else {
+		p.csi(-shift.delta, 'T')
+	}
+	if region {
+		// Margins are dropped straight away: where the cursor ends up after a
+		// scrolling-region change differs between terminals, so every write from
+		// here on positions itself absolutely.
+		p.dropScrollRegion()
+	}
+	p.forcePos()
+
+	y0, y1 := shift.exposed()
+	p.paint(next, y0, y1, changedAgainstBlank(next))
+}
+
+func (p *painter) setScrollRegion(top, bottom int) {
+	p.out = append(p.out, '\x1b', '[')
+	p.out = strconv.AppendInt(p.out, int64(top)+1, 10)
+	p.out = append(p.out, ';')
+	p.out = strconv.AppendInt(p.out, int64(bottom), 10)
+	p.out = append(p.out, 'r')
+}
+
+func (p *painter) dropScrollRegion() { p.out = append(p.out, "\x1b[r"...) }
+
+func (p *painter) csi(n int, final byte) {
+	p.out = appendCSI(p.out, n, final)
+}

@@ -2,6 +2,25 @@ package program
 
 import "github.com/Tangerg/oolong/core/grid"
 
+// InlineRuntime is a [Runtime] that can publish completed output into terminal
+// scrollback. It is only constructed for [Config.Inline], and its zero value is
+// inert.
+type InlineRuntime struct{ *Runtime }
+
+// inlineCanvas is the publication surface when this is a live inline runtime.
+// Keeping the embedded-runtime and mode checks together makes every publishing
+// operation share the same zero-value semantics.
+func (r *InlineRuntime) inlineCanvas() *grid.Inline {
+	if r == nil {
+		return nil
+	}
+	p := r.owner()
+	if p == nil {
+		return nil
+	}
+	return p.inline
+}
+
 // Print publishes a measured drawable above an inline interface.
 func (r *InlineRuntime) Print(p grid.Drawable) {
 	inline := r.inlineCanvas()

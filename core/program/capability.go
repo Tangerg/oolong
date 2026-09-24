@@ -14,22 +14,6 @@ import (
 // Its zero value reports that nothing was learned.
 type Environment struct{ host hostServices }
 
-// services centralizes the zero Runtime contract for capability objects. Runtime
-// operations that need the live owner still check it explicitly; a missing owner
-// and a host with no optional services are equivalent only here.
-func (r *Runtime) services() hostServices {
-	p := r.owner()
-	if p == nil {
-		return hostServices{}
-	}
-	return p.host
-}
-
-// Environment returns the host facts available to this runtime.
-func (r *Runtime) Environment() Environment {
-	return Environment{host: r.services()}
-}
-
 // Ground reports the host's foreground and background colours when known.
 func (e Environment) Ground() grid.Ground { return e.host.ground() }
 
@@ -50,11 +34,6 @@ func (e Environment) Locale() string { return e.host.locale() }
 // refuses writes and reads.
 type Clipboard struct{ host hostServices }
 
-// Clipboard returns the runtime's clipboard capability.
-func (r *Runtime) Clipboard() Clipboard {
-	return Clipboard{host: r.services()}
-}
-
 // Copy puts text on the host clipboard when supported.
 func (c Clipboard) Copy(text string) bool { return c.host.copy(text) }
 
@@ -73,9 +52,6 @@ func (c Clipboard) Paste() bool { return c.host.paste() }
 // hold, because two of its methods need the owner itself and not what the host can
 // answer: see [Session.Hand].
 type Session struct{ runtime *Runtime }
-
-// Session returns the terminal-session capability owned by this runtime.
-func (r *Runtime) Session() Session { return Session{runtime: r} }
 
 // host is the services of a runtime that may not be there. [Runtime.services] takes
 // a nil receiver, so a zero Session answers as a host with no optional services —
@@ -152,11 +128,6 @@ func (s Session) Notify(text string) { s.host().notify(text) }
 // Images is the host's image transport. Its zero value reports no protocol and
 // refuses transmission.
 type Images struct{ host hostServices }
-
-// Images returns the runtime's image capability.
-func (r *Runtime) Images() Images {
-	return Images{host: r.services()}
-}
 
 // Protocol reports the host's richest image protocol.
 func (i Images) Protocol() graphics.Protocol { return i.host.graphics() }

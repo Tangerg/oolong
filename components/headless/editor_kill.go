@@ -114,14 +114,3 @@ type editorYank struct {
 	start, end Caret
 	ring       int
 }
-
-func (e *Editor) breakContinuation() {
-	e.continuation = editorContinuationNone
-	e.yank = editorYank{}
-}
-
-func (e *Editor) rememberKill(text string, prepend, join bool) {
-	e.kills.add(text, prepend, join)
-	e.continuation = editorContinuationKill
-	e.yank = editorYank{}
-}

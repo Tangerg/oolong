@@ -197,10 +197,3 @@ func (p *taskProgress) repeat(queue func([]byte) uint64) {
 	queue([]byte(p.current.sequence()))
 	p.published = p.current.State != ProgressNone
 }
-
-// SetProgress changes task progress outside the cell grid. Unsupported terminals
-// ignore it. Repeating an unchanged value writes nothing; active values are refreshed
-// often enough for terminals that expire the indicator.
-func (t *Terminal) SetProgress(progress Progress) {
-	t.task.to(progress, t.writer.Queue)
-}

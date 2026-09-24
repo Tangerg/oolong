@@ -8,7 +8,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -1009,4 +1011,1233 @@ func nextClusterBoundary(s string, at int) int {
 func isWord(cluster string) bool {
 	r, _ := utf8.DecodeRuneInString(cluster)
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// InsertElement puts text at the cursor as one atomic unit, and returns it.
+//
+// Line breaks in body become spaces even in a multi-line editor. An element is one
+// contiguous run of cells; allowing its source to span logical lines would make its
+// returned line-local range describe only a fragment of what was inserted.
+//
+// A separator space follows it, which is what makes a chip in a prompt something a
+// user can type after. The space is ordinary text and not part of the element: it is
+// there to be deleted. One goes in front as well when the body would otherwise join
+// what it lands after — see [Editor.joinsWhatPrecedes].
+//
+// An empty body inserts nothing and returns the zero [Element]. Identities are never
+// reused, and InsertElement panics once every one has been issued: an [Element] the
+// caller kept in order to replace or remove what it stands for would otherwise begin
+// naming a different insertion.
+func (e *Editor) InsertElement(kind ElementKind, body string) Element {
+	body = elementBody(body)
+	if body == "" {
+		return Element{}
+	}
+	e.ensure()
+	id, ok := e.elementIDs.next()
+	if !ok {
+		panic("headless: editor exhausted element identities")
+	}
+	e.endTyping()
+	e.snapshot()
+	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	if selected, selectedEnd, ok := e.Selection(); ok {
+		start, end = selected, selectedEnd
+	}
+	lead := ""
+	if e.joinsWhatPrecedes(start, body) {
+		lead = " "
+	}
+	at := e.offsetOf(start) + len(lead)
+	replacement, changedText := e.prepareReplacement(start, end, lead+body+" ")
+	if changedText {
+		e.replaceRange(start, end, replacement)
+	} else {
+		e.requireContentRevision()
+		e.finishReplacement(end)
+	}
+	mark := text.Mark{
+		ID:     id,
+		Kind:   int(kind),
+		Start:  at,
+		End:    at + len(body),
+		Atomic: true,
+	}
+	// Put in order rather than appended and sorted: the marks are kept in the order
+	// they appear, which is the order a caller expects and the order that makes them
+	// readable in a test.
+	where, _ := slices.BinarySearchFunc(e.marks, mark, func(a, b text.Mark) int {
+		return a.Start - b.Start
+	})
+	e.marks = slices.Insert(e.marks, where, mark)
+	if !changedText {
+		e.contentChanged()
+	}
+	return e.elementOf(mark)
+}
+
+// joinsWhatPrecedes reports whether body would become part of the cluster in front
+// of it.
+//
+// An element is one contiguous run of cells, and a run of cells begins at a grapheme
+// boundary. A body that starts with a combining character has no boundary of its own:
+// dropped after a letter it joins that letter's cluster, so the element's first cell
+// belongs half to text the element does not own — and deleting the element leaves the
+// mark behind on a character that was never part of it.
+//
+// The question is asked of the text it is actually landing after rather than of the
+// body alone, because that is what decides it: two regional indicators are a flag,
+// and a flag is a perfectly good label except directly after another one.
+func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
+	if at.Line < 0 || at.Line >= len(e.lines) {
+		return false
+	}
+	line := e.lines[at.Line]
+	before := line[:min(max(at.Col, 0), len(line))]
+	if before == "" {
+		return false
+	}
+	return clusters(before+body) != clusters(before)+clusters(body)
+}
+
+// Elements is every element in the text, in the order they appear. The slice is a
+// copy: a caller cannot move an element by writing to it.
+func (e *Editor) Elements() []Element {
+	out := make([]Element, 0, len(e.marks))
+	for _, m := range e.marks {
+		out = append(out, e.elementOf(m))
+	}
+	return out
+}
+
+// ElementAt is the element covering a position, and whether there is one. The end is
+// exclusive, so the position just after an element is outside it.
+func (e *Editor) ElementAt(line, col int) (Element, bool) {
+	at := e.offsetOf(Caret{Line: line, Col: col})
+	for _, m := range e.marks {
+		if m.Covers(at) {
+			return e.elementOf(m), true
+		}
+	}
+	return Element{}, false
+}
+
+// RemoveElement deletes an element's text and forgets it, reporting whether it was
+// there to remove.
+func (e *Editor) RemoveElement(id uint64) bool {
+	for _, m := range e.marks {
+		if m.ID != id {
+			continue
+		}
+		el := e.elementOf(m)
+		e.endTyping()
+		e.snapshot()
+		// The space after it goes too, when there is one. It was put there with the
+		// element and leaving it behind gives a prompt a gap where a chip used to be,
+		// which is the sort of thing a user has to notice and tidy up by hand.
+		end := el.End
+		if line := e.lines[el.Line]; end < len(line) && line[end] == ' ' {
+			end++
+		}
+		e.replaceRange(Caret{Line: el.Line, Col: el.Start}, Caret{Line: el.Line, Col: end}, "")
+		return true
+	}
+	return false
+}
+
+// insideElement is the element a cursor position falls strictly within.
+//
+// Strictly, unlike [Editor.ElementAt]: an element's two ends are places a cursor may
+// sit, and only what is between them is not. They are different questions and the
+// difference matters — treating the start as inside would mean a cursor arriving from
+// the left skipped straight past the element, and nothing could be typed in front of
+// one.
+func (e *Editor) insideElement(line, col int) (Element, bool) {
+	at := e.offsetOf(Caret{Line: line, Col: col})
+	for _, m := range e.marks {
+		if m.Within(at) {
+			return e.elementOf(m), true
+		}
+	}
+	return Element{}, false
+}
+
+// snapElement moves a position out of any element it lands inside.
+//
+// Which way out depends on which way the cursor was going, which is the only thing
+// that makes stepping over an element feel like stepping over a character: moving
+// right from inside one has to come out at the far side, and moving left at the near
+// side. A position that is not inside anything is returned as it is.
+func (e *Editor) snapElement(line, col int, forward bool) int {
+	// Before first use the zero editor has one conceptual empty line. Keeping this
+	// primitive total preserves that zero-value contract even for an internal caller
+	// that only needs to settle a position and has not initialized storage yet.
+	if len(e.lines) == 0 {
+		return 0
+	}
+	line = min(max(line, 0), len(e.lines)-1)
+	col = clusterPosition(e.lines[line], col, forward)
+	return e.snapElementBoundary(line, col, forward)
+}
+
+// snapElementBoundary applies only the atomic-element half of snapElement when its
+// caller already owns a grapheme boundary. Cursor movement and column mapping have
+// that stronger fact and should not rescan the line merely to prove it again.
+func (e *Editor) snapElementBoundary(line, col int, forward bool) int {
+	for {
+		el, inside := e.insideElement(line, col)
+		if !inside {
+			return col
+		}
+		if forward {
+			col = clusterPosition(e.lines[line], el.End, true)
+		} else {
+			col = clusterPosition(e.lines[line], el.Start, false)
+		}
+	}
+}
+
+// edited moves every element over a change to the text, dropping the ones the change
+// destroyed.
+//
+// This is the whole of it. There used to be two of these — one for text going in and
+// one for text coming out — each doing the same arithmetic in line and column space,
+// each with its own edge cases and its own way of being wrong. An insertion, a
+// deletion and a replacement are one thing said three ways, and [text.Edit] is that
+// thing.
+//
+// It must be called with offsets into the text as it was before the change, which is
+// why every caller works them out first.
+func (e *Editor) edited(edit text.Edit) {
+	e.marks = edit.Shift(e.marks, e.byteLength())
+}
+
+// settleMarks drops every element whose ends are no longer places a caret may sit —
+// see [Element] for when that happens and what it means to a caller.
+//
+// Shifting the marks over a change says where they went, which is a question about
+// offsets and belongs to [text.Edit]. Whether what is there is still an element is a
+// question about the text, and only the editor can answer it — so it is answered
+// here, once, for every change rather than at the one operation that was thought to
+// need it.
+func (e *Editor) settleMarks() {
+	e.marks = slices.DeleteFunc(e.marks, func(m text.Mark) bool {
+		return !e.spansWholeClusters(m)
+	})
+}
+
+// spansWholeClusters reports whether a mark's ends are both places a caret may sit on
+// one line.
+func (e *Editor) spansWholeClusters(m text.Mark) bool {
+	start, end := e.caretAt(m.Start), e.caretAt(m.End)
+	if start.Line != end.Line {
+		return false
+	}
+	line := e.lines[start.Line]
+	return clusterPosition(line, start.Col, true) == start.Col &&
+		clusterPosition(line, end.Col, true) == end.Col
+}
+
+// byteLength is the length of the whole text without assembling it. Edits and
+// marks speak in whole-document byte offsets even though the editor owns lines.
+func (e *Editor) byteLength() int {
+	e.ensure()
+	n := len(e.lines) - 1 // the newlines between lines
+	for _, line := range e.lines {
+		n += len(line)
+	}
+	return n
+}
+
+// removed moves every element over a range of the text being replaced by s, which
+// covers a plain deletion as the case where s is empty.
+//
+// It has to be called before the lines change, because the carets it is given are
+// carets into the text as it was.
+func (e *Editor) removed(start, end Caret, s string) {
+	e.edited(text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s})
+}
+
+// offsetOf is a caret as a byte offset into the whole text.
+//
+// The editor keeps its content as lines because that is what wrapping, vertical
+// movement and the cursor are all expressed in. Marks are kept as offsets because
+// that is what a change to text is expressed in, and translating between the two is
+// this function and [Editor.caretAt]. Neither idea has to know about the other, which
+// is the only reason the shifting rule could move out of this package at all.
+func (e *Editor) offsetOf(c Caret) int {
+	e.ensure()
+	return offsetInLines(e.lines, c)
+}
+
+func (e *Editor) caretAt(at int) Caret {
+	e.ensure()
+	for i, line := range e.lines {
+		if at <= len(line) {
+			return Caret{Line: i, Col: max(at, 0)}
+		}
+		at -= len(line) + 1
+	}
+	last := len(e.lines) - 1
+	return Caret{Line: last, Col: len(e.lines[last])}
+}
+
+func (e *Editor) elementOf(m text.Mark) Element {
+	start := e.caretAt(m.Start)
+	end := e.caretAt(m.End)
+	if end.Line != start.Line {
+		// An element never spans a line break, so a mark that reads as though it does
+		// is reported as far as the end of the line it began on. Nothing produces one:
+		// an edit that put a break inside a mark destroyed it.
+		end = Caret{Line: start.Line, Col: len(e.lines[start.Line])}
+	}
+	return Element{
+		ID:    m.ID,
+		Kind:  kindOf(m.Kind),
+		Line:  start.Line,
+		Start: start.Col,
+		End:   end.Col,
+	}
+}
+
+// RetainedElementIDs returns identities reachable from the document or undo/redo
+// history. Applications may release associated payloads only after they disappear
+// from this set. The returned slice is owned by the caller.
+func (e *Editor) RetainedElementIDs() []uint64 {
+	ids := make(map[uint64]struct{})
+	for _, mark := range e.marks {
+		ids[mark.ID] = struct{}{}
+	}
+	for _, stack := range [][]editorState{e.history.undo, e.history.redo} {
+		for _, state := range stack {
+			for _, mark := range state.marks {
+				ids[mark.ID] = struct{}{}
+			}
+		}
+	}
+	out := make([]uint64, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// ForgetHistory ends the lifetime of edits no longer available to Undo or Redo.
+// Current document elements remain live.
+func (e *Editor) ForgetHistory() { e.endTyping(); e.history.clear() }
+
+// Handle answers keys, reporting whether it consumed the event.
+//
+// Enter is deliberately not bound. Whether it sends or breaks the line is the
+// container's decision, and an editor that swallowed it would take that decision
+// away from every container that embeds one.
+func (e *Editor) Handle(ev input.Event) bool {
+	if paste, ok := ev.(input.Paste); ok {
+		e.endTyping()
+		e.Insert(paste.Text)
+		return true
+	}
+	if mouse, ok := ev.(input.Mouse); ok {
+		// The geometry the editor last drew with, taken from its own committed
+		// presentation. A press is aimed at what is on the screen, so that is the
+		// only geometry it can be about — and an editor that has never been drawn
+		// has none, which is how it declines a press it was never shown for.
+		return e.handleMouse(mouse, e.presentation.Value())
+	}
+	key, ok := ev.(input.Key)
+	if !ok {
+		return false
+	}
+	return e.handleKey(key, e.Do, e.typed)
+}
+
+// handleKey leaves action and insertion ownership with the controller. Deferred
+// keymap resolution must re-enter that same controller's acceptance boundary.
+func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed func(input.Key) bool) bool {
+	if !key.Down() {
+		return false
+	}
+	e.ensure()
+
+	// Shift turns any way of moving into a way of selecting. The chord is looked up
+	// with the shift taken off it, and the anchor is dropped first and taken back if
+	// what it named was not a movement after all — which is what keeps this to one
+	// rule instead of a second binding for every direction.
+	if key.Mods&input.Shift != 0 {
+		unshifted := key.Chord()
+		unshifted.Mods &^= input.Shift
+		if action, bound := e.keys().Action(unshifted); bound {
+			had := e.selecting
+			e.Anchor()
+			if e.move(action) {
+				return true
+			}
+			e.selecting = had
+		}
+	}
+
+	matched, handled := e.matcher.Handle(e.keys(), key, do)
+	if !matched {
+		return typed(key)
+	}
+	return handled
+}
+
+// Do runs one of the field's actions by name, reporting whether it was one this field
+// knows. See [Doer] for why a widget answers to a name at all.
+func (e *Editor) Do(action keymap.Action) bool {
+	e.ensure()
+	if e.move(action) {
+		// Moving is how a selection is let go of, which is what every other editor does
+		// and what an arrow key means. Selecting is the same movement with the anchor
+		// put down first — see [Editor.Handle].
+		e.SelectNone()
+		return true
+	}
+	do, ok := editorActions[action]
+	if !ok {
+		return false
+	}
+	do(e)
+	return true
+}
+
+// typed puts a keystroke in as text, when it is text.
+//
+// Text, and only text. A chord this field has no use for belongs to whatever is around
+// it, and swallowing it would break that.
+func (e *Editor) typed(key input.Key) bool {
+	if key.Mods&^input.Shift != 0 {
+		return false
+	}
+	// What the terminal says the key produced wins over the key's own code. The code is
+	// the unshifted key on the physical keyboard: on a layout where the key beside "1"
+	// produces "@", inserting the code would type "2".
+	if key.Text != "" {
+		e.typeText(key.Text)
+		return true
+	}
+	if key.Code == input.Character && key.Rune != 0 {
+		e.InsertRune(key.Rune)
+		return true
+	}
+	return false
+}
+
+func (e *Editor) keys() *keymap.Map {
+	if e.Keys != nil {
+		return e.Keys
+	}
+	return editorKeys()
+}
+
+func (e *Editor) breakContinuation() {
+	e.continuation = editorContinuationNone
+	e.yank = editorYank{}
+}
+
+func (e *Editor) rememberKill(text string, prepend, join bool) {
+	e.kills.add(text, prepend, join)
+	e.continuation = editorContinuationKill
+	e.yank = editorYank{}
+}
+
+// rowAt is the visual row the cursor is on at a width, and the column within it.
+//
+// The one position with two answers is where the width broke a line: the offset after
+// its last character and the offset before the next row's first are one offset with two
+// places on screen. A cursor that arrived by moving through the text belongs to the
+// second, and one that arrived by being clicked past the end of a row belongs to the
+// first. Nothing in the offset says which, so the field remembers — see
+// [Editor.prefersRowEnd].
+func (e *Editor) rowAt(width int) (row, column int) {
+	rows := e.rows(width)
+	atEnd := e.prefersRowEnd()
+	for i, r := range rows {
+		if r.line != e.line {
+			continue
+		}
+		// The end of a row is the start of the next, so a cursor there belongs to the
+		// next row — except on the last row of a line, where there is no next and the
+		// cursor sits after the final character, and except when it was put there by a
+		// click on this row.
+		if e.col < r.end || (e.col == r.end && (atEnd || e.layout.lastOfLine(i))) {
+			return i, text.ColumnOf(e.lines[e.line][r.start:r.end], e.col-r.start)
+		}
+	}
+	if len(rows) == 0 {
+		return 0, 0
+	}
+	return len(rows) - 1, 0
+}
+
+func (e *Editor) offsetIn(width, row, column int) (line, col int) {
+	rows := e.rows(width)
+	if row < 0 || row >= len(rows) {
+		return 0, 0
+	}
+	r := rows[row]
+	segment := e.lines[r.line][r.start:r.end]
+	return r.line, r.start + text.OffsetAt(segment, column)
+}
+
+// MoveUp moves the cursor up one visual row, keeping the column it started from.
+func (e *Editor) MoveUp() { e.moveRow(-1) }
+
+// MoveDown moves the cursor down one visual row.
+func (e *Editor) MoveDown() { e.moveRow(1) }
+
+// moveRow moves the cursor by visual rows.
+//
+// The column the cursor was in is remembered across the whole run of movement, so
+// travelling down through a short line and out the other side comes back to where it
+// went in. Recomputing it each step would drag the cursor left and leave it there.
+func (e *Editor) moveRow(delta int) {
+	defer e.revealCursor()
+	e.ensure()
+	e.endTyping()
+	width := e.presentation.Value().width
+	if width <= 0 {
+		// Nothing has been drawn yet, so there are no visual rows to move through.
+		// Logical lines are the best available answer, but the horizontal coordinate
+		// is still a terminal column rather than a byte offset. Copying the byte offset
+		// to a UTF-8 line can put the cursor in the middle of a rune.
+		column := text.ColumnOf(e.lines[e.line], e.col)
+		if e.wantColumn >= 0 {
+			column = e.wantColumn
+		}
+		target := min(max(e.line+delta, 0), len(e.lines)-1)
+		if target == e.line {
+			return
+		}
+		e.line = target
+		e.col = e.snapElementBoundary(target, text.OffsetAt(e.lines[target], column), true)
+		e.wantColumn = column
+		return
+	}
+	row, column := e.rowAt(width)
+	if e.wantColumn >= 0 {
+		column = e.wantColumn
+	}
+	target := row + delta
+	if target < 0 || target >= len(e.rows(width)) {
+		return
+	}
+	e.line, e.col = e.offsetIn(width, target, column)
+	e.col = e.snapElementBoundary(e.line, e.col, true)
+	e.wantColumn = column
+}
+
+// HeightForWidth is how many rows the field needs at a width, within its cap.
+func (e *Editor) HeightForWidth(width int) int {
+	e.ensure()
+	width = e.textWidth(width)
+	if e.oneLine() {
+		return 1
+	}
+	rows := len(e.rows(width))
+	if e.MaxRows > 0 {
+		return min(rows, e.MaxRows)
+	}
+	return rows
+}
+
+// Draw paints the field and places the cursor.
+func (e *Editor) Draw(frame Frame) {
+	e.DrawWith(frame, e.Look)
+}
+
+// DrawWith paints one projection with look without changing the editor's configured
+// appearance.
+//
+// Appearance components use this when an editor participates in a larger theme. The
+// editor remains the single owner of its text, cursor and input configuration; drawing
+// it through another look does not make that look its configuration.
+func (e *Editor) DrawWith(frame Frame, look Look) {
+	presented := &e.presentation
+	if e.oneLine() {
+		e.lineView(e.Text()).draw(frame, look, presented)
+		return
+	}
+	v := frame.View
+	total, height := v.Size()
+	if total <= 0 || height <= 0 {
+		presented.Stage(frame, editorPresentation{})
+		return
+	}
+	e.ensure()
+	gutter := min(e.gutterWidth(), total)
+	width := layout.Remaining(total, gutter)
+	gutterView := v.Sub(grid.Area(0, 0, gutter, height))
+	v = v.Sub(grid.Area(gutter, 0, width, height))
+	if width <= 0 {
+		presented.Stage(frame, editorPresentation{})
+		return
+	}
+	presentation := e.drawMultiline(frame, v, gutterView, look, width, height, gutter)
+	presented.Stage(frame, presentation)
+}
+
+func (e *Editor) drawMultiline(
+	frame Frame,
+	view, gutterView grid.View,
+	look Look,
+	width, height, gutter int,
+) editorPresentation {
+	rows := e.rows(width)
+	cursorRow, cursorColumn := e.rowAt(width)
+
+	scroll := e.scroll.Stage(frame, len(rows), height)
+	if e.cursorReveal != nil && e.scroll.reveal == e.cursorReveal {
+		// Wrapping may have changed since navigation. Resolve the logical cursor
+		// using this frame, but only while its request has not been superseded.
+		scroll.Reveal(cursorRow, cursorRow)
+	}
+	first := scroll.Offset()
+	presentation := editorPresentation{width: width, gutter: gutter, first: first}
+	last := min(layout.Sum(first, height), len(rows))
+	e.drawGutter(gutterView, rows[first:last])
+
+	if e.Empty() && e.Placeholder != "" {
+		view.Text(0, 0, text.Truncate(e.Placeholder, width, look.Ellipsis), look.Subtle)
+		e.placeCursor(view, 0, 0)
+		return presentation
+	}
+
+	for y := range height {
+		index := layout.Sum(first, y)
+		if index >= len(rows) {
+			break
+		}
+		r := rows[index]
+		text.Of(e.lines[r.line][r.start:r.end], look.Text).Draw(view, 0, y)
+	}
+	// The selection is laid over the text rather than drawn into it, so a run that
+	// crosses a style boundary keeps whatever was underneath — and so that the rows
+	// above did not have to be told which of them was selected.
+	for _, span := range e.spansOfSelection(width) {
+		y := span.Row - first
+		if y < 0 || y >= height {
+			continue
+		}
+		end := min(layout.Sum(span.Col, span.Width), width)
+		for x := max(span.Col, 0); x < end; x++ {
+			view.MergeStyle(x, y, look.Selection)
+		}
+	}
+	if y := cursorRow - first; y >= 0 && y < height {
+		e.placeCursor(view, cursorColumn, y)
+	}
+	return presentation
+}
+
+func (e *Editor) gutterWidth() int {
+	if e.Gutter == nil {
+		return 0
+	}
+	return max(e.Gutter.Width(len(e.lines)), 0)
+}
+
+func (e *Editor) textWidth(total int) int {
+	return layout.Remaining(total, e.gutterWidth())
+}
+
+func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
+	if e.Gutter == nil {
+		return
+	}
+	out := make([]text.Row, len(rows))
+	for i, row := range rows {
+		shown := e.lines[row.line][row.start:row.end]
+		if e.mask != "" {
+			// A masked field must not disclose its value to an appearance callback.
+			shown = e.shown()
+		}
+		out[i] = text.Row{
+			Text: shown,
+			Line: row.line + 1, Joined: row.joined,
+		}
+	}
+	e.Gutter.Draw(view, out)
+}
+
+// Focus takes the keyboard, or gives it up. A field without it draws no cursor.
+//
+// A frame has one cursor and the terminal draws it, so two fields both asking for it
+// is not two cursors: it is one, wherever the last of them happened to draw. This is
+// how the question is settled — see [Focusable], and note that a field nobody has
+// told anything believes it has the keyboard, which is what makes a lone field work.
+func (e *Editor) Focus(has bool) {
+	if !has {
+		e.matcher.Clear()
+		e.endTyping()
+	}
+	e.blurred = !has
+}
+
+// placeCursor asks for the terminal's cursor only when this field has the keyboard.
+func (e *Editor) placeCursor(v grid.View, x, y int) {
+	if e.blurred {
+		return
+	}
+	v.PlaceCursor(x, y, e.CursorStyle)
+}
+
+// revealCursor is the semantic navigation boundary. A draw may refine the visual
+// row but never creates a new request; manual scrolling can therefore cancel it.
+func (e *Editor) revealCursor() {
+	if e.oneLine() {
+		return
+	}
+	e.ensure()
+	width := e.presentation.Value().width
+	row, _ := e.rowAt(width)
+	e.scroll.layout(len(e.rows(width)), e.scroll.current.window)
+	e.scroll.Reveal(row, row)
+	e.cursorReveal = e.scroll.reveal
+}
+
+// Scroll exposes the field's position, for a scrollbar beside a tall field.
+// Editing and cursor navigation reveal the cursor once. Manual scrolling remains
+// in effect through redraws and resizes until the next navigation or edit.
+func (e *Editor) Scroll() *Scroll { return &e.scroll }
+
+// rows is the field's text laid out at a width.
+//
+// A field holding one line is laid out at no width at all, which is how the wrap is
+// told not to break anything: the line is one row however long it is, and what is off
+// the side of the box is off the side of the box. Everything that reads rows — moving
+// the cursor, finding a click, drawing a selection — then agrees, because there is one
+// layout and they all ask it.
+func (e *Editor) rows(width int) []editorRow {
+	if e.oneLine() {
+		width = 0
+	}
+	return e.layout.rowsFor(e.lines, width)
+}
+
+func (e *Editor) lineView(value string) editorLineView {
+	view := editorLineView{
+		value: value, placeholder: e.Placeholder, mask: e.mask,
+		cursor: e.col, anchor: e.anchor.Col, selecting: e.selecting,
+		blurred: e.blurred, left: e.presentation.Value().left,
+		gutter: e.Gutter, cursorStyle: e.CursorStyle,
+	}
+	if value != e.Text() {
+		view.cursor, view.selecting = len(value), false
+	}
+	return view
+}
+
+// shown is the text as it is drawn: the line itself, or the mask once per cluster for
+// a field holding something the screen should not show.
+func (e *Editor) shown() string {
+	e.ensure()
+	return e.lineView(e.lines[0]).shown()
+}
+
+func (e *Editor) lineAt(at int) int {
+	if e.mask == "" {
+		return at
+	}
+	line := e.lines[0]
+	if at <= 0 {
+		return 0
+	}
+	want := at / len(e.mask)
+	seen := 0
+	for offset := range text.Clusters(line) {
+		if seen == want {
+			return offset
+		}
+		seen++
+	}
+	return len(line)
+}
+
+func (e *Editor) atLine(x int) Caret {
+	col := e.lineAt(text.OffsetAt(e.shown(), layout.Translate(x, e.presentation.Value().left)))
+	return Caret{Col: e.snapElement(0, col, true)}
+}
+
+// Anchor begins or continues a selection at the cursor.
+//
+// A selection is not a separate mode with commands of its own. It is what movement
+// means while the shift key is held, so every way of moving a cursor selects with
+// shift and none of them had to be taught to — see [Editor.Handle].
+func (e *Editor) Anchor() {
+	e.breakContinuation()
+	if !e.selecting {
+		e.anchor, e.selecting = Caret{Line: e.line, Col: e.col}, true
+	}
+}
+
+// SelectNone drops the selection, leaving the cursor where it is.
+func (e *Editor) SelectNone() {
+	e.dragging = false
+	e.breakContinuation()
+	e.selecting = false
+}
+
+// SelectAll selects the whole text.
+func (e *Editor) SelectAll() {
+	defer e.revealCursor()
+	e.ensure()
+	e.endTyping()
+	e.anchor, e.selecting = Caret{}, true
+	e.line = len(e.lines) - 1
+	e.col = len(e.lines[e.line])
+	e.wantColumn = -1
+}
+
+// Selection is the selected range in reading order, and whether there is one.
+//
+// It reports false for a selection of nothing, which is what a shift-arrow pressed
+// and then taken back leaves: an anchor at the cursor is not a selection, and
+// treating it as one would make a copy put an empty string on the clipboard.
+func (e *Editor) Selection() (start, end Caret, ok bool) {
+	if !e.selecting {
+		return Caret{}, Caret{}, false
+	}
+	cursor := Caret{Line: e.line, Col: e.col}
+	if cursor == e.anchor {
+		return Caret{}, Caret{}, false
+	}
+	if cursor.Before(e.anchor) {
+		return cursor, e.anchor, true
+	}
+	return e.anchor, cursor, true
+}
+
+// Selected is the selected text, or empty when nothing is selected.
+func (e *Editor) Selected() string {
+	start, end, ok := e.Selection()
+	if !ok {
+		return ""
+	}
+	return e.textBetween(start, end)
+}
+
+func (e *Editor) textBetween(start, end Caret) string {
+	e.ensure()
+	if start.Line == end.Line {
+		return e.lines[start.Line][start.Col:end.Col]
+	}
+	var b strings.Builder
+	b.WriteString(e.lines[start.Line][start.Col:])
+	for i := start.Line + 1; i < end.Line; i++ {
+		b.WriteByte('\n')
+		b.WriteString(e.lines[i])
+	}
+	b.WriteByte('\n')
+	b.WriteString(e.lines[end.Line][:end.Col])
+	return b.String()
+}
+
+// DeleteSelection removes the selected text and reports whether there was any.
+func (e *Editor) DeleteSelection() bool {
+	start, end, ok := e.Selection()
+	if !ok {
+		return false
+	}
+	e.snapshot()
+	e.endTyping()
+	e.replaceRange(start, end, "")
+	return true
+}
+
+// prepareReplacement applies the editor's one-line rule and reports whether replacing
+// a range changes text or atomic elements. Its returned text is the canonical value
+// replaceRange consumes, so normalization occurs at this one boundary.
+//
+// Comparing text alone is not enough: replacing a chip with the same visible word
+// removes the element identity and is therefore a semantic change too. Conversely,
+// an empty edit inside a chip is still empty and must not destroy it.
+func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
+	s = e.canonicalText(s)
+	if e.textBetween(start, end) != s {
+		return s, true
+	}
+	if start == end && s == "" {
+		return s, false
+	}
+	from, to := e.offsetOf(start), e.offsetOf(end)
+	for _, mark := range e.marks {
+		if from < mark.End && to > mark.Start {
+			return s, true
+		}
+	}
+	return s, false
+}
+
+// finishReplacement settles what a replacement leaves behind, whether or not its
+// bytes changed: which elements are still elements, where the cursor belongs, and
+// that the old selection no longer describes an active range. Revision, history and
+// layout remain separate because an identity replacement changes none of them.
+//
+// The elements are settled before the cursor, because a cursor that snapped over an
+// element the replacement destroyed would have stepped over nothing.
+func (e *Editor) finishReplacement(at Caret) {
+	defer e.revealCursor()
+	e.settleMarks()
+	e.selecting = false
+	e.line = min(max(at.Line, 0), len(e.lines)-1)
+	e.col = e.snapElement(e.line, at.Col, true)
+	e.wantColumn = -1
+}
+
+// replaceRange is the one operation that changes editor text. Insertion is an empty
+// range, deletion has empty replacement text, and replacement is both. The caller
+// has established that the range changes semantic content and taken any undo snapshot
+// it needs.
+func (e *Editor) replaceRange(start, end Caret, s string) {
+	e.requireContentRevision()
+	e.layout.stale = true
+	e.removed(start, end, s)
+	head := e.lines[start.Line][:start.Col]
+	tail := e.lines[end.Line][end.Col:]
+	if !strings.Contains(s, "\n") {
+		e.lines = slices.Replace(e.lines, start.Line, end.Line+1, ownedEditorLine(head, s, tail))
+		e.finishReplacement(Caret{Line: start.Line, Col: start.Col + len(s)})
+		e.contentChanged()
+		return
+	}
+	parts := strings.Split(s, "\n")
+	inserted := make([]string, len(parts))
+	inserted[0] = ownedEditorLine(head, parts[0])
+	for i := 1; i < len(parts); i++ {
+		inserted[i] = strings.Clone(parts[i])
+	}
+	last := len(inserted) - 1
+	cursor := Caret{Line: start.Line + last, Col: len(inserted[last])}
+	inserted[last] = ownedEditorLine(inserted[last], tail)
+	e.lines = slices.Replace(e.lines, start.Line, end.Line+1, inserted...)
+	e.finishReplacement(cursor)
+	e.contentChanged()
+}
+
+// Copy puts the selection where a paste would find it, and reports whether anything
+// was sent. Nothing selected sends nothing, which is not a failure.
+func (e *Editor) Copy() bool {
+	if e.Clipboard == nil {
+		return false
+	}
+	selected := e.Selected()
+	if selected == "" {
+		return false
+	}
+	return e.Clipboard.Copy(selected)
+}
+
+// Cut copies the selection and removes it.
+//
+// The text is removed only if the clipboard took it. A cut that emptied the field
+// into a clipboard that refused it would lose the text with nothing to paste back,
+// and a terminal is free to refuse.
+func (e *Editor) Cut() bool {
+	e.endTyping()
+	if !e.Copy() {
+		return false
+	}
+	return e.DeleteSelection()
+}
+
+// Paste asks the clipboard for its contents and reports whether the request was
+// accepted. What comes back arrives later as an ordinary paste event, which this
+// editor already inserts.
+func (e *Editor) Paste() bool {
+	e.endTyping()
+	return e.Clipboard != nil && e.Clipboard.Paste()
+}
+
+// move runs an action if it is a way of moving, reporting whether it was one.
+//
+// It is separate from the rest of [Editor.Do] because it is asked twice: once for what
+// the keystroke named, and once for what it named with the shift taken off it, which is
+// what makes every movement a way of selecting. Selecting is this without the selection
+// being let go of first.
+func (e *Editor) move(action keymap.Action) bool {
+	switch action {
+	case MoveLeft:
+		e.MoveLeft()
+	case MoveRight:
+		e.MoveRight()
+	case MoveUp:
+		e.MoveUp()
+	case MoveDown:
+		e.MoveDown()
+	case MoveWordLeft:
+		e.MoveWordLeft()
+	case MoveWordRight:
+		e.MoveWordRight()
+	case MoveLineStart:
+		e.MoveLineStart()
+	case MoveLineEnd:
+		e.MoveLineEnd()
+	default:
+		return false
+	}
+	return true
+}
+
+// Spans is the runs of columns that the text between two carets covers, one per
+// visual row it crosses.
+//
+// A range in a wrapped field is not a rectangle and is rarely one run. It starts part
+// way along a row, covers whole rows, and ends part way along another — and where the
+// rows begin and end is decided by the wrap, which is decided by the width. So this
+// is a question only the field can answer, and only at a width. Width is the whole
+// field, including any [Editor.Gutter], and returned columns use that same coordinate
+// space.
+//
+// It reads the same rows the cursor is placed with. That is the whole point of it
+// being here rather than being worked out by whatever draws: a selection painted from
+// one wrap and a cursor placed from another disagree about where the text is, and the
+// disagreement shows up exactly when the text is interesting — a long word, a wide
+// character, a line that just fits.
+func (e *Editor) Spans(from, to Caret, width int) []RowSpan {
+	gutter := e.gutterWidth()
+	out := e.spans(from, to, layout.Remaining(width, gutter))
+	for i := range out {
+		out[i].Col = layout.Sum(out[i].Col, gutter)
+	}
+	return out
+}
+
+func (e *Editor) spans(from, to Caret, width int) []RowSpan {
+	if width <= 0 {
+		return nil
+	}
+	e.ensure()
+	if to.Before(from) {
+		from, to = to, from
+	}
+	if e.mask != "" {
+		view := e.lineView(e.Text())
+		shown := view.shown()
+		if from.Line != 0 || to.Line != 0 {
+			return nil
+		}
+		start := text.ColumnOf(shown, view.shownAt(from.Col))
+		end := text.ColumnOf(shown, view.shownAt(to.Col))
+		if end <= start {
+			return nil
+		}
+		return []RowSpan{{Row: 0, Col: start, Width: end - start}}
+	}
+	rows := e.rows(width)
+
+	var out []RowSpan
+	for i, r := range rows {
+		if r.line < from.Line || r.line > to.Line {
+			continue
+		}
+		// The part of this row the range covers, in offsets into the line.
+		lo, hi := r.start, r.end
+		if r.line == from.Line {
+			lo = max(lo, from.Col)
+		}
+		if r.line == to.Line {
+			hi = min(hi, to.Col)
+		}
+		if lo >= hi {
+			continue
+		}
+		line := e.lines[r.line]
+		col := text.ColumnOf(line[r.start:r.end], lo-r.start)
+		end := text.ColumnOf(line[r.start:r.end], hi-r.start)
+		out = append(out, RowSpan{Row: i, Col: col, Width: end - col})
+	}
+	return out
+}
+
+// SelectionSpans is where the selection is, or nothing when there is none.
+func (e *Editor) SelectionSpans(width int) []RowSpan {
+	start, end, ok := e.Selection()
+	if !ok {
+		return nil
+	}
+	return e.Spans(start, end, width)
+}
+
+func (e *Editor) spansOfSelection(width int) []RowSpan {
+	start, end, ok := e.Selection()
+	if !ok {
+		return nil
+	}
+	return e.spans(start, end, width)
+}
+
+// At is the position in the text under a point in the field's box, and whether the
+// point is in the text at all.
+//
+// The point is in the field's own coordinates, which is what a widget is handed. The
+// answer accounts for the field having scrolled, because the field is what knows it.
+//
+// It reads the same rows the cursor is placed from and the selection is painted from,
+// which is the only way a click can land where the reader thinks they clicked: three
+// walks over three wraps agree until the text is interesting, and then they do not.
+func (e *Editor) At(x, y, width int) (Caret, bool) {
+	gutter := e.gutterWidth()
+	if x < gutter {
+		return Caret{}, false
+	}
+	return e.at(x-gutter, y, layout.Remaining(width, gutter))
+}
+
+func (e *Editor) at(x, y, width int) (Caret, bool) {
+	if width <= 0 || x < 0 || y < 0 {
+		return Caret{}, false
+	}
+	e.ensure()
+	if e.oneLine() {
+		return e.atLine(x), true
+	}
+	rows := e.rows(width)
+	presented := e.presentation.Value()
+	first := 0
+	if presented.width == width {
+		first = presented.first
+	}
+	index := layout.Sum(first, y)
+	if index >= len(rows) {
+		// Below the text. The end is where a click there means, the way it does in
+		// every editor: a reader clicking past the last line means the last line.
+		//
+		// There is always a row to be past, so nothing here checks. A field holds at
+		// least one line even when it is empty, and every line gets a row even when
+		// it has nothing on it — a blank line in a composer is a blank line on screen.
+		last := rows[len(rows)-1]
+		return Caret{Line: last.line, Col: last.end}, true
+	}
+	r := rows[index]
+	line := e.lines[r.line]
+	col := r.start + text.OffsetAt(line[r.start:r.end], x)
+	// Out of any element it lands in, forwards, so a click in the middle of a chip
+	// puts the cursor after it rather than inside — the same rule moving does.
+	return Caret{Line: r.line, Col: e.snapElement(r.line, col, true)}, true
+}
+
+// handleMouse answers a mouse event at a width, reporting whether it consumed it.
+//
+// A press puts the cursor where it was pressed and starts a selection there; a drag
+// with the button held moves the far end; a release ends it. That is what a text field
+// does everywhere.
+//
+// The width is a parameter rather than a field because this is where the arithmetic
+// lives, not because a caller gets to choose one. [Editor.Handle] supplies the width
+// the editor last drew at, which is the only width a pointer event can be about: a
+// press is aimed at what is on the screen. Routing one against a width that was never
+// presented would answer a question nobody asked.
+func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
+	if ev.Action == input.MouseUp {
+		wasDragging := e.dragging
+		e.dragging = false
+		return wasDragging
+	}
+	if ev.Action == input.MouseDown {
+		e.dragging = false
+	}
+	if presented.width <= 0 || ev.Pos.X < presented.gutter {
+		return false
+	}
+	ev.Pos.X = layout.Relative(ev.Pos.X, presented.gutter)
+	switch ev.Action {
+	case input.MouseDown:
+		if ev.Button != input.ButtonLeft {
+			return false
+		}
+		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
+		if !ok {
+			return false
+		}
+		e.SelectNone()
+		e.endTyping()
+		e.line, e.col, e.wantColumn = at.Line, at.Col, -1
+		e.anchor, e.selecting = at, true
+		// A click that landed past the end of a wrapped row means that row, not the
+		// start of the next. It is the only way a cursor comes to be at a soft break
+		// and belong to the earlier side.
+		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(ev.Pos.X, ev.Pos.Y, presented.width)
+		e.dragging = true
+		e.revealCursor()
+		return true
+	case input.MouseDrag:
+		if !e.dragging {
+			return false
+		}
+		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
+		if !ok {
+			return false
+		}
+		e.line, e.col, e.wantColumn = at.Line, at.Col, -1
+		e.revealCursor()
+		return true
+	default:
+		return false
+	}
+}
+
+// pastRowEnd reports whether a point is beyond the text of a row that the width broke,
+// which is the only place a cursor can belong to the earlier side of a break.
+func (e *Editor) pastRowEnd(x, y, width int) bool {
+	rows := e.rows(width)
+	presented := e.presentation.Value()
+	first := 0
+	if presented.width == width {
+		first = presented.first
+	}
+	index := layout.Sum(first, y)
+	if index < 0 || index >= len(rows) || e.layout.lastOfLine(index) {
+		return false
+	}
+	r := rows[index]
+	return x >= text.Width(e.lines[r.line][r.start:r.end])
+}
+
+// prefersRowEnd reports whether the cursor should be drawn at the end of a wrapped row
+// rather than at the start of the next. See [Editor.rowEnd].
+func (e *Editor) prefersRowEnd() bool {
+	return e.rowEndSet && e.rowEnd == Caret{Line: e.line, Col: e.col}
+}
+
+// editorActions is what each name the field answers to does. A table rather than a
+// switch, so that the set of actions is one list a reader can see the whole of.
+var editorActions = map[keymap.Action]func(*Editor){
+	// A delete with something selected takes the selection, which is what makes
+	// backspace and the delete key mean "get rid of this" when there is a this.
+	DeleteBack: func(e *Editor) {
+		if !e.DeleteSelection() {
+			e.DeleteBack()
+		}
+	},
+	DeleteForward: func(e *Editor) {
+		if !e.DeleteSelection() {
+			e.DeleteForward()
+		}
+	},
+	DeleteWordBack: (*Editor).DeleteWordBack,
+	KillToEnd:      (*Editor).KillToEnd,
+	KillToStart:    (*Editor).KillToStart,
+	Yank:           (*Editor).Yank,
+	YankPop:        (*Editor).YankPop,
+	InsertNewline:  (*Editor).Newline,
+	Undo:           (*Editor).Undo,
+	Redo:           (*Editor).Redo,
+	SelectAll:      (*Editor).SelectAll,
+	Copy:           func(e *Editor) { e.Copy() },
+	Cut:            func(e *Editor) { e.Cut() },
+	Paste:          func(e *Editor) { e.Paste() },
+}
+
+// RowSpan is a run of columns on one visual row of a field.
+//
+// The row is counted from the top of the whole wrapped text and not from the top of
+// the box, because the field scrolls: a caller that wanted rows on screen would have
+// to be told the scroll position to make sense of them, and the field already knows
+// it.
+type RowSpan struct {
+	Row        int
+	Col, Width int
 }

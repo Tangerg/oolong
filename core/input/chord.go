@@ -18,22 +18,6 @@ type Chord struct {
 	Mods Mods
 }
 
-// Rune is the chord of a character key held with these modifiers:
-//
-//	input.Ctrl.Rune('w')
-func (m Mods) Rune(r rune) Chord { return Chord{Code: Character, Rune: r, Mods: m} }
-
-// With is the chord of a named key held with these modifiers:
-//
-//	input.Alt.With(input.Enter)
-//
-// A key with nothing held is a chord literal, because there is no modifier to hang the
-// call off: input.Chord{Code: input.Enter}.
-func (m Mods) With(code Code) Chord { return Chord{Code: code, Mods: m} }
-
-// Chord is the keystroke this event is one of.
-func (k Key) Chord() Chord { return Chord{Code: k.Code, Rune: k.Rune, Mods: k.Mods} }
-
 // String writes the chord the way a keybinding is conventionally written, and the way
 // [ParseChord] reads one back: the modifiers, then the key.
 func (c Chord) String() string {

@@ -2,7 +2,6 @@ package input
 
 import (
 	"bytes"
-	"image"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -549,16 +548,6 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 	}
 }
 
-// modifiedKey is code with the modifiers the sequence carried, or nil when the
-// sequence names a key of its own as well — one keystroke has one name.
-func (ps params) modifiedKey(code Code, extra Mods) Event {
-	mods, transition, ok := ps.keyMeta()
-	if !ok || !ps.namesNoKey() {
-		return nil
-	}
-	return Key{Code: code, Mods: mods | extra, Transition: transition}
-}
-
 // decodeNumberedKey reads the sequences that name a key by number, which is also
 // how a terminal announces a paste.
 func (p *Parser) decodeNumberedKey(ps params) Event {
@@ -585,47 +574,6 @@ const (
 	pasteOpen     = 200
 	pasteCloseNum = 201
 )
-
-// extendedKey reads the Kitty keyboard protocol's key report, which is the
-// only form that distinguishes releases from presses and can say what text a key
-// produced.
-func (ps params) extendedKey() Event {
-	if ps.Len() == 0 || ps.Len() > 3 {
-		return nil // a bare sequence here is a cursor report, not a key
-	}
-	primary := ps.Group(0)
-	if primary.Len() == 0 || primary.Len() > 3 {
-		return nil
-	}
-	// Alternate key codes are accepted and then ignored: reporting the key that
-	// was pressed is this type's job, and reporting which key it would have been
-	// under another layout is not.
-	for i := 1; i < primary.Len(); i++ {
-		alternate := primary.At(i)
-		if _, ok := codePoint(alternate); alternate != 0 && !ok {
-			return nil
-		}
-	}
-	mods, transition, ok := ps.keyMeta()
-	if !ok {
-		return nil
-	}
-	text, ok := ps.text()
-	if !ok {
-		return nil
-	}
-	if primary.At(0) == 0 {
-		if text == "" {
-			return nil
-		}
-		return Key{Code: Character, Text: text, Mods: mods, Transition: transition}
-	}
-	code, r, ok := extendedKeyCode(primary.At(0))
-	if !ok {
-		return nil
-	}
-	return Key{Code: code, Rune: r, Mods: mods, Transition: transition, Text: text}
-}
 
 // extendedKeyCode maps a Kitty key number onto a [Code].
 //
@@ -663,46 +611,6 @@ var extendedKeys = map[int]Code{
 	57355: PageDown,
 	57356: Home,
 	57357: End,
-}
-
-// mouse reads an SGR mouse report. down distinguishes the final byte that
-// means "went down or moved" from the one that means "came up".
-func (ps params) mouse(down bool) Event {
-	if ps.Len() < 3 {
-		return nil
-	}
-	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
-	if bits < 0 || bits & ^127 != 0 || x < 0 || y < 0 {
-		return nil // a malformed report says nothing about where the mouse is
-	}
-	// The terminal counts from one; everything above this package counts from zero.
-	ev := Mouse{Pos: image.Pt(max(x-1, 0), max(y-1, 0)), Mods: mouseMods(bits)}
-	switch {
-	case bits&64 != 0:
-		switch bits & 3 {
-		case 0:
-			ev.Action = WheelUp
-		case 1:
-			ev.Action = WheelDown
-		default:
-			return nil // horizontal wheel, which nothing here reads
-		}
-	case bits&32 != 0:
-		ev.Button = mouseButton(bits & 3)
-		if ev.Button == ButtonNone {
-			ev.Action = MouseMove
-		} else {
-			ev.Action = MouseDrag
-		}
-	default:
-		ev.Button = mouseButton(bits & 3)
-		if down {
-			ev.Action = MouseDown
-		} else {
-			ev.Action = MouseUp
-		}
-	}
-	return ev
 }
 
 func mouseMods(bits int) Mods {
@@ -781,4 +689,103 @@ var numberedKeys = map[int]Code{
 	11: F1, 12: F2, 13: F3, 14: F4, 15: F5,
 	17: F6, 18: F7, 19: F8, 20: F9, 21: F10,
 	23: F11, 24: F12,
+}
+
+func (p *Parser) beginString(kind stringKind, cmd int) {
+	p.str, p.oscCmd, p.strBody = kind, cmd, nil
+}
+
+// readString moves buffered bytes into the current string's body until its terminator
+// arrives, reporting the finished event when one does.
+//
+// Two byte sequences end it: the BEL older terminals use, and the ST that ECMA-48
+// specifies, which is an escape and a backslash. An escape followed by anything else
+// never legitimately appears inside one, so it is taken to have abandoned the string:
+// the body so far is dropped and the escape is read again on its own terms. That is
+// what makes a terminal which stops mid-answer cost one keystroke rather than every
+// keystroke after it.
+func (p *Parser) readString() (Event, bool) {
+	for i := 0; i < len(p.buf); {
+		switch c := p.buf[i]; c {
+		case bel:
+			p.take(i + 1)
+			return p.endString(), true
+		case esc:
+			if i+1 >= len(p.buf) {
+				// What is left could still become ST. Keep the escape.
+				p.take(i)
+				return nil, false
+			}
+			if p.buf[i+1] == '\\' {
+				p.take(i + 2)
+				return p.endString(), true
+			}
+			p.take(i)
+			p.abandonString()
+			return nil, true
+		default:
+			p.strBody = append(p.strBody, c)
+			i++
+			if len(p.strBody) >= maxStringBody {
+				// Overran what one may hold. The rest is dropped wherever it turns up
+				// rather than read as text, for the same reason a runaway control
+				// sequence is: a flood of keystrokes is a worse answer to a malformed
+				// sequence than silence, and one a hostile terminal could aim.
+				p.take(i)
+				p.abandonString()
+				p.dropping = droppingString
+				return nil, true
+			}
+		}
+	}
+	p.buf = nil
+	return nil, false
+}
+
+// endString finishes the current string and returns it as an event.
+//
+// The body is a string, which every consumer will treat as text. Invalid UTF-8 is
+// replaced rather than passed on, for the same reason it is in a paste: this is where
+// untrusted bytes stop being untrusted.
+func (p *Parser) endString() Event {
+	body := strings.ToValidUTF8(string(p.strBody), "�")
+	kind, cmd := p.str, p.oscCmd
+	p.abandonString()
+	if kind == dcsString {
+		return DCS{Body: body}
+	}
+	return OSC{Command: cmd, Params: body}
+}
+
+func (p *Parser) abandonString() {
+	p.str, p.oscCmd, p.strBody = noString, 0, nil
+}
+
+// skipString drops the rest of a string whose body overran, and reports whether it
+// found the end.
+func (p *Parser) skipString() bool {
+	for i := range len(p.buf) {
+		switch p.buf[i] {
+		case bel:
+			p.take(i + 1)
+			p.dropping = droppingNothing
+			return true
+		case esc:
+			if i+1 >= len(p.buf) {
+				p.take(i)
+				return false // could still become ST
+			}
+			if p.buf[i+1] == '\\' {
+				p.take(i + 2)
+			} else {
+				// The escape abandoned the string, and belongs to whatever comes next
+				// rather than to this.
+				p.take(i)
+			}
+			p.dropping = droppingNothing
+			return true
+		}
+	}
+	p.buf = nil
+	return false
 }

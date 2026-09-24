@@ -8,23 +8,6 @@ import (
 	"strings"
 )
 
-// Ask is the label, with the placeholder as the hint it already is.
-func (t *Text) Ask() string {
-	if t.Placeholder == "" {
-		return t.Label
-	}
-	return t.Label + " (" + t.Placeholder + ")"
-}
-
-// Reply takes what was said as the whole of the answer.
-func (t *Text) Reply(said string) error {
-	t.Sync()
-	edit := t.beginEdit()
-	t.editor.SetText(said)
-	t.storeSince(edit)
-	return t.Validate()
-}
-
 // Ask is the label and the choices, numbered.
 func (s *Select[T]) Ask() string {
 	return s.Label + choices(s.list.items)
@@ -73,32 +56,6 @@ func (m *MultiSelect[T]) Reply(said string) error {
 		m.store()
 	}
 	return m.Validate()
-}
-
-// Ask is the question and the two words that answer it.
-func (c *Confirm) Ask() string {
-	return c.Label + " (" + c.word(true) + "/" + c.word(false) + ")"
-}
-
-// Reply takes either answer, or as much of one as is unambiguous — nobody types
-// "yes" in full twice.
-func (c *Confirm) Reply(said string) error {
-	said = strings.ToLower(strings.TrimSpace(said))
-	yes, no := strings.ToLower(c.word(true)), strings.ToLower(c.word(false))
-	yesMatch, noMatch := strings.HasPrefix(yes, said), strings.HasPrefix(no, said)
-	switch {
-	case said == "":
-		return c.check(fmt.Errorf("say %s or %s", yes, no))
-	case yesMatch && noMatch:
-		return c.check(fmt.Errorf("%q could mean either %s or %s", said, yes, no))
-	case yesMatch:
-		c.Say(true)
-	case noMatch:
-		c.Say(false)
-	default:
-		return c.check(fmt.Errorf("say %s or %s", yes, no))
-	}
-	return c.Validate()
 }
 
 // choices is the options, numbered, as they go after a question.

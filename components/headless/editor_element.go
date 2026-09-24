@@ -2,7 +2,6 @@ package headless
 
 import (
 	"math"
-	"slices"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/text"
@@ -66,69 +65,6 @@ func (el Element) Text(e *Editor) string {
 	return line[el.Start:el.End]
 }
 
-// InsertElement puts text at the cursor as one atomic unit, and returns it.
-//
-// Line breaks in body become spaces even in a multi-line editor. An element is one
-// contiguous run of cells; allowing its source to span logical lines would make its
-// returned line-local range describe only a fragment of what was inserted.
-//
-// A separator space follows it, which is what makes a chip in a prompt something a
-// user can type after. The space is ordinary text and not part of the element: it is
-// there to be deleted. One goes in front as well when the body would otherwise join
-// what it lands after — see [Editor.joinsWhatPrecedes].
-//
-// An empty body inserts nothing and returns the zero [Element]. Identities are never
-// reused, and InsertElement panics once every one has been issued: an [Element] the
-// caller kept in order to replace or remove what it stands for would otherwise begin
-// naming a different insertion.
-func (e *Editor) InsertElement(kind ElementKind, body string) Element {
-	body = elementBody(body)
-	if body == "" {
-		return Element{}
-	}
-	e.ensure()
-	id, ok := e.elementIDs.next()
-	if !ok {
-		panic("headless: editor exhausted element identities")
-	}
-	e.endTyping()
-	e.snapshot()
-	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
-	if selected, selectedEnd, ok := e.Selection(); ok {
-		start, end = selected, selectedEnd
-	}
-	lead := ""
-	if e.joinsWhatPrecedes(start, body) {
-		lead = " "
-	}
-	at := e.offsetOf(start) + len(lead)
-	replacement, changedText := e.prepareReplacement(start, end, lead+body+" ")
-	if changedText {
-		e.replaceRange(start, end, replacement)
-	} else {
-		e.requireContentRevision()
-		e.finishReplacement(end)
-	}
-	mark := text.Mark{
-		ID:     id,
-		Kind:   int(kind),
-		Start:  at,
-		End:    at + len(body),
-		Atomic: true,
-	}
-	// Put in order rather than appended and sorted: the marks are kept in the order
-	// they appear, which is the order a caller expects and the order that makes them
-	// readable in a test.
-	where, _ := slices.BinarySearchFunc(e.marks, mark, func(a, b text.Mark) int {
-		return a.Start - b.Start
-	})
-	e.marks = slices.Insert(e.marks, where, mark)
-	if !changedText {
-		e.contentChanged()
-	}
-	return e.elementOf(mark)
-}
-
 // elementBody is as much of a body as can be a run of cells between two separators.
 //
 // Both ends, because an element has two: a combining character joins what is in
@@ -151,127 +87,6 @@ func elementBody(body string) string {
 		body = body[:len(body)-size]
 	}
 	return body
-}
-
-// joinsWhatPrecedes reports whether body would become part of the cluster in front
-// of it.
-//
-// An element is one contiguous run of cells, and a run of cells begins at a grapheme
-// boundary. A body that starts with a combining character has no boundary of its own:
-// dropped after a letter it joins that letter's cluster, so the element's first cell
-// belongs half to text the element does not own — and deleting the element leaves the
-// mark behind on a character that was never part of it.
-//
-// The question is asked of the text it is actually landing after rather than of the
-// body alone, because that is what decides it: two regional indicators are a flag,
-// and a flag is a perfectly good label except directly after another one.
-func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
-	if at.Line < 0 || at.Line >= len(e.lines) {
-		return false
-	}
-	line := e.lines[at.Line]
-	before := line[:min(max(at.Col, 0), len(line))]
-	if before == "" {
-		return false
-	}
-	return clusters(before+body) != clusters(before)+clusters(body)
-}
-
-// Elements is every element in the text, in the order they appear. The slice is a
-// copy: a caller cannot move an element by writing to it.
-func (e *Editor) Elements() []Element {
-	out := make([]Element, 0, len(e.marks))
-	for _, m := range e.marks {
-		out = append(out, e.elementOf(m))
-	}
-	return out
-}
-
-// ElementAt is the element covering a position, and whether there is one. The end is
-// exclusive, so the position just after an element is outside it.
-func (e *Editor) ElementAt(line, col int) (Element, bool) {
-	at := e.offsetOf(Caret{Line: line, Col: col})
-	for _, m := range e.marks {
-		if m.Covers(at) {
-			return e.elementOf(m), true
-		}
-	}
-	return Element{}, false
-}
-
-// RemoveElement deletes an element's text and forgets it, reporting whether it was
-// there to remove.
-func (e *Editor) RemoveElement(id uint64) bool {
-	for _, m := range e.marks {
-		if m.ID != id {
-			continue
-		}
-		el := e.elementOf(m)
-		e.endTyping()
-		e.snapshot()
-		// The space after it goes too, when there is one. It was put there with the
-		// element and leaving it behind gives a prompt a gap where a chip used to be,
-		// which is the sort of thing a user has to notice and tidy up by hand.
-		end := el.End
-		if line := e.lines[el.Line]; end < len(line) && line[end] == ' ' {
-			end++
-		}
-		e.replaceRange(Caret{Line: el.Line, Col: el.Start}, Caret{Line: el.Line, Col: end}, "")
-		return true
-	}
-	return false
-}
-
-// insideElement is the element a cursor position falls strictly within.
-//
-// Strictly, unlike [Editor.ElementAt]: an element's two ends are places a cursor may
-// sit, and only what is between them is not. They are different questions and the
-// difference matters — treating the start as inside would mean a cursor arriving from
-// the left skipped straight past the element, and nothing could be typed in front of
-// one.
-func (e *Editor) insideElement(line, col int) (Element, bool) {
-	at := e.offsetOf(Caret{Line: line, Col: col})
-	for _, m := range e.marks {
-		if m.Within(at) {
-			return e.elementOf(m), true
-		}
-	}
-	return Element{}, false
-}
-
-// snapElement moves a position out of any element it lands inside.
-//
-// Which way out depends on which way the cursor was going, which is the only thing
-// that makes stepping over an element feel like stepping over a character: moving
-// right from inside one has to come out at the far side, and moving left at the near
-// side. A position that is not inside anything is returned as it is.
-func (e *Editor) snapElement(line, col int, forward bool) int {
-	// Before first use the zero editor has one conceptual empty line. Keeping this
-	// primitive total preserves that zero-value contract even for an internal caller
-	// that only needs to settle a position and has not initialized storage yet.
-	if len(e.lines) == 0 {
-		return 0
-	}
-	line = min(max(line, 0), len(e.lines)-1)
-	col = clusterPosition(e.lines[line], col, forward)
-	return e.snapElementBoundary(line, col, forward)
-}
-
-// snapElementBoundary applies only the atomic-element half of snapElement when its
-// caller already owns a grapheme boundary. Cursor movement and column mapping have
-// that stronger fact and should not rescan the line merely to prove it again.
-func (e *Editor) snapElementBoundary(line, col int, forward bool) int {
-	for {
-		el, inside := e.insideElement(line, col)
-		if !inside {
-			return col
-		}
-		if forward {
-			col = clusterPosition(e.lines[line], el.End, true)
-		} else {
-			col = clusterPosition(e.lines[line], el.Start, false)
-		}
-	}
 }
 
 // clusterPosition is the closest caret position in direction when at falls inside a
@@ -303,79 +118,6 @@ func clusterPosition(line string, at int, forward bool) int {
 	return len(line)
 }
 
-// edited moves every element over a change to the text, dropping the ones the change
-// destroyed.
-//
-// This is the whole of it. There used to be two of these — one for text going in and
-// one for text coming out — each doing the same arithmetic in line and column space,
-// each with its own edge cases and its own way of being wrong. An insertion, a
-// deletion and a replacement are one thing said three ways, and [text.Edit] is that
-// thing.
-//
-// It must be called with offsets into the text as it was before the change, which is
-// why every caller works them out first.
-func (e *Editor) edited(edit text.Edit) {
-	e.marks = edit.Shift(e.marks, e.byteLength())
-}
-
-// settleMarks drops every element whose ends are no longer places a caret may sit —
-// see [Element] for when that happens and what it means to a caller.
-//
-// Shifting the marks over a change says where they went, which is a question about
-// offsets and belongs to [text.Edit]. Whether what is there is still an element is a
-// question about the text, and only the editor can answer it — so it is answered
-// here, once, for every change rather than at the one operation that was thought to
-// need it.
-func (e *Editor) settleMarks() {
-	e.marks = slices.DeleteFunc(e.marks, func(m text.Mark) bool {
-		return !e.spansWholeClusters(m)
-	})
-}
-
-// spansWholeClusters reports whether a mark's ends are both places a caret may sit on
-// one line.
-func (e *Editor) spansWholeClusters(m text.Mark) bool {
-	start, end := e.caretAt(m.Start), e.caretAt(m.End)
-	if start.Line != end.Line {
-		return false
-	}
-	line := e.lines[start.Line]
-	return clusterPosition(line, start.Col, true) == start.Col &&
-		clusterPosition(line, end.Col, true) == end.Col
-}
-
-// byteLength is the length of the whole text without assembling it. Edits and
-// marks speak in whole-document byte offsets even though the editor owns lines.
-func (e *Editor) byteLength() int {
-	e.ensure()
-	n := len(e.lines) - 1 // the newlines between lines
-	for _, line := range e.lines {
-		n += len(line)
-	}
-	return n
-}
-
-// removed moves every element over a range of the text being replaced by s, which
-// covers a plain deletion as the case where s is empty.
-//
-// It has to be called before the lines change, because the carets it is given are
-// carets into the text as it was.
-func (e *Editor) removed(start, end Caret, s string) {
-	e.edited(text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s})
-}
-
-// offsetOf is a caret as a byte offset into the whole text.
-//
-// The editor keeps its content as lines because that is what wrapping, vertical
-// movement and the cursor are all expressed in. Marks are kept as offsets because
-// that is what a change to text is expressed in, and translating between the two is
-// this function and [Editor.caretAt]. Neither idea has to know about the other, which
-// is the only reason the shifting rule could move out of this package at all.
-func (e *Editor) offsetOf(c Caret) int {
-	e.ensure()
-	return offsetInLines(e.lines, c)
-}
-
 // offsetInLines is the read-only form used by render projections that must not
 // initialize or otherwise mutate the editor they reflect.
 func offsetInLines(lines []string, c Caret) int {
@@ -388,36 +130,6 @@ func offsetInLines(lines []string, c Caret) int {
 		at += len(lines[i]) + 1
 	}
 	return at + min(max(c.Col, 0), len(lines[line]))
-}
-
-func (e *Editor) caretAt(at int) Caret {
-	e.ensure()
-	for i, line := range e.lines {
-		if at <= len(line) {
-			return Caret{Line: i, Col: max(at, 0)}
-		}
-		at -= len(line) + 1
-	}
-	last := len(e.lines) - 1
-	return Caret{Line: last, Col: len(e.lines[last])}
-}
-
-func (e *Editor) elementOf(m text.Mark) Element {
-	start := e.caretAt(m.Start)
-	end := e.caretAt(m.End)
-	if end.Line != start.Line {
-		// An element never spans a line break, so a mark that reads as though it does
-		// is reported as far as the end of the line it began on. Nothing produces one:
-		// an edit that put a break inside a mark destroyed it.
-		end = Caret{Line: start.Line, Col: len(e.lines[start.Line])}
-	}
-	return Element{
-		ID:    m.ID,
-		Kind:  kindOf(m.Kind),
-		Line:  start.Line,
-		Start: start.Col,
-		End:   end.Col,
-	}
 }
 
 // kindOf is a mark's label as this package's own.
@@ -433,30 +145,3 @@ func kindOf(label int) ElementKind {
 	}
 	return ElementKind(label)
 }
-
-// RetainedElementIDs returns identities reachable from the document or undo/redo
-// history. Applications may release associated payloads only after they disappear
-// from this set. The returned slice is owned by the caller.
-func (e *Editor) RetainedElementIDs() []uint64 {
-	ids := make(map[uint64]struct{})
-	for _, mark := range e.marks {
-		ids[mark.ID] = struct{}{}
-	}
-	for _, stack := range [][]editorState{e.history.undo, e.history.redo} {
-		for _, state := range stack {
-			for _, mark := range state.marks {
-				ids[mark.ID] = struct{}{}
-			}
-		}
-	}
-	out := make([]uint64, 0, len(ids))
-	for id := range ids {
-		out = append(out, id)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// ForgetHistory ends the lifetime of edits no longer available to Undo or Redo.
-// Current document elements remain live.
-func (e *Editor) ForgetHistory() { e.endTyping(); e.history.clear() }

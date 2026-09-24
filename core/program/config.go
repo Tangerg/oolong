@@ -85,3 +85,14 @@ func (c Config) Validate() error {
 	}
 	return nil
 }
+
+func (c Config) openHost() (hostSession, error) {
+	if c.Host != nil {
+		return hostSession{Host: c.Host}, nil
+	}
+	terminal, err := term.Open(c.TerminalConfig())
+	if err != nil {
+		return hostSession{}, err
+	}
+	return hostSession{Host: TerminalHost(terminal), release: terminal.Close}, nil
+}

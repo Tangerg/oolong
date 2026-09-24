@@ -78,43 +78,6 @@ func (t *title) leave() string {
 	return titlePop
 }
 
-// SetTitle names the terminal's window, and remembers to put back whatever it was
-// called before.
-//
-// The title is where a program says what it is doing to somebody who is not looking
-// at it: a tab in a window behind this one, a taskbar entry, a window list. That is
-// the whole of its value, and it is why the text should be the task and not the
-// program's name — which the user can already see.
-//
-// It is queued beside the frames, so it lands between two of them and never inside
-// one. A terminal that does not implement it ignores it, and one that does not
-// implement the title stack ignores the putting back — which is why a program that
-// cares should set something sensible on the way out rather than rely on it.
-func (t *Terminal) SetTitle(s string) {
-	t.title.to(s, t.writer.Queue)
-}
-
-// Bell asks the terminal for its attention.
-//
-// What that is, is the user's to decide and not this program's: a sound, a flash of
-// the window, a mark on the tab, or nothing at all. That is the reason to send this
-// rather than to invent an attention-getting animation — the user has already told
-// their terminal what they want to happen.
-func (t *Terminal) Bell() { t.writer.Queue([]byte{ansi.Bell}) }
-
-// Notify asks for a desktop notification.
-//
-// It is for the thing that finished while the user was looking at something else,
-// which is the case a terminal interface cannot answer on its own: the window is
-// not on screen, so nothing drawn in it is seen.
-//
-// Terminals that do not implement it ignore it, and there is no way to find out
-// which did — so a program that has something to say should say it in the interface
-// as well, and treat this as the extra it is.
-func (t *Terminal) Notify(text string) {
-	t.writer.Queue([]byte(command(notifySend, text)))
-}
-
 // command is a string command: an introducer, a body that cannot end it early, and
 // the terminator every terminal understands.
 func command(intro, body string) string {

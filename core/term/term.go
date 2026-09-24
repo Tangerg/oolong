@@ -21,6 +21,7 @@ import (
 
 	xterm "golang.org/x/term"
 
+	"github.com/Tangerg/oolong/core/ansi"
 	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/graphics"
 	"github.com/Tangerg/oolong/core/grid"
@@ -697,4 +698,207 @@ func (t *Terminal) read(raw chan<- []byte, readErr chan<- error) {
 		default:
 		}
 	}
+}
+
+// SetTitle names the terminal's window, and remembers to put back whatever it was
+// called before.
+//
+// The title is where a program says what it is doing to somebody who is not looking
+// at it: a tab in a window behind this one, a taskbar entry, a window list. That is
+// the whole of its value, and it is why the text should be the task and not the
+// program's name — which the user can already see.
+//
+// It is queued beside the frames, so it lands between two of them and never inside
+// one. A terminal that does not implement it ignores it, and one that does not
+// implement the title stack ignores the putting back — which is why a program that
+// cares should set something sensible on the way out rather than rely on it.
+func (t *Terminal) SetTitle(s string) {
+	t.title.to(s, t.writer.Queue)
+}
+
+// Bell asks the terminal for its attention.
+//
+// What that is, is the user's to decide and not this program's: a sound, a flash of
+// the window, a mark on the tab, or nothing at all. That is the reason to send this
+// rather than to invent an attention-getting animation — the user has already told
+// their terminal what they want to happen.
+func (t *Terminal) Bell() { t.writer.Queue([]byte{ansi.Bell}) }
+
+// Notify asks for a desktop notification.
+//
+// It is for the thing that finished while the user was looking at something else,
+// which is the case a terminal interface cannot answer on its own: the window is
+// not on screen, so nothing drawn in it is seen.
+//
+// Terminals that do not implement it ignore it, and there is no way to find out
+// which did — so a program that has something to say should say it in the interface
+// as well, and treat this as the extra it is.
+func (t *Terminal) Notify(text string) {
+	t.writer.Queue([]byte(command(notifySend, text)))
+}
+
+// Hand gives the terminal to something else and takes it back when it returns.
+//
+// It is what opening an editor or a pager is made of. The session is put back exactly
+// as it was found — the modes it turned on, off in the opposite order, then cooked
+// mode — and then the whole of that is done again in reverse.
+//
+// The reader comes off the terminal first and goes back on last, which is the part
+// nothing else can do for a caller: a session that only restored the modes would
+// still be reading, and every second keystroke would go to this process.
+//
+// It runs on the caller's goroutine and does not return until run does, because an
+// interface that drew a frame while a child owned the terminal would draw it over the
+// child. The caller is responsible for nothing else writing meanwhile.
+//
+// The window may be a different size afterwards with nothing having reported it,
+// because the signal went to whichever process group was in the foreground. A fresh
+// size is asked for and delivered on [Terminal.Events].
+//
+// Where the reader cannot be taken off the terminal this reports
+// [errors.ErrUnsupported] and does nothing, because handing over while still reading
+// is a child that drops every other keystroke. Whether it can is a question about the
+// session rather than the platform: a console can be waited on, and a pipe pretending
+// to be one cannot.
+func (t *Terminal) Hand(run func() error) (err error) {
+	if run == nil {
+		return nil
+	}
+	if !t.waker.interruptible() {
+		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
+	}
+	if releaseErr := t.release(); releaseErr != nil {
+		return releaseErr
+	}
+	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
+	// with its terminal still parked. The panic continues after ownership is restored.
+	defer func() { err = errors.Join(err, t.resume()) }()
+	return run()
+}
+
+func (t *Terminal) release() error {
+	// Keepalives are output too. Pause before taking the writer's watermark so a
+	// refresh cannot appear after the drain and inside the child's output.
+	t.task.pause()
+	// Whatever the interface drew has to reach the terminal before the modes go
+	// back, for the same reason it does on the way out: a frame written after the
+	// alternate screen was given up is a frame drawn onto the user's own screen. Do
+	// this before changing any state, so a timeout leaves ownership exactly where it
+	// was and needs no compensating transition.
+	if err := t.writer.Drain(DrainGrace); err != nil {
+		t.task.restore(t.writer.Queue)
+		return fmt.Errorf("term: drain before handover: %w", err)
+	}
+	if err := t.writer.Err(); err != nil {
+		t.task.restore(t.writer.Queue)
+		return fmt.Errorf("term: drain before handover: %w", err)
+	}
+
+	// The reader comes off only after output has settled. From here on, what the
+	// terminal says belongs to whoever it is being handed to.
+	t.park()
+	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
+		return errors.Join(err, t.resume())
+	}
+	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
+		// release is transactional: on failure no child runs and the session is made
+		// live again before the error reaches the caller.
+		return errors.Join(err, t.resume())
+	}
+	return nil
+}
+
+func (t *Terminal) resume() error {
+	var errs []error
+	errs = append(errs, t.output.active(true))
+	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+	if _, err := xterm.MakeRaw(t.inFD); err != nil {
+		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
+	}
+	if _, err := t.output.WriteString(t.modes.Enter() + t.title.enter()); err != nil {
+		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
+	}
+	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
+	t.task.restore(t.writer.Queue)
+	t.handed.release()
+
+	// The same latest-value mailbox a window resize uses, rather than the public
+	// event queue: the pump owns and closes that queue. Report even an unchanged size
+	// because foreground signals belonged to the child while it held the terminal,
+	// and the program must rebuild the screen whose contents the child replaced. The
+	// measurement becomes the watcher's too — those same signals are the ones it did
+	// not get, so what it remembers may be a size that has not been true for a while.
+	if width, height, err := t.Size(); err == nil {
+		t.retakeResize(width, height)
+	}
+	return errors.Join(errs...)
+}
+
+func (t *Terminal) park() {
+	parked := t.handed.hold()
+	t.waker.wake()
+
+	grace := time.NewTimer(parkGrace)
+	defer grace.Stop()
+	select {
+	case <-parked:
+	case <-grace.C:
+	case <-t.stop:
+	}
+}
+
+// SetProgress changes task progress outside the cell grid. Unsupported terminals
+// ignore it. Repeating an unchanged value writes nothing; active values are refreshed
+// often enough for terminals that expire the indicator.
+func (t *Terminal) SetProgress(progress Progress) {
+	t.task.to(progress, t.writer.Queue)
+}
+
+// noteResize records what a platform watcher measured and publishes it when it is
+// news.
+//
+// The last size has one owner, and this and [Terminal.retakeResize] are the two
+// paths that may advance it. A watcher keeping its own copy was the older shape and
+// the reason a handover could leave the session the wrong size for good: while a
+// child holds the terminal, its process group gets the resize signals and this one
+// does not, so the watcher comes back remembering a size that is no longer true. If
+// the measurement taken on the way back does not also become the watcher's, a later
+// change back to that remembered size reads as no change at all.
+func (t *Terminal) noteResize(width, height int, err error) {
+	t.resizeMu.Lock()
+	defer t.resizeMu.Unlock()
+	if t.size.observe(width, height, err) {
+		t.publishResize(t.size.point.X, t.size.point.Y)
+	}
+}
+
+// retakeResize records the size measured on taking the terminal back and publishes
+// it whether or not it changed. The program has to rebuild a screen whose contents
+// the child replaced, and that is true at any size.
+func (t *Terminal) retakeResize(width, height int) {
+	t.resizeMu.Lock()
+	defer t.resizeMu.Unlock()
+	t.size.observe(width, height, nil)
+	t.publishResize(width, height)
+}
+
+// publishResize offers the newest measured size to the input pump. Dimensions are
+// replaceable state: when the pump has not consumed an older observation, replace it
+// instead of dropping the newer truth or blocking the platform watcher.
+//
+// The caller holds resizeMu, which is also what serializes the producers below.
+func (t *Terminal) publishResize(width, height int) {
+	latest := input.Resize{Width: width, Height: height}
+	select {
+	case t.resized <- latest:
+		return
+	default:
+	}
+	select {
+	case <-t.resized:
+	default:
+	}
+	// Producers are serialized by resizeMu. After removing their older value the
+	// mailbox has room, even if the pump raced and consumed that value first.
+	t.resized <- latest
 }

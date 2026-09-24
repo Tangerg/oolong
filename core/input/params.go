@@ -1,6 +1,7 @@
 package input
 
 import (
+	"image"
 	"strings"
 	"unicode/utf8"
 
@@ -139,4 +140,115 @@ func codePoint(cp int) (rune, bool) {
 	}
 	r := rune(cp)
 	return r, utf8.ValidRune(r)
+}
+
+// modifiedKey is code with the modifiers the sequence carried, or nil when the
+// sequence names a key of its own as well — one keystroke has one name.
+func (ps params) modifiedKey(code Code, extra Mods) Event {
+	mods, transition, ok := ps.keyMeta()
+	if !ok || !ps.namesNoKey() {
+		return nil
+	}
+	return Key{Code: code, Mods: mods | extra, Transition: transition}
+}
+
+// extendedKey reads the Kitty keyboard protocol's key report, which is the
+// only form that distinguishes releases from presses and can say what text a key
+// produced.
+func (ps params) extendedKey() Event {
+	if ps.Len() == 0 || ps.Len() > 3 {
+		return nil // a bare sequence here is a cursor report, not a key
+	}
+	primary := ps.Group(0)
+	if primary.Len() == 0 || primary.Len() > 3 {
+		return nil
+	}
+	// Alternate key codes are accepted and then ignored: reporting the key that
+	// was pressed is this type's job, and reporting which key it would have been
+	// under another layout is not.
+	for i := 1; i < primary.Len(); i++ {
+		alternate := primary.At(i)
+		if _, ok := codePoint(alternate); alternate != 0 && !ok {
+			return nil
+		}
+	}
+	mods, transition, ok := ps.keyMeta()
+	if !ok {
+		return nil
+	}
+	text, ok := ps.text()
+	if !ok {
+		return nil
+	}
+	if primary.At(0) == 0 {
+		if text == "" {
+			return nil
+		}
+		return Key{Code: Character, Text: text, Mods: mods, Transition: transition}
+	}
+	code, r, ok := extendedKeyCode(primary.At(0))
+	if !ok {
+		return nil
+	}
+	return Key{Code: code, Rune: r, Mods: mods, Transition: transition, Text: text}
+}
+
+// mouse reads an SGR mouse report. down distinguishes the final byte that
+// means "went down or moved" from the one that means "came up".
+func (ps params) mouse(down bool) Event {
+	if ps.Len() < 3 {
+		return nil
+	}
+	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
+	if bits < 0 || bits & ^127 != 0 || x < 0 || y < 0 {
+		return nil // a malformed report says nothing about where the mouse is
+	}
+	// The terminal counts from one; everything above this package counts from zero.
+	ev := Mouse{Pos: image.Pt(max(x-1, 0), max(y-1, 0)), Mods: mouseMods(bits)}
+	switch {
+	case bits&64 != 0:
+		switch bits & 3 {
+		case 0:
+			ev.Action = WheelUp
+		case 1:
+			ev.Action = WheelDown
+		default:
+			return nil // horizontal wheel, which nothing here reads
+		}
+	case bits&32 != 0:
+		ev.Button = mouseButton(bits & 3)
+		if ev.Button == ButtonNone {
+			ev.Action = MouseMove
+		} else {
+			ev.Action = MouseDrag
+		}
+	default:
+		ev.Button = mouseButton(bits & 3)
+		if down {
+			ev.Action = MouseDown
+		} else {
+			ev.Action = MouseUp
+		}
+	}
+	return ev
+}
+
+// report reads a control sequence that carried a private marker.
+//
+// Every one of these is a terminal answering rather than a person typing, so an
+// unrecognised one is dropped. Reading it as a key would put whatever the terminal
+// said into whatever had focus.
+func (ps params) report(final byte) Event {
+	switch {
+	case ps.Marker() == '<' && (final == 'M' || final == 'm'):
+		return ps.mouse(final == 'M')
+	case ps.Marker() == '?' && final == 'c':
+		return ps.deviceAttributes()
+	case ps.Marker() == '?' && final == 'u':
+		return KeyboardFlags{Features: KeyboardFeatures(max(ps.At(0), 0))}
+	case ps.Marker() == '>' && final == 'c':
+		return DeviceVersion{Kind: max(ps.At(0), 0), Version: max(ps.At(1), 0), Patch: max(ps.At(2), 0)}
+	default:
+		return nil
+	}
 }

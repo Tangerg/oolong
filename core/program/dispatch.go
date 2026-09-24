@@ -6,6 +6,10 @@ import (
 	"github.com/Tangerg/oolong/core/internal/fifo"
 )
 
+// Dispatcher is a copyable, concurrency-safe handle into a running program.
+// Its zero value drops work. It deliberately exposes no owner-only operation.
+type Dispatcher struct{ tasks *taskQueue }
+
 // maxTasksPerTurn bounds how long an already queued burst may keep the owner out
 // of its event select. The queue itself remains unbounded and lossless; this is a
 // scheduling quantum, not a capacity.
