@@ -1,6 +1,7 @@
 package text_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -239,6 +240,96 @@ func FuzzTruncateMatchesStyledLineAndFits(f *testing.F) {
 		}
 		if got := text.Width(plain); got > width {
 			t.Fatalf("Truncate(%q, %d, %q) = %q at width %d", source, width, ellipsis, plain, got)
+		}
+	})
+}
+
+// split is source divided into spans at cuts, with the styles alternating so that
+// nothing can pass by merging them back together.
+func split(source string, cuts []byte) text.Line {
+	at := make([]int, 0, len(cuts)+1)
+	for _, cut := range cuts {
+		at = append(at, int(cut)%(len(source)+1))
+	}
+	slices.Sort(at)
+	at = append(at, len(source))
+
+	line := make(text.Line, 0, len(at))
+	from := 0
+	for i, to := range at {
+		style := grid.Style{}
+		if i%2 == 1 {
+			style.Attr = grid.Bold
+		}
+		line = append(line, text.Span{Text: source[from:to], Style: style})
+		from = to
+	}
+	return line
+}
+
+// FuzzASplitLineSaysWhatTheWholeLineSays is what keeps a span carrying appearance
+// and nothing more.
+//
+// A reader cannot see where one span ends, so nothing about the text may depend on
+// it — and a division is free to land between the bytes of one character, which only
+// the whole line can see. Every answer is compared against the same line in a single
+// span rather than against an expectation, because the claim is that the division
+// does not matter and not that any particular answer is right.
+func FuzzASplitLineSaysWhatTheWholeLineSays(f *testing.F) {
+	for _, seed := range []struct {
+		source string
+		cuts   []byte
+		width  int
+	}{
+		{source: "é", cuts: []byte{1}, width: 4},
+		{source: "👩‍💻", cuts: []byte{5}, width: 2},
+		{source: "one two three", cuts: []byte{3, 3, 9}, width: 5},
+		{source: "a\tb\tc", cuts: []byte{1, 2, 4}, width: 6},
+		{source: "a\x1b[31mb\x00c", cuts: []byte{2, 6}, width: 3},
+		{source: "\xc3 \xa9", cuts: []byte{1, 2}, width: 4},
+	} {
+		f.Add(seed.source, seed.cuts, seed.width)
+	}
+	f.Fuzz(func(t *testing.T, source string, cuts []byte, width int) {
+		if len(source) > 256 || len(cuts) > 16 {
+			return
+		}
+		width = min(max(width, 1), 64)
+		divided, whole := split(source, cuts), text.Of(source, grid.Style{})
+
+		if got, want := divided.Width(), whole.Width(); got != want {
+			t.Fatalf("%d spans are %d columns and one is %d", len(divided), got, want)
+		}
+		for _, ellipsis := range []string{"", "…"} {
+			got := divided.Truncate(width, ellipsis).String()
+			want := whole.Truncate(width, ellipsis).String()
+			if got != want {
+				t.Fatalf("%d spans cut to %d columns are %q and one is %q",
+					len(divided), width, got, want)
+			}
+			if at := text.Width(got); at > width {
+				t.Fatalf("%q was asked for %d columns and is %d", got, width, at)
+			}
+		}
+
+		rows, wholeRows := divided.Wrap(width), whole.Wrap(width)
+		if len(rows) != len(wholeRows) {
+			t.Fatalf("%d spans wrap to %d rows and one wraps to %d",
+				len(divided), len(rows), len(wholeRows))
+		}
+		for i, row := range rows {
+			want := wholeRows[i]
+			if row.Line.String() != want.Line.String() || row.Gap != want.Gap ||
+				row.Joined != want.Joined || row.From != want.From || row.To != want.To {
+				t.Fatalf("row %d of %d spans is %+v and of one is %+v", i, len(divided), row, want)
+			}
+		}
+
+		surface, wholeSurface := grid.NewSurface(width, 1), grid.NewSurface(width, 1)
+		divided.Draw(surface.View(), 0, 0)
+		whole.Draw(wholeSurface.View(), 0, 0)
+		if got, want := surface.Rows()[0], wholeSurface.Rows()[0]; got != want {
+			t.Fatalf("%d spans draw %q and one draws %q", len(divided), got, want)
 		}
 	})
 }

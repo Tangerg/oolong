@@ -7,21 +7,43 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
+// A span carries appearance, so a style change can fall anywhere a reader would not
+// see one — including between the bytes of a single character. Every question about
+// the line has to be answered from the line, or that invisible boundary decides what
+// the text says.
 func TestSpanBoundariesDoNotSplitGraphemes(t *testing.T) {
-	source := "👩‍💻"
-	for split := 0; split <= len(source); split++ {
-		line := text.Line{{Text: source[:split], Style: grid.Style{Attr: grid.Bold}}, {Text: source[split:]}}
-		if line.Width() != 2 {
-			t.Fatalf("split %d: width %d", split, line.Width())
-		}
-		wrapped := line.Wrap(2)
-		if len(wrapped) != 1 || wrapped[0].Line.String() != source {
-			t.Fatalf("split %d: %#v", split, wrapped)
-		}
-		s := grid.NewSurface(2, 1)
-		line.Draw(s.View(), 0, 0)
-		if s.Rows()[0] != source {
-			t.Fatalf("split %d: %q", split, s.Rows())
+	for _, source := range []string{"é", "中文", "👩‍💻"} {
+		width := text.Width(source)
+		for split := 0; split <= len(source); split++ {
+			line := text.Line{
+				{Text: source[:split], Style: grid.Style{Attr: grid.Bold}},
+				{Text: source[split:]},
+			}
+			if line.Width() != width {
+				t.Fatalf("%q split %d: width %d, want %d", source, split, line.Width(), width)
+			}
+			wrapped := line.Wrap(width)
+			if len(wrapped) != 1 || wrapped[0].Line.String() != source {
+				t.Fatalf("%q split %d: %#v", source, split, wrapped)
+			}
+			// Exactly the width and more than it, because a line that gets cut and a
+			// line that fits leave Truncate by different routes.
+			for _, budget := range []int{width, width + 4} {
+				cut := line.Truncate(budget, "…")
+				if cut.String() != source || cut.Width() > budget {
+					t.Fatalf("%q split %d: %d columns of it is %q, %d columns wide",
+						source, split, budget, cut.String(), cut.Width())
+				}
+			}
+			rows := text.NewBlock(text.BlockConfig{Lines: []text.Line{line}}).Rows(width + 4)
+			if len(rows) != 1 || rows[0].Text != source {
+				t.Fatalf("%q split %d: %#v", source, split, rows)
+			}
+			s := grid.NewSurface(width, 1)
+			line.Draw(s.View(), 0, 0)
+			if s.Rows()[0] != source {
+				t.Fatalf("%q split %d: %q", source, split, s.Rows())
+			}
 		}
 	}
 }

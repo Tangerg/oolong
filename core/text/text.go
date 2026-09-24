@@ -405,9 +405,9 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 // Width is how many columns s would occupy, with tabs expanded from column zero.
 func Width(s string) int { return advance(s, 0) }
 
-// Truncate cuts plain text to at most width columns, ending it with ellipsis when
-// anything was cut. When a cut occurs, retained source tabs are expanded as described
-// by [Line.Truncate]; an uncut string is returned unchanged.
+// Truncate is [Line.Truncate] on unstyled text: at most width columns, ended with
+// ellipsis when anything was cut, and carrying that method's treatment of tabs and
+// of characters a terminal would obey rather than show.
 func Truncate(s string, width int, ellipsis string) string {
 	return Of(s, grid.Style{}).Truncate(width, ellipsis).String()
 }
@@ -455,10 +455,17 @@ func (l Line) units() []unit {
 	return units
 }
 
-// eachUnit keeps drawing streaming while wrapping can retain provenance.
-func (l Line) eachUnit() iter.Seq[unit] {
-	return func(yield func(unit) bool) {
-		col, at := 0, 0
+// eachCluster is the line's characters, each with the span it takes its appearance
+// from: the one holding its first byte.
+//
+// Where characters begin — and whether some bytes are a character at all — is a
+// property of the line and not of a span. A style change is invisible to a reader
+// and free to fall inside a character, leaving its bytes in two spans; segmenting
+// spans separately would let that boundary decide which characters exist. So there
+// is one segmentation, and everything that needs it asks here.
+func (l Line) eachCluster() iter.Seq2[string, *Span] {
+	return func(yield func(string, *Span) bool) {
+		at := 0
 		spanIndex, spanEnd := 0, 0
 		if len(l) > 0 {
 			spanEnd = len(l[0].Text)
@@ -469,8 +476,20 @@ func (l Line) eachUnit() iter.Seq[unit] {
 				spanIndex++
 				spanEnd += len(l[spanIndex].Text)
 			}
-			s := &l[spanIndex]
 			cluster := g.Str()
+			if !yield(cluster, &l[spanIndex]) {
+				return
+			}
+			at += len(cluster)
+		}
+	}
+}
+
+// eachUnit keeps drawing streaming while wrapping can retain provenance.
+func (l Line) eachUnit() iter.Seq[unit] {
+	return func(yield func(unit) bool) {
+		col, at := 0, 0
+		for cluster, s := range l.eachCluster() {
 			switch {
 			case cluster == "\t":
 				n := TabStop - col%TabStop
@@ -606,45 +625,39 @@ func droppedRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
 // that one normalizes text somebody will store and hands back a mark where invalid
 // bytes were, and this one answers what was drawn, which is nothing.
 func (l Line) printable() Line {
-	unchanged := true
-	for _, span := range l {
-		if drawn(span.Text) != span.Text {
-			unchanged = false
+	discards := false
+	for cluster := range l.eachCluster() {
+		if dropped(cluster) {
+			discards = true
 			break
 		}
 	}
-	if unchanged {
+	// An untouched line keeps the division into spans it came with: rebuilding would
+	// only move boundaries a caller chose.
+	if !discards {
 		return l
 	}
 	out := make(Line, 0, len(l))
-	for _, span := range l {
-		if span.Text = drawn(span.Text); span.Text != "" {
-			out = append(out, span)
+	var text strings.Builder
+	var from *Span
+	end := func() {
+		if text.Len() > 0 {
+			out = append(out, Span{Text: text.String(), Style: from.Style, Link: from.Link})
+			text.Reset()
 		}
 	}
-	return out
-}
-
-// drawn is s without the clusters that never reach a cell.
-func drawn(s string) string {
-	kept := true
-	for _, cluster := range Clusters(s) {
+	for cluster, source := range l.eachCluster() {
 		if dropped(cluster) {
-			kept = false
-			break
+			continue
 		}
-	}
-	if kept {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, cluster := range Clusters(s) {
-		if !dropped(cluster) {
-			b.WriteString(cluster)
+		if source != from {
+			end()
+			from = source
 		}
+		text.WriteString(cluster)
 	}
-	return b.String()
+	end()
+	return out
 }
 
 // prefix is the longest prefix of s, cut between clusters, that fits in budget.
