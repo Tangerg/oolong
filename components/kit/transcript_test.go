@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/components/kit"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
+	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
 
@@ -711,5 +712,30 @@ func TestAPinnedHeaderShowsTheSelectionItCanTake(t *testing.T) {
 	header := styles(s.View(), 0, 20)
 	if header[0] == header[5] {
 		t.Fatalf("the selected part of the pinned row is drawn like the rest of it: %+v", header[0])
+	}
+}
+
+func TestCopyingASelectionCannotRebuildWhatTheTerminalNeverShowed(t *testing.T) {
+	// A selection is copied as its rows and the gaps a wrap consumed between them. The
+	// rows are what was laid out; the gaps used to be read out of the text before it
+	// was wrapped, which is where everything laying it out left behind ends up — so a
+	// copy of an answer put an escape sequence back together and handed it to whatever
+	// the reader pasted into.
+	tr := &headless.Transcript{}
+	body := &kit.Paragraph{}
+	body.SetText([]text.Line{text.Of("alpha \x1b]0;pwned\x07 beta", grid.Style{})})
+	tr.Append(body)
+	stageContent(tr, 6)
+
+	var selection headless.Selection
+	selection.Begin(headless.Point{Row: tr.StartRow(), Col: 0})
+	selection.Extend(headless.Point{Row: layout.Remaining(tr.EndRow(), 1), Col: 1 << 20})
+
+	copied := selection.Text(tr)
+	if copied == "" {
+		t.Fatal("nothing was selected")
+	}
+	if copied != text.Printable(copied) {
+		t.Fatalf("the copy is %q, which is not what the reader was shown", copied)
 	}
 }

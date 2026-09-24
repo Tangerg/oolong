@@ -34,6 +34,16 @@ would be offered.
 
 ### Changed
 
+- `text.Wrapped` carries the `Gap` a break consumed. A copy of wrapped text is its
+  rows and the gaps between them put back together, and the gap used to be read out
+  of the line — between one row's end and the next row's start, which is exactly
+  where laying it out puts everything it decided not to lay out. A control character
+  dropped from a row landed in the space beside it, so copying a rendered answer
+  reassembled the escape sequence the terminal was never shown.
+- `text.Line.Wrap` and `text.Line.Truncate` return text that could be drawn in the
+  cases they used to return the line itself: no width to break at, nothing to lay
+  out, and nothing cut. A block that does not wrap hands its rows back through the
+  last of those.
 - `ssh.Run` takes the session a server hands it by default and refuses one whose PTY
   the server allocated, which is the opposite of what v0.20.0 did. `AllocatePty`
   starts copying the channel into that terminal, and draining its window changes,
@@ -54,6 +64,9 @@ would be offered.
   string with a backtick in it, a run of backticks inside an HTML comment, a closing
   fence indented under a list item — left it believing it was inside a block of code
   that nothing in the document could close, and from there it offered no cuts at all.
+- `headless.Editor` refuses a label that cannot offer a boundary at either end. Only
+  the front was checked, so a label ending in a prepended mark took the separator
+  after it into its own cluster.
 - `headless.Editor` drops an element whose boundary an edit has put inside a grapheme
   cluster. Such an element cannot be stepped over or taken whole, which is the
   fragment the type exists to prevent: the text stays exactly as the edit left it, the

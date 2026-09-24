@@ -582,9 +582,9 @@ func plainASCIIByte(b byte) bool { return b >= ' ' && b <= '~' }
 // dropped reports whether a cluster is discarded rather than laid out.
 //
 // Measuring has to agree with drawing about this, or a line's reported width is not
-// the width it takes; and both have to agree with [Printable], or the text a copy is
-// made of is not the text a reader was shown. One rule, asked in the two shapes its
-// callers hold their text in.
+// the width it takes. It shares [Printable]'s rule about control characters and not
+// its rule about invalid UTF-8: text somebody will store keeps a mark where invalid
+// bytes were, and text a terminal was shown does not, because nothing was.
 func dropped(cluster string) bool {
 	if !utf8.ValidString(cluster) {
 		return true
@@ -601,10 +601,14 @@ func droppedRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
 // printable is the line with the clusters that never reach a cell removed. Tabs
 // survive: an uncut line is laid out by whatever places it, and a tab's width
 // depends on the column it lands in.
+//
+// It removes rather than replaces, which is where it parts company with [Printable]:
+// that one normalizes text somebody will store and hands back a mark where invalid
+// bytes were, and this one answers what was drawn, which is nothing.
 func (l Line) printable() Line {
 	unchanged := true
 	for _, span := range l {
-		if Printable(span.Text) != span.Text {
+		if drawn(span.Text) != span.Text {
 			unchanged = false
 			break
 		}
@@ -614,11 +618,33 @@ func (l Line) printable() Line {
 	}
 	out := make(Line, 0, len(l))
 	for _, span := range l {
-		if span.Text = Printable(span.Text); span.Text != "" {
+		if span.Text = drawn(span.Text); span.Text != "" {
 			out = append(out, span)
 		}
 	}
 	return out
+}
+
+// drawn is s without the clusters that never reach a cell.
+func drawn(s string) string {
+	kept := true
+	for _, cluster := range Clusters(s) {
+		if dropped(cluster) {
+			kept = false
+			break
+		}
+	}
+	if kept {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, cluster := range Clusters(s) {
+		if !dropped(cluster) {
+			b.WriteString(cluster)
+		}
+	}
+	return b.String()
 }
 
 // prefix is the longest prefix of s, cut between clusters, that fits in budget.
