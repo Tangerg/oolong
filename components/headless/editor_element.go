@@ -135,13 +135,13 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	return e.elementOf(mark)
 }
 
-// elementBody is a body with any prefix removed that could not begin a run of cells
-// anywhere.
+// elementBody is as much of a body as can be a run of cells between two separators.
 //
-// A combining character joins whatever is in front of it, a space included, so no
-// separator can give it a boundary of its own — it has none to give. A label that
-// begins with one is a fragment rather than a label, and it is projected to what it
-// can be shown as, the same way line breaks are flattened and controls removed.
+// Both ends, because an element has two: a combining character joins what is in
+// front of it, and a prepended mark takes what follows into its own cluster. A label
+// that cannot offer a boundary at either end is a fragment rather than a label, and
+// it is projected to what it can be shown as, the same way line breaks are flattened
+// and controls removed.
 //
 // What remains may still join a particular neighbour — two regional indicators are a
 // flag — and that is a question about where it is going rather than about the body.
@@ -151,6 +151,10 @@ func elementBody(body string) string {
 	for body != "" && clusters(" "+body) != 1+clusters(body) {
 		_, size := utf8.DecodeRuneInString(body)
 		body = body[size:]
+	}
+	for body != "" && clusters(body+" ") != clusters(body)+1 {
+		_, size := utf8.DecodeLastRuneInString(body)
+		body = body[:len(body)-size]
 	}
 	return body
 }
@@ -320,14 +324,8 @@ func (e *Editor) edited(edit text.Edit) {
 	e.marks = edit.Shift(e.marks, e.byteLength())
 }
 
-// settleMarks drops every element that is no longer a run of cells of its own.
-//
-// What makes an element atomic is that it begins and ends where a caret may sit, and
-// editing beside one can take that away without touching a byte of it: a regional
-// indicator left next to another is one flag, and a single grapheme cluster cannot be
-// half an element and half the text around it. An element in that state is not
-// atomic any more — the cursor cannot be put at its edge, so it cannot be stepped
-// over or taken whole, and what is left is the fragment this type exists to prevent.
+// settleMarks drops every element whose ends are no longer places a caret may sit —
+// see [Element] for when that happens and what it means to a caller.
 //
 // Shifting the marks over a change says where they went, which is a question about
 // offsets and belongs to [text.Edit]. Whether what is there is still an element is a

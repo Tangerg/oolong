@@ -220,13 +220,10 @@ func (s *Stream) Reset() {
 // candidate that is never offered. Everything after such a line waited for the end
 // of the answer.
 //
-// What that tracking bought was measured before it was given up. It saves a parse on
-// the feeds where the scan would otherwise offer a candidate from inside a block of
-// code — which needs unindented lines with blank lines between them, inside a fence,
-// to happen at all. In the loop this type documents, where every feed is followed by
-// [Stream.Open], that parse is 2.7% of what the feed already costs: Open renders the
-// whole unpublished tail, and the tail is exactly what is long in the case this was
-// protecting.
+// What that tracking bought was measured before it was given up: in the loop this
+// type documents, where every feed is followed by [Stream.Open], the parse it saved
+// is 2.7% of what the feed already costs. Open renders the whole unpublished tail,
+// and a long tail is the case the tracking was protecting.
 //
 // Only whole lines are looked at. A line that has not ended cannot be told apart
 // from the beginning of a different one, so the scan stops at the last newline and

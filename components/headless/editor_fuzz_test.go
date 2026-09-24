@@ -166,6 +166,10 @@ func assertEditorStorage(t *testing.T, editor *headless.Editor) {
 			body == "" || strings.Contains(body, "\n") {
 			t.Fatalf("invalid element %+v over %q", element, document)
 		}
+		if !clusterBoundary(lines[element.Line], element.Start) ||
+			!clusterBoundary(lines[element.Line], element.End) {
+			t.Fatalf("element %+v splits a grapheme in %q", element, document)
+		}
 		if line == element.Line && col > element.Start && col < element.End {
 			t.Fatalf("cursor (%d,%d) is inside atomic element %+v", line, col, element)
 		}

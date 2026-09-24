@@ -72,9 +72,11 @@ func endSession(process *os.Process) error {
 	}
 	// The group outlives its leader, and so does the obligation to end it: a child
 	// that exited having left something of its own running left it holding the
-	// terminal. A process id in use as a group id is not reused while that group has
-	// members, so this addresses the harness's own group and no other, and a group
-	// with nobody in it is nothing left to end.
+	// terminal. While the group has members its id is not given to anything else, so
+	// this reaches the harness's own group; once it is empty the id is free again,
+	// and the kill finds nobody — or, on a machine that has been through a whole
+	// generation of process ids since, somebody the harness never started. That last
+	// case is the kernel's to prevent and cannot be closed from here.
 	if err := unix.Kill(-process.Pid, unix.SIGKILL); err != nil && !errors.Is(err, unix.ESRCH) {
 		return process.Kill()
 	}

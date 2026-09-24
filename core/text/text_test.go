@@ -912,3 +912,79 @@ func TestWordAtLandsOnAClusterBoundary(t *testing.T) {
 		t.Errorf("found %q, want the whole run", got)
 	}
 }
+
+// TestRejoiningWrappedRowsCannotRebuildWhatWasNeverDrawn.
+//
+// A copy of wrapped text is its rows and the gaps between them put back together. A
+// row is what was laid out; the gap used to be read out of the line, between one
+// row's end and the next row's start — which is exactly where the wrap put everything
+// it decided not to lay out. A control character dropped from a row landed in the
+// space beside it, so copying a paragraph reassembled the escape sequence the
+// terminal was never shown.
+func TestRejoiningWrappedRowsCannotRebuildWhatWasNeverDrawn(t *testing.T) {
+	line := text.Of("alpha \x1b]0;pwned\x07 beta", grid.Style{})
+	var rejoined strings.Builder
+	for i, row := range line.Wrap(6) {
+		if i > 0 {
+			rejoined.WriteString(row.Gap)
+		}
+		rejoined.WriteString(row.Line.String())
+	}
+	if got := rejoined.String(); got != text.Printable(got) {
+		t.Fatalf("rejoining the rows produced %q, which is not what was drawn", got)
+	}
+	if got, want := rejoined.String(), "alpha ]0;pwned beta"; got != want {
+		t.Fatalf("rejoining the rows produced %q, want %q", got, want)
+	}
+}
+
+// FuzzWrappingRejoinsIntoTextThatCouldBeDrawn holds the same property over text
+// nobody chose.
+func FuzzWrappingRejoinsIntoTextThatCouldBeDrawn(f *testing.F) {
+	for _, seed := range []string{
+		"alpha beta", "alpha \x1b]0;t\x07 beta", "a\tb\tc", "中文 text", "\x00\x01\x02 x",
+		strings.Repeat("word ", 20),
+	} {
+		f.Add(seed, 7)
+	}
+	f.Fuzz(func(t *testing.T, source string, width int) {
+		if len(source) > 1<<12 {
+			t.Skip()
+		}
+		width = min(max(width, 1), 200)
+		var rejoined strings.Builder
+		for i, row := range text.Of(source, grid.Style{}).Wrap(width) {
+			if i > 0 {
+				rejoined.WriteString(row.Gap)
+			}
+			rejoined.WriteString(row.Line.String())
+		}
+		if got := rejoined.String(); got != text.Printable(got) {
+			t.Fatalf("%q wrapped at %d rejoins as %q", source, width, got)
+		}
+	})
+}
+
+func TestTextHandedBackIsTextThatWouldBeDrawn(t *testing.T) {
+	// Laying text out leaves out what a terminal would obey rather than show, and
+	// anything reading a line back — a copy, a search — has to be reading what was
+	// drawn. A block that does not wrap hands its rows back through Truncate, and an
+	// uncut line used to come back exactly as it was written.
+	source := "alpha\x1b]0;pwned\x07beta"
+	line := text.Of(source, grid.Style{})
+	if got := line.Truncate(40, "…").String(); got != "alpha]0;pwnedbeta" {
+		t.Errorf("an uncut line came back as %q", got)
+	}
+	// Its tabs stay, because nothing has decided which column it will be placed at.
+	if got := text.Of("a\tb", grid.Style{}).Truncate(40, "").String(); got != "a\tb" {
+		t.Errorf("an uncut line came back as %q, want its tab kept", got)
+	}
+	for _, wrap := range []bool{true, false} {
+		block := text.NewBlock(text.BlockConfig{Lines: []text.Line{line}, Wrap: wrap})
+		for _, row := range block.Rows(40) {
+			if row.Text != text.Printable(row.Text) {
+				t.Errorf("a block with Wrap=%t gave back %q", wrap, row.Text)
+			}
+		}
+	}
+}

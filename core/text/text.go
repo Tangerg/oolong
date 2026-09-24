@@ -154,6 +154,13 @@ type Wrapped struct {
 	// outside it at either end, a tab inside it became the spaces it stands for, and a
 	// control character inside it was dropped. It is provenance, not content.
 	From, To int
+	// Gap is the text the break before this row consumed, which rejoining it to the
+	// row above has to put back.
+	//
+	// It is content, and it is here because the wrap is the only thing that knows it.
+	// The bytes between one row's end and the next row's start are not it: that is
+	// where everything the wrap decided not to lay out ends up. See [dropped].
+	Gap string
 }
 
 // Width is how many columns the row occupies.
@@ -169,16 +176,13 @@ func (w Wrapped) Draw(v grid.View, x, y int) int { return w.Line.Draw(v, x, y) }
 // it hangs off neither the end of one row nor the start of the next. Styles
 // survive every break.
 //
-// A width of zero or less returns the line whole: a caller with no width to lay
-// out in is better served by text it can measure than by text silently thrown
-// away.
+// A width of zero or less returns the line whole: a caller with no width to lay out
+// in is better served by text it can measure than by text silently thrown away.
+// Whole, but still laid out, because a row is what a terminal would be shown.
 func (l Line) Wrap(width int) []Wrapped {
-	if width <= 0 {
-		return []Wrapped{{Line: l, To: l.bytes()}}
-	}
 	units := l.units()
-	if len(units) == 0 {
-		return []Wrapped{{Line: l, To: l.bytes()}}
+	if width <= 0 || len(units) == 0 {
+		return []Wrapped{{Line: line(units), To: l.bytes()}}
 	}
 	rowCapacity := min(len(units), width)
 	w := wrapper{
@@ -215,6 +219,11 @@ type wrapper struct {
 	heldTo   int
 	hasHeld  bool
 	heldW    int
+	// rowGap is what was consumed before the row now accumulating; nextGap is what
+	// has been consumed since it started, and belongs to whatever row follows the
+	// break.
+	rowGap  string
+	nextGap string
 }
 
 func (w *wrapper) hold(at int, u unit) {
@@ -234,16 +243,31 @@ func (w *wrapper) place(u unit) {
 func (w *wrapper) takeHeld(units []unit) {
 	w.row = append(w.row, units[w.heldFrom:w.heldTo]...)
 	w.rowWidth = layout.Sum(w.rowWidth, w.heldW)
-	w.dropHeld()
+	w.clearHeld()
 }
 
-func (w *wrapper) dropHeld() {
+// discardHeld gives up the spaces a break consumed, keeping them for the row they
+// now precede rather than the one they followed.
+func (w *wrapper) discardHeld(units []unit) {
+	var consumed strings.Builder
+	for _, u := range units[w.heldFrom:w.heldTo] {
+		consumed.WriteString(u.cluster)
+	}
+	if len(w.row) == 0 {
+		w.rowGap += consumed.String()
+	} else {
+		w.nextGap += consumed.String()
+	}
+	w.clearHeld()
+}
+
+func (w *wrapper) clearHeld() {
 	w.heldFrom, w.heldTo, w.hasHeld = 0, 0, false
 	w.heldW = 0
 }
 
 func (w *wrapper) breakRow() {
-	row := Wrapped{Line: line(w.row), Joined: len(w.rows) > 0}
+	row := Wrapped{Line: line(w.row), Joined: len(w.rows) > 0, Gap: w.rowGap}
 	if n := len(w.row); n > 0 {
 		first, last := w.row[0], w.row[n-1]
 		row.From, row.To = first.at, last.at+last.size
@@ -251,6 +275,7 @@ func (w *wrapper) breakRow() {
 	w.rows = append(w.rows, row)
 	w.row = w.row[:0]
 	w.rowWidth = 0
+	w.rowGap, w.nextGap = w.nextGap, ""
 }
 
 // word places units[from:to] and returns the index to continue from.
@@ -264,7 +289,7 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 		}
 	case wordWidth <= w.width:
 		// Fits on a row of its own: break before it and drop the spaces.
-		w.dropHeld()
+		w.discardHeld(units)
 		if len(w.row) > 0 {
 			w.breakRow()
 		}
@@ -283,7 +308,7 @@ func (w *wrapper) hardBreak(units []unit, from, to int) int {
 		if layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width {
 			w.takeHeld(units)
 		} else {
-			w.dropHeld()
+			w.discardHeld(units)
 			if len(w.row) > 0 {
 				w.breakRow()
 			}
@@ -332,14 +357,16 @@ func (w *wrapper) finish(units []unit) []Wrapped {
 //
 // The result can fall a column short of width: a cut never splits a wide cluster.
 // When a cut occurs, each retained source tab is returned as the spaces it occupied
-// from its original column. An uncut line is returned unchanged. Expanding tabs in a
-// truncated result keeps its measured width stable when the result is placed elsewhere.
+// from its original column, which keeps the result's measured width stable when it
+// is placed elsewhere. An uncut line keeps its tabs for the opposite reason: nothing
+// has decided which column it will be placed at. Either way the result is text that
+// could be drawn — see [dropped].
 func (l Line) Truncate(width int, ellipsis string) Line {
 	if width <= 0 {
 		return nil
 	}
 	if l.Width() <= width {
-		return l
+		return l.printable()
 	}
 	if Width(ellipsis) > width {
 		ellipsis = prefix(ellipsis, width)
@@ -552,15 +579,46 @@ func plainASCII(s string) bool {
 
 func plainASCIIByte(b byte) bool { return b >= ' ' && b <= '~' }
 
-// dropped reports whether a cluster is discarded rather than laid out. Measuring
-// has to agree with drawing about this, or a line's reported width will not be the
-// width it takes.
+// dropped reports whether a cluster is discarded rather than laid out.
+//
+// Measuring has to agree with drawing about this, or a line's reported width is not
+// the width it takes; and both have to agree with [Printable], or the text a copy is
+// made of is not the text a reader was shown. One rule, asked in the two shapes its
+// callers hold their text in.
 func dropped(cluster string) bool {
 	if !utf8.ValidString(cluster) {
 		return true
 	}
 	r, _ := utf8.DecodeRuneInString(cluster)
-	return cluster != "\t" && (isControl(cluster) || r >= 0x7f && r <= 0x9f)
+	return droppedRune(r)
+}
+
+// droppedRune is that rule. A tab is laid out rather than obeyed — see [TabStop] —
+// and every other control character is an instruction for a terminal this package is
+// not asking it to perform.
+func droppedRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
+
+// printable is the line with the clusters that never reach a cell removed. Tabs
+// survive: an uncut line is laid out by whatever places it, and a tab's width
+// depends on the column it lands in.
+func (l Line) printable() Line {
+	unchanged := true
+	for _, span := range l {
+		if Printable(span.Text) != span.Text {
+			unchanged = false
+			break
+		}
+	}
+	if unchanged {
+		return l
+	}
+	out := make(Line, 0, len(l))
+	for _, span := range l {
+		if span.Text = Printable(span.Text); span.Text != "" {
+			out = append(out, span)
+		}
+	}
+	return out
 }
 
 // prefix is the longest prefix of s, cut between clusters, that fits in budget.
@@ -581,13 +639,6 @@ func prefix(s string, budget int) string {
 // clusterWidth is a cluster's column count. It defers to the grid, so text is
 // measured here exactly as it will be drawn there.
 func clusterWidth(cluster string) int { return grid.ClusterWidth(cluster) }
-
-// isControl reports whether a cluster is a control character. A tab is one, and
-// is handled before this is asked; the rest have no width and no business
-// reaching a cell.
-func isControl(cluster string) bool {
-	return cluster != "" && (cluster[0] < 0x20 || cluster[0] == 0x7f)
-}
 
 // Clusters iterates the grapheme clusters of s with the byte offset each starts at.
 //

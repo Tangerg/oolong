@@ -268,28 +268,19 @@ func (p *Paragraph) projectRows(rows []row, first, last int) []text.Row {
 	first = min(max(first, 0), len(rows))
 	last = min(max(last, first), len(rows))
 	out := make([]text.Row, 0, last-first)
-	prevTo, prevLine := 0, -1
+	prevLine := -1
 	if first > 0 {
-		previous := rows[first-1]
-		prevTo, prevLine = previous.To, previous.line
+		prevLine = rows[first-1].line
 	}
-	wholeLine := -1
-	whole := ""
 	for _, r := range rows[first:last] {
 		row := text.Row{
 			Text: r.Line.String(), Offset: p.Indent, Line: r.line + 1, Joined: r.Joined,
 		}
-		if r.Joined && r.line == prevLine && r.line < len(p.lines) {
-			if r.line != wholeLine {
-				whole = p.lines[r.line].String()
-				wholeLine = r.line
-			}
-			if prevTo <= r.From && r.From <= len(whole) {
-				row.Gap = whole[prevTo:r.From]
-			}
+		if r.Joined && r.line == prevLine {
+			row.Gap = r.Gap
 		}
 		out = append(out, row)
-		prevTo, prevLine = r.To, r.line
+		prevLine = r.line
 	}
 	return out
 }

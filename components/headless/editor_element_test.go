@@ -518,16 +518,30 @@ func boundariesOf(s string) map[int]bool {
 	return at
 }
 
+func TestAnElementHasABoundaryAtBothEnds(t *testing.T) {
+	// The front was checked and the back was not, so a label ending in a prepended
+	// mark took the separator after it into its own cluster.
+	e := editorWith("")
+	el := e.InsertElement(fileChip, "1\u0605")
+
+	if got := el.Text(e); got != "1" {
+		t.Fatalf("element text = %q, want the part of the label that can end a run of cells", got)
+	}
+	for _, at := range []int{el.Start, el.End} {
+		if !onClusterBoundary(e.Text(), at) {
+			t.Fatalf("element %+v ends inside a grapheme cluster of %q", el, e.Text())
+		}
+	}
+	// A label that is nothing but such a mark is no label at all.
+	if got := e.InsertElement(fileChip, "\u0605"); got.ID != 0 {
+		t.Fatalf("a label with no run of cells in it became element %+v", got)
+	}
+}
+
 func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) {
 	// Insertion refuses to put an element where it would join what precedes it, and
-	// that was where the rule stopped. Ordinary editing beside one can do the same
-	// thing without touching a byte of it: two regional indicators are one flag, so
-	// deleting the plain space between them merges the element's first cell into the
-	// cluster in front of it.
-	//
-	// What is left cannot be an element. The cursor cannot be put at its edge, so it
-	// cannot be stepped over or taken whole — which leaves exactly the fragment that
-	// still looks like the thing and no longer is.
+	// that was where the rule stopped: deleting the plain space between two regional
+	// indicators does the same thing without touching a byte of the element.
 	e := editorWith("\U0001F1EF") // a lone regional indicator, J
 	e.SetCursor(0, len("\U0001F1EF"))
 	el := e.InsertElement(fileChip, "\U0001F1F5x") // P and a letter

@@ -170,7 +170,6 @@ type row struct {
 	text.Wrapped
 	at     int
 	prefix text.Line
-	gap    string
 }
 
 func (b Block) appendRows(dst []row, width int) []row {
@@ -199,15 +198,8 @@ func (b Block) appendRows(dst []row, width int) []row {
 }
 
 func appendWrapped(dst []row, line text.Line, width int) []row {
-	whole := line.String()
-	previous := 0
 	for _, wrapped := range line.Wrap(width) {
-		gap := ""
-		if wrapped.Joined && previous <= wrapped.From && wrapped.From <= len(whole) {
-			gap = whole[previous:wrapped.From]
-		}
-		dst = append(dst, row{Wrapped: wrapped, gap: gap})
-		previous = wrapped.To
+		dst = append(dst, row{Wrapped: wrapped})
 	}
 	return dst
 }
@@ -232,7 +224,7 @@ func publicRows(rows []row) []text.Row {
 	for i, row := range rows {
 		out[i] = text.Row{
 			Text: row.Line.String(), Offset: row.at,
-			Joined: row.Joined, Gap: row.gap,
+			Joined: row.Joined, Gap: row.Gap,
 		}
 	}
 	return out

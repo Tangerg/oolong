@@ -30,7 +30,6 @@ func NewBlock(cfg BlockConfig) *Block {
 type blockRow struct {
 	Wrapped
 	logical int
-	gap     string
 }
 
 // A single width projection bounds retention during resize. Published rows are
@@ -56,14 +55,8 @@ func (b *Block) physical(width int) []blockRow {
 			rows = append(rows, blockRow{Line: line.Truncate(width, ""), logical: index + 1})
 			continue
 		}
-		source, previous := line.String(), 0
 		for _, wrapped := range line.Wrap(width) {
-			gap := ""
-			if wrapped.Joined {
-				gap = source[previous:wrapped.From]
-			}
-			rows = append(rows, blockRow{Wrapped: wrapped, logical: index + 1, gap: gap})
-			previous = wrapped.To
+			rows = append(rows, blockRow{Wrapped: wrapped, logical: index + 1})
 		}
 	}
 	b.cache.width, b.cache.rows = width, rows
@@ -91,7 +84,7 @@ func (b *Block) Rows(width int) []Row {
 	physical := b.physical(width)
 	rows := make([]Row, len(physical))
 	for i, row := range physical {
-		rows[i] = Row{Text: row.Line.String(), Line: row.logical, Joined: row.Joined, Gap: row.gap}
+		rows[i] = Row{Text: row.Line.String(), Line: row.logical, Joined: row.Joined, Gap: row.Gap}
 	}
 	return rows
 }

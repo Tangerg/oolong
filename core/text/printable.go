@@ -2,7 +2,6 @@ package text
 
 import (
 	"strings"
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -17,17 +16,15 @@ import (
 // A newline is a control character too. Call Printable on one logical line at a time
 // when line breaks carry meaning of their own.
 func Printable(s string) string {
-	if utf8.ValidString(s) && !strings.ContainsFunc(s, dropRune) {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, droppedRune) {
 		return s
 	}
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range strings.ToValidUTF8(s, "\ufffd") {
-		if !dropRune(r) {
+		if !droppedRune(r) {
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
 }
-
-func dropRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
