@@ -102,3 +102,57 @@ func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
 		t.Fatalf("elements=%v payload=%q", elements, p.pastes[id])
 	}
 }
+
+func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
+	// A history of lines keeps the draft's words, which is all a history of lines
+	// can keep. What the words stand for is this application's, and putting the
+	// draft back from its text alone left the chip's label as ordinary words with
+	// the bytes already released.
+	p := &prompt{pastes: make(map[uint64]string)}
+	p.history.Add("something earlier")
+	p.insertPaste("one\ntwo\nthree\nfour")
+	p.composer.Editor().Insert("summarize")
+	before := p.composer.Editor().Text()
+
+	p.recallBack()
+	p.recallForward()
+
+	if got := p.composer.Editor().Text(); got != before {
+		t.Fatalf("the draft came back as %q, want %q", got, before)
+	}
+	elements := p.composer.Editor().Elements()
+	if len(elements) != 1 {
+		t.Fatalf("the draft came back with %d attachments, want the one it had", len(elements))
+	}
+	if got := p.pastes[elements[0].ID]; got != "one\ntwo\nthree\nfour" {
+		t.Fatalf("the attachment stands for %q", got)
+	}
+}
+
+func TestARecalledEntryTakesTheAttachmentsItWasSentWith(t *testing.T) {
+	// Looking for text that reads like a chip binds the attachment to whichever
+	// label was written first, and keying the record by what the line says lets a
+	// line sent again without its chips inherit the ones from last time.
+	p := &prompt{pastes: make(map[uint64]string)}
+	p.composer.Editor().Insert("[paste 4 lines] ")
+	p.insertPaste("one\ntwo\nthree\nfour")
+	p.submit()
+
+	p.recallBack()
+	elements := p.composer.Editor().Elements()
+	if len(elements) != 1 {
+		t.Fatalf("the entry came back with %d attachments, want one", len(elements))
+	}
+	if elements[0].Start == 0 {
+		t.Fatal("the attachment was bound to the plain words that read like one")
+	}
+
+	// The same words again, with nothing attached, are not last time's attachment.
+	p.composer.Editor().Clear()
+	p.composer.Editor().Insert("[paste 4 lines] [paste 4 lines]")
+	p.submit()
+	p.recallBack()
+	if got := p.composer.Editor().Elements(); len(got) != 0 {
+		t.Fatalf("plain words came back with %d attachments", len(got))
+	}
+}

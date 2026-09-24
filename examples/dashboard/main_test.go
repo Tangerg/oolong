@@ -71,3 +71,43 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 		t.Fatalf("the program ended with %v", err)
 	}
 }
+
+func TestTheSliderAnswersThePressThatLandedOnIt(t *testing.T) {
+	// A pointer region is staged in the coordinates of the frame the press will
+	// arrive in. Asking the child frame for its own bounds gives a rectangle that
+	// begins at zero, so the slider claimed whichever row happened to be first: a
+	// press on the slider did nothing and a press on the row above it moved the rate.
+	host := programtest.New(t, programtest.Config{Width: 70, Height: 14})
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: host,
+			Root: func(runtime *program.Runtime) program.Component {
+				return headless.NewRoot(newDashboard(runtime))
+			},
+		})
+	}()
+	host.Type("2")
+	host.Shows(t, "1 tasks/tick")
+
+	// The activity pane begins below the two-row strip: the overall progress, then
+	// the rate slider.
+	const progressRow, sliderRow = 2, 3
+	press := func(y int) {
+		host.Send(input.Mouse{
+			Pos:    image.Pt(55, y),
+			Action: input.MouseDown,
+			Button: input.ButtonLeft,
+		})
+	}
+
+	press(progressRow)
+	host.Shows(t, "1 tasks/tick")
+	press(sliderRow)
+	host.Shows(t, "3 tasks/tick")
+
+	host.Type("q")
+	if err := <-done; err != nil {
+		t.Fatalf("the program ended with %v", err)
+	}
+}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"image"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -139,4 +141,69 @@ func TestCancellingSettlesTheBackgroundRun(t *testing.T) {
 
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})
 	stop()
+}
+
+// runAgentAt is runAgent at a size a test chose, for the screens where the size is
+// the thing being tested.
+func runAgentAt(t *testing.T, width, height int) (*programtest.Host, func()) {
+	t.Helper()
+	host := programtest.New(t, programtest.Config{Width: width, Height: height})
+	done := make(chan error, 1)
+	go func() {
+		done <- program.Run(t.Context(), program.Config{
+			Host: host,
+			Inline: func(runtime *program.InlineRuntime) program.Component {
+				return headless.NewRoot(newAgent(runtime, mockBackend{}))
+			},
+		})
+	}()
+	return host, func() {
+		host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})
+		if err := <-done; err != nil {
+			t.Errorf("the program ended with %v", err)
+		}
+	}
+}
+
+func TestTheChangeUnderReviewCanBeReadOnAShortTerminal(t *testing.T) {
+	// The title takes a row and the change has to have one. Counting only the form
+	// against the pane's height left the change no rows at all, and somebody was
+	// asked to allow a change that was not on the screen.
+	host, stop := runAgentAt(t, 37, 8)
+	defer stop()
+	host.Type("move validation into its owner")
+	host.Press(input.Enter)
+	host.Shows(t, "Allow this tool call?")
+	host.Until(t, "the change itself to be on the screen", func() bool {
+		host.Repaint()
+		return strings.Contains(host.Frame(), "func")
+	})
+}
+
+func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
+	// A pointer region is staged in the coordinates the report will arrive in.
+	// Handing the report straight to the window aimed it at whatever was at the top
+	// of the pane, so a wheel anywhere over the change did nothing.
+	host, stop := runAgentAt(t, 37, 14)
+	defer stop()
+	host.Type("move validation into its owner")
+	host.Press(input.Enter)
+	host.Shows(t, "Allow this tool call?")
+	host.Until(t, "the top of the change to be on the screen", func() bool {
+		host.Repaint()
+		return strings.Contains(host.Frame(), "func parse")
+	})
+
+	for range 6 {
+		host.Send(input.Mouse{
+			// The last row of the change: the row a report has furthest to travel
+			// to, and the one an untranslated report falls outside.
+			Pos:    image.Pt(10, 8),
+			Action: input.WheelDown,
+		})
+	}
+	host.Until(t, "the change to have scrolled past its first row", func() bool {
+		host.Repaint()
+		return !strings.Contains(host.Frame(), "func parse")
+	})
 }

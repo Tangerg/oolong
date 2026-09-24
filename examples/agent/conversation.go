@@ -85,15 +85,19 @@ func (c *conversation) Markdown(chunk string) {
 	c.stageOpen(open)
 }
 
+// FlushMarkdown ends the answer being written, whatever is left of it.
+//
+// Unconditionally: whether anything was left is the stream's answer and not the
+// question. Ending the block only when something was meant an answer whose last
+// piece rendered to nothing — an HTML comment, a link definition — left a block that
+// never finished, and retention stops at the first block that has not, so nothing
+// after it could ever reach the terminal's own scrollback.
 func (c *conversation) FlushMarkdown() {
 	stable, err := c.stream.Flush()
 	if err != nil {
 		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
 	}
-	if len(stable) > 0 {
-		c.finishOpen(stable)
-	}
-	c.open, c.hasOpen = nil, false
+	c.finishOpen(stable)
 }
 
 // follow keeps the view at the end only while the reader is already there.
@@ -107,6 +111,7 @@ func (c *conversation) follow() {
 	}
 }
 
+// finishOpen settles the document the answer was being written into and forgets it.
 func (c *conversation) finishOpen(blocks []markdown.Block) {
 	if !c.hasOpen {
 		if len(blocks) == 0 {
@@ -114,12 +119,15 @@ func (c *conversation) finishOpen(blocks []markdown.Block) {
 		}
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
-		c.append(doc)
+		id := c.content.Append(doc)
+		c.content.Finish(id)
+		// Published rather than appended: these blocks are more of an answer that is
+		// being written, not a discrete thing that happened, and there is no reason
+		// for the piece that happened to arrive with no open block behind it to take
+		// a reader away from where they were reading.
+		c.follow()
 		return
 	}
-	// An answer that ends with nothing left to add still ends. Returning early left
-	// the block open for good, and retention stops at the first block that has not
-	// finished — so nothing after it could ever reach the terminal's own scrollback.
 	if len(blocks) > 0 {
 		c.open.SetBlocks(blocks)
 		c.content.Changed(c.openID)

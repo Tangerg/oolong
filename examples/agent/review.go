@@ -85,29 +85,46 @@ type reviewPane struct {
 	// pane is as tall as the terminal: without a window the part that did not fit was
 	// simply not there, and somebody was asked to allow a change they could not read.
 	window *headless.Viewport
-	form   *kit.Form
-	theme  kit.Theme
-	title  string
+	// scrolling and choosing are where the change and the form were drawn. A pointer
+	// report arrives in this widget's coordinates and each of them reasons in its
+	// own, so handing one straight on aimed it at whatever was at the top of the
+	// pane: a wheel on the last row of the change did nothing at all.
+	scrolling headless.PointerRegion
+	choosing  headless.PointerRegion
+	form      *kit.Form
+	theme     kit.Theme
+	title     string
 }
 
 func (p *reviewPane) Draw(frame headless.Frame) {
 	width, height := frame.Size()
-	// The form may not take the whole pane. On a narrow terminal it wraps, and a form
-	// as tall as the pane left the change no rows at all.
-	formRows := min(p.form.HeightForWidth(width), max(height-1, 0))
-	rows := frame.Subs((layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
+	// The title takes a row and the change must have one: counting only the form
+	// against the pane's height left the change no rows on a short terminal, and
+	// somebody was asked to allow a change that was not on the screen.
+	formRows := min(p.form.HeightForWidth(width), max(height-2, 0))
+	rects := (layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
 		{Size: layout.Fixed(1)},
 		{Size: layout.Flex(1)},
 		{Size: layout.Fixed(formRows)},
-	}))
+	})
+	rows := frame.Subs(rects)
 	kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: "…"}.Draw(rows[0].View)
 	p.window.Draw(rows[1])
+	p.scrolling.Stage(frame, rects[1], p.window)
 	p.form.Draw(rows[2])
+	p.choosing.Stage(frame, rects[2], p.form)
 }
 
 // Handle gives the keyboard to the form and the wheel to the change. The form owns
 // the decision; the window owns being able to read what the decision is about.
 func (p *reviewPane) Handle(event input.Event) bool {
+	if mouse, ok := event.(input.Mouse); ok {
+		if handled, _ := p.choosing.Handle(mouse); handled {
+			return true
+		}
+		handled, _ := p.scrolling.Handle(mouse)
+		return handled
+	}
 	if p.form.Handle(event) {
 		return true
 	}

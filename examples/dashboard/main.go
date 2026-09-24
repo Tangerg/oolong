@@ -388,13 +388,17 @@ func (a *activity) HeightForWidth(int) int { return 4 + a.of.rows.Len() }
 
 func (a *activity) Draw(v headless.Frame) {
 	finished, total := a.of.remaining()
-	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+	// The rectangles are kept, not asked of the children afterwards: a child frame's
+	// own bounds begin at zero, and staging a pointer region with those would put the
+	// slider's row wherever the first row is.
+	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
 		{Size: layout.Fixed(1)},
 		{Size: layout.Fixed(1)},
 		{Size: layout.Fixed(1)},
 		{Size: layout.Fixed(1)},
 		{Size: layout.Flex(1).AtLeast(a.of.rows.Len())},
-	}))
+	})
+	rows := v.Subs(rects)
 	kit.Progress{
 		Theme:   a.theme,
 		Glyphs:  a.glyphs,
@@ -404,7 +408,7 @@ func (a *activity) Draw(v headless.Frame) {
 		Percent: true,
 	}.Draw(rows[0].View)
 	a.rate.Draw(rows[1])
-	a.slider.Stage(v, rows[1].Bounds(), a.rate)
+	a.slider.Stage(v, rects[1], a.rate)
 	kit.Sparkline{
 		Theme: a.theme, Glyphs: a.glyphs, Values: a.samples,
 		Minimum: 0, Maximum: 1,
