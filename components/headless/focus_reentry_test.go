@@ -55,7 +55,6 @@ func forget(widgets ...*reentrant) {
 	}
 }
 
-// holders names every widget that believes it has the keyboard.
 func holders(widgets ...*reentrant) []string {
 	var has []string
 	for _, w := range widgets {

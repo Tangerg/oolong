@@ -18,7 +18,6 @@ import (
 // row, and a cell diff against the full repaint it replaces. Those are the numbers
 // the design rests on.
 
-// paragraph fills a screen the way a transcript does.
 func paragraph(s *grid.Screen) {
 	v := s.Frame()
 	w, h := s.Size()

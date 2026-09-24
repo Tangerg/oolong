@@ -114,7 +114,6 @@ type field struct {
 // Error is what checking the answer last found.
 func (f *field) Error() error { return f.problem }
 
-// rows is what the label and the error cost, on top of whatever the field itself needs.
 func (f *field) rows(label string) int {
 	extra := 0
 	if label != "" {
@@ -171,7 +170,6 @@ type fieldPresentation struct {
 	inner image.Point
 }
 
-// check records what is wrong with an answer and reports it.
 func (f *field) check(err error) error {
 	f.problem = err
 	return err
@@ -418,7 +416,6 @@ func checkFields(fields []Field) {
 	}
 }
 
-// keys is the map to read through, standing in the default for a caller who set none.
 func (f *Form) keys() *keymap.Map {
 	if f.Keys != nil {
 		return f.Keys

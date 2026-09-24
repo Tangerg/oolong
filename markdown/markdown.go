@@ -1,38 +1,23 @@
 // Package markdown turns markdown into terminal rows — including markdown that has
 // not finished arriving.
 //
-// It is a module of its own, and the reason is a dependency. Rendering markdown
-// needs a parser, and a parser is a tree of somebody else's code; the two modules
-// this is built on promise a dependency list that a terminal library can be adopted
-// for. So the parser lives here, behind a boundary, and nothing above or beside this
+// It is a module of its own because rendering markdown needs a parser, and the two
+// modules this is built on promise a dependency list a terminal library can be
+// adopted for. The parser lives behind that boundary and nothing above or beside this
 // module hears about it.
 //
-// # What it is for
+// Every other markdown renderer takes a finished document, and a program showing a
+// model's answer has a prefix of one. [Stream] is the difference: it is handed
+// whatever has arrived, hands back the blocks that are certainly finished — for good,
+// which is what makes it cheap — and re-renders only the one still being written.
 //
-// The commonest thing a streaming interface does is show an answer as it arrives.
-// That is not what a markdown renderer normally does: every one of them takes a
-// finished document and gives back a finished rendering, and a program showing a
-// model's answer has neither. [Stream] is the difference — it is handed whatever has
-// arrived, hands back the blocks that are certainly finished, and re-renders the one
-// still being written on every keystroke of it.
+// It produces [Block]s rather than a string or cells. A block owns the styled source
+// and the layout rule that gives it physical rows at a width, which is what lets
+// prose wrap, rules stretch and tables reflow before the final region is known.
 //
-// Finished blocks are finished for good, which is what makes this cheap: a paragraph
-// that has been published is never parsed again, however long the answer becomes.
-//
-// # What it produces
-//
-// [Block]s, not a string and not cells. A block owns the styled source and the
-// layout rule that gives it physical rows at a width. Keeping those together is
-// what lets prose wrap, rules stretch and tables reflow without turning any of
-// them into cells before the final region is known. [Doc] composes the blocks; a
-// caller with its own layout can measure and draw them directly.
-//
-// # What it does not do
-//
-// It does not highlight code or typeset mathematics. Those concerns bring their own
-// parsers, dependencies and policies. [Look.SetRenderer] is the one seam where
-// recognized semantic blocks receive such a renderer; without one their source stays
-// readable. The Markdown parser and its AST never cross that seam.
+// It does not highlight code or typeset mathematics, because those bring their own
+// parsers and policies. [Look.SetRenderer] is the one seam where recognized semantic
+// blocks receive such a renderer, and the parser's AST never crosses it.
 package markdown
 
 import (
@@ -87,7 +72,6 @@ func (d *Doc) Append(blocks ...Block) {
 	d.invalidate()
 }
 
-// ownBlocks detaches a copied document before it grows the shared slice.
 func (d *Doc) ownBlocks() {
 	if d.blocksOwner == d {
 		return
@@ -96,7 +80,6 @@ func (d *Doc) ownBlocks() {
 	d.blocksOwner = d
 }
 
-// invalidate releases the immutable presentation snapshot.
 func (d *Doc) invalidate() {
 	d.places = nil
 	d.height = 0

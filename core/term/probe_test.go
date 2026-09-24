@@ -131,7 +131,6 @@ func TestProbeAsksNothingUnlessAsked(t *testing.T) {
 	}
 }
 
-// next is the terminal's next event, or false when its input ended.
 func next(t *testing.T, tty *term.Terminal) (input.Event, bool) {
 	t.Helper()
 	select {

@@ -111,7 +111,6 @@ func (c *conversation) follow() {
 	}
 }
 
-// finishOpen settles the document the answer was being written into and forgets it.
 func (c *conversation) finishOpen(blocks []markdown.Block) {
 	if !c.hasOpen {
 		if len(blocks) == 0 {

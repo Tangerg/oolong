@@ -10,28 +10,16 @@ import (
 
 // Transcript is the live, retained part of output, in one coordinate space.
 //
-// It is what everything that has to talk about a position in a session's output talks
-// about. A scroll offset, the ends of a selection, a search match, a prompt pinned to
-// the top of the view — all of them are rows, and they only mean the same thing to
-// each other if there is one numbering they all use. That is what this holds: an
-// ordered list of blocks, each of a height that depends on the width, and the row
-// each of them starts at.
+// A scroll offset, the ends of a selection, a search match and a prompt pinned to the
+// top of the view are all rows, and they only mean the same thing to each other while
+// there is one numbering they all use. That is what this holds: an ordered list of
+// blocks, each of a height that depends on the width, and the row each starts at.
 //
-// # Why the output has to be held at all
-//
-// An inline interface can print output and let the terminal keep it, which is the
-// right answer for output nobody will touch again. Text the terminal owns cannot be
-// selected by the program, searched, re-wrapped when the window changes, or scrolled
-// back over under the program's own control — the terminal does all of that, in its
-// own way, and tells the program nothing. A transcript is for output the program
-// means to keep answering questions about.
-//
-// # What it costs
-//
-// Appending is constant time. So is a block growing at the end, which is what a
-// streaming answer does token by token: only that block is measured again, and only
-// the rows after it move. A change of width is the one linear operation, because a
-// width is what every height is a function of.
+// Output the terminal owns cannot be selected, searched, re-wrapped or scrolled under
+// the program's control, so a transcript is for output the program means to keep
+// answering questions about. Appending is constant time, and so is a block growing at
+// the end, which is what a streaming answer does token by token. A change of width is
+// the one linear operation, because every height is a function of it.
 //
 // The zero value is an empty transcript at width zero. Its first [Transcript.Stage]
 // establishes the width; subsequent appends reuse the last committed width. A
@@ -334,7 +322,6 @@ func (l TranscriptLayout) Draw(v grid.View, from int) {
 	}
 }
 
-// remeasure recomputes heights and tops from i onwards.
 func (t *Transcript) remeasure(from int) {
 	top := t.start
 	if from > 0 {
@@ -487,28 +474,18 @@ func (t *Transcript) Finished(id BlockID) bool {
 // Commit gives the leading run of finished blocks to the terminal, in order, and
 // reports how many went.
 //
-// # Why only the leading run
-//
-// Text printed into a terminal's own output goes after what is already there, and
-// there is no way to put something in front of it. So a block that finished while an
-// earlier one is still being written has to wait: giving it over first would put the
+// Only the leading run, because printed text goes after what is already there: a
+// block that finished while an earlier one is still being written would put the
 // answer above the question.
 //
-// # Why this is one call
-//
-// The alternative is a range to ask for and a range to record afterwards, and the
+// It is one call rather than a range to ask for and a range to record, because the
 // second half of that pair is the one that gets forgotten — which prints the whole
 // session again on the next frame. give is called with each block and its height, and
-// returning false stops the run and leaves that block and everything after it for
-// another time.
+// returning false leaves that block and everything after it for another time.
 //
-// # It is a one-way door
-//
-// A committed block belongs to the terminal. It is no longer drawn, no longer
-// re-wrapped when the window changes, and no longer selectable or searchable by this
-// program — that is the trade printing makes, and it is why nothing is committed
-// unless it is asked for. What it buys is that the output survives the program
-// exiting, and that a session's memory stops growing.
+// Committing is a one-way door. A committed block belongs to the terminal: no longer
+// drawn, re-wrapped, selectable or searchable by this program. What it buys is output
+// that survives the program exiting, and a session's memory that stops growing.
 func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 	if give == nil {
 		return 0

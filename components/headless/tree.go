@@ -191,7 +191,6 @@ func (t *Tree[T]) Open(at int) bool { return t.set(at, true) }
 // Close hides it again, and reports the same.
 func (t *Tree[T]) Close(at int) bool { return t.set(at, false) }
 
-// set opens or closes a row.
 func (t *Tree[T]) set(at int, open bool) bool {
 	rows := t.list.items
 	if at < 0 || at >= len(rows) || !rows[at].Branch || rows[at].Open == open {
@@ -255,7 +254,6 @@ func (t *Tree[T]) Do(action keymap.Action) bool {
 	}
 }
 
-// into steps to the first row under an open branch.
 func (t *Tree[T]) into(at int) bool {
 	rows := t.list.items
 	if at < 0 || at+1 >= len(rows) || rows[at+1].Depth <= rows[at].Depth {

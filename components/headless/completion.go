@@ -112,7 +112,6 @@ type Candidate struct {
 	Matched []int
 }
 
-// shown is the label, or the text when there is no label.
 func (c Candidate) shown() string {
 	if c.Label != "" {
 		return c.Label
@@ -396,7 +395,6 @@ func (c *Completion) rows() int {
 	return DefaultCompletionRows
 }
 
-// keys is the map to read through, standing in the default for a caller who set none.
 func (c *Completion) keys() *keymap.Map {
 	if c.Keys != nil {
 		return c.Keys

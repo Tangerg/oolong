@@ -10,29 +10,19 @@ import (
 // PointerRegion is where one interactive child was drawn, and who owns a gesture that
 // began there.
 //
-// # Why this is a type rather than a rule everyone keeps
-//
-// Anything that draws a child inside itself creates the same boundary: it has to move
-// pointer coordinates into the child's box, and it has to decide what happens when the
-// gesture leaves. Both answers are easy to get subtly wrong, and getting them wrong
-// looks like a bug in the child. A wrapper that re-tests its own bounds on every event
-// drops the drag at its frame and never delivers the release, so the child goes on
-// believing it is being dragged. A wrapper that remembers the geometry instead of the
-// child keeps translating by a rectangle the child has since moved out of.
-//
-// So the rule lives here once, in the ring that owns behaviour, and an appearance
-// layer composes it rather than reimplementing it. [Container] and [Stack] keep the
-// same rule for the several children and the several layers they own; this is the same
-// rule for exactly one.
-//
-// # The rule
-//
 // A press over the region gives its child the gesture. The drag and release that
-// follow belong to that child wherever the pointer then goes — and are translated by
-// where **this** frame drew it, not where it was when the press landed, because the
-// user is aiming at what is on the screen now. A child that is no longer presented has
+// follow belong to that child wherever the pointer then goes, translated by where
+// this frame drew it rather than where it was when the press landed, because the user
+// is aiming at what is on the screen now. A child that is no longer presented has
 // nowhere to send its gesture, so the remainder is dropped rather than handed to
 // whatever took its place.
+//
+// It is a type rather than a rule every wrapper keeps because both halves are easy to
+// get subtly wrong in a way that looks like a bug in the child: re-testing its own
+// bounds on every event drops the drag at the frame and never delivers the release,
+// and remembering the geometry instead of the child keeps translating by a rectangle
+// the child has moved out of. [Container] and [Stack] keep the same rule for the
+// several children and layers they own.
 //
 // The zero value has no child and declines everything. It must be staged during
 // [Root.Draw] and read only from Handle. A PointerRegion must not be copied after

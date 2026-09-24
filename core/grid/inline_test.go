@@ -27,7 +27,6 @@ func content(rows int, draw func(grid.View)) grid.Drawable {
 	return drawable{rows: rows, draw: draw}
 }
 
-// inline renders one inline frame and returns the bytes, without the frame markers.
 func inline(t *testing.T, i *grid.Inline, cursor grid.Cursor, draw func(grid.View)) string {
 	t.Helper()
 	v := i.Frame()
@@ -51,7 +50,6 @@ func inline(t *testing.T, i *grid.Inline, cursor grid.Cursor, draw func(grid.Vie
 	return strings.TrimSuffix(strings.TrimPrefix(out, "\x1b[?2026h"), "\x1b[?2026l")
 }
 
-// lines draws one string per row.
 func lines(rows ...string) func(grid.View) {
 	return func(v grid.View) {
 		for y, row := range rows {

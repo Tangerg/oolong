@@ -25,25 +25,18 @@ type Command struct {
 
 // Commands is a set of named commands that can be found by typing part of a name.
 //
-// # Why the matching is not simply a prefix
+// A user who does not know a command types what they remember, which is rarely the
+// beginning: "sess" for "new-session", "clr" for "clear". So this ranks with [fuzzy]
+// rather than filtering on a prefix.
 //
-// A user who knows a command types enough of it and expects to be right. A user who
-// does not know it types what they remember, which is rarely the beginning: "sess"
-// for "new-session", "clr" for "clear". Matching on subsequences with a bias towards
-// word starts finds both, which is why this ranks with [fuzzy] rather than filtering
-// on a prefix.
-//
-// # Why order is remembered
-//
-// The command somebody ran a moment ago is overwhelmingly the one they want next, and
-// no amount of scoring the names will discover that. So ties are broken by how
-// recently a command was used, and an empty query lists the recent ones first. It is
-// the only part of the ranking that knows anything about this particular user.
+// Ties are broken by how recently a command was used, and an empty query lists the
+// recent ones first, because the command somebody ran a moment ago is overwhelmingly
+// the one they want next and no amount of scoring names will discover that.
 //
 // T is the caller-owned meaning associated with a command. The registry keeps and
-// returns it by assignment, as a map does; it never interprets, invokes, or copies
-// through references inside it. This keeps command execution, arguments, and product
-// syntax outside the component while avoiding a second application-side lookup table.
+// returns it by assignment, as a map does, and never interprets or invokes it, which
+// keeps execution and product syntax outside the component without a second lookup
+// table beside it.
 //
 // The zero value is an empty registry. A Commands value must not be copied after
 // first use; registration and recency are one mutable index.

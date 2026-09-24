@@ -10,7 +10,6 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// found waits for the answer to a query, ignoring answers to older ones.
 func found(t *testing.T, s *headless.Search, query string) headless.Result {
 	t.Helper()
 	deadline := time.After(5 * time.Second)

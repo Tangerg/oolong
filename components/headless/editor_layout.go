@@ -86,7 +86,6 @@ func (l *editorLayout) wrapLine(index int, line string, width int) {
 	l.rows = append(l.rows, editorRow{line: index, start: start, end: len(line), joined: start > 0})
 }
 
-// lastOfLine reports whether the row at i is the final row of its logical line.
 func (l *editorLayout) lastOfLine(i int) bool {
 	return i == len(l.rows)-1 || l.rows[i+1].line != l.rows[i].line
 }
@@ -120,7 +119,6 @@ func (e *Editor) rowAt(width int) (row, column int) {
 	return len(rows) - 1, 0
 }
 
-// offsetIn is the cursor position that sits at a column of a visual row.
 func (e *Editor) offsetIn(width, row, column int) (line, col int) {
 	rows := e.rows(width)
 	if row < 0 || row >= len(rows) {

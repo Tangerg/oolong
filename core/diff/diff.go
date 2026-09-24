@@ -161,7 +161,6 @@ type Hunk struct {
 // String writes the hunk the way a diff writes one.
 func (h Hunk) String() string { return h.Lines.String() }
 
-// hunkOf is one run of lines with its starting numbers worked out.
 func hunkOf(lines Script) Hunk {
 	h := Hunk{Lines: make(Script, len(lines))}
 	for i, line := range lines {
@@ -208,7 +207,6 @@ type myers struct {
 	offset int
 }
 
-// script is what changed, by whichever route can answer.
 func (m *myers) script() Script {
 	switch {
 	case len(m.before) == 0 && len(m.after) == 0:
@@ -310,7 +308,6 @@ func (m *myers) walk() Script {
 	return reversed
 }
 
-// kept is a line that both texts have, numbered in each of them.
 func (m *myers) kept(x, y int) Line {
 	return Line{Text: m.before[x], Old: m.from + x + 1, New: m.from + y + 1}
 }

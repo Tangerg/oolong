@@ -11,17 +11,14 @@ import (
 // Table is a list of rows with more than one column: a cursor, a window onto more
 // rows than fit, and an order.
 //
-// It is a [List] inside — everything about moving a selection, keeping it in view,
-// taking the wheel and answering a click is the same question in one column as in
-// six, and a table that answered it again would be a second place for it to be
-// wrong. What a table has that a list does not is which column it is sorted by, so
-// that is all this adds.
+// It is a [List] inside, because moving a selection, keeping it in view, taking the
+// wheel and answering a click is the same question in one column as in six. What a
+// table adds is which column it is sorted by.
 //
-// The list is held rather than embedded, and the difference is the order. A table's
-// rows are in the order the table decided, so the table has to be the only way to
-// replace them; an embedded list would hand every caller a second way, and a caller
-// who took it would leave the header saying the rows are sorted by a column they are
-// no longer in the order of.
+// The list is held rather than embedded, and the difference is the order: a table's
+// rows are in the order the table decided, so an embedded list would hand every caller
+// a second way to replace them and leave the header claiming an order the rows are no
+// longer in.
 //
 // Where the columns are is not here either. A row is drawn by [List.Row] into a view
 // of the whole row, and how that row is divided belongs to its appearance layer.

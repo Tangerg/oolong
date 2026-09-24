@@ -324,7 +324,6 @@ func (p *program) writerChanged(open bool) error {
 	return nil
 }
 
-// apply runs one posted task and asks for a frame.
 func (p *program) apply(task func()) {
 	if task != nil {
 		task()
@@ -357,7 +356,6 @@ func (p *program) handle(ev input.Event) error {
 	return nil
 }
 
-// draw renders a frame, if one is owed and the terminal is keeping up.
 func (p *program) draw() error {
 	if err := p.takeFailure(); err != nil {
 		return err

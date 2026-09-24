@@ -37,7 +37,6 @@ func (e Edit) Delta(n int) int {
 	return e.delta()
 }
 
-// bounds is the edit's range, put in order and held inside a document of length n.
 func (e Edit) bounds(n int) (start, end int) {
 	n = max(n, 0)
 	start, end = e.Start, e.End
@@ -49,7 +48,6 @@ func (e Edit) bounds(n int) (start, end int) {
 	return start, end
 }
 
-// within is the canonical edit that can be applied to a document of length n.
 func (e Edit) within(n int) Edit {
 	e.Start, e.End = e.bounds(n)
 	return e
@@ -108,32 +106,22 @@ func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 // Shift moves marks over the edit in a document of length n, in order, dropping the
 // ones it destroyed.
 //
-// The edit is clamped to the document first, by the same rule as [Edit.Apply]. The
-// length is therefore part of the operation rather than an optional validation
-// hint: without it an edit before byte zero would replace one range in the text and
-// move its metadata as though it had replaced a different one.
-//
-// # Which way a mark moves at the edges
+// The edit is clamped to the document first, by the same rule as [Edit.Apply], so n
+// is part of the operation rather than a validation hint: without it an edit before
+// byte zero would replace one range in the text and move its metadata as though it
+// had replaced another.
 //
 // Text inserted exactly where a mark begins goes before it, and text inserted exactly
-// where a mark ends goes after it. So typing on either side of a chip in a prompt
-// leaves the chip the length it was, which is the only answer that lets a user type
-// up against one — the other would swallow the next thing they wrote.
+// where a mark ends goes after it. That is the only answer that lets a user type up
+// against a chip in a prompt without the chip swallowing what they wrote.
 //
-// # What happens to a mark the edit reached into
+// An empty edit changes neither text nor marks, even inside one. An atomic mark the
+// edit reached into is dropped, because half of a thing that stood for something is a
+// fragment that still looks like the thing. Any other mark stretches to cover what
+// replaced the part the edit took, and is dropped when the edit took all of it.
 //
-// An empty edit changes neither text nor marks. Its position may be inside a mark,
-// but a position on its own did not reach into anything.
-//
-// An atomic mark is dropped: half of a thing that stood for something is not a
-// smaller thing, it is a fragment that still looks like the thing and no longer is.
-// Any other mark stretches to cover what replaced the part the edit took — and is
-// dropped too if the edit took all of it, because a range covering nothing says
-// nothing about the text and a caller keying a record off it would keep it for ever.
-//
-// The marks are shifted in place, which is what a caller that keeps them in a slice
-// wants. The result is the slice with the destroyed ones removed, so a caller that
-// held a mark by value has to find it again by identity.
+// Marks are shifted in place and the result is the slice with the destroyed ones
+// removed, so a caller holding a mark by value has to find it again by identity.
 func (e Edit) Shift(marks []Mark, n int) []Mark {
 	e = e.within(n)
 	if e.empty() {

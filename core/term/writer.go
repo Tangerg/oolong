@@ -318,7 +318,6 @@ func (w *Writer) next() (frame, bool) {
 	}
 }
 
-// finish records a frame's outcome and wakes whoever is watching the watermark.
 func (w *Writer) finish(seq uint64, err error) {
 	if err != nil && !errors.Is(err, ErrClosed) {
 		w.mu.Lock()

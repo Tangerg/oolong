@@ -50,16 +50,14 @@ func (f Frame) Subs(rects []image.Rectangle) []Frame {
 // Snapshot is not application state: using it for semantic values would make Draw
 // advance meaning and violate the ownership model.
 //
-// Snapshot commits T by ordinary Go assignment; it does not clone or synchronize
-// data reachable through pointers, slices, maps or interfaces inside T. Presentation
-// data behind such references must therefore be independently owned or treated as
-// immutable by its producers and consumers. A reference deliberately used as a live
-// identity or behavior, such as a Widget, keeps that reference's normal semantics.
+// Snapshot commits T by ordinary Go assignment and clones nothing reachable through
+// pointers, slices, maps or interfaces inside it, so presentation data behind such a
+// reference must be independently owned or immutable. A reference deliberately used as
+// a live identity, such as a Widget, keeps its normal semantics.
 //
-// One Snapshot may be staged once in a root frame. Sharing it between siblings is an
-// ownership error and panics instead of making the sibling drawn last win. Refine a
-// staged rich-model value through the value returned by its Stage operation rather
-// than staging the same owner again.
+// One Snapshot may be staged once in a root frame. Sharing it between siblings panics
+// instead of making the sibling drawn last win; refine a staged value through the one
+// its Stage operation returned.
 //
 // The zero value contains the zero T and is ready to stage. A Snapshot must not be
 // copied after first use: its pending value is enlisted with exactly one transaction.

@@ -9,25 +9,15 @@ import (
 
 // Sticky pins a block to the top of the view once it has been scrolled past.
 //
-// It is the section header of a scrolling list, and a transcript wants it for the same
-// reason a list does: the thing that gives the rows below their meaning — which
-// question this answer belongs to — is exactly the thing that scrolls away first. A
-// reader halfway down a long answer has nothing on screen telling them what it
-// answers.
+// The thing that gives the rows below their meaning — which question this answer
+// belongs to — is exactly the thing that scrolls away first.
 //
-// # How it behaves
+// The pinned block sits at the top of the view while its own rows are above it. The
+// next pinned block pushes it off rather than appearing over it, so the change reads
+// as one thing replacing another instead of two things flickering.
 //
-// The pinned block sits at the top of the view while its own rows are above it. When
-// the next pinned block comes up from below, it pushes this one off rather than
-// appearing over it: the header slides up, is clipped from the top, and fades as it
-// goes. That is what makes the change feel like one thing replacing another instead of
-// two things flickering.
-//
-// # Why it is arithmetic and not drawing
-//
-// All of it is a question about rows: which block is pinned, how many of its rows are
-// left, and how far along the push is. None of that needs a cell, so none of it is
-// here. What draws a header takes these numbers and draws.
+// All of it is arithmetic about rows — which block is pinned, how many of its rows are
+// left, how far along the push is — so none of it draws.
 //
 // The zero value has no pinnable blocks. A Sticky must not be copied after first
 // use; its ordered identity set has one mutable owner.
@@ -157,7 +147,6 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 	return p, true
 }
 
-// pinnedAt is the last pinnable block at or above a row.
 func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 	var found BlockID
 	ok := false
@@ -174,7 +163,6 @@ func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 	return found, ok
 }
 
-// nextAfter is the row the next pinnable block after i begins on.
 func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
 	for _, candidate := range s.blocks {
 		if candidate <= id {

@@ -4,17 +4,10 @@ import "github.com/Tangerg/oolong/core/text"
 
 // Glyphs are the characters a look draws its furniture with.
 //
-// # Why they are gathered
-//
-// Not every terminal can draw them. A terminal running in a locale that is not UTF-8
-// shows a box-drawing character as a question mark or as two bytes of mojibake, and a
-// panel drawn in mojibake is worse than a panel drawn in dashes. There is no way to
-// ask a terminal about this, so the answer is the locale — which is a fact about the
-// environment, and therefore an argument rather than something read here.
-//
-// Gathering them is what makes one answer possible. Scattered through the widgets,
-// each would need its own fallback and the set would be inconsistent the first time
-// somebody added a glyph and forgot one.
+// A terminal in a locale that is not UTF-8 shows a box-drawing character as mojibake,
+// and there is no way to ask it, so the answer is the locale — a fact about the
+// environment and therefore an argument. Gathering them is what makes one answer
+// possible: scattered through the widgets, each would need its own fallback.
 //
 // The zero value draws nothing, which is not useful: [Unicode] and [ASCII] are the two
 // sets, and [GlyphsFor] picks between them.
@@ -156,7 +149,6 @@ func (g Glyphs) Square() Border {
 	}
 }
 
-// drawn reports whether the border draws anything.
 func (b Border) drawn() bool { return b != Border{} }
 
 // There is no package-level rounded or square border, on purpose. One would be built

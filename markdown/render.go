@@ -92,7 +92,6 @@ type railChain struct {
 	depth    int
 }
 
-// segments is how many bars this rail has.
 func (r *railChain) segments() int {
 	if r == nil {
 		return 0
@@ -127,7 +126,6 @@ type renderer struct {
 	markerDepth int
 }
 
-// push adds a block, giving it whatever marker is waiting.
 func (r *renderer) push(b Block) {
 	b.marker, b.markerDepth, r.marker = r.marker, r.markerDepth, nil
 	r.blocks = append(r.blocks, b)
@@ -324,7 +322,6 @@ func (r *renderer) quoted(previous *railChain, indent int) (*railChain, int) {
 	return &railChain{previous: previous, span: span, depth: depth}, layout.Sum(indent, text.Width(span.Text))
 }
 
-// code publishes fenced source through its semantic renderer when one is installed.
 func (r *renderer) code(n ast.Node, language string, in frame) {
 	source := r.sourceLines(n)
 	if strings.EqualFold(strings.TrimSpace(language), "math") {
@@ -559,7 +556,6 @@ func (r *renderer) target(out *inlineWriter, destination, shown string, style gr
 	out.add(" ("+destination+")", style.Merge(r.look.Target), destination)
 }
 
-// box is what marks a task, and nothing when the look has no marks for one.
 func (r *renderer) box(checked bool) string {
 	mark := r.look.Glyphs.Unchecked
 	if checked {

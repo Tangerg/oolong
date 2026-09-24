@@ -133,7 +133,6 @@ func newDriver(grace time.Duration) *driver {
 	return d
 }
 
-// next waits for one event.
 func (d *driver) next(t *testing.T) input.Event {
 	t.Helper()
 	select {
@@ -148,7 +147,6 @@ func (d *driver) next(t *testing.T) input.Event {
 	}
 }
 
-// silent asserts that nothing arrives within d.
 func (d *driver) silent(t *testing.T, within time.Duration) {
 	t.Helper()
 	select {

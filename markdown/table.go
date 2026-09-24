@@ -340,7 +340,6 @@ func (r *renderer) column() string {
 	return " " + r.look.Glyphs.Bar + " "
 }
 
-// blank is n columns of nothing.
 func blank(n int) text.Span {
 	if n <= 0 {
 		return text.Span{}

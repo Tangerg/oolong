@@ -8,13 +8,9 @@
 // of every misaligned terminal UI, so measuring and drawing live in the same place
 // and agree by construction.
 //
-// # Text that arrives already styled
-//
-// [Decoder] is the other direction: the output of a command an interface ran,
-// which comes with the escape sequences that coloured it, read back into the same
-// [Span]s everything here lays out. It is here rather than beside the terminal
-// because what it produces is text — the sequences are how the styling was
-// spelled, and this is the package that knows what styled text is.
+// [Decoder] is the other direction: the output of a command an interface ran, read
+// back into the same [Span]s everything here lays out. It lives here rather than
+// beside the terminal because what it produces is text.
 package text
 
 import (
@@ -41,16 +37,12 @@ const TabStop = 8
 type Span struct {
 	Text  string
 	Style grid.Style
-	// Link is where the run points: a URL, a file, whatever a terminal will open.
-	// Empty is text that points nowhere, which is nearly all text.
+	// Link is where the run points, and empty is text that points nowhere.
 	//
-	// It is carried here rather than stamped onto cells afterwards because by then
-	// the columns are gone: a line is wrapped, truncated and drawn wherever it fits,
-	// and something holding byte offsets into the text it was made from cannot say
-	// which cells the third word ended up on. A span survives all three, so the
-	// address survives with it — see [Line.Draw], which is where it reaches the
-	// cells, and [github.com/Tangerg/oolong/core/grid.Cell.Link], which is what a
-	// terminal is told.
+	// It is carried here rather than stamped onto cells afterwards because by then the
+	// columns are gone: a line is wrapped, truncated and drawn wherever it fits, and
+	// byte offsets into the original text cannot say which cells the third word
+	// reached. A span survives all three — see [Line.Draw].
 	Link string
 }
 
@@ -302,7 +294,6 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 	return from
 }
 
-// hardBreak splits a word that is wider than a whole row.
 func (w *wrapper) hardBreak(units []unit, from, to int) int {
 	if w.hasHeld {
 		if layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width {
@@ -485,7 +476,6 @@ func (l Line) eachCluster() iter.Seq2[string, *Span] {
 	}
 }
 
-// eachUnit keeps drawing streaming while wrapping can retain provenance.
 func (l Line) eachUnit() iter.Seq[unit] {
 	return func(yield func(unit) bool) {
 		col, at := 0, 0
@@ -565,7 +555,6 @@ func (u unit) sameRun(other unit) bool {
 	return u.style() == other.style() && u.link() == other.link()
 }
 
-// advance is where col ends up after s, with tabs expanded.
 func advance(s string, col int) int {
 	if plainASCII(s) {
 		return layout.Sum(col, len(s))
@@ -872,7 +861,6 @@ func ClassOf(cluster string) Class {
 	return Space
 }
 
-// cjk reports whether a rune belongs to a script written without spaces.
 func cjk(r rune) bool {
 	return unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) ||
 		unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r)

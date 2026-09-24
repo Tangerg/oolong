@@ -470,7 +470,6 @@ func TestNoCurrentMatchScrollsNowhere(t *testing.T) {
 	}
 }
 
-// press is a left button going down on the top row of the drawn window.
 func press(x int, at time.Time) input.Mouse {
 	return input.Mouse{Pos: image.Pt(x, 0), Action: input.MouseDown, Button: input.ButtonLeft, At: at}
 }

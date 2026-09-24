@@ -13,33 +13,21 @@ const eraseLine = "\x1b[K"
 // Inline draws an interface as a block in the terminal's own screen, with output
 // that is finished printed above it.
 //
-// It is the other way to put frames on a terminal, and the one that makes a
-// program part of a session rather than a mode of it: what the interface has
-// already said stays in the terminal's own scrollback, where the user can scroll
-// back to it, select it, and see it still there after the program exits. A
-// [Screen] takes a screen of its own and gives back a blank terminal; this keeps
-// the transcript.
+// What the interface has already said stays in the terminal's own scrollback, where
+// it can be scrolled back to and is still there after the program exits. A [Screen]
+// takes a screen of its own and gives back a blank terminal; this keeps the
+// transcript.
 //
-// # Why nothing here is addressed absolutely
+// Nothing here is addressed absolutely, because the block's position is decided by
+// whatever is above it and there is no way to ask. Every frame is written relative to
+// where the last one left the cursor, and printing writes the rows where the block's
+// first row was and redraws the block below them, which is what pushes finished
+// output into the scrollback. The block is as tall as what was drawn, so nothing has
+// to declare a height.
 //
-// The block's position on the terminal is decided by whatever is above it, which
-// this type does not own and cannot ask about. So every frame is written relative
-// to where the last one left the cursor: back to the top of the block, down through
-// its rows, and back to wherever the cursor belongs. Printing works the same way —
-// the rows are written where the block's first row was, and the block is drawn
-// below them, which is what pushes finished output up and into the scrollback.
-//
-// The block is as tall as what was drawn: the rows up to the last one with anything
-// on it, and never fewer than enough to hold the cursor. Nothing has to declare a
-// height, and an interface that draws two rows occupies two rows.
-//
-// # What a resize costs
-//
-// A resize is the one thing this cannot get exactly right. The terminal may reflow
-// what is above the block, and there is no way to ask where the block ended up, so
-// the next frame repaints in full from where the cursor was left. That is exact
-// when the terminal did not reflow and approximate when it did, which is the same
-// bargain every inline interface makes.
+// A resize is the one thing this cannot get exactly right: the terminal may reflow
+// what is above the block, so the next frame repaints in full from where the cursor
+// was left. That is the same bargain every inline interface makes.
 //
 // An Inline must not be copied after first use. Its pending transcript, paired
 // surfaces and terminal cursor model are one publication owner.

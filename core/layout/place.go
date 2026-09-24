@@ -54,7 +54,6 @@ func (p Placement) In(space image.Point) image.Rectangle {
 	return image.Rect(at.X, at.Y, at.X+size.X, at.Y+size.Y)
 }
 
-// place works out where a box of size sits inside space.
 func (a Anchor) place(space, size image.Point) image.Point {
 	var at image.Point
 	switch a {

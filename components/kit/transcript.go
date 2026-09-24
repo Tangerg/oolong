@@ -94,20 +94,12 @@ func (t *Transcript) Draw(v headless.Frame) {
 // drawing and pointer translation cannot acquire separate geometry paths.
 func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Frame) transcriptWindow {
 	w, h := frame.Size()
-	// One frame-local layout is refined in two steps, because the two answers depend
-	// on each other: how much room the
-	// content has depends on the header, and which block is pinned depends on where
-	// the content is scrolled to. One pass settles it — the first says roughly where
-	// the window is, which is enough to know which header goes above it, and the
-	// second resizes that same pending layout against the room actually left. Staging
-	// the Scroll twice would make the last sibling or call win, so ScrollLayout.Resize
-	// is the explicit refinement operation.
-	//
-	// Doing it once either way is worse. Laying out against the full height leaves the
-	// last rows of a transcript unreachable, which a session that follows its own
-	// output notices immediately; sizing the header against the reduced height makes
-	// the header's own presence change how much of it there is, which has no fixed
-	// point at all.
+	// Two steps, because the answers depend on each other: the room the content has
+	// depends on the header, and which block is pinned depends on where the content is
+	// scrolled to. Laying out against the full height leaves the last rows unreachable,
+	// and sizing the header against the reduced height has no fixed point at all.
+	// Staging the Scroll twice would make the last caller win, so ScrollLayout.Resize
+	// refines the same pending layout.
 	bodyRect := grid.Area(0, 0, w, h)
 	from := content.StartRow()
 	var scroll headless.ScrollLayout
@@ -163,7 +155,6 @@ func (t *Transcript) RevealMatch(index int) bool {
 	return true
 }
 
-// drawHeader draws the pinned block and the rule under it.
 func (t *Transcript) drawHeader(content headless.TranscriptLayout, v grid.View, pinned headless.Pinned) {
 	w, _ := v.Size()
 	block := content.Block(pinned.Block)
@@ -264,25 +255,18 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 // Commit gives the transcript's finished leading blocks to a printer, which is what
 // puts them in the terminal's own output for good.
 //
-// It is here rather than on the transcript because printing needs a width to draw at
-// and the transcript does not have one until it has been laid out. The rest of the
-// rule — leading, in order, once each — is [headless.Transcript.Commit]'s, and this
-// only supplies the drawing.
+// It is here rather than on the transcript because printing needs a width to draw at,
+// and the transcript has none until it has been laid out. The rest of the rule —
+// leading, in order, once each — is [headless.Transcript.Commit]'s.
 //
 // Any output sink with the small Printer method set can receive committed blocks:
 //
 //	view.Commit(output, 0)
 //
-// Nothing is committed unless this is called. A block given to the terminal is no
-// longer selectable, searchable, or re-wrapped when the window changes, so the choice
-// is the program's and is made block by block with [headless.Transcript.Finish].
-//
-// limit is the most blocks to transfer. Zero transfers every finished block; a
-// positive limit lets an application retain a recent window and publish only its
-// excess stable prefix. A negative limit is a programmer error and panics: zero
-// already means "all of them", and committing is irreversible, so reading a negative
-// limit as either none or all would be a guess about output the caller cannot take
-// back. A nil printer or content transfers nothing and reports zero.
+// limit is the most blocks to transfer, and zero transfers every finished one. A
+// negative limit panics: zero already means all of them, and committing is
+// irreversible, so reading a negative as either none or all would guess about output
+// the caller cannot take back. A nil printer or content transfers nothing.
 func (t *Transcript) Commit(p Printer, limit int) int {
 	if limit < 0 {
 		panic("kit: transcript commit limit cannot be negative")
@@ -329,22 +313,15 @@ type Printer interface {
 // took the event.
 //
 // A press starts a selection, a drag moves its far end, a second press in the same
-// place takes the word and a third takes the row. That is what selecting text means
-// everywhere, and it took five pieces wired together by hand until this: a selection, a
-// click counter, the word rule, the scroll offset, and the translation from a position
-// on screen into a row of the transcript.
+// place takes the word and a third takes the row. It lives here rather than on the
+// selection because a point on screen means nothing without knowing where the
+// transcript was drawn and how far it is scrolled, and this is the thing that drew it.
 //
-// The last of those is why it lives here rather than on the selection. A point on
-// screen means nothing without knowing where the transcript was drawn and how far it is
-// scrolled, and this is the thing that drew it.
+// Clicks are counted from the time the event arrived with, which the terminal's reader
+// stamped on it, so a caller feeding events it made up itself gets single clicks.
 //
-// The clicks are counted from the time the event arrived with, which the terminal's
-// reader stamped on it. A caller feeding events it made up itself gets single clicks,
-// because there is nothing to tell one press from another by.
-//
-// The position is in the transcript's own coordinates, like everything else a widget
-// is handed. Whoever drew it is responsible for that, which for anything inside a
-// [headless.Container] is the container.
+// The position is in the transcript's own coordinates, which whoever drew it is
+// responsible for — inside a [headless.Container], the container.
 func (t *Transcript) Handle(event input.Event) bool {
 	if t.Scroll != nil && t.Scroll.Handle(event, t.Keys) {
 		return true

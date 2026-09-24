@@ -36,45 +36,31 @@ var (
 // Run runs cfg on session until the program stops, the client disconnects or the
 // transport fails.
 //
-// session must already have an accepted PTY, and the server must be handling it the
-// default way — see [charm.land/ssh.Server.PtyHandler]. A server configured with
-// [charm.land/ssh.AllocatePty] gives the session a terminal of its own and, before
-// the handler runs, starts copying the channel into it and draining its window
-// changes. Both of those are Run's: one channel with two readers gives each keystroke
-// to whichever got there first, and a window change taken by the other consumer never
-// reaches the interface at all. That is [ErrAllocatedPTY], and it is refused rather
-// than raced.
+// session must already have an accepted PTY handled the default way — see
+// [charm.land/ssh.Server.PtyHandler]. A server configured with
+// [charm.land/ssh.AllocatePty] starts copying the channel into a terminal of its own,
+// and draining its window changes, before the handler runs. Both are Run's: two
+// readers give each keystroke to whichever got there first, and a window change taken
+// by the other consumer never reaches the interface. That is [ErrAllocatedPTY].
 //
-// The default handling emulates the terminal, which is only a writer: it turns a line
-// feed into a carriage return and a line feed, and then turns a doubled carriage
-// return back into one. Reads and window changes it does not touch at all.
-//
-// A frame is exact bytes and would not survive being rewritten. Nothing this library
-// composes contains a line feed that is not already the second half of one — the
-// alternate screen addresses every row, and an inline block writes only pairs — so
-// there is nothing in a frame for the emulation to find. A [grid.Painter] is the one
-// thing that writes bytes this library did not compose, and one is free to write a
-// line feed of its own: a carriage return would be added to it, and what it drew next
-// would move to the first column.
-//
-// So it is refused rather than rewritten, with [ErrLineFeed]. The session cannot
-// carry that byte, and a transport that cannot carry something has to say so — the
-// alternative is a frame that arrives changed with the terminal to blame for it.
+// The default handling is only a writer, and the one thing it rewrites is a line feed
+// that is not already the second half of a carriage-return pair. Nothing this library
+// composes contains one, and the one thing that can is a [grid.Painter] writing bytes
+// of its own. A frame is exact bytes, so that frame is refused with [ErrLineFeed]
+// rather than carried changed with the terminal to blame for it.
 //
 // Run owns Oolong's input decoder, frame writer and terminal modes for the duration of
-// the call, but it does not own the SSH channel itself and does not choose an exit
-// status. The surrounding SSH handler retains those decisions and can report a non-nil
-// result before returning.
+// the call. It does not own the SSH channel and does not choose an exit status, which
+// the surrounding handler keeps.
 //
 // The session's input, however, is Run's for the session's lifetime and not only for
-// the call. An SSH channel cannot be read with a deadline, so a read already in
-// flight when the program stops ends when the channel does. A handler that reads the
-// session itself after Run returns would be taking bytes from that read; ending the
-// session, by returning or by [charm.land/ssh.Session.Exit], is what it is for.
+// the call: an SSH channel cannot be read with a deadline, so a read in flight when
+// the program stops ends when the channel does. A handler that reads the session
+// after Run returns takes bytes from that read.
 //
-// The zero cfg.Color is resolved from the client's PTY environment
-// rather than the server process environment. Terminal modes, character locale,
-// wheel scaling and clipboard transport follow that same client-owned environment.
+// The zero cfg.Color, terminal modes, character locale, wheel scaling and clipboard
+// transport all resolve from the client's PTY environment rather than the server
+// process environment.
 func Run(session charmssh.Session, cfg program.Config) (err error) {
 	if cfg.Host != nil {
 		return ErrHostSet

@@ -69,7 +69,6 @@ func (t *title) enter() string {
 	return titlePush + command(titleSet, t.text)
 }
 
-// leave is what to write to put back the title the session found.
 func (t *title) leave() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()

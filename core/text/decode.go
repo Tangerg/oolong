@@ -11,47 +11,27 @@ import (
 // program wrote to colour its output become [Span]s, and everything else is
 // dropped.
 //
-// This is the one direction that was missing. An interface that runs commands is
-// handed their output, and their output is coloured; a cell refuses control
-// characters at the boundary, on purpose, so without this every caller has either
-// to strip the colour and lose it or to write this again.
-//
-// # Reading a stream
-//
 // Output arrives in whatever pieces a read produced, and neither a line nor a
-// sequence respects those boundaries. [Decoder.Feed] answers with the lines a
-// newline has finished, holds the rest, and carries the style in force from one
-// piece to the next — so a colour opened in one chunk still applies in the next,
-// and a sequence split down the middle is not read as text. [Decoder.Open] is the
-// line still being written, which is what a live interface draws while the rest of
-// it is still coming.
+// sequence respects those boundaries. [Decoder.Feed] answers with the lines a newline
+// has finished, holds the rest, and carries the style in force from one piece to the
+// next. [Decoder.Open] is the line still being written.
 //
-// A decoder belongs to one goroutine, like everything else here. It is deliberately
-// not an [io.Writer]: something wired to a command's standard output is written to
-// from whatever goroutine is waiting on that command, and this library has exactly
-// one that may touch what is on screen. Read the pipe there, post the chunk, decode
-// it here.
+// It is deliberately not an [io.Writer]. Something wired to a command's standard
+// output is written to from whatever goroutine waits on that command, and this
+// library has exactly one that may touch what is on screen: read the pipe there, post
+// the chunk, decode it here. A Decoder belongs to one goroutine and must not be
+// copied after its first use.
 //
-// # What is read and what is not
+// Colour, the six attributes a cell can carry, and the hyperlink a terminal was told
+// about are read. Every other sequence is consumed and dropped, which is the point:
+// it neither reaches a cell, where it would be obeyed on the next repaint, nor shows
+// up as its own text. A carriage return is dropped rather than obeyed, because
+// obeying it is a terminal emulator — so output that redrew a line in place reads as
+// the several versions of it.
 //
-// Colour and the six attributes a cell can carry, which is all a cell has — and the
-// hyperlink a terminal was told about, which is the one thing in the stream that
-// says where a piece of text points. Every other sequence is consumed and dropped,
-// and dropped is the point: it neither reaches a cell, where it would be obeyed on
-// the next repaint, nor shows up as its own text.
-//
-// A carriage return is dropped rather than obeyed. Obeying it — and the cursor
-// movement and erasure beside it, which is what a progress bar rewriting its line
-// is made of — is a terminal emulator, which is another product and not this one.
-// What that costs is visible and bounded: output that redrew a line in place reads
-// as the several versions of it, one after another.
-//
-// The sixteen colours a terminal names rather than numbers are resolved through
-// [grid.PaletteRGB], because a [grid.Color] is either a number or the terminal's own
-// and there is nothing in between to hold "the user's idea of red". The values are
-// xterm's, which is what a terminal that was never themed shows.
-//
-// A Decoder must not be copied after its first use.
+// The sixteen named colours resolve through [grid.PaletteRGB], because a [grid.Color]
+// is either a number or the terminal's own with nothing in between to hold "the
+// user's idea of red".
 type Decoder struct {
 	noCopy noCopy
 
@@ -174,7 +154,6 @@ func Decode(s string, base grid.Style) []Line {
 	return append(d.Feed(s), d.Flush()...)
 }
 
-// piece deals with one scanned piece of the stream.
 func (d *Decoder) piece(p ansi.Piece) []Line {
 	switch p.Kind {
 	case ansi.Plain:
@@ -220,7 +199,6 @@ func (d *Decoder) osc(body string) {
 	d.link = strings.Clone(Printable(target))
 }
 
-// write adds text to the open line, breaking a line at every newline.
 func (d *Decoder) write(s string) []Line {
 	var lines []Line
 	for {
@@ -380,7 +358,6 @@ func colourOf(args []int) (grid.Color, int, bool) {
 	}
 }
 
-// simple applies the parameters that are one number and nothing else.
 func (d *Decoder) simple(code int) {
 	switch {
 	case code == 0:

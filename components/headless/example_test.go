@@ -88,5 +88,4 @@ func ExampleViewport() {
 	// |row 6   |
 }
 
-// numbered is content that writes its own row number.
 func numbered(rows int) headless.Sized { return &tall{rows: rows} }

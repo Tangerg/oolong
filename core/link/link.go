@@ -1,22 +1,14 @@
 // Package link finds the things in a piece of text that point somewhere.
 //
 // It reports byte ranges and normalized destinations without deciding how a caller
-// presents or opens them. Detection is a surprising amount of care for what looks
-// like two regular expressions.
+// presents or opens them. A URL and a file path are two kinds rather than two
+// spellings of one: a URL is opened by a browser, and a file by an editor, possibly at
+// a line and column.
 //
-// # Two kinds, because they are two things
-//
-// A URL and a file path are not one destination with two spellings. A URL is opened
-// by a browser; a file is opened by an editor, potentially at a line and column.
-//
-// # What is not here
-//
-// Opening one. Which browser, which editor, whether the process is sandboxed, whether
-// a detected path should be opened at all — none of that belongs to detection. The
-// answer is a byte range and a destination; what happens next is the caller's.
-//
-// Nor is the filesystem. This package reads text and nothing else, which is why the
-// one rule that needs the filesystem takes it as an argument — see [Detect].
+// Opening one is not here. Which browser, which editor, whether the process is
+// sandboxed — none of that belongs to detection. Nor is the filesystem: this package
+// reads text and nothing else, which is why the one rule that needs the filesystem
+// takes it as an argument — see [Detect].
 package link
 
 import (
@@ -157,7 +149,6 @@ func Detect(s string, exists func(path string) bool) Links {
 	return inOrder(found)
 }
 
-// detectURLs finds the web addresses.
 func detectURLs(s string) []Link {
 	var found []Link
 	for _, m := range urlPattern.FindAllStringIndex(s, -1) {
@@ -177,7 +168,6 @@ func detectURLs(s string) []Link {
 	return found
 }
 
-// detectPaths finds the file paths whose shape is evidence enough on its own.
 func detectPaths(s string, exists func(path string) bool) []Link {
 	var found []Link
 	for _, m := range pathPattern.FindAllStringIndex(s, -1) {
@@ -315,7 +305,6 @@ func trimTrailing(text string) string {
 	return text
 }
 
-// prefixOf is the scheme or host marker the text begins with.
 func prefixOf(text string) (string, bool) {
 	for _, p := range []string{"https://", "http://", "www."} {
 		if strings.HasPrefix(text, p) {

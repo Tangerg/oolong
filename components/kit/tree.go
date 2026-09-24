@@ -110,7 +110,6 @@ func (t *Tree[T]) Draw(v headless.Frame) {
 	t.controller.DrawRows(v, t.row)
 }
 
-// row draws one row: the indent, the mark, and what the item says.
 func (t *Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) {
 	width, _ := v.Size()
 	if width <= 0 {

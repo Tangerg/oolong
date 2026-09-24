@@ -29,18 +29,13 @@ type List[T any] struct {
 	// committed routing totals describing a collection the list no longer owns.
 	items   []T
 	itemsID *byte
-	// Row draws one item. at is where it sits among the items and selected says
-	// whether it is the one under the cursor, which the caller renders however it
-	// likes — a list does not know what selected looks like in its surroundings.
+	// Row draws one item, where at is its index and selected says whether the cursor
+	// is on it. The index is passed because a row is often about more than the item —
+	// a number down the left, an alternating colour — and a caller recovering it by
+	// comparing items would guess whenever two were alike.
 	//
-	// The index is there because a row is often about more than the item: a number
-	// down the left, a mark for what has been chosen, a colour that alternates. Only
-	// the list knows it, and a caller finding it again by comparing items would be
-	// guessing whenever two of them were alike.
-	//
-	// Row runs during measurement or drawing. It must be an observationally pure
-	// projection: mutate list or application state from Handle or another owner-side
-	// operation, never from this callback.
+	// It runs during measurement or drawing and must be an observationally pure
+	// projection: mutate state from Handle, never from here.
 	Row func(v grid.View, at int, item T, selected bool)
 	// Keys say which keystrokes produce which of the actions the list answers to —
 	// see [List.Do]. Nil reads through [DefaultListKeys].

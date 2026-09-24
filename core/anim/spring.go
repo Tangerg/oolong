@@ -112,7 +112,6 @@ func (s *Spring) Tick() {
 	}
 }
 
-// ring is the under-damped solution: it goes past and comes back, fading.
 func ring(u, v, frequency, damping float64) (float64, float64) {
 	alpha := damping * frequency
 	beta := frequency * math.Sqrt(1-damping*damping)
@@ -124,7 +123,6 @@ func ring(u, v, frequency, damping float64) (float64, float64) {
 	return position, velocity
 }
 
-// arrive is the critically damped solution: the fastest approach with no overshoot.
 func arrive(u, v, frequency float64) (float64, float64) {
 	decay := math.Exp(-frequency)
 	c := v + frequency*u

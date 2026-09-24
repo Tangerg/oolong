@@ -7,14 +7,10 @@ import (
 
 // Wheel says what a terminal's wheel reports are worth.
 //
-// # Why this is not a constant
-//
-// A wheel report carries a direction and no magnitude, and terminals disagree about
-// how many reports one notch of the wheel is. Apple Terminal, kitty, Ghostty and
-// alacritty send three; iTerm2 and WezTerm send one; an editor's embedded terminal
-// sends one and means three rows by it. So the same code, scrolling a fixed number of
-// rows per report, moves three times as far on one terminal as on another — and there
-// is no way to ask, because the protocol does not carry it.
+// It is not a constant because a wheel report carries a direction and no magnitude,
+// and terminals disagree about how many reports one notch is: Apple Terminal, kitty,
+// Ghostty and alacritty send three, iTerm2 and WezTerm send one, and the protocol has
+// no way to say which.
 //
 // The zero value is the commoner arrangement: three reports to a notch, three rows to
 // a notch, which comes to one row a report. It is a reasonable answer everywhere and
@@ -112,17 +108,13 @@ var wheelProfiles = []struct {
 // container, or under a multiplexer is not the terminal it is talking to. An empty name
 // means nothing was asked, or nothing answered, and the environment is all there is.
 //
-// # Multiplexers
-//
 // A multiplexer reads the mouse reports and writes its own, so whatever the outer
-// terminal batched is gone by the time the program sees anything: tmux, screen and
-// zellij all forward one report per notch regardless of what arrived. Their answer
-// therefore replaces the outer terminal's rather than being combined with it, and
-// checking for them has to come first.
+// terminal batched is gone: tmux, screen and zellij forward one report per notch
+// regardless. Their answer replaces the outer terminal's rather than combining with
+// it, so checking for them comes first.
 //
-// The lookup is passed in rather than read, for the same reason it is everywhere else
-// in this library: this package is a function of its inputs, and a test that could not
-// say what terminal it was in could not check any of these answers.
+// The lookup is passed in rather than read, so that a test can say what terminal it is
+// in.
 func WheelFor(lookup func(string) (string, bool), name string) Wheel {
 	if wheel, ok := profileOf(name); ok {
 		return wheel
@@ -148,7 +140,6 @@ func WheelFor(lookup func(string) (string, bool), name string) Wheel {
 	return Wheel{}
 }
 
-// profileOf is the profile of whichever terminal an identity names.
 func profileOf(identity string) (Wheel, bool) {
 	if identity == "" {
 		return Wheel{}, false

@@ -508,7 +508,6 @@ func TestAnElementBeginsWhereACellBegins(t *testing.T) {
 	}
 }
 
-// boundariesOf is the set of byte offsets where a cell begins or ends.
 func boundariesOf(s string) map[int]bool {
 	at := map[int]bool{0: true, len(s): true}
 	for start, cluster := range text.Clusters(s) {
@@ -579,7 +578,6 @@ func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) 
 	}
 }
 
-// onClusterBoundary reports whether a byte offset is a place a caret may sit.
 func onClusterBoundary(s string, at int) bool {
 	if at == 0 || at == len(s) {
 		return true

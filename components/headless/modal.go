@@ -325,7 +325,6 @@ func (s *Stack) Handle(ev input.Event) bool {
 	return true
 }
 
-// mouse routes pointer input through modal capture and the visible layer geometry.
 func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 	if mouse.Action == input.MouseDown {
 		// The input protocol carries one pointer gesture. A new press supersedes an
@@ -411,7 +410,6 @@ func (s *Stack) Do(action keymap.Action) bool {
 	return true
 }
 
-// outside deals with a mouse event beyond the top layer.
 func (s *Stack) outside(mouse input.Mouse, top layerPlacement) bool {
 	if mouse.Action == input.MouseDown {
 		if !s.KeepOnClickOutside && !sticky(top.modal) {
@@ -560,7 +558,6 @@ func (s *Stack) settle() {
 	tell(want, !s.blurred)
 }
 
-// keys is the map to read through, standing in the default for a caller who set none.
 func (s *Stack) keys() *keymap.Map {
 	if s.Keys != nil {
 		return s.Keys
@@ -568,7 +565,6 @@ func (s *Stack) keys() *keymap.Map {
 	return stackKeys()
 }
 
-// sticky reports whether a layer currently refuses to be dismissed.
 func sticky(m Modal) bool {
 	insistent, ok := m.(Insistent)
 	return ok && insistent.Insists()

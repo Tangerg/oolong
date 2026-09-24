@@ -17,7 +17,6 @@ func draw(t *testing.T, c *conversation, height int) {
 	drawn(t, c, height)
 }
 
-// drawn draws the conversation and returns what it came to.
 func drawn(t *testing.T, c *conversation, height int) string {
 	t.Helper()
 	const width = 40

@@ -1,26 +1,19 @@
 // Package ptytest drives a terminal program on a real pty and says what reached
 // the terminal.
 //
-// It is the harness for tests an in-process fake cannot write. A fake proves that
-// an interface draws the frame it meant to; only a pty proves that the bytes
-// of that frame do to a terminal what they were supposed to — that the block
-// shrank without leaving debris, that the caret is on the row the cursor was
-// placed on, that every mode the session turned on was turned off again.
+// A fake proves that an interface draws the frame it meant to; only a pty proves that
+// the bytes of that frame do to a terminal what they were supposed to — that the block
+// shrank without leaving debris, that the caret is on the row the cursor was placed
+// on, that every mode the session turned on was turned off again.
 //
-// # What it is not
+// It is not a terminal emulator. [Screen] answers which text an Oolong renderer left
+// in each cell and deliberately models neither terminal queries, input,
+// alternate-buffer ownership, arbitrary painters, nor the rest of a terminal's state.
+// A test of a particular protocol sequence should assert that sequence directly,
+// because it then fails naming the thing that changed.
 //
-// A terminal emulator. It captures a byte stream and gives you assertions over it.
-// [Screen] can additionally answer which text an Oolong renderer left in each cell,
-// but deliberately does not model terminal queries, input, alternate-buffer ownership,
-// arbitrary painters, or the rest of a terminal's state. Tests of a particular
-// protocol sequence should still assert that sequence directly: it fails naming the
-// thing that changed.
-//
-// # Where it lives
-//
-// Beside the library rather than inside it. It owns test subprocesses, and
-// nothing in the library imports it — a harness that the
-// thing it tests depends on is a harness that cannot be changed.
+// It lives beside the library rather than inside it, and nothing in the library
+// imports it: a harness the thing it tests depends on cannot be changed.
 package ptytest
 
 import (
@@ -167,7 +160,6 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 	return s, nil
 }
 
-// read drains the pty into the transcript until the child is gone.
 func (s *Session) read() {
 	defer close(s.readDone)
 	buf := make([]byte, 4096)

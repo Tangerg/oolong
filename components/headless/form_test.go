@@ -28,7 +28,6 @@ func multiWith[T comparable](options []headless.Option[T]) *headless.MultiSelect
 	return field
 }
 
-// typeInto types a string into a field, one keystroke at a time.
 func typeInto(f headless.Field, s string) {
 	for _, r := range s {
 		f.Handle(input.Key{Code: input.Character, Rune: r})

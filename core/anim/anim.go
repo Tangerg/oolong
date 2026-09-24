@@ -5,14 +5,10 @@
 // caller decides when time passes, and what these numbers are then used for —
 // brightening a colour, growing a pane — is the caller's.
 //
-// # Why ticks rather than durations
-//
-// A transition measured in wall-clock time has to ask what time it is, and a
-// animation that asks what time it is cannot be stepped by a test or paused by its owner
-// that parked because nothing was happening. Everything here counts ticks instead,
-// and a tick is whatever the caller's scheduler decided one is. That makes an
-// animation exactly as deterministic as the thing
-// driving it, which is the property the rest of this library is built on.
+// Everything counts ticks rather than wall-clock time, and a tick is whatever the
+// caller's scheduler decided one is. An animation that asked what time it is could be
+// neither stepped by a test nor paused by an owner that parked because nothing was
+// happening.
 package anim
 
 // EaseOutCubic maps a linear position in [0,1] to an eased one.

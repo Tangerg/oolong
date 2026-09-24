@@ -23,7 +23,6 @@ func (l *lines) Draw(v grid.View) {
 	}
 }
 
-// text is a transcript of one block with the given rows.
 func transcriptOf(rows ...text.Row) *headless.Transcript {
 	var tr headless.Transcript
 	stageTranscript(&tr, 80)

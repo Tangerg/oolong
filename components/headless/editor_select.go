@@ -92,7 +92,6 @@ func (e *Editor) Selected() string {
 	return e.textBetween(start, end)
 }
 
-// textBetween is the text in a range in reading order.
 func (e *Editor) textBetween(start, end Caret) string {
 	e.ensure()
 	if start.Line == end.Line {

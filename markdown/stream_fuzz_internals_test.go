@@ -7,7 +7,6 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 )
 
-// drawn is what a run of blocks comes to, one string per row.
 func drawn(t *testing.T, width int, blocks []Block) []string {
 	t.Helper()
 	doc := &Doc{}
@@ -35,7 +34,6 @@ func drawn(t *testing.T, width int, blocks []Block) []string {
 	return out
 }
 
-// streamed is the whole document a stream produces from a source in chunks.
 func streamed(t *testing.T, source string, chunk int) []Block {
 	t.Helper()
 	var stream Stream

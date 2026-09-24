@@ -1,30 +1,21 @@
 // Package latex lays LaTeX mathematics out as terminal rows.
 //
-// It is deliberately a mathematics renderer, not a TeX engine. Documents,
-// packages, file inclusion, macro definitions, page layout and command execution
-// are outside its contract. A formula is untrusted content: unsupported or
-// incomplete input becomes readable source with an error attached rather than a
-// panic or an empty region.
+// It is deliberately a mathematics renderer and not a TeX engine: documents,
+// packages, file inclusion, macro definitions, page layout and command execution are
+// outside its contract. A formula is untrusted content, so unsupported or incomplete
+// input becomes readable source with an error attached rather than a panic or an
+// empty region.
 //
-// # One output model
-//
-// [Render] returns a concrete, immutable [Formula]. The same value measures and
-// draws as a [github.com/Tangerg/oolong/core/grid.Drawable], and exposes the rows it
-// draws for transcript selection and search. There is no image-only rendering path:
-// terminal text remains visible on every host and remains meaningful when copied.
-//
-// # Integration
-//
-// A semantic content registry can call the same [Render] entry through a closure.
-// The registry's first argument is format information and the second is source:
+// [Render] returns a concrete, immutable [Formula] that measures and draws as a
+// [github.com/Tangerg/oolong/core/grid.Drawable] and exposes the rows it draws for
+// selection and search. There is no image-only path, so the text stays visible on
+// every host and meaningful when copied. A semantic content registry reaches the same
+// entry through a closure, leaving producer and consumer as peers:
 //
 //	render := func(_ string, source string) (grid.Drawable, error) {
 //		formula := latex.Render(source, look)
 //		return formula, formula.Err()
 //	}
-//
-// The producer and consumer remain peers. Both know only core text and grid values;
-// neither imports the other.
 package latex
 
 import (

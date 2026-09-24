@@ -43,7 +43,6 @@ func (p Palette) marker() string {
 	return p.Glyphs.Marker + " "
 }
 
-// empty is what to say when nothing matched.
 func (p Palette) empty() string {
 	if p.Empty == "" {
 		return "no matching command"
@@ -114,7 +113,6 @@ func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.
 		Draw(v.Sub(grid.Area(x, y, layout.Remaining(w, x), 1)))
 }
 
-// matchedIn reports whether any match offset falls in a byte range.
 func matchedIn(at []int, from, to int) bool {
 	return slices.ContainsFunc(at, func(offset int) bool { return offset >= from && offset < to })
 }

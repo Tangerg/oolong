@@ -24,13 +24,11 @@ type focusState struct {
 	turn uint64
 }
 
-// begin claims the next transfer of the keyboard.
 func (s *focusState) begin() uint64 {
 	s.turn++
 	return s.turn
 }
 
-// superseded reports whether a newer transfer has replaced the one numbered turn.
 func (s *focusState) superseded(turn uint64) bool { return s.turn != turn }
 
 func (s *focusState) change(has bool, settle func(), holder *Widget) {

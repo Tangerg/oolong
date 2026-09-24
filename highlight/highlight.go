@@ -1,34 +1,20 @@
 // Package highlight colours source code.
 //
-// It is a module of its own for the same reason markdown is: it carries somebody
-// else's tree. A syntax highlighter is a lexer per language and a palette per
-// theme — several megabytes of them — and the two modules a terminal interface is
-// built on promise a dependency list that can be adopted without thinking about it.
-// So this is where that weight is allowed to be, and a program that does not show
-// code never hears about it.
+// It is a module of its own for the same reason markdown is: a lexer per language and
+// a palette per theme is several megabytes of somebody else's tree, and a program
+// that does not show code never hears about it.
 //
-// # What it produces
-//
-// [github.com/Tangerg/oolong/core/text.Line]s, which is what everything that lays
-// text out already takes. Nothing here draws, measures or wraps: a highlighted
-// block of code is styled text and is laid out like any other styled text.
-//
-// # Integration
-//
-// A [Renderer] has the same [Renderer.Lines] method whether it is called directly
-// or installed in a semantic content registry. The first argument is a language
-// and the second is source; this peer module need not import whichever composer
-// consumes the result:
+// It produces [github.com/Tangerg/oolong/core/text.Line]s and draws, measures and
+// wraps nothing — a highlighted block of code is styled text and is laid out like any
+// other. A [Renderer] has the same [Renderer.Lines] method whether it is called
+// directly or installed in a semantic content registry:
 //
 //	renderer := highlight.New("github-dark")
 //	lines := renderer.Lines("go", source)
 //
-// # What it does not expose
-//
-// The highlighter. No type here comes from it and none goes back to it: a style is
-// its name, a language is its name, and what comes out is text. That is the same
-// boundary markdown keeps around its parser, and it is what lets either be replaced
-// without anything above noticing.
+// No type here comes from the highlighter and none goes back to it: a style is its
+// name, a language is its name, and what comes out is text. That is what lets it be
+// replaced without anything above noticing.
 package highlight
 
 import (
@@ -111,7 +97,6 @@ func schemeOf(style Style) *chroma.Style {
 	return styles.Fallback
 }
 
-// highlight lexes the source and turns each token into a styled span.
 func highlight(language, source string, scheme *chroma.Style) []text.Line {
 	lexer := lexerFor(language, source)
 	iterator, err := lexer.Tokenise(nil, source)
@@ -181,7 +166,6 @@ func styleOf(entry chroma.StyleEntry) grid.Style {
 	return style
 }
 
-// colour is a scheme's colour as a cell's.
 func colour(c chroma.Colour) grid.Color {
 	return grid.RGBColor(c.Red(), c.Green(), c.Blue())
 }

@@ -163,7 +163,6 @@ func TestBoxDrawsWithTheGlyphsItWasGiven(t *testing.T) {
 	}
 }
 
-// rowOf reads one row of a surface back as a string.
 func rowOf(v grid.View, y, width int) string {
 	var b strings.Builder
 	for x := range width {

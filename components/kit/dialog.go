@@ -219,7 +219,6 @@ func (d *DialogPanel) Draw(v headless.Frame) {
 	}
 }
 
-// footer is the hints, spelled the way a border can hold them.
 func (d *DialogPanel) footer() string {
 	var out strings.Builder
 	for _, action := range d.Hints {

@@ -1,37 +1,21 @@
 // Package graphics puts images in a terminal that can show them.
 //
-// It writes escape sequences and nothing else: it does not decode pixels, hold an
-// image payload after transmission, decide where one goes, or know what a cell
-// contains. What it needs is a PNG that somebody else already has and a place the
-// caller has already worked out.
-//
-// # Why only PNG
-//
-// PNG because its dimensions can be read without decoding the pixel payload. The
-// standard library owns format validation and configuration decoding, so this
-// package needs no image dependency beyond Go itself. That dependency promise is
-// worth more than the convenience of accepting every format a caller might hold.
-//
-// # The protocols, and what each is good for
+// It writes escape sequences and nothing else: it does not decode pixels, hold a
+// payload after transmission, decide where an image goes, or know what a cell
+// contains. Only PNG, because its dimensions can be read without decoding the pixels
+// and the standard library already owns that — which is what lets this package need
+// no image dependency at all.
 //
 // Showing an image and showing one in an interface that redraws are two different
-// capabilities, and only one protocol has both.
+// capabilities, and [Protocol.Supports] is that distinction. Kitty's protocol gives
+// the program a handle: an image is sent once under a number, then placed, moved and
+// deleted, which is what a live region requires. iTerm2's protocol and sixel put
+// pixels at the cursor and end there, so they suit printed output and not a region
+// being drawn again sixty times a second.
 //
-// Kitty's gives the program a handle: an image is sent once under a number, placed
-// as often as needed, moved, and deleted. That is what a live region requires —
-// what it showed last frame has to be moved or taken away this frame, and a
-// protocol with no way to name an image has no way to be told which one.
-//
-// iTerm2's protocol and sixel put pixels at the cursor and end there. No number, no
-// z-order, no deletion. They are usable where nothing will redraw over the result —
-// printed output, which belongs to the terminal from then on — and not in a region
-// being drawn again sixty times a second. [Protocol.Supports] is that distinction,
-// and it is why this package names more protocols than it writes.
-//
-// What it writes is kitty and iTerm2. Sixel is detected and reported and not
-// produced: producing it means decoding the image into pixels, and a decoder is the
-// dependency this package exists without. A caller holding an encoder of its own
-// learns from [Sixel] that the terminal will take what it makes.
+// It writes kitty and iTerm2. Sixel is detected and reported but not produced,
+// because producing it means decoding the image into pixels; a caller holding its own
+// encoder learns from [Sixel] that the terminal will take what it makes.
 package graphics
 
 import (

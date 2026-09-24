@@ -23,7 +23,6 @@ func newTranscript() *Transcript {
 	return &Transcript{grew: make(chan struct{})}
 }
 
-// append adds what was just read and wakes anything waiting.
 func (t *Transcript) append(p []byte) {
 	t.mu.Lock()
 	t.buf.Write(p)

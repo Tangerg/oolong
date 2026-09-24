@@ -134,7 +134,6 @@ func (s *eventSource) readInput() {
 	}
 }
 
-// ending reports whether anyone is still waiting for what this source produces.
 func (s *eventSource) ending() bool {
 	select {
 	case <-s.stop:

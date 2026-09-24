@@ -27,7 +27,6 @@ type CursorStyle struct {
 	Blink bool
 }
 
-// sequence returns DECSCUSR for the normalized style.
 func (s CursorStyle) sequence() string {
 	switch s.Shape {
 	case CursorBlock:
@@ -310,7 +309,6 @@ type cursorState struct {
 // forget drops the tracked state, so the next frame states everything.
 func (c *cursorState) forget() { *c = cursorState{} }
 
-// emit writes the minimal cursor commands for next.
 func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
 	defer func() {
 		c.known = true

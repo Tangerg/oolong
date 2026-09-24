@@ -122,7 +122,6 @@ func isMacroLetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-// groupEnd is the offset of the brace closing the group that opens at open.
 func groupEnd(source string, open int) (int, bool) {
 	depth := 0
 	for at := open; at < len(source); at++ {
@@ -142,7 +141,6 @@ func groupEnd(source string, open int) (int, bool) {
 	return 0, false
 }
 
-// spacesAsAtoms writes every space the caller wrote as one this package renders.
 func spacesAsAtoms(argument string) string {
 	var out strings.Builder
 	out.Grow(len(argument))

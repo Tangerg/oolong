@@ -176,7 +176,6 @@ func (t *Tabs) At(x int) (int, bool) {
 	return spanAt(t.presentation.Value().spans, x)
 }
 
-// strip writes the names, the one showing in the accent and the rest muted.
 func (t *Tabs) strip(v grid.View, presented tabsPresentation) {
 	selected := presented.of.Selected()
 	for i, box := range presented.spans {
@@ -225,7 +224,6 @@ type tabsPresentation struct {
 	strip, body image.Rectangle
 }
 
-// rows is how tall the strip is, the rule included.
 func (t *Tabs) rows() int {
 	if t.Rule && t.Glyphs.Horizontal != "" {
 		return 2

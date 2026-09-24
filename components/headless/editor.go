@@ -581,7 +581,6 @@ var (
 	flatLineBreaks    = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 )
 
-// oneLine reports whether the field holds a single line.
 func (e *Editor) oneLine() bool { return e.singleLine || e.mask != "" }
 
 // InsertRune puts one character in.
@@ -979,7 +978,6 @@ func wordStart(s string, i int) int {
 	return start
 }
 
-// wordEnd is the offset past the end of the word after i.
 func wordEnd(s string, i int) int {
 	found := false
 	for at, cluster := range text.Clusters(s[i:]) {

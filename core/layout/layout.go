@@ -1,29 +1,16 @@
 // Package layout divides a region among rectangular items.
 //
-// It is geometry and nothing else: it allocates rectangles without knowing how
-// callers will use them. That keeps the same rules useful in any coordinate model
-// and makes sizing testable as arithmetic.
-//
-// # Measuring
+// It is geometry and nothing else, which keeps the same rules useful in any
+// coordinate model and makes sizing testable as arithmetic. It is deliberately a
+// small one-dimensional allocator and not the beginning of a flexbox: it owns no
+// tree, wrapping or reflow, and callers compose its rectangles when they need
+// nesting.
 //
 // A slot whose size follows from its item says so with [Measured] and supplies a
-// [Measurer]. The measurer is asked about the axis being divided, given how much
-// room there is across the other one: an item asked for one dimension given the
-// available other dimension. One question, either axis,
-// which is why [Measured] means the same thing for [Down] and [Across].
-//
-// # The other axis, and the room between
-//
-// Dividing an axis leaves two questions it cannot ask, and both were being answered
-// by hand above this package before they were answered here. [Flow] is an axis with
-// a gap between the things it divides. [Slot.Cross] says where an item sits when it
-// takes less than the available cross-axis extent.
-//
-// This is intentionally a small one-dimensional allocator, not the beginning of a
-// flexbox implementation. It does not own a tree, wrapping or reflow: callers
-// compose its rectangles when they need nesting, and callers needing a layout engine
-// should use one above this package rather than making this allocator know their
-// item lifecycle.
+// [Measurer], which is asked about the axis being divided given the room across the
+// other one. That one question is why [Measured] means the same thing for [Down] and
+// [Across]. [Flow] adds the gap between the things it divides, and [Slot.Cross] says
+// where an item sits when it takes less than the cross-axis extent.
 //
 // Each [Slot] carries one [Sizing] policy in Size. [Fixed] reserves an exact extent,
 // [Flex] shares what remains, [Part] takes a fraction of the whole, and [Measured]
@@ -331,7 +318,6 @@ func (f Flow) Wanted(across int, slots []Slot) int {
 	return Sum(wanted, gaps)
 }
 
-// gaps is how much of the axis the joins take.
 func (f Flow) gaps(slots int) int {
 	if f.Gap <= 0 || slots < 2 {
 		return 0

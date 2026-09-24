@@ -11,23 +11,15 @@ import (
 
 // Viewport shows a window onto content taller than the room there is for it.
 //
-// There was a scroll position and something that draws a bar, and nothing that put
-// content in a box and scrolled it. Every interface that wanted one wrote the same
-// three things by hand: measure the content, keep an offset, and hand the content a
-// view starting above the window so the rows off the top fall away.
+// It measures the content, keeps an offset, and hands the content a view starting
+// above the window. That last part is the whole trick: a widget drawn into a view that
+// begins above the box lays itself out at its full height and loses what is outside,
+// so nothing has to be taught about being scrolled, and a cursor placed off-screen is
+// discarded rather than drawn in the wrong place.
 //
-// That last part is the whole trick, and it is why this is so short. A view is already
-// a clipped window onto a surface, and a widget drawn into one that begins above the
-// box lays itself out at its full height and simply loses what is outside — so nothing
-// has to be taught about being scrolled. The content does not know, and the cursor it
-// places while it is off-screen is discarded rather than drawn in the wrong place.
-//
-// # What it is not
-//
-// It does not scroll content that scrolls itself. A [Transcript] measures incrementally
-// and keeps its own position, because a session's output is too tall to re-measure
-// every frame; a field taller than its box scrolls to keep its own cursor in view. Both
-// would fight a window that also had an opinion.
+// It does not scroll content that scrolls itself. A [Transcript] measures
+// incrementally and keeps its own position, and a field taller than its box scrolls to
+// keep its own cursor in view; both would fight a window with an opinion.
 //
 // The zero Viewport is empty and shows nothing. A Viewport must not be copied after
 // first use: its content focus, scroll and committed routing geometry are one mutable

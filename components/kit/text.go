@@ -374,7 +374,6 @@ func cutOff(l text.Line, room int) text.Line {
 	return append(l, text.Span{Text: ellipsis, Style: style})
 }
 
-// linesOf splits a string on newlines into logical lines.
 func linesOf(s string, style grid.Style) []text.Line {
 	var lines []text.Line
 	for line := range strings.SplitSeq(s, "\n") {

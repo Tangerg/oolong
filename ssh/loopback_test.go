@@ -51,7 +51,6 @@ func (r *recorded) written() string {
 	return string(r.sent)
 }
 
-// serve accepts one SSH session and hands it to run, returning the client end.
 func serve(t *testing.T, run func(charmssh.Session), options ...charmssh.Option) *gossh.Session {
 	t.Helper()
 	var listen net.ListenConfig

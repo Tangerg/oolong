@@ -5,26 +5,19 @@
 // it drives is a [Component], which draws itself and answers input, and everything a
 // component needs from the program it asks for through a [Runtime].
 //
-// # The concurrency model, in full
+// One goroutine draws and handles input. Anything that happens elsewhere reaches the
+// interface through a [Dispatcher] obtained from [Runtime.Dispatcher] and runs there,
+// which is why state reached only from that goroutine needs no lock.
 //
-// One goroutine draws and handles input. Anything that happens elsewhere — a request
-// finishing, a file changing, a timer firing — reaches the interface through a
-// [Dispatcher] obtained from [Runtime.Dispatcher], and runs there. That is the whole of
-// it, and it is why state reached only from that goroutine needs no internal lock.
-//
-// The program parks when there is nothing to do. It wakes for input, for posted work,
+// The program parks when there is nothing to do, waking for input, for posted work
 // and for the frame writer settling output — never on a clock that runs regardless. A
-// component that wants a clock starts one with [Runtime.After] or [Runtime.Every], and
-// an interface with nothing scheduled costs nothing.
-//
-// # The two places an interface can be
+// component that wants one starts it with [Runtime.After] or [Runtime.Every].
 //
 // A program either takes a screen of its own, which it gives back on the way out, or
 // draws in the terminal's own screen as a block with the session's output above it.
-// The second is what [Config.Inline] asks for, and it is the difference between a
-// program the user enters and leaves and one that is part of their session: what an
-// inline interface has finished with is printed with [InlineRuntime.Print] and belongs to
-// the terminal from then on — scrollable, selectable, and still there afterwards.
+// The second is what [Config.Inline] asks for: what an inline interface has finished
+// with is printed with [InlineRuntime.Print] and belongs to the terminal from then
+// on — scrollable, selectable, and still there afterwards.
 package program
 
 import (

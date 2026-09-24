@@ -43,28 +43,20 @@ type Result struct {
 
 // Search scans a transcript's text off the interface's goroutine.
 //
-// # Why it is not simply a function
+// A search box searches on every keystroke and the answer to a query three letters
+// old is worth nothing, so the newest query wins: a waiting scan and an unread result
+// are replaced, and a running scan is discarded at its next cancellation boundary. The
+// standard regexp matcher is not interruptible, so one in-progress match pass
+// completes first rather than this package keeping a matcher of its own.
 //
-// A search box searches on every keystroke, and the answer to a query three letters
-// old is worth nothing. So the newest query wins: a waiting scan and an unread result
-// are replaced, and a running scan is discarded at its next cancellation boundary.
-// The standard regexp matcher itself is not interruptible, so one in-progress match
-// pass completes before the newer scan starts. Search keeps that one matcher rather
-// than maintaining a subtly different regular-expression implementation of its own.
+// Strings are all that cross the goroutine boundary. The transcript belongs to the
+// goroutine that draws, and [Search.Submit] takes the live rows there, where reading
+// them is safe; the rows are already strings, so taking them copies headers rather
+// than text, and a superseded job releases its snapshot rather than becoming a second
+// owner of committed history.
 //
-// # What crosses the goroutine boundary
-//
-// Strings, and nothing else. The transcript belongs to the goroutine that draws, and
-// this never touches it: [Search.Submit] takes the live rows on the caller's goroutine,
-// where reading them is safe, and hands over what it took. The rows are already
-// strings, so taking them copies headers rather than text. A superseded job releases
-// that snapshot instead of turning search into a second owner of committed history.
-//
-// Results arrive on [Search.Results]. A caller reads that from a goroutine of its own
-// and posts what it gets back to the event owner. This package does not prescribe the
-// dispatcher used to cross that boundary. Each submission owns its row snapshot until
-// it finishes or is superseded; Search does not retain an older transcript generation
-// after the work that needs it is gone. A Search must not be copied after construction;
+// Results arrive on [Search.Results], which a caller reads from a goroutine of its own
+// and posts back to the event owner. A Search must not be copied after construction;
 // its worker, mailboxes and cancellation state are one owner.
 type Search struct {
 	mu sync.Mutex
@@ -237,7 +229,6 @@ func (s *Search) take() (job, bool) {
 	return next, true
 }
 
-// deliver hands a result over, replacing one nobody has read yet.
 func (s *Search) deliver(generation uint64, result Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -299,7 +290,6 @@ func (s *Search) scan(j job) (Result, bool) {
 	return result, false
 }
 
-// superseded reports whether this scan still answers the latest live submission.
 func (s *Search) superseded(generation uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -340,7 +330,6 @@ func join(rows []text.Row) (joined string, starts []int) {
 	return b.String(), starts
 }
 
-// spread turns a byte range of the joined text into the columns it covers on each row.
 func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Span, bool) {
 	first := rowAt(starts, rows, from)
 	if first < 0 {

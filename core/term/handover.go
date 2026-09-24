@@ -85,31 +85,27 @@ func (h *handover) park(stop <-chan struct{}) {
 
 // Hand gives the terminal to something else and takes it back when it returns.
 //
-// It is what opening an editor, a pager, or anything else that wants the terminal
-// for itself is made of. The session is put back exactly as it was found — the
-// modes it turned on, off in the opposite order, then cooked mode — the child runs
-// with a terminal that has no idea a program was using it, and then the whole of
-// that is done again in reverse.
+// It is what opening an editor or a pager is made of. The session is put back exactly
+// as it was found — the modes it turned on, off in the opposite order, then cooked
+// mode — and then the whole of that is done again in reverse.
 //
-// The reader comes off the terminal first and goes back on last. That is the part
+// The reader comes off the terminal first and goes back on last, which is the part
 // nothing else can do for a caller: a session that only restored the modes would
-// still be reading, and every second keystroke would go to this process instead of
-// to the child.
+// still be reading, and every second keystroke would go to this process.
 //
-// It runs on the caller's goroutine and does not return until run does, which is
-// the point — an interface that drew a frame while a child owned the terminal would
-// draw it over the child. The caller is responsible for there being nothing else
-// writing meanwhile, usually by calling this from its single owner goroutine.
+// It runs on the caller's goroutine and does not return until run does, because an
+// interface that drew a frame while a child owned the terminal would draw it over the
+// child. The caller is responsible for nothing else writing meanwhile.
 //
-// The window may be a different size afterwards, and nothing will have reported it:
-// the signal went to whichever process group was in the foreground. A fresh size is
-// asked for and delivered on [Terminal.Events], the same way a resize is.
+// The window may be a different size afterwards with nothing having reported it,
+// because the signal went to whichever process group was in the foreground. A fresh
+// size is asked for and delivered on [Terminal.Events].
 //
 // Where the reader cannot be taken off the terminal this reports
-// [errors.ErrUnsupported] and does nothing. Handing over while still reading is not
-// a lesser version of this; it is a child that drops every other keystroke. Whether
-// it can is a question about the session and not about the platform: a console can
-// be waited on, and a pipe pretending to be one cannot.
+// [errors.ErrUnsupported] and does nothing, because handing over while still reading
+// is a child that drops every other keystroke. Whether it can is a question about the
+// session rather than the platform: a console can be waited on, and a pipe pretending
+// to be one cannot.
 func (t *Terminal) Hand(run func() error) (err error) {
 	if run == nil {
 		return nil
@@ -126,7 +122,6 @@ func (t *Terminal) Hand(run func() error) (err error) {
 	return run()
 }
 
-// release gives the terminal up without ending the session.
 func (t *Terminal) release() error {
 	// Keepalives are output too. Pause before taking the writer's watermark so a
 	// refresh cannot appear after the drain and inside the child's output.
@@ -159,7 +154,6 @@ func (t *Terminal) release() error {
 	return nil
 }
 
-// resume takes the terminal back.
 func (t *Terminal) resume() error {
 	var errs []error
 	errs = append(errs, t.output.active(true))
@@ -186,7 +180,6 @@ func (t *Terminal) resume() error {
 	return errors.Join(errs...)
 }
 
-// park takes the reader off the terminal and waits for it to say it is off.
 func (t *Terminal) park() {
 	parked := t.handed.hold()
 	t.waker.wake()

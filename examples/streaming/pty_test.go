@@ -19,7 +19,6 @@ import (
 // do what they were supposed to — that the session gives the terminal back, that
 // what was printed reached the scrollback, that an idle interface goes quiet.
 
-// build compiles the example once and returns the path to it.
 func build(t *testing.T) string {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "streaming")

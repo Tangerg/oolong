@@ -11,16 +11,12 @@ import (
 
 // Stream renders markdown that is still arriving.
 //
-// It is the whole reason this module exists rather than a call to somebody's
-// renderer. A markdown parser takes a document; a program showing a model's answer
-// has a prefix of one, growing a few words at a time, and re-rendering the whole of
-// it on every chunk is quadratic in the length of the answer — which is exactly the
-// case where answers are long.
-//
-// So a stream splits what has arrived into the part that is certainly finished and
-// the part that is not. [Stream.Feed] hands back blocks for the first, once, and
-// never looks at that text again; [Stream.Open] renders the second, which is short
-// by construction and is re-rendered as often as anybody likes.
+// A markdown parser takes a document; a program showing a model's answer has a prefix
+// of one, growing a few words at a time, and re-rendering the whole of it on every
+// chunk is quadratic in the length of the answer. So a stream splits what has arrived
+// into the part that is certainly finished and the part that is not. [Stream.Feed]
+// hands back blocks for the first, once, and never looks at that text again;
+// [Stream.Open] renders the second, which is short by construction.
 //
 //	for chunk := range answer {
 //	    blocks, feedErr := stream.Feed(chunk)
@@ -32,23 +28,16 @@ import (
 //	doc.Append(blocks...)
 //	report(err)
 //
-// # Where it cuts
+// It cuts at a blank line once a line has arrived after it that does not begin with a
+// space, and never inside a raw block. That is what "certainly finished" can be made
+// of without a parser that can be asked what it is in the middle of.
 //
-// At a blank line, once a line has arrived after it that does not begin with a
-// space — and never inside fenced code or display mathematics. That is what
-// "certainly finished" can be made of without a parser that can be asked what it is
-// in the middle of: a blank line ends every block markdown has, except that a list or
-// an indented block of code carries on across one when what follows it is indented.
+// The cost is stated rather than hidden: a list with blank lines between its items is
+// published in pieces and reads the same, and a reference link is published before its
+// address arrives and comes out as the words without the link.
 //
-// The cost of the rule is stated rather than hidden. A list with blank lines between
-// its items is published in pieces, and reads the same. A link written as a
-// reference — the address on a line of its own further down — is published before
-// its address arrives, and comes out as the words without the link. Both are the
-// price of showing an answer as it is written instead of after it is finished.
-//
-// A Stream must not be copied after first use, like [strings.Builder]. It is owned
-// by the goroutine feeding and rendering one source and is not safe for concurrent
-// use. Its zero value is ready.
+// A Stream must not be copied after first use, like [strings.Builder]. It is owned by
+// the goroutine feeding and rendering one source. Its zero value is ready.
 type Stream struct {
 	noCopy noCopy
 
@@ -206,28 +195,18 @@ func (s *Stream) Reset() {
 // scan reads the complete lines that have arrived since the last call and returns
 // where the held text could be cut, or zero for nowhere.
 //
-// Could, not may. This reads lines and nothing else: a blank line, and then a line
-// at the left margin that begins something new. Whether a cut there would fall
-// inside text the parser is not allowed to interpret is [Stream.splitsARawBlock]'s
-// answer, and the scan does not try to have an opinion about it.
+// Could, not may: this reads lines and nothing else. Whether a cut there falls inside
+// text the parser may not interpret is [Stream.splitsARawBlock]'s answer, and the scan
+// has no opinion about it — tracking fences approximately is what made three lines
+// that only look like one leave the scan believing it was inside a block of code
+// nothing could close, proposing no cuts at all. A guard that can only refuse a
+// candidate cannot recover one that is never offered.
 //
-// It used to track fences itself, to save the parser the trouble. Tracking them
-// approximately is the trouble: three lines that only look like fences — an info
-// string with a backtick in it, a run of backticks inside an HTML comment, a closing
-// fence indented under a list item — left the scan believing it was inside a block
-// of code with nothing in the document able to close it. From there it proposed no
-// cuts at all, and a guard that can only refuse a candidate cannot recover a
-// candidate that is never offered. Everything after such a line waited for the end
-// of the answer.
+// The parse that tracking saved was measured at 2.7% of a feed in the loop [Stream]
+// documents, where [Stream.Open] renders the whole unpublished tail anyway.
 //
-// What that tracking bought was measured before it was given up: in the loop this
-// type documents, where every feed is followed by [Stream.Open], the parse it saved
-// is 2.7% of what the feed already costs. Open renders the whole unpublished tail,
-// and a long tail is the case the tracking was protecting.
-//
-// Only whole lines are looked at. A line that has not ended cannot be told apart
-// from the beginning of a different one, so the scan stops at the last newline and
-// takes up there when more arrives.
+// Only whole lines are looked at, because a line that has not ended cannot be told
+// apart from the beginning of a different one.
 func (s *Stream) scan() int {
 	cut := 0
 	source := s.held.String()
@@ -291,7 +270,6 @@ func (s *Stream) splitsARawBlock(cut int) bool {
 	return split
 }
 
-// rawBlockSplit reports whether cut falls inside one block of uninterpreted text.
 func rawBlockSplit(node ast.Node, cut int) bool {
 	if node.Type() != ast.TypeBlock {
 		return false

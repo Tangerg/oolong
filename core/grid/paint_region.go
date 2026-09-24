@@ -10,29 +10,19 @@ import (
 //
 // It is what a cell cannot hold: a picture, a plot drawn in pixels, anything whose
 // contents are bytes the terminal understands and this package does not. A frame
-// keeps room for one with [View.Paint], writes the cells around it as usual, and
-// then hands it the writer with the cursor already at the region's corner.
+// keeps room for one with [View.Paint], writes the cells around it as usual, and then
+// hands it the writer with the cursor already at the region's corner.
 //
-// # The one rule
+// Paint must leave the cursor where it found it. A frame is written as a stream of
+// movements from one known position to the next, so a painter that moved the cursor
+// would move everything drawn after it. That rule is also what makes a protocol
+// usable in a region that redraws: the image protocol that can be told not to move
+// the cursor is the same one that can be told to remove an image again.
 //
-// Paint must leave the cursor where it found it.
-//
-// That is not a nicety. A frame is written as a stream of movements from one known
-// position to the next — an inline block's whole position is relative to where the
-// last frame left the cursor — so a painter that moved it would move everything
-// drawn after it. The rule is also, exactly, what makes a protocol usable in a
-// region that redraws: the image protocol that can be told not to move the cursor is
-// the same one that can be told to remove an image again, and the ones that cannot
-// are the ones that only work in output that is never drawn over. See the graphics
-// package, which says the same thing from the other side.
-//
-// # Erasing
-//
-// Some terminals remember what they were shown. An image placed by name stays until
-// it is taken away, so a region that has gone — scrolled off, replaced, resized — has
-// to be unsaid rather than merely painted over, and [Painter.Erase] is where that is
-// written. A painter whose output is only cells has nothing to undo and writes
-// nothing.
+// [Painter.Erase] exists because some terminals remember what they were shown. An
+// image placed by name stays until it is taken away, so a region that has gone has to
+// be unsaid rather than painted over. A painter whose output is only cells writes
+// nothing there.
 type Painter interface {
 	// Paint writes what puts this in a region of size cells, with the
 	// terminal's cursor already at its top-left corner, and leaves the cursor there.
@@ -86,7 +76,6 @@ func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
 	v.surface.paints = append(v.surface.paints, painted{rect: area, id: id, by: by})
 }
 
-// regions is what the surface's frame keeps room for.
 func (s *Surface) regions() []painted {
 	if s == nil {
 		return nil
@@ -134,7 +123,6 @@ func repaint(out io.Writer, was, now []painted, move func(image.Point)) error {
 	return nil
 }
 
-// held reports whether a region is in a set unchanged.
 func held(set []painted, region painted) bool {
 	for _, other := range set {
 		if other.same(region) {

@@ -11,17 +11,12 @@ const (
 	// other is ST: an escape and a backslash.
 	bel = ansi.Bell
 
-	// oscIntro and dcsIntro are the bytes that introduce the two strings a terminal
-	// answers with: an operating system command, and a device control string.
+	// Each introducer is also what a terminal sends for a chord — Alt+] and
+	// Alt+Shift+P — and the byte alone cannot tell the two apart, so each is decoded
+	// only when what follows looks like an answer. See [oscHead] and [dcsHead].
 	//
-	// Each is also what a terminal sends for a chord — Alt+] for the first,
-	// Alt+Shift+P for the second — and the introducer alone cannot tell the two
-	// apart. So each is decoded only when what follows looks like an answer, and
-	// anything else is the keystroke. See [oscHead] and [dcsHead].
-	//
-	// The rest of the family is still not decoded. A start-of-string and a privacy
-	// message would cost Alt+Shift+X and Alt+^ to catch sequences nothing here ever
-	// asks for, and a sequence nobody asked for does not arrive.
+	// The rest of the family is left undecoded: catching a start-of-string or a privacy
+	// message would cost Alt+Shift+X and Alt+^ for sequences nothing here asks for.
 	oscIntro = ']'
 	dcsIntro = 'P'
 
@@ -113,7 +108,6 @@ func dcsHead(b []byte) (size int) {
 	}
 }
 
-// beginString starts accumulating a string of the given kind.
 func (p *Parser) beginString(kind stringKind, cmd int) {
 	p.str, p.oscCmd, p.strBody = kind, cmd, nil
 }
@@ -180,7 +174,6 @@ func (p *Parser) endString() Event {
 	return OSC{Command: cmd, Params: body}
 }
 
-// abandonString forgets whatever was being accumulated.
 func (p *Parser) abandonString() {
 	p.str, p.oscCmd, p.strBody = noString, 0, nil
 }

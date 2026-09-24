@@ -134,7 +134,6 @@ func (e *Editor) typed(key input.Key) bool {
 	return false
 }
 
-// keys is the map to read through, standing in the default for a caller who set none.
 func (e *Editor) keys() *keymap.Map {
 	if e.Keys != nil {
 		return e.Keys

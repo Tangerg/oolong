@@ -8,11 +8,10 @@ import (
 
 // DetectDepth works out how much colour a terminal can show from its environment.
 //
-// This is the one place the library detects rather than asks. Everything else a
-// terminal might not support is requested and ignored if unimplemented, which
-// costs nothing when the guess is wrong. Colour is not like that: a truecolor
-// sequence sent to a terminal that cannot read it does not degrade, it prints
-// wrong, and there is no request that fails safely.
+// This is the one place the library detects rather than asks. Every other optional
+// behaviour is requested and ignored if unimplemented, which costs nothing when the
+// guess is wrong; a truecolor sequence sent to a terminal that cannot read it does
+// not degrade, it prints wrong.
 //
 // What it reads, in the order it reads it:
 //
@@ -24,12 +23,10 @@ import (
 //   - TERM mentioning 256 means the 256-colour palette.
 //   - Anything else is truecolor.
 //
-// That last line is a decision worth stating. Plenty of terminals handle 24-bit
-// colour and describe themselves as plain "xterm", so treating an unrecognised
-// TERM as sixteen colours would make the common case worse to fix the rare one. A
-// caller that knows better can use its own answer instead.
+// Plenty of terminals handle 24-bit colour and describe themselves as plain "xterm",
+// so that last line makes the common case better at the rare one's expense.
 //
-// lookup reports value and presence separately, so an empty NO_COLOR remains
+// lookup reports value and presence separately, so an empty NO_COLOR stays
 // distinguishable from an absent one. It is explicit because the environment belongs
 // to the terminal being driven, which may be a PTY or SSH client rather than this
 // process.

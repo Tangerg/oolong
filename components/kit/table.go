@@ -264,7 +264,6 @@ func (l TableLayout) ColumnAt(x int) (int, bool) {
 	return 0, false
 }
 
-// mark is what goes after a column's title to say the rows are in its order.
 func (t Table) mark(column int) string {
 	if t.Sorted == nil {
 		return ""

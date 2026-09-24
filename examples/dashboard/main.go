@@ -318,7 +318,6 @@ func (q *queue) state(of task) grid.Style {
 	}
 }
 
-// advance moves every task along by one step.
 func (q *queue) advance(by int) {
 	items := q.rows.Items()
 	for i := range items {

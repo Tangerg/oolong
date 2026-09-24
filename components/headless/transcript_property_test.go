@@ -13,7 +13,6 @@ import (
 // and the questions are asked by four different owners — so the answers are checked
 // against each other rather than against what any one of them expects.
 
-// blockCount is a count as the identity offset it stands for.
 func blockCount(n int) headless.BlockID {
 	if n < 0 {
 		panic("negative block count")

@@ -9,7 +9,6 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// files is a small tree to walk about in.
 func files() []headless.Node[string] {
 	return []headless.Node[string]{
 		{Item: "core", Children: []headless.Node[string]{
@@ -20,7 +19,6 @@ func files() []headless.Node[string] {
 	}
 }
 
-// shape is what the tree is showing, one row per line, indented by depth.
 func shape(t *headless.Tree[string]) string {
 	var b strings.Builder
 	for i, row := range t.Rows() {

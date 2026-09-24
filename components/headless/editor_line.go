@@ -121,7 +121,6 @@ func (e *Editor) shown() string {
 	return e.lineView(e.lines[0]).shown()
 }
 
-// lineAt is an offset into what is drawn as one into the line.
 func (e *Editor) lineAt(at int) int {
 	if e.mask == "" {
 		return at
@@ -141,7 +140,6 @@ func (e *Editor) lineAt(at int) int {
 	return len(line)
 }
 
-// atLine is where a point lands in a field that holds one line.
 func (e *Editor) atLine(x int) Caret {
 	col := e.lineAt(text.OffsetAt(e.shown(), layout.Translate(x, e.presentation.Value().left)))
 	return Caret{Col: e.snapElement(0, col, true)}

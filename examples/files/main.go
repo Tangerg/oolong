@@ -121,7 +121,6 @@ func (b *browser) Draw(v headless.Frame) {
 	}.Draw(rows[1].View)
 }
 
-// show keeps the preview in step with what the cursor is on, once per change.
 func (b *browser) show() {
 	row, ok := b.tree.CurrentRow()
 	if !ok || row.Item.path == b.showing {
@@ -188,7 +187,6 @@ func preview(of entry, theme kit.Theme) []text.Line {
 	return lines
 }
 
-// read walks a directory into the nodes a tree is made of, to a depth.
 func read(root string, depth int) []headless.Node[entry] {
 	if depth < 0 {
 		return nil

@@ -487,7 +487,6 @@ type running struct {
 	t    *testing.T
 }
 
-// start runs a program over a fake host.
 func start(t *testing.T, prepare func(*component)) *running {
 	t.Helper()
 	h := newHost(t)
@@ -508,7 +507,6 @@ func start(t *testing.T, prepare func(*component)) *running {
 	return &running{host: h, root: root, done: done, t: t}
 }
 
-// until waits for something to become true, failing if the program ends first.
 func (r *running) until(what string, cond func() bool) {
 	r.t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -1790,7 +1788,6 @@ func (p *printer) Handle(input.Event) bool {
 	return true
 }
 
-// startInline runs an inline program over a fake host.
 func startInline(t *testing.T) (*host, *printer, chan error) {
 	t.Helper()
 	h := newHost(t)
@@ -2185,7 +2182,6 @@ func (r *recorder) pasted() []string {
 	return slices.Clone(r.pastes)
 }
 
-// startRecording runs a program whose component keeps what it was handed.
 func startRecording(t *testing.T) (*running, *recorder) {
 	t.Helper()
 	h := newHost(t)

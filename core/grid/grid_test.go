@@ -44,7 +44,6 @@ func text(s *grid.Surface, y int) string {
 	return b.String()
 }
 
-// flush renders one frame and returns the bytes, without the frame markers.
 func flush(t *testing.T, s *grid.Screen, cursor grid.Cursor, draw func(grid.View)) string {
 	t.Helper()
 	v := s.Frame()

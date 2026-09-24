@@ -40,7 +40,6 @@ type Box struct {
 	FooterAlign layout.Align
 }
 
-// border is the frame this box actually draws.
 func (b Box) border() Border {
 	if b.Bare {
 		return Border{}

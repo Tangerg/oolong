@@ -66,7 +66,6 @@ func (f *field) Focus(has bool) {
 	f.told++
 }
 
-// lastMouse is the last pointer event this field was given.
 func (f *field) lastMouse(t *testing.T) input.Mouse {
 	t.Helper()
 	if len(f.mice) == 0 {
@@ -75,7 +74,6 @@ func (f *field) lastMouse(t *testing.T) input.Mouse {
 	return f.mice[len(f.mice)-1]
 }
 
-// press is a left button press at a point.
 func pressAt(x, y int) input.Mouse {
 	return input.Mouse{Pos: image.Pt(x, y), Action: input.MouseDown, Button: input.ButtonLeft}
 }

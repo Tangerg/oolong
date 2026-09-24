@@ -189,7 +189,6 @@ func click(x, y int) input.Mouse {
 	return input.Mouse{Pos: image.Pt(x, y), Action: input.MouseDown, Button: input.ButtonLeft}
 }
 
-// drag is a pointer moving with the button held, on the first row.
 func drag(x int) input.Mouse {
 	return input.Mouse{Pos: image.Pt(x, 0), Action: input.MouseDrag, Button: input.ButtonLeft}
 }

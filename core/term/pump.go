@@ -122,7 +122,6 @@ func (p *pump) send(events []input.Event) bool {
 	return true
 }
 
-// clock is when it is now, as this pump reckons it.
 func (p *pump) clock() time.Time {
 	if p.now != nil {
 		return p.now()

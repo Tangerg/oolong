@@ -151,7 +151,6 @@ func (r *runner) start() {
 	_ = r.ingress.CloseWithError(errors.Join(readErr, ended))
 }
 
-// accept applies one ordered byte batch on the interface owner.
 func (r *runner) accept(batch program.ByteBatch) {
 	if len(batch.Data) > 0 {
 		r.output(string(batch.Data))
@@ -171,7 +170,6 @@ func (r *runner) output(chunk string) {
 	}
 }
 
-// finish prints whatever was left, says how it went, and asks for attention.
 func (r *runner) finish(err error) {
 	for _, line := range r.out.Flush() {
 		paragraph := &kit.Paragraph{}
@@ -236,7 +234,6 @@ func (r *runner) Handle(ev input.Event) bool {
 	return true
 }
 
-// edit opens whatever the user's editor is, on a scratch file.
 func edit() error {
 	name := os.Getenv("EDITOR")
 	if name == "" {

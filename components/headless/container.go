@@ -13,29 +13,17 @@ import (
 
 // Focusable is a widget that can hold the keyboard.
 //
-// # Why a widget has to be told
+// A keystroke has one destination and a frame has one cursor, so the answer is pushed
+// rather than pulled: a [Container] tells the widget that has the keyboard and tells
+// the ones that do not. Letting an event fall through until somebody claims it gives
+// two editors that both claim every key and both place the cursor.
 //
-// A keystroke has one destination and a frame has one cursor, so with more than one
-// field on screen something has to decide which of them the typing is for. Deciding
-// it by letting an event fall through until somebody claims it works while the
-// widgets are in a line and nothing else: two editors both claim every key, and both
-// place the terminal's cursor, and the one that draws last wins.
+// A widget that has never been told assumes it has the keyboard, which is what makes a
+// single field work as the whole interface with no container above it to say so.
 //
-// So the answer is pushed rather than pulled. A [Container] tells the widget that has
-// the keyboard, and tells the ones that do not, and a widget draws itself
-// accordingly — a cursor, a lit border, a highlighted row.
-//
-// # Why the zero value has the keyboard
-//
-// A widget that has never been told anything assumes it has the keyboard. That is
-// what makes a single field work when it is the whole interface, with no container
-// above it to say so — which is how most interfaces start, and how every one of this
-// library's examples began. A container tells every child where it stands as soon as
-// it has one, so nothing is ever left guessing once there is a choice to make.
-//
-// Answering input is not the same as wanting the keyboard, which is why this is its
-// own interface. A transcript answers the wheel and a drag; it is not somewhere the
-// user types, and it has no business in the ring that tab walks.
+// It is its own interface because answering input is not the same as wanting the
+// keyboard: a transcript answers the wheel and a drag, and has no business in the ring
+// that tab walks.
 type Focusable interface {
 	Interactive
 	// Focus is told true when this widget takes the keyboard and false when it loses
@@ -71,28 +59,16 @@ type Item struct {
 
 // Container arranges widgets in a region and decides which of them an event is for.
 //
-// It is the piece that was missing while every interface here was a single widget
-// with everything hand-wired underneath it. A caller that had two things on screen
-// laid them out itself, forwarded events itself, and worked out for itself which of
-// them a click had landed on — and the answer to the last one is only knowable while
-// a frame is being drawn, so it had to be remembered by hand as well.
+// A key goes to the widget that has the keyboard and a mouse event goes to the widget
+// it is over. They are different questions, and treating them as one is what makes an
+// interface where clicking a pane does not let you type in it. A press is captured:
+// everything until the release goes to whichever child took it, wherever the pointer
+// wanders, because otherwise a selection stops extending the moment the drag leaves
+// the pane it started in.
 //
-// # The two routings
-//
-// A key goes to the widget that has the keyboard. A mouse event goes to the widget it
-// is over. They are different questions with different answers, and treating them as
-// one is what makes an interface where clicking a pane does not let you type in it,
-// or where the wheel scrolls whatever was last typed into.
-//
-// A press is captured: everything until the release goes to whichever child took it,
-// wherever the pointer wanders. Without that a selection stops extending the moment
-// the drag leaves the pane it started in, which is not what any interface does.
-//
-// # What it does not do
-//
-// It does not draw. There is no border, no gap, no highlight for the focused child:
-// those are appearance, they belong a layer up, and a container that had an opinion
-// about them would be one nobody could dress differently.
+// It does not draw. A border, a gap or a highlight for the focused child is
+// appearance, and a container with an opinion about them is one nobody could dress
+// differently.
 //
 // The zero Container is an empty column, ready to have items appended. A Container
 // must not be copied after first use: children, focus, pointer capture and committed
@@ -380,7 +356,6 @@ func (c *Container) Do(action keymap.Action) bool {
 	return false
 }
 
-// mouse routes a pointer event by where it is, and by who took the press.
 func (c *Container) mouse(ev input.Mouse) bool {
 	if ev.Action == input.MouseDown {
 		// A new press begins a new gesture even if the terminal never reported the
@@ -438,7 +413,6 @@ func (c *Container) deliver(to childPlacement, ev input.Mouse) bool {
 	return handler.Handle(local)
 }
 
-// at finds the child under a point in the last complete frame.
 func (c *Container) at(p image.Point) (childPlacement, bool) {
 	for _, child := range c.presentation.Value() {
 		if p.In(child.area) {
@@ -550,7 +524,6 @@ func (c *Container) move(to int) {
 	}
 }
 
-// step moves the keyboard along the ring by one, in the given direction.
 func (c *Container) step(by int) bool {
 	c.settle()
 	n := len(c.items)
@@ -571,7 +544,6 @@ func (c *Container) step(by int) bool {
 	return false
 }
 
-// first is the earliest child that will take the keyboard, or -1.
 func (c *Container) first() int {
 	for i, item := range c.items {
 		if _, ok := item.Of.(Focusable); ok {
@@ -625,7 +597,6 @@ func checkItemKeys(items []Item) {
 	}
 }
 
-// keys is the map to read through, standing in the default for a caller who set none.
 func (c *Container) keys() *keymap.Map {
 	if c.Keys != nil {
 		return c.Keys
@@ -633,7 +604,6 @@ func (c *Container) keys() *keymap.Map {
 	return containerKeys()
 }
 
-// tell says whether a widget has the keyboard, if it is the kind that wants to know.
 func tell(w Widget, has bool) {
 	if focusable, ok := w.(Focusable); ok {
 		focusable.Focus(has)

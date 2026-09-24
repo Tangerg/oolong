@@ -8,7 +8,6 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// feed decodes a whole string in one go.
 func feed(s string) []input.Event {
 	var p input.Parser
 	return p.Feed([]byte(s))

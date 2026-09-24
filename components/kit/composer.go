@@ -103,7 +103,6 @@ func (c *Composer) Draw(v headless.Frame) {
 	}
 }
 
-// drawField puts the marker on the first row and the field beside it.
 func (c *Composer) drawField(v headless.Frame) {
 	marker := c.markerWidth()
 	if marker > 0 {

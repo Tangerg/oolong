@@ -195,7 +195,6 @@ func (p *prompt) insertPaste(body string) {
 	p.refreshCompletion()
 }
 
-// attach puts one chip at the cursor and keeps the bytes it stands for.
 func (p *prompt) attach(body string) {
 	element := p.composer.Editor().InsertElement(pasteElement, pasteLabel(body))
 	if element.ID != 0 {
@@ -221,7 +220,6 @@ type chip struct {
 	body string
 }
 
-// current is the composer's document as something that can be put back.
 func (p *prompt) current() draft {
 	editor := p.composer.Editor()
 	text := editor.Text()
@@ -279,7 +277,6 @@ func (p *prompt) restore(d draft) {
 	}
 }
 
-// recallBack steps one entry further into the past.
 func (p *prompt) recallBack() {
 	if !p.history.Walking() {
 		// The walk is about to take the draft away, and what it says is only half of

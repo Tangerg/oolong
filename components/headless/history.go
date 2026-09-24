@@ -9,21 +9,13 @@ import (
 
 // History is what the user typed before, and a place in it.
 //
-// # The draft
+// The first step backwards keeps the draft and coming forward past the newest entry
+// gives it back: a half-typed line is the only text in a prompt the user cannot get
+// again by scrolling.
 //
-// Walking back through history has to be undoable, and the thing that gets lost is
-// what the user had already typed: they are half way through a line, press up to
-// check something, and press down again expecting their line back. So the first step
-// backwards keeps the draft, and coming forward past the newest entry gives it back.
-// Nothing else in a prompt is as annoying to lose, because it is the only text the
-// user cannot get again by scrolling.
-//
-// # What is not kept
-//
-// Consecutive duplicates, and empty lines. Somebody who runs the same thing twice has
-// not made two entries worth stepping through, and a blank line was not an entry at
-// all. Duplicates that are not consecutive are kept, because the order tells the
-// truth about what happened.
+// Consecutive duplicates and empty lines are not kept, because running the same thing
+// twice does not make two entries worth stepping through. Duplicates that are not
+// consecutive are kept, because the order tells the truth about what happened.
 //
 // The zero value is an empty history. A History must not be copied after first use;
 // its retained entries, draft and current walk are one mutable sequence.

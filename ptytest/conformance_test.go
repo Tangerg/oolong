@@ -59,7 +59,6 @@ func (p picture) draw(view grid.View) {
 	}
 }
 
-// next is one change to a picture: the kinds an interface actually makes.
 func (p picture) next(random *rand.Rand, cols, rows int) picture {
 	out := picture{rows: slices.Clone(p.rows), cursor: p.cursor}
 	switch random.IntN(6) {
@@ -130,7 +129,6 @@ func shownAfter(t *testing.T, cols, rows int, pictures []picture) ([]string, boo
 	return slices.Clone(model.Rows()), scrolled
 }
 
-// asksToScroll reports whether a frame moves rows by asking the terminal to scroll.
 func asksToScroll(t *testing.T, frame []byte) bool {
 	t.Helper()
 	var scanner ansi.Scanner

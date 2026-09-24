@@ -17,33 +17,27 @@ type ElementKind uint8
 
 // Element is a run of an editor's text that behaves as one character.
 //
-// A prompt is often not only text. A dropped image, a picked file, a mentioned name:
-// each is shown as a word or two and stands for something the word is not. Letting
-// the cursor walk into the middle of one, or a backspace take a letter off the end of
-// one, leaves a fragment that still looks like the thing and no longer is.
-//
-// So an element is atomic: the cursor steps over it, a delete takes all of it, and
-// nothing lands inside. Its identity ordinarily survives editing around it, which is
-// what lets a program keep whatever the element stands for beside it.
+// A dropped image, a picked file or a mentioned name is shown as a word or two and
+// stands for something the word is not, so letting the cursor walk into the middle of
+// one leaves a fragment that still looks like the thing. An element is therefore
+// atomic: the cursor steps over it, a delete takes all of it, and nothing lands
+// inside. Its identity ordinarily survives editing around it.
 //
 // # When an identity ends
 //
 // What makes an element atomic is that it begins and ends where a caret may sit, and
 // an edit beside one can take that away without touching a byte of it: a regional
-// indicator left next to another is one flag, and a single grapheme cluster cannot be
-// half an element and half the text around it. The cursor could then not be put at
-// its edge, so it could be neither stepped over nor taken whole — which is the
-// fragment this type exists to prevent.
+// indicator left next to another is one flag, and a grapheme cluster cannot be half
+// an element and half the text around it.
 //
-// An element in that position loses its identity: the text stays exactly as the edit
+// An element in that position loses its identity. The text stays exactly as the edit
 // left it and the element is gone from [Editor.Elements], as though it had been
-// deleted. Undo restores both, because it restores the document the element was
-// still an element in. A program keying a payload by [Element.ID] learns of it the
-// way it learns of a deletion — see [Editor.RetainedElementIDs].
+// deleted; undo restores both, because it restores the document the element was still
+// an element in. A program keying a payload by [Element.ID] learns of it the way it
+// learns of a deletion — see [Editor.RetainedElementIDs].
 //
-// It is a [text.Mark] in the coordinates this editor speaks. The rule that keeps it
-// over the same words while the text around it changes is that type's, and it is the
-// same rule a highlight or a search result would need — see [text.Edit.Shift].
+// It is a [text.Mark] in the coordinates this editor speaks, and the rule keeping it
+// over the same words as the text changes is that type's — see [text.Edit.Shift].
 type Element struct {
 	// ID is unique within one editor and stable for as long as the element exists.
 	// It is what a program keys its own record of the element by.
@@ -396,7 +390,6 @@ func offsetInLines(lines []string, c Caret) int {
 	return at + min(max(c.Col, 0), len(lines[line]))
 }
 
-// caretAt is a byte offset as a line and a column.
 func (e *Editor) caretAt(at int) Caret {
 	e.ensure()
 	for i, line := range e.lines {
@@ -409,7 +402,6 @@ func (e *Editor) caretAt(at int) Caret {
 	return Caret{Line: last, Col: len(e.lines[last])}
 }
 
-// elementOf is a mark in the coordinates the editor's callers speak.
 func (e *Editor) elementOf(m text.Mark) Element {
 	start := e.caretAt(m.Start)
 	end := e.caretAt(m.End)

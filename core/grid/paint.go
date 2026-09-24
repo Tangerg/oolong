@@ -318,7 +318,6 @@ func (p *painter) paint(s *Surface, y0, y1 int, dirty func(i, width int) bool) {
 	}
 }
 
-// changedAgainst reports cells that differ from the same position in prev.
 func changedAgainst(prev, next *Surface) func(i, width int) bool {
 	return func(i, width int) bool {
 		return !slices.Equal(next.cells[i:i+width], prev.cells[i:i+width])
@@ -377,7 +376,6 @@ func (u paintUnit) byteCost() int {
 	return u.width
 }
 
-// everything accepts every cell, for a full repaint.
 func everything(int, int) bool { return true }
 
 var attrCodes = [...]struct {

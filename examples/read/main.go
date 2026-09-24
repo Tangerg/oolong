@@ -100,7 +100,6 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	return r
 }
 
-// advance takes the next piece of the answer.
 func (r *reader) advance() {
 	r.spinner.Tick()
 	if r.at >= len(r.pieces) {

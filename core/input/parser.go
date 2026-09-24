@@ -233,7 +233,6 @@ func (p *Parser) advanceInput(final bool) (Event, bool) {
 	return nil, true
 }
 
-// skipRunaway drops the rest of whichever runaway sequence is being thrown away.
 func (p *Parser) skipRunaway() bool {
 	if p.dropping == droppingString {
 		return p.skipString()
@@ -322,7 +321,6 @@ func (p *Parser) takePaste() string {
 	return text
 }
 
-// closePaste publishes the final payload and leaves paste mode.
 func (p *Parser) closePaste() string {
 	p.pasting = false
 	return p.takePaste()
@@ -405,7 +403,6 @@ func (p *Parser) decodeEscape(b []byte, final bool) (n int, ev Event, done bool)
 	return n, ev, done
 }
 
-// decodeIntroduced reads the sequence the byte after the escape introduces.
 func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	switch second := b[1]; {
 	case second == '[':
@@ -514,15 +511,13 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	}
 
 	// Everything past here turns a sequence into a keystroke, and a keystroke nobody
-	// pressed is worse than no keystroke at all — so the whole parameter section has
-	// to be readable, not merely the groups the form this happens to be looks at.
-	// Checking group by group asks a different question in every key form, and the
-	// group a form does not read is the one a terminal — or something pretending to
-	// be one — is free to put anything in.
+	// pressed is worse than none — so the whole parameter section has to be readable,
+	// not merely the groups this form looks at. The group a form ignores is the one
+	// something pretending to be a terminal is free to fill.
 	//
-	// A report is the other way round and stays that way: an extension nobody can
-	// read is a claim nobody can act on, and the rest of the list is still worth
-	// having. See [params.deviceAttributes].
+	// A report is the other way round: an extension nobody can read is a claim nobody
+	// can act on, and the rest of the list is still worth having. See
+	// [params.deviceAttributes].
 	if !ps.Valid() {
 		return n, nil, true
 	}
@@ -735,7 +730,6 @@ func mouseButton(bits int) Button {
 	}
 }
 
-// commonPrefix is how many leading bytes a and b share.
 func commonPrefix(a, b []byte) int {
 	n := min(len(a), len(b))
 	for i := range n {

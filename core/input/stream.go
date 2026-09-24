@@ -8,24 +8,19 @@ import (
 
 // Stream turns a transport's byte stream into the events an interface handles.
 //
-// Every transport that reads a terminal — the local one, an accepted SSH session,
-// anything else — has the same three decisions to make, and only the bytes differ:
-// when an ambiguous escape has waited long enough to be the Escape key, when an event
-// arrived, and whether a clipboard answer settles a request this session made. A
-// transport that made them itself would be a second place those rules live, and the
-// two would agree only for as long as somebody kept checking.
+// Every transport that reads a terminal makes the same three decisions and only the
+// bytes differ: when an ambiguous escape has waited long enough to be the Escape key,
+// when an event arrived, and whether a clipboard answer settles a request this session
+// made. A transport deciding them itself is a second place those rules live.
 //
-// It is state, not machinery: it owns no goroutine, reads nothing, and waits for
-// nothing. Its driver hands it bytes, asks [Stream.DueAt] when it must be woken
-// again, and calls [Stream.Expire] when that moment arrives. What remains transport-
-// specific — which channels carry the bytes, how a stop is signalled, where the
-// events go — stays with the transport, where it belongs.
+// It is state rather than machinery: it owns no goroutine, reads nothing and waits for
+// nothing. Its driver hands it bytes, asks [Stream.DueAt] when it must be woken again,
+// and calls [Stream.Expire] then.
 //
-// The zero value is a decoder of its own: a fresh parser, [DefaultEscapeTimeout], and
-// no clipboard. [NewStream] is for a transport that has something to say about either
-// of the last two. The parser is never anyone else's: a half-decoded sequence and the
-// moment its ambiguity runs out are one fact, and a transport that could be handed a
-// parser without its deadline would be given a decoder whose waiting nobody was doing.
+// The zero value is a decoder of its own: a fresh parser, [DefaultEscapeTimeout] and
+// no clipboard. The parser is never anyone else's, because a half-decoded sequence and
+// the moment its ambiguity runs out are one fact — a transport handed a parser without
+// its deadline would have a decoder whose waiting nobody was doing.
 //
 // A Stream belongs to whichever goroutine reads the transport and must not be copied
 // after first use: its parser and its deadline are one decoder.
@@ -107,7 +102,6 @@ func (s *Stream) Flush(at time.Time) []Event {
 // escape is never delivered at all.
 func (s *Stream) DueAt() (time.Time, bool) { return s.deadline, s.waiting }
 
-// arm re-reads the parser's ambiguity against at.
 func (s *Stream) arm(at time.Time) {
 	if s.decoder().Ambiguous() {
 		s.deadline, s.waiting = at.Add(s.escapeGrace()), true

@@ -50,15 +50,11 @@ type Match struct {
 // Score matches pattern against candidate, case-insensitively, and reports whether
 // it matched at all. An empty pattern matches everything, with nothing highlighted.
 //
-// # What it does not do
-//
 // It is not a full alignment search. Where a pattern character could bind to several
-// places, this tries the first one and every one that begins a word, and keeps the
-// best of those — which is what makes "st" find the "status" in "test_status" instead
-// of settling for the "st" in "test". A placement that is better for some other
-// reason, in a candidate with no word boundary to hint at it, can still be missed.
-// That is a deliberate stopping point: candidates are palette-sized, patterns are
-// short, and the alternative is a scoring matrix per candidate.
+// places this tries the first and every one that begins a word, which is what makes
+// "st" find the "status" in "test_status" rather than the "st" in "test". A better
+// placement with no word boundary to hint at it can still be missed: candidates are
+// palette-sized and the alternative is a scoring matrix per candidate.
 func Score(pattern, candidate string) (Match, bool) {
 	if pattern == "" {
 		return Match{}, true

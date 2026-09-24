@@ -144,7 +144,6 @@ func equalRows(t *testing.T, got, want []string) {
 
 func key(code input.Code) input.Event { return input.Key{Code: code} }
 
-// offer opens a completion on a token with plain candidates.
 func offer(c *headless.Completion, texts ...string) headless.Token {
 	token := headless.Token{Start: 1, End: 4, Query: "src", Trigger: file}
 	candidates := make([]headless.Candidate, len(texts))
@@ -155,7 +154,6 @@ func offer(c *headless.Completion, texts ...string) headless.Token {
 	return token
 }
 
-// typeText sends each character of s to the editor as a keystroke.
 func typeText(e *headless.Editor, s string) {
 	for _, r := range s {
 		e.Handle(input.Key{Code: input.Character, Rune: r})
@@ -188,7 +186,6 @@ func wheel(action input.MouseAction) input.Event {
 	return input.Mouse{Action: action}
 }
 
-// items builds a list of numbered strings.
 func items(n int) []string {
 	out := make([]string, n)
 	for i := range n {
@@ -199,7 +196,6 @@ func items(n int) []string {
 
 // newList builds a list that draws each item as its text, marking the selected one.
 
-// newList builds a list that draws each item as its text, marking the selected one.
 func newList(n int) *headless.List[string] {
 	list := &headless.List[string]{
 		Keys: headless.DefaultListKeys(),
@@ -215,7 +211,6 @@ func newList(n int) *headless.List[string] {
 	return list
 }
 
-// press builds a mouse event.
 func press(x, y int, action input.MouseAction, button input.Button) input.Event {
 	return input.Mouse{Pos: image.Pt(x, y), Action: action, Button: button}
 }

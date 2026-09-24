@@ -211,15 +211,10 @@ const multiClickSlack = 1
 // Clicks counts a run of presses in the same place as one gesture: one for a single
 // click, two for a double, three for a triple.
 //
-// # Why this is not somewhere else
-//
-// A terminal does not report a double-click. It reports two presses, and whether they
-// are one gesture is a question about when they arrived — so it can only be answered
-// by whatever has a clock.
-//
-// The time is an argument rather than read here, which is the same bargain the rest of
-// this library makes: a type that called time.Now could not be told to be at a
-// particular moment, and every test of it would be a test of how fast the machine ran.
+// A terminal reports two presses and not a double-click, so whether they are one
+// gesture is a question about when they arrived. The time is an argument rather than
+// read here: a type that called time.Now could not be told to be at a particular
+// moment.
 type Clicks struct {
 	// Within is how close together presses must be. Zero uses [DefaultMultiClick].
 	Within time.Duration
@@ -330,7 +325,6 @@ func (s *Selection) set(row, from, to int) {
 	s.active, s.dragging = true, false
 }
 
-// rowText is the text of one row of a transcript, and whether there is one.
 func rowText(t *Transcript, row int) (text.Row, bool) {
 	if t == nil {
 		return text.Row{}, false

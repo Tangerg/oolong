@@ -163,7 +163,6 @@ var dependencies = map[string][]string{
 	"internal": nil,
 }
 
-// mayImport reports whether from can reach to by following dependency edges.
 func mayImport(from, to string) bool {
 	if from == to {
 		return true
@@ -1411,7 +1410,6 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 	}
 }
 
-// ringOf names the ring a repository-relative directory belongs to.
 func ringOf(dir string) string {
 	dir = filepath.ToSlash(dir)
 	if !strings.HasSuffix(dir, "/") {
@@ -1446,7 +1444,6 @@ func moduleOf(dir string) (string, []string, bool) {
 	return best, allowed, best != ""
 }
 
-// skipped reports whether a directory is none of this test's business.
 func skipped(name string, isRoot bool) bool {
 	return !isRoot && (name == "node_modules" || name == "vendor" || strings.HasPrefix(name, "."))
 }
@@ -1481,7 +1478,6 @@ func walk(t *testing.T, root string, visit func(dir, path string)) {
 	}
 }
 
-// imports reads one file's import paths.
 func imports(t *testing.T, fset *token.FileSet, path string) []string {
 	t.Helper()
 	file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)

@@ -107,7 +107,6 @@ func askInWords(form *headless.Form, in io.Reader, out io.Writer) error {
 	return kit.Ask(form, in, out)
 }
 
-// dress is the same form with a look on it, as a component the runtime can run.
 func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	keys := headless.DefaultFormKeys()
 	form.Keys = keys

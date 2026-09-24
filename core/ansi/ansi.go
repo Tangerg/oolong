@@ -215,7 +215,6 @@ func command(s string) (Piece, int, bool) {
 	return Piece{}, 0, false
 }
 
-// escape reads an escape with intermediates and a final byte.
 func escape(s string) (Piece, int, bool) {
 	i := 1
 	for i < len(s) && intermediate(s[i]) {

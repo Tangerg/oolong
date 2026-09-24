@@ -269,7 +269,6 @@ func TestKeystrokesTypedAtATerminalArriveAsEvents(t *testing.T) {
 	}
 }
 
-// read drains whatever the terminal has been sent, up to a deadline.
 func read(t *testing.T, f *os.File, within time.Duration) string {
 	t.Helper()
 	if err := f.SetReadDeadline(time.Now().Add(within)); err != nil {

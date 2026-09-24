@@ -192,7 +192,6 @@ func (d *Diff) layout(width int) []diffRow {
 	return rows
 }
 
-// invalidate releases the immutable snapshot held by a stale layout.
 func (d *Diff) invalidate() {
 	d.wrapped = diffLayout{}
 }
@@ -228,7 +227,6 @@ func (m margin) width() int {
 
 func (m margin) blank() string { return strings.Repeat(" ", m.width()) }
 
-// margin is how wide the numbers have to be to hold every line's.
 func (d *Diff) margin() margin {
 	if !d.numbers {
 		return margin{}

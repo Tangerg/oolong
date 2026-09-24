@@ -62,7 +62,6 @@ func detectShifts(prev, next *Surface) []verticalShift {
 	return shifts
 }
 
-// exposed is the half-open row range the shift leaves for the painter to fill.
 func (v verticalShift) exposed() (y0, y1 int) {
 	if v.delta > 0 {
 		return v.bottom - v.delta, v.bottom
@@ -150,7 +149,6 @@ func diffCostFloor(prev, next *Surface) int {
 	return cost
 }
 
-// cupCost is the encoded length of a cursor-position sequence.
 func cupCost(x, y int) int {
 	return len("\x1b[;H") + digits(y+1) + digits(x+1)
 }
@@ -164,14 +162,12 @@ func digits(n int) int {
 	return d
 }
 
-// diffable reports whether two surfaces can be diffed against each other.
 func diffable(a, b *Surface) bool {
 	return a != nil && b != nil &&
 		a.w == b.w && a.h == b.h && a.w > 0 && a.h > 0 &&
 		len(a.cells) == a.w*a.h && len(b.cells) == b.w*b.h
 }
 
-// rowEqual reports whether row ay of a matches row by of b.
 func rowEqual(a *Surface, ay int, b *Surface, by int) bool {
 	return slices.Equal(a.row(ay), b.row(by))
 }
