@@ -115,10 +115,13 @@ linters:
       # A function above this line is doing more than one readable job. Tests use
       # deliberate case tables and fault scripts, so the production-only rule is
       # selected below.
-      min-complexity: 30
+      min-complexity: 20
 
     gocyclo:
-      min-complexity: 30
+      # Lower than gocognit's, because branching alone is cheaper to read than
+      # branching inside branching: a flat dispatch over fifteen names is one idea,
+      # and three nested loops are not.
+      min-complexity: 15
 
     recvcheck:
       # Reading a value and writing one are not the same receiver, and the text

@@ -98,52 +98,78 @@ func New(cfg Config) (*Renderer, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Browser != "" {
-		browser, resolveErr := exec.LookPath(cfg.Browser)
-		if resolveErr != nil {
-			return nil, fmt.Errorf("mermaid: locate browser: %w", resolveErr)
-		}
-		cfg.Browser, err = filepath.Abs(browser)
-		if err != nil {
-			return nil, fmt.Errorf("mermaid: browser path: %w", err)
-		}
+	if cfg.Browser, err = absoluteBrowser(cfg.Browser); err != nil {
+		return nil, err
 	}
-	if cfg.Theme == "" {
-		cfg.Theme = "default"
-	}
-	switch cfg.Theme {
-	case "default", "dark", "forest", "neutral", "base":
-	default:
-		return nil, fmt.Errorf("mermaid: invalid theme %q", cfg.Theme)
-	}
-	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
-	}
-	if cfg.MaxSourceBytes == 0 {
-		cfg.MaxSourceBytes = 64 << 10
-	}
-	if cfg.MaxOutputBytes == 0 {
-		cfg.MaxOutputBytes = 8 << 20
-	}
-	if cfg.MaxPixels == 0 {
-		cfg.MaxPixels = 16_000_000
-	}
-	if cfg.MaxEdges == 0 {
-		cfg.MaxEdges = 500
-	}
-	if cfg.Width == 0 {
-		cfg.Width = 1200
-	}
-	if cfg.Height == 0 {
-		cfg.Height = 800
-	}
-	if cfg.Timeout < 0 || cfg.MaxSourceBytes < 0 || (cfg.MaxOutputBytes < 0 || cfg.MaxOutputBytes == math.MaxInt64) || cfg.MaxPixels < 0 || cfg.MaxEdges < 0 || cfg.Width < 0 || cfg.Height < 0 {
-		return nil, errors.New("mermaid: limits and dimensions must be positive")
-	}
-	if int64(cfg.Width) > cfg.MaxPixels/int64(cfg.Height) {
-		return nil, fmt.Errorf("%w: viewport pixels", ErrLimit)
+	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	return &Renderer{cfg: cfg, backend: resolved, slot: make(chan struct{}, 1)}, nil
+}
+
+// absoluteBrowser resolves a configured browser once, at construction, so that a
+// later change to PATH cannot make two renders run two different programs.
+func absoluteBrowser(name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	found, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("mermaid: locate browser: %w", err)
+	}
+	absolute, err := filepath.Abs(found)
+	if err != nil {
+		return "", fmt.Errorf("mermaid: browser path: %w", err)
+	}
+	return absolute, nil
+}
+
+// applyDefaults gives every zero field the meaning [Config] states for it.
+func (c *Config) applyDefaults() {
+	if c.Theme == "" {
+		c.Theme = "default"
+	}
+	if c.Timeout == 0 {
+		c.Timeout = 30 * time.Second
+	}
+	if c.MaxSourceBytes == 0 {
+		c.MaxSourceBytes = 64 << 10
+	}
+	if c.MaxOutputBytes == 0 {
+		c.MaxOutputBytes = 8 << 20
+	}
+	if c.MaxPixels == 0 {
+		c.MaxPixels = 16_000_000
+	}
+	if c.MaxEdges == 0 {
+		c.MaxEdges = 500
+	}
+	if c.Width == 0 {
+		c.Width = 1200
+	}
+	if c.Height == 0 {
+		c.Height = 800
+	}
+}
+
+// validate reports a configuration no renderer could honour. It runs after the
+// defaults, so what it refuses is what the caller actually asked for.
+func (c *Config) validate() error {
+	switch c.Theme {
+	case "default", "dark", "forest", "neutral", "base":
+	default:
+		return fmt.Errorf("mermaid: invalid theme %q", c.Theme)
+	}
+	if c.Timeout < 0 || c.MaxSourceBytes < 0 ||
+		c.MaxOutputBytes < 0 || c.MaxOutputBytes == math.MaxInt64 ||
+		c.MaxPixels < 0 || c.MaxEdges < 0 || c.Width < 0 || c.Height < 0 {
+		return errors.New("mermaid: limits and dimensions must be positive")
+	}
+	if int64(c.Width) > c.MaxPixels/int64(c.Height) {
+		return fmt.Errorf("%w: viewport pixels", ErrLimit)
+	}
+	return nil
 }
 
 // Render generates and validates PNG output. Source and diagnostics are bounded.
@@ -251,6 +277,16 @@ func readImage(ctx context.Context, path string, maxBytes, maxPixels int64) (res
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause
 	}
+	data, err := readBounded(path, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	return decodePNG(data, maxPixels)
+}
+
+// readBounded reads a regular file whose size is checked both before and after it is
+// opened, so a path replaced between the two cannot deliver more than the bound.
+func readBounded(path string, maxBytes int64) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("mermaid: inspect output: %w", err)
@@ -277,6 +313,12 @@ func readImage(ctx context.Context, path string, maxBytes, maxPixels int64) (res
 	if int64(len(data)) > maxBytes {
 		return nil, fmt.Errorf("%w: output bytes", ErrLimit)
 	}
+	return data, nil
+}
+
+// decodePNG reads the dimensions before the pixels, so an image claiming more of them
+// than the bound allows is refused rather than decoded and then measured.
+func decodePNG(data []byte, maxPixels int64) (*Image, error) {
 	cfg, err := png.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("mermaid: invalid PNG: %w", err)

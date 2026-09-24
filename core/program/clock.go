@@ -92,25 +92,15 @@ func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
 		return func() {}
 	}
 	lifetime := newClockLifetime()
-	dispatch := r.Dispatcher()
-	var pending atomic.Bool
+	ticks := &coalescedTicks{lifetime: lifetime, dispatch: r.Dispatcher(), fn: fn}
 	go func() {
 		ticker := time.NewTicker(d)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				if lifetime.cancelled.Load() {
+				if !ticks.post() {
 					return
-				}
-				if pending.CompareAndSwap(false, true) {
-					dispatch.Post(func() {
-						defer pending.Store(false)
-						if lifetime.cancelled.Load() {
-							return
-						}
-						fn()
-					})
 				}
 			case <-lifetime.done:
 				return
@@ -120,4 +110,32 @@ func (r *Runtime) Every(d time.Duration, fn func()) (stop func()) {
 		}
 	}()
 	return lifetime.Stop
+}
+
+// coalescedTicks carries one tick at a time to the interface goroutine. A tick that
+// arrives while the last is still waiting is dropped rather than queued: a clock
+// nobody could keep up with would otherwise grow a backlog of work already stale by
+// the time it ran.
+type coalescedTicks struct {
+	lifetime *clockLifetime
+	dispatch Dispatcher
+	fn       func()
+	pending  atomic.Bool
+}
+
+// post offers one tick and reports whether the clock is still running.
+func (c *coalescedTicks) post() bool {
+	if c.lifetime.cancelled.Load() {
+		return false
+	}
+	if c.pending.CompareAndSwap(false, true) {
+		c.dispatch.Post(func() {
+			defer c.pending.Store(false)
+			if c.lifetime.cancelled.Load() {
+				return
+			}
+			c.fn()
+		})
+	}
+	return true
 }

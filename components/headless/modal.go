@@ -332,25 +332,41 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 		s.held = 0
 		s.basePointer.held = nil
 	}
-	if s.basePointer.held != nil && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
-		handled, _ := s.basePointer.Handle(mouse)
+	if handled, captured := s.continueGesture(presented, mouse); captured {
 		return handled
 	}
-	if s.held != 0 && (mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp) {
-		held, found := presented.placed(s.held)
-		found = found && s.Contains(s.held)
-		if mouse.Action == input.MouseUp {
-			s.held = 0
-		}
-		if !found {
-			// The owner of the gesture is gone. Do not hand its remainder to whatever
-			// replaced it and accidentally begin a different interaction halfway through.
-			return true
-		}
-		s.deliver(held, mouse)
-		return true
-	}
+	return s.route(presented, mouse)
+}
 
+// continueGesture gives a drag or release to whoever took the press, and reports
+// whether one was in progress at all.
+func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse) (handled, captured bool) {
+	if mouse.Action != input.MouseDrag && mouse.Action != input.MouseUp {
+		return false, false
+	}
+	if s.basePointer.held != nil {
+		handled, _ = s.basePointer.Handle(mouse)
+		return handled, true
+	}
+	if s.held == 0 {
+		return false, false
+	}
+	held, found := presented.placed(s.held)
+	found = found && s.Contains(s.held)
+	if mouse.Action == input.MouseUp {
+		s.held = 0
+	}
+	if !found {
+		// The owner of the gesture is gone. Do not hand its remainder to whatever
+		// replaced it and accidentally begin a different interaction halfway through.
+		return true, true
+	}
+	s.deliver(held, mouse)
+	return true, true
+}
+
+// route sends an event that begins nothing to the top layer, or past it.
+func (s *Stack) route(presented stackPresentation, mouse input.Mouse) bool {
 	top := len(presented.layers) - 1
 	if top < 0 {
 		return s.deliverBase(mouse)
@@ -364,7 +380,6 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 			return s.outside(mouse, placed)
 		}
 	}
-
 	handled := s.deliver(placed, mouse)
 	if mouse.Action == input.MouseDown && handled {
 		s.held = placed.id

@@ -154,37 +154,44 @@ func (t *table) growColumns(widths, natural []int, remaining int) {
 	for remaining > 0 && len(pending) > 0 {
 		share := remaining / len(pending)
 		if share == 0 {
-			for _, column := range pending[:min(remaining, len(pending))] {
-				widths[column]++
-			}
 			break
 		}
-
-		next := pending[:0]
-		settled := false
-		for _, column := range pending {
-			need := natural[column] - widths[column]
-			if need <= share {
-				widths[column] += need
-				remaining -= need
-				settled = true
-				continue
-			}
-			next = append(next, column)
-		}
-		if settled {
-			pending = next
+		rest, left := settleColumns(widths, natural, pending, share, remaining)
+		if len(rest) < len(pending) {
+			// Finishing a column first is what lets the width it did not need reach
+			// the ones that are still short.
+			pending, remaining = rest, left
 			continue
 		}
-
 		for _, column := range pending {
 			widths[column] += share
-			remaining -= share
 		}
-		for _, column := range pending[:min(remaining, len(pending))] {
-			widths[column]++
-		}
+		remaining -= share * len(pending)
 		break
+	}
+	scatter(widths, pending, remaining)
+}
+
+// settleColumns gives every column a share is enough for all it still wants, and
+// reports the ones it is not enough for.
+func settleColumns(widths, natural, pending []int, share, remaining int) ([]int, int) {
+	still := pending[:0]
+	for _, column := range pending {
+		need := natural[column] - widths[column]
+		if need > share {
+			still = append(still, column)
+			continue
+		}
+		widths[column] += need
+		remaining -= need
+	}
+	return still, remaining
+}
+
+// scatter hands out the columns too few to divide, one each.
+func scatter(widths, pending []int, n int) {
+	for _, column := range pending[:min(max(n, 0), len(pending))] {
+		widths[column]++
 	}
 }
 
@@ -198,33 +205,40 @@ func (t *table) columns() int {
 
 func (t *table) appendGrid(dst []row, widths []int) []row {
 	for rowIndex, cells := range t.rows {
-		wrapped := make([][]text.Wrapped, len(widths))
-		height := 1
-		for column, width := range widths {
-			var cell text.Line
-			if column < len(cells) {
-				cell = cells[column]
-			}
-			wrapped[column] = cell.Wrap(width)
-			height = max(height, len(wrapped[column]))
-		}
-		for physical := range height {
-			line := make(text.Line, 0, len(widths)*3)
-			for column, width := range widths {
-				if column > 0 {
-					line = append(line, text.Span{Text: t.separator, Style: t.rail})
-				}
-				var cell text.Line
-				if physical < len(wrapped[column]) {
-					cell = wrapped[column][physical].Line
-				}
-				line = appendAligned(line, cell, width, t.alignment(column))
-			}
-			dst = append(dst, row{Line: line})
-		}
+		dst = t.appendRow(dst, cells, widths)
 		if rowIndex == 0 && t.header {
 			dst = append(dst, row{Line: t.ruleLine(widths)})
 		}
+	}
+	return dst
+}
+
+// appendRow adds every physical row one logical row wraps into, so a cell that took
+// two rows leaves the cells beside it padded rather than shifted.
+func (t *table) appendRow(dst []row, cells []text.Line, widths []int) []row {
+	wrapped := make([][]text.Wrapped, len(widths))
+	height := 1
+	for column, width := range widths {
+		var cell text.Line
+		if column < len(cells) {
+			cell = cells[column]
+		}
+		wrapped[column] = cell.Wrap(width)
+		height = max(height, len(wrapped[column]))
+	}
+	for physical := range height {
+		line := make(text.Line, 0, len(widths)*3)
+		for column, width := range widths {
+			if column > 0 {
+				line = append(line, text.Span{Text: t.separator, Style: t.rail})
+			}
+			var cell text.Line
+			if physical < len(wrapped[column]) {
+				cell = wrapped[column][physical].Line
+			}
+			line = appendAligned(line, cell, width, t.alignment(column))
+		}
+		dst = append(dst, row{Line: line})
 	}
 	return dst
 }

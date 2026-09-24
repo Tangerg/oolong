@@ -191,25 +191,34 @@ func (t *Transcript) drawHeader(content headless.TranscriptLayout, v grid.View, 
 // knowing. A block that had to be told it was selected would have to be told again
 // every time the drag moved.
 func (t *Transcript) mark(v grid.View, from int) {
+	t.markSelection(v, from)
+	t.markMatches(v, from)
+}
+
+func (t *Transcript) markSelection(v grid.View, from int) {
+	if t.Selection == nil || !t.Selection.Active() {
+		return
+	}
 	w, h := v.Size()
-	if t.Selection != nil && t.Selection.Active() {
-		for y := range h {
-			for x := range w {
-				if t.Selection.Covers(layout.Sum(from, y), x) {
-					restyle(v, x, y, t.Theme.Selection)
-				}
+	for y := range h {
+		for x := range w {
+			if t.Selection.Covers(layout.Sum(from, y), x) {
+				restyle(v, x, y, t.Theme.Selection)
 			}
 		}
 	}
-	start, end := visibleMatches(t.Matches, from, layout.Sum(from, h))
-	for i := start; i < end; i++ {
-		m := t.Matches[i]
+}
+
+func (t *Transcript) markMatches(v grid.View, from int) {
+	w, h := v.Size()
+	first, last := visibleMatches(t.Matches, from, layout.Sum(from, h))
+	for i := first; i < last; i++ {
 		style := t.Theme.Selection
 		if i == t.Current {
 			style = t.Theme.Accent
 		}
-		for row, span := range m.Spans {
-			y := layout.Relative(layout.Sum(m.Row, row), from)
+		for row, span := range t.Matches[i].Spans {
+			y := layout.Relative(layout.Sum(t.Matches[i].Row, row), from)
 			if y < 0 || y >= h {
 				continue
 			}

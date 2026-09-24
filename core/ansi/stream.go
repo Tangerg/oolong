@@ -83,20 +83,19 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 			return nil
 		}
 	}
+	return s.scan(source, buffered, visit)
+}
+
+// scan delivers every complete piece in source. buffered says source already holds
+// bytes from an earlier chunk, which is what makes holding its tail again wrong.
+func (s *Scanner) scan(source string, buffered bool, visit func(Piece) error) error {
 	var refused error
 	for at := 0; at < len(source); {
 		piece, n, ok := Next(source[at:])
 		if !ok {
-			// Anything unfinished and this long is an escape sequence: an unfinished
-			// character is three bytes at the outside.
-			tail := source[at:]
-			if len(tail) > maxPending {
-				return errors.Join(refused, s.refuse(tail))
+			if err := s.unfinished(source[at:], buffered && at == 0); err != nil {
+				return errors.Join(refused, err)
 			}
-			if buffered && at == 0 {
-				return refused
-			}
-			s.hold(tail)
 			return refused
 		}
 		at += n
@@ -120,6 +119,19 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 	}
 	s.Reset()
 	return refused
+}
+
+// unfinished decides what becomes of a tail no complete piece could be read from.
+func (s *Scanner) unfinished(tail string, alreadyHeld bool) error {
+	// Anything unfinished and this long is an escape sequence: an unfinished character
+	// is three bytes at the outside.
+	if len(tail) > maxPending {
+		return s.refuse(tail)
+	}
+	if !alreadyHeld {
+		s.hold(tail)
+	}
+	return nil
 }
 
 // refuse gives up on a sequence longer than any sequence may be, while going on
@@ -202,32 +214,68 @@ func (s *Scanner) incomplete(source string) bool {
 	if source[1] == '[' || introduces(source[1]) {
 		start = 2
 	}
-	if s.scanned < start {
-		s.scanned = start
-	}
+	s.scanned = max(s.scanned, start)
 	for s.scanned < len(source) {
-		at := s.scanned
-		b := source[at]
-		switch {
-		case source[1] == '[':
-			if intermediate(b) {
-				s.intermediates = true
-			} else if !parameter(b) || s.intermediates {
-				return false
-			}
-		case introduces(source[1]):
-			if b == Bell {
-				return false
-			}
-			if b == Escape {
-				return at+1 == len(source)
-			}
-		default:
-			if !intermediate(b) {
-				return false
-			}
+		switch s.step(source, s.scanned) {
+		case scanEnded:
+			return false
+		case scanWaiting:
+			return true
+		case scanOn:
+			s.scanned++
 		}
-		s.scanned++
 	}
 	return true
+}
+
+// scanStep is what one byte says about a sequence that is still being read.
+type scanStep int
+
+const (
+	scanOn      scanStep = iota // nothing decided yet
+	scanEnded                   // the sequence ends here
+	scanWaiting                 // it cannot end in what has arrived
+)
+
+func (s *Scanner) step(source string, at int) scanStep {
+	switch b := source[at]; {
+	case source[1] == '[':
+		return s.controlStep(b)
+	case introduces(source[1]):
+		return stringStep(b, at+1 == len(source))
+	case intermediate(b):
+		return scanOn
+	default:
+		return scanEnded
+	}
+}
+
+// controlStep reads one byte of a control sequence's parameter section. An
+// intermediate byte ends that section, so a parameter byte after one is the final byte
+// rather than another parameter.
+func (s *Scanner) controlStep(b byte) scanStep {
+	switch {
+	case intermediate(b):
+		s.intermediates = true
+		return scanOn
+	case parameter(b) && !s.intermediates:
+		return scanOn
+	default:
+		return scanEnded
+	}
+}
+
+// stringStep reads one byte of a control string's body. An escape ends it only
+// together with the byte after it, so one at the end of what has arrived is a wait.
+func stringStep(b byte, last bool) scanStep {
+	switch {
+	case b == Bell:
+		return scanEnded
+	case b == Escape && last:
+		return scanWaiting
+	case b == Escape:
+		return scanEnded
+	default:
+		return scanOn
+	}
 }

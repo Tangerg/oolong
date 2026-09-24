@@ -150,39 +150,46 @@ func (p *prompt) Handle(event input.Event) bool {
 		p.insertPaste(paste.Text)
 		return true
 	}
-	if key, ok := event.(input.Key); ok && key.Down() {
-		switch key.Code {
-		case input.Up:
-			p.recallBack()
-			p.releaseRemovedPastes()
-			p.refreshCompletion()
-			return true
-		case input.Down:
-			p.recallForward()
-			p.releaseRemovedPastes()
-			p.refreshCompletion()
-			return true
-		case input.Enter:
-			p.submit()
-			return true
-		default:
-		}
+	if key, ok := event.(input.Key); ok && key.Down() && p.walk(key) {
+		return true
 	}
-
 	if mouse, ok := event.(input.Mouse); ok {
-		if handled, _ := p.popup.Handle(mouse); handled {
-			p.releaseRemovedPastes()
-			return true
-		}
-		handled, _ := p.field.Handle(mouse)
-		if handled {
-			p.refreshCompletion()
-		}
-		return handled
+		return p.point(mouse)
 	}
 	handled := p.composer.Handle(event)
 	if handled {
 		p.releaseRemovedPastes()
+		p.refreshCompletion()
+	}
+	return handled
+}
+
+// walk answers the keys that move through the history or send what was written.
+func (p *prompt) walk(key input.Key) bool {
+	switch key.Code {
+	case input.Up:
+		p.recallBack()
+	case input.Down:
+		p.recallForward()
+	case input.Enter:
+		p.submit()
+		return true
+	default:
+		return false
+	}
+	p.releaseRemovedPastes()
+	p.refreshCompletion()
+	return true
+}
+
+// point offers a pointer event to the popup first, because it is drawn over the field.
+func (p *prompt) point(mouse input.Mouse) bool {
+	if handled, _ := p.popup.Handle(mouse); handled {
+		p.releaseRemovedPastes()
+		return true
+	}
+	handled, _ := p.field.Handle(mouse)
+	if handled {
 		p.refreshCompletion()
 	}
 	return handled

@@ -421,7 +421,6 @@ func (v View) Text(x, y int, s string, style Style) int {
 		return graphemeWidth(s)
 	}
 
-	surf := v.surface
 	cx := p.X
 	advanced := 0
 	state := -1
@@ -445,21 +444,28 @@ func (v View) Text(x, y int, s string, style Style) int {
 		case cx < v.clip.Min.X || end > v.clip.Max.X:
 			v.blank(min(max(cx, v.clip.Min.X), v.clip.Max.X), min(end, v.clip.Max.X), p.Y, style)
 		default:
-			for offset := range w {
-				surf.repairAtom(layout.Translate(cx, offset), p.Y)
-			}
-			head := Cell{content: ownedCluster(cluster), Style: style}
-			if w > 1 {
-				head.span = span(w)
-			}
-			*surf.cellAt(cx, p.Y) = head
-			for offset := 1; offset < w; offset++ {
-				*surf.cellAt(layout.Translate(cx, offset), p.Y) = Cell{Style: style, span: span(-offset)}
-			}
+			v.writeAtom(cx, p.Y, w, cluster, style)
 		}
 		cx = end
 	}
 	return advanced
+}
+
+// writeAtom replaces the w columns from (cx, y) with one display atom: a head holding
+// the cluster, and continuations pointing back at it.
+func (v View) writeAtom(cx, y, w int, cluster string, style Style) {
+	surf := v.surface
+	for offset := range w {
+		surf.repairAtom(layout.Translate(cx, offset), y)
+	}
+	head := Cell{content: ownedCluster(cluster), Style: style}
+	if w > 1 {
+		head.span = span(w)
+	}
+	*surf.cellAt(cx, y) = head
+	for offset := 1; offset < w; offset++ {
+		*surf.cellAt(layout.Translate(cx, offset), y) = Cell{Style: style, span: span(-offset)}
+	}
 }
 
 // blank replaces [from,to) with styled single cells, preserving the atom invariant at

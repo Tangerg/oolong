@@ -218,8 +218,7 @@ func validateSource(source string) error {
 	if !utf8.ValidString(source) {
 		return &parseError{message: "source is not valid UTF-8"}
 	}
-	depth := 0
-	bracketDepth := 0
+	var groups nesting
 	escaped := false
 	for at, r := range source {
 		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
@@ -229,44 +228,68 @@ func validateSource(source string) error {
 			escaped = false
 			continue
 		}
-		if r == '$' {
-			// The same rule as \( and \[, for the same reason and one more: this
-			// package delimits the expression with $ before handing it to the parser,
-			// so a $ of the caller's would make every position the parser reports
-			// ambiguous between their source and the wrapper around it.
-			return &parseError{message: "source must not contain math delimiters"}
+		if err := refused(source, at, r); err != nil {
+			return err
 		}
 		if r == '\\' {
-			if at+1 < len(source) && strings.ContainsRune("([])", rune(source[at+1])) {
-				return &parseError{message: "source must not contain math delimiters"}
-			}
 			escaped = true
 			continue
 		}
-		if r == '^' || r == '_' {
-			rest := strings.TrimLeft(source[at+1:], " \t\r\n")
-			if rest == "" || strings.ContainsRune("^_}$%", rune(rest[0])) {
-				return &parseError{message: "script has no atom"}
-			}
-		}
-		switch r {
-		case '[':
-			bracketDepth++
-		case ']':
-			bracketDepth = max(0, bracketDepth-1)
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth < 0 {
-				return &parseError{message: "source has an unmatched closing brace"}
-			}
-		}
-		if depth+bracketDepth > 256 {
-			return &parseError{message: "source nesting exceeds 256 groups"}
+		if err := groups.step(r); err != nil {
+			return err
 		}
 	}
-	if depth != 0 {
+	return groups.closed()
+}
+
+// refused is why r may not stand unescaped at at, or nil.
+func refused(source string, at int, r rune) error {
+	switch {
+	case r == '$':
+		// The same rule as \( and \[, for the same reason and one more: this package
+		// delimits the expression with $ before handing it to the parser, so a $ of
+		// the caller's would make every position the parser reports ambiguous between
+		// their source and the wrapper around it.
+		return &parseError{message: "source must not contain math delimiters"}
+	case r == '\\' && at+1 < len(source) && strings.ContainsRune("([])", rune(source[at+1])):
+		return &parseError{message: "source must not contain math delimiters"}
+	case r == '^' || r == '_':
+		rest := strings.TrimLeft(source[at+1:], " \t\r\n")
+		if rest == "" || strings.ContainsRune("^_}$%", rune(rest[0])) {
+			return &parseError{message: "script has no atom"}
+		}
+	}
+	return nil
+}
+
+// maxGroups bounds how deep a source may nest. Braces and brackets share the budget
+// because what it bounds is the tree the parser will build, not the spelling.
+const maxGroups = 256
+
+type nesting struct{ braces, brackets int }
+
+func (n *nesting) step(r rune) error {
+	switch r {
+	case '[':
+		n.brackets++
+	case ']':
+		n.brackets = max(0, n.brackets-1)
+	case '{':
+		n.braces++
+	case '}':
+		n.braces--
+		if n.braces < 0 {
+			return &parseError{message: "source has an unmatched closing brace"}
+		}
+	}
+	if n.braces+n.brackets > maxGroups {
+		return &parseError{message: fmt.Sprintf("source nesting exceeds %d groups", maxGroups)}
+	}
+	return nil
+}
+
+func (n *nesting) closed() error {
+	if n.braces != 0 {
 		return &parseError{message: "source has an unclosed group"}
 	}
 	return nil
@@ -317,49 +340,69 @@ func (r *formulaRenderer) node(node ast.Node, style grid.Style) (box, error) {
 
 func (r *formulaRenderer) sequence(nodes ast.List, style grid.Style) (box, error) {
 	parts := make([]box, 0, len(nodes))
-	for i := 0; i < len(nodes); {
-		node := nodes[i]
-		if _, sub := node.(*ast.Sub); sub {
-			return box{}, errors.New("subscript has no base")
+	for at := 0; at < len(nodes); {
+		if err := unattached(nodes[at]); err != nil {
+			return box{}, err
 		}
-		if _, sup := node.(*ast.Sup); sup {
-			return box{}, errors.New("superscript has no base")
-		}
-
-		base, err := r.node(node, style)
+		base, err := r.node(nodes[at], style)
 		if err != nil {
 			return box{}, err
 		}
-		i++
-		var superscript, subscript box
-		var hasSuperscript, hasSubscript bool
-		for i < len(nodes) {
-			switch script := nodes[i].(type) {
-			case *ast.Sup:
-				if hasSuperscript {
-					return box{}, errors.New("base has two superscripts")
-				}
-				hasSuperscript = true
-				superscript, err = r.node(script.Node, style)
-			case *ast.Sub:
-				if hasSubscript {
-					return box{}, errors.New("base has two subscripts")
-				}
-				hasSubscript = true
-				subscript, err = r.node(script.Node, style)
-			default:
-				parts = append(parts, scripted(base, superscript, subscript))
-				goto next
-			}
-			if err != nil {
-				return box{}, err
-			}
-			i++
+		attached, next, err := r.scriptsAfter(nodes, at+1, style)
+		if err != nil {
+			return box{}, err
 		}
-		parts = append(parts, scripted(base, superscript, subscript))
-	next:
+		parts = append(parts, scripted(base, attached.sup, attached.sub))
+		at = next
 	}
 	return horizontal(parts...), nil
+}
+
+// unattached is the error for a script with nothing in front of it to attach to.
+func unattached(node ast.Node) error {
+	switch node.(type) {
+	case *ast.Sub:
+		return errors.New("subscript has no base")
+	case *ast.Sup:
+		return errors.New("superscript has no base")
+	}
+	return nil
+}
+
+// scripts are what one base carries. Each may be given once, because a base with two
+// superscripts is the source saying two things about one position.
+type scripts struct {
+	sup, sub       box
+	hasSup, hasSub bool
+}
+
+// scriptsAfter renders the run of scripts starting at at, and reports where the next
+// base begins.
+func (r *formulaRenderer) scriptsAfter(nodes ast.List, at int, style grid.Style) (scripts, int, error) {
+	var attached scripts
+	for ; at < len(nodes); at++ {
+		var err error
+		switch script := nodes[at].(type) {
+		case *ast.Sup:
+			if attached.hasSup {
+				return scripts{}, 0, errors.New("base has two superscripts")
+			}
+			attached.hasSup = true
+			attached.sup, err = r.node(script.Node, style)
+		case *ast.Sub:
+			if attached.hasSub {
+				return scripts{}, 0, errors.New("base has two subscripts")
+			}
+			attached.hasSub = true
+			attached.sub, err = r.node(script.Node, style)
+		default:
+			return attached, at, nil
+		}
+		if err != nil {
+			return scripts{}, 0, err
+		}
+	}
+	return attached, at, nil
 }
 
 func (r *formulaRenderer) macro(macro *ast.Macro, style grid.Style) (box, error) {

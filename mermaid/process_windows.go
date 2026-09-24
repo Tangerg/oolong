@@ -41,10 +41,7 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, input.Close(), os.Remove(input.Name())) }()
-	if _, err = io.Copy(input, cmd.Stdin); err != nil {
-		return err
-	}
-	if _, err = input.Seek(0, io.SeekStart); err != nil {
+	if err = fill(input, cmd.Stdin); err != nil {
 		return err
 	}
 	output, writer, err := os.Pipe()
@@ -54,20 +51,29 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 	defer func() { _ = output.Close(); _ = writer.Close() }()
 	process, err := startInJob(cmd, job, input, writer)
 	if err != nil {
-		if process != nil {
-			stopErr := windows.TerminateJobObject(job, 1)
-			_, waitErr := process.Wait()
-			err = errors.Join(err, stopErr, waitErr, tree.wait())
+		if process == nil {
+			return err
 		}
-		return err
+		return abandon(job, process, tree, err)
 	}
 	if err = writer.Close(); err != nil {
-		stopErr := windows.TerminateJobObject(job, 1)
-		_, waitErr := process.Wait()
-		return errors.Join(err, stopErr, waitErr, tree.wait())
+		return abandon(job, process, tree, err)
 	}
 	copied := make(chan error, 1)
 	go func() { _, copyErr := io.Copy(cmd.Stdout, output); copied <- copyErr }()
+	return supervise(ctx, job, tree, process, output, copied)
+}
+
+// supervise waits for the process, ends the job whether the process finished or the
+// context did, and joins everything that went wrong on the way.
+func supervise(
+	ctx context.Context,
+	job windows.Handle,
+	tree *jobTree,
+	process *os.Process,
+	output *os.File,
+	copied <-chan error,
+) error {
 	finished := make(chan struct{})
 	cancelled := make(chan error, 1)
 	go func() {
@@ -84,6 +90,8 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 	terminateErr := windows.TerminateJobObject(job, 1)
 	settledErr := tree.wait()
 	if terminateErr != nil || settledErr != nil {
+		// Something may still hold the pipe's other end, so the copier would never
+		// see the end of it and the receive below would not return.
 		settledErr = errors.Join(settledErr, output.Close())
 	}
 	copyErr := <-copied
@@ -144,4 +152,22 @@ func startInJob(cmd *exec.Cmd, job windows.Handle, input, output *os.File) (_ *o
 		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
 	}
 	return process, nil
+}
+
+// fill copies src into dst and rewinds it, which is what a handle the job inherits
+// has to be: a started process reads from the file's own position.
+func fill(dst *os.File, src io.Reader) error {
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+	_, err := dst.Seek(0, io.SeekStart)
+	return err
+}
+
+// abandon ends the job and waits for what it started, so a launch that failed part of
+// the way through leaves nothing running behind it.
+func abandon(job windows.Handle, process *os.Process, tree *jobTree, cause error) error {
+	stopErr := windows.TerminateJobObject(job, 1)
+	_, waitErr := process.Wait()
+	return errors.Join(cause, stopErr, waitErr, tree.wait())
 }

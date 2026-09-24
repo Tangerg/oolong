@@ -498,16 +498,17 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	}
 	ps := parseParams(piece.Parameters)
 
+	return n, p.controlEvent(ps, final), true
+}
+
+// controlEvent is the event a complete control sequence stands for, or nil for one
+// this decoder does not read.
+func (p *Parser) controlEvent(ps params, final byte) Event {
 	// A private marker says the sequence is a report and not a key, because a key
-	// never carries one. So anything with a marker is answered as a report or
-	// dropped, and nothing carrying one can reach the code below that reads keys.
-	//
-	// The rule is the fix for a whole class rather than for the two reports that were
-	// found broken. Dispatching on the final byte alone let a keyboard-flags reply —
-	// "CSI ? 31 u" — decode as a keystroke of an invisible control character, which is
-	// a defect that hides itself: printing the events showed an empty pair of brackets.
+	// never carries one. Dispatching on the final byte alone let a keyboard-flags
+	// reply — "CSI ? 31 u" — decode as a keystroke of an invisible control character.
 	if ps.Marker() != 0 {
-		return n, ps.report(final), true
+		return ps.report(final)
 	}
 
 	// Everything past here turns a sequence into a keystroke, and a keystroke nobody
@@ -519,42 +520,43 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	// can act on, and the rest of the list is still worth having. See
 	// [params.deviceAttributes].
 	if !ps.Valid() {
-		return n, nil, true
+		return nil
 	}
 
 	switch {
 	case ps.Len() == 0 && final == 'I':
-		return n, FocusIn{}, true
+		return FocusIn{}
 	case ps.Len() == 0 && final == 'O':
-		return n, FocusOut{}, true
+		return FocusOut{}
 	}
 
 	switch final {
 	case 'u':
-		return n, ps.extendedKey(), true
+		return ps.extendedKey()
 	case '~':
-		return n, p.decodeNumberedKey(ps), true
+		return p.decodeNumberedKey(ps)
 	case 'Z':
-		mods, transition, ok := ps.keyMeta()
-		if !ok || !ps.namesNoKey() {
-			return n, nil, true
-		}
 		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
 		// reports the same keystroke as tab with shift held, and one keystroke that
-		// arrives under two names is one nothing can be bound to: whichever of the two
-		// a binding names, it misses on half the terminals there are.
-		return n, Key{Code: Tab, Mods: mods | Shift, Transition: transition}, true
+		// arrives under two names is one nothing can be bound to.
+		return ps.modifiedKey(Tab, Shift)
 	default:
 		code, ok := cursorKey(final)
 		if !ok {
-			return n, nil, true // a sequence this decoder does not recognize
+			return nil
 		}
-		mods, transition, ok := ps.keyMeta()
-		if !ok || !ps.namesNoKey() {
-			return n, nil, true
-		}
-		return n, Key{Code: code, Mods: mods, Transition: transition}, true
+		return ps.modifiedKey(code, 0)
 	}
+}
+
+// modifiedKey is code with the modifiers the sequence carried, or nil when the
+// sequence names a key of its own as well — one keystroke has one name.
+func (ps params) modifiedKey(code Code, extra Mods) Event {
+	mods, transition, ok := ps.keyMeta()
+	if !ok || !ps.namesNoKey() {
+		return nil
+	}
+	return Key{Code: code, Mods: mods | extra, Transition: transition}
 }
 
 // decodeNumberedKey reads the sequences that name a key by number, which is also

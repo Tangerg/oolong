@@ -53,57 +53,69 @@ type agentOutput interface {
 type mockBackend struct{ delay time.Duration }
 
 func (m mockBackend) Run(ctx context.Context, prompt string, output agentOutput) error {
-	if err := output.Step(ctx, stepUpdate{Index: 0, State: stepRunning}); err != nil {
-		return err
-	}
-	if err := m.write(ctx, output, "# Working plan\n\nI’ll inspect the parser boundary for **"+clip(prompt)+"**.\n\n"); err != nil {
-		return err
-	}
-	if err := output.Step(ctx, stepUpdate{Index: 0, State: stepDone}); err != nil {
-		return err
-	}
-	if err := output.Step(ctx, stepUpdate{Index: 1, State: stepRunning}); err != nil {
-		return err
-	}
-	if err := m.write(ctx, output, "The behavior is correct, but the validation and state transition are split across two functions. I can make the parser own that invariant.\n\n"); err != nil {
-		return err
-	}
-	if err := output.Step(ctx, stepUpdate{Index: 1, State: stepDone}); err != nil {
-		return err
-	}
+	run := &script{backend: m, output: output}
+	run.step(ctx, 0, stepRunning)
+	run.say(ctx, "# Working plan\n\nI\u2019ll inspect the parser boundary for **"+clip(prompt)+"**.\n\n")
+	run.step(ctx, 0, stepDone)
+
+	run.step(ctx, 1, stepRunning)
+	run.say(ctx, "The behavior is correct, but the validation and state transition are split across two functions. I can make the parser own that invariant.\n\n")
+	run.step(ctx, 1, stepDone)
 
 	proposal := parserProposal()
-	if err := output.Step(ctx, stepUpdate{Index: 2, State: stepRunning}); err != nil {
-		return err
+	run.step(ctx, 2, stepRunning)
+	if !run.review(ctx, proposal) {
+		run.step(ctx, 2, stepSkipped)
+		run.step(ctx, 3, stepSkipped)
+		run.say(ctx, "I left the workspace unchanged. The review decision is a domain result, not a transport failure.\n")
+		return run.err
 	}
-	approved, err := output.Review(ctx, proposal)
-	if err != nil {
-		return err
-	}
-	if !approved {
-		if err := output.Step(ctx, stepUpdate{Index: 2, State: stepSkipped}); err != nil {
-			return err
-		}
-		if err := output.Step(ctx, stepUpdate{Index: 3, State: stepSkipped}); err != nil {
-			return err
-		}
-		return m.write(ctx, output, "I left the workspace unchanged. The review decision is a domain result, not a transport failure.\n")
-	}
-	if err := output.Tool(ctx, toolResult{
+
+	run.tool(ctx, toolResult{
 		Name: "apply_patch", Summary: "updated internal/parser.go", Change: proposal,
-	}); err != nil {
-		return err
+	})
+	run.step(ctx, 2, stepDone)
+	run.step(ctx, 3, stepRunning)
+	run.say(ctx, "## Verification\n\nThe focused tests and race detector pass. The parser now owns validation and callers have one obvious path.\n\nAll checks pass.\n")
+	run.step(ctx, 3, stepDone)
+	return run.err
+}
+
+// script carries the first failure through a scripted answer, so the answer reads as
+// the sequence it is rather than as an error check between every line of it. Once one
+// step has failed the rest do nothing, which is what returning early did.
+type script struct {
+	backend mockBackend
+	output  agentOutput
+	err     error
+}
+
+func (s *script) step(ctx context.Context, index int, state stepState) {
+	if s.err == nil {
+		s.err = s.output.Step(ctx, stepUpdate{Index: index, State: state})
 	}
-	if err := output.Step(ctx, stepUpdate{Index: 2, State: stepDone}); err != nil {
-		return err
+}
+
+func (s *script) say(ctx context.Context, text string) {
+	if s.err == nil {
+		s.err = s.backend.write(ctx, s.output, text)
 	}
-	if err := output.Step(ctx, stepUpdate{Index: 3, State: stepRunning}); err != nil {
-		return err
+}
+
+func (s *script) tool(ctx context.Context, result toolResult) {
+	if s.err == nil {
+		s.err = s.output.Tool(ctx, result)
 	}
-	if err := m.write(ctx, output, "## Verification\n\nThe focused tests and race detector pass. The parser now owns validation and callers have one obvious path.\n\nAll checks pass.\n"); err != nil {
-		return err
+}
+
+// review reports approval, which a failure is not.
+func (s *script) review(ctx context.Context, proposal changeProposal) bool {
+	if s.err != nil {
+		return false
 	}
-	return output.Step(ctx, stepUpdate{Index: 3, State: stepDone})
+	approved, err := s.output.Review(ctx, proposal)
+	s.err = err
+	return err == nil && approved
 }
 
 func parserProposal() changeProposal {

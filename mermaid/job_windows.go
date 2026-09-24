@@ -64,33 +64,45 @@ func (t *jobTree) observe() (err error) {
 		switch message {
 		case 6: // JOB_OBJECT_MSG_NEW_PROCESS: value carries the process ID, not a pointer.
 			observed++
-			pid := uint32(processID)
-			h, openErr := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
-			if errors.Is(openErr, windows.ERROR_INVALID_PARAMETER) {
-				continue
-			} // Already exited and destroyed.
-			if openErr != nil {
-				return fmt.Errorf("mermaid: observe process %d: %w", pid, openErr)
+			if handles, err = observing(handles, uint32(processID)); err != nil {
+				return err
 			}
-			handles = append(handles, h)
 		case 4: // JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
 			if err := t.verifyObserved(observed); err != nil {
 				return err
 			}
-			deadline := time.Now().Add(time.Second)
-			for _, h := range handles {
-				remaining := max(0, time.Until(deadline).Milliseconds())
-				result, waitErr := windows.WaitForSingleObject(h, uint32(remaining)) //nolint:gosec // G115: remaining is bounded by the one-second deadline.
-				if waitErr != nil {
-					return waitErr
-				}
-				if result != windows.WAIT_OBJECT_0 {
-					return fmt.Errorf("mermaid: process wait status %d", result)
-				}
-			}
-			return nil
+			return waitAll(handles)
 		}
 	}
+}
+
+// observing adds the handle of a process the job has just reported. One that exited
+// and was destroyed before this could reach it is not an error and adds nothing.
+func observing(handles []windows.Handle, pid uint32) ([]windows.Handle, error) {
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
+	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		return handles, nil
+	}
+	if err != nil {
+		return handles, fmt.Errorf("mermaid: observe process %d: %w", pid, err)
+	}
+	return append(handles, h), nil
+}
+
+// waitAll waits for every observed process to exit, within one second in total.
+func waitAll(handles []windows.Handle) error {
+	deadline := time.Now().Add(time.Second)
+	for _, h := range handles {
+		remaining := max(0, time.Until(deadline).Milliseconds())
+		result, err := windows.WaitForSingleObject(h, uint32(remaining)) //nolint:gosec // G115: remaining is bounded by the one-second deadline.
+		if err != nil {
+			return err
+		}
+		if result != windows.WAIT_OBJECT_0 {
+			return fmt.Errorf("mermaid: process wait status %d", result)
+		}
+	}
+	return nil
 }
 
 func (t *jobTree) verifyObserved(observed uint32) error {

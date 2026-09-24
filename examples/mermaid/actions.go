@@ -51,48 +51,62 @@ func (s *diagramScreen) act(key rune) bool {
 			s.notice = "Source copied"
 		}
 	case 'o', 'p':
-		if s.prepared == nil {
-			s.notice = "Image is not ready"
+		path, ok := s.exportedPath()
+		if !ok {
 			return true
-		}
-		if s.exported == "" {
-			path, err := exportPNG(s.prepared.PNG())
-			if err != nil {
-				s.notice = err.Error()
-				return true
-			}
-			s.exported = path
 		}
 		if key == 'p' {
-			if !s.runtime.Clipboard().Copy(s.exported) {
-				s.notice = "Clipboard unavailable: " + s.exported
+			if !s.runtime.Clipboard().Copy(path) {
+				s.notice = "Clipboard unavailable: " + path
 			} else {
-				s.notice = "Image path copied: " + s.exported
+				s.notice = "Image path copied: " + path
 			}
 			return true
 		}
-		// Opening is an explicit user action. It does not block drawing or hold the
-		// terminal open while the external viewer runs.
-		dispatch, path, generation, open := s.runtime.Dispatcher(), s.exported, s.generation, s.open
-		s.workers.Go(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			err := open(ctx, path)
-			dispatch.Post(func() {
-				if s.closed || generation != s.generation {
-					return
-				}
-				if err != nil {
-					s.notice = err.Error()
-				} else {
-					s.notice = "Opened image: " + path
-				}
-			})
-		})
+		s.openExported(path)
 	default:
 		return false
 	}
 	return true
+}
+
+// exportedPath is the file this diagram was written to, written on first ask. It sets
+// the notice and reports false when there is nothing to export yet.
+func (s *diagramScreen) exportedPath() (string, bool) {
+	if s.prepared == nil {
+		s.notice = "Image is not ready"
+		return "", false
+	}
+	if s.exported == "" {
+		path, err := exportPNG(s.prepared.PNG())
+		if err != nil {
+			s.notice = err.Error()
+			return "", false
+		}
+		s.exported = path
+	}
+	return s.exported, true
+}
+
+// openExported hands the file to the system viewer off the interface goroutine, so
+// drawing is not blocked and the terminal is not held open while the viewer runs.
+func (s *diagramScreen) openExported(path string) {
+	dispatch, generation, open := s.runtime.Dispatcher(), s.generation, s.open
+	s.workers.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := open(ctx, path)
+		dispatch.Post(func() {
+			if s.closed || generation != s.generation {
+				return
+			}
+			if err != nil {
+				s.notice = err.Error()
+			} else {
+				s.notice = "Opened image: " + path
+			}
+		})
+	})
 }
 
 // Exports are created only for an explicit open/copy-path action. They survive

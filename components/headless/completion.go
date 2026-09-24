@@ -52,39 +52,13 @@ func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
 		if trigger.Prefix == "" {
 			continue
 		}
-		opened := -1
-		for end := cursor; end >= len(trigger.Prefix); {
-			candidate := strings.LastIndex(line[:end], trigger.Prefix)
-			if candidate < 0 || candidate < at {
-				break
-			}
-			valid := !trigger.AtStart || candidate == 0
-			if valid && !trigger.AtStart && candidate > 0 {
-				prev, _ := utf8.DecodeLastRuneInString(line[:candidate])
-				valid = !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prev != '_'
-			}
-			if valid {
-				opened = candidate
-				break
-			}
-			end = candidate + len(trigger.Prefix) - 1
-		}
-		if opened < 0 {
+		opened, ok := trigger.openedBefore(line, cursor, at)
+		if !ok {
 			continue
 		}
 		start := opened + len(trigger.Prefix)
-		if cursor < start {
-			continue
-		}
-		end := start
-		for end < len(line) {
-			r, size := utf8.DecodeRuneInString(line[end:])
-			if unicode.IsSpace(r) {
-				break
-			}
-			end += size
-		}
-		if cursor > end {
+		end := tokenEnd(line, start)
+		if cursor < start || cursor > end {
 			continue
 		}
 		best, at = Token{
@@ -95,6 +69,47 @@ func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
 		}, opened
 	}
 	return best, at >= 0
+}
+
+// openedBefore is the last place this trigger opens a token at or before cursor, and
+// no earlier than after.
+func (t Trigger) openedBefore(line string, cursor, after int) (int, bool) {
+	for end := cursor; end >= len(t.Prefix); {
+		candidate := strings.LastIndex(line[:end], t.Prefix)
+		if candidate < 0 || candidate < after {
+			return 0, false
+		}
+		if t.opensAt(line, candidate) {
+			return candidate, true
+		}
+		end = candidate + len(t.Prefix) - 1
+	}
+	return 0, false
+}
+
+// opensAt reports whether the prefix found there begins a token. One inside a
+// word does not: the "@" of an email address is not a mention.
+func (t Trigger) opensAt(line string, at int) bool {
+	if t.AtStart {
+		return at == 0
+	}
+	if at == 0 {
+		return true
+	}
+	prev, _ := utf8.DecodeLastRuneInString(line[:at])
+	return !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prev != '_'
+}
+
+// tokenEnd is the first space at or after start, or the end of the line.
+func tokenEnd(line string, start int) int {
+	for end := start; end < len(line); {
+		r, size := utf8.DecodeRuneInString(line[end:])
+		if unicode.IsSpace(r) {
+			return end
+		}
+		end += size
+	}
+	return len(line)
 }
 
 // Candidate is one thing a completion offers.

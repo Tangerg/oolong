@@ -412,6 +412,14 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 		r.target(out, action.destination, action.shown, action.style)
 		return
 	}
+	if !r.writeLeaf(out, action) {
+		r.pushInline(stack, action)
+	}
+}
+
+// writeLeaf writes the nodes whose whole contribution is text, and reports whether the
+// node was one of them.
+func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 	switch node := action.node.(type) {
 	case *ast.Text:
 		value := string(node.Segment.Value(r.source))
@@ -433,22 +441,6 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 		out.add(value, action.style, action.link)
 	case *ast.CodeSpan:
 		out.add(r.codeSpan(node), action.style.Merge(r.look.Code), action.link)
-	case *ast.Emphasis:
-		if node.Level >= 2 {
-			pushInlineChildren(stack, node, action.style.Merge(r.look.Strong), action.link)
-		} else {
-			pushInlineChildren(stack, node, action.style.Merge(r.look.Emphasis), action.link)
-		}
-	case *east.Strikethrough:
-		pushInlineChildren(stack, node, action.style.Merge(r.look.Struck), action.link)
-	case *ast.Link:
-		// Push the target before the children: the stack visits the words first and
-		// then writes the optional address, preserving document order.
-		target := markdownText(string(node.Destination))
-		*stack = append(*stack, inlineAction{
-			target: true, destination: target, shown: r.plain(node), style: action.style,
-		})
-		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), target)
 	case *ast.AutoLink:
 		// What the document showed and where it goes are two things, and they differ
 		// whenever the protocol was inferred rather than written: "www.example.com"
@@ -474,6 +466,32 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
 	case *ast.RawHTML:
 		// Dropped, like a block of it.
+	default:
+		return false
+	}
+	return true
+}
+
+// pushInline schedules the children of a node whose own contribution is the style it
+// puts on them.
+func (r *renderer) pushInline(stack *[]inlineAction, action inlineAction) {
+	switch node := action.node.(type) {
+	case *ast.Emphasis:
+		style := r.look.Emphasis
+		if node.Level >= 2 {
+			style = r.look.Strong
+		}
+		pushInlineChildren(stack, node, action.style.Merge(style), action.link)
+	case *east.Strikethrough:
+		pushInlineChildren(stack, node, action.style.Merge(r.look.Struck), action.link)
+	case *ast.Link:
+		// Push the target before the children: the stack visits the words first and
+		// then writes the optional address, preserving document order.
+		target := markdownText(string(node.Destination))
+		*stack = append(*stack, inlineAction{
+			target: true, destination: target, shown: r.plain(node), style: action.style,
+		})
+		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), target)
 	default:
 		pushInlineChildren(stack, action.node, action.style, action.link)
 	}

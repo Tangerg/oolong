@@ -73,43 +73,41 @@ func (e *Editor) Do(action keymap.Action) bool {
 		e.SelectNone()
 		return true
 	}
-	switch action {
-	case DeleteBack:
+	do, ok := editorActions[action]
+	if !ok {
+		return false
+	}
+	do(e)
+	return true
+}
+
+// editorActions is what each name the field answers to does. A table rather than a
+// switch, so that the set of actions is one list a reader can see the whole of.
+var editorActions = map[keymap.Action]func(*Editor){
+	// A delete with something selected takes the selection, which is what makes
+	// backspace and the delete key mean "get rid of this" when there is a this.
+	DeleteBack: func(e *Editor) {
 		if !e.DeleteSelection() {
 			e.DeleteBack()
 		}
-	case DeleteForward:
+	},
+	DeleteForward: func(e *Editor) {
 		if !e.DeleteSelection() {
 			e.DeleteForward()
 		}
-	case DeleteWordBack:
-		e.DeleteWordBack()
-	case KillToEnd:
-		e.KillToEnd()
-	case KillToStart:
-		e.KillToStart()
-	case Yank:
-		e.Yank()
-	case YankPop:
-		e.YankPop()
-	case InsertNewline:
-		e.Newline()
-	case Undo:
-		e.Undo()
-	case Redo:
-		e.Redo()
-	case SelectAll:
-		e.SelectAll()
-	case Copy:
-		e.Copy()
-	case Cut:
-		e.Cut()
-	case Paste:
-		e.Paste()
-	default:
-		return false
-	}
-	return true
+	},
+	DeleteWordBack: (*Editor).DeleteWordBack,
+	KillToEnd:      (*Editor).KillToEnd,
+	KillToStart:    (*Editor).KillToStart,
+	Yank:           (*Editor).Yank,
+	YankPop:        (*Editor).YankPop,
+	InsertNewline:  (*Editor).Newline,
+	Undo:           (*Editor).Undo,
+	Redo:           (*Editor).Redo,
+	SelectAll:      (*Editor).SelectAll,
+	Copy:           func(e *Editor) { e.Copy() },
+	Cut:            func(e *Editor) { e.Cut() },
+	Paste:          func(e *Editor) { e.Paste() },
 }
 
 // typed puts a keystroke in as text, when it is text.

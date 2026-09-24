@@ -176,6 +176,10 @@ type program struct {
 	// progress is read once and then owned by the event loop. A writer returning a
 	// different channel per call would split one watermark into unrelated streams.
 	changes <-chan struct{}
+	// repaints is the input source's request to redraw from nothing, when it makes
+	// them. It is cleared when the source closes it, so a closed channel cannot keep
+	// the loop spinning on a wake-up nobody sent.
+	repaints <-chan func(error)
 
 	present       present.Presenter
 	frameInterval time.Duration
@@ -240,9 +244,8 @@ func (p *program) loop(ctx context.Context) error {
 	due := deadline.NewTimer()
 	defer due.Stop()
 
-	var repaints <-chan func(error)
 	if source, ok := p.input.(RepaintSource); ok {
-		repaints = source.Repaints()
+		p.repaints = source.Repaints()
 	}
 	p.present.RequestFull()
 	for !p.quit.Load() {
@@ -250,49 +253,62 @@ func (p *program) loop(ctx context.Context) error {
 			p.frameFailed = true
 			return err
 		}
-
 		due.Schedule(p.present.DueAt())
-
-		select {
-		case reply, ok := <-repaints:
-			if !ok {
-				repaints = nil
-				continue
-			}
-			repaintErr := p.repaint()
-			if reply != nil {
-				reply(repaintErr)
-			}
-			if repaintErr != nil {
-				p.frameFailed = true
-				return repaintErr
-			}
-		case <-ctx.Done():
-			return nil
-
-		case ev, ok := <-p.events:
-			if !ok {
-				// A clean end closes the session normally. A transport that knows it
-				// failed keeps that cause on the source instead of making channel closure
-				// indistinguishable from EOF.
-				return p.input.Err()
-			}
-			if eventErr := p.handle(ev); eventErr != nil {
-				return eventErr
-			}
-
-		case <-p.tasks.wake:
-			p.runTasks()
-
-		case _, ok := <-p.changes:
-			if writeErr := p.writerChanged(ok); writeErr != nil {
-				return writeErr
-			}
-
-		case <-due.Channel():
+		last, err := p.wait(ctx, due)
+		if last || err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// wait parks until something asks the program to act, and reports whether that was
+// its last turn. An error is one either way.
+func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err error) {
+	select {
+	case reply, ok := <-p.repaints:
+		if !ok {
+			p.repaints = nil
+			return false, nil
+		}
+		return false, p.answerRepaint(reply)
+
+	case <-ctx.Done():
+		return true, nil
+
+	case ev, ok := <-p.events:
+		if !ok {
+			// A clean end closes the session normally. A transport that knows it failed
+			// keeps that cause on the source instead of making channel closure
+			// indistinguishable from EOF.
+			return true, p.input.Err()
+		}
+		return false, p.handle(ev)
+
+	case <-p.tasks.wake:
+		p.runTasks()
+		return false, nil
+
+	case _, ok := <-p.changes:
+		return false, p.writerChanged(ok)
+
+	case <-due.Channel():
+		return false, nil
+	}
+}
+
+// answerRepaint redraws from nothing and tells whoever asked how it went, before the
+// loop ends on the same error: a caller waiting on the reply would otherwise learn
+// only that the program had stopped.
+func (p *program) answerRepaint(reply func(error)) error {
+	err := p.repaint()
+	if reply != nil {
+		reply(err)
+	}
+	if err != nil {
+		p.frameFailed = true
+	}
+	return err
 }
 
 // runTasks takes one scheduling turn. Work posted while this batch runs leaves

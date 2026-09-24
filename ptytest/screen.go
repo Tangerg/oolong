@@ -230,25 +230,12 @@ func ignoresControl(final byte, params ansi.Params) bool {
 }
 
 func (s *Screen) executeControl(final byte, params ansi.Params, raw string) error {
+	if s.moveCursor(final, params) {
+		return nil
+	}
 	switch final {
 	case 'm':
 		return nil
-	case 'H', 'f':
-		row := defaultOne(params.At(0)) - 1
-		column := defaultOne(params.At(1)) - 1
-		s.move(column, row)
-	case 'A':
-		s.move(s.at.X, s.at.Y-defaultOne(params.At(0)))
-	case 'B':
-		s.move(s.at.X, s.at.Y+defaultOne(params.At(0)))
-	case 'C':
-		s.move(s.at.X+defaultOne(params.At(0)), s.at.Y)
-	case 'D':
-		s.move(s.at.X-defaultOne(params.At(0)), s.at.Y)
-	case 'G':
-		s.move(defaultOne(params.At(0))-1, s.at.Y)
-	case 'd':
-		s.move(s.at.X, defaultOne(params.At(0))-1)
 	case 'K':
 		if err := s.eraseLine(params.At(0), raw); err != nil {
 			return err
@@ -269,6 +256,32 @@ func (s *Screen) executeControl(final byte, params ansi.Params, raw string) erro
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
 	}
 	return nil
+}
+
+// moveCursor applies the sequences whose whole effect is where the cursor is, and
+// reports whether the final byte named one of them.
+func (s *Screen) moveCursor(final byte, params ansi.Params) bool {
+	switch final {
+	case 'H', 'f':
+		row := defaultOne(params.At(0)) - 1
+		column := defaultOne(params.At(1)) - 1
+		s.move(column, row)
+	case 'A':
+		s.move(s.at.X, s.at.Y-defaultOne(params.At(0)))
+	case 'B':
+		s.move(s.at.X, s.at.Y+defaultOne(params.At(0)))
+	case 'C':
+		s.move(s.at.X+defaultOne(params.At(0)), s.at.Y)
+	case 'D':
+		s.move(s.at.X-defaultOne(params.At(0)), s.at.Y)
+	case 'G':
+		s.move(defaultOne(params.At(0))-1, s.at.Y)
+	case 'd':
+		s.move(s.at.X, defaultOne(params.At(0))-1)
+	default:
+		return false
+	}
+	return true
 }
 
 func defaultOne(n int) int {

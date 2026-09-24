@@ -134,39 +134,46 @@ func choose[T any](said string, options []Option[T]) (int, error) {
 		return n - 1, nil
 	}
 
+	switch named := namedBy(said, options); {
+	case named.ambiguousExact:
+		return 0, fmt.Errorf("%q names more than one choice", said)
+	case named.exact >= 0:
+		return named.exact, nil
+	case named.ambiguousPrefix:
+		return 0, fmt.Errorf("%q could be more than one of them", said)
+	case named.prefix < 0:
+		return 0, fmt.Errorf("%q is not one of the choices", said)
+	default:
+		return named.prefix, nil
+	}
+}
+
+// naming is what a spoken label reached: the option whose label it is, the first one
+// it is the beginning of, and whether either was reached more than once.
+type naming struct {
+	exact, prefix                   int
+	ambiguousExact, ambiguousPrefix bool
+}
+
+func namedBy[T any](said string, options []Option[T]) naming {
 	folded := strings.ToLower(said)
-	exact, prefix := -1, -1
-	ambiguousExact, ambiguousPrefix := false, false
+	found := naming{exact: -1, prefix: -1}
 	for i, option := range options {
 		label := strings.ToLower(option.Label)
-		if label == folded {
-			if exact >= 0 {
-				ambiguousExact = true
-			} else {
-				exact = i
+		switch {
+		case label == folded:
+			if found.exact >= 0 {
+				found.ambiguousExact = true
+				continue
 			}
-			continue
-		}
-		if !strings.HasPrefix(label, folded) {
-			continue
-		}
-		if prefix >= 0 {
-			ambiguousPrefix = true
-		} else {
-			prefix = i
+			found.exact = i
+		case strings.HasPrefix(label, folded):
+			if found.prefix >= 0 {
+				found.ambiguousPrefix = true
+				continue
+			}
+			found.prefix = i
 		}
 	}
-	if ambiguousExact {
-		return 0, fmt.Errorf("%q names more than one choice", said)
-	}
-	if exact >= 0 {
-		return exact, nil
-	}
-	if ambiguousPrefix {
-		return 0, fmt.Errorf("%q could be more than one of them", said)
-	}
-	if prefix < 0 {
-		return 0, fmt.Errorf("%q is not one of the choices", said)
-	}
-	return prefix, nil
+	return found
 }

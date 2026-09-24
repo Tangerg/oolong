@@ -425,8 +425,21 @@ func (d *division) reserve() {
 // one had already asked for by name. Flex(0).AtLeast(n) asks for no proportional room
 // and still gets its n.
 func (d *division) distribute() {
-	settled := make([]bool, len(d.slots))
-	room, weight := d.left, d.flex
+	settled, room, weight := d.pinFloors()
+	// Integer division may leave a remainder. The last weighted slot owns it; a
+	// floor-only slot must not absorb room it never asked to share.
+	if last := d.allocateFlex(settled, room, weight); last >= 0 && d.left > 0 {
+		d.sizes[last] += d.left
+		d.left = 0
+	}
+}
+
+// pinFloors settles the flexible slots whose share would fall below the floor they
+// stated, taking that floor out of the room the rest divide. Pinning one can push
+// another below its own floor, so it repeats until nothing moves.
+func (d *division) pinFloors() (settled []bool, room, weight int) {
+	settled = make([]bool, len(d.slots))
+	room, weight = d.left, d.flex
 	for pinning := true; pinning; {
 		pinning = false
 		for i, slot := range d.slots {
@@ -445,7 +458,12 @@ func (d *division) distribute() {
 			room, weight = Remaining(room, slot.Size.minimum), weight-share
 		}
 	}
+	return settled, room, weight
+}
 
+// allocateFlex gives each flexible slot its share and reports the last one entitled to
+// the remainder, or -1 when none is.
+func (d *division) allocateFlex(settled []bool, room, weight int) int {
 	lastWeighted := -1
 	for i, slot := range d.slots {
 		if slot.Size.kind != flexSizing {
@@ -461,12 +479,7 @@ func (d *division) distribute() {
 			lastWeighted = i
 		}
 	}
-	// Integer division may leave a remainder. The last weighted slot owns it; a
-	// floor-only slot must not absorb room it never asked to share.
-	if lastWeighted >= 0 && d.left > 0 {
-		d.sizes[lastWeighted] += d.left
-		d.left = 0
-	}
+	return lastWeighted
 }
 
 func (d *division) share(slot Slot) int { return min(slot.Size.amount, d.maxFlex) }
