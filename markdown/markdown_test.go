@@ -551,3 +551,42 @@ func TestAQuotationKeepsItsBarThroughAListAndTheOtherWayRound(t *testing.T) {
 		}
 	}
 }
+
+func TestAQuotationsBarStandsInTheQuotationsColumnsOnEveryRow(t *testing.T) {
+	// The bar belongs to the quotation, so it stands where the quotation does. Hanging
+	// it off the left of each row's own text put it in the right place only on the
+	// first row of an item, which is the one padded out to the item's indent — so a
+	// quoted list item that wrapped drew its bar underneath its own second line, and
+	// further in for every level of nesting.
+	for source, want := range map[string][]string{
+		"> - one two": {"│ • one", "│   two"},
+		"- > one two": {"• │ one", "  │ two"},
+		"> one two":   {"│ one", "│ two"},
+	} {
+		if got := render(t, 7, source); !slices.Equal(got, want) {
+			t.Errorf("%q at width 7 drawn as\n%s\nwant\n%s",
+				source, strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	}
+}
+
+func TestATableRuleFillsItsColumnExactly(t *testing.T) {
+	// A divider is configuration and may be a glyph a terminal draws two columns wide.
+	// Repeating it by count overran the column and pushed the rest of the row along;
+	// repeating it by columns and stopping did the opposite wherever no whole number
+	// of them fits, so the rule was short and every separator after it stood left of
+	// the one on the rows it separates.
+	glyphs := look()
+	glyphs.Glyphs.Divider = "界"
+	got := rows(t, 30, mustRender(t, "| name  | size |\n| --- | --- |\n| value | data |\n", glyphs))
+	if len(got) != 3 {
+		t.Fatalf("the table drew %d rows: %q", len(got), got)
+	}
+	column := func(row string) int { return text.Width(row[:strings.Index(row, "│")]) }
+	bar := column(got[0])
+	for _, row := range got {
+		if at := column(row); at != bar {
+			t.Errorf("the column separator is in column %d of %q and %d of %q", at, row, bar, got[0])
+		}
+	}
+}

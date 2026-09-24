@@ -264,12 +264,17 @@ func (t *table) ruleLine(widths []int) text.Line {
 	return out
 }
 
-// fillTo repeats a glyph until it covers width columns, and no further.
+// fillTo covers exactly width columns with a glyph, padding what is left of the
+// column rather than stopping short of it.
 //
 // A divider is configuration: it may be two characters, or one a terminal draws two
-// columns wide. Counting repetitions rather than columns made such a rule overrun
-// its own column and push the rest of the row along, which is the one thing a table
-// cannot do. The remainder is left blank, because half a glyph is not one.
+// columns wide. Counting repetitions rather than columns made such a rule overrun its
+// own column and push the rest of the row along. Counting columns and stopping did
+// the opposite for a column no whole number of glyphs fits: the rule was short, and
+// every separator after it moved left of the one on the rows it separates.
+//
+// The remainder is blank because half a glyph is not one, and it is still the
+// column's.
 func fillTo(glyph string, width int) string {
 	unit := text.Width(glyph)
 	if width <= 0 || unit <= 0 {
@@ -277,9 +282,11 @@ func fillTo(glyph string, width int) string {
 	}
 	var filled strings.Builder
 	filled.Grow(width)
-	for at := 0; at+unit <= width; at += unit {
+	at := 0
+	for ; at+unit <= width; at += unit {
 		filled.WriteString(glyph)
 	}
+	filled.WriteString(strings.Repeat(" ", width-at))
 	return filled.String()
 }
 

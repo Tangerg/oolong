@@ -117,6 +117,22 @@ func withMarker(rail, marker text.Line, depth, indent int) text.Line {
 	return append(out, rail[depth:]...)
 }
 
+// alongsideMarker is the prefix of every row after the first: the same bars in the
+// same columns, with blanks where the mark stood.
+//
+// A rail belongs to the quotation and stands in the quotation's columns, which is
+// what hanging it off the left of each row's own text got wrong. Only the first row
+// was padded out to the item's indent, so a quoted list item that wrapped drew its
+// bar underneath its own second line — two columns in, and further in for every level
+// of nesting.
+func alongsideMarker(rail, marker text.Line, depth, indent int) text.Line {
+	width := marker.Width()
+	if len(rail) == 0 || width <= 0 {
+		return rail
+	}
+	return withMarker(rail, text.Line{{Text: strings.Repeat(" ", width)}}, depth, indent)
+}
+
 func (p blockLayout) draw(v grid.View) {
 	if p.child == nil {
 		drawRows(v, p.rows)
@@ -124,8 +140,9 @@ func (p blockLayout) draw(v grid.View) {
 	}
 	p.child.Draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
 	visible := v.Visible()
+	continued := alongsideMarker(p.rail, p.marker, p.markerDepth, p.left)
 	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
-		prefix := p.rail
+		prefix := continued
 		if y == 0 && len(p.marker) > 0 {
 			prefix = withMarker(p.rail, p.marker, p.markerDepth, p.left)
 		}
@@ -173,7 +190,7 @@ func (b Block) appendRows(dst []row, width int) []row {
 
 	for i := start; i < len(dst); i++ {
 		dst[i].at = at
-		dst[i].prefix = b.rail
+		dst[i].prefix = alongsideMarker(b.rail, b.marker, b.markerDepth, b.indent)
 	}
 	if start < len(dst) && len(b.marker) > 0 {
 		dst[start].prefix = withMarker(b.rail, b.marker, b.markerDepth, b.indent)
@@ -202,7 +219,9 @@ func drawRows(v grid.View, rows []row) {
 	for y := first; y < last; y++ {
 		r := rows[y]
 		if len(r.prefix) > 0 {
-			r.prefix.Draw(v, r.at-r.prefix.Width(), y)
+			// At the left edge and not against the text: the bars are the quotation's
+			// columns, and every row of the block is inside the same quotation.
+			r.prefix.Draw(v, 0, y)
 		}
 		r.Draw(v, r.at, y)
 	}

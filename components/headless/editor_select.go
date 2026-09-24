@@ -145,12 +145,16 @@ func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
 	return s, false
 }
 
-// finishReplacement settles the interaction state common to a replacement whether
-// or not its bytes changed. The cursor belongs after what was put there and the old
-// selection no longer describes an active range. Revision, history and layout remain
-// separate because an identity replacement changes none of them.
+// finishReplacement settles what a replacement leaves behind, whether or not its
+// bytes changed: which elements are still elements, where the cursor belongs, and
+// that the old selection no longer describes an active range. Revision, history and
+// layout remain separate because an identity replacement changes none of them.
+//
+// The elements are settled before the cursor, because a cursor that snapped over an
+// element the replacement destroyed would have stepped over nothing.
 func (e *Editor) finishReplacement(at Caret) {
 	defer e.revealCursor()
+	e.settleMarks()
 	e.selecting = false
 	e.line = min(max(at.Line, 0), len(e.lines)-1)
 	e.col = e.snapElement(e.line, at.Col, true)

@@ -1,6 +1,7 @@
 package markdown_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/markdown"
@@ -30,5 +31,45 @@ func TestAStreamNeverCutsInsideABlockOfCode(t *testing.T) {
 	source := "- step\n\n      ```\n      one\n\n      two\n      ```\n"
 	if got := mustFeed(t, &stream, source); len(got) != 0 {
 		t.Fatalf("committed %d blocks while a block of code was still open", len(got))
+	}
+}
+
+// TestWhereAStreamCutsDoesNotChangeWhatTheDocumentSays is the contract the cut rule
+// exists to serve, stated as one property instead of as a list of the documents
+// somebody thought of.
+//
+// A stream publishes a prefix and re-parses the rest, so a cut is only ever allowed
+// where parsing the two halves says what parsing the whole says. Where a raw block
+// begins and ends is the parser's own answer — how deep a container indents its
+// contents, whether a run of backticks inside a block closes it, whether an HTML
+// block is still open — and a second lexer with its own opinion agrees with it right
+// up until the document where it does not.
+func TestWhereAStreamCutsDoesNotChangeWhatTheDocumentSays(t *testing.T) {
+	for name, source := range map[string]string{
+		"a fence opened on a list item's own line": "- ```\n  first\n\n  *second*\n  ```\n\nafter\n",
+		"backticks indented inside a code block":   "```\nfirst\n    ```\n\n*second*\n```\n\nafter\n",
+		"a fence with an info string of its own":   "```{.python caption=\"x\"}\none\n\ntwo\n```\n\nafter\n",
+		"a fence inside a block quote":             "> ```\n> one\n>\n> two\n> ```\n\nafter\n",
+		"a fence inside an indented list item":     "- step\n\n      ```\n      one\n\n      two\n      ```\n\nafter\n",
+		"a fence inside an HTML block":             "<div>\n\n```\none\n\ntwo\n```\n\n</div>\n\nafter\n",
+		"display mathematics with a blank line":    "$$\na\n\nb\n$$\n\nafter\n",
+		"a paragraph and a block of code":          "a paragraph\n\n```go\nfmt.Println()\n```\n\nafter\n",
+		"nothing unusual at all":                   "# title\n\none\n\n- a\n- b\n\ntwo\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			want := rows(t, 40, mustRender(t, source, look()))
+			for _, size := range []int{1, 7, len(source)} {
+				var stream markdown.Stream
+				stream.SetLook(look())
+				var blocks []markdown.Block
+				for at := 0; at < len(source); at += size {
+					blocks = append(blocks, mustFeed(t, &stream, source[at:min(at+size, len(source))])...)
+				}
+				blocks = append(blocks, mustFlush(t, &stream)...)
+				if got := rows(t, 40, blocks); !slices.Equal(got, want) {
+					t.Errorf("in %d-byte chunks the document reads\n%q\nwant\n%q", size, got, want)
+				}
+			}
+		})
 	}
 }

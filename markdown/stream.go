@@ -143,7 +143,7 @@ func (s *Stream) Feed(chunk string) ([]Block, error) {
 	s.fresh = false
 
 	cut := s.scan()
-	if cut <= 0 || s.insideHTML(cut) {
+	if cut <= 0 || s.splitsARawBlock(cut) {
 		return nil, nil
 	}
 	source := s.held.String()
@@ -264,16 +264,12 @@ func (s *Stream) scan() int {
 // fenceOf is the run of backticks or tildes that opens a block of code, or nothing
 // when the line does not open one.
 //
-// Any indent counts, which is more than the syntax allows at the top level and is
+// Any indent counts, which is more than the top-level syntax allows and is
 // deliberate. A fence inside a list item is indented past three spaces, and this scan
-// does not know how deep the item is. Reading it as a fence holds the block together;
-// reading it as prose would let a blank line inside the code produce a cut, and a cut
-// inside a block of code splits a literal across two parses — the one thing a
-// streaming renderer must never do to text it is not allowed to interpret.
-//
-// The syntax otherwise allows up to three spaces, because that is what it allows and what a
-// list item's contents arrive with. Four would be a block of code by indent, which
-// needs no fence and ends by itself.
+// does not know how deep the item is. Being wrong either way costs a parse and never
+// a cut: a line read as a fence that was not one holds back a candidate the stream
+// could have taken, and one read as prose that was a fence proposes a candidate
+// [Stream.splitsARawBlock] refuses.
 func fenceOf(line string) string {
 	trimmed := strings.TrimLeft(line, " ")
 	if strings.TrimRight(trimmed, " \t") == "$$" {
@@ -291,10 +287,13 @@ func fenceOf(line string) string {
 	return ""
 }
 
-// closes reports whether a line ends the fence that opened.
+// closes reports whether a line could end the fence that opened.
 //
-// A closing fence is the same character, at least as long, and has nothing after it
-// — which is what lets a line of backticks inside a block of shell script not end it.
+// Could, not does: a closing fence is the same character, at least as long, and has
+// nothing after it, but how far it may be indented depends on the container this scan
+// cannot see. It is read generously for the reason [fenceOf] is, and with the same
+// consequence — a line of backticks in the middle of a block of code ends the scan's
+// idea of the block and not the parser's, so the cut it lets through is refused.
 func closes(line, fence string) bool {
 	trimmed := strings.TrimLeft(line, " ")
 	if fence == "" {
@@ -313,30 +312,60 @@ func indented(line string) bool {
 	return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 }
 
-// The Markdown parser owns raw-block boundaries, including all seven HTML forms.
-// A lexical blank line is not evidence that such a block has ended.
-func (s *Stream) insideHTML(cut int) bool {
+// splitsARawBlock reports whether a proposed cut would cut through text the parser
+// is not allowed to interpret.
+//
+// The scan that proposes cuts reads lines and nothing else, which is enough to find
+// where one could go and not enough to be sure one may. Fenced code, display
+// mathematics and the seven HTML forms all have boundaries only the parser knows: how
+// deep a container indents its contents, whether a run of backticks inside a block
+// closes it or is part of it, whether a raw block is still open. Every one of those
+// is a rule the parser already has, and a second reading of them agrees with it right
+// up until the document where it does not — so the parser answers, and the scan only
+// proposes.
+func (s *Stream) splitsARawBlock(cut int) bool {
 	source := []byte(s.held.String())
-	inside := false
+	split := false
 	_ = ast.Walk(parse(source), func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
-		block, ok := node.(*ast.HTMLBlock)
-		if !ok || block.Lines().Len() == 0 {
-			return ast.WalkContinue, nil
-		}
-		first := block.Lines().At(0)
-		last := block.Lines().At(block.Lines().Len() - 1)
-		stop := last.Stop
-		if block.HasClosure() {
-			stop = max(stop, block.ClosureLine.Stop)
-		}
-		if first.Start < cut && stop > cut {
-			inside = true
+		if rawBlockSplit(node, cut) {
+			split = true
 			return ast.WalkStop, nil
 		}
 		return ast.WalkContinue, nil
 	})
-	return inside
+	return split
 }
+
+// rawBlockSplit reports whether cut falls inside one block of uninterpreted text.
+func rawBlockSplit(node ast.Node, cut int) bool {
+	if node.Type() != ast.TypeBlock {
+		return false
+	}
+	lines := node.Lines()
+	if lines == nil || lines.Len() == 0 {
+		return false
+	}
+	first, last := lines.At(0), lines.At(lines.Len()-1)
+	switch block := node.(type) {
+	case *ast.HTMLBlock:
+		// An HTML block's lines include the tag it opens with, so its first line is a
+		// place a cut may go: what is before it belongs to something else.
+		stop := last.Stop
+		if block.HasClosure() {
+			stop = max(stop, block.ClosureLine.Stop)
+		}
+		return first.Start < cut && stop > cut
+	case *ast.FencedCodeBlock:
+		return delimitedSplit(first.Start, last.Stop, cut)
+	default:
+		return node.Kind() == kindMathBlock && delimitedSplit(first.Start, last.Stop, cut)
+	}
+}
+
+// delimitedSplit answers for a block whose delimiters are lines of their own and are
+// therefore not among its lines: a cut at either end of the content still puts that
+// content on the far side of the fence that owns it.
+func delimitedSplit(start, stop, cut int) bool { return start <= cut && cut <= stop }

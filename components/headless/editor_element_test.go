@@ -517,3 +517,52 @@ func boundariesOf(s string) map[int]bool {
 	}
 	return at
 }
+
+func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) {
+	// Insertion refuses to put an element where it would join what precedes it, and
+	// that was where the rule stopped. Ordinary editing beside one can do the same
+	// thing without touching a byte of it: two regional indicators are one flag, so
+	// deleting the plain space between them merges the element's first cell into the
+	// cluster in front of it.
+	//
+	// What is left cannot be an element. The cursor cannot be put at its edge, so it
+	// cannot be stepped over or taken whole — which leaves exactly the fragment that
+	// still looks like the thing and no longer is.
+	e := editorWith("\U0001F1EF") // a lone regional indicator, J
+	e.SetCursor(0, len("\U0001F1EF"))
+	el := e.InsertElement(fileChip, "\U0001F1F5x") // P and a letter
+	if got := e.Text(); got != "\U0001F1EF \U0001F1F5x " {
+		t.Fatalf("text = %q, want the element kept apart from what precedes it", got)
+	}
+	if got := el.Text(e); got != "\U0001F1F5x" {
+		t.Fatalf("element text = %q", got)
+	}
+
+	e.SetCursor(0, len("\U0001F1EF ")) // just after the separator
+	e.DeleteBack()
+
+	if got := e.Text(); got != "\U0001F1EF\U0001F1F5x " {
+		t.Fatalf("text after deleting the separator = %q", got)
+	}
+	for _, el := range e.Elements() {
+		if !onClusterBoundary(e.Text(), el.Start) || !onClusterBoundary(e.Text(), el.End) {
+			t.Fatalf("element %+v ends inside a grapheme cluster of %q", el, e.Text())
+		}
+	}
+	if got := e.Elements(); len(got) != 0 {
+		t.Fatalf("elements = %+v, want the one the merge destroyed to be gone", got)
+	}
+}
+
+// onClusterBoundary reports whether a byte offset is a place a caret may sit.
+func onClusterBoundary(s string, at int) bool {
+	if at == 0 || at == len(s) {
+		return true
+	}
+	for start := range text.Clusters(s) {
+		if start == at {
+			return true
+		}
+	}
+	return false
+}

@@ -305,6 +305,38 @@ func (e *Editor) edited(edit text.Edit) {
 	e.marks = edit.Shift(e.marks, e.byteLength())
 }
 
+// settleMarks drops every element that is no longer a run of cells of its own.
+//
+// What makes an element atomic is that it begins and ends where a caret may sit, and
+// editing beside one can take that away without touching a byte of it: a regional
+// indicator left next to another is one flag, and a single grapheme cluster cannot be
+// half an element and half the text around it. An element in that state is not
+// atomic any more — the cursor cannot be put at its edge, so it cannot be stepped
+// over or taken whole, and what is left is the fragment this type exists to prevent.
+//
+// Shifting the marks over a change says where they went, which is a question about
+// offsets and belongs to [text.Edit]. Whether what is there is still an element is a
+// question about the text, and only the editor can answer it — so it is answered
+// here, once, for every change rather than at the one operation that was thought to
+// need it.
+func (e *Editor) settleMarks() {
+	e.marks = slices.DeleteFunc(e.marks, func(m text.Mark) bool {
+		return !e.spansWholeClusters(m)
+	})
+}
+
+// spansWholeClusters reports whether a mark's ends are both places a caret may sit on
+// one line.
+func (e *Editor) spansWholeClusters(m text.Mark) bool {
+	start, end := e.caretAt(m.Start), e.caretAt(m.End)
+	if start.Line != end.Line {
+		return false
+	}
+	line := e.lines[start.Line]
+	return clusterPosition(line, start.Col, true) == start.Col &&
+		clusterPosition(line, end.Col, true) == end.Col
+}
+
 // byteLength is the length of the whole text without assembling it. Edits and
 // marks speak in whole-document byte offsets even though the editor owns lines.
 func (e *Editor) byteLength() int {

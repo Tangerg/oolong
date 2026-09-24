@@ -315,6 +315,7 @@ func (e *Editor) reconcileEdit(s string) {
 	for i := range e.lines {
 		e.lines[i] = strings.Clone(e.lines[i])
 	}
+	e.settleMarks()
 
 	caret := e.caretAt(cursor)
 	e.line, e.col = caret.Line, e.snapElement(caret.Line, caret.Col, true)
