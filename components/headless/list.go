@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"image"
 	"slices"
 
 	"github.com/Tangerg/oolong/core/grid"
@@ -128,6 +129,22 @@ func (l *List[T]) At(index int) (T, bool) {
 	return zero, false
 }
 
+// Hit returns the item index at point in the list's local coordinates, using the
+// visible area and scroll position of its last complete frame. Clipped points and
+// blank rows miss. Before the first draw, or after SetItems until a replacement
+// frame commits, no point hits. Hit changes neither selection nor scrolling.
+func (l *List[T]) Hit(point image.Point) (int, bool) {
+	presented := l.presentation.Value()
+	if presented.itemsID != l.itemsID || !point.In(presented.visible) {
+		return 0, false
+	}
+	at := presented.first + point.Y
+	if at >= presented.total {
+		return 0, false
+	}
+	return at, true
+}
+
 // Handle answers keys, the wheel and a press, reporting whether it consumed the event.
 func (l *List[T]) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
@@ -188,25 +205,12 @@ func (l *List[T]) mouse(ev input.Mouse) bool {
 		if ev.Button != input.ButtonLeft {
 			return false
 		}
-		return l.reach(ev.Pos.Y)
 	case input.MouseDrag:
-		return l.reach(ev.Pos.Y)
 	default:
 		return false
 	}
-}
-
-// reach moves the selection to the row at a height in the box, when there is one there.
-//
-// Against the window the last frame drew, because a press arrives between two frames
-// and is about the one on screen.
-func (l *List[T]) reach(y int) bool {
-	presented := l.presentation.Value()
-	if presented.itemsID != l.itemsID || presented.window <= 0 || y < 0 || y >= presented.window {
-		return false
-	}
-	at := presented.first + y
-	if at >= presented.total || at >= len(l.items) {
+	at, ok := l.Hit(ev.Pos)
+	if !ok {
 		return false
 	}
 	l.Select(at)
@@ -274,7 +278,9 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 		scroll.Reveal(selected, selected)
 	}
 	first := scroll.Offset()
-	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total, selected: selected, itemsID: l.itemsID})
+	l.presentation.Stage(v, listPresentation{
+		visible: v.Visible(), window: height, first: first, total: total, selected: selected, itemsID: l.itemsID,
+	})
 	if draw == nil {
 		return
 	}
@@ -299,6 +305,7 @@ func (l *List[T]) reveal() {
 
 type listPresentation struct {
 	itemsID                        *byte
+	visible                        image.Rectangle
 	window, first, total, selected int
 }
 

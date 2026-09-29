@@ -28,6 +28,10 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
+// ErrStopped means the program lost its interface owner before pending work could
+// be applied. Unapplied callbacks and ingress data are released on shutdown.
+var ErrStopped = errors.New("program: stopped")
+
 // ErrFrameTimeout means a frame writer did not account for its pending frames
 // before display ownership had to change. The program refuses the transition: a
 // late frame would otherwise be written into the next owner's output.

@@ -58,8 +58,8 @@ func (s *Scroll) layout(total, window int) {
 // half of them.
 func (s *Scroll) Wheel(w input.Wheel) { s.wheel.Wheel(w) }
 
-// Offset is how many rows are hidden above the window, which is what a scrollbar and
-// a hit test both want.
+// Offset is the current scroll position. Input may change it before another frame
+// commits; use [List.Hit] or [Filter.Hit] to query rows in the presented frame.
 func (s *Scroll) Offset() int { return s.current.offset }
 
 // FollowingEnd reports whether the window is following the end of the content.

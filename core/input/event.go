@@ -242,8 +242,8 @@ type Button uint8
 // The buttons a terminal reports. There is no fourth: the higher button numbers
 // in the protocol are the wheel, which arrives as an action instead.
 const (
-	// ButtonNone is the zero value, which is right for a bare move and for a
-	// wheel: neither belongs to a button.
+	// ButtonNone means no button for movement or a wheel, and an unspecified
+	// released button on MouseUp.
 	ButtonNone Button = iota
 	ButtonLeft
 	ButtonMiddle
@@ -269,6 +269,12 @@ type Mouse struct {
 }
 
 func (Mouse) terminalEvent() {}
+
+// Releases reports whether this is a release of button. ButtonNone on the event
+// means the released button is unspecified and ends the current captured press.
+func (m Mouse) Releases(button Button) bool {
+	return m.Action == MouseUp && (m.Button == ButtonNone || m.Button == button)
+}
 
 // Paste is a block of text the terminal delivered as a paste rather than as
 // keystrokes, so it can be inserted whole instead of being interpreted a

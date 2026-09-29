@@ -2,47 +2,59 @@ package headless
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/oolong/core/fuzzy"
 )
 
-// History is what the user typed before, and a place in it.
+// History owns a bounded sequence and a walk that restores its starting draft.
+// The caller decides which values to record, including whether empty values count.
 //
-// The first step backwards keeps the draft and coming forward past the newest entry
-// gives it back: a half-typed line is the only text in a prompt the user cannot get
-// again by scrolling.
-//
-// Consecutive duplicates and empty lines are not kept, because running the same thing
-// twice does not make two entries worth stepping through. Duplicates that are not
-// consecutive are kept, because the order tells the truth about what happened.
-//
-// The zero value is an empty history. A History must not be copied after first use;
-// its retained entries, draft and current walk are one mutable sequence.
-type History struct {
+// The zero value uses assignment to retain values and keeps consecutive duplicates.
+// Use [NewHistory] to configure copying and equality. A History must not be copied
+// after first use or accessed concurrently.
+type History[T any] struct {
 	noCopy noCopy
 
-	entries []string
-	// at is where the walk has got to, counted from the end: zero is the draft, one
-	// is the newest entry. It is not an index into the slice, so that entries added
-	// during a walk cannot move the place. It may be one past the oldest retained
-	// entry after SetLimit removes the entry currently shown; the next Forward then
-	// reaches the oldest entry that still exists instead of inventing an empty one.
-	at int
-	// draft is what was being typed when the walk began.
-	draft string
-	// limit bounds the list. Zero uses DefaultHistoryLimit.
+	entries []T
+	// at counts from the end: zero is the draft, one the newest entry. Shrinking
+	// may leave it one past the oldest retained entry, so Forward reaches that
+	// entry before returning to newer ones and finally the draft.
+	at    int
+	draft T
 	limit int
+	clone func(T) T
+	equal func(T, T) bool
 }
 
-// DefaultHistoryLimit is how many entries a history keeps when it is not told.
+// HistoryConfig fixes value ownership and duplicate identity for a history's lifetime.
+type HistoryConfig[T any] struct {
+	// Limit bounds retained entries. Zero uses [DefaultHistoryLimit]; negative panics.
+	Limit int
+	// Clone must preserve the value while copying all mutable referenced data. It
+	// must be observationally pure, without modifying its argument or external state.
+	// Nil uses assignment, suitable for immutable values. It is used when retaining
+	// inputs and exposing retained entries.
+	Clone func(T) T
+	// Equal suppresses consecutive duplicates. It borrows its arguments read-only;
+	// nil keeps every entry. [Equal] compares ordinary comparable values.
+	Equal func(T, T) bool
+}
+
+// NewHistory constructs an empty history. Copying and equality cannot change after
+// construction, so previously retained entries keep the same ownership contract.
+func NewHistory[T any](config HistoryConfig[T]) *History[T] {
+	h := &History[T]{clone: config.Clone, equal: config.Equal}
+	h.SetLimit(config.Limit)
+	return h
+}
+
+// DefaultHistoryLimit applies when no explicit capacity is configured.
 const DefaultHistoryLimit = 1000
 
-// SetLimit changes how many entries to keep, dropping the oldest if there are already
-// more. Zero restores [DefaultHistoryLimit]. A negative limit is a programmer error
-// and panics, because zero is already the way to ask for the default and there is no
-// number of entries below none.
-func (h *History) SetLimit(n int) {
+// SetLimit drops the oldest excess entries. Zero restores [DefaultHistoryLimit];
+// a negative limit panics. If the current entry is dropped, the next Forward reaches
+// the oldest retained entry without losing the original draft.
+func (h *History[T]) SetLimit(n int) {
 	if n < 0 {
 		panic("headless: history limit cannot be negative")
 	}
@@ -50,32 +62,34 @@ func (h *History) SetLimit(n int) {
 	h.trim()
 }
 
-// Limit reports the effective entry limit.
-func (h *History) Limit() int {
+// Limit reports the effective entry limit, including the default for zero.
+func (h *History[T]) Limit() int {
 	if h.limit == 0 {
 		return DefaultHistoryLimit
 	}
 	return h.limit
 }
 
-// Add records a line, unless it is empty or the same as the newest entry.
-//
-// It also ends any walk in progress, which is what submitting a line means: whatever
-// the user was stepping through, they have now said something, and the next press of
-// up starts again from the end.
-func (h *History) Add(line string) {
-	h.at, h.draft = 0, ""
-	if strings.TrimSpace(line) == "" {
+// Add ends the current walk and records a snapshot of value, unless Equal matches
+// the newest entry. Nonconsecutive duplicates and zero values are retained.
+func (h *History[T]) Add(value T) {
+	var zero T
+	h.at, h.draft = 0, zero
+	if len(h.entries) > 0 && h.equal != nil && h.equal(h.entries[len(h.entries)-1], value) {
 		return
 	}
-	if len(h.entries) > 0 && h.entries[len(h.entries)-1] == line {
-		return
-	}
-	h.entries = append(h.entries, strings.Clone(line))
+	h.entries = append(h.entries, h.snapshot(value))
 	h.trim()
 }
 
-func (h *History) trim() {
+func (h *History[T]) snapshot(value T) T {
+	if h.clone != nil {
+		return h.clone(value)
+	}
+	return value
+}
+
+func (h *History[T]) trim() {
 	limit := h.Limit()
 	if len(h.entries) > limit {
 		dropped := len(h.entries) - limit
@@ -87,102 +101,95 @@ func (h *History) trim() {
 	}
 }
 
-// Len is how many entries are kept.
-func (h *History) Len() int { return len(h.entries) }
+// Len reports the number of retained entries, excluding the draft.
+func (h *History[T]) Len() int { return len(h.entries) }
 
-// At is the entry n steps back from the end, one being the newest.
-func (h *History) At(n int) (string, bool) {
+// At returns a snapshot of the entry n steps back, one being the newest.
+// Out-of-range steps return the zero value and false without changing the walk.
+func (h *History[T]) At(n int) (T, bool) {
 	if n < 1 || n > len(h.entries) {
-		return "", false
+		var zero T
+		return zero, false
 	}
-	return h.entries[len(h.entries)-n], true
+	return h.snapshot(h.entries[len(h.entries)-n]), true
 }
 
-// Walking reports whether a walk through the history is in progress.
-func (h *History) Walking() bool { return h.at > 0 }
+// Walking reports whether Back has moved away from the draft.
+func (h *History[T]) Walking() bool { return h.at > 0 }
 
-// Back steps one entry further into the past, and reports what should now be in the
-// field.
-//
-// current is what is in the field now, which is kept as the draft on the first step so
-// that [History.Forward] can give it back. It reports false at the oldest entry, so a
-// caller can leave the field alone rather than clearing it.
-func (h *History) Back(current string) (string, bool) {
+// Back snapshots current as the draft only on the first successful step. Later
+// steps return older entry snapshots; the oldest boundary returns zero and false.
+func (h *History[T]) Back(current T) (T, bool) {
 	if h.at >= len(h.entries) {
-		return "", false
+		var zero T
+		return zero, false
 	}
 	if h.at == 0 {
-		h.draft = strings.Clone(current)
+		h.draft = h.snapshot(current)
 	}
 	h.at++
-	entry, _ := h.At(h.at)
-	return entry, true
+	return h.At(h.at)
 }
 
-// Forward steps one entry towards the present.
-//
-// Stepping forward past the newest entry gives back the draft the walk began with,
-// which is the whole reason the draft is kept.
-func (h *History) Forward() (string, bool) {
+// Forward returns a snapshot of the next newer entry. Passing the newest transfers
+// the saved draft back to the caller and ends the walk; an idle walk returns false.
+func (h *History[T]) Forward() (T, bool) {
 	if h.at == 0 {
-		return "", false
+		var zero T
+		return zero, false
 	}
 	h.at--
 	if h.at == 0 {
+		var zero T
 		draft := h.draft
-		h.draft = ""
+		h.draft = zero
 		return draft, true
 	}
-	entry, _ := h.At(h.at)
-	return entry, true
+	return h.At(h.at)
 }
 
-// Cancel abandons a walk and reports the draft it began with, if there was one.
-func (h *History) Cancel() (string, bool) {
+// Cancel ends a walk and transfers its saved draft back to the caller. It returns
+// the zero value and false when no walk is active.
+func (h *History[T]) Cancel() (T, bool) {
 	if h.at == 0 {
-		return "", false
+		var zero T
+		return zero, false
 	}
 	h.at = 0
+	var zero T
 	draft := h.draft
-	h.draft = ""
+	h.draft = zero
 	return draft, true
 }
 
-// Recall is the entries a query matches, newest first.
-//
-// The order is the point. Scoring alone would put the best-matching line first and
-// bury the one from a minute ago behind six from last week, and "the one I ran
-// recently" is what somebody searching their own history is nearly always after — so
-// matches are found by score and then shown newest first.
-func (h *History) Recall(query string) []Recalled {
-	if query == "" {
-		out := make([]Recalled, 0, len(h.entries))
-		for i := range slices.Backward(h.entries) {
-			out = append(out, Recalled{Entry: h.entries[i], Step: len(h.entries) - i})
+// Recall returns matching entry snapshots newest first, without changing the walk.
+// text borrows each entry read-only and supplies its search text; it does not define
+// identity. An empty query returns everything without calling text. A nonempty
+// query with nil text matches nothing. Match offsets address the projected text.
+func (h *History[T]) Recall(query string, text func(T) string) []Recalled[T] {
+	if query != "" && text == nil {
+		return nil
+	}
+	out := make([]Recalled[T], 0, len(h.entries))
+	for i, entry := range slices.Backward(h.entries) {
+		var match fuzzy.Match
+		if query != "" {
+			var ok bool
+			match, ok = fuzzy.Score(query, text(entry))
+			if !ok {
+				continue
+			}
 		}
-		return out
+		out = append(out, Recalled[T]{Entry: h.snapshot(entry), Step: len(h.entries) - i, At: match.At})
 	}
-	ranked := fuzzy.Filter(query, h.entries)
-	out := make([]Recalled, 0, len(ranked))
-	for _, r := range ranked {
-		out = append(out, Recalled{
-			Entry: h.entries[r.Index],
-			Step:  len(h.entries) - r.Index,
-			At:    r.Match.At,
-		})
-	}
-	slices.SortStableFunc(out, func(a, b Recalled) int { return a.Step - b.Step })
 	return out
 }
 
-// Recalled is one entry a search of the history turned up.
-type Recalled struct {
-	// Entry is the line.
-	Entry string
-	// Step is how far back it is, one being the newest, so a caller can jump to it
-	// with [History.At].
+// Recalled pairs an owned entry snapshot with its search result.
+type Recalled[T any] struct {
+	Entry T
+	// Step addresses [History.At], one being the newest retained entry.
 	Step int
-	// At is the byte offsets of the query's characters within the entry, for
-	// underlining them.
+	// At holds byte offsets in the projected search text for highlighting.
 	At []int
 }

@@ -1327,7 +1327,9 @@ func (e *Editor) RetainedElementIDs() []uint64 {
 // Current document elements remain live.
 func (e *Editor) ForgetHistory() { e.endTyping(); e.history.clear() }
 
-// Handle answers keys, reporting whether it consumed the event.
+// Handle answers keys, pastes and pointer selection, reporting whether it consumed
+// the event. A left-button press starts a drag. A release ends the drag only when it
+// names the left button or leaves the button unspecified, even outside the editor.
 //
 // Enter is deliberately not bound. Whether it sends or breaks the line is the
 // container's decision, and an editor that swallowed it would take that decision
@@ -2119,19 +2121,13 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 	return Caret{Line: r.line, Col: e.snapElement(r.line, col, true)}, true
 }
 
-// handleMouse answers a mouse event at a width, reporting whether it consumed it.
-//
-// A press puts the cursor where it was pressed and starts a selection there; a drag
-// with the button held moves the far end; a release ends it. That is what a text field
-// does everywhere.
-//
-// The width is a parameter rather than a field because this is where the arithmetic
-// lives, not because a caller gets to choose one. [Editor.Handle] supplies the width
-// the editor last drew at, which is the only width a pointer event can be about: a
-// press is aimed at what is on the screen. Routing one against a width that was never
-// presented would answer a question nobody asked.
+// handleMouse maps pointer input through the last committed layout. A drag ends on
+// its button's release even outside that layout.
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
 	if ev.Action == input.MouseUp {
+		if !ev.Releases(input.ButtonLeft) {
+			return false
+		}
 		wasDragging := e.dragging
 		e.dragging = false
 		return wasDragging

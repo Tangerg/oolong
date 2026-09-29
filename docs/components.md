@@ -243,7 +243,19 @@ a fast press and release needs no frame between them. `PointerRegion` routes a c
 by its continuous presentation lifetime: an absent child returning later cannot
 resume an old gesture. Tabs and Viewport use that same owner.
 
+A release naming another button leaves the current capture intact. A release with
+`input.ButtonNone` ends the captured press because it does not identify a button.
+Dragging outside and back still permits a click on the matching release; whether a
+drag should suppress activation is an application decision.
+
 After `List.SetItems`, pointer selection waits for the replacement to be drawn.
+`List.Hit(point)` takes list-local coordinates and queries the last committed frame
+without changing selection or scrolling. The origin is the list's logical frame, not
+the visible clip. It rejects points outside the visible rectangle, clipped rows, blank rows,
+and a replaced collection awaiting a draw. Changing scroll before the next draw still
+queries the rows on screen. `Filter.Hit(point)` returns an index in the matched results,
+the same index used by its `Selected` and row renderer; it delegates to its List.
+
 Custom tab strips use `Tabs.SelectPresented(index)` for hits in their committed strip;
 `Tabs.Select(index)` remains programmatic navigation in the current collection.
 Changing key bindings cancels pending sequences, and replaced choice collections or
@@ -254,6 +266,76 @@ the row where their sequence began.
 candidate-row layout. `Select.Row` and `MultiSelect.Row` customize one-row choices.
 An external field can implement `ThemedField.DrawWith` to receive the Form look for
 one frame, using the same channel as built-in fields.
+
+## Keep structured prompt history
+
+Use `headless.History[T]` for entries that carry attachment identity or other
+structured values. History owns the bounded sequence, its navigation cursor, and
+the draft saved by the first successful `Back`. The application owns the meaning
+of an empty message and decides when to call `Add`.
+
+Configure the value boundary once:
+
+```go
+type promptEntry struct {
+    Text          string
+    AttachmentIDs []string
+}
+
+history := headless.NewHistory(headless.HistoryConfig[promptEntry]{
+    Limit: 100,
+    Clone: func(entry promptEntry) promptEntry {
+        entry.AttachmentIDs = slices.Clone(entry.AttachmentIDs)
+        return entry
+    },
+    Equal: func(a, b promptEntry) bool {
+        return a.Text == b.Text && slices.Equal(a.AttachmentIDs, b.AttachmentIDs)
+    },
+})
+```
+
+`Clone` copies all mutable references in a value, including nested slices, maps, or
+pointed-to data when the entry contains them. It must be observationally pure, with
+no input mutation or external side effects. History uses it when retaining inputs
+and returning retained entries. The example's strings are immutable, so copying
+the attachment slice is sufficient. `Clone: nil` uses ordinary assignment and is
+suitable for immutable values. `Equal: nil` keeps every entry, including consecutive
+duplicates. With equality configured, only adjacent equal entries are suppressed;
+an older equal entry keeps its place in the sequence. Equality borrows its arguments
+read-only. Copying and equality remain fixed for the history's lifetime.
+
+`Back(current)` saves the complete draft on its first successful step. `Forward()`
+returns it after passing the newest entry, and `Cancel()` returns it immediately.
+Both release History's reference to the draft when they end the walk. `Add` ends an
+active walk even when equality suppresses a duplicate. `At(1)` reads the newest
+entry without moving the cursor. `SetLimit(0)` restores the default limit of 1,000;
+a negative limit panics. If shrinking removes the entry being browsed, the next
+`Forward` reaches the oldest retained entry before newer entries and the draft.
+
+Search uses a display projection independently of equality:
+
+```go
+matches := history.Recall("readme", func(entry promptEntry) string {
+    return entry.Text
+})
+```
+
+Each `Recalled[promptEntry]` carries an entry snapshot, its `Step` for `At`, and
+matching byte offsets in the projected text. Results remain newest first, so equal
+display text can refer to distinct attachments. The projection borrows entries
+read-only. An empty query returns every entry without calling the projection; a
+nonempty query with a nil projection matches nothing. Search leaves the walk alone.
+
+For strings, migrate `History` to `History[string]`, create it with
+`HistoryConfig[string]{Clone: strings.Clone, Equal: headless.Equal[string]}`, and
+pass an identity projection to `Recall`. History now accepts empty and whitespace
+values, so keep any submission check in the caller. A zero `History[T]` uses the
+default limit, assignment, and no deduplication. Retain a pointer to a History and
+use it from its owning goroutine; do not copy it after use or access it concurrently.
+
+The [composer example](https://github.com/Tangerg/oolong/tree/main/examples/composer)
+stores text and paste payloads in one `History[draft]`. It needs no parallel map
+keyed by display text and no second draft restoration state.
 
 ## Run and verify the slice
 

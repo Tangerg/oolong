@@ -85,7 +85,7 @@ func TestHistoryRestoresAnEntryWithoutLosingTheEditingPath(t *testing.T) {
 }
 
 func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
-	p := &prompt{pastes: make(map[uint64]string)}
+	p := newPrompt(nil)
 	body := "one\ntwo\nthree\nfour"
 	p.insertPaste(body)
 	editor := p.composer.Editor()
@@ -104,12 +104,8 @@ func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
 }
 
 func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
-	// A history of lines keeps the draft's words, which is all a history of lines
-	// can keep. What the words stand for is this application's, and putting the
-	// draft back from its text alone left the chip's label as ordinary words with
-	// the bytes already released.
-	p := &prompt{pastes: make(map[uint64]string)}
-	p.history.Add("something earlier")
+	p := newPrompt(nil)
+	p.history.Add(draft{text: "something earlier"})
 	p.insertPaste("one\ntwo\nthree\nfour")
 	p.composer.Editor().Insert("summarize")
 	before := p.composer.Editor().Text()
@@ -130,10 +126,7 @@ func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
 }
 
 func TestARecalledEntryTakesTheAttachmentsItWasSentWith(t *testing.T) {
-	// Looking for text that reads like a chip binds the attachment to whichever
-	// label was written first, and keying the record by what the line says lets a
-	// line sent again without its chips inherit the ones from last time.
-	p := &prompt{pastes: make(map[uint64]string)}
+	p := newPrompt(nil)
 	p.composer.Editor().Insert("[paste 4 lines] ")
 	p.insertPaste("one\ntwo\nthree\nfour")
 	p.submit()
@@ -162,8 +155,8 @@ func TestRecallingADraftGivesBackTheWordsItHad(t *testing.T) {
 	// one too. Where the recorded document has a separator that is the one it means;
 	// where the writer deleted it and carried straight on, the one the editor adds is
 	// a word this draft never had.
-	p := &prompt{pastes: make(map[uint64]string)}
-	p.history.Add("something earlier")
+	p := newPrompt(nil)
+	p.history.Add(draft{text: "something earlier"})
 	p.insertPaste("one\ntwo\nthree")
 	p.composer.Editor().DeleteBack()
 	p.composer.Editor().Insert("suffix")
@@ -177,5 +170,26 @@ func TestRecallingADraftGivesBackTheWordsItHad(t *testing.T) {
 	}
 	if got := p.composer.Editor().Elements(); len(got) != 1 {
 		t.Fatalf("the draft came back with %d attachments, want the one it had", len(got))
+	}
+}
+
+func TestHistoryDistinguishesAttachmentsWithTheSameLabel(t *testing.T) {
+	p := newPrompt(nil)
+	first := "one\ntwo\nthree"
+	second := "four\nfive\nsix"
+	p.insertPaste(first)
+	p.submit()
+	p.insertPaste(second)
+	p.submit()
+
+	for _, want := range []string{second, first} {
+		p.recallBack()
+		elements := p.composer.Editor().Elements()
+		if len(elements) != 1 {
+			t.Fatalf("recalled attachments = %v, want one", elements)
+		}
+		if got := p.pastes[elements[0].ID]; got != want {
+			t.Fatalf("recalled payload = %q, want %q", got, want)
+		}
 	}
 }

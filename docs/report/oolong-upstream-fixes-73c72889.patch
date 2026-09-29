@@ -1,0 +1,3419 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index dfd8377150b854732f6dd0f77ab032aa15710a1e..14691c3adc032d99f50647f122791ec774f780a3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -16,6 +16,66 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+ these modules are pre-1.0: anything exported may still change, and that is the
+ point of tagging them low rather than not at all.
+ 
++## [Unreleased]
++
++### Fixed
++
++- `headless.Pointer` declines a release that explicitly names another button and
++  keeps the current capture. Root, Container, Stack and PointerRegion retain that
++  same button association when routing the rest of a gesture. `ButtonNone` on release
++  ends the current capture. Dragging outside and back keeps its existing click contract.
++- Editor and Transcript text selection keep a left-button drag active when another
++  button is released. They end the drag only for a left or unspecified release.
++- List pointer selection uses its committed visible rectangle as well as its row
++  projection. Points beyond either horizontal edge or a frame's clip cannot select
++  hidden rows.
++- The composer example retains complete drafts in History. Two paste chips with the
++  same displayed label keep their own payloads; a text-keyed attachment map no longer
++  overwrites the older entry.
++
++### Added
++
++- `input.Mouse.Releases` owns matching a release to a captured button, including an
++  unspecified release. Pointer, routing and text selection share that event query.
++- `headless.List.Hit` and `headless.Filter.Hit` query the last committed frame without
++  moving the selection or scroll position. Filter returns a matched-result index.
++  Replacing a collection invalidates its old hits until the next committed draw.
++- `program.Dispatcher.Invoke` gives workers completion and error acknowledgement on
++  the existing owner queue. Cancellation can withdraw unclaimed work; claimed work
++  finishes before the caller returns. Callback panic still unwinds the program while
++  releasing the waiter with `program.ErrInvocationAborted`. Invoke is worker-only and
++  does not acknowledge terminal frame delivery. `Post` remains non-blocking.
++
++### Changed
++
++- History stores generic values with explicit clone and equality policies. Capacity,
++  traversal, draft restoration and search share one implementation. Applications own
++  empty-message rules, persistence and the meaning of attachment identity.
++- Repository examples and the English and Chinese guides use the new contracts.
++  Downstream applications must migrate their own history and completion-wait code;
++  their operation, session and activation policies remain application-owned.
++
++### Breaking API migration
++
++#### components
++
++- `headless.History` is now `History[T]`. Use `NewHistory(HistoryConfig[T]{...})` to
++  configure `Clone`, `Equal` and `Limit`. `Clone: nil` uses assignment and is suitable
++  only when sharing referenced data is safe; mutable payloads need a deep clone.
++  `Equal: nil` retains consecutive duplicates. For strings, select
++  `Equal: headless.Equal[string]`; use `Clone: strings.Clone` when retained substrings
++  must release their backing storage. Empty values are recorded: filter application
++  empty submissions before calling Add.
++- `headless.(*History).Add`, `headless.(*History).At`, `headless.(*History).Back`,
++  `headless.(*History).Forward` and `headless.(*History).Cancel` now accept or return
++  the retained value type. A returned draft transfers ownership back to the caller;
++  retained entry reads use the configured clone.
++- `headless.(*History).Recall` now takes a read-only text projection and returns
++  `Recalled[T]`. String callers pass `func(s string) string { return s }`.
++  `headless.Recalled` and `headless.Recalled.Entry` carry the original value type;
++  `At` offsets refer to the projected search text. Remove text-keyed payload maps
++  and duplicate history cursors when adopting the typed history.
++
+ ## [0.21.0] — 2026-09-24
+ 
+ A second, third and fourth repair pass over the same audit. A review of v0.20.0 found
+diff --git a/components/headless/container.go b/components/headless/container.go
+index c030ce8c6dc80b7aa9f78ea7c1b82117d64fb83d..a010a2cc38edfb7a383c9ddbfbd6262974fb784e 100644
+--- a/components/headless/container.go
++++ b/components/headless/container.go
+@@ -62,9 +62,11 @@ type Item struct {
+ // A key goes to the widget that has the keyboard and a mouse event goes to the widget
+ // it is over. They are different questions, and treating them as one is what makes an
+ // interface where clicking a pane does not let you type in it. A press is captured:
+-// everything until the release goes to whichever child took it, wherever the pointer
++// dragging and release go to whichever child took it, wherever the pointer
+ // wanders, because otherwise a selection stops extending the moment the drag leaves
+ // the pane it started in.
++// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
++// release; a release naming another button does not end it.
+ //
+ // It does not draw. A border, a gap or a highlight for the focused child is
+ // appearance, and a container with an opinion about them is one nobody could dress
+@@ -116,8 +118,9 @@ type Container struct {
+ 	// held is the exact presented child a press was given to. Everything up to the
+ 	// release goes back to it; a later frame may update its geometry when its identity
+ 	// is still demonstrably the same.
+-	held    childPlacement
+-	holding bool
++	held       childPlacement
++	heldButton input.Button
++	holding    bool
+ 	// slots is rebuilt every frame from the items and kept to save the allocation.
+ 	slots []layout.Slot
+ 	// matcher owns how far into a multi-chord binding the keys have got.
+@@ -369,7 +372,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
+ 		case input.MouseDrag, input.MouseUp:
+ 			owner := c.held
+ 			current, found := c.placed(owner)
+-			if ev.Action == input.MouseUp {
++			if ev.Releases(c.heldButton) {
+ 				c.held = childPlacement{}
+ 				c.holding = false
+ 			}
+@@ -394,6 +397,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
+ 		return false
+ 	}
+ 	c.held = at
++	c.heldButton = ev.Button
+ 	c.holding = true
+ 	return true
+ }
+diff --git a/components/headless/editor.go b/components/headless/editor.go
+index 6c3abeab74de3962b751babea4948a053bd89cd6..d71905569a09cb6f65419298f7029d38bcde03f0 100644
+--- a/components/headless/editor.go
++++ b/components/headless/editor.go
+@@ -1327,7 +1327,9 @@ func (e *Editor) RetainedElementIDs() []uint64 {
+ // Current document elements remain live.
+ func (e *Editor) ForgetHistory() { e.endTyping(); e.history.clear() }
+ 
+-// Handle answers keys, reporting whether it consumed the event.
++// Handle answers keys, pastes and pointer selection, reporting whether it consumed
++// the event. A left-button press starts a drag. A release ends the drag only when it
++// names the left button or leaves the button unspecified, even outside the editor.
+ //
+ // Enter is deliberately not bound. Whether it sends or breaks the line is the
+ // container's decision, and an editor that swallowed it would take that decision
+@@ -2119,19 +2121,13 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
+ 	return Caret{Line: r.line, Col: e.snapElement(r.line, col, true)}, true
+ }
+ 
+-// handleMouse answers a mouse event at a width, reporting whether it consumed it.
+-//
+-// A press puts the cursor where it was pressed and starts a selection there; a drag
+-// with the button held moves the far end; a release ends it. That is what a text field
+-// does everywhere.
+-//
+-// The width is a parameter rather than a field because this is where the arithmetic
+-// lives, not because a caller gets to choose one. [Editor.Handle] supplies the width
+-// the editor last drew at, which is the only width a pointer event can be about: a
+-// press is aimed at what is on the screen. Routing one against a width that was never
+-// presented would answer a question nobody asked.
++// handleMouse maps pointer input through the last committed layout. A drag ends on
++// its button's release even outside that layout.
+ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
+ 	if ev.Action == input.MouseUp {
++		if !ev.Releases(input.ButtonLeft) {
++			return false
++		}
+ 		wasDragging := e.dragging
+ 		e.dragging = false
+ 		return wasDragging
+diff --git a/components/headless/editor_button_test.go b/components/headless/editor_button_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..3076a0816ee74061553516a4ec656c2497e9fd9e
+--- /dev/null
++++ b/components/headless/editor_button_test.go
+@@ -0,0 +1,44 @@
++package headless_test
++
++import (
++	"image"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++	"github.com/Tangerg/oolong/core/grid"
++	"github.com/Tangerg/oolong/core/input"
++)
++
++func TestEditorSelectionWaitsForItsPressedButton(t *testing.T) {
++	for _, release := range []struct {
++		name   string
++		button input.Button
++	}{
++		{name: "left", button: input.ButtonLeft},
++		{name: "unspecified", button: input.ButtonNone},
++	} {
++		t.Run(release.name, func(t *testing.T) {
++			var editor headless.Editor
++			editor.SetText("abcdef")
++			root := headless.NewRoot(&editor)
++			root.Draw(grid.NewSurface(10, 1).View())
++			root.Handle(input.Mouse{Pos: image.Pt(1, 0), Action: input.MouseDown, Button: input.ButtonLeft})
++			root.Handle(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseDrag, Button: input.ButtonLeft})
++			if editor.Selected() != "bc" {
++				t.Fatalf("initial drag selected %q, want bc", editor.Selected())
++			}
++			if root.Handle(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp, Button: input.ButtonRight}) {
++				t.Error("another button's release was consumed by the editor")
++			}
++			if !root.Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDrag, Button: input.ButtonLeft}) || editor.Selected() != "bcde" {
++				t.Fatalf("another button's release ended the editor drag: selected %q", editor.Selected())
++			}
++			if !root.Handle(input.Mouse{Pos: image.Pt(-1, 0), Action: input.MouseUp, Button: release.button}) {
++				t.Fatal("the matching release outside the editor was declined")
++			}
++			if root.Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDrag, Button: input.ButtonLeft}) || editor.Selected() != "bcde" {
++				t.Fatal("a released editor drag resumed or changed its selection")
++			}
++		})
++	}
++}
+diff --git a/components/headless/filter.go b/components/headless/filter.go
+index 33e29e26531d889af388d04a55bc00682434f33f..71e91c7919df0403c07c4ef5c97394b7dd5e9086 100644
+--- a/components/headless/filter.go
++++ b/components/headless/filter.go
+@@ -1,6 +1,7 @@
+ package headless
+ 
+ import (
++	"image"
+ 	"slices"
+ 	"strings"
+ 
+@@ -124,6 +125,14 @@ func (f *Filter[T]) Current() (T, bool) {
+ 	return got.item, ok
+ }
+ 
++// Hit returns the index among ranked matches at point in the filter's local
++// coordinates, in the same order as Selected and Row, not the source Items order.
++// It uses [List.Hit]'s complete-frame contract. Changing the pattern or source
++// invalidates hits until the new matches are drawn. Hit changes no filter state.
++func (f *Filter[T]) Hit(point image.Point) (int, bool) {
++	return f.list.Hit(point)
++}
++
+ // Select moves the cursor to one of the matches, clamped to them.
+ func (f *Filter[T]) Select(at int) {
+ 	f.match()
+diff --git a/components/headless/filter_hit_test.go b/components/headless/filter_hit_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..9a1d8ec7bfa9acb8ca7e60b5ac52b958602bf7c9
+--- /dev/null
++++ b/components/headless/filter_hit_test.go
+@@ -0,0 +1,87 @@
++package headless_test
++
++import (
++	"image"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++	"github.com/Tangerg/oolong/core/grid"
++)
++
++func TestFilterHitUsesRankedIndicesWithoutChangingSelectionOrScroll(t *testing.T) {
++	var filter headless.Filter[string]
++	assertRowHit(t, filter.Hit, image.Pt(0, 0), -1)
++	filter.SetItems([]string{"other", "a", "ab", "ac", "zz"}, func(s string) string { return s })
++	filter.SetPattern("a")
++	filter.Select(2)
++	root := headless.NewRoot(&filter)
++	root.Draw(grid.NewSurface(4, 2).View())
++	assertRowHit(t, filter.Hit, image.Pt(0, 0), 1)
++	if filter.Selected() != 2 || filter.Scroll().Offset() != 1 {
++		t.Fatal("filter hit changed selection or scroll")
++	}
++	if got, _ := filter.Current(); got != "ac" {
++		t.Fatalf("selection identifies %q, want ac", got)
++	}
++	filter.Scroll().ToTop()
++	assertRowHit(t, filter.Hit, image.Pt(0, 0), 1)
++	if filter.Scroll().Offset() != 0 || filter.Selected() != 2 {
++		t.Fatal("filter hit overrode pending manual scrolling")
++	}
++	root.Draw(grid.NewSurface(4, 2).View())
++	assertRowHit(t, filter.Hit, image.Pt(0, 0), 0)
++}
++
++func TestFilterHitSharesTheInnerListClipping(t *testing.T) {
++	var filter headless.Filter[string]
++	filter.SetItems([]string{"zero", "one", "two", "three", "four"}, func(s string) string { return s })
++	view := grid.NewSurface(4, 2).View().Sub(image.Rect(-2, -1, 6, 4))
++	headless.NewRoot(&filter).Draw(view)
++	for _, test := range []struct {
++		point image.Point
++		want  int
++	}{
++		{point: image.Pt(2, 1), want: 1},
++		{point: image.Pt(5, 2), want: 2},
++		{point: image.Pt(1, 2), want: -1},
++		{point: image.Pt(6, 2), want: -1},
++		{point: image.Pt(3, 0), want: -1},
++		{point: image.Pt(3, 3), want: -1},
++	} {
++		assertRowHit(t, filter.Hit, test.point, test.want)
++	}
++}
++
++func TestFilterHitRejectsUnpresentedMatches(t *testing.T) {
++	for _, replaceSource := range []bool{false, true} {
++		var filter headless.Filter[string]
++		calls := 0
++		text := func(s string) string {
++			calls++
++			return s
++		}
++		filter.SetItems([]string{"alpha", "beta"}, text)
++		filter.SetPattern("a")
++		probe := &hitFrameProbe{child: &filter}
++		root := headless.NewRoot(probe)
++		view := grid.NewSurface(4, 3).View()
++		root.Draw(view)
++		assertRowHit(t, filter.Hit, image.Pt(0, 1), 1)
++		if replaceSource {
++			filter.SetItems([]string{"gamma"}, text)
++		} else {
++			filter.SetPattern("beta")
++		}
++		before := calls
++		assertRowHit(t, filter.Hit, image.Pt(0, 0), -1)
++		probe.inspect = func() {
++			assertRowHit(t, filter.Hit, image.Pt(0, 0), -1)
++		}
++		root.Draw(view)
++		assertRowHit(t, filter.Hit, image.Pt(0, 0), 0)
++		assertRowHit(t, filter.Hit, image.Pt(0, 1), -1)
++		if calls != before || filter.Selected() != 0 || filter.Scroll().Offset() != 0 {
++			t.Fatal("hit queries or drawing rebuilt matches or advanced filter state")
++		}
++	}
++}
+diff --git a/components/headless/frame.go b/components/headless/frame.go
+index bd2cf3110f58a2d23088f20045310b7735f936ac..ab8a7fc412f3950aaaf005fcf203dbb64257947a 100644
+--- a/components/headless/frame.go
++++ b/components/headless/frame.go
+@@ -189,7 +189,8 @@ type Root struct {
+ 	// held is the presented root that accepted a press. Root is itself an ownership
+ 	// boundary when Of is replaced, so it must not hand the rest of that gesture to
+ 	// the replacement.
+-	held Interactive
++	held       Interactive
++	heldButton input.Button
+ }
+ 
+ // NewRoot wraps a live widget tree in its presentation transaction.
+@@ -246,6 +247,8 @@ func (r *Root) Draw(view grid.View) {
+ // Handle offers input to the last completely drawn tree. A root replaced before its
+ // next frame remains the input target the user can see. A root that accepted a pointer
+ // press also receives that gesture's drag and release even if it is replaced meanwhile.
++// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
++// release; a release naming another button does not end it.
+ func (r *Root) Handle(event input.Event) bool {
+ 	if r == nil {
+ 		return false
+@@ -260,7 +263,7 @@ func (r *Root) Handle(event input.Event) bool {
+ func (r *Root) mouse(event input.Mouse) bool {
+ 	if r.held != nil && (event.Action == input.MouseDrag || event.Action == input.MouseUp) {
+ 		target := r.held
+-		if event.Action == input.MouseUp {
++		if event.Releases(r.heldButton) {
+ 			r.held = nil
+ 		}
+ 		return target.Handle(event)
+@@ -276,6 +279,7 @@ func (r *Root) mouse(event input.Mouse) bool {
+ 	}
+ 	if event.Action == input.MouseDown {
+ 		r.held = target
++		r.heldButton = event.Button
+ 	}
+ 	return true
+ }
+diff --git a/components/headless/history.go b/components/headless/history.go
+index e267300550c1053af10736b0845fdb2de88440ce..f5c05f5f4f6939a4b4be938d51480b81a45ce9b7 100644
+--- a/components/headless/history.go
++++ b/components/headless/history.go
+@@ -2,47 +2,59 @@ package headless
+ 
+ import (
+ 	"slices"
+-	"strings"
+ 
+ 	"github.com/Tangerg/oolong/core/fuzzy"
+ )
+ 
+-// History is what the user typed before, and a place in it.
++// History owns a bounded sequence and a walk that restores its starting draft.
++// The caller decides which values to record, including whether empty values count.
+ //
+-// The first step backwards keeps the draft and coming forward past the newest entry
+-// gives it back: a half-typed line is the only text in a prompt the user cannot get
+-// again by scrolling.
+-//
+-// Consecutive duplicates and empty lines are not kept, because running the same thing
+-// twice does not make two entries worth stepping through. Duplicates that are not
+-// consecutive are kept, because the order tells the truth about what happened.
+-//
+-// The zero value is an empty history. A History must not be copied after first use;
+-// its retained entries, draft and current walk are one mutable sequence.
+-type History struct {
++// The zero value uses assignment to retain values and keeps consecutive duplicates.
++// Use [NewHistory] to configure copying and equality. A History must not be copied
++// after first use or accessed concurrently.
++type History[T any] struct {
+ 	noCopy noCopy
+ 
+-	entries []string
+-	// at is where the walk has got to, counted from the end: zero is the draft, one
+-	// is the newest entry. It is not an index into the slice, so that entries added
+-	// during a walk cannot move the place. It may be one past the oldest retained
+-	// entry after SetLimit removes the entry currently shown; the next Forward then
+-	// reaches the oldest entry that still exists instead of inventing an empty one.
+-	at int
+-	// draft is what was being typed when the walk began.
+-	draft string
+-	// limit bounds the list. Zero uses DefaultHistoryLimit.
++	entries []T
++	// at counts from the end: zero is the draft, one the newest entry. Shrinking
++	// may leave it one past the oldest retained entry, so Forward reaches that
++	// entry before returning to newer ones and finally the draft.
++	at    int
++	draft T
+ 	limit int
++	clone func(T) T
++	equal func(T, T) bool
+ }
+ 
+-// DefaultHistoryLimit is how many entries a history keeps when it is not told.
++// HistoryConfig fixes value ownership and duplicate identity for a history's lifetime.
++type HistoryConfig[T any] struct {
++	// Limit bounds retained entries. Zero uses [DefaultHistoryLimit]; negative panics.
++	Limit int
++	// Clone must preserve the value while copying all mutable referenced data. It
++	// must be observationally pure, without modifying its argument or external state.
++	// Nil uses assignment, suitable for immutable values. It is used when retaining
++	// inputs and exposing retained entries.
++	Clone func(T) T
++	// Equal suppresses consecutive duplicates. It borrows its arguments read-only;
++	// nil keeps every entry. [Equal] compares ordinary comparable values.
++	Equal func(T, T) bool
++}
++
++// NewHistory constructs an empty history. Copying and equality cannot change after
++// construction, so previously retained entries keep the same ownership contract.
++func NewHistory[T any](config HistoryConfig[T]) *History[T] {
++	h := &History[T]{clone: config.Clone, equal: config.Equal}
++	h.SetLimit(config.Limit)
++	return h
++}
++
++// DefaultHistoryLimit applies when no explicit capacity is configured.
+ const DefaultHistoryLimit = 1000
+ 
+-// SetLimit changes how many entries to keep, dropping the oldest if there are already
+-// more. Zero restores [DefaultHistoryLimit]. A negative limit is a programmer error
+-// and panics, because zero is already the way to ask for the default and there is no
+-// number of entries below none.
+-func (h *History) SetLimit(n int) {
++// SetLimit drops the oldest excess entries. Zero restores [DefaultHistoryLimit];
++// a negative limit panics. If the current entry is dropped, the next Forward reaches
++// the oldest retained entry without losing the original draft.
++func (h *History[T]) SetLimit(n int) {
+ 	if n < 0 {
+ 		panic("headless: history limit cannot be negative")
+ 	}
+@@ -50,32 +62,34 @@ func (h *History) SetLimit(n int) {
+ 	h.trim()
+ }
+ 
+-// Limit reports the effective entry limit.
+-func (h *History) Limit() int {
++// Limit reports the effective entry limit, including the default for zero.
++func (h *History[T]) Limit() int {
+ 	if h.limit == 0 {
+ 		return DefaultHistoryLimit
+ 	}
+ 	return h.limit
+ }
+ 
+-// Add records a line, unless it is empty or the same as the newest entry.
+-//
+-// It also ends any walk in progress, which is what submitting a line means: whatever
+-// the user was stepping through, they have now said something, and the next press of
+-// up starts again from the end.
+-func (h *History) Add(line string) {
+-	h.at, h.draft = 0, ""
+-	if strings.TrimSpace(line) == "" {
+-		return
+-	}
+-	if len(h.entries) > 0 && h.entries[len(h.entries)-1] == line {
++// Add ends the current walk and records a snapshot of value, unless Equal matches
++// the newest entry. Nonconsecutive duplicates and zero values are retained.
++func (h *History[T]) Add(value T) {
++	var zero T
++	h.at, h.draft = 0, zero
++	if len(h.entries) > 0 && h.equal != nil && h.equal(h.entries[len(h.entries)-1], value) {
+ 		return
+ 	}
+-	h.entries = append(h.entries, strings.Clone(line))
++	h.entries = append(h.entries, h.snapshot(value))
+ 	h.trim()
+ }
+ 
+-func (h *History) trim() {
++func (h *History[T]) snapshot(value T) T {
++	if h.clone != nil {
++		return h.clone(value)
++	}
++	return value
++}
++
++func (h *History[T]) trim() {
+ 	limit := h.Limit()
+ 	if len(h.entries) > limit {
+ 		dropped := len(h.entries) - limit
+@@ -87,102 +101,95 @@ func (h *History) trim() {
+ 	}
+ }
+ 
+-// Len is how many entries are kept.
+-func (h *History) Len() int { return len(h.entries) }
++// Len reports the number of retained entries, excluding the draft.
++func (h *History[T]) Len() int { return len(h.entries) }
+ 
+-// At is the entry n steps back from the end, one being the newest.
+-func (h *History) At(n int) (string, bool) {
++// At returns a snapshot of the entry n steps back, one being the newest.
++// Out-of-range steps return the zero value and false without changing the walk.
++func (h *History[T]) At(n int) (T, bool) {
+ 	if n < 1 || n > len(h.entries) {
+-		return "", false
++		var zero T
++		return zero, false
+ 	}
+-	return h.entries[len(h.entries)-n], true
++	return h.snapshot(h.entries[len(h.entries)-n]), true
+ }
+ 
+-// Walking reports whether a walk through the history is in progress.
+-func (h *History) Walking() bool { return h.at > 0 }
++// Walking reports whether Back has moved away from the draft.
++func (h *History[T]) Walking() bool { return h.at > 0 }
+ 
+-// Back steps one entry further into the past, and reports what should now be in the
+-// field.
+-//
+-// current is what is in the field now, which is kept as the draft on the first step so
+-// that [History.Forward] can give it back. It reports false at the oldest entry, so a
+-// caller can leave the field alone rather than clearing it.
+-func (h *History) Back(current string) (string, bool) {
++// Back snapshots current as the draft only on the first successful step. Later
++// steps return older entry snapshots; the oldest boundary returns zero and false.
++func (h *History[T]) Back(current T) (T, bool) {
+ 	if h.at >= len(h.entries) {
+-		return "", false
++		var zero T
++		return zero, false
+ 	}
+ 	if h.at == 0 {
+-		h.draft = strings.Clone(current)
++		h.draft = h.snapshot(current)
+ 	}
+ 	h.at++
+-	entry, _ := h.At(h.at)
+-	return entry, true
++	return h.At(h.at)
+ }
+ 
+-// Forward steps one entry towards the present.
+-//
+-// Stepping forward past the newest entry gives back the draft the walk began with,
+-// which is the whole reason the draft is kept.
+-func (h *History) Forward() (string, bool) {
++// Forward returns a snapshot of the next newer entry. Passing the newest transfers
++// the saved draft back to the caller and ends the walk; an idle walk returns false.
++func (h *History[T]) Forward() (T, bool) {
+ 	if h.at == 0 {
+-		return "", false
++		var zero T
++		return zero, false
+ 	}
+ 	h.at--
+ 	if h.at == 0 {
++		var zero T
+ 		draft := h.draft
+-		h.draft = ""
++		h.draft = zero
+ 		return draft, true
+ 	}
+-	entry, _ := h.At(h.at)
+-	return entry, true
++	return h.At(h.at)
+ }
+ 
+-// Cancel abandons a walk and reports the draft it began with, if there was one.
+-func (h *History) Cancel() (string, bool) {
++// Cancel ends a walk and transfers its saved draft back to the caller. It returns
++// the zero value and false when no walk is active.
++func (h *History[T]) Cancel() (T, bool) {
+ 	if h.at == 0 {
+-		return "", false
++		var zero T
++		return zero, false
+ 	}
+ 	h.at = 0
++	var zero T
+ 	draft := h.draft
+-	h.draft = ""
++	h.draft = zero
+ 	return draft, true
+ }
+ 
+-// Recall is the entries a query matches, newest first.
+-//
+-// The order is the point. Scoring alone would put the best-matching line first and
+-// bury the one from a minute ago behind six from last week, and "the one I ran
+-// recently" is what somebody searching their own history is nearly always after — so
+-// matches are found by score and then shown newest first.
+-func (h *History) Recall(query string) []Recalled {
+-	if query == "" {
+-		out := make([]Recalled, 0, len(h.entries))
+-		for i := range slices.Backward(h.entries) {
+-			out = append(out, Recalled{Entry: h.entries[i], Step: len(h.entries) - i})
+-		}
+-		return out
++// Recall returns matching entry snapshots newest first, without changing the walk.
++// text borrows each entry read-only and supplies its search text; it does not define
++// identity. An empty query returns everything without calling text. A nonempty
++// query with nil text matches nothing. Match offsets address the projected text.
++func (h *History[T]) Recall(query string, text func(T) string) []Recalled[T] {
++	if query != "" && text == nil {
++		return nil
+ 	}
+-	ranked := fuzzy.Filter(query, h.entries)
+-	out := make([]Recalled, 0, len(ranked))
+-	for _, r := range ranked {
+-		out = append(out, Recalled{
+-			Entry: h.entries[r.Index],
+-			Step:  len(h.entries) - r.Index,
+-			At:    r.Match.At,
+-		})
++	out := make([]Recalled[T], 0, len(h.entries))
++	for i, entry := range slices.Backward(h.entries) {
++		var match fuzzy.Match
++		if query != "" {
++			var ok bool
++			match, ok = fuzzy.Score(query, text(entry))
++			if !ok {
++				continue
++			}
++		}
++		out = append(out, Recalled[T]{Entry: h.snapshot(entry), Step: len(h.entries) - i, At: match.At})
+ 	}
+-	slices.SortStableFunc(out, func(a, b Recalled) int { return a.Step - b.Step })
+ 	return out
+ }
+ 
+-// Recalled is one entry a search of the history turned up.
+-type Recalled struct {
+-	// Entry is the line.
+-	Entry string
+-	// Step is how far back it is, one being the newest, so a caller can jump to it
+-	// with [History.At].
++// Recalled pairs an owned entry snapshot with its search result.
++type Recalled[T any] struct {
++	Entry T
++	// Step addresses [History.At], one being the newest retained entry.
+ 	Step int
+-	// At is the byte offsets of the query's characters within the entry, for
+-	// underlining them.
++	// At holds byte offsets in the projected search text for highlighting.
+ 	At []int
+ }
+diff --git a/components/headless/history_internals_test.go b/components/headless/history_internals_test.go
+index 40aa6292bc396457a2235ffb57a87f42b3272ae5..48cc05dba27ce484659eecf4e496f683ea3e11de 100644
+--- a/components/headless/history_internals_test.go
++++ b/components/headless/history_internals_test.go
+@@ -1,12 +1,13 @@
+ package headless
+ 
+ import (
++	"slices"
+ 	"strconv"
+ 	"testing"
+ )
+ 
+ func TestHistoryReleasesARegistryHighWaterMark(t *testing.T) {
+-	var history History
++	var history History[string]
+ 	history.SetLimit(1024)
+ 	for i := range 1024 {
+ 		history.Add(strconv.Itoa(i))
+@@ -20,3 +21,40 @@ func TestHistoryReleasesARegistryHighWaterMark(t *testing.T) {
+ 		t.Fatalf("one entry retains capacity %d from the old limit", cap(history.entries))
+ 	}
+ }
++
++func TestHistoryReleasesEvictedReferences(t *testing.T) {
++	var history History[[]byte]
++	history.Add([]byte("one"))
++	history.Add([]byte("two"))
++	history.Add([]byte("three"))
++	retained := history.entries
++	history.SetLimit(1)
++	if retained[0] != nil || retained[1] != nil {
++		t.Fatalf("evicted entries retain references: %v", retained[:2])
++	}
++	if string(history.entries[0]) != "three" {
++		t.Fatalf("retained entry = %q, want three", history.entries[0])
++	}
++}
++
++func TestHistoryReleasesItsDraftWhenTheWalkEnds(t *testing.T) {
++	for _, test := range []struct {
++		name string
++		end  func(*History[[]byte])
++	}{
++		{"Forward", func(h *History[[]byte]) { h.Forward() }},
++		{"Cancel", func(h *History[[]byte]) { h.Cancel() }},
++		{"Add", func(h *History[[]byte]) { h.Add([]byte("submitted")) }},
++		{"AddDuplicate", func(h *History[[]byte]) { h.Add([]byte("entry")) }},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			history := NewHistory(HistoryConfig[[]byte]{Clone: slices.Clone[[]byte], Equal: slices.Equal[[]byte]})
++			history.Add([]byte("entry"))
++			history.Back([]byte("draft"))
++			test.end(history)
++			if history.draft != nil {
++				t.Fatalf("ended walk retained draft %q", history.draft)
++			}
++		})
++	}
++}
+diff --git a/components/headless/history_structured_test.go b/components/headless/history_structured_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..fbb00ad625714bc2b5dcefe01f4729e00e6dda42
+--- /dev/null
++++ b/components/headless/history_structured_test.go
+@@ -0,0 +1,268 @@
++package headless_test
++
++import (
++	"reflect"
++	"slices"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++)
++
++type historyAttachment struct {
++	ID, Label string
++	Data      []byte
++}
++
++type historyMessage struct {
++	Text        string
++	Attachments []historyAttachment
++}
++
++func (m historyMessage) clone() historyMessage {
++	m.Attachments = slices.Clone(m.Attachments)
++	for i := range m.Attachments {
++		m.Attachments[i].Data = slices.Clone(m.Attachments[i].Data)
++	}
++	return m
++}
++
++func (m historyMessage) equal(other historyMessage) bool {
++	return m.Text == other.Text && slices.EqualFunc(m.Attachments, other.Attachments, func(a, b historyAttachment) bool {
++		return a.ID == b.ID && a.Label == b.Label && slices.Equal(a.Data, b.Data)
++	})
++}
++
++func messageWithAttachment(id string) historyMessage {
++	return historyMessage{Text: "explain @file", Attachments: []historyAttachment{
++		{ID: id, Label: "@file", Data: []byte("payload")},
++	}}
++}
++
++func messageHistory() *headless.History[historyMessage] {
++	return headless.NewHistory(headless.HistoryConfig[historyMessage]{
++		Clone: historyMessage.clone,
++		Equal: historyMessage.equal,
++	})
++}
++
++func TestHistoryKeepsStructuredIdentityAndNonconsecutiveOrder(t *testing.T) {
++	h := messageHistory()
++	for _, id := range []string{"one", "one", "two", "one"} {
++		h.Add(messageWithAttachment(id))
++	}
++	if got := h.Len(); got != 3 {
++		t.Fatalf("retained %d messages, want 3", got)
++	}
++	for i, id := range []string{"one", "two", "one"} {
++		got, ok := h.At(i + 1)
++		if !ok || !reflect.DeepEqual(got, messageWithAttachment(id)) {
++			t.Fatalf("At(%d) = %+v (%v), want attachment %q", i+1, got, ok, id)
++		}
++	}
++
++	matches := h.Recall("file", func(m historyMessage) string { return m.Text })
++	if len(matches) != 3 {
++		t.Fatalf("Recall returned %d entries, want 3", len(matches))
++	}
++	for i, id := range []string{"one", "two", "one"} {
++		got := matches[i]
++		if got.Step != i+1 || got.Entry.Attachments[0].ID != id || !slices.Equal(got.At, []int{9, 10, 11, 12}) {
++			t.Fatalf("match %d = %+v, want attachment %q at step %d", i, got, id, i+1)
++		}
++	}
++}
++
++func TestHistorySnapshotsStructuredInputs(t *testing.T) {
++	h := messageHistory()
++	value := messageWithAttachment("original")
++	h.Add(value)
++	value.Text = "changed"
++	value.Attachments[0].ID = "changed"
++	value.Attachments[0].Data[0] = 'X'
++	value.Attachments = append(value.Attachments, historyAttachment{ID: "extra"})
++
++	got, ok := h.At(1)
++	if !ok || !reflect.DeepEqual(got, messageWithAttachment("original")) {
++		t.Fatalf("recorded value changed with its input: %+v (%v)", got, ok)
++	}
++}
++
++func TestHistoryReturnsIndependentStructuredEntries(t *testing.T) {
++	for _, test := range []struct {
++		name string
++		read func(*headless.History[historyMessage]) historyMessage
++	}{
++		{"At", func(h *headless.History[historyMessage]) historyMessage {
++			got, _ := h.At(1)
++			return got
++		}},
++		{"Back", func(h *headless.History[historyMessage]) historyMessage {
++			got, _ := h.Back(historyMessage{})
++			return got
++		}},
++		{"Forward", func(h *headless.History[historyMessage]) historyMessage {
++			h.Back(historyMessage{})
++			h.Back(historyMessage{})
++			got, _ := h.Forward()
++			return got
++		}},
++		{"RecallAll", func(h *headless.History[historyMessage]) historyMessage {
++			return h.Recall("", nil)[0].Entry
++		}},
++		{"RecallMatch", func(h *headless.History[historyMessage]) historyMessage {
++			return h.Recall("file", func(m historyMessage) string { return m.Text })[0].Entry
++		}},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			h := messageHistory()
++			h.Add(messageWithAttachment("older"))
++			h.Add(messageWithAttachment("newest"))
++			got := test.read(h)
++			if !reflect.DeepEqual(got, messageWithAttachment("newest")) {
++				t.Fatalf("returned value = %+v, want newest", got)
++			}
++			got.Attachments[0].ID = "changed"
++			got.Attachments[0].Data[0] = 'X'
++			again, ok := h.At(1)
++			if !ok || !reflect.DeepEqual(again, messageWithAttachment("newest")) {
++				t.Fatalf("retained value changed with returned value: %+v (%v)", again, ok)
++			}
++		})
++	}
++}
++
++func TestHistoryRestoresAnIndependentStructuredDraft(t *testing.T) {
++	for _, test := range []struct {
++		name   string
++		finish func(*headless.History[historyMessage]) (historyMessage, bool)
++	}{
++		{"Forward", (*headless.History[historyMessage]).Forward},
++		{"Cancel", (*headless.History[historyMessage]).Cancel},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			h := messageHistory()
++			h.Add(messageWithAttachment("entry"))
++			draft := messageWithAttachment("draft")
++			h.Back(draft)
++			draft.Attachments[0].ID = "changed"
++			draft.Attachments[0].Data[0] = 'X'
++			if _, ok := h.Back(messageWithAttachment("replacement")); ok {
++				t.Fatal("moved past the oldest entry")
++			}
++			got, ok := test.finish(h)
++			if !ok || !reflect.DeepEqual(got, messageWithAttachment("draft")) || h.Walking() {
++				t.Fatalf("restored draft = %+v (%v), walking=%v", got, ok, h.Walking())
++			}
++			got.Attachments[0].Data[0] = 'Y'
++			if _, ok := test.finish(h); ok {
++				t.Fatal("returned the draft twice")
++			}
++			entry, _ := h.Back(messageWithAttachment("next draft"))
++			if !reflect.DeepEqual(entry, messageWithAttachment("entry")) {
++				t.Fatalf("draft mutation changed history entry: %+v", entry)
++			}
++			next, _ := test.finish(h)
++			if !reflect.DeepEqual(next, messageWithAttachment("next draft")) {
++				t.Fatalf("next walk retained the previous draft: %+v", next)
++			}
++		})
++	}
++}
++
++func TestShrinkingStructuredHistoryKeepsTheDraftAndRetainedOrder(t *testing.T) {
++	h := messageHistory()
++	for _, id := range []string{"one", "two", "three", "four"} {
++		h.Add(messageWithAttachment(id))
++	}
++	h.Back(messageWithAttachment("draft"))
++	h.Back(historyMessage{})
++	h.Back(historyMessage{})
++	h.SetLimit(2)
++	if _, ok := h.Back(historyMessage{}); ok {
++		t.Fatal("moved into an evicted entry")
++	}
++	for _, id := range []string{"three", "four", "draft"} {
++		got, ok := h.Forward()
++		if !ok || !reflect.DeepEqual(got, messageWithAttachment(id)) {
++			t.Fatalf("forward after shrinking = %+v (%v), want %q", got, ok, id)
++		}
++	}
++}
++
++func TestHistoryLeavesEmptyValuePolicyToTheCaller(t *testing.T) {
++	h := historyOf("", "", " ", "  ", "")
++	if h.Len() != 4 {
++		t.Fatalf("kept %d entries, want 4", h.Len())
++	}
++	for i, want := range []string{"", "  ", " ", ""} {
++		if got, ok := h.At(i + 1); !ok || got != want {
++			t.Fatalf("At(%d) = %q (%v), want %q", i+1, got, ok, want)
++		}
++	}
++}
++
++func TestHistoryZeroConfigurationKeepsEveryValue(t *testing.T) {
++	var zero headless.History[int]
++	for _, h := range []*headless.History[int]{&zero, headless.NewHistory(headless.HistoryConfig[int]{})} {
++		h.Add(0)
++		h.Add(0)
++		if h.Len() != 2 || h.Limit() != 1000 {
++			t.Fatalf("unconfigured history kept %d entries with limit %d", h.Len(), h.Limit())
++		}
++		if got, ok := h.Back(42); !ok || got != 0 {
++			t.Fatalf("zero entry = %d (%v)", got, ok)
++		}
++		if got, ok := h.Forward(); !ok || got != 42 {
++			t.Fatalf("draft = %d (%v), want 42", got, ok)
++		}
++	}
++}
++
++func TestDuplicateSubmissionEndsTheHistoryWalk(t *testing.T) {
++	h := historyOf("same")
++	h.Back("draft")
++	h.Add("same")
++	if h.Walking() || h.Len() != 1 {
++		t.Fatalf("duplicate submission: walking=%v, entries=%d", h.Walking(), h.Len())
++	}
++	if _, ok := h.Cancel(); ok {
++		t.Fatal("submission retained an abandoned draft")
++	}
++}
++
++func TestEmptyHistoryDoesNotCaptureADraft(t *testing.T) {
++	h := messageHistory()
++	if _, ok := h.Back(messageWithAttachment("draft")); ok || h.Walking() {
++		t.Fatal("empty history began a walk")
++	}
++	if _, ok := h.Cancel(); ok {
++		t.Fatal("empty history retained a draft")
++	}
++	if _, ok := h.Forward(); ok {
++		t.Fatal("empty history moved forward")
++	}
++}
++
++func TestHistoryRecallOnlyObservesTheWalk(t *testing.T) {
++	h := historyOf("older", "newest")
++	h.Back("draft")
++	if got := h.Recall("needle", nil); len(got) != 0 {
++		t.Fatalf("query without text matched %+v", got)
++	}
++	matches := h.Recall("", func(string) string { panic("empty query must not project") })
++	if len(matches) != 2 || matches[0].Step != 1 || matches[1].Step != 2 {
++		t.Fatalf("all entries = %+v", matches)
++	}
++	if got, ok := h.Forward(); !ok || got != "draft" {
++		t.Fatalf("Recall moved the walk: Forward = %q (%v)", got, ok)
++	}
++}
++
++func TestNewHistoryRejectsNegativeCapacity(t *testing.T) {
++	defer func() {
++		if recover() == nil {
++			t.Fatal("NewHistory accepted a negative limit")
++		}
++	}()
++	headless.NewHistory(headless.HistoryConfig[int]{Limit: -1})
++}
+diff --git a/components/headless/history_test.go b/components/headless/history_test.go
+index 830f26ffe2bde510cfdb45fa7557f5274b60e854..d984e1a320bbcb0f1322f3293ad2747d0eab04ba 100644
+--- a/components/headless/history_test.go
++++ b/components/headless/history_test.go
+@@ -2,6 +2,7 @@ package headless_test
+ 
+ import (
+ 	"strconv"
++	"strings"
+ 	"testing"
+ 
+ 	"github.com/Tangerg/oolong/components/headless"
+@@ -13,7 +14,7 @@ func BenchmarkHistoryAtCapacity(b *testing.B) {
+ 	for i := range lines {
+ 		lines[i] = "command " + strconv.Itoa(i)
+ 	}
+-	var history headless.History
++	history := headless.NewHistory(headless.HistoryConfig[string]{Clone: strings.Clone, Equal: headless.Equal[string]})
+ 	history.SetLimit(limit)
+ 	for _, line := range lines[:limit] {
+ 		history.Add(line)
+@@ -28,12 +29,12 @@ func BenchmarkHistoryAtCapacity(b *testing.B) {
+ 	}
+ }
+ 
+-func historyOf(lines ...string) *headless.History {
+-	var h headless.History
++func historyOf(lines ...string) *headless.History[string] {
++	h := headless.NewHistory(headless.HistoryConfig[string]{Clone: strings.Clone, Equal: headless.Equal[string]})
+ 	for _, line := range lines {
+ 		h.Add(line)
+ 	}
+-	return &h
++	return h
+ }
+ 
+ func TestHistoryWalksBackwardsAndForwards(t *testing.T) {
+@@ -56,9 +57,6 @@ func TestHistoryWalksBackwardsAndForwards(t *testing.T) {
+ 	}
+ }
+ 
+-// TestHistoryGivesTheDraftBack is the thing that is annoying to lose: the user is half
+-// way through a line, presses up to check something, and presses down expecting their
+-// line back. It is the only text in a prompt they cannot get again by scrolling.
+ func TestHistoryGivesTheDraftBack(t *testing.T) {
+ 	h := historyOf("older")
+ 
+@@ -72,7 +70,6 @@ func TestHistoryGivesTheDraftBack(t *testing.T) {
+ 	if h.Walking() {
+ 		t.Error("still walking after coming back to the draft")
+ 	}
+-	// And it is not handed out twice.
+ 	if _, ok := h.Forward(); ok {
+ 		t.Error("forward past the draft reported something")
+ 	}
+@@ -91,7 +88,6 @@ func TestHistoryCancelGivesTheDraftBack(t *testing.T) {
+ }
+ 
+ func TestSubmittingEndsTheWalk(t *testing.T) {
+-	// Whatever the user was stepping through, they have now said something.
+ 	h := historyOf("first", "second")
+ 	h.Back("")
+ 	h.Back("")
+@@ -105,13 +101,11 @@ func TestSubmittingEndsTheWalk(t *testing.T) {
+ 	}
+ }
+ 
+-func TestHistoryKeepsNothingNotWorthKeeping(t *testing.T) {
+-	h := historyOf("same", "same", "  ", "", "other", "same")
++func TestHistorySuppressesOnlyConsecutiveDuplicates(t *testing.T) {
++	h := historyOf("same", "same", "other", "same")
+ 	if got := h.Len(); got != 3 {
+ 		t.Errorf("kept %d entries, want 3", got)
+ 	}
+-	// Duplicates that are not consecutive are kept: the order tells the truth about
+-	// what happened.
+ 	for i, want := range []string{"same", "other", "same"} {
+ 		got, _ := h.At(h.Len() - i)
+ 		if got != want {
+@@ -121,8 +115,7 @@ func TestHistoryKeepsNothingNotWorthKeeping(t *testing.T) {
+ }
+ 
+ func TestHistoryDropsTheOldest(t *testing.T) {
+-	var h headless.History
+-	h.SetLimit(3)
++	h := headless.NewHistory(headless.HistoryConfig[string]{Limit: 3})
+ 	for _, line := range []string{"a", "b", "c", "d", "e"} {
+ 		h.Add(line)
+ 	}
+@@ -159,7 +152,7 @@ func TestShrinkingHistorySettlesAWalkPastTheRetainedRange(t *testing.T) {
+ }
+ 
+ func TestHistoryLimitHasOneValidatedConfigurationPath(t *testing.T) {
+-	var h headless.History
++	var h headless.History[string]
+ 	if got := h.Limit(); got != headless.DefaultHistoryLimit {
+ 		t.Fatalf("zero history limit = %d, want %d", got, headless.DefaultHistoryLimit)
+ 	}
+@@ -189,13 +182,10 @@ func TestHistoryAtOutOfRange(t *testing.T) {
+ 	}
+ }
+ 
+-// TestRecallPutsTheRecentFirst. Scoring alone buries the line from a minute ago behind
+-// six from last week, and "the one I ran recently" is what somebody searching their
+-// own history is nearly always after.
+ func TestRecallPutsTheRecentFirst(t *testing.T) {
+ 	h := historyOf("git status", "git commit", "make test", "git status --short")
+ 
+-	got := h.Recall("git")
++	got := h.Recall("git", func(line string) string { return line })
+ 	if len(got) != 3 {
+ 		t.Fatalf("found %d entries, want 3: %+v", len(got), got)
+ 	}
+@@ -205,7 +195,6 @@ func TestRecallPutsTheRecentFirst(t *testing.T) {
+ 	if got[0].Step != 1 {
+ 		t.Errorf("its step is %d, want 1", got[0].Step)
+ 	}
+-	// And the step is what jumps to it.
+ 	entry, ok := h.At(got[1].Step)
+ 	if !ok || entry != got[1].Entry {
+ 		t.Errorf("step %d led to %q, want %q", got[1].Step, entry, got[1].Entry)
+@@ -217,14 +206,13 @@ func TestRecallPutsTheRecentFirst(t *testing.T) {
+ 
+ func TestRecallWithNoQueryIsEverythingNewestFirst(t *testing.T) {
+ 	h := historyOf("a", "b", "c")
+-	got := h.Recall("")
++	got := h.Recall("", nil)
+ 	if len(got) != 3 || got[0].Entry != "c" || got[2].Entry != "a" {
+ 		t.Errorf("recall gave %+v", got)
+ 	}
+ }
+ 
+ func TestWalkingIsNotDisturbedByWhatArrivesDuringIt(t *testing.T) {
+-	// The place is counted from the end, so an entry added mid-walk cannot move it.
+ 	h := historyOf("first", "second")
+ 	if got, _ := h.Back(""); got != "second" {
+ 		t.Fatalf("back gave %q", got)
+diff --git a/components/headless/list.go b/components/headless/list.go
+index 48634ea4685cf86144d1956f0c613cfc24acba2d..b59a396abbc1f99049e6e5a3c6d257450b7422b9 100644
+--- a/components/headless/list.go
++++ b/components/headless/list.go
+@@ -1,6 +1,7 @@
+ package headless
+ 
+ import (
++	"image"
+ 	"slices"
+ 
+ 	"github.com/Tangerg/oolong/core/grid"
+@@ -128,6 +129,22 @@ func (l *List[T]) At(index int) (T, bool) {
+ 	return zero, false
+ }
+ 
++// Hit returns the item index at point in the list's local coordinates, using the
++// visible area and scroll position of its last complete frame. Clipped points and
++// blank rows miss. Before the first draw, or after SetItems until a replacement
++// frame commits, no point hits. Hit changes neither selection nor scrolling.
++func (l *List[T]) Hit(point image.Point) (int, bool) {
++	presented := l.presentation.Value()
++	if presented.itemsID != l.itemsID || !point.In(presented.visible) {
++		return 0, false
++	}
++	at := presented.first + point.Y
++	if at >= presented.total {
++		return 0, false
++	}
++	return at, true
++}
++
+ // Handle answers keys, the wheel and a press, reporting whether it consumed the event.
+ func (l *List[T]) Handle(ev input.Event) bool {
+ 	if mouse, ok := ev.(input.Mouse); ok {
+@@ -188,25 +205,12 @@ func (l *List[T]) mouse(ev input.Mouse) bool {
+ 		if ev.Button != input.ButtonLeft {
+ 			return false
+ 		}
+-		return l.reach(ev.Pos.Y)
+ 	case input.MouseDrag:
+-		return l.reach(ev.Pos.Y)
+ 	default:
+ 		return false
+ 	}
+-}
+-
+-// reach moves the selection to the row at a height in the box, when there is one there.
+-//
+-// Against the window the last frame drew, because a press arrives between two frames
+-// and is about the one on screen.
+-func (l *List[T]) reach(y int) bool {
+-	presented := l.presentation.Value()
+-	if presented.itemsID != l.itemsID || presented.window <= 0 || y < 0 || y >= presented.window {
+-		return false
+-	}
+-	at := presented.first + y
+-	if at >= presented.total || at >= len(l.items) {
++	at, ok := l.Hit(ev.Pos)
++	if !ok {
+ 		return false
+ 	}
+ 	l.Select(at)
+@@ -274,7 +278,9 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
+ 		scroll.Reveal(selected, selected)
+ 	}
+ 	first := scroll.Offset()
+-	l.presentation.Stage(v, listPresentation{window: height, first: first, total: total, selected: selected, itemsID: l.itemsID})
++	l.presentation.Stage(v, listPresentation{
++		visible: v.Visible(), window: height, first: first, total: total, selected: selected, itemsID: l.itemsID,
++	})
+ 	if draw == nil {
+ 		return
+ 	}
+@@ -299,6 +305,7 @@ func (l *List[T]) reveal() {
+ 
+ type listPresentation struct {
+ 	itemsID                        *byte
++	visible                        image.Rectangle
+ 	window, first, total, selected int
+ }
+ 
+diff --git a/components/headless/list_hit_test.go b/components/headless/list_hit_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..3de940d12152e3dfb6b6547e04239c11ef54f61c
+--- /dev/null
++++ b/components/headless/list_hit_test.go
+@@ -0,0 +1,214 @@
++package headless_test
++
++import (
++	"image"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++	"github.com/Tangerg/oolong/core/grid"
++	"github.com/Tangerg/oolong/core/input"
++)
++
++func assertRowHit(t *testing.T, hit func(image.Point) (int, bool), point image.Point, want int) {
++	t.Helper()
++	got, ok := hit(point)
++	if ok != (want >= 0) || ok && got != want {
++		t.Fatalf("Hit(%v) = (%d, %v), want index %d", point, got, ok, want)
++	}
++}
++
++type hitFrameProbe struct {
++	child   headless.Widget
++	inspect func()
++}
++
++func (p *hitFrameProbe) Draw(frame headless.Frame) {
++	p.child.Draw(frame)
++	if p.inspect != nil {
++		p.inspect()
++	}
++}
++
++func TestListHitUsesBothVisibleAxesAndRejectsBlankRows(t *testing.T) {
++	var list headless.List[int]
++	assertRowHit(t, list.Hit, image.Pt(0, 0), -1)
++	list.SetItems([]int{0, 1, 2})
++	assertRowHit(t, list.Hit, image.Pt(0, 0), -1)
++	headless.NewRoot(&list).Draw(grid.NewSurface(4, 4).View())
++	for _, test := range []struct {
++		point image.Point
++		want  int
++	}{
++		{point: image.Pt(0, 0), want: 0},
++		{point: image.Pt(3, 2), want: 2},
++		{point: image.Pt(-1, 1), want: -1},
++		{point: image.Pt(4, 1), want: -1},
++		{point: image.Pt(1, -1), want: -1},
++		{point: image.Pt(1, 4), want: -1},
++		{point: image.Pt(1, 3), want: -1},
++	} {
++		assertRowHit(t, list.Hit, test.point, test.want)
++	}
++	if list.Selected() != 0 || list.Scroll().Offset() != 0 || list.Scroll().FollowingEnd() {
++		t.Fatal("hit queries changed list selection or scrolling")
++	}
++	list.SetItems(nil)
++	headless.NewRoot(&list).Draw(grid.NewSurface(4, 4).View())
++	assertRowHit(t, list.Hit, image.Pt(0, 0), -1)
++}
++
++func TestListHitKeepsTheLogicalRowOriginWhenClipped(t *testing.T) {
++	var list headless.List[int]
++	list.SetItems([]int{0, 1, 2, 3, 4})
++	view := grid.NewSurface(4, 2).View().Sub(image.Rect(-2, -1, 6, 4))
++	headless.NewRoot(&list).Draw(view)
++	for _, test := range []struct {
++		point image.Point
++		want  int
++	}{
++		{point: image.Pt(2, 1), want: 1},
++		{point: image.Pt(5, 2), want: 2},
++		{point: image.Pt(1, 2), want: -1},
++		{point: image.Pt(6, 2), want: -1},
++		{point: image.Pt(3, 0), want: -1},
++		{point: image.Pt(3, 3), want: -1},
++	} {
++		assertRowHit(t, list.Hit, test.point, test.want)
++	}
++}
++
++func TestListHitWaitsForTheWholeFrameToCommit(t *testing.T) {
++	var list headless.List[int]
++	list.SetItems([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
++	probe := &hitFrameProbe{child: &list}
++	root := headless.NewRoot(probe)
++	root.Draw(grid.NewSurface(4, 3).View())
++	list.Scroll().By(4)
++	assertRowHit(t, list.Hit, image.Pt(3, 2), 2)
++	if list.Selected() != 0 || list.Scroll().Offset() != 4 {
++		t.Fatal("hit query changed selection or pending scroll position")
++	}
++	probe.inspect = func() {
++		assertRowHit(t, list.Hit, image.Pt(3, 2), 2)
++		assertRowHit(t, list.Hit, image.Pt(1, 1), 1)
++	}
++	root.Draw(grid.NewSurface(2, 2).View())
++	assertRowHit(t, list.Hit, image.Pt(3, 2), -1)
++	assertRowHit(t, list.Hit, image.Pt(1, 1), 5)
++	list.Select(9)
++	assertRowHit(t, list.Hit, image.Pt(1, 1), 5)
++	if list.Selected() != 9 || list.Scroll().Offset() != 8 {
++		t.Fatal("hit query changed pending selection navigation")
++	}
++	probe.inspect = nil
++	root.Draw(grid.NewSurface(2, 2).View())
++	assertRowHit(t, list.Hit, image.Pt(1, 1), 9)
++}
++
++func TestListHitRejectsAReplacementUntilItsFrameCommits(t *testing.T) {
++	var list headless.List[string]
++	list.SetItems([]string{"old zero", "old one"})
++	probe := &hitFrameProbe{child: &list}
++	root := headless.NewRoot(probe)
++	view := grid.NewSurface(4, 3).View()
++	root.Draw(view)
++	list.Select(1)
++	list.SetItems([]string{"new zero", "new one"})
++	assertRowHit(t, list.Hit, image.Pt(1, 1), -1)
++	probe.inspect = func() {
++		assertRowHit(t, list.Hit, image.Pt(1, 1), -1)
++	}
++	root.Draw(view)
++	assertRowHit(t, list.Hit, image.Pt(1, 1), 1)
++	if list.Selected() != 1 {
++		t.Fatal("hit query changed the selection retained by index")
++	}
++	if item, _ := list.At(1); item != "new one" {
++		t.Fatalf("hit index identifies %q instead of the replacement", item)
++	}
++	list.SetItems([]string{"only"})
++	assertRowHit(t, list.Hit, image.Pt(1, 0), -1)
++	probe.inspect = nil
++	root.Draw(view)
++	assertRowHit(t, list.Hit, image.Pt(1, 0), 0)
++	assertRowHit(t, list.Hit, image.Pt(1, 1), -1)
++}
++
++func TestListHitPreservesTheCommittedFrameWhenDrawingFails(t *testing.T) {
++	for _, invalidFrame := range []bool{false, true} {
++		var list headless.List[int]
++		list.SetItems([]int{0, 1, 2, 3, 4, 5, 6, 7})
++		probe := &hitFrameProbe{child: &list}
++		root := headless.NewRoot(probe)
++		root.Draw(grid.NewSurface(4, 3).View())
++		list.Scroll().By(4)
++		probe.inspect = func() { panic("aborted hit frame") }
++		func() {
++			defer func() {
++				if recover() == nil {
++					t.Fatal("invalid draw did not panic")
++				}
++			}()
++			if invalidFrame {
++				list.Draw(headless.Frame{})
++				return
++			}
++			root.Draw(grid.NewSurface(2, 2).View())
++		}()
++		assertRowHit(t, list.Hit, image.Pt(3, 2), 2)
++		if list.Scroll().Offset() != 4 {
++			t.Fatal("hit query changed scrolling after an aborted draw")
++		}
++		probe.inspect = nil
++		root.Draw(grid.NewSurface(2, 2).View())
++		assertRowHit(t, list.Hit, image.Pt(3, 2), -1)
++		assertRowHit(t, list.Hit, image.Pt(1, 1), 5)
++	}
++}
++
++func TestListHitClearsItsRegionWithAnEmptyCommittedFrame(t *testing.T) {
++	for _, empty := range []grid.View{
++		{},
++		grid.NewSurface(0, 3).View(),
++		grid.NewSurface(4, 0).View(),
++		grid.NewSurface(4, 3).View().Sub(image.Rect(4, 3, 8, 6)),
++	} {
++		var list headless.List[int]
++		list.SetItems([]int{0, 1, 2})
++		root := headless.NewRoot(&list)
++		view := grid.NewSurface(4, 3).View()
++		root.Draw(view)
++		assertRowHit(t, list.Hit, image.Pt(1, 1), 1)
++		root.Draw(empty)
++		assertRowHit(t, list.Hit, image.Pt(1, 1), -1)
++		root.Draw(view)
++		assertRowHit(t, list.Hit, image.Pt(1, 1), 1)
++	}
++}
++
++func TestListPointerSelectionRejectsInvisiblePoints(t *testing.T) {
++	for _, action := range []input.MouseAction{input.MouseDown, input.MouseDrag} {
++		for _, test := range []struct {
++			name  string
++			point image.Point
++		}{
++			{name: "left", point: image.Pt(1, 2)},
++			{name: "right", point: image.Pt(6, 2)},
++			{name: "above", point: image.Pt(3, 0)},
++			{name: "below", point: image.Pt(3, 3)},
++		} {
++			t.Run(test.name, func(t *testing.T) {
++				var list headless.List[int]
++				list.SetItems([]int{0, 1, 2, 3, 4})
++				view := grid.NewSurface(4, 2).View().Sub(image.Rect(-2, -1, 6, 4))
++				headless.NewRoot(&list).Draw(view)
++				if list.Handle(input.Mouse{Action: action, Button: input.ButtonLeft, Pos: test.point}) {
++					t.Fatalf("pointer action %v selected an invisible point %v", action, test.point)
++				}
++				if list.Selected() != 0 {
++					t.Fatalf("an invisible pointer action moved selection to %d", list.Selected())
++				}
++			})
++		}
++	}
++}
+diff --git a/components/headless/modal.go b/components/headless/modal.go
+index d6faead6281a4f52c350961ea631a237821a5fc8..9f9bbe09d70f31e2aa58b0b02c2b7761eeb00d7e 100644
+--- a/components/headless/modal.go
++++ b/components/headless/modal.go
+@@ -97,6 +97,8 @@ type stackLayer struct {
+ // dismissal gesture. A layer that accepts a press captures its drag and release. That
+ // is the whole focus and pointer model between layers. Within a layer, or within the
+ // interface underneath, a [Container] is what decides.
++// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
++// release; a release naming another button does not end it.
+ //
+ // The zero Stack is empty and ready. A Stack must not be copied after first use: its
+ // layer identities, focus, pointer capture and committed geometry are one mutable
+@@ -142,7 +144,8 @@ type Stack struct {
+ 	matcherLayer LayerID
+ 	// held is the layer that accepted a pointer press. Drag and release stay with it
+ 	// even after the pointer leaves its rectangle, matching capture inside containers.
+-	held LayerID
++	held       LayerID
++	heldButton input.Button
+ }
+ 
+ // NewStack constructs a stack over base. The zero Stack has no base and is ready.
+@@ -353,7 +356,7 @@ func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse)
+ 	}
+ 	held, found := presented.placed(s.held)
+ 	found = found && s.Contains(s.held)
+-	if mouse.Action == input.MouseUp {
++	if mouse.Releases(s.heldButton) {
+ 		s.held = 0
+ 	}
+ 	if !found {
+@@ -383,6 +386,7 @@ func (s *Stack) route(presented stackPresentation, mouse input.Mouse) bool {
+ 	handled := s.deliver(placed, mouse)
+ 	if mouse.Action == input.MouseDown && handled {
+ 		s.held = placed.id
++		s.heldButton = mouse.Button
+ 	}
+ 	// A pointer event inside a modal never activates what the modal covers, even when
+ 	// its content had no behavior for this particular event.
+diff --git a/components/headless/pointer.go b/components/headless/pointer.go
+index 3d88ca4db82dc0e32f4919afaf5c751ea3284188..e0fde87f6de115e85439972e959130b2b27e13c1 100644
+--- a/components/headless/pointer.go
++++ b/components/headless/pointer.go
+@@ -50,6 +50,8 @@ func (p *Pointer) Stage(frame Frame, area image.Rectangle) {
+ // Handle updates position and settles a pointer event against the committed region.
+ // An accepted press owns dragging and release even outside the region. A new press
+ // supersedes it. Other events are delivered only while over the visible control.
++// A release naming another button is declined without ending capture. ButtonNone
++// on release means the button was unspecified and releases the captured press.
+ func (p *Pointer) Handle(event input.Event) bool {
+ 	mouse, ok := event.(input.Mouse)
+ 	if !ok {
+@@ -66,6 +68,9 @@ func (p *Pointer) Handle(event input.Event) bool {
+ 		p.held, p.button = presented.identity, mouse.Button
+ 		return true
+ 	case input.MouseDrag, input.MouseUp:
++		if mouse.Action == input.MouseUp && !mouse.Releases(p.button) {
++			return false
++		}
+ 		owner := p.held
+ 		if mouse.Action == input.MouseUp {
+ 			p.held = nil
+diff --git a/components/headless/pointer_button_test.go b/components/headless/pointer_button_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..a37fed203ec1f73c397566fe1fd5bd46d1245877
+--- /dev/null
++++ b/components/headless/pointer_button_test.go
+@@ -0,0 +1,143 @@
++package headless_test
++
++import (
++	"image"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++	"github.com/Tangerg/oolong/core/grid"
++	"github.com/Tangerg/oolong/core/input"
++)
++
++func pointerReport(t *testing.T, parser *input.Parser, report string) input.Mouse {
++	t.Helper()
++	events := parser.Feed([]byte(report))
++	if len(events) != 1 {
++		t.Fatalf("decoded %d events from %q, want one", len(events), report)
++	}
++	mouse, ok := events[0].(input.Mouse)
++	if !ok {
++		t.Fatalf("decoded %T, want Mouse", events[0])
++	}
++	return mouse
++}
++
++func TestPointerReleaseMatchesCapturedButtonSGR(t *testing.T) {
++	for _, test := range []struct {
++		name    string
++		presses []string
++		foreign string
++		release string
++		button  input.Button
++	}{
++		{"left then right release", []string{"\x1b[<0;2;1M"}, "\x1b[<2;2;1m", "\x1b[<0;2;1m", input.ButtonLeft},
++		{"right then left release", []string{"\x1b[<2;2;1M"}, "\x1b[<0;2;1m", "\x1b[<2;2;1m", input.ButtonRight},
++		{"middle then left release", []string{"\x1b[<1;2;1M"}, "\x1b[<0;2;1m", "\x1b[<1;2;1m", input.ButtonMiddle},
++		{"right supersedes left", []string{"\x1b[<0;2;1M", "\x1b[<2;2;1M"}, "\x1b[<0;2;1m", "\x1b[<2;2;1m", input.ButtonRight},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			var pointer headless.Pointer
++			var parser input.Parser
++			stagePointer(&pointer, image.Rect(0, 0, 4, 1))
++			for _, report := range test.presses {
++				if !pointer.Handle(pointerReport(t, &parser, report)) {
++					t.Fatal("press was declined")
++				}
++			}
++			if pointer.Handle(pointerReport(t, &parser, test.foreign)) {
++				t.Error("another button's release was consumed")
++			}
++			if !pointer.Pressing() || pointer.Clicked(test.button) {
++				t.Fatal("another button's release ended the captured press")
++			}
++			if !pointer.Handle(pointerReport(t, &parser, test.release)) {
++				t.Fatal("captured button's release was declined")
++			}
++			if pointer.Pressing() || !pointer.Clicked(test.button) || pointer.Clicked(test.button) {
++				t.Fatal("matching release must end capture and complete exactly one click")
++			}
++		})
++	}
++}
++
++func TestPointerUnspecifiedReleaseCompletesCapturedButton(t *testing.T) {
++	for _, test := range []struct {
++		press  string
++		button input.Button
++	}{
++		{"\x1b[<0;2;1M", input.ButtonLeft},
++		{"\x1b[<1;2;1M", input.ButtonMiddle},
++		{"\x1b[<2;2;1M", input.ButtonRight},
++	} {
++		var pointer headless.Pointer
++		var parser input.Parser
++		stagePointer(&pointer, image.Rect(0, 0, 4, 1))
++		pointer.Handle(pointerReport(t, &parser, test.press))
++		release := pointerReport(t, &parser, "\x1b[<3;2;1m")
++		if release.Button != input.ButtonNone || release.Action != input.MouseUp {
++			t.Fatalf("unspecified release decoded as %+v", release)
++		}
++		if !pointer.Handle(release) || pointer.Pressing() || !pointer.Clicked(test.button) {
++			t.Fatalf("unspecified release did not complete button %v", test.button)
++		}
++	}
++}
++
++func TestPointerMatchingReleaseCannotReviveEndedCapture(t *testing.T) {
++	for _, end := range []string{"outside", "presentation gap", "left interface"} {
++		t.Run(end, func(t *testing.T) {
++			var pointer headless.Pointer
++			var parser input.Parser
++			stagePointer(&pointer, image.Rect(0, 0, 4, 1))
++			pointer.Handle(pointerReport(t, &parser, "\x1b[<0;2;1M"))
++			pointer.Handle(pointerReport(t, &parser, "\x1b[<2;2;1m"))
++			release := "\x1b[<0;2;1m"
++			switch end {
++			case "outside":
++				release = "\x1b[<0;9;1m"
++			case "presentation gap":
++				stagePointer(&pointer, image.Rectangle{})
++				stagePointer(&pointer, image.Rect(0, 0, 4, 1))
++			case "left interface":
++				pointer.Left()
++			}
++			pointer.Handle(pointerReport(t, &parser, release))
++			if pointer.Pressing() || pointer.Clicked(input.ButtonLeft) {
++				t.Fatal("release revived an ended capture or clicked outside")
++			}
++		})
++	}
++}
++
++func TestDialogTriggerWaitsForItsPressedButton(t *testing.T) {
++	dialog := headless.NewDialog(headless.DialogConfig{Stack: &headless.Stack{}, Content: &panel{place: middle(8, 3)}})
++	trigger := dialog.Trigger("Open", nil)
++	paintWidget(12, 1, trigger)
++	var parser input.Parser
++	trigger.Handle(pointerReport(t, &parser, "\x1b[<0;2;1M"))
++	trigger.Handle(pointerReport(t, &parser, "\x1b[<2;2;1m"))
++	if dialog.Open() {
++		t.Fatal("another button's release opened the dialog")
++	}
++	trigger.Handle(pointerReport(t, &parser, "\x1b[<0;2;1m"))
++	if !dialog.Open() {
++		t.Fatal("matching release did not open the dialog")
++	}
++}
++
++func TestSliderIgnoresAnotherButtonsRelease(t *testing.T) {
++	slider := headless.NewSlider(headless.SliderConfig{Maximum: 100})
++	headless.NewRoot(sliderTrack{control: slider, rect: image.Rect(0, 0, 5, 1)}).
++		Draw(grid.NewSurface(5, 1).View())
++	var parser input.Parser
++	slider.Handle(pointerReport(t, &parser, "\x1b[<0;3;1M"))
++	if slider.Value() != 50 {
++		t.Fatalf("middle press set value %d, want 50", slider.Value())
++	}
++	if slider.Handle(pointerReport(t, &parser, "\x1b[<2;5;1m")) || slider.Value() != 50 {
++		t.Fatal("another button's release changed the slider")
++	}
++	if !slider.Handle(pointerReport(t, &parser, "\x1b[<0;5;1m")) || slider.Value() != 100 {
++		t.Fatal("matching release did not finish the slider gesture")
++	}
++}
+diff --git a/components/headless/pointer_region.go b/components/headless/pointer_region.go
+index a4c568c521e765c176b4459f4a99c9fecaa5a7b7..1021239148f2f80dcad66d0cb333cf026cc987f8 100644
+--- a/components/headless/pointer_region.go
++++ b/components/headless/pointer_region.go
+@@ -16,6 +16,8 @@ import (
+ // is aiming at what is on the screen now. A child that is no longer presented has
+ // nowhere to send its gesture, so the remainder is dropped rather than handed to
+ // whatever took its place.
++// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
++// release. A release naming another button stays with the child without ending capture.
+ //
+ // It is a type rather than a rule every wrapper keeps because both halves are easy to
+ // get subtly wrong in a way that looks like a bug in the child: re-testing its own
+@@ -33,7 +35,8 @@ type PointerRegion struct {
+ 	presented Snapshot[pointerRegionFrame]
+ 	// held identifies one continuously presented child, even across moving frames.
+ 	// A removed child returning later starts a different presentation lifetime.
+-	held *byte
++	held       *byte
++	heldButton input.Button
+ }
+ 
+ // pointerRegionFrame is one child and where it was drawn, published together so that
+@@ -91,7 +94,7 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
+ 	}
+ 	if owner := r.held; owner != nil &&
+ 		(event.Action == input.MouseDrag || event.Action == input.MouseUp) {
+-		if event.Action == input.MouseUp {
++		if event.Releases(r.heldButton) {
+ 			r.held = nil
+ 		}
+ 		// Keep the dead token through release: dropping it early would send the
+@@ -110,6 +113,7 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
+ 		// Only a press the child wanted begins an interaction. Holding one it refused
+ 		// would swallow the release belonging to whatever the pointer is really over.
+ 		r.held = presented.identity
++		r.heldButton = event.Button
+ 	}
+ 	return handled, true
+ }
+diff --git a/components/headless/pointer_routing_test.go b/components/headless/pointer_routing_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..66e612dbbff505e8de6ee85c0e35e89b7dddf6a8
+--- /dev/null
++++ b/components/headless/pointer_routing_test.go
+@@ -0,0 +1,200 @@
++package headless_test
++
++import (
++	"image"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++	"github.com/Tangerg/oolong/core/grid"
++	"github.com/Tangerg/oolong/core/input"
++	"github.com/Tangerg/oolong/core/layout"
++)
++
++type routedPointerControl struct {
++	pointer headless.Pointer
++}
++
++func (c *routedPointerControl) Draw(frame headless.Frame) {
++	w, h := frame.Size()
++	c.pointer.Stage(frame, grid.Area(0, 0, w, h))
++}
++
++func (c *routedPointerControl) Handle(event input.Event) bool {
++	return c.pointer.Handle(event)
++}
++
++func (*routedPointerControl) Place(image.Point) layout.Placement {
++	return layout.Placement{Anchor: layout.TopLeft, Width: 4, Height: 2}
++}
++
++type routedPointerRegion struct {
++	region headless.PointerRegion
++	child  *routedPointerControl
++}
++
++func (r *routedPointerRegion) Draw(frame headless.Frame) {
++	area := grid.Area(0, 0, 4, 2)
++	r.child.Draw(frame.Sub(area))
++	r.region.Stage(frame, area, r.child)
++}
++
++func (r *routedPointerRegion) Handle(event input.Event) bool {
++	mouse, ok := event.(input.Mouse)
++	if !ok {
++		return false
++	}
++	handled, _ := r.region.Handle(mouse)
++	return handled
++}
++
++func TestPointerRoutingKeepsCaptureUntilItsButtonsRelease(t *testing.T) {
++	for _, router := range []struct {
++		name  string
++		build func(*routedPointerControl) headless.Widget
++	}{
++		{
++			name: "region",
++			build: func(control *routedPointerControl) headless.Widget {
++				return &routedPointerRegion{child: control}
++			},
++		},
++		{
++			name: "container",
++			build: func(control *routedPointerControl) headless.Widget {
++				return headless.NewContainer(layout.Down, headless.Item{Size: layout.Fixed(2), Of: control})
++			},
++		},
++		{
++			name: "stack layer",
++			build: func(control *routedPointerControl) headless.Widget {
++				stack := headless.NewStack(nil)
++				stack.Push(control)
++				return stack
++			},
++		},
++		{
++			name: "stack base",
++			build: func(control *routedPointerControl) headless.Widget {
++				return headless.NewStack(control)
++			},
++		},
++	} {
++		t.Run(router.name, func(t *testing.T) {
++			for _, gesture := range []struct {
++				name          string
++				presses       []input.Button
++				wrong         input.Button
++				wrongPosition image.Point
++				release       input.Button
++			}{
++				{"different release inside", []input.Button{input.ButtonLeft}, input.ButtonRight, image.Pt(1, 1), input.ButtonLeft},
++				{"superseding press", []input.Button{input.ButtonLeft, input.ButtonRight}, input.ButtonLeft, image.Pt(-1, 1), input.ButtonRight},
++				{"unspecified release", []input.Button{input.ButtonLeft}, input.ButtonRight, image.Pt(-1, 1), input.ButtonNone},
++			} {
++				t.Run(gesture.name, func(t *testing.T) {
++					control := &routedPointerControl{}
++					root := headless.NewRoot(router.build(control))
++					root.Draw(grid.NewSurface(8, 4).View())
++					for _, pressed := range gesture.presses {
++						if !root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseDown, Button: pressed}) {
++							t.Fatal("the control declined its press")
++						}
++					}
++					button := gesture.presses[len(gesture.presses)-1]
++					root.Handle(input.Mouse{Pos: gesture.wrongPosition, Action: input.MouseUp, Button: gesture.wrong})
++					if !control.pointer.Pressing() || control.pointer.Clicked(button) {
++						t.Fatal("another button's release completed the control's press")
++					}
++					outside := image.Pt(-2, 1)
++					if !root.Handle(input.Mouse{Pos: outside, Action: input.MouseDrag, Button: button}) {
++						t.Fatal("the control lost its captured drag outside the route")
++					}
++					if at, _ := control.pointer.Position(); at != outside {
++						t.Fatalf("the captured drag reached %v, want %v", at, outside)
++					}
++					if !root.Handle(input.Mouse{Pos: outside, Action: input.MouseUp, Button: gesture.release}) {
++						t.Fatal("the control lost its captured release outside the route")
++					}
++					if control.pointer.Pressing() || control.pointer.Clicked(button) {
++						t.Fatal("an outside release left capture or committed a click")
++					}
++					root.Handle(input.Mouse{Pos: image.Pt(-3, 1), Action: input.MouseDrag, Button: button})
++					if at, _ := control.pointer.Position(); at != outside {
++						t.Fatal("routing capture outlived the matching release")
++					}
++				})
++			}
++		})
++	}
++}
++
++func TestRootKeepsThePressedTreeAcrossAnotherButtonsRelease(t *testing.T) {
++	for _, release := range []struct {
++		name   string
++		button input.Button
++	}{
++		{"same button", input.ButtonLeft},
++		{"unspecified button", input.ButtonNone},
++	} {
++		t.Run(release.name, func(t *testing.T) {
++			original, replacement := &routedPointerControl{}, &routedPointerControl{}
++			root := headless.NewRoot(original)
++			surface := grid.NewSurface(8, 4)
++			root.Draw(surface.View())
++			root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseDown, Button: input.ButtonLeft})
++			root.SetContent(replacement)
++			root.Draw(surface.View())
++
++			if root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseUp, Button: input.ButtonRight}) {
++				t.Fatal("the pressed tree consumed another button's release")
++			}
++			if !original.pointer.Pressing() || original.pointer.Clicked(input.ButtonLeft) {
++				t.Fatal("another button's release completed the original tree's press")
++			}
++			if !root.Handle(input.Mouse{Pos: image.Pt(-1, 1), Action: input.MouseUp, Button: release.button}) {
++				t.Fatal("the original tree lost its captured release")
++			}
++			if original.pointer.Pressing() {
++				t.Fatal("the original tree kept capture after its release")
++			}
++			if _, inside := replacement.pointer.Position(); inside {
++				t.Fatal("the replacement received the original tree's gesture")
++			}
++			root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseMove})
++			if at, inside := replacement.pointer.Position(); !inside || at != image.Pt(1, 1) {
++				t.Fatal("routing did not return to the replacement after release")
++			}
++		})
++	}
++}
++
++func TestPointerRegionKeepsDeliveryAndConsumptionSeparateAcrossRelease(t *testing.T) {
++	original, replacement := &routedPointerControl{}, &routedPointerControl{}
++	region := &routedPointerRegion{child: original}
++	root := headless.NewRoot(region)
++	surface := grid.NewSurface(8, 4)
++	root.Draw(surface.View())
++	region.region.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseDown, Button: input.ButtonLeft})
++	wrongRelease := input.Mouse{Pos: image.Pt(-1, 1), Action: input.MouseUp, Button: input.ButtonRight}
++	if handled, delivered := region.region.Handle(wrongRelease); handled || !delivered {
++		t.Fatalf("wrong-button release: handled=%v, delivered=%v; want false, true", handled, delivered)
++	}
++
++	region.child = replacement
++	root.Draw(surface.View())
++	for _, event := range []input.Mouse{
++		{Pos: image.Pt(1, 1), Action: input.MouseUp, Button: input.ButtonRight},
++		{Pos: image.Pt(1, 1), Action: input.MouseDrag, Button: input.ButtonLeft},
++		{Pos: image.Pt(1, 1), Action: input.MouseUp, Button: input.ButtonLeft},
++	} {
++		if handled, delivered := region.region.Handle(event); handled || delivered {
++			t.Fatalf("a removed child's gesture reached its replacement: event=%v, handled=%v, delivered=%v", event, handled, delivered)
++		}
++	}
++	if _, inside := replacement.pointer.Position(); inside {
++		t.Fatal("the replacement received the removed child's gesture")
++	}
++	if handled, delivered := region.region.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseMove}); !handled || !delivered {
++		t.Fatal("normal routing did not resume after the matching release")
++	}
++}
+diff --git a/components/headless/scroll.go b/components/headless/scroll.go
+index 7b6a0dbcb0f85b8e5fec9dc56c2790858f39b281..6f8468788d1e8f208477906709a7cab5f08a714e 100644
+--- a/components/headless/scroll.go
++++ b/components/headless/scroll.go
+@@ -58,8 +58,8 @@ func (s *Scroll) layout(total, window int) {
+ // half of them.
+ func (s *Scroll) Wheel(w input.Wheel) { s.wheel.Wheel(w) }
+ 
+-// Offset is how many rows are hidden above the window, which is what a scrollbar and
+-// a hit test both want.
++// Offset is the current scroll position. Input may change it before another frame
++// commits; use [List.Hit] or [Filter.Hit] to query rows in the presented frame.
+ func (s *Scroll) Offset() int { return s.current.offset }
+ 
+ // FollowingEnd reports whether the window is following the end of the content.
+diff --git a/components/kit/transcript.go b/components/kit/transcript.go
+index 3eab12a9f5167a76d3ae1e301aaf3d29304656ea..533d8a6bb110e988d32e57c11e0576bb9f6a2558 100644
+--- a/components/kit/transcript.go
++++ b/components/kit/transcript.go
+@@ -329,6 +329,9 @@ type Printer interface {
+ // Clicks are counted from the time the event arrived with, which the terminal's reader
+ // stamped on it, so a caller feeding events it made up itself gets single clicks.
+ //
++// Selection starts with the left button and ends on its release or an unspecified
++// release, even outside the transcript. Another button's release leaves it active.
++//
+ // The position is in the transcript's own coordinates, which whoever drew it is
+ // responsible for — inside a [headless.Container], the container.
+ func (t *Transcript) Handle(event input.Event) bool {
+@@ -345,6 +348,9 @@ func (t *Transcript) Handle(event input.Event) bool {
+ 	case input.MouseDrag:
+ 		return t.drag(ev)
+ 	case input.MouseUp:
++		if !ev.Releases(input.ButtonLeft) {
++			return false
++		}
+ 		return t.release()
+ 	default:
+ 		return false
+diff --git a/components/kit/transcript_button_test.go b/components/kit/transcript_button_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb108d738d0793bfc7e15b3e796f68b3595c35c3
+--- /dev/null
++++ b/components/kit/transcript_button_test.go
+@@ -0,0 +1,46 @@
++package kit_test
++
++import (
++	"image"
++	"testing"
++
++	"github.com/Tangerg/oolong/components/headless"
++	"github.com/Tangerg/oolong/components/kit"
++	"github.com/Tangerg/oolong/core/grid"
++	"github.com/Tangerg/oolong/core/input"
++)
++
++func TestTranscriptSelectionWaitsForItsPressedButton(t *testing.T) {
++	for _, release := range []struct {
++		name   string
++		button input.Button
++	}{
++		{name: "left", button: input.ButtonLeft},
++		{name: "unspecified", button: input.ButtonNone},
++	} {
++		t.Run(release.name, func(t *testing.T) {
++			content := session(t, 10, []string{"abcdef"})
++			var selection headless.Selection
++			transcript := &kit.Transcript{Content: content, Selection: &selection}
++			root := headless.NewRoot(transcript)
++			root.Draw(grid.NewSurface(10, 1).View())
++			root.Handle(input.Mouse{Pos: image.Pt(1, 0), Action: input.MouseDown, Button: input.ButtonLeft})
++			root.Handle(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseDrag, Button: input.ButtonLeft})
++			if selection.Text(content) != "bcd" {
++				t.Fatalf("initial drag selected %q, want bcd", selection.Text(content))
++			}
++			if root.Handle(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp, Button: input.ButtonRight}) {
++				t.Error("another button's release was consumed by the transcript")
++			}
++			if !selection.Dragging() || !root.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag, Button: input.ButtonLeft}) || selection.Text(content) != "bcde" {
++				t.Fatalf("another button's release ended the transcript drag: selected %q", selection.Text(content))
++			}
++			if !root.Handle(input.Mouse{Pos: image.Pt(-1, 0), Action: input.MouseUp, Button: release.button}) {
++				t.Fatal("the matching release outside the transcript was declined")
++			}
++			if selection.Dragging() || root.Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDrag, Button: input.ButtonLeft}) || selection.Text(content) != "bcde" {
++				t.Fatal("a released transcript drag resumed or changed its selection")
++			}
++		})
++	}
++}
+diff --git a/core/input/event.go b/core/input/event.go
+index 0327ca3afc596ba1dd5965285ed5f61485a1efa8..f2c03dd219829b84068f251c8f718f042623819a 100644
+--- a/core/input/event.go
++++ b/core/input/event.go
+@@ -242,8 +242,8 @@ type Button uint8
+ // The buttons a terminal reports. There is no fourth: the higher button numbers
+ // in the protocol are the wheel, which arrives as an action instead.
+ const (
+-	// ButtonNone is the zero value, which is right for a bare move and for a
+-	// wheel: neither belongs to a button.
++	// ButtonNone means no button for movement or a wheel, and an unspecified
++	// released button on MouseUp.
+ 	ButtonNone Button = iota
+ 	ButtonLeft
+ 	ButtonMiddle
+@@ -270,6 +270,12 @@ type Mouse struct {
+ 
+ func (Mouse) terminalEvent() {}
+ 
++// Releases reports whether this is a release of button. ButtonNone on the event
++// means the released button is unspecified and ends the current captured press.
++func (m Mouse) Releases(button Button) bool {
++	return m.Action == MouseUp && (m.Button == ButtonNone || m.Button == button)
++}
++
+ // Paste is a block of text the terminal delivered as a paste rather than as
+ // keystrokes, so it can be inserted whole instead of being interpreted a
+ // character at a time.
+diff --git a/core/input/mouse_release_test.go b/core/input/mouse_release_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..39cd3a98ae6affe11ec042a1b4b53b837a282739
+--- /dev/null
++++ b/core/input/mouse_release_test.go
+@@ -0,0 +1,34 @@
++package input_test
++
++import (
++	"testing"
++
++	"github.com/Tangerg/oolong/core/input"
++)
++
++func TestMouseReleaseMatchesItsCapturedButton(t *testing.T) {
++	buttons := [...]input.Button{input.ButtonLeft, input.ButtonMiddle, input.ButtonRight}
++	for _, test := range []struct {
++		name  string
++		event input.Mouse
++		want  [3]bool
++	}{
++		{"unspecified release", input.Mouse{Action: input.MouseUp}, [3]bool{true, true, true}},
++		{"left release", input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft}, [3]bool{true, false, false}},
++		{"middle release", input.Mouse{Action: input.MouseUp, Button: input.ButtonMiddle}, [3]bool{false, true, false}},
++		{"right release", input.Mouse{Action: input.MouseUp, Button: input.ButtonRight}, [3]bool{false, false, true}},
++		{"press", input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft}, [3]bool{}},
++		{"drag", input.Mouse{Action: input.MouseDrag, Button: input.ButtonLeft}, [3]bool{}},
++		{"move", input.Mouse{Action: input.MouseMove}, [3]bool{}},
++		{"wheel up", input.Mouse{Action: input.WheelUp}, [3]bool{}},
++		{"wheel down", input.Mouse{Action: input.WheelDown}, [3]bool{}},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			for i, captured := range buttons {
++				if got := test.event.Releases(captured); got != test.want[i] {
++					t.Fatalf("Releases(%v) = %v, want %v", captured, got, test.want[i])
++				}
++			}
++		})
++	}
++}
+diff --git a/core/program/dispatch.go b/core/program/dispatch.go
+index 793983eb817b149abaa53e6e67f6f5089af34795..8b261af88619153ec0b269328334cc4d9101e931 100644
+--- a/core/program/dispatch.go
++++ b/core/program/dispatch.go
+@@ -7,7 +7,8 @@ import (
+ )
+ 
+ // Dispatcher is a copyable, concurrency-safe handle into a running program.
+-// Its zero value drops work. It deliberately exposes no owner-only operation.
++// Its zero value drops Post work and refuses Invoke. It deliberately exposes no
++// owner-only operation.
+ type Dispatcher struct{ tasks *taskQueue }
+ 
+ // maxTasksPerTurn bounds how long an already queued burst may keep the owner out
+diff --git a/core/program/ingress.go b/core/program/ingress.go
+index 38a5e21f7711fccdfaae5d13b498ae8162343bdf..7fdea9e345ac1057d25823c3a987710357950a68 100644
+--- a/core/program/ingress.go
++++ b/core/program/ingress.go
+@@ -6,11 +6,6 @@ import (
+ 	"sync"
+ )
+ 
+-// ErrStopped means an ingress lost its interface owner before all accepted data
+-// could be applied. Pending data is deliberately released: cancellation ends the
+-// live interface and does not turn unconsumed input into published output.
+-var ErrStopped = errors.New("program: stopped")
+-
+ // ByteBatch is one owner-side delivery from a [ByteIngress].
+ //
+ // Data is the ordered concatenation of bytes accepted since the previous delivery.
+diff --git a/core/program/invoke.go b/core/program/invoke.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..cdb69e705f16e9355f6523d597a321cfd664849f
+--- /dev/null
++++ b/core/program/invoke.go
+@@ -0,0 +1,93 @@
++package program
++
++import (
++	"context"
++	"errors"
++	"sync"
++)
++
++// ErrInvocationAborted means an invoked callback exited without returning. A panic
++// still propagates from Run; the waiting caller receives this error instead of
++// waiting forever or mistaking the callback for a successful operation.
++var ErrInvocationAborted = errors.New("program: invoked callback did not return")
++
++// Invoke runs fn on the interface goroutine in Post acceptance order and returns
++// its error. It must be called from another goroutine: the interface owner cannot
++// wait for work that only it can run. A nil fn returns an error; a nil ctx panics.
++//
++// Cancellation before the callback is claimed prevents it from starting and returns
++// context.Cause(ctx). Once claimed, Invoke waits for the callback to finish even if
++// ctx is cancelled, so the callback can never start or continue after Invoke returns.
++// A zero or stopped dispatcher returns ErrStopped for unapplied work. If stopping
++// and cancellation compete, either cause may win before the callback is claimed.
++//
++// A callback panic or goroutine exit returns ErrInvocationAborted to the caller;
++// panics still unwind Run with their original value. Normal completion requests a
++// frame, but Invoke does not wait for that frame to be drawn or written.
++func (d Dispatcher) Invoke(ctx context.Context, fn func() error) error {
++	if fn == nil {
++		return errors.New("program: invoke requires a callback")
++	}
++	if err := ctx.Err(); err != nil {
++		return context.Cause(ctx)
++	}
++	call := &invocation{
++		pending: func() error {
++			if err := ctx.Err(); err != nil {
++				return context.Cause(ctx)
++			}
++			return fn()
++		},
++		done: make(chan struct{}),
++	}
++	if !d.post(call.run) {
++		return ErrStopped
++	}
++	select {
++	case <-call.done:
++	case <-ctx.Done():
++		call.cancel(context.Cause(ctx))
++	case <-d.Done():
++		call.cancel(ErrStopped)
++	}
++	<-call.done
++	return call.err
++}
++
++// Taking pending under mu gives run or cancel sole ownership of completion.
++// Clearing it also releases the callback and its context while a cancelled task
++// is still waiting in the dispatcher's FIFO.
++type invocation struct {
++	mu      sync.Mutex
++	pending func() error
++	done    chan struct{}
++	err     error
++}
++
++func (i *invocation) run() {
++	i.mu.Lock()
++	fn := i.pending
++	i.pending = nil
++	i.mu.Unlock()
++	if fn == nil {
++		return
++	}
++	err := ErrInvocationAborted
++	defer func() { i.complete(err) }()
++	err = fn()
++}
++
++func (i *invocation) cancel(err error) {
++	i.mu.Lock()
++	defer i.mu.Unlock()
++	if i.pending == nil {
++		return
++	}
++	i.pending = nil
++	i.complete(err)
++}
++
++func (i *invocation) complete(err error) {
++	i.err = err
++	close(i.done)
++}
+diff --git a/core/program/invoke_internals_test.go b/core/program/invoke_internals_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..1ce187c442495a51782f0be9b41619405e62869b
+--- /dev/null
++++ b/core/program/invoke_internals_test.go
+@@ -0,0 +1,92 @@
++package program
++
++import (
++	"context"
++	"errors"
++	"runtime"
++	"testing"
++	"testing/synctest"
++	"weak"
++)
++
++func TestInvokeCancellationStillOwnsWorkTakenButNotYetClaimed(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		queue := newTaskQueue()
++		defer queue.stop()
++		dispatch := Dispatcher{tasks: queue}
++		ctx, cancel := context.WithCancel(t.Context())
++		defer cancel()
++		called := false
++		returned := make(chan error, 1)
++		go func() {
++			returned <- dispatch.Invoke(ctx, func() error { called = true; return nil })
++		}()
++		synctest.Wait()
++		taken := queue.take()
++		if len(taken) != 1 {
++			t.Fatalf("taken work = %d, want one invocation", len(taken))
++		}
++		cancel()
++		if err := <-returned; !errors.Is(err, context.Canceled) {
++			t.Fatalf("taken Invoke = %v, want cancellation", err)
++		}
++		taken[0]()
++		if called {
++			t.Fatal("a task taken before cancellation started after Invoke returned")
++		}
++	})
++}
++
++func TestPendingInvokeReleasesItsCallbackAndContext(t *testing.T) {
++	for _, stop := range []bool{false, true} {
++		name := "cancelled taken work"
++		if stop {
++			name = "stopped queued work"
++		}
++		t.Run(name, func(t *testing.T) {
++			synctest.Test(t, func(t *testing.T) {
++				queue := newTaskQueue()
++				defer queue.stop()
++				ctx, cancel := context.WithCancel(t.Context())
++				defer cancel()
++				returned := make(chan error, 1)
++				callbackValue, contextValue := queueInvocationWithValues(ctx, Dispatcher{tasks: queue}, returned)
++				synctest.Wait()
++				var taken []func()
++				want := context.Canceled
++				if stop {
++					queue.stop()
++					want = ErrStopped
++				} else {
++					taken = queue.take()
++					cancel()
++				}
++				if err := <-returned; !errors.Is(err, want) {
++					t.Fatalf("Invoke = %v, want %v", err, want)
++				}
++				synctest.Wait()
++				runtime.GC()
++				if callbackValue.Value() != nil || contextValue.Value() != nil {
++					t.Fatal("unapplied invocation retained its callback or context payload")
++				}
++				runtime.KeepAlive(taken)
++				runtime.KeepAlive(queue)
++			})
++		})
++	}
++}
++
++type invocationContextKey struct{}
++
++func queueInvocationWithValues(ctx context.Context, dispatch Dispatcher, returned chan<- error) (weak.Pointer[[64]byte], weak.Pointer[[64]byte]) {
++	callbackValue, contextValue := new([64]byte), new([64]byte)
++	callbackRef, contextRef := weak.Make(callbackValue), weak.Make(contextValue)
++	ctx = context.WithValue(ctx, invocationContextKey{}, contextValue)
++	go func() {
++		returned <- dispatch.Invoke(ctx, func() error {
++			runtime.KeepAlive(callbackValue)
++			return nil
++		})
++	}()
++	return callbackRef, contextRef
++}
+diff --git a/core/program/invoke_test.go b/core/program/invoke_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..75e1b9292c857e492e121ebdf8826330c82a693e
+--- /dev/null
++++ b/core/program/invoke_test.go
+@@ -0,0 +1,280 @@
++package program_test
++
++import (
++	"context"
++	"errors"
++	"runtime"
++	"slices"
++	"strings"
++	"testing"
++	"testing/synctest"
++
++	"github.com/Tangerg/oolong/core/program"
++)
++
++func startWithDispatcher(t *testing.T) (*running, program.Dispatcher) {
++	t.Helper()
++	ready := make(chan program.Dispatcher, 1)
++	r := start(t, func(root *component) { ready <- root.runtime.Dispatcher() })
++	return r, <-ready
++}
++
++func TestInvokePreservesPostOrderAndReturnsTheCallbackError(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		r, dispatch := startWithDispatcher(t)
++		cause := errors.New("transition refused")
++		var order []string
++		dispatch.Post(func() { order = append(order, "before") })
++		if err := dispatch.Invoke(t.Context(), func() error {
++			order = append(order, "invoke")
++			return cause
++		}); !errors.Is(err, cause) {
++			t.Fatalf("Invoke = %v, want callback error", err)
++		}
++		dispatch.Post(func() { order = append(order, "after") })
++		if err := dispatch.Invoke(t.Context(), func() error {
++			r.root.text = "invoked frame"
++			return nil
++		}); err != nil {
++			t.Fatal(err)
++		}
++		if !slices.Equal(order, []string{"before", "invoke", "after"}) {
++			t.Fatalf("callback order = %v", order)
++		}
++		r.until("invoked frame", func() bool { return strings.Contains(r.host.frames.String(), "invoked frame") })
++		dispatch.Post(r.root.runtime.Quit)
++		if err := r.wait(); err != nil {
++			t.Fatal(err)
++		}
++	})
++}
++
++func TestInvokeRejectsZeroAndStoppedDispatchers(t *testing.T) {
++	var zero program.Dispatcher
++	called := false
++	callback := func() error { called = true; return nil }
++	if err := zero.Invoke(t.Context(), callback); !errors.Is(err, program.ErrStopped) {
++		t.Fatalf("zero Invoke = %v, want ErrStopped", err)
++	}
++	r, dispatch := startWithDispatcher(t)
++	dispatch.Post(r.root.runtime.Quit)
++	if err := r.wait(); err != nil {
++		t.Fatal(err)
++	}
++	if err := dispatch.Invoke(t.Context(), callback); !errors.Is(err, program.ErrStopped) {
++		t.Fatalf("stopped Invoke = %v, want ErrStopped", err)
++	}
++	if called {
++		t.Fatal("dispatcher without an owner invoked a callback")
++	}
++}
++
++func TestInvokeRejectsMissingCallbacksAndAlreadyCancelledContexts(t *testing.T) {
++	r, dispatch := startWithDispatcher(t)
++	if err := dispatch.Invoke(t.Context(), nil); err == nil {
++		t.Fatal("nil callback was accepted")
++	}
++	ctx, cancel := context.WithCancelCause(t.Context())
++	cause := errors.New("operation superseded")
++	cancel(cause)
++	called := false
++	if err := dispatch.Invoke(ctx, func() error { called = true; return nil }); !errors.Is(err, cause) {
++		t.Fatalf("cancelled Invoke = %v, want cancellation cause", err)
++	}
++	dispatch.Post(r.root.runtime.Quit)
++	if err := r.wait(); err != nil {
++		t.Fatal(err)
++	}
++	if called {
++		t.Fatal("an already cancelled callback ran")
++	}
++}
++
++func TestInvokeCancellationPreventsPendingWorkFromStarting(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		r, dispatch := startWithDispatcher(t)
++		entered, release := make(chan struct{}), make(chan struct{})
++		dispatch.Post(func() { close(entered); <-release })
++		<-entered
++		ctx, cancel := context.WithCancelCause(t.Context())
++		cause := errors.New("operation superseded")
++		returned := make(chan error, 1)
++		called := false
++		go func() {
++			returned <- dispatch.Invoke(ctx, func() error { called = true; return nil })
++		}()
++		synctest.Wait()
++		cancel(cause)
++		if err := <-returned; !errors.Is(err, cause) {
++			t.Fatalf("pending Invoke = %v, want cancellation cause", err)
++		}
++		close(release)
++		dispatch.Post(r.root.runtime.Quit)
++		if err := r.wait(); err != nil {
++			t.Fatal(err)
++		}
++		if called {
++			t.Fatal("callback started after cancellation returned")
++		}
++	})
++}
++
++func TestInvokeCancellationWaitsForClaimedWorkAndPreservesItsResult(t *testing.T) {
++	for _, result := range []error{nil, errors.New("commit failed")} {
++		name := "success"
++		if result != nil {
++			name = "error"
++		}
++		t.Run(name, func(t *testing.T) {
++			synctest.Test(t, func(t *testing.T) {
++				r, dispatch := startWithDispatcher(t)
++				ctx, cancel := context.WithCancel(t.Context())
++				defer cancel()
++				entered, release := make(chan struct{}), make(chan struct{})
++				returned := make(chan error, 1)
++				committed := false
++				go func() {
++					returned <- dispatch.Invoke(ctx, func() error {
++						close(entered)
++						<-release
++						committed = true
++						return result
++					})
++				}()
++				<-entered
++				cancel()
++				synctest.Wait()
++				select {
++				case err := <-returned:
++					t.Fatalf("claimed callback was still running when Invoke returned %v", err)
++				default:
++				}
++				close(release)
++				if err := <-returned; !errors.Is(err, result) {
++					t.Fatalf("claimed Invoke = %v, want callback result %v", err, result)
++				}
++				if !committed {
++					t.Fatal("Invoke returned before the callback committed")
++				}
++				dispatch.Post(r.root.runtime.Quit)
++				if err := r.wait(); err != nil {
++					t.Fatal(err)
++				}
++			})
++		})
++	}
++}
++
++func TestInvokeReturnsStoppedWhenQuitDiscardsItsTakenBatch(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		ready := make(chan program.Dispatcher, 1)
++		release := make(chan struct{})
++		r := start(t, func(root *component) {
++			dispatch := root.runtime.Dispatcher()
++			dispatch.Post(root.runtime.Quit)
++			ready <- dispatch
++			<-release
++		})
++		dispatch := <-ready
++		returned := make(chan error, 1)
++		called := false
++		go func() {
++			returned <- dispatch.Invoke(t.Context(), func() error { called = true; return nil })
++		}()
++		synctest.Wait()
++		close(release)
++		if err := <-returned; !errors.Is(err, program.ErrStopped) {
++			t.Fatalf("discarded Invoke = %v, want ErrStopped", err)
++		}
++		if err := r.wait(); err != nil {
++			t.Fatal(err)
++		}
++		if called {
++			t.Fatal("callback ran after Quit ended its batch")
++		}
++	})
++}
++
++func TestInvokePanicReleasesTheCallerAndStillUnwindsRun(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		host := newHost(t)
++		ready := make(chan program.Dispatcher, 1)
++		panicked := make(chan any, 1)
++		panicValue := &struct{ message string }{message: "callback panic"}
++		go func() {
++			defer func() { panicked <- recover() }()
++			_ = program.Run(t.Context(), program.Config{
++				Host: host,
++				Root: func(owner *program.Runtime) program.Component {
++					ready <- owner.Dispatcher()
++					return &component{text: "ready"}
++				},
++			})
++		}()
++		dispatch := <-ready
++		if err := dispatch.Invoke(t.Context(), func() error { panic(panicValue) }); !errors.Is(err, program.ErrInvocationAborted) {
++			t.Fatalf("panicking Invoke = %v, want ErrInvocationAborted", err)
++		}
++		if got := <-panicked; got != panicValue {
++			t.Fatalf("Run panic = %v, want original panic %v", got, panicValue)
++		}
++		select {
++		case <-dispatch.Done():
++		default:
++			t.Fatal("panic did not stop the dispatcher")
++		}
++	})
++}
++
++func TestInvokeGoroutineExitReleasesTheCaller(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		host := newHost(t)
++		ready := make(chan program.Dispatcher, 1)
++		stopped := make(chan struct{})
++		go func() {
++			defer close(stopped)
++			_ = program.Run(t.Context(), program.Config{
++				Host: host,
++				Root: func(owner *program.Runtime) program.Component {
++					ready <- owner.Dispatcher()
++					return &component{text: "ready"}
++				},
++			})
++		}()
++		dispatch := <-ready
++		if err := dispatch.Invoke(t.Context(), func() error { runtime.Goexit(); return nil }); !errors.Is(err, program.ErrInvocationAborted) {
++			t.Fatalf("exited Invoke = %v, want ErrInvocationAborted", err)
++		}
++		<-stopped
++	})
++}
++
++func TestInvokeAcceptanceRacingWithStopAlwaysSettles(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		for range 100 {
++			r, dispatch := startWithDispatcher(t)
++			gate := make(chan struct{})
++			returned := make(chan error, 1)
++			called := false
++			go func() {
++				<-gate
++				returned <- dispatch.Invoke(t.Context(), func() error { called = true; return nil })
++			}()
++			go func() {
++				<-gate
++				dispatch.Post(r.root.runtime.Quit)
++			}()
++			close(gate)
++			err := <-returned
++			if err != nil && !errors.Is(err, program.ErrStopped) {
++				t.Fatalf("racing Invoke = %v", err)
++			}
++			if waitErr := r.wait(); waitErr != nil {
++				t.Fatal(waitErr)
++			}
++			if called != (err == nil) {
++				t.Fatalf("callback ran = %v, Invoke = %v", called, err)
++			}
++		}
++	})
++}
+diff --git a/core/program/program.go b/core/program/program.go
+index 4d2e58891e78c99b6a70ce3d4f6dde46f3ab7d7f..d0f46634420681262f4e1c187c7cff602db282d4 100644
+--- a/core/program/program.go
++++ b/core/program/program.go
+@@ -28,6 +28,10 @@ import (
+ 	"github.com/Tangerg/oolong/core/input"
+ )
+ 
++// ErrStopped means the program lost its interface owner before pending work could
++// be applied. Unapplied callbacks and ingress data are released on shutdown.
++var ErrStopped = errors.New("program: stopped")
++
+ // ErrFrameTimeout means a frame writer did not account for its pending frames
+ // before display ownership had to change. The program refuses the transition: a
+ // late frame would otherwise be written into the next owner's output.
+diff --git a/docs/agent.md b/docs/agent.md
+index 4479c68870d15a6d665f68aa6a4eab6f8a92cfe5..f58f0f6e1a9159222e3a20b88893722ff8abd3b7 100644
+--- a/docs/agent.md
++++ b/docs/agent.md
+@@ -128,39 +128,33 @@ go func() {
+ 
+ ## Bridge discrete events with acknowledgement
+ 
+-`Dispatcher.Post` is non-blocking and intentionally general. For a sparse domain
+-transition, post the mutation and wait for either its acknowledgement, cancellation,
+-or runtime shutdown.
++Call `Dispatcher.Invoke` from a worker goroutine when a sparse domain transition
++needs completion acknowledgement. It uses the same FIFO as `Post`. Cancellation
++removes an unclaimed callback; once the owner claims it, `Invoke` waits for completion
++and returns the callback's error. A returned cancellation therefore leaves no callback
++that can later commit state. Completion does not mean the requested frame has reached
++the terminal.
+ 
+ ```go
+ func (b *agentBridge) post(ctx context.Context, fn func()) error {
+-    applied := make(chan error, 1)
+-    b.dispatch.Post(func() {
+-        if b.owner.run != b.run || ctx.Err() != nil {
+-            err := context.Cause(ctx)
+-            if err == nil {
+-                err = context.Canceled
+-            }
+-            applied <- err
+-            return
++    return b.dispatch.Invoke(ctx, func() error {
++        if b.owner.run != b.run {
++            return context.Canceled
+         }
+         fn()
+-        applied <- nil
++        return nil
+     })
+-    select {
+-    case err := <-applied:
+-        return err
+-    case <-ctx.Done():
+-        return context.Cause(ctx)
+-    case <-b.dispatch.Done():
+-        return program.ErrStopped
+-    }
+ }
+ ```
+ 
+ The run identity rejects a late event from a cancelled backend after another run has
+ started. The acknowledgement also preserves ordering between earlier ingress work and
+-the transition that follows it.
++the transition that follows it. A stopped or zero dispatcher returns
++`program.ErrStopped` for unclaimed work. A callback that panics returns
++`program.ErrInvocationAborted` to the worker while the original panic continues
++through `program.Run`; abnormal goroutine exit also releases the worker with that
++error. Do not call `Invoke` from a component callback, because the owner would wait
++for itself. Use `Post` when no completion result is needed.
+ 
+ ## Turn answer chunks into stable blocks
+ 
+diff --git a/docs/architecture.md b/docs/architecture.md
+index 537bf11174b0a7a2b7c4f877ea6c2cc5e94a0e8f..334cd676211085a7a34a6cb89c0585e7daff46e6 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -476,8 +476,10 @@ a frame was accepted, and `headless` does not import `program`, `present`, or te
+ packages. Slice 2 must prove the smallest component-owned drawing scope needed to stage
+ and swap nested geometry without creating a second tree or a reverse dependency.
+ 
+-Pointer capture belongs to the interaction that began it and continues until release
+-or removal of the target.
++Pointer capture belongs to the interaction that began it and continues until the
++captured button is released or the target is removed. An unspecified-button release
++ends the current capture; a release naming a different button does not. Routing owners
++preserve that association so an unrelated release cannot redirect the remaining gesture.
+ 
+ A general constraint object with minimum and maximum width and height may be introduced
+ if wrapper composition, bidirectional sizing, or multiple layout strategies cannot be
+@@ -655,9 +657,17 @@ owner task, delivers completion or failure after accepted data, and stops with i
+ dispatcher. It creates no second owner loop and does not change the non-blocking
+ `Dispatcher.Post` contract.
+ 
+-That proof does not justify a generic mailbox, observable, typed stream, or policy for
+-the other two semantic classes. Those abstractions still require complete callers of
+-their own.
++For a discrete transition that needs completion acknowledgement, a worker uses
++`Dispatcher.Invoke(ctx, callback)`. It shares the same queue: cancellation can withdraw
++an unclaimed callback, while a claimed callback must finish before the worker returns.
++Its error belongs to that invocation. A callback that panics releases its waiting worker
++with `ErrInvocationAborted` and still unwinds the program; it is never reported as a
++successful commit. Invoke cannot be called from the interface goroutine, and completion
++does not mean the resulting frame has reached the terminal. The application still owns
++which operation or generation may commit.
++
++These contracts do not justify a generic mailbox, observable, typed stream, or policy
++for replaceable state. Those abstractions still require complete callers of their own.
+ 
+ ### 8.1 Incremental transformation
+ 
+diff --git a/docs/components.md b/docs/components.md
+index 4980a504b96555e0cf50b2697a8e57ed413a631d..fbe54dd7b28ed683bf7e0c542a4a50a81cd0f7fb 100644
+--- a/docs/components.md
++++ b/docs/components.md
+@@ -243,7 +243,19 @@ a fast press and release needs no frame between them. `PointerRegion` routes a c
+ by its continuous presentation lifetime: an absent child returning later cannot
+ resume an old gesture. Tabs and Viewport use that same owner.
+ 
++A release naming another button leaves the current capture intact. A release with
++`input.ButtonNone` ends the captured press because it does not identify a button.
++Dragging outside and back still permits a click on the matching release; whether a
++drag should suppress activation is an application decision.
++
+ After `List.SetItems`, pointer selection waits for the replacement to be drawn.
++`List.Hit(point)` takes list-local coordinates and queries the last committed frame
++without changing selection or scrolling. The origin is the list's logical frame, not
++the visible clip. It rejects points outside the visible rectangle, clipped rows, blank rows,
++and a replaced collection awaiting a draw. Changing scroll before the next draw still
++queries the rows on screen. `Filter.Hit(point)` returns an index in the matched results,
++the same index used by its `Selected` and row renderer; it delegates to its List.
++
+ Custom tab strips use `Tabs.SelectPresented(index)` for hits in their committed strip;
+ `Tabs.Select(index)` remains programmatic navigation in the current collection.
+ Changing key bindings cancels pending sequences, and replaced choice collections or
+@@ -255,6 +267,76 @@ candidate-row layout. `Select.Row` and `MultiSelect.Row` customize one-row choic
+ An external field can implement `ThemedField.DrawWith` to receive the Form look for
+ one frame, using the same channel as built-in fields.
+ 
++## Keep structured prompt history
++
++Use `headless.History[T]` for entries that carry attachment identity or other
++structured values. History owns the bounded sequence, its navigation cursor, and
++the draft saved by the first successful `Back`. The application owns the meaning
++of an empty message and decides when to call `Add`.
++
++Configure the value boundary once:
++
++```go
++type promptEntry struct {
++    Text          string
++    AttachmentIDs []string
++}
++
++history := headless.NewHistory(headless.HistoryConfig[promptEntry]{
++    Limit: 100,
++    Clone: func(entry promptEntry) promptEntry {
++        entry.AttachmentIDs = slices.Clone(entry.AttachmentIDs)
++        return entry
++    },
++    Equal: func(a, b promptEntry) bool {
++        return a.Text == b.Text && slices.Equal(a.AttachmentIDs, b.AttachmentIDs)
++    },
++})
++```
++
++`Clone` copies all mutable references in a value, including nested slices, maps, or
++pointed-to data when the entry contains them. It must be observationally pure, with
++no input mutation or external side effects. History uses it when retaining inputs
++and returning retained entries. The example's strings are immutable, so copying
++the attachment slice is sufficient. `Clone: nil` uses ordinary assignment and is
++suitable for immutable values. `Equal: nil` keeps every entry, including consecutive
++duplicates. With equality configured, only adjacent equal entries are suppressed;
++an older equal entry keeps its place in the sequence. Equality borrows its arguments
++read-only. Copying and equality remain fixed for the history's lifetime.
++
++`Back(current)` saves the complete draft on its first successful step. `Forward()`
++returns it after passing the newest entry, and `Cancel()` returns it immediately.
++Both release History's reference to the draft when they end the walk. `Add` ends an
++active walk even when equality suppresses a duplicate. `At(1)` reads the newest
++entry without moving the cursor. `SetLimit(0)` restores the default limit of 1,000;
++a negative limit panics. If shrinking removes the entry being browsed, the next
++`Forward` reaches the oldest retained entry before newer entries and the draft.
++
++Search uses a display projection independently of equality:
++
++```go
++matches := history.Recall("readme", func(entry promptEntry) string {
++    return entry.Text
++})
++```
++
++Each `Recalled[promptEntry]` carries an entry snapshot, its `Step` for `At`, and
++matching byte offsets in the projected text. Results remain newest first, so equal
++display text can refer to distinct attachments. The projection borrows entries
++read-only. An empty query returns every entry without calling the projection; a
++nonempty query with a nil projection matches nothing. Search leaves the walk alone.
++
++For strings, migrate `History` to `History[string]`, create it with
++`HistoryConfig[string]{Clone: strings.Clone, Equal: headless.Equal[string]}`, and
++pass an identity projection to `Recall`. History now accepts empty and whitespace
++values, so keep any submission check in the caller. A zero `History[T]` uses the
++default limit, assignment, and no deduplication. Retain a pointer to a History and
++use it from its owning goroutine; do not copy it after use or access it concurrently.
++
++The [composer example](https://github.com/Tangerg/oolong/tree/main/examples/composer)
++stores text and paste payloads in one `History[draft]`. It needs no parallel map
++keyed by display text and no second draft restoration state.
++
+ ## Run and verify the slice
+ 
+ ```sh
+diff --git a/docs/zh/agent.md b/docs/zh/agent.md
+index 0f83a24d1b0f03ab85beaceb1a8d16957569dd2d..05f850e6871ae05b96ee161486c4b636a060d87e 100644
+--- a/docs/zh/agent.md
++++ b/docs/zh/agent.md
+@@ -121,37 +121,28 @@ go func() {
+ 
+ ## 用确认机制桥接离散事件
+ 
+-`Dispatcher.Post` 非阻塞且有意保持通用。对于稀疏领域转换，请发布修改，并等待修改确认、
+-取消或运行时停止中的任一个结果。
++对于需要完成确认的稀疏领域转换，从 worker goroutine 调用 `Dispatcher.Invoke`。
++它与 `Post` 共用同一个 FIFO。取消会移除尚未认领的回调；一旦所有者认领回调，
++`Invoke` 就会等待完成并返回回调的错误。因此，当调用以取消结果返回时，不会留下之后
++仍能提交状态的回调。完成确认不表示请求的帧已经写入终端。
+ 
+ ```go
+ func (b *agentBridge) post(ctx context.Context, fn func()) error {
+-    applied := make(chan error, 1)
+-    b.dispatch.Post(func() {
+-        if b.owner.run != b.run || ctx.Err() != nil {
+-            err := context.Cause(ctx)
+-            if err == nil {
+-                err = context.Canceled
+-            }
+-            applied <- err
+-            return
++    return b.dispatch.Invoke(ctx, func() error {
++        if b.owner.run != b.run {
++            return context.Canceled
+         }
+         fn()
+-        applied <- nil
++        return nil
+     })
+-    select {
+-    case err := <-applied:
+-        return err
+-    case <-ctx.Done():
+-        return context.Cause(ctx)
+-    case <-b.dispatch.Done():
+-        return program.ErrStopped
+-    }
+ }
+ ```
+ 
+ 运行身份会拒绝已取消后端在新运行开始后送达的迟到事件。确认机制也会保持更早 ingress
+-工作与后续转换之间的顺序。
++工作与后续转换之间的顺序。已停止或零值 dispatcher 对未认领的工作返回
++`program.ErrStopped`。回调 panic 会让 worker 收到 `program.ErrInvocationAborted`，
++原始 panic 仍会沿 `program.Run` 继续传播；回调异常退出 goroutine 也会以这个错误释放
++worker。不要从组件回调内调用 `Invoke`，否则所有者会等待自己。无需完成结果时使用 `Post`。
+ 
+ ## 把回答分块变成稳定块
+ 
+diff --git a/docs/zh/architecture.md b/docs/zh/architecture.md
+index 969cb2b6221a902c7b2aefa245a754a92b4930ff..1dfd35a473d553284bbad9440662a070e3015db9 100644
+--- a/docs/zh/architecture.md
++++ b/docs/zh/architecture.md
+@@ -275,7 +275,9 @@ flowchart LR
+ 
+ **这个事务属于依赖图的组件一侧。** 运行时只调用 `Draw` 和 `Handle`；它不会回调进 `headless` 去宣布某一帧被接受了，而 `headless` 也不 import `program`、`present` 或任何终端包。切片 2 必须证明：为了暂存并换入嵌套几何，所需的组件侧绘制作用域最小是多少，且不制造第二棵树或一条反向依赖。
+ 
+-指针捕获属于发起它的那次交互，直到释放或目标消失为止。
++指针捕获属于发起它的那次交互，直到被捕获按钮释放或目标消失为止。未指明按钮的释放
++结束当前捕获；明确属于其他按钮的释放不结束它。路由拥有者保留这项关联，避免无关释放
++把手势的剩余事件转交给其他目标。
+ 
+ 如果包裹式组合、双向定尺寸或多种布局策略无法通过现有的测量者契约干净地表达，**可以**引入一个带最小/最大宽高的通用约束对象。它必须由一个完整的组件来证明，而不是因为 Flutter 有一个就加上。
+ 
+@@ -403,7 +405,14 @@ import 该适配器的应用才承担它的外部依赖。
+ 
+ [`program.ByteIngress`](https://github.com/Tangerg/oolong/blob/main/core/program/ingress.go) 就是由子进程示例证明出来的、刻意做窄的那个结果。它接受无损字节，在显式的待处理字节上限满了时阻塞生产者，把相邻写入批量化到至多一个拥有者任务背后，在已接受数据之后投递完成或失败，并随它的 dispatcher 一起停止。它没有制造第二个拥有者循环，也没有改变非阻塞的 `Dispatcher.Post` 契约。
+ 
+-那份证明**不构成**为另外两个语义类别引入通用 mailbox、observable、带类型流或策略的理由。那些抽象仍然需要它们自己的完整调用方。
++需要完成确认的离散转移由 worker 调用 `Dispatcher.Invoke(ctx, callback)`。它使用
++同一个队列：取消可以撤回尚未认领的回调，已经认领的回调则必须完成后才允许 worker
++返回。回调错误属于该次调用。回调 panic 时，等待者收到 `ErrInvocationAborted`，原
++panic 仍继续展开程序调用栈，不能伪装成提交成功。界面 goroutine 不能调用 Invoke，
++完成确认也不表示新帧已经写到终端。哪个操作或 generation 有资格提交仍由应用决定。
++
++这些契约不构成为可替换状态引入通用 mailbox、observable、带类型流或策略的理由。
++那些抽象仍然需要它们自己的完整调用方。
+ 
+ ### 8.1 增量变换
+ 
+diff --git a/docs/zh/components.md b/docs/zh/components.md
+index b66f79b06e3b399f564f9656b5fc54a7a4774a47..6796ede061f299dd5020fde63281adedddb339e8 100644
+--- a/docs/zh/components.md
++++ b/docs/zh/components.md
+@@ -225,7 +225,16 @@ Filter 查询重置会回到第一个结果。
+ 不需要中间绘制一帧。`PointerRegion` 根据孩子的连续呈现生命周期路由：孩子消失后重新
+ 出现，也不会接回旧手势。Tabs 和 Viewport 使用同一规则。
+ 
+-`List.SetItems` 后，鼠标选择等待新集合完成绘制。自定义页签条用
++明确属于其他按钮的释放不会结束当前捕获。`input.ButtonNone` 的释放没有指明按钮，
++会结束当前按下。拖出区域再拖回，匹配的释放仍可完成点击；拖动是否禁止激活由应用决定。
++
++`List.SetItems` 后，鼠标选择等待新集合完成绘制。`List.Hit(point)` 接受列表局部坐标，
++原点是列表的逻辑帧，不是可见裁切区。它只查询最后提交帧，不改变选择或滚动。
++它拒绝可见矩形四边以外、被裁切或空白的行，以及替换集合后尚未绘制
++的命中。改变滚动但尚未绘制时，查询仍对应屏幕上的行。`Filter.Hit(point)` 返回匹配
++结果中的索引，与 `Selected` 和行渲染回调一致；它直接使用内部 List 的查询。
++
++自定义页签条用
+ `Tabs.SelectPresented(index)` 处理已提交页签条上的点击；`Tabs.Select(index)`
+ 仍然用于当前集合中的程序导航。修改按键绑定会取消未完成序列；替换选项集合或模态层时，
+ 新对象不会继承延迟动作。Settings 的值编辑始终属于开始该按键序列时的那一行。
+@@ -234,6 +243,66 @@ Filter 查询重置会回到第一个结果。
+ `Select.Row` 和 `MultiSelect.Row` 可自定义单行选项。外部字段实现
+ `ThemedField.DrawWith` 后，就能通过与内置字段相同的通道接收该帧的 Form 外观。
+ 
++## 保存结构化输入历史
++
++条目携带附件身份或其他结构化值时，使用 `headless.History[T]`。History 拥有有界序列、
++历史游标和第一次成功 `Back` 时保存的草稿；应用决定空消息的含义，以及何时调用 `Add`。
++
++在构造时配置值的所有权边界：
++
++```go
++type promptEntry struct {
++    Text          string
++    AttachmentIDs []string
++}
++
++history := headless.NewHistory(headless.HistoryConfig[promptEntry]{
++    Limit: 100,
++    Clone: func(entry promptEntry) promptEntry {
++        entry.AttachmentIDs = slices.Clone(entry.AttachmentIDs)
++        return entry
++    },
++    Equal: func(a, b promptEntry) bool {
++        return a.Text == b.Text && slices.Equal(a.AttachmentIDs, b.AttachmentIDs)
++    },
++})
++```
++
++`Clone` 必须复制值中的所有可变引用，包括条目包含的嵌套切片、map 或指针指向的数据。
++它必须是观察上纯粹的复制，不修改入参，也不产生外部副作用。
++History 在保存入参和返回已保存条目时使用它。示例中的字符串不可变，因此复制附件切片
++即可。`Clone: nil` 使用普通赋值，适用于不可变值。`Equal: nil` 保留每个条目，包括连续
++重复值；配置相等判断后只压制相邻的相等条目，不会删除更早的重复项或改变顺序。
++相等判断只读借用入参。复制与相等策略在整个 History 生命周期内固定。
++
++`Back(current)` 只在第一次成功后退时保存完整草稿。`Forward()` 越过最新条目时返回草稿，
++`Cancel()` 则立即返回草稿；两者结束遍历时都会释放 History 对草稿的引用。`Add` 始终结束
++当前遍历，即使新条目因相等判断而被去重。`At(1)` 读取最新条目，不移动游标。
++`SetLimit(0)` 恢复默认的 1,000 条上限，负数上限会 panic。若缩容淘汰了当前浏览的条目，
++下一次 `Forward` 会先到最早仍被保留的条目，再依次前进到较新条目和草稿。
++
++搜索使用独立于身份判断的显示投影：
++
++```go
++matches := history.Recall("readme", func(entry promptEntry) string {
++    return entry.Text
++})
++```
++
++每个 `Recalled[promptEntry]` 包含条目快照、用于 `At` 的 `Step` 和投影文本中的匹配字节偏移。
++结果保持从新到旧的顺序，相同显示文字仍可对应不同附件。投影只读借用条目。空查询返回
++所有条目而不调用投影；非空查询配合 nil 投影不会匹配任何条目。搜索不改变当前遍历。
++
++字符串调用方把 `History` 改为 `History[string]`，使用
++`HistoryConfig[string]{Clone: strings.Clone, Equal: headless.Equal[string]}` 构造，
++并给 `Recall` 传入返回原字符串的投影。History 现在接受空值和空白文本，因此提交校验应
++留在调用方。零值 `History[T]` 使用默认容量、普通赋值和不去重语义。通过指针保留 History，
++在所属 goroutine 中使用；开始使用后不得复制，也不能并发访问。
++
++[composer 示例](https://github.com/Tangerg/oolong/tree/main/examples/composer)
++把文本和粘贴内容放入同一个 `History[draft]`，不再需要按显示文本建键的旁路 map，也不再
++维护第二套草稿恢复状态。
++
+ ## 运行并验证这个切片
+ 
+ ```sh
+diff --git a/examples/agent/backend.go b/examples/agent/backend.go
+index 79e8d464ec0f803887c2a14418695901fec530d6..dd48b4a86a606527e896af2103bbec28c28b2067 100644
+--- a/examples/agent/backend.go
++++ b/examples/agent/backend.go
+@@ -208,27 +208,13 @@ func (b *agentBridge) Review(ctx context.Context, proposal changeProposal) (bool
+ }
+ 
+ func (b *agentBridge) post(ctx context.Context, fn func()) error {
+-	applied := make(chan error, 1)
+-	b.dispatch.Post(func() {
+-		if b.owner.run != b.run || ctx.Err() != nil {
+-			err := context.Cause(ctx)
+-			if err == nil {
+-				err = context.Canceled
+-			}
+-			applied <- err
+-			return
++	return b.dispatch.Invoke(ctx, func() error {
++		if b.owner.run != b.run {
++			return context.Canceled
+ 		}
+ 		fn()
+-		applied <- nil
++		return nil
+ 	})
+-	select {
+-	case err := <-applied:
+-		return err
+-	case <-ctx.Done():
+-		return context.Cause(ctx)
+-	case <-b.dispatch.Done():
+-		return program.ErrStopped
+-	}
+ }
+ 
+ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+diff --git a/examples/agent/backend_internals_test.go b/examples/agent/backend_internals_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..b019d3cb362063b2cbe28dbef77d03870555380b
+--- /dev/null
++++ b/examples/agent/backend_internals_test.go
+@@ -0,0 +1,125 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"sync"
++	"testing"
++	"testing/synctest"
++
++	"github.com/Tangerg/oolong/core/grid"
++	"github.com/Tangerg/oolong/core/input"
++	"github.com/Tangerg/oolong/core/program"
++	"github.com/Tangerg/oolong/core/programtest"
++)
++
++type bridgeComponent struct{}
++
++func (bridgeComponent) Draw(grid.View)          {}
++func (bridgeComponent) Handle(input.Event) bool { return false }
++
++func runningBridge(t *testing.T) *agentBridge {
++	t.Helper()
++	host := programtest.New(t, programtest.Config{Width: 20, Height: 4})
++	ctx, cancel := context.WithCancel(t.Context())
++	ready := make(chan *agentBridge, 1)
++	done := make(chan error, 1)
++	go func() {
++		done <- program.Run(ctx, program.Config{
++			Host: host,
++			Root: func(owner *program.Runtime) program.Component {
++				run := &agentRun{}
++				ready <- &agentBridge{dispatch: owner.Dispatcher(), owner: &agent{run: run}, run: run}
++				return bridgeComponent{}
++			},
++		})
++	}()
++	t.Cleanup(func() {
++		cancel()
++		if err := <-done; err != nil {
++			t.Errorf("bridge program: %v", err)
++		}
++	})
++	return <-ready
++}
++
++func TestBridgeCancellationWaitsForAClaimedMutation(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		bridge := runningBridge(t)
++		ctx, cancel := context.WithCancel(t.Context())
++		defer cancel()
++		entered, release := make(chan struct{}), make(chan struct{})
++		unblock := sync.OnceFunc(func() { close(release) })
++		defer unblock()
++		returned := make(chan error, 1)
++		committed := false
++		go func() {
++			returned <- bridge.post(ctx, func() {
++				close(entered)
++				<-release
++				committed = true
++			})
++		}()
++		<-entered
++		cancel()
++		synctest.Wait()
++		select {
++		case err := <-returned:
++			t.Fatalf("bridge returned %v while its mutation could still commit", err)
++		default:
++		}
++		unblock()
++		if err := <-returned; err != nil {
++			t.Fatalf("claimed mutation = %v, want completed mutation", err)
++		}
++		if !committed {
++			t.Fatal("bridge returned before the mutation finished")
++		}
++	})
++}
++
++func TestBridgeCancellationPreventsAPendingMutation(t *testing.T) {
++	synctest.Test(t, func(t *testing.T) {
++		bridge := runningBridge(t)
++		entered, release := make(chan struct{}), make(chan struct{})
++		unblock := sync.OnceFunc(func() { close(release) })
++		defer unblock()
++		bridge.dispatch.Post(func() { close(entered); <-release })
++		<-entered
++		ctx, cancel := context.WithCancelCause(t.Context())
++		defer cancel(nil)
++		cause := errors.New("superseded")
++		returned := make(chan error, 1)
++		committed := false
++		go func() { returned <- bridge.post(ctx, func() { committed = true }) }()
++		synctest.Wait()
++		cancel(cause)
++		if err := <-returned; !errors.Is(err, cause) {
++			t.Fatalf("pending mutation = %v, want cancellation cause", err)
++		}
++		unblock()
++		if err := bridge.dispatch.Invoke(t.Context(), func() error { return nil }); err != nil {
++			t.Fatal(err)
++		}
++		if committed {
++			t.Fatal("cancelled mutation later committed")
++		}
++	})
++}
++
++func TestBridgeKeepsRunIdentityWithTheApplication(t *testing.T) {
++	bridge := runningBridge(t)
++	if err := bridge.dispatch.Invoke(t.Context(), func() error {
++		bridge.owner.run = &agentRun{}
++		return nil
++	}); err != nil {
++		t.Fatal(err)
++	}
++	committed := false
++	if err := bridge.post(t.Context(), func() { committed = true }); !errors.Is(err, context.Canceled) {
++		t.Fatalf("stale run mutation = %v, want cancellation", err)
++	}
++	if committed {
++		t.Fatal("a superseded run changed its replacement")
++	}
++}
+diff --git a/examples/composer/main.go b/examples/composer/main.go
+index 6c3b8c99b60f9c26a924bef1c8a2588283881384..d1f9cc1c23bb3f0ccab86e748f1c0c20655881f4 100644
+--- a/examples/composer/main.go
++++ b/examples/composer/main.go
+@@ -7,6 +7,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"os"
++	"slices"
+ 	"strings"
+ 
+ 	"github.com/Tangerg/oolong/components/headless"
+@@ -50,21 +51,7 @@ type prompt struct {
+ 
+ 	composer   kit.Composer
+ 	completion headless.Completion
+-	history    headless.History
+-	// sent remembers what was attached to each entry and where. History carries
+-	// text and a chip is not text: recalling an entry used to leave its label behind
+-	// as ordinary words with the bytes already released, so the attachment was lost
+-	// by the act of looking at it again.
+-	//
+-	// Where, and not merely what: looking for text that reads like a chip binds the
+-	// attachment to whichever label was written first, which is not the one it came
+-	// from. The newest submission of a line owns the record, so a line sent again
+-	// without its chips does not inherit them.
+-	sent map[string][]chip
+-	// draft is the document the walk through history began from. History keeps the
+-	// draft's words, which is all a history of lines can keep; what the words stand
+-	// for is this application's and is kept here.
+-	draft      draft
++	history    *headless.History[draft]
+ 	output     kit.Paragraph
+ 	status     string
+ 	references []reference
+@@ -86,6 +73,10 @@ func newPrompt(runtime *program.Runtime) *prompt {
+ 	p := &prompt{
+ 		runtime: runtime, theme: theme, glyphs: glyphs, keys: keys,
+ 		status: "paste three or more lines to make one atomic chip",
++		history: headless.NewHistory(headless.HistoryConfig[draft]{
++			Clone: draft.clone,
++			Equal: draft.equal,
++		}),
+ 		references: []reference{
+ 			{name: "README.md", detail: "project introduction"},
+ 			{name: "docs/architecture.md", detail: "ownership and layering"},
+@@ -212,9 +203,6 @@ func (p *prompt) attach(body string) {
+ 	}
+ }
+ 
+-// draft is what the composer holds: its words, and what the chips among them stand
+-// for. A chip is an atomic element of the editor, so where one is belongs to the
+-// document as much as what it says.
+ type draft struct {
+ 	text  string
+ 	chips []chip
+@@ -227,6 +215,16 @@ type chip struct {
+ 	body string
+ }
+ 
++func (d draft) clone() draft {
++	d.text = strings.Clone(d.text)
++	d.chips = slices.Clone(d.chips)
++	return d
++}
++
++func (d draft) equal(other draft) bool {
++	return d.text == other.text && slices.Equal(d.chips, other.chips)
++}
++
+ func (p *prompt) current() draft {
+ 	editor := p.composer.Editor()
+ 	text := editor.Text()
+@@ -285,34 +283,15 @@ func (p *prompt) restore(d draft) {
+ }
+ 
+ func (p *prompt) recallBack() {
+-	if !p.history.Walking() {
+-		// The walk is about to take the draft away, and what it says is only half of
+-		// it.
+-		p.draft = p.current()
+-	}
+-	if value, moved := p.history.Back(p.composer.Editor().Text()); moved {
+-		p.restore(p.recalled(value))
++	if value, moved := p.history.Back(p.current()); moved {
++		p.restore(value)
+ 	}
+ }
+ 
+-// recallForward steps one entry towards the present, and past the newest entry back
+-// to the draft the walk began with.
+ func (p *prompt) recallForward() {
+-	value, moved := p.history.Forward()
+-	if !moved {
+-		return
++	if value, moved := p.history.Forward(); moved {
++		p.restore(value)
+ 	}
+-	if p.history.Walking() {
+-		p.restore(p.recalled(value))
+-		return
+-	}
+-	p.restore(p.draft)
+-}
+-
+-// recalled is a history entry as a document: its words, and whatever was attached to
+-// the line that said them.
+-func (p *prompt) recalled(entry string) draft {
+-	return draft{text: entry, chips: p.sent[entry]}
+ }
+ 
+ // pasteLabel is what a chip says. One function, because the label written when a
+@@ -350,18 +329,7 @@ func (p *prompt) submit() {
+ 		}
+ 	}
+ 	attached := len(chips)
+-	p.history.Add(body)
+-	p.draft = draft{}
+-	// The newest submission of a line owns its record, so sending the same words
+-	// again without their chips does not inherit the ones from last time.
+-	if attached == 0 {
+-		delete(p.sent, body)
+-	} else {
+-		if p.sent == nil {
+-			p.sent = make(map[string][]chip)
+-		}
+-		p.sent[body] = chips
+-	}
++	p.history.Add(draft{text: body, chips: chips})
+ 	p.output.SetText([]text.Line{
+ 		text.Of("sent: "+body, p.theme.Text),
+ 		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),
+diff --git a/examples/composer/main_test.go b/examples/composer/main_test.go
+index 1c34201b3bd8f1c47862a8c5444358eddb8afaf4..13a7fadcf0ada51de32c855fee7eb1660a08b838 100644
+--- a/examples/composer/main_test.go
++++ b/examples/composer/main_test.go
+@@ -85,7 +85,7 @@ func TestHistoryRestoresAnEntryWithoutLosingTheEditingPath(t *testing.T) {
+ }
+ 
+ func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
+-	p := &prompt{pastes: make(map[uint64]string)}
++	p := newPrompt(nil)
+ 	body := "one\ntwo\nthree\nfour"
+ 	p.insertPaste(body)
+ 	editor := p.composer.Editor()
+@@ -104,12 +104,8 @@ func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
+ }
+ 
+ func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
+-	// A history of lines keeps the draft's words, which is all a history of lines
+-	// can keep. What the words stand for is this application's, and putting the
+-	// draft back from its text alone left the chip's label as ordinary words with
+-	// the bytes already released.
+-	p := &prompt{pastes: make(map[uint64]string)}
+-	p.history.Add("something earlier")
++	p := newPrompt(nil)
++	p.history.Add(draft{text: "something earlier"})
+ 	p.insertPaste("one\ntwo\nthree\nfour")
+ 	p.composer.Editor().Insert("summarize")
+ 	before := p.composer.Editor().Text()
+@@ -130,10 +126,7 @@ func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
+ }
+ 
+ func TestARecalledEntryTakesTheAttachmentsItWasSentWith(t *testing.T) {
+-	// Looking for text that reads like a chip binds the attachment to whichever
+-	// label was written first, and keying the record by what the line says lets a
+-	// line sent again without its chips inherit the ones from last time.
+-	p := &prompt{pastes: make(map[uint64]string)}
++	p := newPrompt(nil)
+ 	p.composer.Editor().Insert("[paste 4 lines] ")
+ 	p.insertPaste("one\ntwo\nthree\nfour")
+ 	p.submit()
+@@ -162,8 +155,8 @@ func TestRecallingADraftGivesBackTheWordsItHad(t *testing.T) {
+ 	// one too. Where the recorded document has a separator that is the one it means;
+ 	// where the writer deleted it and carried straight on, the one the editor adds is
+ 	// a word this draft never had.
+-	p := &prompt{pastes: make(map[uint64]string)}
+-	p.history.Add("something earlier")
++	p := newPrompt(nil)
++	p.history.Add(draft{text: "something earlier"})
+ 	p.insertPaste("one\ntwo\nthree")
+ 	p.composer.Editor().DeleteBack()
+ 	p.composer.Editor().Insert("suffix")
+@@ -179,3 +172,24 @@ func TestRecallingADraftGivesBackTheWordsItHad(t *testing.T) {
+ 		t.Fatalf("the draft came back with %d attachments, want the one it had", len(got))
+ 	}
+ }
++
++func TestHistoryDistinguishesAttachmentsWithTheSameLabel(t *testing.T) {
++	p := newPrompt(nil)
++	first := "one\ntwo\nthree"
++	second := "four\nfive\nsix"
++	p.insertPaste(first)
++	p.submit()
++	p.insertPaste(second)
++	p.submit()
++
++	for _, want := range []string{second, first} {
++		p.recallBack()
++		elements := p.composer.Editor().Elements()
++		if len(elements) != 1 {
++			t.Fatalf("recalled attachments = %v, want one", elements)
++		}
++		if got := p.pastes[elements[0].ID]; got != want {
++			t.Fatalf("recalled payload = %q, want %q", got, want)
++		}
++	}
++}
+diff --git a/internal/arch/render_callbacks_internals_test.go b/internal/arch/render_callbacks_internals_test.go
+index ea23256700693b63756ced920d4d583c5799a6ad..8115541d94352bf90ac5614ff042e68b029df71d 100644
+--- a/internal/arch/render_callbacks_internals_test.go
++++ b/internal/arch/render_callbacks_internals_test.go
+@@ -31,41 +31,45 @@ type callbackRule struct {
+ // to input handling. Exact source-derived keys make both a new unclassified callback
+ // and a stale rule fail.
+ var renderingCallbacks = map[string]callbackRule{
+-	"components/headless:Completion.Accept": {callbackEvent, "acceptance follows an input action after the completion closes"},
+-	"components/headless:Confirm.Check":     {callbackEvent, "validation follows an answer change or form submission"},
+-	"components/headless:Filter.Row":        {callbackProjection, "a matched row paints only its assigned frame"},
+-	"components/headless:Filter.text":       {callbackSemantic, "item text is read while the filter model is rebuilt"},
+-	"components/headless:Form.Check":        {callbackEvent, "whole-form validation follows submission"},
+-	"components/headless:Form.Done":         {callbackEvent, "completion follows successful submission"},
+-	"components/headless:Form.GaveUp":       {callbackEvent, "abandonment follows an input action"},
+-	"components/headless:Select.Row":        {callbackProjection, "choice rows project current cursor and taken states"},
+-	"components/headless:MultiSelect.Row":   {callbackProjection, "choice rows project current cursor and taken states"},
+-	"components/headless:List.Row":          {callbackProjection, "a list row paints only its assigned frame"},
+-	"components/headless:Table.Row":         {callbackProjection, "a table row paints only its assigned frame"},
+-	"components/headless:MultiSelect.Check": {callbackEvent, "validation follows a selection change"},
+-	"components/headless:MultiSelect.Same":  {callbackProjection, "equality is a read-only projection of two values"},
+-	"components/headless:Select.Check":      {callbackEvent, "validation follows a selection change"},
+-	"components/headless:Select.Same":       {callbackProjection, "equality is a read-only projection of two values"},
+-	"components/headless:Settings.Change":   {callbackEvent, "a value changes only in response to an action"},
+-	"components/headless:Table.less":        {callbackSemantic, "ordering is rebuilt by an explicit sort operation"},
+-	"components/headless:Text.Check":        {callbackEvent, "validation follows an edit or form transition"},
+-	"components/headless:Tree.Row":          {callbackProjection, "a tree row paints only its assigned frame"},
+-	"components/kit:Cell.Paint":             {callbackProjection, "a cell painter receives only its frame and base style"},
+-	"components/kit:LinkConfig.Exists":      {callbackSemantic, "filesystem evidence is collected by SetLinks or SetText"},
+-	"components/kit:Settings.Label":         {callbackProjection, "a label is a read-only visible projection of an item"},
+-	"components/kit:Settings.Value":         {callbackProjection, "a value is a read-only visible projection of an item"},
+-	"components/kit:SettingsConfig.Change":  {callbackEvent, "a value changes only in response to an action"},
+-	"components/kit:SettingsConfig.Label":   {callbackProjection, "construction retains the visible item projection"},
+-	"components/kit:SettingsConfig.Value":   {callbackProjection, "construction retains the visible item projection"},
+-	"components/kit:Slider.Format":          {callbackProjection, "formatting is a read-only visible projection of a value"},
+-	"components/kit:SliderConfig.Format":    {callbackProjection, "construction retains the visible value projection"},
+-	"components/kit:Table.Cell":             {callbackProjection, "cell construction supplies measurement and painting together"},
+-	"components/kit:Table.RowStyle":         {callbackProjection, "row appearance is a read-only projection of its index"},
+-	"components/kit:Table.Sorted":           {callbackProjection, "sort geometry reads caller-owned ordering without changing it"},
+-	"components/kit:Tree.Text":              {callbackProjection, "node text is a read-only visible projection of an item"},
+-	"components/kit:TreeConfig.Text":        {callbackProjection, "construction retains the visible node projection"},
+-	"core/content:Renderer":                 {callbackSemantic, "configured renderers prepare passive content during explicit dispatch"},
+-	"markdown:Renderer":                     {callbackSemantic, "extensions render while source is parsed into an owned document"},
++	"components/headless:Completion.Accept":   {callbackEvent, "acceptance follows an input action after the completion closes"},
++	"components/headless:Confirm.Check":       {callbackEvent, "validation follows an answer change or form submission"},
++	"components/headless:Filter.Row":          {callbackProjection, "a matched row paints only its assigned frame"},
++	"components/headless:Filter.text":         {callbackSemantic, "item text is read while the filter model is rebuilt"},
++	"components/headless:Form.Check":          {callbackEvent, "whole-form validation follows submission"},
++	"components/headless:Form.Done":           {callbackEvent, "completion follows successful submission"},
++	"components/headless:Form.GaveUp":         {callbackEvent, "abandonment follows an input action"},
++	"components/headless:History.clone":       {callbackProjection, "pure snapshot copying also serves read-only history queries"},
++	"components/headless:History.equal":       {callbackSemantic, "duplicate detection belongs to the explicit Add transition"},
++	"components/headless:HistoryConfig.Clone": {callbackProjection, "construction retains the pure value copier used by history queries"},
++	"components/headless:HistoryConfig.Equal": {callbackSemantic, "construction retains duplicate detection for explicit submissions"},
++	"components/headless:Select.Row":          {callbackProjection, "choice rows project current cursor and taken states"},
++	"components/headless:MultiSelect.Row":     {callbackProjection, "choice rows project current cursor and taken states"},
++	"components/headless:List.Row":            {callbackProjection, "a list row paints only its assigned frame"},
++	"components/headless:Table.Row":           {callbackProjection, "a table row paints only its assigned frame"},
++	"components/headless:MultiSelect.Check":   {callbackEvent, "validation follows a selection change"},
++	"components/headless:MultiSelect.Same":    {callbackProjection, "equality is a read-only projection of two values"},
++	"components/headless:Select.Check":        {callbackEvent, "validation follows a selection change"},
++	"components/headless:Select.Same":         {callbackProjection, "equality is a read-only projection of two values"},
++	"components/headless:Settings.Change":     {callbackEvent, "a value changes only in response to an action"},
++	"components/headless:Table.less":          {callbackSemantic, "ordering is rebuilt by an explicit sort operation"},
++	"components/headless:Text.Check":          {callbackEvent, "validation follows an edit or form transition"},
++	"components/headless:Tree.Row":            {callbackProjection, "a tree row paints only its assigned frame"},
++	"components/kit:Cell.Paint":               {callbackProjection, "a cell painter receives only its frame and base style"},
++	"components/kit:LinkConfig.Exists":        {callbackSemantic, "filesystem evidence is collected by SetLinks or SetText"},
++	"components/kit:Settings.Label":           {callbackProjection, "a label is a read-only visible projection of an item"},
++	"components/kit:Settings.Value":           {callbackProjection, "a value is a read-only visible projection of an item"},
++	"components/kit:SettingsConfig.Change":    {callbackEvent, "a value changes only in response to an action"},
++	"components/kit:SettingsConfig.Label":     {callbackProjection, "construction retains the visible item projection"},
++	"components/kit:SettingsConfig.Value":     {callbackProjection, "construction retains the visible item projection"},
++	"components/kit:Slider.Format":            {callbackProjection, "formatting is a read-only visible projection of a value"},
++	"components/kit:SliderConfig.Format":      {callbackProjection, "construction retains the visible value projection"},
++	"components/kit:Table.Cell":               {callbackProjection, "cell construction supplies measurement and painting together"},
++	"components/kit:Table.RowStyle":           {callbackProjection, "row appearance is a read-only projection of its index"},
++	"components/kit:Table.Sorted":             {callbackProjection, "sort geometry reads caller-owned ordering without changing it"},
++	"components/kit:Tree.Text":                {callbackProjection, "node text is a read-only visible projection of an item"},
++	"components/kit:TreeConfig.Text":          {callbackProjection, "construction retains the visible node projection"},
++	"core/content:Renderer":                   {callbackSemantic, "configured renderers prepare passive content during explicit dispatch"},
++	"markdown:Renderer":                       {callbackSemantic, "extensions render while source is parsed into an owned document"},
+ }
+ 
+ func TestEveryRetainedRenderingCallbackHasOnePhase(t *testing.T) {

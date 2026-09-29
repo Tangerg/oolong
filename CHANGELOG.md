@@ -16,6 +16,66 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
+## [Unreleased]
+
+### Fixed
+
+- `headless.Pointer` declines a release that explicitly names another button and
+  keeps the current capture. Root, Container, Stack and PointerRegion retain that
+  same button association when routing the rest of a gesture. `ButtonNone` on release
+  ends the current capture. Dragging outside and back keeps its existing click contract.
+- Editor and Transcript text selection keep a left-button drag active when another
+  button is released. They end the drag only for a left or unspecified release.
+- List pointer selection uses its committed visible rectangle as well as its row
+  projection. Points beyond either horizontal edge or a frame's clip cannot select
+  hidden rows.
+- The composer example retains complete drafts in History. Two paste chips with the
+  same displayed label keep their own payloads; a text-keyed attachment map no longer
+  overwrites the older entry.
+
+### Added
+
+- `input.Mouse.Releases` owns matching a release to a captured button, including an
+  unspecified release. Pointer, routing and text selection share that event query.
+- `headless.List.Hit` and `headless.Filter.Hit` query the last committed frame without
+  moving the selection or scroll position. Filter returns a matched-result index.
+  Replacing a collection invalidates its old hits until the next committed draw.
+- `program.Dispatcher.Invoke` gives workers completion and error acknowledgement on
+  the existing owner queue. Cancellation can withdraw unclaimed work; claimed work
+  finishes before the caller returns. Callback panic still unwinds the program while
+  releasing the waiter with `program.ErrInvocationAborted`. Invoke is worker-only and
+  does not acknowledge terminal frame delivery. `Post` remains non-blocking.
+
+### Changed
+
+- History stores generic values with explicit clone and equality policies. Capacity,
+  traversal, draft restoration and search share one implementation. Applications own
+  empty-message rules, persistence and the meaning of attachment identity.
+- Repository examples and the English and Chinese guides use the new contracts.
+  Downstream applications must migrate their own history and completion-wait code;
+  their operation, session and activation policies remain application-owned.
+
+### Breaking API migration
+
+#### components
+
+- `headless.History` is now `History[T]`. Use `NewHistory(HistoryConfig[T]{...})` to
+  configure `Clone`, `Equal` and `Limit`. `Clone: nil` uses assignment and is suitable
+  only when sharing referenced data is safe; mutable payloads need a deep clone.
+  `Equal: nil` retains consecutive duplicates. For strings, select
+  `Equal: headless.Equal[string]`; use `Clone: strings.Clone` when retained substrings
+  must release their backing storage. Empty values are recorded: filter application
+  empty submissions before calling Add.
+- `headless.(*History).Add`, `headless.(*History).At`, `headless.(*History).Back`,
+  `headless.(*History).Forward` and `headless.(*History).Cancel` now accept or return
+  the retained value type. A returned draft transfers ownership back to the caller;
+  retained entry reads use the configured clone.
+- `headless.(*History).Recall` now takes a read-only text projection and returns
+  `Recalled[T]`. String callers pass `func(s string) string { return s }`.
+  `headless.Recalled` and `headless.Recalled.Entry` carry the original value type;
+  `At` offsets refer to the projected search text. Remove text-keyed payload maps
+  and duplicate history cursors when adopting the typed history.
+
 ## [0.21.0] — 2026-09-24
 
 A second, third and fourth repair pass over the same audit. A review of v0.20.0 found

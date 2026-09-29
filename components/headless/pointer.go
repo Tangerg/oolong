@@ -50,6 +50,8 @@ func (p *Pointer) Stage(frame Frame, area image.Rectangle) {
 // Handle updates position and settles a pointer event against the committed region.
 // An accepted press owns dragging and release even outside the region. A new press
 // supersedes it. Other events are delivered only while over the visible control.
+// A release naming another button is declined without ending capture. ButtonNone
+// on release means the button was unspecified and releases the captured press.
 func (p *Pointer) Handle(event input.Event) bool {
 	mouse, ok := event.(input.Mouse)
 	if !ok {
@@ -66,6 +68,9 @@ func (p *Pointer) Handle(event input.Event) bool {
 		p.held, p.button = presented.identity, mouse.Button
 		return true
 	case input.MouseDrag, input.MouseUp:
+		if mouse.Action == input.MouseUp && !mouse.Releases(p.button) {
+			return false
+		}
 		owner := p.held
 		if mouse.Action == input.MouseUp {
 			p.held = nil

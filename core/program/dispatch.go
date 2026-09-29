@@ -7,7 +7,8 @@ import (
 )
 
 // Dispatcher is a copyable, concurrency-safe handle into a running program.
-// Its zero value drops work. It deliberately exposes no owner-only operation.
+// Its zero value drops Post work and refuses Invoke. It deliberately exposes no
+// owner-only operation.
 type Dispatcher struct{ tasks *taskQueue }
 
 // maxTasksPerTurn bounds how long an already queued burst may keep the owner out

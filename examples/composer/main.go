@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
@@ -50,21 +51,7 @@ type prompt struct {
 
 	composer   kit.Composer
 	completion headless.Completion
-	history    headless.History
-	// sent remembers what was attached to each entry and where. History carries
-	// text and a chip is not text: recalling an entry used to leave its label behind
-	// as ordinary words with the bytes already released, so the attachment was lost
-	// by the act of looking at it again.
-	//
-	// Where, and not merely what: looking for text that reads like a chip binds the
-	// attachment to whichever label was written first, which is not the one it came
-	// from. The newest submission of a line owns the record, so a line sent again
-	// without its chips does not inherit them.
-	sent map[string][]chip
-	// draft is the document the walk through history began from. History keeps the
-	// draft's words, which is all a history of lines can keep; what the words stand
-	// for is this application's and is kept here.
-	draft      draft
+	history    *headless.History[draft]
 	output     kit.Paragraph
 	status     string
 	references []reference
@@ -86,6 +73,10 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	p := &prompt{
 		runtime: runtime, theme: theme, glyphs: glyphs, keys: keys,
 		status: "paste three or more lines to make one atomic chip",
+		history: headless.NewHistory(headless.HistoryConfig[draft]{
+			Clone: draft.clone,
+			Equal: draft.equal,
+		}),
 		references: []reference{
 			{name: "README.md", detail: "project introduction"},
 			{name: "docs/architecture.md", detail: "ownership and layering"},
@@ -212,9 +203,6 @@ func (p *prompt) attach(body string) {
 	}
 }
 
-// draft is what the composer holds: its words, and what the chips among them stand
-// for. A chip is an atomic element of the editor, so where one is belongs to the
-// document as much as what it says.
 type draft struct {
 	text  string
 	chips []chip
@@ -225,6 +213,16 @@ type draft struct {
 type chip struct {
 	at   int
 	body string
+}
+
+func (d draft) clone() draft {
+	d.text = strings.Clone(d.text)
+	d.chips = slices.Clone(d.chips)
+	return d
+}
+
+func (d draft) equal(other draft) bool {
+	return d.text == other.text && slices.Equal(d.chips, other.chips)
 }
 
 func (p *prompt) current() draft {
@@ -285,34 +283,15 @@ func (p *prompt) restore(d draft) {
 }
 
 func (p *prompt) recallBack() {
-	if !p.history.Walking() {
-		// The walk is about to take the draft away, and what it says is only half of
-		// it.
-		p.draft = p.current()
-	}
-	if value, moved := p.history.Back(p.composer.Editor().Text()); moved {
-		p.restore(p.recalled(value))
+	if value, moved := p.history.Back(p.current()); moved {
+		p.restore(value)
 	}
 }
 
-// recallForward steps one entry towards the present, and past the newest entry back
-// to the draft the walk began with.
 func (p *prompt) recallForward() {
-	value, moved := p.history.Forward()
-	if !moved {
-		return
+	if value, moved := p.history.Forward(); moved {
+		p.restore(value)
 	}
-	if p.history.Walking() {
-		p.restore(p.recalled(value))
-		return
-	}
-	p.restore(p.draft)
-}
-
-// recalled is a history entry as a document: its words, and whatever was attached to
-// the line that said them.
-func (p *prompt) recalled(entry string) draft {
-	return draft{text: entry, chips: p.sent[entry]}
 }
 
 // pasteLabel is what a chip says. One function, because the label written when a
@@ -350,18 +329,7 @@ func (p *prompt) submit() {
 		}
 	}
 	attached := len(chips)
-	p.history.Add(body)
-	p.draft = draft{}
-	// The newest submission of a line owns its record, so sending the same words
-	// again without their chips does not inherit the ones from last time.
-	if attached == 0 {
-		delete(p.sent, body)
-	} else {
-		if p.sent == nil {
-			p.sent = make(map[string][]chip)
-		}
-		p.sent[body] = chips
-	}
+	p.history.Add(draft{text: body, chips: chips})
 	p.output.SetText([]text.Line{
 		text.Of("sent: "+body, p.theme.Text),
 		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),

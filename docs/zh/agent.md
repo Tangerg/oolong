@@ -121,37 +121,28 @@ go func() {
 
 ## 用确认机制桥接离散事件
 
-`Dispatcher.Post` 非阻塞且有意保持通用。对于稀疏领域转换，请发布修改，并等待修改确认、
-取消或运行时停止中的任一个结果。
+对于需要完成确认的稀疏领域转换，从 worker goroutine 调用 `Dispatcher.Invoke`。
+它与 `Post` 共用同一个 FIFO。取消会移除尚未认领的回调；一旦所有者认领回调，
+`Invoke` 就会等待完成并返回回调的错误。因此，当调用以取消结果返回时，不会留下之后
+仍能提交状态的回调。完成确认不表示请求的帧已经写入终端。
 
 ```go
 func (b *agentBridge) post(ctx context.Context, fn func()) error {
-    applied := make(chan error, 1)
-    b.dispatch.Post(func() {
-        if b.owner.run != b.run || ctx.Err() != nil {
-            err := context.Cause(ctx)
-            if err == nil {
-                err = context.Canceled
-            }
-            applied <- err
-            return
+    return b.dispatch.Invoke(ctx, func() error {
+        if b.owner.run != b.run {
+            return context.Canceled
         }
         fn()
-        applied <- nil
+        return nil
     })
-    select {
-    case err := <-applied:
-        return err
-    case <-ctx.Done():
-        return context.Cause(ctx)
-    case <-b.dispatch.Done():
-        return program.ErrStopped
-    }
 }
 ```
 
 运行身份会拒绝已取消后端在新运行开始后送达的迟到事件。确认机制也会保持更早 ingress
-工作与后续转换之间的顺序。
+工作与后续转换之间的顺序。已停止或零值 dispatcher 对未认领的工作返回
+`program.ErrStopped`。回调 panic 会让 worker 收到 `program.ErrInvocationAborted`，
+原始 panic 仍会沿 `program.Run` 继续传播；回调异常退出 goroutine 也会以这个错误释放
+worker。不要从组件回调内调用 `Invoke`，否则所有者会等待自己。无需完成结果时使用 `Post`。
 
 ## 把回答分块变成稳定块
 

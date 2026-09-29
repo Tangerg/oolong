@@ -6,11 +6,6 @@ import (
 	"sync"
 )
 
-// ErrStopped means an ingress lost its interface owner before all accepted data
-// could be applied. Pending data is deliberately released: cancellation ends the
-// live interface and does not turn unconsumed input into published output.
-var ErrStopped = errors.New("program: stopped")
-
 // ByteBatch is one owner-side delivery from a [ByteIngress].
 //
 // Data is the ordered concatenation of bytes accepted since the previous delivery.

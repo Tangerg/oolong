@@ -62,9 +62,11 @@ type Item struct {
 // A key goes to the widget that has the keyboard and a mouse event goes to the widget
 // it is over. They are different questions, and treating them as one is what makes an
 // interface where clicking a pane does not let you type in it. A press is captured:
-// everything until the release goes to whichever child took it, wherever the pointer
+// dragging and release go to whichever child took it, wherever the pointer
 // wanders, because otherwise a selection stops extending the moment the drag leaves
 // the pane it started in.
+// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
+// release; a release naming another button does not end it.
 //
 // It does not draw. A border, a gap or a highlight for the focused child is
 // appearance, and a container with an opinion about them is one nobody could dress
@@ -116,8 +118,9 @@ type Container struct {
 	// held is the exact presented child a press was given to. Everything up to the
 	// release goes back to it; a later frame may update its geometry when its identity
 	// is still demonstrably the same.
-	held    childPlacement
-	holding bool
+	held       childPlacement
+	heldButton input.Button
+	holding    bool
 	// slots is rebuilt every frame from the items and kept to save the allocation.
 	slots []layout.Slot
 	// matcher owns how far into a multi-chord binding the keys have got.
@@ -369,7 +372,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		case input.MouseDrag, input.MouseUp:
 			owner := c.held
 			current, found := c.placed(owner)
-			if ev.Action == input.MouseUp {
+			if ev.Releases(c.heldButton) {
 				c.held = childPlacement{}
 				c.holding = false
 			}
@@ -394,6 +397,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		return false
 	}
 	c.held = at
+	c.heldButton = ev.Button
 	c.holding = true
 	return true
 }

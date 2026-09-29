@@ -329,6 +329,9 @@ type Printer interface {
 // Clicks are counted from the time the event arrived with, which the terminal's reader
 // stamped on it, so a caller feeding events it made up itself gets single clicks.
 //
+// Selection starts with the left button and ends on its release or an unspecified
+// release, even outside the transcript. Another button's release leaves it active.
+//
 // The position is in the transcript's own coordinates, which whoever drew it is
 // responsible for — inside a [headless.Container], the container.
 func (t *Transcript) Handle(event input.Event) bool {
@@ -345,6 +348,9 @@ func (t *Transcript) Handle(event input.Event) bool {
 	case input.MouseDrag:
 		return t.drag(ev)
 	case input.MouseUp:
+		if !ev.Releases(input.ButtonLeft) {
+			return false
+		}
 		return t.release()
 	default:
 		return false

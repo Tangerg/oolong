@@ -16,6 +16,8 @@ import (
 // is aiming at what is on the screen now. A child that is no longer presented has
 // nowhere to send its gesture, so the remainder is dropped rather than handed to
 // whatever took its place.
+// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
+// release. A release naming another button stays with the child without ending capture.
 //
 // It is a type rather than a rule every wrapper keeps because both halves are easy to
 // get subtly wrong in a way that looks like a bug in the child: re-testing its own
@@ -33,7 +35,8 @@ type PointerRegion struct {
 	presented Snapshot[pointerRegionFrame]
 	// held identifies one continuously presented child, even across moving frames.
 	// A removed child returning later starts a different presentation lifetime.
-	held *byte
+	held       *byte
+	heldButton input.Button
 }
 
 // pointerRegionFrame is one child and where it was drawn, published together so that
@@ -91,7 +94,7 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 	}
 	if owner := r.held; owner != nil &&
 		(event.Action == input.MouseDrag || event.Action == input.MouseUp) {
-		if event.Action == input.MouseUp {
+		if event.Releases(r.heldButton) {
 			r.held = nil
 		}
 		// Keep the dead token through release: dropping it early would send the
@@ -110,6 +113,7 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 		// Only a press the child wanted begins an interaction. Holding one it refused
 		// would swallow the release belonging to whatever the pointer is really over.
 		r.held = presented.identity
+		r.heldButton = event.Button
 	}
 	return handled, true
 }

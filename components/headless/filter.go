@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"image"
 	"slices"
 	"strings"
 
@@ -122,6 +123,14 @@ func (f *Filter[T]) Current() (T, bool) {
 	f.match()
 	got, ok := f.list.Current()
 	return got.item, ok
+}
+
+// Hit returns the index among ranked matches at point in the filter's local
+// coordinates, in the same order as Selected and Row, not the source Items order.
+// It uses [List.Hit]'s complete-frame contract. Changing the pattern or source
+// invalidates hits until the new matches are drawn. Hit changes no filter state.
+func (f *Filter[T]) Hit(point image.Point) (int, bool) {
+	return f.list.Hit(point)
 }
 
 // Select moves the cursor to one of the matches, clamped to them.

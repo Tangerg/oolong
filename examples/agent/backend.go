@@ -208,27 +208,13 @@ func (b *agentBridge) Review(ctx context.Context, proposal changeProposal) (bool
 }
 
 func (b *agentBridge) post(ctx context.Context, fn func()) error {
-	applied := make(chan error, 1)
-	b.dispatch.Post(func() {
-		if b.owner.run != b.run || ctx.Err() != nil {
-			err := context.Cause(ctx)
-			if err == nil {
-				err = context.Canceled
-			}
-			applied <- err
-			return
+	return b.dispatch.Invoke(ctx, func() error {
+		if b.owner.run != b.run {
+			return context.Canceled
 		}
 		fn()
-		applied <- nil
+		return nil
 	})
-	select {
-	case err := <-applied:
-		return err
-	case <-ctx.Done():
-		return context.Cause(ctx)
-	case <-b.dispatch.Done():
-		return program.ErrStopped
-	}
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

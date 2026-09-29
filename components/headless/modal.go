@@ -97,6 +97,8 @@ type stackLayer struct {
 // dismissal gesture. A layer that accepts a press captures its drag and release. That
 // is the whole focus and pointer model between layers. Within a layer, or within the
 // interface underneath, a [Container] is what decides.
+// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
+// release; a release naming another button does not end it.
 //
 // The zero Stack is empty and ready. A Stack must not be copied after first use: its
 // layer identities, focus, pointer capture and committed geometry are one mutable
@@ -142,7 +144,8 @@ type Stack struct {
 	matcherLayer LayerID
 	// held is the layer that accepted a pointer press. Drag and release stay with it
 	// even after the pointer leaves its rectangle, matching capture inside containers.
-	held LayerID
+	held       LayerID
+	heldButton input.Button
 }
 
 // NewStack constructs a stack over base. The zero Stack has no base and is ready.
@@ -353,7 +356,7 @@ func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse) 
 	}
 	held, found := presented.placed(s.held)
 	found = found && s.Contains(s.held)
-	if mouse.Action == input.MouseUp {
+	if mouse.Releases(s.heldButton) {
 		s.held = 0
 	}
 	if !found {
@@ -383,6 +386,7 @@ func (s *Stack) route(presented stackPresentation, mouse input.Mouse) bool {
 	handled := s.deliver(placed, mouse)
 	if mouse.Action == input.MouseDown && handled {
 		s.held = placed.id
+		s.heldButton = mouse.Button
 	}
 	// A pointer event inside a modal never activates what the modal covers, even when
 	// its content had no behavior for this particular event.

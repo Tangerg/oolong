@@ -476,8 +476,10 @@ a frame was accepted, and `headless` does not import `program`, `present`, or te
 packages. Slice 2 must prove the smallest component-owned drawing scope needed to stage
 and swap nested geometry without creating a second tree or a reverse dependency.
 
-Pointer capture belongs to the interaction that began it and continues until release
-or removal of the target.
+Pointer capture belongs to the interaction that began it and continues until the
+captured button is released or the target is removed. An unspecified-button release
+ends the current capture; a release naming a different button does not. Routing owners
+preserve that association so an unrelated release cannot redirect the remaining gesture.
 
 A general constraint object with minimum and maximum width and height may be introduced
 if wrapper composition, bidirectional sizing, or multiple layout strategies cannot be
@@ -655,9 +657,17 @@ owner task, delivers completion or failure after accepted data, and stops with i
 dispatcher. It creates no second owner loop and does not change the non-blocking
 `Dispatcher.Post` contract.
 
-That proof does not justify a generic mailbox, observable, typed stream, or policy for
-the other two semantic classes. Those abstractions still require complete callers of
-their own.
+For a discrete transition that needs completion acknowledgement, a worker uses
+`Dispatcher.Invoke(ctx, callback)`. It shares the same queue: cancellation can withdraw
+an unclaimed callback, while a claimed callback must finish before the worker returns.
+Its error belongs to that invocation. A callback that panics releases its waiting worker
+with `ErrInvocationAborted` and still unwinds the program; it is never reported as a
+successful commit. Invoke cannot be called from the interface goroutine, and completion
+does not mean the resulting frame has reached the terminal. The application still owns
+which operation or generation may commit.
+
+These contracts do not justify a generic mailbox, observable, typed stream, or policy
+for replaceable state. Those abstractions still require complete callers of their own.
 
 ### 8.1 Incremental transformation
 

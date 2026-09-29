@@ -189,7 +189,8 @@ type Root struct {
 	// held is the presented root that accepted a press. Root is itself an ownership
 	// boundary when Of is replaced, so it must not hand the rest of that gesture to
 	// the replacement.
-	held Interactive
+	held       Interactive
+	heldButton input.Button
 }
 
 // NewRoot wraps a live widget tree in its presentation transaction.
@@ -246,6 +247,8 @@ func (r *Root) Draw(view grid.View) {
 // Handle offers input to the last completely drawn tree. A root replaced before its
 // next frame remains the input target the user can see. A root that accepted a pointer
 // press also receives that gesture's drag and release even if it is replaced meanwhile.
+// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
+// release; a release naming another button does not end it.
 func (r *Root) Handle(event input.Event) bool {
 	if r == nil {
 		return false
@@ -260,7 +263,7 @@ func (r *Root) Handle(event input.Event) bool {
 func (r *Root) mouse(event input.Mouse) bool {
 	if r.held != nil && (event.Action == input.MouseDrag || event.Action == input.MouseUp) {
 		target := r.held
-		if event.Action == input.MouseUp {
+		if event.Releases(r.heldButton) {
 			r.held = nil
 		}
 		return target.Handle(event)
@@ -276,6 +279,7 @@ func (r *Root) mouse(event input.Mouse) bool {
 	}
 	if event.Action == input.MouseDown {
 		r.held = target
+		r.heldButton = event.Button
 	}
 	return true
 }
