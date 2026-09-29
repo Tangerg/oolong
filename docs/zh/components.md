@@ -225,16 +225,7 @@ Filter 查询重置会回到第一个结果。
 不需要中间绘制一帧。`PointerRegion` 根据孩子的连续呈现生命周期路由：孩子消失后重新
 出现，也不会接回旧手势。Tabs 和 Viewport 使用同一规则。
 
-明确属于其他按钮的释放不会结束当前捕获。`input.ButtonNone` 的释放没有指明按钮，
-会结束当前按下。拖出区域再拖回，匹配的释放仍可完成点击；拖动是否禁止激活由应用决定。
-
-`List.SetItems` 后，鼠标选择等待新集合完成绘制。`List.Hit(point)` 接受列表局部坐标，
-原点是列表的逻辑帧，不是可见裁切区。它只查询最后提交帧，不改变选择或滚动。
-它拒绝可见矩形四边以外、被裁切或空白的行，以及替换集合后尚未绘制
-的命中。改变滚动但尚未绘制时，查询仍对应屏幕上的行。`Filter.Hit(point)` 返回匹配
-结果中的索引，与 `Selected` 和行渲染回调一致；它直接使用内部 List 的查询。
-
-自定义页签条用
+`List.SetItems` 后，鼠标选择等待新集合完成绘制。自定义页签条用
 `Tabs.SelectPresented(index)` 处理已提交页签条上的点击；`Tabs.Select(index)`
 仍然用于当前集合中的程序导航。修改按键绑定会取消未完成序列；替换选项集合或模态层时，
 新对象不会继承延迟动作。Settings 的值编辑始终属于开始该按键序列时的那一行。
@@ -242,66 +233,6 @@ Filter 查询重置会回到第一个结果。
 `Completion.Renderer` 同时提供 `DrawRow` 与 `Width`，可以替换完整候选行布局。
 `Select.Row` 和 `MultiSelect.Row` 可自定义单行选项。外部字段实现
 `ThemedField.DrawWith` 后，就能通过与内置字段相同的通道接收该帧的 Form 外观。
-
-## 保存结构化输入历史
-
-条目携带附件身份或其他结构化值时，使用 `headless.History[T]`。History 拥有有界序列、
-历史游标和第一次成功 `Back` 时保存的草稿；应用决定空消息的含义，以及何时调用 `Add`。
-
-在构造时配置值的所有权边界：
-
-```go
-type promptEntry struct {
-    Text          string
-    AttachmentIDs []string
-}
-
-history := headless.NewHistory(headless.HistoryConfig[promptEntry]{
-    Limit: 100,
-    Clone: func(entry promptEntry) promptEntry {
-        entry.AttachmentIDs = slices.Clone(entry.AttachmentIDs)
-        return entry
-    },
-    Equal: func(a, b promptEntry) bool {
-        return a.Text == b.Text && slices.Equal(a.AttachmentIDs, b.AttachmentIDs)
-    },
-})
-```
-
-`Clone` 必须复制值中的所有可变引用，包括条目包含的嵌套切片、map 或指针指向的数据。
-它必须是观察上纯粹的复制，不修改入参，也不产生外部副作用。
-History 在保存入参和返回已保存条目时使用它。示例中的字符串不可变，因此复制附件切片
-即可。`Clone: nil` 使用普通赋值，适用于不可变值。`Equal: nil` 保留每个条目，包括连续
-重复值；配置相等判断后只压制相邻的相等条目，不会删除更早的重复项或改变顺序。
-相等判断只读借用入参。复制与相等策略在整个 History 生命周期内固定。
-
-`Back(current)` 只在第一次成功后退时保存完整草稿。`Forward()` 越过最新条目时返回草稿，
-`Cancel()` 则立即返回草稿；两者结束遍历时都会释放 History 对草稿的引用。`Add` 始终结束
-当前遍历，即使新条目因相等判断而被去重。`At(1)` 读取最新条目，不移动游标。
-`SetLimit(0)` 恢复默认的 1,000 条上限，负数上限会 panic。若缩容淘汰了当前浏览的条目，
-下一次 `Forward` 会先到最早仍被保留的条目，再依次前进到较新条目和草稿。
-
-搜索使用独立于身份判断的显示投影：
-
-```go
-matches := history.Recall("readme", func(entry promptEntry) string {
-    return entry.Text
-})
-```
-
-每个 `Recalled[promptEntry]` 包含条目快照、用于 `At` 的 `Step` 和投影文本中的匹配字节偏移。
-结果保持从新到旧的顺序，相同显示文字仍可对应不同附件。投影只读借用条目。空查询返回
-所有条目而不调用投影；非空查询配合 nil 投影不会匹配任何条目。搜索不改变当前遍历。
-
-字符串调用方把 `History` 改为 `History[string]`，使用
-`HistoryConfig[string]{Clone: strings.Clone, Equal: headless.Equal[string]}` 构造，
-并给 `Recall` 传入返回原字符串的投影。History 现在接受空值和空白文本，因此提交校验应
-留在调用方。零值 `History[T]` 使用默认容量、普通赋值和不去重语义。通过指针保留 History，
-在所属 goroutine 中使用；开始使用后不得复制，也不能并发访问。
-
-[composer 示例](https://github.com/Tangerg/oolong/tree/main/examples/composer)
-把文本和粘贴内容放入同一个 `History[draft]`，不再需要按显示文本建键的旁路 map，也不再
-维护第二套草稿恢复状态。
 
 ## 运行并验证这个切片
 

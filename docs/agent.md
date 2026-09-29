@@ -128,33 +128,39 @@ go func() {
 
 ## Bridge discrete events with acknowledgement
 
-Call `Dispatcher.Invoke` from a worker goroutine when a sparse domain transition
-needs completion acknowledgement. It uses the same FIFO as `Post`. Cancellation
-removes an unclaimed callback; once the owner claims it, `Invoke` waits for completion
-and returns the callback's error. A returned cancellation therefore leaves no callback
-that can later commit state. Completion does not mean the requested frame has reached
-the terminal.
+`Dispatcher.Post` is non-blocking and intentionally general. For a sparse domain
+transition, post the mutation and wait for either its acknowledgement, cancellation,
+or runtime shutdown.
 
 ```go
 func (b *agentBridge) post(ctx context.Context, fn func()) error {
-    return b.dispatch.Invoke(ctx, func() error {
-        if b.owner.run != b.run {
-            return context.Canceled
+    applied := make(chan error, 1)
+    b.dispatch.Post(func() {
+        if b.owner.run != b.run || ctx.Err() != nil {
+            err := context.Cause(ctx)
+            if err == nil {
+                err = context.Canceled
+            }
+            applied <- err
+            return
         }
         fn()
-        return nil
+        applied <- nil
     })
+    select {
+    case err := <-applied:
+        return err
+    case <-ctx.Done():
+        return context.Cause(ctx)
+    case <-b.dispatch.Done():
+        return program.ErrStopped
+    }
 }
 ```
 
 The run identity rejects a late event from a cancelled backend after another run has
 started. The acknowledgement also preserves ordering between earlier ingress work and
-the transition that follows it. A stopped or zero dispatcher returns
-`program.ErrStopped` for unclaimed work. A callback that panics returns
-`program.ErrInvocationAborted` to the worker while the original panic continues
-through `program.Run`; abnormal goroutine exit also releases the worker with that
-error. Do not call `Invoke` from a component callback, because the owner would wait
-for itself. Use `Post` when no completion result is needed.
+the transition that follows it.
 
 ## Turn answer chunks into stable blocks
 
