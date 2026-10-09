@@ -22,6 +22,9 @@ point of tagging them low rather than not at all.
 
 ### Fixed
 
+- Pinned lint, reachability, API comparison and vulnerability checkers understand
+  Go 1.27.2 export data. CI keeps the language-floor and current-patch matrix
+  and every existing check; release compatibility uses the same API toolchain.
 - The asynchronous terminal Writer ends admission and accounts for every accepted
   frame when its destination exits the writing goroutine without returning.
   It releases queued payloads and reports the interruption through its existing

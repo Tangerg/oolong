@@ -12,10 +12,10 @@ Before changing behaviour or an exported API, read the boundaries in the
 
 - **Go 1.27 or newer.** Every module declares and independently tests that same language floor, so a workspace
   build cannot hide a newer language dependency from a downstream user.
-- **Pinned checkers.** `golangci-lint` v2 (CI pins v2.13.1), `deadcode` from `golang.org/x/tools` (v0.49.0),
-  `gofumpt` (`v0.11.1-0.20260820074422-a2bc6805583d`), `shfmt` (v3.13.1), and `govulncheck` (v1.7.0). API and
+- **Pinned checkers.** `golangci-lint` v2 (CI pins v2.14.0), `deadcode` from `golang.org/x/tools` (v0.50.0),
+  `gofumpt` (`v0.11.1-0.20260820074422-a2bc6805583d`), `shfmt` (v3.13.1), and `govulncheck` (v1.8.0). API and
   release checks pin `golang.org/x/exp/cmd/apidiff` and `golang.org/x/exp/cmd/gorelease` at
-  `v0.0.0-20260820142414-ca536658362e`.
+  `v0.0.0-20261007192929-f45ad48fbe92`.
 - **Node.js 22.18 or newer** when changing Markdown or preparing a release. The exact documentation toolchain
   is in `package-lock.json`.
 - Tests use the standard `testing` package.

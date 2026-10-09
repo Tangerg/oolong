@@ -47,7 +47,7 @@ while IFS= read -r module; do
 	PUBLIC_MODULES+=("$module")
 done <<<"$public_module_output"
 
-GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20260820142414-ca536658362e
+GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20261007192929-f45ad48fbe92
 
 execute=false
 version=""

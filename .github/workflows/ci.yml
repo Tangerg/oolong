@@ -201,7 +201,7 @@ jobs:
 
       # Pinned rather than floating: a linter that changes under a repository is
       # one whose findings arrive as unrelated failures on somebody else's change.
-      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
       # Once per platform, because a linter only sees the files that build for the
       # one it is standing on. A shadowed variable in a Linux-only test file was
@@ -219,21 +219,21 @@ jobs:
       # Reachability finds dead private implementation and public contracts without
       # executable caller-side coverage. An unused export is not dead library API:
       # whether it belongs is an API-design decision, never a repository call count.
-      - run: go install golang.org/x/tools/cmd/deadcode@v0.49.0
+      - run: go install golang.org/x/tools/cmd/deadcode@v0.50.0
       - name: callable code reachability
         run: scripts/check-reachability.sh
 
       # Reachability cannot decide whether a library API deserves removal or a new
       # shape. apidiff supplies the published-symbol ledger; the changelog must name
       # each incompatible change before review or release can proceed.
-      - run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20260820142414-ca536658362e
+      - run: go install golang.org/x/exp/cmd/apidiff@v0.0.0-20261007192929-f45ad48fbe92
       - name: breaking APIs have migration entries
         run: |
           set -euo pipefail
           section=$(sh scripts/ledger-section.sh)
           go -C internal run ./cmd/apiledger -root .. -section "$section"
 
-      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
       - name: govulncheck
         run: |
           set -euo pipefail

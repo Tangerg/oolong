@@ -39,7 +39,7 @@ jobs:
       # This check validates usability even after the version enters the proxy;
       # gorelease's next-version suggestion is not a post-publication contract.
       - name: Install gorelease
-        run: go install golang.org/x/exp/cmd/gorelease@v0.0.0-20260820142414-ca536658362e
+        run: go install golang.org/x/exp/cmd/gorelease@v0.0.0-20261007192929-f45ad48fbe92
 
       - name: Validate the module and its published dependencies
         shell: bash
