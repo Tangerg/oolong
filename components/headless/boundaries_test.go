@@ -98,7 +98,7 @@ func TestListNavigationDoesNotOverrideLaterManualScroll(t *testing.T) {
 func TestOptionIdentityAndGettersUseValuesWithoutWrites(t *testing.T) {
 	type language string
 	bound := language("en")
-	selectField := headless.Select[language]{Same: headless.Equal[language], Value: headless.Bind(&bound)}
+	selectField := headless.NewSelect(headless.SelectConfig[language]{Same: headless.Equal[language], Value: headless.Bind(&bound)})
 	selectField.SetOptions([]headless.Option[language]{{Label: "中文", Value: "zh"}, {Label: "English", Value: "en"}})
 	if option, ok := selectField.Chosen(); !ok || option.Value != "en" {
 		t.Fatal("label determined identity")
@@ -108,7 +108,7 @@ func TestOptionIdentityAndGettersUseValuesWithoutWrites(t *testing.T) {
 		t.Fatal("defined string type lost identity")
 	}
 	values := &countedAccessor[[]string]{value: []string{"missing", "b", "b", "a"}}
-	multi := headless.MultiSelect[string]{Same: headless.Equal[string], Value: values}
+	multi := headless.NewMultiSelect(headless.MultiSelectConfig[string]{Same: headless.Equal[string], Value: values})
 	multi.SetOptions(headless.Options("a", "b"))
 	_ = multi.Ask()
 	if !slices.Equal(multi.Taken(), []string{"a", "b"}) || values.writes != 0 {
@@ -220,12 +220,12 @@ func TestControlledFieldsCommitAmbiguousActionsAtTheirOwnerBoundary(t *testing.T
 					value := &countedAccessor[string]{value: "abc"}
 					var field headless.Field
 					if kind == "text" {
-						field = &headless.Text{Value: value, Keys: keys}
+						field = headless.NewText(headless.TextConfig{Value: value, Keys: keys})
 						keys.Bind(headless.DeleteBack, g)
 						keys.Bind(headless.Undo, g, g)
 					} else {
 						value.value = "a"
-						choice := &headless.Select[string]{Same: headless.Equal[string], Value: value, Keys: keys}
+						choice := headless.NewSelect(headless.SelectConfig[string]{Same: headless.Equal[string], Value: value, Keys: keys})
 						choice.SetOptions(headless.Options("a", "b", "c"))
 						field = choice
 						keys.Bind(headless.SelectNext, g)

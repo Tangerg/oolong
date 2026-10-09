@@ -15,14 +15,16 @@ func (s *Select[T]) Ask() string {
 
 // Reply takes a number or one of the labels.
 func (s *Select[T]) Reply(said string) error {
-	s.Sync()
-	at, err := choose(said, s.list.items)
-	if err != nil {
-		return s.check(err)
-	}
-	s.list.Select(at)
-	s.store()
-	return s.Validate()
+	return s.validate(func() error {
+		s.Sync()
+		at, err := choose(said, s.list.items)
+		if err != nil {
+			return err
+		}
+		s.list.Select(at)
+		s.store()
+		return nil
+	}, s.checkAnswer)
 }
 
 // Ask is the label and the choices, numbered, with a word about giving several.
@@ -33,29 +35,33 @@ func (m *MultiSelect[T]) Ask() string {
 // Reply takes numbers or labels, separated by commas. Nothing at all takes nothing,
 // which is how a reader says they want none of them.
 func (m *MultiSelect[T]) Reply(said string) error {
-	m.Sync()
-	taken := make([]bool, len(m.list.items))
-	count := 0
-	for part := range strings.SplitSeq(said, ",") {
-		if strings.TrimSpace(part) == "" {
-			continue
+	return m.validate(func() error {
+		if !m.beginOperation() {
+			return ErrValidationSuperseded
 		}
-		at, err := choose(part, m.list.items)
-		if err != nil {
-			return m.check(err)
+		taken := make([]bool, len(m.list.items))
+		count := 0
+		for part := range strings.SplitSeq(said, ",") {
+			if strings.TrimSpace(part) == "" {
+				continue
+			}
+			at, err := choose(part, m.list.items)
+			if err != nil {
+				return err
+			}
+			if !taken[at] {
+				taken[at], count = true, count+1
+			}
 		}
-		if !taken[at] {
-			taken[at], count = true, count+1
+		if m.limit > 0 && count > m.limit {
+			return fmt.Errorf("at most %d may be chosen", m.limit)
 		}
-	}
-	if m.limit > 0 && count > m.limit {
-		return m.check(fmt.Errorf("at most %d may be chosen", m.limit))
-	}
-	if !slices.Equal(m.taken, taken) {
-		m.taken = taken
-		m.store()
-	}
-	return m.Validate()
+		if !slices.Equal(m.taken, taken) {
+			m.taken = taken
+			m.store()
+		}
+		return nil
+	}, m.checkAnswer)
 }
 
 // choices is the options, numbered, as they go after a question.

@@ -97,6 +97,9 @@ type stackLayer struct {
 // dismissal gesture. A layer that accepts a press captures its drag and release. That
 // is the whole focus and pointer model between layers. Within a layer, or within the
 // interface underneath, a [Container] is what decides.
+// Keyboard input is admitted only while the current focus holder is the committed
+// top presentation. A pending replacement receives no keys before it is drawn;
+// the old presentation cannot give input to a child that has lost focus.
 // Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
 // release; a release naming another button does not end it.
 //
@@ -108,7 +111,8 @@ type Stack struct {
 
 	// base is private because replacing the focused root has to release the old one.
 	// SetBase is the ownership transition; an exported field could bypass it.
-	base Widget
+	base   Widget
+	baseID *byte
 
 	// Keys say which keystrokes produce which of the actions a stack answers to, which
 	// is the one that closes the top layer. Nil reads through [DefaultStackKeys].
@@ -129,23 +133,19 @@ type Stack struct {
 	// identity with geometry keeps input on what is visible if the semantic stack is
 	// changed while another frame is being prepared.
 	presentation Snapshot[stackPresentation]
-	basePointer  PointerRegion
 
-	// holder is whatever was last told it has the keyboard, and settled says
-	// anything has been told at all. Until then every one of them believes it does —
-	// see [Focusable].
-	holder        Widget
-	holderID      LayerID
-	holderBase    bool
-	focusRevision uint64
+	// The holder and its membership are published before focus callbacks. Initial
+	// settlement also blurs all other attachments — see [Focusable].
+	holder     Widget
+	holderID   LayerID
+	holderBase bool
 	focusState
 	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher      keymap.Matcher
 	matcherLayer LayerID
-	// held is the layer that accepted a pointer press. Drag and release stay with it
-	// even after the pointer leaves its rectangle, matching capture inside containers.
-	held       LayerID
-	heldButton input.Button
+	// capture owns the recipient of one pointer gesture, whether a base or layer.
+	capture pointerCapture[stackPointerTarget]
+	hover   stackPointerTarget
 }
 
 // NewStack constructs a stack over base. The zero Stack has no base and is ready.
@@ -172,25 +172,33 @@ func (s *Stack) SetBase(base Widget) {
 		return
 	}
 	s.base = base
-	if s.settled && s.holderID != 0 {
+	s.baseID = new(byte)
+	if s.state.Settled() && s.holderID != 0 {
 		// A layer owns the keyboard. The new base starts in the state every lone
 		// widget assumes — focused — so it must hear the one real transition to its
 		// covered state; the layer above it has not changed owners at all.
-		tell(s.base, false)
+		if !identity.Same(s.base, s.holder) {
+			tell(s.base, false)
+		}
 		return
 	}
-	s.settled = false
+	s.state.Unsettle()
 	s.settle()
 }
 
 // Push puts a layer on top, gives it the keyboard, and returns its stable handle.
 // A nil modal is not a layer: it is ignored and reported as the zero [LayerID].
+// Controller-owned DialogContent must be opened through Dialog.Show or Sync;
+// pushing it (including a wrapper embedding it) is a programmer error and panics.
 //
 // Handles are drawn from a counter that never reuses one, and Push panics once every
 // handle has been issued. Wrapping would let a handle held by a caller name a
 // different layer than the one it was given for, so a dismissal aimed at a closed
 // dialog would close whatever had since taken its number.
 func (s *Stack) Push(m Modal) LayerID {
+	if controlled, ok := m.(interface{ rejectIndependentInsertion() }); ok {
+		controlled.rejectIndependentInsertion()
+	}
 	id := s.insert(m)
 	if id != 0 {
 		s.settle()
@@ -292,29 +300,28 @@ func (s *Stack) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		return s.mouse(presented, mouse)
 	}
-	if len(presented.layers) == 0 {
-		s.matcher.Clear()
-		s.matcherLayer = 0
-		if handler, ok := presented.base.(Interactive); ok {
-			return handler.Handle(ev)
+	s.settle()
+	top, layered := s.top()
+	if top.id != s.matcherLayer {
+		if !s.matcher.Reset(func() { s.matcherLayer = top.id }) {
+			return true
+		}
+	}
+	if s.holderID != top.id || !s.keyboardPresented(presented) {
+		return true
+	}
+	if !layered {
+		if handler, ok := s.holder.(Interactive); ok {
+			return s.state.Forward(func() bool { return handler.Handle(ev) })
 		}
 		return false
 	}
-	top := presented.layers[len(presented.layers)-1]
-
-	if top.id != s.matcherLayer {
-		s.matcher.Clear()
-		s.matcherLayer = top.id
-	}
-	if !s.Contains(top.id) {
-		return true
-	}
-	if top.modal.Handle(ev) {
+	if s.state.Forward(func() bool { return top.modal.Handle(ev) }) {
 		return true
 	}
 	if key, ok := ev.(input.Key); ok {
 		s.matcher.Handle(s.keys(), key, func(action keymap.Action) bool {
-			if action != Close {
+			if action != Close || s.holderID != top.id {
 				return false
 			}
 			if !sticky(top.modal) {
@@ -328,93 +335,129 @@ func (s *Stack) Handle(ev input.Event) bool {
 	return true
 }
 
-func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
-	if mouse.Action == input.MouseDown {
-		// The input protocol carries one pointer gesture. A new press supersedes an
-		// incomplete old one, including when its new target declines the press.
-		s.held = 0
-		s.basePointer.held = nil
+func (s *Stack) keyboardPresented(presented stackPresentation) bool {
+	if len(presented.layers) > 0 {
+		return presented.layers[len(presented.layers)-1].id == s.holderID
 	}
-	if handled, captured := s.continueGesture(presented, mouse); captured {
+	return s.holderID == 0 && presented.baseID == s.baseID
+}
+
+func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
+	held, turn := s.capture.begin(mouse)
+	if !s.capture.current(turn) || mouse.Action == input.MouseCancel {
+		return false
+	}
+	if mouse.Action == input.MouseLeave {
+		s.leave(mouse)
+		return false
+	}
+	if handled, captured := s.continueGesture(presented, mouse, held, turn); captured {
 		return handled
 	}
-	return s.route(presented, mouse)
+	if !mouse.Pos.In(presented.visible) {
+		s.leave(mouse)
+		return false
+	}
+	return s.route(presented, mouse, turn)
 }
 
 // continueGesture gives a drag or release to whoever took the press, and reports
 // whether one was in progress at all.
-func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse) (handled, captured bool) {
-	if mouse.Action != input.MouseDrag && mouse.Action != input.MouseUp {
+func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse, owner *stackPointerTarget, turn uint64) (handled, captured bool) {
+	if owner == nil || (mouse.Action != input.MouseDrag && mouse.Action != input.MouseUp) {
 		return false, false
 	}
-	if s.basePointer.held != nil {
-		handled, _ = s.basePointer.Handle(mouse)
-		return handled, true
-	}
-	if s.held == 0 {
-		return false, false
-	}
-	held, found := presented.placed(s.held)
-	found = found && s.Contains(s.held)
-	if mouse.Releases(s.heldButton) {
-		s.held = 0
-	}
+	held, found := s.placedTarget(presented, *owner)
 	if !found {
 		// The owner of the gesture is gone. Do not hand its remainder to whatever
 		// replaced it and accidentally begin a different interaction halfway through.
-		return true, true
+		s.leave(mouse)
+		return owner.id != 0, true
 	}
-	s.deliver(held, mouse)
-	return true, true
+	handled = s.deliver(held, mouse, turn)
+	return handled || held.id != 0, true
 }
 
 // route sends an event that begins nothing to the top layer, or past it.
-func (s *Stack) route(presented stackPresentation, mouse input.Mouse) bool {
+func (s *Stack) route(presented stackPresentation, mouse input.Mouse, turn uint64) bool {
 	top := len(presented.layers) - 1
 	if top < 0 {
-		return s.deliverBase(mouse)
+		return s.deliverBase(presented, mouse, turn)
 	}
 	placed := presented.layers[top]
 	if !mouse.Pos.In(placed.area) {
 		switch mouse.Action {
 		case input.WheelUp, input.WheelDown, input.MouseMove:
-			return s.below(presented, top, mouse)
+			return s.below(presented, top, mouse, turn)
 		default:
-			return s.outside(mouse, placed)
+			return s.outside(mouse, placed, turn)
 		}
 	}
-	handled := s.deliver(placed, mouse)
-	if mouse.Action == input.MouseDown && handled {
-		s.held = placed.id
-		s.heldButton = mouse.Button
-	}
+	s.deliver(placed.pointerTarget(), mouse, turn)
 	// A pointer event inside a modal never activates what the modal covers, even when
 	// its content had no behavior for this particular event.
 	return true
 }
 
-func (s *Stack) below(presented stackPresentation, before int, mouse input.Mouse) bool {
+func (s *Stack) below(presented stackPresentation, before int, mouse input.Mouse, turn uint64) bool {
 	for i := before - 1; i >= 0; i-- {
 		placed := presented.layers[i]
-		if mouse.Pos.In(placed.area) && s.deliver(placed, mouse) {
+		if mouse.Pos.In(placed.area) && s.deliver(placed.pointerTarget(), mouse, turn) {
 			return true
 		}
 	}
-	return s.deliverBase(mouse)
+	return s.deliverBase(presented, mouse, turn)
 }
 
-func (s *Stack) deliver(placed layerPlacement, mouse input.Mouse) bool {
-	if !s.Contains(placed.id) {
+func (s *Stack) deliver(placed stackPointerTarget, mouse input.Mouse, turn uint64) bool {
+	if !s.capture.current(turn) || !s.pointerAttached(placed) {
 		return false
 	}
-	local := mouse
-	local.Pos = mouse.Pos.Sub(placed.area.Min)
-	return placed.modal.Handle(local)
+	s.hoverTo(placed, mouse)
+	if !s.capture.current(turn) || s.hover.id != placed.id || s.hover.baseID != placed.baseID ||
+		!s.pointerAttached(placed) {
+		return false
+	}
+	if mouse.Action == input.MouseDown {
+		return s.capture.offer(turn, placed, func() bool { return placed.deliverPointer(mouse) })
+	}
+	return placed.deliverPointer(mouse)
 }
 
-func (s *Stack) deliverBase(mouse input.Mouse) bool {
-	handled, _ := s.basePointer.Handle(mouse)
-	return handled
+func (s *Stack) pointerAttached(target stackPointerTarget) bool {
+	if target.id != 0 {
+		return s.Contains(target.id)
+	}
+	return target.baseID != nil && target.baseID == s.presentation.Value().baseID
+}
+
+func (s *Stack) deliverBase(presented stackPresentation, mouse input.Mouse, turn uint64) bool {
+	if !s.capture.current(turn) {
+		return false
+	}
+	child, ok := presented.base.(Interactive)
+	if !ok || !mouse.Pos.In(presented.visible) {
+		s.leave(mouse)
+		return false
+	}
+	return s.deliver(stackPointerTarget{child: child, baseID: presented.baseID}, mouse, turn)
+}
+
+func (s *Stack) leave(mouse input.Mouse) {
+	s.hoverTo(stackPointerTarget{}, mouse)
+}
+
+func (s *Stack) hoverTo(to stackPointerTarget, mouse input.Mouse) {
+	previous := s.hover
+	s.hover = to
+	if previous.id == to.id && previous.baseID == to.baseID {
+		return
+	}
+	if previous.child != nil {
+		mouse.Action = input.MouseLeave
+		mouse.Pos = mouse.Pos.Sub(previous.area.Min)
+		previous.child.Handle(mouse)
+	}
 }
 
 // Do runs one of the stack's actions by name, reporting whether it was one a stack
@@ -429,7 +472,11 @@ func (s *Stack) Do(action keymap.Action) bool {
 	return true
 }
 
-func (s *Stack) outside(mouse input.Mouse, top layerPlacement) bool {
+func (s *Stack) outside(mouse input.Mouse, top layerPlacement, turn uint64) bool {
+	s.leave(mouse)
+	if !s.capture.current(turn) {
+		return true
+	}
 	if mouse.Action == input.MouseDown {
 		if !s.KeepOnClickOutside && !sticky(top.modal) {
 			s.dismiss(top.id)
@@ -481,14 +528,13 @@ func (s *Stack) Draw(v Frame) {
 	base := s.base
 	layers := slices.Clone(s.layers)
 	space := v.Bounds().Size()
-	presented := stackPresentation{base: base, layers: make([]layerPlacement, len(layers))}
+	presented := stackPresentation{base: base, baseID: s.baseID, visible: v.Visible(), layers: make([]layerPlacement, len(layers))}
 	for i, layer := range layers {
 		presented.layers[i] = layerPlacement{
 			id: layer.id, modal: layer.modal, area: layer.modal.Place(space).In(space),
 		}
 	}
 	s.presentation.Stage(v, presented)
-	s.basePointer.Stage(v, v.Bounds(), base)
 
 	if base != nil {
 		base.Draw(v)
@@ -502,8 +548,35 @@ func (s *Stack) Draw(v Frame) {
 }
 
 type stackPresentation struct {
-	base   Widget
-	layers []layerPlacement
+	base    Widget
+	baseID  *byte
+	visible image.Rectangle
+	layers  []layerPlacement
+}
+
+type stackPointerTarget struct {
+	id     LayerID
+	baseID *byte
+	child  Interactive
+	area   image.Rectangle
+}
+
+func (p stackPointerTarget) deliverPointer(event input.Mouse) bool {
+	event.Pos = event.Pos.Sub(p.area.Min)
+	return p.child.Handle(event)
+}
+
+func (p layerPlacement) pointerTarget() stackPointerTarget {
+	return stackPointerTarget{id: p.id, child: p.modal, area: p.area}
+}
+
+func (s *Stack) placedTarget(presented stackPresentation, owner stackPointerTarget) (stackPointerTarget, bool) {
+	if owner.id == 0 {
+		child, ok := presented.base.(Interactive)
+		return stackPointerTarget{baseID: presented.baseID, child: child}, ok && owner.baseID == presented.baseID && !presented.visible.Empty()
+	}
+	placed, found := presented.placed(owner.id)
+	return placed.pointerTarget(), found && s.Contains(owner.id)
 }
 
 func (p stackPresentation) placed(id LayerID) (layerPlacement, bool) {
@@ -525,10 +598,7 @@ type layerPlacement struct {
 // to whichever of the layers or the interface underneath currently holds it. A stack
 // is a widget, so one can sit inside a [Container] like anything else.
 func (s *Stack) Focus(has bool) {
-	if !has {
-		s.matcher.Clear()
-	}
-	s.change(has, s.settle, &s.holder)
+	s.change(has, s.settle, &s.holder, &s.matcher)
 }
 
 // settle makes sure the keyboard is where the layers say it should be, and that
@@ -542,39 +612,48 @@ func (s *Stack) settle() {
 	} else if s.base != nil {
 		want, wantBase = s.base, true
 	}
-	if s.settled && wantID == s.holderID && wantBase == s.holderBase {
+	if s.state.Settled() && wantID == s.holderID && wantBase == s.holderBase {
 		return
 	}
-	s.matcher.Clear()
 	from := s.holder
-	s.holder, s.holderID, s.holderBase, s.settled = want, wantID, wantBase, true
-	s.focusRevision++
-	revision := s.focusRevision
+	s.holder, s.holderID, s.holderBase = want, wantID, wantBase
+	revision := s.begin()
+	s.matcher.Clear()
+	if s.superseded(revision) {
+		return
+	}
 	// A notification can synchronously change membership and settle a new owner.
 	// The superseded transfer must not issue any more focus notifications.
-	if from != nil {
+	kept := identity.Same(from, want)
+	if from != nil && !kept {
 		tell(from, false)
-		if s.focusRevision != revision {
+		if s.superseded(revision) {
 			return
 		}
 	}
+	if !s.blurCovered(revision) {
+		return
+	}
+	if !kept {
+		tell(want, s.state.Focused())
+	}
+}
+
+func (s *Stack) blurCovered(revision uint64) bool {
 	// A layer that is no longer on top is covered by one that is, which is the same
 	// thing as not having the keyboard.
 	for _, layer := range s.layers {
-		if layer.id != wantID {
+		if layer.id != s.holderID && !identity.Same(layer.modal, s.holder) {
 			tell(layer.modal, false)
-			if s.focusRevision != revision {
-				return
+			if s.superseded(revision) {
+				return false
 			}
 		}
 	}
-	if s.base != nil && !wantBase {
+	if s.base != nil && !s.holderBase && !identity.Same(s.base, s.holder) {
 		tell(s.base, false)
-		if s.focusRevision != revision {
-			return
-		}
 	}
-	tell(want, !s.blurred)
+	return !s.superseded(revision)
 }
 
 func (s *Stack) keys() *keymap.Map {

@@ -242,7 +242,7 @@ func TestTextRejectsAnInvalidMaskBeforeDrawing(t *testing.T) {
 
 func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
 	value := "secret"
-	field := &headless.Text{Value: headless.Bind(&value)}
+	field := headless.NewText(headless.TextConfig{Value: headless.Bind(&value)})
 	field.SetMask("*")
 	if got := field.Mask(); got != "*" {
 		t.Fatalf("Mask() = %q, want *", got)
@@ -253,7 +253,7 @@ func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
 
 func TestControlledTextUsesOneProjectionBeforeAndAfterInitialization(t *testing.T) {
 	value := "a\r\nb\x7f"
-	field := &headless.Text{Value: headless.Bind(&value)}
+	field := headless.NewText(headless.TextConfig{Value: headless.Bind(&value)})
 	field.Gutter = numberedGutter{}
 	field.SetMask("*")
 

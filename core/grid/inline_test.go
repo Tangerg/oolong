@@ -63,7 +63,7 @@ func TestAnInlineBlockIsAsTallAsWhatWasDrawn(t *testing.T) {
 	// and the eight it was offered stay the terminal's.
 	i := grid.NewInline(10, 10)
 	got := inline(t, i, grid.Cursor{}, lines("ab", "cd"))
-	want := "\x1b[0m" + "\r" + "ab" + "\x1b[K" + "\r\n" + "cd" + "\x1b[K" + "\r" + "\x1b[?25l"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "ab" + "\x1b[K" + "\r\n" + "cd" + "\x1b[K" + "\r" + "\x1b[?25l"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -133,7 +133,7 @@ func TestOnlyTheRowsThatChangedAreRewritten(t *testing.T) {
 	inline(t, i, grid.Cursor{}, lines("keep", "change"))
 
 	got := inline(t, i, grid.Cursor{}, lines("keep", "changed"))
-	want := "\x1b[0m" + "\r" + "\x1b[1A" + "\r\n" + "changed" + "\x1b[K" + "\r"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A" + "\r\n" + "changed" + "\x1b[K" + "\r"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -148,7 +148,7 @@ func TestEveryFrameStartsFromTheTopOfTheBlock(t *testing.T) {
 	i := grid.NewInline(10, 6)
 	inline(t, i, grid.Cursor{}, lines("a", "b", "c", "d"))
 	got := inline(t, i, grid.Cursor{}, lines("a", "b", "c", "D"))
-	if !strings.HasPrefix(got, "\x1b[0m"+"\r"+"\x1b[3A") {
+	if !strings.HasPrefix(got, "\x1b]8;;\x1b\\\x1b[0m"+"\r"+"\x1b[3A") {
 		t.Fatalf("frame = %q, want it to climb the three rows back to the block's top", got)
 	}
 }
@@ -160,12 +160,12 @@ func TestABlockThatGotShorterErasesTheRowsItGaveUp(t *testing.T) {
 	inline(t, i, grid.Cursor{}, lines("ab", "cd"))
 
 	got := inline(t, i, grid.Cursor{}, lines("ab"))
-	want := "\x1b[0m" + "\r" + "\x1b[1A" + "\r\n" + "\x1b[K" + "\x1b[1A"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A" + "\r\n" + "\x1b[K" + "\x1b[1A"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
 	// And the anchor has to come back with it, or the next frame climbs too far.
-	if got := inline(t, i, grid.Cursor{}, lines("AB")); !strings.HasPrefix(got, "\x1b[0m"+"\rAB") {
+	if got := inline(t, i, grid.Cursor{}, lines("AB")); !strings.HasPrefix(got, "\x1b]8;;\x1b\\\x1b[0m"+"\rAB") {
 		t.Fatalf("the frame after a shrink = %q, want it to start at the block's one row", got)
 	}
 }
@@ -174,7 +174,7 @@ func TestABlockThatEmptiedGivesUpEveryRow(t *testing.T) {
 	i := grid.NewInline(10, 4)
 	inline(t, i, grid.Cursor{}, lines("ab", "cd"))
 	got := inline(t, i, grid.Cursor{}, nil)
-	want := "\x1b[0m" + "\r" + "\x1b[1A" + "\x1b[K" + "\r\n" + "\x1b[K" + "\x1b[1A"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A" + "\x1b[K" + "\r\n" + "\x1b[K" + "\x1b[1A"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -186,7 +186,7 @@ func TestABlockIsTallEnoughToHoldTheCursor(t *testing.T) {
 	// cursor on a row it does not own.
 	i := grid.NewInline(10, 6)
 	got := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(0, 2)}, lines("ab"))
-	want := "\x1b[0m" + "\r" + "ab" + "\x1b[K" +
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "ab" + "\x1b[K" +
 		"\r\n" + "\x1b[K" + "\r\n" + "\x1b[K" + "\x1b[0 q" + "\x1b[?25h"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
@@ -211,7 +211,7 @@ func TestAnUnmovedCursorIsNotRestated(t *testing.T) {
 		t.Fatalf("a still caret wrote %q", got)
 	}
 	got := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(3, 0)}, lines("abcd"))
-	if got != "\x1b[0m"+"\r"+"\x1b[3C" {
+	if got != "\x1b]8;;\x1b\\\x1b[0m"+"\r"+"\x1b[3C" {
 		t.Fatalf("frame = %q, want just the move", got)
 	}
 }
@@ -229,7 +229,7 @@ func TestInlineCursorStyleIsDiffedWithoutRestartingAnIdleCursor(t *testing.T) {
 		t.Fatalf("unchanged cursor wrote %q", idle)
 	}
 	bar.Style.Blink = false
-	if changed := inline(t, i, bar, lines("ab")); changed != "\x1b[0m"+"\r"+"\x1b[6 q"+"\x1b[1C" {
+	if changed := inline(t, i, bar, lines("ab")); changed != "\x1b]8;;\x1b\\\x1b[0m"+"\r"+"\x1b[6 q"+"\x1b[1C" {
 		t.Fatalf("blink change = %q, want only style and re-anchor", changed)
 	}
 }
@@ -241,7 +241,7 @@ func TestWritingCellsReAnchorsTheCursor(t *testing.T) {
 	at := grid.Cursor{Visible: true, Pos: image.Pt(1, 0)}
 	inline(t, i, at, lines("ab"))
 	got := inline(t, i, at, lines("xy"))
-	want := "\x1b[0m" + "\r" + "xy" + "\x1b[K" + "\r" + "\x1b[1C"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "xy" + "\x1b[K" + "\r" + "\x1b[1C"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -255,7 +255,7 @@ func TestPrintedRowsGoAboveTheBlock(t *testing.T) {
 
 	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
-	want := "\x1b[0m" + "\r" + "done" + "\x1b[K" + "\r\n" + "prompt" + "\x1b[K" + "\r"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "done" + "\x1b[K" + "\r\n" + "prompt" + "\x1b[K" + "\r"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -296,7 +296,7 @@ func TestPrintingTakesTheRowsTheBlockNoLongerReaches(t *testing.T) {
 
 	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) }))
 	got := inline(t, i, grid.Cursor{}, lines("a"))
-	want := "\x1b[0m" + "\r" + "\x1b[2A" +
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[2A" +
 		"said" + "\x1b[K" + "\r\n" +
 		"a" + "\x1b[K" + "\r\n" + "\x1b[K" +
 		"\x1b[1A"
@@ -314,7 +314,7 @@ func TestEveryPrintedRowIsPrinted(t *testing.T) {
 		v.Text(0, 2, "third", grid.Style{})
 	}))
 	got := inline(t, i, grid.Cursor{}, nil)
-	want := "\x1b[0m" + "\r" +
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
 		"first" + "\x1b[K" + "\r\n" +
 		"\x1b[K" + "\r\n" +
 		"third" + "\x1b[K" + "\r\n" +
@@ -333,7 +333,7 @@ func TestOutputThatDidNotStopAtALineBoundaryCarriesOn(t *testing.T) {
 	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
 
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
-	want := "\x1b[0m" + "\r" +
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
 		"Hel" + "\x1b[K" + "lo" + "\x1b[K" + "\r\n" +
 		"prompt" + "\x1b[K" + "\r" + "\x1b[?25l"
 	if got != want {
@@ -354,7 +354,7 @@ func TestCarryingOnReachesBackOverTheBlock(t *testing.T) {
 
 	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
-	want := "\x1b[0m" + "\r" + "\x1b[1A" + "\x1b[3C" + "lo" + "\x1b[K" + "\r\n"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A" + "\x1b[3C" + "lo" + "\x1b[K" + "\r\n"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -368,7 +368,7 @@ func TestAWholeRowWillNotShareOneWithAnythingElse(t *testing.T) {
 	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
 
 	got := inline(t, i, grid.Cursor{}, nil)
-	want := "\x1b[0m" + "\r" +
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
 		"Hel" + "\x1b[K" + "\r\n" +
 		"done" + "\x1b[K" + "\r\n" + "\x1b[?25l"
 	if got != want {
@@ -392,7 +392,7 @@ func TestAppendingToAFullRowStartsTheNextOne(t *testing.T) {
 	})
 
 	got := inline(t, i, grid.Cursor{}, nil)
-	want := "\x1b[0m" + "\r" +
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
 		"abcd" + "\r\n" +
 		"ef" + "\x1b[K" + "\r\n" + "\x1b[?25l"
 	if got != want {
@@ -503,7 +503,7 @@ func TestFinishLeavesTheCursorBelowTheBlock(t *testing.T) {
 	if err := i.Finish(&buf); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	want := "\x1b[1B" + "\r\n" + "\x1b[0m" + "\x1b[0 q" + "\x1b[?25h"
+	want := "\x1b[1B" + "\r\n" + "\x1b]8;;\x1b\\\x1b[0m" + "\x1b[0 q" + "\x1b[?25h"
 	if got := buf.String(); got != want {
 		t.Fatalf("Finish  = %q\nwant    = %q", got, want)
 	}
@@ -517,7 +517,7 @@ func TestFinishingAnEmptyBlockJustHandsTheCursorBack(t *testing.T) {
 	if err := i.Finish(&buf); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	if got := buf.String(); got != "\x1b[0m"+"\x1b[0 q"+"\x1b[?25h" {
+	if got := buf.String(); got != "\x1b]8;;\x1b\\\x1b[0m"+"\x1b[0 q"+"\x1b[?25h" {
 		t.Fatalf("Finish = %q", got)
 	}
 }
@@ -550,46 +550,35 @@ func TestFinishingABlockThatIsAlreadyFinishedWritesNothing(t *testing.T) {
 	}
 }
 
-func TestAFinishThatDidNotReachTheTerminalCanBeTriedAgain(t *testing.T) {
-	// Finishing is what gives the cursor back and puts the shell's next prompt below
-	// the interface. A failed write that recorded itself as done would make that
-	// permanent: the retry, and the exit behind it, would have nothing left to send.
+func TestFailedInlineFinishEndsTheSession(t *testing.T) {
 	i := grid.NewInline(10, 4)
 	inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(1, 0)}, lines("ab", "cd"))
-
-	if err := i.Finish(&failWriter{}); err == nil {
-		t.Fatal("a failed write was reported as a finish")
+	if err := i.Finish(&failWriter{}); !errors.Is(err, errWrite) {
+		t.Fatalf("Finish = %v", err)
 	}
-	var again bytes.Buffer
-	if err := i.Finish(&again); err != nil {
-		t.Fatalf("Finish again: %v", err)
+	var out bytes.Buffer
+	if err := i.Finish(&out); !errors.Is(err, errWrite) || out.Len() != 0 {
+		t.Fatalf("Finish resumed: %v %q", err, out.String())
 	}
-	for _, want := range []string{"\x1b[0m", "\x1b[0 q", "\x1b[?25h"} {
-		if !strings.Contains(again.String(), want) {
-			t.Fatalf("the second Finish wrote %q, without %q", again.String(), want)
-		}
+	i.Invalidate()
+	i.Frame().Text(0, 0, "next", grid.Style{})
+	if err := i.Flush(&out); !errors.Is(err, errWrite) || out.Len() != 0 {
+		t.Fatalf("Flush resumed: %v %q", err, out.String())
 	}
 }
 
-func TestAFlushThatDidNotReachTheTerminalKeepsTheAnchorItWasWrittenFrom(t *testing.T) {
-	// Every inline frame is written relative to where the last one left the cursor,
-	// so that anchor is where the terminal is rather than where a frame wanted it to
-	// be. Adopting it while composing made a frame that never reached the terminal
-	// move the anchor anyway, and the retry then climbed out of the block and
-	// rewrote finished output that was above it.
+func TestFailedInlineFlushCannotReuseAnUncertainAnchor(t *testing.T) {
 	i := grid.NewInline(10, 8)
 	inline(t, i, grid.Cursor{}, lines("live"))
-
 	v := i.Frame()
 	v.PlaceCursor(0, 3, grid.CursorStyle{})
 	v.Text(0, 0, "live", grid.Style{})
-	if err := i.Flush(&failWriter{}); err == nil {
-		t.Fatal("a write that delivered nothing was reported as a flush")
+	if err := i.Flush(&failWriter{}); !errors.Is(err, errWrite) {
+		t.Fatalf("Flush = %v", err)
 	}
-
-	out := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(0, 3)}, lines("live"))
-	if strings.Contains(out, "\x1b[3A") {
-		t.Fatalf("the retry = %q, want it written from the row the terminal is on", out)
+	var out bytes.Buffer
+	if err := i.Flush(&out); !errors.Is(err, errWrite) || out.Len() != 0 {
+		t.Fatalf("anchor reused: %v %q", err, out.String())
 	}
 }
 
@@ -626,18 +615,16 @@ func TestABlockDrawnAgainCanBeFinishedAgain(t *testing.T) {
 	}
 }
 
-func TestAFailedInlineWriteKeepsWhatWasPrinted(t *testing.T) {
-	// Output the caller asked for is worth writing twice and not worth losing.
+func TestFailedInlinePrintReportsFailureWithoutRetry(t *testing.T) {
 	i := grid.NewInline(10, 4)
 	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) }))
-
-	v := i.Frame()
-	v.Text(0, 0, "prompt", grid.Style{})
-	if err := i.Flush(failing{}); err == nil {
-		t.Fatal("a failed write was reported as success")
+	i.Frame().Text(0, 0, "prompt", grid.Style{})
+	if err := i.Flush(failing{}); !errors.Is(err, errNope) {
+		t.Fatalf("Flush = %v", err)
 	}
-	if got := inline(t, i, grid.Cursor{}, lines("prompt")); !strings.Contains(got, "said") {
-		t.Fatalf("frame = %q, want the printed row written again", got)
+	var out bytes.Buffer
+	if err := i.Flush(&out); !errors.Is(err, errNope) || out.Len() != 0 {
+		t.Fatalf("Print retried: %v %q", err, out.String())
 	}
 }
 

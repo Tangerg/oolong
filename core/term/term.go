@@ -275,9 +275,8 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 		t.events <- input.Resize{Width: w, Height: h}
 	}
 
-	raw := make(chan []byte, 4)
-	readErr := make(chan error, 1)
-	go t.read(raw, readErr)
+	raw := make(chan readResult, 4)
+	go t.read(raw)
 
 	// Asking has to happen here, between the reader starting and the pump starting.
 	// A terminal has exactly one reader; asking any earlier means nothing is
@@ -288,6 +287,7 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 	// through one stream rather than two agreeing decoders.
 	stream := input.NewStream(input.StreamConfig{Clipboard: t.clipboard})
 	var early []input.Event
+	var end *readResult
 	if cfg.Features.Probe {
 		// One budget covers asking and being answered; the probe holds the transport
 		// to the same instant.
@@ -297,13 +297,14 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 		}
 		t.said = pr.run()
 		early = pr.early
+		end = pr.end
 	}
 	t.wheelProfile = input.WheelFor(lookup, t.identity())
 	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
 	t.imageProtocol = graphics.Detect(lookup, t.identity(), sixel)
 
 	p := &pump{
-		raw: raw, readErr: readErr, resized: t.resized, stop: t.stop,
+		raw: raw, end: end, resized: t.resized, stop: t.stop,
 		out: t.events, stream: stream, early: early,
 	}
 	t.startResizeWatcher(resizes)
@@ -392,8 +393,7 @@ func (t *Terminal) Copy(text string) bool {
 	if !ok {
 		return false
 	}
-	t.writer.Queue([]byte(seq))
-	return true
+	return t.writer.Queue([]byte(seq)) != 0
 }
 
 // Paste asks the terminal what is on the system clipboard.
@@ -403,15 +403,13 @@ func (t *Terminal) Copy(text string) bool {
 // nothing further to insert what they copied somewhere else.
 //
 // It reports whether this request was queued. False means a previous unidentified
-// request is still eligible for an answer. Most terminals refuse to answer, because
-// a program that can read the clipboard can read what the user copied out of a
+// request is still eligible for an answer or the writer refuses admission. Most
+// terminals refuse to answer, because a program can read what the user copied out of a
 // password manager; that refusal has no reply, so true does not promise an answer.
 func (t *Terminal) Paste() bool {
-	if sequence, ok := t.clipboard.Request(clipboard.System); ok {
-		t.writer.Queue([]byte(sequence))
-		return true
-	}
-	return false
+	return t.clipboard.Request(clipboard.System, func(sequence string) bool {
+		return t.writer.Queue([]byte(sequence)) != 0
+	})
 }
 
 // Name is what the terminal called itself when asked, and whether it answered.
@@ -495,7 +493,8 @@ func (t *Terminal) Graphics() graphics.Protocol {
 // not already have. An empty path reports the process's own working directory.
 //
 // It is written beside the frames, so it lands between two of them and never inside
-// one. A terminal that does not implement it ignores it.
+// one. A terminal that does not implement it ignores it. A nil error means queued;
+// [Terminal.Writer] reports the delivery outcome.
 func (t *Terminal) ReportDirectory(path string) error {
 	if path == "" {
 		cwd, err := os.Getwd()
@@ -517,7 +516,9 @@ func (t *Terminal) ReportDirectory(path string) error {
 		Host:   host,
 		Path:   filepath.ToSlash(abs),
 	}).String()
-	t.writer.Queue([]byte("\x1b]7;" + location + "\x1b\\"))
+	if t.writer.Queue([]byte("\x1b]7;"+location+"\x1b\\")) == 0 {
+		return t.writer.Err()
+	}
 	return nil
 }
 
@@ -545,8 +546,8 @@ func (t *Terminal) CellSize() (image.Point, bool) {
 	return image.Pt(pxW/cols, pxH/rows), true
 }
 
-// Transmit sends a picture to the terminal and returns the handle it now knows it
-// by, which is what puts one in a frame — see [graphics.Image.Placement].
+// Transmit queues a picture and returns its handle for later placement in a frame
+// — see [graphics.Image.Placement]. [Terminal.Writer] reports the delivery outcome.
 //
 // The number is this session's to allocate, because two pictures under one name are
 // one picture: nothing above this can know what else has been sent. It is sent
@@ -567,7 +568,9 @@ func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
 	if err != nil {
 		return graphics.Image{}, err
 	}
-	t.writer.Queue(payload.Bytes())
+	if t.writer.Queue(payload.Bytes()) == 0 {
+		return graphics.Image{}, t.writer.Err()
+	}
 	return img, nil
 }
 
@@ -578,7 +581,9 @@ func (t *Terminal) ReleaseImage(img graphics.Image) error {
 	if err := img.Release(&payload); err != nil {
 		return err
 	}
-	t.writer.Queue(payload.Bytes())
+	if t.writer.Queue(payload.Bytes()) == 0 {
+		return t.writer.Err()
+	}
 	return nil
 }
 
@@ -656,7 +661,7 @@ func (t *Terminal) giveBack() []error {
 // Where there is no way to wait — see [interruptible] — the wait reports "maybe"
 // and the read below it does the blocking, which is what a reader that cannot be
 // woken did before any of this existed.
-func (t *Terminal) read(raw chan<- []byte, readErr chan<- error) {
+func (t *Terminal) read(raw chan<- readResult) {
 	defer t.waker.close()
 	for {
 		// Before the read and not after it: a byte taken while the terminal is
@@ -669,7 +674,10 @@ func (t *Terminal) read(raw chan<- []byte, readErr chan<- error) {
 		}
 		ready, err := t.waker.wait()
 		if err != nil {
-			readErr <- err
+			select {
+			case raw <- readResult{err: err, at: time.Now()}:
+			case <-t.stop:
+			}
 			return
 		}
 		if !ready {
@@ -681,15 +689,15 @@ func (t *Terminal) read(raw chan<- []byte, readErr chan<- error) {
 
 		buf := make([]byte, 4096)
 		n, err := t.in.Read(buf)
-		if n > 0 {
+		at := time.Now()
+		if n > 0 || err != nil {
 			select {
-			case raw <- buf[:n]:
+			case raw <- readResult{data: buf[:n], at: at, err: err}:
 			case <-t.stop:
 				return
 			}
 		}
 		if err != nil {
-			readErr <- err
 			return
 		}
 		select {
@@ -750,6 +758,12 @@ func (t *Terminal) Notify(text string) {
 // It runs on the caller's goroutine and does not return until run does, because an
 // interface that drew a frame while a child owned the terminal would draw it over the
 // child. The caller is responsible for nothing else writing meanwhile.
+// The optional prepare callback runs after claiming the handover, with the normal
+// interface modes still active. It can finish and drain interface output. A failed
+// prepare returns its error without changing modes or calling run.
+// Nested or concurrent Hand calls return [ErrHandoverActive] without preparing or
+// running their child. A closed session returns [ErrClosed]; closing from run ends the session
+// rather than reacquiring it when run returns.
 //
 // The window may be a different size afterwards with nothing having reported it,
 // because the signal went to whichever process group was in the foreground. A fresh
@@ -760,14 +774,34 @@ func (t *Terminal) Notify(text string) {
 // is a child that drops every other keystroke. Whether it can is a question about the
 // session rather than the platform: a console can be waited on, and a pipe pretending
 // to be one cannot.
-func (t *Terminal) Hand(run func() error) (err error) {
+func (t *Terminal) Hand(prepare, run func() error) (err error) {
 	if run == nil {
 		return nil
+	}
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
 	}
 	if !t.waker.interruptible() {
 		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
 	}
-	if releaseErr := t.release(); releaseErr != nil {
+	parked, acquired := t.handed.hold()
+	if !acquired {
+		return ErrHandoverActive
+	}
+	defer t.handed.release()
+	if prepare != nil {
+		if prepareErr := prepare(); prepareErr != nil {
+			return prepareErr
+		}
+	}
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
+	}
+	if releaseErr := t.release(parked); releaseErr != nil {
 		return releaseErr
 	}
 	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
@@ -776,15 +810,15 @@ func (t *Terminal) Hand(run func() error) (err error) {
 	return run()
 }
 
-func (t *Terminal) release() error {
+func (t *Terminal) release(parked <-chan struct{}) error {
 	// Keepalives are output too. Pause before taking the writer's watermark so a
 	// refresh cannot appear after the drain and inside the child's output.
 	t.task.pause()
 	// Whatever the interface drew has to reach the terminal before the modes go
 	// back, for the same reason it does on the way out: a frame written after the
 	// alternate screen was given up is a frame drawn onto the user's own screen. Do
-	// this before changing any state, so a timeout leaves ownership exactly where it
-	// was and needs no compensating transition.
+	// this before changing modes, so a timeout only needs to end the reader claim
+	// and resume keepalives, without restoring terminal modes.
 	if err := t.writer.Drain(DrainGrace); err != nil {
 		t.task.restore(t.writer.Queue)
 		return fmt.Errorf("term: drain before handover: %w", err)
@@ -794,9 +828,9 @@ func (t *Terminal) release() error {
 		return fmt.Errorf("term: drain before handover: %w", err)
 	}
 
-	// The reader comes off only after output has settled. From here on, what the
-	// terminal says belongs to whoever it is being handed to.
-	t.park()
+	// The lifetime claim can already have parked the reader. Confirm that it noticed
+	// before giving the terminal's input and modes to the child.
+	t.park(parked)
 	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
 		return errors.Join(err, t.resume())
 	}
@@ -809,6 +843,11 @@ func (t *Terminal) release() error {
 }
 
 func (t *Terminal) resume() error {
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
+	}
 	var errs []error
 	errs = append(errs, t.output.active(true))
 	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
@@ -820,7 +859,6 @@ func (t *Terminal) resume() error {
 	}
 	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
 	t.task.restore(t.writer.Queue)
-	t.handed.release()
 
 	// The same latest-value mailbox a window resize uses, rather than the public
 	// event queue: the pump owns and closes that queue. Report even an unchanged size
@@ -834,8 +872,7 @@ func (t *Terminal) resume() error {
 	return errors.Join(errs...)
 }
 
-func (t *Terminal) park() {
-	parked := t.handed.hold()
+func (t *Terminal) park(parked <-chan struct{}) {
 	t.waker.wake()
 
 	grace := time.NewTimer(parkGrace)

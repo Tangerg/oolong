@@ -143,8 +143,8 @@ func TestPointerRegionDropsAGestureWhoseChildIsGone(t *testing.T) {
 	if fixture.Handle(regionDrag(5, 3)) || fixture.Handle(regionRelease(5, 3)) {
 		t.Fatal("a gesture was delivered after its child stopped being presented")
 	}
-	if len(child.events) != 1 {
-		t.Fatalf("the original child received %d events, want only its press", len(child.events))
+	if len(child.events) != 2 || child.events[1].Action != input.MouseLeave {
+		t.Fatalf("the original child received %d events, want its press and leave", len(child.events))
 	}
 	if len(replacement.events) != 0 {
 		t.Fatalf("the replacement inherited %d events from another child's gesture", len(replacement.events))
@@ -185,8 +185,8 @@ func TestPointerRegionCapturesOnlyAnAcceptedPress(t *testing.T) {
 	if fixture.Handle(regionDrag(9, 5)) {
 		t.Fatal("a declined press captured the drag")
 	}
-	if len(child.events) != 1 {
-		t.Fatalf("child received %d events, want only the press", len(child.events))
+	if len(child.events) != 2 || child.events[1].Action != input.MouseLeave {
+		t.Fatalf("child received %d events, want press and leave", len(child.events))
 	}
 }
 

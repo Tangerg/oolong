@@ -1,12 +1,58 @@
 package input_test
 
 import (
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/core/clipboard"
 	"github.com/Tangerg/oolong/core/input"
 )
+
+func TestRunawayStringExpirySettlesTrailingEscape(t *testing.T) {
+	var stream input.Stream
+	at := time.Unix(1, 0)
+	stream.Feed([]byte("\x1b]52;"+strings.Repeat("A", 1<<20)+"\x1b"), at)
+	due, waiting := stream.DueAt()
+	if !waiting {
+		t.Fatal("runaway input has no recovery deadline")
+	}
+	stream.Expire(due)
+	if _, waiting := stream.DueAt(); waiting {
+		t.Fatal("recovery left ambiguous input")
+	}
+	events := stream.Feed([]byte("a"), at.Add(time.Second))
+	if len(events) != 1 {
+		t.Fatalf("events = %+v", events)
+	}
+	if key, ok := events[0].(input.Key); !ok || !key.IsRune('a', 0) {
+		t.Fatalf("next key = %+v, want unmodified a", events[0])
+	}
+}
+
+func TestStreamUsesArrivalTimeToResolveBufferedEscape(t *testing.T) {
+	for _, gap := range []time.Duration{time.Millisecond, input.DefaultEscapeTimeout, time.Second} {
+		var stream input.Stream
+		at := time.Unix(1, 0)
+		stream.Feed([]byte{27}, at)
+		due, _ := stream.DueAt()
+		if events := stream.Expire(due.Add(-time.Nanosecond)); len(events) != 0 {
+			t.Fatal("early expiry settled input before its deadline")
+		}
+		events := stream.Feed([]byte("a"), at.Add(gap))
+		switch {
+		case gap < input.DefaultEscapeTimeout:
+			if len(events) != 1 || !events[0].(input.Key).IsRune('a', input.Alt) {
+				t.Fatalf("before deadline: %+v", events)
+			}
+		case len(events) != 2 || events[0].(input.Key).Code != input.Esc || !events[1].(input.Key).IsRune('a', 0):
+			t.Fatalf("after deadline: %+v", events)
+		case !events[0].(input.Key).At.Equal(due) || !events[1].(input.Key).At.Equal(at.Add(gap)):
+			t.Fatalf("arrival and deadline times changed: %+v", events)
+		}
+	}
+}
 
 // What a transport is entitled to assume, stated once here because every transport
 // now assumes it rather than deciding it again.
@@ -107,12 +153,12 @@ func TestEventsCarryWhenTheyArrived(t *testing.T) {
 
 func TestAnAnsweredClipboardRequestBecomesAPaste(t *testing.T) {
 	channel := &clipboard.Channel{}
-	if _, ok := channel.Request(clipboard.System); !ok {
+	if !channel.Request(clipboard.System, func(string) bool { return true }) {
 		t.Fatal("clipboard request was refused")
 	}
 	stream := input.NewStream(input.StreamConfig{Clipboard: channel})
 
-	events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\"), time.Unix(1, 0))
+	events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\"), time.Now())
 	if len(events) != 1 {
 		t.Fatalf("got %+v, want one event", events)
 	}
@@ -128,11 +174,11 @@ func TestAnAnswerCarryingNoTextIsNotAPaste(t *testing.T) {
 	// selection the user still has with an empty string.
 	for _, answer := range []string{"\x1b]52;c;\x1b\\", "\x1b]52;c;\n\x1b\\"} {
 		channel := &clipboard.Channel{}
-		if _, ok := channel.Request(clipboard.System); !ok {
+		if !channel.Request(clipboard.System, func(string) bool { return true }) {
 			t.Fatal("clipboard request was refused")
 		}
 		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-		events := stream.Feed([]byte(answer), time.Unix(1, 0))
+		events := stream.Feed([]byte(answer), time.Now())
 		if len(events) != 1 {
 			t.Fatalf("%q got %+v, want one event", answer, events)
 		}
@@ -178,4 +224,21 @@ func TestFlushEndsTheStreamAndDisarmsIt(t *testing.T) {
 	if _, waiting := stream.DueAt(); waiting {
 		t.Fatal("flush left a deadline nobody will reach")
 	}
+}
+
+func TestClipboardSettlementUsesTheTransportArrival(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		channel := &clipboard.Channel{}
+		channel.Request(clipboard.System, func(string) bool { return true })
+		at := time.Now()
+		time.Sleep(11 * time.Second)
+		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+		events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\"), at)
+		if len(events) != 1 {
+			t.Fatalf("events = %v", events)
+		}
+		if paste, ok := events[0].(input.Paste); !ok || paste.Text != "pasted" {
+			t.Fatalf("timely reply lost during decoding: %v", events)
+		}
+	})
 }

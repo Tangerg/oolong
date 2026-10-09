@@ -78,8 +78,12 @@ type Cursor struct {
 // markers — because an idle UI should be silent on the wire and should leave the
 // cursor's blink undisturbed. A Screen must not be copied after first use; its two
 // surfaces and terminal-state model are one publication owner.
+// It is used on one goroutine. Painter and writer callbacks during Flush may read
+// the canvas but cannot mutate it, mutate a retained frame view, or flush it again.
+// Reentering a mutating Screen method from these callbacks panics.
 type Screen struct {
-	noCopy noCopy
+	noCopy      noCopy
+	publication publication
 
 	buffers frameBuffer
 	cursor  cursorState
@@ -120,6 +124,7 @@ func (s *Screen) Size() (w, h int) { return s.buffers.size() }
 // resize the terminal has reflowed its own contents, and nothing about what it is
 // showing can be assumed.
 func (s *Screen) Resize(w, h int) {
+	s.publication.requireIdle()
 	if s.buffers.resize(w, h) {
 		s.Invalidate()
 	}
@@ -128,6 +133,7 @@ func (s *Screen) Resize(w, h int) {
 // SetDepth says how much colour the terminal can show. It forces a full repaint,
 // because every cell the terminal is holding was encoded at the old depth.
 func (s *Screen) SetDepth(d Depth) {
+	s.publication.requireIdle()
 	if !s.buffers.setDepth(d) {
 		return
 	}
@@ -143,12 +149,18 @@ func (s *Screen) SetDepth(d Depth) {
 // ground is read while a frame is being drawn, so the next frame uses it by drawing
 // itself, and nothing already on the terminal was encoded with it.
 func (s *Screen) SetGround(g Ground) {
+	s.publication.requireIdle()
 	s.buffers.setGround(g)
 }
 
 // Invalidate forgets what the terminal is showing, so the next flush repaints in
 // full. It is what to call after handing the terminal to another program.
 func (s *Screen) Invalidate() {
+	s.publication.requireIdle()
+	s.invalidate()
+}
+
+func (s *Screen) invalidate() {
 	s.full = true
 	s.repaintAll = true
 	s.cursor.forget()
@@ -160,6 +172,7 @@ func (s *Screen) Invalidate() {
 // frames is the diff's job, not the caller's, and a surface that carried
 // yesterday's cells forward would make a missed redraw look like success.
 func (s *Screen) Frame() View {
+	s.publication.requireIdle()
 	return s.buffers.begin(&s.placed)
 }
 
@@ -172,7 +185,23 @@ func (s *Screen) Frame() View {
 func (s *Screen) Cursor() Cursor { return s.placed }
 
 // Flush writes this frame to w, leaving the cursor wherever the frame placed it.
+// A destination write failure permanently ends this publication session: a prefix
+// may have changed cells, placements or terminal parsing state. Later Flush calls
+// return the original error without writing. Invalidate cannot recover that session.
+// An abnormal writer exit also ends the session; a recovered panic cannot authorize
+// replaying an unknown partial write.
 func (s *Screen) Flush(w io.Writer) error {
+	s.publication.begin()
+	defer s.publication.end()
+	if s.publication.failure != nil {
+		return s.publication.failure
+	}
+	composed := false
+	defer func() {
+		if !composed {
+			s.invalidate()
+		}
+	}()
 	s.frame.restart()
 	s.paintCells()
 	s.frame.end()
@@ -182,12 +211,12 @@ func (s *Screen) Flush(w io.Writer) error {
 	// was painted, and the cursor has to end up where the frame asked whatever a
 	// painter did with it.
 	if err := s.paintRegions(); err != nil {
-		s.Invalidate()
 		return err
 	}
 	// A frame that began is a frame that wrote cells, which is also what tells the
 	// cursor it has to re-anchor.
 	s.cursor.emit(&s.frame, s.placed, len(s.frame.out) > 0)
+	composed = true
 
 	if len(s.frame.out) == 0 {
 		s.buffers.swap()
@@ -196,11 +225,7 @@ func (s *Screen) Flush(w io.Writer) error {
 	s.out = append(s.out[:0], beginSync...)
 	s.out = append(s.out, s.frame.out...)
 	s.out = append(s.out, endSync...)
-	if err := writeAll(w, s.out); err != nil {
-		// The terminal's contents are now unknown: some prefix of the frame may
-		// have landed. The next flush starts over rather than diffing against a
-		// front surface the terminal never fully received.
-		s.Invalidate()
+	if err := s.publication.write(w, s.out); err != nil {
 		return err
 	}
 	s.buffers.swap()

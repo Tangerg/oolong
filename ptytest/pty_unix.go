@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -68,7 +69,7 @@ func endSession(process *os.Process) error {
 	// A group kill is addressed by negating the leader's id, so a leader that is
 	// not one — init, or a zero value — would address something else entirely.
 	if process.Pid <= 1 {
-		return process.Kill()
+		return errors.New("ptytest: cannot terminate an unowned process group")
 	}
 	// The group outlives its leader, and so does the obligation to end it: a child
 	// that exited having left something of its own running left it holding the
@@ -77,10 +78,25 @@ func endSession(process *os.Process) error {
 	// and the kill finds nobody — or, on a machine that has been through a whole
 	// generation of process ids since, somebody the harness never started. That last
 	// case is the kernel's to prevent and cannot be closed from here.
-	if err := unix.Kill(-process.Pid, unix.SIGKILL); err != nil && !errors.Is(err, unix.ESRCH) {
-		return process.Kill()
+	err := unix.Kill(-process.Pid, unix.SIGKILL)
+	if err == nil || errors.Is(err, unix.ESRCH) {
+		return nil
 	}
-	return nil
+	if errors.Is(err, unix.EPERM) {
+		// A disappearing group can refuse delivery before it disappears from the
+		// process table. Only observed absence settles that refusal as success.
+		deadline := time.Now().Add(time.Second)
+		for {
+			if errors.Is(unix.Kill(-process.Pid, 0), unix.ESRCH) {
+				return nil
+			}
+			if !time.Now().Before(deadline) {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	return fmt.Errorf("ptytest: terminate process group: %w", err)
 }
 
 func signalResize(process *os.Process) error {

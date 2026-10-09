@@ -1,6 +1,7 @@
 package headless
 
 import (
+	"image"
 	"math"
 	"slices"
 	"strings"
@@ -133,6 +134,7 @@ type Editor struct {
 
 type editorPresentation struct {
 	width, gutter, first, left int
+	visible                    image.Rectangle
 }
 
 // editorState is a whole snapshot for undo.
@@ -1597,7 +1599,7 @@ func (e *Editor) drawMultiline(
 		scroll.Reveal(cursorRow, cursorRow)
 	}
 	first := scroll.Offset()
-	presentation := editorPresentation{width: width, gutter: gutter, first: first}
+	presentation := editorPresentation{width: width, gutter: gutter, first: first, visible: frame.Visible()}
 	last := min(layout.Sum(first, height), len(rows))
 	e.drawGutter(gutterView, rows[first:last])
 
@@ -1671,11 +1673,11 @@ func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
 // how the question is settled — see [Focusable], and note that a field nobody has
 // told anything believes it has the keyboard, which is what makes a lone field work.
 func (e *Editor) Focus(has bool) {
-	if !has {
-		e.matcher.Clear()
-		e.endTyping()
-	}
 	e.blurred = !has
+	if !has {
+		e.endTyping()
+		e.matcher.Clear()
+	}
 }
 
 // placeCursor asks for the terminal's cursor only when this field has the keyboard.
@@ -1937,9 +1939,20 @@ func (e *Editor) Copy() bool {
 // The text is removed only if the clipboard took it. A cut that emptied the field
 // into a clipboard that refused it would lose the text with nothing to paste back,
 // and a terminal is free to refuse.
+// A clipboard callback that changes the content or selected range revokes the cut;
+// a different selection cannot be removed on the strength of copying the old one.
 func (e *Editor) Cut() bool {
 	e.endTyping()
-	if !e.Copy() {
+	start, end, selected := e.Selection()
+	if !selected || e.Clipboard == nil {
+		return false
+	}
+	revision := e.revision
+	if !e.Clipboard.Copy(e.textBetween(start, end)) {
+		return false
+	}
+	currentStart, currentEnd, current := e.Selection()
+	if e.revision != revision || !current || currentStart != start || currentEnd != end {
 		return false
 	}
 	return e.DeleteSelection()
@@ -2124,6 +2137,10 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 // handleMouse maps pointer input through the last committed layout. A drag ends on
 // its button's release even outside that layout.
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
+	if ev.Action == input.MouseCancel {
+		e.dragging = false
+		return false
+	}
 	if ev.Action == input.MouseUp {
 		if !ev.Releases(input.ButtonLeft) {
 			return false
@@ -2134,6 +2151,9 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 	}
 	if ev.Action == input.MouseDown {
 		e.dragging = false
+		if !ev.Pos.In(presented.visible) {
+			return false
+		}
 	}
 	if presented.width <= 0 || ev.Pos.X < presented.gutter {
 		return false
@@ -2160,7 +2180,7 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 		e.revealCursor()
 		return true
 	case input.MouseDrag:
-		if !e.dragging {
+		if !e.dragging || !ev.Drags(input.ButtonLeft) {
 			return false
 		}
 		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)

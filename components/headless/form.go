@@ -1,15 +1,26 @@
 package headless
 
 import (
+	"errors"
 	"image"
 	"slices"
 
+	"github.com/Tangerg/oolong/components/internal/focus"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
 )
+
+// ErrValidationSuperseded reports a Validate or Reply whose callback started a
+// newer validation or replaced the answer being checked. The interrupted call cannot
+// publish or report success.
+var ErrValidationSuperseded = errors.New("headless: validation superseded")
+
+// ErrInvalidBinding reports a state owner that retained a value outside the field's
+// domain after normalization. A display projection cannot authorize submitting it.
+var ErrInvalidBinding = errors.New("headless: binding did not accept a valid answer")
 
 // Field is one thing a [Form] collects.
 //
@@ -26,8 +37,15 @@ type Field interface {
 	Prompt() string
 	// Validate checks what has been entered, remembers what was wrong with it, and
 	// reports that. It is called when the field loses the keyboard and again when the
-	// form is submitted.
+	// form is submitted. Built-in fields return ErrValidationSuperseded if a callback
+	// starts a newer Validate or Reply or replaces the checked answer. An obsolete
+	// check cannot publish Error.
 	Validate() error
+	// Validation returns a read-only receipt for the last successful validation, or
+	// nil when none is current. The receipt reports false when another Validate or
+	// Reply has begun or the checked answer is no longer current. Reading it must be pure; it cannot
+	// validate again or advance the answer. Form retains it across later callbacks.
+	Validation() func() bool
 	// Error is what Validate last found, or nil when it found nothing.
 	Error() error
 }
@@ -100,26 +118,45 @@ type ThemedField interface{ DrawWith(frame Frame, look Look) }
 // pointer input. Appearance is deliberately absent; a Form passes it as a projection
 // argument while drawing.
 type field struct {
-	problem error
-	// held says the field has had the keyboard, so that losing it means something. A
-	// field is told where it stands as soon as there is a form to say so, and checking
-	// an answer nobody has given yet is how a form greets somebody with three errors.
-	held    bool
-	blurred bool
-	// presentation is the label offset and inner size from the last complete root
+	checked    fieldCheck
+	validation uint64
+	// keyboard receives the parent's focus before answer or resolver callbacks.
+	// Answer operations cannot refuse that notification or revoke its lifetime.
+	keyboard focus.State
+	// presentation is the label offset and visible answer area from the complete root
 	// frame. Field drawing stages it; pointer handling never observes a partial tree.
 	presentation Snapshot[fieldPresentation]
 }
 
 // Error is what checking the answer last found.
-func (f *field) Error() error { return f.problem }
+func (f *field) Error() error { return f.checked.err }
+
+// Validation returns a receipt whose validity belongs to this field's checked answer.
+func (f *field) Validation() func() bool {
+	checked := f.checked
+	if checked.err != nil || checked.current == nil || checked.validation != f.validation || !checked.current() {
+		return nil
+	}
+	return func() bool { return checked.validation == f.validation && checked.current() }
+}
+
+type fieldCheck struct {
+	err        error
+	current    func() bool
+	validation uint64
+}
+
+func (f *field) invalidateValidation() {
+	f.validation++
+	f.checked = fieldCheck{}
+}
 
 func (f *field) rows(label string) int {
 	extra := 0
 	if label != "" {
 		extra++
 	}
-	if f.problem != nil {
+	if f.Error() != nil {
 		extra++
 	}
 	return extra
@@ -138,13 +175,12 @@ func (f *field) frame(v Frame, label string, look Look) Frame {
 		v.Text(0, 0, text.Truncate(label, w, look.Ellipsis), look.Label)
 		top = 1
 	}
-	if f.problem != nil && h > top {
+	if f.Error() != nil && h > top {
 		bottom = 1
-		v.Text(0, h-1, text.Truncate(f.problem.Error(), w, look.Ellipsis), look.Danger)
+		v.Text(0, h-1, text.Truncate(f.Error().Error(), w, look.Ellipsis), look.Danger)
 	}
 	inner := v.Sub(grid.Area(0, top, w, max(h-top-bottom, 0)))
-	innerW, innerH := inner.Size()
-	f.presentation.Stage(v, fieldPresentation{top: top, inner: image.Pt(innerW, innerH)})
+	f.presentation.Stage(v, fieldPresentation{top: top, visible: inner.Visible()})
 	return inner
 }
 
@@ -156,42 +192,56 @@ func (f *field) frame(v Frame, label string, look Look) Frame {
 // container does for its children and for the same reason: a widget reasons in its own
 // coordinates, and a position that arrived in anybody else's is one it cannot use.
 func (f *field) within(ev input.Mouse) (input.Mouse, bool) {
-	presented := f.presentation.Value()
-	if presented.inner.Y <= 0 {
-		// Nothing has been drawn, so there is no frame for the press to be about.
-		return ev, false
-	}
-	ev.Pos.Y -= presented.top
-	return ev, ev.Pos.Y >= 0 && ev.Pos.Y < presented.inner.Y
+	ev = f.local(ev)
+	return ev, ev.Pos.In(f.presentation.Value().visible)
+}
+
+func (f *field) local(ev input.Mouse) input.Mouse {
+	ev.Pos.Y -= f.presentation.Value().top
+	return ev
 }
 
 type fieldPresentation struct {
-	top   int
-	inner image.Point
+	top     int
+	visible image.Rectangle
 }
 
-func (f *field) check(err error) error {
-	f.problem = err
-	return err
+func (f *field) validate(prepare func() error, check func() fieldCheck) error {
+	f.validation++
+	turn := f.validation
+	var err error
+	if prepare != nil {
+		err = prepare()
+	}
+	if turn != f.validation || errors.Is(err, ErrValidationSuperseded) {
+		return ErrValidationSuperseded
+	}
+	checked := fieldCheck{err: err, validation: turn}
+	if err == nil {
+		checked = check()
+		checked.validation = turn
+	}
+	if turn != f.validation || errors.Is(checked.err, ErrValidationSuperseded) || checked.current != nil && !checked.current() {
+		return ErrValidationSuperseded
+	}
+	f.checked = checked
+	return checked.err
 }
 
-// leaving takes note of where the keyboard went, and reports whether the answer is now
-// worth checking.
-//
-// On the way out, and only from a field that had the keyboard to begin with. A form
-// that greeted somebody with a column of complaints about answers they have not given
-// yet would be a form nobody finishes.
-func (f *field) leaving(has bool) bool {
-	f.blurred = !has
-	if has {
-		f.held = true
-		return false
+func (f *field) focus(has bool, forward func(bool), reconcile func(), validate func() error) {
+	turn, leaving := f.keyboard.Receive(has)
+	if forward != nil {
+		forward(has)
 	}
-	if !f.held {
-		return false
+	if f.keyboard.Superseded(turn) {
+		return
 	}
-	f.held = false
-	return true
+	if reconcile != nil {
+		reconcile()
+	}
+	if leaving && !f.keyboard.Superseded(turn) {
+		_ = validate()
+	}
 }
 
 // Form is a set of fields, one of which has the keyboard.
@@ -228,9 +278,10 @@ type Form struct {
 	// up when it is abandoned. Either may be nil.
 	Done, GaveUp func()
 
-	body    Container
-	problem error
-	matcher keymap.Matcher
+	body       Container
+	problem    error
+	submission uint64
+	matcher    keymap.Matcher
 }
 
 // NewForm constructs a form from fields in keyboard order. A nil field is a programmer
@@ -245,21 +296,27 @@ func NewForm(fields ...Field) *Form {
 // a focused field that was removed, and settles focus on its replacement. A field is
 // still caller-owned; only the ordered collection belongs to the form. A nil field is
 // a programmer error and panics here rather than in a later draw or submission.
+// Replacing the collection revokes an active submission and clears its form error.
 func (f *Form) Set(fields ...Field) {
 	if f == nil {
 		return
 	}
 	checkFields(fields)
+	f.submission++
+	f.problem = nil
 	f.fields = own(f.fields, fields)
 	f.rebuild()
 }
 
 // Add appends fields and returns the form, so a form can be built in one expression.
+// It revokes an active submission and clears the previous form error.
 func (f *Form) Add(fields ...Field) *Form {
-	if f == nil {
-		return nil
+	if f == nil || len(fields) == 0 {
+		return f
 	}
 	checkFields(fields)
+	f.submission++
+	f.problem = nil
 	f.fields = append(f.fields, fields...)
 	f.fields = trim(f.fields)
 	f.rebuild()
@@ -288,19 +345,35 @@ func (f *Form) Focused() Field {
 // Every field is checked and not just the first that fails, because a form that
 // reported its problems one at a time would make somebody submit four times to find
 // out there were four.
+// Replacing or adding fields, cancelling, or starting a new submission from a check
+// revokes the interrupted call, which returns false without publishing or calling Done.
+// Every successful field receipt must remain current through later field and form
+// checks. The form never retries an invalidated receipt or completes an unchecked answer.
 func (f *Form) Submit() bool {
+	f.submission++
+	turn := f.submission
 	f.problem = nil
 	ok := true
+	var validations []func() bool
 	for _, field := range f.fields {
-		if field.Validate() != nil {
+		err := field.Validate()
+		if turn != f.submission {
+			return false
+		}
+		if err != nil {
 			ok = false
 		}
+		validations = append(validations, field.Validation())
 	}
-	if !ok {
+	if !ok || !currentValidations(validations) {
 		return false
 	}
 	if f.Check != nil {
-		if err := f.Check(); err != nil {
+		err := f.Check()
+		if turn != f.submission || !currentValidations(validations) {
+			return false
+		}
+		if err != nil {
 			f.problem = err
 			return false
 		}
@@ -311,8 +384,18 @@ func (f *Form) Submit() bool {
 	return true
 }
 
+func currentValidations(validations []func() bool) bool {
+	for _, current := range validations {
+		if current == nil || !current() {
+			return false
+		}
+	}
+	return true
+}
+
 // Cancel abandons the form.
 func (f *Form) Cancel() {
+	f.submission++
 	if f.GaveUp != nil {
 		f.GaveUp()
 	}
@@ -388,10 +471,14 @@ func (f *Form) Do(action keymap.Action) bool {
 // and this keeps no second copy of it: a repeated report is settled there, where
 // changing children is settled too.
 func (f *Form) Focus(has bool) {
-	if !has {
-		f.matcher.Clear()
+	change := func() {
+		f.body.Focus(has)
 	}
-	f.body.Focus(has)
+	if has {
+		change()
+	} else {
+		f.matcher.Reset(change)
+	}
 }
 
 func (f *Form) flow() layout.Flow {

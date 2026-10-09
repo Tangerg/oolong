@@ -52,9 +52,19 @@ func (p *Pointer) Stage(frame Frame, area image.Rectangle) {
 // supersedes it. Other events are delivered only while over the visible control.
 // A release naming another button is declined without ending capture. ButtonNone
 // on release means the button was unspecified and releases the captured press.
+// MouseLeave invalidates hover while preserving capture and a completed click.
+// MouseCancel ends capture without creating a click.
 func (p *Pointer) Handle(event input.Event) bool {
 	mouse, ok := event.(input.Mouse)
 	if !ok {
+		return false
+	}
+	if mouse.Action == input.MouseLeave {
+		p.inside = false
+		return false
+	}
+	if mouse.Action == input.MouseCancel {
+		p.Left()
 		return false
 	}
 	p.at, p.inside, p.clicked = mouse.Pos, true, false
@@ -68,6 +78,9 @@ func (p *Pointer) Handle(event input.Event) bool {
 		p.held, p.button = presented.identity, mouse.Button
 		return true
 	case input.MouseDrag, input.MouseUp:
+		if mouse.Action == input.MouseDrag && !mouse.Drags(p.button) {
+			return false
+		}
 		if mouse.Action == input.MouseUp && !mouse.Releases(p.button) {
 			return false
 		}

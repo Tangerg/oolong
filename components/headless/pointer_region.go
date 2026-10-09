@@ -33,10 +33,10 @@ type PointerRegion struct {
 	noCopy noCopy
 
 	presented Snapshot[pointerRegionFrame]
-	// held identifies one continuously presented child, even across moving frames.
+	// capture identifies one continuously presented child, even across moving frames.
 	// A removed child returning later starts a different presentation lifetime.
-	held       *byte
-	heldButton input.Button
+	capture pointerCapture[pointerRegionFrame]
+	hover   pointerRegionFrame
 }
 
 // pointerRegionFrame is one child and where it was drawn, published together so that
@@ -61,7 +61,7 @@ func (r *PointerRegion) stage(frame Frame, area, clip image.Rectangle, child Wid
 	if r == nil {
 		return
 	}
-	clip = clip.Intersect(area)
+	clip = clip.Intersect(area).Intersect(frame.Visible())
 	target, _ := child.(Interactive)
 	if target == nil {
 		area = image.Rectangle{}
@@ -87,39 +87,67 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 		return false, false
 	}
 	presented := r.presented.Value()
-
-	// Every new press settles the previous gesture, including one outside this box.
-	if event.Action == input.MouseDown {
-		r.held = nil
+	held, turn := r.capture.begin(event)
+	if !r.capture.current(turn) || event.Action == input.MouseCancel {
+		return false, false
 	}
-	if owner := r.held; owner != nil &&
+	if event.Action == input.MouseLeave {
+		r.leave(event)
+		return false, false
+	}
+
+	if held != nil &&
 		(event.Action == input.MouseDrag || event.Action == input.MouseUp) {
-		if event.Releases(r.heldButton) {
-			r.held = nil
-		}
 		// Keep the dead token through release: dropping it early would send the
 		// remaining events to a replacement. Tokens never return after an absence.
-		if presented.identity != owner {
+		if presented.identity != held.identity {
+			r.leave(event)
 			return false, false
 		}
-		return r.deliver(presented, event), true
+		return r.deliver(presented, event, turn)
 	}
 
 	if presented.child == nil || presented.clip.Empty() || !event.Pos.In(presented.clip) {
+		r.leave(event)
 		return false, false
 	}
-	handled = r.deliver(presented, event)
-	if event.Action == input.MouseDown && handled {
-		// Only a press the child wanted begins an interaction. Holding one it refused
-		// would swallow the release belonging to whatever the pointer is really over.
-		r.held = presented.identity
-		r.heldButton = event.Button
+	if event.Action == input.MouseDown {
+		handled = r.capture.offer(turn, presented, func() bool {
+			var consumed bool
+			consumed, delivered = r.deliver(presented, event, turn)
+			return consumed
+		})
+		return handled, delivered
 	}
-	return handled, true
+	return r.deliver(presented, event, turn)
 }
 
-func (r *PointerRegion) deliver(presented pointerRegionFrame, event input.Mouse) bool {
-	local := event
-	local.Pos = event.Pos.Sub(presented.area.Min)
-	return presented.child.Handle(local)
+func (r *PointerRegion) deliver(presented pointerRegionFrame, event input.Mouse, turn uint64) (bool, bool) {
+	r.hoverTo(presented, event)
+	if !r.capture.current(turn) || r.hover.identity != presented.identity || r.presented.Value().identity != presented.identity {
+		return false, false
+	}
+	return presented.deliverPointer(event), true
+}
+
+func (p pointerRegionFrame) deliverPointer(event input.Mouse) bool {
+	event.Pos = event.Pos.Sub(p.area.Min)
+	return p.child.Handle(event)
+}
+
+func (r *PointerRegion) leave(event input.Mouse) {
+	r.hoverTo(pointerRegionFrame{}, event)
+}
+
+func (r *PointerRegion) hoverTo(to pointerRegionFrame, event input.Mouse) {
+	previous := r.hover
+	r.hover = to
+	if previous.identity == to.identity {
+		return
+	}
+	if previous.child != nil {
+		event.Action = input.MouseLeave
+		event.Pos = event.Pos.Sub(previous.area.Min)
+		previous.child.Handle(event)
+	}
 }

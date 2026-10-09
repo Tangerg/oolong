@@ -44,6 +44,12 @@ remain boundaries. Use `Frame` when a test deliberately inspects the raw latest 
 and `Frames` when ordering across raw writes matters. Use `ptytest.Screen` when the
 claim needs actual terminal cell state rather than content runs.
 
+`Resize` and resize events passed to `Send` share validation and admission. They
+advance `Size` only when the input owner accepts the event, in the same order as
+concurrent resizes. Use a custom `program.EventSource` to test malformed transport
+geometry. `Close` ends input and settles the writer once; repeated and concurrent
+calls wait for that result and preserve delivery failures as well as teardown errors.
+
 ## Add one optional host capability
 
 The base test host intentionally implements no optional terminal capability. Embed
@@ -98,6 +104,11 @@ A PTY test can prove facts an in-process host cannot:
 - Resize reaches the process through the platform adapter
 - An idle interface stops writing bytes
 - Published output remains after the live block exits
+
+Wait observes the direct child's exit; Drain separately waits for all captured
+output. Close terminates the owned process group and preserves process, reader and
+teardown failures. A failed group termination is reported without waiting forever
+for that process; it never degrades to killing only the leader.
 
 `ptytest` captures a byte stream; it is not a general terminal emulator. When the
 claim is the visible cell text produced by `grid.Screen` or `grid.Inline`, apply that
@@ -166,6 +177,11 @@ sets are exact. The checker reports a public module with no released tag instead
 silently omitting it from compatibility evidence.
 That evidence cannot prove the design decision, but it prevents deletion or reshaping
 from being the silent way to satisfy the reachability gate.
+
+Each tool invocation owns its output collection as well as its process wait. The
+checker gives `exec.Cmd` one second to settle inherited output pipes after process
+exit or cancellation. A descendant holding a pipe cannot keep a cancelled check
+waiting indefinitely, and incomplete output remains a command error.
 
 An entry may use the exact name emitted by `apidiff`, such as `grid.Cell.Width`, or
 qualify it with the module ledger name. The latter keeps a root-package entry readable

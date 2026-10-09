@@ -9,6 +9,12 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
+type readResult struct {
+	data []byte
+	at   time.Time
+	err  error
+}
+
 // pump turns raw terminal bytes into events.
 //
 // It is separated from the terminal it normally reads because the interesting part
@@ -16,10 +22,10 @@ import (
 // long enough is a matter of timing, and timing is what a real terminal makes
 // impossible to test.
 type pump struct {
-	// raw carries byte chunks exactly as they were read.
-	raw <-chan []byte
-	// readErr carries the end of the input, by error or by end of file.
-	readErr <-chan error
+	// raw preserves data and the terminal result in read-completion order.
+	raw <-chan readResult
+	// end is the final read consumed by the startup probe, if input ended there.
+	end *readResult
 	// resized carries the newest measured terminal geometry. Discovery belongs to
 	// the platform watcher; the pump owns only its place in the ordered event stream.
 	resized <-chan input.Resize
@@ -39,11 +45,6 @@ type pump struct {
 	// until this goroutine runs and a burst large enough to fill it would deadlock
 	// whoever pushed.
 	early []input.Event
-	// now overrides the clock, for tests. It stamps keystrokes and mouse reports with
-	// when they arrived, which is a fact only the reader has: a double-click, a
-	// trackpad's run of wheel reports and a two-chord keybinding are all questions
-	// about when something came rather than about what it was.
-	now func() time.Time
 }
 
 // run decodes until the input ends or the pump is asked to stop and reports the
@@ -55,55 +56,61 @@ func (p *pump) run() error {
 		return nil
 	}
 	p.early = nil
+	if p.end != nil {
+		_, err := p.take(*p.end)
+		return err
+	}
 
 	due := deadline.NewTimer()
 	defer due.Stop()
 	for {
 		due.Schedule(p.stream.DueAt())
 		select {
-		case chunk := <-p.raw:
-			if !p.send(p.stream.Feed(chunk, p.clock())) {
-				return nil
+		case result := <-p.raw:
+			if done, err := p.take(result); done {
+				return err
 			}
 		case <-due.Channel():
-			if !p.send(p.stream.Expire(p.clock())) {
+			if done, err := p.drainRaw(); done {
+				return err
+			}
+			if !p.send(p.stream.Expire(time.Now())) {
 				return nil
 			}
 		case resized := <-p.resized:
 			if !p.send([]input.Event{resized}) {
 				return nil
 			}
-		case err := <-p.readErr:
-			// The input is over. Bytes that arrived before it ended are still the
-			// user's — they and the end arrive on separate channels, and a select
-			// cannot be told to prefer one, so whichever this pass happened to see
-			// first says nothing about which happened first. Everything already
-			// waiting is taken before anything is given up.
-			if !p.drainRaw() {
-				return nil
-			}
-			p.send(p.stream.Flush(p.clock()))
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
 		case <-p.stop:
 			return nil
 		}
 	}
 }
 
-// drainRaw feeds everything already waiting on raw, reporting false when the pump was
-// asked to stop part-way through.
-func (p *pump) drainRaw() bool {
+func (p *pump) take(result readResult) (done bool, err error) {
+	if !p.send(p.stream.Feed(result.data, result.at)) {
+		return true, nil
+	}
+	if result.err == nil {
+		return false, nil
+	}
+	p.send(p.stream.Flush(result.at))
+	if errors.Is(result.err, io.EOF) {
+		return true, nil
+	}
+	return true, result.err
+}
+
+// Queued read results precede a timer's observation of the current time.
+func (p *pump) drainRaw() (done bool, err error) {
 	for {
 		select {
-		case chunk := <-p.raw:
-			if !p.send(p.stream.Feed(chunk, p.clock())) {
-				return false
+		case result := <-p.raw:
+			if done, err := p.take(result); done {
+				return true, err
 			}
 		default:
-			return true
+			return false, nil
 		}
 	}
 }
@@ -120,11 +127,4 @@ func (p *pump) send(events []input.Event) bool {
 		}
 	}
 	return true
-}
-
-func (p *pump) clock() time.Time {
-	if p.now != nil {
-		return p.now()
-	}
-	return time.Now()
 }

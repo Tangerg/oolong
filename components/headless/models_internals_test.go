@@ -71,6 +71,7 @@ func (*retainedField) Handle(input.Event) bool { return false }
 func (*retainedField) Focus(bool)              {}
 func (*retainedField) Prompt() string          { return "" }
 func (*retainedField) Validate() error         { return nil }
+func (*retainedField) Validation() func() bool { return func() bool { return true } }
 func (*retainedField) Error() error            { return nil }
 
 type retainedModal struct{ retainedWidget }
@@ -362,8 +363,8 @@ func TestSearchOwnsPendingInputAndCloseReleasesIt(t *testing.T) {
 	s.results <- Result{Query: strings.Repeat("answer", 1024)}
 
 	s.Close()
-	if !s.closed || s.hasNext || s.next.query != "" || s.next.regex || s.next.start != 0 || s.next.corpus != nil || s.next.generation != 0 {
-		t.Fatalf("closed search retained pending state: closed=%t hasNext=%t next=%+v", s.closed, s.hasNext, s.next)
+	if !s.closed || s.next.query != "" || s.next.regex || s.next.start != 0 || s.next.corpus != nil || s.next.request != nil || s.request != nil {
+		t.Fatalf("closed search retained pending state: closed=%t next=%+v", s.closed, s.next)
 	}
 	if len(s.results) != 0 {
 		t.Fatal("closed search retained an unread result")

@@ -52,10 +52,11 @@ func (t *title) to(s string, queue func([]byte) uint64) {
 		// what makes putting it back possible at all: there is no way to ask a
 		// terminal what its title is.
 		out = titlePush
-		t.pushed = true
 	}
-	t.text = strings.Clone(s)
-	queue([]byte(out + command(titleSet, s)))
+	if queue([]byte(out+command(titleSet, s))) != 0 {
+		t.pushed = true
+		t.text = strings.Clone(s)
+	}
 }
 
 // enter is what to write to show the title again after the terminal has been given

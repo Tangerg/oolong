@@ -88,11 +88,12 @@ func (i terminalInput) Err() error { return i.InputErr() }
 // report the cause. Drain returns nil only after every frame accepted before the call
 // has either been written or accounted for. [term.Writer] is the standard implementation.
 type FrameWriter interface {
-	// Queue takes ownership of frame. The caller does not read or change the slice
-	// after the call; an asynchronous implementation may retain it without copying.
+	// Queue takes ownership only on acceptance. The caller does not read or change
+	// an accepted slice; an asynchronous implementation may retain it without copying.
 	// Every accepted call returns a non-zero sequence strictly greater than earlier
 	// sequences from the same writer. Written reports a watermark in that sequence
-	// space.
+	// space. Zero means refused admission, leaves the slice with the caller, and must
+	// accompany a non-nil Err. Refusal must not advance the accepted watermark.
 	Queue(frame []byte) uint64
 	// Changes coalesces state changes; the receiver must re-read Written and Err.
 	Changes() <-chan struct{}
@@ -131,9 +132,14 @@ type CopyHost interface{ Copy(text string) bool }
 // through [EventSource.Events] as an [input.Paste].
 type PasteHost interface{ Paste() bool }
 
-// HandoverHost temporarily gives exclusive ownership of its display to run.
+// HandoverHost owns the complete display handover. It first claims exclusive
+// ownership, then calls prepare while the interface still has its normal modes,
+// and finally gives the display to run. A refused claim or failed prepare must not
+// call run. A nil prepare needs no preparation; a nil run is a no-op. The claim
+// lasts through restoration, including callback panics, so nested or concurrent
+// calls cannot prepare or restore another child's display.
 type HandoverHost interface {
-	Hand(run func() error) error
+	Hand(prepare, run func() error) error
 }
 
 // TitleHost names the user-facing host window.
@@ -248,14 +254,14 @@ func (s hostServices) paste() bool {
 	return s.pasteHost != nil && s.pasteHost.Paste()
 }
 
-func (s hostServices) hand(run func() error) error {
+func (s hostServices) hand(prepare, run func() error) error {
 	if run == nil {
 		return nil
 	}
 	if s.handover == nil {
 		return errors.ErrUnsupported
 	}
-	return s.handover.Hand(run)
+	return s.handover.Hand(prepare, run)
 }
 
 func (s hostServices) canHandOver() bool { return s.handover != nil }

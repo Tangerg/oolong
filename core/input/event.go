@@ -234,6 +234,12 @@ const (
 	MouseMove
 	WheelUp
 	WheelDown
+	// MouseLeave is synthesized by a routing boundary when the pointer stops
+	// targeting a child. It invalidates hover without ending an accepted gesture.
+	MouseLeave
+	// MouseCancel is synthesized when a routing owner ends a gesture without a
+	// release, such as a new press superseding the accepted one. It cannot click.
+	MouseCancel
 )
 
 // Button identifies which mouse button an action belongs to.
@@ -273,7 +279,17 @@ func (Mouse) terminalEvent() {}
 // Releases reports whether this is a release of button. ButtonNone on the event
 // means the released button is unspecified and ends the current captured press.
 func (m Mouse) Releases(button Button) bool {
-	return m.Action == MouseUp && (m.Button == ButtonNone || m.Button == button)
+	return m.Action == MouseUp && m.matchesButton(button)
+}
+
+// Drags reports whether this is a drag of button. ButtonNone leaves the button
+// unspecified and continues the current captured press.
+func (m Mouse) Drags(button Button) bool {
+	return m.Action == MouseDrag && m.matchesButton(button)
+}
+
+func (m Mouse) matchesButton(button Button) bool {
+	return m.Button == ButtonNone || m.Button == button
 }
 
 // Paste is a block of text the terminal delivered as a paste rather than as
@@ -308,11 +324,12 @@ func (OSC) terminalEvent() {}
 // Keeping the interpretation on the decoded command gives every terminal adapter
 // one path from the same wire event to [Paste], while the lower clipboard package
 // remains independent of the event model.
-func (o OSC) Paste(channel *clipboard.Channel) (Paste, bool) {
+// at is the transport's read-completion time, as in [clipboard.Channel.Answer].
+func (o OSC) Paste(channel *clipboard.Channel, at time.Time) (Paste, bool) {
 	if o.Command != clipboard.Command || channel == nil {
 		return Paste{}, false
 	}
-	text, ok := channel.Answer(o.Params)
+	text, ok := channel.Answer(o.Params, at)
 	return Paste{Text: text}, ok
 }
 

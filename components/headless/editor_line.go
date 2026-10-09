@@ -84,5 +84,5 @@ func (e editorLineView) draw(frame Frame, look Look, presented *Snapshot[editorP
 	if !e.blurred {
 		view.PlaceCursor(cursor-left, 0, e.cursorStyle)
 	}
-	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left})
+	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left, visible: frame.Visible()})
 }

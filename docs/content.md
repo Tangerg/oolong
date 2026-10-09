@@ -92,7 +92,9 @@ background; token lines do not force that decision.
 ## Render a formula without Markdown
 
 `latex.Render` returns the complete formula model. Unsupported or incomplete input
-is still drawable as its source, while `Err` makes the failure observable.
+is still drawable as printable source text, while `Err` makes the failure observable.
+Rows, selection offsets and drawing share that prepared text; Source retains the
+original input for diagnostics.
 
 ```go
 look := latex.Look{

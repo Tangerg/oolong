@@ -96,10 +96,10 @@ func ExampleForm() {
 	// A theme becomes the handful of roles a field draws itself in, and a glyph set
 	// becomes the marks beside a choice. That is the whole of dressing a form.
 	var name, model string
-	modelField := &headless.Select[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)}
+	modelField := headless.NewSelect(headless.SelectConfig[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)})
 	modelField.SetOptions(headless.Options("fast", "good"))
 	form := headless.NewForm(
-		&headless.Text{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"},
+		headless.NewText(headless.TextConfig{Label: "Name", Value: headless.Bind(&name), Placeholder: "who?"}),
 		modelField,
 	)
 	keys := headless.DefaultFormKeys()

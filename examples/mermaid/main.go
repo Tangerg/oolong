@@ -48,6 +48,7 @@ func run(ctx context.Context) (err error) {
 
 // The host outlives Run so image erasure and release remain ordered on its writer.
 func runScreen(ctx context.Context, host program.Host, prepare func(context.Context, string) (*mermaid.Image, error)) (err error) {
+	images, _ := host.(program.ImageHost)
 	var screen *diagramScreen
 	defer func() {
 		if screen != nil {
@@ -55,7 +56,7 @@ func runScreen(ctx context.Context, host program.Host, prepare func(context.Cont
 		}
 	}()
 	return program.Run(ctx, program.Config{Host: host, Root: func(runtime *program.Runtime) program.Component {
-		screen = &diagramScreen{runtime: runtime, writer: host.Writer(), prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
+		screen = &diagramScreen{runtime: runtime, writer: host.Writer(), images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
 		screen.start(ctx, flowchart)
 		return screen
 	}})
@@ -64,6 +65,7 @@ func runScreen(ctx context.Context, host program.Host, prepare func(context.Cont
 type diagramScreen struct {
 	runtime          *program.Runtime
 	writer           program.FrameWriter
+	images           program.ImageHost
 	prepare          func(context.Context, string) (*mermaid.Image, error)
 	theme            kit.Theme
 	doc              markdown.Doc
@@ -168,9 +170,9 @@ func (s *diagramScreen) release() error {
 		return err
 	}
 	if s.writer.Queue(removal.Bytes()) == 0 {
-		return errors.New("image erasure was not queued")
+		return s.writer.Err()
 	}
-	if err := s.runtime.Images().Release(s.image); err != nil {
+	if err := s.images.ReleaseImage(s.image); err != nil {
 		return err
 	}
 	s.image = graphics.Image{}

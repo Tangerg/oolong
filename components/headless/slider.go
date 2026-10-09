@@ -254,11 +254,11 @@ func (s *Slider) setAt(x int, track image.Rectangle) {
 // Focus takes or gives up keyboard ownership.
 func (s *Slider) Focus(has bool) {
 	if s != nil {
+		s.focused = has
 		if !has {
 			s.pointer.Left()
 			s.matcher.Clear()
 		}
-		s.focused = has
 	}
 }
 

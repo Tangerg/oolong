@@ -343,6 +343,9 @@ func (t *Transcript) Handle(event input.Event) bool {
 		return false
 	}
 	switch ev.Action {
+	case input.MouseCancel:
+		t.release()
+		return false
 	case input.MouseDown:
 		return t.press(ev)
 	case input.MouseDrag:
@@ -390,7 +393,7 @@ func (t *Transcript) press(event input.Mouse) bool {
 }
 
 func (t *Transcript) drag(event input.Mouse) bool {
-	if t.dragged == nil || !t.dragged.Dragging() {
+	if t.dragged == nil || !t.dragged.Dragging() || !event.Drags(input.ButtonLeft) {
 		return false
 	}
 	at, on := t.presentation.Value().pointAt(event.Pos, true)

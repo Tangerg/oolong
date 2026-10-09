@@ -449,10 +449,10 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	formValue := "answer"
 	fieldChecks, formChecks, formDone, formGaveUp := 0, 0, 0, 0
-	formField := &headless.Text{
+	formField := headless.NewText(headless.TextConfig{
 		Label: "field", Value: headless.Bind(&formValue),
 		Check: func(string) error { fieldChecks++; return nil },
-	}
+	})
 	formController := headless.NewForm(formField)
 	formController.Check = func() error { formChecks++; return nil }
 	formController.Done = func() { formDone++ }

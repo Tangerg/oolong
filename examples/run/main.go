@@ -22,9 +22,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -119,36 +117,12 @@ func (r *runner) start() {
 	//nolint:gosec // G204: running what the user asked for on their own command line
 	// is the whole of what this program is.
 	cmd := exec.CommandContext(ctx, r.command[0], r.command[1:]...)
-	pipe, opened := cmd.StdoutPipe()
-	if opened != nil {
-		_ = r.ingress.CloseWithError(opened)
-		return
-	}
-	cmd.Stderr = cmd.Stdout
-	if started := cmd.Start(); started != nil {
-		_ = r.ingress.CloseWithError(started)
-		return
-	}
-
-	buf := make([]byte, 4096)
-	var readErr error
-	for {
-		n, read := pipe.Read(buf)
-		if n > 0 {
-			if _, err := r.ingress.Write(buf[:n]); err != nil {
-				_ = cmd.Wait()
-				return
-			}
-		}
-		if read != nil {
-			if !errors.Is(read, io.EOF) {
-				readErr = read
-			}
-			break
-		}
-	}
-	ended := cmd.Wait()
-	_ = r.ingress.CloseWithError(errors.Join(readErr, ended))
+	cmd.Stdout, cmd.Stderr = r.ingress, r.ingress
+	// Cmd owns the copy and wait together. A descendant may retain stdout after the
+	// command exits; the grace ends that pipe lifetime with ErrWaitDelay rather than
+	// leaving the source blocked after its interface owner is gone.
+	cmd.WaitDelay = time.Second
+	_ = r.ingress.CloseWithError(cmd.Run())
 }
 
 func (r *runner) accept(batch program.ByteBatch) {

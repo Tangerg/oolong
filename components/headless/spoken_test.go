@@ -9,7 +9,7 @@ import (
 func TestAnExactSpokenChoiceWinsOverLongerPrefixes(t *testing.T) {
 	var chosen string
 	field := selectWith(headless.Options("good", "goose", "go"))
-	field.Value = headless.Bind(&chosen)
+	field.SetBinding(headless.Bind(&chosen))
 	if err := field.Reply("go"); err != nil {
 		t.Fatalf("Reply: %v", err)
 	}

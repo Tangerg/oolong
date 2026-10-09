@@ -2,6 +2,7 @@ package kit
 
 import (
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/components/internal/focus"
 	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
@@ -26,7 +27,8 @@ type Panel struct {
 	Box Box
 
 	child   headless.Focusable
-	blurred bool
+	focus   focus.State
+	holder  headless.Widget
 	content headless.PointerRegion
 }
 
@@ -57,19 +59,11 @@ func (p *Panel) Content() headless.Focusable {
 // Requiring a focusable child is what makes Panel's own Focus and Handle methods
 // truthful; use [Box] directly for passive content.
 func (p *Panel) SetContent(child headless.Focusable) {
-	if p == nil {
+	if p == nil || identity.Same(p.child, child) {
 		return
-	}
-	if identity.Same(p.child, child) {
-		return
-	}
-	if p.child != nil {
-		p.child.Focus(false)
 	}
 	p.child = child
-	if p.child != nil {
-		p.child.Focus(!p.blurred)
-	}
+	focus.SettleOne(&p.focus, &p.holder, headless.Widget(child), tellFocus)
 }
 
 // Draw paints the box and draws the child in its interior.
@@ -101,12 +95,17 @@ func (p *Panel) HeightForWidth(across int) int {
 
 // Focus passes keyboard ownership to the child.
 func (p *Panel) Focus(has bool) {
-	if p == nil || p.blurred == !has {
+	if p == nil {
 		return
 	}
-	p.blurred = !has
-	if p.child != nil {
-		p.child.Focus(has)
+	p.focus.Change(has, func() {
+		focus.SettleOne(&p.focus, &p.holder, headless.Widget(p.child), tellFocus)
+	}, func(has bool) { tellFocus(p.holder, has) })
+}
+
+func tellFocus(child headless.Widget, has bool) {
+	if child, ok := child.(headless.Focusable); ok {
+		child.Focus(has)
 	}
 }
 
@@ -123,5 +122,5 @@ func (p *Panel) Handle(event input.Event) bool {
 	if p.child == nil {
 		return false
 	}
-	return p.child.Handle(event)
+	return p.focus.Forward(func() bool { return p.child.Handle(event) })
 }

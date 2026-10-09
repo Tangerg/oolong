@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/Tangerg/oolong/components/headless"
 	"github.com/Tangerg/oolong/core/grid"
@@ -55,15 +56,17 @@ func TestReviewScreenAtRepresentativeWidths(t *testing.T) {
 		{name: "wide", width: 90, height: 24},
 	} {
 		t.Run(size.name, func(t *testing.T) {
-			host, stop := runVisualAgent(t, size.width, size.height, grid.TrueColor)
-			defer stop()
-			host.Shows(t, "Ask the mock agent")
-			host.Type("move validation into its owner")
-			host.Press(input.Enter)
-			host.Shows(t, "Allow this tool call?")
+			synctest.Test(t, func(t *testing.T) {
+				host, stop := runVisualAgent(t, size.width, size.height, grid.TrueColor)
+				defer stop()
+				host.Shows(t, "Ask the mock agent")
+				host.Type("move validation into its owner")
+				host.Press(input.Enter)
+				host.Shows(t, "Allow this tool call?")
 
-			capture := host.Capture(t)
-			visualtest.Match(t, filepath.Join("testdata", size.name+"-review.golden"), capture.Rows)
+				capture := host.Capture(t)
+				visualtest.Match(t, filepath.Join("testdata", size.name+"-review.golden"), capture.Rows)
+			})
 		})
 	}
 }

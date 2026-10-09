@@ -32,7 +32,7 @@ func TestYankPopOwnsInsertedBytesRatherThanSnappedCursor(t *testing.T) {
 
 func TestControlledNormalizationEndsYankContinuation(t *testing.T) {
 	value := &transformingAccessor[string]{}
-	field := &headless.Text{Value: value}
+	field := headless.NewText(headless.TextConfig{Value: value})
 	for _, body := range []string{"old", "abcdef"} {
 		field.SetText(body)
 		field.Do(headless.KillToStart)
@@ -61,7 +61,7 @@ func TestMaskedSpansUseDisplayedGeometry(t *testing.T) {
 
 func TestFormOwnsTraversalAndMultiChordSubmission(t *testing.T) {
 	answer := false
-	confirm := &headless.Confirm{Value: headless.Bind(&answer)}
+	confirm := headless.NewConfirm(headless.ConfirmConfig{Value: headless.Bind(&answer)})
 	next := &headless.Text{}
 	form := headless.NewForm(confirm, next)
 	form.Focus(true)

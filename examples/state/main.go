@@ -49,21 +49,21 @@ func fields(values *answers) (*headless.Form, *headless.Text) {
 	}
 	form := headless.NewForm(
 		local,
-		&headless.Text{
+		headless.NewText(headless.TextConfig{
 			Label:       "Bound — the caller owns an exact value",
 			Placeholder: "headless.Bind",
 			Value:       headless.Bind(&values.bound),
-		},
-		&headless.Text{
+		}),
+		headless.NewText(headless.TextConfig{
 			Label:       "Normalized — the caller stores uppercase",
 			Placeholder: "Accessor normalizes",
 			Value:       uppercase{value: &values.normalized},
-		},
-		&headless.Text{
+		}),
+		headless.NewText(headless.TextConfig{
 			Label:       "Guarded — the caller rejects more than eight characters",
 			Placeholder: "Accessor validates",
 			Value:       limited{value: &values.guarded, runes: 8},
-		},
+		}),
 	)
 	form.Gap = 1
 	return form, local

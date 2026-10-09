@@ -148,7 +148,7 @@ func (l Look) normalized() Look {
 // Formula is one immutable rendered expression.
 //
 // Unsupported input is still a Formula: [Formula.Err] reports why it could not be
-// typeset and its drawing is the original source in Look.Error. This is the useful
+// typeset and its drawing is printable source text in Look.Error. This is the useful
 // failure mode for streamed model output, where an unfinished command must remain
 // visible and a later chunk may make it valid.
 type Formula struct {
@@ -273,7 +273,7 @@ func sourceLines(source string, style grid.Style) []text.Line {
 	parts := strings.Split(source, "\n")
 	lines := make([]text.Line, 0, len(parts))
 	for _, part := range parts {
-		lines = append(lines, text.Of(strings.Clone(part), style))
+		lines = append(lines, text.Of(strings.Clone(text.Printable(part)), style))
 	}
 	return lines
 }

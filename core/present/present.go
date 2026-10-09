@@ -33,6 +33,9 @@ type Presenter struct {
 	drawnAt time.Time
 	// dueAt is when a throttled request that was turned away becomes allowed.
 	dueAt time.Time
+	// drawing is the unfinished frame's time. It excludes reentry and establishes
+	// pacing for requests made by its composition callback.
+	drawing *time.Time
 }
 
 // Request asks for a frame, now. It never draws: it records that one is owed, and
@@ -58,14 +61,19 @@ func (p *Presenter) RequestFull() {
 // stream, a scroll wheel held down. A request too soon still owes a frame: the interval
 // decides when it is drawn, not whether. It arms [Presenter.DueAt] so a driver that parks
 // knows when to wake, and [Presenter.Present] holds the frame until then.
+// During drawing, the unfinished frame establishes the next request's interval.
 func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 	p.rebaseClock(now)
 	if p.owed && p.dueAt.IsZero() {
 		return true
 	}
 	p.owed = true
-	if now.Sub(p.drawnAt) < minInterval {
-		deadline := p.drawnAt.Add(minInterval)
+	drawnAt := p.drawnAt
+	if p.drawing != nil {
+		drawnAt = *p.drawing
+	}
+	if now.Sub(drawnAt) < minInterval {
+		deadline := drawnAt.Add(minInterval)
 		if p.dueAt.IsZero() || deadline.Before(p.dueAt) {
 			p.dueAt = deadline
 		}
@@ -87,7 +95,13 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 // time remain pending so a caller that can recover may try again; a caller for which
 // frame construction is fatal can return the error without the presenter recording a
 // frame that never existed.
+// Requests made by draw belong to a later frame. Present is not reentrant and panics
+// if draw calls it again before returning.
+// A failed draw retains its earlier deadline even if draw requested a throttled frame.
 func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error)) (bool, error) {
+	if p.drawing != nil {
+		panic("present: Present is not reentrant")
+	}
 	p.rebaseClock(now)
 	if p.inFlight != 0 || !p.owed {
 		return false, nil
@@ -95,17 +109,29 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 	if !p.dueAt.IsZero() && now.Before(p.dueAt) {
 		return false, nil
 	}
-	full := p.full
+	full, dueAt := p.full, p.dueAt
+	p.owed, p.full, p.dueAt = false, false, time.Time{}
+	p.drawing = &now
+	completed := false
+	defer func() {
+		p.drawing = nil
+		if !completed {
+			if !p.owed || dueAt.IsZero() || (!p.dueAt.IsZero() && dueAt.Before(p.dueAt)) {
+				p.dueAt = dueAt
+			}
+			p.owed = true
+			p.full = p.full || full
+		}
+	}()
 	seq, err := draw(full)
 	if err != nil {
 		return false, err
 	}
-	p.owed, p.full = false, false
 	if seq != 0 {
 		p.inFlight = seq
 	}
 	p.drawnAt = now
-	p.dueAt = time.Time{}
+	completed = true
 	return true, nil
 }
 

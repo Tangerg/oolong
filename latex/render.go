@@ -77,8 +77,12 @@ func spacedTextArguments(source string) string {
 	for at := 0; at < len(source); {
 		name := textModeMacroAt(source, at)
 		if name == "" {
-			out.WriteByte(source[at])
-			at++
+			next := at + 1
+			if source[at] == '\\' && next < len(source) {
+				next++
+			}
+			out.WriteString(source[at:next])
+			at = next
 			continue
 		}
 		out.WriteString(name)
@@ -103,7 +107,7 @@ func spacedTextArguments(source string) string {
 // textModeMacroAt is the text-mode macro beginning at, or empty. A longer name is a
 // different macro: \textbfx is not \textbf.
 func textModeMacroAt(source string, at int) string {
-	if source[at] != '\\' || escapedAt(source, at) {
+	if source[at] != '\\' {
 		return ""
 	}
 	for _, name := range textModeMacros {
@@ -125,7 +129,8 @@ func isMacroLetter(b byte) bool {
 func groupEnd(source string, open int) (int, bool) {
 	depth := 0
 	for at := open; at < len(source); at++ {
-		if escapedAt(source, at) {
+		if source[at] == '\\' {
+			at++
 			continue
 		}
 		switch source[at] {
@@ -144,8 +149,13 @@ func groupEnd(source string, open int) (int, bool) {
 func spacesAsAtoms(argument string) string {
 	var out strings.Builder
 	out.Grow(len(argument))
-	for at := range len(argument) {
-		if argument[at] == ' ' && !escapedAt(argument, at) {
+	for at := 0; at < len(argument); at++ {
+		if argument[at] == '\\' && at+1 < len(argument) {
+			out.WriteString(argument[at : at+2])
+			at++
+			continue
+		}
+		if argument[at] == ' ' {
 			out.WriteString(`\,`)
 			continue
 		}
@@ -158,8 +168,13 @@ func braceScriptAtoms(source string) string {
 	var out strings.Builder
 	out.Grow(len(source))
 	for at := 0; at < len(source); {
+		if source[at] == '\\' && at+1 < len(source) {
+			out.WriteString(source[at : at+2])
+			at += 2
+			continue
+		}
 		marker := source[at] == '^' || source[at] == '_'
-		if !marker || escapedAt(source, at) {
+		if !marker {
 			out.WriteByte(source[at])
 			at++
 			continue
@@ -180,15 +195,6 @@ func braceScriptAtoms(source string) string {
 		out.WriteByte('}')
 	}
 	return out.String()
-}
-
-func escapedAt(source string, at int) bool {
-	backslashes := 0
-	for at > 0 && source[at-1] == '\\' {
-		backslashes++
-		at--
-	}
-	return backslashes%2 != 0
 }
 
 // The parser treats an unescaped percent as a comment through LF (including CR).

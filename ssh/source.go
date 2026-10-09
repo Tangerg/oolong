@@ -14,6 +14,14 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
+type readResult struct {
+	data []byte
+	at   time.Time
+	err  error
+}
+
+var errReadInterrupted = errors.New("ssh: input read interrupted; reader ended")
+
 // eventSource turns the two ordered facts an SSH terminal supplies — bytes and
 // window changes — into one program input stream. Window intake has its own
 // latest-value mailbox so a client resize cannot block the SSH request loop behind
@@ -27,8 +35,7 @@ type eventSource struct {
 	clip    *clipboard.Channel
 
 	events     chan input.Event
-	raw        chan []byte
-	read       chan error
+	raw        chan readResult
 	resized    chan input.Resize
 	resizeErr  chan error
 	stop       chan struct{}
@@ -53,8 +60,7 @@ func newEventSource(
 		resize:     resize,
 		clip:       clip,
 		events:     make(chan input.Event),
-		raw:        make(chan []byte, 4),
-		read:       make(chan error, 1),
+		raw:        make(chan readResult, 4),
 		resized:    make(chan input.Resize, 1),
 		resizeErr:  make(chan error, 1),
 		stop:       make(chan struct{}),
@@ -97,6 +103,19 @@ func (s *eventSource) Close() {
 // Offering it in a select alongside the stop signal would let a closed source go on
 // taking the caller's bytes for as long as the buffer had room.
 func (s *eventSource) readInput() {
+	completed := false
+	defer func() {
+		if !completed {
+			// The reader owns the ordered terminal result even when Read unwinds.
+			// Earlier accepted chunks still precede this failure in the raw stream.
+			s.offer(readResult{at: time.Now(), err: errReadInterrupted})
+		}
+	}()
+	s.readChunks()
+	completed = true
+}
+
+func (s *eventSource) readChunks() {
 	buffer := make([]byte, 4096)
 	emptyReads := 0
 	for {
@@ -104,34 +123,44 @@ func (s *eventSource) readInput() {
 			return
 		}
 		n, err := s.in.Read(buffer)
+		at := time.Now()
 		if n < 0 || n > len(buffer) {
-			s.reportRead(fmt.Errorf("ssh: reader returned invalid byte count %d", n))
-			return
+			err = fmt.Errorf("ssh: reader returned invalid byte count %d", n)
+			n = 0
 		}
 		if n > 0 {
 			emptyReads = 0
-			if s.ending() {
-				return
-			}
-			chunk := append([]byte(nil), buffer[:n]...)
-			select {
-			case s.raw <- chunk:
-			case <-s.stop:
-				return
-			case <-s.cancelled:
-				return
-			}
 		} else if err == nil {
 			emptyReads++
 			if emptyReads >= 100 {
 				err = io.ErrNoProgress
 			}
 		}
+		if n > 0 || err != nil {
+			result := readResult{data: append([]byte(nil), buffer[:n]...), at: at, err: err}
+			if !s.offer(result) {
+				return
+			}
+		}
 		if err != nil {
-			s.reportRead(err)
 			return
 		}
 	}
+}
+
+// Check ownership before offering a completed read; a select alone could keep
+// accepting bytes when both a buffered send and the stop signal are ready.
+func (s *eventSource) offer(result readResult) bool {
+	if s.ending() {
+		return false
+	}
+	select {
+	case s.raw <- result:
+		return true
+	case <-s.stop:
+	case <-s.cancelled:
+	}
+	return false
 }
 
 func (s *eventSource) ending() bool {
@@ -142,14 +171,6 @@ func (s *eventSource) ending() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func (s *eventSource) reportRead(err error) {
-	select {
-	case s.read <- err:
-	case <-s.stop:
-	case <-s.cancelled:
 	}
 }
 
@@ -212,12 +233,12 @@ func (s *eventSource) run() {
 	for {
 		due.Schedule(stream.DueAt())
 		select {
-		case chunk := <-s.raw:
-			if !s.deliver(stream.Feed(chunk, time.Now())) {
+		case result := <-s.raw:
+			if !s.take(stream, result) {
 				return
 			}
 		case <-due.Channel():
-			if !s.deliver(stream.Expire(time.Now())) {
+			if !s.drainRaw(stream) || !s.deliver(stream.Expire(time.Now())) {
 				return
 			}
 		case resized := <-s.resized:
@@ -227,18 +248,6 @@ func (s *eventSource) run() {
 		case err := <-s.resizeErr:
 			s.err = err
 			return
-		case err := <-s.read:
-			// Bytes that arrived before the end are still the user's, and they arrive
-			// on a different channel from the end itself, so everything already waiting
-			// is taken before anything is given up.
-			if !s.drainRaw(stream) {
-				return
-			}
-			s.deliver(stream.Flush(time.Now()))
-			if !errors.Is(err, io.EOF) {
-				s.err = err
-			}
-			return
 		case <-s.stop:
 			return
 		case <-s.cancelled:
@@ -247,13 +256,27 @@ func (s *eventSource) run() {
 	}
 }
 
+func (s *eventSource) take(stream *input.Stream, result readResult) bool {
+	if !s.deliver(stream.Feed(result.data, result.at)) {
+		return false
+	}
+	if result.err == nil {
+		return true
+	}
+	s.deliver(stream.Flush(result.at))
+	if !errors.Is(result.err, io.EOF) {
+		s.err = result.err
+	}
+	return false
+}
+
 // drainRaw feeds everything already waiting on raw, reporting false when the session
 // ended part-way through.
 func (s *eventSource) drainRaw(stream *input.Stream) bool {
 	for {
 		select {
-		case chunk := <-s.raw:
-			if !s.deliver(stream.Feed(chunk, time.Now())) {
+		case result := <-s.raw:
+			if !s.take(stream, result) {
 				return false
 			}
 		default:

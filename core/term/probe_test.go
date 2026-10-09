@@ -318,6 +318,19 @@ func TestCopyRefusesMoreThanItCanCarry(t *testing.T) {
 	}
 }
 
+func TestClipboardRefusesAfterTerminalClose(t *testing.T) {
+	tty, _ := open(t, term.Config{})
+	if err := tty.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if tty.Copy("must remain selected") {
+		t.Fatal("a closed terminal accepted a clipboard command")
+	}
+	if tty.Paste() {
+		t.Fatal("a closed terminal accepted a paste request")
+	}
+}
+
 // TestPasteArrivesAsAPaste is the translation. Reading a clipboard and pasting into
 // a terminal are the same event to whatever receives them, and this is the layer
 // that knows the difference so that nothing above has to.
@@ -326,7 +339,7 @@ func TestPasteArrivesAsAPaste(t *testing.T) {
 	<-tty.Events() // the opening size
 
 	tty.Paste()
-	want, _ := (&clipboard.Channel{}).Request(clipboard.System)
+	want := "\x1b]52;c;?\x1b\\"
 	if got := read(t, primary, time.Second); !strings.Contains(got, want) {
 		t.Fatalf("the terminal was sent %q, which does not ask for the clipboard", got)
 	}

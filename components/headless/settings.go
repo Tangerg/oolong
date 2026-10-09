@@ -34,10 +34,14 @@ type Settings[T any] struct {
 // Focus takes or releases the keyboard with the embedded list. Releasing it also
 // cancels a partial value binding owned by the settings controller.
 func (s *Settings[T]) Focus(has bool) {
-	if !has {
-		s.matcher.Clear()
+	change := func() {
+		s.List.Focus(has)
 	}
-	s.List.Focus(has)
+	if has {
+		change()
+	} else {
+		s.matcher.Reset(change)
+	}
 }
 
 // Handle first lets list navigation and pointer selection act, then offers a key to
@@ -52,8 +56,12 @@ func (s *Settings[T]) Handle(event input.Event) bool {
 	}
 	items, index := s.itemsID, s.Selected()
 	if s.editItems != items || s.editIndex != index {
-		s.matcher.Clear()
-		s.editItems, s.editIndex = items, index
+		if !s.matcher.Reset(func() { s.editItems, s.editIndex = items, index }) {
+			return true
+		}
+	}
+	if s.itemsID != items || s.Selected() != index {
+		return true
 	}
 	_, handled := s.matcher.Handle(s.editKeys(), key, func(action keymap.Action) bool {
 		// A delayed value action belongs to the row where its sequence began.

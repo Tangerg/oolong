@@ -101,8 +101,7 @@ func (p *taskProgress) to(next Progress, queue func([]byte) uint64) {
 	if p.paused {
 		p.dirty = true
 	} else {
-		queue([]byte(next.sequence()))
-		p.published = next.State != ProgressNone
+		p.publish(queue)
 	}
 	p.mu.Unlock()
 	p.signal()
@@ -123,8 +122,7 @@ func (p *taskProgress) pause() {
 func (p *taskProgress) restore(queue func([]byte) uint64) {
 	p.mu.Lock()
 	if !p.closed && p.dirty {
-		queue([]byte(p.current.sequence()))
-		p.published = p.current.State != ProgressNone
+		p.publish(queue)
 	}
 	p.paused = false
 	p.dirty = false
@@ -194,6 +192,13 @@ func (p *taskProgress) repeat(queue func([]byte) uint64) {
 	if p.closed || p.paused || p.current.State == ProgressNone {
 		return
 	}
-	queue([]byte(p.current.sequence()))
-	p.published = p.current.State != ProgressNone
+	p.publish(queue)
+}
+
+// Admission creates or settles the cleanup obligation; a refused proposal cannot
+// replace what the writer already owns. The caller holds mu through admission.
+func (p *taskProgress) publish(queue func([]byte) uint64) {
+	if queue([]byte(p.current.sequence())) != 0 {
+		p.published = p.current.State != ProgressNone
+	}
 }

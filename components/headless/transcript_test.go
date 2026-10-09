@@ -80,6 +80,40 @@ func TestTranscriptStacksBlocksInOneCoordinateSpace(t *testing.T) {
 	}
 }
 
+func TestTranscriptAcceptedPublicationSurvivesALaterPanic(t *testing.T) {
+	var tr headless.Transcript
+	stageTranscript(&tr, 40)
+	for _, name := range []string{"a", "b"} {
+		id := tr.Append(&block{name: name, lines: 1})
+		tr.Finish(id)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("publication did not propagate the callback panic")
+			}
+		}()
+		tr.Commit(func(b headless.Block, _ int) bool {
+			if b.(*block).name == "b" {
+				panic("publication failed")
+			}
+			return true
+		})
+	}()
+	if tr.FirstBlock() != 1 || tr.StartRow() != 1 || tr.Len() != 1 || tr.Height() != 1 {
+		t.Fatalf("accepted output was retained: first=%d start=%d len=%d height=%d", tr.FirstBlock(), tr.StartRow(), tr.Len(), tr.Height())
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an unknown publication outcome was retried")
+		}
+	}()
+	tr.Commit(func(headless.Block, int) bool {
+		t.Fatal("publication resumed after an unknown outcome")
+		return true
+	})
+}
+
 func TestTranscriptRowCoordinatesCannotWrap(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	var tr headless.Transcript
@@ -776,5 +810,40 @@ func TestFinishIgnoresWhatIsNotThere(t *testing.T) {
 	tr.Finish(0)
 	if !tr.Finished(0) {
 		t.Error("the block was not finished")
+	}
+}
+
+func TestTranscriptPublicationRejectsMutations(t *testing.T) {
+	for _, operation := range []string{"append", "changed", "finish", "stage", "commit"} {
+		t.Run(operation, func(t *testing.T) {
+			var tr headless.Transcript
+			stageTranscript(&tr, 40)
+			id := tr.Append(&block{name: "a", lines: 1})
+			tr.Finish(id)
+			panicked := false
+			if got := tr.Commit(func(headless.Block, int) bool {
+				func() {
+					defer func() { panicked = recover() != nil }()
+					switch operation {
+					case "append":
+						tr.Append(&block{name: "b", lines: 1})
+					case "changed":
+						tr.Changed(id)
+					case "finish":
+						tr.Finish(id)
+					case "stage":
+						stageTranscript(&tr, 20)
+					case "commit":
+						tr.Commit(func(headless.Block, int) bool { t.Fatal("nested publication ran"); return true })
+					}
+				}()
+				return false
+			}); got != 0 || !panicked || tr.Len() != 1 || tr.Width() != 40 {
+				t.Fatal("callback changed its publication owner")
+			}
+			if got := tr.Commit(func(headless.Block, int) bool { return true }); got != 1 {
+				t.Fatal("a normally refused callback left publication unsettled")
+			}
+		})
 	}
 }

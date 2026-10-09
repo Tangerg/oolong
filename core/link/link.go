@@ -159,11 +159,8 @@ func detectURLs(s string) []Link {
 			// "https://" at the end of a sentence is not a link.
 			continue
 		}
-		target := text
-		if scheme == "www." {
-			target = "https://" + target
-		}
-		found = append(found, Link{Start: m[0], End: m[0] + len(text), Target: target})
+		kind, target := destination(text)
+		found = append(found, Link{Start: m[0], End: m[0] + len(text), Kind: kind, Target: target})
 	}
 	return found
 }
@@ -182,7 +179,7 @@ func detectPaths(s string, exists func(path string) bool) []Link {
 		// rooted one is not asked about: it says where it is, and a reference to a
 		// file that has not been written yet is still a reference to that file.
 		rooted := strings.HasPrefix(l.Target, "/") || strings.HasPrefix(l.Target, "~/")
-		if exists != nil && !rooted && !exists(l.Target) {
+		if l.Kind == File && exists != nil && !rooted && !exists(l.Target) {
 			continue
 		}
 		found = append(found, l)
@@ -225,7 +222,11 @@ func pathAt(s string, from, to int) (Link, bool) {
 	if quoted {
 		end += 2
 	}
-	l := Link{Start: from, End: end, Kind: File, Target: text}
+	kind, target := destination(text)
+	l := Link{Start: from, End: end, Kind: kind, Target: target}
+	if kind == URL {
+		return l, true
+	}
 
 	// A line and column written after a path belong to the link and not to the
 	// sentence: "src/main.go:42" points at a line, and a reader clicking it means to
@@ -238,6 +239,18 @@ func pathAt(s string, from, to int) (Link, bool) {
 		l.End += len(m[0])
 	}
 	return l, true
+}
+
+func destination(target string) (Kind, string) {
+	match := urlPattern.FindStringIndex(target)
+	scheme, ok := prefixOf(target)
+	if !ok || len(target) == len(scheme) || match == nil || match[0] != 0 || match[1] != len(target) {
+		return File, target
+	}
+	if scheme == "www." {
+		target = "https://" + target
+	}
+	return URL, target
 }
 
 // startsWord reports whether a match at this offset begins where a path could begin.

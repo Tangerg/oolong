@@ -28,8 +28,11 @@ const maxPending = 1 << 16
 //
 // A Scanner belongs to one goroutine and must not be copied after its first use.
 // Its zero value is ready to use.
+// A visitor may read Pending but cannot reenter Feed or Reset on the same Scanner;
+// these mutations panic while a scan is active.
 type Scanner struct {
 	noCopy        noCopy
+	active        bool
 	held          strings.Builder
 	scanned       int
 	intermediates bool
@@ -50,7 +53,8 @@ func (*noCopy) Unlock() {}
 
 // Feed scans chunk and visits every piece that became complete.
 //
-// If visit returns an error, Feed stops and returns it. The remainder is discarded:
+// If visit returns an error, Feed stops and returns it. A panic propagates unchanged.
+// In either case the remainder is discarded:
 // a semantic consumer that rejected a complete piece cannot safely resume midway
 // through the same chunk.
 //
@@ -64,12 +68,15 @@ func (*noCopy) Unlock() {}
 // chunk and advance the Scanner's held remainder, so the bytes would be gone by the
 // time anyone noticed nothing had been delivered.
 func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
+	s.requireIdle()
 	if visit == nil {
 		panic("ansi: nil Scanner visitor")
 	}
 	if chunk == "" {
 		return nil
 	}
+	s.active = true
+	defer func() { s.active = false }()
 
 	source := chunk
 	buffered := s.held.Len() > 0
@@ -83,17 +90,20 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 			return nil
 		}
 	}
-	return s.scan(source, buffered, visit)
+	return s.scan(source, visit)
 }
 
-// scan delivers every complete piece in source. buffered says source already holds
-// bytes from an earlier chunk, which is what makes holding its tail again wrong.
-func (s *Scanner) scan(source string, buffered bool, visit func(Piece) error) error {
+// scan takes ownership of the buffered input before invoking a semantic consumer.
+// Only an undecided suffix is returned to the scanner; an interrupted delivery cannot
+// replay bytes whose effects the visitor may already have applied.
+func (s *Scanner) scan(source string, visit func(Piece) error) error {
+	refusing := s.refusing
+	s.reset()
 	var refused error
 	for at := 0; at < len(source); {
 		piece, n, ok := Next(source[at:])
 		if !ok {
-			if err := s.unfinished(source[at:], buffered && at == 0); err != nil {
+			if err := s.unfinished(source[at:]); err != nil {
 				return errors.Join(refused, err)
 			}
 			return refused
@@ -101,8 +111,8 @@ func (s *Scanner) scan(source string, buffered bool, visit func(Piece) error) er
 		at += n
 		// A refused sequence ends here, and only here is where it ends known. What
 		// follows it is ordinary and is read as such.
-		if s.refusing {
-			s.refusing = false
+		if refusing {
+			refusing = false
 			continue
 		}
 		// Plain text is exempt from the bound: it is a run rather than a sequence, and
@@ -113,24 +123,20 @@ func (s *Scanner) scan(source string, buffered bool, visit func(Piece) error) er
 			continue
 		}
 		if err := visit(piece); err != nil {
-			s.Reset()
 			return err
 		}
 	}
-	s.Reset()
 	return refused
 }
 
 // unfinished decides what becomes of a tail no complete piece could be read from.
-func (s *Scanner) unfinished(tail string, alreadyHeld bool) error {
+func (s *Scanner) unfinished(tail string) error {
 	// Anything unfinished and this long is an escape sequence: an unfinished character
 	// is three bytes at the outside.
 	if len(tail) > maxPending {
 		return s.refuse(tail)
 	}
-	if !alreadyHeld {
-		s.hold(tail)
-	}
+	s.hold(tail)
 	return nil
 }
 
@@ -188,7 +194,19 @@ func (s *Scanner) Pending() string {
 }
 
 // Reset drops an undecided suffix and returns the Scanner to its zero state.
+// It panics when called from this Scanner's active visitor.
 func (s *Scanner) Reset() {
+	s.requireIdle()
+	s.reset()
+}
+
+func (s *Scanner) requireIdle() {
+	if s.active {
+		panic("ansi: scanner mutation during Feed")
+	}
+}
+
+func (s *Scanner) reset() {
 	s.held.Reset()
 	s.scanned = 0
 	s.intermediates = false
@@ -196,7 +214,7 @@ func (s *Scanner) Reset() {
 }
 
 func (s *Scanner) hold(tail string) {
-	s.Reset()
+	s.reset()
 	s.held.Grow(len(tail))
 	s.held.WriteString(tail)
 }

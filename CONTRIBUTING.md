@@ -23,9 +23,11 @@ Before changing behaviour or an exported API, read the boundaries in the
 Two pins are deliberate and must not be floated. The gofumpt pseudo-version is the first upstream revision
 that understands Go 1.27 methods with type parameters; keep it exact until that support has a tagged release.
 The VitePress preview pin is held because the current stable line still resolves to dependencies with
-published advisories while this lock audits clean — re-evaluate the pin rather than suppressing the audit. The
-`markdownlint-cli2` override pins `smol-toml` 1.8.0 because the CLI still requires vulnerable 1.7.0; remove
-the override when the CLI requires a fixed parser.
+published advisories above our audit threshold. Re-evaluate the pin rather than suppressing the audit.
+Markdown checks call the pinned `markdownlint` API and Node's native file glob with the rules in
+`.markdownlint.json`. The scoped KaTeX resolution in `package.json` selects the
+upstream security release while the math extension still requests the older series.
+Remove that constraint when the extension accepts the fixed series itself.
 
 ### Workspace
 

@@ -10,6 +10,37 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
+func TestDialogContentCannotStartIndependentMembership(t *testing.T) {
+	stack := headless.NewStack(nil)
+	dialog := headless.NewDialog(headless.DialogConfig{Stack: stack, Content: &focusedPanel{}})
+	dialog.Show()
+	other := headless.NewStack(nil)
+	for _, destination := range []*headless.Stack{stack, other} {
+		for _, content := range []headless.Modal{dialog.Content(), &embeddedDialogContent{dialog.Content()}} {
+			func() {
+				defer func() {
+					if recover() == nil {
+						t.Fatal("Push accepted controller-owned content")
+					}
+				}()
+				destination.Push(content)
+			}()
+		}
+	}
+	if other.Depth() != 0 {
+		t.Fatal("another stack installed controller-owned content")
+	}
+	if !dialog.Open() || stack.Depth() != 1 {
+		t.Fatalf("open=%v depth=%d", dialog.Open(), stack.Depth())
+	}
+	dialog.Dismiss()
+	if dialog.Open() || stack.Depth() != 0 {
+		t.Fatal("controller lost its original insertion")
+	}
+}
+
+type embeddedDialogContent struct{ *headless.DialogContent }
+
 type focusProbe struct {
 	focused bool
 	changes []bool

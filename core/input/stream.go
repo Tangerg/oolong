@@ -22,7 +22,7 @@ import (
 // the moment its ambiguity runs out are one fact — a transport handed a parser without
 // its deadline would have a decoder whose waiting nobody was doing.
 //
-// A Stream belongs to whichever goroutine reads the transport and must not be copied
+// A Stream belongs to one decoder goroutine and must not be copied
 // after first use: its parser and its deadline are one decoder.
 type Stream struct {
 	noCopy noCopy
@@ -74,10 +74,17 @@ func (s *Stream) escapeGrace() time.Duration {
 
 // Feed decodes the next bytes, stamped with when they arrived.
 //
+// Drivers record at when the transport read completes, before queueing the bytes.
+// An arrival at or after a pending deadline first settles that ambiguity.
+//
 // The returned slice is the caller's. Whether the parse is now waiting on time is
 // answered by [Stream.DueAt], which every feed brings up to date.
 func (s *Stream) Feed(chunk []byte, at time.Time) []Event {
-	events := s.settle(s.decoder().Feed(chunk), at)
+	var events []Event
+	if s.waiting && !at.Before(s.deadline) {
+		events = s.Expire(s.deadline)
+	}
+	events = append(events, s.settle(s.decoder().Feed(chunk), at)...)
 	s.arm(at)
 	return events
 }
@@ -85,8 +92,12 @@ func (s *Stream) Feed(chunk []byte, at time.Time) []Event {
 // Expire settles what only time could settle: a lone escape becomes the Escape key.
 // A driver calls it when the moment [Stream.DueAt] reported has arrived.
 func (s *Stream) Expire(at time.Time) []Event {
-	s.disarm()
-	return s.settle(s.decoder().Expire(), at)
+	if !s.waiting || at.Before(s.deadline) {
+		return nil
+	}
+	events := s.settle(s.decoder().Expire(), s.deadline)
+	s.arm(at)
+	return events
 }
 
 // Flush ends the stream. A buffered escape becomes the Escape key and a half-arrived
@@ -132,7 +143,7 @@ func (s *Stream) settle(events []Event, at time.Time) []Event {
 		if !ok {
 			continue
 		}
-		if pasted, ok := osc.Paste(s.clipboard); ok {
+		if pasted, ok := osc.Paste(s.clipboard, at); ok {
 			events[i] = pasted
 		}
 	}

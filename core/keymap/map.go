@@ -61,16 +61,49 @@ func (m *Matcher) Keys() input.Keys {
 
 // Clear abandons the partially typed sequence and cancels its resolver.
 func (m *Matcher) Clear() {
+	m.Reset(nil)
+}
+
+// Reset abandons matching before change replaces the consumer's state, and cancels
+// the old resolver after change returns. Cancellation may reenter the consumer; it
+// sees the completed change and cannot erase matching started by that change.
+// The cancellation also runs when change panics. Nil change only clears matching;
+// a nil Matcher still runs change.
+// Current reports whether matching and the old map stayed unchanged through change
+// and cancellation. Input callers must stop dispatch when a newer sequence or map
+// supersedes this reset. A nil Matcher reports true after running change.
+func (m *Matcher) Reset(change func()) (current bool) {
 	if m == nil {
-		return
+		if change != nil {
+			change()
+		}
+		return true
 	}
+	bindings := m.bindings
+	var version *byte
+	if bindings != nil {
+		version = bindings.version
+	}
+	cancel := m.abandon()
+	ticket := m.ticket
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+		current = m.ticket == ticket && (bindings == nil || bindings.version == version)
+	}()
+	if change != nil {
+		change()
+	}
+	return true
+}
+
+func (m *Matcher) abandon() func() {
 	cancel := m.cancel
 	m.keys, m.at, m.exact, m.do, m.cancel = nil, time.Time{}, "", nil, nil
 	m.bindings, m.version = nil, nil
 	m.ticket++
-	if cancel != nil {
-		cancel()
-	}
+	return cancel
 }
 
 // Binding associates a chord sequence with an action. Values returned by
@@ -207,6 +240,8 @@ func (m *Map) Action(keys ...input.Chord) (Action, bool) {
 // exact match is settled while this key is being read, this key is still matched
 // independently and the result reports whether the new key belongs. A nil Matcher,
 // Map or callback handles nothing.
+// If resolving the older prefix cancels this matcher, replaces its map, or starts
+// another sequence, the interrupted key is consumed without further dispatch.
 func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (matched, handled bool) {
 	if m == nil || !key.Down() {
 		return false, false
@@ -215,11 +250,8 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 		m.Clear()
 		return false, false
 	}
-	if m.bindings != nil && (m.bindings != bindings || m.version != bindings.version) {
-		m.Clear()
-	}
-	if m.expired(bindings.timeout(), key.At) {
-		m.resolveExact()
+	if !m.prepare(bindings, key.At) {
+		return true, true
 	}
 
 	chord := key.Chord()
@@ -228,7 +260,9 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 	if !ok && len(prefix) > 0 {
 		// The key proves the longer binding will not arrive. Settle an exact prefix,
 		// if there was one, then give this key a fresh reading of its own.
-		m.resolveExact()
+		if m.resolveExact() {
+			return true, true
+		}
 		prefix = nil
 		node, ok = bindings.follow(input.Keys{chord})
 	}
@@ -237,7 +271,9 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 		return false, false
 	}
 
-	m.Clear()
+	if !m.Reset(nil) {
+		return true, true
+	}
 	if len(node.next) == 0 {
 		if node.action == "" {
 			return false, false
@@ -253,6 +289,15 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 		m.deferExact(bindings, node.action, do)
 	}
 	return true, true
+}
+
+// Settle the previous sequence before matching another key. Its cancellation or
+// exact-prefix callback may replace the matcher, revoking the interrupted dispatch.
+func (m *Matcher) prepare(bindings *Map, at time.Time) bool {
+	if m.bindings != nil && (m.bindings != bindings || m.version != bindings.version) && !m.Reset(nil) {
+		return false
+	}
+	return !m.expired(bindings.timeout(), at) || !m.resolveExact()
 }
 
 // expired reports whether timed input can no longer continue the held sequence.
@@ -294,18 +339,23 @@ func (m *Matcher) resolve(ticket uint64) {
 	m.resolveExact()
 }
 
-func (m *Matcher) resolveExact() {
+func (m *Matcher) resolveExact() bool {
 	if m == nil {
-		return
+		return false
 	}
 	action, do := m.exact, m.do
+	bindings, version := m.bindings, m.version
 	if m.bindings == nil || m.version != m.bindings.version {
 		do = nil
 	}
-	m.Clear()
+	if !m.Reset(nil) {
+		return true
+	}
+	ticket := m.ticket
 	if action != "" && do != nil {
 		do(action)
 	}
+	return m.ticket != ticket || bindings != nil && bindings.version != version
 }
 
 type trieNode struct {

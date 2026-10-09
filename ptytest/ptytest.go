@@ -101,6 +101,7 @@ type Session struct {
 	readErr error
 
 	closeOnce sync.Once
+	closeErr  error
 }
 
 // Start runs a command on a new pty.
@@ -185,10 +186,7 @@ func (s *Session) wait(cmd *exec.Cmd) {
 	// The waiting goroutine is the only owner of exec.Cmd after Start returns.
 	// Once Wait finishes, its arguments, environment and launch bookkeeping can be
 	// collected even while the Session remains available for transcript assertions.
-	err := cmd.Wait()
-	if err != nil && !readClosed(err) {
-		s.waitErr = err
-	}
+	s.waitErr = cmd.Wait()
 }
 
 // Transcript is everything the program has written, as it arrives.
@@ -240,20 +238,34 @@ func (s *Session) Drain(ctx context.Context) error {
 // own behind would leave it holding the terminal open, and a harness that allocated
 // a terminal for a test owes the test that the terminal is gone when the test is.
 //
-// It is idempotent, so a test can defer it and still close explicitly.
+// It is idempotent, so a test can defer it and still close explicitly. It preserves
+// process, reader and teardown errors. If terminating the process group fails,
+// Close closes the pty and reports that failure without waiting indefinitely for
+// a process it could not stop.
 func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
 		// Whether the program is still running says nothing about the session it
 		// started. A child that exited having left something of its own behind left
 		// it in the same group and holding the same terminal, and waiting for the
 		// leader is not waiting for that.
-		_ = endSession(s.process)
+		endErr := endSession(s.process)
 		// Closing the primary is what ends the read. It ends it even when something
 		// outside this session still holds the replica: the descriptor is in the
 		// runtime's poller, so the pending read is unblocked rather than waited for.
-		_ = s.primary.Close()
+		closeErr := s.primary.Close()
 		<-s.readDone
-		<-s.waitDone
+		var waitErr error
+		if endErr == nil {
+			<-s.waitDone
+			waitErr = s.waitErr
+		} else {
+			select {
+			case <-s.waitDone:
+				waitErr = s.waitErr
+			default:
+			}
+		}
+		s.closeErr = errors.Join(endErr, closeErr, s.readErr, waitErr)
 	})
-	return s.waitErr
+	return s.closeErr
 }

@@ -59,6 +59,13 @@ An HTTP response body, `exec.Cmd.Stdout`, or model stream can implement this sha
 The source must honor `ctx`, preserve byte order, and return the error that ended the
 stream.
 
+For a command source, give `exec.Cmd.Stdout` and `Stderr` the same ingress writer so
+the command owns output copying and process waiting together. The run example sets
+`WaitDelay` to one second: a descendant retaining an output pipe cannot keep the
+source waiting indefinitely after command exit or cancellation. An incomplete
+collection returns an error, including `exec.ErrWaitDelay` after successful process
+exit; it is never reported as complete output.
+
 ## Start bounded ingress
 
 Create ingress on the interface goroutine. The limit counts accepted bytes that the
@@ -109,12 +116,37 @@ func (c *chat) accept(batch program.ByteBatch) {
 blocks once. Replace only the open document while more bytes can still change it.
 Call `Flush` when the final batch arrives.
 
+An empty `Open` result replaces the existing tail too: a visible prefix can become
+an invisible HTML comment. `Flush` ends an existing transcript tail even when its
+result is empty; finish that block so it cannot prevent later scrollback publication.
+Use the open document's presence to track its lifetime rather than a separate flag.
+
+The stream owns its unpublished source and open cache until rendering returns.
+Renderer callbacks may read `Look`; reentering `Feed`, `Open`, `Flush`, `Reset` or
+`SetLook` on that same stream panics. Feed another stream or defer source changes
+until the active operation returns. A renderer panic does not discard the source.
+
+The parser keeps an unfinished list or quote in the open tail, including blank lines
+between items. A long loose list can therefore have a long tail; publishing its items
+independently would change numbering and nesting when chunks arrive differently.
+
 ## Publish finished ownership
 
 Keep a bounded number of finished blocks in the live transcript for selection and
 search. Commit older blocks with the transcript renderer's publication operation.
 That operation measures and prints the same drawable, then releases its interactive
 identity.
+
+`headless.Transcript.Commit` retires each accepted block before invoking the callback
+for the next block. That callback may only read the transcript. Mutating it, staging
+layout or calling Commit again panics. An abnormal callback exit leaves its output
+result unknown, so that transcript cannot be reused for mutation or publication;
+earlier accepted blocks remain retired.
+
+`grid.Inline` owns each Print, Append, Flush and Finish operation through its
+callbacks. Read the canvas and draw into the supplied view; schedule further
+canvas changes after the operation returns. Reentrant mutation or publication
+panics, so nested output cannot replace the outer operation's scratch or anchor.
 
 Do not rebuild published rows in application state. The terminal already owns them,
 and rebuilding them would make memory and resize work grow with session age.

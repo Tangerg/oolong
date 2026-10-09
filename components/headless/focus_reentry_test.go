@@ -1,13 +1,46 @@
 package headless_test
 
 import (
+	"image"
 	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/layout"
 )
+
+func TestReplacementBlurCanTransferOuterFocus(t *testing.T) {
+	a := &reentrant{name: "a"}
+	b := &reentrant{name: "b", focused: true}
+	c := &reentrant{name: "c"}
+	inner := headless.NewContainer(layout.Down, headless.Item{Of: a})
+	outer := headless.NewContainer(layout.Down, headless.Item{Of: inner}, headless.Item{Of: c})
+	a.on = func(bool) { outer.FocusIndex(1) }
+	inner.Set(headless.Item{Of: b})
+	if got := holders(a, b, c); !slices.Equal(got, []string{"c"}) {
+		t.Fatalf("focused = %v, want only outer sibling", got)
+	}
+}
+
+func TestClickCannotActivateAnAttachmentRemovedByFocus(t *testing.T) {
+	value := false
+	a := &reentrant{name: "a"}
+	b := headless.NewConfirm(headless.ConfirmConfig{Value: headless.Bind(&value)})
+	c := headless.NewContainer(layout.Down,
+		headless.Item{Of: a, Size: layout.Fixed(1)},
+		headless.Item{Of: b, Size: layout.Fixed(1)})
+	root := headless.NewRoot(c)
+	root.Draw(grid.NewSurface(10, 2).View())
+	a.on = func(bool) { c.Set(headless.Item{Of: a, Size: layout.Fixed(1)}) }
+	for _, action := range []input.MouseAction{input.MouseDown, input.MouseUp} {
+		root.Handle(input.Mouse{Pos: image.Pt(0, 1), Action: action, Button: input.ButtonLeft})
+	}
+	if value {
+		t.Fatal("removed confirmation was activated")
+	}
+}
 
 // reentrant moves the keyboard again from inside being told where it stands.
 //

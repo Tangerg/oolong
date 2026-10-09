@@ -6,18 +6,18 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:lint": "markdownlint-cli2",
+    "docs:lint": "node scripts/lint-markdown.mjs",
     "spell": "cspell --no-progress --no-summary",
     "docs:check": "npm audit --audit-level=moderate && npm run spell && npm run docs:lint && npm run docs:build"
   },
   "devDependencies": {
     "cspell": "10.1.0",
-    "markdownlint-cli2": "0.23.2",
+    "markdownlint": "0.41.1",
     "vitepress": "2.0.0-alpha.19"
   },
   "overrides": {
-    "markdownlint-cli2": {
-      "smol-toml": "1.8.0"
+    "micromark-extension-math": {
+      "katex": "0.18.2"
     }
   }
 }

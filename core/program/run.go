@@ -98,12 +98,13 @@ func newProgram(cfg Config, host Host) (*program, error) {
 			p.tasks.stop()
 		}
 	}()
+	p.environment = environmentFor(p.host)
 	if p.frameInterval == 0 {
 		p.frameInterval = DefaultFrameInterval
 	}
 	depth := cfg.Color
 	if depth == grid.Auto {
-		depth = p.host.color()
+		depth = p.environment.Color()
 	}
 	if err := p.buildInterface(cfg, width, height, depth); err != nil {
 		return nil, err
@@ -113,7 +114,7 @@ func newProgram(cfg Config, host Host) (*program, error) {
 	// and a layer floating over one has to mix with something. This is the only place
 	// that knows both the answer and the surface, so it is the only place that can
 	// join them — see [grid.Ground].
-	p.canvas.SetGround(p.host.ground())
+	p.canvas.SetGround(p.environment.Ground())
 	built = true
 	return p, nil
 }
@@ -150,11 +151,12 @@ type canvas interface {
 
 // program is one running interface.
 type program struct {
-	root   Component
-	host   hostServices
-	input  EventSource
-	events <-chan input.Event
-	canvas canvas
+	environment Environment
+	root        Component
+	host        hostServices
+	input       EventSource
+	events      <-chan input.Event
+	canvas      canvas
 	// inline is the canvas again when the interface is drawn in the terminal's own
 	// screen, and nil when it has a screen to itself. It is what printing needs and
 	// a screen cannot offer.
@@ -405,6 +407,12 @@ func (p *program) queue(frame []byte) (uint64, error) {
 		return 0, ErrDisplayFailed
 	}
 	seq := p.writer.Queue(frame)
+	if seq == 0 {
+		p.outputFailed = true
+		if err := p.writer.Err(); err != nil {
+			return 0, err
+		}
+	}
 	if seq == 0 || seq <= p.queued {
 		p.outputFailed = true
 		return 0, fmt.Errorf("%w: got %d after %d", ErrInvalidFrameSequence, seq, p.queued)

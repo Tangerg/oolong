@@ -158,6 +158,13 @@ One goroutine owns interface state. Background work may perform I/O and computat
 but it reaches the owner through a narrow dispatch edge. Background work never holds a
 runtime handle that can mutate the component tree or terminal session directly.
 
+The program's task queue owns the Runtime lifetime. Run completion or a failed
+builder revokes all retained owner operations and Clipboard, Session, Images and
+InlineRuntime capabilities. Resources deliberately owned beyond Run are accessed
+through their Host or Terminal. Environment is an immutable startup record sampled
+before application construction; the canvas and components use the same facts,
+and a retained Environment remains readable after Run.
+
 ```mermaid
 flowchart TD
     P["network, process, timer, file watcher"]
@@ -476,13 +483,32 @@ a frame was accepted, and `headless` does not import `program`, `present`, or te
 packages. Slice 2 must prove the smallest component-owned drawing scope needed to stage
 and swap nested geometry without creating a second tree or a reverse dependency.
 
-Pointer capture belongs to the interaction that began it and continues until release
-or removal of the target.
+Pointer capture belongs to the interaction that began it and continues until the
+captured button is released or the target is removed. An unspecified-button release
+ends the current capture; a release naming a different button does not. Routing owners
+preserve that association so an unrelated release cannot redirect the remaining gesture.
 
 A general constraint object with minimum and maximum width and height may be introduced
 if wrapper composition, bidirectional sizing, or multiple layout strategies cannot be
 expressed cleanly through the existing measurer contract. It must be proven by a
 complete component, not added solely because Flutter has one.
+
+Input adapters queue each read's bytes, completion time and terminal result together.
+The reader owns arrival time; queued decoding cannot replace it with the current clock.
+`Stream` uses that time for ambiguity and clipboard settlement, including end-of-input.
+`clipboard.Channel.Answer` accepts only arrivals within the request's half-open interval.
+`Channel.Request` establishes that interval only when its synchronous send callback
+accepts the encoded command. A refused transport cannot own a later reply.
+
+The frame writer owns output admission. Queue returns a nonzero sequence only for
+accepted bytes; zero retains caller ownership and Err exposes the cause. Refusal
+does not advance Queued or either completion watermark. Terminal operations that
+return a bool or error report admission, while Drain and Err report settlement.
+Image transmission returns no handle when the writer refuses its bytes.
+
+Synchronous callbacks may originate newer transitions. A matcher cancellation or map
+change revokes interrupted dispatch; Presenter requests from drawing remain owed to a
+subsequent frame. Their owners publish the boundary before invoking callbacks.
 
 ### 6.4 Style and semantics
 
@@ -655,21 +681,30 @@ owner task, delivers completion or failure after accepted data, and stops with i
 dispatcher. It creates no second owner loop and does not change the non-blocking
 `Dispatcher.Post` contract.
 
-That proof does not justify a generic mailbox, observable, typed stream, or policy for
-the other two semantic classes. Those abstractions still require complete callers of
-their own.
+For a discrete transition that needs completion acknowledgement, a worker uses
+`Dispatcher.Invoke(ctx, callback)`. It shares the same queue: cancellation can withdraw
+an unclaimed callback, while a claimed callback must finish before the worker returns.
+Its error belongs to that invocation. A callback that panics releases its waiting worker
+with `ErrInvocationAborted` and still unwinds the program; it is never reported as a
+successful commit. Invoke cannot be called from the interface goroutine, and completion
+does not mean the resulting frame has reached the terminal. The application still owns
+which operation or generation may commit.
+
+These contracts do not justify a generic mailbox, observable, typed stream, or policy
+for replaceable state. Those abstractions still require complete callers of their own.
 
 ### 8.1 Incremental transformation
 
 A streaming transform must avoid work proportional to all content seen so far on every
-chunk. It should separate a stable prefix from a short open tail:
+chunk. It should separate a stable prefix from an open tail:
 
 ```text
 new chunk -> scan new material -> publish newly stable prefix -> rerender open tail
 ```
 
 `markdown.Stream` is the reference shape. A decoder may retain incomplete protocol
-syntax and style state; a renderer may retain the open block; neither retains published
+syntax and style state; a renderer may retain an open block or container until the
+parser establishes its end. A long loose list can require a long open tail; neither retains published
 source merely for convenience.
 
 ### 8.2 Publication guarantees
@@ -725,10 +760,46 @@ stops publication, accounts for queued work, returns the causal error, and resto
 terminal as far as the transport permits. A caller may start a new session and rebuild
 live state, but that is a new ownership decision.
 
+The asynchronous terminal Writer owns this settlement even when its destination
+exits the writing goroutine without returning. It ends admission, releases queued
+payloads, accounts for every accepted frame and notifies the interface of the
+interruption. Drain can then finish without claiming delivery, and Run reports the
+writer's cause instead of waiting indefinitely for input.
+The SSH input reader likewise owns its terminal result. If the session Read exits
+its goroutine without returning, accepted chunks are decoded first and the ordered
+event stream then closes with an interruption error rather than remaining open.
+
+Screen and Inline enforce the same rule when used directly: the first destination
+write failure ends their publication session. Invalidate cannot repair unknown rows,
+image placements or an inline cursor anchor. Composition failures before any write
+remain retryable. A writer panic or abnormal goroutine exit also ends publication;
+recovering the panic cannot authorize replay. Every nonempty frame closes any external OSC 8 hyperlink before
+encoding its own text.
+
+Screen and Inline also own their entire publication operation through external
+callbacks. Drawable, Append, Painter and Writer callbacks may read the canvas and
+draw into their supplied view. They cannot mutate a retained frame view or invoke
+another mutation or publication on the same canvas; mutating-method reentry panics.
+An unwound drawing callback releases its operation without publishing its scratch
+rows. This boundary prevents a callback from replacing pending output or committing
+terminal state for another operation.
+
 Normal cancellation is not itself a failure. It still waits the documented bounded
 grace for accepted output. A drain timeout, refused handover, or writer error is a
 failure even when shutdown was otherwise requested, because returning success would
 falsely claim that display ownership had settled.
+
+`Terminal.Hand(prepare, run)` claims one handover lifetime before calling prepare,
+changing modes or parking the reader. Preparation finishes interface output with
+the interface modes still active; failure returns without running the child.
+`program.HandoverHost` requires the same boundary, so Runtime cannot prepare an
+already claimed display before asking its host. Nested and concurrent calls return
+`term.ErrHandoverActive` without preparing or running their child. Direct terminal
+callers pass nil when no preparation is needed. The caller keeps other output
+producers stopped until the child returns.
+Closing the session inside the child ends that lifetime: Hand returns `term.ErrClosed`
+and does not reacquire the closed terminal. A child panic still restores an open
+session before propagating.
 
 ### 9.3 Degradation rules
 

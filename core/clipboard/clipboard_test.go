@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/clipboard"
@@ -16,10 +17,10 @@ func parameters(sequence string) (string, bool) {
 }
 
 func answer(channel *clipboard.Channel, selection clipboard.Selection, params string) (string, bool) {
-	if _, ok := channel.Request(selection); !ok {
+	if _, ok := request(channel, selection); !ok {
 		return "", false
 	}
-	return channel.Answer(params)
+	return channel.Answer(params, time.Now())
 }
 
 func TestCopyCarriesTheTextBackAgain(t *testing.T) {
@@ -118,28 +119,28 @@ func TestNilChannelIsInert(t *testing.T) {
 	if sequence, ok := channel.Copy(clipboard.System, "text"); ok || sequence != "" {
 		t.Fatalf("nil copy = %q, %t", sequence, ok)
 	}
-	if sequence, ok := channel.Request(clipboard.System); ok || sequence != "" {
+	if sequence, ok := request(channel, clipboard.System); ok || sequence != "" {
 		t.Fatalf("nil request = %q, %t", sequence, ok)
 	}
-	if text, ok := channel.Answer("c;dGV4dA=="); ok || text != "" {
+	if text, ok := channel.Answer("c;dGV4dA==", time.Now()); ok || text != "" {
 		t.Fatalf("nil answer = %q, %t", text, ok)
 	}
 }
 
 func TestRequestAsksOnceUntilItsAnswer(t *testing.T) {
 	channel := &clipboard.Channel{}
-	sequence, requested := channel.Request(clipboard.System)
+	sequence, requested := request(channel, clipboard.System)
 	if !requested || sequence != "\x1b]52;c;?\x1b\\" {
 		t.Fatalf("system request = %q, %t", sequence, requested)
 	}
-	if duplicate, accepted := channel.Request(clipboard.System); accepted || duplicate != "" {
+	if duplicate, accepted := request(channel, clipboard.System); accepted || duplicate != "" {
 		t.Fatalf("duplicate request = %q, %t", duplicate, accepted)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte("text"))
-	if _, accepted := channel.Answer("c;" + encoded); !accepted {
+	if _, accepted := channel.Answer("c;"+encoded, time.Now()); !accepted {
 		t.Fatal("the request's answer was not accepted")
 	}
-	sequence, requested = channel.Request(clipboard.Primary)
+	sequence, requested = request(channel, clipboard.Primary)
 	if !requested || sequence != "\x1b]52;p;?\x1b\\" {
 		t.Fatalf("primary request = %q, %t", sequence, requested)
 	}
@@ -174,31 +175,31 @@ func TestAnswerRefusesWhatItCannotRead(t *testing.T) {
 
 func TestAnswerRequiresTheRequestedSelection(t *testing.T) {
 	channel := &clipboard.Channel{}
-	if _, ok := channel.Request(clipboard.System); !ok {
+	if _, ok := request(channel, clipboard.System); !ok {
 		t.Fatal("request was refused")
 	}
 	primary := "p;" + base64.StdEncoding.EncodeToString([]byte("wrong"))
-	if text, ok := channel.Answer(primary); ok {
+	if text, ok := channel.Answer(primary, time.Now()); ok {
 		t.Fatalf("primary answer was accepted as %q for the system request", text)
 	}
 	system := "c;" + base64.StdEncoding.EncodeToString([]byte("right"))
-	if text, ok := channel.Answer(system); !ok || text != "right" {
+	if text, ok := channel.Answer(system, time.Now()); !ok || text != "right" {
 		t.Fatalf("matching answer = %q, %t", text, ok)
 	}
 }
 
 func TestMalformedAnswersDoNotStealAValidRequest(t *testing.T) {
 	channel := &clipboard.Channel{}
-	if _, ok := channel.Request(clipboard.System); !ok {
+	if _, ok := request(channel, clipboard.System); !ok {
 		t.Fatal("request was refused")
 	}
 	for _, params := range []string{"", "c", "cc;aGk=", "x;aGk="} {
-		if text, ok := channel.Answer(params); ok {
+		if text, ok := channel.Answer(params, time.Now()); ok {
 			t.Fatalf("malformed %q was accepted as %q", params, text)
 		}
 	}
 	valid := "c;" + base64.StdEncoding.EncodeToString([]byte("still pending"))
-	if text, ok := channel.Answer(valid); !ok || text != "still pending" {
+	if text, ok := channel.Answer(valid, time.Now()); !ok || text != "still pending" {
 		t.Fatalf("matching answer after malformed traffic = %q, %t", text, ok)
 	}
 }
@@ -266,7 +267,7 @@ func TestOnlyOneConcurrentReadOwnsTheUnidentifiedAnswer(t *testing.T) {
 	for range cap(results) {
 		wait.Go(func() {
 			<-start
-			_, ok := channel.Request(clipboard.System)
+			_, ok := request(channel, clipboard.System)
 			results <- ok
 		})
 	}
@@ -313,4 +314,29 @@ func FuzzAnswerNeverPanicsAndProducesOnlyValidText(f *testing.F) {
 			t.Fatalf("accepted %d bytes, past the limit of %d", len(text), clipboard.MaxPayload)
 		}
 	})
+}
+
+func request(channel *clipboard.Channel, selection clipboard.Selection) (string, bool) {
+	var sequence string
+	accepted := channel.Request(selection, func(value string) bool {
+		sequence = value
+		return true
+	})
+	return sequence, accepted
+}
+
+func TestRefusedTransportCannotOwnAClipboardAnswer(t *testing.T) {
+	channel := &clipboard.Channel{}
+	if channel.Request(clipboard.System, nil) || channel.Request(clipboard.System, func(string) bool { return false }) {
+		t.Fatal("a request without transport admission reported success")
+	}
+	if _, ok := channel.Answer("c;dGV4dA==", time.Now()); ok {
+		t.Fatal("a refused request authorized an unsolicited clipboard answer")
+	}
+	if !channel.Request(clipboard.System, func(string) bool { return true }) {
+		t.Fatal("refused admission left a competing request pending")
+	}
+	if text, ok := channel.Answer("c;dGV4dA==", time.Now()); !ok || text != "text" {
+		t.Fatalf("accepted request could not settle: text=%q accepted=%t", text, ok)
+	}
 }

@@ -31,8 +31,13 @@ const eraseLine = "\x1b[K"
 //
 // An Inline must not be copied after first use. Its pending transcript, paired
 // surfaces and terminal cursor model are one publication owner.
+// It is used on one goroutine. Print, Append, Flush and Finish callbacks may read
+// the canvas and draw into their supplied view, but cannot mutate it, mutate a
+// retained frame view, or publish it again. Reentering a mutating Inline method
+// from these callbacks panics.
 type Inline struct {
-	noCopy noCopy
+	noCopy      noCopy
+	publication publication
 
 	buffers frameBuffer
 	// scratch is where printed rows are drawn before being encoded. It belongs to
@@ -67,9 +72,8 @@ type Inline struct {
 	//
 	// They are where the terminal is, so only a write that reached it may advance
 	// them. Composing a frame works out where that frame would leave the cursor and
-	// hands the answer back to be committed with the rest of the frame; a frame that
-	// failed to reach the terminal left the cursor where the last one did, and a
-	// retry has to be written relative to that.
+	// hands the answer back to be committed with the rest of the frame. A failed
+	// write makes the anchor unknown and permanently ends this session.
 	rows int
 	at   image.Point
 
@@ -127,6 +131,7 @@ func (i *Inline) Size() (w, h int) { return i.buffers.size() }
 
 // Resize changes the width and the height the block may grow to.
 func (i *Inline) Resize(w, h int) {
+	i.publication.requireIdle()
 	if i.buffers.resize(w, h) {
 		i.Invalidate()
 	}
@@ -135,6 +140,7 @@ func (i *Inline) Resize(w, h int) {
 // SetDepth says how much colour the terminal can show. It forces a full repaint,
 // because every row the terminal is holding was encoded at the old depth.
 func (i *Inline) SetDepth(d Depth) {
+	i.publication.requireIdle()
 	if i.buffers.setDepth(d) {
 		i.Invalidate()
 	}
@@ -147,6 +153,7 @@ func (i *Inline) SetDepth(d Depth) {
 // through a view like anything else, and a block of it that dims part of itself
 // should dim the same way there as it would in the frame.
 func (i *Inline) SetGround(g Ground) {
+	i.publication.requireIdle()
 	i.buffers.setGround(g)
 	i.scratch.SetGround(g)
 }
@@ -154,6 +161,11 @@ func (i *Inline) SetGround(g Ground) {
 // Invalidate forgets what the terminal is showing, so the next flush rewrites the
 // whole block.
 func (i *Inline) Invalidate() {
+	i.publication.requireIdle()
+	i.invalidate()
+}
+
+func (i *Inline) invalidate() {
 	i.full = true
 	i.repaintAll = true
 	i.known = false
@@ -165,6 +177,7 @@ func (i *Inline) Invalidate() {
 // The view is as tall as the block may grow to, not as tall as the block ends up:
 // its height is decided by what this frame draws into it.
 func (i *Inline) Frame() View {
+	i.publication.requireIdle()
 	return i.buffers.begin(&i.placed)
 }
 
@@ -179,6 +192,8 @@ func (i *Inline) Frame() View {
 // first, because what follows it is not part of it. Output arriving in pieces that do
 // not stop at a line boundary is that other method's business.
 func (i *Inline) Print(content Drawable) {
+	i.publication.begin()
+	defer i.publication.end()
 	if content == nil {
 		return
 	}
@@ -211,16 +226,19 @@ func (i *Inline) Print(content Drawable) {
 //
 // Drawing nothing publishes nothing, so an empty chunk costs no row.
 func (i *Inline) Append(draw func(View)) {
+	i.publication.begin()
+	defer i.publication.end()
 	if draw == nil {
 		return
 	}
 	w, _ := i.buffers.size()
 	at := 0
-	if i.open {
+	after := i.open
+	if after {
 		at = i.tail
 	}
 	if at >= w {
-		at, i.open = 0, false
+		at, after = 0, false
 	}
 	i.scratch.Resize(w-at, 1)
 	draw(i.scratch.View())
@@ -229,7 +247,7 @@ func (i *Inline) Append(draw func(View)) {
 		return
 	}
 	i.pending = append(i.pending, printed{
-		row: EncodeRow(cells, i.buffers.depth), atMargin: at+len(cells) == w, after: i.open,
+		row: EncodeRow(cells, i.buffers.depth), atMargin: at+len(cells) == w, after: after,
 	})
 	i.open, i.tail = true, at+len(cells)
 }
@@ -244,7 +262,10 @@ func (i *Inline) Tail() (col int, open bool) { return i.tail, i.open }
 // It writes nothing. The row was published with the block underneath it already, so
 // ending it is only a matter of not carrying it on — which is why a caller can break a
 // row it has changed its mind about at no cost.
-func (i *Inline) Break() { i.open, i.tail = false, 0 }
+func (i *Inline) Break() {
+	i.publication.requireIdle()
+	i.open, i.tail = false, 0
+}
 
 // Cursor is where the last frame asked for the terminal's cursor to go, in the
 // block's own coordinates. See [Screen.Cursor].
@@ -255,7 +276,23 @@ func (i *Inline) Cursor() Cursor { return i.placed }
 // A flush that would change nothing writes nothing at all, for the same reason a
 // [Screen] does: an idle interface should be silent on the wire and should leave
 // the cursor's blink undisturbed.
+// A destination write failure permanently ends this publication session. Flush and
+// Finish then return its original error without writing: a partial frame leaves no
+// trustworthy relative anchor, row range or placement inventory to recover from.
+// An abnormal writer exit also ends the session; a recovered panic cannot authorize
+// replaying an unknown partial write.
 func (i *Inline) Flush(w io.Writer) error {
+	i.publication.begin()
+	defer i.publication.end()
+	if i.publication.failure != nil {
+		return i.publication.failure
+	}
+	composed := false
+	defer func() {
+		if !composed {
+			i.invalidate()
+		}
+	}()
 	used := i.used()
 	i.buf = i.buf[:0]
 	at, err := i.compose(used)
@@ -263,9 +300,9 @@ func (i *Inline) Flush(w io.Writer) error {
 		// The frame never reached w, but a painter may have emitted a partial private
 		// payload before failing. Forget all terminal assumptions and preserve pending
 		// output so the caller may either report the failure or deliberately retry.
-		i.Invalidate()
 		return err
 	}
+	composed = true
 	if len(i.buf) == 0 {
 		i.settle(used, at)
 		return nil
@@ -273,11 +310,7 @@ func (i *Inline) Flush(w io.Writer) error {
 	i.out = append(i.out[:0], beginSync...)
 	i.out = append(i.out, i.buf...)
 	i.out = append(i.out, endSync...)
-	if err := writeAll(w, i.out); err != nil {
-		// Some prefix of the frame may have landed, so what the terminal is showing
-		// is no longer known. The printed rows are kept rather than dropped: output
-		// the caller asked for is worth writing twice and not worth losing.
-		i.Invalidate()
+	if err := i.publication.write(w, i.out); err != nil {
 		return err
 	}
 	clear(i.pending)
@@ -297,6 +330,11 @@ func (i *Inline) Flush(w io.Writer) error {
 // inline program has to draw one last frame before it exits: the last thing it
 // showed is the thing that stays.
 func (i *Inline) Finish(w io.Writer) error {
+	i.publication.begin()
+	defer i.publication.end()
+	if i.publication.failure != nil {
+		return i.publication.failure
+	}
 	if i.left {
 		return nil
 	}
@@ -307,15 +345,11 @@ func (i *Inline) Finish(w io.Writer) error {
 		}
 		i.buf = append(i.buf, "\r\n"...)
 	}
+	i.buf = append(i.buf, osc8Close...)
 	i.buf = append(i.buf, sgrReset...)
 	i.buf = append(i.buf, defaultCursor...)
 	i.buf = append(i.buf, showCursor...)
-	if err := writeAll(w, i.buf); err != nil {
-		// The block has not been left, whatever prefix of this landed. Recording that
-		// it had would make the failure permanent: left is what makes finishing again
-		// do nothing, so a caller that retried — or an exit behind a failed handover —
-		// would leave the cursor hidden and the block never given back.
-		i.Invalidate()
+	if err := i.publication.write(w, i.buf); err != nil {
 		return err
 	}
 	i.rows, i.at = 0, image.Point{}
@@ -323,7 +357,7 @@ func (i *Inline) Finish(w io.Writer) error {
 	// nothing further belongs on it: the cursor has moved below the block.
 	i.open, i.tail, i.flushed = false, 0, 0
 	i.left = true
-	i.Invalidate()
+	i.invalidate()
 	return nil
 }
 
@@ -372,6 +406,7 @@ func (i *Inline) compose(used int) (image.Point, error) {
 
 	// The terminal's style at the start of a frame is not knowable — another program
 	// may have written to it — so a frame that writes anything makes it knowable.
+	i.buf = append(i.buf, osc8Close...)
 	i.buf = append(i.buf, sgrReset...)
 
 	// Back to the top of the block, which is the only position this type can name.

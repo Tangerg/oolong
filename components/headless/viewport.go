@@ -39,8 +39,7 @@ type Viewport struct {
 	// root frame, so pointer routing cannot observe a half-built window.
 	presentation Snapshot[viewportPresentation]
 	body         PointerRegion
-	// holder is whatever was last told where it stands, which is the content unless
-	// the content has just been replaced.
+	// holder is published before focus callbacks, so replacements revoke old transfers.
 	holder Widget
 }
 
@@ -135,7 +134,7 @@ func (p *Viewport) Handle(ev input.Event) bool {
 		handled, _ := p.body.Handle(mouse)
 		return handled
 	}
-	if handler, ok := p.content.(Interactive); ok && !p.blurred && handler.Handle(ev) {
+	if handler, ok := p.content.(Interactive); ok && p.state.Focused() && p.state.Forward(func() bool { return handler.Handle(ev) }) {
 		return true
 	}
 	return p.scroll.Handle(ev, p.Keys)
@@ -143,7 +142,7 @@ func (p *Viewport) Handle(ev input.Event) bool {
 
 // Do runs an action, the content's first and then the window's own. See [Doer].
 func (p *Viewport) Do(action keymap.Action) bool {
-	if doer, ok := p.content.(Doer); ok && doer.Do(action) {
+	if doer, ok := p.content.(Doer); ok && p.state.Forward(func() bool { return doer.Do(action) }) {
 		return true
 	}
 	return p.scroll.Do(action)
@@ -155,8 +154,5 @@ func (p *Viewport) Focus(has bool) {
 	if p == nil {
 		return
 	}
-	if !has {
-		p.scroll.matcher.Clear()
-	}
-	p.change(has, func() { p.settleOne(&p.holder, p.content) }, &p.holder)
+	p.change(has, func() { p.settleOne(&p.holder, p.content) }, &p.holder, &p.scroll.matcher)
 }

@@ -1,6 +1,8 @@
 package term
 
 import (
+	"errors"
+	"io"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -44,7 +46,7 @@ func TestProbeBudgetCoversTheQueryWrite(t *testing.T) {
 		deadline := time.Now().Add(answerGrace)
 		out := &blockedWriter{}
 		p := &probe{
-			raw:      make(chan []byte),
+			raw:      make(chan readResult),
 			out:      out,
 			stream:   input.NewStream(input.StreamConfig{}),
 			deadline: deadline,
@@ -72,7 +74,7 @@ func TestProbeBudgetIsOneBudgetForAskingAndAnswering(t *testing.T) {
 		start := time.Now()
 		deadline := start.Add(answerGrace)
 		p := &probe{
-			raw:      make(chan []byte),
+			raw:      make(chan readResult),
 			out:      slowWriter{until: start.Add(answerGrace * 3 / 4)},
 			stream:   input.NewStream(input.StreamConfig{}),
 			deadline: deadline,
@@ -97,4 +99,35 @@ func (slowWriter) SetWriteDeadline(time.Time) error { return nil }
 func (w slowWriter) WriteString(s string) (int, error) {
 	time.Sleep(time.Until(w.until))
 	return len(s), nil
+}
+
+func TestProbeHandsInputEndToThePump(t *testing.T) {
+	for _, cause := range []error{io.EOF, errors.New("read failed")} {
+		synctest.Test(t, func(t *testing.T) {
+			at := time.Now()
+			raw := make(chan readResult, 1)
+			raw <- readResult{data: []byte("x\x1b"), at: at, err: cause}
+			stream := &input.Stream{}
+			pr := &probe{raw: raw, out: slowWriter{until: at}, stream: stream, deadline: at.Add(answerGrace)}
+			pr.run()
+			if pr.end == nil || !errors.Is(pr.end.err, cause) {
+				t.Fatal("probe lost the final read")
+			}
+			out := make(chan input.Event, 2)
+			p := &pump{raw: raw, end: pr.end, stream: stream, early: pr.early, out: out}
+			err := p.run()
+			if errors.Is(cause, io.EOF) {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, cause) {
+				t.Fatal("pump lost the read failure")
+			}
+			first := (<-out).(input.Key)
+			last := (<-out).(input.Key)
+			if !first.IsRune('x', 0) || last.Code != input.Esc || !last.At.Equal(at) {
+				t.Fatalf("handover changed input: %+v, %+v", first, last)
+			}
+		})
+	}
 }

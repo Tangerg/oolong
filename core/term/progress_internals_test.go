@@ -127,3 +127,38 @@ func TestPausedClearStillClearsPublishedProgressBeforeHandover(t *testing.T) {
 		t.Fatalf("restore=%q", restored)
 	}
 }
+
+func TestRefusedProgressCannotAdvancePublishedState(t *testing.T) {
+	for _, path := range []string{"set", "restore", "repeat"} {
+		t.Run(path, func(t *testing.T) {
+			p := newTaskProgress()
+			refuse := func([]byte) uint64 { return 0 }
+			active := Progress{State: ProgressNormal, Percent: 20}
+			switch path {
+			case "set":
+				p.to(active, refuse)
+			case "restore":
+				p.pause()
+				p.to(active, refuse)
+				p.restore(refuse)
+			case "repeat":
+				p.pause()
+				p.to(active, refuse)
+				p.paused = false
+				p.repeat(refuse)
+			}
+			if p.current != active {
+				t.Fatal("refusal lost the desired progress value")
+			}
+			if got := p.leave(); got != "" {
+				t.Fatalf("refused publication created a cleanup obligation: %q", got)
+			}
+		})
+	}
+	p := newTaskProgress()
+	p.to(Progress{State: ProgressNormal}, func([]byte) uint64 { return 1 })
+	p.to(Progress{}, func([]byte) uint64 { return 0 })
+	if got := p.leave(); got != progressClear {
+		t.Fatalf("refused clear erased an existing cleanup obligation: %q", got)
+	}
+}

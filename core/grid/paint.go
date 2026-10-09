@@ -70,6 +70,7 @@ func (p *painter) begin() {
 		return
 	}
 	p.begun = true
+	p.out = append(p.out, osc8Close...)
 	p.out = append(p.out, sgrReset...)
 	p.sourceStyle = Style{}
 	p.style = wireStyle{}

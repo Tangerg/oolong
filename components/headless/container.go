@@ -106,8 +106,8 @@ type Container struct {
 	// an unnamed item follows its position, the same explicit identity rule used by
 	// retained component trees elsewhere.
 	focused int
-	// holder is the concrete child last told it had the keyboard. Keeping it beside
-	// the index lets Set release a removed child without comparing interface values.
+	// holder is published before focus callbacks. Keeping it beside the index lets
+	// Set release a removed child without comparing interface values.
 	holder Widget
 	focusState
 
@@ -115,12 +115,11 @@ type Container struct {
 	// frame. Identity belongs in the snapshot with geometry: if Items is reordered
 	// before the next draw, input still goes to what the user can actually see.
 	presentation Snapshot[[]childPlacement]
-	// held is the exact presented child a press was given to. Everything up to the
+	// capture is the exact presented child a press was given to. Everything up to the
 	// release goes back to it; a later frame may update its geometry when its identity
 	// is still demonstrably the same.
-	held       childPlacement
-	heldButton input.Button
-	holding    bool
+	capture pointerCapture[childPlacement]
+	hover   childPlacement
 	// slots is rebuilt every frame from the items and kept to save the allocation.
 	slots []layout.Slot
 	// matcher owns how far into a multi-chord binding the keys have got.
@@ -168,7 +167,7 @@ func (c *Container) Set(items ...Item) {
 		at = min(max(at, 0), len(c.items)-1)
 	}
 	c.focused = at
-	c.settled = false
+	c.state.Unsettle()
 	c.settle()
 }
 
@@ -181,7 +180,7 @@ func (c *Container) Add(items ...Item) *Container {
 		item.Key = strings.Clone(item.Key)
 		c.items = append(c.items, containerItem{Item: item, identity: new(byte)})
 	}
-	c.settled = false
+	c.state.Unsettle()
 	c.settle()
 	return c
 }
@@ -237,10 +236,7 @@ func (c *Container) FocusPrev() bool { return c.step(-1) }
 // to the child that holds it. A container is a widget like any other, so a container
 // inside a container is how an interface gets more than one row of panes.
 func (c *Container) Focus(has bool) {
-	if !has {
-		c.matcher.Clear()
-	}
-	c.change(has, c.settle, &c.holder)
+	c.change(has, c.settle, &c.holder, &c.matcher)
 }
 
 // Draw arranges the children and draws each into the room it got.
@@ -257,7 +253,7 @@ func (c *Container) drawWith(v Frame, flow layout.Flow, draw func(Frame, Widget)
 	placed := make([]childPlacement, len(items))
 	for i, item := range items {
 		placed[i] = childPlacement{
-			identity: item.identity, child: item.Of, area: rects[i],
+			identity: item.identity, child: item.Of, area: rects[i], visible: rects[i].Intersect(v.Visible()),
 		}
 	}
 	c.presentation.Stage(v, placed)
@@ -341,8 +337,8 @@ func (c *Container) handleChild(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		return c.mouse(mouse)
 	}
-	if handler, ok := c.holder.(Interactive); ok && handler.Handle(ev) {
-		return true
+	if handler, ok := c.holder.(Interactive); ok {
+		return c.state.Forward(func() bool { return handler.Handle(ev) })
 	}
 	return false
 }
@@ -360,46 +356,45 @@ func (c *Container) Do(action keymap.Action) bool {
 }
 
 func (c *Container) mouse(ev input.Mouse) bool {
-	if ev.Action == input.MouseDown {
-		// A new press begins a new gesture even if the terminal never reported the
-		// previous release. Clear before routing so a declined press cannot leave the
-		// old owner installed.
-		c.held = childPlacement{}
-		c.holding = false
+	held, turn := c.capture.begin(ev)
+	if !c.capture.current(turn) || ev.Action == input.MouseCancel {
+		return false
 	}
-	if c.holding {
+	if ev.Action == input.MouseLeave {
+		c.leave(ev)
+		return false
+	}
+	if held != nil {
 		switch ev.Action {
 		case input.MouseDrag, input.MouseUp:
-			owner := c.held
-			current, found := c.placed(owner)
-			if ev.Releases(c.heldButton) {
-				c.held = childPlacement{}
-				c.holding = false
-			}
+			current, found := c.placed(*held)
 			if !found || c.currentIndex(current) < 0 {
+				c.leave(ev)
 				return false
 			}
-			return c.deliver(current, ev)
+			return c.deliver(current, ev, turn)
 		default:
 		}
 	}
 	at, found := c.at(ev.Pos)
 	if !found || c.currentIndex(at) < 0 {
+		c.leave(ev)
 		return false
 	}
 	if ev.Action != input.MouseDown {
-		return c.deliver(at, ev)
+		return c.deliver(at, ev, turn)
 	}
 	// A press moves the keyboard whether or not the child does anything with the
 	// press itself: clicking a pane is how a user says they mean that one.
 	c.FocusIndex(c.currentIndex(at))
-	if !c.deliver(at, ev) {
+	if !c.capture.current(turn) {
 		return false
 	}
-	c.held = at
-	c.heldButton = ev.Button
-	c.holding = true
-	return true
+	if c.currentIndex(at) < 0 {
+		c.leave(ev)
+		return false
+	}
+	return c.capture.offer(turn, at, func() bool { return c.deliver(at, ev, turn) })
 }
 
 // deliver hands an event to a child, in the child's own coordinates.
@@ -407,7 +402,15 @@ func (c *Container) mouse(ev input.Mouse) bool {
 // The translation is the container's job for the same reason the clipping is: a
 // widget is handed a view whose origin is its own and reasons in it, so a position
 // that arrived in anybody else's coordinates would be a position it cannot use.
-func (c *Container) deliver(to childPlacement, ev input.Mouse) bool {
+func (c *Container) deliver(to childPlacement, ev input.Mouse, turn uint64) bool {
+	c.hoverTo(to, ev)
+	if !c.capture.current(turn) || c.hover.identity != to.identity || c.currentIndex(to) < 0 {
+		return false
+	}
+	return to.deliverPointer(ev)
+}
+
+func (to childPlacement) deliverPointer(ev input.Mouse) bool {
 	handler, ok := to.child.(Interactive)
 	if !ok {
 		return false
@@ -417,9 +420,26 @@ func (c *Container) deliver(to childPlacement, ev input.Mouse) bool {
 	return handler.Handle(local)
 }
 
+func (c *Container) leave(ev input.Mouse) {
+	c.hoverTo(childPlacement{}, ev)
+}
+
+func (c *Container) hoverTo(to childPlacement, ev input.Mouse) {
+	previous := c.hover
+	c.hover = to
+	if previous.identity == to.identity {
+		return
+	}
+	if handler, ok := previous.child.(Interactive); ok {
+		ev.Action = input.MouseLeave
+		ev.Pos = ev.Pos.Sub(previous.area.Min)
+		handler.Handle(ev)
+	}
+}
+
 func (c *Container) at(p image.Point) (childPlacement, bool) {
 	for _, child := range c.presentation.Value() {
-		if p.In(child.area) {
+		if p.In(child.visible) {
 			return child, true
 		}
 	}
@@ -466,6 +486,7 @@ type childPlacement struct {
 	identity *byte
 	child    Widget
 	area     image.Rectangle
+	visible  image.Rectangle
 }
 
 // currentIndex resolves a presented attachment, never an index from another frame.
@@ -485,7 +506,6 @@ func (c *Container) settle() {
 		want = c.first()
 	}
 	c.move(want)
-	c.settled = true
 }
 
 // move puts the keyboard on a child and takes it off everything else.
@@ -497,7 +517,7 @@ func (c *Container) move(to int) {
 	if !c.focusable(to) {
 		to = -1
 	}
-	if c.settled && to == c.focused {
+	if c.state.Settled() && to == c.focused {
 		return
 	}
 	from := c.holder
@@ -516,7 +536,7 @@ func (c *Container) move(to int) {
 		}
 	}
 	for i, item := range c.items {
-		if i != to {
+		if i != to && !identity.Same(item.Of, next) {
 			tell(item.Of, false)
 			if c.superseded(turn) {
 				return
@@ -524,7 +544,7 @@ func (c *Container) move(to int) {
 		}
 	}
 	if !kept {
-		tell(c.holder, !c.blurred)
+		tell(c.holder, c.state.Focused())
 	}
 }
 

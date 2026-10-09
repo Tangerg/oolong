@@ -289,6 +289,79 @@ type frameBytes struct{ b []byte }
 
 func (f *frameBytes) Write(p []byte) (int, error) { f.b = append(f.b, p...); return len(p), nil }
 
+func TestNestedHandoverCannotRestoreTheOuterChildsTerminal(t *testing.T) {
+	tty, _ := open(t, term.Config{})
+	var nested error
+	called := false
+	if err := tty.Hand(nil, func() error {
+		nested = tty.Hand(func() error { called = true; return nil }, func() error { called = true; return nil })
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if called || !errors.Is(nested, term.ErrHandoverActive) {
+		t.Fatal("nested Hand acquired and restored a terminal still owned by the outer child")
+	}
+}
+
+func TestHandoverPreparationFailureDoesNotChangeModesOrRunTheChild(t *testing.T) {
+	tty, primary := open(t, term.Config{AltScreen: true})
+	read(t, primary, 200*time.Millisecond)
+	cause := errors.New("finish interface failed")
+	called := false
+	err := tty.Hand(func() error { return cause }, func() error { called = true; return nil })
+	if called || !errors.Is(err, cause) {
+		t.Fatalf("failed preparation handed over: child=%v error=%v", called, err)
+	}
+	if output := read(t, primary, 50*time.Millisecond); strings.Contains(output, "\x1b[?1049l") {
+		t.Fatalf("preparation failure released interface modes: %q", output)
+	}
+	if err := tty.Hand(nil, func() error { called = true; return nil }); err != nil || !called {
+		t.Fatalf("preparation failure retained its claim: child=%v error=%v", called, err)
+	}
+}
+
+func TestClosingDuringHandoverCannotReenterTerminalModes(t *testing.T) {
+	tty, primary := open(t, term.Config{AltScreen: true})
+	read(t, primary, 100*time.Millisecond)
+	err := tty.Hand(nil, func() error { return tty.Close() })
+	if !errors.Is(err, term.ErrClosed) {
+		t.Fatalf("Hand after child closed session = %v, want ErrClosed", err)
+	}
+	if output := read(t, primary, 100*time.Millisecond); strings.Contains(output, "\x1b[?1049h") {
+		t.Fatalf("closed session reentered alternate screen: %q", output)
+	}
+	called := false
+	if err := tty.Hand(nil, func() error { called = true; return nil }); called || !errors.Is(err, term.ErrClosed) {
+		t.Fatalf("Hand on closed session called child = %v, error = %v", called, err)
+	}
+}
+
+func TestConcurrentHandoverCannotReplaceAnActiveClaim(t *testing.T) {
+	tty, _ := open(t, term.Config{})
+	entered, finish := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- tty.Hand(nil, func() error { close(entered); <-finish; return nil })
+	}()
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("first Hand did not run its child: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("first Hand did not enter its child")
+	}
+	called := false
+	err := tty.Hand(nil, func() error { called = true; return nil })
+	close(finish)
+	if handErr := <-done; handErr != nil {
+		t.Fatal(handErr)
+	}
+	if called || !errors.Is(err, term.ErrHandoverActive) {
+		t.Fatalf("concurrent Hand called child = %v, error = %v", called, err)
+	}
+}
+
 func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	// The session records the modes it turned on and unwinds them in the opposite
 	// order, which is what closing does — so handing the terminal to a child is that
@@ -310,7 +383,7 @@ func TestATerminalHandedOverIsGivenBackWholeAndTakenBackWhole(t *testing.T) {
 	read(t, primary, 200*time.Millisecond)
 
 	typed := make(chan string, 1)
-	err = tty.Hand(func() error {
+	err = tty.Hand(nil, func() error {
 		// The sequences are written out here rather than read from the package: what
 		// is asserted is what a terminal is sent, and a test that asked the code what
 		// it sends would pass whatever it happened to send.
@@ -389,7 +462,7 @@ func TestAPanickingChildStillReturnsTerminalOwnership(t *testing.T) {
 	var handErr error
 	func() {
 		defer func() { panicked = recover() != nil }()
-		handErr = tty.Hand(func() error { panic("child failed") })
+		handErr = tty.Hand(nil, func() error { panic("child failed") })
 	}()
 	if errors.Is(handErr, errors.ErrUnsupported) {
 		t.Skip("a reader cannot be taken off the terminal here")

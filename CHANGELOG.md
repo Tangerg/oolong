@@ -16,6 +16,348 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 these modules are pre-1.0: anything exported may still change, and that is the
 point of tagging them low rather than not at all.
 
+## [Unreleased]
+
+## [0.22.0] — 2026-10-09
+
+### Fixed
+
+- The asynchronous terminal Writer ends admission and accounts for every accepted
+  frame when its destination exits the writing goroutine without returning.
+  It releases queued payloads and reports the interruption through its existing
+  failure and progress boundary, so Run returns the cause instead of waiting for input.
+  The SSH reader similarly delivers accepted input before closing its event stream
+  with an interruption error when the session Read exits without returning.
+- Command-backed output keeps process waiting and pipe collection with `exec.Cmd`.
+  The run example and API ledger stop collecting inherited output pipes one second
+  after process exit or cancellation instead of waiting indefinitely for a descendant.
+  Incomplete collection reports an error; the run example still delivers accepted
+  bytes before final completion.
+- The streaming example replaces its open Markdown projection even when it is
+  empty, and source completion finishes an existing transcript tail even when
+  Flush produces no visible blocks. Empty comments cannot leave stale text or
+  block later scrollback publication. Streaming and agent examples use the open
+  document itself as the sole record of that tail's lifetime.
+- Field focus reception has its own lifetime, shared by Text, Select, MultiSelect
+  and Confirm. Answer normalization or a newer edit cannot refuse a parent's focus
+  notification. A later focus transfer revokes an old blur check before it starts,
+  including an away-and-back transfer; repeating the same focus state does not
+  create a new one. A started check still belongs to its checked answer.
+- Architecture checks derive module membership from `scripts/modules.sh` for
+  import attribution, manifest coverage and the shared language floor. Dependency
+  grants govern imports only; they cannot declare a second module inventory.
+- ANSI Scanner transfers buffered input to the active scan before visiting it.
+  Completed pieces cannot remain pending or replay after a visitor panic. An active
+  visitor cannot independently Feed or Reset the same scanner.
+- Terminal title and native-progress restoration records advance only after writer
+  admission. A refused title cannot create a stack pop or replace the accepted title;
+  a refused progress clear cannot erase an existing cleanup obligation.
+- Programtest Host input owns admission and its stopped transition. Close waits for
+  one shared settlement and preserves writer delivery failures on repeated calls.
+  Send routes resize events through Resize; size and ordered resize admission change
+  together, and refused input cannot change reported geometry.
+- Runtime capabilities share the program's task-queue lifetime. Run completion or
+  builder failure revokes retained Clipboard, Session, Images and InlineRuntime
+  operations, including when the supplied host remains open. Environment samples
+  startup facts once before application construction; components and canvas use
+  the same immutable record, which remains readable after Run.
+- Screen and Inline keep composition and settlement exclusive through drawable,
+  append, painter and writer callbacks. Reentrant canvas mutation cannot replace
+  scratch rows, pending output, frame buffers or terminal anchors. Abnormal private
+  composition is invalidated for retry; an abnormal destination write permanently
+  ends publication because its externally written prefix is unknown.
+- Host handover claims cover interface preparation before any child runs or modes
+  change. A refused nested handover cannot draw an inline interface over the child
+  that already owns the terminal.
+- PTY Close preserves reader, process and teardown errors. Group termination never
+  degrades to killing only the leader, and a failed termination does not wait
+  indefinitely for that process. PTY EOF rules no longer suppress process errors.
+- Child input that changes its routing attachment or outer focus consumes the old
+  key or action, even after an away-and-back transition. Container, Tabs, Viewport,
+  Stack and framed parts cannot apply that old decline to the replacement scope.
+  Root uses the identity of its committed tree, preserving ordinary bubbling while
+  a replacement is still pending.
+- Markdown Stream owns unpublished source and cache throughout rendering. Renderer
+  callbacks cannot replace either through reentrant stream operations; a renderer
+  panic releases the active operation without discarding the unpublished source.
+- Terminal Hand claims one handover lifetime before changing modes or parking input.
+  Nested and concurrent calls cannot replace its reader latch or reacquire another
+  child's terminal. A session closed by the child is not resumed afterwards.
+- Search results carry their submission lifetime through delivery to the event
+  owner. Repeated query text, corpus or mode changes, clearing, nil transcripts and
+  Close invalidate old results, including ones already taken from Results.
+- Writer admission is the sole authority for accepting output. Refused calls return
+  zero without reserving a frame sequence; only the FIFO worker settles accepted
+  frames. Terminal and SSH clipboard operations report actual admission, and a
+  refused read cannot authorize a clipboard answer. Terminal directory reports,
+  image transmission and release return the writer's cause instead of false success.
+- Controlled field validation checks the state its binding actually accepted. A
+  refused canonicalization cannot validate a one-line, available-choice or set
+  projection while leaving a different invalid value in application storage.
+- Field binding references are private. Construction supplies one accessor through
+  Config; SetBinding is the sole ownership transfer, revoking old commands, key
+  sequences and validation. Text also abandons the old selection and history, so a
+  clipboard or normalization callback cannot apply an old edit to a new owner.
+- Select and MultiSelect settle projections from the current owner after accessor
+  callbacks, including transfers to local state. Select compares the live answer
+  before writing instead of caching a second acceptance record. MultiSelect stops
+  commands superseded during normalization and does not resubmit an unfinished
+  normalization from a reentrant Sync.
+- Field checks cannot publish a result for an answer changed by their callback,
+  including a caller-written accessor change. They return ErrValidationSuperseded
+  and retain the last published result.
+- Form submission retains field-owned validation receipts through later field and
+  form callbacks. An answer change or a newer validation invalidates its receipt;
+  the interrupted submission cannot publish a cross-field result or call Done.
+- Field validation and spoken replies share one publication owner. Reentrant checks
+  or replies revoke the interrupted result, including parsing errors. Form collection
+  replacement, additions, cancellation and newer submissions revoke the old submission before
+  another check or completion callback can run.
+- Controlled Text settles an offered edit before a reentrant operation can change
+  its cursor, history or answer. The interrupted call cannot roll back a newer cursor,
+  overwrite a newer edit or offer that edit a second time. Cut removes only the
+  unchanged content and selected range accepted by its clipboard callback.
+  Transferring Text to another accessor discards the old owner's undo history and
+  cannot settle a newer edit using the previous accessor's result.
+- Completion acceptance stops if resolver cancellation installs a newer offer while
+  closing the old one. The new candidate and token cannot inherit old acceptance.
+- Pointer routing publishes the proposed recipient before invoking child input.
+  Reentrant presses and releases revoke the interrupted proposal; a new press sends
+  cancellation to the previous control, including a pending recipient. Root,
+  Container, PointerRegion and Stack share one capture transition. Stack base and
+  modal routing no longer keep separate competing capture state.
+- Root, Container, PointerRegion and Stack reject new input in clipped parts of
+  their committed frames while preserving an accepted gesture outside those bounds.
+- Filter and Table cancel old key resolvers after the complete derived collection
+  and cursor replacement. Filter reads no longer rebuild its match projection;
+  the source and pattern setters are its sole rebuilding boundary.
+- Settings and Stack stop interrupted key dispatch when a context reset starts newer
+  matching. Cancellation cannot consume that newer sequence with the older key.
+- Agent review screenshot tests use virtual time, so scheduler load cannot change
+  their animation frame or elapsed-time label.
+- Field wrappers forward pointer lifetime events to their inner editor or list.
+  Outside releases, new presses and blur end the accepted gesture. Presses and
+  wheels use the control's committed visible area, including horizontal clipping.
+- Aliased attachments to one pane do not issue competing focus notifications in
+  Container, Tabs or Stack, including a base shared with the top modal.
+- Focus loss and collection replacement revoke matching before mutation and invoke
+  the old resolver cancellation after the coherent change. A reentrant cancellation
+  cannot restore an older focus or overwrite a newer collection. Stack keyboard
+  routing reads its focus holder and admits keys only after that holder is presented.
+- Keymap callbacks that cancel, replace or reenter a matcher revoke the interrupted
+  dispatch. A resolver cancellation cannot erase its newly installed sequence.
+- Presenter consumes only the requests present before drawing. Callback requests
+  remain pending for the next frame, including full repaints and failed draws.
+  Throttled callback requests pace from the frame being composed; a failed draw
+  retains the earlier request's deadline rather than waiting behind a newer one.
+- Transcript retires each accepted block before publishing another, so later
+  callback failure cannot restore already accepted output. Storage compaction
+  follows the complete commit and releases every retired payload reference.
+- Focus transfers publish their holder before child callbacks. A replacement or
+  outer focus change during notification cannot revive an interrupted child; a
+  click cannot activate an attachment removed by its focus callback.
+- List dragging requires an accepted primary-button press. Routers invalidate the
+  previous child's hover when the route changes, preserving an accepted capture.
+- Markdown streams retain parsed list and quote containers across blank lines, so
+  transport chunks do not change loose ordered-list numbering.
+- Terminal and SSH input preserve read-completion timestamps through backpressure
+  and end-of-input draining. Stream deadlines settle ambiguity by arrival time.
+  Expiring an oversized control string also settles its trailing escape.
+- Quoted HTTP, HTTPS and www destinations retain URL classification and bypass file
+  existence checks. Formula fallback rows use the same printable text as drawing;
+  escape scanning advances once through each source byte.
+- Dependabot discovers Go manifests instead of maintaining a separate module list.
+  Documentation lint uses the markdownlint API and native Node globbing, removing
+  the CLI's vulnerable dependency chain and its package overrides. The math
+  extension's KaTeX resolution uses the upstream security release 0.18.2 until the
+  extension accepts that fixed series itself; remove the scoped version constraint
+  when its dependency range does so. No advisory findings remain, and the audit
+  threshold is unchanged.
+- `headless.Pointer` declines a release that explicitly names another button and
+  keeps the current capture. Root, Container, Stack and PointerRegion retain that
+  same button association when routing the rest of a gesture. `ButtonNone` on release
+  ends the current capture. Dragging outside and back keeps its existing click contract.
+- Editor and Transcript text selection keep a left-button drag active when another
+  button is released. They end the drag only for a left or unspecified release.
+- List pointer selection uses its committed visible rectangle as well as its row
+  projection. Points beyond either horizontal edge or a frame's clip cannot select
+  hidden rows.
+- The composer example retains complete drafts in History. Two paste chips with the
+  same displayed label keep their own payloads; a text-keyed attachment map no longer
+  overwrites the older entry.
+
+### Added
+
+- `term.ErrHandoverActive` identifies a refused nested or concurrent Hand call.
+- `headless.Result.Current` is a pure receipt for Search's latest submission. Check
+  it on the transcript owner immediately before applying an asynchronous result.
+- `headless.ErrInvalidBinding` reports an owner that rejects normalization and retains
+  a value outside the field's domain. Validate and Reply cannot approve that projection.
+- `headless.NewText`, `headless.NewSelect`, `headless.NewMultiSelect` and
+  `headless.NewConfirm` accept the corresponding Config structs. SetBinding transfers
+  an existing field to an accessor or retains its accepted answer locally with nil.
+- `headless.Field.Validation` returns a pure receipt for the last successful field
+  check. It becomes invalid when another check begins or its answer is no longer current.
+- `headless.ErrValidationSuperseded` distinguishes an interrupted Validate or Reply
+  from a published validation failure. The field retains its last published result.
+- `input.MouseCancel` ends a routed pointer gesture without a release or click.
+  Built-in controls end dragging or capture when they receive it.
+- `keymap.Matcher.Reset` scopes a consumer transition between abandoning matching
+  and canceling the old resolver. Cancellation cannot erase new matching installed
+  during the transition. Stateful focus and collection owners use this boundary.
+
+- `input.MouseLeave` is a router-generated hover invalidation event. Pointer retains
+  its accepted gesture and completed click when it receives that event.
+- `input.Mouse.Drags` matches drag reports to the captured button, including an
+  unspecified button. Pointer, List, Editor and Transcript share the same rule.
+- `input.Mouse.Releases` owns matching a release to a captured button, including an
+  unspecified release. Pointer, routing and text selection share that event query.
+- `headless.List.Hit` and `headless.Filter.Hit` query the last committed frame without
+  moving the selection or scroll position. Filter returns a matched-result index.
+  Replacing a collection invalidates its old hits until the next committed draw.
+- `program.Dispatcher.Invoke` gives workers completion and error acknowledgement on
+  the existing owner queue. Cancellation can withdraw unclaimed work; claimed work
+  finishes before the caller returns. Callback panic still unwinds the program while
+  releasing the waiter with `program.ErrInvocationAborted`. Invoke is worker-only and
+  does not acknowledge terminal frame delivery. `Post` remains non-blocking.
+
+### Changed
+
+- Renderer callbacks may read Stream.Look, but calling Feed, Open, Flush, Reset or
+  SetLook on the same Stream during rendering now panics. Render a separate stream
+  or schedule source changes after the current rendering returns.
+- History stores generic values with explicit clone and equality policies. Capacity,
+  traversal, draft restoration and search share one implementation. Applications own
+  empty-message rules, persistence and the meaning of attachment identity.
+- Repository examples and the English and Chinese guides use the new contracts.
+  Downstream applications must migrate their own history and completion-wait code;
+  their operation, session and activation policies remain application-owned.
+
+### Breaking API migration
+
+#### components
+
+- `headless.Result` includes private submission ownership. Use keyed literals for
+  manually constructed values; they are never current. Results received from Search
+  must pass Current on the event owner before application. Query is display text,
+  not request identity; a nil transcript now cancels earlier work.
+- `headless.Field.Validation` adds the required `Validation() func() bool` method.
+  Custom fields return nil
+  without a current successful check; otherwise return a pure receipt bound to that
+  check and answer. A later Validate or Reply must invalidate older receipts. Form
+  uses the receipts to reject answers changed after their individual checks.
+- `headless.Text.Value`, `headless.Select.Value`, `headless.MultiSelect.Value` and
+  `headless.Confirm.Value` are removed. Construct controlled fields with NewText,
+  NewSelect, NewMultiSelect or NewConfirm and their Config.Value. Replace bindings
+  through SetBinding. A transfer cancels old key sequences and validation; Text
+  starts a new history and clears its selection. Accessors need no identity or
+  comparability requirement because the transfer boundary owns their lifetime.
+- `headless.(*MultiSelect[T]).Sync` now returns bool, reporting whether normalization
+  retained ownership through accessor callbacks. Update method values and interfaces;
+  false revokes any further dispatch belonging to the interrupted operation.
+- `headless.(*Completion).Dismiss` now returns bool. A newer Offer or Dismiss during
+  resolver cancellation returns false; consumers must then stop operations tied to
+  the dismissed offer. Update method values and interfaces to the result-bearing
+  signature. Validate and Reply may return `headless.ErrValidationSuperseded`, and
+  Form Submit returns false after collection replacement, cancellation or reentry.
+- Field checks also return `headless.ErrValidationSuperseded` when their callback
+  changes the checked answer. MultiSelect Do and Toggle return false if Sync starts
+  a newer semantic operation before dispatch; Handle consumes that interrupted event.
+- Custom pointer controls must handle `input.MouseCancel` by ending their current
+  gesture without activation. Routers send it before a replacement press, including
+  when the previous press's handler is still running. `Pointer.Handle` handles it
+  directly; `MouseLeave` continues to invalidate hover while retaining capture.
+- Filter's text projection must be pure and stable until the next SetItems. SetItems
+  and SetPattern publish the complete matches; reads and drawing only observe them.
+- Stack key and paste events are admitted only when the current focus holder is
+  presented. After Push or SetBase, input cannot mutate the blurred old child or
+  dismiss an unseen replacement before the next draw. Pointer input uses committed
+  geometry.
+
+- `headless.(*Transcript).Commit` callbacks may only read the transcript; Append,
+  Changed, Finish, Stage and nested Commit panic during publication. If a callback
+  exits abnormally, its output result is unknown and this transcript cannot be
+  reused for mutation or publication. Each earlier accepted block remains retired.
+
+- `headless.Stack.Push` rejects `DialogContent`, including embedding wrappers, with
+  a panic before insertion. Use the owning Dialog's Show, Dismiss and Sync methods;
+  independent insertion would create a second owner of dialog membership.
+- Custom pointer controls receive `input.MouseLeave` when routing moves away. Clear
+  hover on that event without canceling accepted capture. List drag handlers now
+  decline a drag without an accepted primary-button press.
+- `headless.History` is now `History[T]`. Use `NewHistory(HistoryConfig[T]{...})` to
+  configure `Clone`, `Equal` and `Limit`. `Clone: nil` uses assignment and is suitable
+  only when sharing referenced data is safe; mutable payloads need a deep clone.
+  `Equal: nil` retains consecutive duplicates. For strings, select
+  `Equal: headless.Equal[string]`; use `Clone: strings.Clone` when retained substrings
+  must release their backing storage. Empty values are recorded: filter application
+  empty submissions before calling Add.
+- `headless.(*History).Add`, `headless.(*History).At`, `headless.(*History).Back`,
+  `headless.(*History).Forward` and `headless.(*History).Cancel` now accept or return
+  the retained value type. A returned draft transfers ownership back to the caller;
+  retained entry reads use the configured clone.
+- `headless.(*History).Recall` now takes a read-only text projection and returns
+  `Recalled[T]`. String callers pass `func(s string) string { return s }`.
+  `headless.Recalled` and `headless.Recalled.Entry` carry the original value type;
+  `At` offsets refer to the projected search text. Remove text-keyed payload maps
+  and duplicate history cursors when adopting the typed history.
+
+#### core
+
+- `ansi.Scanner.Feed` and `ansi.Scanner.Reset` now panic if called by that scanner's
+  active visitor. Feed consumes its buffered input before invoking visitors, and an
+  abnormal visitor exit discards the remaining input just as a returned error does.
+  Schedule further input or reset after Feed returns; Pending remains a pure read.
+- `programtest.Host.Send` applies Resize events through the validated Host.Resize
+  transition. Inject malformed transport geometry with a custom program.EventSource;
+  the normal test host refuses it. Host.Close now reports delivery failures as well
+  as teardown failures, including on repeated or concurrent calls.
+- `program.HandoverHost.Hand` and `term.(*Terminal).Hand` now take
+  `(prepare, run func() error)`. Implementations claim exclusive ownership before
+  prepare, retain interface modes through preparation, and restore before releasing
+  the claim. Return preparation errors without running the child. Direct terminal
+  callers with no preparation pass nil; `program.Session.Hand` keeps its signature.
+- `program.Runtime` owner operations and retained `program.Clipboard`,
+  `program.Session` and `program.Images` become inert after Run or builder failure.
+  `program.Environment` and Runtime.Environment retain immutable startup facts
+  rather than querying a live host. Cleanup
+  that must outlive Run uses the explicitly owned Host or Terminal. The Mermaid
+  example releases its images through that host before closing the terminal.
+- Screen and Inline mutations during publication callbacks panic. Callbacks may
+  read the canvas and draw into the supplied view; defer new canvas operations
+  until the enclosing publication returns.
+- `clipboard.(*Channel).Request` now takes `(sel Selection, send func(string) bool)`
+  and returns bool. The callback synchronously admits the encoded sequence without
+  waiting for delivery or reentering Channel. Only true creates a live request;
+  callers no longer arm ownership separately from transport admission.
+- `term.(*Writer).Queue` returns zero on refused admission; the caller retains its
+  bytes and Err reports the cause. Queued counts accepted frames only. Custom
+  `program.FrameWriter` implementations must expose a non-nil Err before returning zero.
+  Terminal ReportDirectory, Transmit and ReleaseImage return that cause, and a
+  refused Transmit returns no image handle. Success means queued, not delivered.
+- `keymap.(*Matcher).Reset` returns whether matching remained current through the
+  transition and cancellation. Input dispatch must stop when it returns false;
+  setters may ignore the result after their complete state replacement.
+- `clipboard.(*Channel).Answer` now takes `(params string, at time.Time)`;
+  `input.OSC.Paste` takes `(channel *clipboard.Channel, at time.Time)`. Pass the
+  transport read-completion time rather than the time of decoding. Request
+  eligibility is the half-open interval from its issue time to its deadline.
+- `present.(*Presenter).Present` panics on reentry during its draw callback.
+  Requests from that callback belong to a subsequent frame.
+
+- `grid.(*Screen).Flush`, `grid.(*Inline).Flush` and `grid.(*Inline).Finish` preserve
+  the first destination write failure and reject later publication with that error.
+  Invalidate cannot recover an unknown partial terminal write. End the session and
+  let the host decide how to start a new one. Failures while composing private bytes
+  before writing remain retryable. Frames establish a closed OSC 8 hyperlink baseline.
+- `term.(*Writer).Err` reports `term.ErrClosed` on refused admission after a clean
+  Close, preserving any earlier destination error. A program with undelivered
+  accepted output returns the failure.
+- Custom `input.Stream` drivers must record Feed's timestamp when the read completes,
+  before queueing it, and pass the final read time to Flush. Data and end-of-input
+  must preserve read order. Arrival at or after a pending deadline settles the old ambiguity
+  first; Expire before DueAt leaves it pending.
+
 ## [0.21.0] — 2026-09-24
 
 A second, third and fourth repair pass over the same audit. A review of v0.20.0 found

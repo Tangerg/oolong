@@ -27,7 +27,7 @@ type Accessor[T any] interface {
 // control operation.
 //
 //	var name string
-//	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
+//	field := headless.NewText(headless.TextConfig{Label: "Name", Value: headless.Bind(&name)})
 func Bind[T any](p *T) Accessor[T] {
 	if p == nil {
 		panic("headless: nil binding pointer")
@@ -74,8 +74,8 @@ func (v *ownedValue[T]) set(value T) bool {
 }
 
 // valueState is the single scalar-ownership behavior. Constructed controllers carry
-// their accessor inside ownedValue; zero-value form fields keep configuration public
-// and supply it to these methods. In either shape, a binding is the value and local
+// their accessor inside ownedValue; form fields own their binding and supply it to
+// these methods. In either shape, a binding is the value and local
 // storage is dormant rather than a synchronized shadow copy.
 type valueState[T comparable] struct{ local T }
 

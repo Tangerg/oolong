@@ -11,11 +11,14 @@ import (
 
 func TestEditorSelectionWaitsForItsPressedButton(t *testing.T) {
 	for _, release := range []struct {
-		name   string
-		button input.Button
+		name    string
+		button  input.Button
+		action  input.MouseAction
+		handled bool
 	}{
-		{name: "left", button: input.ButtonLeft},
-		{name: "unspecified", button: input.ButtonNone},
+		{name: "left", button: input.ButtonLeft, action: input.MouseUp, handled: true},
+		{name: "unspecified", button: input.ButtonNone, action: input.MouseUp, handled: true},
+		{name: "cancel", button: input.ButtonNone, action: input.MouseCancel},
 	} {
 		t.Run(release.name, func(t *testing.T) {
 			var editor headless.Editor
@@ -33,8 +36,8 @@ func TestEditorSelectionWaitsForItsPressedButton(t *testing.T) {
 			if !root.Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDrag, Button: input.ButtonLeft}) || editor.Selected() != "bcde" {
 				t.Fatalf("another button's release ended the editor drag: selected %q", editor.Selected())
 			}
-			if !root.Handle(input.Mouse{Pos: image.Pt(-1, 0), Action: input.MouseUp, Button: release.button}) {
-				t.Fatal("the matching release outside the editor was declined")
+			if handled := root.Handle(input.Mouse{Pos: image.Pt(-1, 0), Action: release.action, Button: release.button}); handled != release.handled {
+				t.Fatalf("ending gesture returned %v, want %v", handled, release.handled)
 			}
 			if root.Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDrag, Button: input.ButtonLeft}) || editor.Selected() != "bcde" {
 				t.Fatal("a released editor drag resumed or changed its selection")

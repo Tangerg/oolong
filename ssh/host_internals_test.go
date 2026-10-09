@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	charmssh "charm.land/ssh"
@@ -14,6 +15,53 @@ import (
 	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/core/term"
 )
+
+func TestSourcePreservesReadTimesUnderBackpressure(t *testing.T) {
+	for _, eof := range []bool{false, true} {
+		synctest.Test(t, func(t *testing.T) {
+			reader, writer := io.Pipe()
+			defer func() {
+				if err := reader.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
+			defer func() {
+				if err := writer.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
+			source := newEventSource(t.Context().Done(), reader, nil, nil, nil)
+			defer source.Close()
+			if _, err := writer.Write([]byte("x")); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			first := time.Now()
+			if _, err := writer.Write([]byte("\x1b[<0;1;1M")); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			time.Sleep(time.Second)
+			second := time.Now()
+			if _, err := writer.Write([]byte("\x1b[<0;1;1M")); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			if eof {
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				synctest.Wait()
+			}
+			<-source.Events()
+			a := (<-source.Events()).(input.Mouse)
+			b := (<-source.Events()).(input.Mouse)
+			if !a.At.Equal(first) || !b.At.Equal(second) || b.At.Sub(a.At) != time.Second {
+				t.Fatalf("eof=%v: read times lost: %v, %v", eof, a.At, b.At)
+			}
+		})
+	}
+}
 
 func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	var output strings.Builder
@@ -35,7 +83,7 @@ func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	}
 	written := output.String()
 	wantCopy, _ := (&clipboard.Channel{}).Copy(clipboard.System, "copied remotely")
-	wantPaste, _ := (&clipboard.Channel{}).Request(clipboard.System)
+	wantPaste := "\x1b]52;c;?\x1b\\"
 	for name, sequence := range map[string]string{"copy": wantCopy, "paste": wantPaste} {
 		if !strings.Contains(written, sequence) {
 			t.Errorf("client %s sequence was not written: %q", name, written)
@@ -43,11 +91,27 @@ func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	}
 }
 
+func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
+	h := &host{writer: term.NewWriter(io.Discard), clip: &clipboard.Channel{}}
+	if err := h.writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if h.Copy("must remain selected") {
+		t.Fatal("a closed SSH writer accepted a clipboard command")
+	}
+	if h.Paste() {
+		t.Fatal("a closed SSH writer accepted a paste request")
+	}
+	if _, ok := h.clip.Answer("c;dGV4dA==", time.Now()); ok {
+		t.Fatal("a refused paste authorized an unsolicited answer")
+	}
+}
+
 func TestEventSourceTurnsOnlyTheRequestedClipboardAnswerIntoPaste(t *testing.T) {
 	reader := make(chanReader)
 	windows := make(chan charmssh.Window)
 	clip := &clipboard.Channel{}
-	if _, ok := clip.Request(clipboard.System); !ok {
+	if !clip.Request(clipboard.System, func(string) bool { return true }) {
 		t.Fatal("clipboard request was refused")
 	}
 	source := newEventSource(t.Context().Done(), reader, windows,
@@ -226,11 +290,6 @@ func receiveEvent(t *testing.T, events <-chan input.Event) input.Event {
 	}
 }
 
-type readResult struct {
-	data []byte
-	err  error
-}
-
 type chanReader chan readResult
 
 func (r chanReader) Read(p []byte) (int, error) {
@@ -239,3 +298,39 @@ func (r chanReader) Read(p []byte) (int, error) {
 }
 
 var _ io.Reader = chanReader(nil)
+
+func TestSourcePreservesInputEndTimeUnderBackpressure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		reader, writer := io.Pipe()
+		defer func() {
+			if err := reader.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
+		defer func() {
+			if err := writer.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
+		source := newEventSource(t.Context().Done(), reader, nil, nil, nil)
+		defer source.Close()
+		if _, err := writer.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		ended := time.Now()
+		if _, err := writer.Write([]byte("\x1b")); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		time.Sleep(time.Second)
+		<-source.Events()
+		key := (<-source.Events()).(input.Key)
+		if key.Code != input.Esc || !key.At.Equal(ended) {
+			t.Fatalf("end stamped with decoding time: %+v; want %v", key, ended)
+		}
+	})
+}

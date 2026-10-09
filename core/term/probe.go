@@ -91,7 +91,7 @@ type queryWriter interface {
 // terminal. An Escape pressed while the questions were in flight would come back as
 // the Alt-modified form of whatever the user typed next.
 type probe struct {
-	raw    <-chan []byte
+	raw    <-chan readResult
 	out    queryWriter
 	stream *input.Stream
 	// deadline is when the whole exchange must be over, asking included. It is set
@@ -102,6 +102,7 @@ type probe struct {
 
 	// early holds what was decoded during the probe and was not an answer.
 	early []input.Event
+	end   *readResult
 }
 
 // answers is what a terminal was willing to say about itself.
@@ -153,11 +154,14 @@ func (p *probe) run() answers {
 	for !got.hasAttrs {
 		due.Schedule(p.stream.DueAt())
 		select {
-		case chunk := <-p.raw:
-			for _, ev := range p.stream.Feed(chunk, time.Now()) {
-				p.take(ev, &got)
+		case result := <-p.raw:
+			if !p.read(result, &got) {
+				return got
 			}
 		case <-due.Channel():
+			if !p.drainRaw(&got) {
+				return got
+			}
 			for _, ev := range p.stream.Expire(time.Now()) {
 				p.take(ev, &got)
 			}
@@ -166,6 +170,31 @@ func (p *probe) run() answers {
 		}
 	}
 	return got
+}
+
+func (p *probe) read(result readResult, got *answers) bool {
+	for _, ev := range p.stream.Feed(result.data, result.at) {
+		p.take(ev, got)
+	}
+	if result.err != nil {
+		result.data = nil
+		p.end = &result
+		return false
+	}
+	return true
+}
+
+func (p *probe) drainRaw(got *answers) bool {
+	for {
+		select {
+		case result := <-p.raw:
+			if !p.read(result, got) {
+				return false
+			}
+		default:
+			return true
+		}
+	}
 }
 
 // take files one decoded event: as an answer if it is one, and otherwise as input

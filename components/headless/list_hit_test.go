@@ -9,6 +9,78 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
+func TestListDragRequiresAnAcceptedPrimaryGesture(t *testing.T) {
+	for _, ending := range []string{"orphan", "right", "release", "cancel", "new press", "blank press", "replacement", "absence", "blur"} {
+		t.Run(ending, func(t *testing.T) {
+			var list headless.List[int]
+			list.SetItems([]int{0, 1, 2})
+			root := headless.NewRoot(&list)
+			view := grid.NewSurface(4, 4).View()
+			root.Draw(view)
+			mouse := func(action input.MouseAction, button input.Button, y int) bool {
+				return list.Handle(input.Mouse{Action: action, Button: button, Pos: image.Pt(1, y)})
+			}
+			if ending != "orphan" && ending != "right" && ending != "blank press" {
+				if !mouse(input.MouseDown, input.ButtonLeft, 0) {
+					t.Fatal("primary press refused")
+				}
+			}
+			switch ending {
+			case "right", "new press":
+				mouse(input.MouseDown, input.ButtonRight, 0)
+			case "release":
+				mouse(input.MouseUp, input.ButtonLeft, 0)
+			case "cancel":
+				mouse(input.MouseCancel, input.ButtonNone, -1)
+			case "blank press":
+				if mouse(input.MouseDown, input.ButtonLeft, 3) {
+					t.Fatal("blank press accepted")
+				}
+			case "replacement":
+				list.SetItems([]int{3, 4, 5})
+				root.Draw(view)
+			case "absence":
+				root.Draw(grid.NewSurface(0, 0).View())
+				root.Draw(view)
+			case "blur":
+				list.Focus(false)
+			}
+			for _, button := range []input.Button{input.ButtonRight, input.ButtonLeft, input.ButtonNone} {
+				if mouse(input.MouseDrag, button, 2) || list.Selected() != 0 {
+					t.Fatalf("%v drag selected %d without an accepted primary press", button, list.Selected())
+				}
+			}
+		})
+	}
+}
+
+func TestSelectDeclinedPressCannotWriteThroughDrag(t *testing.T) {
+	value := "a"
+	selectField := headless.NewSelect(headless.SelectConfig[string]{Value: headless.Bind(&value), Same: headless.Equal[string]})
+	selectField.SetOptions(headless.Options("a", "b", "c"))
+	headless.NewRoot(selectField).Draw(grid.NewSurface(8, 3).View())
+	selectField.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonRight})
+	selectField.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonRight, Pos: image.Pt(0, 2)})
+	if value != "a" {
+		t.Fatalf("declined gesture wrote %q", value)
+	}
+}
+
+func TestListPrimaryDragSurvivesAnUnrelatedRelease(t *testing.T) {
+	var list headless.List[int]
+	list.SetItems([]int{0, 1, 2})
+	headless.NewRoot(&list).Draw(grid.NewSurface(4, 3).View())
+	list.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+	list.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonRight})
+	if !list.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonNone, Pos: image.Pt(1, 2)}) || list.Selected() != 2 {
+		t.Fatal("an unrelated release canceled the accepted primary drag")
+	}
+	list.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonNone})
+	if list.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonLeft}) || list.Selected() != 2 {
+		t.Fatal("the unspecified release did not end the primary drag")
+	}
+}
+
 func assertRowHit(t *testing.T, hit func(image.Point) (int, bool), point image.Point, want int) {
 	t.Helper()
 	got, ok := hit(point)

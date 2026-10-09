@@ -1,9 +1,13 @@
 package term
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+// ErrHandoverActive means another Hand already owns terminal reacquisition.
+var ErrHandoverActive = errors.New("term: terminal handover already active")
 
 // parkGrace is how long a handover waits for the reader to come off the terminal.
 //
@@ -24,25 +28,27 @@ const parkGrace = 100 * time.Millisecond
 // exactly where it must not be: a byte read there is a byte the child never sees.
 type handover struct {
 	mu sync.Mutex
-	// resume is closed to let the reader go on. Nil when the terminal is ours.
+	// resume is closed to let the reader go on. Nil when no handover is claimed.
 	resume chan struct{}
 	// parked is closed by the reader once it has stopped reading, and nil once that
 	// has happened, so it cannot be closed twice.
 	parked chan struct{}
 }
 
-// hold takes the terminal away from the reader and returns the channel that closes
-// once the reader has noticed.
-func (h *handover) hold() <-chan struct{} {
+// hold claims the handover lifetime before any modes or reader state can change.
+// The signal closes once the reader has noticed; an active claim cannot be replaced.
+func (h *handover) hold() (<-chan struct{}, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.resume != nil {
+		return nil, false
+	}
 	h.resume = make(chan struct{})
 	h.parked = make(chan struct{})
-	return h.parked
+	return h.parked, true
 }
 
-// release gives it back. It is safe to call when nothing was ever held, which is
-// what makes a failed handover recoverable by simply resuming.
+// release ends the claim after restoration or rollback, including a child panic.
 func (h *handover) release() {
 	h.mu.Lock()
 	resume := h.resume

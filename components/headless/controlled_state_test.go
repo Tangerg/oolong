@@ -68,7 +68,7 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 			// moves to the one it would. A shadow copy answers false throughout, so
 			// only reading through the accessor satisfies both.
 			value := &countedAccessor[bool]{value: true}
-			field := &headless.Confirm{Value: value}
+			field := headless.NewConfirm(headless.ConfirmConfig{Value: value})
 			if !field.Answer() {
 				t.Fatal("confirmation did not read its initial owner value")
 			}
@@ -99,7 +99,7 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 		"MultiSelect": func(t *testing.T) {
 			t.Helper()
 			value := &countedAccessor[[]string]{value: []string{"a"}}
-			field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
+			field := headless.NewMultiSelect(headless.MultiSelectConfig[string]{Same: headless.Equal[string], Value: value})
 			field.SetOptions(headless.Options("a", "b"))
 			_ = field.Taken()
 			value.value = []string{"b"}
@@ -116,7 +116,7 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 		"Select": func(t *testing.T) {
 			t.Helper()
 			value := &countedAccessor[string]{value: "a"}
-			field := &headless.Select[string]{Same: headless.Equal[string], Value: value}
+			field := headless.NewSelect(headless.SelectConfig[string]{Same: headless.Equal[string], Value: value})
 			field.SetOptions(headless.Options("a", "b"))
 			_, _ = field.Chosen()
 			value.value = "b"
@@ -161,7 +161,7 @@ func TestEveryHeadlessAccessorOwnerObservesCallerTransitions(t *testing.T) {
 		"Text": func(t *testing.T) {
 			t.Helper()
 			value := &countedAccessor[string]{value: "a"}
-			field := &headless.Text{Value: value}
+			field := headless.NewText(headless.TextConfig{Value: value})
 			if err := field.Validate(); err != nil {
 				t.Fatal(err)
 			}
@@ -323,7 +323,7 @@ func TestControlledScalarsWriteOnlyTransitions(t *testing.T) {
 func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 	t.Run("text reply", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "same"}
-		field := &headless.Text{Value: value}
+		field := headless.NewText(headless.TextConfig{Value: value})
 		if err := field.Reply("same"); err != nil {
 			t.Fatal(err)
 		}
@@ -340,7 +340,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("text adopts the value its owner accepted", func(t *testing.T) {
 		value := &transformingAccessor[string]{value: "old", transform: strings.ToUpper}
-		field := &headless.Text{Value: value}
+		field := headless.NewText(headless.TextConfig{Value: value})
 		if !field.Handle(input.Key{Text: "x"}) {
 			t.Fatal("text input was not handled")
 		}
@@ -352,7 +352,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("text settles normalization inside the edit transaction", func(t *testing.T) {
 		value := &transformingAccessor[string]{value: "hello world", transform: strings.ToUpper}
-		field := &headless.Text{Value: value}
+		field := headless.NewText(headless.TextConfig{Value: value})
 		if err := field.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -392,7 +392,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 				return value
 			},
 		}
-		field := &headless.Text{Value: value}
+		field := headless.NewText(headless.TextConfig{Value: value})
 		if err := field.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -425,7 +425,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("text settles caller content onto one line", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "one\ntwo"}
-		field := &headless.Text{Value: value}
+		field := headless.NewText(headless.TextConfig{Value: value})
 		if err := field.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -440,7 +440,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("single choice", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "a"}
-		field := &headless.Select[string]{Same: headless.Equal[string], Value: value}
+		field := headless.NewSelect(headless.SelectConfig[string]{Same: headless.Equal[string], Value: value})
 		field.SetOptions(headless.Options("a", "b"))
 		if chosen, ok := field.Chosen(); !ok || chosen.Value != "a" {
 			t.Fatalf("initial choice = %+v, %t", chosen, ok)
@@ -464,7 +464,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("single choice settles an unmatched initial value once", func(t *testing.T) {
 		value := &countedAccessor[string]{value: "missing"}
-		field := &headless.Select[string]{Same: headless.Equal[string], Value: value}
+		field := headless.NewSelect(headless.SelectConfig[string]{Same: headless.Equal[string], Value: value})
 		field.SetOptions(headless.Options("a", "b"))
 		if chosen, ok := field.Chosen(); !ok || chosen.Value != "a" || value.writes != 0 {
 			t.Fatalf("choice=%+v ok=%t writes=%d before validation", chosen, ok, value.writes)
@@ -482,7 +482,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("multiple choice reply", func(t *testing.T) {
 		value := &countedAccessor[[]string]{value: []string{"a"}}
-		field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
+		field := headless.NewMultiSelect(headless.MultiSelectConfig[string]{Same: headless.Equal[string], Value: value})
 		field.SetOptions(headless.Options("a", "b"))
 		if got := field.Taken(); len(got) != 1 || got[0] != "a" {
 			t.Fatalf("initial choices = %v", got)
@@ -508,7 +508,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 				return []string{"a"}
 			},
 		}
-		field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
+		field := headless.NewMultiSelect(headless.MultiSelectConfig[string]{Same: headless.Equal[string], Value: value})
 		field.SetOptions(headless.Options("a", "b"))
 		_ = field.Taken()
 		if !field.Do(headless.SelectNext) {
@@ -536,7 +536,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				value := &countedAccessor[[]string]{value: tc.value}
-				field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
+				field := headless.NewMultiSelect(headless.MultiSelectConfig[string]{Same: headless.Equal[string], Value: value})
 				field.SetOptions(headless.Options("a", "b"))
 				if got := field.Taken(); !slices.Equal(got, tc.want) {
 					t.Fatalf("taken = %v, want %v", got, tc.want)
@@ -554,7 +554,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 	t.Run("confirmation", func(t *testing.T) {
 		value := &countedAccessor[bool]{}
-		field := &headless.Confirm{Value: value}
+		field := headless.NewConfirm(headless.ConfirmConfig{Value: value})
 		field.Say(false)
 		field.Do(headless.SelectNext)
 		if value.writes != 0 {
@@ -570,7 +570,7 @@ func TestControlledFieldsDoNotTurnHandledNoOpsIntoAssignments(t *testing.T) {
 
 func TestControlledMultipleChoiceSettlesOneOperationWithOneWrite(t *testing.T) {
 	value := &countedAccessor[[]string]{value: []string{"a", "b"}}
-	field := &headless.MultiSelect[string]{Same: headless.Equal[string], Value: value}
+	field := headless.NewMultiSelect(headless.MultiSelectConfig[string]{Same: headless.Equal[string], Value: value})
 	field.SetOptions(headless.Options("a", "b"))
 	_ = field.Taken()
 

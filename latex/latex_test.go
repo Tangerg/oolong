@@ -2,6 +2,7 @@ package latex_test
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -10,6 +11,45 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/latex"
 )
+
+func TestFallbackRowsAreThePreparedDisplay(t *testing.T) {
+	for _, source := range []string{"bad\x1b[31m", "bad\x00", "bad\xff"} {
+		f := latex.Render(source, latex.Look{})
+		if f.Err() == nil || f.Source() != source {
+			t.Fatalf("fallback source=%q, err=%v", f.Source(), f.Err())
+		}
+		for _, width := range []int{3, 40} {
+			drawn := formulaRows(t, f, width)
+			rows := f.Rows(width)
+			if len(rows) != len(drawn) {
+				t.Fatalf("Rows=%d Draw=%d", len(rows), len(drawn))
+			}
+			for i, row := range rows {
+				if got := strings.Repeat(" ", row.Offset) + row.Text; got != drawn[i] {
+					t.Fatalf("source=%q width=%d: Rows=%q Draw=%q", source, width, got, drawn[i])
+				}
+			}
+		}
+		if line := f.Lines()[0]; strings.ContainsAny(line.String(), "\x1b\x00") || !utf8.ValidString(line.String()) || line.Width() != f.Width() {
+			t.Fatalf("unprepared fallback: %+v", line)
+		}
+	}
+}
+
+func BenchmarkRenderBackslashes(b *testing.B) {
+	for _, size := range []int{4096, 8192, 16384, 32768, 65536} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			source := strings.Repeat(`\`, size)
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			for b.Loop() {
+				if f := latex.Render(source, latex.Look{}); f.Err() == nil {
+					b.Fatal("expected unknown macro")
+				}
+			}
+		})
+	}
+}
 
 func formulaRows(t *testing.T, formula *latex.Formula, width int) []string {
 	t.Helper()

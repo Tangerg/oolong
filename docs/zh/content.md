@@ -86,8 +86,9 @@ for row, line := range lines {
 
 ## 不通过 Markdown 渲染公式
 
-`latex.Render` 返回完整公式模型。不支持或未完成的输入仍会以源码形式绘制，同时可通过
-`Err` 观察失败。
+`latex.Render` 返回完整公式模型。不支持或未完成的输入仍会以可显示的源码文本绘制，
+同时可通过 `Err` 观察失败。Rows、选择偏移和绘制共享这份已准备的文本；Source 保留
+原始输入用于诊断。
 
 ```go
 look := latex.Look{

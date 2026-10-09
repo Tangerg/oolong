@@ -43,6 +43,7 @@ func (*observedField) Draw(headless.Frame)       {}
 func (*observedField) HeightForWidth(int) int    { return 1 }
 func (*observedField) Prompt() string            { return "" }
 func (*observedField) Validate() error           { return nil }
+func (*observedField) Validation() func() bool   { return func() bool { return true } }
 func (*observedField) Error() error              { return nil }
 func (f *observedField) Focus(has bool)          { f.focused = has }
 func (f *observedField) Handle(input.Event) bool { f.handled++; return true }
@@ -85,7 +86,7 @@ func TestAFieldPutsWhatWasTypedWhereTheCallerKeepsIt(t *testing.T) {
 	// A field does not own what it collects. Somebody asked for a name because they
 	// have somewhere to put a name.
 	var name string
-	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
+	field := headless.NewText(headless.TextConfig{Label: "Name", Value: headless.Bind(&name)})
 	typeInto(field, "ada")
 	if name != "ada" {
 		t.Fatalf("the caller's variable = %q", name)
@@ -106,7 +107,7 @@ func (v *countedTextValue) Set(value string) {
 
 func TestAControlledTextFieldWritesOnlySemanticChanges(t *testing.T) {
 	value := &countedTextValue{}
-	field := &headless.Text{Value: value}
+	field := headless.NewText(headless.TextConfig{Value: value})
 
 	if !field.Handle(input.Key{Code: input.Backspace}) {
 		t.Fatal("backspace at the beginning was not handled")
@@ -146,7 +147,7 @@ func TestAFieldStartsFromWhatTheCallerAlreadyHas(t *testing.T) {
 	// Which is what makes a form somebody is coming back to show what they said last
 	// time, rather than an empty one they have to fill in again.
 	name := "ada"
-	field := &headless.Text{Label: "Name", Value: headless.Bind(&name)}
+	field := headless.NewText(headless.TextConfig{Label: "Name", Value: headless.Bind(&name)})
 	rows := paintWidget(12, field.HeightForWidth(12), field)
 	if !strings.Contains(strings.Join(rows, "\n"), "ada") {
 		t.Fatalf("drawn:\n%s\nwant what the caller already had", strings.Join(rows, "\n"))
@@ -159,7 +160,7 @@ func TestAnAnswerIsCheckedOnTheWayOutAndNotOnTheWayIn(t *testing.T) {
 	missing := errors.New("required")
 	var name string
 	checks := 0
-	field := &headless.Text{
+	field := headless.NewText(headless.TextConfig{
 		Label: "Name",
 		Value: headless.Bind(&name),
 		Check: func(s string) error {
@@ -169,7 +170,7 @@ func TestAnAnswerIsCheckedOnTheWayOutAndNotOnTheWayIn(t *testing.T) {
 			}
 			return nil
 		},
-	}
+	})
 	field.Focus(false) // never had it, so there is nothing to check
 	if field.Error() != nil {
 		t.Fatalf("a field nobody has visited complained: %v", field.Error())
@@ -199,7 +200,7 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 	var picked string
 	field := selectWith(headless.Options("fast", "good", "cheap"))
 	field.Label = "Model"
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	headless.NewRoot(field).Draw(grid.NewSurface(12, 4).View())
 	if picked != "" {
 		t.Fatalf("drawing chose %q for the caller", picked)
@@ -213,7 +214,7 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 func TestDrawingAChoiceDoesNotChooseForTheCaller(t *testing.T) {
 	picked := "not an option"
 	field := selectWith(headless.Options("fast", "good", "cheap"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 
 	headless.NewRoot(field).Draw(grid.NewSurface(12, 4).View())
 	if picked != "not an option" {
@@ -224,7 +225,7 @@ func TestDrawingAChoiceDoesNotChooseForTheCaller(t *testing.T) {
 func TestAChoiceStartsOnWhatWasAlreadyChosen(t *testing.T) {
 	picked := "cheap"
 	field := selectWith(headless.Options("fast", "good", "cheap"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	chosen, ok := field.Chosen()
 	if !ok || chosen.Value != "cheap" {
 		t.Fatalf("cursor on %+v (ok=%v), want the choice already made", chosen, ok)
@@ -234,7 +235,7 @@ func TestAChoiceStartsOnWhatWasAlreadyChosen(t *testing.T) {
 func TestReplacingChoicesPreservesTheChosenValueRatherThanItsOldPosition(t *testing.T) {
 	picked := "b"
 	field := selectWith(headless.Options("a", "b", "c"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	if chosen, ok := field.Chosen(); !ok || chosen.Value != "b" {
 		t.Fatalf("initial choice = %+v, %v", chosen, ok)
 	}
@@ -271,7 +272,7 @@ func TestPickingSeveralIsMovingAndThenTaking(t *testing.T) {
 	var picked []string
 	field := multiWith(headless.Options("a", "b", "c"))
 	field.Label = "Files"
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	field.Handle(input.Key{Code: input.Down})
 	if len(picked) != 0 {
 		t.Fatalf("moving took a choice: %v", picked)
@@ -289,7 +290,7 @@ func TestPickingSeveralIsMovingAndThenTaking(t *testing.T) {
 func TestPickingSeveralStopsAtItsLimit(t *testing.T) {
 	var picked []string
 	field := multiWith(headless.Options("a", "b", "c"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	field.SetLimit(1)
 	field.Do(headless.Toggle)
 	field.Do(headless.SelectNext)
@@ -302,7 +303,7 @@ func TestPickingSeveralStopsAtItsLimit(t *testing.T) {
 func TestLoweringMultipleChoiceLimitSettlesTheBoundValue(t *testing.T) {
 	picked := []string{"a", "b", "c"}
 	field := multiWith(headless.Options("a", "b", "c"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	if got := field.Taken(); len(got) != 3 {
 		t.Fatalf("initially taken = %v, want all three", got)
 	}
@@ -319,7 +320,7 @@ func TestLoweringMultipleChoiceLimitSettlesTheBoundValue(t *testing.T) {
 func TestMultipleChoiceLimitClampsTheInitialBoundValue(t *testing.T) {
 	picked := []string{"a", "b", "c"}
 	field := multiWith(headless.Options("a", "b", "c"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	field.SetLimit(2)
 
 	if got := field.Taken(); len(got) != 2 || got[0] != "a" || got[1] != "b" {
@@ -352,7 +353,7 @@ func TestNilMultipleChoiceRejectsLimitChanges(t *testing.T) {
 func TestReplacingMultipleChoicesMovesTheTakenSetByValue(t *testing.T) {
 	picked := []string{"b"}
 	field := multiWith(headless.Options("a", "b", "c"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	if got := field.Taken(); len(got) != 1 || got[0] != "b" {
 		t.Fatalf("initially taken = %v", got)
 	}
@@ -401,7 +402,7 @@ func TestReplacingChoicesUsesExplicitValueIdentity(t *testing.T) {
 func TestAChoiceIsMarkedAsTaken(t *testing.T) {
 	var picked []string
 	field := multiWith(headless.Options("a", "b"))
-	field.Value = headless.Bind(&picked)
+	field.SetBinding(headless.Bind(&picked))
 	form := headless.NewForm(field)
 	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(8, 4).View())
@@ -420,7 +421,7 @@ func TestAChoiceIsMarkedAsTaken(t *testing.T) {
 
 func TestAConfirmAnswersYesOrNo(t *testing.T) {
 	var sure bool
-	field := &headless.Confirm{Label: "Delete it?", Value: headless.Bind(&sure)}
+	field := headless.NewConfirm(headless.ConfirmConfig{Label: "Delete it?", Value: headless.Bind(&sure)})
 	field.Handle(input.Key{Code: input.Left})
 	if !sure {
 		t.Fatal("left did not say yes")
@@ -438,7 +439,7 @@ func TestAConfirmAnswersYesOrNo(t *testing.T) {
 func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 	var name, model string
 	missing := errors.New("required")
-	nameField := &headless.Text{
+	nameField := headless.NewText(headless.TextConfig{
 		Label: "Name", Value: headless.Bind(&name),
 		Check: func(s string) error {
 			if s == "" {
@@ -446,9 +447,10 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 			}
 			return nil
 		},
-	}
+	})
 	modelField := selectWith(headless.Options("fast", "good"))
-	modelField.Label, modelField.Value = "Model", headless.Bind(&model)
+	modelField.Label = "Model"
+	modelField.SetBinding(headless.Bind(&model))
 	done := 0
 	form := headless.NewForm(nameField, modelField)
 	form.Done = func() { done++ }
@@ -550,7 +552,8 @@ func TestAChoiceCanBePressed(t *testing.T) {
 	// than the position says — the same translation a container does for its children.
 	var picked string
 	field := selectWith(headless.Options("fast", "good", "cheap"))
-	field.Label, field.Value = "Model", headless.Bind(&picked)
+	field.Label = "Model"
+	field.SetBinding(headless.Bind(&picked))
 	form := headless.NewForm(field)
 	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(12, 4).View())
@@ -573,7 +576,8 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 	// option would answer a press nobody made.
 	var picked string
 	field := selectWith(headless.Options("fast", "good"))
-	field.Label, field.Value = "Model", headless.Bind(&picked)
+	field.Label = "Model"
+	field.SetBinding(headless.Bind(&picked))
 	form := headless.NewForm(field)
 	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(12, 3).View())
@@ -589,7 +593,7 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 
 func TestAConfirmCanBePressed(t *testing.T) {
 	var sure bool
-	field := &headless.Confirm{Label: "Delete it?", Value: headless.Bind(&sure), Yes: "yes", No: "no"}
+	field := headless.NewConfirm(headless.ConfirmConfig{Label: "Delete it?", Value: headless.Bind(&sure), Yes: "yes", No: "no"})
 	form := headless.NewForm(field)
 	form.Look = bare()
 	headless.NewRoot(form).Draw(grid.NewSurface(20, 2).View())
@@ -628,7 +632,7 @@ func TestAChoiceOfSomethingThatIsNotAStringFindsWhatWasAlreadyChosen(t *testing.
 	// Comparable values use explicit equality even when they also implement Stringer.
 	picked := kind(1)
 	shown := selectWith([]headless.Option[kind]{{Label: "file", Value: 0}, {Label: "folder", Value: 1}})
-	shown.Value = headless.Bind(&picked)
+	shown.SetBinding(headless.Bind(&picked))
 	if chosen, _ := shown.Chosen(); chosen.Value != 1 {
 		t.Fatalf("cursor on %+v, want what the value is shown as", chosen)
 	}
@@ -636,7 +640,7 @@ func TestAChoiceOfSomethingThatIsNotAStringFindsWhatWasAlreadyChosen(t *testing.
 	// And a rule of the caller's wins, which is the only thing that works when two
 	// options are shown the same way or when the type is one Go cannot compare.
 	byValue := selectWith([]headless.Option[kind]{{Label: "one", Value: 0}, {Label: "two", Value: 1}})
-	byValue.Value = headless.Bind(&picked)
+	byValue.SetBinding(headless.Bind(&picked))
 	byValue.Same = func(a, b kind) bool { return a == b }
 	if chosen, _ := byValue.Chosen(); chosen.Value != 1 {
 		t.Fatalf("cursor on %+v, want the caller's rule to have found it", chosen)
@@ -647,14 +651,14 @@ func TestEveryFieldAnswersToTheNameOfWhatItDoes(t *testing.T) {
 	// The same promise the widgets make, kept by the fields built on them: an action
 	// is reachable from somewhere that is not the keyboard.
 	var name string
-	text := &headless.Text{Value: headless.Bind(&name)}
+	text := headless.NewText(headless.TextConfig{Value: headless.Bind(&name)})
 	typeInto(text, "one two")
 	if !text.Do(headless.DeleteWordBack) || name != "one " {
 		t.Fatalf("text = %q", name)
 	}
 
 	var sure bool
-	confirm := &headless.Confirm{Value: headless.Bind(&sure)}
+	confirm := headless.NewConfirm(headless.ConfirmConfig{Value: headless.Bind(&sure)})
 	if !confirm.Do(headless.Toggle) || !confirm.Answer() {
 		t.Fatal("the confirm did not turn over")
 	}
@@ -707,7 +711,7 @@ func TestAReleaseOutsideAFieldStillEndsTheSelectionItStarted(t *testing.T) {
 	// to do. A release is a lifetime transition and not a hit test: dropping it
 	// leaves the editor believing a selection is still being made, and the next drag
 	// that crosses the field continues one nobody started here.
-	field := &headless.Text{Label: "Name", Value: headless.Bind(new(string))}
+	field := headless.NewText(headless.TextConfig{Label: "Name", Value: headless.Bind(new(string))})
 	field.SetText("abcdef")
 	headless.NewRoot(field).Draw(grid.NewSurface(20, 2).View())
 
@@ -753,7 +757,7 @@ func TestAnOwnerNormalizingItsOwnWriteHasNotReplacedTheValue(t *testing.T) {
 	// jumped to the end of the line, the undo history went, and the keystroke was
 	// counted as two changes.
 	value := &normalizingValue{normalize: strings.ToUpper}
-	field := &headless.Text{Value: value}
+	field := headless.NewText(headless.TextConfig{Value: value})
 	value.field = field
 	field.SetText("hello world")
 	field.SetCursor(5)

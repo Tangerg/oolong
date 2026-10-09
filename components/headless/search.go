@@ -24,8 +24,8 @@ type Match struct {
 
 // Result is a finished scan.
 type Result struct {
-	// Query is what was searched for, so a caller can tell an answer to the question
-	// it is still asking from an answer to one it has moved on from.
+	// Query is the searched text. It does not identify a submission: identical text
+	// can describe different corpora or modes. Use Current before applying a result.
 	Query string
 	// Matches is the complete geometry in document order. It is deliberately not a
 	// viewport-sized window: a result must support stepping to any occurrence and
@@ -38,7 +38,18 @@ type Result struct {
 	// result rather than a refusal at submission time, because a user typing a
 	// pattern spends most of the typing with an unfinished one and should not be
 	// interrupted about it.
-	Err error
+	Err     error
+	search  *Search
+	request *byte
+}
+
+// Current reports whether this result belongs to its Search's latest submission.
+// It is a pure, concurrency-safe receipt, invalidated by Submit or Close even when
+// the new query text is identical. The zero Result is never current. Check on the
+// transcript owner immediately before applying the result. Serialize Submit, Close
+// and application there so no lifetime transition intervenes after the check.
+func (r Result) Current() bool {
+	return r.search != nil && r.request != nil && !r.search.superseded(r.request)
 }
 
 // Search scans a transcript's text off the interface's goroutine.
@@ -56,31 +67,30 @@ type Result struct {
 // owner of committed history.
 //
 // Results arrive on [Search.Results], which a caller reads from a goroutine of its own
-// and posts back to the event owner. A Search must not be copied after construction;
-// its worker, mailboxes and cancellation state are one owner.
+// and posts back to the event owner. That owner checks Result.Current before applying
+// it; Query alone cannot distinguish a repeated submission. A Search must not be
+// copied after construction; its worker, mailboxes and cancellation state are one owner.
 type Search struct {
 	mu sync.Mutex
 	// next is the one scan waiting to start. A newer submission replaces it and
-	// generation invalidates both a running scan and an unread result.
-	next       job
-	hasNext    bool
-	generation uint64
-	closed     bool
+	// request invalidates running scans and results, including ones already received.
+	next    job
+	request *byte
+	closed  bool
 
 	wake    chan struct{}
 	results chan Result
 	stop    chan struct{}
 	done    chan struct{}
-	once    sync.Once
 }
 
 // job is one scan, as the worker sees it.
 type job struct {
-	query      string
-	regex      bool
-	start      int
-	corpus     []text.Row
-	generation uint64
+	query   string
+	regex   bool
+	start   int
+	corpus  []text.Row
+	request *byte
 }
 
 // NewSearch starts a scanner. Close it when the interface it serves is done.
@@ -114,11 +124,11 @@ func (s *Search) Close() {
 	if s == nil || s.stop == nil || s.done == nil {
 		return
 	}
-	s.once.Do(func() {
-		s.mu.Lock()
+	s.mu.Lock()
+	if !s.closed {
 		s.closed = true
+		s.request = nil
 		s.next = job{}
-		s.hasNext = false
 		// An unread answer has no owner after Close. Clear it before the sole producer
 		// closes the channel so its retained matches are released immediately.
 		select {
@@ -126,25 +136,26 @@ func (s *Search) Close() {
 		default:
 		}
 		close(s.stop)
-		s.mu.Unlock()
-	})
+	}
+	s.mu.Unlock()
 	<-s.done
 }
 
 // Submit schedules a scan of t for query, replacing any scan not yet finished.
 //
 // An empty query cancels an older scan and delivers nothing: it is what a search box
-// looks like after its text was cleared, and answering it with every row in the
-// session — or with the previous query — is not what was asked.
+// looks like after its text was cleared. A nil transcript also cancels the old scan.
+// Answering either with every row in the session or with the previous query is not
+// what was asked.
 func (s *Search) Submit(t *Transcript, query string, regex bool) {
 	if s == nil || s.wake == nil {
 		return
 	}
-	if query == "" {
+	if query == "" || t == nil {
 		s.offer(job{})
 		return
 	}
-	if t == nil || !s.accepting() {
+	if !s.accepting() {
 		return
 	}
 
@@ -164,7 +175,7 @@ func (s *Search) accepting() bool {
 }
 
 // offer replaces the question waiting to be answered. The empty job is a
-// cancellation: it advances the generation and wakes a running scan, but the worker
+// cancellation: it advances the request and wakes a running scan, but the worker
 // has nothing new to deliver after abandoning it.
 func (s *Search) offer(next job) {
 	s.mu.Lock()
@@ -172,10 +183,10 @@ func (s *Search) offer(next job) {
 		s.mu.Unlock()
 		return
 	}
-	s.generation++
-	next.generation = s.generation
-	s.next, s.hasNext = next, true
-	// A result nobody read answered an older generation. Removing it here also makes
+	s.request = new(byte)
+	next.request = s.request
+	s.next = next
+	// A result nobody read answered an older request. Removing it here also makes
 	// an empty submission a complete cancellation rather than merely no new work.
 	select {
 	case <-s.results:
@@ -210,7 +221,7 @@ func (s *Search) run() {
 			if superseded {
 				continue
 			}
-			s.deliver(j.generation, result)
+			s.deliver(j.request, result)
 		case <-s.stop:
 			return
 		}
@@ -220,19 +231,18 @@ func (s *Search) run() {
 func (s *Search) take() (job, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.hasNext {
+	if s.next.request == nil {
 		return job{}, false
 	}
 	next := s.next
 	s.next = job{}
-	s.hasNext = false
 	return next, true
 }
 
-func (s *Search) deliver(generation uint64, result Result) {
+func (s *Search) deliver(request *byte, result Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || generation != s.generation {
+	if s.closed || request != s.request {
 		return
 	}
 	select {
@@ -241,6 +251,7 @@ func (s *Search) deliver(generation uint64, result Result) {
 	}
 	// Results has room for one and was just emptied while the sole producer is
 	// holding the mailbox lock, so this send cannot wait.
+	result.search, result.request = s, request
 	s.results <- result
 }
 
@@ -250,7 +261,7 @@ func (s *Search) scan(j job) (Result, bool) {
 	if err != nil {
 		return Result{Query: j.query, Err: err}, false
 	}
-	if s.superseded(j.generation) {
+	if s.superseded(j.request) {
 		return Result{}, true
 	}
 
@@ -259,7 +270,7 @@ func (s *Search) scan(j job) (Result, bool) {
 	// arrived while the snapshot was being joined must not also pay for a regexp pass
 	// whose answer can no longer be observed. The matcher itself cannot be interrupted,
 	// so this is the last cancellation boundary before entering it.
-	if s.superseded(j.generation) {
+	if s.superseded(j.request) {
 		return Result{}, true
 	}
 	locations := re.FindAllStringIndex(joined, -1)
@@ -273,7 +284,7 @@ func (s *Search) scan(j job) (Result, bool) {
 		spans = make([]Span, 0, len(locations))
 	}
 	for _, loc := range locations {
-		if s.superseded(j.generation) {
+		if s.superseded(j.request) {
 			return Result{}, true
 		}
 		first := len(spans)
@@ -290,10 +301,10 @@ func (s *Search) scan(j job) (Result, bool) {
 	return result, false
 }
 
-func (s *Search) superseded(generation uint64) bool {
+func (s *Search) superseded(request *byte) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.closed || generation != s.generation
+	return s.closed || request != s.request
 }
 
 // compile turns a query into the pattern that finds it.

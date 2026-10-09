@@ -192,6 +192,7 @@ func (p *Parser) advanceRunaway(final bool) (Event, bool) {
 		// given up on has to end somewhere; giving up on one still arriving would
 		// corrupt the answer to a query as large as a clipboard.
 		p.dropping = droppingNothing
+		return nil, true
 	}
 	return nil, false
 }

@@ -191,27 +191,30 @@ const DefaultCompletionRows = 8
 // The completion copies the token and candidates, including match offsets; the caller
 // may reuse or change its inputs after this returns.
 func (c *Completion) Offer(t Token, candidates []Candidate) {
-	c.matcher.Clear()
-	if len(candidates) == 0 {
-		c.Dismiss()
-		return
-	}
-	c.token, c.open = cloneToken(t), true
-	c.list.SetItems(candidates)
-	for i := range c.list.items {
-		c.list.items[i] = cloneCandidate(c.list.items[i])
-	}
-	c.list.Select(0)
-	c.list.Scroll().ToTop()
+	c.matcher.Reset(func() {
+		if len(candidates) == 0 {
+			c.Dismiss()
+			return
+		}
+		c.token, c.open = cloneToken(t), true
+		c.list.SetItems(candidates)
+		for i := range c.list.items {
+			c.list.items[i] = cloneCandidate(c.list.items[i])
+		}
+		c.list.Select(0)
+		c.list.Scroll().ToTop()
+	})
 }
 
-// Dismiss closes the completion.
-func (c *Completion) Dismiss() {
-	c.matcher.Clear()
-	c.open = false
-	c.token = Token{}
-	c.list.SetItems(nil)
-	c.list.Select(0)
+// Dismiss closes the completion and reports whether this dismissal retained its
+// ownership through resolver cancellation. A newer Offer or Dismiss revokes it.
+func (c *Completion) Dismiss() bool {
+	return c.matcher.Reset(func() {
+		c.open = false
+		c.token = Token{}
+		c.list.SetItems(nil)
+		c.list.Select(0)
+	})
 }
 
 // Open reports whether anything is being offered, which is what tells the interface
@@ -279,7 +282,8 @@ func (c *Completion) Do(action keymap.Action) bool {
 		c.Dismiss()
 		return true
 	case Accept:
-		if c.Accept == nil {
+		accept := c.Accept
+		if accept == nil {
 			// Nothing accepting could do, so the keystroke is left for whatever else
 			// might want it rather than swallowed.
 			return false
@@ -291,8 +295,9 @@ func (c *Completion) Do(action keymap.Action) bool {
 		token := c.token
 		// Closed before the callback, so what it does to the text cannot be
 		// interpreted as another query for a completion that is still open.
-		c.Dismiss()
-		c.Accept(candidate, token)
+		if c.Dismiss() {
+			accept(candidate, token)
+		}
 		return true
 	}
 	return c.list.Do(action)

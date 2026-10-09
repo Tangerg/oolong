@@ -83,7 +83,6 @@ type chat struct {
 	stream  markdown.Stream
 	open    *markdown.Doc
 	openID  headless.BlockID
-	hasOpen bool
 	ingress *program.ByteIngress
 	cancel  context.CancelFunc
 	active  bool
@@ -140,9 +139,9 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 // owns the bound open value and decides what approval means to the product.
 func (c *chat) buildApproval() {
 	c.approval = true
-	c.confirm = &headless.Confirm{
+	c.confirm = headless.NewConfirm(headless.ConfirmConfig{
 		Label: "Send this prompt?", Value: headless.Bind(&c.approval), Yes: "send", No: "cancel",
-	}
+	})
 	formKeys := headless.DefaultFormKeys()
 	c.form = headless.NewForm(c.confirm)
 	c.form.Keys = formKeys
@@ -231,7 +230,7 @@ func (c *chat) startReply(prompt string) {
 		Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt,
 	})
 	c.stream.Reset()
-	c.open, c.hasOpen = nil, false
+	c.open = nil
 	c.active = true
 	c.status.Doing = "receiving — ctrl+x cancels"
 	c.runtime.Session().SetTitle("receiving")
@@ -290,10 +289,10 @@ func (c *chat) acceptMarkdown(chunk string) {
 // finishOpen converts the existing open tail into one immutable stable block. The
 // identity stays the same, so selection and scroll do not jump while ownership changes.
 func (c *chat) finishOpen(blocks []markdown.Block) {
-	if len(blocks) == 0 {
-		return
-	}
-	if !c.hasOpen {
+	if c.open == nil {
+		if len(blocks) == 0 {
+			return
+		}
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
 		id := c.content.Append(doc)
@@ -303,21 +302,20 @@ func (c *chat) finishOpen(blocks []markdown.Block) {
 	c.open.SetBlocks(blocks)
 	c.content.Changed(c.openID)
 	c.content.Finish(c.openID)
-	c.open, c.hasOpen = nil, false
+	c.open = nil
 }
 
 func (c *chat) stageOpen(blocks []markdown.Block) {
-	if len(blocks) == 0 {
-		return
-	}
-	if c.hasOpen {
-		c.open.SetBlocks(blocks)
-		c.content.Changed(c.openID)
-	} else {
+	if c.open == nil {
+		if len(blocks) == 0 {
+			return
+		}
 		c.open = new(markdown.Doc)
 		c.open.SetBlocks(blocks)
 		c.openID = c.content.Append(c.open)
-		c.hasOpen = true
+	} else {
+		c.open.SetBlocks(blocks)
+		c.content.Changed(c.openID)
 	}
 	c.follow()
 }
@@ -336,10 +334,7 @@ func (c *chat) follow() {
 func (c *chat) finishReply(err error) {
 	stable, renderErr := c.stream.Flush()
 	err = errors.Join(err, renderErr)
-	if len(stable) > 0 {
-		c.finishOpen(stable)
-	}
-	c.open, c.hasOpen = nil, false
+	c.finishOpen(stable)
 
 	switch {
 	case errors.Is(err, context.Canceled):

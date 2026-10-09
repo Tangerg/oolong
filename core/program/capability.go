@@ -12,45 +12,86 @@ import (
 
 // Environment is the stable set of terminal facts learned before a program runs.
 // Its zero value reports that nothing was learned.
-type Environment struct{ host hostServices }
+type Environment struct{ facts *environmentFacts }
+
+type environmentFacts struct {
+	ground        grid.Ground
+	color         grid.Depth
+	wheel         input.Wheel
+	keyboard      input.KeyboardFeatures
+	knownKeyboard bool
+	locale        string
+}
+
+func environmentFor(host hostServices) Environment {
+	keyboard, known := host.keyboard()
+	return Environment{facts: &environmentFacts{
+		ground: host.ground(), color: host.color(), wheel: host.wheel(),
+		keyboard: keyboard, knownKeyboard: known, locale: host.locale(),
+	}}
+}
 
 // Ground reports the host's foreground and background colours when known.
-func (e Environment) Ground() grid.Ground { return e.host.ground() }
+func (e Environment) Ground() grid.Ground {
+	if e.facts == nil {
+		return grid.Ground{}
+	}
+	return e.facts.ground
+}
 
 // Color reports the colour depth of the user-facing terminal.
-func (e Environment) Color() grid.Depth { return e.host.color() }
+func (e Environment) Color() grid.Depth {
+	if e.facts == nil {
+		return grid.NoColor
+	}
+	return e.facts.color
+}
 
 // Wheel reports how host wheel events should be scaled.
-func (e Environment) Wheel() input.Wheel { return e.host.wheel() }
+func (e Environment) Wheel() input.Wheel {
+	if e.facts == nil {
+		return input.Wheel{}
+	}
+	return e.facts.wheel
+}
 
 // Keyboard reports negotiated keyboard protocol features.
-func (e Environment) Keyboard() (input.KeyboardFeatures, bool) { return e.host.keyboard() }
+func (e Environment) Keyboard() (input.KeyboardFeatures, bool) {
+	if e.facts == nil {
+		return 0, false
+	}
+	return e.facts.keyboard, e.facts.knownKeyboard
+}
 
 // Locale reports the character locale of the user-facing terminal. An empty string
 // means the host made no claim; it does not mean the process locale should be used.
-func (e Environment) Locale() string { return e.host.locale() }
+func (e Environment) Locale() string {
+	if e.facts == nil {
+		return ""
+	}
+	return e.facts.locale
+}
 
 // Clipboard is the clipboard associated with the user-facing host. Its zero value
 // refuses writes and reads.
-type Clipboard struct{ host hostServices }
+type Clipboard struct{ runtime *Runtime }
 
 // Copy puts text on the host clipboard when supported.
-func (c Clipboard) Copy(text string) bool { return c.host.copy(text) }
+func (c Clipboard) Copy(text string) bool { return c.runtime.services().copy(text) }
 
 // Paste requests clipboard contents and reports whether the host accepted the
 // request. False means the host cannot read the clipboard or an earlier unidentified
 // request is still in flight. An accepted answer arrives asynchronously as
 // [input.Paste]; true does not mean the terminal will answer.
-func (c Clipboard) Paste() bool { return c.host.paste() }
+func (c Clipboard) Paste() bool { return c.runtime.services().paste() }
 
 // Session controls the live terminal session around rendered frames. It groups
 // operations that must remain ordered with the interface owner's state. Its zero
 // value performs harmless notification no-ops; Hand and Suspend return
 // [errors.ErrUnsupported].
 //
-// It holds the runtime rather than the resolved services the other capabilities
-// hold, because two of its methods need the owner itself and not what the host can
-// answer: see [Session.Hand].
+// Like Clipboard and Images, it retains the runtime lifetime, so a copied capability
+// cannot continue changing an externally owned host after that program ends.
 type Session struct{ runtime *Runtime }
 
 // host is the services of a runtime that may not be there. [Runtime.services] takes
@@ -84,22 +125,24 @@ func (s Session) Hand(run func() error) error {
 	if p.frameFailed || p.outputFailed {
 		return ErrDisplayFailed
 	}
-	// Repaint is part of settling the handover, including when the child panics and
-	// the host restores terminal ownership from a defer.
-	defer p.present.RequestFull()
-	if p.inline != nil && p.root != nil {
-		if err := p.leaveBlock(); err != nil {
+	return p.host.hand(func() error {
+		// Preparation belongs inside the host's claim: otherwise a refused nested
+		// handover can draw the interface over a child that still owns the display.
+		defer p.present.RequestFull()
+		if p.inline != nil && p.root != nil {
+			if err := p.leaveBlock(); err != nil {
+				return p.fail(err)
+			}
+		}
+		if err := p.writer.Drain(term.DrainGrace); err != nil {
+			return frameDrainError(p.writer, err)
+		}
+		if err := p.writer.Err(); err != nil {
+			p.outputFailed = true
 			return p.fail(err)
 		}
-	}
-	if err := p.writer.Drain(term.DrainGrace); err != nil {
-		return frameDrainError(p.writer, err)
-	}
-	if err := p.writer.Err(); err != nil {
-		p.outputFailed = true
-		return p.fail(err)
-	}
-	return p.host.hand(run)
+		return nil
+	}, run)
 }
 
 // Suspend restores the terminal and stops the process until it is continued.
@@ -127,17 +170,19 @@ func (s Session) Notify(text string) { s.host().notify(text) }
 
 // Images is the host's image transport. Its zero value reports no protocol and
 // refuses transmission.
-type Images struct{ host hostServices }
+type Images struct{ runtime *Runtime }
 
 // Protocol reports the host's richest image protocol.
-func (i Images) Protocol() graphics.Protocol { return i.host.graphics() }
+func (i Images) Protocol() graphics.Protocol { return i.runtime.services().graphics() }
 
 // CellSize reports one terminal cell's pixel size when known.
-func (i Images) CellSize() (image.Point, bool) { return i.host.cellSize() }
+func (i Images) CellSize() (image.Point, bool) { return i.runtime.services().cellSize() }
 
 // Transmit sends one PNG and returns the image handle used by frames.
-func (i Images) Transmit(png []byte) (graphics.Image, error) { return i.host.transmit(png) }
+func (i Images) Transmit(png []byte) (graphics.Image, error) {
+	return i.runtime.services().transmit(png)
+}
 
 // Release ends the transmitted image's lifetime. Remove all its placements before
 // calling this; the handle must not be placed again without retransmission.
-func (i Images) Release(img graphics.Image) error { return i.host.releaseImage(img) }
+func (i Images) Release(img graphics.Image) error { return i.runtime.services().releaseImage(img) }

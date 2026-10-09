@@ -10,6 +10,56 @@ import (
 
 var epoch = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 
+func TestRequestsDuringDrawingPaceFromTheCurrentFrame(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		var p present.Presenter
+		p.Request()
+		cause := errors.New("composition failed")
+		_, err := p.Present(epoch, func(bool) (uint64, error) {
+			if p.RequestBy(epoch, time.Second) {
+				t.Fatal("callback request ignored the frame being drawn")
+			}
+			if failed {
+				return 0, cause
+			}
+			return 0, nil
+		})
+		if errors.Is(err, cause) != failed {
+			t.Fatalf("Present error = %v", err)
+		}
+		var d drew
+		if presented(t, &p, epoch, d.draw) != failed {
+			t.Fatalf("immediate drawing after failure=%v: calls=%d", failed, d.calls)
+		}
+		if !failed && !presented(t, &p, epoch.Add(time.Second), d.draw) {
+			t.Fatal("callback request did not become due")
+		}
+	}
+}
+
+func TestRequestsDuringDrawingBelongToTheNextFrame(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		var p present.Presenter
+		p.Request()
+		cause := errors.New("composition failed")
+		_, err := p.Present(epoch, func(bool) (uint64, error) {
+			p.RequestFull()
+			if failed {
+				return 0, cause
+			}
+			return 1, nil
+		})
+		if errors.Is(err, cause) != failed {
+			t.Fatalf("Present error = %v", err)
+		}
+		p.Wrote(1)
+		var d drew
+		if !presented(t, &p, epoch, d.draw) || !d.full {
+			t.Fatal("drawing consumed the callback's newer repaint request")
+		}
+	}
+}
+
 // drew records how a draw was asked for and what it queued.
 type drew struct {
 	calls int
@@ -300,5 +350,25 @@ func TestInFlightFrameParksAnExpiredDeadlineUntilWriterProgress(t *testing.T) {
 	}
 	if !presented(t, &p, epoch.Add(time.Second), d.draw) || d.calls != 2 {
 		t.Fatal("owed frame lost")
+	}
+}
+
+func TestPresentReentryPanicsAndPreservesTheUnfinishedRequest(t *testing.T) {
+	var p present.Presenter
+	p.RequestFull()
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("Present accepted reentry")
+			}
+		}()
+		presented(t, &p, epoch, func(bool) (uint64, error) {
+			presented(t, &p, epoch, func(bool) (uint64, error) { t.Fatal("nested draw ran"); return 0, nil })
+			return 0, nil
+		})
+	}()
+	var d drew
+	if !presented(t, &p, epoch, d.draw) || !d.full {
+		t.Fatal("panic erased the unfinished frame request")
 	}
 }

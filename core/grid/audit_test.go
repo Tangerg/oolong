@@ -2,12 +2,97 @@ package grid_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/core/ansi"
 	"github.com/Tangerg/oolong/core/grid"
 )
+
+type prefixFailure struct {
+	bytes.Buffer
+	cause error
+}
+
+func (w *prefixFailure) Write(p []byte) (int, error) {
+	n, _ := w.Buffer.Write(p[:len(p)-1])
+	return n, w.cause
+}
+
+func TestPartialPublicationCannotClaimRecoveredCellsOrPlacements(t *testing.T) {
+	for name, canvas := range map[string]interface {
+		regionCanvas
+		Invalidate()
+	}{"screen": grid.NewScreen(10, 4), "inline": grid.NewInline(10, 4)} {
+		t.Run(name, func(t *testing.T) {
+			var log []string
+			canvas.Frame().Text(0, 0, "old", grid.Style{})
+			if err := canvas.Flush(&bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			v := canvas.Frame()
+			v.Text(0, 0, "new0", grid.Style{})
+			v.Text(0, 1, "new1", grid.Style{})
+			v.Text(0, 2, "new2", grid.Style{})
+			v.Paint(grid.Area(4, 0, 2, 1), 42, picture{name: "image", log: &log})
+			cause := errors.New("partial output")
+			broken := &prefixFailure{cause: cause}
+			if err := canvas.Flush(broken); !errors.Is(err, cause) || !strings.Contains(broken.String(), "new2") || len(log) == 0 {
+				t.Fatalf("failure was not after external effects: err=%v output=%q log=%v", err, broken.String(), log)
+			}
+			canvas.Invalidate()
+			canvas.Frame().Text(0, 0, "ok", grid.Style{})
+			var out bytes.Buffer
+			if err := canvas.Flush(&out); !errors.Is(err, cause) || out.Len() != 0 {
+				t.Fatalf("unknown cells or placements reported recovered: %v %q", err, out.String())
+			}
+		})
+	}
+}
+
+func TestInvalidatedCanvasClosesExternalHyperlinkBeforeText(t *testing.T) {
+	for name, canvas := range map[string]interface {
+		regionCanvas
+		Invalidate()
+	}{"screen": grid.NewScreen(10, 4), "inline": grid.NewInline(10, 4)} {
+		t.Run(name, func(t *testing.T) {
+			canvas.Frame().Text(0, 0, "old", grid.Style{})
+			if err := canvas.Flush(&bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			var output bytes.Buffer
+			output.WriteString("\x1b]8;;https://external.test\x1b\\")
+			canvas.Invalidate()
+			canvas.Frame().Text(0, 0, "ok", grid.Style{})
+			if err := canvas.Flush(&output); err != nil {
+				t.Fatal(err)
+			}
+			var scanner ansi.Scanner
+			linked, seen, seenExternal := false, false, false
+			err := scanner.Feed(output.String(), func(piece ansi.Piece) error {
+				if piece.Kind == ansi.String && piece.Final == ']' && strings.HasPrefix(piece.Body, "8;") {
+					linked = piece.Body != "8;;"
+					seenExternal = seenExternal || linked
+				}
+				if piece.Kind == ansi.Plain && strings.Contains(piece.Raw, "ok") {
+					seen = true
+					if linked {
+						t.Fatal("ordinary text inherited the external hyperlink")
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !seen || !seenExternal {
+				t.Fatal("test omitted the external link or redraw text")
+			}
+		})
+	}
+}
 
 func TestResizeKeepsPublishedImageCleanup(t *testing.T) {
 	for name, canvas := range map[string]interface {

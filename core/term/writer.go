@@ -13,10 +13,9 @@ import (
 	"github.com/Tangerg/oolong/core/internal/fifo"
 )
 
-// ErrClosed marks a frame that was handed over after the writer became unusable,
-// or that was still queued when its shutdown grace period ran out. Such a frame is
-// abandoned rather than written. When a terminal write caused the transition,
-// [Writer.Err] preserves that original failure.
+// ErrClosed marks refused admission after a clean close, or an accepted frame
+// abandoned when the shutdown grace period ran out. When a terminal write caused
+// the transition, [Writer.Err] preserves that original failure.
 var ErrClosed = errors.New("term: writer closed")
 
 // ErrDrainTimeout means accepted frames did not settle before their caller's
@@ -34,6 +33,8 @@ var ErrDrainTimeout = errors.New("term: writer did not drain")
 // longer shows what the program believes it drew; only one of them also stops the
 // sequences that give the terminal back.
 var ErrFrameRefused = errors.New("term: destination refused the frame")
+
+var errWriteInterrupted = errors.New("term: destination write interrupted; writer ended")
 
 // DrainGrace is how long to wait for queued frames to reach the terminal before
 // abandoning them. A terminal that has stopped accepting bytes must not be able to
@@ -59,6 +60,8 @@ const DrainGrace = 250 * time.Millisecond
 // when several goroutines queue terminal commands at once. A Writer must not be
 // copied after construction; its queue, watermarks and worker are one publication
 // owner.
+// If the destination exits its writing goroutine without returning, the writer ends
+// admission, accounts for every accepted frame and reports an interrupted write.
 type Writer struct {
 	dst io.Writer
 
@@ -89,11 +92,6 @@ type Writer struct {
 	queued    atomicSequence
 	written   atomic.Uint64
 	processed atomic.Uint64
-	// settleMu turns completions back into a contiguous watermark. Writes finish in
-	// sequence, but Queue calls made after Close are refused by their callers and can
-	// therefore finish out of order with a write already in progress.
-	settleMu sync.Mutex
-	settled  map[uint64]struct{}
 
 	// discarding tells the write goroutine to fail queued frames instead of writing
 	// them once the grace period has passed. A write already in dst cannot be
@@ -135,28 +133,30 @@ func NewWriter(dst io.Writer) *Writer {
 	return w
 }
 
-// Queue takes ownership of a frame and returns the sequence number reserved for
-// it. The sequence is reserved before the goroutine can see the frame, so
-// [Writer.Queued] already accounts for it when Queue returns.
+// Queue takes ownership of an accepted frame and returns its nonzero sequence.
+// [Writer.Queued] already accounts for it when Queue returns. Zero means admission
+// was refused; the caller retains the slice and [Writer.Err] reports the cause.
 //
 // Queue does not wait for the terminal. A frame handed over after [Writer.Close] or
-// a terminal failure is accounted for but not retained or written. The failure that
-// made the writer unusable remains available from [Writer.Err].
+// a terminal failure is refused without reserving a sequence or changing either
+// watermark. The original terminal failure is preserved; after a clean Close,
+// refusal records [ErrClosed]. Previously accepted frames still drain in FIFO order.
 //
 // Queue panics after every uint64 sequence has been used. Continuing would return
 // zero and violate the watermark protocol by making new work look older than work
 // already settled.
 func (w *Writer) Queue(data []byte) uint64 {
 	w.queueMu.Lock()
+	if w.closed || w.discarding.Load() {
+		w.queueMu.Unlock()
+		w.recordFailure(ErrClosed)
+		w.signalChange()
+		return 0
+	}
 	seq, ok := w.queued.next(math.MaxUint64)
 	if !ok {
 		w.queueMu.Unlock()
 		panic("term: writer exhausted frame sequences")
-	}
-	if w.closed || w.discarding.Load() {
-		w.queueMu.Unlock()
-		w.finish(seq, ErrClosed)
-		return seq
 	}
 	w.queue.Push(frame{seq: seq, data: data})
 	w.queueMu.Unlock()
@@ -178,7 +178,7 @@ func (w *Writer) signal() {
 // coalesce into one wake-up, so the current values must always be read from the writer.
 func (w *Writer) Changes() <-chan struct{} { return w.changes }
 
-// Queued is the highest sequence handed to the writer.
+// Queued is the highest accepted sequence. Refused admission does not advance it.
 func (w *Writer) Queued() uint64 { return w.queued.current() }
 
 // Written is the highest sequence in the unbroken run of frames that reached the
@@ -187,7 +187,7 @@ func (w *Writer) Queued() uint64 { return w.queued.current() }
 // vouch for an earlier one that never did.
 func (w *Writer) Written() uint64 { return w.written.Load() }
 
-// Err is the first frame that did not reach the terminal, or nil.
+// Err is the first admission or delivery failure, or nil.
 //
 // A terminal that has failed a write does not recover, and a UI that cannot reach
 // its terminal has nothing left to do, so this is a reason to exit rather than
@@ -272,7 +272,17 @@ func (w *Writer) Close() error {
 
 // run is the write goroutine.
 func (w *Writer) run() {
+	completed := false
 	defer func() {
+		if !completed {
+			// An unwound destination cannot return a receipt for the in-flight frame.
+			// End admission and settle the entire accepted prefix under the same owner.
+			w.queueMu.Lock()
+			w.closed = true
+			w.queue.Clear()
+			w.finish(w.queued.current(), errWriteInterrupted)
+			w.queueMu.Unlock()
+		}
 		// The goroutine is the only reader of dst. Releasing it before publishing
 		// loopDone means a closed Writer cannot retain the terminal transport, while a
 		// timed-out Close never clears a writer still inside its Write method.
@@ -287,6 +297,7 @@ func (w *Writer) run() {
 	for {
 		f, ok := w.next()
 		if !ok {
+			completed = true
 			return
 		}
 		err := ErrClosed
@@ -322,33 +333,18 @@ func (w *Writer) next() (frame, bool) {
 }
 
 func (w *Writer) finish(seq uint64, err error) {
-	if err != nil && !errors.Is(err, ErrClosed) {
-		w.mu.Lock()
-		if w.failure == nil {
-			w.failure = err
-		}
-		w.mu.Unlock()
-		if !errors.Is(err, ErrFrameRefused) {
-			// A failed terminal stays failed. Continuing to write would produce a
-			// stream of the same error and, worse, a partly-written frame after it.
-			w.discarding.Store(true)
-		}
+	w.recordFailure(err)
+	if err != nil && !errors.Is(err, ErrFrameRefused) {
+		// Refusal must preserve this cause, and Drain cannot settle this frame before
+		// admission knows the destination is unusable.
+		w.discarding.Store(true)
 	}
-	// The wake-up is queued before the watermark moves, and the watermark moves
-	// before the broadcast. That order is what makes "Drain has returned" imply
-	// "every wake-up those frames owed has already been queued": Drain returns on
-	// the watermark, so anything published after it could still be in flight when
-	// the caller looks.
-	select {
-	case w.changes <- struct{}{}:
-	default:
-	}
-	advanced := w.settle(seq)
-	if !advanced {
-		return
-	}
-	// And the broadcast, which anything else waiting on the watermark observes
-	// without taking the wake-up above.
+	// Only the FIFO worker completes accepted frames. A refused admission has no
+	// sequence, so it cannot overtake an older write or require out-of-order settlement.
+	// Queue the notification before the watermark so Drain cannot return while that
+	// notification is still owed; publish the watermark before waking its waiters.
+	w.signalChange()
+	w.processed.Store(seq)
 	w.advanceMu.Lock()
 	settled := w.advanced
 	w.advanced = make(chan struct{})
@@ -356,30 +352,19 @@ func (w *Writer) finish(seq uint64, err error) {
 	close(settled)
 }
 
-// settle records one completion and advances processed only across an unbroken
-// prefix. Treating processed as the largest sequence seen would let a refused frame
-// overtake an older blocked write and make Drain return before that write settled.
-func (w *Writer) settle(seq uint64) bool {
-	w.settleMu.Lock()
-	defer w.settleMu.Unlock()
-
-	if w.settled == nil {
-		w.settled = make(map[uint64]struct{})
-	}
-	w.settled[seq] = struct{}{}
-	previous := w.processed.Load()
-	processed := previous
-	for {
-		next := processed + 1
-		if _, ok := w.settled[next]; !ok {
-			break
+func (w *Writer) recordFailure(err error) {
+	if err != nil {
+		w.mu.Lock()
+		if w.failure == nil {
+			w.failure = err
 		}
-		delete(w.settled, next)
-		processed = next
+		w.mu.Unlock()
 	}
-	if processed != previous {
-		w.processed.Store(processed)
-		return true
+}
+
+func (w *Writer) signalChange() {
+	select {
+	case w.changes <- struct{}{}:
+	default:
 	}
-	return false
 }

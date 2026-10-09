@@ -5,6 +5,8 @@ import "github.com/Tangerg/oolong/core/grid"
 // InlineRuntime is a [Runtime] that can publish completed output into terminal
 // scrollback. It is only constructed for [Config.Inline], and its zero value is
 // inert.
+// Print and Append callbacks may draw into their supplied view but cannot publish
+// more output or mutate the same inline canvas; reentrant publication panics.
 type InlineRuntime struct{ *Runtime }
 
 // inlineCanvas is the publication surface when this is a live inline runtime.

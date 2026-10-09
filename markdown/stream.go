@@ -16,7 +16,8 @@ import (
 // chunk is quadratic in the length of the answer. So a stream splits what has arrived
 // into the part that is certainly finished and the part that is not. [Stream.Feed]
 // hands back blocks for the first, once, and never looks at that text again;
-// [Stream.Open] renders the second, which is short by construction.
+// [Stream.Open] renders the second. A list or other open container stays in that
+// tail until the parser sees the following block or Flush ends the source.
 //
 //	for chunk := range answer {
 //	    blocks, feedErr := stream.Feed(chunk)
@@ -29,15 +30,18 @@ import (
 //	report(err)
 //
 // It cuts at a blank line once a line has arrived after it that does not begin with a
-// space, and never inside a raw block. That is what "certainly finished" can be made
-// of without a parser that can be asked what it is in the middle of.
+// space. The parser confirms that this candidate separates complete blocks;
+// transport chunk boundaries never decide list membership or numbering.
 //
-// The cost is stated rather than hidden: a list with blank lines between its items is
-// published in pieces and reads the same, and a reference link is published before its
-// address arrives and comes out as the words without the link.
+// A reference link can still be published before its address arrives and come out
+// as the words without the link. Definitions for already published blocks must
+// precede those blocks.
 //
 // A Stream must not be copied after first use, like [strings.Builder]. It is owned by
-// the goroutine feeding and rendering one source. Its zero value is ready.
+// the goroutine feeding and rendering one source. Renderer callbacks may read Look,
+// but reentering Feed, Open, Flush, Reset or SetLook on that stream panics: the active
+// operation owns its unpublished source and cache until rendering returns.
+// Its zero value is ready.
 type Stream struct {
 	noCopy noCopy
 
@@ -64,9 +68,10 @@ type Stream struct {
 
 	// open is the last rendering of what is still arriving, kept so that asking for it
 	// twice in one frame — to measure and to draw — parses once.
-	open    []Block
-	openErr error
-	fresh   bool
+	open      []Block
+	openErr   error
+	fresh     bool
+	rendering bool
 }
 
 // noCopy makes the stream's single-owner contract visible to go vet. Its methods
@@ -81,6 +86,7 @@ func (*noCopy) Unlock() {}
 // Stream owns the heading styles so later caller mutation cannot silently change
 // its rendering without invalidating the open cache.
 func (s *Stream) SetLook(look Look) {
+	s.requireIdle()
 	s.look = cloneLook(look)
 	clear(s.open)
 	s.open = nil
@@ -113,6 +119,7 @@ func cloneLook(look Look) Look {
 // and something wired to a command's output is written to from a goroutine that may
 // not touch what is on screen.
 func (s *Stream) Feed(chunk string) ([]Block, error) {
+	s.requireIdle()
 	if chunk == "" {
 		return nil, nil
 	}
@@ -128,11 +135,11 @@ func (s *Stream) Feed(chunk string) ([]Block, error) {
 	s.fresh = false
 
 	cut := s.scan()
-	if cut <= 0 || s.splitsARawBlock(cut) {
+	if cut <= 0 || s.splitsBlock(cut) {
 		return nil, nil
 	}
 	source := s.held.String()
-	done, err := Render(source[:cut], s.look)
+	done, err := s.render(source[:cut])
 	// A substring shares the complete builder allocation. Copy the short tail into a
 	// fresh builder at the ownership cut so it cannot retain the published prefix.
 	// Reset releases the old buffer; tail keeps it alive only until WriteString has
@@ -159,6 +166,7 @@ func (s *Stream) Feed(chunk string) ([]Block, error) {
 // is written. A trailing incomplete UTF-8 rune waits for the next Feed; Flush
 // settles it as replacement text if the source ends there.
 func (s *Stream) Open() ([]Block, error) {
+	s.requireIdle()
 	if !s.fresh {
 		source := s.held.String()
 		if len(source) > 0 {
@@ -170,7 +178,7 @@ func (s *Stream) Open() ([]Block, error) {
 				source = source[:start]
 			}
 		}
-		s.open, s.openErr = Render(source, s.look)
+		s.open, s.openErr = s.render(source)
 		s.fresh = true
 	}
 	return slices.Clone(s.open), s.openErr
@@ -178,13 +186,15 @@ func (s *Stream) Open() ([]Block, error) {
 
 // Flush publishes whatever is left, which is what the end of an answer is.
 func (s *Stream) Flush() ([]Block, error) {
-	done, err := Render(s.held.String(), s.look)
+	s.requireIdle()
+	done, err := s.render(s.held.String())
 	s.Reset()
 	return done, err
 }
 
 // Reset forgets everything, for a stream about to be given a different answer.
 func (s *Stream) Reset() {
+	s.requireIdle()
 	s.held.Reset()
 	s.scanned, s.searched, s.blank = 0, 0, 0
 	s.afterCR = false
@@ -192,18 +202,27 @@ func (s *Stream) Reset() {
 	s.openErr = nil
 }
 
+func (s *Stream) requireIdle() {
+	if s.rendering {
+		panic("markdown: reentrant stream operation during rendering")
+	}
+}
+
+func (s *Stream) render(source string) ([]Block, error) {
+	s.rendering = true
+	defer func() { s.rendering = false }()
+	return Render(source, s.look)
+}
+
 // scan reads the complete lines that have arrived since the last call and returns
 // where the held text could be cut, or zero for nowhere.
 //
 // Could, not may: this reads lines and nothing else. Whether a cut there falls inside
-// text the parser may not interpret is [Stream.splitsARawBlock]'s answer, and the scan
+// text the parser may not interpret is [Stream.splitsBlock]'s answer, and the scan
 // has no opinion about it — tracking fences approximately is what made three lines
 // that only look like one leave the scan believing it was inside a block of code
 // nothing could close, proposing no cuts at all. A guard that can only refuse a
 // candidate cannot recover one that is never offered.
-//
-// The parse that tracking saved was measured at 2.7% of a feed in the loop [Stream]
-// documents, where [Stream.Open] renders the whole unpublished tail anyway.
 //
 // Only whole lines are looked at, because a line that has not ended cannot be told
 // apart from the beginning of a different one.
@@ -243,8 +262,7 @@ func indented(line string) bool {
 	return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 }
 
-// splitsARawBlock reports whether a proposed cut would cut through text the parser
-// is not allowed to interpret.
+// splitsBlock reports whether a proposed cut divides one parsed block.
 //
 // The scan that proposes cuts reads lines and nothing else, which is enough to find
 // where one could go and not enough to be sure one may. Fenced code, display
@@ -254,10 +272,11 @@ func indented(line string) bool {
 // is a rule the parser already has, and a second reading of them agrees with it right
 // up until the document where it does not — so the parser answers, and the scan only
 // proposes.
-func (s *Stream) splitsARawBlock(cut int) bool {
+func (s *Stream) splitsBlock(cut int) bool {
 	source := []byte(s.held.String())
+	whole := parse(source)
 	split := false
-	_ = ast.Walk(parse(source), func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+	_ = ast.Walk(whole, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
@@ -267,7 +286,41 @@ func (s *Stream) splitsARawBlock(cut int) bool {
 		}
 		return ast.WalkContinue, nil
 	})
-	return split
+	if split {
+		return true
+	}
+	prefix := parse(source[:cut])
+	last := whole.FirstChild()
+	for i := 1; i < prefix.ChildCount() && last != nil; i++ {
+		last = last.NextSibling()
+	}
+	return !completeBlock(prefix.LastChild(), last, cut)
+}
+
+// Empty list items have no source lines. A prefix is complete only when its final
+// block has the full parser's block structure and none of its descendants cross cut.
+// Inline reference resolution retains Stream's documented forward-reference limit.
+func completeBlock(prefix, whole ast.Node, cut int) bool {
+	if prefix == nil || whole == nil || prefix.Kind() != whole.Kind() {
+		return false
+	}
+	lines := whole.Lines()
+	if lines != nil && lines.Len() > 0 && lines.At(lines.Len()-1).Stop > cut {
+		return false
+	}
+	for a, b := nextBlock(prefix.FirstChild()), nextBlock(whole.FirstChild()); a != nil || b != nil; a, b = nextBlock(a.NextSibling()), nextBlock(b.NextSibling()) {
+		if a == nil || b == nil || !completeBlock(a, b, cut) {
+			return false
+		}
+	}
+	return true
+}
+
+func nextBlock(node ast.Node) ast.Node {
+	for node != nil && node.Type() != ast.TypeBlock {
+		node = node.NextSibling()
+	}
+	return node
 }
 
 func rawBlockSplit(node ast.Node, cut int) bool {

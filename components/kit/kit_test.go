@@ -157,6 +157,59 @@ type panelChild struct {
 	deaf bool
 }
 
+type callbackChild struct {
+	panelChild
+	on func(bool)
+}
+
+type passiveFocusBody struct{ calls int }
+
+func (*passiveFocusBody) Draw(headless.Frame) {}
+func (p *passiveFocusBody) Focus(bool)        { p.calls++ }
+
+func TestDialogPanelDoesNotFocusAPassiveBody(t *testing.T) {
+	body := &passiveFocusBody{}
+	panel := &kit.DialogPanel{}
+	panel.SetBody(body)
+	panel.Focus(true)
+	panel.Focus(false)
+	if body.calls != 0 {
+		t.Fatal("a passive body received keyboard focus")
+	}
+}
+
+func (c *callbackChild) Focus(has bool) {
+	c.panelChild.Focus(has)
+	if on := c.on; on != nil {
+		c.on = nil
+		on(has)
+	}
+}
+
+func TestPanelReplacementCallbackOwnsTheFinalChild(t *testing.T) {
+	for _, dialog := range []bool{false, true} {
+		a, b, c := &callbackChild{}, &callbackChild{}, &callbackChild{}
+		var replace func(headless.Widget)
+		var content func() headless.Widget
+		if dialog {
+			panel := &kit.DialogPanel{}
+			panel.Focus(true)
+			replace = panel.SetBody
+			content = panel.Body
+		} else {
+			panel := &kit.Panel{}
+			replace = func(child headless.Widget) { panel.SetContent(child.(headless.Focusable)) }
+			content = func() headless.Widget { return panel.Content() }
+		}
+		replace(a)
+		a.on = func(bool) { replace(c) }
+		replace(b)
+		if content() != c || a.focused || b.focused || !c.focused {
+			t.Fatalf("dialog=%v: content=%v focus=%v/%v/%v", dialog, content(), a.focused, b.focused, c.focused)
+		}
+	}
+}
+
 func (c *panelChild) Draw(frame headless.Frame) {
 	frame.Text(0, 0, "inside", grid.Style{})
 }
@@ -1275,17 +1328,17 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 		model string
 		sure  bool
 	)
-	modelField := &headless.Select[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)}
+	modelField := headless.NewSelect(headless.SelectConfig[string]{Same: headless.Equal[string], Label: "Model", Value: headless.Bind(&model)})
 	modelField.SetOptions(headless.Options("fast", "good"))
 	form := headless.NewForm(
-		&headless.Text{Label: "Name", Value: headless.Bind(&name), Check: func(s string) error {
+		headless.NewText(headless.TextConfig{Label: "Name", Value: headless.Bind(&name), Check: func(s string) error {
 			if s == "" {
 				return errors.New("a name is needed")
 			}
 			return nil
-		}},
+		}}),
 		modelField,
-		&headless.Confirm{Label: "Sure?", Value: headless.Bind(&sure)},
+		headless.NewConfirm(headless.ConfirmConfig{Label: "Sure?", Value: headless.Bind(&sure)}),
 	)
 
 	var out strings.Builder

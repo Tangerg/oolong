@@ -172,7 +172,15 @@ type handoverProtocolHost struct {
 	handed atomic.Bool
 }
 
-func (h *handoverProtocolHost) Hand(run func() error) error {
+func (h *handoverProtocolHost) Hand(prepare, run func() error) error {
+	if run == nil {
+		return nil
+	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			return err
+		}
+	}
 	h.handed.Store(true)
 	return run()
 }
@@ -268,7 +276,15 @@ func (h *stalledHost) Events() <-chan input.Event  { return h.events }
 func (h *stalledHost) Err() error                  { return nil }
 func (h *stalledHost) Writer() program.FrameWriter { return h.writer }
 func (h *stalledHost) Size() (int, int, error)     { return 20, 4, nil }
-func (h *stalledHost) Hand(run func() error) error {
+func (h *stalledHost) Hand(prepare, run func() error) error {
+	if run == nil {
+		return nil
+	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			return err
+		}
+	}
 	h.handed.Store(true)
 	return run()
 }
@@ -331,13 +347,18 @@ func (h *host) Paste() bool {
 // Hand runs it. A host with no terminal has nothing to give away, and the half
 // worth testing is the program's: that the block is left behind first, that nothing
 // is drawn while it is gone, and that the interface is drawn again afterwards.
-func (h *host) Hand(run func() error) error {
-	h.clipMu.Lock()
-	h.handed++
-	h.clipMu.Unlock()
+func (h *host) Hand(prepare, run func() error) error {
 	if run == nil {
 		return nil
 	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			return err
+		}
+	}
+	h.clipMu.Lock()
+	h.handed++
+	h.clipMu.Unlock()
 	return run()
 }
 
@@ -1932,6 +1953,23 @@ func TestPrintedOutputIsNotLostToTheExit(t *testing.T) {
 	}
 }
 
+func TestEarlyWriterCloseReportsUndeliveredPrint(t *testing.T) {
+	h, root, done := startInline(t)
+	if err := h.writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	root.runtime.Dispatcher().Post(func() {
+		root.runtime.Print(measurer{
+			measure: func(int) int { return 1 },
+			draw:    func(v grid.View) { v.Text(0, 0, "must survive", grid.Style{}) },
+		})
+		root.runtime.Quit()
+	})
+	if err := <-done; !errors.Is(err, term.ErrClosed) {
+		t.Fatalf("Run = %v, want undelivered frame error", err)
+	}
+}
+
 func TestTheLastStateOfAnInlineInterfaceIsWhatStays(t *testing.T) {
 	// It is not taken down on the way out — it is the last thing the session said, and
 	// the cursor has to end up below it so the next prompt does not land on top.
@@ -1945,7 +1983,7 @@ func TestTheLastStateOfAnInlineInterfaceIsWhatStays(t *testing.T) {
 	if !strings.Contains(got, "goodbye") {
 		t.Fatalf("the last state was never drawn: %q", got)
 	}
-	if !strings.HasSuffix(got, "\r\n\x1b[0m\x1b[0 q\x1b[?25h") {
+	if !strings.HasSuffix(got, "\r\n\x1b]8;;\x1b\\\x1b[0m\x1b[0 q\x1b[?25h") {
 		t.Fatalf("the terminal was not handed back below the interface: %q", got)
 	}
 }

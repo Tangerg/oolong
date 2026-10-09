@@ -15,10 +15,10 @@ package programtest
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,7 +45,9 @@ type Host struct {
 
 	sizeMu sync.Mutex
 	w, h   int
-	closed atomic.Bool
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Config is the complete initial state of a test [Host]. Width and Height must be
@@ -103,7 +105,7 @@ func (h *Host) Writer() program.FrameWriter {
 	return h.writer
 }
 
-// Size returns the opening size passed to New.
+// Size returns the current size, initially the dimensions passed to New.
 func (h *Host) Size() (width, height int, err error) {
 	if h == nil {
 		return 0, 0, nil
@@ -115,16 +117,21 @@ func (h *Host) Size() (width, height int, err error) {
 
 // Send queues an event for the program and reports whether the host was open.
 // It does not wait for the program to receive earlier events.
+// Resize events use [Host.Resize] so geometry validation, reported size and input
+// admission remain one transition.
 func (h *Host) Send(event input.Event) bool {
-	if h == nil || h.input == nil || h.closed.Load() {
+	if h == nil || h.input == nil {
 		return false
+	}
+	if resized, ok := event.(input.Resize); ok {
+		return h.Resize(resized.Width, resized.Height)
 	}
 	return h.input.post(event)
 }
 
 // Type sends text one character key at a time.
 func (h *Host) Type(text string) bool {
-	if h == nil || h.input == nil || h.closed.Load() {
+	if h == nil || h.input == nil || !h.input.accepting() {
 		return false
 	}
 	for _, r := range text {
@@ -143,13 +150,16 @@ func (h *Host) Press(code input.Code) bool {
 // Resize changes the reported size and sends the corresponding event.
 // Dimensions outside [program.ValidateSize] are rejected.
 func (h *Host) Resize(width, height int) bool {
-	if program.ValidateSize(width, height) != nil || h == nil || h.input == nil || h.closed.Load() {
+	if program.ValidateSize(width, height) != nil || h == nil || h.input == nil {
 		return false
 	}
 	h.sizeMu.Lock()
+	defer h.sizeMu.Unlock()
+	if !h.input.post(input.Resize{Width: width, Height: height}) {
+		return false
+	}
 	h.w, h.h = width, height
-	h.sizeMu.Unlock()
-	return h.Send(input.Resize{Width: width, Height: height})
+	return true
 }
 
 // Repaint asks the program for a full frame at its current size.
@@ -302,19 +312,23 @@ func transparentControl(final byte) bool {
 	}
 }
 
-// Close stops the frame writer. It is idempotent.
+// Close ends input and stops the frame writer. Concurrent and repeated calls wait
+// for the same settlement and return its teardown and delivery errors.
 func (h *Host) Close() error {
-	if h == nil || !h.closed.CompareAndSwap(false, true) {
+	if h == nil {
 		return nil
 	}
-	if h.writer == nil {
-		return nil
-	}
-	h.input.close()
-	if err := h.writer.Close(); err != nil {
-		return fmt.Errorf("programtest: close frame writer: %w", err)
-	}
-	return nil
+	h.closeOnce.Do(func() {
+		if h.input != nil {
+			h.input.close()
+		}
+		if h.writer != nil {
+			if err := errors.Join(h.writer.Close(), h.writer.Err()); err != nil {
+				h.closeErr = fmt.Errorf("programtest: close frame writer: %w", err)
+			}
+		}
+	})
+	return h.closeErr
 }
 
 // eventSource is an ordered input FIFO with one coalesced wake-up.
@@ -353,6 +367,13 @@ type hostEvent struct {
 }
 
 func (s *eventSource) post(event input.Event) bool { return s.enqueue(hostEvent{input: event}) }
+
+func (s *eventSource) accepting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.closed
+}
+
 func (s *eventSource) postRepaint(reply func(error)) bool {
 	return s.enqueue(hostEvent{repaint: true, reply: reply})
 }

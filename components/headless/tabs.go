@@ -92,19 +92,20 @@ func (t *Tabs) Set(items ...Tab) {
 	if t == nil {
 		return
 	}
-	t.matcher.Clear()
-	t.items = own(t.items, items)
-	t.itemsID = new(byte)
-	for i := range t.items {
-		t.items[i].Title = strings.Clone(t.items[i].Title)
-	}
-	if len(t.items) == 0 {
-		t.selection.set(0)
-	} else {
-		t.selection.set(min(max(t.selection.get(), 0), len(t.items)-1))
-	}
-	t.settled = false
-	t.settle()
+	t.matcher.Reset(func() {
+		t.items = own(t.items, items)
+		t.itemsID = new(byte)
+		for i := range t.items {
+			t.items[i].Title = strings.Clone(t.items[i].Title)
+		}
+		if len(t.items) == 0 {
+			t.selection.set(0)
+		} else {
+			t.selection.set(min(max(t.selection.get(), 0), len(t.items)-1))
+		}
+		t.state.Unsettle()
+		t.settle()
+	})
 }
 
 // Items returns a copy of the current tab parts. Replacing the returned slice cannot
@@ -211,7 +212,7 @@ func (t *Tabs) Handle(event input.Event) bool {
 		return handled
 	}
 	if pane, ok := t.Current(); ok {
-		if handler, can := pane.Of.(Interactive); can && handler.Handle(event) {
+		if handler, can := pane.Of.(Interactive); can && t.state.Forward(func() bool { return handler.Handle(event) }) {
 			return true
 		}
 	}
@@ -230,7 +231,7 @@ func (t *Tabs) Do(action keymap.Action) bool {
 		return false
 	}
 	if pane, ok := t.Current(); ok {
-		if doer, can := pane.Of.(Doer); can && doer.Do(action) {
+		if doer, can := pane.Of.(Doer); can && t.state.Forward(func() bool { return doer.Do(action) }) {
 			return true
 		}
 	}
@@ -249,10 +250,7 @@ func (t *Tabs) Focus(has bool) {
 	if t == nil {
 		return
 	}
-	if !has {
-		t.matcher.Clear()
-	}
-	t.change(has, func() { t.settle() }, &t.holder)
+	t.change(has, func() { t.settle() }, &t.holder, &t.matcher)
 }
 
 // HeightForWidth is what the selected pane asks for.
@@ -283,7 +281,7 @@ func (t *Tabs) Semantics() SemanticNode {
 	if t == nil {
 		return root
 	}
-	if len(t.items) > 0 && !t.blurred {
+	if len(t.items) > 0 && t.state.Focused() {
 		root.State |= StateFocused
 	}
 	selected := t.Selected()
@@ -313,12 +311,12 @@ func (t *Tabs) settle() bool {
 	if pane, ok := t.Current(); ok {
 		want = pane.Of
 	}
-	if t.settled && wantIndex == t.holderIndex {
+	if t.state.Settled() && wantIndex == t.holderIndex {
 		return false
 	}
 	from := t.holder
 	kept := identity.Same(from, want)
-	t.holder, t.holderIndex, t.settled = want, wantIndex, true
+	t.holder, t.holderIndex = want, wantIndex
 	turn := t.begin()
 	if from != nil && !kept {
 		tell(from, false)
@@ -327,7 +325,7 @@ func (t *Tabs) settle() bool {
 		}
 	}
 	for i, tab := range t.items {
-		if i != wantIndex {
+		if i != wantIndex && !identity.Same(tab.Of, want) {
 			tell(tab.Of, false)
 			if t.superseded(turn) {
 				return true
@@ -335,7 +333,7 @@ func (t *Tabs) settle() bool {
 		}
 	}
 	if !kept {
-		tell(want, !t.blurred)
+		tell(want, t.state.Focused())
 	}
 	return true
 }

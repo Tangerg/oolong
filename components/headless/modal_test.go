@@ -149,8 +149,8 @@ func TestInputAboutAnOlderFrameDoesNotDismissANewerLayer(t *testing.T) {
 	s.Push(old)
 	draw(&s, 20, 10)
 
-	// The semantic stack changes before its next frame. Escape is still routed to
-	// what is visible, but must not pop the newer layer the user has never seen.
+	// The new owner has not been presented. The visible child has lost focus, so
+	// neither may act on Escape until the new owner's frame commits.
 	s.Push(newer)
 	s.Handle(esc())
 	if s.Depth() != 2 {
@@ -287,7 +287,7 @@ func TestALayerKeepsAPointerGestureOutsideItsArea(t *testing.T) {
 
 	// Capture ends at release. A later drag outside is not part of the old gesture.
 	s.Handle(input.Mouse{Pos: outside, Action: input.MouseDrag, Button: input.ButtonLeft})
-	if len(p.seen) != 3 {
+	if len(p.seen) != 4 || p.seen[3].(input.Mouse).Action != input.MouseLeave {
 		t.Fatal("the layer kept capture after release")
 	}
 }
@@ -305,8 +305,8 @@ func TestANewPressEndsAnIncompleteLayerGesture(t *testing.T) {
 	s.Handle(input.Mouse{Pos: area.Min, Action: input.MouseDown, Button: input.ButtonLeft})
 	out := image.Pt(area.Min.X-2, area.Min.Y)
 	s.Handle(input.Mouse{Pos: out, Action: input.MouseDrag, Button: input.ButtonLeft})
-	if got := len(p.seen); got != 2 {
-		t.Fatalf("the old gesture owner received %d events after a new press, want two", got)
+	if got := len(p.seen); got != 4 || p.seen[1].(input.Mouse).Action != input.MouseCancel || p.seen[3].(input.Mouse).Action != input.MouseLeave {
+		t.Fatalf("the old gesture owner received %v, want press, cancel, press and leave", p.seen)
 	}
 }
 

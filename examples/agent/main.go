@@ -437,10 +437,10 @@ func (s agentStatus) Draw(view grid.View) {
 
 func (a *agent) buildReview() {
 	a.reviewAnswer = true
-	a.reviewConfirm = &headless.Confirm{
+	a.reviewConfirm = headless.NewConfirm(headless.ConfirmConfig{
 		Label: "Allow this tool call?", Value: headless.Bind(&a.reviewAnswer),
 		Yes: "apply", No: "deny",
-	}
+	})
 	keys := headless.DefaultFormKeys()
 	a.reviewForm = headless.NewForm(a.reviewConfirm)
 	a.reviewForm.Keys = keys

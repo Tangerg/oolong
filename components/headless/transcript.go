@@ -25,9 +25,13 @@ import (
 // establishes the width; subsequent appends reuse the last committed width. A
 // Transcript must not be copied after first use: retained blocks and pending layout
 // are one publication owner.
+//
+// A Commit callback may only read this transcript. Semantic mutations and Stage
+// panic while publication is unsettled, including after a callback exits abnormally.
 type Transcript struct {
 	releasedPrefix int
 	noCopy         noCopy
+	publishing     bool
 
 	// transcriptState is embedded because these are the transcript's committed
 	// values, not a cache beside it. A frame derives another complete state and swaps
@@ -94,6 +98,7 @@ func (t *Transcript) Width() int { return t.width }
 // anchor, a search result, a selection — name a different block than the one it was
 // taken from, so the interface would jump somewhere the user never asked to go.
 func (t *Transcript) Append(b Block) BlockID {
+	t.assertMutable()
 	live := BlockID(len(t.blocks))
 	if live >= exhaustedBlockID-t.first {
 		panic("headless: transcript exhausted block identities")
@@ -137,6 +142,7 @@ func (t *Transcript) Last() Block {
 //
 // Everything before i keeps the height it had, because nothing before it moved.
 func (t *Transcript) Changed(id BlockID) {
+	t.assertMutable()
 	i, ok := t.position(id)
 	if !ok {
 		return
@@ -161,6 +167,7 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 	if t == nil {
 		return TranscriptLayout{}
 	}
+	t.assertMutable()
 	width = max(width, 0)
 	if t.staged == nil && width == t.width {
 		return t.layout()
@@ -458,6 +465,7 @@ func (t *Transcript) Rows(from, count int) []text.Row {
 // to say: a streaming answer is finished when whatever is streaming it says so, and
 // nothing here can tell a pause from an ending.
 func (t *Transcript) Finish(id BlockID) {
+	t.assertMutable()
 	i, ok := t.position(id)
 	if !ok {
 		return
@@ -486,12 +494,20 @@ func (t *Transcript) Finished(id BlockID) bool {
 // Committing is a one-way door. A committed block belongs to the terminal: no longer
 // drawn, re-wrapped, selectable or searchable by this program. What it buys is output
 // that survives the program exiting, and a session's memory that stops growing.
+//
+// Each accepted block is retired before the next callback. The callback may only
+// read this transcript; mutation or reentrant publication panics. If the callback
+// exits abnormally, publication remains unsettled: further mutation or publication
+// panics, while committed state remains readable.
 func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
+	t.assertMutable()
 	if give == nil {
 		return 0
 	}
-	gone, rows := 0, 0
-	for _, b := range t.blocks {
+	t.publishing = true
+	gone := 0
+	for len(t.blocks) > 0 {
+		b := t.blocks[0]
 		if !b.finished {
 			break
 		}
@@ -499,28 +515,28 @@ func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 			break
 		}
 		gone++
-		rows = layout.Sum(rows, b.height)
+		t.blocks[0] = placed{}
+		t.blocks = t.blocks[1:]
+		t.releasedPrefix++
+		t.first++
+		t.start = layout.Sum(t.start, b.height)
+		t.rows = layout.Remaining(t.rows, b.height)
 	}
-	if gone == 0 {
-		return 0
-	}
-
-	t.release(gone)
-	t.first += BlockID(gone)
-	t.start = layout.Sum(t.start, rows)
-	t.rows = layout.Remaining(t.rows, rows)
+	t.compact()
+	t.publishing = false
 	return gone
 }
 
-// release removes n leading placements while keeping backing storage proportional to
-// the blocks that remain. Clearing drops payload references immediately. Reallocating
-// only after the unused prefix is larger than the live suffix makes repeated commits
-// amortized linear rather than copying the retained transcript on every block.
-func (t *Transcript) release(n int) {
+func (t *Transcript) assertMutable() {
+	if t.publishing {
+		panic("headless: transcript publication is unsettled")
+	}
+}
+
+// Compact once after publication, so all retired slots are cleared before moving the
+// live suffix. The threshold keeps repeated commits amortized linear.
+func (t *Transcript) compact() {
 	allocation := cap(t.blocks) + t.releasedPrefix
-	clear(t.blocks[:n])
-	t.blocks = t.blocks[n:]
-	t.releasedPrefix += n
 	if len(t.blocks) == 0 {
 		t.releasedPrefix = 0
 		t.blocks = nil

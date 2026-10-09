@@ -16,6 +16,26 @@ func (*stuckWriter) Written() uint64           { return 0 }
 func (*stuckWriter) Err() error                { return nil }
 func (*stuckWriter) Drain(time.Duration) error { return nil }
 
+type refusingWriter struct {
+	stuckWriter
+	cause error
+}
+
+func (w *refusingWriter) Queue([]byte) uint64 { w.accepted++; return 0 }
+func (w *refusingWriter) Err() error          { return w.cause }
+
+func TestRefusedFrameReportsTheAdmissionCauseAndEndsPublication(t *testing.T) {
+	cause := errors.New("transport closed")
+	w := &refusingWriter{cause: cause}
+	p := &program{writer: w}
+	if sequence, err := p.queue([]byte("refused")); sequence != 0 || !errors.Is(err, cause) {
+		t.Fatalf("refusal lost its cause: sequence=%d error=%v", sequence, err)
+	}
+	if _, err := p.queue([]byte("late")); !errors.Is(err, ErrDisplayFailed) || w.accepted != 1 || p.queued != 0 {
+		t.Fatalf("refusal advanced publication: calls=%d queued=%d error=%v", w.accepted, p.queued, err)
+	}
+}
+
 // TestNoFrameIsPublishedAfterTheSequenceContractBreaks holds the publication edge to
 // what the program says about itself.
 //

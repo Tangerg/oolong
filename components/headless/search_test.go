@@ -19,7 +19,7 @@ func found(t *testing.T, s *headless.Search, query string) headless.Result {
 			if !ok {
 				t.Fatalf("search closed before answering %q", query)
 			}
-			if r.Query == query {
+			if r.Query == query && r.Current() {
 				return r
 			}
 		case <-deadline:

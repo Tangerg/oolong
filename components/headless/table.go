@@ -102,8 +102,10 @@ func (t *Table[T]) ClearSort() { t.sorted = false }
 // throws the order away. A table that lost its order every time its rows were
 // refreshed would be a table nobody could read while it was updating.
 func (t *Table[T]) SetItems(items []T) {
-	t.list().SetItems(items)
-	t.reorder()
+	t.rows.matcher.Reset(func() {
+		t.list().SetItems(items)
+		t.reorder()
+	})
 }
 
 // The operations below are the list's, forwarded. Reading rows and moving a cursor
@@ -182,6 +184,10 @@ func (t *Table[T]) reorder() {
 	if !t.sorted || t.less == nil || t.rows.Len() < 2 {
 		return
 	}
+	t.rows.matcher.Reset(t.sortRows)
+}
+
+func (t *Table[T]) sortRows() {
 	items := t.rows.Items()
 	order := make([]int, len(items))
 	for i := range order {

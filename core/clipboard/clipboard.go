@@ -108,26 +108,32 @@ func (c *Channel) Copy(sel Selection, text string) (string, bool) {
 	return c.wrap(encode(sel, base64.StdEncoding.EncodeToString([]byte(text)))), true
 }
 
-// Request starts one clipboard read and returns the sequence to send.
+// Request starts one clipboard read only when send accepts its sequence.
 //
 // It reports false while an earlier request is still eligible for an answer. OSC
 // 52 has no request identity, so sending two and guessing which response belongs to
 // which would make ownership weaker rather than concurrency stronger. A request a
-// terminal silently refuses expires by itself.
-func (c *Channel) Request(sel Selection) (string, bool) {
-	if c == nil {
-		return "", false
+// terminal silently refuses expires by itself. A nil send refuses the request.
+// send must enqueue synchronously without blocking for delivery or reentering this
+// Channel. It runs under the request lock, so an answer cannot settle a proposal
+// before transport admission decides whether that request exists.
+func (c *Channel) Request(sel Selection, send func(string) bool) bool {
+	if c == nil || send == nil {
+		return false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.clock()
 	if c.live(now) {
-		return "", false
+		return false
 	}
 	sel = normalized(sel)
+	if !send(c.wrap(encode(sel, "?"))) {
+		return false
+	}
 	c.pending, c.selection = true, sel
 	c.until = now.Add(responseTimeout)
-	return c.wrap(encode(sel, "?")), true
+	return true
 }
 
 // Answer settles a terminal's OSC 52 parameters as text when they answer the live
@@ -138,14 +144,17 @@ func (c *Channel) Request(sel Selection) (string, bool) {
 // clear a selection. Malformed parameters and answers for another selection are left
 // alone for the terminal adapter to publish as the raw OSC event it received, and do
 // not take ownership of the live request.
-func (c *Channel) Answer(params string) (string, bool) {
+//
+// at is when the transport read completed, before queueing or decoding. Replies
+// received before this request or at its deadline cannot settle it. Delayed decoding
+// does not expire a reply that arrived within the request's interval.
+func (c *Channel) Answer(params string, at time.Time) (string, bool) {
 	if c == nil {
 		return "", false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.live(c.clock()) {
-		c.pending = false
+	if !c.live(at) {
 		return "", false
 	}
 	selection, ok := selectionOf(params)
@@ -161,7 +170,9 @@ func (c *Channel) Answer(params string) (string, bool) {
 // A deadline is the first instant no request is live, matching context and network
 // deadline semantics; keeping the comparison here prevents the two operations from
 // disagreeing at that exact boundary.
-func (c *Channel) live(now time.Time) bool { return c.pending && now.Before(c.until) }
+func (c *Channel) live(at time.Time) bool {
+	return c.pending && !at.Before(c.until.Add(-responseTimeout)) && at.Before(c.until)
+}
 
 func (c *Channel) clock() time.Time {
 	if c.now != nil {

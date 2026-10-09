@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/components/internal/focus"
 	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
@@ -60,6 +61,7 @@ func NewDialog(config DialogConfig) *Dialog {
 		Keys:   config.Keys,
 		Hints:  slices.Clone(config.Hints),
 	}
+	panel.Focus(false)
 	panel.SetBody(config.Body)
 	controller := headless.NewDialog(headless.DialogConfig{
 		Stack:       config.Stack,
@@ -122,7 +124,8 @@ type DialogPanel struct {
 
 	dialog  *headless.Dialog
 	body    headless.Widget
-	focused bool
+	focus   focus.State
+	holder  headless.Widget
 	content headless.PointerRegion
 }
 
@@ -137,19 +140,14 @@ func (d *DialogPanel) Body() headless.Widget {
 // SetBody replaces what is inside the frame and transfers keyboard ownership. A
 // body that answers input receives it after the stack chooses this layer.
 func (d *DialogPanel) SetBody(body headless.Widget) {
-	if d == nil {
+	if d == nil || identity.Same(d.body, body) {
 		return
 	}
-	if identity.Same(d.body, body) {
-		return
-	}
-	if old, ok := d.body.(headless.Focusable); ok {
-		old.Focus(false)
+	if !d.focus.Settled() {
+		d.Focus(false)
 	}
 	d.body = body
-	if next, ok := d.body.(headless.Focusable); ok {
-		next.Focus(d.focused)
-	}
+	focus.SettleOne(&d.focus, &d.holder, body, tellFocus)
 }
 
 // Place is where the dialog goes, which is what [headless.Stack] asks.
@@ -162,7 +160,7 @@ func (d *DialogPanel) Handle(ev input.Event) bool {
 		return handled
 	}
 	if body, ok := d.body.(headless.Interactive); ok {
-		return body.Handle(ev)
+		return d.focus.Forward(func() bool { return body.Handle(ev) })
 	}
 	return false
 }
@@ -174,13 +172,12 @@ func (d *DialogPanel) Handle(ev input.Event) bool {
 // inside one would never be told it is being typed at, and a field would draw no
 // caret while taking every keystroke.
 func (d *DialogPanel) Focus(has bool) {
-	if d == nil || d.focused == has {
+	if d == nil {
 		return
 	}
-	d.focused = has
-	if body, ok := d.body.(headless.Focusable); ok {
-		body.Focus(has)
-	}
+	d.focus.Change(has, func() {
+		focus.SettleOne(&d.focus, &d.holder, d.body, tellFocus)
+	}, func(has bool) { tellFocus(d.holder, has) })
 }
 
 // Backdrop shades what the dialog covers.

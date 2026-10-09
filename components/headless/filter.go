@@ -47,8 +47,6 @@ type Filter[T any] struct {
 	pattern string
 	// list is what matched. It owns the cursor and the scroll.
 	list List[hit[T]]
-	// fresh says the matches are the ones this pattern and these items produce.
-	fresh bool
 }
 
 // hit is one item that matched, and how.
@@ -67,13 +65,15 @@ func (f *Filter[T]) Pattern() string { return f.pattern }
 // leave the cursor on whatever happened to land there, which is how a reader picks
 // something they did not mean.
 func (f *Filter[T]) SetPattern(pattern string) {
-	if pattern == f.pattern && f.fresh {
+	if pattern == f.pattern {
 		return
 	}
-	f.pattern, f.fresh = strings.Clone(pattern), false
-	f.match()
-	f.list.Select(0)
-	f.list.Scroll().ToTop()
+	f.list.matcher.Reset(func() {
+		f.pattern = strings.Clone(pattern)
+		f.rebuild()
+		f.list.Select(0)
+		f.list.Scroll().ToTop()
+	})
 }
 
 // SetItems replaces the source: the values there are to choose from and the one
@@ -81,12 +81,15 @@ func (f *Filter[T]) SetPattern(pattern string) {
 // because ranked matches are a fact about both; separate setters would expose a
 // transient source whose values and projection disagree. Nil text makes no item
 // match. The filter copies items, so the caller may reuse or change its input.
+// text must be observationally pure and stable until the next SetItems.
 func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
-	f.items = own(f.items, items)
-	f.text, f.fresh = text, false
-	f.match()
-	f.list.Select(0)
-	f.list.Scroll().ToTop()
+	f.list.matcher.Reset(func() {
+		f.items = own(f.items, items)
+		f.text = text
+		f.rebuild()
+		f.list.Select(0)
+		f.list.Scroll().ToTop()
+	})
 }
 
 // Items returns a copy of everything there is to choose from, matched or not.
@@ -107,20 +110,17 @@ func (f *Filter[T]) Len() int {
 
 // Matched is how many items answered the pattern.
 func (f *Filter[T]) Matched() int {
-	f.match()
 	return f.list.Len()
 }
 
 // Selected is the row the cursor is on among the matches, or -1 when nothing
 // matched.
 func (f *Filter[T]) Selected() int {
-	f.match()
 	return f.list.Selected()
 }
 
 // Current is the item under the cursor and whether there is one.
 func (f *Filter[T]) Current() (T, bool) {
-	f.match()
 	got, ok := f.list.Current()
 	return got.item, ok
 }
@@ -135,7 +135,6 @@ func (f *Filter[T]) Hit(point image.Point) (int, bool) {
 
 // Select moves the cursor to one of the matches, clamped to them.
 func (f *Filter[T]) Select(at int) {
-	f.match()
 	f.list.Select(at)
 }
 
@@ -146,13 +145,12 @@ func (f *Filter[T]) Scroll() *Scroll { return f.list.Scroll() }
 // the list is not an event here: it is [Filter.SetPattern], because the pattern is
 // typed somewhere this does not own.
 func (f *Filter[T]) Handle(ev input.Event) bool {
-	f.match()
+	f.list.Keys = f.Keys
 	return f.list.Handle(ev)
 }
 
 // Do runs one of the list's actions by name. See [Doer].
 func (f *Filter[T]) Do(action keymap.Action) bool {
-	f.match()
 	return f.list.Do(action)
 }
 
@@ -179,23 +177,11 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 	}
 }
 
-// match works out what answers the pattern, once per change.
-//
-// Every item is read and scored, which is what a fuzzy match is; the memo is so that
-// measuring and drawing in the same frame do it once. An empty pattern matches
-// everything with nothing marked, and keeps the order the caller gave — which is the
-// order they meant when they had nothing to rank by.
-func (f *Filter[T]) match() {
-	// Keys do not change which items match, but they are still live configuration of
-	// the inner list and must not wait for an unrelated match invalidation.
-	f.list.Keys = f.Keys
-	if f.fresh {
-		return
-	}
-
+// rebuild projects the complete source and pattern at their owning setters.
+// An empty pattern matches everything with nothing marked and keeps source order.
+func (f *Filter[T]) rebuild() {
 	if f.text == nil {
 		f.list.SetItems(nil)
-		f.fresh = true
 		return
 	}
 	if f.pattern == "" {
@@ -204,7 +190,6 @@ func (f *Filter[T]) match() {
 			hits = append(hits, hit[T]{item: item})
 		}
 		f.list.SetItems(hits)
-		f.fresh = true
 		return
 	}
 
@@ -214,5 +199,4 @@ func (f *Filter[T]) match() {
 		hits = append(hits, hit[T]{item: f.items[r.Index], match: r.Match})
 	}
 	f.list.SetItems(hits)
-	f.fresh = true
 }

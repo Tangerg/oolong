@@ -102,7 +102,7 @@ func (a *observedAccessor[T]) Set(value T) {
 
 func TestMeasurementDoesNotInitializeControlledChoices(t *testing.T) {
 	one := &observedAccessor[string]{value: "two"}
-	selection := &Select[string]{Same: Equal[string], Value: one}
+	selection := NewSelect(SelectConfig[string]{Same: Equal[string], Value: one})
 	selection.SetOptions(Options("one", "two"))
 	if got := selection.HeightForWidth(20); got != 2 {
 		t.Fatalf("select measured %d rows, want 2", got)
@@ -113,7 +113,7 @@ func TestMeasurementDoesNotInitializeControlledChoices(t *testing.T) {
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"two"}}
-	multiple := &MultiSelect[string]{Same: Equal[string], Value: many}
+	multiple := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string], Value: many})
 	multiple.SetOptions(Options("one", "two"))
 	if got := multiple.HeightForWidth(20); got != 2 {
 		t.Fatalf("multi-select measured %d rows, want 2", got)
@@ -126,18 +126,18 @@ func TestMeasurementDoesNotInitializeControlledChoices(t *testing.T) {
 
 func TestDrawingProjectsControlledFieldsWithoutInitializingThem(t *testing.T) {
 	textValue := &observedAccessor[string]{value: "seed"}
-	textField := &Text{Value: textValue}
+	textField := NewText(TextConfig{Value: textValue})
 	textFrame := captureDraw(t, 20, 1, NewRoot(textField).Draw)
 	if !strings.Contains(textFrame.bytes, "seed") {
 		t.Fatalf("text field did not project its caller-owned value: %q", textFrame.bytes)
 	}
-	if textField.seeded || textValue.reads == 0 || textValue.writes != 0 {
-		t.Fatalf("text draw changed ownership: seeded=%t, reads=%d, writes=%d",
-			textField.seeded, textValue.reads, textValue.writes)
+	if textField.editor.Revision() != 0 || textValue.reads == 0 || textValue.writes != 0 {
+		t.Fatalf("text draw initialized editing: revision=%d, reads=%d, writes=%d",
+			textField.editor.Revision(), textValue.reads, textValue.writes)
 	}
 
 	one := &observedAccessor[string]{value: "two"}
-	selection := &Select[string]{Same: Equal[string], Value: one}
+	selection := NewSelect(SelectConfig[string]{Same: Equal[string], Value: one})
 	selection.SetOptions(Options("one", "two"))
 	captureDraw(t, 20, 2, NewRoot(selection).Draw)
 	if selection.list.Selected() != 0 || one.reads == 0 || one.writes != 0 {
@@ -146,7 +146,7 @@ func TestDrawingProjectsControlledFieldsWithoutInitializingThem(t *testing.T) {
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"two"}}
-	multiple := &MultiSelect[string]{Same: Equal[string], Value: many}
+	multiple := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string], Value: many})
 	multiple.SetOptions(Options("one", "two"))
 	beforeTaken := slices.Clone(multiple.taken)
 	captureDraw(t, 20, 2, NewRoot(multiple).Draw)
@@ -156,7 +156,7 @@ func TestDrawingProjectsControlledFieldsWithoutInitializingThem(t *testing.T) {
 	}
 
 	answer := &observedAccessor[bool]{value: true}
-	confirmation := &Confirm{Value: answer}
+	confirmation := NewConfirm(ConfirmConfig{Value: answer})
 	captureDraw(t, 20, 1, NewRoot(confirmation).Draw)
 	if confirmation.answer.local || answer.reads == 0 || answer.writes != 0 {
 		t.Fatalf("confirm draw changed ownership: local=%t, reads=%d, writes=%d",
@@ -172,7 +172,7 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	look := Look{Taken: "x", Free: "-"}
 
 	textValue := &observedAccessor[string]{value: "old"}
-	textField := &Text{Value: textValue}
+	textField := NewText(TextConfig{Value: textValue})
 	textField.Sync()
 	textValue.value = "new"
 	beforeText := meaningOfEditor(&textField.editor)
@@ -182,7 +182,7 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	}
 
 	one := &observedAccessor[string]{value: "one"}
-	selection := &Select[string]{Same: Equal[string], Value: one}
+	selection := NewSelect(SelectConfig[string]{Same: Equal[string], Value: one})
 	selection.SetOptions(Options("one", "two"))
 	selection.Sync()
 	one.value = "two"
@@ -195,7 +195,7 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	}
 
 	many := &observedAccessor[[]string]{value: []string{"one"}}
-	multiple := &MultiSelect[string]{Same: Equal[string], Value: many}
+	multiple := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string], Value: many})
 	multiple.SetOptions(Options("one", "two"))
 	multiple.Sync()
 	many.value = []string{"two"}
@@ -209,7 +209,7 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	}
 
 	answer := &observedAccessor[bool]{}
-	confirmation := &Confirm{Value: answer}
+	confirmation := NewConfirm(ConfirmConfig{Value: answer})
 	answer.value = true
 	confirmSurface := grid.NewSurface(16, 1)
 	NewRoot(fieldProjection(func(frame Frame) { confirmation.DrawWith(frame, look) })).Draw(confirmSurface.View())
@@ -461,10 +461,10 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	textValue := "seed"
 	textChecks := 0
-	textField := &Text{
+	textField := NewText(TextConfig{
 		Label: "name", Value: Bind(&textValue),
 		Check: func(string) error { textChecks++; return nil },
-	}
+	})
 	textField.Sync()
 	textField.Focus(true)
 	textField.editor.KillToStart()
@@ -481,11 +481,11 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	selectedValue := "two"
 	selectChecks := 0
-	selectField := &Select[string]{
+	selectField := NewSelect(SelectConfig[string]{
 		Same:  Equal[string],
 		Label: "choice", Value: Bind(&selectedValue),
 		Check: func(string) error { selectChecks++; return nil },
-	}
+	})
 	selectField.SetOptions(Options("one", "two", "three"))
 	selectField.Sync()
 	selectField.Focus(true)
@@ -502,11 +502,11 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	takenValue := []string{"two"}
 	multiChecks := 0
-	multiField := &MultiSelect[string]{
+	multiField := NewMultiSelect(MultiSelectConfig[string]{
 		Same:  Equal[string],
 		Label: "many", Value: Bind(&takenValue),
 		Check: func([]string) error { multiChecks++; return nil },
-	}
+	})
 	multiField.SetOptions(Options("one", "two", "three"))
 	multiField.Sync()
 	multiField.Focus(true)
@@ -521,10 +521,10 @@ func headlessDrawPurityCases() []drawPurityCase {
 
 	answer := true
 	confirmChecks := 0
-	confirm := &Confirm{
+	confirm := NewConfirm(ConfirmConfig{
 		Label: "continue", Value: Bind(&answer),
 		Check: func(bool) error { confirmChecks++; return nil },
-	}
+	})
 	confirm.Focus(true)
 	cases = append(cases, widgetPurityCase("*Confirm", confirm, func() any {
 		return struct {
@@ -665,7 +665,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}))
 
 	formValue := "value"
-	formText := &Text{Label: "field", Value: Bind(&formValue)}
+	formText := NewText(TextConfig{Label: "field", Value: Bind(&formValue)})
 	form := NewForm(formText)
 	form.Focus(true)
 	cases = append(cases, widgetPurityCase("*Form", form, func() any {

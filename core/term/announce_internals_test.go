@@ -37,3 +37,17 @@ func TestConcurrentTitlesPublishInTheirRetainedOrder(t *testing.T) {
 		t.Fatal("retained title differs from the last published title")
 	}
 }
+
+func TestRefusedTitleCannotCreateOrReplaceRestorationState(t *testing.T) {
+	var state title
+	refuse := func([]byte) uint64 { return 0 }
+	state.to("refused", refuse)
+	if state.enter() != "" || state.leave() != "" {
+		t.Fatal("a refused title created a terminal stack obligation")
+	}
+	state.to("accepted", func([]byte) uint64 { return 1 })
+	state.to("refused replacement", refuse)
+	if got := state.enter(); got != titlePush+command(titleSet, "accepted") {
+		t.Fatalf("restored an unaccepted title: %q", got)
+	}
+}

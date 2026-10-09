@@ -174,7 +174,7 @@ func (d *Dialog) Semantics() SemanticNode {
 	if d.Open() {
 		state |= StateOpen
 	}
-	if d.content != nil && d.content.settled && !d.content.blurred {
+	if d.content != nil && d.content.state.Settled() && d.content.state.Focused() {
 		state |= StateFocused
 	}
 	return SemanticNode{
@@ -188,14 +188,19 @@ func (d *Dialog) Semantics() SemanticNode {
 // keeping closure and focus in the controller. Callers receive it from
 // [Dialog.Content]; constructing one directly would leave it without an owner. A
 // DialogContent must not be copied: its focus and membership belong to its controller.
+// Show, Dismiss and Sync control membership; passing it to Stack.Push panics.
 type DialogContent struct {
 	noCopy noCopy
 
 	focusState
 	dialog *Dialog
 	modal  Modal
-	// holder is whatever was last told where it stands.
+	// holder is published before notifying either side of a focus transfer.
 	holder Widget
+}
+
+func (*DialogContent) rejectIndependentInsertion() {
+	panic("headless: dialog content must be opened by its controller")
 }
 
 // Draw delegates to the appearance-supplied content.
@@ -207,7 +212,7 @@ func (c *DialogContent) Draw(frame Frame) {
 
 // Handle delegates input to the appearance-supplied content.
 func (c *DialogContent) Handle(event input.Event) bool {
-	return c != nil && c.modal != nil && c.modal.Handle(event)
+	return c != nil && c.modal != nil && c.state.Forward(func() bool { return c.modal.Handle(event) })
 }
 
 // Place delegates placement to the appearance-supplied content.
@@ -242,7 +247,7 @@ func (c *DialogContent) Focus(has bool) {
 	if c == nil {
 		return
 	}
-	c.change(has, func() { c.settleOne(&c.holder, c.modal) }, &c.holder)
+	c.change(has, func() { c.settleOne(&c.holder, c.modal) }, &c.holder, nil)
 }
 
 // RequestClose asks the controlled owner before stack membership changes.
@@ -292,7 +297,7 @@ type DialogTrigger struct {
 	dialog *Dialog
 	focusState
 	appearance Widget
-	// holder is whatever was last told where it stands.
+	// holder is published before notifying either side of a focus transfer.
 	holder  Widget
 	label   string
 	pointer Pointer
@@ -380,15 +385,14 @@ func (t *DialogTrigger) Focus(has bool) {
 	}
 	if !has {
 		t.pointer.Left()
-		t.matcher.Clear()
 	}
-	t.change(has, func() { t.settleOne(&t.holder, t.appearance) }, &t.holder)
+	t.change(has, func() { t.settleOne(&t.holder, t.appearance) }, &t.holder, &t.matcher)
 }
 
 // Semantics returns the trigger as a button associated with the dialog's open state.
 func (t *DialogTrigger) Semantics() SemanticNode {
 	state := SemanticState(0)
-	if t != nil && !t.blurred {
+	if t != nil && t.state.Focused() {
 		state |= StateFocused
 	}
 	if t != nil && t.dialog != nil && t.dialog.Open() {

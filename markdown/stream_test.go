@@ -56,11 +56,15 @@ func TestWhereAStreamCutsDoesNotChangeWhatTheDocumentSays(t *testing.T) {
 		"a fence inside an HTML block":             "<div>\n\n```\none\n\ntwo\n```\n\n</div>\n\nafter\n",
 		"display mathematics with a blank line":    "$$\na\n\nb\n$$\n\nafter\n",
 		"a paragraph and a block of code":          "a paragraph\n\n```go\nfmt.Println()\n```\n\nafter\n",
+		"loose ordered list":                       "1. first\n\n1. second\n\n1. third\n\nafter\n",
+		"loose ordered list with an empty item":    "1. first\n\n1.\n\n1. third\n\nafter\n",
+		"nested loose ordered list":                "- group\n\n  1. first\n\n  1. second\n\n  1. third\n\nafter\n",
+		"quoted loose list":                        "> 1. first\n>\n> 1. second\n>\n> 1. third\n\nafter\n",
 		"nothing unusual at all":                   "# title\n\none\n\n- a\n- b\n\ntwo\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			want := rows(t, 40, mustRender(t, source, look()))
-			for _, size := range []int{1, 7, len(source)} {
+			for _, size := range []int{1, 7, 12, 30, len(source)} {
 				var stream markdown.Stream
 				stream.SetLook(look())
 				var blocks []markdown.Block

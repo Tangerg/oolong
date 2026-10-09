@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 var platforms = [...]string{"linux", "darwin", "windows"}
@@ -396,6 +397,9 @@ func (osRunner) run(ctx context.Context, command command) (string, error) {
 	// explicit CLI configuration; no application or network input reaches it.
 	//nolint:gosec // Running the selected Go, git and apidiff tools is this command's purpose.
 	cmd := exec.CommandContext(ctx, command.name, command.args...)
+	// Output pipes belong to this invocation, even if a tool's descendant retains
+	// them after exit or cancellation. Incomplete collection remains an explicit error.
+	cmd.WaitDelay = time.Second
 	cmd.Dir = command.dir
 	cmd.Env = os.Environ()
 	for name, value := range command.env {

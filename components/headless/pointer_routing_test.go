@@ -12,6 +12,131 @@ import (
 
 type routedPointerControl struct {
 	pointer headless.Pointer
+	onLeave func()
+}
+
+type valuePointerControl struct {
+	*routedPointerControl
+	payload []byte
+}
+
+func TestRootRoutingDoesNotRequireComparableWidgets(t *testing.T) {
+	control := &routedPointerControl{}
+	root := headless.NewRoot(valuePointerControl{routedPointerControl: control, payload: []byte("value")})
+	view := grid.NewSurface(8, 4).View()
+	root.Draw(view)
+	for _, action := range []input.MouseAction{input.MouseMove, input.MouseDown} {
+		if !root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: action, Button: input.ButtonLeft}) {
+			t.Fatal("root declined a valid non-comparable widget")
+		}
+	}
+	root.Draw(view)
+	if !root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseUp, Button: input.ButtonLeft}) || !control.pointer.Clicked(input.ButtonLeft) {
+		t.Fatal("redrawing a value widget lost its accepted capture")
+	}
+}
+
+func TestLeaveCallbackCannotDeliverToARemovedTarget(t *testing.T) {
+	for _, kind := range []string{"container", "stack", "stack base", "region", "root"} {
+		t.Run(kind, func(t *testing.T) {
+			a, b := &routedPointerControl{}, &routedPointerControl{}
+			view := grid.NewSurface(8, 4).View()
+			var root *headless.Root
+			var prepare func()
+			next := image.Pt(1, 1)
+			switch kind {
+			case "container":
+				container := headless.NewContainer(layout.Across,
+					headless.Item{Of: a, Size: layout.Fixed(4)}, headless.Item{Of: b, Size: layout.Fixed(4)})
+				root = headless.NewRoot(container)
+				prepare = func() {}
+				a.onLeave = func() { container.Set(headless.Item{Of: a, Size: layout.Fixed(4)}) }
+				next = image.Pt(5, 1)
+			case "stack":
+				stack := headless.NewStack(nil)
+				stack.Push(a)
+				root = headless.NewRoot(stack)
+				prepare = func() {
+					id := stack.Push(b)
+					a.onLeave = func() { stack.Remove(id) }
+					root.Draw(view)
+				}
+			case "stack base":
+				stack := headless.NewStack(a)
+				root = headless.NewRoot(stack)
+				prepare = func() { stack.SetBase(b); root.Draw(view) }
+				a.onLeave = func() { stack.SetBase(a); root.Draw(view) }
+			case "region":
+				region := &routedPointerRegion{child: a}
+				root = headless.NewRoot(region)
+				prepare = func() { region.child = b; root.Draw(view) }
+				a.onLeave = func() { region.child = nil; root.Draw(view) }
+			case "root":
+				root = headless.NewRoot(a)
+				prepare = func() { root.SetContent(b); root.Draw(view) }
+				a.onLeave = func() { root.SetContent(a); root.Draw(view) }
+			}
+			root.Draw(view)
+			root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseMove})
+			prepare()
+			root.Handle(input.Mouse{Pos: next, Action: input.MouseDown, Button: input.ButtonLeft})
+			if b.pointer.Pressing() || b.pointer.Over() {
+				t.Fatal("leave callback removed the new target but the old route still activated it")
+			}
+		})
+	}
+}
+
+func TestRoutesInvalidateOldHoverWithoutEndingCapture(t *testing.T) {
+	for _, kind := range []string{"container", "stack", "region", "root"} {
+		t.Run(kind, func(t *testing.T) {
+			a, b := &routedPointerControl{}, &routedPointerControl{}
+			var tree headless.Widget
+			switch kind {
+			case "container":
+				tree = headless.NewContainer(layout.Across,
+					headless.Item{Of: a, Size: layout.Fixed(4)}, headless.Item{Of: b, Size: layout.Fixed(4)})
+			case "stack":
+				stack := headless.NewStack(b)
+				stack.Push(a)
+				tree = stack
+			case "region":
+				tree = &routedPointerRegion{child: a}
+			case "root":
+				tree = a
+			}
+			root := headless.NewRoot(tree)
+			view := grid.NewSurface(8, 4).View()
+			root.Draw(view)
+			root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseMove})
+			if !a.pointer.Over() {
+				t.Fatal("first hover missing")
+			}
+			if kind == "root" {
+				root.SetContent(b)
+				root.Draw(view)
+			}
+			root.Handle(input.Mouse{Pos: image.Pt(5, 1), Action: input.MouseMove})
+			if a.pointer.Over() {
+				t.Fatal("old hover survived route transition")
+			}
+			if kind != "region" && !b.pointer.Over() {
+				t.Fatal("new hover missing")
+			}
+		})
+	}
+	a := &routedPointerControl{}
+	root := headless.NewRoot(&routedPointerRegion{child: a})
+	root.Draw(grid.NewSurface(8, 4).View())
+	root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseDown, Button: input.ButtonLeft})
+	root.Handle(input.Mouse{Pos: image.Pt(5, 1), Action: input.MouseMove})
+	if a.pointer.Over() || !a.pointer.Pressing() {
+		t.Fatal("leave lost capture or retained hover")
+	}
+	root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseUp, Button: input.ButtonLeft})
+	if !a.pointer.Clicked(input.ButtonLeft) {
+		t.Fatal("leave canceled a legal gesture")
+	}
 }
 
 func (c *routedPointerControl) Draw(frame headless.Frame) {
@@ -20,7 +145,13 @@ func (c *routedPointerControl) Draw(frame headless.Frame) {
 }
 
 func (c *routedPointerControl) Handle(event input.Event) bool {
-	return c.pointer.Handle(event)
+	handled := c.pointer.Handle(event)
+	if mouse, ok := event.(input.Mouse); ok && mouse.Action == input.MouseLeave && c.onLeave != nil {
+		notify := c.onLeave
+		c.onLeave = nil
+		notify()
+	}
+	return handled
 }
 
 func (*routedPointerControl) Place(image.Point) layout.Placement {
@@ -34,7 +165,9 @@ type routedPointerRegion struct {
 
 func (r *routedPointerRegion) Draw(frame headless.Frame) {
 	area := grid.Area(0, 0, 4, 2)
-	r.child.Draw(frame.Sub(area))
+	if r.child != nil {
+		r.child.Draw(frame.Sub(area))
+	}
 	r.region.Stage(frame, area, r.child)
 }
 

@@ -57,6 +57,8 @@ var (
 // the call: an SSH channel cannot be read with a deadline, so a read in flight when
 // the program stops ends when the channel does. A handler that reads the session
 // after Run returns takes bytes from that read.
+// A session reader that exits its goroutine without returning ends input with an
+// interruption error after every earlier accepted chunk has been decoded.
 //
 // The zero cfg.Color, terminal modes, character locale, wheel scaling and clipboard
 // transport all resolve from the client's PTY environment rather than the server

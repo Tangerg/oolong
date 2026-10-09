@@ -20,18 +20,25 @@ import (
 // a panic that moves into caller-reachable code fails this test until it is either
 // documented on the exported API or explained here.
 var internalAssertions = map[string]string{
+	"core/ansi:Scanner.requireIdle": "Scanner documents that its active visitor cannot reenter Feed or Reset",
 	// The exported entry reserves through the protocol's own maximum and reports
 	// ErrImageIDsExhausted, so the narrowing conversion can never see an overflow.
 	"core/term:imageID": "Terminal.Transmit returns ErrImageIDsExhausted before reserving past math.MaxUint32",
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.
-	"core/grid:surfaceSize": "NewSurface and Surface.Resize document the overflow panic",
+	"core/grid:surfaceSize":             "NewSurface and Surface.Resize document the overflow panic",
+	"core/grid:publication.requireIdle": "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
-	"components/headless:checkItemKeys": "NewContainer, Container.Set and Container.Add document the duplicate-key panic",
-	"components/headless:checkFields":   "NewForm and Form.Set document the nil-field panic",
+	"components/headless:checkItemKeys":                            "NewContainer, Container.Set and Container.Add document the duplicate-key panic",
+	"components/headless:checkFields":                              "NewForm and Form.Set document the nil-field panic",
+	"components/headless:Transcript.assertMutable":                 "Transcript and Transcript.Commit document the read-only publication callback and unsettled-publication panic",
+	"components/headless:Select.setOptions":                        "Select.SetOptions documents the required Same policy",
+	"components/headless:MultiSelect.setOptions":                   "MultiSelect.SetOptions documents the required Same policy",
+	"components/headless:DialogContent.rejectIndependentInsertion": "Stack.Push documents that controller-owned DialogContent cannot be independently inserted",
+	"markdown:Stream.requireIdle":                                  "Stream documents that renderer callbacks cannot reenter rendering or mutation on the same stream",
 
 	// Frame discipline. The transaction is reachable only through a Frame the running
 	// Root handed out, and both of those types document what violating it costs.

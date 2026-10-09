@@ -730,8 +730,8 @@ func TestDiffWritesOnlyWhatChanged(t *testing.T) {
 	if strings.Contains(out, "unchanged") {
 		t.Fatalf("frame = %q, want the untouched row left alone", out)
 	}
-	// Just the reset pair, one position, and one glyph.
-	if len(out) > 20 {
+	// Hyperlink close, the reset pair, one position, and one glyph.
+	if len(out) > 27 {
 		t.Fatalf("frame = %q (%d bytes), want a minimal stream", out, len(out))
 	}
 }
@@ -898,7 +898,7 @@ func TestHyperlinkTargetWithControlBytesIsDropped(t *testing.T) {
 		v.Text(0, 0, "x", grid.Style{})
 		v.Link(0, 0, 1, "https://ok\x1b\\\x1b]0;pwned\x07")
 	})
-	if strings.Contains(out, "\x1b]8;;") {
+	if strings.Contains(strings.ReplaceAll(out, "\x1b]8;;\x1b\\", ""), "\x1b]8;;") {
 		t.Fatalf("frame = %q, want the unsafe target dropped", out)
 	}
 	if !strings.Contains(out, "x") {
@@ -1071,17 +1071,17 @@ type writeError struct{}
 
 func (*writeError) Error() string { return "write failed" }
 
-func TestAFailedWriteForcesAFullRepaint(t *testing.T) {
+func TestFailedScreenPublicationEndsTheSession(t *testing.T) {
 	s := grid.NewScreen(4, 1)
 	s.Frame().Text(0, 0, "abcd", grid.Style{})
-	if err := s.Flush(&failWriter{}); err == nil {
-		t.Fatal("Flush hid a write failure")
+	if err := s.Flush(&failWriter{}); !errors.Is(err, errWrite) {
+		t.Fatalf("Flush = %v", err)
 	}
-	// Some prefix of the frame may have landed, so the terminal's contents are
-	// unknown and diffing against them would be a guess.
-	out := flush(t, s, grid.Cursor{}, func(v grid.View) { v.Text(0, 0, "abcd", grid.Style{}) })
-	if !strings.Contains(out, "abcd") {
-		t.Fatalf("frame after a failed write = %q, want a full repaint", out)
+	s.Invalidate()
+	s.Frame().Text(0, 0, "later", grid.Style{})
+	var out bytes.Buffer
+	if err := s.Flush(&out); !errors.Is(err, errWrite) || out.Len() != 0 {
+		t.Fatalf("ended session: err=%v bytes=%q", err, out.String())
 	}
 }
 
@@ -1279,20 +1279,8 @@ func TestCanvasesRejectShortWritesWithoutSettling(t *testing.T) {
 
 			var out bytes.Buffer
 			canvas.Frame().Text(0, 0, "complete", grid.Style{})
-			if err := canvas.Flush(&out); err != nil {
-				t.Fatalf("retry Flush: %v", err)
-			}
-			if !strings.Contains(out.String(), "complete") {
-				t.Fatalf("retry received %q", out.String())
-			}
-
-			out.Reset()
-			canvas.Frame().Text(0, 0, "complete", grid.Style{})
-			if err := canvas.Flush(&out); err != nil {
-				t.Fatalf("unchanged Flush: %v", err)
-			}
-			if out.Len() != 0 {
-				t.Fatalf("frame was not settled after successful retry: %q", out.String())
+			if err := canvas.Flush(&out); !errors.Is(err, io.ErrShortWrite) || out.Len() != 0 {
+				t.Fatalf("partial publication resumed: err=%v bytes=%q", err, out.String())
 			}
 		})
 	}

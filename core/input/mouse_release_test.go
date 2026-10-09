@@ -32,3 +32,16 @@ func TestMouseReleaseMatchesItsCapturedButton(t *testing.T) {
 		})
 	}
 }
+
+func TestMouseDragMatchesItsCapturedButton(t *testing.T) {
+	for _, action := range []input.MouseAction{input.MouseDown, input.MouseDrag, input.MouseUp, input.MouseMove, input.WheelDown} {
+		for _, button := range []input.Button{input.ButtonNone, input.ButtonLeft, input.ButtonMiddle, input.ButtonRight} {
+			for _, held := range []input.Button{input.ButtonLeft, input.ButtonMiddle, input.ButtonRight} {
+				want := action == input.MouseDrag && (button == input.ButtonNone || button == held)
+				if got := (input.Mouse{Action: action, Button: button}).Drags(held); got != want {
+					t.Fatalf("action=%v button=%v held=%v: %v", action, button, held, got)
+				}
+			}
+		}
+	}
+}

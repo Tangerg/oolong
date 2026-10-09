@@ -79,21 +79,16 @@ func (h *host) Wheel() input.Wheel          { return h.wheel }
 // attached to the remote server process.
 func (h *host) Copy(text string) bool {
 	sequence, ok := h.clip.Copy(clipboard.System, text)
-	if ok {
-		h.writer.Queue([]byte(sequence))
-	}
-	return ok
+	return ok && h.writer.Queue([]byte(sequence)) != 0
 }
 
 // Paste asks the client terminal for that same clipboard. A valid answer is
 // translated by eventSource into the ordinary input.Paste event components already
 // consume.
 func (h *host) Paste() bool {
-	if sequence, ok := h.clip.Request(clipboard.System); ok {
-		h.writer.Queue([]byte(sequence))
-		return true
-	}
-	return false
+	return h.clip.Request(clipboard.System, func(sequence string) bool {
+		return h.writer.Queue([]byte(sequence)) != 0
+	})
 }
 
 func (h *host) Size() (width, height int, _ error) {

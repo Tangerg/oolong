@@ -51,6 +51,7 @@ type List[T any] struct {
 	// presentation is the committed window and first visible row. Both are routing
 	// geometry: a page and a press must refer to the same complete frame.
 	presentation Snapshot[listPresentation]
+	pointer      Pointer
 	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher keymap.Matcher
 }
@@ -100,13 +101,15 @@ func (l *List[T]) Move(n int) {
 // holding. Pointer selection waits for the replacement collection to be drawn; old
 // row coordinates cannot identify an item in a new collection.
 func (l *List[T]) SetItems(items []T) {
-	l.matcher.Clear()
-	l.items = own(l.items, items)
-	l.itemsID = new(byte)
-	if len(l.items) == 0 {
-		l.scroll.ToTop()
-	}
-	l.Select(l.selected)
+	l.matcher.Reset(func() {
+		l.pointer.Left()
+		l.items = own(l.items, items)
+		l.itemsID = new(byte)
+		if len(l.items) == 0 {
+			l.scroll.ToTop()
+		}
+		l.Select(l.selected)
+	})
 }
 
 // Items returns a copy of the items in list order.
@@ -195,18 +198,39 @@ func (l *List[T]) Do(action keymap.Action) bool {
 // the container.
 func (l *List[T]) mouse(ev input.Mouse) bool {
 	switch ev.Action {
+	case input.MouseCancel:
+		l.pointer.Left()
+		return false
 	case input.WheelUp:
+		if !ev.Pos.In(l.presentation.Value().visible) {
+			return false
+		}
 		l.scroll.By(l.scroll.wheel.Rows(ev.At, -1))
 		return true
 	case input.WheelDown:
+		if !ev.Pos.In(l.presentation.Value().visible) {
+			return false
+		}
 		l.scroll.By(l.scroll.wheel.Rows(ev.At, 1))
 		return true
 	case input.MouseDown:
+		l.pointer.Left()
 		if ev.Button != input.ButtonLeft {
 			return false
 		}
+		if _, hit := l.Hit(ev.Pos); !hit {
+			return false
+		}
 	case input.MouseDrag:
+		if !ev.Drags(input.ButtonLeft) {
+			return false
+		}
+	case input.MouseUp:
+		return l.pointer.Handle(ev)
 	default:
+		return false
+	}
+	if !l.pointer.Handle(ev) {
 		return false
 	}
 	at, ok := l.Hit(ev.Pos)
@@ -239,10 +263,11 @@ func (l *List[T]) HeightForWidth(int) int { return len(l.items) }
 // list without it could not be one of them — and because [List.Focused] is how a row
 // asks, which is where the answer belongs.
 func (l *List[T]) Focus(has bool) {
+	l.blurred = !has
 	if !has {
+		l.pointer.Left()
 		l.matcher.Clear()
 	}
-	l.blurred = !has
 }
 
 // Focused reports whether this list has the keyboard.
@@ -281,6 +306,7 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 	l.presentation.Stage(v, listPresentation{
 		visible: v.Visible(), window: height, first: first, total: total, selected: selected, itemsID: l.itemsID,
 	})
+	l.pointer.Stage(v, v.Bounds())
 	if draw == nil {
 		return
 	}

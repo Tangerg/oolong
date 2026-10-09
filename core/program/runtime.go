@@ -10,6 +10,8 @@ import "time"
 // are grouped into the concrete [Environment], [Clipboard], [Session] and [Images]
 // values rather than flattened into one capability catalogue. The zero value is
 // inert; it is safe to embed in an object that has not been attached to a program.
+// Run's completion or a failed builder ends owner operations and revokes retained
+// Clipboard, Session and Images values. Environment snapshots remain readable.
 type Runtime struct{ p *program }
 
 // owner centralizes the inert zero-value contract for operations that need the
@@ -19,6 +21,14 @@ type Runtime struct{ p *program }
 func (r *Runtime) owner() *program {
 	if r == nil {
 		return nil
+	}
+	if r.p == nil {
+		return nil
+	}
+	select {
+	case <-r.p.tasks.done:
+		return nil
+	default:
 	}
 	return r.p
 }
@@ -34,14 +44,17 @@ func (r *Runtime) services() hostServices {
 	return p.host
 }
 
-// Environment returns the host facts available to this runtime.
+// Environment returns the immutable startup facts, including after Run ends.
 func (r *Runtime) Environment() Environment {
-	return Environment{host: r.services()}
+	if r == nil || r.p == nil {
+		return Environment{}
+	}
+	return r.p.environment
 }
 
 // Clipboard returns the runtime's clipboard capability.
 func (r *Runtime) Clipboard() Clipboard {
-	return Clipboard{host: r.services()}
+	return Clipboard{runtime: r}
 }
 
 // Session returns the terminal-session capability owned by this runtime.
@@ -49,7 +62,7 @@ func (r *Runtime) Session() Session { return Session{runtime: r} }
 
 // Images returns the runtime's image capability.
 func (r *Runtime) Images() Images {
-	return Images{host: r.services()}
+	return Images{runtime: r}
 }
 
 // Dispatcher returns the concurrency-safe handle for background work.

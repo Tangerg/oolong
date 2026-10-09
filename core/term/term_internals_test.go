@@ -8,6 +8,8 @@ package term
 import (
 	"bytes"
 	"errors"
+	"image"
+	"image/png"
 	"io"
 	"math"
 	"os"
@@ -102,8 +104,7 @@ func TestOpenRequiresBothTerminalFiles(t *testing.T) {
 
 // driver runs a pump over channels a test controls.
 type driver struct {
-	raw     chan []byte
-	readErr chan error
+	raw     chan readResult
 	resized chan input.Resize
 	stop    chan struct{}
 	events  chan input.Event
@@ -113,8 +114,7 @@ type driver struct {
 
 func newDriver(grace time.Duration) *driver {
 	d := &driver{
-		raw:     make(chan []byte, 4),
-		readErr: make(chan error, 1),
+		raw:     make(chan readResult, 4),
 		resized: make(chan input.Resize, 1),
 		stop:    make(chan struct{}),
 		events:  make(chan input.Event, 64),
@@ -122,7 +122,7 @@ func newDriver(grace time.Duration) *driver {
 		done:    make(chan struct{}),
 	}
 	p := &pump{
-		raw: d.raw, readErr: d.readErr, resized: d.resized, stop: d.stop,
+		raw: d.raw, resized: d.resized, stop: d.stop,
 		out: d.events, stream: input.NewStream(input.StreamConfig{Grace: grace}),
 	}
 	go func() {
@@ -131,6 +131,35 @@ func newDriver(grace time.Duration) *driver {
 		close(d.events)
 	}()
 	return d
+}
+
+func (d *driver) feed(data []byte) {
+	d.raw <- readResult{data: data, at: time.Now()}
+}
+
+func TestPumpPreservesReadTimesUnderBackpressure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		raw := make(chan readResult, 4)
+		stop := make(chan struct{})
+		out := make(chan input.Event)
+		p := &pump{raw: raw, stop: stop, out: out, stream: &input.Stream{}}
+		done := make(chan struct{})
+		go func() { _ = p.run(); close(done) }()
+		defer func() { close(stop); <-done }()
+		raw <- readResult{data: []byte("x"), at: time.Now()}
+		synctest.Wait()
+		first := time.Now()
+		raw <- readResult{data: []byte("\x1b[<0;1;1M"), at: first}
+		time.Sleep(time.Second)
+		second := time.Now()
+		raw <- readResult{data: []byte("\x1b[<0;1;1M"), at: second}
+		<-out
+		a := (<-out).(input.Mouse)
+		b := (<-out).(input.Mouse)
+		if !a.At.Equal(first) || !b.At.Equal(second) || b.At.Sub(a.At) != time.Second {
+			t.Fatalf("read times lost: %v, %v", a.At, b.At)
+		}
+	})
 }
 
 func (d *driver) next(t *testing.T) input.Event {
@@ -160,7 +189,7 @@ func TestPumpDecodesBytesIntoEvents(t *testing.T) {
 	d := newDriver(10 * time.Millisecond)
 	defer close(d.stop)
 
-	d.raw <- []byte("a\x1b[B")
+	d.feed([]byte("a\x1b[B"))
 	if got := d.next(t).(input.Key); !got.IsRune('a', 0) {
 		t.Fatalf("first = %+v", got)
 	}
@@ -174,7 +203,7 @@ func TestPumpHoldsALoneEscapeThenDeliversIt(t *testing.T) {
 	d := newDriver(grace)
 	defer close(d.stop)
 
-	d.raw <- []byte("\x1b")
+	d.feed([]byte("\x1b"))
 	// Held: it could still become a sequence, and guessing early would turn every
 	// arrow key into an Escape followed by a letter.
 	d.silent(t, grace/2)
@@ -188,8 +217,8 @@ func TestPumpDisarmsTheWaitWhenTheSequenceArrives(t *testing.T) {
 	defer close(d.stop)
 
 	// The rest of the sequence arrives in a second read, which is normal.
-	d.raw <- []byte("\x1b")
-	d.raw <- []byte("[A")
+	d.feed([]byte("\x1b"))
+	d.feed([]byte("[A"))
 	if got := d.next(t).(input.Key).Code; got != input.Up {
 		t.Fatalf("event = %v, want the arrow key rather than an Escape", got)
 	}
@@ -276,11 +305,10 @@ func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
 
 func TestPumpDeliversTheLastKeystrokeWhenInputEnds(t *testing.T) {
 	d := newDriver(time.Second)
-	// Bytes and the end of input arrive on separate channels, so both are waiting when
-	// the pump comes round and a select cannot be told to prefer one. Neither the
-	// keystroke that had not been decoded yet nor the one still held may be lost.
-	d.raw <- []byte("ab\x1b")
-	d.readErr <- errors.New("end of input")
+	// The final read follows the bytes on the same channel. Neither a buffered
+	// keystroke nor the held Escape may be lost.
+	d.feed([]byte("ab\x1b"))
+	d.raw <- readResult{err: errors.New("end of input"), at: time.Now()}
 
 	for _, want := range []rune{'a', 'b'} {
 		if got := d.next(t).(input.Key); !got.IsRune(want, 0) {
@@ -303,7 +331,7 @@ func TestPumpDeliversTheLastKeystrokeWhenInputEnds(t *testing.T) {
 func TestPumpPreservesTheInputFailure(t *testing.T) {
 	d := newDriver(10 * time.Millisecond)
 	cause := errors.New("terminal read failed")
-	d.readErr <- cause
+	d.raw <- readResult{err: cause, at: time.Now()}
 
 	select {
 	case _, ok := <-d.events:
@@ -320,7 +348,7 @@ func TestPumpPreservesTheInputFailure(t *testing.T) {
 
 func TestPumpTreatsEOFAsACleanEnd(t *testing.T) {
 	d := newDriver(10 * time.Millisecond)
-	d.readErr <- io.EOF
+	d.raw <- readResult{err: io.EOF, at: time.Now()}
 
 	select {
 	case _, ok := <-d.events:
@@ -427,9 +455,9 @@ func TestPumpExpiryPreservesSlowUTF8(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d := newDriver(time.Millisecond)
 		defer func() { close(d.stop); <-d.done }()
-		d.raw <- []byte{0xe4}
+		d.feed([]byte{0xe4})
 		time.Sleep(2 * time.Millisecond)
-		d.raw <- []byte{0xb8, 0xad}
+		d.feed([]byte{0xb8, 0xad})
 		event := d.next(t)
 		if key, ok := event.(input.Key); !ok || key.Rune != '中' {
 			t.Fatalf("slow UTF-8: %#v", event)
@@ -477,4 +505,51 @@ func TestTerminalImageReleaseUsesTheOrderedFrameWriter(t *testing.T) {
 	if !strings.HasPrefix(out.String(), "prior-frame\x1b_Ga=d,d=I,i=9") {
 		t.Fatalf("release order: %q", out.String())
 	}
+}
+
+func TestTerminalCommandsReportRefusedAdmission(t *testing.T) {
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	writer := NewWriter(io.Discard)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	terminal := Terminal{writer: writer}
+	if err := terminal.ReportDirectory(t.TempDir()); !errors.Is(err, ErrClosed) {
+		t.Errorf("ReportDirectory = %v, want ErrClosed", err)
+	}
+	if img, err := terminal.Transmit(data.Bytes()); !errors.Is(err, ErrClosed) || img != (graphics.Image{}) {
+		t.Errorf("Transmit = %+v, %v; want no handle and ErrClosed", img, err)
+	}
+	if err := terminal.ReleaseImage(graphics.Image{ID: 9}); !errors.Is(err, ErrClosed) {
+		t.Errorf("ReleaseImage = %v, want ErrClosed", err)
+	}
+	if got := writer.Queued(); got != 0 {
+		t.Errorf("refused commands advanced the accepted watermark to %d", got)
+	}
+}
+
+func TestPumpPreservesInputEndTimeUnderBackpressure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		raw := make(chan readResult, 4)
+		stop := make(chan struct{})
+		out := make(chan input.Event)
+		p := &pump{raw: raw, stop: stop, out: out, stream: &input.Stream{}}
+		done := make(chan struct{})
+		go func() { _ = p.run(); close(done) }()
+		defer func() { close(stop); <-done }()
+		raw <- readResult{data: []byte("x"), at: time.Now()}
+		synctest.Wait()
+		ended := time.Now()
+		raw <- readResult{data: []byte("\x1b"), at: ended}
+		raw <- readResult{err: io.EOF, at: ended}
+		time.Sleep(time.Second)
+		<-out
+		key := (<-out).(input.Key)
+		if key.Code != input.Esc || !key.At.Equal(ended) {
+			t.Fatalf("end stamped with decoding time: %+v; want %v", key, ended)
+		}
+	})
 }

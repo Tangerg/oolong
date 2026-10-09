@@ -60,9 +60,14 @@ func (h *host) SetTitle(string)              {}
 func (h *host) Bell()                        {}
 func (h *host) Notify(string)                {}
 
-func (h *host) Hand(run func() error) error {
+func (h *host) Hand(prepare, run func() error) error {
 	if run == nil {
 		return nil
+	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			return err
+		}
 	}
 	return run()
 }
@@ -120,7 +125,7 @@ func stateOf(t *testing.T, c *chat) state {
 	result := make(chan state, 1)
 	c.runtime.Dispatcher().Post(func() {
 		result <- state{
-			active: c.active, open: c.hasOpen, dialog: c.dialog.Controller().Open(),
+			active: c.active, open: c.open != nil, dialog: c.dialog.Controller().Open(),
 			blocks: c.content.Len(), first: c.content.FirstBlock(), status: c.status.Doing,
 			prompt: c.composer.Editor().Text(),
 		}

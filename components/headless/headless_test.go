@@ -370,7 +370,9 @@ func TestCompletionOwnsCandidateMatchOffsets(t *testing.T) {
 		t.Fatalf("changing Current changed the stored offsets to %v", candidate.Matched)
 	}
 
-	completion.Dismiss()
+	if !completion.Dismiss() {
+		t.Fatal("ordinary dismissal lost its ownership")
+	}
 	if _, ok := completion.Token(); ok {
 		t.Fatal("dismissed completion still reports a token")
 	}

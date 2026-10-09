@@ -7,6 +7,24 @@ import (
 	"github.com/Tangerg/oolong/core/link"
 )
 
+func TestQuotedURLsKeepTheirSemanticKind(t *testing.T) {
+	for _, quote := range []string{"\"", "'"} {
+		for _, target := range []string{"https://example.com", "http://example.com/a.go", "www.example.com"} {
+			s := quote + target + quote
+			for _, exists := range []func(string) bool{nil, func(string) bool { return true }, func(string) bool { return false }} {
+				links := link.Detect(s, exists)
+				want := target
+				if strings.HasPrefix(target, "www.") {
+					want = "https://" + target
+				}
+				if len(links) != 1 || links[0].Kind != link.URL || links[0].Target != want || links[0].Line != 0 || links[0].Column != 0 {
+					t.Fatalf("Detect(%q) = %+v", s, links)
+				}
+			}
+		}
+	}
+}
+
 func TestDetect(t *testing.T) {
 	for _, tc := range []struct {
 		name string

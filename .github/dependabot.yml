@@ -16,17 +16,9 @@ updates:
       prefix: docs
 
   - package-ecosystem: gomod
-    # The repository root has no go.mod. Keep every real module in one update
-    # declaration and group a shared dependency by name across those modules.
+    # Discover module manifests, including future members, without a second catalog.
     directories:
-      - /components
-      - /core
-      - /examples
-      - /highlight
-      - /latex
-      - /markdown
-      - /ptytest
-      - /ssh
+      - "/**"
     schedule:
       interval: monthly
     open-pull-requests-limit: 3

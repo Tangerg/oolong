@@ -46,32 +46,23 @@ import (
 
 const modulePath = "github.com/Tangerg/oolong"
 
-// modules are every module in the repository, by directory, with the third-party
-// packages each is allowed to import.
+// dependencyRules grants third-party imports to modules in scripts/modules.sh's
+// inventory. Modules without a grant may import no third-party packages; a grant
+// cannot establish module membership.
 //
-// The lists are the promise. `core` carries all four and nothing else; a terminal
-// interface library that drags a dependency tree behind it is one people work
-// around instead of using. `components` carries none, which is what makes it plain
-// that everything it needs is already in `core`. Anything wanting a heavy
-// dependency — markdown, syntax highlighting, mathematics — becomes a module of its own with
-// its own list, and neither of these two is touched.
-var modules = map[string][]string{
+// Optional content and transport modules isolate their dependencies so core and
+// components do not acquire them.
+var dependencyRules = map[string][]string{
 	"core": {
 		"github.com/rivo/uniseg",
 		"github.com/mattn/go-runewidth",
 		"golang.org/x/term",
 		"golang.org/x/sys",
 	},
-	"components": nil,
-	// The modules the boundary was drawn for. Markdown and mathematics need parsers,
-	// and highlighting needs a lexer per language and a palette per theme; each is a tree of somebody
-	// else's code, and this is where they are allowed to be — which is what the two
-	// modules above buy by refusing them.
 	"markdown":  {"github.com/yuin/goldmark"},
 	"mermaid":   {"golang.org/x/sys"},
 	"highlight": {"github.com/alecthomas/chroma"},
 	"latex":     {"codeberg.org/go-latex/latex"},
-	"internal":  nil,
 	"ptytest":   {"golang.org/x/sys"},
 	"ssh":       {"charm.land/ssh"},
 	"examples":  {"golang.org/x/sys"},
@@ -80,7 +71,7 @@ var modules = map[string][]string{
 // The repository root is deliberately not a module. A module is a unit of
 // distribution and the root distributes nothing, so one there would be an empty
 // thing to tag and an empty page for anyone who went looking. Every Go file
-// therefore belongs to one of the modules above, and moduleOf says so.
+// therefore belongs to a module in the derived inventory, and moduleOf says so.
 
 // The rings, longest prefix first so the first match wins.
 var rings = []struct {
@@ -347,14 +338,15 @@ func TestDocumentationRuleRecognizesUnqualifiedTypeReferences(t *testing.T) {
 // A terminal interface library that pulls in a framework, a logger and a colour
 // package is one people wrap rather than adopt. Splitting into modules made the
 // promise sharper rather than looser: the list belongs to a module now, so
-// `components` can promise nothing at all and a future markdown module can carry
+// `components` can promise nothing at all and the markdown module can carry
 // goldmark without either of them noticing.
 func TestEachModuleDependsOnWhatItSaidItWould(t *testing.T) {
 	root := repoRoot(t)
+	inventory := moduleScript(t, root)
 	fset := token.NewFileSet()
 
 	walk(t, root, func(dir, path string) {
-		module, allowed, ok := moduleOf(dir)
+		module, allowed, ok := moduleOf(dir, inventory)
 		if !ok {
 			t.Errorf("%s is in no module, so nothing governs what it may import", dir)
 			return
@@ -398,7 +390,7 @@ func TestOnlyCoreOwnsCoreDependencies(t *testing.T) {
 			if imported == "golang.org/x/sys/windows" && (dir == "mermaid" || dir == "examples/mermaid") {
 				continue
 			}
-			for _, dep := range modules["core"] {
+			for _, dep := range dependencyRules["core"] {
 				if imported == dep || strings.HasPrefix(imported, dep+"/") {
 					t.Errorf("%s imports %s: only core may own a core implementation dependency",
 						dir, imported)
@@ -408,13 +400,13 @@ func TestOnlyCoreOwnsCoreDependencies(t *testing.T) {
 	})
 }
 
-// TestEveryModuleIsDeclaredAndEveryDeclaredModuleExists catches a module added
-// without a rule to govern its dependencies, which would be unguarded from the day
-// it appeared — the way an unguarded boundary always starts.
-func TestEveryModuleIsDeclaredAndEveryDeclaredModuleExists(t *testing.T) {
+// TestModuleInventoryOwnsEveryManifestAndDependencyRule rejects unregistered
+// manifests and stale dependency grants without maintaining another module list.
+func TestModuleInventoryOwnsEveryManifestAndDependencyRule(t *testing.T) {
 	root := repoRoot(t)
+	inventory := moduleScript(t, root)
 
-	found := map[string]bool{}
+	var found []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -429,29 +421,26 @@ func TestEveryModuleIsDeclaredAndEveryDeclaredModuleExists(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		found[filepath.ToSlash(dir)] = true
+		found = append(found, filepath.ToSlash(dir))
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walk the repository: %v", err)
 	}
 
-	for dir := range found {
-		if _, declared := modules[dir]; !declared {
-			t.Errorf("the module in %s has no dependency rule: add it to the table, or "+
-				"put its code in a module that exists", dir)
-		}
+	slices.Sort(found)
+	if !slices.Equal(found, inventory) {
+		t.Errorf("repository go.mod directories = %q, want scripts/modules.sh inventory %q", found, inventory)
 	}
-	for dir := range modules {
-		if !found[dir] {
-			t.Errorf("the table declares a module in %s and there is no go.mod there", dir)
+	for dir := range dependencyRules {
+		if !slices.Contains(inventory, dir) {
+			t.Errorf("dependency rule for %s has no module in scripts/modules.sh", dir)
 		}
 	}
 }
 
-// TestModuleScriptCoversEveryDeclaredModule closes the executable-policy chain:
-// go.mod files are checked against modules above, while every CI and release loop
-// consumes this script rather than that Go test table.
+// TestModuleScriptCoversEveryDeclaredModule verifies the executable inventory
+// against Go's workspace and package facts.
 func TestModuleScriptCoversEveryDeclaredModule(t *testing.T) {
 	root := repoRoot(t)
 	all := moduleScript(t, root)
@@ -459,20 +448,11 @@ func TestModuleScriptCoversEveryDeclaredModule(t *testing.T) {
 	if !slices.Equal(all, workspace) {
 		t.Fatalf("scripts/modules.sh = %q, want every go.work use %q", all, workspace)
 	}
-	want := make([]string, 0, len(modules))
-	for module := range modules {
-		want = append(want, module)
-	}
-	slices.Sort(want)
-	if !slices.Equal(all, want) {
-		t.Fatalf("scripts/modules.sh = %q, want every declared module %q", all, want)
-	}
-
 	public := moduleScript(t, root, "--public")
 	if len(public) != len(slices.Compact(slices.Clone(public))) {
 		t.Fatalf("scripts/modules.sh --public contains duplicates: %q", public)
 	}
-	wantPublic := externallyImportableModules(t, root, want)
+	wantPublic := externallyImportableModules(t, root, all)
 	if !slices.Equal(public, wantPublic) {
 		t.Fatalf("scripts/modules.sh --public = %q, want modules with an externally importable production package %q", public, wantPublic)
 	}
@@ -644,7 +624,7 @@ func TestRepositoryScriptsAcquireCommandOutputBeforeInterpretingIt(t *testing.T)
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
+		if entry.IsDir() || filepath.Ext(path) != ".sh" {
 			return nil
 		}
 		body, err := readRepositoryFile(path)
@@ -792,7 +772,7 @@ func moduleScript(t *testing.T, root string, args ...string) []string {
 func TestEveryModuleSharesTheWorkspaceLanguageFloor(t *testing.T) {
 	root := repoRoot(t)
 	want := goDirective(t, filepath.Join(root, "go.work"))
-	for dir := range modules {
+	for _, dir := range moduleScript(t, root) {
 		path := filepath.Join(root, dir, "go.mod")
 		if got := goDirective(t, path); got != want {
 			t.Errorf("%s declares Go %s; go.work and the coordinated module floor declare %s", dir, got, want)
@@ -1430,18 +1410,57 @@ func ringOf(dir string) string {
 // A directory belonging to no module is reported as such rather than defaulted:
 // with no module at the root there is no module for it to fall back to, and code
 // nothing governs is exactly what these tests exist to notice.
-func moduleOf(dir string) (string, []string, bool) {
+func moduleOf(dir string, inventory []string) (string, []string, bool) {
 	dir = filepath.ToSlash(dir)
-	best, allowed := "", []string(nil)
-	for name, deps := range modules {
+	best := ""
+	for _, name := range inventory {
 		if dir != name && !strings.HasPrefix(dir, name+"/") {
 			continue
 		}
 		if len(name) > len(best) {
-			best, allowed = name, deps
+			best = name
 		}
 	}
-	return best, allowed, best != ""
+	return best, dependencyRules[best], best != ""
+}
+
+func TestModuleMembershipComesOnlyFromTheInventory(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		directory string
+		inventory []string
+		module    string
+		allowed   []string
+	}{
+		{
+			name:      "module without a dependency grant",
+			directory: "extra/package", inventory: []string{"extra"}, module: "extra",
+		},
+		{
+			name:      "dependency grant cannot create membership",
+			directory: "core/ansi", inventory: []string{"extra"},
+		},
+		{
+			name:      "nested module owns its packages",
+			directory: "core/nested/package", inventory: []string{"core", "core/nested"}, module: "core/nested",
+		},
+		{
+			name:      "member receives its dependency grant",
+			directory: "core/ansi", inventory: []string{"core"}, module: "core", allowed: dependencyRules["core"],
+		},
+		{
+			name:      "directory prefix cannot create membership",
+			directory: "extra-copy/package", inventory: []string{"extra"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			module, allowed, ok := moduleOf(test.directory, test.inventory)
+			if module != test.module || ok != (test.module != "") || !slices.Equal(allowed, test.allowed) {
+				t.Fatalf("moduleOf(%q, %q) = %q, %q, %t; want %q, %q, %t", test.directory, test.inventory,
+					module, allowed, ok, test.module, test.allowed, test.module != "")
+			}
+		})
+	}
 }
 
 func skipped(name string, isRoot bool) bool {

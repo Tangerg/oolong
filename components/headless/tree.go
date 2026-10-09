@@ -105,9 +105,10 @@ func (t *Tree[T]) SetNodes(nodes []Node[T]) {
 	if t == nil {
 		return
 	}
-	t.replaceNodes(nodes)
-	t.matcher.Clear()
-	t.rebuild()
+	t.matcher.Reset(func() {
+		t.replaceNodes(nodes)
+		t.rebuild()
+	})
 }
 
 // Nodes returns a complete copy of the hierarchy.
@@ -284,10 +285,14 @@ func (t *Tree[T]) upToParent(at int) bool {
 // Focus takes the keyboard, or gives it up — see [List.Focus], which is where the
 // rows this is made of hold it.
 func (t *Tree[T]) Focus(has bool) {
-	if !has {
-		t.matcher.Clear()
+	change := func() {
+		t.list.Focus(has)
 	}
-	t.list.Focus(has)
+	if has {
+		change()
+	} else {
+		t.matcher.Reset(change)
+	}
 }
 
 // Focused reports whether this tree has the keyboard.

@@ -17,6 +17,43 @@ func at(chord input.Chord, when time.Time) input.Key {
 	return input.Key{Code: chord.Code, Rune: chord.Rune, Mods: chord.Mods, At: when}
 }
 
+func TestExactPrefixCallbackCannotContinueASupersededMatch(t *testing.T) {
+	for _, change := range []string{"clear", "replace map", "new sequence"} {
+		t.Run(change, func(t *testing.T) {
+			var matcher keymap.Matcher
+			var bindings keymap.Map
+			bindings.Bind("prefix", input.Chord{Rune: 'g'})
+			bindings.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+			bindings.Bind("stale", input.Chord{Rune: 'x'})
+			bindings.Bind("next", input.Chord{Rune: 'h'}, input.Chord{Rune: 'h'})
+			var actions []keymap.Action
+			var do func(keymap.Action) bool
+			do = func(action keymap.Action) bool {
+				actions = append(actions, action)
+				if action == "prefix" {
+					switch change {
+					case "clear":
+						matcher.Clear()
+					case "replace map":
+						bindings.Bind("new", input.Chord{Rune: 'x'})
+					case "new sequence":
+						matcher.Handle(&bindings, input.Key{Rune: 'h'}, do)
+					}
+				}
+				return true
+			}
+			matcher.Handle(&bindings, input.Key{Rune: 'g'}, do)
+			matcher.Handle(&bindings, input.Key{Rune: 'x'}, do)
+			if !slices.Equal(actions, []keymap.Action{"prefix"}) {
+				t.Fatalf("superseded match dispatched actions %v", actions)
+			}
+			if change == "new sequence" && matcher.Keys().String() != "h" {
+				t.Fatalf("superseded match erased the new sequence: %v", matcher.Keys())
+			}
+		})
+	}
+}
+
 func match(matcher *keymap.Matcher, bindings *keymap.Map, key input.Key) (keymap.Action, bool) {
 	var action keymap.Action
 	matched, _ := matcher.Handle(bindings, key, func(next keymap.Action) bool {
@@ -501,5 +538,85 @@ func TestPendingSequenceCannotCrossBindingLifetimes(t *testing.T) {
 				t.Fatalf("expired bindings dispatched %v", called)
 			}
 		})
+	}
+}
+
+func TestResolverCancellationCannotOverwriteAReentrantSequence(t *testing.T) {
+	var bindings keymap.Map
+	var matcher keymap.Matcher
+	bindings.Bind("prefix", input.Chord{Rune: 'g'})
+	bindings.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+	bindings.Bind("next", input.Chord{Rune: 'h'}, input.Chord{Rune: 'h'})
+	var actions []keymap.Action
+	do := func(action keymap.Action) bool { actions = append(actions, action); return true }
+	bindings.Resolve = func(time.Duration, func()) func() {
+		return func() { matcher.Handle(&bindings, input.Key{Rune: 'h'}, do) }
+	}
+	matcher.Handle(&bindings, input.Key{Rune: 'g'}, do)
+	if _, handled := matcher.Handle(&bindings, input.Key{Rune: 'g'}, do); !handled {
+		t.Fatal("superseded key escaped")
+	}
+	if len(actions) != 0 || matcher.Keys().String() != "h" {
+		t.Fatalf("cancel overwrote its newer sequence: %v, %v", actions, matcher.Keys())
+	}
+	matcher.Handle(&bindings, input.Key{Rune: 'h'}, do)
+	if !slices.Equal(actions, []keymap.Action{"next"}) {
+		t.Fatalf("new sequence was lost: %v", actions)
+	}
+}
+
+func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) {
+	for _, panics := range []bool{false, true} {
+		t.Run(map[bool]string{false: "completed", true: "panic"}[panics], func(t *testing.T) {
+			var matcher keymap.Matcher
+			var bindings keymap.Map
+			bindings.Bind("prefix", input.Chord{Rune: 'g'})
+			bindings.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+			bindings.Bind("next", input.Chord{Rune: 'h'}, input.Chord{Rune: 'h'})
+			changed, canceled := false, 0
+			bindings.Resolve = func(time.Duration, func()) func() {
+				return func() {
+					canceled++
+					if !changed || matcher.Keys().String() != "h" {
+						t.Fatal("cancellation observed unfinished state or erased new matching")
+					}
+				}
+			}
+			do := func(keymap.Action) bool { return true }
+			matcher.Handle(&bindings, input.Key{Rune: 'g'}, do)
+			func() {
+				defer func() {
+					if (recover() != nil) != panics {
+						t.Fatal("Reset changed the panic result")
+					}
+				}()
+				current := matcher.Reset(func() {
+					if len(matcher.Keys()) != 0 {
+						t.Fatal("old sequence survived into the transition")
+					}
+					changed = true
+					matcher.Handle(&bindings, input.Key{Rune: 'h'}, do)
+					if panics {
+						panic("transition failed")
+					}
+				})
+				if current {
+					t.Fatal("Reset reported current after the change started a newer sequence")
+				}
+			}()
+			if canceled != 1 || matcher.Keys().String() != "h" {
+				t.Fatal("Reset canceled the new matching lifetime")
+			}
+		})
+	}
+	var absent *keymap.Matcher
+	called := false
+	current := absent.Reset(func() { called = true })
+	if !called || !current {
+		t.Fatal("nil matcher suppressed the consumer transition")
+	}
+	var empty keymap.Matcher
+	if !empty.Reset(nil) {
+		t.Fatal("empty reset was superseded")
 	}
 }

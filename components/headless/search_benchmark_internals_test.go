@@ -17,8 +17,8 @@ func BenchmarkSearchDenseMatches(b *testing.B) {
 			for i := range corpus {
 				corpus[i].Text = strings.Repeat("cat ", 9) + "cat"
 			}
-			s := &Search{generation: 1}
-			j := job{query: "cat", corpus: corpus, generation: 1}
+			s := &Search{request: new(byte)}
+			j := job{query: "cat", corpus: corpus, request: s.request}
 			b.ReportAllocs()
 			for b.Loop() {
 				benchmarkSearchResult, _ = s.scan(j)
@@ -29,8 +29,8 @@ func BenchmarkSearchDenseMatches(b *testing.B) {
 
 func BenchmarkSearchNoMatch(b *testing.B) {
 	corpus := []text.Row{{Text: strings.Repeat("nothing here ", 10_000)}}
-	s := &Search{generation: 1}
-	j := job{query: "absent", corpus: corpus, generation: 1}
+	s := &Search{request: new(byte)}
+	j := job{query: "absent", corpus: corpus, request: s.request}
 	b.ReportAllocs()
 	for b.Loop() {
 		benchmarkSearchResult, _ = s.scan(j)

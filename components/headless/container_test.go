@@ -280,8 +280,8 @@ func TestANewPressEndsAnIncompleteContainerGesture(t *testing.T) {
 	}
 	// Outside every child: only stale capture could send this back to the first.
 	c.Handle(input.Mouse{Pos: image.Pt(0, 8), Action: input.MouseDrag})
-	if got := len(first.mice); got != 1 {
-		t.Fatalf("the old gesture owner received %d events after a new press, want one", got)
+	if got := len(first.mice); got != 3 || first.mice[1].Action != input.MouseCancel || first.mice[2].Action != input.MouseLeave {
+		t.Fatalf("the old gesture owner received %v, want press, cancel and leave", first.mice)
 	}
 }
 
@@ -297,7 +297,7 @@ func TestRemovingThePresentedOwnerEndsContainerCapture(t *testing.T) {
 	c.Set(headless.Item{Size: layout.Fixed(2), Of: child})
 	drawn(c, 2)
 	c.Handle(input.Mouse{Pos: image.Pt(0, 8), Action: input.MouseDrag})
-	if got := len(child.mice); got != 1 {
+	if got := len(child.mice); got != 2 || child.mice[1].Action != input.MouseLeave {
 		t.Fatalf("a removed and reinserted child resumed an old gesture with %d events", got)
 	}
 }

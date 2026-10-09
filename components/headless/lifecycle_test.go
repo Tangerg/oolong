@@ -27,7 +27,7 @@ func TestPointerCaptureCannotResumeAfterAPresentationGap(t *testing.T) {
 		fixture.draw()
 		fixture.Handle(regionDrag(2, 2))
 		fixture.Handle(regionRelease(2, 2))
-		if len(child.events) != 1 {
+		if len(child.events) != 2 || child.events[1].Action != input.MouseLeave {
 			t.Fatalf("returning child inherited an ended gesture: %v", child.events)
 		}
 		if !fixture.Handle(regionPress(2, 2)) {
@@ -44,7 +44,7 @@ func TestOutsidePressSettlesPointerCapture(t *testing.T) {
 	fixture.Handle(regionPress(9, 6))
 	fixture.Handle(regionDrag(9, 6))
 	fixture.Handle(regionRelease(9, 6))
-	if len(child.events) != 1 {
+	if len(child.events) != 3 || child.events[1].Action != input.MouseCancel || child.events[2].Action != input.MouseLeave {
 		t.Fatal("outside press left the previous capture alive")
 	}
 }

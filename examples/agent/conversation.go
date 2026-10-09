@@ -26,10 +26,9 @@ type conversation struct {
 	sticky    headless.Sticky
 	view      kit.Transcript
 
-	stream  markdown.Stream
-	open    *markdown.Doc
-	openID  headless.BlockID
-	hasOpen bool
+	stream markdown.Stream
+	open   *markdown.Doc
+	openID headless.BlockID
 }
 
 func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel) *conversation {
@@ -112,7 +111,7 @@ func (c *conversation) follow() {
 }
 
 func (c *conversation) finishOpen(blocks []markdown.Block) {
-	if !c.hasOpen {
+	if c.open == nil {
 		if len(blocks) == 0 {
 			return
 		}
@@ -130,7 +129,7 @@ func (c *conversation) finishOpen(blocks []markdown.Block) {
 	c.open.SetBlocks(blocks)
 	c.content.Changed(c.openID)
 	c.content.Finish(c.openID)
-	c.open, c.hasOpen = nil, false
+	c.open = nil
 }
 
 // stageOpen shows what the answer says so far.
@@ -140,14 +139,13 @@ func (c *conversation) finishOpen(blocks []markdown.Block) {
 // looked like on the screen means the reader goes on seeing a stray "<" that the
 // document does not contain.
 func (c *conversation) stageOpen(blocks []markdown.Block) {
-	if !c.hasOpen {
+	if c.open == nil {
 		if len(blocks) == 0 {
 			return
 		}
 		c.open = new(markdown.Doc)
 		c.open.SetBlocks(blocks)
 		c.openID = c.content.Append(c.open)
-		c.hasOpen = true
 		c.follow()
 		return
 	}
@@ -181,7 +179,7 @@ func (c *conversation) Reset() {
 	c.selection = headless.Selection{}
 	c.sticky = headless.Sticky{MinHeight: 1, Gap: 1}
 	c.stream.Reset()
-	c.open, c.hasOpen = nil, false
+	c.open = nil
 }
 
 func agentMarkdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {

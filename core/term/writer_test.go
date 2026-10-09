@@ -320,7 +320,7 @@ func TestFailureWakesChangesWithoutAdvancingTheWatermark(t *testing.T) {
 	}
 }
 
-func TestFramesQueuedAfterFailureAreRefusedAndAccountedFor(t *testing.T) {
+func TestFramesQueuedAfterFailureCannotEnterTheAcceptedFIFO(t *testing.T) {
 	dst := &failing{}
 	w := newTestWriter(t, dst)
 	w.Queue([]byte("doomed"))
@@ -329,10 +329,15 @@ func TestFramesQueuedAfterFailureAreRefusedAndAccountedFor(t *testing.T) {
 	}
 
 	for range 100 {
-		w.Queue([]byte("too late"))
+		if seq := w.Queue([]byte("too late")); seq != 0 {
+			t.Fatalf("unusable destination accepted frame %d", seq)
+		}
+	}
+	if w.Queued() != 1 {
+		t.Fatal("refused admission advanced the accepted watermark")
 	}
 	if err := w.Drain(time.Second); err != nil {
-		t.Fatalf("refused frames were not accounted for: %v", err)
+		t.Fatalf("accepted frame did not settle: %v", err)
 	}
 	if dst.calls != 1 {
 		t.Fatalf("terminal Write called %d times, want no calls after the first failure", dst.calls)
@@ -428,11 +433,68 @@ func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
 	// Shutting down while something still wanted to draw is ordinary, and must not
 	// take the process down with it.
 	seq := w.Queue([]byte("too late"))
-	if seq == 0 {
-		t.Fatal("a refused frame got no sequence")
+	if seq != 0 {
+		t.Fatal("a refused frame received an accepted sequence")
 	}
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("a refused frame was never accounted for: %v", err)
+	}
+	if !errors.Is(w.Err(), term.ErrClosed) {
+		t.Fatalf("refused frame error = %v, want ErrClosed", w.Err())
+	}
+}
+
+func TestPostCloseRefusalDoesNotAbandonAcceptedFrames(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		dst := newBlocker()
+		w := newTestWriter(t, dst)
+		w.Queue([]byte("first"))
+		lastAccepted := w.Queue([]byte("second"))
+		synctest.Wait()
+		closed := make(chan error, 1)
+		go func() { closed <- w.Close() }()
+		synctest.Wait()
+		w.Queue([]byte("refused"))
+		dst.releaseAll()
+		if err := <-closed; err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Drain(time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if w.Written() != lastAccepted || !errors.Is(w.Err(), term.ErrClosed) {
+			t.Fatalf("written=%d error=%v", w.Written(), w.Err())
+		}
+		for _, want := range []string{"first", "second"} {
+			select {
+			case got := <-dst.writes:
+				if string(got) != want {
+					t.Fatalf("wrote %q, want %q", got, want)
+				}
+			default:
+				t.Fatalf("accepted frame %q was abandoned", want)
+			}
+		}
+	})
+}
+
+type closedDestination struct{ calls int }
+
+func (d *closedDestination) Write([]byte) (int, error) {
+	d.calls++
+	return 0, fmt.Errorf("destination closed: %w", term.ErrClosed)
+}
+
+func TestDestinationClosureStopsLaterWrites(t *testing.T) {
+	dst := &closedDestination{}
+	w := newTestWriter(t, dst)
+	w.Queue([]byte("first"))
+	w.Queue([]byte("second"))
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if dst.calls != 1 || !errors.Is(w.Err(), term.ErrClosed) || w.Err().Error() != "destination closed: term: writer closed" {
+		t.Fatalf("calls=%d error=%v", dst.calls, w.Err())
 	}
 }
 
@@ -444,9 +506,7 @@ func TestARefusedFrameCannotOvertakeABlockedWriteInDrain(t *testing.T) {
 		t.Fatalf("Close error = %v, want term.ErrClosed", err)
 	}
 
-	// This frame completes immediately because the writer is closed. Its higher
-	// sequence must not move the processed watermark past the older write that is
-	// still inside the terminal.
+	// Refused admission cannot settle the accepted write still inside the terminal.
 	w.Queue([]byte("too late"))
 	if err := w.Drain(30 * time.Millisecond); !errors.Is(err, term.ErrDrainTimeout) {
 		t.Fatalf("Drain error = %v, want ErrDrainTimeout while the older write is blocked", err)
@@ -570,5 +630,18 @@ func TestQueuedCountsWhatWasHandedOver(t *testing.T) {
 		if got := w.Queued(); got != uint64(i) {
 			t.Fatalf("after %d frames the count is %d", i, got)
 		}
+	}
+}
+
+func TestRefusedAdmissionCannotCreateAnAcceptedFrame(t *testing.T) {
+	w := newTestWriter(t, &recorder{})
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if sequence := w.Queue([]byte("refused")); sequence != 0 || w.Queued() != 0 {
+		t.Fatalf("refused frame claimed acceptance: sequence=%d queued=%d", sequence, w.Queued())
+	}
+	if !errors.Is(w.Err(), term.ErrClosed) {
+		t.Fatalf("refused admission lost its cause: %v", w.Err())
 	}
 }

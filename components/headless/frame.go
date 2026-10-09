@@ -3,6 +3,7 @@ package headless
 import (
 	"image"
 
+	"github.com/Tangerg/oolong/components/internal/identity"
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/input"
 )
@@ -173,8 +174,8 @@ func (t *transaction) abort() {
 // Root is the composition boundary between a headless widget tree and a program.
 //
 // Draw stages every nested Snapshot and publishes them together only after the whole
-// tree returns. Handle therefore routes against the last complete logical frame, never
-// a mixture of children from a frame still being built. Root depends only on grid and
+// tree returns. Handle enters the last complete tree and uses committed pointer
+// geometry; keyboard destinations belong to that tree's focus controllers. Root depends on grid and
 // input; program sees it structurally as its consumer-defined Component.
 //
 // The zero Root draws nothing and declines input. A Root must not be copied after
@@ -184,13 +185,19 @@ type Root struct {
 
 	of Widget
 
-	presentation Snapshot[Widget]
+	presentation Snapshot[rootPlacement]
 	tx           transaction
-	// held is the presented root that accepted a press. Root is itself an ownership
+	// capture is the presented root that accepted a press. Root is itself an ownership
 	// boundary when Of is replaced, so it must not hand the rest of that gesture to
 	// the replacement.
-	held       Interactive
-	heldButton input.Button
+	capture pointerCapture[rootPlacement]
+	hover   rootPlacement
+}
+
+type rootPlacement struct {
+	child    Widget
+	identity *byte
+	visible  image.Rectangle
 }
 
 // NewRoot wraps a live widget tree in its presentation transaction.
@@ -237,7 +244,13 @@ func (r *Root) Draw(view grid.View) {
 		}
 	}()
 	frame := Frame{View: view, transaction: &r.tx, generation: r.tx.generation}
-	r.presentation.Stage(frame, r.of)
+	id := r.presentation.Value().identity
+	if r.of == nil {
+		id = nil
+	} else if id == nil || !identity.Same(r.presentation.Value().child, r.of) {
+		id = new(byte)
+	}
+	r.presentation.Stage(frame, rootPlacement{child: r.of, identity: id, visible: view.Visible()})
 	if r.of != nil {
 		r.of.Draw(frame)
 	}
@@ -256,30 +269,69 @@ func (r *Root) Handle(event input.Event) bool {
 	if mouse, ok := event.(input.Mouse); ok {
 		return r.mouse(mouse)
 	}
-	interactive, ok := r.presentation.Value().(Interactive)
-	return ok && interactive.Handle(event)
+	presented := r.presentation.Value()
+	interactive, ok := presented.child.(Interactive)
+	if !ok {
+		return false
+	}
+	handled := interactive.Handle(event)
+	return handled || r.presentation.Value().identity != presented.identity
 }
 
 func (r *Root) mouse(event input.Mouse) bool {
-	if r.held != nil && (event.Action == input.MouseDrag || event.Action == input.MouseUp) {
-		target := r.held
-		if event.Releases(r.heldButton) {
-			r.held = nil
+	held, turn := r.capture.begin(event)
+	if !r.capture.current(turn) || event.Action == input.MouseCancel {
+		return false
+	}
+	if event.Action == input.MouseLeave {
+		r.leave(event)
+		return false
+	}
+	if held != nil && (event.Action == input.MouseDrag || event.Action == input.MouseUp) {
+		target := *held
+		r.hoverTo(target, event)
+		if !r.capture.current(turn) || r.hover.identity != target.identity {
+			return false
 		}
-		return target.Handle(event)
+		return target.deliverPointer(event)
 	}
-	if event.Action == input.MouseDown {
-		// A new press supersedes an incomplete old gesture, whether or not the new
-		// target accepts it.
-		r.held = nil
+	return r.route(event, turn)
+}
+
+func (r *Root) route(event input.Mouse, turn uint64) bool {
+	target := r.presentation.Value()
+	_, ok := target.child.(Interactive)
+	if !ok || !event.Pos.In(target.visible) {
+		r.leave(event)
+		return false
 	}
-	target, ok := r.presentation.Value().(Interactive)
-	if !ok || !target.Handle(event) {
+	r.hoverTo(target, event)
+	if !r.capture.current(turn) || r.hover.identity != target.identity || r.presentation.Value().identity != target.identity {
 		return false
 	}
 	if event.Action == input.MouseDown {
-		r.held = target
-		r.heldButton = event.Button
+		return r.capture.offer(turn, target, func() bool { return target.deliverPointer(event) })
 	}
-	return true
+	return target.deliverPointer(event)
+}
+
+func (r *Root) leave(event input.Mouse) {
+	r.hoverTo(rootPlacement{}, event)
+}
+
+func (r *Root) hoverTo(to rootPlacement, event input.Mouse) {
+	previous := r.hover
+	r.hover = to
+	if previous.identity == to.identity {
+		return
+	}
+	if handler, ok := previous.child.(Interactive); ok {
+		event.Action = input.MouseLeave
+		handler.Handle(event)
+	}
+}
+
+func (to rootPlacement) deliverPointer(event input.Mouse) bool {
+	handler, ok := to.child.(Interactive)
+	return ok && handler.Handle(event)
 }
