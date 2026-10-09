@@ -24,6 +24,11 @@ set -euo pipefail
 
 MODULE_PATH=github.com/Tangerg/oolong
 
+# The remote's immutable tags own this release. Its newly published modules must
+# not depend on stale proxy or checksum lookup results; other dependencies and
+# downloaded toolchains retain their configured verification.
+export GONOPROXY="$MODULE_PATH/*" GONOSUMDB="$MODULE_PATH/*"
+
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$root"
 
@@ -427,9 +432,9 @@ for ((phase = 1; phase <= phases; phase++)); do
 			[[ " ${PUBLIC_MODULES[*]} " == *" $dependency "* ]] || continue
 			note "$module -> $dependency@$version"
 			(cd "$module" &&
-				GOFLAGS=-mod=mod GOWORK=off GOPROXY=direct GOSUMDB=off \
-					go get "$MODULE_PATH/$dependency@$version" >/dev/null 2>&1 &&
-				GOWORK=off GOPROXY=direct GOSUMDB=off go mod tidy >/dev/null 2>&1) ||
+				GOFLAGS=-mod=mod GOWORK=off \
+					go get "$MODULE_PATH/$dependency@$version" >/dev/null &&
+				GOWORK=off go mod tidy >/dev/null) ||
 				die "$module could not resolve $dependency@$version."
 			changed=true
 		done

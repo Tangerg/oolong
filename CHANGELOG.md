@@ -18,9 +18,15 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
-## [0.22.0] — 2026-10-09
+## [0.22.1] — 2026-10-09
 
 ### Fixed
+
+- Release dependency resolution uses the repository's immutable tags for Oolong
+  modules while retaining checksum verification for other dependencies and
+  downloaded toolchains. Failed dependency updates preserve their original
+  diagnostics. This completes the partial v0.22.0 release without moving its
+  existing core and mermaid tags; upgrade all public modules to v0.22.1 together.
 
 - Pinned lint, reachability, API comparison and vulnerability checkers understand
   Go 1.27.2 export data. CI keeps the language-floor and current-patch matrix
@@ -360,6 +366,16 @@ point of tagging them low rather than not at all.
   before queueing it, and pass the final read time to Flush. Data and end-of-input
   must preserve read order. Arrival at or after a pending deadline settles the old ambiguity
   first; Expire before DueAt leaves it pending.
+
+## [0.22.0] — 2026-10-09
+
+### Release status
+
+Only core and mermaid were tagged before dependency resolution stopped: the
+release script globally disabled checksum verification, which prevented the
+Go 1.27.2 toolchain from starting. These immutable tags remain available; no
+complete v0.22.0 release train was published. The full changes and API migration
+ledger are included in v0.22.1 above.
 
 ## [0.21.0] — 2026-09-24
 

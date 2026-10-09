@@ -94,6 +94,12 @@ when more than three tags are pushed at once;
 individual pushes let every module trigger its release contract check. A failed
 push stops the release before later tags or dependency phases are published.
 
+During the release, Oolong module downloads use the Git origin directly and
+exclude only that module namespace from checksum-database lookups. Proxy and
+checksum lookups can cache the absence of a tag that the release has just pushed;
+they do not own publication. Other dependencies and downloaded toolchains keep
+checksum verification. Dependency resolution errors remain visible.
+
 Do not interrupt the process after the first tag is pushed. A tag recorded by the Go
 proxy or checksum database is immutable, even if it is later deleted from GitHub.
 

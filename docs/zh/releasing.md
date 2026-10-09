@@ -67,6 +67,8 @@ scripts/release.sh X.Y.Z --execute
 [GitHub 不会为一次推送超过三个 tag 创建 tag push 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)；逐个推送能让每个模块触发发布合同检查。
 任何一次推送失败都会停止发布，后续 tag 和依赖阶段不会继续发布。
 
+发布期间，Oolong 模块直接从 Git 源下载，并且只对该模块命名空间排除校验数据库查询。代理和校验查询可能缓存刚推送的 tag 尚不存在的结果；它们不拥有发布事实。其他依赖与下载的工具链继续进行校验。依赖解析失败时保留原始错误。
+
 第一个 tag 推送后不要中断流程。Go proxy 或 checksum database 记录的 tag 是不可变的，即使稍后从 GitHub 删除也不会改变。
 
 ## 验证发布结果

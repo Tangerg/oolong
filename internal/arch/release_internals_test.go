@@ -19,7 +19,20 @@ func TestReleaseTagPushes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, execution, ok := strings.Cut(strings.ReplaceAll(string(source), "\r\n", "\n"), "# Execution.")
+	scriptSource := strings.ReplaceAll(string(source), "\r\n", "\n")
+	_, resolution, ok := strings.Cut(scriptSource, "\nMODULE_PATH=")
+	if !ok {
+		t.Fatal("missing release module namespace")
+	}
+	_, resolution, ok = strings.Cut(resolution, "\n")
+	if !ok {
+		t.Fatal("missing module resolution policy")
+	}
+	resolution, _, ok = strings.Cut(resolution, "\nroot=")
+	if !ok {
+		t.Fatal("missing release root")
+	}
+	_, execution, ok := strings.Cut(scriptSource, "# Execution.")
 	if !ok {
 		t.Fatal("missing release execution section")
 	}
@@ -34,7 +47,7 @@ func TestReleaseTagPushes(t *testing.T) {
 	execution = "for ((phase = 1; phase <= phases; phase++)); do\n" + execution
 
 	for _, count := range []int{1, 3, 4, 6} {
-		for _, failure := range []string{"none", "compatibility", "push"} {
+		for _, failure := range []string{"none", "resolve", "compatibility", "push"} {
 			t.Run(fmt.Sprintf("%d/%s", count, failure), func(t *testing.T) {
 				dir := t.TempDir()
 				modules := []string{"foundation"}
@@ -55,6 +68,8 @@ func TestReleaseTagPushes(t *testing.T) {
 				script := fmt.Sprintf(`set -euo pipefail
 version=v0.19.0
 MODULE_PATH=example.invalid/release-fixture
+export GOSUMDB=checksum.fixture
+%s
 order=(%s application)
 PUBLIC_MODULES=(%s)
 phase_of=(%s 3)
@@ -78,7 +93,20 @@ compatibility() {
     die comparison-failed
   fi
 }
-go() { :; }
+go() {
+  if [[ ${GOSUMDB-} != checksum.fixture ]]; then
+    echo toolchain-verification-disabled >&2
+    return 42
+  fi
+  if [[ ${GONOPROXY-} != "$MODULE_PATH/*" || ${GONOSUMDB-} != "$MODULE_PATH/*" ]]; then
+    echo wrong-publication-namespace >&2
+    return 42
+  fi
+  if [[ $failure == resolve && $1 == get ]]; then
+    echo resolve-failed >&2
+    return 42
+  fi
+}
 git() {
   case "$1" in
     rev-parse) echo fixture-commit ;;
@@ -99,7 +127,7 @@ git() {
     *) echo "unexpected git operation: $*" >&2; exit 1 ;;
   esac
 }
-`, strings.Join(modules, " "), strings.Join(modules, " "), strings.Join(phases, " "), failure, failModule)
+`, resolution, strings.Join(modules, " "), strings.Join(modules, " "), strings.Join(phases, " "), failure, failModule)
 				// All state-changing tools in the production phase loop are private shell
 				// fixtures: no Git repository, remote, or module cache can be modified.
 				//nolint:gosec // G204: repository-owned script with fake tools in a private directory.
@@ -111,8 +139,11 @@ git() {
 				}
 				if failure != "none" {
 					message := "push-failed"
-					if failure == "compatibility" {
+					switch failure {
+					case "compatibility":
 						message = "comparison-failed"
+					case "resolve":
+						message = "resolve-failed"
 					}
 					if !strings.Contains(string(out), message) {
 						t.Fatalf("failure diagnostic lost: %s", out)
@@ -154,7 +185,7 @@ git() {
 				}
 				want := modules
 				switch failure {
-				case "compatibility":
+				case "resolve", "compatibility":
 					want = modules[:1]
 				case "push":
 					want = modules[:slices.Index(modules, failModule)+1]
