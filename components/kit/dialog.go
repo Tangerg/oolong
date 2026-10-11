@@ -34,8 +34,7 @@ type DialogConfig struct {
 	// Stack owns modal ordering and is required.
 	Stack *headless.Stack
 	// Open is optional caller-owned state. Nil starts locally closed.
-	Open headless.Accessor[bool]
-	// Theme and Glyphs define the panel appearance.
+	Open   headless.Accessor[bool]
 	Theme  Theme
 	Glyphs Glyphs
 	// Title and Description are copied semantic text; Title also labels the border.
@@ -110,11 +109,8 @@ type DialogPanel struct {
 	Theme Theme
 	// Where the dialog goes. The zero value centres it and fills what the margin
 	// leaves, which is what a dialog with a lot in it wants.
-	Where layout.Placement
-	// Glyphs are the characters the frame is drawn with. See [Box.Glyphs].
+	Where  layout.Placement
 	Glyphs Glyphs
-	// Border draws the frame. The zero value takes the rounded one from the glyph
-	// set, which reads as a panel.
 	Border Border
 	// Keys is where the hints' keystrokes are read from, and Hints are the actions to
 	// show along the bottom border, where they do not cost a row. An action with

@@ -18,18 +18,11 @@ var ErrSequenceTooLong = errors.New("ansi: sequence exceeds 65536 bytes")
 
 const maxPending = 1 << 16
 
-// Scanner turns arbitrarily chunked terminal bytes into complete [Piece]s.
-//
-// Feed calls its visitor once for each complete piece, in order. A Piece and its
-// strings are borrowed for that call; a visitor that retains one must clone the
-// strings it needs. An incomplete escape sequence or UTF-8 character stays in the
-// Scanner until another Feed completes it. Pending exposes that suffix for an
-// owner settling the end of a stream.
-//
-// A Scanner belongs to one goroutine and must not be copied after its first use.
-// Its zero value is ready to use.
-// A visitor may read Pending but cannot reenter Feed or Reset on the same Scanner;
-// these mutations panic while a scan is active.
+// Scanner assembles [Piece]s across arbitrary input chunks. Pieces are borrowed
+// only during the visitor call; retained strings must be cloned. Incomplete escapes
+// and UTF-8 stay pending. The zero value is ready. A Scanner belongs to one goroutine
+// and must not be copied after first use. Visitors may read Pending; reentering
+// Feed or Reset panics.
 type Scanner struct {
 	noCopy        noCopy
 	active        bool
@@ -51,22 +44,11 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
-// Feed scans chunk and visits every piece that became complete.
-//
-// If visit returns an error, Feed stops and returns it. A panic propagates unchanged.
-// In either case the remainder is discarded:
-// a semantic consumer that rejected a complete piece cannot safely resume midway
-// through the same chunk.
-//
-// [ErrSequenceTooLong] is reported differently, because it is about the stream and
-// not about the consumer. The refused sequence is consumed to its end — over as many
-// chunks as that takes — and nothing of it is ever visited. Scanning carries on with
-// the bytes after it, so a consumer that treats the error as "one more sequence I
-// cannot use" is not thereby shown a control string's body as text.
-//
-// A nil visit is a programmer error and panics. Scanning without it would consume the
-// chunk and advance the Scanner's held remainder, so the bytes would be gone by the
-// time anyone noticed nothing had been delivered.
+// Feed visits complete pieces in order. Visitor errors stop scanning; panics
+// propagate. Both discard the remainder because a rejected chunk cannot resume
+// safely. [ErrSequenceTooLong] instead consumes the entire refused sequence and
+// continues, preventing its body from becoming text. A nil visitor panics before
+// consuming bytes.
 func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 	s.requireIdle()
 	if visit == nil {
@@ -140,24 +122,10 @@ func (s *Scanner) unfinished(tail string) error {
 	return nil
 }
 
-// refuse gives up on a sequence longer than any sequence may be, while going on
-// looking for where it ends.
-//
-// What is kept is what the rest of the sequence has to be read against, and nothing
-// more: the introducer, which says which terminator ends it, and the point the body
-// had reached in its own syntax. Keeping the body is the thing the bound exists to
-// refuse; keeping only the introducer is not enough. A control sequence that had got
-// as far as its intermediate bytes is why the byte after them proves it malformed,
-// and a scan that forgot them reads that byte as an ordinary parameter and swallows
-// what follows it — so the same stream says different things depending on where the
-// read split, which is the thing this bound exists to prevent.
-//
-// Both facts are read off the bytes being discarded rather than off the scan's own
-// state, because a sequence long enough to refuse in a single chunk was never
-// scanned incrementally at all.
-//
-// The error is reported once for the sequence rather than once per chunk it goes on
-// arriving in.
+// Retain the introducer and parameter/intermediate phase while discarding an
+// oversized sequence. Forgetting either changes its terminator across chunk
+// boundaries. Derive them from discarded bytes so single-chunk refusals follow
+// the same rule. Report the error once per sequence.
 func (s *Scanner) refuse(sequence string) error {
 	kept := sequence[:min(len(sequence), 2)]
 	last := sequence[len(sequence)-1]

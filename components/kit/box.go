@@ -16,16 +16,8 @@ import (
 // A focusable child that must participate in routing inside the frame belongs in a
 // [Panel], which owns that narrower live composition explicitly.
 type Box struct {
-	// Theme is the look. A box's parts each have a fixed role in one — the frame is
-	// a border, the interior is a surface, the title is a heading — so there is
-	// nothing here for a caller to choose between and no style of its own to set.
-	Theme Theme
-	// Glyphs are the characters the frame is drawn with, which is a fact about the
-	// terminal rather than about the look: a box drawn with line characters on a
-	// terminal that cannot show them is a box drawn in mojibake.
+	Theme  Theme
 	Glyphs Glyphs
-	// Border is which frame to draw. The zero value takes the rounded one from the
-	// glyph set, which reads as a panel; [Box.Bare] draws none.
 	Border Border
 	// Padding is held clear inside the border.
 	Padding layout.Inset

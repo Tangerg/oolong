@@ -24,9 +24,7 @@ type Tree[T any] struct {
 	// Text is what a row says. A tree given none draws nothing but its marks, which
 	// is what an item that cannot be read as text comes to. Text runs during drawing
 	// and must be an observationally pure projection.
-	Text func(item T) string
-	// Theme is the look, and Glyphs are the marks beside a branch. A tree given no
-	// glyphs draws no marks, and its rows are then told apart by their indent alone.
+	Text   func(item T) string
 	Theme  Theme
 	Glyphs Glyphs
 	// Indent is how many columns a level is worth. Zero uses two.
@@ -38,7 +36,6 @@ type Tree[T any] struct {
 // TreeConfig is the complete construction state of [Tree]. Controller is required;
 // Text may be nil when the appearance needs only branch marks and indentation.
 type TreeConfig[T any] struct {
-	// Theme and Glyphs define row and branch appearance.
 	Theme  Theme
 	Glyphs Glyphs
 	// Controller owns hierarchy, selection and interaction and is required.

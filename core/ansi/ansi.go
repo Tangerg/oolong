@@ -1,21 +1,5 @@
-// Package ansi is what an escape sequence is made of.
-//
-// Escape sequences travel in both directions and carry many meanings. What their
-// readers share is syntax: which bytes are parameters, which byte ends a sequence,
-// what an empty field means, and where a sequence stops. This package owns only
-// that syntax so every semantic decoder can build on the same byte-level rules.
-//
-// Nothing here decides what a sequence means. A final byte of 'm' is a style to
-// one reader and nothing at all to the other, and this package has no opinion
-// about either.
-//
-// # What a sequence looks like
-//
-// Three shapes, and everything else is text:
-//
-//	ESC [ 1 ; 31 m          a control sequence: parameters, then a final byte
-//	ESC ] 8 ; ; url ST      a string command: a body, then a terminator
-//	ESC ( B                 an escape with intermediates and a final byte
+// Package ansi owns escape-sequence syntax shared by terminal input and output
+// decoders. Semantic interpretation remains with each consumer.
 package ansi
 
 import (

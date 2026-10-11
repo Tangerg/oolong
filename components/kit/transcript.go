@@ -11,26 +11,17 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
-// Transcript draws a session's output: the window of it that fits, the header pinned
-// above, and whatever is selected or found picked out.
-//
-// It owns no content. The blocks, where the view is scrolled to, what is selected and
-// what a search turned up are all the caller's, held in the headless types that answer
-// those questions — this decides what they look like and nothing else.
-//
-// A Transcript must not be copied after first use: its committed window and captured
-// selection gesture are one appearance owner even though the content remains external.
+// Transcript renders caller-owned content, scrolling, selection and search. Its
+// committed window and captured gesture own appearance routing; a Transcript must
+// not be copied after first use.
 type Transcript struct {
 	noCopy noCopy
 
-	// Content is what to draw.
 	Content *headless.Transcript
-	// Scroll is where in it the window sits.
-	Scroll *headless.Scroll
+	Scroll  *headless.Scroll
 	// Keys maps scrolling actions. Nil reads through
 	// [headless.DefaultScrollKeys]. It is used only when Scroll is non-nil.
-	Keys *keymap.Map
-	// Selection picks out cells the user dragged over. Nil selects nothing.
+	Keys      *keymap.Map
 	Selection *headless.Selection
 	// Sticky pins a header above the window. Nil pins nothing.
 	Sticky *headless.Sticky
@@ -42,18 +33,7 @@ type Transcript struct {
 	Matches []headless.Match
 	Current int
 
-	// Theme is the look. Every part of a transcript has a fixed role in one — a
-	// selection is the selection, the match being stepped to is the accent, a pinned
-	// header sits on a surface — so there is nothing here to choose between.
-	//
-	// A caller who wants one of them different passes a theme with that role
-	// changed, which is one line and keeps the look in the one place a look lives:
-	//
-	//	quiet := theme
-	//	quiet.Selection = quiet.Sunken
-	Theme Theme
-	// Glyphs are the characters the rule under a pinned header is drawn with, which
-	// is a fact about the terminal rather than about the look.
+	Theme  Theme
 	Glyphs Glyphs
 
 	presentation headless.Snapshot[transcriptPresentation]
@@ -200,12 +180,7 @@ func (t *Transcript) drawHeader(content headless.TranscriptLayout, v grid.View, 
 	}
 }
 
-// mark lays the selection and the search results over what was drawn.
-//
-// Over, rather than into: what is selected is a property of the cells and not of the
-// content, so it is applied after the content drew itself and without the content
-// knowing. A block that had to be told it was selected would have to be told again
-// every time the drag moved.
+// Apply selection after content drawing so content need not own interaction state.
 func (t *Transcript) mark(v grid.View, from int) {
 	t.markSelection(v, from)
 	t.markMatches(v, from)
@@ -265,11 +240,7 @@ func visibleMatches(matches []headless.Match, from, to int) (start, end int) {
 	return start, max(start, end)
 }
 
-// restyle lays a style over a cell without touching what is in it.
-//
-// Over, not instead of: a header tinted by replacing every style would lose the accent
-// on its own first word, and a selection drawn that way would lose the emphasis inside
-// the sentence it covers. Merging keeps whatever the overlay did not state.
+// Merge overlays so selection cannot erase emphasis already present in the content.
 func restyle(v grid.View, x, y int, style grid.Style) {
 	if style == (grid.Style{}) {
 		return
@@ -277,21 +248,9 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 	v.MergeStyle(x, y, style)
 }
 
-// Commit gives the transcript's finished leading blocks to a printer, which is what
-// puts them in the terminal's own output for good.
-//
-// It is here rather than on the transcript because printing needs a width to draw at,
-// and the transcript has none until it has been laid out. The rest of the rule —
-// leading, in order, once each — is [headless.Transcript.Commit]'s.
-//
-// Any output sink with the small Printer method set can receive committed blocks:
-//
-//	view.Commit(output, 0)
-//
-// limit is the most blocks to transfer, and zero transfers every finished one. A
-// negative limit panics: zero already means all of them, and committing is
-// irreversible, so reading a negative as either none or all would guess about output
-// the caller cannot take back. A nil printer or content transfers nothing.
+// Commit prints finished leading blocks through [headless.Transcript.Commit] at
+// the committed width. Zero limit transfers all; negative limits panic because
+// publication is irreversible. Nil printer or content transfers nothing.
 func (t *Transcript) Commit(p Printer, limit int) int {
 	if limit < 0 {
 		panic("kit: transcript commit limit cannot be negative")
@@ -334,26 +293,12 @@ type Printer interface {
 	Print(content grid.Drawable)
 }
 
-// Handle answers scrolling and selection over the transcript, reporting whether it
-// took the event.
-//
-// A press starts a selection, a drag moves its far end, a second press in the same
-// place takes the word and a third takes the row. It lives here rather than on the
-// selection because a point on screen means nothing without knowing where the
-// transcript was drawn and how far it is scrolled, and this is the thing that drew it.
-//
-// Clicks are counted from the time the event arrived with, which the terminal's reader
-// stamped on it, so a caller feeding events it made up itself gets single clicks.
-//
-// Selection starts with the left button and ends on its release or an unspecified
-// release, even outside the transcript. Another button's release leaves it active.
-// Presses and wheel input use the targets and visible area of the committed frame. Replacing
-// the presented content or selection revokes drag coordinates and the old click run;
-// release still settles the original selection. A pending replacement does not change
-// the presented target.
-//
-// The position is in the transcript's own coordinates, which whoever drew it is
-// responsible for — inside a [headless.Container], the container.
+// Handle accepts scrolling and left-button selection in local coordinates.
+// Event timestamps count repeated clicks: two select a word, three a row.
+// A matching or unspecified release settles the original selection even outside
+// the window; foreign-button releases preserve it. Presses and wheel input use
+// committed targets. Target replacement revokes drag coordinates and click runs
+// without transferring release ownership to the replacement.
 func (t *Transcript) Handle(event input.Event) bool {
 	scroll := t.Scroll
 	if mouse, ok := event.(input.Mouse); ok && (mouse.Action == input.WheelUp || mouse.Action == input.WheelDown) {
@@ -408,8 +353,6 @@ func (t *Transcript) press(event input.Mouse) bool {
 		t.clicked = presented.identity
 	}
 	run := presented.selection.Clicks.Press(event)
-	// A word or a row, when there is one there. A double-click in the margin has
-	// nothing to take, and falls back to starting a selection like any press.
 	switch run {
 	case 2:
 		if presented.selection.SelectWord(presented.content, at) {
@@ -441,14 +384,8 @@ func (t *Transcript) drag(event input.Mouse) bool {
 	return true
 }
 
-// release settles whichever selection accepted the press, and reports whether there
-// was one.
-//
-// A release is a lifetime transition, not a hit test. Once this selection accepted
-// the press it must be settled, even when the pointer is now outside the transcript
-// or the visible window has collapsed — and a press standing in for a release the
-// terminal never sent has to settle it the same way, which is why this is the one
-// place a gesture ends.
+// Release belongs to the selection that accepted the press, even outside the window
+// or after its collapse. A new press also settles any missing terminal release.
 func (t *Transcript) release() bool {
 	if t.dragged == nil {
 		return false

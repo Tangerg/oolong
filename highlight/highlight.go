@@ -1,20 +1,6 @@
-// Package highlight colours source code.
-//
-// It is a module of its own for the same reason markdown is: a lexer per language and
-// a palette per theme is several megabytes of somebody else's tree, and a program
-// that does not show code never hears about it.
-//
-// It produces [github.com/Tangerg/oolong/core/text.Line]s and draws, measures and
-// wraps nothing — a highlighted block of code is styled text and is laid out like any
-// other. A [Renderer] has the same [Renderer.Lines] method whether it is called
-// directly or installed in a semantic content registry:
-//
-//	renderer := highlight.New("github-dark")
-//	lines := renderer.Lines("go", source)
-//
-// No type here comes from the highlighter and none goes back to it: a style is its
-// name, a language is its name, and what comes out is text. That is what lets it be
-// replaced without anything above noticing.
+// Package highlight converts source code to styled text. Keeping lexer dependencies
+// in this module lets terminal-only consumers avoid them. Public types remain Oolong
+// text and named themes, so callers do not depend on the highlighter implementation.
 package highlight
 
 import (
@@ -89,7 +75,6 @@ func (r Renderer) resolved() *chroma.Style {
 	return styles.Fallback
 }
 
-// schemeOf resolves a name to a scheme, falling back rather than failing.
 func schemeOf(style Style) *chroma.Style {
 	if scheme := styles.Get(string(style)); scheme != nil {
 		return scheme
@@ -101,7 +86,6 @@ func highlight(language, source string, scheme *chroma.Style) []text.Line {
 	lexer := lexerFor(language, source)
 	iterator, err := lexer.Tokenise(nil, source)
 	if err != nil {
-		// Whatever went wrong, the code is still the code.
 		return plain(source)
 	}
 
@@ -170,8 +154,6 @@ func colour(c chroma.Colour) grid.Color {
 	return grid.RGBColor(c.Red(), c.Green(), c.Blue())
 }
 
-// plain is the source with no styling at all, which is what code nobody could lex
-// comes to.
 func plain(source string) []text.Line {
 	rows := strings.Split(source, "\n")
 	out := make([]text.Line, 0, len(rows))

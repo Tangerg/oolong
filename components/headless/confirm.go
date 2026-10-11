@@ -19,7 +19,6 @@ type Confirm struct {
 
 	field
 	value Accessor[bool]
-	// Label is what the field is asking.
 	Label string
 	// Yes and No are the two answers as they are shown. Empty uses "yes" and "no".
 	Yes, No string

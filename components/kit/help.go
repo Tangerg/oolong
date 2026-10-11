@@ -16,9 +16,6 @@ import (
 // An action with nothing bound to it is not shown, because a hint nobody can press is
 // worse than no hint.
 type Help struct {
-	// Theme is the look. Each part of a hint has a fixed role in one — the key is
-	// the thing to press, what it does is a note about it — so there is nothing here
-	// to choose between.
 	Theme Theme
 	// Keys is where the keystrokes come from.
 	Keys *keymap.Map

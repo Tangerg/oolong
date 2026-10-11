@@ -1,21 +1,7 @@
-// Package latex lays LaTeX mathematics out as terminal rows.
-//
-// It is deliberately a mathematics renderer and not a TeX engine: documents,
-// packages, file inclusion, macro definitions, page layout and command execution are
-// outside its contract. A formula is untrusted content, so unsupported or incomplete
-// input becomes readable source with an error attached rather than a panic or an
-// empty region.
-//
-// [Render] returns a concrete, immutable [Formula] that measures and draws as a
-// [github.com/Tangerg/oolong/core/grid.Drawable] and exposes the rows it draws for
-// selection and search. There is no image-only path, so the text stays visible on
-// every host and meaningful when copied. A semantic content registry reaches the same
-// entry through a closure, leaving producer and consumer as peers:
-//
-//	render := func(_ string, source string) (grid.Drawable, error) {
-//		formula := latex.Render(source, look)
-//		return formula, formula.Err()
-//	}
+// Package latex renders mathematics as immutable terminal [Formula] rows for drawing,
+// selection and search. Untrusted unsupported input stays readable with an error.
+// TeX document features, inclusion, macro definitions and command execution are outside
+// its contract. Public values expose terminal text rather than parser objects.
 package latex
 
 import (
@@ -294,15 +280,8 @@ func (e *parseError) Error() string { return "latex: " + e.message }
 // caller did not write.
 const mathDelimiter = "$"
 
-// explain is the one way an explanation becomes this package's error, so the rule
-// below is applied wherever one comes from.
-//
-// A parser complaining that it found the delimiter is a parser that reached the end
-// of the expression while it still wanted something, and that is what the caller
-// needs to be told; quoting the delimiter instead describes a character they never
-// typed, which is worse than saying less. The test is exact rather than a guess:
-// validateSource refuses a delimiter in the source, so one in a message can only
-// have come from the wrapper.
+// validateSource excludes the wrapper delimiter from user input, so a parser error
+// naming it means the expression ended prematurely rather than containing that character.
 func explain(message string) error {
 	if strings.Contains(message, mathDelimiter) {
 		message = "the expression ends while something is still open"

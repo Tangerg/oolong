@@ -15,120 +15,64 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Editor is a multi-line text field.
-//
-// The cursor is a byte offset into a line, and it only ever sits on a grapheme
-// cluster boundary. It cannot sit between a letter and the accent that modifies it,
-// because that is not a place a terminal could draw it, and it cannot sit inside a
-// multi-column display atom for the same reason.
-//
-// Vertical movement is by visual row, not by logical line. In a field that wraps,
-// pressing down inside a long paragraph has to move down the screen; a cursor that
-// jumped to the next paragraph instead would be moving somewhere the user cannot
-// see the reason for.
-//
-// The zero value is ready to use. An Editor must not be copied after first use.
+// Editor owns text, grapheme-aligned cursor positions and visual-row navigation.
+// The zero value is ready. An Editor must not be copied after first use.
 type Editor struct {
 	noCopy noCopy
 
-	// Placeholder is shown while the field is empty, and is not part of the text.
 	Placeholder string
-	// Look is how the text, the placeholder and the selection are drawn — see [Look],
-	// which is the one way anything here that draws itself is dressed. The zero value
-	// draws in the terminal's own colours and lays nothing over a selection, which is
-	// what a field that never selects wants.
-	Look Look
-	// Keys say which keystrokes produce which of the actions this field answers to —
-	// see [Editor.Do]. Nil reads through [DefaultEditorKeys].
-	//
-	// It is a map and not a struct of one field per action, so a program can hand the
-	// same map to a field, to the container around it and to its own keys, and rebind
-	// any of them without replacing anything.
+	Look        Look
+	// Nil uses [DefaultEditorKeys].
 	Keys *keymap.Map
-	// Clipboard is where copy and cut send text and where paste asks for it. Nil
-	// leaves those keys doing nothing, which is the right answer for a field in a
-	// program that has no terminal to ask.
-	//
-	// A runtime adapter can satisfy this directly; an editor depends only on these
-	// two operations.
+	// Nil disables clipboard actions.
 	Clipboard Clipboard
-	// MaxRows caps how tall the field grows. Beyond it the field scrolls and keeps
-	// the cursor in view. Zero means it grows without limit, which only suits a
-	// field that owns its whole pane.
+	// Zero allows unlimited height; a positive limit scrolls to keep the cursor visible.
 	MaxRows int
-	// Gutter draws beside the field's visual rows. Nil gives every column to the
-	// text. The gutter is not part of selection or clipboard content, and pointer
-	// input in it is left for a containing component to interpret.
-	Gutter RowGutter
-	// CursorStyle chooses the terminal cursor's shape and blink while this editor has
-	// the keyboard. The zero value leaves both to the terminal's configured default.
+	// Gutter input belongs to the containing component; its text is excluded from selection.
+	Gutter      RowGutter
 	CursorStyle grid.CursorStyle
 
 	lines []string
 	// line is the cursor's logical line; col is its byte offset within that line.
 	line, col int
-	// wantColumn is the visual column vertical movement aims for, so a cursor moving
-	// through short lines comes back out where it went in. Negative means it has not
-	// been set and the cursor's own column is the aim.
+	// Short rows must not erase the desired column for later vertical moves. Negative means unset.
 	wantColumn int
 
-	// anchor is where a selection began, and selecting says there is one. The far end
-	// is the cursor, so a selection needs nothing kept in step with movement.
+	// The cursor is the other endpoint, so movement cannot leave a stale selection end.
 	anchor    Caret
 	selecting bool
 	dragging  bool
 
-	// rowEnd is where a click landed that meant the end of a wrapped row rather than
-	// the start of the next, and set says there was one.
-	//
-	// It is cleared in [Editor.endTyping], which every movement and every edit already
-	// passes through, rather than in the forty-odd places the cursor is assigned — and
-	// it is checked against the cursor's own position as well, so a stale one cannot
-	// apply to a position it was never about.
+	// Soft breaks share a byte offset with two visual rows. Clicks may prefer the earlier
+	// row; endTyping clears this affinity for subsequent movement and edits.
 	rowEnd    Caret
 	rowEndSet bool
 
-	// marks are the runs of text that behave as one character, in the order they
-	// appear, as offsets into the whole text. elementIDs owns their stable identities.
-	// See [Editor.offsetOf] for why they are not kept in lines and columns.
+	// Whole-document byte offsets let [text.Edit] shift every mark through one edit policy.
 	marks      []text.Mark
 	elementIDs identitySequence
 
-	// kills owns bounded cut history. continuation says whether another kill may join
-	// the newest entry or a yank-pop may replace the immediately preceding yank.
 	kills        editorKillRing
 	continuation editorContinuation
 	yank         editorYank
 
-	// matcher owns how far into a multi-chord binding the keys have got. It is the
-	// field's own and not the map's — see [keymap.Matcher].
 	matcher keymap.Matcher
 
-	// blurred says the field has been told it does not have the keyboard, so it
-	// draws no cursor. Inverted, because a field that has never been told anything
-	// is the whole interface and does have it — see [Focusable].
+	// Inverted so a standalone zero-value editor owns the keyboard.
 	blurred bool
 
 	history editorHistory
-	// typing marks a run of plain insertions, so undo steps over a phrase rather
-	// than a letter.
-	typing bool
-	// revision is the semantic content generation. Cursor, selection and presentation
-	// state deliberately live outside it.
+	typing  bool
+	// Cursor and presentation changes must not advance the semantic content generation.
 	revision uint64
-	// singleLine and mask are private because changing either can change the semantic
-	// one-line invariant. Their setters perform that transition; public fields would
-	// let existing multi-line content become invisible without changing the model.
+	// Setters enforce one-line storage before a mask or mode change can hide content.
 	singleLine bool
 	mask       string
 
 	scroll Scroll
-	// cursorReveal identifies the pending navigation request. Scroll owns its
-	// consumption and cancellation; drawing only resolves its row at the new width.
+	// Scroll owns request consumption and cancellation; drawing only resolves its visual row.
 	cursorReveal *scrollRange
 	layout       editorLayout
-	// presentation is the committed wrap width and viewport origin used by pointer
-	// and vertical cursor routing.
 	presentation Snapshot[editorPresentation]
 }
 
@@ -137,22 +81,22 @@ type editorPresentation struct {
 	visible                    image.Rectangle
 }
 
-// editorState is a whole snapshot for undo.
-//
-// Whole, not a patch: the text in a composer is small, the snapshots are few, and a
-// patch that reconstructed the wrong state would be a bug nobody could see coming.
+func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
+	if p.width <= 0 || point.X < p.gutter {
+		return image.Point{}, false
+	}
+	point.X = layout.Relative(point.X, p.gutter)
+	return point, true
+}
+
 type editorState struct {
 	lines     []string
 	line, col int
-	// marks are part of the state and not derivable from the text: two chips with
-	// the same words are two different things, and an undo that gave them back with
-	// new identities would have given back different ones.
+	// Text cannot reconstruct element identities, so undo must retain the marks.
 	marks []text.Mark
 }
 
-// editorCheckpoint is the part of an edit that a controlled owner may reject after
-// the editor has applied it. It owns its slice headers so history mutation during the
-// attempted operation cannot erase the state needed to settle that rejection.
+// Own slice headers so a rejected controlled edit can restore history after reentrant mutation.
 type editorCheckpoint struct {
 	text      string
 	state     editorState
@@ -168,29 +112,18 @@ func (e *Editor) Text() string {
 	return strings.Join(e.lines, "\n")
 }
 
-// Revision reports the generation of the editor's semantic content.
-//
-// It advances once for every change to text or atomic elements, whether the change
-// came from input, a programmatic editing method, undo or redo. Cursor movement,
-// selection, scrolling, focus, copying and an edit that has no effect leave it alone.
-// This is what lets a caller decide whether to validate, persist or mark a draft dirty
-// without guessing from a key or an action name.
-//
-// A revision is an opaque, process-local observation token. Compare it with an earlier
-// value from this editor; do not persist it or give the number itself meaning.
+// Revision advances once per semantic text or element change, including undo and redo.
+// Cursor, selection, scrolling and no-op edits leave it unchanged.
+// Compare tokens only within this editor; they have no persisted or numeric meaning.
 func (e *Editor) Revision() uint64 { return e.revision }
 
 // SingleLine reports whether this field was explicitly configured to hold one line.
 // A non-empty [Editor.Mask] also makes the effective field one-line.
 func (e *Editor) SingleLine() bool { return e.singleLine }
 
-// SetSingleLine changes whether the field holds one line.
-//
-// Enabling it turns existing line breaks into spaces as one semantic change, keeps
-// element identities, settles the cursor from the same whole-document offset, and
-// clears undo history that could otherwise restore an invalid multi-line state.
-// Disabling it leaves the current one-line content in place; later insertions may add
-// lines.
+// SetSingleLine enables or disables one-line storage. Enabling flattens line breaks,
+// retains element identities and translates the cursor as one semantic change.
+// It clears history so undo cannot restore invalid multi-line content.
 func (e *Editor) SetSingleLine(enabled bool) {
 	if e.singleLine == enabled {
 		return
@@ -203,12 +136,9 @@ func (e *Editor) SetSingleLine(enabled bool) {
 // Mask reports what each text cluster is drawn as. Empty means text is shown.
 func (e *Editor) Mask() string { return e.mask }
 
-// SetMask changes what each text cluster is drawn as.
-//
-// A mask must be visible terminal text without tabs or control characters, and must
-// still be itself when written twice in a row — see [maskable]; invalid
-// configuration panics. A non-empty mask makes the field one-line, applying
-// the same semantic transition as [Editor.SetSingleLine].
+// SetMask changes the glyph drawn for each text cluster. Invalid masks panic: they
+// must be visible, free of tabs and controls, and remain separate when repeated.
+// A non-empty mask applies the one-line transition of [Editor.SetSingleLine].
 func (e *Editor) SetMask(mask string) {
 	if mask != "" && !maskable(mask) {
 		panic("headless: editor mask must be visible terminal text that does not join a copy of itself")
@@ -221,15 +151,8 @@ func (e *Editor) SetMask(mask string) {
 	e.oneLineChanged(wasOneLine)
 }
 
-// maskable is what a mask has to be for the projection that consumes it: visible
-// terminal text, wide enough to see, and still itself when the next copy is written
-// beside it.
-//
-// The last condition is the one a mask judged on its own misses. A field draws one
-// mask per cluster of text and finds a column by multiplying, so a mask that joins
-// to a copy of itself — two regional indicators are a flag — draws fewer clusters
-// than the text has characters and leaves the cursor at a column the row does not
-// have.
+// Repeated masks must not join into grapheme clusters, or multiplication would place
+// the cursor beyond the rendered text.
 func maskable(mask string) bool {
 	return text.Printable(mask) == mask &&
 		!strings.Contains(mask, "\t") &&
@@ -245,7 +168,6 @@ func clusters(s string) int {
 	return n
 }
 
-// oneLineChanged maintains the storage invariant after a mode transition.
 func (e *Editor) oneLineChanged(wasOneLine bool) {
 	defer e.revealCursor()
 	nowOneLine := e.oneLine()
@@ -257,9 +179,7 @@ func (e *Editor) oneLineChanged(wasOneLine bool) {
 	if !nowOneLine {
 		return
 	}
-	// Even when the current value already has one line, an older undo snapshot may
-	// not. Configuration is not user history, so entering the stricter mode settles
-	// the old history rather than letting Undo violate the new storage invariant.
+	// Old undo snapshots may contain lines even when the current value does not.
 	e.history.clear()
 	if len(e.lines) <= 1 {
 		return
@@ -272,8 +192,7 @@ func (e *Editor) oneLineChanged(wasOneLine bool) {
 	e.contentChanged()
 }
 
-// SetText replaces the content and puts the cursor at the end, which is where
-// someone who just had text put in front of them wants to carry on from.
+// SetText replaces the content and places the cursor at its end.
 func (e *Editor) SetText(s string) {
 	e.ensure()
 	e.endTyping()
@@ -288,15 +207,9 @@ func (e *Editor) SetText(s string) {
 	e.replaceRange(start, end, s)
 }
 
-// reconcileEdit replaces the representation accepted for the content mutation that
-// just completed. It is still that mutation: revision and history have already been
-// advanced by the editing operation and must not acquire a second step merely because
-// a controlled owner normalized its result.
-//
-// Interaction positions are translated through the changed interval. Text before and
-// after that interval keeps its exact position; a position inside it keeps its byte
-// distance from the start as far as the accepted interval permits, then snaps to a
-// valid grapheme and element boundary.
+// Owner normalization belongs to the completed edit and must not add a revision or
+// undo step. Translate positions through the changed interval, then restore grapheme
+// and element boundaries.
 func (e *Editor) reconcileEdit(s string) {
 	e.ensure()
 	s = e.canonicalText(s)
@@ -305,7 +218,6 @@ func (e *Editor) reconcileEdit(s string) {
 		return
 	}
 
-	// Accepted text owns edit coordinates; normalization ends kill/yank continuation.
 	e.breakContinuation()
 	cursor := reconciledOffset(requested, s, e.offsetOf(Caret{Line: e.line, Col: e.col}))
 	anchor := reconciledOffset(requested, s, e.offsetOf(e.anchor))
@@ -343,10 +255,7 @@ func (e *Editor) checkpointEdit() editorCheckpoint {
 	}
 }
 
-// rejectEdit restores the semantic state and history from before a controlled edit.
-// The rejected action still ends typing and interaction affinity, just like any other
-// handled edit with no effect; otherwise the next insertion could coalesce without a
-// snapshot of its own.
+// Rejected edits still end typing so the next insertion cannot coalesce without an undo snapshot.
 func (e *Editor) rejectEdit(checkpoint editorCheckpoint) {
 	e.lines, e.marks = checkpoint.state.lines, checkpoint.state.marks
 	e.line, e.col = checkpoint.state.line, checkpoint.state.col
@@ -357,13 +266,9 @@ func (e *Editor) rejectEdit(checkpoint editorCheckpoint) {
 	e.layout.stale = true
 }
 
-// reconciledOffset maps one position through the smallest single replacement that
-// turns before into after. Equal-rune prefix and suffix boundaries keep matching
-// valid for UTF-8 whose leading bytes happen to agree even when the runes do not. A
-// byte distance preserved inside the changed interval can still land inside a
-// multi-byte rune, so this mapping owns the UTF-8 boundary. Its consumers convert the
-// result back to a line position and apply their directional grapheme and element
-// policy there, without rescanning the whole document here.
+// Rune-aligned prefix and suffix comparisons avoid matching unequal UTF-8 runes by
+// shared bytes. Interior positions preserve their distance within the replacement,
+// then snap to UTF-8 boundaries; consumers own grapheme and element snapping.
 func reconciledOffset(before, after string, at int) int {
 	at = min(max(at, 0), len(before))
 	prefix := commonRunePrefix(before, after)
@@ -436,23 +341,13 @@ func (e *Editor) Clear() {
 	e.replaceRange(start, end, "")
 }
 
-// Cursor is the cursor's logical line and byte offset, for anything that needs to
-// know where the user is.
+// Cursor returns the logical line and byte offset.
 func (e *Editor) Cursor() (line, col int) {
 	e.ensure()
 	return e.line, e.col
 }
 
-// SetCursor moves the cursor to a logical line and a byte offset within it.
-//
-// Both are clamped to the text, and the offset is pulled back to the start of the
-// cluster it lands inside: a cursor between a letter and the accent that modifies
-// it is not a place a terminal could draw one.
-//
-// It is what a caller needs to restore a draft where they left it, and what
-// placing the cursor from a click will be built on — the editor could report where
-// its caret was and not be told where to put it, which made the round trip only
-// half a round.
+// SetCursor clamps the logical line and byte offset, snapping backward to a grapheme boundary.
 func (e *Editor) SetCursor(line, col int) {
 	defer e.revealCursor()
 	e.ensure()
@@ -464,8 +359,7 @@ func (e *Editor) SetCursor(line, col int) {
 	e.wantColumn = -1
 }
 
-// Insert puts text in at the cursor. Newlines in it split lines, so a paste arrives
-// as the text that was pasted rather than as a run of keystrokes.
+// Insert inserts text at the cursor, splitting lines at newlines.
 func (e *Editor) Insert(s string) {
 	if s == "" {
 		return
@@ -484,8 +378,7 @@ func (e *Editor) Insert(s string) {
 	if !e.typing {
 		e.snapshot()
 	}
-	// Typing over a selection replaces it, and does so inside the same undo step: a
-	// user who selected a word and typed another did one thing.
+	// Selection replacement and insertion share one undo step.
 	e.replaceRange(start, end, s)
 }
 
@@ -514,11 +407,8 @@ func (e *Editor) Replace(start, end int, s string) {
 	e.replaceRange(from, to, s)
 }
 
-// completeClusters makes a caller-supplied byte range safe for an editor whose
-// cursor and cells speak in grapheme clusters. An insertion inside a cluster lands
-// before it; a non-empty range expands to cover every cluster it touched. Cutting a
-// rune or an emoji in half would leave invalid UTF-8 or a cursor position no terminal
-// cell can represent.
+// Expand non-empty edits to whole graphemes; insertions inside a cluster land before
+// it so neither UTF-8 nor terminal cursor positions can be split.
 func completeClusters(line string, start, end int) (int, int) {
 	empty := start == end
 	for at, cluster := range text.Clusters(line) {
@@ -536,14 +426,8 @@ func completeClusters(line string, start, end int) (int, int) {
 	return start, end
 }
 
-// canonicalText is the one boundary between caller text and editor storage.
-//
-// Line endings become the editor's one line separator, invalid UTF-8 becomes
-// replacement text, and terminal controls other than tabs are removed. A field that
-// holds one line turns separators into spaces instead. Applying these rules here
-// means typing, paste, SetText and Replace cannot build four subtly different kinds
-// of document. InsertElement uses the sibling oneLineText boundary because an atomic
-// element is one run of cells even in a multi-line editor.
+// All text mutations share storage normalization so paste, typing and replacement
+// cannot introduce different line endings, invalid UTF-8 or terminal controls.
 func (e *Editor) canonicalText(s string) string {
 	if e.oneLine() {
 		return oneLineText(s)
@@ -561,14 +445,9 @@ func (e *Editor) canonicalText(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// oneLineText is the one storage boundary shared by one-line fields and atomic
-// elements. Keeping it separate from Editor state lets a pure render projection use
-// the same policy without constructing or mutating an Editor merely to sanitize text.
+// Pure projections share one-line normalization without constructing or mutating an Editor.
 func oneLineText(s string) string { return text.Printable(flattenLines(s)) }
 
-// flattenLines is the canonical projection of text onto one logical line. Single-line
-// editors apply it to every replacement; atomic elements apply it to their body even
-// in a multi-line editor because one element is one contiguous run of cells.
 func flattenLines(s string) string {
 	if !strings.ContainsAny(s, "\n\r") {
 		return s
@@ -576,10 +455,7 @@ func flattenLines(s string) string {
 	return flatLineBreaks.Replace(s)
 }
 
-// Replacers are immutable after construction and safe for concurrent use. Keeping
-// the two storage policies here avoids rebuilding their search automata on every
-// keystroke while leaving the distinction between logical and flattened breaks
-// explicit.
+// Immutable replacers are shared safely without allocating one for each edit.
 var (
 	logicalLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 	flatLineBreaks    = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
@@ -589,15 +465,11 @@ func (e *Editor) oneLine() bool { return e.singleLine || e.mask != "" }
 
 // InsertRune puts one character in.
 func (e *Editor) InsertRune(r rune) {
-	// A rune action is not the line-breaking action. Printable keeps a tab and drops
-	// controls; canonicalText then owns the same storage rule as every other way text
-	// enters instead of this method maintaining another character classifier.
+	// InsertRune cannot create logical lines; Printable preserves tabs but not line breaks.
 	e.typeText(text.Printable(string(r)))
 }
 
-// typeText inserts terminal-produced text and keeps a real insertion open as one undo
-// run. A handled no-op must close the run: without a snapshot of its own, allowing the
-// next insertion to coalesce with it would leave that insertion no state to undo to.
+// A handled no-op closes typing so the next insertion has its own undo snapshot.
 func (e *Editor) typeText(s string) {
 	before := e.revision
 	e.Insert(s)
@@ -624,15 +496,11 @@ func (e *Editor) DeleteBack() {
 			e.snapshot()
 		}
 		at := text.PrevCluster(e.lines[e.line], e.col)
-		// A backspace that took a letter off the end of an element would leave a
-		// fragment that still looks like the thing and no longer is, so it takes all
-		// of it.
 		if el, inside := e.insideElement(e.line, at); inside {
 			at = el.Start
 		}
 		e.replaceRange(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
-		// Corrections belong to the burst they correct: typing a word, fixing a letter
-		// and carrying on is one thought and should be one undo step.
+		// Coalesce corrections with the typing burst they amend.
 		e.typing = true
 		return
 	}
@@ -653,8 +521,6 @@ func (e *Editor) DeleteForward() {
 	if e.col < len(current) {
 		e.snapshot()
 		at := nextClusterBoundary(current, e.col)
-		// The whole element or none of it, for the same reason a backspace takes all
-		// of one.
 		if el, inside := e.ElementAt(e.line, e.col); inside {
 			at = el.End
 		}
@@ -679,9 +545,7 @@ func (e *Editor) DeleteWordBack() {
 	}
 	e.snapshot()
 	at := wordStart(e.lines[e.line], e.col)
-	// A word boundary may fall inside an atomic element (the dot in a file chip is
-	// not a word character). Once the deletion touches the element it must take the
-	// whole value, just as backspace and forward delete do.
+	// Word boundaries may fall inside an atomic element; deletion must include the whole element.
 	if element, inside := e.insideElement(e.line, at); inside {
 		at = element.Start
 	}
@@ -733,7 +597,6 @@ func (e *Editor) Yank() {
 	if !ok {
 		return
 	}
-	// Insert takes the snapshot, once, now that the run is closed.
 	start := Caret{Line: e.line, Col: e.col}
 	if selected, _, ok := e.Selection(); ok {
 		start = selected
@@ -785,8 +648,6 @@ func (e *Editor) MoveLeft() {
 	e.endTyping()
 	e.wantColumn = -1
 	if e.col > 0 {
-		// Stepping over an element rather than into it: it is one thing on screen,
-		// and a cursor inside it has no position a reader could account for.
 		e.col = e.snapElementBoundary(e.line, text.PrevCluster(e.lines[e.line], e.col), false)
 		return
 	}
@@ -884,9 +745,6 @@ func (e *Editor) Redo() {
 	e.typing = false
 }
 
-// ensure makes the zero editor usable: one empty line, with a cursor in it. An
-// editor that took text but answered no arrow keys would be the worse kind of
-// broken — it would look like it worked.
 func (e *Editor) ensure() {
 	if len(e.lines) == 0 {
 		e.lines = []string{""}
@@ -898,12 +756,7 @@ func (e *Editor) ensure() {
 	}
 }
 
-// contentChanged advances the semantic generation, marks the layout out of date and
-// drops the column vertical movement was aiming for.
-//
-// It says nothing about whether a run of typing is still open. Conflating the two is
-// what made every keystroke take its own undo step: the flag that decides whether to
-// snapshot was being cleared by the very operation that had just set it.
+// Content invalidation must not close typing, or each keystroke becomes an undo step.
 func (e *Editor) contentChanged() {
 	e.revision++
 	e.layout.stale = true
@@ -919,13 +772,7 @@ func (e *Editor) requireContentRevision() {
 	}
 }
 
-// endTyping closes a run of insertions, the one thing a click could have said about
-// where the cursor belongs, and any consecutive kill or yank operation.
-//
-// Every movement and every edit already calls this — it is the point they all pass
-// through — so the affinity is cleared in one place rather than in the forty-odd places
-// the cursor is assigned. A bit that every one of those had to reset would be reset in
-// thirty-nine of them.
+// Movement and editing share this boundary so typing, drag and soft-break affinity cannot drift.
 func (e *Editor) endTyping() {
 	e.dragging = false
 	e.typing = false
@@ -933,15 +780,12 @@ func (e *Editor) endTyping() {
 	e.breakContinuation()
 }
 
-// snapshot records the state for undo, coalescing a run of typing into one step so
-// that undo steps over a phrase rather than a letter.
 func (e *Editor) snapshot() {
 	e.ensure()
 	e.history.record(e.state())
 }
 
-// maxUndo bounds the history. A composer is not a document editor, and an unbounded
-// history in a long-lived process is a leak with a friendly name.
+// Prevent undo storage from growing with session lifetime.
 const maxUndo = 200
 
 func (e *Editor) state() editorState {
@@ -967,8 +811,6 @@ func (e *Editor) restore(s editorState) {
 	}
 }
 
-// wordStart is the offset of the start of the word before i: any run of
-// non-word characters, then the word itself, the way a terminal has always done it.
 func wordStart(s string, i int) int {
 	start := 0
 	inWord := false
@@ -994,10 +836,7 @@ func wordEnd(s string, i int) int {
 	return len(s)
 }
 
-// nextClusterBoundary advances from a position the editor already knows is a
-// grapheme boundary. Unlike text.NextCluster it need not recover from an arbitrary
-// byte offset, so segmentation can begin at that boundary instead of rescanning the
-// complete prefix.
+// Known grapheme boundaries allow segmentation to resume here without rescanning the prefix.
 func nextClusterBoundary(s string, at int) int {
 	if at >= len(s) {
 		return len(s)
@@ -1008,28 +847,15 @@ func nextClusterBoundary(s string, at int) int {
 	return at
 }
 
-// isWord reports whether a cluster is part of a word. Letters, digits and the
-// underscore, so that a word motion in code stops where a reader expects.
 func isWord(cluster string) bool {
 	r, _ := utf8.DecodeRuneInString(cluster)
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
-// InsertElement puts text at the cursor as one atomic unit, and returns it.
-//
-// Line breaks in body become spaces even in a multi-line editor. An element is one
-// contiguous run of cells; allowing its source to span logical lines would make its
-// returned line-local range describe only a fragment of what was inserted.
-//
-// A separator space follows it, which is what makes a chip in a prompt something a
-// user can type after. The space is ordinary text and not part of the element: it is
-// there to be deleted. One goes in front as well when the body would otherwise join
-// what it lands after — see [Editor.joinsWhatPrecedes].
-//
-// An empty body inserts nothing and returns the zero [Element]. Identities are never
-// reused, and InsertElement panics once every one has been issued: an [Element] the
-// caller kept in order to replace or remove what it stands for would otherwise begin
-// naming a different insertion.
+// InsertElement inserts an atomic text unit and returns it. Line breaks become spaces
+// so its line-local range remains valid. An ordinary separator follows; a leading
+// separator prevents joining the preceding grapheme. Empty bodies insert nothing.
+// Identities are never reused; exhaustion panics before insertion.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	body = elementBody(body)
 	if body == "" {
@@ -1065,9 +891,6 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 		End:    at + len(body),
 		Atomic: true,
 	}
-	// Put in order rather than appended and sorted: the marks are kept in the order
-	// they appear, which is the order a caller expects and the order that makes them
-	// readable in a test.
 	where, _ := slices.BinarySearchFunc(e.marks, mark, func(a, b text.Mark) int {
 		return a.Start - b.Start
 	})
@@ -1078,18 +901,8 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	return e.elementOf(mark)
 }
 
-// joinsWhatPrecedes reports whether body would become part of the cluster in front
-// of it.
-//
-// An element is one contiguous run of cells, and a run of cells begins at a grapheme
-// boundary. A body that starts with a combining character has no boundary of its own:
-// dropped after a letter it joins that letter's cluster, so the element's first cell
-// belongs half to text the element does not own — and deleting the element leaves the
-// mark behind on a character that was never part of it.
-//
-// The question is asked of the text it is actually landing after rather than of the
-// body alone, because that is what decides it: two regional indicators are a flag,
-// and a flag is a perfectly good label except directly after another one.
+// Joining depends on neighboring text: two valid regional-indicator labels can
+// form one flag. An element must start at its own grapheme boundary.
 func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
 	if at.Line < 0 || at.Line >= len(e.lines) {
 		return false
@@ -1134,9 +947,7 @@ func (e *Editor) RemoveElement(id uint64) bool {
 		el := e.elementOf(m)
 		e.endTyping()
 		e.snapshot()
-		// The space after it goes too, when there is one. It was put there with the
-		// element and leaving it behind gives a prompt a gap where a chip used to be,
-		// which is the sort of thing a user has to notice and tidy up by hand.
+		// Remove the trailing separator inserted with the element so removing a chip leaves no gap.
 		end := el.End
 		if line := e.lines[el.Line]; end < len(line) && line[end] == ' ' {
 			end++
@@ -1147,13 +958,8 @@ func (e *Editor) RemoveElement(id uint64) bool {
 	return false
 }
 
-// insideElement is the element a cursor position falls strictly within.
-//
-// Strictly, unlike [Editor.ElementAt]: an element's two ends are places a cursor may
-// sit, and only what is between them is not. They are different questions and the
-// difference matters — treating the start as inside would mean a cursor arriving from
-// the left skipped straight past the element, and nothing could be typed in front of
-// one.
+// Element endpoints are valid caret positions; treating the start as interior would
+// prevent insertion before the element.
 func (e *Editor) insideElement(line, col int) (Element, bool) {
 	at := e.offsetOf(Caret{Line: line, Col: col})
 	for _, m := range e.marks {
@@ -1164,16 +970,8 @@ func (e *Editor) insideElement(line, col int) (Element, bool) {
 	return Element{}, false
 }
 
-// snapElement moves a position out of any element it lands inside.
-//
-// Which way out depends on which way the cursor was going, which is the only thing
-// that makes stepping over an element feel like stepping over a character: moving
-// right from inside one has to come out at the far side, and moving left at the near
-// side. A position that is not inside anything is returned as it is.
 func (e *Editor) snapElement(line, col int, forward bool) int {
-	// Before first use the zero editor has one conceptual empty line. Keeping this
-	// primitive total preserves that zero-value contract even for an internal caller
-	// that only needs to settle a position and has not initialized storage yet.
+	// The zero editor has a conceptual empty line; a read projection must not initialize storage.
 	if len(e.lines) == 0 {
 		return 0
 	}
@@ -1182,9 +980,7 @@ func (e *Editor) snapElement(line, col int, forward bool) int {
 	return e.snapElementBoundary(line, col, forward)
 }
 
-// snapElementBoundary applies only the atomic-element half of snapElement when its
-// caller already owns a grapheme boundary. Cursor movement and column mapping have
-// that stronger fact and should not rescan the line merely to prove it again.
+// These callers already own a grapheme boundary, so only element snapping is needed.
 func (e *Editor) snapElementBoundary(line, col int, forward bool) int {
 	for {
 		el, inside := e.insideElement(line, col)
@@ -1199,37 +995,19 @@ func (e *Editor) snapElementBoundary(line, col int, forward bool) int {
 	}
 }
 
-// edited moves every element over a change to the text, dropping the ones the change
-// destroyed.
-//
-// This is the whole of it. There used to be two of these — one for text going in and
-// one for text coming out — each doing the same arithmetic in line and column space,
-// each with its own edge cases and its own way of being wrong. An insertion, a
-// deletion and a replacement are one thing said three ways, and [text.Edit] is that
-// thing.
-//
-// It must be called with offsets into the text as it was before the change, which is
-// why every caller works them out first.
+// Marks use pre-edit byte offsets; shift them before changing line storage.
 func (e *Editor) edited(edit text.Edit) {
 	e.marks = edit.Shift(e.marks, e.byteLength())
 }
 
-// settleMarks drops every element whose ends are no longer places a caret may sit —
-// see [Element] for when that happens and what it means to a caller.
-//
-// Shifting the marks over a change says where they went, which is a question about
-// offsets and belongs to [text.Edit]. Whether what is there is still an element is a
-// question about the text, and only the editor can answer it — so it is answered
-// here, once, for every change rather than at the one operation that was thought to
-// need it.
+// Offset shifts cannot prove that an element still spans whole graphemes. Validate
+// against the edited text once for every mutation.
 func (e *Editor) settleMarks() {
 	e.marks = slices.DeleteFunc(e.marks, func(m text.Mark) bool {
 		return !e.spansWholeClusters(m)
 	})
 }
 
-// spansWholeClusters reports whether a mark's ends are both places a caret may sit on
-// one line.
 func (e *Editor) spansWholeClusters(m text.Mark) bool {
 	start, end := e.caretAt(m.Start), e.caretAt(m.End)
 	if start.Line != end.Line {
@@ -1240,22 +1018,16 @@ func (e *Editor) spansWholeClusters(m text.Mark) bool {
 		clusterPosition(line, end.Col, true) == end.Col
 }
 
-// byteLength is the length of the whole text without assembling it. Edits and
-// marks speak in whole-document byte offsets even though the editor owns lines.
 func (e *Editor) byteLength() int {
 	e.ensure()
-	n := len(e.lines) - 1 // the newlines between lines
+	n := len(e.lines) - 1
 	for _, line := range e.lines {
 		n += len(line)
 	}
 	return n
 }
 
-// removed moves every element over a range of the text being replaced by s, which
-// covers a plain deletion as the case where s is empty.
-//
-// It has to be called before the lines change, because the carets it is given are
-// carets into the text as it was.
+// Caret coordinates refer to the old lines, so shift marks before replacing storage.
 func (e *Editor) removed(start, end Caret, s string) {
 	e.edited(text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s})
 }
@@ -1447,14 +1219,7 @@ func (e *Editor) rememberKill(text string, prepend, join bool) {
 	e.yank = editorYank{}
 }
 
-// rowAt is the visual row the cursor is on at a width, and the column within it.
-//
-// The one position with two answers is where the width broke a line: the offset after
-// its last character and the offset before the next row's first are one offset with two
-// places on screen. A cursor that arrived by moving through the text belongs to the
-// second, and one that arrived by being clicked past the end of a row belongs to the
-// first. Nothing in the offset says which, so the field remembers — see
-// [Editor.prefersRowEnd].
+// A soft break has two visual positions at one byte offset; pointer affinity chooses the earlier row.
 func (e *Editor) rowAt(width int) (row, column int) {
 	rows := e.rows(width)
 	atEnd := e.prefersRowEnd()
@@ -1851,13 +1616,7 @@ func (e *Editor) DeleteSelection() bool {
 	return true
 }
 
-// prepareReplacement applies the editor's one-line rule and reports whether replacing
-// a range changes text or atomic elements. Its returned text is the canonical value
-// replaceRange consumes, so normalization occurs at this one boundary.
-//
-// Comparing text alone is not enough: replacing a chip with the same visible word
-// removes the element identity and is therefore a semantic change too. Conversely,
-// an empty edit inside a chip is still empty and must not destroy it.
+// Equal replacement text can still remove an element identity; an empty edit must not.
 func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
 	s = e.canonicalText(s)
 	if e.textBetween(start, end) != s {
@@ -1875,13 +1634,8 @@ func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
 	return s, false
 }
 
-// finishReplacement settles what a replacement leaves behind, whether or not its
-// bytes changed: which elements are still elements, where the cursor belongs, and
-// that the old selection no longer describes an active range. Revision, history and
-// layout remain separate because an identity replacement changes none of them.
-//
-// The elements are settled before the cursor, because a cursor that snapped over an
-// element the replacement destroyed would have stepped over nothing.
+// Settle elements before the cursor so it cannot snap over an element the edit destroyed.
+// An identity replacement leaves revision, history and layout unchanged.
 func (e *Editor) finishReplacement(at Caret) {
 	defer e.revealCursor()
 	e.settleMarks()
@@ -1891,10 +1645,7 @@ func (e *Editor) finishReplacement(at Caret) {
 	e.wantColumn = -1
 }
 
-// replaceRange is the one operation that changes editor text. Insertion is an empty
-// range, deletion has empty replacement text, and replacement is both. The caller
-// has established that the range changes semantic content and taken any undo snapshot
-// it needs.
+// The caller has proved a semantic change and taken any required undo snapshot.
 func (e *Editor) replaceRange(start, end Caret, s string) {
 	e.requireContentRevision()
 	e.layout.stale = true
@@ -1934,13 +1685,9 @@ func (e *Editor) Copy() bool {
 	return e.Clipboard.Copy(selected)
 }
 
-// Cut copies the selection and removes it.
-//
-// The text is removed only if the clipboard took it. A cut that emptied the field
-// into a clipboard that refused it would lose the text with nothing to paste back,
-// and a terminal is free to refuse.
-// A clipboard callback that changes the content or selected range revokes the cut;
-// a different selection cannot be removed on the strength of copying the old one.
+// Cut copies and removes the selection only after clipboard acceptance. Clipboard
+// callbacks that change content or the selected range revoke the removal, so an
+// older copy cannot authorize deleting newer text.
 func (e *Editor) Cut() bool {
 	e.endTyping()
 	start, end, selected := e.Selection()
@@ -1996,21 +1743,9 @@ func (e *Editor) move(action keymap.Action) bool {
 	return true
 }
 
-// Spans is the runs of columns that the text between two carets covers, one per
-// visual row it crosses.
-//
-// A range in a wrapped field is not a rectangle and is rarely one run. It starts part
-// way along a row, covers whole rows, and ends part way along another — and where the
-// rows begin and end is decided by the wrap, which is decided by the width. So this
-// is a question only the field can answer, and only at a width. Width is the whole
-// field, including any [Editor.Gutter], and returned columns use that same coordinate
-// space.
-//
-// It reads the same rows the cursor is placed with. That is the whole point of it
-// being here rather than being worked out by whatever draws: a selection painted from
-// one wrap and a cursor placed from another disagree about where the text is, and the
-// disagreement shows up exactly when the text is interesting — a long word, a wide
-// character, a line that just fits.
+// Spans returns visual column runs covered by two carets. Width and columns include
+// [Editor.Gutter]. Cursor placement and selection painting share the same wrap so
+// graphemes cannot acquire different screen positions.
 func (e *Editor) Spans(from, to Caret, width int) []RowSpan {
 	gutter := e.gutterWidth()
 	out := e.spans(from, to, layout.Remaining(width, gutter))
@@ -2048,7 +1783,6 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 		if r.line < from.Line || r.line > to.Line {
 			continue
 		}
-		// The part of this row the range covers, in offsets into the line.
 		lo, hi := r.start, r.end
 		if r.line == from.Line {
 			lo = max(lo, from.Col)
@@ -2084,15 +1818,8 @@ func (e *Editor) spansOfSelection(width int) []RowSpan {
 	return e.spans(start, end, width)
 }
 
-// At is the position in the text under a point in the field's box, and whether the
-// point is in the text at all.
-//
-// The point is in the field's own coordinates, which is what a widget is handed. The
-// answer accounts for the field having scrolled, because the field is what knows it.
-//
-// It reads the same rows the cursor is placed from and the selection is painted from,
-// which is the only way a click can land where the reader thinks they clicked: three
-// walks over three wraps agree until the text is interesting, and then they do not.
+// At maps field-local coordinates to a caret, accounting for scrolling and gutter.
+// It shares the cursor and selection wrap so hit testing agrees with rendering.
 func (e *Editor) At(x, y, width int) (Caret, bool) {
 	gutter := e.gutterWidth()
 	if x < gutter {
@@ -2117,86 +1844,58 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 	}
 	index := layout.Sum(first, y)
 	if index >= len(rows) {
-		// Below the text. The end is where a click there means, the way it does in
-		// every editor: a reader clicking past the last line means the last line.
-		//
-		// There is always a row to be past, so nothing here checks. A field holds at
-		// least one line even when it is empty, and every line gets a row even when
-		// it has nothing on it — a blank line in a composer is a blank line on screen.
 		last := rows[len(rows)-1]
 		return Caret{Line: last.line, Col: last.end}, true
 	}
 	r := rows[index]
 	line := e.lines[r.line]
 	col := r.start + text.OffsetAt(line[r.start:r.end], x)
-	// Out of any element it lands in, forwards, so a click in the middle of a chip
-	// puts the cursor after it rather than inside — the same rule moving does.
 	return Caret{Line: r.line, Col: e.snapElement(r.line, col, true)}, true
 }
 
-// handleMouse maps pointer input through the last committed layout. A drag ends on
-// its button's release even outside that layout.
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
-	if ev.Action == input.MouseCancel {
+	switch ev.Action {
+	case input.MouseCancel:
 		e.dragging = false
 		return false
-	}
-	if ev.Action == input.MouseUp {
+	case input.MouseUp:
 		if !ev.Releases(input.ButtonLeft) {
 			return false
 		}
 		wasDragging := e.dragging
 		e.dragging = false
 		return wasDragging
-	}
-	if ev.Action == input.MouseDown {
-		e.dragging = false
-		if !ev.Pos.In(presented.visible) {
-			return false
-		}
-	}
-	if presented.width <= 0 || ev.Pos.X < presented.gutter {
-		return false
-	}
-	ev.Pos.X = layout.Relative(ev.Pos.X, presented.gutter)
-	switch ev.Action {
 	case input.MouseDown:
-		if ev.Button != input.ButtonLeft {
+		e.dragging = false
+		if ev.Button != input.ButtonLeft || !ev.Pos.In(presented.visible) {
 			return false
 		}
-		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
-		if !ok {
-			return false
-		}
-		e.SelectNone()
-		e.endTyping()
-		e.line, e.col, e.wantColumn = at.Line, at.Col, -1
-		e.anchor, e.selecting = at, true
-		// A click that landed past the end of a wrapped row means that row, not the
-		// start of the next. It is the only way a cursor comes to be at a soft break
-		// and belong to the earlier side.
-		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(ev.Pos.X, ev.Pos.Y, presented.width)
-		e.dragging = true
-		e.revealCursor()
-		return true
 	case input.MouseDrag:
 		if !e.dragging || !ev.Drags(input.ButtonLeft) {
 			return false
 		}
-		at, ok := e.at(ev.Pos.X, ev.Pos.Y, presented.width)
-		if !ok {
-			return false
-		}
-		e.line, e.col, e.wantColumn = at.Line, at.Col, -1
-		e.revealCursor()
-		return true
 	default:
 		return false
 	}
+	point, ok := presented.textPoint(ev.Pos)
+	if !ok {
+		return false
+	}
+	at, ok := e.at(point.X, point.Y, presented.width)
+	if !ok {
+		return false
+	}
+	if ev.Action == input.MouseDown {
+		e.endTyping()
+		e.anchor, e.selecting = at, true
+		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(point.X, point.Y, presented.width)
+		e.dragging = true
+	}
+	e.line, e.col, e.wantColumn = at.Line, at.Col, -1
+	e.revealCursor()
+	return true
 }
 
-// pastRowEnd reports whether a point is beyond the text of a row that the width broke,
-// which is the only place a cursor can belong to the earlier side of a break.
 func (e *Editor) pastRowEnd(x, y, width int) bool {
 	rows := e.rows(width)
 	presented := e.presentation.Value()
@@ -2212,17 +1911,11 @@ func (e *Editor) pastRowEnd(x, y, width int) bool {
 	return x >= text.Width(e.lines[r.line][r.start:r.end])
 }
 
-// prefersRowEnd reports whether the cursor should be drawn at the end of a wrapped row
-// rather than at the start of the next. See [Editor.rowEnd].
 func (e *Editor) prefersRowEnd() bool {
 	return e.rowEndSet && e.rowEnd == Caret{Line: e.line, Col: e.col}
 }
 
-// editorActions is what each name the field answers to does. A table rather than a
-// switch, so that the set of actions is one list a reader can see the whole of.
 var editorActions = map[keymap.Action]func(*Editor){
-	// A delete with something selected takes the selection, which is what makes
-	// backspace and the delete key mean "get rid of this" when there is a this.
 	DeleteBack: func(e *Editor) {
 		if !e.DeleteSelection() {
 			e.DeleteBack()
@@ -2247,12 +1940,8 @@ var editorActions = map[keymap.Action]func(*Editor){
 	Paste:          func(e *Editor) { e.Paste() },
 }
 
-// RowSpan is a run of columns on one visual row of a field.
-//
-// The row is counted from the top of the whole wrapped text and not from the top of
-// the box, because the field scrolls: a caller that wanted rows on screen would have
-// to be told the scroll position to make sense of them, and the field already knows
-// it.
+// RowSpan is a visual column run. Row is relative to the whole wrapped text so
+// scrolling does not change its coordinates.
 type RowSpan struct {
 	Row        int
 	Col, Width int

@@ -33,7 +33,6 @@ type Field interface {
 	Focusable
 	HeightForWidth(width int) int
 
-	// Prompt is what the field is asking for.
 	Prompt() string
 	// Validate checks what has been entered, remembers what was wrong with it, and
 	// reports that. It is called when the field loses the keyboard and again when the
@@ -46,7 +45,6 @@ type Field interface {
 	// Reply has begun or the checked answer is no longer current. Reading it must be pure; it cannot
 	// validate again or advance the answer. Form retains it across later callbacks.
 	Validation() func() bool
-	// Error is what Validate last found, or nil when it found nothing.
 	Error() error
 }
 
@@ -60,8 +58,7 @@ type Look struct {
 	// Selection is the row under the keyboard, and Accent the answer that has been
 	// given.
 	Selection, Accent grid.Style
-	// Danger is what is wrong with the answer.
-	Danger grid.Style
+	Danger            grid.Style
 	// Taken and Free are the marks beside a choice that has been made and one that is
 	// still on offer. They are drawn in the same column, so they are the same width or
 	// nothing beside them lines up.

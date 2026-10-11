@@ -11,19 +11,9 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
-// Focusable is a widget that can hold the keyboard.
-//
-// A keystroke has one destination and a frame has one cursor, so the answer is pushed
-// rather than pulled: a [Container] tells the widget that has the keyboard and tells
-// the ones that do not. Letting an event fall through until somebody claims it gives
-// two editors that both claim every key and both place the cursor.
-//
-// A widget that has never been told assumes it has the keyboard, which is what makes a
-// single field work as the whole interface with no container above it to say so.
-//
-// It is its own interface because answering input is not the same as wanting the
-// keyboard: a transcript answers the wheel and a drag, and has no business in the ring
-// that tab walks.
+// Focusable participates in explicit keyboard ownership. A Container assigns focus
+// so two input consumers cannot claim one key or cursor. A standalone widget assumes
+// focus until told otherwise; pointer handling alone does not imply ring membership.
 type Focusable interface {
 	Interactive
 	// Focus is told true when this widget takes the keyboard and false when it loses
@@ -57,24 +47,10 @@ type Item struct {
 	Of Widget
 }
 
-// Container arranges widgets in a region and decides which of them an event is for.
-//
-// A key goes to the widget that has the keyboard and a mouse event goes to the widget
-// it is over. They are different questions, and treating them as one is what makes an
-// interface where clicking a pane does not let you type in it. A press is captured:
-// dragging and release go to whichever child took it, wherever the pointer
-// wanders, because otherwise a selection stops extending the moment the drag leaves
-// the pane it started in.
-// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
-// release; a release naming another button does not end it.
-//
-// It does not draw. A border, a gap or a highlight for the focused child is
-// appearance, and a container with an opinion about them is one nobody could dress
-// differently.
-//
-// The zero Container is an empty column, ready to have items appended. A Container
-// must not be copied after first use: children, focus, pointer capture and committed
-// routing geometry are one mutable owner.
+// Container owns child layout, keyboard focus and pointer routing. Accepted presses
+// capture drag and release outside the child; foreign-button releases preserve capture.
+// Appearance remains with callers. The zero value is an empty column. A Container
+// must not be copied after first use.
 type Container struct {
 	noCopy noCopy
 
@@ -120,9 +96,7 @@ type Container struct {
 	// is still demonstrably the same.
 	capture pointerCapture[childPlacement]
 	hover   childPlacement
-	// slots is rebuilt every frame from the items and kept to save the allocation.
-	slots []layout.Slot
-	// matcher owns how far into a multi-chord binding the keys have got.
+	slots   []layout.Slot
 	matcher keymap.Matcher
 }
 
@@ -309,8 +283,6 @@ func (c *Container) measureWith(across int, flow layout.Flow) int {
 	return flow.Wanted(across, c.arrange())
 }
 
-// flow is how this container divides its region: its axis, and the room it leaves
-// between one child and the next.
 func (c *Container) flow() layout.Flow {
 	return layout.Flow{Axis: c.Axis, Gap: c.Gap}
 }
@@ -397,11 +369,8 @@ func (c *Container) mouse(ev input.Mouse) bool {
 	return c.capture.offer(turn, at, func() bool { return c.deliver(at, ev, turn) })
 }
 
-// deliver hands an event to a child, in the child's own coordinates.
-//
-// The translation is the container's job for the same reason the clipping is: a
-// widget is handed a view whose origin is its own and reasons in it, so a position
-// that arrived in anybody else's coordinates would be a position it cannot use.
+// Children use local clipped coordinates; translate input with the same geometry
+// used to draw them.
 func (c *Container) deliver(to childPlacement, ev input.Mouse, turn uint64) bool {
 	c.hoverTo(to, ev)
 	if !c.capture.current(turn) || c.hover.identity != to.identity || c.currentIndex(to) < 0 {
@@ -455,8 +424,6 @@ func (c *Container) placed(want childPlacement) (childPlacement, bool) {
 	return childPlacement{}, false
 }
 
-// arrange rebuilds the slots from the items, asking each child that can measure
-// itself to do so.
 func (c *Container) arrange() []layout.Slot {
 	return c.arrangeItems(c.items)
 }
@@ -495,11 +462,8 @@ func (c *Container) currentIndex(p childPlacement) int {
 	return slices.IndexFunc(c.items, func(item containerItem) bool { return item.identity == p.identity })
 }
 
-// settle makes sure the keyboard is somewhere it can be, and that every child has
-// been told where it stands.
-//
-// It runs before anything else this container does, because the items can be rebuilt
-// between frames and the child that had the keyboard may no longer be there.
+// Children can be replaced between frames; settle focus before any operation can
+// use a removed focus holder.
 func (c *Container) settle() {
 	want := c.focused
 	if !c.focusable(want) {
@@ -508,11 +472,7 @@ func (c *Container) settle() {
 	c.move(want)
 }
 
-// move puts the keyboard on a child and takes it off everything else.
-//
-// Every other child is told, not just the one that had it: until a container says
-// otherwise each of them believes it has the keyboard, which is what makes a single
-// widget work with no container above it.
+// Notify every child because standalone widgets assume focus until explicitly blurred.
 func (c *Container) move(to int) {
 	if !c.focusable(to) {
 		to = -1

@@ -12,14 +12,9 @@ import (
 // time passes, which is what lets a test step it deterministically and what keeps an
 // idle UI from waking up to animate something nobody is waiting for.
 type Spinner struct {
-	// Theme is the look: the glyph is what the interface is waiting on, and the
-	// label is a note about it.
-	Theme Theme
-	// Glyphs supplies the coverage-aware frames. A set with no frames draws the label
-	// alone, following the package-wide rule that zero glyphs invent no furniture.
+	Theme  Theme
 	Glyphs Glyphs
-	// Label follows the glyph, if there is room.
-	Label string
+	Label  string
 
 	frame int
 }
@@ -60,12 +55,8 @@ type Scrollbar struct {
 	// Total is how many rows of content there are, Window how many are shown, and
 	// Offset how many are above the window.
 	Total, Window, Offset int
-	// Theme is the look: the track is structure the eye should skip, and the thumb
-	// is where you are.
-	Theme Theme
-	// Glyphs supplies the track and thumb. A zero set draws nothing, following the
-	// same coverage rule as every other piece of kit furniture.
-	Glyphs Glyphs
+	Theme                 Theme
+	Glyphs                Glyphs
 }
 
 // Needed reports whether there is anything to indicate. A bar drawn when everything

@@ -16,7 +16,6 @@ import (
 // Trigger is what opens a completion: the characters that begin a token, and where
 // they count as beginning one.
 type Trigger struct {
-	// Prefix begins the token — "@" for a file, "/" for a command, ":" for an emoji.
 	Prefix string
 	// AtStart limits it to the beginning of the line, which is what makes "/help" a
 	// command and "and/or" not one.
@@ -114,12 +113,10 @@ func tokenEnd(line string, start int) int {
 
 // Candidate is one thing a completion offers.
 type Candidate struct {
-	// Text is what accepting it puts in place of the token.
 	Text string
 	// Label is the row as shown. Empty shows Text, which is the common case: what is
 	// offered and what it inserts are usually the same thing.
-	Label string
-	// Detail is shown after the label, receding — a description, a kind, a size.
+	Label  string
 	Detail string
 	// Matched are byte offsets in the label that the query matched, picked out as the
 	// row is drawn. It is what [fuzzy.Match.At] returns, and leaving it nil simply
@@ -172,9 +169,8 @@ type Completion struct {
 	// whatever else might want it rather than swallowed.
 	Accept func(c Candidate, t Token)
 
-	list  List[Candidate]
-	token Token
-	// matcher owns how far into a multi-chord binding the keys have got.
+	list    List[Candidate]
+	token   Token
 	matcher keymap.Matcher
 }
 

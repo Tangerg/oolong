@@ -17,7 +17,6 @@ import (
 // the label and value, paints the track, and stages exactly the rectangle it painted
 // so pointer routing and appearance cannot disagree.
 type Slider struct {
-	// Theme and Glyphs choose the appearance of the track and thumb.
 	Theme  Theme
 	Glyphs Glyphs
 	// Format turns the integer value into its right-hand label. Nil uses strconv.Itoa;
@@ -36,7 +35,6 @@ type Slider struct {
 // locally owned value at Minimum. Format is optional and has the same zero meaning as
 // [Slider.Format].
 type SliderConfig struct {
-	// Theme and Glyphs define the track appearance.
 	Theme  Theme
 	Glyphs Glyphs
 	// Value is optional caller-owned state. Nil starts local state at Minimum.

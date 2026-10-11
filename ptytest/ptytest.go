@@ -1,19 +1,7 @@
-// Package ptytest drives a terminal program on a real pty and says what reached
-// the terminal.
-//
-// A fake proves that an interface draws the frame it meant to; only a pty proves that
-// the bytes of that frame do to a terminal what they were supposed to — that the block
-// shrank without leaving debris, that the caret is on the row the cursor was placed
-// on, that every mode the session turned on was turned off again.
-//
-// It is not a terminal emulator. [Screen] answers which text an Oolong renderer left
-// in each cell and deliberately models neither terminal queries, input,
-// alternate-buffer ownership, arbitrary painters, nor the rest of a terminal's state.
-// A test of a particular protocol sequence should assert that sequence directly,
-// because it then fails naming the thing that changed.
-//
-// It lives beside the library rather than inside it, and nothing in the library
-// imports it: a harness the thing it tests depends on cannot be changed.
+// Package ptytest verifies terminal bytes through a real PTY. [Screen] models Oolong
+// cell output, excluding terminal queries, input, alternate-buffer lifetime and
+// opaque painters; assert protocol sequences directly for those contracts. The
+// harness stays outside runtime dependencies so it can vary independently.
 package ptytest
 
 import (
@@ -230,18 +218,10 @@ func (s *Session) Drain(ctx context.Context) error {
 	}
 }
 
-// Close ends the session: everything the program started is killed if it is still
-// running, the pty is closed, and the goroutines reading it have finished by the
-// time this returns.
-//
-// The whole session goes, not only the program. A child that left something of its
-// own behind would leave it holding the terminal open, and a harness that allocated
-// a terminal for a test owes the test that the terminal is gone when the test is.
-//
-// It is idempotent, so a test can defer it and still close explicitly. It preserves
-// process, reader and teardown errors. If terminating the process group fails,
-// Close closes the pty and reports that failure without waiting indefinitely for
-// a process it could not stop.
+// Close kills the process group, closes the PTY and joins its readers. Group cleanup
+// prevents descendants from retaining the terminal. Calls are idempotent and preserve
+// process, reader and teardown errors. Failed group termination closes the PTY and
+// returns the failure without waiting indefinitely for an unstopped process.
 func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
 		// Whether the program is still running says nothing about the session it

@@ -11,20 +11,12 @@ import (
 // a colour: muted text is dim as well as grey, and a heading is bold. A widget that
 // had to remember to add the dimming would be a widget that sometimes forgot.
 type Theme struct {
-	// Text is body text, and Muted is text present for reference rather than for
-	// reading — timestamps, paths, counts.
-	Text  grid.Style
-	Muted grid.Style
-	// Subtle is quieter than muted: structure the eye should skip unless it is
-	// looking for it.
-	Subtle grid.Style
-	// Strong is emphasis within body text.
-	Strong grid.Style
-	// Heading titles a pane or a section.
+	Text    grid.Style
+	Muted   grid.Style
+	Subtle  grid.Style
+	Strong  grid.Style
 	Heading grid.Style
 
-	// Accent marks the thing the interface is about: the active item, the key in a
-	// hint, the prompt marker.
 	Accent grid.Style
 	// Success, Warning, Danger and Info are outcomes. They are the only colours in
 	// the interface that carry meaning on their own, which is why there are exactly
@@ -34,21 +26,14 @@ type Theme struct {
 	Danger  grid.Style
 	Info    grid.Style
 
-	// Border draws a frame, and Divider a line between things inside one.
-	Border  grid.Style
-	Divider grid.Style
-	// Selection is the row under the cursor.
+	Border    grid.Style
+	Divider   grid.Style
 	Selection grid.Style
-	// Surface is a pane's background, and Sunken a well inside one — a tool's output,
-	// a code block.
-	Surface grid.Style
-	Sunken  grid.Style
+	Surface   grid.Style
+	Sunken    grid.Style
 
-	// Added and Removed are the two halves of a diff. Nothing else in the interface
-	// uses green and red on a background, so a diff is recognisable at a glance.
 	Added   grid.Style
 	Removed grid.Style
-	// Context is a diff line that did not change.
 	Context grid.Style
 
 	// Scrim is what a layer paints over what it covers, so the eye goes to the layer

@@ -33,36 +33,15 @@ var (
 	ErrLineFeed = errors.New("ssh: the session cannot carry a line feed")
 )
 
-// Run runs cfg on session until the program stops, the client disconnects or the
-// transport fails.
-//
-// session must already have an accepted PTY handled the default way — see
-// [charm.land/ssh.Server.PtyHandler]. A server configured with
-// [charm.land/ssh.AllocatePty] starts copying the channel into a terminal of its own,
-// and draining its window changes, before the handler runs. Both are Run's: two
-// readers give each keystroke to whichever got there first, and a window change taken
-// by the other consumer never reaches the interface. That is [ErrAllocatedPTY].
-//
-// The default handling is only a writer, and the one thing it rewrites is a line feed
-// that is not already the second half of a carriage-return pair. Nothing this library
-// composes contains one, and the one thing that can is a [grid.Painter] writing bytes
-// of its own. A frame is exact bytes, so that frame is refused with [ErrLineFeed]
-// rather than carried changed with the terminal to blame for it.
-//
-// Run owns Oolong's input decoder, frame writer and terminal modes for the duration of
-// the call. It does not own the SSH channel and does not choose an exit status, which
-// the surrounding handler keeps.
-//
-// The session's input, however, is Run's for the session's lifetime and not only for
-// the call: an SSH channel cannot be read with a deadline, so a read in flight when
-// the program stops ends when the channel does. A handler that reads the session
-// after Run returns takes bytes from that read.
-// A session reader that exits its goroutine without returning ends input with an
-// interruption error after every earlier accepted chunk has been decoded.
-//
-// The zero cfg.Color, terminal modes, character locale, wheel scaling and clipboard
-// transport all resolve from the client's PTY environment rather than the server
-// process environment.
+// Run drives cfg until stop, disconnect or transport failure. The session must
+// have an accepted PTY using default handling. AllocatePty creates competing input
+// and resize readers, so Run rejects it with [ErrAllocatedPTY]. Bare line feeds in
+// frames are refused with [ErrLineFeed] because default PTY handling rewrites them.
+// Run owns decoder, writer and modes during the call; the surrounding handler owns
+// the channel and exit status. Input ownership lasts until channel closure because
+// in-flight SSH reads cannot be interrupted; handlers must not read after Run.
+// Abnormal reader exits report interruption after earlier accepted bytes are decoded.
+// Color, modes, locale, wheel and clipboard resolve from the client PTY environment.
 func Run(session charmssh.Session, cfg program.Config) (err error) {
 	if cfg.Host != nil {
 		return ErrHostSet

@@ -9,20 +9,9 @@ import (
 	"github.com/Tangerg/oolong/core/keymap"
 )
 
-// List is a vertical list of one-row items with a selection.
-//
-// It is generic over the item so a list of sessions and a list of files are the same
-// widget with different rows, and so nothing here has to know what an item is. The
-// row is drawn by a function the caller supplies: a list that formatted its own
-// items would be a list that had opinions about them.
-//
-// Selection and scrolling are separate concerns that have to agree: moving the
-// selection past the edge of the window scrolls to keep it visible, because a
-// selection the user cannot see is a selection they will act on by mistake.
-//
-// The zero value is ready. A List must not be copied after first use: its items,
-// matcher, scroll and committed routing state are one mutable owner.
-// A nil *List is a programmer error; methods panic.
+// List owns one-row items, selection and scrolling. Moving the cursor keeps it
+// visible; Row supplies appearance. The zero value is ready. A List must not be
+// copied after first use. Methods panic on a nil *List.
 type List[T any] struct {
 	noCopy noCopy
 
@@ -30,19 +19,12 @@ type List[T any] struct {
 	// committed routing totals describing a collection the list no longer owns.
 	items   []T
 	itemsID *byte
-	// Row draws one item, where at is its index and selected says whether the cursor
-	// is on it. The index is passed because a row is often about more than the item —
-	// a number down the left, an alternating colour — and a caller recovering it by
-	// comparing items would guess whenever two were alike.
-	//
-	// It runs during measurement or drawing and must be an observationally pure
-	// projection: mutate state from Handle, never from here.
+	// Indices distinguish equal items for row appearance. Callbacks run during drawing
+	// and must be observationally pure.
 	Row func(v grid.View, at int, item T, selected bool)
-	// Keys say which keystrokes produce which of the actions the list answers to —
-	// see [List.Do]. Nil reads through [DefaultListKeys].
+	// Nil uses [DefaultListKeys].
 	Keys *keymap.Map
-	// Wrap moves the selection from the last item to the first and back. Off by
-	// default: in a long list, wrapping loses the user's place.
+	// Wrap enables movement across the ends; the default stops at each end.
 	Wrap bool
 
 	selected int
@@ -52,8 +34,7 @@ type List[T any] struct {
 	// geometry: a page and a press must refer to the same complete frame.
 	presentation Snapshot[listPresentation]
 	pointer      Pointer
-	// matcher owns how far into a multi-chord binding the keys have got.
-	matcher keymap.Matcher
+	matcher      keymap.Matcher
 }
 
 // Selected is the index under the cursor, or -1 for an empty list.
@@ -91,15 +72,8 @@ func (l *List[T]) Move(n int) {
 	l.Select(moveIndex(l.selected, n, len(l.items), l.Wrap))
 }
 
-// SetItems replaces the contents, keeping the selection on the same index where
-// that still exists. The list copies the slice; the caller may reuse or change its
-// input after this returns.
-//
-// Keeping the index rather than the item: a list that is refreshed while the user is
-// reading it should not jump, and following an item by identity would need this
-// widget to know how to compare items, which is knowledge it has no business
-// holding. Pointer selection waits for the replacement collection to be drawn; old
-// row coordinates cannot identify an item in a new collection.
+// SetItems copies the replacement collection and clamps selection by index. Pointer
+// routing waits for its next complete frame so old geometry cannot select new items.
 func (l *List[T]) SetItems(items []T) {
 	l.matcher.Reset(func() {
 		l.replaceItems(items)
@@ -166,8 +140,7 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	return handled
 }
 
-// Do runs one of the list's actions by name, reporting whether it was one this list
-// knows. See [Doer].
+// Do handles list actions and reports whether the action was accepted.
 func (l *List[T]) Do(action keymap.Action) bool {
 	before := l.Selected()
 	at, known := l.target(action, before)
@@ -207,29 +180,16 @@ func (l *List[T]) target(action keymap.Action, from int) (int, bool) {
 	return moveIndex(from, delta, len(l.items), l.Wrap), true
 }
 
-// mouse scrolls on the wheel and moves the selection to whatever was pressed.
-//
-// A row a reader pressed is the row they mean, and a drag carries the selection with
-// it, which is what a list does everywhere. The position is in the list's own box —
-// whoever drew it is responsible for that, which for anything inside a [Container] is
-// the container.
 func (l *List[T]) mouse(ev input.Mouse, choose func(int)) bool {
 	switch ev.Action {
 	case input.MouseCancel:
 		l.pointer.Left()
 		return false
-	case input.WheelUp:
+	case input.WheelUp, input.WheelDown:
 		if !ev.Pos.In(l.presentation.Value().visible) {
 			return false
 		}
-		l.scroll.By(l.scroll.wheel.Rows(ev.At, -1))
-		return true
-	case input.WheelDown:
-		if !ev.Pos.In(l.presentation.Value().visible) {
-			return false
-		}
-		l.scroll.By(l.scroll.wheel.Rows(ev.At, 1))
-		return true
+		return l.scroll.Handle(ev, nil)
 	case input.MouseDown:
 		l.pointer.Left()
 		if ev.Button != input.ButtonLeft {
@@ -258,9 +218,6 @@ func (l *List[T]) mouse(ev input.Mouse, choose func(int)) bool {
 	return true
 }
 
-// keys is the map to read through, standing in the default for a caller who set none.
-// A list is a struct a caller fills in, so its zero value has to work: one that quietly
-// ignored the arrow keys would look finished and not be.
 func (l *List[T]) keys() *keymap.Map {
 	if l.Keys != nil {
 		return l.Keys
@@ -268,17 +225,10 @@ func (l *List[T]) keys() *keymap.Map {
 	return listKeys()
 }
 
-// HeightForWidth is one row per item, which is what a container needs to decide whether the
-// list can have all the room it wants.
+// HeightForWidth returns one row per item.
 func (l *List[T]) HeightForWidth(int) int { return len(l.items) }
 
-// Focus takes the keyboard, or gives it up.
-//
-// A list draws no differently for it: what a selection looks like in a list nobody
-// is typing at is a matter of taste, and taste is what this layer refuses. It is here
-// because a container hands the keyboard to its children by asking for this, so a
-// list without it could not be one of them — and because [List.Focused] is how a row
-// asks, which is where the answer belongs.
+// Focus changes keyboard ownership.
 func (l *List[T]) Focus(has bool) {
 	l.blurred = !has
 	if !has {
@@ -298,11 +248,8 @@ func (l *List[T]) Draw(v Frame) {
 	l.DrawRows(v, l.Row)
 }
 
-// DrawRows paints the visible items with row.
-//
-// Supplying the renderer for this frame lets an appearance component reuse
-// geometry it computed once at the frame's width. The list still owns selection,
-// scrolling and committed pointer routing; [List.Draw] is this method with Row.
+// DrawRows paints visible items with a frame-local renderer while List retains
+// selection, scrolling and pointer routing. Callbacks must be observationally pure.
 func (l *List[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
 	l.drawRows(v, nil, draw)
 }
@@ -337,7 +284,6 @@ func (l *List[T]) drawRows(v Frame, choice *int, draw func(grid.View, int, T, bo
 	}
 }
 
-// reveal scrolls the least amount that brings the selection into the window.
 func (l *List[T]) reveal(at int) {
 	if len(l.items) == 0 {
 		return

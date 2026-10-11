@@ -28,7 +28,6 @@ type MultiSelect[T any] struct {
 	value Accessor[[]T]
 	// owner identifies the binding lifetime independently of command progress.
 	owner *byte
-	// Label is what the field is asking for.
 	Label string
 	// Same says whether two values are the same one — see [Select.Same]. It is a pure
 	// projection callback and may run during drawing.

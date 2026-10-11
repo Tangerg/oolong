@@ -66,21 +66,10 @@ type Cursor struct {
 	Style   CursorStyle
 }
 
-// Screen is the terminal's contents, double-buffered.
-//
-// A frame is drawn into the back surface and flushed: the screen works out the
-// smallest escape stream that turns what the terminal is showing into what was
-// drawn, wraps it so the terminal applies it atomically, and swaps. Nothing above
-// this type sequences escape codes, decides when to repaint, or tracks what the
-// terminal already knows.
-//
-// A flush that would change nothing writes nothing at all — not even the frame
-// markers — because an idle UI should be silent on the wire and should leave the
-// cursor's blink undisturbed. A Screen must not be copied after first use; its two
-// surfaces and terminal-state model are one publication owner.
-// It is used on one goroutine. Painter and writer callbacks during Flush may read
-// the canvas but cannot mutate it, mutate a retained frame view, or flush it again.
-// Reentering a mutating Screen method from these callbacks panics.
+// Screen owns double-buffered cells and the terminal publication model. Unchanged
+// frames write nothing so cursor blinking is undisturbed. A Screen must not be copied
+// after first use and belongs to one goroutine. Flush callbacks may read the canvas
+// but cannot mutate it or retained frame views; reentrant mutations panic.
 type Screen struct {
 	noCopy      noCopy
 	publication publication

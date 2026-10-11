@@ -8,20 +8,8 @@ import (
 	"github.com/Tangerg/oolong/core/ansi"
 )
 
-// params is a control sequence's parameter section: the syntax, which is shared
-// with everything else that reads a sequence, and the meanings that only a
-// terminal's own reports have.
-//
-// The split is what keeps the two apart. Which bytes are parameters and what an
-// empty field means are facts about the wire and belong to nobody in particular;
-// that the second group of a key report is a modifier mask plus one is a fact about
-// keyboards, and belongs here.
-//
-// The readers below that make a keystroke are reached only for a section
-// [ansi.Params.Valid] has already accepted, so none of them asks again whether a
-// number is a number. That question has one owner: a key form only ever looks at the
-// groups it uses, and what it does not look at is exactly where an unreadable number
-// went unnoticed.
+// ansi.Params owns syntax validation; these readers interpret terminal report
+// semantics only after Valid accepts the complete section, including unused fields.
 type params struct{ ansi.Params }
 
 func parseParams(body string) params { return params{ansi.Parse(body)} }

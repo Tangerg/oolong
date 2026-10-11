@@ -22,8 +22,6 @@ import (
 type Form struct {
 	noCopy noCopy
 
-	// Theme is the look, and Glyphs the characters the marks beside a choice are drawn
-	// with.
 	Theme  Theme
 	Glyphs Glyphs
 	// Title sits above the fields. Empty draws none and costs no row.
@@ -43,7 +41,6 @@ type Form struct {
 // submission. A nil Controller.Keys reads through the standard form map for both
 // behavior and visible hints; dressing the form does not mutate its configuration.
 type FormConfig struct {
-	// Theme and Glyphs define field roles and choice marks.
 	Theme  Theme
 	Glyphs Glyphs
 	// Controller owns fields, keys, validation and submission and is required.

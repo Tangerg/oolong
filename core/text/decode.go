@@ -7,82 +7,42 @@ import (
 	"github.com/Tangerg/oolong/core/grid"
 )
 
-// Decoder turns terminal output back into styled text: the escape sequences a
-// program wrote to colour its output become [Span]s, and everything else is
-// dropped.
-//
-// Output arrives in whatever pieces a read produced, and neither a line nor a
-// sequence respects those boundaries. [Decoder.Feed] answers with the lines a newline
-// has finished, holds the rest, and carries the style in force from one piece to the
-// next. [Decoder.Open] is the line still being written.
-//
-// It is deliberately not an [io.Writer]. Something wired to a command's standard
-// output is written to from whatever goroutine waits on that command, and this
-// library has exactly one that may touch what is on screen: read the pipe there, post
-// the chunk, decode it here. A Decoder belongs to one goroutine and must not be
-// copied after its first use.
-//
-// Colour, the six attributes a cell can carry, and the hyperlink a terminal was told
-// about are read. Every other sequence is consumed and dropped, which is the point:
-// it neither reaches a cell, where it would be obeyed on the next repaint, nor shows
-// up as its own text. A carriage return is dropped rather than obeyed, because
-// obeying it is a terminal emulator — so output that redrew a line in place reads as
-// the several versions of it.
-//
-// The sixteen named colours resolve through [grid.PaletteRGB], because a [grid.Color]
-// is either a number or the terminal's own with nothing in between to hold "the
-// user's idea of red".
+// Decoder retains lines, styles and incomplete escapes across output chunks.
+// It belongs to one interface goroutine and must not be copied after first use;
+// background producers post bytes rather than writing into it directly. Supported
+// styles and links become [Span]s; other escapes and carriage returns are discarded
+// so output cannot issue commands when repainted. Named colors use [grid.PaletteRGB].
 type Decoder struct {
 	noCopy noCopy
 
-	// Base is what text arrives in before any sequence says otherwise, and what a
-	// reset goes back to. It is how output is drawn in the interface's own body
-	// style while still being recoloured by whatever wrote it.
-	//
-	// The zero value is the terminal's own appearance, which is right for output
-	// shown on its own and wrong inside a themed pane.
+	// Base supplies initial and reset style; zero uses terminal appearance.
 	Base grid.Style
 
-	// state is what the sequences seen so far asked for, over the base rather than
-	// merged into it. Keeping the two apart is what lets "default foreground" mean
-	// the base's foreground rather than the terminal's.
+	// Keep sequence overrides separate so default foreground resolves through Base.
 	state grid.Style
-	// link is the address the output last opened, and "" between them.
-	link string
-	// scan owns syntax split across input chunks, including incomplete UTF-8.
-	scan ansi.Scanner
-	// runs own the bytes of the line no newline has ended yet. Feed grows them with
-	// amortised cost; Open materialises their immutable public form only when asked.
+	link  string
+	scan  ansi.Scanner
+	// Mutable runs absorb small chunks; Open publishes an immutable view only when needed.
 	runs  []decodedRun
 	open  Line
 	dirty bool
 }
 
-// noCopy makes the decoder's single-owner contract visible to go vet. Its methods
-// are never called.
+// Make the single-owner constraint visible to go vet.
 type noCopy struct{}
 
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
-// decodedRun is the mutable, decoder-owned form of a [Span]. Keeping it private
-// lets many small reads extend one run without rebuilding the immutable string a
-// caller sees.
+// Private mutable runs can extend without rebuilding a public immutable string.
 type decodedRun struct {
 	text  []byte
 	style grid.Style
 	link  string
 }
 
-// Feed takes another piece of the output and returns the lines a newline finished.
-//
-// What is left over stays in the decoder: the line no newline has ended yet — see
-// [Decoder.Open] — and a sequence that arrived only in part. Nothing is lost by
-// stopping in the middle of either.
-//
-// Feed follows the ordinary streaming-decoder shape: hand over the next piece,
-// take back what is now decidable, and let [Decoder.Flush] settle what only the
-// end of the stream can.
+// Feed returns newline-completed lines, retaining incomplete lines and escapes
+// until later input or [Decoder.Flush].
 func (d *Decoder) Feed(chunk string) []Line {
 	if chunk == "" {
 		return nil
@@ -92,21 +52,13 @@ func (d *Decoder) Feed(chunk string) []Line {
 		lines = append(lines, d.piece(piece)...)
 		return nil
 	})
-	// A sequence too long to carry is one more sequence this cannot show, which is
-	// the ordinary case here and not a failure of the stream. The scanner consumes
-	// it to its end whatever it costs to find, so dropping it drops the sequence
-	// rather than leaving its body to be read as text.
+	// Scanner consumes oversized escapes completely, so dropping its error cannot leak command text.
 	_ = err
 	return lines
 }
 
-// Open is the line still being written: everything decoded since the last newline.
-//
-// It is what an interface draws while the rest is still arriving. The returned Line
-// is a read-only view owned by the decoder and may be replaced by a later decoder
-// call. A caller that will retain or modify it uses [Line.Clone]. Repeated calls
-// without new input return the same view; Feed invalidates it only when it adds
-// visible text.
+// Open returns a borrowed read-only view of the unfinished line. Use [Line.Clone]
+// to retain or modify it. New visible input invalidates the cached view.
 func (d *Decoder) Open() Line {
 	if !d.dirty {
 		return d.open
@@ -292,14 +244,7 @@ func (d *Decoder) sgr(ps ansi.Params) {
 	}
 }
 
-// colourAt reads an extended colour and reports how many further parameter groups it
-// consumed.
-//
-// Both spellings are read. The colours may be subparameters of the 38 — which is
-// what the standard says and what one terminal in three writes — or the parameters
-// that follow it, which is what everything else writes. They are the same numbers
-// in the same order either way, so they are read once and the only difference is
-// where they were found.
+// Both extended-color parameter encodings share one reader; only their parameter locations differ.
 func colourAt(ps ansi.Params, i int, group ansi.Parameter) (grid.Color, int, bool) {
 	if group.Len() > 1 {
 		args := make([]int, 0, group.Len()-1)

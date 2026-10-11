@@ -8,26 +8,11 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Transcript is the live, retained part of output, in one coordinate space.
-//
-// A scroll offset, the ends of a selection, a search match and a prompt pinned to the
-// top of the view are all rows, and they only mean the same thing to each other while
-// there is one numbering they all use. That is what this holds: an ordered list of
-// blocks, each of a height that depends on the width, and the row each starts at.
-//
-// Output the terminal owns cannot be selected, searched, re-wrapped or scrolled under
-// the program's control, so a transcript is for output the program means to keep
-// answering questions about. Appending is constant time, and so is a block growing at
-// the end, which is what a streaming answer does token by token. A change of width is
-// the one linear operation, because every height is a function of it.
-//
-// The zero value is an empty transcript at width zero. Its first [Transcript.Stage]
-// establishes the width; subsequent appends reuse the last committed width. A
-// Transcript must not be copied after first use: retained blocks and pending layout
-// are one publication owner.
-//
-// A Commit callback may only read this transcript. Semantic mutations and Stage
-// panic while publication is unsettled, including after a callback exits abnormally.
+// Transcript owns retained blocks and their shared row coordinates for scrolling,
+// selection and search. Append and tail growth are constant time; width changes
+// recompute heights. The zero value has width zero; Stage establishes committed width.
+// A Transcript must not be copied after first use. Commit callbacks may only read it;
+// mutations and Stage panic during unsettled publication, including abnormal exits.
 type Transcript struct {
 	releasedPrefix int
 	noCopy         noCopy
@@ -410,15 +395,8 @@ func (t *Transcript) Visible(from, rows int) (first, last BlockID) {
 	return t.first + blockOffset(a), t.first + blockOffset(b)
 }
 
-// TextProjector is a block that can project its meaningful text at a width.
-//
-// It is separate from drawing because text projection is not painting: selection,
-// search and copying need the words without the box around them, the accent in a
-// gutter, or the padding that made them look right. Naming the lower capability after
-// its projection rather than one consumer also avoids suggesting that its Go value is
-// safe to copy. A block without the capability contributes empty rows to a selection
-// rather than nothing at all — it still occupies the rows, and a selection dragged
-// across it has to produce as many lines as the user dragged over.
+// TextProjector exposes meaningful text separately from painted decoration. Blocks
+// without it still contribute empty rows so selection preserves physical row count.
 type TextProjector interface {
 	// Rows is what the block's rows say at a width, and there are as many of them as
 	// HeightForWidth reports at that width.
@@ -479,26 +457,12 @@ func (t *Transcript) Finished(id BlockID) bool {
 	return ok && t.blocks[i].finished
 }
 
-// Commit gives the leading run of finished blocks to the terminal, in order, and
-// reports how many went.
-//
-// Only the leading run, because printed text goes after what is already there: a
-// block that finished while an earlier one is still being written would put the
-// answer above the question.
-//
-// It is one call rather than a range to ask for and a range to record, because the
-// second half of that pair is the one that gets forgotten — which prints the whole
-// session again on the next frame. give is called with each block and its height, and
-// returning false leaves that block and everything after it for another time.
-//
-// Committing is a one-way door. A committed block belongs to the terminal: no longer
-// drawn, re-wrapped, selectable or searchable by this program. What it buys is output
-// that survives the program exiting, and a session's memory that stops growing.
-//
-// Each accepted block is retired before the next callback. The callback may only
-// read this transcript; mutation or reentrant publication panics. If the callback
-// exits abnormally, publication remains unsettled: further mutation or publication
-// panics, while committed state remains readable.
+// Commit transfers the finished leading blocks in order and returns the count. Each
+// accepted block retires before the next callback. give receives its height; false
+// retains that block and the suffix. Only the leading run can transfer without reordering output.
+// Transferred blocks leave program-controlled wrapping, selection and search.
+// Callbacks may only read; reentrant mutation or publication panics. Abnormal exits
+// leave publication unsettled and readable, with further mutations panicking.
 func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 	t.assertMutable()
 	if give == nil {

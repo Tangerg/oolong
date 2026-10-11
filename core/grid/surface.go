@@ -641,21 +641,10 @@ func (s *Surface) Rows() []string {
 	return out
 }
 
-// Paint keeps the region r of the frame for something that draws itself — see
-// [Painter].
-//
-// The identity says what is being painted. Two frames that name the same thing in
-// the same place write nothing between them, one that names something else replaces
-// it, and one that names it nowhere takes it away; a caller with nothing to number
-// by can pass zero, and then every frame is a different picture in the same place.
-//
-// A region that does not fit entirely inside what the view may draw on is not
-// painted at all. Half a picture, squashed into the part that fits, is worse than
-// none: this layer knows how many cells the region has and nothing about what is in
-// it, so it cannot crop what it cannot read.
-//
-// The cells under it are left alone. What is painted goes behind them where the
-// terminal allows it, which is what lets a caption be written over a picture.
+// Paint reserves r for a [Painter]. Equal identities at equal positions persist
+// across frames; replacements erase the previous image. Identity zero repaints every
+// frame. The region must fit entirely because grid cannot crop opaque terminal
+// content. Cells remain available for captions where the terminal supports layering.
 func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
 	if v.surface == nil || by == nil || r.Empty() {
 		return

@@ -14,8 +14,7 @@ import (
 type Command struct {
 	// Name is the canonical name a user searches or types. It is the identity: two
 	// commands with the same name are one command, and the second registration wins.
-	Name string
-	// Title is the one-line description a list shows beside the name.
+	Name  string
 	Title string
 	// Aliases are other names that find this command. They are matched but never
 	// listed, so a command can be renamed without the old name disappearing from
@@ -44,7 +43,6 @@ type Commands[T any] struct {
 	noCopy noCopy
 
 	list []registeredCommand[T]
-	// used holds the names most recently run, newest first.
 	used []string
 }
 

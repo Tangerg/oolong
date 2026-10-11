@@ -34,7 +34,6 @@ type Settings[T any] struct {
 // value makes their different responsibilities explicit without hiding either in a
 // positional function argument.
 type SettingsConfig[T any] struct {
-	// Theme defines row and value appearance.
 	Theme  Theme
 	Glyphs Glyphs
 	// Items are copied into the constructed controller.

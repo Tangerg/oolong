@@ -32,8 +32,7 @@ type Scroll struct {
 	reveal, stagedReveal *scrollRange
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
-	wheel input.Advance
-	// matcher owns how far into a multi-chord binding the keys have got.
+	wheel   input.Advance
 	matcher keymap.Matcher
 
 	// pendingLayout is derived during a component frame and becomes the scroll's

@@ -8,45 +8,20 @@ import (
 	"github.com/Tangerg/oolong/core/keymap"
 )
 
-// Table is a list of rows with more than one column: a cursor, a window onto more
-// rows than fit, and an order.
-//
-// It is a [List] inside, because moving a selection, keeping it in view, taking the
-// wheel and answering a click is the same question in one column as in six. What a
-// table adds is which column it is sorted by.
-//
-// The list is held rather than embedded, and the difference is the order: a table's
-// rows are in the order the table decided, so an embedded list would hand every caller
-// a second way to replace them and leave the header claiming an order the rows are no
-// longer in.
-//
-// Where the columns are is not here either. A row is drawn by [List.Row] into a view
-// of the whole row, and how that row is divided belongs to its appearance layer.
-//
-// The zero Table is an empty list in no particular order. A Table must not be copied
-// after first use: its rows, cursor, ordering and scroll are one mutable owner.
-// Comparisons must be pure. Reentering SetLess, SetItems, SortBy or ClearSort from
-// a comparison panics; see SetLess for ordering and failure guarantees.
+// Table owns rows and their sort order. Its private List prevents replacement
+// from bypassing sorting; appearance owns column geometry. The zero value is ready.
+// A Table must not be copied after first use. Comparisons must be pure; reentrant
+// ordering mutations panic and failed comparisons preserve the previous state.
 type Table[T any] struct {
 	noCopy noCopy
 
-	// Row, Keys and Wrap configure the rows — see the [List] fields of the same
-	// names. They live here because the list does not belong to the caller.
+	// These configure the private List; see [List].
 	Row  func(v grid.View, at int, item T, selected bool)
 	Keys *keymap.Map
 	Wrap bool
 
-	// rows owns the cursor, the window and the order this table put them in.
 	rows List[T]
 
-	// less orders two rows by a column: true when a comes before b. Nil means the
-	// table cannot be sorted, which is the right answer for rows that arrive in an
-	// order that means something.
-	//
-	// It takes the column rather than being one function per column, because a table
-	// sorted by a column the caller has already named is a table whose comparison is
-	// a switch — and a switch written once beats a slice of functions that has to be
-	// kept the same length as the columns.
 	less func(a, b T, column int) bool
 
 	order   *tableOrder
@@ -58,13 +33,9 @@ type tableOrder struct {
 	descending bool
 }
 
-// SetLess changes how columns order rows. A table already in a sorted state is
-// immediately reordered by the new comparison; nil leaves the current row order in
-// place and marks it unsorted. Keeping this transition inside Table prevents its
-// reported order from getting out of step with its rows.
-// The comparison must be pure and define a strict weak ordering. Reentering an
-// ordering mutation (SetLess, SetItems, SortBy or ClearSort) from it panics.
-// A comparison panic leaves the previous rows, comparison and reported order intact.
+// SetLess installs a pure strict weak ordering and reapplies the active sort. Nil
+// clears the sort without moving rows. Reentrant ordering mutations panic; comparison
+// panics leave rows, comparator and reported order intact.
 func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 	t.requireIdle()
 	if less == nil {
@@ -82,11 +53,9 @@ func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 	})
 }
 
-// SortBy orders the rows by a column, and reports whether anything changed.
-//
-// Asking for the column it is already sorted by turns the order round, which is what
-// a reader means by pressing the same header twice.
-// Rows and their reported order publish together only after comparison succeeds.
+// SortBy orders rows by column and reports whether the order changed. Rows and sort
+// metadata publish together after comparison succeeds. Repeating the current column
+// reverses the order.
 func (t *Table[T]) SortBy(column int) bool {
 	t.requireIdle()
 	if t.less == nil || column < 0 || t.rows.Len() == 0 {
@@ -104,11 +73,8 @@ func (t *Table[T]) SortBy(column int) bool {
 	return true
 }
 
-// Sorted is the column the rows are in the order of, whether that order is reversed,
-// and whether they are sorted at all. An unsorted table returns (0, false, false).
-//
-// It is what a header asks to draw the mark beside the column being sorted by, which
-// is the only way a reader can tell an order from a coincidence.
+// Sorted returns the sort column, reverse flag and whether sorting is active.
+// An unsorted table returns (0, false, false).
 func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 	if t.order == nil {
 		return 0, false, false
@@ -116,19 +82,13 @@ func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 	return t.order.column, t.order.descending, true
 }
 
-// ClearSort forgets the order, leaving the rows where they are. It is what a caller
-// calls when it has replaced the rows with something whose order means something.
+// ClearSort clears sort metadata without moving rows.
 func (t *Table[T]) ClearSort() {
 	t.requireIdle()
 	t.order = nil
 }
 
-// SetItems replaces the rows, keeping the order the table is sorted by.
-//
-// It is [List.SetItems] with the sort applied, under the same name on purpose:
-// there is one way to give a table its rows, and it cannot be the one that quietly
-// throws the order away. A table that lost its order every time its rows were
-// refreshed would be a table nobody could read while it was updating.
+// SetItems replaces rows and reapplies the active sort.
 func (t *Table[T]) SetItems(items []T) {
 	t.requireIdle()
 	items = slices.Clone(items)
@@ -140,10 +100,6 @@ func (t *Table[T]) SetItems(items []T) {
 		t.replaceRows(items, selected)
 	})
 }
-
-// The operations below are the list's, forwarded. Reading rows and moving a cursor
-// cannot disturb an order, so they pass straight through; what does not pass through
-// is anything that could replace the rows.
 
 // Items returns the rows in the order the table put them in.
 func (t *Table[T]) Items() []T { return t.list().Items() }
@@ -193,15 +149,8 @@ func (t *Table[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
 	t.list().DrawRows(v, draw)
 }
 
-// list is the rows, with this table's configuration in them. Every operation
-// forwarded from this type goes through it, and that is what it is for.
-//
-// The table's exported fields own what wrapping, which keys and which row painter
-// mean; the list keeps its own copy of them to work from. Copying them at the
-// operations that were thought to need it is a rule somebody has to keep, and the
-// one that was missed was cursor movement: a table told to wrap did not wrap until
-// something had drawn it. Going through here instead leaves no forwarded operation
-// that can read the copy a frame behind its owner.
+// Project configuration before every List operation so movement cannot read stale
+// wrapping or key bindings while waiting for the next draw.
 func (t *Table[T]) list() *List[T] {
 	t.rows.Row, t.rows.Keys, t.rows.Wrap = t.Row, t.Keys, t.Wrap
 	return &t.rows
@@ -231,12 +180,7 @@ func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, 
 	for i := range permutation {
 		permutation[i] = i
 	}
-	// A stable sort, so rows the column cannot tell apart keep the order they were
-	// given — which is where the caller's own idea of importance lives.
-	//
-	// The comparison is asked both ways round because the predicate answers one of
-	// them and a sort needs all three: rows it cannot separate must compare equal,
-	// or the sort has no ties to keep the order of.
+	// Compare both directions to preserve ties and caller order in the stable sort.
 	slices.SortStableFunc(permutation, func(a, b int) int {
 		x, y := items[a], items[b]
 		if order.descending {

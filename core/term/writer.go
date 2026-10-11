@@ -44,24 +44,11 @@ var errWriteInterrupted = errors.New("term: destination write interrupted; write
 // reason to wait for the terminal to catch up.
 const DrainGrace = 250 * time.Millisecond
 
-// Writer writes frames to the terminal from a goroutine of its own.
-//
-// The reason it exists is that a terminal write can block for a long time — a
-// remote session, a suspended emulator, a scrolled-back pager — so producers must
-// not perform those writes synchronously.
-//
-// Successful completion is reported as a watermark rather than as a stream of
-// results: the only question anyone asks is how far the terminal has got, and a
-// counter answers it without a queue to keep in order or a consumer to keep up.
-// [Writer.Changes] signals when that watermark or [Writer.Err] may have changed.
-//
-// Every method is safe for concurrent use. Frames are assigned a sequence while
-// they are appended to one FIFO, so sequence order and write order cannot diverge
-// when several goroutines queue terminal commands at once. A Writer must not be
-// copied after construction; its queue, watermarks and worker are one publication
-// owner.
-// If the destination exits its writing goroutine without returning, the writer ends
-// admission, accounts for every accepted frame and reports an interrupted write.
+// Writer keeps blocking terminal I/O off producer goroutines. Admission assigns
+// sequences in FIFO order under one owner; completion uses a watermark signaled
+// by Changes. Methods are concurrency-safe. A Writer must not be copied after
+// construction. Abnormal worker exits end admission, settle all accepted frames
+// and report an interrupted write.
 type Writer struct {
 	dst io.Writer
 
@@ -133,18 +120,12 @@ func NewWriter(dst io.Writer) *Writer {
 	return w
 }
 
-// Queue takes ownership of an accepted frame and returns its nonzero sequence.
-// [Writer.Queued] already accounts for it when Queue returns. Zero means admission
-// was refused; the caller retains the slice and [Writer.Err] reports the cause.
-//
-// Queue does not wait for the terminal. A frame handed over after [Writer.Close] or
-// a terminal failure is refused without reserving a sequence or changing either
-// watermark. The original terminal failure is preserved; after a clean Close,
-// refusal records [ErrClosed]. Previously accepted frames still drain in FIFO order.
-//
-// Queue panics after every uint64 sequence has been used. Continuing would return
-// zero and violate the watermark protocol by making new work look older than work
-// already settled.
+// Queue takes ownership and returns a nonzero sequence already included in Queued.
+// Zero refuses admission: the caller retains its bytes and Err reports the cause.
+// Queue never waits for terminal I/O. Close and failures refuse new frames without
+// advancing watermarks; accepted frames drain in FIFO order. Clean closure reports
+// [ErrClosed], preserving any prior failure. Sequence exhaustion panics before
+// new work can appear older than settled work.
 func (w *Writer) Queue(data []byte) uint64 {
 	w.queueMu.Lock()
 	if w.closed || w.discarding.Load() {

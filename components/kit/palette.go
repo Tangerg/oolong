@@ -18,16 +18,10 @@ import (
 // is what makes "ns" finding "new-session" obvious instead of surprising.
 type Palette struct {
 	// Found is what to show, best first, as the registry ranked it.
-	Found []headless.Found
-	// Selected is the index under the cursor.
+	Found    []headless.Found
 	Selected int
 
-	// Theme is the look. Every part of a row has a fixed role in one — a name is
-	// text, the row under the cursor is the selection, a matched letter is the accent
-	// — so there is nothing here to choose between.
-	Theme Theme
-	// Glyphs are the characters the marker is drawn with, which is a fact about the
-	// terminal rather than about the look.
+	Theme  Theme
 	Glyphs Glyphs
 	// Empty is what to say when nothing matched. Empty says so in words, because a
 	// blank space reads as a bug rather than as an answer.

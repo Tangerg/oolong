@@ -5,24 +5,10 @@ import (
 	"io"
 )
 
-// Painter is something that writes itself onto the terminal in a region of a frame,
-// rather than into cells.
-//
-// It is what a cell cannot hold: a picture, a plot drawn in pixels, anything whose
-// contents are bytes the terminal understands and this package does not. A frame
-// keeps room for one with [View.Paint], writes the cells around it as usual, and then
-// hands it the writer with the cursor already at the region's corner.
-//
-// Paint must leave the cursor where it found it. A frame is written as a stream of
-// movements from one known position to the next, so a painter that moved the cursor
-// would move everything drawn after it. That rule is also what makes a protocol
-// usable in a region that redraws: the image protocol that can be told not to move
-// the cursor is the same one that can be told to remove an image again.
-//
-// [Painter.Erase] exists because some terminals remember what they were shown. An
-// image placed by name stays until it is taken away, so a region that has gone has to
-// be unsaid rather than painted over. A painter whose output is only cells writes
-// nothing there.
+// Painter writes terminal-native content into a frame region. Paint must preserve
+// the cursor or subsequent relative output moves to the wrong position. Erase removes
+// persistent named images when their region disappears; cell-only painters need no
+// erasure output.
 type Painter interface {
 	// Paint writes what puts this in a region of size cells, with the
 	// terminal's cursor already at its top-left corner, and leaves the cursor there.

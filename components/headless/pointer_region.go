@@ -7,28 +7,12 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// PointerRegion is where one interactive child was drawn, and who owns a gesture that
-// began there.
-//
-// A press over the region gives its child the gesture. The drag and release that
-// follow belong to that child wherever the pointer then goes, translated by where
-// this frame drew it rather than where it was when the press landed, because the user
-// is aiming at what is on the screen now. A child that is no longer presented has
-// nowhere to send its gesture, so the remainder is dropped rather than handed to
-// whatever took its place.
-// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
-// release. A release naming another button stays with the child without ending capture.
-//
-// It is a type rather than a rule every wrapper keeps because both halves are easy to
-// get subtly wrong in a way that looks like a bug in the child: re-testing its own
-// bounds on every event drops the drag at the frame and never delivers the release,
-// and remembering the geometry instead of the child keeps translating by a rectangle
-// the child has moved out of. [Container] and [Stack] keep the same rule for the
-// several children and layers they own.
-//
-// The zero value has no child and declines everything. It must be staged during
-// [Root.Draw] and read only from Handle. A PointerRegion must not be copied after
-// first use: its committed child and captured gesture are one routing owner.
+// PointerRegion routes one child through its committed presentation. Capture
+// follows the child using current coordinates, including outside its hit region;
+// a disappeared child cannot transfer its gesture to a replacement. Foreign-button
+// releases preserve capture; matching or unspecified releases end it.
+// The zero value declines input. Stage during [Root.Draw], read only from Handle.
+// A PointerRegion must not be copied after first use.
 type PointerRegion struct {
 	noCopy noCopy
 
@@ -39,8 +23,7 @@ type PointerRegion struct {
 	hover   pointerRegionFrame
 }
 
-// pointerRegionFrame is one child and where it was drawn, published together so that
-// neither can be read against the other's frame.
+// Publish child identity and geometry together so routing cannot combine different frames.
 type pointerRegionFrame struct {
 	area, clip image.Rectangle
 	child      Interactive

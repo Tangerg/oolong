@@ -81,7 +81,6 @@ type Tree[T any] struct {
 	// nodeIDs owns the stable node namespace. Zero is reserved for no node, which
 	// makes accidental empty identities impossible to retain as open state.
 	nodeIDs identitySequence
-	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher keymap.Matcher
 }
 

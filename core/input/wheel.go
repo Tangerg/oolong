@@ -101,20 +101,10 @@ var wheelProfiles = []struct {
 	{"rio", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
 }
 
-// WheelFor is what a terminal does with its wheel.
-//
-// name is what the terminal said it was when asked, and outranks everything else: an
-// environment describes the terminal a session was started from, which over ssh, in a
-// container, or under a multiplexer is not the terminal it is talking to. An empty name
-// means nothing was asked, or nothing answered, and the environment is all there is.
-//
-// A multiplexer reads the mouse reports and writes its own, so whatever the outer
-// terminal batched is gone: tmux, screen and zellij forward one report per notch
-// regardless. Their answer replaces the outer terminal's rather than combining with
-// it, so checking for them comes first.
-//
-// The lookup is passed in rather than read, so that a test can say what terminal it is
-// in.
+// WheelFor chooses wheel batching from the negotiated terminal and environment.
+// Negotiated names outrank potentially remote environment values. Multiplexers
+// replace outer-terminal batching because they emit one report per notch. The
+// lookup is explicit so each session and test supplies its own environment.
 func WheelFor(lookup func(string) (string, bool), name string) Wheel {
 	if wheel, ok := profileOf(name); ok {
 		return wheel

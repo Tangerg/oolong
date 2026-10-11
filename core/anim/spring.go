@@ -18,21 +18,9 @@ const (
 	settledSpeed    = 0.001
 )
 
-// Spring moves a value toward a target the way a weight on a spring does: it
-// gathers speed, arrives, and — if it is allowed to — goes a little past and comes
-// back.
-//
-// It is the other kind of movement from [Transition], and the difference is what
-// happens when the target changes half way. A transition restarts, easing from
-// wherever it was, and the change reads as a stop and a fresh start. A spring keeps
-// the speed it already had, so a target that moves twice reads as one continuous
-// movement, which is useful whenever a target can change while motion is under way.
-//
-// Like everything here it is stepped in ticks rather than in seconds, so a test
-// steps it and gets the same numbers every time.
-//
-// The zero Spring is settled at zero and moves nothing. Given a target it uses the
-// defaults above, which arrive without overshooting.
+// Spring preserves velocity when its target changes so successive changes produce
+// continuous motion. It advances in ticks for deterministic stepping. The zero
+// value is settled at zero; new targets use non-overshooting defaults.
 type Spring struct {
 	// Frequency is how fast it moves, in radians per tick: higher is stiffer. A
 	// non-positive value uses the default.

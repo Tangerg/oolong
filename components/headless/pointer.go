@@ -6,15 +6,10 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-// Pointer owns hover, capture and completed clicks for one interactive control.
-// Stage publishes the control's hit region with a complete root frame. Handle
-// settles gestures against that region, so a press and release need no intervening
-// draw. Over and Pressing are pure appearance queries; Clicked consumes a completed
-// click from the event handler.
-//
-// Each control owns its Pointer. Containers and PointerRegion route between controls;
-// rectangles describe geometry and never identify different controls. A Pointer must
-// not be copied after first use. Its zero value declines input until Stage commits.
+// Pointer owns hover, capture and completed clicks for one control. Committed
+// presentation identities keep moved controls capturable without reviving controls
+// that disappeared. The zero value declines input until Stage commits. A Pointer
+// must not be copied after first use.
 type Pointer struct {
 	noCopy noCopy
 
@@ -68,33 +63,24 @@ func (p *Pointer) Handle(event input.Event) bool {
 		return false
 	}
 	p.at, p.inside, p.clicked = mouse.Pos, true, false
-	presented := p.presentation.Value()
 	switch mouse.Action {
 	case input.MouseDown:
 		p.held, p.button = nil, input.ButtonNone
 		if !p.Over() {
 			return false
 		}
-		p.held, p.button = presented.identity, mouse.Button
+		p.held, p.button = p.presentation.Value().identity, mouse.Button
 		return true
-	case input.MouseDrag, input.MouseUp:
-		if mouse.Action == input.MouseDrag && !mouse.Drags(p.button) {
+	case input.MouseDrag:
+		return p.Pressing() && mouse.Drags(p.button)
+	case input.MouseUp:
+		if !mouse.Releases(p.button) {
 			return false
 		}
-		if mouse.Action == input.MouseUp && !mouse.Releases(p.button) {
-			return false
-		}
-		owner := p.held
-		if mouse.Action == input.MouseUp {
-			p.held = nil
-		}
-		if owner == nil || owner != presented.identity {
-			return false
-		}
-		if mouse.Action == input.MouseUp {
-			p.clicked = p.Over()
-		}
-		return true
+		pressing := p.Pressing()
+		p.held = nil
+		p.clicked = pressing && p.Over()
+		return pressing
 	default:
 		return p.Over()
 	}

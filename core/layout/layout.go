@@ -1,28 +1,7 @@
-// Package layout divides a region among rectangular items.
-//
-// It is geometry and nothing else, which keeps the same rules useful in any
-// coordinate model and makes sizing testable as arithmetic. It is deliberately a
-// small one-dimensional allocator and not the beginning of a flexbox: it owns no
-// tree, wrapping or reflow, and callers compose its rectangles when they need
-// nesting.
-//
-// A slot whose size follows from its item says so with [Measured] and supplies a
-// [Measurer], which is asked about the axis being divided given the room across the
-// other one. That one question is why [Measured] means the same thing for [Down] and
-// [Across]. [Flow] adds the gap between the things it divides, and [Slot.Cross] says
-// where an item sits when it takes less than the cross-axis extent.
-//
-// Each [Slot] carries one [Sizing] policy in Size. [Fixed] reserves an exact extent,
-// [Flex] shares what remains, [Part] takes a fraction of the whole, and [Measured]
-// asks Slot.Of. [Down] makes rows and [Across] makes columns; both use the same
-// operation because only the divided axis changes:
-//
-//	slots := []layout.Slot{
-//		{Size: layout.Fixed(1)},
-//		{Size: layout.Flex(1)},
-//	}
-//	rows := (layout.Flow{Axis: layout.Down}).Rects(space, slots)
-//	columns := (layout.Flow{Axis: layout.Across}).Rects(space, slots)
+// Package layout owns one-dimensional rectangle allocation. [Slot.Size] chooses
+// fixed, flexible, fractional or measured extent; [Axis] selects rows or columns.
+// [Measurer] receives the cross-axis extent, keeping one sizing rule for both axes.
+// Callers compose rectangles for nesting; layout owns no widget tree or wrapping.
 package layout
 
 import (

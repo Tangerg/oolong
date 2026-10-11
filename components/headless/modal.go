@@ -60,15 +60,8 @@ type Closer interface {
 // The stack removes the layer only after RequestClose returns true.
 type CloseRequester interface{ RequestClose() bool }
 
-// Backdrop is a modal that wants to touch the space it is covering before it is
-// drawn into its own corner of it — dimming what is behind, usually.
-//
-// It exists because a layer is handed a view of the area it asked for and nothing
-// else, which is what stops it drawing outside its own box. That is the right
-// default and it makes dimming impossible, so a layer that means to reach further
-// has to say so, and gets the whole space exactly once.
-//
-// Nothing in this package decides what a backdrop looks like. It calls back.
+// Backdrop receives the full covered view before modal drawing. Ordinary modal
+// views stay clipped to their own bounds, so dimming must request this wider capability.
 type Backdrop interface {
 	Modal
 	// Backdrop is given the whole space the stack is drawn into, before this
@@ -88,24 +81,11 @@ type stackLayer struct {
 	modal Modal
 }
 
-// Stack is an interface with layers floating over it, and the answer to which of
-// them the keyboard belongs to.
-//
-// The top layer owns keyboard input and pointer input inside its area; with nothing on
-// it, the interface underneath has its input back. Wheel and move reports outside a
-// layer follow the visible stack downward, while a press outside is consumed as the
-// dismissal gesture. A layer that accepts a press captures its drag and release. That
-// is the whole focus and pointer model between layers. Within a layer, or within the
-// interface underneath, a [Container] is what decides.
-// Keyboard input is admitted only while the current focus holder is the committed
-// top presentation. A pending replacement receives no keys before it is drawn;
-// the old presentation cannot give input to a child that has lost focus.
-// Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
-// release; a release naming another button does not end it.
-//
-// The zero Stack is empty and ready. A Stack must not be copied after first use: its
-// layer identities, focus, pointer capture and committed geometry are one mutable
-// owner.
+// Stack owns modal membership, focus and pointer routing. Only the committed top
+// focus holder receives keys. Outside wheel and move events descend through layers;
+// an outside press is consumed for dismissal. Accepted presses capture drag and
+// release, including outside bounds; foreign-button releases preserve capture.
+// The zero value is ready. A Stack must not be copied after first use.
 type Stack struct {
 	noCopy noCopy
 
@@ -140,7 +120,6 @@ type Stack struct {
 	holderID   LayerID
 	holderBase bool
 	focusState
-	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher      keymap.Matcher
 	matcherLayer LayerID
 	// capture owns the recipient of one pointer gesture, whether a base or layer.
@@ -186,15 +165,10 @@ func (s *Stack) SetBase(base Widget) {
 	s.settle()
 }
 
-// Push puts a layer on top, gives it the keyboard, and returns its stable handle.
-// A nil modal is not a layer: it is ignored and reported as the zero [LayerID].
-// Controller-owned DialogContent must be opened through Dialog.Show or Sync;
-// pushing it (including a wrapper embedding it) is a programmer error and panics.
-//
-// Handles are drawn from a counter that never reuses one, and Push panics once every
-// handle has been issued. Wrapping would let a handle held by a caller name a
-// different layer than the one it was given for, so a dismissal aimed at a closed
-// dialog would close whatever had since taken its number.
+// Push returns a stable handle and focuses the new layer. Nil returns zero.
+// Controller-owned DialogContent must use Dialog.Show or Sync; direct pushes, including
+// embedded wrappers, panic. Handles are never reused; exhaustion panics before a stale
+// handle could identify a different layer.
 func (s *Stack) Push(m Modal) LayerID {
 	if controlled, ok := m.(interface{ rejectIndependentInsertion() }); ok {
 		controlled.rejectIndependentInsertion()
@@ -361,8 +335,6 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 	return s.route(presented, mouse, turn)
 }
 
-// continueGesture gives a drag or release to whoever took the press, and reports
-// whether one was in progress at all.
 func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse, owner *stackPointerTarget, turn uint64) (handled, captured bool) {
 	if owner == nil || (mouse.Action != input.MouseDrag && mouse.Action != input.MouseUp) {
 		return false, false
@@ -378,7 +350,6 @@ func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse, 
 	return handled || held.id != 0, true
 }
 
-// route sends an event that begins nothing to the top layer, or past it.
 func (s *Stack) route(presented stackPresentation, mouse input.Mouse, turn uint64) bool {
 	top := len(presented.layers) - 1
 	if top < 0 {
@@ -601,8 +572,6 @@ func (s *Stack) Focus(has bool) {
 	s.change(has, s.settle, &s.holder, &s.matcher)
 }
 
-// settle makes sure the keyboard is where the layers say it should be, and that
-// whatever had it before has been told it no longer does.
 func (s *Stack) settle() {
 	want := Widget(nil)
 	wantID := LayerID(0)

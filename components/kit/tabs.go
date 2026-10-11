@@ -27,11 +27,7 @@ const tabGap = 2
 type Tabs struct {
 	noCopy noCopy
 
-	// Theme is the look: the name of the pane showing is the thing the interface is
-	// about, and the rest are there for reference.
-	Theme Theme
-	// Glyphs draw the rule under the strip. A tabs given none draws no rule, which is
-	// the rule the whole package keeps.
+	Theme  Theme
 	Glyphs Glyphs
 	// Rule draws a line under the strip, which is what makes a strip of names read as
 	// tabs rather than as a row of words.
@@ -49,12 +45,10 @@ type Tabs struct {
 // the caller. NoRule suppresses the rule under the tab strip; its zero value keeps
 // the kit default.
 type TabsConfig struct {
-	// Theme and Glyphs define the strip appearance.
 	Theme  Theme
 	Glyphs Glyphs
 	// Items are copied into the constructed headless controller.
-	Items []headless.Tab
-	// Selection is optional caller-owned state. Nil keeps state local.
+	Items     []headless.Tab
 	Selection headless.Accessor[int]
 	// Keys maps tab actions. Nil uses the headless defaults.
 	Keys *keymap.Map

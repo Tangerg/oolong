@@ -50,7 +50,6 @@ type Select[T any] struct {
 
 	field
 	value Accessor[T]
-	// Label is what the field is asking for.
 	Label string
 	// Same defines value identity, independently of Label. It is required before
 	// installing non-empty options. Use Equal[T] for comparable values, or supply

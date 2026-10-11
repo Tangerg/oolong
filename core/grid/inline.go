@@ -5,90 +5,47 @@ import (
 	"io"
 )
 
-// eraseLine clears from the cursor to the end of its row. It is what makes a row
-// that got shorter actually get shorter, rather than keeping the tail of what it
-// used to say.
 const eraseLine = "\x1b[K"
 
-// Inline draws an interface as a block in the terminal's own screen, with output
-// that is finished printed above it.
-//
-// What the interface has already said stays in the terminal's own scrollback, where
-// it can be scrolled back to and is still there after the program exits. A [Screen]
-// takes a screen of its own and gives back a blank terminal; this keeps the
-// transcript.
-//
-// Nothing here is addressed absolutely, because the block's position is decided by
-// whatever is above it and there is no way to ask. Every frame is written relative to
-// where the last one left the cursor, and printing writes the rows where the block's
-// first row was and redraws the block below them, which is what pushes finished
-// output into the scrollback. The block is as tall as what was drawn, so nothing has
-// to declare a height.
-//
-// A resize is the one thing this cannot get exactly right: the terminal may reflow
-// what is above the block, so the next frame repaints in full from where the cursor
-// was left. That is the same bargain every inline interface makes.
-//
-// An Inline must not be copied after first use. Its pending transcript, paired
-// surfaces and terminal cursor model are one publication owner.
-// It is used on one goroutine. Print, Append, Flush and Finish callbacks may read
-// the canvas and draw into their supplied view, but cannot mutate it, mutate a
-// retained frame view, or publish it again. Reentering a mutating Inline method
-// from these callbacks panics.
+// Inline keeps finished output in terminal scrollback and draws the active block
+// relative to its last cursor anchor. Terminal reflow on resize requires a full
+// repaint; absolute placement is unavailable. An Inline belongs to one goroutine
+// and must not be copied after first use. Print, Append, Flush and Finish callbacks
+// may read the canvas and draw their supplied view, but cannot mutate retained frame
+// views or reenter mutating Inline methods; violations panic.
 type Inline struct {
 	noCopy      noCopy
 	publication publication
 
 	buffers frameBuffer
-	// scratch is where printed rows are drawn before being encoded. It belongs to
-	// the block so it is always the block's width, which is the one width a printed
-	// row may be without the terminal wrapping it and moving the block.
+	// Printed rows use the block width so terminal wrapping cannot move its cursor anchor.
 	scratch *Surface
 
-	// placed is where this frame's drawing asked the cursor to go, reset by every
-	// [Inline.Frame] and read by [Inline.Flush].
 	placed Cursor
 
-	// pending is output that has been printed but not yet written, already encoded.
-	// A printed row never changes again, so keeping its cells would buy nothing.
+	// Finished rows need only encoded bytes, not retained cells.
 	pending []printed
 
-	// open says the last row published has not been finished, and tail is how far
-	// along it the output got — the column a continuation of it starts at.
-	//
-	// Streaming output does not arrive on line boundaries. Without these, every print
-	// would begin a row of its own, and a sentence delivered three words at a time
-	// would come out three rows tall.
+	// Transport chunks need not end rows; retain the open column so later chunks continue it.
 	open bool
 	tail int
-	// flushed is tail as the terminal has it. It differs from tail while there is
-	// output pending, and it is where a continuation of the row the terminal already
-	// has open has to start.
+	// Pending output can advance tail before the terminal receives it; continuations
+	// must start at the last published column.
 	flushed int
 
-	// rows is how tall the block was after the last flush, and at is where that
-	// flush left the terminal's cursor, in the block's own coordinates. Together
-	// they are the anchor every frame is written relative to.
-	//
-	// They are where the terminal is, so only a write that reached it may advance
-	// them. Composing a frame works out where that frame would leave the cursor and
-	// hands the answer back to be committed with the rest of the frame. A failed
-	// write makes the anchor unknown and permanently ends this session.
+	// Only successful writes advance the terminal anchor. A failed write makes relative
+	// placement unknowable and permanently ends the session.
 	rows int
 	at   image.Point
 
-	// known and shown are what the terminal has been told about its cursor, so an
-	// idle frame says nothing and leaves the blink alone.
+	// Unchanged visibility writes nothing, preserving cursor blink.
 	known bool
 	shown bool
-	// cursorStyleKnown and cursorStyle track the last DECSCUSR sent. Visibility and
-	// shape are separate terminal state: hiding a cursor does not reset its shape.
+	// Visibility and shape are independent; hiding does not reset shape.
 	cursorStyleKnown bool
 	cursorStyle      CursorStyle
 
-	// full forces the next flush to rewrite every row of the block, and repaintAll
-	// says the same about the regions something else painted — which the rows say
-	// nothing about, because what a terminal remembers being shown is not a row.
+	// Cell rows do not describe terminal-native paint, so a full repaint must invalidate both.
 	full       bool
 	repaintAll bool
 
@@ -181,16 +138,8 @@ func (i *Inline) Frame() View {
 	return i.buffers.begin(&i.placed)
 }
 
-// Print draws rows that become part of the terminal's own output, above the
-// interface, and stay there.
-//
-// The rows are drawn now, into a surface as wide as the block, and kept as the
-// text they came to. They reach the terminal with the next flush, before the block,
-// which is what puts them above it.
-//
-// Whole rows, each on a row of its own: a row left open by [Inline.Append] is finished
-// first, because what follows it is not part of it. Output arriving in pieces that do
-// not stop at a line boundary is that other method's business.
+// Print queues complete rows above the interface for the next flush. It finishes
+// any row left open by Append so unrelated output cannot join it.
 func (i *Inline) Print(content Drawable) {
 	i.publication.begin()
 	defer i.publication.end()
@@ -211,20 +160,9 @@ func (i *Inline) Print(content Drawable) {
 	i.open, i.tail = false, 0
 }
 
-// Append publishes cells onto the end of the row the last one left open, and leaves it
-// open for the next.
-//
-// It is what output that does not arrive on line boundaries needs. A reply streaming in
-// three words at a time is one paragraph and not three rows, and a caller with no way
-// to say so has to hold everything back until a newline turns up — which for a program
-// that never prints one means holding everything back for good.
-//
-// The view is one row tall and as wide as what is left of the open row, so what is
-// drawn into it cannot run past the edge and take the block's anchor with it. A row
-// with no room left is finished and the cells go onto the next one: appending means
-// putting something after what is there, not squeezing it in beside it.
-//
-// Drawing nothing publishes nothing, so an empty chunk costs no row.
+// Append extends an unfinished row across transport chunks. The supplied view
+// contains only its remaining columns so drawing cannot wrap the terminal anchor;
+// a full row continues on the next. Empty drawing publishes nothing.
 func (i *Inline) Append(draw func(View)) {
 	i.publication.begin()
 	defer i.publication.end()
@@ -271,16 +209,10 @@ func (i *Inline) Break() {
 // block's own coordinates. See [Screen.Cursor].
 func (i *Inline) Cursor() Cursor { return i.placed }
 
-// Flush writes this frame to w, leaving the cursor wherever the frame placed it.
-//
-// A flush that would change nothing writes nothing at all, for the same reason a
-// [Screen] does: an idle interface should be silent on the wire and should leave
-// the cursor's blink undisturbed.
-// A destination write failure permanently ends this publication session. Flush and
-// Finish then return its original error without writing: a partial frame leaves no
-// trustworthy relative anchor, row range or placement inventory to recover from.
-// An abnormal writer exit also ends the session; a recovered panic cannot authorize
-// replaying an unknown partial write.
+// Flush writes changed frames and places the cursor; unchanged frames write nothing.
+// Failed writes permanently end the session because partial output loses the relative
+// anchor and placement inventory. Flush and Finish then return the original error
+// without writing. Abnormal writer exits also end publication.
 func (i *Inline) Flush(w io.Writer) error {
 	i.publication.begin()
 	defer i.publication.end()

@@ -1,30 +1,7 @@
-// Package headless is behaviour without appearance.
-//
-// Everything here holds the state an interactive thing needs and answers the input
-// that changes it, and none of it decides what any of that looks like: a list knows
-// which item is selected and what the arrow keys do, and draws a row by calling back
-// to whoever does. Appearance is where every interface differs and behaviour is where
-// they are all the same, so the part worth sharing is the part with no appearance.
-//
-// A widget is a mutable object owned by one event goroutine. It draws into the space
-// it was given and answers whether it wants an event; it returns no new copy of
-// itself and does not know where on the screen it is, because the view it is handed
-// is already positioned and clipped. Measurement is separate from drawing because a
-// container has to know how much its children want before deciding where they go — a
-// widget whose size along one axis follows from the other implements [Sized].
-//
-// A widget names what it can do and answers to the name — see [Doer] — while a
-// [keymap.Map] says which keystrokes produce which name. Nothing here owns a
-// keystroke, which is what makes every key reboundable, multi-chord bindings
-// expressible, and the same action reachable from a menu or a typed command.
-//
-// Each widget kind has a map of its own, because the down arrow moves a cursor in a
-// field, a selection in a list and a window in a reader. Within a kind one map can
-// serve a whole interface, since a widget answers the actions it knows and lets the
-// rest past:
-//
-//	keys := headless.DefaultEditorKeys()
-//	keys.Bind("send", input.Chord{Code: input.Enter})
+// Package headless provides interactive behavior without prescribing appearance.
+// Widgets belong to one event goroutine and use local, clipped coordinates.
+// Measurement precedes drawing; [Sized] supplies height at a width. [Doer] separates
+// widget actions from [keymap.Map] bindings so menus and keys can share behavior.
 package headless
 
 import (
@@ -34,11 +11,7 @@ import (
 	"github.com/Tangerg/oolong/core/text"
 )
 
-// Widget draws itself into the space it is given.
-//
-// The view is already positioned and clipped. A widget that draws outside it is not
-// a bug that shows on screen — the drawing is simply discarded — which is what makes
-// the box a boundary rather than a convention.
+// Widget draws into a positioned, clipped view so child code cannot paint outside its allocation.
 type Widget interface {
 	Draw(frame Frame)
 }
@@ -51,36 +24,21 @@ type Sized interface {
 	HeightForWidth(width int) int
 }
 
-// Block is finished or deliberately retained drawable content.
-//
-// Unlike a live [Widget], a Block has no routing geometry and draws directly into a
-// grid view. This is the shape accepted by transcripts and inline publication: once a
-// block is committed, it can leave the active component tree without carrying a frame
-// transaction or interaction lifecycle with it.
+// Block is passive drawable content. It carries no routing or frame lifetime, so
+// committed content can leave the interactive tree for transcripts or scrollback.
 type Block interface {
 	grid.Drawable
 }
 
-// RowGutter draws decoration beside visual text rows.
-//
-// Width is asked with the number of logical lines before the content wraps them.
-// Draw receives only the rows visible in the current frame; [text.Row.Line] says
-// which logical line each came from and Joined distinguishes its continuations.
-// The row text is provided so a gutter can derive diagnostics from it, but the
-// content owner still owns the text and input geometry.
-//
-// This is an appearance seam rather than an appearance decision. A line-number,
-// breakpoint or diagnostic gutter can live in a higher package while the text
-// component stays independent of all of them.
+// RowGutter decorates visible visual rows. Width receives the logical line count
+// before wrapping; [text.Row] identifies continuations. Text and input geometry
+// remain owned by the content component.
 type RowGutter interface {
 	Width(lines int) int
 	Draw(view grid.View, rows []text.Row)
 }
 
-// Static adapts a passive [Block] into a measured live [Widget].
-//
-// It is the explicit bridge for a document or other finished value shown in a
-// [Viewport]. The block remains passive; the active tree owns only its placement.
+// Static adapts a passive [Block] to a live [Widget]; only placement becomes interactive.
 type Static struct{ Of Block }
 
 // Draw draws the passive block into frame.
@@ -98,27 +56,14 @@ func (s Static) HeightForWidth(across int) int {
 	return s.Of.HeightForWidth(across)
 }
 
-// Interactive is a widget that answers input.
-//
-// Any consumer of the same drawing and event method set can use an Interactive
-// without an adapter, while neither side knows the other exists.
+// Interactive is a widget that handles input.
 type Interactive interface {
 	Widget
 	Handle(event input.Event) bool
 }
 
-// Doer is a widget that can be asked for one of its actions by name.
-//
-// It is the other half of [keymap.Map]. A widget names what it can do and answers to
-// the name; the map says which keystrokes produce which name. Neither knows the other,
-// which is what lets a program rebind every key without touching a widget, and what
-// lets the same action be reached from somewhere that is not the keyboard at all — a
-// menu, a command typed by name, a test that presses nothing.
-//
-// Do reports whether the widget accepts the action in its current state. False
-// lets the caller offer it to another handler; true does not promise a state change.
-// For example, a list may accept movement at its end, while a container declines
-// focus traversal when it cannot move so a containing focus ring can handle it.
+// Doer accepts named actions independently of key bindings. False permits another
+// handler to try; true indicates acceptance, including actions that change no state.
 type Doer interface {
 	Do(action keymap.Action) bool
 }

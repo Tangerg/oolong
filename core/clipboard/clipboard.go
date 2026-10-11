@@ -1,21 +1,7 @@
-// Package clipboard owns the OSC 52 channel that carries text between a program
-// and the clipboard beside its user-facing terminal.
-//
-// A terminal is often not where the program is. Over ssh, in a container, inside a
-// multiplexer on another machine, the tools that reach a clipboard directly —
-// pbcopy, wl-copy, xclip — reach the wrong one or none at all. The terminal is the
-// only thing on the user's side of the connection, so asking it to do the copying
-// is the only approach that works everywhere the same way.
-//
-// That is what OSC 52 is. It is also a capability a terminal may refuse: writing is
-// commonly allowed and reading commonly is not, because a program that can read the
-// clipboard can read whatever the user copied out of a password manager. Neither
-// refusal is reported — a terminal that will not do it simply does nothing — so an
-// unanswered [Channel.Request] is ordinary. The channel expires it rather than
-// treating an unrelated future OSC 52 as the requested text.
-//
-// Nothing here touches a terminal or a clipboard. A Channel produces byte strings
-// and settles answers; terminal adapters own when and where those strings are sent.
+// Package clipboard owns OSC 52 requests and replies for the user-facing terminal,
+// which may be remote from the process. Terminal refusal is silent, so unanswered
+// requests expire before unrelated replies can claim them. [Channel] handles protocol
+// state; adapters own sending the bytes.
 package clipboard
 
 import (
@@ -136,18 +122,11 @@ func (c *Channel) Request(sel Selection, send func(string) bool) bool {
 	return true
 }
 
-// Answer settles a terminal's OSC 52 parameters as text when they answer the live
-// request for the same selection.
-//
-// A syntactically valid answer for the requested selection settles the request even
-// when its payload cannot be decoded; treating that payload as an empty success would
-// clear a selection. Malformed parameters and answers for another selection are left
-// alone for the terminal adapter to publish as the raw OSC event it received, and do
-// not take ownership of the live request.
-//
-// at is when the transport read completed, before queueing or decoding. Replies
-// received before this request or at its deadline cannot settle it. Delayed decoding
-// does not expire a reply that arrived within the request's interval.
+// Answer settles a live request only for its selection and receive interval.
+// Invalid payloads settle with an error rather than empty success; malformed or
+// foreign-selection replies remain raw events. at is transport receive time before
+// queueing: pre-request and deadline replies cannot settle, while delayed decoding
+// preserves timely replies.
 func (c *Channel) Answer(params string, at time.Time) (string, bool) {
 	if c == nil {
 		return "", false

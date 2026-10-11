@@ -1,21 +1,7 @@
-// Package graphics puts images in a terminal that can show them.
-//
-// It writes escape sequences and nothing else: it does not decode pixels, hold a
-// payload after transmission, decide where an image goes, or know what a cell
-// contains. Only PNG, because its dimensions can be read without decoding the pixels
-// and the standard library already owns that — which is what lets this package need
-// no image dependency at all.
-//
-// Showing an image and showing one in an interface that redraws are two different
-// capabilities, and [Protocol.Supports] is that distinction. Kitty's protocol gives
-// the program a handle: an image is sent once under a number, then placed, moved and
-// deleted, which is what a live region requires. iTerm2's protocol and sixel put
-// pixels at the cursor and end there, so they suit printed output and not a region
-// being drawn again sixty times a second.
-//
-// It writes kitty and iTerm2. Sixel is detected and reported but not produced,
-// because producing it means decoding the image into pixels; a caller holding its own
-// encoder learns from [Sixel] that the terminal will take what it makes.
+// Package graphics encodes Kitty and iTerm2 terminal images from PNG without decoding
+// pixels or owning their placement. Live regions require reusable handles and erasure;
+// [Protocol.Supports] distinguishes these from printed output. Sixel is detected but
+// not encoded because its encoding requires pixel decoding.
 package graphics
 
 import (
@@ -350,22 +336,10 @@ var kittyPrograms = []string{"kitty", "ghostty", "wezterm", "warp"}
 // "iTerm2" in LC_TERMINAL, and "iTerm2 3.5.0" when it is asked directly.
 var iterm2Programs = []string{"iterm", "mintty"}
 
-// Detect works out the richest protocol a terminal supports.
-//
-// name is what the terminal said it was when asked, or empty when nothing was asked or
-// nothing answered. It outranks the environment for the reason above.
-//
-// It takes these facts because fewer are not enough. The environment names the terminal,
-// which is how kitty's protocol and iTerm2's are found; nothing in the environment
-// names sixel, so a terminal that supports sixel and nothing else is
-// indistinguishable from a terminal that supports nothing. That answer only comes
-// from a device-attribute response, and sixel says what it said.
-//
-// The lookup is passed in rather than read, which is what makes this a function of
-// its inputs: an adapter passes its environment lookup and negotiated answers, and
-// a test passes whatever facts it wants. There is no cached global and no
-// override hook, for the same reason there is no global palette — a program with two
-// terminals could not have two answers, and a test could not pin either.
+// Detect chooses a protocol from negotiated name, sixel support and environment.
+// Negotiated names take precedence because remote or multiplexed sessions can name
+// a different terminal in their environment. Explicit inputs keep detection specific
+// to each terminal rather than global.
 func Detect(lookup func(string) (string, bool), name string, sixel bool) Protocol {
 	// What the terminal called itself, first. An environment describes the terminal a
 	// session was started from, which over ssh, in a container, or under a multiplexer

@@ -1,23 +1,7 @@
-// Package markdown turns markdown into terminal rows — including markdown that has
-// not finished arriving.
-//
-// It is a module of its own because rendering markdown needs a parser, and the two
-// modules this is built on promise a dependency list a terminal library can be
-// adopted for. The parser lives behind that boundary and nothing above or beside this
-// module hears about it.
-//
-// Every other markdown renderer takes a finished document, and a program showing a
-// model's answer has a prefix of one. [Stream] is the difference: it is handed
-// whatever has arrived, hands back the blocks that are certainly finished — for good,
-// which is what makes it cheap — and re-renders only the one still being written.
-//
-// It produces [Block]s rather than a string or cells. A block owns the styled source
-// and the layout rule that gives it physical rows at a width, which is what lets
-// prose wrap, rules stretch and tables reflow before the final region is known.
-//
-// It does not highlight code or typeset mathematics, because those bring their own
-// parsers and policies. [Look.SetRenderer] is the one seam where recognized semantic
-// blocks receive such a renderer, and the parser's AST never crosses it.
+// Package markdown isolates its parser and renders complete or streaming source
+// into width-dependent [Block]s. [Stream] publishes stable blocks once and renders
+// only the unfinished tail. Code and mathematics use [Look.SetRenderer], keeping
+// their parser dependencies and policies outside this module.
 package markdown
 
 import (

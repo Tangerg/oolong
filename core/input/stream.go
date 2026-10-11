@@ -6,24 +6,11 @@ import (
 	"github.com/Tangerg/oolong/core/clipboard"
 )
 
-// Stream turns a transport's byte stream into the events an interface handles.
-//
-// Every transport that reads a terminal makes the same three decisions and only the
-// bytes differ: when an ambiguous escape has waited long enough to be the Escape key,
-// when an event arrived, and whether a clipboard answer settles a request this session
-// made. A transport deciding them itself is a second place those rules live.
-//
-// It is state rather than machinery: it owns no goroutine, reads nothing and waits for
-// nothing. Its driver hands it bytes, asks [Stream.DueAt] when it must be woken again,
-// and calls [Stream.Expire] then.
-//
-// The zero value is a decoder of its own: a fresh parser, [DefaultEscapeTimeout] and
-// no clipboard. The parser is never anyone else's, because a half-decoded sequence and
-// the moment its ambiguity runs out are one fact — a transport handed a parser without
-// its deadline would have a decoder whose waiting nobody was doing.
-//
-// A Stream belongs to one decoder goroutine and must not be copied
-// after first use: its parser and its deadline are one decoder.
+// Stream owns parser ambiguity, event timing and clipboard reply settlement together
+// so transports cannot decode bytes independently of their deadlines. Drivers supply
+// bytes, wait until DueAt and call Expire; Stream owns no goroutine or I/O. The zero
+// value uses a fresh parser, [DefaultEscapeTimeout] and no clipboard. A Stream belongs
+// to one decoder goroutine and must not be copied after first use.
 type Stream struct {
 	noCopy noCopy
 

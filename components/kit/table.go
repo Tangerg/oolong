@@ -66,13 +66,9 @@ func (c Cell) Draw(view grid.View, base grid.Style) {
 // wherever it already lives instead of copied into a widget, and it means a cell can
 // be as elaborate as its own draw function likes.
 type Table struct {
-	// Theme is the look. A column title is a heading and there is nothing else here
-	// with a fixed role: what a row looks like is data, not a look, which is why
-	// RowStyle is a function of the row.
 	Theme   Theme
 	Columns []Column
-	// Rows is how many rows there are.
-	Rows int
+	Rows    int
 	// Cell returns one cell for a row and column. The value carries both the width a
 	// fitted column measures and the painter given its final box.
 	//
@@ -103,8 +99,6 @@ type Table struct {
 	// which would mark the first one on every table nobody sorted.
 	// Sorted may run during drawing and must only observe ordering state.
 	Sorted func() (column int, descending, ok bool)
-	// Glyphs are the marks beside a sorted column's title. A table given none marks
-	// nothing, which is the rule the whole package keeps.
 	Glyphs Glyphs
 	// RowStyle styles a whole row, for banding or for a selection. It is a pure
 	// projection callback and may run during drawing.

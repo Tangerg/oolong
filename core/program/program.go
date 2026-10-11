@@ -1,23 +1,8 @@
-// Package program runs a terminal interface.
-//
-// It owns the terminal, the frame schedule, and the one goroutine that is allowed to
-// touch the interface's state. It knows nothing about what the interface is for: what
-// it drives is a [Component], which draws itself and answers input, and everything a
-// component needs from the program it asks for through a [Runtime].
-//
-// One goroutine draws and handles input. Anything that happens elsewhere reaches the
-// interface through a [Dispatcher] obtained from [Runtime.Dispatcher] and runs there,
-// which is why state reached only from that goroutine needs no lock.
-//
-// The program parks when there is nothing to do, waking for input, for posted work
-// and for the frame writer settling output — never on a clock that runs regardless. A
-// component that wants one starts it with [Runtime.After] or [Runtime.Every].
-//
-// A program either takes a screen of its own, which it gives back on the way out, or
-// draws in the terminal's own screen as a block with the session's output above it.
-// The second is what [Config.Inline] asks for: what an inline interface has finished
-// with is printed with [InlineRuntime.Print] and belongs to the terminal from then
-// on — scrollable, selectable, and still there afterwards.
+// Package program owns terminal lifetime, frame scheduling and the interface
+// goroutine. Background work enters through [Dispatcher], so interface state needs
+// no locks. The driver parks until input, work or writer progress arrives; timers
+// are explicit. Inline programs publish finished content to terminal scrollback
+// through [InlineRuntime.Print].
 package program
 
 import (

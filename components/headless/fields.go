@@ -7,31 +7,19 @@ import (
 	"github.com/Tangerg/oolong/core/layout"
 )
 
-// Text is a field holding a line of text.
-//
-// It is a one-line [Editor] with a label and a check around it, so everything a field
-// does — the cursor, selecting, undo, the clipboard, a click landing where the reader
-// meant it — is that field's and was not written again.
-//
-// One of these on its own is a [Form] with one field in it, which is where its look
-// comes from and is what an interface that wants a single input asks for.
-//
-// The zero value is ready. A Text value must not be copied after first use: its editor,
-// validation and caller-owned reconciliation are one mutable field.
-// NewText configures a caller-owned answer; SetBinding is its ownership transition.
-// An accessor's abnormal write exit settles the edit onto its accepted answer.
-// If that answer cannot be read, settlement waits for the next semantic operation.
-// Settlement never suppresses an abnormal exit.
+// Text owns a one-line [Editor], validation and controlled-answer reconciliation.
+// The zero value is ready. A Text must not be copied after first use. SetBinding
+// changes answer ownership. Abnormal writes still settle against the accepted answer;
+// failed reads defer settlement until the next semantic operation without suppressing
+// the abnormal exit.
 type Text struct {
 	noCopy noCopy
 
 	field
-	// Label is what the field is asking for.
 	Label string
 	// Check says what is wrong with what has been entered, or nil. It is asked when the
 	// keyboard leaves the field and when the form is submitted.
-	Check func(s string) error
-	// Placeholder is shown while the field is empty.
+	Check       func(s string) error
 	Placeholder string
 	// Keys say which keystrokes edit. Nil reads through [DefaultEditorKeys].
 	Keys *keymap.Map
@@ -295,9 +283,7 @@ func (t *Text) settleEdit(pending *textSettlement, accepted string) {
 	}
 }
 
-// offer hands a value to the owner and returns what the owner has afterwards. The
-// exchange is this field's for the length of the call, whatever the owner does
-// inside it.
+// The binding owner may normalize a write; reconcile against its accepted value.
 func (t *Text) offer(value string) string {
 	previous := t.settling
 	t.settling = t.owner
@@ -335,9 +321,7 @@ func (t *Text) beginEdit(operation uint64) textEdit {
 	return edit
 }
 
-// storeSince writes through a controlled field only when its semantic answer changed.
-// Handling a cursor key or an impossible deletion is not an assignment merely because
-// the editor consumed the action.
+// Consumed navigation and no-op edits are not assignments to the answer owner.
 func (t *Text) storeSince(edit textEdit) {
 	if edit.operation != t.operation {
 		return

@@ -56,20 +56,10 @@ const (
 	droppingString
 )
 
-// Parser decodes terminal bytes into events, incrementally.
-//
-// Bytes are handed to [Parser.Feed] exactly as they arrived, at whatever
-// boundaries the read produced. Anything not yet unambiguous stays buffered:
-// escape sequences and multi-byte characters routinely arrive in pieces, and a
-// decoder that assumed otherwise would drop keys under load.
-//
-// One case cannot be resolved by waiting. A lone escape byte is either the Escape
-// key or the start of a sequence whose remainder has not arrived, and only time
-// tells the difference. [Parser.Pending] reports that something is waiting, and
-// [Parser.Flush] declares the wait over.
-//
-// A Parser belongs to whichever goroutine reads the terminal and must not be copied
-// after first use. It is not safe for concurrent use.
+// Parser retains ambiguous bytes across arbitrary chunks so split escape sequences
+// and UTF-8 cannot lose keys. A lone escape needs an external deadline: Pending
+// reports it and Flush ends the wait. A Parser belongs to one reader goroutine,
+// must not be copied after first use, and is not safe for concurrent use.
 type Parser struct {
 	noCopy noCopy
 

@@ -1,20 +1,7 @@
-// Package grid is the cell grid the whole terminal UI is drawn into: styled
-// grapheme cells, a clipped drawing view over them, and the two ways a frame of
-// them reaches a terminal.
-//
-// [Screen] takes the terminal's whole screen and emits the smallest escape stream
-// that turns one frame into the next. [Inline] draws a block in the terminal's own
-// screen instead, printing finished output above it into the scrollback. They share
-// the cells, the view and the encoding, and differ only in what a frame is allowed
-// to assume about where it is.
-//
-// It is the only layer that knows what a terminal is made of. Everything above
-// it draws through [View] and never assembles an escape sequence.
-//
-// Geometry is [image.Rectangle] and [image.Point] from the standard library
-// rather than a private rectangle type. Terminal rectangles are ordinary
-// half-open rectangles, and intersection, insetting and containment are already
-// written and already correct there.
+// Package grid owns styled grapheme cells, clipped [View]s and terminal frame
+// encoding. [Screen] uses absolute screen geometry; [Inline] uses a relative block
+// and terminal scrollback. Higher layers draw cells rather than escape sequences.
+// Geometry uses standard half-open image rectangles.
 package grid
 
 import (
@@ -175,20 +162,9 @@ func (s Style) Merge(over Style) Style {
 	return out
 }
 
-// Ground is what a terminal's own two colours actually are.
-//
-// Leaving a cell's colour at the default is the right way to store it: the user's
-// own theme shows through, an unstyled cell costs nothing on the wire, and a
-// terminal recoloured while a program is running follows along. The price is that
-// "the terminal's own" is not a value, and anything that has to mix with what is
-// underneath needs one. This is where the answer is kept, once the terminal has been
-// asked through the terminal colour-query protocol.
-//
-// The zero value is two defaults, which is what a terminal that was not asked or
-// did not answer leaves behind. Blending through it resolves nothing and changes
-// nothing, which is the honest outcome: a scrim over an unknown background is a
-// question with no answer, and the visible cost of skipping it — a layer that does
-// not dim what it covers — is far smaller than the cost of guessing.
+// Ground holds queried terminal colors so default cells can follow terminal
+// recoloring while blending can resolve actual RGB values. The zero value leaves
+// unknown colors unresolved; blending cannot guess a missing background.
 type Ground struct{ FG, BG Color }
 
 // Resolve fills in whatever a style left to the terminal, so a caller that needs

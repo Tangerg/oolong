@@ -20,9 +20,6 @@ import (
 // no styling of its own.
 type Overlay struct {
 	layout.Placement
-	// Theme is the look, of which an overlay uses exactly one part: the scrim it
-	// paints over what it covers, so the eye goes to the layer and it is obvious that
-	// what is behind is not the thing to act on. A zero theme covers nothing.
 	Theme Theme
 }
 

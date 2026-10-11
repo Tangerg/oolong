@@ -28,11 +28,7 @@ const percentWidth = 4
 // — a byte count, a file count, a test count — and a widget that kept its own copy
 // would be a second place for them to be wrong.
 type Progress struct {
-	// Theme is the look: the bar is the thing the interface is about, its track is
-	// structure to skip, and the numbers beside it are for reference.
-	Theme Theme
-	// Glyphs are what the bar is drawn with. A progress bar is furniture, so one
-	// given no glyphs draws nothing — see the package documentation.
+	Theme  Theme
 	Glyphs Glyphs
 
 	// Done and Total are the work: how much of it is finished, and how much there is

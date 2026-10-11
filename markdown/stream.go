@@ -9,39 +9,13 @@ import (
 	"github.com/yuin/goldmark/ast"
 )
 
-// Stream renders markdown that is still arriving.
-//
-// A markdown parser takes a document; a program showing a model's answer has a prefix
-// of one, growing a few words at a time, and re-rendering the whole of it on every
-// chunk is quadratic in the length of the answer. So a stream splits what has arrived
-// into the part that is certainly finished and the part that is not. [Stream.Feed]
-// hands back blocks for the first, once, and never looks at that text again;
-// [Stream.Open] renders the second. A list or other open container stays in that
-// tail until the parser sees the following block or Flush ends the source.
-//
-//	for chunk := range answer {
-//	    blocks, feedErr := stream.Feed(chunk)
-//	    doc.Append(blocks...)
-//	    live, openErr = stream.Open()
-//	    report(errors.Join(feedErr, openErr))
-//	}
-//	blocks, err := stream.Flush()
-//	doc.Append(blocks...)
-//	report(err)
-//
-// It cuts at a blank line once a line has arrived after it that does not begin with a
-// space. The parser confirms that this candidate separates complete blocks;
-// transport chunk boundaries never decide list membership or numbering.
-//
-// A reference link can still be published before its address arrives and come out
-// as the words without the link. Definitions for already published blocks must
-// precede those blocks.
-//
-// A Stream must not be copied after first use, like [strings.Builder]. It is owned by
-// the goroutine feeding and rendering one source. Renderer callbacks may read Look,
-// but reentering Feed, Open, Flush, Reset or SetLook on that stream panics: the active
-// operation owns its unpublished source and cache until rendering returns.
-// Its zero value is ready.
+// Stream publishes complete blocks once and retains an open tail so new chunks
+// do not rerender the entire prefix. Parser-confirmed boundaries keep lists and
+// containers together regardless of transport chunking. Definitions must precede
+// published reference links; later definitions cannot revise transferred blocks.
+// The zero value is ready. A Stream belongs to one source goroutine and must not
+// be copied after first use. Renderer callbacks may read Look; reentering Feed,
+// Open, Flush, Reset or SetLook panics while source and cache remain unpublished.
 type Stream struct {
 	noCopy noCopy
 
@@ -108,16 +82,8 @@ func cloneLook(look Look) Look {
 	return look
 }
 
-// Feed takes another piece of the answer and returns the blocks it finished.
-//
-// Nothing is lost by a chunk that finishes nothing: what it added is held, and the
-// blocks it eventually becomes are returned by a later call or by [Stream.Flush].
-//
-// It follows the ordinary streaming-decoder shape: hand over the next piece, take
-// back what is now decidable, and let Flush settle what only the end can. It is
-// deliberately not Write — this is not an io.Writer,
-// and something wired to a command's output is written to from a goroutine that may
-// not touch what is on screen.
+// Feed returns newly completed blocks and retains the rest until later input or
+// [Stream.Flush]. Feed belongs to the stream owner, not a background io.Writer.
 func (s *Stream) Feed(chunk string) ([]Block, error) {
 	s.requireIdle()
 	if chunk == "" {
@@ -214,18 +180,9 @@ func (s *Stream) render(source string) ([]Block, error) {
 	return Render(source, s.look)
 }
 
-// scan reads the complete lines that have arrived since the last call and returns
-// where the held text could be cut, or zero for nowhere.
-//
-// Could, not may: this reads lines and nothing else. Whether a cut there falls inside
-// text the parser may not interpret is [Stream.splitsBlock]'s answer, and the scan
-// has no opinion about it — tracking fences approximately is what made three lines
-// that only look like one leave the scan believing it was inside a block of code
-// nothing could close, proposing no cuts at all. A guard that can only refuse a
-// candidate cannot recover one that is never offered.
-//
-// Only whole lines are looked at, because a line that has not ended cannot be told
-// apart from the beginning of a different one.
+// Only complete lines can propose boundaries; partial lines may still change their
+// meaning. The parser validates candidates so approximate fence tracking cannot
+// prevent a valid cut from ever being offered.
 func (s *Stream) scan() int {
 	cut := 0
 	source := s.held.String()
@@ -262,16 +219,8 @@ func indented(line string) bool {
 	return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 }
 
-// splitsBlock reports whether a proposed cut divides one parsed block.
-//
-// The scan that proposes cuts reads lines and nothing else, which is enough to find
-// where one could go and not enough to be sure one may. Fenced code, display
-// mathematics and the seven HTML forms all have boundaries only the parser knows: how
-// deep a container indents its contents, whether a run of backticks inside a block
-// closes it or is part of it, whether a raw block is still open. Every one of those
-// is a rule the parser already has, and a second reading of them agrees with it right
-// up until the document where it does not — so the parser answers, and the scan only
-// proposes.
+// Only the parser knows whether fences, HTML or container indentation cross a cut.
+// The scanner proposes candidates without creating a second set of block rules.
 func (s *Stream) splitsBlock(cut int) bool {
 	source := []byte(s.held.String())
 	whole := parse(source)

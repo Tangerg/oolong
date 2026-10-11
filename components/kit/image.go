@@ -45,9 +45,7 @@ type Image struct {
 	// Alt is what to say where the picture cannot be shown.
 	Alt string
 	// Align is where a picture narrower than its space sits.
-	Align layout.Align
-	// Theme is the look of the alternative text, which is text present for reference
-	// rather than for reading.
+	Align  layout.Align
 	Theme  Theme
 	Glyphs Glyphs
 }
