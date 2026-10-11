@@ -18,6 +18,54 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-10-12
+
+### Fixed
+
+- Binding transfers prepare required reads and identity comparisons before publishing
+  ownership. An abnormal exit preserves the old owner, history and validation;
+  replacing an idle accessor does not consult its abandoned answer.
+- Paragraph prepares link detection before publishing text or link policy. Detection
+  failure preserves the previous text, links and layout; detection callbacks may
+  read the last complete state but cannot reenter SetText or SetLinks.
+- History publishes additions and walk movement after copying and equality succeed.
+  A callback's abnormal exit preserves retained entries, the cursor and saved draft.
+- Controlled Text settles its draft, revision and history against the accessor's
+  accepted value when a write panics or exits its goroutine. An unreadable accepted
+  value retains the pending settlement until the next semantic operation can read
+  it. Abnormal exits propagate; an old write cannot overwrite a newer edit or binding
+  during unwind.
+- Filter prepares matching before publishing its source, text projection and pattern.
+  A projection panic preserves the previous matches and cursor; projection callbacks
+  cannot reenter SetItems or SetPattern.
+- Controlled Select navigation submits proposals without advancing a private
+  answer cursor. Rejected unavailable values consistently project the first option,
+  and external choices reveal their row even when returning to index zero. Binding
+  transfers and option replacements cannot revive an old local cursor's scroll request.
+- Controlled MultiSelect answers remain solely with their accessor. Toggle and
+  Reply submit private proposals, and reads project the accepted answer without a
+  writable selection mirror. Local answers retain their own independent lifetime.
+- Table prepares rows, cursor and sorting metadata before publishing a complete
+  order. A comparison panic preserves the previous rows, comparator and order;
+  comparison callbacks cannot reenter SetItems, SetLess, SortBy or ClearSort.
+- Transcript pointer input uses the visible cells and targets of its committed
+  frame. Replacing the presented content or selection, including an away-and-back
+  replacement, cannot continue an old drag or click run; release still settles its
+  original selection. Wheel input waits for a replacement Scroll to be presented.
+
+### Changed
+
+- Completion derives its open state directly from its candidate collection.
+
+### Breaking API migration
+
+#### components
+
+- `headless.(*Select[T]).Sync` is removed. Controlled choices read their accessor
+  directly; remove cursor synchronization calls. Use Validate to settle an initial
+  unavailable answer. Replacing options offers the first remaining option when the
+  bound answer disappears; a local cursor still preserves its clamped position.
+
 ## [0.22.1] — 2026-10-09
 
 ### Fixed

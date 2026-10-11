@@ -41,10 +41,10 @@ func Options[T ~string](values ...T) []Option[T] {
 // is a list that can be left on a row nobody took.
 //
 // The zero value is empty and ready. A Select must not be copied after first use: its
-// options, cursor, scroll and controlled-state settlement are one mutable field.
+// options, local cursor and scroll are one mutable field.
 // NewSelect configures a caller-owned answer; SetBinding transfers ownership.
-// The cursor follows the accessor's accepted choice. An unavailable answer projects
-// the current cursor and is offered back to the owner during validation.
+// A controlled cursor projects the accessor's accepted choice. An unavailable answer
+// projects the first option and is offered back to the owner during validation.
 type Select[T any] struct {
 	noCopy noCopy
 
@@ -75,20 +75,21 @@ type Select[T any] struct {
 // SetBinding transfers the answer to a new accessor and invalidates old validation
 // and key sequences. Nil retains the currently accepted answer as local state.
 // The completed transfer is visible to resolver cancellation callbacks.
+// Required reads and identity comparisons finish before the transfer. An abnormal
+// exit preserves the previous owner and validation.
 func (s *Select[T]) SetBinding(value Accessor[T]) {
+	var selected int
+	if value == nil {
+		selected = s.selected()
+	} else {
+		selected, _ = s.indexOf(value.Value())
+	}
 	s.matcher.Reset(func() {
-		previous, hadPrevious := s.Chosen()
 		s.value = value
-		if value == nil && hadPrevious {
-			for i, option := range s.list.items {
-				if option.holds(previous.Value, s.Same) {
-					s.list.Select(i)
-					break
-				}
-			}
-		} else {
-			s.sync()
+		if value == nil {
+			s.list.Select(selected)
 		}
+		s.list.reveal(selected)
 		s.invalidateValidation()
 	})
 }
@@ -97,9 +98,9 @@ func (s *Select[T]) SetBinding(value Accessor[T]) {
 func (s *Select[T]) Prompt() string { return s.Label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
-// choice still exists under Same, the cursor
-// follows it to its new position; otherwise the cursor is clamped and the bound
-// value follows the resulting choice. Non-empty options require Same; omitting it
+// choice still exists under Same, the cursor follows it to its new position.
+// Otherwise a local cursor is clamped; a controlled field offers the first option
+// to its owner. Non-empty options require Same; omitting it
 // is a programmer error and panics. The initial unmatched value is settled by Validate.
 func (s *Select[T]) SetOptions(options []Option[T]) {
 	s.matcher.Reset(func() { s.setOptions(options) })
@@ -107,20 +108,20 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 
 func (s *Select[T]) setOptions(options []Option[T]) {
 	previous, hadPrevious := s.list.Current()
-	if hadPrevious && s.value != nil {
-		previous, hadPrevious = s.Chosen()
-	}
 	if len(options) > 0 && s.Same == nil {
 		panic("headless: Select requires Same before SetOptions")
 	}
-	s.list.SetItems(options)
+	if s.value == nil {
+		s.list.SetItems(options)
+	} else {
+		s.list.replaceItems(options)
+	}
 	for i := range s.list.items {
 		s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
 	}
 	if s.value != nil {
 		if hadPrevious {
-			s.sync()
-			s.store()
+			s.selectAt(s.selected())
 		}
 		return
 	}
@@ -128,12 +129,10 @@ func (s *Select[T]) setOptions(options []Option[T]) {
 		for i, option := range s.list.items {
 			if option.holds(previous.Value, s.Same) {
 				s.list.Select(i)
-				s.store()
 				return
 			}
 		}
 	}
-	s.store()
 }
 
 // Options returns a copy of what is on offer.
@@ -141,11 +140,15 @@ func (s *Select[T]) Options() []Option[T] { return slices.Clone(s.list.items) }
 
 // Chosen projects the current choice without changing the cursor or writing Value.
 func (s *Select[T]) Chosen() (Option[T], bool) {
-	at := s.list.Selected()
+	return s.list.At(s.selected())
+}
+
+func (s *Select[T]) selected() int {
 	if s.value != nil {
-		at, _ = s.indexOf(s.value.Value())
+		at, _ := s.indexOf(s.value.Value())
+		return at
 	}
-	return s.list.At(at)
+	return s.list.Selected()
 }
 
 // HeightForWidth is the label, the options within their cap, and the problem if there is one.
@@ -164,11 +167,12 @@ func (s *Select[T]) Draw(v Frame) {
 
 // DrawWith paints the field using this frame's look without changing configuration.
 func (s *Select[T]) DrawWith(v Frame, look Look) {
-	selected := s.list.Selected()
+	var choice *int
 	if s.value != nil {
-		selected, _ = s.indexOf(s.value.Value())
+		selected := s.selected()
+		choice = &selected
 	}
-	s.list.drawRows(s.frame(v, s.Label, look), selected, func(v grid.View, _ int, option Option[T], under bool) {
+	s.list.drawRows(s.frame(v, s.Label, look), choice, func(v grid.View, _ int, option Option[T], under bool) {
 		if s.Row != nil {
 			s.Row(v, option, under, under, look)
 		} else {
@@ -183,36 +187,36 @@ func (s *Select[T]) indexOf(want T) (int, bool) {
 			return i, true
 		}
 	}
-	return s.list.Selected(), false
+	return 0, false
 }
 
 // Handle moves the cursor, and takes the choice with it.
 func (s *Select[T]) Handle(ev input.Event) bool {
-	s.Sync()
 	if key, ok := ev.(input.Key); ok {
-		_, handled := s.matcher.Handle(s.list.keys(), key, s.Do)
+		keys := s.Keys
+		if keys == nil {
+			keys = listKeys()
+		}
+		_, handled := s.matcher.Handle(keys, key, s.Do)
 		return handled
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
-		ev = s.local(mouse)
+		return s.list.mouse(s.local(mouse), s.selectAt)
 	}
-	before := s.list.Selected()
-	handled := s.list.Handle(ev)
-	if s.list.Selected() != before {
-		s.store()
-	}
-	return handled
+	return false
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (s *Select[T]) Do(action keymap.Action) bool {
-	s.Sync()
-	before := s.list.Selected()
-	if !s.list.Do(action) {
+	before := s.selected()
+	at, known := s.list.target(action, before)
+	if !known {
 		return false
 	}
-	if s.list.Selected() != before {
-		s.store()
+	if at == before {
+		s.list.reveal(before)
+	} else {
+		s.selectAt(at)
 	}
 	return true
 }
@@ -220,9 +224,8 @@ func (s *Select[T]) Do(action keymap.Action) bool {
 // Validate checks the choice.
 func (s *Select[T]) Validate() error {
 	return s.validate(func() error {
-		s.Sync()
 		// An unmatched initial value is settled at this semantic boundary, once.
-		s.store()
+		s.selectAt(s.selected())
 		return nil
 	}, s.checkAnswer)
 }
@@ -256,7 +259,7 @@ func (s *Select[T]) checkAnswer() fieldCheck {
 // Focus takes the keyboard or gives it up, and checks the choice on the way out.
 func (s *Select[T]) Focus(has bool) {
 	change := func() {
-		s.focus(has, s.list.Focus, s.Sync, s.Validate)
+		s.focus(has, s.list.Focus, nil, s.Validate)
 	}
 	if has {
 		change()
@@ -265,39 +268,15 @@ func (s *Select[T]) Focus(has bool) {
 	}
 }
 
-// Sync reconciles the cursor with Value without accepting an unavailable value.
-func (s *Select[T]) Sync() {
-	s.list.Keys = s.Keys
-	s.sync()
-}
-
-// sync reconciles the cursor with the caller-owned value without accepting an
-// unavailable value. Validation or an actual selection transition performs that
-// settlement through store; a read alone is not an assignment.
-func (s *Select[T]) sync() {
+func (s *Select[T]) selectAt(at int) {
 	if s.value == nil {
+		s.list.Select(at)
 		return
 	}
-	s.syncValue(s.value.Value())
-}
-
-func (s *Select[T]) syncValue(value T) {
-	// The cursor starts on the choice already made, which is what makes a form somebody
-	// is coming back to show what they said last time.
-	at, _ := s.indexOf(value)
-	s.list.Select(at)
-}
-
-func (s *Select[T]) store() {
-	if s.value == nil {
-		return
-	}
-	if chosen, ok := s.list.Current(); ok {
+	if chosen, ok := s.list.At(at); ok {
 		if chosen.holds(s.value.Value(), s.Same) {
 			return
 		}
 		s.value.Set(chosen.Value)
-		// Set may hand ownership to another accessor or to a newer local answer.
-		s.sync()
 	}
 }

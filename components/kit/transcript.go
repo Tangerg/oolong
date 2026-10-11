@@ -57,10 +57,17 @@ type Transcript struct {
 	Glyphs Glyphs
 
 	presentation headless.Snapshot[transcriptPresentation]
-	// dragged is the selection that accepted the current press. Selection may be
-	// replaced between frames; the old gesture must be settled on its old owner and
-	// never transferred to the replacement.
-	dragged *headless.Selection
+	// clicked is the presentation lifetime that received the last counted press.
+	// Selection owns the count; a different target starts a new click run.
+	clicked *byte
+	// dragged retains the selection and the presentation lifetime that took the
+	// press. Another document's geometry cannot advance that selection.
+	dragged *transcriptGesture
+}
+
+type transcriptGesture struct {
+	selection *headless.Selection
+	identity  *byte
 }
 
 // Draw fills v with as much of the transcript as fits.
@@ -72,6 +79,13 @@ func (t *Transcript) Draw(v headless.Frame) {
 	}
 	content := t.Content.Stage(v, w)
 	window := t.window(content, v)
+	previous := t.presentation.Value()
+	if t.Selection != nil && !v.Visible().Empty() {
+		window.presentation.identity = previous.identity
+		if previous.identity == nil || previous.content != t.Content || previous.selection != t.Selection {
+			window.presentation.identity = new(byte)
+		}
+	}
 	t.presentation.Stage(v, window.presentation)
 
 	if window.pinned.Rows > 0 {
@@ -112,7 +126,9 @@ func (t *Transcript) window(content headless.TranscriptLayout, frame headless.Fr
 		presentation: transcriptPresentation{
 			content:   t.Content,
 			selection: t.Selection,
+			scroll:    t.Scroll,
 			body:      bodyRect,
+			visible:   frame.Visible(),
 			from:      from,
 		},
 	}
@@ -331,11 +347,23 @@ type Printer interface {
 //
 // Selection starts with the left button and ends on its release or an unspecified
 // release, even outside the transcript. Another button's release leaves it active.
+// Presses and wheel input use the targets and visible area of the committed frame. Replacing
+// the presented content or selection revokes drag coordinates and the old click run;
+// release still settles the original selection. A pending replacement does not change
+// the presented target.
 //
 // The position is in the transcript's own coordinates, which whoever drew it is
 // responsible for — inside a [headless.Container], the container.
 func (t *Transcript) Handle(event input.Event) bool {
-	if t.Scroll != nil && t.Scroll.Handle(event, t.Keys) {
+	scroll := t.Scroll
+	if mouse, ok := event.(input.Mouse); ok && (mouse.Action == input.WheelUp || mouse.Action == input.WheelDown) {
+		presented := t.presentation.Value()
+		if !mouse.Pos.In(presented.visible) {
+			return false
+		}
+		scroll = presented.scroll
+	}
+	if scroll != nil && scroll.Handle(event, t.Keys) {
 		return true
 	}
 	ev, ok := event.(input.Mouse)
@@ -344,6 +372,7 @@ func (t *Transcript) Handle(event input.Event) bool {
 	}
 	switch ev.Action {
 	case input.MouseCancel:
+		t.clicked = nil
 		t.release()
 		return false
 	case input.MouseDown:
@@ -374,6 +403,10 @@ func (t *Transcript) press(event input.Mouse) bool {
 	if !on {
 		return false
 	}
+	if t.clicked != presented.identity {
+		presented.selection.Clicks.Reset()
+		t.clicked = presented.identity
+	}
 	run := presented.selection.Clicks.Press(event)
 	// A word or a row, when there is one there. A double-click in the margin has
 	// nothing to take, and falls back to starting a selection like any press.
@@ -388,19 +421,23 @@ func (t *Transcript) press(event input.Mouse) bool {
 		}
 	}
 	presented.selection.Begin(at)
-	t.dragged = presented.selection
+	t.dragged = &transcriptGesture{selection: presented.selection, identity: presented.identity}
 	return true
 }
 
 func (t *Transcript) drag(event input.Mouse) bool {
-	if t.dragged == nil || !t.dragged.Dragging() || !event.Drags(input.ButtonLeft) {
+	if t.dragged == nil || !t.dragged.selection.Dragging() || !event.Drags(input.ButtonLeft) {
 		return false
 	}
-	at, on := t.presentation.Value().pointAt(event.Pos, true)
+	presented := t.presentation.Value()
+	if presented.identity != t.dragged.identity {
+		return false
+	}
+	at, on := presented.pointAt(event.Pos, true)
 	if !on {
 		return false
 	}
-	t.dragged.Extend(at)
+	t.dragged.selection.Extend(at)
 	return true
 }
 
@@ -418,14 +455,17 @@ func (t *Transcript) release() bool {
 	}
 	dragged := t.dragged
 	t.dragged = nil
-	dragged.Done()
+	dragged.selection.Done()
 	return true
 }
 
 type transcriptPresentation struct {
 	content          *headless.Transcript
 	selection        *headless.Selection
+	scroll           *headless.Scroll
+	identity         *byte
 	body, header     image.Rectangle
+	visible          image.Rectangle
 	from, headerFrom int
 }
 
@@ -443,6 +483,15 @@ type transcriptWindow struct {
 // of an existing drag, not a new hit: dragging beyond a text window extends to the
 // first or last visible cell, while a press beyond it still belongs to nobody here.
 func (p transcriptPresentation) pointAt(point image.Point, nearest bool) (headless.Point, bool) {
+	if p.visible.Empty() {
+		return headless.Point{}, false
+	}
+	if nearest {
+		point.X = min(max(point.X, p.visible.Min.X), p.visible.Max.X-1)
+		point.Y = min(max(point.Y, p.visible.Min.Y), p.visible.Max.Y-1)
+	} else if !point.In(p.visible) {
+		return headless.Point{}, false
+	}
 	area, row, ok := p.rowAt(point)
 	if !ok && nearest {
 		area, row, ok = p.nearestRow(point.Y)
@@ -471,16 +520,17 @@ func (p transcriptPresentation) rowAt(point image.Point) (image.Rectangle, int, 
 }
 
 func (p transcriptPresentation) nearestRow(y int) (image.Rectangle, int, bool) {
-	if !p.header.Empty() && y < p.body.Min.Y {
-		at := min(max(y, p.header.Min.Y), p.header.Max.Y-1)
+	header, body := p.header.Intersect(p.visible), p.body.Intersect(p.visible)
+	if !header.Empty() && y < p.body.Min.Y {
+		at := min(max(y, header.Min.Y), header.Max.Y-1)
 		return p.header, layout.Sum(p.headerFrom, layout.Relative(at, p.header.Min.Y)), true
 	}
-	if !p.body.Empty() {
-		at := min(max(y, p.body.Min.Y), p.body.Max.Y-1)
+	if !body.Empty() {
+		at := min(max(y, body.Min.Y), body.Max.Y-1)
 		return p.body, layout.Sum(p.from, layout.Relative(at, p.body.Min.Y)), true
 	}
-	if !p.header.Empty() {
-		at := min(max(y, p.header.Min.Y), p.header.Max.Y-1)
+	if !header.Empty() {
+		at := min(max(y, header.Min.Y), header.Max.Y-1)
 		return p.header, layout.Sum(p.headerFrom, layout.Relative(at, p.header.Min.Y)), true
 	}
 	return image.Rectangle{}, 0, false

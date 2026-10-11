@@ -19,6 +19,9 @@ import (
 // The zero value is ready. A Text value must not be copied after first use: its editor,
 // validation and caller-owned reconciliation are one mutable field.
 // NewText configures a caller-owned answer; SetBinding is its ownership transition.
+// An accessor's abnormal write exit settles the edit onto its accepted answer.
+// If that answer cannot be read, settlement waits for the next semantic operation.
+// Settlement never suppresses an abnormal exit.
 type Text struct {
 	noCopy noCopy
 
@@ -65,15 +68,19 @@ func (t *Text) Text() string {
 // selection and validation. Nil takes the currently accepted answer into local state.
 // The complete transfer precedes resolver cancellation; reentry cannot revive the old
 // edit. Synchronization canonicalizes an external value at the next semantic operation.
+// Required reads finish before the transfer. An abnormal read exit preserves the
+// previous owner and its history.
 func (t *Text) SetBinding(value Accessor[string]) {
+	t.finishPending()
+	var accepted string
+	if value == nil {
+		accepted = t.Text()
+	} else {
+		accepted = oneLineText(value.Value())
+	}
 	t.editor.matcher.Reset(func() {
-		t.finishPending()
-		accepted := t.Text()
 		t.operation++
 		t.value, t.owner = value, new(byte)
-		if value != nil {
-			accepted = oneLineText(value.Value())
-		}
 		t.editor.SetText(accepted)
 		t.editor.SelectNone()
 		t.editor.history.clear()
@@ -218,6 +225,7 @@ func (t *Text) Sync() {
 	if binding == nil {
 		return
 	}
+	t.finishPending()
 	owned := binding.Value()
 	value := oneLineText(owned)
 	if value != owned {
@@ -246,6 +254,12 @@ func (t *Text) store(edit textEdit) {
 	if t.value != nil {
 		pending := &textSettlement{edit: edit, requested: t.editor.Text()}
 		t.pending = pending
+		// Abnormal exits still settle this proposal; reentry may already have done so.
+		defer func() {
+			if t.pending == pending {
+				t.finishPending()
+			}
+		}()
 		accepted := oneLineText(t.offer(pending.requested))
 		if t.pending == pending {
 			t.pending = nil
@@ -265,8 +279,9 @@ type textSettlement struct {
 
 func (t *Text) finishPending() {
 	if pending := t.pending; pending != nil {
+		accepted := t.Text()
 		t.pending = nil
-		t.settleEdit(pending, t.Text())
+		t.settleEdit(pending, accepted)
 	}
 }
 

@@ -16,13 +16,11 @@ func (s *Select[T]) Ask() string {
 // Reply takes a number or one of the labels.
 func (s *Select[T]) Reply(said string) error {
 	return s.validate(func() error {
-		s.Sync()
 		at, err := choose(said, s.list.items)
 		if err != nil {
 			return err
 		}
-		s.list.Select(at)
-		s.store()
+		s.selectAt(at)
 		return nil
 	}, s.checkAnswer)
 }
@@ -56,9 +54,9 @@ func (m *MultiSelect[T]) Reply(said string) error {
 		if m.limit > 0 && count > m.limit {
 			return fmt.Errorf("at most %d may be chosen", m.limit)
 		}
-		if !slices.Equal(m.taken, taken) {
-			m.taken = taken
-			m.store()
+		current, _ := m.selection()
+		if !slices.Equal(current, taken) {
+			m.store(taken)
 		}
 		return nil
 	}, m.checkAnswer)

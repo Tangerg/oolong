@@ -25,6 +25,8 @@ import (
 //
 // The zero Table is an empty list in no particular order. A Table must not be copied
 // after first use: its rows, cursor, ordering and scroll are one mutable owner.
+// Comparisons must be pure. Reentering SetLess, SetItems, SortBy or ClearSort from
+// a comparison panics; see SetLess for ordering and failure guarantees.
 type Table[T any] struct {
 	noCopy noCopy
 
@@ -47,53 +49,79 @@ type Table[T any] struct {
 	// kept the same length as the columns.
 	less func(a, b T, column int) bool
 
+	order   *tableOrder
+	sorting bool
+}
+
+type tableOrder struct {
 	column     int
 	descending bool
-	sorted     bool
 }
 
 // SetLess changes how columns order rows. A table already in a sorted state is
 // immediately reordered by the new comparison; nil leaves the current row order in
 // place and marks it unsorted. Keeping this transition inside Table prevents its
 // reported order from getting out of step with its rows.
+// The comparison must be pure and define a strict weak ordering. Reentering an
+// ordering mutation (SetLess, SetItems, SortBy or ClearSort) from it panics.
+// A comparison panic leaves the previous rows, comparison and reported order intact.
 func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
-	t.less = less
+	t.requireIdle()
 	if less == nil {
-		t.sorted = false
+		t.less, t.order = nil, nil
 		return
 	}
-	t.reorder()
+	if t.order == nil {
+		t.less = less
+		return
+	}
+	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), less, *t.order)
+	t.rows.matcher.Reset(func() {
+		t.less = less
+		t.replaceRows(items, selected)
+	})
 }
 
 // SortBy orders the rows by a column, and reports whether anything changed.
 //
 // Asking for the column it is already sorted by turns the order round, which is what
 // a reader means by pressing the same header twice.
+// Rows and their reported order publish together only after comparison succeeds.
 func (t *Table[T]) SortBy(column int) bool {
+	t.requireIdle()
 	if t.less == nil || column < 0 || t.rows.Len() == 0 {
 		return false
 	}
-	if t.sorted && t.column == column {
-		t.descending = !t.descending
-	} else {
-		t.column, t.descending, t.sorted = column, false, true
+	order := tableOrder{column: column}
+	if t.order != nil && t.order.column == column {
+		order.descending = !t.order.descending
 	}
-	t.reorder()
+	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), t.less, order)
+	t.rows.matcher.Reset(func() {
+		t.order = &order
+		t.replaceRows(items, selected)
+	})
 	return true
 }
 
 // Sorted is the column the rows are in the order of, whether that order is reversed,
-// and whether they are sorted at all.
+// and whether they are sorted at all. An unsorted table returns (0, false, false).
 //
 // It is what a header asks to draw the mark beside the column being sorted by, which
 // is the only way a reader can tell an order from a coincidence.
 func (t *Table[T]) Sorted() (column int, descending, ok bool) {
-	return t.column, t.descending, t.sorted
+	if t.order == nil {
+		return 0, false, false
+	}
+	return t.order.column, t.order.descending, true
 }
 
 // ClearSort forgets the order, leaving the rows where they are. It is what a caller
 // calls when it has replaced the rows with something whose order means something.
-func (t *Table[T]) ClearSort() { t.sorted = false }
+func (t *Table[T]) ClearSort() {
+	t.requireIdle()
+	t.order = nil
+}
 
 // SetItems replaces the rows, keeping the order the table is sorted by.
 //
@@ -102,9 +130,14 @@ func (t *Table[T]) ClearSort() { t.sorted = false }
 // throws the order away. A table that lost its order every time its rows were
 // refreshed would be a table nobody could read while it was updating.
 func (t *Table[T]) SetItems(items []T) {
+	t.requireIdle()
+	items = slices.Clone(items)
+	selected := min(max(t.rows.selected, 0), max(len(items)-1, 0))
+	if t.order != nil {
+		items, selected = t.sortRows(items, selected, t.less, *t.order)
+	}
 	t.rows.matcher.Reset(func() {
-		t.list().SetItems(items)
-		t.reorder()
+		t.replaceRows(items, selected)
 	})
 }
 
@@ -174,24 +207,29 @@ func (t *Table[T]) list() *List[T] {
 	return &t.rows
 }
 
-// reorder sorts the rows and carries the cursor with the row it was on.
-//
-// The permutation is sorted rather than the rows, so that where the selected row
-// went is known exactly. Following it by comparing rows afterwards would need this
-// type to know how to tell two of them apart, which is knowledge only the caller
-// has — and would land on the wrong row whenever two of them were alike.
-func (t *Table[T]) reorder() {
-	if !t.sorted || t.less == nil || t.rows.Len() < 2 {
-		return
+func (t *Table[T]) requireIdle() {
+	if t.sorting {
+		panic("headless: table ordering mutation during comparison")
 	}
-	t.rows.matcher.Reset(t.sortRows)
 }
 
-func (t *Table[T]) sortRows() {
-	items := t.rows.Items()
-	order := make([]int, len(items))
-	for i := range order {
-		order[i] = i
+func (t *Table[T]) replaceRows(items []T, selected int) {
+	t.list().SetItems(items)
+	t.rows.Select(selected)
+}
+
+// Sorting a permutation preserves the selected row without requiring T equality.
+// Preparation borrows only private rows; publication and resolver cancellation wait
+// until the comparison has returned, so a failure cannot claim an unfinished order.
+func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, order tableOrder) ([]T, int) {
+	if len(items) < 2 {
+		return items, selected
+	}
+	t.sorting = true
+	defer func() { t.sorting = false }()
+	permutation := make([]int, len(items))
+	for i := range permutation {
+		permutation[i] = i
 	}
 	// A stable sort, so rows the column cannot tell apart keep the order they were
 	// given — which is where the caller's own idea of importance lives.
@@ -199,32 +237,28 @@ func (t *Table[T]) sortRows() {
 	// The comparison is asked both ways round because the predicate answers one of
 	// them and a sort needs all three: rows it cannot separate must compare equal,
 	// or the sort has no ties to keep the order of.
-	slices.SortStableFunc(order, func(a, b int) int {
+	slices.SortStableFunc(permutation, func(a, b int) int {
 		x, y := items[a], items[b]
-		if t.descending {
+		if order.descending {
 			x, y = y, x
 		}
 		switch {
-		case t.less(x, y, t.column):
+		case less(x, y, order.column):
 			return -1
-		case t.less(y, x, t.column):
+		case less(y, x, order.column):
 			return 1
 		default:
 			return 0
 		}
 	})
 
-	was := t.rows.Selected()
-	moved := was
-	sorted := make([]T, len(order))
-	for at, from := range order {
+	moved := selected
+	sorted := make([]T, len(permutation))
+	for at, from := range permutation {
 		sorted[at] = items[from]
-		if from == was {
+		if from == selected {
 			moved = at
 		}
 	}
-	t.rows.SetItems(sorted)
-	if moved >= 0 {
-		t.rows.Select(moved)
-	}
+	return sorted, moved
 }

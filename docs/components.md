@@ -75,6 +75,9 @@ Configure state-changing behavior through methods. `SetItems` replaces the value
 the projection that says how they read as one source; `SetPattern` narrows that source.
 Both invalidate the cached ranking, so no intermediate source can disagree with its
 visible results.
+Matching finishes before either change is published. If the text projection panics,
+the previous source, pattern, matches and cursor remain intact. The projection must
+be pure and cannot call SetItems or SetPattern on that filter.
 
 ```go
 func (p *picker) configureItems(items []string) {
@@ -223,8 +226,9 @@ with your own package; `headless` never imports `kit`.
 A controlled field owns edits through its accessor. Configure `Select.Same` and
 `MultiSelect.Same` before installing options; `headless.Equal[T]` compares ordinary
 comparable values. Labels remain display text, so translating a label cannot change
-which value is selected. `Chosen`, `Taken`, and `Ask` only project state. Call `Sync`
-to explicitly reconcile external changes; input and validation also synchronize.
+which value is selected. `Chosen`, `Taken`, and `Ask` only project state. Select
+reads its owner directly and needs no Sync. Text.Sync reconciles the editing model;
+MultiSelect.Sync normalizes the caller's set at an explicit semantic boundary.
 
 Construct controlled fields with `NewText(TextConfig{Value: ...})`,
 `NewSelect(SelectConfig[T]{Value: ...})`, `NewMultiSelect(MultiSelectConfig[T]{Value: ...})`,
@@ -233,8 +237,18 @@ is their only replacement boundary. It cancels old key sequences and invalidates
 validation. Nil retains the accepted answer in local state. Accessors containing
 functions, maps or slices are supported without pointer or comparability restrictions.
 
+Required reads and identity comparisons finish before a binding transfer publishes.
+An abnormal exit preserves the previous owner, history and validation. Replacing an
+idle accessor does not read its abandoned answer; returning to local state does.
+Text settles an unfinished edit before transferring ownership.
+
 After an accessor callback, Select and MultiSelect project the current owner,
-including a transfer to local state. MultiSelect normalization does not resubmit a
+including a transfer to local state. Controlled Select and MultiSelect keep no
+writable answer mirror; navigation, Toggle and Reply submit private proposals to
+the accessor. An unavailable single answer projects the first option; Validate or
+replacing existing options offers it to the owner, and rejection remains invalid.
+Changing the caller's single answer reveals its projected row on the next frame.
+MultiSelect normalization does not resubmit a
 proposal that is still inside Set. If normalization starts a newer semantic operation,
 the interrupted Do or Toggle returns false, Handle consumes the event, and Reply
 returns `headless.ErrValidationSuperseded` before applying the obsolete answer.
@@ -271,6 +285,10 @@ Editor because the composer is an appearance wrapper around that editor.
 A reentrant Text operation first settles the offered edit against the accepted
 accessor value. An older call cannot roll back the new cursor or offer the new edit
 again. `Text.Do` returns false if synchronization revokes it before dispatch.
+If an accessor write panics or exits its goroutine, Text settles the draft, revision
+and history against the accepted value. If that value is also unreadable, the edit
+keeps its settlement until the next semantic operation can read it. Settlement does
+not suppress abnormal exits.
 Text's SetBinding starts new history and clears the old selection, so undo and a
 pending Cut cannot write the previous owner's content into the new owner.
 `Editor.Cut` returns false when its clipboard callback changes the content or selected
@@ -282,6 +300,12 @@ wins, and `Scroll.FollowingEnd` reports the follow policy. On `kit.Transcript`, 
 `Current` to highlight a match and call `RevealMatch(index)` to navigate to one.
 Editor requests resolve at the next frame's wrap width; resizing an already settled
 view preserves manual scrolling. Filter query resets return to the first result.
+
+Transcript presses and wheel input use the visible cells and targets of the last
+complete frame. Drag continuation clamps to those visible cells. Replacing its
+presented Content or Selection ends that gesture's coordinate lifetime and click run, including
+when the original target returns later; release still settles the original selection.
+Changing Scroll takes effect for wheel input when the replacement frame commits.
 
 For container children that move, assign stable keys and retain the same widget
 instances. `FocusIndex` addresses the current collection. Pointer input resolves the
@@ -337,6 +361,10 @@ must stop processing the interrupted event.
 Filter source and pattern setters rebuild matching, and Table replacements and sorts
 complete their cursor changes before canceling old key resolvers. Reading either
 collection cannot finish or originate an unfinished replacement.
+Table comparisons must be pure and define a strict weak ordering. Rows, cursor and
+sorting metadata publish together after comparison succeeds. A comparison panic
+leaves the previous rows, comparator and order intact; reentering SetItems, SetLess,
+SortBy or ClearSort from a comparison panics before changing them.
 Stack keyboard input belongs to its focus holder and is admitted only once that
 holder is presented. An old frame cannot activate a blurred child or dismiss an
 unseen replacement. Pointer input uses committed geometry.
@@ -356,6 +384,11 @@ one frame, using the same channel as built-in fields.
 `Completion.Dismiss` returns false if resolver cancellation starts a newer offer or
 dismissal. A caller advancing the old offer must stop; built-in acceptance checks
 this result before invoking the callback with the old candidate and token.
+
+`kit.Paragraph` publishes text and detected links together after `SetText` or
+`SetLinks` succeeds. `LinkConfig.Exists` may inspect the filesystem and read the
+last complete paragraph, but cannot reenter either setter. A detection panic
+preserves the previous text, link policy, links and layout.
 
 ## Keep structured prompt history
 
@@ -391,16 +424,21 @@ and returning retained entries. The example's strings are immutable, so copying
 the attachment slice is sufficient. `Clone: nil` uses ordinary assignment and is
 suitable for immutable values. `Equal: nil` keeps every entry, including consecutive
 duplicates. With equality configured, only adjacent equal entries are suppressed;
-an older equal entry keeps its place in the sequence. Equality borrows its arguments
-read-only. Copying and equality remain fixed for the history's lifetime.
+an older equal entry keeps its place in the sequence. Equality is observationally
+pure and borrows its arguments read-only. Copying and equality remain fixed for the
+history's lifetime.
 
 `Back(current)` saves the complete draft on its first successful step. `Forward()`
 returns it after passing the newest entry, and `Cancel()` returns it immediately.
-Both release History's reference to the draft when they end the walk. `Add` ends an
-active walk even when equality suppresses a duplicate. `At(1)` reads the newest
+Both release History's reference to the draft when they end the walk. A successful
+`Add` ends an active walk even when equality suppresses a duplicate. `At(1)` reads the newest
 entry without moving the cursor. `SetLimit(0)` restores the default limit of 1,000;
 a negative limit panics. If shrinking removes the entry being browsed, the next
 `Forward` reaches the oldest retained entry before newer entries and the draft.
+
+Additions and walk movement publish only after copying and equality succeed. If a
+callback panics or exits its goroutine, the entries, cursor and saved draft remain
+unchanged; the original exit propagates.
 
 Search uses a display projection independently of equality:
 

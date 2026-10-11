@@ -79,7 +79,7 @@ func (l *List[T]) Select(i int) {
 	next := l.clampIndex(i)
 	if next != l.selected {
 		l.selected = next
-		l.reveal()
+		l.reveal(next)
 	}
 }
 
@@ -102,14 +102,19 @@ func (l *List[T]) Move(n int) {
 // row coordinates cannot identify an item in a new collection.
 func (l *List[T]) SetItems(items []T) {
 	l.matcher.Reset(func() {
-		l.pointer.Left()
-		l.items = own(l.items, items)
-		l.itemsID = new(byte)
-		if len(l.items) == 0 {
-			l.scroll.ToTop()
-		}
+		l.replaceItems(items)
 		l.Select(l.selected)
 	})
+}
+
+// Collection replacement invalidates routing; its controller owns selection.
+func (l *List[T]) replaceItems(items []T) {
+	l.pointer.Left()
+	l.items = own(l.items, items)
+	l.itemsID = new(byte)
+	if len(l.items) == 0 {
+		l.scroll.ToTop()
+	}
 }
 
 // Items returns a copy of the items in list order.
@@ -151,7 +156,7 @@ func (l *List[T]) Hit(point image.Point) (int, bool) {
 // Handle answers keys, the wheel and a press, reporting whether it consumed the event.
 func (l *List[T]) Handle(ev input.Event) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
-		return l.mouse(mouse)
+		return l.mouse(mouse, l.Select)
 	}
 	key, ok := ev.(input.Key)
 	if !ok {
@@ -165,29 +170,41 @@ func (l *List[T]) Handle(ev input.Event) bool {
 // knows. See [Doer].
 func (l *List[T]) Do(action keymap.Action) bool {
 	before := l.Selected()
-	page := max(l.presentation.Value().window-1, 1)
-	switch action {
-	case SelectPrev:
-		l.Move(-1)
-	case SelectNext:
-		l.Move(1)
-	case SelectPageUp:
-		l.Move(-page)
-	case SelectPageDown:
-		l.Move(page)
-	case SelectFirst:
-		l.Select(0)
-	case SelectLast:
-		l.Select(len(l.items) - 1)
-	default:
+	at, known := l.target(action, before)
+	if !known {
 		return false
 	}
+	l.Select(at)
 	if l.Selected() == before {
-		// An explicit navigation action still asks to see the cursor at a boundary.
-		// Ordinary selection synchronization and Draw do not make that request.
-		l.reveal()
+		// Explicit navigation requests visibility even at a boundary.
+		l.reveal(before)
 	}
 	return true
+}
+
+func (l *List[T]) target(action keymap.Action, from int) (int, bool) {
+	page := max(l.presentation.Value().window-1, 1)
+	var delta int
+	switch action {
+	case SelectPrev:
+		delta = -1
+	case SelectNext:
+		delta = 1
+	case SelectPageUp:
+		delta = -page
+	case SelectPageDown:
+		delta = page
+	case SelectFirst:
+		return l.clampIndex(0), true
+	case SelectLast:
+		return l.clampIndex(len(l.items) - 1), true
+	default:
+		return 0, false
+	}
+	if len(l.items) == 0 {
+		return 0, true
+	}
+	return moveIndex(from, delta, len(l.items), l.Wrap), true
 }
 
 // mouse scrolls on the wheel and moves the selection to whatever was pressed.
@@ -196,7 +213,7 @@ func (l *List[T]) Do(action keymap.Action) bool {
 // it, which is what a list does everywhere. The position is in the list's own box —
 // whoever drew it is responsible for that, which for anything inside a [Container] is
 // the container.
-func (l *List[T]) mouse(ev input.Mouse) bool {
+func (l *List[T]) mouse(ev input.Mouse, choose func(int)) bool {
 	switch ev.Action {
 	case input.MouseCancel:
 		l.pointer.Left()
@@ -237,7 +254,7 @@ func (l *List[T]) mouse(ev input.Mouse) bool {
 	if !ok {
 		return false
 	}
-	l.Select(at)
+	choose(at)
 	return true
 }
 
@@ -287,20 +304,20 @@ func (l *List[T]) Draw(v Frame) {
 // geometry it computed once at the frame's width. The list still owns selection,
 // scrolling and committed pointer routing; [List.Draw] is this method with Row.
 func (l *List[T]) DrawRows(v Frame, draw func(grid.View, int, T, bool)) {
-	l.drawRows(v, l.Selected(), draw)
+	l.drawRows(v, nil, draw)
 }
 
-// drawRows projects a selection supplied by an owning controller without changing
-// this list's cursor. Select uses it to show a caller-owned initial value before the
-// first semantic operation initializes the cursor.
-func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, bool)) {
+// A non-nil choice projects an external owner; it never initializes the local cursor.
+func (l *List[T]) drawRows(v Frame, choice *int, draw func(grid.View, int, T, bool)) {
 	width, height := v.Size()
 	total := len(l.items)
 	scroll := l.scroll.Stage(v, total, height)
-	// A controller may project an external choice before Sync moves our cursor.
-	// Reveal that projection once; owned cursor movement already uses Scroll.Reveal.
-	if selected >= 0 && selected != l.selected && selected != l.presentation.Value().selected {
-		scroll.Reveal(selected, selected)
+	selected := l.Selected()
+	if choice != nil {
+		selected = *choice
+		if selected >= 0 && selected != l.presentation.Value().selected {
+			scroll.Reveal(selected, selected)
+		}
 	}
 	first := scroll.Offset()
 	l.presentation.Stage(v, listPresentation{
@@ -321,12 +338,12 @@ func (l *List[T]) drawRows(v Frame, selected int, draw func(grid.View, int, T, b
 }
 
 // reveal scrolls the least amount that brings the selection into the window.
-func (l *List[T]) reveal() {
+func (l *List[T]) reveal(at int) {
 	if len(l.items) == 0 {
 		return
 	}
 	l.scroll.layout(len(l.items), l.presentation.Value().window)
-	l.scroll.Reveal(l.selected, l.selected)
+	l.scroll.Reveal(at, at)
 }
 
 type listPresentation struct {

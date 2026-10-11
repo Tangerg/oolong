@@ -25,6 +25,8 @@ import (
 //
 // The zero Filter shows everything, in the order it was given. A Filter must not be
 // copied after first use: its source, ranked list and cursor are one mutable owner.
+// Source and pattern changes prepare their matches before publication. A projection
+// panic leaves the previous state intact; projections cannot reenter either setter.
 type Filter[T any] struct {
 	noCopy noCopy
 
@@ -44,7 +46,8 @@ type Filter[T any] struct {
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
 	Keys *keymap.Map
 
-	pattern string
+	pattern  string
+	matching bool
 	// list is what matched. It owns the cursor and the scroll.
 	list List[hit[T]]
 }
@@ -65,14 +68,15 @@ func (f *Filter[T]) Pattern() string { return f.pattern }
 // leave the cursor on whatever happened to land there, which is how a reader picks
 // something they did not mean.
 func (f *Filter[T]) SetPattern(pattern string) {
+	f.requireIdle()
 	if pattern == f.pattern {
 		return
 	}
+	pattern = strings.Clone(pattern)
+	hits := f.matches(f.items, f.text, pattern)
 	f.list.matcher.Reset(func() {
-		f.pattern = strings.Clone(pattern)
-		f.rebuild()
-		f.list.Select(0)
-		f.list.Scroll().ToTop()
+		f.pattern = pattern
+		f.replaceMatches(hits)
 	})
 }
 
@@ -82,13 +86,16 @@ func (f *Filter[T]) SetPattern(pattern string) {
 // transient source whose values and projection disagree. Nil text makes no item
 // match. The filter copies items, so the caller may reuse or change its input.
 // text must be observationally pure and stable until the next SetItems.
+// It cannot call SetItems or SetPattern on this filter; doing so panics. If text
+// panics, the previous source, projection, matches and cursor remain intact.
 func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
+	f.requireIdle()
+	items = slices.Clone(items)
+	hits := f.matches(items, text, f.pattern)
 	f.list.matcher.Reset(func() {
-		f.items = own(f.items, items)
+		f.items = items
 		f.text = text
-		f.rebuild()
-		f.list.Select(0)
-		f.list.Scroll().ToTop()
+		f.replaceMatches(hits)
 	})
 }
 
@@ -177,26 +184,37 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 	}
 }
 
-// rebuild projects the complete source and pattern at their owning setters.
-// An empty pattern matches everything with nothing marked and keeps source order.
-func (f *Filter[T]) rebuild() {
-	if f.text == nil {
-		f.list.SetItems(nil)
-		return
+func (f *Filter[T]) requireIdle() {
+	if f.matching {
+		panic("headless: filter source mutation during projection")
 	}
-	if f.pattern == "" {
-		hits := make([]hit[T], 0, len(f.items))
-		for _, item := range f.items {
+}
+
+func (f *Filter[T]) replaceMatches(hits []hit[T]) {
+	f.list.SetItems(hits)
+	f.list.Select(0)
+	f.list.Scroll().ToTop()
+}
+
+// Preparation borrows complete inputs and leaves the last publication readable.
+func (f *Filter[T]) matches(items []T, project func(T) string, pattern string) []hit[T] {
+	if project == nil {
+		return nil
+	}
+	if pattern == "" {
+		hits := make([]hit[T], 0, len(items))
+		for _, item := range items {
 			hits = append(hits, hit[T]{item: item})
 		}
-		f.list.SetItems(hits)
-		return
+		return hits
 	}
 
-	ranked := fuzzy.FilterFunc(f.pattern, f.items, f.text)
+	f.matching = true
+	defer func() { f.matching = false }()
+	ranked := fuzzy.FilterFunc(pattern, items, project)
 	hits := make([]hit[T], 0, len(ranked))
 	for _, r := range ranked {
-		hits = append(hits, hit[T]{item: f.items[r.Index], match: r.Match})
+		hits = append(hits, hit[T]{item: items[r.Index], match: r.Match})
 	}
-	f.list.SetItems(hits)
+	return hits
 }

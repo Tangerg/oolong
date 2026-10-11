@@ -45,7 +45,9 @@ type MultiSelect[T any] struct {
 	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
 	Row func(grid.View, Option[T], bool, bool, Look)
 
-	list    List[Option[T]]
+	list List[Option[T]]
+	// taken owns local answers only. Controlled answers are projected from value;
+	// operations offer an independent proposal without keeping a writable mirror.
 	taken   []bool
 	limit   int
 	matcher keymap.Matcher
@@ -58,14 +60,14 @@ type MultiSelect[T any] struct {
 // and key sequences. Nil retains the currently accepted answer as local state.
 // The completed transfer is visible to resolver cancellation callbacks.
 func (m *MultiSelect[T]) SetBinding(value Accessor[[]T]) {
+	var accepted []bool
+	if value == nil {
+		accepted, _ = m.selection()
+	}
 	m.matcher.Reset(func() {
-		accepted, _ := m.selection()
 		m.operation++
 		m.value, m.owner = value, new(byte)
 		m.taken = accepted
-		if value != nil {
-			m.taken, _ = m.selection()
-		}
 		m.invalidateValidation()
 	})
 }
@@ -94,13 +96,13 @@ func (m *MultiSelect[T]) setOptions(options []Option[T]) {
 	for i := range m.list.items {
 		m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
 	}
-	m.taken = make([]bool, len(m.list.items))
 	if m.value != nil {
 		if hadOptions {
 			m.Sync()
 		}
 		return
 	}
+	m.taken = make([]bool, len(m.list.items))
 	for _, want := range previous {
 		for i, option := range m.list.items {
 			if !m.taken[i] && option.holds(want.Value, m.Same) {
@@ -110,7 +112,6 @@ func (m *MultiSelect[T]) setOptions(options []Option[T]) {
 		}
 	}
 	clampTaken(m.taken, m.limit)
-	m.store()
 }
 
 // Options returns a copy of what is on offer.
@@ -143,8 +144,6 @@ func (m *MultiSelect[T]) Taken() []T {
 	return m.valuesOf(taken)
 }
 
-func (m *MultiSelect[T]) takenValues() []T { return m.valuesOf(m.taken) }
-
 func (m *MultiSelect[T]) valuesOf(taken []bool) []T {
 	var out []T
 	for i, option := range m.list.items {
@@ -165,10 +164,10 @@ func (m *MultiSelect[T]) takenOptions() []Option[T] {
 	return out
 }
 
-func (m *MultiSelect[T]) takenCount() int {
+func takenCount(taken []bool) int {
 	count := 0
-	for _, taken := range m.taken {
-		if taken {
+	for _, selected := range taken {
+		if selected {
 			count++
 		}
 	}
@@ -208,17 +207,19 @@ func (m *MultiSelect[T]) Toggle() bool {
 }
 
 func (m *MultiSelect[T]) toggle() bool {
+	before, _ := m.selection()
 	at := m.list.Selected()
-	if at < 0 || at >= len(m.taken) {
+	if at < 0 || at >= len(before) {
 		return false
 	}
-	if !m.taken[at] && m.limit > 0 && m.takenCount() >= m.limit {
+	if !before[at] && m.limit > 0 && takenCount(before) >= m.limit {
 		return false
 	}
-	before := slices.Clone(m.taken)
-	m.taken[at] = !m.taken[at]
-	m.store()
-	return !slices.Equal(before, m.taken)
+	proposed := slices.Clone(before)
+	proposed[at] = !proposed[at]
+	m.store(proposed)
+	after, _ := m.selection()
+	return !slices.Equal(before, after)
 }
 
 // HeightForWidth is the label, the options within their cap, and the problem if there is one.
@@ -237,10 +238,7 @@ func (m *MultiSelect[T]) Draw(v Frame) {
 
 // DrawWith paints the field using this frame's look without changing configuration.
 func (m *MultiSelect[T]) DrawWith(v Frame, look Look) {
-	taken := m.taken
-	if m.value != nil {
-		taken, _ = m.selection()
-	}
+	taken, _ := m.selection()
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
 		chosen := at < len(taken) && taken[at]
 		if m.Row != nil {
@@ -362,7 +360,7 @@ func (m *MultiSelect[T]) Focus(has bool) {
 // Sync makes the caller-owned set the selection model's source. Unlike Draw, this is
 // a semantic boundary, so it also settles a non-canonical value exactly once.
 //
-// Unlike [Select.Sync] it hands the list no key map. The list inside has none of its
+// It hands the list no key map. The list inside has none of its
 // own: this field resolves every keystroke against one that has the movement and the
 // key that takes a choice in it, and drives the list by name. Offering the event to
 // both would resolve it twice.
@@ -370,12 +368,13 @@ func (m *MultiSelect[T]) Focus(has bool) {
 // operation started by the accessor revokes it; input callers must then stop dispatch.
 func (m *MultiSelect[T]) Sync() bool {
 	operation := m.operation
-	var canonical bool
-	m.taken, canonical = m.selection()
+	taken, canonical := m.selection()
 	if !canonical && m.value != nil && m.owner != m.settling {
 		m.operation++
 		operation = m.operation
-		m.store()
+		m.store(taken)
+	} else if m.value == nil {
+		m.taken = taken
 	}
 	return operation == m.operation
 }
@@ -385,14 +384,15 @@ func (m *MultiSelect[T]) beginOperation() bool {
 	return m.Sync()
 }
 
-func (m *MultiSelect[T]) store() {
+func (m *MultiSelect[T]) store(taken []bool) {
 	if binding := m.value; binding != nil {
 		previous := m.settling
 		m.settling = m.owner
 		defer func() { m.settling = previous }()
-		binding.Set(m.takenValues())
-		m.taken, _ = m.selection()
+		binding.Set(m.valuesOf(taken))
+		return
 	}
+	m.taken = taken
 }
 
 func (m *MultiSelect[T]) keys() *keymap.Map {

@@ -44,6 +44,9 @@ func (l Label) Draw(v grid.View) {
 // [headless.Block] measures itself: publication and a [headless.Static] viewport
 // adapter both have to ask before they can decide how much room to give.
 // Copies detach their private wrap on the next layout or text change.
+// Text and link-policy changes prepare detection before publishing their results.
+// A detection panic preserves the previous text, links and policy. Detection
+// callbacks cannot reenter SetText or SetLinks on the same paragraph.
 type Paragraph struct {
 	// lines are private because every mutation must invalidate wrapped. Exposing them
 	// made it possible to change the text while its cached rows still described the
@@ -57,6 +60,7 @@ type Paragraph struct {
 	MaxRows    int
 	linkConfig LinkConfig
 	links      []detectedLinks
+	detecting  bool
 
 	// wrapped memoises the last wrap, which is asked for twice per frame — once to
 	// measure and once to draw — and is the most expensive thing this widget does.
@@ -73,6 +77,8 @@ type Paragraph struct {
 // callback runs only from [Paragraph.SetLinks] and [Paragraph.SetText], never from
 // HeightForWidth, Draw or [Paragraph.LinkAt], so it may consult the filesystem without
 // turning frame projection into I/O.
+// It may read the paragraph's last complete state, but cannot call SetText or
+// SetLinks on that paragraph while detection is running; doing so panics.
 //
 // The zero value disables detection.
 type LinkConfig struct {
@@ -113,9 +119,13 @@ func NewParagraph(s string, style grid.Style) *Paragraph {
 
 // SetText replaces the logical lines. Paragraph copies lines and their spans; the
 // caller may reuse or change its input after this returns.
+// A link-detection panic leaves the previous text and its projections intact.
+// Calling SetText from this paragraph's detection callback panics before changing it.
 func (p *Paragraph) SetText(lines []text.Line) {
-	p.lines = text.CloneLines(lines)
-	p.detectLinks()
+	p.requireIdle()
+	lines = text.CloneLines(lines)
+	links := p.detectLinks(lines, p.linkConfig)
+	p.lines, p.links = lines, links
 	// A memo is an immutable snapshot. Dropping it rather than clearing and reusing
 	// its storage keeps a Paragraph copied after layout from modifying the original
 	// paragraph's still-valid rows.
@@ -127,9 +137,12 @@ func (p *Paragraph) SetText(lines []text.Line) {
 // Detection belongs to this explicit semantic operation rather than layout: changing
 // terminal width can then reflow and draw the paragraph without repeating a caller's
 // filesystem work or any other effect hidden behind Exists.
+// A detection panic leaves the previous policy and links intact. Calling SetLinks
+// from this paragraph's detection callback panics before changing it.
 func (p *Paragraph) SetLinks(config LinkConfig) {
-	p.linkConfig = config
-	p.detectLinks()
+	p.requireIdle()
+	links := p.detectLinks(p.lines, config)
+	p.linkConfig, p.links = config, links
 }
 
 // Lines returns a deep copy of the paragraph's logical lines.
@@ -172,17 +185,24 @@ type detectedLinks struct {
 	destinations []link.Link
 }
 
-func (p *Paragraph) detectLinks() {
-	if !p.linkConfig.Enabled || len(p.lines) == 0 {
-		p.links = nil
-		return
+func (p *Paragraph) requireIdle() {
+	if p.detecting {
+		panic("kit: paragraph input mutation during link detection")
 	}
-	links := make([]detectedLinks, len(p.lines))
-	for i, line := range p.lines {
+}
+
+func (p *Paragraph) detectLinks(lines []text.Line, config LinkConfig) []detectedLinks {
+	if !config.Enabled || len(lines) == 0 {
+		return nil
+	}
+	p.detecting = true
+	defer func() { p.detecting = false }()
+	links := make([]detectedLinks, len(lines))
+	for i, line := range lines {
 		whole := line.String()
-		links[i] = detectedLinks{text: whole, destinations: link.Detect(whole, p.linkConfig.Exists)}
+		links[i] = detectedLinks{text: whole, destinations: link.Detect(whole, config.Exists)}
 	}
-	p.links = links
+	return links
 }
 
 func (p *Paragraph) detectedLine(line int) (detectedLinks, bool) {

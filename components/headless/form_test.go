@@ -246,7 +246,7 @@ func TestReplacingChoicesPreservesTheChosenValueRatherThanItsOldPosition(t *test
 	}
 
 	field.SetOptions(headless.Options("c", "a"))
-	if chosen, ok := field.Chosen(); !ok || chosen.Value != "a" || picked != "a" {
+	if chosen, ok := field.Chosen(); !ok || chosen.Value != "c" || picked != "c" {
 		t.Fatalf("choice after removal = %+v, %v; bound value %q", chosen, ok, picked)
 	}
 }

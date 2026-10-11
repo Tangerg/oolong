@@ -174,7 +174,6 @@ type Completion struct {
 
 	list  List[Candidate]
 	token Token
-	open  bool
 	// matcher owns how far into a multi-chord binding the keys have got.
 	matcher keymap.Matcher
 }
@@ -196,7 +195,7 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 			c.Dismiss()
 			return
 		}
-		c.token, c.open = cloneToken(t), true
+		c.token = cloneToken(t)
 		c.list.SetItems(candidates)
 		for i := range c.list.items {
 			c.list.items[i] = cloneCandidate(c.list.items[i])
@@ -210,7 +209,6 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 // ownership through resolver cancellation. A newer Offer or Dismiss revokes it.
 func (c *Completion) Dismiss() bool {
 	return c.matcher.Reset(func() {
-		c.open = false
 		c.token = Token{}
 		c.list.SetItems(nil)
 		c.list.Select(0)
@@ -219,7 +217,7 @@ func (c *Completion) Dismiss() bool {
 
 // Open reports whether anything is being offered, which is what tells the interface
 // around it to make room and to offer it keys first.
-func (c *Completion) Open() bool { return c.open && c.list.Len() > 0 }
+func (c *Completion) Open() bool { return c.list.Len() > 0 }
 
 // Token is what is being completed, and whether anything is.
 func (c *Completion) Token() (Token, bool) { return c.token, c.Open() }

@@ -38,8 +38,11 @@ type Confirm struct {
 // and key sequences. Nil retains the currently accepted answer as local state.
 // The completed transfer is visible to resolver cancellation callbacks.
 func (c *Confirm) SetBinding(value Accessor[bool]) {
+	var accepted bool
+	if value == nil {
+		accepted = c.Answer()
+	}
 	c.matcher.Reset(func() {
-		accepted := c.Answer()
 		c.value = value
 		if value == nil {
 			c.answer.local = accepted

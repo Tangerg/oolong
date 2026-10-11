@@ -2,6 +2,7 @@ package latex
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -28,10 +29,31 @@ func TestSymbolResolverRetainsOnlySuccessfulSymbols(t *testing.T) {
 }
 
 func cacheEntries(resolver *symbolResolver) int {
-	count := 0
-	resolver.cache.Range(func(any, any) bool {
-		count++
-		return true
-	})
-	return count
+	resolver.mu.RLock()
+	defer resolver.mu.RUnlock()
+	return len(resolver.cache)
+}
+
+func TestSymbolResolverSharesConcurrentSuccessfulLookups(t *testing.T) {
+	var resolver symbolResolver
+	var queries sync.WaitGroup
+	start := make(chan struct{})
+	for range 32 {
+		queries.Go(func() {
+			<-start
+			for range 16 {
+				if value, err := resolver.resolve(`\alpha`); value != "α" || err != nil {
+					t.Errorf("alpha = %q, error = %v", value, err)
+				}
+				if _, err := resolver.resolve(`\oolongUnknown`); err == nil {
+					t.Error("unknown symbol resolved successfully")
+				}
+			}
+		})
+	}
+	close(start)
+	queries.Wait()
+	if got := cacheEntries(&resolver); got != 1 {
+		t.Fatalf("resolver retained %d symbols, want one shared success", got)
+	}
 }

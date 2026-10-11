@@ -184,7 +184,6 @@ func TestDrawingProjectsLaterCallerValuesWithoutSynchronizing(t *testing.T) {
 	one := &observedAccessor[string]{value: "one"}
 	selection := NewSelect(SelectConfig[string]{Same: Equal[string], Value: one})
 	selection.SetOptions(Options("one", "two"))
-	selection.Sync()
 	one.value = "two"
 	selectSurface := grid.NewSurface(8, 2)
 	NewRoot(fieldProjection(func(frame Frame) { selection.DrawWith(frame, look) })).Draw(selectSurface.View())
@@ -487,7 +486,6 @@ func headlessDrawPurityCases() []drawPurityCase {
 		Check: func(string) error { selectChecks++; return nil },
 	})
 	selectField.SetOptions(Options("one", "two", "three"))
-	selectField.Sync()
 	selectField.Focus(true)
 	cases = append(cases, widgetPurityCase("*Select", selectField, func() any {
 		chosen, ok := selectField.Chosen()

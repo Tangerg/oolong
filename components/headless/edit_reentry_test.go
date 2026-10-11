@@ -1,9 +1,11 @@
 package headless_test
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/Tangerg/oolong/components/headless"
+	"github.com/Tangerg/oolong/core/input"
 )
 
 type callbackClipboard struct{ copy func(string) bool }
@@ -55,6 +57,112 @@ func TestControlledTextSettlesBeforeAReentrantCursorMove(t *testing.T) {
 	if field.Text() != "hello" || field.Cursor() != 0 || field.Revision() != revision {
 		t.Fatalf("text=%q cursor=%d revision=%d, want hello at 0 and revision %d",
 			field.Text(), field.Cursor(), field.Revision(), revision)
+	}
+}
+
+func TestControlledTextAccessorPanicCannotPublishARejectedEdit(t *testing.T) {
+	value := &transformingAccessor[string]{value: "seed"}
+	field := headless.NewText(headless.TextConfig{Value: value})
+	field.Handle(input.Key{Text: "x"})
+	field.Do(headless.Undo)
+	revision := field.Revision()
+	value.transform = func(string) string { panic("write failed") }
+	func() {
+		defer func() {
+			if got := recover(); got != "write failed" {
+				t.Fatalf("accessor panic = %v", got)
+			}
+		}()
+		field.Handle(input.Key{Text: "!"})
+	}()
+	if field.Text() != "seed" || field.Revision() != revision {
+		t.Fatalf("aborted edit published text=%q revision=%d, want seed at revision %d", field.Text(), field.Revision(), revision)
+	}
+	value.transform = nil
+	if !field.Do(headless.Redo) || field.Text() != "seedx" {
+		t.Fatal("aborted edit discarded the previous redo history")
+	}
+}
+
+func TestControlledTextAccessorPanicSettlesTheAcceptedValue(t *testing.T) {
+	for _, accepted := range []string{"requested", "normalized"} {
+		t.Run(accepted, func(t *testing.T) {
+			value := &publishingValue[string]{value: "seed"}
+			field := headless.NewText(headless.TextConfig{Value: value})
+			value.set = func(string) {
+				value.value = accepted
+				panic("write failed")
+			}
+			func() {
+				defer func() {
+					if got := recover(); got != "write failed" {
+						t.Fatalf("accessor panic = %v", got)
+					}
+				}()
+				field.SetText("requested")
+			}()
+			if field.Text() != accepted {
+				t.Fatalf("answer = %q, want %q", field.Text(), accepted)
+			}
+			value.set = nil
+			if !field.Do(headless.Undo) || field.Text() != "seed" {
+				t.Fatal("accepted edit lost its undo history")
+			}
+			if !field.Do(headless.Redo) || field.Text() != accepted {
+				t.Fatal("redo did not restore the accepted value")
+			}
+		})
+	}
+}
+
+func TestControlledTextAccessorPanicCannotSettleANewerOwner(t *testing.T) {
+	old := &publishingValue[string]{value: "old"}
+	latest := &publishingValue[string]{value: "new"}
+	field := headless.NewText(headless.TextConfig{Value: old})
+	old.set = func(string) {
+		field.SetBinding(latest)
+		field.SetText("new answer")
+		field.SetCursor(0)
+		panic("old write failed")
+	}
+	func() {
+		defer func() {
+			if got := recover(); got != "old write failed" {
+				t.Fatalf("accessor panic = %v", got)
+			}
+		}()
+		field.SetText("old request")
+	}()
+	if field.Text() != "new answer" || field.Cursor() != 0 {
+		t.Fatalf("old operation changed new owner's text=%q cursor=%d", field.Text(), field.Cursor())
+	}
+	if !field.Do(headless.Undo) || field.Text() != "new" {
+		t.Fatal("old settlement erased the new owner's history")
+	}
+}
+
+func TestControlledTextAccessorGoexitCannotPublishARejectedEdit(t *testing.T) {
+	value := &transformingAccessor[string]{value: "seed"}
+	field := headless.NewText(headless.TextConfig{Value: value})
+	field.Handle(input.Key{Text: "x"})
+	field.Do(headless.Undo)
+	revision := field.Revision()
+	value.transform = func(string) string {
+		runtime.Goexit()
+		return "unreachable"
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		field.Handle(input.Key{Text: "!"})
+	}()
+	<-done
+	if field.Text() != "seed" || field.Revision() != revision {
+		t.Fatalf("aborted edit published text=%q revision=%d, want seed at revision %d", field.Text(), field.Revision(), revision)
+	}
+	value.transform = nil
+	if !field.Do(headless.Redo) || field.Text() != "seedx" {
+		t.Fatal("aborted edit discarded the previous redo history")
 	}
 }
 

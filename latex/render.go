@@ -637,26 +637,34 @@ type symbolResult struct {
 // Unknown macro names come from untrusted formula source and are deliberately not
 // retained: caching failures would turn distinct invalid inputs into process-lifetime
 // global state.
-type symbolResolver struct{ cache sync.Map }
+type symbolResolver struct {
+	mu    sync.RWMutex
+	cache map[string]string
+}
 
 var symbolsForTerminal symbolResolver
 
 func (r *symbolResolver) resolve(name string) (string, error) {
-	if cached, ok := r.cache.Load(name); ok {
-		if value, valid := cached.(string); valid {
-			return value, nil
-		}
-		r.cache.Delete(name)
+	r.mu.RLock()
+	cached, ok := r.cache[name]
+	r.mu.RUnlock()
+	if ok {
+		return cached, nil
 	}
 	result := resolveSymbol(name)
-	if result.err == nil {
-		actual, _ := r.cache.LoadOrStore(name, result.value)
-		if value, valid := actual.(string); valid {
-			return value, nil
-		}
-		r.cache.Delete(name)
+	if result.err != nil {
+		return result.value, result.err
 	}
-	return result.value, result.err
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cached, ok := r.cache[name]; ok {
+		return cached, nil
+	}
+	if r.cache == nil {
+		r.cache = make(map[string]string)
+	}
+	r.cache[name] = result.value
+	return result.value, nil
 }
 
 func resolveSymbol(name string) (result symbolResult) {

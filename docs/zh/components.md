@@ -71,6 +71,8 @@ func newPicker(runtime *program.Runtime, items []string) *picker {
 通过方法配置会改变状态的行为。`SetItems` 将值与“如何将值读成文本”的投影作为同一
 数据源一起替换，`SetPattern` 再收窄该数据源。两者都会使缓存的排序失效，因此不存在
 数据与投影不一致的中间状态，也不会让过时结果继续可见。
+两种变更都会先完成匹配再发布。文本投影发生 panic 时，原有数据源、查询、匹配与光标
+保持完整；投影必须是纯函数，不能重入该 Filter 的 SetItems 或 SetPattern。
 
 ```go
 func (p *picker) configureItems(items []string) {
@@ -207,8 +209,9 @@ theme.Selection = grid.Style{BG: grid.RGBColor(0x32, 0x27, 0x3B)}
 
 受控字段通过 accessor 提交编辑。在安装选项前设置 `Select.Same` 或
 `MultiSelect.Same`；普通可比较值可以使用 `headless.Equal[T]`。标签只负责显示，
-翻译标签不会改变选中值的身份。`Chosen`、`Taken` 和 `Ask` 只投影状态；调用 `Sync`
-可显式同步外部变更，输入和校验也会经过同步边界。
+翻译标签不会改变选中值的身份。`Chosen`、`Taken` 和 `Ask` 只投影状态。
+Select 直接读取 owner，无需 Sync。Text.Sync 协调编辑模型；MultiSelect.Sync
+在显式语义边界规范化调用方的选中集合。
 
 通过 `NewText(TextConfig{Value: ...})`、`NewSelect(SelectConfig[T]{Value: ...})`、
 `NewMultiSelect(MultiSelectConfig[T]{Value: ...})` 或 `NewConfirm(ConfirmConfig{Value: ...})`
@@ -216,7 +219,14 @@ theme.Selection = grid.Style{BG: grid.RGBColor(0x32, 0x27, 0x3B)}
 使旧校验失效。传入 nil 则把已接受的答案保留为本地状态。Accessor 可以包含函数、map
 或切片，无需指针或可比较身份限制。
 
+绑定转移先完成必要的读取和身份比较，再发布新 owner。异常退出保留原 owner、历史和校验。
+替换没有未完成写入的 accessor 不读取已放弃的答案；交回本地状态时才读取旧 owner 的已接受答案。
+Text 在转移所有权前结算尚未完成的编辑。
+
 Accessor 回调返回后，Select 和 MultiSelect 只投影当前 owner，也支持交回本地状态。
+受控 Select 和 MultiSelect 不保存可写的答案镜像；导航、Toggle 和 Reply
+只向 accessor 提交独立提案。不可用的单选答案投影为首项；Validate 或替换已有选项
+会向 owner 提交该项，被拒绝后仍属于无效绑定。调用方改变单选答案后，下一帧会显示其所在行。
 MultiSelect 不会在 Set 尚未结束时再次提交同一规范化请求。如果规范化回调开始新语义操作，
 旧 Do 或 Toggle 在分派前返回 false，Handle 消费中断的事件，Reply 则在应用旧答案前
 返回 `headless.ErrValidationSuperseded`。
@@ -244,6 +254,8 @@ Accessor 拒绝规范化并保留无效值时，校验返回 `headless.ErrInvali
 
 重入的 Text 操作先按 accessor 已接受的值结算正在提交的编辑，旧调用不能回滚新光标，
 也不能再次提交新编辑。若同步期间出现新操作，`Text.Do` 会在分派前返回 false。
+Accessor 写入发生 panic 或退出 goroutine 时，Text 按已接受的值结算草稿、revision 和历史。
+若该值也无法读取，编辑会保留结算记录，直到下一次语义操作能够读取它。结算不吞掉异常退出。
 Text 的 SetBinding 会重新开始历史并清除旧选区，undo 和尚未结束的 Cut 都不能
 把旧 owner 的编辑写给新 owner。
 剪贴板回调修改内容或选区后，`Editor.Cut` 返回 false；复制旧选区不能授权删除新选区。
@@ -253,6 +265,11 @@ Text 的 SetBinding 会重新开始历史并清除旧选区，undo 和尚未结�
 `kit.Transcript.Current` 只改变匹配高亮，跳转请调用 `RevealMatch(index)`。
 Editor 请求在下一帧的实际换行宽度下解析；已完成导航后的尺寸变化保留手动滚动位置。
 Filter 查询重置会回到第一个结果。
+
+Transcript 的按下与滚轮输入使用最后完整帧的可见单元格和目标；拖动延伸也只落在
+这些可见单元格内。替换已呈现的 Content 或 Selection 会终止旧手势的坐标生命周期和连续点击，
+即使后来切回原目标也不会恢复旧拖动；松开仍然结束原选择的拖动状态。
+更换 Scroll 后，滚轮在替换帧提交时才转向新目标。
 
 容器中的孩子需要移动时，应设置稳定 Key 并保留同一组件实例。`FocusIndex` 接受当前集合
 索引；指针输入按已呈现的实例身份定位，移除或替换孩子后不会把旧点击或捕获交给新实例。
@@ -294,6 +311,9 @@ Stack 的 base 和弹层共享一个捕获拥有者。新输入使用提交帧�
 返回 false 表示已被更新的匹配或绑定取代，输入处理应停止旧事件的后续派发。
 Filter 只在 source 和 pattern 的 setter 中重建匹配。它与 Table 都在集合及游标变更
 全部完成后取消旧按键 resolver；读取集合不能完成或发起另一条替换路径。
+Table 比较回调必须纯净并定义严格弱序。行、游标与排序标记在比较成功后一起发布；
+比较 panic 保留原行、比较函数与排序状态。比较中重入 SetItems、SetLess、SortBy 或
+ClearSort 会在改变它们之前 panic。
 Stack 键盘输入只属于焦点拥有者，并在该拥有者已呈现后才被接受。旧帧不能激活已失焦
 的孩子，也不能关闭尚未呈现的替换层。指针输入使用绘制提交的几何。
 
@@ -310,6 +330,10 @@ Dialog 的成员身份由控制器拥有。使用 Show、Dismiss、Sync；把 `D
 
 若按键取消回调开始了新的候选提供或关闭操作，`Completion.Dismiss` 返回 false。
 调用方必须停止推进旧候选；内置接受操作会检查该结果，再决定是否调用旧候选及 token 的回调。
+
+`kit.Paragraph` 在 `SetText` 或 `SetLinks` 成功后一起发布正文和检测出的链接。
+`LinkConfig.Exists` 可以检查文件系统、读取上一次完整发布的段落，但不能重入这两个设置方法。
+链接检测 panic 时，原正文、链接策略、链接与排版保持不变。
 
 ## 保存结构化输入历史
 
@@ -341,13 +365,16 @@ history := headless.NewHistory(headless.HistoryConfig[promptEntry]{
 History 在保存入参和返回已保存条目时使用它。示例中的字符串不可变，因此复制附件切片
 即可。`Clone: nil` 使用普通赋值，适用于不可变值。`Equal: nil` 保留每个条目，包括连续
 重复值；配置相等判断后只压制相邻的相等条目，不会删除更早的重复项或改变顺序。
-相等判断只读借用入参。复制与相等策略在整个 History 生命周期内固定。
+相等判断必须是观察上纯粹的，只读借用入参。复制与相等策略在整个 History 生命周期内固定。
 
 `Back(current)` 只在第一次成功后退时保存完整草稿。`Forward()` 越过最新条目时返回草稿，
-`Cancel()` 则立即返回草稿；两者结束遍历时都会释放 History 对草稿的引用。`Add` 始终结束
+`Cancel()` 则立即返回草稿；两者结束遍历时都会释放 History 对草稿的引用。成功的 `Add` 会结束
 当前遍历，即使新条目因相等判断而被去重。`At(1)` 读取最新条目，不移动游标。
 `SetLimit(0)` 恢复默认的 1,000 条上限，负数上限会 panic。若缩容淘汰了当前浏览的条目，
 下一次 `Forward` 会先到最早仍被保留的条目，再依次前进到较新条目和草稿。
+
+新增条目和游标移动只在复制与相等判断成功后提交。回调发生 panic 或退出 goroutine 时，
+条目、游标与保存的草稿保持不变，原始退出继续传播。
 
 搜索使用独立于身份判断的显示投影：
 

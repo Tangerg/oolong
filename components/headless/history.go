@@ -12,6 +12,8 @@ import (
 // The zero value uses assignment to retain values and keeps consecutive duplicates.
 // Use [NewHistory] to configure copying and equality. A History must not be copied
 // after first use or accessed concurrently.
+// State changes are published only after copying and equality return successfully.
+// A callback's abnormal exit preserves the entries, walk and saved draft.
 type History[T any] struct {
 	noCopy noCopy
 
@@ -35,8 +37,9 @@ type HistoryConfig[T any] struct {
 	// Nil uses assignment, suitable for immutable values. It is used when retaining
 	// inputs and exposing retained entries.
 	Clone func(T) T
-	// Equal suppresses consecutive duplicates. It borrows its arguments read-only;
-	// nil keeps every entry. [Equal] compares ordinary comparable values.
+	// Equal suppresses consecutive duplicates. It must be observationally pure and
+	// borrows its arguments read-only; nil keeps every entry. [Equal] compares
+	// ordinary comparable values.
 	Equal func(T, T) bool
 }
 
@@ -73,12 +76,16 @@ func (h *History[T]) Limit() int {
 // Add ends the current walk and records a snapshot of value, unless Equal matches
 // the newest entry. Nonconsecutive duplicates and zero values are retained.
 func (h *History[T]) Add(value T) {
+	duplicate := len(h.entries) > 0 && h.equal != nil && h.equal(h.entries[len(h.entries)-1], value)
+	if !duplicate {
+		value = h.snapshot(value)
+	}
 	var zero T
 	h.at, h.draft = 0, zero
-	if len(h.entries) > 0 && h.equal != nil && h.equal(h.entries[len(h.entries)-1], value) {
+	if duplicate {
 		return
 	}
-	h.entries = append(h.entries, h.snapshot(value))
+	h.entries = append(h.entries, value)
 	h.trim()
 }
 
@@ -124,11 +131,14 @@ func (h *History[T]) Back(current T) (T, bool) {
 		var zero T
 		return zero, false
 	}
+	draft := h.draft
 	if h.at == 0 {
-		h.draft = h.snapshot(current)
+		draft = h.snapshot(current)
 	}
-	h.at++
-	return h.At(h.at)
+	at := h.at + 1
+	value, ok := h.At(at)
+	h.at, h.draft = at, draft
+	return value, ok
 }
 
 // Forward returns a snapshot of the next newer entry. Passing the newest transfers
@@ -138,14 +148,16 @@ func (h *History[T]) Forward() (T, bool) {
 		var zero T
 		return zero, false
 	}
-	h.at--
-	if h.at == 0 {
+	at := h.at - 1
+	if at == 0 {
 		var zero T
 		draft := h.draft
-		h.draft = zero
+		h.at, h.draft = 0, zero
 		return draft, true
 	}
-	return h.At(h.at)
+	value, ok := h.At(at)
+	h.at = at
+	return value, ok
 }
 
 // Cancel ends a walk and transfers its saved draft back to the caller. It returns

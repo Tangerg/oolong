@@ -37,6 +37,9 @@ var internalAssertions = map[string]string{
 	"components/headless:Transcript.assertMutable":                 "Transcript and Transcript.Commit document the read-only publication callback and unsettled-publication panic",
 	"components/headless:Select.setOptions":                        "Select.SetOptions documents the required Same policy",
 	"components/headless:MultiSelect.setOptions":                   "MultiSelect.SetOptions documents the required Same policy",
+	"components/headless:Table.requireIdle":                        "Table and Table.SetLess document that comparisons cannot reenter ordering mutations",
+	"components/headless:Filter.requireIdle":                       "Filter and Filter.SetItems document that projections cannot reenter source or pattern mutations",
+	"components/kit:Paragraph.requireIdle":                         "Paragraph, SetText and SetLinks document that link detection cannot reenter either setter",
 	"components/headless:DialogContent.rejectIndependentInsertion": "Stack.Push documents that controller-owned DialogContent cannot be independently inserted",
 	"markdown:Stream.requireIdle":                                  "Stream documents that renderer callbacks cannot reenter rendering or mutation on the same stream",
 
