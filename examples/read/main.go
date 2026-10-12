@@ -169,9 +169,6 @@ func (r *reader) Handle(ev input.Event) bool {
 	return false
 }
 
-// pieces cuts the answer into the chunks it arrives in, which is what makes this a
-// demonstration rather than a rendering: the boundaries fall wherever they like,
-// including inside a word and inside a fence.
 func pieces(whole string, size int) []string {
 	var out []string
 	for i := 0; i < len(whole); i += size {

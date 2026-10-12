@@ -179,8 +179,6 @@ func (ps params) extendedKey() Event {
 	return Key{Code: code, Rune: r, Mods: mods, Transition: transition, Text: text}
 }
 
-// mouse reads an SGR mouse report. down distinguishes the final byte that
-// means "went down or moved" from the one that means "came up".
 func (ps params) mouse(down bool) Event {
 	if ps.Len() < 3 {
 		return nil

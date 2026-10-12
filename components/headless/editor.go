@@ -1475,8 +1475,6 @@ func (e *Editor) lineView(value string) editorLineView {
 	return view
 }
 
-// shown is the text as it is drawn: the line itself, or the mask once per cluster for
-// a field holding something the screen should not show.
 func (e *Editor) shown() string {
 	e.ensure()
 	return e.lineView(e.lines[0]).shown()

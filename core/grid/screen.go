@@ -316,7 +316,6 @@ type cursorState struct {
 	style      CursorStyle
 }
 
-// forget drops the tracked state, so the next frame states everything.
 func (c *cursorState) forget() { *c = cursorState{} }
 
 func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {

@@ -147,7 +147,6 @@ func (p *taskProgress) signal() {
 	}
 }
 
-// run refreshes active progress and parks without a timer in every other state.
 func (p *taskProgress) run(stop <-chan struct{}, queue func([]byte) uint64) {
 	defer close(p.done)
 	var ticker *time.Ticker

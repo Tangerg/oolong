@@ -89,7 +89,6 @@ func observing(handles []windows.Handle, pid uint32) ([]windows.Handle, error) {
 	return append(handles, h), nil
 }
 
-// waitAll waits for every observed process to exit, within one second in total.
 func waitAll(handles []windows.Handle) error {
 	deadline := time.Now().Add(time.Second)
 	for _, h := range handles {

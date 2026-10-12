@@ -483,8 +483,6 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	return n, p.controlEvent(ps, final), true
 }
 
-// controlEvent is the event a complete control sequence stands for, or nil for one
-// this decoder does not read.
 func (p *Parser) controlEvent(ps params, final byte) Event {
 	// A private marker says the sequence is a report and not a key, because a key
 	// never carries one. Dispatching on the final byte alone let a keyboard-flags

@@ -640,7 +640,6 @@ func (l Line) printable() Line {
 	return out
 }
 
-// prefix is the longest prefix of s, cut between clusters, that fits in budget.
 func prefix(s string, budget int) string {
 	col, end := 0, 0
 	g := uniseg.NewGraphemes(s)

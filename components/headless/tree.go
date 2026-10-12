@@ -451,8 +451,6 @@ func exportNodes[T any](nodes []treeNode[T]) []Node[T] {
 	return exported
 }
 
-// keys is the map to read through, standing in the default for a caller who set
-// none.
 func (t *Tree[T]) keys() *keymap.Map {
 	if t.Keys != nil {
 		return t.Keys

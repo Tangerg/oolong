@@ -253,8 +253,6 @@ func (p *program) loop(ctx context.Context) error {
 	return nil
 }
 
-// wait parks until something asks the program to act, and reports whether that was
-// its last turn. An error is one either way.
 func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err error) {
 	select {
 	case reply, ok := <-p.repaints:

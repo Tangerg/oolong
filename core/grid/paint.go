@@ -53,8 +53,6 @@ func (p *painter) restart() {
 	p.begun = false
 }
 
-// adoptDepth carries the colour depth over to another painter, so a frame built
-// out of more than one of them speaks with one voice.
 func (p *painter) adoptDepth(depth Depth) { p.depth = depth }
 
 // Other programs may change terminal style between frames; establish the baseline before emitting cells.

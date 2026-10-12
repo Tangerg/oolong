@@ -150,8 +150,6 @@ func (f *field) rows(label string) int {
 	return extra
 }
 
-// frame draws the label and the error, and returns the room left in between for the
-// field itself.
 func (f *field) frame(v Frame, label string, look Look) Frame {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {

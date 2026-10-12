@@ -248,7 +248,6 @@ func validateSource(source string) error {
 	return groups.closed()
 }
 
-// refused is why r may not stand unescaped at at, or nil.
 func refused(source string, at int, r rune) error {
 	switch {
 	case r == '$':
@@ -364,7 +363,6 @@ func (r *formulaRenderer) sequence(nodes ast.List, style grid.Style) (box, error
 	return horizontal(parts...), nil
 }
 
-// unattached is the error for a script with nothing in front of it to attach to.
 func unattached(node ast.Node) error {
 	switch node.(type) {
 	case *ast.Sub:

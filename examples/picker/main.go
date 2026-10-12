@@ -158,8 +158,6 @@ func (p *picker) Handle(ev input.Event) bool {
 	return handled
 }
 
-// moves reports whether a key is one of the four that mean "through the matches"
-// rather than "through what I typed".
 func moves(code input.Code) bool {
 	switch code {
 	case input.Up, input.Down, input.PageUp, input.PageDown:
