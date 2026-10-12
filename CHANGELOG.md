@@ -18,6 +18,8 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-10-12
+
 ### Fixed
 
 - Pointer routers read geometry after cancellation and invalidate borrowed routes
