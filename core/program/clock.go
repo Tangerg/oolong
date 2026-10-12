@@ -35,7 +35,6 @@ type coalescedTicks struct {
 	pending  atomic.Bool
 }
 
-// post offers one tick and reports whether the clock is still running.
 func (c *coalescedTicks) post() bool {
 	if c.lifetime.cancelled.Load() {
 		return false

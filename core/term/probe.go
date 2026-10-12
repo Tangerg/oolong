@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	// queryBackground asks the terminal what colour it draws on. The answer comes
-	// back as command 11 with an XParseColor specification in it.
 	queryBackground = "\x1b]11;?\x07"
 
 	// queryForeground asks the terminal what colour it draws with.
@@ -100,7 +98,6 @@ type probe struct {
 	// itself unbounded.
 	deadline time.Time
 
-	// early holds what was decoded during the probe and was not an answer.
 	early []input.Event
 	end   *readResult
 }
@@ -115,9 +112,8 @@ type answers struct {
 	hasAttrs   bool
 	// name is what the terminal called itself, which outranks anything the
 	// environment says.
-	name    string
-	hasName bool
-	// version is the number a terminal gives when it will not give a name.
+	name       string
+	hasName    bool
 	version    input.DeviceVersion
 	hasVersion bool
 	// keyboard is which of the Kitty protocol's enhancements are on, which is not
@@ -218,7 +214,6 @@ func (p *probe) take(ev input.Event, got *answers) {
 			got.name, got.hasName = name, true
 			return
 		}
-		// An answer to something else. It is still addressed to the program.
 		p.early = append(p.early, ev)
 	case input.DeviceVersion:
 		got.version, got.hasVersion = ev, true
@@ -266,8 +261,6 @@ func parseXParseColor(spec string) (grid.RGB, bool) {
 	return c, true
 }
 
-// parseChannel reads one channel of a colour specification and scales it to the
-// eight bits a cell holds.
 func parseChannel(s string) (uint8, bool) {
 	if len(s) == 0 || len(s) > 4 {
 		return 0, false

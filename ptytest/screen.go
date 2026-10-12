@@ -180,7 +180,7 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 		return s.control(piece)
 	case ansi.String:
 		if piece.Final == ']' {
-			return nil // OSC changes metadata or style, never cell text.
+			return nil
 		}
 	case ansi.Other:
 		// Character-set selection is harmless for UTF-8 renderer output. Other
@@ -218,8 +218,6 @@ func (s *Screen) control(piece ansi.Piece) error {
 // ignoresControl reports session traffic that paints no cells. The model accepts
 // the question or mode change but never fabricates a terminal answer.
 func ignoresControl(final byte, params ansi.Params) bool {
-	// Queries, mode changes, cursor shape and window metadata are real session
-	// traffic but paint no cell.
 	switch final {
 	case 'c', 'h', 'l', 'q', 't':
 		return true
@@ -258,8 +256,6 @@ func (s *Screen) executeControl(final byte, params ansi.Params, raw string) erro
 	return nil
 }
 
-// moveCursor applies the sequences whose whole effect is where the cursor is, and
-// reports whether the final byte named one of them.
 func (s *Screen) moveCursor(final byte, params ansi.Params) bool {
 	switch final {
 	case 'H', 'f':

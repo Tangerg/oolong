@@ -67,8 +67,7 @@ type TabsConfig struct {
 	// Selection is optional caller-owned state. Nil keeps state local.
 	Selection Accessor[int]
 	// Keys maps tab actions. Nil uses [DefaultTabsKeys].
-	Keys *keymap.Map
-	// NoWrap stops movement at the first and last tab.
+	Keys   *keymap.Map
 	NoWrap bool
 }
 

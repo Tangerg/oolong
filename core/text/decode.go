@@ -124,24 +124,16 @@ func (d *Decoder) piece(p ansi.Piece) []Line {
 			d.osc(p.Body)
 		}
 	case ansi.Other, ansi.Malformed:
-		// Understood well enough to know where it ended, and nothing this can show.
 	}
 	return nil
 }
 
-// osc reads the one operating system command that says something about the text:
-// the hyperlink, which is "8", its parameters, and the address.
-//
-// An empty address closes the link, which is how the protocol says "the words after
-// this point go nowhere". Everything else a command could say — the window title,
-// the working directory — is about the terminal rather than about the text, and a
-// program's output has no business saying it through here.
+// Output hyperlinks may affect text; terminal metadata commands must not survive into repainted content.
 func (d *Decoder) osc(body string) {
 	command, rest, found := strings.Cut(body, ";")
 	if !found || command != "8" {
 		return
 	}
-	// Then the link's own parameters, which nothing here reads, and the address.
 	_, target, found := strings.Cut(rest, ";")
 	if !found {
 		return
@@ -196,12 +188,7 @@ func (d *Decoder) takeLine() Line {
 	return line
 }
 
-// sgr applies one select-graphic-rendition sequence to the style in force.
-//
-// A parameter it does not recognise is skipped rather than treated as an error: the
-// sequence is a list of independent requests, and one for something a cell cannot
-// show — blinking, an overline, a colour under the underline — says nothing about
-// the others.
+// SGR parameters are independent; unsupported attributes must not discard supported ones.
 func (d *Decoder) sgr(ps ansi.Params) {
 	if ps.Len() == 0 {
 		// A bare "ESC [ m" is a reset, which is what an empty parameter defaulting to
@@ -262,10 +249,7 @@ func colourAt(ps ansi.Params, i int, group ansi.Parameter) (grid.Color, int, boo
 	return c, used, ok
 }
 
-// colourOf reads the numbers after a 38, a 48 or a 58: a selector, then either one
-// palette index or three channels. It reports how many of them it took, whether or
-// not they named a colour, so that a malformed one cannot leave its channels to be
-// read as attributes.
+// Consume every color parameter even when malformed, or channels can be misread as SGR attributes.
 func colourOf(args []int) (grid.Color, int, bool) {
 	if len(args) == 0 {
 		return grid.Color{}, 0, false
@@ -330,12 +314,7 @@ func (d *Decoder) simple(code int) {
 	}
 }
 
-// attribute maps a parameter onto one of the six attributes a cell carries, and
-// says whether it turns it on or off.
-//
-// 21 is the doubly-underlined one, which a cell draws as an underline. Some
-// terminals read it as "not bold" instead; underlining text that was meant to stop
-// being bold is the smaller of the two mistakes, and it is what the standard says.
+// Use the specified underline meaning for SGR 21; treating it as not-bold would erase unrelated emphasis.
 func attribute(code int) (grid.Attr, bool, bool) {
 	switch code {
 	case 1:
@@ -377,8 +356,6 @@ func channel(v int) (uint8, bool) {
 	}
 }
 
-// ansiColor is one of the sixteen a terminal names, or nothing for an index that
-// is not one of them.
 func ansiColor(index int) grid.Color {
 	if index < 0 || index >= len(ansiColors) {
 		return grid.Color{}

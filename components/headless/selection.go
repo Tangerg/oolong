@@ -184,13 +184,7 @@ func (s *Selection) Text(t *Transcript) string {
 	return b.String()
 }
 
-// clusterAtOrAfter is the byte offset of the first cluster that begins at or after a
-// column.
-//
-// A wide character straddling the column began before it, so it is not wholly inside
-// the selection and the offset moves past it. The far end applies the same rule from
-// the other side, which is what keeps a selection's two edges consistent: whether a
-// character is in or out does not depend on which end of the drag it was at.
+// Both selection edges must exclude partially covered wide graphemes.
 func clusterAtOrAfter(s string, col int) int {
 	at := text.OffsetAt(s, col)
 	if text.ColumnOf(s, at) < col {
@@ -282,9 +276,7 @@ func coordinatesNear(a, b, slack int) bool {
 func (s *Selection) SelectWord(t *Transcript, p Point) bool {
 	row, ok := rowText(t, p.Row)
 	if !ok || p.Col < row.Offset {
-		// A negative column is not a position in the text, which is what [Selection.Covers]
-		// already says about one. Clamping it to the start instead would make a click
-		// in the margin select the first word.
+		// Reject margin clicks instead of clamping them into a word selection.
 		return false
 	}
 	at := text.OffsetAt(row.Text, p.Col-row.Offset)
@@ -317,8 +309,6 @@ func (s *Selection) SelectLine(t *Transcript, p Point) bool {
 	return true
 }
 
-// set puts the selection over one row's columns, both ends inclusive, and leaves no
-// drag in progress: a click that selected something has finished selecting it.
 func (s *Selection) set(row, from, to int) {
 	s.anchor = Point{Row: row, Col: from}
 	s.extent = Point{Row: row, Col: to}

@@ -155,7 +155,6 @@ func (p *prompt) Handle(event input.Event) bool {
 	return handled
 }
 
-// walk answers the keys that move through the history or send what was written.
 func (p *prompt) walk(key input.Key) bool {
 	switch key.Code {
 	case input.Up:

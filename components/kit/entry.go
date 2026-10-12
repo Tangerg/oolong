@@ -33,8 +33,7 @@ type Entry struct {
 	// label; a caller that gives a product role visual emphasis supplies that role's
 	// style explicitly.
 	LabelStyle grid.Style
-	// Body is the text. Newlines are line breaks; everything else wraps.
-	Body string
+	Body       string
 	// Trailing is how many blank rows follow, so consecutive entries do not run
 	// together. Zero uses one, which is what separates without doubling the spacing.
 	Trailing int

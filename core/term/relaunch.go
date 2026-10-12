@@ -53,8 +53,6 @@ func Relaunch(argv, env []string) (code int, err error) {
 	return relaunch(path, argv, lastWins(env))
 }
 
-// lastWins drops all but the final value of each name, keeping the order the names
-// first appeared in.
 func lastWins(env []string) []string {
 	at := make(map[string]int, len(env))
 	out := make([]string, 0, len(env))

@@ -83,8 +83,6 @@ func (c *Confirm) DrawWith(v Frame, look Look) {
 	x, split := 0, 0
 	for _, yes := range []bool{true, false} {
 		if !yes {
-			// Where one answer ends and the other begins, which is the whole of what a
-			// press needs to know.
 			split = x
 		}
 		style := look.Text

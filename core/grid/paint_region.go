@@ -20,7 +20,6 @@ type Painter interface {
 
 // painted is a region of a surface that something else writes into.
 type painted struct {
-	// rect is where it goes, in the surface's own coordinates.
 	rect image.Rectangle
 	// id says what is being painted, so a frame can tell whether a region still shows
 	// the same thing as the frame before it.

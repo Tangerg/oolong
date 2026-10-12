@@ -192,7 +192,6 @@ const maxEdits = 512
 // state: how far each diagonal had got after every edit. That state is the whole of it,
 // and naming it is what makes the two walks readable as the two halves of one thing.
 type myers struct {
-	// before and after are the parts of the two texts that are not shared ends.
 	before, after []string
 	// from is how many lines were the same before these, which is what turns a
 	// position here into a line number there.
@@ -217,8 +216,6 @@ func (m *myers) script() Script {
 	return m.walk()
 }
 
-// replaced is the answer when nothing useful is shared: all of one, then all of the
-// other.
 func (m *myers) replaced() Script {
 	out := make(Script, 0, len(m.before)+len(m.after))
 	for i, line := range m.before {
@@ -230,8 +227,6 @@ func (m *myers) replaced() Script {
 	return out
 }
 
-// trace walks forward, keeping the furthest point reached on each diagonal after every
-// edit, and reports false when the two texts differ by more than [maxEdits].
 func (m *myers) trace() bool {
 	n, size := len(m.before), len(m.after)
 	// Bound each operand before adding it. The limit is deliberately tiny, while
@@ -266,8 +261,6 @@ func (m *myers) trace() bool {
 	return false
 }
 
-// walk reads the edit script back out of the trace, from the end to the beginning, and
-// turns it into lines in reading order.
 func (m *myers) walk() Script {
 	x, y := len(m.before), len(m.after)
 	var reversed Script
@@ -284,7 +277,6 @@ func (m *myers) walk() Script {
 		prevX := v[m.offset+prevK]
 		prevY := prevX - prevK
 
-		// The run of matching lines this step ended with.
 		for x > prevX && y > prevY {
 			x, y = x-1, y-1
 			reversed = append(reversed, m.kept(x, y))
@@ -298,7 +290,6 @@ func (m *myers) walk() Script {
 			reversed = append(reversed, Line{Kind: Added, Text: m.after[y], New: m.from + y + 1})
 		}
 	}
-	// Whatever the first step matched, before any edit was made.
 	for x > 0 && y > 0 {
 		x, y = x-1, y-1
 		reversed = append(reversed, m.kept(x, y))

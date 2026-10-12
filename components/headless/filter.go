@@ -48,8 +48,7 @@ type Filter[T any] struct {
 
 	pattern  string
 	matching bool
-	// list is what matched. It owns the cursor and the scroll.
-	list List[hit[T]]
+	list     List[hit[T]]
 }
 
 // hit is one item that matched, and how.
@@ -176,8 +175,6 @@ func (f *Filter[T]) Draw(v Frame) {
 	f.list.DrawRows(v, f.row)
 }
 
-// row hands one match to whoever knows what a row looks like, with the characters
-// that answered the pattern.
 func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 	if f.Row != nil {
 		f.Row(v, at, got.item, got.match, selected)

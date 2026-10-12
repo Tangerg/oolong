@@ -117,7 +117,6 @@ func RequireSymmetricModes(t TestingT, transcript []byte, modes ...Mode) {
 			t.Errorf("%s was turned on before %s, which is out of order",
 				modes[i].Name, modes[i-1].Name)
 		}
-		// The reverse order on the way out: what was turned on last comes off first.
 		if offs[i] > offs[i-1] {
 			t.Errorf("%s was turned off after %s; a session has to be unwound in the "+
 				"order it was set up, backwards", modes[i].Name, modes[i-1].Name)

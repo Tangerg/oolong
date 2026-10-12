@@ -12,21 +12,17 @@ import "github.com/Tangerg/oolong/core/text"
 // The zero value draws nothing, which is not useful: [Unicode] and [ASCII] are the two
 // sets, and [GlyphsFor] picks between them.
 type Glyphs struct {
-	// The lines a box is drawn with, rounded and square.
 	Horizontal, Vertical                       string
 	TopLeft, TopRight, BottomLeft, BottomRight string
 	RoundTopLeft, RoundTopRight                string
 	RoundBottomLeft, RoundBottomRight          string
 
-	// Ellipsis stands for text that did not fit.
-	Ellipsis string
-	// Bullet marks an item in a list, and Marker the one under the cursor.
+	Ellipsis       string
 	Bullet, Marker string
 	// Taken and Free are the two states of a choice: one that has been made, and one
 	// that is still on offer. They are a pair and are drawn in the same column, so
 	// they have to be the same width or the labels beside them do not line up.
-	Taken, Free string
-	// ScrollTrack and ScrollThumb are the two halves of a scrollbar.
+	Taken, Free              string
 	ScrollTrack, ScrollThumb string
 	// SliderTrack is the line a bounded value moves over and SliderThumb is its current
 	// position. They are separate from a scrollbar because one is a control and the
@@ -44,11 +40,9 @@ type Glyphs struct {
 	// Expanded and Collapsed are the two states of a branch in a tree: one showing
 	// what is under it, and one inviting the reader to look. Like Taken and Free they
 	// are drawn in the same column and have to be the same width.
-	Expanded, Collapsed string
-	// Ascending and Descending mark the column a table is sorted by.
+	Expanded, Collapsed   string
 	Ascending, Descending string
-	// Spinner is the frames of a busy indicator, in order.
-	Spinner []string
+	Spinner               []string
 }
 
 // Unicode is the set for a terminal that can draw them, which is nearly all of them.

@@ -62,8 +62,7 @@ type Paragraph struct {
 	links      []detectedLinks
 	detecting  bool
 
-	// wrapped memoises the last wrap, which is asked for twice per frame — once to
-	// measure and once to draw — and is the most expensive thing this widget does.
+	// Measurement and drawing share one wrap so their source-row coordinates remain consistent.
 	wrapped []row
 	atWidth int
 	atLimit int
@@ -234,10 +233,6 @@ func (r rowLinks) rangeOf(destination link.Link) (start, end int, ok bool) {
 	return start, end, start < end
 }
 
-// stamp makes the links on one row clickable.
-//
-// A link that wrapped is stamped on each row it covers, with the same target on all
-// of them, which is how one terminal hyperlink covers several physical rows.
 func (p *Paragraph) stamp(v grid.View, y int, row rowLinks) {
 	for _, destination := range row.destinations {
 		start, end, ok := row.rangeOf(destination)
@@ -339,10 +334,7 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 	return link.Link{}, false
 }
 
-// rows is the wrap at this width, computed once per width.
-//
-// Each line is wrapped on its own so that every resulting row still knows which
-// source line it came from. A byte range means nothing without that line index.
+// Preserve source-line identity through wrapping so byte ranges remain meaningful.
 func (p *Paragraph) rows(width int) []row {
 	// Measurement still needs a truthful height before a parent has assigned any
 	// width. A zero answer would let that parent collapse the paragraph permanently,
@@ -373,11 +365,7 @@ func (p *Paragraph) rows(width int) []row {
 	return rows
 }
 
-// cutOff ends a line with an ellipsis to say that content was dropped after it.
-//
-// Truncating to the width would not do: the last row that survived a cap usually
-// fits, and a row that fits is left alone — which would leave nothing to tell the
-// reader there is more.
+// A height cap can discard whole rows even when the surviving row fits; it still needs an ellipsis.
 func cutOff(l text.Line, room int) text.Line {
 	const ellipsis = "…"
 	budget := room - text.Width(ellipsis)

@@ -212,7 +212,6 @@ func (p *program) takeFailure() error {
 	return err
 }
 
-// run is the event loop.
 func (p *program) run(ctx context.Context) (err error) {
 	completed := false
 	defer func() {

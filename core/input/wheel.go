@@ -143,8 +143,6 @@ func profileOf(identity string) (Wheel, bool) {
 	return Wheel{}, false
 }
 
-// multiplexed reports whether something between the terminal and this program is
-// rewriting the mouse reports.
 func multiplexed(lookup func(string) (string, bool)) bool {
 	if environmentValue(lookup, "TMUX") != "" || environmentValue(lookup, "STY") != "" ||
 		environmentValue(lookup, "ZELLIJ") != "" ||

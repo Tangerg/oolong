@@ -16,9 +16,7 @@ import (
 // Trigger is what opens a completion: the characters that begin a token, and where
 // they count as beginning one.
 type Trigger struct {
-	Prefix string
-	// AtStart limits it to the beginning of the line, which is what makes "/help" a
-	// command and "and/or" not one.
+	Prefix  string
 	AtStart bool
 }
 
@@ -70,8 +68,6 @@ func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
 	return best, at >= 0
 }
 
-// openedBefore is the last place this trigger opens a token at or before cursor, and
-// no earlier than after.
 func (t Trigger) openedBefore(line string, cursor, after int) (int, bool) {
 	for end := cursor; end >= len(t.Prefix); {
 		candidate := strings.LastIndex(line[:end], t.Prefix)
@@ -86,8 +82,6 @@ func (t Trigger) openedBefore(line string, cursor, after int) (int, bool) {
 	return 0, false
 }
 
-// opensAt reports whether the prefix found there begins a token. One inside a
-// word does not: the "@" of an email address is not a mention.
 func (t Trigger) opensAt(line string, at int) bool {
 	if t.AtStart {
 		return at == 0
@@ -99,7 +93,6 @@ func (t Trigger) opensAt(line string, at int) bool {
 	return !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prev != '_'
 }
 
-// tokenEnd is the first space at or after start, or the end of the line.
 func tokenEnd(line string, start int) int {
 	for end := start; end < len(line); {
 		r, size := utf8.DecodeRuneInString(line[end:])
@@ -148,8 +141,6 @@ func (c Candidate) shown() string {
 type Completion struct {
 	noCopy noCopy
 
-	// Look supplies the renderer with styles for labels, selection, matched
-	// characters and candidate details. Renderer owns the row layout.
 	Look Look
 	// Renderer owns the one-row layout and its intrinsic width. Nil uses
 	// DefaultCompletionRenderer. Callbacks must be observationally pure.
@@ -380,12 +371,7 @@ func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selec
 		text.Truncate(candidate.Detail, room, look.Ellipsis), detail)
 }
 
-// drawMatched writes label, emphasising the clusters the query matched, and returns
-// the column it reached.
-//
-// The matched offsets can land inside a grapheme cluster, so a cluster is emphasised
-// when it contains one rather than when it begins at one: a pattern character that
-// matched a combining mark is still that cluster being matched.
+// Match offsets can fall inside a grapheme; emphasize the containing cluster rather than only its start.
 func drawMatched(v grid.View, label string, matched []int, base, accent grid.Style) int {
 	hit := base.Merge(accent)
 	next, at := 0, 0

@@ -176,8 +176,6 @@ func (p *picker) pick() {
 	p.runtime.Quit()
 }
 
-// files is what there is to choose from. A real one would read a directory or a
-// history; what matters here is that it is a slice of the program's own things.
 func files() []string {
 	directories := []string{"core/grid", "core/text", "core/term", "components/headless", "components/kit"}
 	names := []string{"doc.go", "main.go", "reader.go", "writer.go", "view.go"}

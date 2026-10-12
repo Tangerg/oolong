@@ -14,9 +14,7 @@ import (
 type Status struct {
 	Theme  Theme
 	Glyphs Glyphs
-	// Doing is what is happening, in the present tense — "thinking", "reading
-	// main.go", "running tests".
-	Doing string
+	Doing  string
 	// Elapsed is shown after the label, receding. Empty shows nothing, which is right
 	// until something has taken long enough to be worth reporting.
 	Elapsed string

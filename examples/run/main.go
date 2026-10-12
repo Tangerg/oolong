@@ -115,7 +115,6 @@ func (r *runner) start() {
 	}()
 
 	//nolint:gosec // G204: running what the user asked for on their own command line
-	// is the whole of what this program is.
 	cmd := exec.CommandContext(ctx, r.command[0], r.command[1:]...)
 	cmd.Stdout, cmd.Stderr = r.ingress, r.ingress
 	// Cmd owns the copy and wait together. A descendant may retain stdout after the
@@ -134,8 +133,6 @@ func (r *runner) accept(batch program.ByteBatch) {
 	}
 }
 
-// output takes a piece of what the command said. Everything a newline finished
-// belongs to the terminal from here on; what is left is still being written.
 func (r *runner) output(chunk string) {
 	for _, line := range r.out.Feed(chunk) {
 		paragraph := &kit.Paragraph{}
@@ -160,7 +157,6 @@ func (r *runner) finish(err error) {
 		r.status = err.Error()
 	}
 	r.runtime.Session().SetTitle("")
-	// The two things that reach somebody who is looking at another window.
 	r.runtime.Session().Bell()
 	r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.status)
 }

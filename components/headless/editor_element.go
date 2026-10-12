@@ -104,13 +104,7 @@ func offsetInLines(lines []string, c Caret) int {
 	return at + min(max(c.Col, 0), len(lines[line]))
 }
 
-// kindOf is a mark's label as this package's own.
-//
-// A mark carries whatever label its owner uses, so the label is an int; this owner
-// uses one byte of it. Narrowing it here, where the value comes back, is what makes
-// the conversion something a reader and an analyser can both follow — the alternative
-// is a conversion whose safety has to be reconstructed by finding who put the value
-// in.
+// Guard narrowing where mark labels return from the generic text model; this editor uses one byte.
 func kindOf(label int) ElementKind {
 	if label < 0 || label > math.MaxUint8 {
 		return 0

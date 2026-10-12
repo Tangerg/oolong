@@ -42,9 +42,7 @@ type Item struct {
 	//
 	// A child as big as its content wants to be is [layout.Measured].
 	Size layout.Sizing
-	// Of is the child. A child that can answer how big it wants to be — anything
-	// implementing [Sized] — is asked when Size says the slot is measured.
-	Of Widget
+	Of   Widget
 }
 
 // Container owns child layout, keyboard focus and pointer routing. Accepted presses

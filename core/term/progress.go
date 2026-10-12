@@ -89,7 +89,6 @@ func newTaskProgress() *taskProgress {
 	return &taskProgress{wake: make(chan struct{}, 1), done: make(chan struct{})}
 }
 
-// to remembers next and queues it unless another process owns the terminal.
 func (p *taskProgress) to(next Progress, queue func([]byte) uint64) {
 	next = next.normalized()
 	p.mu.Lock()

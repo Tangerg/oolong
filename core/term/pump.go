@@ -29,8 +29,7 @@ type pump struct {
 	// resized carries the newest measured terminal geometry. Discovery belongs to
 	// the platform watcher; the pump owns only its place in the ordered event stream.
 	resized <-chan input.Resize
-	// stop asks the pump to return.
-	stop <-chan struct{}
+	stop    <-chan struct{}
 
 	// out receives the decoded events, and is closed when the pump returns so a
 	// consumer ranging over it learns that input is over.

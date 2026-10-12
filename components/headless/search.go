@@ -206,7 +206,6 @@ var stoppedResults = func() <-chan Result {
 	return done
 }()
 
-// run is the worker.
 func (s *Search) run() {
 	defer close(s.done)
 	defer close(s.results)
@@ -307,13 +306,7 @@ func (s *Search) superseded(request *byte) bool {
 	return s.closed || request != s.request
 }
 
-// compile turns a query into the pattern that finds it.
-//
-// A literal query goes through the same matcher as a pattern, quoted. That is not
-// laziness: matching case-insensitively by lowercasing both sides gives byte offsets
-// into a string nobody has — case folding changes lengths, so "İ" lowercases to two
-// runes and every offset after it is wrong. Regexp folds without moving anything, and
-// one matcher cannot disagree with itself about what a match is.
+// Regexp case folding preserves source offsets; lowercasing can change UTF-8 lengths and invalidate matches.
 func compile(query string, regex bool) (*regexp.Regexp, error) {
 	if !regex {
 		query = regexp.QuoteMeta(query)
@@ -321,13 +314,7 @@ func compile(query string, regex bool) (*regexp.Regexp, error) {
 	return regexp.Compile("(?i)" + query)
 }
 
-// join runs the rows together the way they were written and records where each one
-// starts, so a match found in the whole can be put back on the rows it covers.
-//
-// The rows are joined as a copy would join them — see [text.Row] — because a query is
-// written the way the text was written and not the way the window happened to break
-// it. Searching row by row would fail to find a phrase the wrap split, which is the
-// one a user is most likely to be looking for: a long one.
+// Join wrapped rows as originally written so a width change cannot split searchable phrases.
 func join(rows []text.Row) (joined string, starts []int) {
 	var b strings.Builder
 	starts = make([]int, len(rows))
@@ -370,14 +357,7 @@ func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Spa
 	return first, dst, true
 }
 
-// rowAt is the row a byte offset of the joined text falls in, or -1 when there are no
-// rows at all.
-//
-// An offset can land between two rows, in what the break consumed: a query of two
-// spaces finds them in a gap that was three. The match belongs to the row where it
-// becomes visible, which is the next one — attributing it to the row before would
-// highlight columns the match is not on, and refusing it would drop a match the text
-// really contains.
+// A match in consumed wrap whitespace belongs to the next visible row; refusing it loses real source matches.
 func rowAt(starts []int, rows []text.Row, offset int) int {
 	lo, hi := 0, len(starts)-1
 	if hi < 0 {

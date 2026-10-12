@@ -382,8 +382,6 @@ type scripts struct {
 	hasSup, hasSub bool
 }
 
-// scriptsAfter renders the run of scripts starting at at, and reports where the next
-// base begins.
 func (r *formulaRenderer) scriptsAfter(nodes ast.List, at int, style grid.Style) (scripts, int, error) {
 	var attached scripts
 	for ; at < len(nodes); at++ {
@@ -602,7 +600,6 @@ func (r *formulaRenderer) namedMacro(name string, args ast.List, style grid.Styl
 	case grid.ClusterWidth(symbol) == 0:
 		return box{}, fmt.Errorf("unsupported combining accent %s", name)
 	case r.look.Glyphs.Plain:
-		// Plain changes how a symbol this package has is spelled and nothing else.
 		symbol = asciiSymbol(name)
 	}
 	if symbols.IsSpaced(name) {

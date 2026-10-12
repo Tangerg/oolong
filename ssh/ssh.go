@@ -117,8 +117,6 @@ func (e environment) lookup(name string) (string, bool) {
 	return value, ok
 }
 
-// exactly is the session as a frame writer: its own reader, and a writer that
-// refuses the one byte the session would change on its way out.
 func exactly(session charmssh.Session) io.ReadWriter {
 	return exactChannel{Reader: session, to: session}
 }

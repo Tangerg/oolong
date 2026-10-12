@@ -52,13 +52,9 @@ type Field interface {
 // completion renderers. Its zero value uses terminal colors. Custom choice rows and
 // completion renderers receive the same roles while owning their own row layout.
 type Look struct {
-	// Text is the answer, Label what the field is asking for, and Subtle a placeholder
-	// or a hint.
 	Text, Label, Subtle grid.Style
-	// Selection is the row under the keyboard, and Accent the answer that has been
-	// given.
-	Selection, Accent grid.Style
-	Danger            grid.Style
+	Selection, Accent   grid.Style
+	Danger              grid.Style
 	// Taken and Free are the marks beside a choice that has been made and one that is
 	// still on offer. They are drawn in the same column, so they are the same width or
 	// nothing beside them lines up.
@@ -81,12 +77,7 @@ func (l Look) mark(taken bool) (string, int) {
 	return l.Free, layout.Sum(width, 1)
 }
 
-// choice draws one option on a row: its mark, and its label in whatever is left.
-//
-// It is here rather than on the field because all three of the fields that offer a
-// choice draw a row the same way, and the look is the only thing the drawing depends
-// on. under is the row the keyboard is on, taken the choice that has been made — which
-// are the same row in a [Select] and two different ones in a [MultiSelect].
+// Cursor focus and accepted choice are distinct in MultiSelect, so their appearances must remain separate.
 func (l Look) choice(v grid.View, label string, under, taken bool) {
 	w, _ := v.Size()
 	style := l.Text
@@ -181,13 +172,7 @@ func (f *field) frame(v Frame, label string, look Look) Frame {
 	return inner
 }
 
-// within translates a pointer event into the field's own box and reports whether it
-// landed in it.
-//
-// The label is a row of the field and is not part of what the field holds, so a press
-// under it means a row lower than the position says. It is the same translation a
-// container does for its children and for the same reason: a widget reasons in its own
-// coordinates, and a position that arrived in anybody else's is one it cannot use.
+// The label occupies a row outside the value; translate pointer coordinates before value hit testing.
 func (f *field) within(ev input.Mouse) (input.Mouse, bool) {
 	ev = f.local(ev)
 	return ev, ev.Pos.In(f.presentation.Value().visible)

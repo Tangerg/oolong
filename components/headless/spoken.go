@@ -62,7 +62,6 @@ func (m *MultiSelect[T]) Reply(said string) error {
 	}, m.checkAnswer)
 }
 
-// choices is the options, numbered, as they go after a question.
 func choices[T any](options []Option[T]) string {
 	var b strings.Builder
 	for i, option := range options {
@@ -77,12 +76,6 @@ func choices[T any](options []Option[T]) string {
 	return ":" + b.String()
 }
 
-// choose reads what was said as one of the options: the number beside it, or its
-// label — whole, or as much of it as picks out one.
-//
-// A label that is a prefix of two of them is refused rather than guessed at. A form
-// answered in words is answered by somebody who cannot see which one was taken, so a
-// guess is a wrong answer they have no way of noticing.
 func choose[T any](said string, options []Option[T]) (int, error) {
 	said = strings.TrimSpace(said)
 	if said == "" {

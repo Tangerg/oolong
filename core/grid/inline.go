@@ -293,8 +293,6 @@ func (i *Inline) Finish(w io.Writer) error {
 	return nil
 }
 
-// used is how many rows the block needs: the rows up to the last one with anything
-// on it, and enough to hold the cursor if drawing placed one.
 func (i *Inline) used() int {
 	_, h := i.buffers.size()
 	last := -1
@@ -341,7 +339,6 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	i.buf = append(i.buf, osc8Close...)
 	i.buf = append(i.buf, sgrReset...)
 
-	// Back to the top of the block, which is the only position this type can name.
 	i.buf = append(i.buf, '\r')
 	if i.at.Y > 0 {
 		i.csi(i.at.Y, 'A')
@@ -351,8 +348,6 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	return i.composeEnd(used, total, full)
 }
 
-// settle makes this frame the one the terminal is showing, from where composing it
-// said the frame would leave the cursor.
 func (i *Inline) settle(used int, at image.Point) {
 	i.buffers.swap()
 	i.rows = used
@@ -404,7 +399,6 @@ func (i *Inline) composePending() {
 		}
 	}
 	if len(i.pending) > 0 {
-		// Below everything published, which is where the block goes.
 		i.buf = append(i.buf, "\r\n"...)
 	}
 }
@@ -455,9 +449,6 @@ func (i *Inline) rowChanged(y int, full bool) bool {
 	return full || !rowEqual(i.buffers.front, y, i.buffers.back, y)
 }
 
-// composeEnd repaints non-cell regions and leaves the terminal cursor where the
-// frame asked, after the row encoder has returned it to a known column. It reports
-// the position this payload ends at.
 func (i *Inline) composeEnd(used, total int, full bool) (image.Point, error) {
 	// The regions something else paints, from where the rows left the cursor. They
 	// go after the rows for the reason they do on a screen — the rows would write the
@@ -530,8 +521,6 @@ func (i *Inline) cursorPending() bool {
 		i.placed.Style.normalized() != i.cursorStyle)
 }
 
-// placeCursor moves the cursor from at, where writing the rows left it, to where
-// this frame's drawing asked for it, and reports where it ends up.
 func (i *Inline) placeCursor(at image.Point) image.Point {
 	defer func() { i.known, i.shown = true, i.placed.Visible }()
 

@@ -47,8 +47,7 @@ type SliderConfig struct {
 	// Minimum and Maximum are inclusive and may be equal.
 	Minimum, Maximum int
 	// Step is the keyboard increment. Zero means one.
-	Step int
-	// Label names the value in semantics and any appearance.
+	Step  int
 	Label string
 	// Keys maps slider actions. Nil uses [DefaultSliderKeys].
 	Keys *keymap.Map

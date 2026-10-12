@@ -208,7 +208,6 @@ type transcriptState struct {
 
 func (s transcriptState) endRow() int { return layout.Sum(s.start, s.rows) }
 
-// position resolves a stable identity into the current compact slice.
 func (s transcriptState) position(id BlockID) (int, bool) {
 	return blockPosition(s.first, id, len(s.blocks))
 }
@@ -232,7 +231,6 @@ func (s transcriptState) index(row int) int {
 	return lo
 }
 
-// visible is the compact slice range touched by [from, from+rows).
 func (s transcriptState) visible(from, rows int) (first, last int) {
 	from, rows, ok := s.window(from, rows)
 	if !ok {
@@ -328,7 +326,6 @@ func (t *Transcript) remeasure(from int) {
 	t.rows = layout.Remaining(top, t.start)
 }
 
-// measure is a block's height at the current width, never negative.
 func (t *Transcript) measure(b Block) int {
 	if t.width <= 0 {
 		return 0

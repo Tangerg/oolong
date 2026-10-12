@@ -86,8 +86,7 @@ type Table struct {
 	Cell func(row, column int) Cell
 	// Gap is the space between columns. Zero uses one column, which is the least
 	// that still reads as two columns rather than one.
-	Gap int
-	// Header draws the column titles in the first row.
+	Gap    int
 	Header bool
 	// Sorted says which column the rows are in the order of and which way round, when
 	// they are in an order at all, so the header can mark it — the only way a reader
@@ -166,13 +165,6 @@ func (t Table) preferred(column int) int {
 	return widest
 }
 
-// flow is how the columns divide the width: across, with the gap between them.
-//
-// The arithmetic used to be written out here — the fixed columns, then the shares of
-// what was left, then the rounding remainder to the last one. It was the same
-// arithmetic as [layout.Flow.Divide] with the gaps taken off the front, which is the
-// signal that a gap belongs one layer down: two copies of a sizing rule are two
-// chances to round it differently.
 func (t Table) flow() layout.Flow {
 	return layout.Flow{Axis: layout.Across, Gap: max(t.Gap, 1)}
 }
@@ -272,12 +264,6 @@ func (t Table) mark(column int) string {
 	return t.Glyphs.Ascending
 }
 
-// drawRow hands each column's box to draw, on the row at y.
-//
-// The boxes are worked out once for the table and moved down a row at a time: where
-// a column starts does not depend on which row is being drawn, and a table that
-// divided its width again for every row would be doing the same arithmetic once per
-// row of the terminal.
 func (l TableLayout) drawRow(v grid.View, y int, draw func(col int, cell grid.View)) {
 	for col, box := range l.boxes {
 		if box.Dx() > 0 {

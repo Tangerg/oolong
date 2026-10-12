@@ -24,10 +24,7 @@ type Node[T any] struct {
 type Shown[T any] struct {
 	Item T
 	// Depth is how many items are above this one, from zero at the top.
-	Depth int
-	// Branch says there is something under this item, and Open says it is showing.
-	// A branch that is closed is what the reader is being invited to open, and a
-	// branch with nothing under it is not a branch.
+	Depth        int
 	Branch, Open bool
 
 	// id is the tree-owned identity of this position. SetNodes reuses it for the node
@@ -73,10 +70,7 @@ type Tree[T any] struct {
 	// see [Tree.Do]. Nil reads through [DefaultTreeKeys].
 	Keys *keymap.Map
 
-	// list is the rows the tree is showing. It owns the selection and the scroll,
-	// and this type owns which rows there are.
 	list List[Shown[T]]
-	// open is which owned branch identities are showing what is under them.
 	open map[uint64]bool
 	// nodeIDs owns the stable node namespace. Zero is reserved for no node, which
 	// makes accidental empty identities impossible to retain as open state.
@@ -234,8 +228,6 @@ func (t *Tree[T]) Do(action keymap.Action) bool {
 	switch action {
 	case Expand:
 		if !t.Open(at) {
-			// Nothing to open. Stepping into it is what a reader means by pressing it
-			// again, and standing still is what a leaf does.
 			return t.into(at)
 		}
 		return true
@@ -263,10 +255,6 @@ func (t *Tree[T]) into(at int) bool {
 	return true
 }
 
-// upToParent moves the cursor to whatever the row at is under.
-//
-// It is found by walking back to the first row less deep, which is what the rows
-// already say: the parent of a row is the nearest one above it with a smaller depth.
 func (t *Tree[T]) upToParent(at int) bool {
 	rows := t.list.items
 	if at < 0 || at >= len(rows) || rows[at].Depth == 0 {

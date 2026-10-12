@@ -9,8 +9,7 @@ import (
 // BlockConfig configures an immutable collection of styled logical lines.
 type BlockConfig struct {
 	Lines []Line
-	// Wrap reflows lines to the available width. False clips each logical line.
-	Wrap bool
+	Wrap  bool
 }
 
 // Block is passive styled text. Construction owns its lines; measurement,

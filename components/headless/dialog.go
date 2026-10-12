@@ -39,8 +39,7 @@ type DialogConfig struct {
 	// Stack owns modal ordering and is required.
 	Stack *Stack
 	// Open is optional caller-owned state. Nil starts locally closed.
-	Open Accessor[bool]
-	// Title and Description are copied semantic text.
+	Open        Accessor[bool]
 	Title       string
 	Description string
 	// Content is the required modal part placed on Stack while open.

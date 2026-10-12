@@ -108,7 +108,6 @@ func (s *script) tool(ctx context.Context, result toolResult) {
 	}
 }
 
-// review reports approval, which a failure is not.
 func (s *script) review(ctx context.Context, proposal changeProposal) bool {
 	if s.err != nil {
 		return false

@@ -86,8 +86,6 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 		Theme: theme, Glyphs: glyphs, Controller: b.tree,
 		Text: func(e entry) string { return e.name },
 	})
-	// A window shows the part of something taller than the room there is. The preview
-	// is ordinary wrapped text and knows nothing about being scrolled.
 	b.window = headless.NewViewport(headless.Static{Of: b.preview})
 	b.treeBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs}, Content: b.dressed})
 	b.treeBox.Box.Title = "files"
@@ -153,8 +151,6 @@ func (b *browser) Handle(ev input.Event) bool {
 	return handled
 }
 
-// preview is what to show beside the tree: the first part of a file, or what a
-// directory holds.
 func preview(of entry, theme kit.Theme) []text.Line {
 	if of.dir {
 		return []text.Line{text.Of(of.path+" is a directory", theme.Muted)}

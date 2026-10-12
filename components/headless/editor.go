@@ -121,9 +121,10 @@ func (e *Editor) Revision() uint64 { return e.revision }
 // A non-empty [Editor.Mask] also makes the effective field one-line.
 func (e *Editor) SingleLine() bool { return e.singleLine }
 
-// SetSingleLine enables or disables one-line storage. Enabling flattens line breaks,
+// SetSingleLine changes the explicit one-line setting. Enabling flattens line breaks,
 // retains element identities and translates the cursor as one semantic change.
-// It clears history so undo cannot restore invalid multi-line content.
+// It clears history so undo cannot restore invalid multi-line content. A non-empty
+// mask still requires one-line storage when the explicit setting is disabled.
 func (e *Editor) SetSingleLine(enabled bool) {
 	if e.singleLine == enabled {
 		return
@@ -1032,13 +1033,6 @@ func (e *Editor) removed(start, end Caret, s string) {
 	e.edited(text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s})
 }
 
-// offsetOf is a caret as a byte offset into the whole text.
-//
-// The editor keeps its content as lines because that is what wrapping, vertical
-// movement and the cursor are all expressed in. Marks are kept as offsets because
-// that is what a change to text is expressed in, and translating between the two is
-// this function and [Editor.caretAt]. Neither idea has to know about the other, which
-// is the only reason the shifting rule could move out of this package at all.
 func (e *Editor) offsetOf(c Caret) int {
 	e.ensure()
 	return offsetInLines(e.lines, c)
@@ -1165,9 +1159,6 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 func (e *Editor) Do(action keymap.Action) bool {
 	e.ensure()
 	if e.move(action) {
-		// Moving is how a selection is let go of, which is what every other editor does
-		// and what an arrow key means. Selecting is the same movement with the anchor
-		// put down first — see [Editor.Handle].
 		e.SelectNone()
 		return true
 	}
@@ -1179,10 +1170,6 @@ func (e *Editor) Do(action keymap.Action) bool {
 	return true
 }
 
-// typed puts a keystroke in as text, when it is text.
-//
-// Text, and only text. A chord this field has no use for belongs to whatever is around
-// it, and swallowing it would break that.
 func (e *Editor) typed(key input.Key) bool {
 	if key.Mods&^input.Shift != 0 {
 		return false
@@ -1257,11 +1244,7 @@ func (e *Editor) MoveUp() { e.moveRow(-1) }
 // MoveDown moves the cursor down one visual row.
 func (e *Editor) MoveDown() { e.moveRow(1) }
 
-// moveRow moves the cursor by visual rows.
-//
-// The column the cursor was in is remembered across the whole run of movement, so
-// travelling down through a short line and out the other side comes back to where it
-// went in. Recomputing it each step would drag the cursor left and leave it there.
+// Preserve the desired column across short rows so repeated vertical movement cannot drift left.
 func (e *Editor) moveRow(delta int) {
 	defer e.revealCursor()
 	e.ensure()
@@ -1445,7 +1428,6 @@ func (e *Editor) Focus(has bool) {
 	}
 }
 
-// placeCursor asks for the terminal's cursor only when this field has the keyboard.
 func (e *Editor) placeCursor(v grid.View, x, y int) {
 	if e.blurred {
 		return
@@ -1472,13 +1454,7 @@ func (e *Editor) revealCursor() {
 // in effect through redraws and resizes until the next navigation or edit.
 func (e *Editor) Scroll() *Scroll { return &e.scroll }
 
-// rows is the field's text laid out at a width.
-//
-// A field holding one line is laid out at no width at all, which is how the wrap is
-// told not to break anything: the line is one row however long it is, and what is off
-// the side of the box is off the side of the box. Everything that reads rows — moving
-// the cursor, finding a click, drawing a selection — then agrees, because there is one
-// layout and they all ask it.
+// Zero wrap width keeps one-line fields on one visual row for drawing and hit testing.
 func (e *Editor) rows(width int) []editorRow {
 	if e.oneLine() {
 		width = 0
@@ -1713,12 +1689,7 @@ func (e *Editor) Paste() bool {
 	return e.Clipboard != nil && e.Clipboard.Paste()
 }
 
-// move runs an action if it is a way of moving, reporting whether it was one.
-//
-// It is separate from the rest of [Editor.Do] because it is asked twice: once for what
-// the keystroke named, and once for what it named with the shift taken off it, which is
-// what makes every movement a way of selecting. Selecting is this without the selection
-// being let go of first.
+// Shift-selection and ordinary movement share actions; only ordinary movement releases the anchor.
 func (e *Editor) move(action keymap.Action) bool {
 	switch action {
 	case MoveLeft:

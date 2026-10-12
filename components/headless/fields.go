@@ -24,10 +24,8 @@ type Text struct {
 	// Keys say which keystrokes edit. Nil reads through [DefaultEditorKeys].
 	Keys *keymap.Map
 	// Clipboard supplies copy, cut and paste services. Nil disables those actions.
-	Clipboard Clipboard
-	// Gutter optionally draws beside the single text row.
-	Gutter RowGutter
-	// CursorStyle chooses the focused terminal cursor's shape and blink.
+	Clipboard   Clipboard
+	Gutter      RowGutter
 	CursorStyle grid.CursorStyle
 
 	editor Editor

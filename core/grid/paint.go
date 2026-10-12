@@ -41,13 +41,9 @@ type painter struct {
 	// worth believing. A run of adjacent cells needs no positioning.
 	at    image.Point
 	known bool
-	// begun records that the frame has stated its style baseline, which also
-	// means the frame is going to write something.
 	begun bool
 }
 
-// restart empties the buffer and forgets everything established for the previous
-// frame.
 func (p *painter) restart() {
 	p.out = p.out[:0]
 	p.sourceStyle = Style{}
@@ -61,10 +57,7 @@ func (p *painter) restart() {
 // out of more than one of them speaks with one voice.
 func (p *painter) adoptDepth(depth Depth) { p.depth = depth }
 
-// begin states the default style, once per frame, before the first cell.
-//
-// The terminal's style at frame start is not knowable — another program may have
-// written to it — so a frame that writes anything begins by making it knowable.
+// Other programs may change terminal style between frames; establish the baseline before emitting cells.
 func (p *painter) begin() {
 	if p.begun {
 		return
@@ -89,7 +82,6 @@ func (p *painter) end() {
 	p.style = wireStyle{}
 }
 
-// adopt continues from the terminal state another painter established.
 func (p *painter) adopt(other *painter) {
 	p.sourceStyle = other.sourceStyle
 	p.style = other.style
@@ -104,11 +96,8 @@ func (p *painter) adopt(other *painter) {
 // scrolling-region change, for one — leave that belief unfounded.
 func (p *painter) forcePos() { p.known = false }
 
-// moveToPoint positions the cursor at a point, for a caller that has one — which is
-// what a region something else paints is placed by.
 func (p *painter) moveToPoint(at image.Point) { p.moveTo(at.X, at.Y) }
 
-// moveTo positions the cursor unless it is already there.
 func (p *painter) moveTo(x, y int) {
 	if p.known && p.at.X == x && p.at.Y == y {
 		return
@@ -143,11 +132,7 @@ func (p *painter) cell(c *Cell, width int) {
 	p.at.X += width
 }
 
-// appendStyle emits the SGR that establishes next.
-//
-// Reset-then-set rather than a minimal difference: one deterministic sequence per
-// change is shorter to reason about than a per-attribute diff, and terminals
-// disagree about how to turn individual attributes off.
+// Reset complete styles because terminals disagree on per-attribute reset behavior.
 func (p *painter) appendStyle(next wireStyle) {
 	p.style = next
 	if next == (wireStyle{}) {
@@ -232,10 +217,6 @@ const (
 	background int64 = 48
 )
 
-// appendColor writes one colour after depth has chosen its terminal representation.
-//
-// The parameters are appended to an SGR that is already open, which is why every
-// branch starts with a semicolon and none of them ends the sequence.
 func (p *painter) appendColor(base int64, color wireColor) {
 	switch color.kind {
 	case defaultWireColor:
@@ -270,12 +251,7 @@ func (p *painter) appendColor(base int64, color wireColor) {
 	}
 }
 
-// appendLink closes the open hyperlink and opens target.
-//
-// A target carrying control bytes is dropped rather than escaped: the OSC 8
-// payload is terminated by a control byte, so a target containing one could close
-// the sequence early and have the rest read as terminal commands. Cells can be
-// filled from tool output, which makes this a trust boundary.
+// Control bytes can terminate OSC 8 and inject terminal commands; refuse such hyperlink targets.
 func (p *painter) appendLink(target string) {
 	if target == p.link {
 		return
@@ -293,15 +269,9 @@ func (p *painter) appendLink(target string) {
 	p.link = target
 }
 
-// closeLink leaves no hyperlink open at the end of a frame or a row.
 func (p *painter) closeLink() { p.appendLink("") }
 
-// paint emits every cell of rows [y0, y1) that dirty accepts, positioning the
-// cursor only where a run breaks.
-//
-// dirty is given the index of the unit's head cell and its width so it can judge
-// a multi-column atom as one thing: if any column changed, the head glyph has to
-// be rewritten, and repainting only a continuation would print nothing.
+// Dirty checks must treat a wide glyph and all continuation cells as one atom; continuations alone paint nothing.
 func (p *painter) paint(s *Surface, y0, y1 int, dirty func(i, width int) bool) {
 	for y := max(y0, 0); y < min(y1, s.h); y++ {
 		for x := 0; x < s.w; {
@@ -325,8 +295,6 @@ func changedAgainst(prev, next *Surface) func(i, width int) bool {
 	}
 }
 
-// changedAgainstBlank reports cells that are not already blank, for rows the
-// terminal has just cleared for us.
 func changedAgainstBlank(next *Surface) func(i, width int) bool {
 	return func(i, width int) bool {
 		for offset := range width {
@@ -433,12 +401,7 @@ func EncodeRow(cells []Cell, depth Depth) string {
 	return string(p.out)
 }
 
-// trimBlankTail drops the run of wholly default blank cells at the end of a row.
-//
-// Printing them costs bytes for nothing, and on a row as wide as the terminal it
-// pushes the cursor onto the next line before the caller asked for one. Only the
-// zero cell is dropped: a blank carrying a background colour or a hyperlink is
-// visible, and a continuation column must stay with its atom's head.
+// Trailing default blanks can wrap the terminal cursor. Styled blanks and wide-glyph continuations must remain.
 func trimBlankTail(cells []Cell) []Cell {
 	end := len(cells)
 	for end > 0 && cells[end-1] == (Cell{}) {
@@ -447,11 +410,7 @@ func trimBlankTail(cells []Cell) []Cell {
 	return cells[:end]
 }
 
-// scroll asks the terminal to move rows and then paints what that exposed.
-//
-// The style is reset before the move so that terminals which erase with the
-// current background produce default-coloured blank rows, which is what the
-// exposed rows are then painted against.
+// Reset before scrolling so background-aware erasure produces the default blanks used by the diff.
 func (p *painter) scroll(next *Surface, shift verticalShift) {
 	p.begin()
 	region := shift.top != 0 || shift.bottom != next.h

@@ -78,12 +78,8 @@ func (s *Sticky) Len() int {
 // Pinned is the header for one frame.
 type Pinned struct {
 	// Block is the identity of the block being pinned.
-	Block BlockID
-	// Height is how many of its rows to draw, which is fewer than it has when it is
-	// collapsed or being pushed off.
-	Height int
-	// ClipTop is how many of its rows to leave off the top, which is what being
-	// pushed off looks like.
+	Block   BlockID
+	Height  int
 	ClipTop int
 	// Rows is the whole footprint at the top of the view: the visible header and the
 	// gap under it. It is what a caller subtracts before drawing the content.
@@ -118,7 +114,7 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 		return Pinned{}, false
 	}
 	if top >= from {
-		return Pinned{}, false // still on screen where it belongs
+		return Pinned{}, false
 	}
 
 	p := Pinned{Block: i, Height: height}
@@ -131,7 +127,6 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 	p.Rows = layout.Sum(p.Height, s.Gap)
 	p.Fade = 1
 
-	// The next pinned block pushes this one off as it comes up.
 	if next, ok := s.nextAfter(t, i); ok {
 		if room := next - from; room < p.Rows {
 			p.ClipTop = min(p.Rows-max(room, 0), p.Height)

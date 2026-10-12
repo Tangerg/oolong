@@ -111,7 +111,6 @@ func (s *Scanner) scan(source string, visit func(Piece) error) error {
 	return refused
 }
 
-// unfinished decides what becomes of a tail no complete piece could be read from.
 func (s *Scanner) unfinished(tail string) error {
 	// Anything unfinished and this long is an escape sequence: an unfinished character
 	// is three bytes at the outside.
@@ -218,9 +217,9 @@ func (s *Scanner) incomplete(source string) bool {
 type scanStep int
 
 const (
-	scanOn      scanStep = iota // nothing decided yet
-	scanEnded                   // the sequence ends here
-	scanWaiting                 // it cannot end in what has arrived
+	scanOn scanStep = iota
+	scanEnded
+	scanWaiting // it cannot end in what has arrived
 )
 
 func (s *Scanner) step(source string, at int) scanStep {

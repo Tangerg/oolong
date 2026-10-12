@@ -211,8 +211,6 @@ func drawRows(v grid.View, rows []row) {
 	for y := first; y < last; y++ {
 		r := rows[y]
 		if len(r.prefix) > 0 {
-			// At the left edge and not against the text: the bars are the quotation's
-			// columns, and every row of the block is inside the same quotation.
 			r.prefix.Draw(v, 0, y)
 		}
 		r.Draw(v, r.at, y)
@@ -230,8 +228,6 @@ func publicRows(rows []row) []text.Row {
 	return out
 }
 
-// stretch repeats a line until it fills the room there is, which is what a rule
-// across the page is: one character, as many times as the width says.
 func stretch(lines []text.Line, room int) text.Line {
 	if len(lines) == 0 || len(lines[0]) == 0 {
 		return nil

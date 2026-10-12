@@ -37,7 +37,6 @@ type EventSource interface {
 // neighbours. [ImageHost] is the exception because its transport and geometry form
 // one protocol. Absent capabilities receive harmless defaults.
 type Host interface {
-	// Input is the ordered input stream and the reason it eventually ends.
 	Input() EventSource
 	// Writer is where frames go. The interface is defined here, where it is used;
 	// a host is not coupled to the terminal package's concrete writer.

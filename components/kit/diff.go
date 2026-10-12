@@ -196,12 +196,6 @@ func (d *Diff) invalidate() {
 	d.wrapped = diffLayout{}
 }
 
-// line draws one physical row of a change. Its numbers, mark and content sit in the
-// style that says what happened to the logical line.
-//
-// The style covers the whole row rather than the text alone. A background that stopped
-// where the text did would leave a diff looking like ragged bunting, and the eye reads
-// the block of colour long before it reads the mark.
 func (d *Diff) line(v grid.View, y, width int, row diffRow) {
 	style := d.style(row.kind)
 	v.Fill(grid.Area(0, y, width, 1), style)
@@ -240,11 +234,7 @@ func (d *Diff) margin() margin {
 	return margin{each: widest}
 }
 
-// of is a line's place in each text, right-aligned, with a blank where the line is not
-// in one of them.
-//
-// A column between the two and one after them, so that a line with only one of the
-// numbers does not read as a longer one and the marks stay in a column of their own.
+// Separate number columns so additions and deletions cannot visually merge adjacent numbers.
 func (m margin) of(line diff.Line) string {
 	if m.each == 0 {
 		return ""
@@ -293,7 +283,6 @@ func (g diffGutter) mark(kind diff.Kind) string {
 	return kind.String()
 }
 
-// gap is the break between two hunks, which is what says lines were left out.
 func (d *Diff) gap(v grid.View, y, w int) {
 	mark := d.glyphs.Ellipsis
 	step := text.Width(mark)

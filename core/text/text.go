@@ -270,17 +270,14 @@ func (w *wrapper) breakRow() {
 	w.rowGap, w.nextGap = w.nextGap, ""
 }
 
-// word places units[from:to] and returns the index to continue from.
 func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 	switch {
 	case layout.Sum(w.rowWidth, w.heldW, wordWidth) <= w.width:
-		// Fits after the spaces that preceded it.
 		w.takeHeld(units)
 		for ; from < to; from++ {
 			w.place(units[from])
 		}
 	case wordWidth <= w.width:
-		// Fits on a row of its own: break before it and drop the spaces.
 		w.discardHeld(units)
 		if len(w.row) > 0 {
 			w.breakRow()
@@ -325,7 +322,6 @@ func (w *wrapper) hardBreak(units []unit, from, to int) int {
 	return from
 }
 
-// finish takes whatever trailing spaces fit and closes the last row.
 func (w *wrapper) finish(units []unit) []Wrapped {
 	for _, u := range units[w.heldFrom:w.heldTo] {
 		if layout.Sum(w.rowWidth, u.width) > w.width {
@@ -427,8 +423,6 @@ type unit struct {
 	size int
 }
 
-// units is the line as the things that occupy columns, with tabs expanded against the
-// running column.
 func (l Line) units() []unit {
 	capacity := 0
 	for _, span := range l {
@@ -502,7 +496,6 @@ func (l Line) eachUnit() iter.Seq[unit] {
 	}
 }
 
-// bytes is how many bytes the line's text takes, without building it.
 func (l Line) bytes() int {
 	n := 0
 	for _, s := range l {
@@ -511,8 +504,6 @@ func (l Line) bytes() int {
 	return n
 }
 
-// line rebuilds a line from units, merging neighbours that share a style and point
-// at the same thing.
 func line(units []unit) Line {
 	if len(units) == 0 {
 		return Line{}
@@ -818,7 +809,7 @@ func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col
 type Class uint8
 
 const (
-	// Space is whitespace, which is not part of any word.
+	// Space denotes whitespace.
 	Space Class = iota
 	// Word is a letter, a digit or an underscore — the run a double-click takes in
 	// text written in an alphabet.

@@ -12,8 +12,7 @@ package text
 type Edit struct {
 	// Start and End are the range replaced, the end exclusive.
 	Start, End int
-	// Text is what goes there.
-	Text string
+	Text       string
 }
 
 // Apply is the document with the edit made.
@@ -73,8 +72,7 @@ func (e Edit) empty() bool { return e.Start == e.End && e.Text == "" }
 // identity survives as long as the mark does.
 type Mark struct {
 	// ID is the caller's handle on the mark. Nothing here reads it.
-	ID uint64
-	// Kind is the caller's own label, for telling one family of marks from another.
+	ID   uint64
 	Kind int
 	// Start and End are the byte range, the end exclusive.
 	Start, End int
@@ -158,7 +156,6 @@ func (e Edit) opens(at int) int {
 	case at >= e.End:
 		return at + e.delta()
 	default:
-		// Inside what was replaced. What began there begins where the new text does.
 		return e.Start
 	}
 }
@@ -172,7 +169,6 @@ func (e Edit) closes(at int) int {
 	case at >= e.End:
 		return at + e.delta()
 	default:
-		// Inside what was replaced. What ended there ends where the new text does.
 		return e.Start + len(e.Text)
 	}
 }

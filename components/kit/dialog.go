@@ -34,17 +34,14 @@ type DialogConfig struct {
 	// Stack owns modal ordering and is required.
 	Stack *headless.Stack
 	// Open is optional caller-owned state. Nil starts locally closed.
-	Open   headless.Accessor[bool]
-	Theme  Theme
-	Glyphs Glyphs
-	// Title and Description are copied semantic text; Title also labels the border.
+	Open        headless.Accessor[bool]
+	Theme       Theme
+	Glyphs      Glyphs
 	Title       string
 	Description string
-	// Body is the optional live content inside the panel.
-	Body headless.Widget
-	// Where places the panel, and Border selects its frame style.
-	Where  layout.Placement
-	Border Border
+	Body        headless.Widget
+	Where       layout.Placement
+	Border      Border
 	// Keys supplies the map used to draw Hints. Hints is copied.
 	Keys  *keymap.Map
 	Hints []keymap.Action

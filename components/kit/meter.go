@@ -28,13 +28,13 @@ func layoutMeter(width, labelWidth, valueWidth int) meterLayout {
 
 	trackEnd := value.Min.X
 	if valueWidth > 0 && trackEnd > 0 {
-		trackEnd-- // air between the changing extent and its value
+		trackEnd--
 	}
 	labelWidth = min(max(labelWidth, 0), min(width/2, trackEnd))
 	label := grid.Area(0, 0, labelWidth, 1)
 	trackStart := label.Max.X
 	if labelWidth > 0 && trackStart < trackEnd {
-		trackStart++ // air between a name and what it names
+		trackStart++
 	}
 	return meterLayout{
 		label: label,

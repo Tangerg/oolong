@@ -18,6 +18,12 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Fixed
+
+- Help now occupies no row when none of its requested actions are bound. Composer
+  and Form use Help's measurement and rendering instead of maintaining separate
+  hint availability rules. Callers needing a blank row should allocate it explicitly.
+
 ## [0.23.0] — 2026-10-12
 
 ### Fixed

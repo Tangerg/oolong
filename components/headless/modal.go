@@ -30,7 +30,6 @@ type Modal interface {
 	// not have to guess what an unconsumed key meant.
 	Handle(ev input.Event) bool
 
-	// Place says where the modal goes in the space it floats over.
 	Place(space image.Point) layout.Placement
 }
 
@@ -122,9 +121,8 @@ type Stack struct {
 	focusState
 	matcher      keymap.Matcher
 	matcherLayer LayerID
-	// capture owns the recipient of one pointer gesture, whether a base or layer.
-	capture pointerCapture[stackPointerTarget]
-	hover   stackPointerTarget
+	capture      pointerCapture[stackPointerTarget]
+	hover        stackPointerTarget
 }
 
 // NewStack constructs a stack over base. The zero Stack has no base and is ready.

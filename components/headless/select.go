@@ -12,9 +12,7 @@ import (
 
 // Option is one thing a choice offers.
 type Option[T any] struct {
-	// Label is the row as shown.
 	Label string
-	// Value is what choosing it means.
 	Value T
 }
 

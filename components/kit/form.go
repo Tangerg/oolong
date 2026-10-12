@@ -80,7 +80,7 @@ func (f *Form) HeightForWidth(across int) int {
 	if f == nil || f.controller == nil {
 		return 0
 	}
-	return layout.Sum(f.rows(), f.controller.HeightForWidth(across))
+	return layout.Sum(f.titleRows(), f.help().HeightForWidth(across), f.controller.HeightForWidth(across))
 }
 
 // Draw dresses the form and paints it.
@@ -89,19 +89,22 @@ func (f *Form) Draw(v headless.Frame) {
 		f.body.Stage(v, image.Rectangle{}, nil)
 		return
 	}
+	titleRows := f.titleRows()
+	help := f.help()
+	hintRows := help.HeightForWidth(v.Bounds().Dx())
 	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Fixed(f.titleRows())},
+		{Size: layout.Fixed(titleRows)},
 		{Size: layout.Flex(1)},
-		{Size: layout.Fixed(f.hintRows())},
+		{Size: layout.Fixed(hintRows)},
 	})
 	bands := v.Subs(rects)
 	f.body.Stage(v, rects[1], f.controller)
-	if f.titleRows() > 0 {
+	if titleRows > 0 {
 		Label{Text: f.Title, Style: f.Theme.Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(bands[0].View)
 	}
 	f.controller.DrawWith(bands[1], f.Theme.Look(f.Glyphs))
-	if f.hintRows() > 0 {
-		Help{Theme: f.Theme, Keys: f.keys(), Show: f.Hints}.Draw(bands[2].View)
+	if hintRows > 0 {
+		help.Draw(bands[2].View)
 	}
 }
 
@@ -130,14 +133,6 @@ func (f *Form) Focus(has bool) {
 	}
 }
 
-// look is the theme as the handful of roles a field draws itself in.
-//
-// A field asks for a role and never for a colour, exactly as a widget here does. The
-// translation is one place, which is what keeps a form looking like the rest of the
-// interface without a field ever having heard of a theme.
-
-func (f *Form) rows() int { return f.titleRows() + f.hintRows() }
-
 func (f *Form) titleRows() int {
 	if f.Title == "" {
 		return 0
@@ -145,15 +140,8 @@ func (f *Form) titleRows() int {
 	return 1
 }
 
-// hintRows is whether there is a hint row: one, if any of the actions asked for is
-// bound to something.
-func (f *Form) hintRows() int {
-	for _, action := range f.Hints {
-		if len(f.keys().Keys(action)) > 0 {
-			return 1
-		}
-	}
-	return 0
+func (f *Form) help() Help {
+	return Help{Theme: f.Theme, Keys: f.keys(), Show: f.Hints}
 }
 
 // defaultFormKeys is read-only and never escapes this package. It is a separate map

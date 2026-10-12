@@ -1,9 +1,11 @@
 package kit
 
 import (
+	"iter"
 	"strings"
 
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/input"
 	"github.com/Tangerg/oolong/core/keymap"
 	"github.com/Tangerg/oolong/core/layout"
 	"github.com/Tangerg/oolong/core/text"
@@ -17,8 +19,7 @@ import (
 // worse than no hint.
 type Help struct {
 	Theme Theme
-	// Keys is where the keystrokes come from.
-	Keys *keymap.Map
+	Keys  *keymap.Map
 	// Show are the actions to show, in the order they matter. Hiding one is leaving it
 	// out: an action that works and that nobody needs told about is simply not listed.
 	//
@@ -30,8 +31,24 @@ type Help struct {
 	Separator string
 }
 
-// HeightForWidth is one row.
-func (h Help) HeightForWidth(int) int { return 1 }
+// HeightForWidth returns one row when a requested action has a binding, otherwise zero.
+func (h Help) HeightForWidth(int) int {
+	for range h.hints() {
+		return 1
+	}
+	return 0
+}
+
+func (h Help) hints() iter.Seq2[keymap.Action, input.Keys] {
+	return func(yield func(keymap.Action, input.Keys) bool) {
+		for _, action := range h.Show {
+			bound := h.Keys.Keys(action)
+			if len(bound) > 0 && !yield(action, bound[0]) {
+				return
+			}
+		}
+	}
+}
 
 // Draw writes as many hints as fit, in order, dropping the rest.
 //
@@ -50,13 +67,8 @@ func (h Help) Draw(v grid.View) {
 	sepWidth := text.Width(separator)
 
 	x := 0
-	for _, action := range h.Show {
-		bound := h.Keys.Keys(action)
-		if len(bound) == 0 {
-			continue
-		}
-		// The first sequence bound to it, which is the one a caller put first.
-		key := bound[0].String()
+	for action, binding := range h.hints() {
+		key := binding.String()
 		does := actionLabel(action)
 		need := layout.Sum(text.Width(key), 1, text.Width(does))
 		if x > 0 {

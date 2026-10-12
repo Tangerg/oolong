@@ -17,10 +17,7 @@ type Theme struct {
 	Strong  grid.Style
 	Heading grid.Style
 
-	Accent grid.Style
-	// Success, Warning, Danger and Info are outcomes. They are the only colours in
-	// the interface that carry meaning on their own, which is why there are exactly
-	// four of them.
+	Accent  grid.Style
 	Success grid.Style
 	Warning grid.Style
 	Danger  grid.Style

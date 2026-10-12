@@ -4,9 +4,7 @@ import "slices"
 
 // Keyframe is a value a [Timeline] passes through, and when.
 type Keyframe struct {
-	// At is how many ticks into the timeline this value is reached.
-	At uint64
-	// Value is what it is then.
+	At    uint64
 	Value float64
 }
 
@@ -29,8 +27,6 @@ type Timeline struct {
 	// sequence of steps usually wants — each step already says how long it takes, and
 	// easing every one of them separately reads as a stutter.
 	Ease func(t float64) float64
-	// Loop starts again from the beginning once the last frame is reached, which is
-	// what anything idling — a pulse, a sweep — is made of.
 	Loop bool
 
 	tick uint64
@@ -135,7 +131,6 @@ func (t *Timeline) Value() float64 {
 	return t.frames[len(t.frames)-1].Value
 }
 
-// shape is the easing, which is linear when none was given.
 func (t *Timeline) shape(at float64) float64 {
 	if t.Ease == nil {
 		return at

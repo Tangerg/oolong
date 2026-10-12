@@ -55,8 +55,6 @@ func (c *Chord) UnmarshalText(b []byte) error {
 	return nil
 }
 
-// notAKeystroke is what a configuration file gets told when it names something nobody
-// can press.
 func notAKeystroke(s string) error {
 	return errors.New("input: " + strconv.Quote(s) + " is not a keystroke")
 }
@@ -98,7 +96,6 @@ func ParseChord(s string) (Chord, bool) {
 	return Chord{Code: Character, Rune: r[0], Mods: mods}, true
 }
 
-// modNamed is the modifier a name stands for, as [Mods.String] writes them.
 func modNamed(name string) (Mods, bool) {
 	switch name {
 	case "ctrl":
@@ -113,7 +110,6 @@ func modNamed(name string) (Mods, bool) {
 	return 0, false
 }
 
-// codeNamed is the key a name stands for, as [Code.String] writes them.
 func codeNamed(name string) (Code, bool) {
 	if code, ok := codesByName[name]; ok {
 		return code, true

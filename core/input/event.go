@@ -306,8 +306,6 @@ func (Paste) terminalEvent() {}
 // typing — asking what colour the terminal draws on and reading its clipboard
 // both work this way. A session that asks nothing never sees one.
 type OSC struct {
-	// Command is the number the sequence names itself by: 11 for the colour the
-	// terminal draws on, 52 for its clipboard.
 	Command int
 	// Params is everything after the command number and its semicolon, left as
 	// the terminal wrote it apart from invalid UTF-8 being replaced.
@@ -404,9 +402,7 @@ func (k KeyboardFeatures) Has(features KeyboardFeatures) bool { return k&feature
 // [DeviceVersion.Version], and reading it as anything is a bet on which terminal is
 // being asked.
 type DeviceVersion struct {
-	// Kind is the terminal class number, which says very little.
-	Kind int
-	// Version and Patch are what it reported.
+	Kind           int
 	Version, Patch int
 }
 

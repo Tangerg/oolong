@@ -16,18 +16,15 @@ import (
 // A focusable child that must participate in routing inside the frame belongs in a
 // [Panel], which owns that narrower live composition explicitly.
 type Box struct {
-	Theme  Theme
-	Glyphs Glyphs
-	Border Border
-	// Padding is held clear inside the border.
+	Theme   Theme
+	Glyphs  Glyphs
+	Border  Border
 	Padding layout.Inset
-	// Bare draws no frame at all, for a box that only pads and fills.
-	Bare bool
+	Bare    bool
 	// Title sits in the top border, indented one column so the corner reads as a
 	// corner.
-	Title      string
-	TitleAlign layout.Align
-	// Footer sits in the bottom border, on the same terms as the title.
+	Title       string
+	TitleAlign  layout.Align
 	Footer      string
 	FooterAlign layout.Align
 }
@@ -98,9 +95,6 @@ func (b Box) paint(v grid.View) {
 		return
 	}
 	w, h := v.Size()
-	if w <= 0 || h <= 0 {
-		return
-	}
 	if fill := b.Theme.Surface; fill != (grid.Style{}) {
 		v.Fill(grid.Area(0, 0, w, h), fill)
 	}
@@ -113,12 +107,14 @@ func (b Box) drawBorder(v grid.View, border Border, w, h int) {
 	visible := v.Visible()
 	// A box one column or one row deep has no room for two opposing edges. Drawing
 	// what fits and no more keeps a collapsing layout from looking corrupted.
-	if h >= 1 && 0 >= visible.Min.Y && 0 < visible.Max.Y {
+	if 0 >= visible.Min.Y && 0 < visible.Max.Y {
 		b.drawEdge(v, 0, w, border.TopLeft, border.Top, border.TopRight)
+		b.label(v, 0, w, b.Title, b.Theme.Heading, b.TitleAlign)
 	}
 	bottom := h - 1
 	if h >= 2 && bottom >= visible.Min.Y && bottom < visible.Max.Y {
 		b.drawEdge(v, h-1, w, border.BottomLeft, border.Bottom, border.BottomRight)
+		b.label(v, bottom, w, b.Footer, b.Theme.Subtle, b.FooterAlign)
 	}
 	first := max(1, visible.Min.Y)
 	last := min(h-1, visible.Max.Y)
@@ -127,12 +123,6 @@ func (b Box) drawBorder(v grid.View, border Border, w, h int) {
 		if w >= 2 {
 			v.Text(w-1, y, border.Right, b.Theme.Border)
 		}
-	}
-	if h >= 1 && 0 >= visible.Min.Y && 0 < visible.Max.Y {
-		b.label(v, 0, w, b.Title, b.Theme.Heading, b.TitleAlign)
-	}
-	if h >= 2 && bottom >= visible.Min.Y && bottom < visible.Max.Y {
-		b.label(v, h-1, w, b.Footer, b.Theme.Subtle, b.FooterAlign)
 	}
 }
 

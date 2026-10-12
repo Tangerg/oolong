@@ -82,7 +82,7 @@ func (c *Composer) Handle(ev input.Event) bool {
 func (c *Composer) HeightForWidth(width int) int {
 	rows := c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth()))
 	rows = min(rows, c.rows())
-	return layout.Sum(rows, c.hintRows())
+	return layout.Sum(rows, c.help().HeightForWidth(width))
 }
 
 // Draw paints the marker, the field and the hints.
@@ -92,14 +92,15 @@ func (c *Composer) Draw(v headless.Frame) {
 		c.field.Stage(v, grid.Area(0, 0, 0, 0), nil)
 		return
 	}
-	hints := c.hintRows()
+	help := c.help()
+	hints := help.HeightForWidth(width)
 	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
 		{Size: layout.Flex(1)},
 		{Size: layout.Fixed(hints)},
 	}))
 	c.drawField(rows[0])
 	if hints > 0 {
-		Help{Theme: c.Theme, Keys: c.keys(), Show: c.Hints}.Draw(rows[1].View)
+		help.Draw(rows[1].View)
 	}
 }
 
@@ -116,16 +117,8 @@ func (c *Composer) drawField(v headless.Frame) {
 
 func (c *Composer) markerWidth() int { return text.Width(c.Prompt) }
 
-// hintRows is whether there is a hint row: one, if any of the actions asked for is
-// bound to something. A row of hints nobody can press is a row of nothing, and the
-// space is the field's.
-func (c *Composer) hintRows() int {
-	for _, action := range c.Hints {
-		if len(c.keys().Keys(action)) > 0 {
-			return 1
-		}
-	}
-	return 0
+func (c *Composer) help() Help {
+	return Help{Theme: c.Theme, Keys: c.keys(), Show: c.Hints}
 }
 
 func (c *Composer) keys() *keymap.Map {

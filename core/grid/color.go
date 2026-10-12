@@ -76,7 +76,6 @@ func PaletteRGB(index uint8) RGB {
 	}
 }
 
-// nearestCube is the index into [cube] whose value is closest to v.
 func nearestCube(v uint8) uint8 {
 	best, bestDist := 0, diff(v, cube[0])
 	for i := 1; i < len(cube); i++ {
@@ -87,12 +86,7 @@ func nearestCube(v uint8) uint8 {
 	return uint8(best)
 }
 
-// clampStep holds a ramp index inside the twenty-four steps the ramp has, and
-// answers in the type the index is used as, so nothing downstream has to convert.
-//
-// Written as three explicit cases rather than as a clamp inside a conversion:
-// the conversion is then guarded by a comparison on the line above it, which is
-// something a reader and an analyser can both follow to the same conclusion.
+// Guard narrowing explicitly so readers and static analyzers can prove the ramp index fits.
 func clampStep(n int) uint8 {
 	const lastStep = 23
 	switch {

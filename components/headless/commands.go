@@ -188,10 +188,7 @@ type commandMatch struct {
 	alias   bool
 }
 
-// cloneCommand makes the registry the owner of its values on the way in and gives
-// callers snapshots on the way out. Aliases are the only mutable part, but cloning
-// the strings too prevents a short-lived parser buffer from being retained by a
-// long-lived registry through a small substring.
+// Clone aliases and strings so registry lifetime cannot retain a caller buffer through small substrings.
 func cloneCommand(cmd Command) Command {
 	cmd.Name = strings.Clone(cmd.Name)
 	cmd.Title = strings.Clone(cmd.Title)
@@ -202,8 +199,6 @@ func cloneCommand(cmd Command) Command {
 	return cmd
 }
 
-// byRecency is every command, the recently used ones first and the rest in the order
-// they were registered.
 func (c *Commands[T]) byRecency() []Command {
 	out := make([]Command, 0, len(c.list))
 	for _, name := range c.used {

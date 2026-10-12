@@ -53,8 +53,6 @@ func newWaker(fd int) (*waker, error) {
 	return &waker{input: input, console: console, signal: event}, nil
 }
 
-// interruptible reports whether the reader can be taken off the terminal without
-// waiting for a keystroke, which here means: is what it is reading a console.
 func (w *waker) interruptible() bool { return w.console }
 
 // wait blocks until the terminal has something to say, reporting false when this
@@ -82,7 +80,6 @@ func (w *waker) wait() (bool, error) {
 	}
 }
 
-// wake ends whatever wait is in progress, and is safe to call when there is none.
 func (w *waker) wake() {
 	w.mu.Lock()
 	defer w.mu.Unlock()

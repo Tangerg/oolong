@@ -146,8 +146,6 @@ func (t *Tree[T]) row(v grid.View, _ int, row headless.Shown[T], selected bool) 
 func (t *Tree[T]) mark(row headless.Shown[T]) string {
 	switch {
 	case !row.Branch:
-		// A leaf beside a branch has to start in the same column, or a tree of files
-		// reads as a tree of two different things.
 		return strings.Repeat(" ", max(text.Width(t.Glyphs.Collapsed), 0))
 	case row.Open:
 		return t.Glyphs.Expanded

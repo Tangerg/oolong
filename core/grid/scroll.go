@@ -34,7 +34,7 @@ func detectShifts(prev, next *Surface) []verticalShift {
 		top++
 	}
 	if top == next.h {
-		return nil // nothing changed at all
+		return nil
 	}
 	bottom := next.h
 	for bottom > top && rowEqual(prev, bottom-1, next, bottom-1) {
@@ -92,7 +92,6 @@ func diffCostFloor(prev, next *Surface) int {
 				continue
 			}
 			if cost == 0 {
-				// The frame's leading and trailing style resets.
 				cost = 2 * len(sgrReset)
 			}
 			if !known || at.X != x || at.Y != y {
@@ -129,8 +128,6 @@ func rowEqual(a *Surface, ay int, b *Surface, by int) bool {
 	return slices.Equal(a.row(ay), b.row(by))
 }
 
-// rowsEqual reports whether n rows of a starting at aTop match n rows of b
-// starting at bTop.
 func rowsEqual(a *Surface, aTop int, b *Surface, bTop, n int) bool {
 	for i := range n {
 		if !rowEqual(a, aTop+i, b, bTop+i) {

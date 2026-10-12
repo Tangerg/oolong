@@ -197,8 +197,6 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 			lines: r.inline(node, in.body),
 		})
 	case *ast.TextBlock:
-		// What a list item's own text is, when the list is written without blank lines
-		// in it. It is a paragraph in everything but name.
 		r.push(Block{
 			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
 			lines: r.inline(node, in.body),
@@ -236,7 +234,6 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	case *east.Table:
 		r.table(node, in)
 	case *ast.HTMLBlock:
-		// Dropped, and see above.
 	default:
 		r.scheduleChildren(stack, n, in)
 	}
@@ -254,8 +251,6 @@ func (r *renderer) rule() []text.Line {
 	return []text.Line{text.Of(r.look.Glyphs.Divider, r.look.Rule)}
 }
 
-// list renders a list, one item at a time, with the item's mark waiting for the
-// first block inside it.
 func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 	// An ordered list carries its own first number, and zero is one a document may
 	// legitimately write. Only a bullet list has no number at all, and it never asks
@@ -292,8 +287,6 @@ func ordinal(start, index int) int {
 	return layout.Translate(start, index)
 }
 
-// bullet is what marks an item: a number for an ordered list, the look's bullet for
-// the rest, and the room after it that the item's text is indented past.
 func (r *renderer) bullet(n *ast.List, number int) text.Line {
 	if n.IsOrdered() {
 		return text.Of(strconv.Itoa(number)+". ", r.look.Marker)
@@ -405,8 +398,6 @@ func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 	return out.finish()
 }
 
-// writeInline applies one traversal action. The stack owns document order; this
-// method owns how one node contributes text or schedules its children.
 func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action inlineAction) {
 	if action.target {
 		r.target(out, action.destination, action.shown, action.style)
@@ -417,8 +408,6 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 	}
 }
 
-// writeLeaf writes the nodes whose whole contribution is text, and reports whether the
-// node was one of them.
 func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 	switch node := action.node.(type) {
 	case *ast.Text:
@@ -465,15 +454,12 @@ func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 	case *east.TaskCheckBox:
 		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
 	case *ast.RawHTML:
-		// Dropped, like a block of it.
 	default:
 		return false
 	}
 	return true
 }
 
-// pushInline schedules the children of a node whose own contribution is the style it
-// puts on them.
 func (r *renderer) pushInline(stack *[]inlineAction, action inlineAction) {
 	switch node := action.node.(type) {
 	case *ast.Emphasis:
@@ -585,8 +571,6 @@ func (r *renderer) box(checked bool) string {
 	return mark + " "
 }
 
-// plain is the text under a node with the styling left out, which is what a code
-// span, a link's own words and an image's description all come to.
 func (r *renderer) plain(n ast.Node) string {
 	var b strings.Builder
 	stack := make([]ast.Node, 0, 16)

@@ -121,7 +121,6 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 		return nil, err
 	}
 
-	// Running a command the caller named is what this package is for.
 	//nolint:gosec // G204: the command is the harness's argument, by design.
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = cfg.Dir

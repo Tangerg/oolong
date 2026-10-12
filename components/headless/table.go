@@ -15,7 +15,7 @@ import (
 type Table[T any] struct {
 	noCopy noCopy
 
-	// These configure the private List; see [List].
+	// Row callbacks must be observationally pure; see [List.Row].
 	Row  func(v grid.View, at int, item T, selected bool)
 	Keys *keymap.Map
 	Wrap bool

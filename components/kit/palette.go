@@ -17,7 +17,7 @@ import (
 // matching the reason is often several letters apart — showing which letters matched
 // is what makes "ns" finding "new-session" obvious instead of surprising.
 type Palette struct {
-	// Found is what to show, best first, as the registry ranked it.
+	// Preserve caller ranking; appearance must not rerank candidates.
 	Found    []headless.Found
 	Selected int
 
@@ -79,8 +79,6 @@ func (p Palette) Draw(v grid.View) {
 	}
 }
 
-// row draws one command: its name with the matched characters picked out, then its
-// description in whatever room is left.
 func (p Palette) row(v grid.View, y, x, w int, found headless.Found, style grid.Style) {
 	name := found.Command.Name
 	// Written cluster by cluster, because the match offsets are into the bytes and a

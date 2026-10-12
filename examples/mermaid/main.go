@@ -287,8 +287,6 @@ func (s *diagramScreen) act(key rune) bool {
 	return true
 }
 
-// exportedPath is the file this diagram was written to, written on first ask. It sets
-// the notice and reports false when there is nothing to export yet.
 func (s *diagramScreen) exportedPath() (string, bool) {
 	if s.prepared == nil {
 		s.notice = "Image is not ready"

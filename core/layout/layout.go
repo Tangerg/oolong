@@ -377,8 +377,6 @@ type division struct {
 	sizes         []int
 }
 
-// reserve gives non-flexible slots the space they state they need and totals the
-// weights that will divide what remains.
 func (d *division) reserve() {
 	for i, slot := range d.slots {
 		switch slot.Size.kind {
@@ -440,8 +438,6 @@ func (d *division) pinFloors() (settled []bool, room, weight int) {
 	return settled, room, weight
 }
 
-// allocateFlex gives each flexible slot its share and reports the last one entitled to
-// the remainder, or -1 when none is.
 func (d *division) allocateFlex(settled []bool, room, weight int) int {
 	lastWeighted := -1
 	for i, slot := range d.slots {

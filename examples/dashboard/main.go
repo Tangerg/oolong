@@ -103,8 +103,6 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	d.tabs = d.strip.Controller()
 	d.tabs.Focus(true)
 
-	// Something to watch: the work advances on a clock this program started, and an
-	// interface with nothing animating asks for no frames at all.
 	runtime.Every(120*time.Millisecond, d.advance)
 	return d
 }
@@ -196,8 +194,6 @@ type queue struct {
 func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 	q := &queue{theme: theme}
 	q.rows = new(headless.Table[task])
-	// One comparison for every column, which is what a table sorted by a column
-	// somebody named needs.
 	q.rows.SetLess(func(a, b task, column int) bool {
 		switch column {
 		case 1:
@@ -218,9 +214,6 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 			{Title: "progress", Size: layout.Flex(3).AtLeast(12)},
 		},
 		Header: true,
-		// The header marks the column the rows are in the order of, which is the only
-		// way for a reader to tell an order from a coincidence. It is the table's own
-		// answer, wired straight in.
 		Sorted: q.rows.Sorted,
 		Cell:   q.cell,
 	}
@@ -267,8 +260,6 @@ func (q *queue) Handle(ev input.Event) bool {
 
 func (q *queue) Focus(has bool) { q.rows.Focus(has) }
 
-// row draws the band a row sits in, and then its cells through the geometry the
-// header used.
 func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, selected bool) {
 	width, _ := v.Size()
 	base := q.theme.Text
@@ -334,8 +325,6 @@ func (q *queue) advance(by int) {
 	q.rows.SetItems(items)
 }
 
-// remaining is how much of the whole queue is left, which is what the other pane is
-// about.
 func (q *queue) remaining() (finished, total int) {
 	for _, item := range q.rows.Items() {
 		finished += item.done

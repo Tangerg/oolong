@@ -213,8 +213,6 @@ func (s *Stream) scan() int {
 	}
 }
 
-// indented reports whether a line begins with room for it, which is how a list item
-// and a block of code by indent carry on across a blank line.
 func indented(line string) bool {
 	return strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 }

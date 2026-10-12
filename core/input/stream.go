@@ -51,7 +51,6 @@ func (s *Stream) decoder() *Parser {
 	return s.parser
 }
 
-// escapeGrace is how long this stream waits, with the same rule.
 func (s *Stream) escapeGrace() time.Duration {
 	if s.grace <= 0 {
 		return DefaultEscapeTimeout

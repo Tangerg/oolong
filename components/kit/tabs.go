@@ -51,8 +51,7 @@ type TabsConfig struct {
 	Items     []headless.Tab
 	Selection headless.Accessor[int]
 	// Keys maps tab actions. Nil uses the headless defaults.
-	Keys *keymap.Map
-	// NoWrap stops movement at the ends. NoRule hides the separator below the strip.
+	Keys           *keymap.Map
 	NoWrap, NoRule bool
 }
 

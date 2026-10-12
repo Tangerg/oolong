@@ -59,8 +59,6 @@ func (t *title) to(s string, queue func([]byte) uint64) {
 	}
 }
 
-// enter is what to write to show the title again after the terminal has been given
-// away and taken back, and nothing when this session never set one.
 func (t *title) enter() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()

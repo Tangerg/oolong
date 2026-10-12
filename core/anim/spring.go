@@ -94,8 +94,7 @@ func (s *Spring) Tick() {
 	}
 	s.position, s.velocity = s.target+u, v
 	if s.Done() {
-		// Put exactly there. The maths never quite arrives, and a value that stays at
-		// 9.9996 for ever is one that whoever rounds it draws as nine.
+		// Snap settled motion to the target so integer rendering cannot lag by one.
 		s.position, s.velocity = s.target, 0
 	}
 }

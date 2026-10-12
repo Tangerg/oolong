@@ -151,7 +151,6 @@ func (d *Doc) arrange(width int) {
 // package that has one, and that is the dependency this whole boundary exists to
 // avoid.
 type Look struct {
-	// Text is body text.
 	Text grid.Style
 	// Headings are the levels, from one: the first entry is a level-one heading, and a
 	// level deeper than the list gets the last entry.
@@ -161,14 +160,11 @@ type Look struct {
 	// alike" is already sayable — it is a list of one.
 	Headings []grid.Style
 
-	// Strong and Emphasis are bold and italic, or whatever a look prefers them to be.
 	Strong   grid.Style
 	Emphasis grid.Style
-	// Struck is text somebody crossed out.
-	Struck grid.Style
-	// Code is a span of code in a sentence, and Block is a block of it.
-	Code  grid.Style
-	Block grid.Style
+	Struck   grid.Style
+	Code     grid.Style
+	Block    grid.Style
 	// Link is the text of a link. The words carry the address themselves — see
 	// [github.com/Tangerg/oolong/core/text.Span.Link] — so a terminal that shows
 	// hyperlinks opens what was written.
@@ -177,10 +173,8 @@ type Look struct {
 	// that cannot show a hyperlink. A look with no style for it does not write one,
 	// which is the shorter reading and the one worth having on a terminal.
 	Target grid.Style
-	// Quote is quoted text and Rail the bar beside it.
-	Quote grid.Style
-	Rail  grid.Style
-	// Marker is a bullet or a number, and Rule a thematic break.
+	Quote  grid.Style
+	Rail   grid.Style
 	Marker grid.Style
 	Rule   grid.Style
 
@@ -270,18 +264,12 @@ func (l *Look) renderer(extension Extension) Renderer { return l.extensions[exte
 // is the right answer for a terminal that cannot draw the characters, and the
 // caller is the one who knows whether it can.
 type Glyphs struct {
-	// Bullet marks an item of an unordered list.
-	Bullet string
-	// Bar is what a quotation is barred with, on every row of it.
-	Bar string
-	// Divider is what a thematic break and a table's heading rule are drawn with.
-	Divider string
-	// Checked and Unchecked mark a task list's items.
+	Bullet             string
+	Bar                string
+	Divider            string
 	Checked, Unchecked string
 }
 
-// heading is the style for a heading of a level, counting from one. A level deeper
-// than the look has entries for is drawn as the deepest one it has.
 func (l *Look) heading(level int) grid.Style {
 	if len(l.Headings) == 0 {
 		return l.Text

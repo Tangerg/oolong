@@ -251,7 +251,6 @@ func (w *Writer) Close() error {
 	return w.closeErr
 }
 
-// run is the write goroutine.
 func (w *Writer) run() {
 	completed := false
 	defer func() {

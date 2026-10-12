@@ -50,10 +50,9 @@ type SemanticNode struct {
 	Role        Role
 	Label       string
 	Description string
-	// Value is the control's current human-readable value, when it has one.
-	Value    string
-	State    SemanticState
-	Children []SemanticNode
+	Value       string
+	State       SemanticState
+	Children    []SemanticNode
 }
 
 // Semantic is implemented by controls that expose a structural semantic projection.

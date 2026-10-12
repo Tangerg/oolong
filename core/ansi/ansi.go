@@ -129,12 +129,6 @@ func completeText(s string) int {
 	return start
 }
 
-// introduces reports whether b introduces a string command.
-//
-// The five are an operating system command, a device control string, an
-// application program command, a privacy message and a start of string. All of
-// them are a body between an introducer and a terminator, so all of them are read
-// the same way and only [Piece.Final] tells them apart.
 func introduces(b byte) bool {
 	switch b {
 	case ']', 'P', '_', '^', 'X':
@@ -144,8 +138,6 @@ func introduces(b byte) bool {
 	}
 }
 
-// control reads a control sequence: a parameter section, then the byte that says
-// what the sequence was.
 func control(s string) (Piece, int, bool) {
 	i := 2
 	for i < len(s) && parameter(s[i]) {
@@ -173,12 +165,7 @@ func control(s string) (Piece, int, bool) {
 	}, i + 1, true
 }
 
-// command reads a string command, which ends at a bell or at an escape and a
-// backslash.
-//
-// The C1 terminator — one byte, 0x9c — is deliberately not accepted. In UTF-8 text
-// that byte is the middle of a character, and a terminator that could end a command
-// halfway through a word is worse than one terminal's output going unrecognised.
+// Reject the single-byte C1 terminator because 0x9c can be inside a UTF-8 character.
 func command(s string) (Piece, int, bool) {
 	for i := 2; i < len(s); i++ {
 		switch s[i] {

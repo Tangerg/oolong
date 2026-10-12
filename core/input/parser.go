@@ -243,7 +243,7 @@ func (p *Parser) skipParams() bool {
 	}
 	if i >= len(p.buf) {
 		p.take(i)
-		return false // still inside it
+		return false
 	}
 	// The byte that ended the run of parameter bytes ends the sequence too, if it
 	// is one a sequence could have ended with. Anything else proved the sequence
@@ -266,8 +266,6 @@ func (p *Parser) take(n int) {
 	}
 }
 
-// readPaste moves buffered bytes into the paste until its closing sequence or the
-// payload bound is reached, reporting whether a chunk is ready to publish.
 func (p *Parser) readPaste() (string, bool) {
 	i := 0
 	for i < len(p.buf) {
@@ -355,11 +353,10 @@ func (p *Parser) decode(b []byte, final bool) (n int, ev Event, done bool) {
 	}
 }
 
-// c0Rune names the C0 control bytes that are not keys of their own.
 func c0Rune(c byte) rune {
 	switch c {
 	case 0x00:
-		return ' ' // Ctrl+Space
+		return ' '
 	case 0x1c:
 		return '\\'
 	case 0x1d:
@@ -384,7 +381,7 @@ func c0Rune(c byte) rune {
 // a step earlier, when nothing had followed it at all.
 func (p *Parser) decodeEscape(b []byte, final bool) (n int, ev Event, done bool) {
 	if len(b) == 1 {
-		return 0, nil, false // could be the key, could be a sequence: wait
+		return 0, nil, false
 	}
 	n, ev, done = p.decodeIntroduced(b)
 	if !done && final {
@@ -404,7 +401,7 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 			p.beginString(oscString, cmd)
 			return size, nil, true
 		case size == 0:
-			return 0, nil, false // too few bytes to tell a command from the key
+			return 0, nil, false
 		default:
 			return decodeAlt(b)
 		}
@@ -427,7 +424,6 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 		}
 		return 3, nil, true
 	case second == esc:
-		// Two in a row: the first was the key, and the second starts again.
 		return 1, Key{Code: Esc}, true
 	case second < 0x20, second == 0x7f:
 		consumed, event, ready := p.decode(b[1:], false)
@@ -441,8 +437,6 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	}
 }
 
-// decodeAlt reads an escape followed by a character as that character with Alt
-// held, which is how a terminal reports the chord.
 func decodeAlt(b []byte) (n int, ev Event, done bool) {
 	if !utf8.FullRune(b[1:]) {
 		return 0, nil, false
@@ -454,8 +448,6 @@ func decodeAlt(b []byte) (n int, ev Event, done bool) {
 	return 1 + size, Key{Code: Character, Rune: r, Mods: Alt}, true
 }
 
-// decodeControl reads a control sequence: a parameter section, then a final byte
-// that says what the sequence was.
 func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	i := max(2, p.controlAt)
 	for i < len(b) && ansi.Body(b[i]) {
@@ -539,15 +531,13 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 	}
 }
 
-// decodeNumberedKey reads the sequences that name a key by number, which is also
-// how a terminal announces a paste.
 func (p *Parser) decodeNumberedKey(ps params) Event {
 	switch num := ps.At(0); num {
 	case pasteOpen:
 		p.pasting = true
 		return nil
 	case pasteCloseNum:
-		return nil // a closing sequence with no paste open
+		return nil
 	default:
 		code, ok := numberedKey(num)
 		if !ok {
@@ -652,8 +642,6 @@ var cursorKeys = map[byte]Code{
 	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
 }
 
-// applicationKey reads the keypad-mode form some terminals use for arrows and the
-// first four function keys.
 func applicationKey(c byte) (Code, bool) {
 	code, ok := applicationKeys[c]
 	return code, ok
@@ -752,8 +740,6 @@ func (p *Parser) abandonString() {
 	p.str, p.oscCmd, p.strBody = noString, 0, nil
 }
 
-// skipString drops the rest of a string whose body overran, and reports whether it
-// found the end.
 func (p *Parser) skipString() bool {
 	for i := range len(p.buf) {
 		switch p.buf[i] {
@@ -764,7 +750,7 @@ func (p *Parser) skipString() bool {
 		case esc:
 			if i+1 >= len(p.buf) {
 				p.take(i)
-				return false // could still become ST
+				return false
 			}
 			if p.buf[i+1] == '\\' {
 				p.take(i + 2)

@@ -87,8 +87,6 @@ func anchors(candidate string, first rune) []int {
 	return out
 }
 
-// scoreFrom binds each pattern character to the first place it appears at or after
-// the last one, starting the search at from.
 func scoreFrom(pattern, candidate string, from int) (Match, bool) {
 	at := make([]int, 0, utf8.RuneCountInString(pattern))
 	score := 0

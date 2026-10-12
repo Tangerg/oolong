@@ -270,8 +270,6 @@ func (s *eventSource) take(stream *input.Stream, result readResult) bool {
 	return false
 }
 
-// drainRaw feeds everything already waiting on raw, reporting false when the session
-// ended part-way through.
 func (s *eventSource) drainRaw(stream *input.Stream) bool {
 	for {
 		select {

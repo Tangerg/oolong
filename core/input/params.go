@@ -94,8 +94,6 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 	}
 }
 
-// text reads the associated-text group of a Kitty key report: the code points the
-// key produced, which the terminal is better placed to know than this program is.
 func (ps params) text() (string, bool) {
 	if ps.Len() < 3 {
 		return "", true
@@ -189,7 +187,7 @@ func (ps params) mouse(down bool) Event {
 	}
 	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
 	if bits < 0 || bits & ^127 != 0 || x < 0 || y < 0 {
-		return nil // a malformed report says nothing about where the mouse is
+		return nil
 	}
 	// The terminal counts from one; everything above this package counts from zero.
 	ev := Mouse{Pos: image.Pt(max(x-1, 0), max(y-1, 0)), Mods: mouseMods(bits)}

@@ -88,7 +88,7 @@ func oscHead(b []byte) (cmd, size int) {
 // caller matches on is ">|kitty(0.32)", not the tail of it.
 func dcsHead(b []byte) (size int) {
 	if len(b) < 3 {
-		return 0 // too few bytes to tell
+		return 0
 	}
 	switch {
 	case b[2] == '>':

@@ -63,8 +63,6 @@ func (c *conversation) Append(block headless.Block) {
 func (c *conversation) append(block headless.Block) headless.BlockID {
 	id := c.content.Append(block)
 	c.content.Finish(id)
-	// A new entry is a discrete thing that happened, not a chunk of one still
-	// arriving: showing it is the point of adding it.
 	c.scroll.ToBottom()
 	return id
 }

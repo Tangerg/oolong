@@ -47,8 +47,7 @@ type SettingsConfig[T any] struct {
 	// Keys browse rows; EditKeys change the selected value. Nil uses the respective defaults.
 	Keys     *keymap.Map
 	EditKeys *keymap.Map
-	// Wrap moves row selection across the ends.
-	Wrap bool
+	Wrap     bool
 	// ValueWidth caps the right column. Zero leaves it uncapped.
 	ValueWidth int
 }

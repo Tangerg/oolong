@@ -453,8 +453,6 @@ func (t *Terminal) Locale() string { return t.locale }
 // Color is how much colour this terminal's environment says it can show.
 func (t *Terminal) Color() grid.Depth { return t.color }
 
-// identity is what to match a terminal against: what it called itself when asked, and
-// nothing when it did not.
 func (t *Terminal) identity() string {
 	if t.said.hasName {
 		return t.said.name

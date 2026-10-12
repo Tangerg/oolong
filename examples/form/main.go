@@ -49,8 +49,6 @@ func main() {
 	})
 	switch {
 	case errors.Is(err, term.ErrNotTerminal):
-		// No screen to draw on. The same fields already know how to ask and parse
-		// their answers; kit.Ask supplies the line-oriented conversation.
 		if said := askInWords(form, os.Stdin, os.Stdout); said != nil {
 			fmt.Fprintln(os.Stderr, "form:", said)
 			os.Exit(1)
@@ -62,8 +60,6 @@ func main() {
 	report(got)
 }
 
-// ask builds the form. Nothing about it is a look: what it asks, what it will accept
-// and where the answers go, and no more.
 func ask(into *answers) *headless.Form {
 	model := headless.NewSelect(headless.SelectConfig[string]{
 		Same:  headless.Equal[string],
@@ -110,8 +106,6 @@ func askInWords(form *headless.Form, in io.Reader, out io.Writer) error {
 func dress(runtime *program.Runtime, form *headless.Form) program.Component {
 	keys := headless.DefaultFormKeys()
 	form.Keys = keys
-	// Finishing with the form is what ends the program, either way. The form knows
-	// nothing about there being one.
 	form.Done = runtime.Quit
 	form.GaveUp = runtime.Quit
 	form.Focus(true)

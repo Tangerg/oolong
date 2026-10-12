@@ -76,9 +76,7 @@ type Screen struct {
 
 	buffers frameBuffer
 	cursor  cursorState
-	// placed is where this frame's drawing asked the cursor to go, reset by every
-	// Frame and read by Flush.
-	placed Cursor
+	placed  Cursor
 
 	// frame and scratch are reused across flushes. scratch measures a scroll
 	// candidate before committing to it.
@@ -249,8 +247,6 @@ func (s *Screen) paintRegions() error {
 	return nil
 }
 
-// paintCells emits the cell changes for this frame, choosing between a full
-// repaint, a terminal-side scroll, and a plain diff.
 func (s *Screen) paintCells() {
 	if s.full {
 		s.full = false

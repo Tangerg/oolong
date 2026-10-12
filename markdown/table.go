@@ -129,8 +129,6 @@ func (t *table) growColumns(widths, natural []int, remaining int) {
 	scatter(widths, pending, remaining)
 }
 
-// settleColumns gives every column a share is enough for all it still wants, and
-// reports the ones it is not enough for.
 func settleColumns(widths, natural, pending []int, share, remaining int) ([]int, int) {
 	still := pending[:0]
 	for _, column := range pending {
@@ -145,7 +143,6 @@ func settleColumns(widths, natural, pending []int, share, remaining int) ([]int,
 	return still, remaining
 }
 
-// scatter hands out the columns too few to divide, one each.
 func scatter(widths, pending []int, n int) {
 	for _, column := range pending[:min(max(n, 0), len(pending))] {
 		widths[column]++

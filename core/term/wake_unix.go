@@ -91,7 +91,6 @@ func (w *waker) wait() (bool, error) {
 	}
 }
 
-// wake ends whatever wait is in progress, and is safe to call when there is none.
 func (w *waker) wake() {
 	w.mu.Lock()
 	defer w.mu.Unlock()

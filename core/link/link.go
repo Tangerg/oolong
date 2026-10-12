@@ -43,8 +43,7 @@ type Link struct {
 	// Start and End are the byte range of the text that was matched, so a caller can
 	// attach the destination to its own representation of that range.
 	Start, End int
-	// Kind says which sort of destination Target is.
-	Kind Kind
+	Kind       Kind
 	// Target is the destination. It is not always the matched text: a bare host is
 	// given the scheme it was written without, a quoted path loses its quotes, and a
 	// line and column suffix is taken off and reported separately.
@@ -204,8 +203,6 @@ func detectBare(s string, exists func(path string) bool) []Link {
 	return found
 }
 
-// pathAt reads one path match: the quotes come off, the sentence punctuation comes
-// off, and the line and column suffix comes off and is kept.
 func pathAt(s string, from, to int) (Link, bool) {
 	text := s[from:to]
 	quoted := len(text) >= 2 && (text[0] == '\'' || text[0] == '"') && text[len(text)-1] == text[0]
