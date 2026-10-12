@@ -296,8 +296,7 @@ func (r *Root) mouse(event input.Mouse) bool {
 		return false
 	}
 	if event.Action == input.MouseLeave {
-		r.leave(event)
-		return false
+		return r.leave(event, turn)
 	}
 	if held.continues(event) {
 		target := held.target
@@ -316,8 +315,7 @@ func (r *Root) route(event input.Mouse, turn uint64) bool {
 	target, revision := r.presentation.borrow()
 	_, ok := target.child.(Interactive)
 	if !ok || !event.Pos.In(target.visible) {
-		r.leave(event)
-		return false
+		return r.leave(event, turn)
 	}
 	r.hoverTo(target, event)
 	if !r.capture.current(turn) || !r.presentation.unchanged(revision) || r.hover.identity != target.identity {
@@ -327,8 +325,10 @@ func (r *Root) route(event input.Mouse, turn uint64) bool {
 	return handled || !r.capture.current(turn) || !r.presentation.unchanged(revision)
 }
 
-func (r *Root) leave(event input.Mouse) {
+func (r *Root) leave(event input.Mouse, turn uint64) bool {
+	_, revision := r.presentation.borrow()
 	r.hoverTo(rootPlacement{}, event)
+	return !r.capture.current(turn) || !r.presentation.unchanged(revision)
 }
 
 func (r *Root) hoverTo(to rootPlacement, event input.Mouse) {

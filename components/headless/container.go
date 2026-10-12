@@ -335,23 +335,21 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		return false
 	}
 	if ev.Action == input.MouseLeave {
-		c.leave(ev)
-		return false
+		return c.leave(ev, turn)
 	}
 	if held.continues(ev) {
 		current, found := c.placed(held.target)
 		if held.cancelled || !found || c.currentIndex(current) < 0 {
 			if c.capture.cancel(turn, held, ev) {
-				c.leave(ev)
+				return c.leave(ev, turn)
 			}
-			return !c.capture.current(turn)
+			return true
 		}
 		return c.deliver(current, ev, turn)
 	}
 	at, found := c.at(ev.Pos)
 	if !found || c.currentIndex(at) < 0 {
-		c.leave(ev)
-		return false
+		return c.leave(ev, turn)
 	}
 	if ev.Action != input.MouseDown {
 		return c.deliver(at, ev, turn)
@@ -364,8 +362,7 @@ func (c *Container) mouse(ev input.Mouse) bool {
 		return true
 	}
 	if c.currentIndex(at) < 0 {
-		c.leave(ev)
-		return false
+		return c.leave(ev, turn)
 	}
 	return c.deliver(at, ev, turn)
 }
@@ -392,8 +389,10 @@ func (to childPlacement) deliverPointer(ev input.Mouse) bool {
 	return handler.Handle(local)
 }
 
-func (c *Container) leave(ev input.Mouse) {
+func (c *Container) leave(ev input.Mouse, turn uint64) bool {
+	_, revision := c.presentation.borrow()
 	c.hoverTo(childPlacement{}, ev)
+	return !c.capture.current(turn) || !c.presentation.unchanged(revision)
 }
 
 func (c *Container) hoverTo(to childPlacement, ev input.Mouse) {

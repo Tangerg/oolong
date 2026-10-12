@@ -10,7 +10,10 @@ import (
 	"github.com/Tangerg/oolong/core/input"
 )
 
-type cancellingPane struct{ cancel func() }
+type cancellingPane struct {
+	cancel func()
+	leave  func()
+}
 
 func (*cancellingPane) Draw(headless.Frame) {}
 
@@ -23,6 +26,11 @@ func (p *cancellingPane) Handle(event input.Event) bool {
 		cancel := p.cancel
 		p.cancel = nil
 		cancel()
+	}
+	if mouse.Action == input.MouseLeave && p.leave != nil {
+		leave := p.leave
+		p.leave = nil
+		leave()
 	}
 	return mouse.Action == input.MouseDown
 }
@@ -55,5 +63,18 @@ func TestTabsReadStripGeometryAfterCancellationRedraw(t *testing.T) {
 	}
 	if !tabs.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(3, 0)}) || tabs.Controller().Selected() != 0 {
 		t.Fatal("strip fallback selected a tab using geometry from before cancellation")
+	}
+}
+
+func TestTabsCannotFallbackToTheStripAfterReentrantLeave(t *testing.T) {
+	pane := &cancellingPane{}
+	tabs := kit.NewTabs(kit.TabsConfig{NoRule: true, Items: []headless.Tab{{Title: "a", Of: pane}, {Title: "b"}}})
+	headless.NewRoot(tabs).Draw(grid.NewSurface(8, 4).View())
+	tabs.Handle(input.Mouse{Action: input.MouseMove, Pos: image.Pt(1, 2)})
+	pane.leave = func() {
+		tabs.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
+	}
+	if !tabs.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(3, 0)}) || tabs.Controller().Selected() != 0 {
+		t.Fatal("superseded outside press selected a tab after leave started newer input")
 	}
 }

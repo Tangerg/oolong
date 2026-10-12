@@ -270,6 +270,50 @@ func TestDeclinedPressCannotRetainCaptureAfterReentrantMovement(t *testing.T) {
 	}
 }
 
+func TestOutsidePressLeaveConsumesSupersededRoutes(t *testing.T) {
+	for _, kind := range []string{"root", "region", "container", "stack"} {
+		for _, change := range []string{"input", "redraw"} {
+			t.Run(kind+"/"+change, func(t *testing.T) {
+				child := &recursivePointerTarget{}
+				var tree headless.Widget = child
+				var handle func(input.Event) bool
+				switch kind {
+				case "region":
+					region := &recursivePointerRegion{pointerRegionFixture{child: child, area: image.Rect(0, 0, 4, 2)}}
+					tree, handle = region, region.Handle
+				case "container":
+					container := headless.NewContainer(layout.Across, headless.Item{Of: child, Size: layout.Fixed(4)})
+					tree, handle = container, container.Handle
+				case "stack":
+					stack := headless.NewStack(nil)
+					stack.Push(child)
+					tree, handle = stack, stack.Handle
+				}
+				root := headless.NewRoot(tree)
+				view := grid.NewSurface(8, 4).View()
+				root.Draw(view)
+				if handle == nil {
+					handle = root.Handle
+				}
+				handle(input.Mouse{Action: input.MouseMove, Pos: image.Pt(1, 1)})
+				child.leave = func() {
+					if change == "redraw" {
+						root.Draw(view)
+					} else {
+						handle(input.Mouse{Action: input.MouseMove, Pos: image.Pt(1, 1)})
+					}
+				}
+				if !handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(9, 9)}) {
+					t.Fatal("outside press propagated after its leave callback replaced the route")
+				}
+				if change == "input" && !child.pointer.Over() {
+					t.Fatal("old leave erased reentrant hover")
+				}
+			})
+		}
+	}
+}
+
 func TestAbnormalPointerCallbackPreservesTheNewerCapture(t *testing.T) {
 	for _, phase := range []string{"press", "cancel"} {
 		for _, exit := range []string{"panic", "Goexit"} {

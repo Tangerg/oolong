@@ -62,8 +62,9 @@ func (r *PointerRegion) stage(frame Frame, area, clip image.Rectangle, child Wid
 // Handle offers a pointer event to the child, in the child's own coordinates.
 //
 // Handled reports consumption, including a route superseded by synchronous input or
-// redraw. Delivered reports whether it reached the child. A wrapper may offer another
-// target only when both are false; an expired route must not activate a replacement.
+// redraw. Delivered reports direct delivery, excluding cancellation and hover leave.
+// A wrapper may offer another target only when both are false; an expired route must
+// not activate a replacement.
 func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 	if r == nil {
 		return false, false
@@ -76,24 +77,22 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 		return false, false
 	}
 	if event.Action == input.MouseLeave {
-		r.leave(event)
-		return false, false
+		return r.leave(event, turn), false
 	}
 	presented := r.presented.Value()
 
 	if held.continues(event) {
 		if held.cancelled || presented.identity != held.target.identity {
 			if r.capture.cancel(turn, held, event) {
-				r.leave(event)
+				return r.leave(event, turn), false
 			}
-			return !r.capture.current(turn), false
+			return true, false
 		}
 		return r.deliver(presented, event, turn)
 	}
 
 	if presented.child == nil || presented.clip.Empty() || !event.Pos.In(presented.clip) {
-		r.leave(event)
-		return false, false
+		return r.leave(event, turn), false
 	}
 	return r.deliver(presented, event, turn)
 }
@@ -113,8 +112,10 @@ func (p pointerRegionFrame) deliverPointer(event input.Mouse) bool {
 	return p.child.Handle(event)
 }
 
-func (r *PointerRegion) leave(event input.Mouse) {
+func (r *PointerRegion) leave(event input.Mouse, turn uint64) bool {
+	_, revision := r.presented.borrow()
 	r.hoverTo(pointerRegionFrame{}, event)
+	return !r.capture.current(turn) || !r.presented.unchanged(revision)
 }
 
 func (r *PointerRegion) hoverTo(to pointerRegionFrame, event input.Mouse) {

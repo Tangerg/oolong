@@ -323,16 +323,14 @@ func (s *Stack) mouse(mouse input.Mouse) bool {
 		return false
 	}
 	if mouse.Action == input.MouseLeave {
-		s.leave(mouse)
-		return false
+		return s.leave(mouse, turn)
 	}
 	presented := s.presentation.Value()
 	if handled, captured := s.continueGesture(presented, mouse, held, turn); captured {
 		return handled
 	}
 	if !mouse.Pos.In(presented.visible) {
-		s.leave(mouse)
-		return false
+		return s.leave(mouse, turn)
 	}
 	return s.route(presented, mouse, turn)
 }
@@ -343,10 +341,11 @@ func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse, 
 	}
 	held, found := s.placedTarget(presented, owner.target)
 	if owner.cancelled || !found {
+		handled = true
 		if s.capture.cancel(turn, owner, mouse) {
-			s.leave(mouse)
+			handled = s.leave(mouse, turn)
 		}
-		return owner.target.id != 0 || !s.capture.current(turn), true
+		return owner.target.id != 0 || handled, true
 	}
 	handled = s.deliver(held, mouse, turn)
 	return handled || held.id != 0, true
@@ -409,14 +408,15 @@ func (s *Stack) deliverBase(presented stackPresentation, mouse input.Mouse, turn
 	}
 	child, ok := presented.base.(Interactive)
 	if !ok || !mouse.Pos.In(presented.visible) {
-		s.leave(mouse)
-		return false
+		return s.leave(mouse, turn)
 	}
 	return s.deliver(stackPointerTarget{child: child, baseID: presented.baseID}, mouse, turn)
 }
 
-func (s *Stack) leave(mouse input.Mouse) {
+func (s *Stack) leave(mouse input.Mouse, turn uint64) bool {
+	_, revision := s.presentation.borrow()
 	s.hoverTo(stackPointerTarget{}, mouse)
+	return !s.capture.current(turn) || !s.presentation.unchanged(revision)
 }
 
 func (s *Stack) hoverTo(to stackPointerTarget, mouse input.Mouse) {
@@ -445,9 +445,7 @@ func (s *Stack) Do(action keymap.Action) bool {
 }
 
 func (s *Stack) outside(mouse input.Mouse, top layerPlacement, turn uint64) bool {
-	_, revision := s.presentation.borrow()
-	s.leave(mouse)
-	if !s.capture.current(turn) || !s.presentation.unchanged(revision) {
+	if s.leave(mouse, turn) {
 		return true
 	}
 	if mouse.Action == input.MouseDown {
