@@ -20,6 +20,18 @@ point of tagging them low rather than not at all.
 
 ### Fixed
 
+- Pointer routers read geometry after cancellation and invalidate borrowed routes
+  when a callback commits another frame. Reentrant focus, hover or input cannot
+  deliver old coordinates, dismiss a newly placed modal or continue an old decline
+  through replacement content. Declined presses do not acquire capture; aborted
+  frames retain the committed route. PointerRegion.Handle now reports a superseded
+  route as handled even if not delivered: wrappers may try another target only when
+  both results are false, as the kit tab strip now does.
+- A removed pointer recipient receives MouseCancel before hover leave, ending its
+  internal gesture even when release arrives during its absence. The cancelled
+  receipt remains until release so replacement content cannot inherit the gesture.
+  Every reentrant pointer event revokes an older route, while a declined press
+  can withdraw only its own receipt and cannot clear a newer capture.
 - Help now occupies no row when none of its requested actions are bound. Composer
   and Form use Help's measurement and rendering instead of maintaining separate
   hint availability rules. Callers needing a blank row should allocate it explicitly.

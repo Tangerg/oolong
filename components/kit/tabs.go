@@ -120,26 +120,22 @@ func (t *Tabs) Draw(v headless.Frame) {
 	controller.Draw(views[2])
 }
 
-// Handle sends a press on the strip to the tab it landed on, and everything else to
-// the pane — moved up by the rows the strip took, so the pane is handed a position
-// in its own box.
-//
-// That translation is the whole reason this type answers events at all. A pane told
-// a press was two rows further down than it was is a pane that answers the wrong
-// click, and it is the sort of mistake that only shows up as "the second row selects
-// the first".
+// Handle routes pointer input through the committed pane and strip. Pane coordinates
+// are local; only primary presses select strip tabs. Pane cancellation may redraw or
+// replace the route, so consumed or superseded input cannot fall through to the strip.
 func (t *Tabs) Handle(ev input.Event) bool {
-	presented := t.presentation.Value()
 	mouse, ok := ev.(input.Mouse)
 	if !ok {
+		presented := t.presentation.Value()
 		if presented.of == nil {
 			return false
 		}
 		return presented.of.Handle(ev)
 	}
-	if handled, delivered := t.body.Handle(mouse); delivered {
+	if handled, delivered := t.body.Handle(mouse); handled || delivered {
 		return handled
 	}
+	presented := t.presentation.Value()
 	if presented.of == nil {
 		return false
 	}

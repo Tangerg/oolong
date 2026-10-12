@@ -69,6 +69,8 @@ type Snapshot[T any] struct {
 	current T
 	pending T
 	staged  *transaction
+	// Surviving attachment identities do not keep a geometry borrow valid across redraws.
+	revision uint64
 }
 
 // Value returns the last completely drawn value by ordinary Go assignment. See
@@ -76,6 +78,10 @@ type Snapshot[T any] struct {
 func (s *Snapshot[T]) Value() T {
 	return s.current
 }
+
+func (s *Snapshot[T]) borrow() (T, uint64) { return s.current, s.revision }
+
+func (s *Snapshot[T]) unchanged(revision uint64) bool { return s.revision == revision }
 
 // Stage prepares value for publication with frame's complete root draw. It must be
 // called at most once for this Snapshot in one frame. See [Snapshot] for the ownership
@@ -90,6 +96,7 @@ func (s *Snapshot[T]) commit(tx *transaction) {
 		return
 	}
 	s.current = s.pending
+	s.revision++
 	var zero T
 	s.pending = zero
 	s.staged = nil
@@ -262,6 +269,8 @@ func (r *Root) Draw(view grid.View) {
 // press also receives that gesture's drag and release even if it is replaced meanwhile.
 // Capture ends on release of the pressed button or an unspecified [input.ButtonNone]
 // release; a release naming another button does not end it.
+// Reentrant pointer input or redraw consumes an interrupted route so it cannot fall
+// through to replacement content.
 func (r *Root) Handle(event input.Event) bool {
 	if r == nil {
 		return false
@@ -280,39 +289,42 @@ func (r *Root) Handle(event input.Event) bool {
 
 func (r *Root) mouse(event input.Mouse) bool {
 	held, turn := r.capture.begin(event)
-	if !r.capture.current(turn) || event.Action == input.MouseCancel {
+	if !r.capture.current(turn) {
+		return true
+	}
+	if event.Action == input.MouseCancel {
 		return false
 	}
 	if event.Action == input.MouseLeave {
 		r.leave(event)
 		return false
 	}
-	if held != nil && (event.Action == input.MouseDrag || event.Action == input.MouseUp) {
-		target := *held
+	if held.continues(event) {
+		target := held.target
+		_, revision := r.presentation.borrow()
 		r.hoverTo(target, event)
-		if !r.capture.current(turn) || r.hover.identity != target.identity {
-			return false
+		if !r.capture.current(turn) || !r.presentation.unchanged(revision) || r.hover.identity != target.identity {
+			return true
 		}
-		return target.deliverPointer(event)
+		handled := r.capture.deliver(turn, target, event)
+		return handled || !r.capture.current(turn) || !r.presentation.unchanged(revision)
 	}
 	return r.route(event, turn)
 }
 
 func (r *Root) route(event input.Mouse, turn uint64) bool {
-	target := r.presentation.Value()
+	target, revision := r.presentation.borrow()
 	_, ok := target.child.(Interactive)
 	if !ok || !event.Pos.In(target.visible) {
 		r.leave(event)
 		return false
 	}
 	r.hoverTo(target, event)
-	if !r.capture.current(turn) || r.hover.identity != target.identity || r.presentation.Value().identity != target.identity {
-		return false
+	if !r.capture.current(turn) || !r.presentation.unchanged(revision) || r.hover.identity != target.identity {
+		return true
 	}
-	if event.Action == input.MouseDown {
-		return r.capture.offer(turn, target, func() bool { return target.deliverPointer(event) })
-	}
-	return target.deliverPointer(event)
+	handled := r.capture.deliver(turn, target, event)
+	return handled || !r.capture.current(turn) || !r.presentation.unchanged(revision)
 }
 
 func (r *Root) leave(event input.Mouse) {

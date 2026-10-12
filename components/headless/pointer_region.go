@@ -9,7 +9,7 @@ import (
 
 // PointerRegion routes one child through its committed presentation. Capture
 // follows the child using current coordinates, including outside its hit region;
-// a disappeared child cannot transfer its gesture to a replacement. Foreign-button
+// a disappeared child receives cancellation without transferring its gesture. Foreign-button
 // releases preserve capture; matching or unspecified releases end it.
 // The zero value declines input. Stage during [Root.Draw], read only from Handle.
 // A PointerRegion must not be copied after first use.
@@ -61,31 +61,32 @@ func (r *PointerRegion) stage(frame Frame, area, clip image.Rectangle, child Wid
 
 // Handle offers a pointer event to the child, in the child's own coordinates.
 //
-// Handled reports whether the child consumed it. Delivered reports whether it reached
-// the child at all, which is a different question and the one a wrapper with a second
-// pointer target asks: a strip of tabs above a pane needs to know that an event was
-// outside the pane, not merely that the pane declined it.
+// Handled reports consumption, including a route superseded by synchronous input or
+// redraw. Delivered reports whether it reached the child. A wrapper may offer another
+// target only when both are false; an expired route must not activate a replacement.
 func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 	if r == nil {
 		return false, false
 	}
-	presented := r.presented.Value()
 	held, turn := r.capture.begin(event)
-	if !r.capture.current(turn) || event.Action == input.MouseCancel {
+	if !r.capture.current(turn) {
+		return true, false
+	}
+	if event.Action == input.MouseCancel {
 		return false, false
 	}
 	if event.Action == input.MouseLeave {
 		r.leave(event)
 		return false, false
 	}
+	presented := r.presented.Value()
 
-	if held != nil &&
-		(event.Action == input.MouseDrag || event.Action == input.MouseUp) {
-		// Keep the dead token through release: dropping it early would send the
-		// remaining events to a replacement. Tokens never return after an absence.
-		if presented.identity != held.identity {
-			r.leave(event)
-			return false, false
+	if held.continues(event) {
+		if held.cancelled || presented.identity != held.target.identity {
+			if r.capture.cancel(turn, held, event) {
+				r.leave(event)
+			}
+			return !r.capture.current(turn), false
 		}
 		return r.deliver(presented, event, turn)
 	}
@@ -94,23 +95,17 @@ func (r *PointerRegion) Handle(event input.Mouse) (handled, delivered bool) {
 		r.leave(event)
 		return false, false
 	}
-	if event.Action == input.MouseDown {
-		handled = r.capture.offer(turn, presented, func() bool {
-			var consumed bool
-			consumed, delivered = r.deliver(presented, event, turn)
-			return consumed
-		})
-		return handled, delivered
-	}
 	return r.deliver(presented, event, turn)
 }
 
 func (r *PointerRegion) deliver(presented pointerRegionFrame, event input.Mouse, turn uint64) (bool, bool) {
+	_, revision := r.presented.borrow()
 	r.hoverTo(presented, event)
-	if !r.capture.current(turn) || r.hover.identity != presented.identity || r.presented.Value().identity != presented.identity {
-		return false, false
+	if !r.capture.current(turn) || !r.presented.unchanged(revision) || r.hover.identity != presented.identity {
+		return true, false
 	}
-	return presented.deliverPointer(event), true
+	handled := r.capture.deliver(turn, presented, event)
+	return handled || !r.capture.current(turn) || !r.presented.unchanged(revision), true
 }
 
 func (p pointerRegionFrame) deliverPointer(event input.Mouse) bool {

@@ -22,8 +22,8 @@ type Modal interface {
 	Widget
 
 	// Handle answers an event, reporting whether it was consumed. Mouse positions
-	// are in the modal's own coordinates: the stack has already translated them,
-	// and events outside the modal never arrive here.
+	// are in the modal's own coordinates. Captured drags and releases, and synthetic
+	// cancellation or hover leave, may arrive outside its placement.
 	//
 	// Consumed, not closed. A modal that wants to close itself is built with a
 	// callback by whoever pushed it, the same way a completion is — the stack does
@@ -268,10 +268,10 @@ func (s *Stack) Area() (image.Rectangle, bool) {
 // key, because a key reaching what a modal is covering is a keystroke going
 // somewhere the user cannot see.
 func (s *Stack) Handle(ev input.Event) bool {
-	presented := s.presentation.Value()
 	if mouse, ok := ev.(input.Mouse); ok {
-		return s.mouse(presented, mouse)
+		return s.mouse(mouse)
 	}
+	presented := s.presentation.Value()
 	s.settle()
 	top, layered := s.top()
 	if top.id != s.matcherLayer {
@@ -314,15 +314,19 @@ func (s *Stack) keyboardPresented(presented stackPresentation) bool {
 	return s.holderID == 0 && presented.baseID == s.baseID
 }
 
-func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
+func (s *Stack) mouse(mouse input.Mouse) bool {
 	held, turn := s.capture.begin(mouse)
-	if !s.capture.current(turn) || mouse.Action == input.MouseCancel {
+	if !s.capture.current(turn) {
+		return true
+	}
+	if mouse.Action == input.MouseCancel {
 		return false
 	}
 	if mouse.Action == input.MouseLeave {
 		s.leave(mouse)
 		return false
 	}
+	presented := s.presentation.Value()
 	if handled, captured := s.continueGesture(presented, mouse, held, turn); captured {
 		return handled
 	}
@@ -333,16 +337,16 @@ func (s *Stack) mouse(presented stackPresentation, mouse input.Mouse) bool {
 	return s.route(presented, mouse, turn)
 }
 
-func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse, owner *stackPointerTarget, turn uint64) (handled, captured bool) {
-	if owner == nil || (mouse.Action != input.MouseDrag && mouse.Action != input.MouseUp) {
+func (s *Stack) continueGesture(presented stackPresentation, mouse input.Mouse, owner *pointerPress[stackPointerTarget], turn uint64) (handled, captured bool) {
+	if !owner.continues(mouse) {
 		return false, false
 	}
-	held, found := s.placedTarget(presented, *owner)
-	if !found {
-		// The owner of the gesture is gone. Do not hand its remainder to whatever
-		// replaced it and accidentally begin a different interaction halfway through.
-		s.leave(mouse)
-		return owner.id != 0, true
+	held, found := s.placedTarget(presented, owner.target)
+	if owner.cancelled || !found {
+		if s.capture.cancel(turn, owner, mouse) {
+			s.leave(mouse)
+		}
+		return owner.target.id != 0 || !s.capture.current(turn), true
 	}
 	handled = s.deliver(held, mouse, turn)
 	return handled || held.id != 0, true
@@ -380,17 +384,16 @@ func (s *Stack) below(presented stackPresentation, before int, mouse input.Mouse
 
 func (s *Stack) deliver(placed stackPointerTarget, mouse input.Mouse, turn uint64) bool {
 	if !s.capture.current(turn) || !s.pointerAttached(placed) {
-		return false
+		return true
 	}
+	_, revision := s.presentation.borrow()
 	s.hoverTo(placed, mouse)
 	if !s.capture.current(turn) || s.hover.id != placed.id || s.hover.baseID != placed.baseID ||
-		!s.pointerAttached(placed) {
-		return false
+		!s.presentation.unchanged(revision) || !s.pointerAttached(placed) {
+		return true
 	}
-	if mouse.Action == input.MouseDown {
-		return s.capture.offer(turn, placed, func() bool { return placed.deliverPointer(mouse) })
-	}
-	return placed.deliverPointer(mouse)
+	handled := s.capture.deliver(turn, placed, mouse)
+	return handled || !s.capture.current(turn) || !s.presentation.unchanged(revision) || !s.pointerAttached(placed)
 }
 
 func (s *Stack) pointerAttached(target stackPointerTarget) bool {
@@ -442,8 +445,9 @@ func (s *Stack) Do(action keymap.Action) bool {
 }
 
 func (s *Stack) outside(mouse input.Mouse, top layerPlacement, turn uint64) bool {
+	_, revision := s.presentation.borrow()
 	s.leave(mouse)
-	if !s.capture.current(turn) {
+	if !s.capture.current(turn) || !s.presentation.unchanged(revision) {
 		return true
 	}
 	if mouse.Action == input.MouseDown {

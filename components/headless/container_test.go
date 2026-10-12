@@ -297,8 +297,8 @@ func TestRemovingThePresentedOwnerEndsContainerCapture(t *testing.T) {
 	c.Set(headless.Item{Size: layout.Fixed(2), Of: child})
 	drawn(c, 2)
 	c.Handle(input.Mouse{Pos: image.Pt(0, 8), Action: input.MouseDrag})
-	if got := len(child.mice); got != 2 || child.mice[1].Action != input.MouseLeave {
-		t.Fatalf("a removed and reinserted child resumed an old gesture with %d events", got)
+	if got := len(child.mice); got != 3 || child.mice[1].Action != input.MouseCancel || child.mice[2].Action != input.MouseLeave {
+		t.Fatalf("a removed and reinserted child received %v, want press, cancel and leave", child.mice)
 	}
 }
 

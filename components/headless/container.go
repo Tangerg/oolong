@@ -47,6 +47,7 @@ type Item struct {
 
 // Container owns child layout, keyboard focus and pointer routing. Accepted presses
 // capture drag and release outside the child; foreign-button releases preserve capture.
+// Removed recipients receive cancellation before hover leave.
 // Appearance remains with callers. The zero value is an empty column. A Container
 // must not be copied after first use.
 type Container struct {
@@ -327,24 +328,25 @@ func (c *Container) Do(action keymap.Action) bool {
 
 func (c *Container) mouse(ev input.Mouse) bool {
 	held, turn := c.capture.begin(ev)
-	if !c.capture.current(turn) || ev.Action == input.MouseCancel {
+	if !c.capture.current(turn) {
+		return true
+	}
+	if ev.Action == input.MouseCancel {
 		return false
 	}
 	if ev.Action == input.MouseLeave {
 		c.leave(ev)
 		return false
 	}
-	if held != nil {
-		switch ev.Action {
-		case input.MouseDrag, input.MouseUp:
-			current, found := c.placed(*held)
-			if !found || c.currentIndex(current) < 0 {
+	if held.continues(ev) {
+		current, found := c.placed(held.target)
+		if held.cancelled || !found || c.currentIndex(current) < 0 {
+			if c.capture.cancel(turn, held, ev) {
 				c.leave(ev)
-				return false
 			}
-			return c.deliver(current, ev, turn)
-		default:
+			return !c.capture.current(turn)
 		}
+		return c.deliver(current, ev, turn)
 	}
 	at, found := c.at(ev.Pos)
 	if !found || c.currentIndex(at) < 0 {
@@ -354,27 +356,30 @@ func (c *Container) mouse(ev input.Mouse) bool {
 	if ev.Action != input.MouseDown {
 		return c.deliver(at, ev, turn)
 	}
+	_, revision := c.presentation.borrow()
 	// A press moves the keyboard whether or not the child does anything with the
 	// press itself: clicking a pane is how a user says they mean that one.
 	c.FocusIndex(c.currentIndex(at))
-	if !c.capture.current(turn) {
-		return false
+	if !c.capture.current(turn) || !c.presentation.unchanged(revision) {
+		return true
 	}
 	if c.currentIndex(at) < 0 {
 		c.leave(ev)
 		return false
 	}
-	return c.capture.offer(turn, at, func() bool { return c.deliver(at, ev, turn) })
+	return c.deliver(at, ev, turn)
 }
 
 // Children use local clipped coordinates; translate input with the same geometry
 // used to draw them.
 func (c *Container) deliver(to childPlacement, ev input.Mouse, turn uint64) bool {
+	_, revision := c.presentation.borrow()
 	c.hoverTo(to, ev)
-	if !c.capture.current(turn) || c.hover.identity != to.identity || c.currentIndex(to) < 0 {
-		return false
+	if !c.capture.current(turn) || !c.presentation.unchanged(revision) || c.hover.identity != to.identity || c.currentIndex(to) < 0 {
+		return true
 	}
-	return to.deliverPointer(ev)
+	handled := c.capture.deliver(turn, to, ev)
+	return handled || !c.capture.current(turn) || !c.presentation.unchanged(revision) || c.currentIndex(to) < 0
 }
 
 func (to childPlacement) deliverPointer(ev input.Mouse) bool {
