@@ -18,6 +18,8 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-10-22
+
 ### Fixed
 
 - Inline finishing refuses pending output before changing the terminal anchor.
