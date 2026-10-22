@@ -70,6 +70,7 @@ func FuzzStreamSaysTheSameThingHoweverItArrives(f *testing.F) {
 		"<!--\n```\n-->\n\nafter\n",
 		"- ```go\n  x\n  ```\n\nafter\n",
 		"one\n\ntwo\n\nthree\n",
+		"[ref]: /target\n\n[first][ref]\n\n[second][ref]\n\nend\n",
 		"| a | b |\n| - | - |\n| 1 | 2 |\n\nafter\n",
 	} {
 		f.Add(source)

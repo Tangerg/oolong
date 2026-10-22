@@ -41,6 +41,7 @@ var (
 // the channel and exit status. Input ownership lasts until channel closure because
 // in-flight SSH reads cannot be interrupted; handlers must not read after Run.
 // Abnormal reader exits report interruption after earlier accepted bytes are decoded.
+// Only bare io.EOF is a clean input end; wrapped or joined errors remain failures.
 // Color, modes, locale, wheel and clipboard resolve from the client PTY environment.
 func Run(session charmssh.Session, cfg program.Config) (err error) {
 	if cfg.Host != nil {

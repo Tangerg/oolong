@@ -8,6 +8,7 @@ package term
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -360,6 +361,25 @@ func TestPumpTreatsEOFAsACleanEnd(t *testing.T) {
 	}
 	if got := <-d.result; got != nil {
 		t.Fatalf("pump result = %v, want a clean end", got)
+	}
+}
+
+func TestPumpPreservesErrorsThatWrapEOF(t *testing.T) {
+	cause := errors.New("terminal read failed")
+	for _, result := range []error{fmt.Errorf("terminal: %w", io.EOF), errors.Join(io.EOF, cause)} {
+		t.Run(result.Error(), func(t *testing.T) {
+			d := newDriver(time.Second)
+			d.raw <- readResult{data: []byte("a\x1b"), err: result, at: time.Now()}
+			if key := d.next(t).(input.Key); !key.IsRune('a', 0) {
+				t.Fatalf("last input = %v", key)
+			}
+			if key := d.next(t).(input.Key); key.Code != input.Esc {
+				t.Fatalf("held input = %v", key)
+			}
+			if got := <-d.result; !errors.Is(got, result) {
+				t.Fatalf("input result = %v, want %v", got, result)
+			}
+		})
 	}
 }
 

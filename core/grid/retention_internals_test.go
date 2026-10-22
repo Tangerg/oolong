@@ -1,12 +1,65 @@
 package grid
 
 import (
+	"errors"
 	"image"
 	"io"
 	"strings"
 	"testing"
 	"unsafe"
 )
+
+type scratchContent struct{ result string }
+
+func (scratchContent) HeightForWidth(int) int { return 1 }
+
+func (c scratchContent) Draw(view View) {
+	view.Text(0, 0, "private", Style{})
+	view.Link(0, 0, 7, "https://example.test/private")
+	if c.result != "accepted" {
+		view.Paint(Area(0, 0, 1, 1), 1, &retainedPainter{payload: []byte("private pixels")})
+	}
+	if c.result == "panic" {
+		panic("drawing interrupted")
+	}
+}
+
+func TestInlinePublicationReleasesItsTemporaryDrawing(t *testing.T) {
+	for _, operation := range []string{"Print", "Append"} {
+		for _, result := range []string{"accepted", "refused", "panic"} {
+			t.Run(operation+"/"+result, func(t *testing.T) {
+				canvas := NewInline(20, 2)
+				content := scratchContent{result: result}
+				var err error
+				var panicked any
+				func() {
+					defer func() { panicked = recover() }()
+					if operation == "Print" {
+						err = canvas.Print(content)
+					} else {
+						err = canvas.Append(func(view View) bool { content.Draw(view); return false })
+					}
+				}()
+				if result == "refused" && !errors.Is(err, errors.ErrUnsupported) || result == "accepted" && err != nil {
+					t.Fatalf("publication = %v", err)
+				}
+				if (panicked != nil) != (result == "panic") {
+					t.Fatalf("drawing panic = %v", panicked)
+				}
+				for _, cell := range canvas.scratch.cells {
+					if cell != (Cell{}) {
+						t.Fatal("completed publication retained temporary cell payloads")
+					}
+				}
+				for _, region := range canvas.scratch.paints[:cap(canvas.scratch.paints)] {
+					if region.by != nil {
+						t.Fatal("completed publication retained a borrowed painter")
+					}
+				}
+			})
+		}
+	}
+}
 
 type retainedPainter struct{ payload []byte }
 
@@ -36,13 +89,15 @@ func TestReusableFrameStorageReleasesDiscardedPayloads(t *testing.T) {
 
 	inline := NewInline(2, 1)
 	inline.pending = append(inline.pending,
-		printed{row: "one"}, printed{row: "two"}, printed{row: "three"},
+		printed{cells: []Cell{{content: "a"}}},
+		printed{cells: []Cell{{content: "b"}}},
+		printed{cells: []Cell{{content: "c"}}},
 	)
 	if err := inline.Flush(io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	for i, pending := range inline.pending[:cap(inline.pending)] {
-		if pending.row != "" {
+		if pending.cells != nil {
 			t.Fatalf("printed row %d retained transferred output", i)
 		}
 	}

@@ -158,9 +158,11 @@ func (s *Screen) invalidate() {
 // Every frame draws everything it wants to be visible. Keeping content across
 // frames is the diff's job, not the caller's, and a surface that carried
 // yesterday's cells forward would make a missed redraw look like success.
+// The view and its subviews may be written until the next Frame, a size change,
+// or Flush begins. Writes after that boundary panic.
 func (s *Screen) Frame() View {
 	s.publication.requireIdle()
-	return s.buffers.begin(&s.placed)
+	return s.buffers.begin(&s.placed, &s.publication)
 }
 
 // Cursor is where the last frame asked for the terminal's cursor to go.
@@ -180,6 +182,7 @@ func (s *Screen) Cursor() Cursor { return s.placed }
 func (s *Screen) Flush(w io.Writer) error {
 	s.publication.begin()
 	defer s.publication.end()
+	s.buffers.back.endDrawing()
 	if s.publication.failure != nil {
 		return s.publication.failure
 	}

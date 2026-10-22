@@ -15,7 +15,8 @@ import (
 // [View] it hands out, so no caller carries a clip rectangle beside the buffer it is
 // clipping. A Surface must not be copied after first use.
 type Surface struct {
-	noCopy noCopy
+	noCopy  noCopy
+	drawing *viewScope
 
 	w, h  int
 	cells []Cell
@@ -71,6 +72,7 @@ func surfaceSize(w, h int) (int, int, int) {
 
 // Reset blanks every cell and forgets the regions something else was to paint.
 func (s *Surface) Reset() {
+	s.endDrawing()
 	clear(s.cells)
 	clear(s.paints)
 	s.paints = s.paints[:0]
@@ -220,8 +222,12 @@ func (s *Surface) mutateAppearance(area image.Rectangle, mutate func(*Style, *st
 //
 // The zero View draws nowhere and reports a size of zero, which is the right answer
 // for content laid out into no space at all.
+// Canvas views are borrowed: writing after their frame or callback ends panics.
+// Copies and subviews have the same lifetime. Surface.View has the surface owner's
+// lifetime instead and is not a canvas borrow.
 type View struct {
 	surface *Surface
+	scope   *viewScope
 	// origin is where this view's (0, 0) sits on the surface.
 	origin image.Point
 	// size is the box the view was laid out into, which is not what it may draw on:
@@ -261,6 +267,7 @@ func (v View) Sub(r image.Rectangle) View {
 	}
 	return View{
 		surface: v.surface,
+		scope:   v.scope,
 		origin:  translatePoint(v.origin, r.Min),
 		size:    rectangleSize(r),
 		clip:    v.clip.Intersect(translateRect(r, v.origin)),
@@ -285,6 +292,7 @@ func (v View) Subs(rects []image.Rectangle) []View {
 // A position outside what the view may draw on is ignored, for the same reason a
 // glyph there would be. A frame in which nobody places the cursor has no cursor.
 func (v View) PlaceCursor(x, y int, style CursorStyle) {
+	v.scope.requireWritable()
 	if v.cursor == nil {
 		return
 	}
@@ -319,6 +327,7 @@ func (v View) cellAt(x, y int) *Cell {
 // the view. It is an operation rather than a mutable Cell pointer so that changing
 // appearance cannot also replace one half of a wide grapheme.
 func (v View) MergeStyle(x, y int, style Style) bool {
+	v.scope.requireWritable()
 	p := translatePoint(image.Pt(x, y), v.origin)
 	if v.surface == nil || !p.In(v.clip) {
 		return false
@@ -345,6 +354,7 @@ func (v View) Ground() Ground { return v.surface.Ground() }
 // A cell whose colour is the terminal's own resolves through [View.Ground] first, and
 // where that has no answer the cell keeps the colour it had — see [Color.Blend].
 func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
+	v.scope.requireWritable()
 	if v.surface == nil || over.Default() || opacity <= 0 {
 		return
 	}
@@ -370,6 +380,7 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 // A cell whose colours are the terminal's own resolves through [View.Ground] first,
 // and where that has no answer the cell is left alone.
 func (v View) Fade(r image.Rectangle, amount float64) {
+	v.scope.requireWritable()
 	if v.surface == nil || amount <= 0 {
 		return
 	}
@@ -386,6 +397,7 @@ func (v View) Fade(r image.Rectangle, amount float64) {
 
 // Fill blanks every cell in r, in this view's coordinates, and gives it style.
 func (v View) Fill(r image.Rectangle, style Style) {
+	v.scope.requireWritable()
 	if v.surface == nil {
 		return
 	}
@@ -413,6 +425,7 @@ func (v View) Fill(r image.Rectangle, style Style) {
 // and its visible columns blanked, because part of a glyph is worse than a gap. A
 // zero-width cluster joins the display atom to its left rather than taking a column.
 func (v View) Text(x, y int, s string, style Style) int {
+	v.scope.requireWritable()
 	if v.surface == nil {
 		return 0
 	}
@@ -514,6 +527,7 @@ func (v View) combine(cx, y int, cluster string) {
 // (x, y). It is separate from [View.Text] because a link usually spans a run that was
 // drawn in several pieces.
 func (v View) Link(x, y, w int, target string) {
+	v.scope.requireWritable()
 	if v.surface == nil || w <= 0 {
 		return
 	}
@@ -646,6 +660,7 @@ func (s *Surface) Rows() []string {
 // frame. The region must fit entirely because grid cannot crop opaque terminal
 // content. Cells remain available for captions where the terminal supports layering.
 func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
+	v.scope.requireWritable()
 	if v.surface == nil || by == nil || r.Empty() {
 		return
 	}

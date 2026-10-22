@@ -57,7 +57,8 @@ type Output interface {
 | 已接受的回答字节 | `program.ByteIngress` | 直到交付给所有者 |
 | 开放的 Markdown 尾部 | 应用所有者 goroutine | 直到块完成 |
 | 实时 transcript 与审核 | 无外观树 | 保持交互期间 |
-| 已交付行 | 终端 | shell 会话的剩余时间 |
+| 已接受的行 | 发布缓冲区 | 直到投递或失败 |
+| 已投递的行 | 终端 | shell 会话的剩余时间 |
 
 只有后端会并发写入。所有组件和应用实体都在运行时所有者 goroutine 上修改。
 
@@ -153,7 +154,10 @@ Ingress 回调在所有者上运行。把字节交给 `markdown.Stream`，只完
 func (a *agent) accept(batch program.ByteBatch) {
     if len(batch.Data) > 0 {
         a.conversation.Markdown(string(batch.Data))
-        a.conversation.Retain(a.runtime)
+        if err := a.conversation.Retain(a.runtime); err != nil {
+            a.finishRun(errors.Join(batch.Err, err))
+            return
+        }
     }
     if batch.Final {
         a.finishRun(batch.Err)
@@ -167,12 +171,13 @@ func (a *agent) accept(batch program.ByteBatch) {
 ## 释放已完成历史
 
 为选择和搜索保留一小段交互窗口。通过带显式上限的 `kit.Transcript.Commit` 交付更早的完成块；
-同一个已测量 drawable 会被打印，随后离开实时所有权。
+打印方必须明确接受一个块，transcript 才能释放它。拒绝时返回错误并保留该块及后缀；
+返回的数量只包含已接受的前缀。
 
 ```go
 const retainedBlocks = 8
 
-func (c *conversation) Retain(printer kit.Printer) {
+func (c *conversation) Retain(printer kit.Printer) error {
     finished := 0
     for i := range c.content.Len() {
         id := c.content.FirstBlock() + headless.BlockID(i)
@@ -182,13 +187,18 @@ func (c *conversation) Retain(printer kit.Printer) {
         finished++
     }
     if excess := finished - retainedBlocks; excess > 0 {
-        c.view.Commit(printer, excess)
+        if _, err := c.view.Commit(printer, excess); err != nil {
+            return err
+        }
     }
     c.scroll.ToBottom()
+    return nil
 }
 ```
 
-不要为了重绘保留已交付行的第二份副本。终端现在拥有它们。实时内存与 resize 工作量必须
+不要为了重绘保留已交付行的第二份副本。发布缓冲区现在拥有它们。接受不保证投递：
+`program.Run` 会报告后续传输失败；零值或已停止的 inline runtime 会以 `program.ErrStopped`
+拒绝发布。实时内存与 resize 工作量必须
 取决于活动尾部，而不是会话年龄。
 
 ## 把工具审核做成领域握手
@@ -233,6 +243,8 @@ func (a *agent) answerReview(approved bool) {
 - 在所有者 goroutine 上呈现最终状态
 
 终端写入失败与后端失败必须分开处理。模型可能成功完成，但终端无法接受最终呈现。
+示例只将 `context.Canceled` 本身视为取消。包装或合并后的错误会显示完整诊断，
+取消不能掩盖其他失败。
 
 ## 测试不变式而不是模拟文案
 

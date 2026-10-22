@@ -44,10 +44,10 @@ func (b *frameBuffer) setGround(ground Ground) {
 	b.back.SetGround(ground)
 }
 
-func (b *frameBuffer) begin(cursor *Cursor) View {
+func (b *frameBuffer) begin(cursor *Cursor, owner *publication) View {
 	b.back.Reset()
 	*cursor = Cursor{}
-	view := b.back.View()
+	view := b.back.borrow(owner)
 	view.cursor = cursor
 	return view
 }

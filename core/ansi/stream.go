@@ -47,8 +47,8 @@ func (*noCopy) Unlock() {}
 // Feed visits complete pieces in order. Visitor errors stop scanning; panics
 // propagate. Both discard the remainder because a rejected chunk cannot resume
 // safely. [ErrSequenceTooLong] instead consumes the entire refused sequence and
-// continues, preventing its body from becoming text. A nil visitor panics before
-// consuming bytes.
+// continues, preventing its body from becoming text. A later visitor failure is
+// joined with any earlier framing error. A nil visitor panics before consuming bytes.
 func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 	s.requireIdle()
 	if visit == nil {
@@ -105,7 +105,7 @@ func (s *Scanner) scan(source string, visit func(Piece) error) error {
 			continue
 		}
 		if err := visit(piece); err != nil {
-			return err
+			return errors.Join(refused, err)
 		}
 	}
 	return refused

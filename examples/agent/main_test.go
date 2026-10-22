@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"image"
 	"io"
 	"strings"
@@ -140,6 +141,20 @@ func TestCancellingSettlesTheBackgroundRun(t *testing.T) {
 	host.Shows(t, "cancelled")
 
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})
+	stop()
+}
+
+type failedBackend struct{ err error }
+
+func (b failedBackend) Run(context.Context, string, agentOutput) error { return b.err }
+
+func TestCancellationCannotHideABackendFailure(t *testing.T) {
+	host, stop := runAgent(t, failedBackend{err: errors.Join(context.Canceled, errors.New("backend failed"))})
+	host.Shows(t, "Ask the mock agent")
+	host.Type("fail")
+	host.Press(input.Enter)
+	host.Shows(t, "failed:")
+	host.Shows(t, "backend failed")
 	stop()
 }
 

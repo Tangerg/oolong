@@ -230,6 +230,11 @@ which value is selected. `Chosen`, `Taken`, and `Ask` only project state. Select
 reads its owner directly and needs no Sync. Text.Sync reconciles the editing model;
 MultiSelect.Sync normalizes the caller's set at an explicit semantic boundary.
 
+SetOptions prepares identity comparisons and required binding reads before replacing
+the field's options and selection. If preparation panics or exits its goroutine,
+the previous field remains intact. Once options are installed, normalization offers
+a proposal to the controlled accessor; that accessor still owns the accepted answer.
+
 Construct controlled fields with `NewText(TextConfig{Value: ...})`,
 `NewSelect(SelectConfig[T]{Value: ...})`, `NewMultiSelect(MultiSelectConfig[T]{Value: ...})`,
 or `NewConfirm(ConfirmConfig{Value: ...})`. Binding references are private; `SetBinding`

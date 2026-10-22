@@ -213,6 +213,10 @@ theme.Selection = grid.Style{BG: grid.RGBColor(0x32, 0x27, 0x3B)}
 Select 直接读取 owner，无需 Sync。Text.Sync 协调编辑模型；MultiSelect.Sync
 在显式语义边界规范化调用方的选中集合。
 
+SetOptions 先完成身份比较和必要的绑定读取，再替换字段的选项与选择。
+准备阶段 panic 或退出 goroutine 会保留原字段。选项安装后，规范化只向受控 accessor
+提交提案；已接受答案仍由该 accessor 拥有。
+
 通过 `NewText(TextConfig{Value: ...})`、`NewSelect(SelectConfig[T]{Value: ...})`、
 `NewMultiSelect(MultiSelectConfig[T]{Value: ...})` 或 `NewConfirm(ConfirmConfig{Value: ...})`
 构造受控字段。绑定引用保持私有，后续只通过 SetBinding 转移；它会取消旧键序列，

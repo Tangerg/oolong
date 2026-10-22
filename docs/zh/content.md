@@ -153,6 +153,8 @@ if err != nil {
 
 请在馈入分块前设置完整外观。`Feed` 只返回一次稳定块，`Open` 返回仍可能变化的短尾部，
 `Flush` 结算流的末尾。
+已发布源码中的引用定义会保留到 `Flush` 或 `Reset`，供后续链接使用；链接发布之后才到达的
+定义不能回头修改它。
 
 ```go
 var stream markdown.Stream
@@ -236,6 +238,10 @@ PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
 `examples/mermaid` 展示后台生成、过期结果拒绝、源码替换、错误展示和退出时等待 worker。替换与退出会先移除图片 placement，再释放图片数据。图片被文档持有期间不可提前释放。
 
 语法稳定、图片准备完成、`Transcript.Finish` 是三个不同状态。等待图片的占位块不能 Finish 或 Commit；只有 owner 接受最终内容或最终错误展示后才能宣布完成。`Stream` 不负责异步图片任务，应用需要保留对应源码并在结果就绪时替换未提交的文档。
+
+已经完成的原生图片仍需要实时帧拥有其放置。Inline scrollback 的 `Print` 和 `Append` 会对
+原生绘制区域返回 `errors.ErrUnsupported`，因此 `kit.Transcript.Commit` 会保留该块。
+继续在实时帧中显示图片，或显式提供用于永久发布的单元格内容。
 
 ### 图片显示和操作
 

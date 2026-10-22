@@ -28,7 +28,7 @@ A streaming interface owns four different states:
 1. The source goroutine owns network, process, or model I/O
 2. `program.ByteIngress` owns accepted bytes waiting for the interface
 3. The interface goroutine owns components and the open transformed tail
-4. The terminal owns content after `InlineRuntime.Print` commits it
+4. The publication buffer owns content after `InlineRuntime.Print` accepts it
 
 ```mermaid
 flowchart LR
@@ -36,12 +36,13 @@ flowchart LR
     ingress --> owner["interface owner"]
     owner --> open["open tail"]
     open --> committed["finished block"]
-    committed --> terminal["terminal scrollback"]
+    committed -->|accepted| publication["publication buffer"]
+    publication -->|delivered| terminal["terminal scrollback"]
 ```
 
-Only the first edge may block. Backpressure at `ByteIngress.Write` bounds memory
-without blocking the interface goroutine or imposing a limit on the runtime's
-general dispatcher.
+Backpressure at `ByteIngress.Write` may block the source goroutine to bound pending
+input. It does not block the interface goroutine or impose a limit on the runtime's
+general dispatcher. Terminal delivery runs on the output writer's goroutine.
 
 ## Define a source at the byte boundary
 
@@ -126,6 +127,13 @@ Renderer callbacks may read `Look`; reentering `Feed`, `Open`, `Flush`, `Reset` 
 `SetLook` on that same stream panics. Feed another stream or defer source changes
 until the active operation returns. A renderer panic does not discard the source.
 
+Published reference definitions stay with the stream until `Flush` or `Reset`, so
+later blocks resolve earlier definitions across publication cuts. `Open` uses a
+temporary parser context and cannot commit an unfinished definition. The stream keeps
+the definitions themselves, including the parser's first-definition rule, without
+retaining the published source or syntax trees. Definitions arriving after a link
+was published cannot revise that transferred block.
+
 The parser keeps an unfinished list or quote in the open tail, including blank lines
 between items. A long loose list can therefore have a long tail; publishing its items
 independently would change numbering and nesting when chunks arrive differently.
@@ -134,22 +142,51 @@ independently would change numbering and nesting when chunks arrive differently.
 
 Keep a bounded number of finished blocks in the live transcript for selection and
 search. Commit older blocks with the transcript renderer's publication operation.
-That operation measures and prints the same drawable, then releases its interactive
-identity.
+`kit.Transcript.Commit` releases each block only after `Printer.Print` returns nil.
+It returns the accepted count and any refusal error; refused content stays live.
+The same drawable is measured and drawn into immutable cells in the publication buffer,
+which now owns delivery or failure reporting. A zero or stopped inline runtime returns
+`program.ErrStopped`.
 
 `headless.Transcript.Commit` retires each accepted block before invoking the callback
 for the next block. That callback may only read the transcript. Mutating it, staging
 layout or calling Commit again panics. An abnormal callback exit leaves its output
 result unknown, so that transcript cannot be reused for mutation or publication;
 earlier accepted blocks remain retired.
+The kit operation still settles those accepted rows against its original scroll,
+selection and sticky models on an abnormal exit or replacement of the view's fields.
 
 `grid.Inline` owns each Print, Append, Flush and Finish operation through its
 callbacks. Read the canvas and draw into the supplied view; schedule further
 canvas changes after the operation returns. Reentrant mutation or publication
 panics, so nested output cannot replace the outer operation's scratch or anchor.
+The supplied drawing view, its copies and child views are valid only for that callback.
+Retain content for later drawing; writing through a saved callback view panics,
+including when the preceding callback ended abnormally.
 
-Do not rebuild published rows in application state. The terminal already owns them,
-and rebuilding them would make memory and resize work grow with session age.
+Scrollback accepts cell content. A native paint region needs a live frame to own its
+placement and removal; `Print` and `Append` refuse that content with
+`errors.ErrUnsupported`. Keep the block live or explicitly replace it with cell content.
+`Append` calls its callback with the remaining row width; return true for another row
+or false to finish. The grid accepts all rows from that call together. An unsupported
+region or a callback's abnormal exit publishes none of them. Asking to continue while
+drawing nothing into a whole empty row returns `io.ErrNoProgress` on the same terms.
+
+Flush wraps queued cells at the current width and encodes them at the current color
+depth. A width change closes the open append row, so queued continuations cannot use
+an old terminal column and later Append calls start a fresh row. Zero width defers
+output while keeping accepted cells queued. An atom wider than the whole terminal
+refuses the flush with `errors.ErrUnsupported` before writing; restore a suitable
+width before retrying. Successfully delivered cells are released.
+
+Flush all accepted output before calling `grid.Inline.Finish`. Finish returns an
+error while the queue is nonempty, without writing or changing the terminal anchor
+or open row; deliver the output and then retry Finish. A zero-width Flush defers
+delivery, so its nil result does not mean the queue is empty.
+
+Do not rebuild accepted rows in application state. The publication pipeline owns them;
+`program.Run` reports later delivery failures. Rebuilding them would make memory and
+resize work grow with session age and could replay output already delivered.
 
 ## Settle cancellation and failure
 
@@ -161,8 +198,14 @@ Cancellation is a source result, not a second delivery path:
 - Settle UI state from the final `ByteBatch`
 - Wait on `ByteIngress.Done` when another goroutine must release source resources
 
+The example treats only bare `context.Canceled` as cancellation. Wrapped or joined
+errors display their complete diagnostics, so cancellation cannot hide another failure.
+
 Treat a terminal write failure separately from a source failure. The source may have
 completed successfully even when presentation could not finish.
+Close ingress with nil or bare `io.EOF` for normal completion. Wrapped or joined
+errors are delivered unchanged in the final batch, including other failures joined
+with EOF.
 
 ## Verify the complete path
 

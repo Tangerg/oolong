@@ -54,6 +54,42 @@ func TestEnvironmentKeepsTheFactsLearnedBeforeConstruction(t *testing.T) {
 	}
 }
 
+func TestInlineConstructionPublishesWithTheStartupEnvironment(t *testing.T) {
+	for _, method := range []string{"Print", "Append"} {
+		t.Run(method, func(t *testing.T) {
+			h := newHost(t)
+			want := grid.Ground{FG: grid.RGBColor(210, 220, 230), BG: grid.RGBColor(20, 30, 40)}
+			h.ground = want
+			called := false
+			err := program.Run(t.Context(), program.Config{Host: h, Inline: func(r *program.InlineRuntime) program.Component {
+				h.ground = grid.Ground{}
+				draw := func(view grid.View) {
+					called = true
+					if got := view.Ground(); got != want || got != r.Environment().Ground() {
+						t.Errorf("construction publication ground = %+v, want startup %+v", got, want)
+					}
+					view.Text(0, 0, "startup", grid.Style{})
+					view.Fade(view.Bounds(), 0.5)
+				}
+				var err error
+				if method == "Print" {
+					err = r.Print(measurer{measure: func(int) int { return 1 }, draw: draw})
+				} else {
+					err = r.Append(func(view grid.View) bool { draw(view); return false })
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Quit()
+				return &component{text: "live", runtime: r.Runtime}
+			}})
+			if err != nil || !called {
+				t.Fatalf("startup publication = %v, called=%v", err, called)
+			}
+		})
+	}
+}
+
 func (h *imageLifetimeHost) Transmit([]byte) (graphics.Image, error) {
 	h.transmitted++
 	return graphics.Image{ID: 1}, nil
@@ -102,9 +138,8 @@ func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 				t.Errorf("ended image release = %v", err)
 			}
 			drawn := false
-			runtime.Print(lifetimeOutput{drawn: &drawn})
-			if drawn {
-				t.Error("an ended inline runtime accepted new publication")
+			if err := runtime.Print(lifetimeOutput{drawn: &drawn}); drawn || !errors.Is(err, program.ErrStopped) {
+				t.Errorf("an ended inline runtime accepted publication: drawn=%v error=%v", drawn, err)
 			}
 			if title, rang, notifications := h.said(); title != "" || rang != 0 || len(notifications) != 0 ||
 				h.progress != (term.Progress{}) || h.transmitted != 0 || h.released != 0 || h.timesHanded() != 0 {

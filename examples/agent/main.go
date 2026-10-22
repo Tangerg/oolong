@@ -324,13 +324,18 @@ func (a *agent) startRun(prompt string) {
 		err := a.backend.Run(ctx, prompt, output)
 		_ = ingress.CloseWithError(err)
 	}()
-	a.conversation.Retain(a.runtime)
+	if err := a.conversation.Retain(a.runtime); err != nil {
+		a.finishRun(err)
+	}
 }
 
 func (a *agent) accept(batch program.ByteBatch) {
 	if len(batch.Data) > 0 {
 		a.conversation.Markdown(string(batch.Data))
-		a.conversation.Retain(a.runtime)
+		if err := a.conversation.Retain(a.runtime); err != nil {
+			a.finishRun(errors.Join(batch.Err, err))
+			return
+		}
 	}
 	if batch.Final {
 		a.finishRun(batch.Err)
@@ -339,7 +344,9 @@ func (a *agent) accept(batch program.ByteBatch) {
 
 func (a *agent) finishRun(err error) {
 	a.conversation.FlushMarkdown()
-	a.conversation.Retain(a.runtime)
+	if retainErr := a.conversation.Retain(a.runtime); retainErr != nil {
+		err = errors.Join(err, retainErr)
+	}
 	if a.stopClock != nil {
 		a.stopClock()
 		a.stopClock = nil
@@ -354,7 +361,7 @@ func (a *agent) finishRun(err error) {
 	a.status.Elapsed = ""
 	native := term.Progress{State: term.ProgressNormal, Percent: 100}
 	switch {
-	case errors.Is(err, context.Canceled):
+	case err == context.Canceled: //nolint:errorlint // Only bare cancellation has no failure diagnostics to display.
 		a.status.Doing = "cancelled"
 		native.State = term.ProgressWarning
 	case err != nil:
@@ -468,7 +475,11 @@ func (a *agent) openReview(request *reviewRequest) {
 		a.answerReview(false)
 	}
 	a.conversation.FlushMarkdown()
-	a.conversation.Retain(a.runtime)
+	if err := a.conversation.Retain(a.runtime); err != nil {
+		a.finishRun(err)
+		request.answer <- false
+		return
+	}
 	a.review = request
 	a.reviewAnswer = true
 	a.reviewConfirm.Say(true)
@@ -507,5 +518,7 @@ func (a *agent) showTool(result toolResult) {
 		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
 	})
 	a.conversation.Append(shown)
-	a.conversation.Retain(a.runtime)
+	if err := a.conversation.Retain(a.runtime); err != nil {
+		a.finishRun(err)
+	}
 }

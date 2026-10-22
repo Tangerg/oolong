@@ -79,7 +79,7 @@ func (s *Select[T]) SetBinding(value Accessor[T]) {
 	if value == nil {
 		selected = s.selected()
 	} else {
-		selected, _ = s.indexOf(value.Value())
+		selected, _ = s.indexOf(s.list.items, value.Value())
 	}
 	s.matcher.Reset(func() {
 		s.value = value
@@ -99,37 +99,40 @@ func (s *Select[T]) Prompt() string { return s.Label }
 // Otherwise a local cursor is clamped; a controlled field offers the first option
 // to its owner. Non-empty options require Same; omitting it
 // is a programmer error and panics. The initial unmatched value is settled by Validate.
+// Required reads and identity comparisons finish before options or selection change.
+// An abnormal exit during preparation preserves the previous field.
 func (s *Select[T]) SetOptions(options []Option[T]) {
-	s.matcher.Reset(func() { s.setOptions(options) })
-}
-
-func (s *Select[T]) setOptions(options []Option[T]) {
 	previous, hadPrevious := s.list.Current()
 	if len(options) > 0 && s.Same == nil {
 		panic("headless: Select requires Same before SetOptions")
 	}
-	if s.value == nil {
-		s.list.SetItems(options)
-	} else {
-		s.list.replaceItems(options)
-	}
-	for i := range s.list.items {
-		s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
-	}
-	if s.value != nil {
-		if hadPrevious {
-			s.selectAt(s.selected())
-		}
-		return
-	}
-	if hadPrevious {
-		for i, option := range s.list.items {
-			if option.holds(previous.Value, s.Same) {
-				s.list.Select(i)
-				return
+	selected := s.list.Selected()
+	binding := s.value
+	normalize := false
+	if hadPrevious && len(options) > 0 {
+		if binding == nil {
+			if at, found := s.indexOf(options, previous.Value); found {
+				selected = at
 			}
+		} else {
+			_, found := s.indexOf(options, binding.Value())
+			normalize = !found
 		}
 	}
+	s.matcher.Reset(func() {
+		if binding == nil {
+			s.list.SetItems(options)
+			s.list.Select(selected)
+		} else {
+			s.list.replaceItems(options)
+		}
+		for i := range s.list.items {
+			s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
+		}
+		if normalize {
+			binding.Set(s.list.items[0].Value)
+		}
+	})
 }
 
 // Options returns a copy of what is on offer.
@@ -142,7 +145,7 @@ func (s *Select[T]) Chosen() (Option[T], bool) {
 
 func (s *Select[T]) selected() int {
 	if s.value != nil {
-		at, _ := s.indexOf(s.value.Value())
+		at, _ := s.indexOf(s.list.items, s.value.Value())
 		return at
 	}
 	return s.list.Selected()
@@ -178,8 +181,8 @@ func (s *Select[T]) DrawWith(v Frame, look Look) {
 	})
 }
 
-func (s *Select[T]) indexOf(want T) (int, bool) {
-	for i, option := range s.list.items {
+func (s *Select[T]) indexOf(options []Option[T], want T) (int, bool) {
+	for i, option := range options {
 		if option.holds(want, s.Same) {
 			return i, true
 		}
@@ -239,7 +242,7 @@ func (s *Select[T]) checkAnswer() fieldCheck {
 			return false
 		}
 		if s.value != nil {
-			_, matched := s.indexOf(s.value.Value())
+			_, matched := s.indexOf(s.list.items, s.value.Value())
 			return matched
 		}
 		return true

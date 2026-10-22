@@ -58,6 +58,13 @@ func lines(rows ...string) func(grid.View) {
 	}
 }
 
+func appendLines(rows ...string) func(grid.View) bool {
+	return func(view grid.View) bool {
+		lines(rows...)(view)
+		return false
+	}
+}
+
 func TestAnInlineBlockIsAsTallAsWhatWasDrawn(t *testing.T) {
 	// Nothing declares a height. An interface that draws two rows occupies two rows,
 	// and the eight it was offered stay the terminal's.
@@ -77,7 +84,9 @@ func TestAnInlineFrameNeverAddressesTheTerminalAbsolutely(t *testing.T) {
 	var all strings.Builder
 	all.WriteString(inline(t, i, grid.Cursor{}, lines("one")))
 	all.WriteString(inline(t, i, grid.Cursor{}, lines("one", "two", "three")))
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	all.WriteString(inline(t, i, grid.Cursor{Visible: true}, lines("one", "two")))
 	all.WriteString(inline(t, i, grid.Cursor{}, lines("one")))
 	all.WriteString(inline(t, i, grid.Cursor{}, nil))
@@ -253,7 +262,9 @@ func TestPrintedRowsGoAboveTheBlock(t *testing.T) {
 	i := grid.NewInline(10, 6)
 	inline(t, i, grid.Cursor{}, lines("prompt"))
 
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "done" + "\x1b[K" + "\r\n" + "prompt" + "\x1b[K" + "\r"
 	if got != want {
@@ -266,7 +277,9 @@ func TestPrintedRowsAreWrittenOnce(t *testing.T) {
 	// print the transcript twice over.
 	i := grid.NewInline(10, 6)
 	inline(t, i, grid.Cursor{}, lines("prompt"))
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	inline(t, i, grid.Cursor{}, lines("prompt"))
 
 	if got := inline(t, i, grid.Cursor{}, lines("prompt")); got != "" {
@@ -281,7 +294,9 @@ func TestPrintingRewritesTheBlockItPushedDown(t *testing.T) {
 	i := grid.NewInline(10, 6)
 	inline(t, i, grid.Cursor{}, lines("one", "two"))
 
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, lines("one", "two"))
 	if !strings.Contains(got, "one") || !strings.Contains(got, "two") {
 		t.Fatalf("frame = %q, want the whole block rewritten below the printed row", got)
@@ -294,7 +309,9 @@ func TestPrintingTakesTheRowsTheBlockNoLongerReaches(t *testing.T) {
 	i := grid.NewInline(10, 8)
 	inline(t, i, grid.Cursor{}, lines("a", "b", "c"))
 
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, lines("a"))
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[2A" +
 		"said" + "\x1b[K" + "\r\n" +
@@ -309,10 +326,12 @@ func TestEveryPrintedRowIsPrinted(t *testing.T) {
 	// Including the blank ones: a caller that laid its output out knows how tall it is,
 	// and a blank row between two answers is content, not slack.
 	i := grid.NewInline(10, 4)
-	i.Print(content(3, func(v grid.View) {
+	if err := i.Print(content(3, func(v grid.View) {
 		v.Text(0, 0, "first", grid.Style{})
 		v.Text(0, 2, "third", grid.Style{})
-	}))
+	})); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, nil)
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
 		"first" + "\x1b[K" + "\r\n" +
@@ -329,8 +348,18 @@ func TestOutputThatDidNotStopAtALineBoundaryCarriesOn(t *testing.T) {
 	// words at a time is one paragraph, and a printer that began every piece at column
 	// zero would make it three rows tall.
 	i := grid.NewInline(10, 6)
-	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
-	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "Hel", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "lo", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
@@ -349,10 +378,20 @@ func TestCarryingOnReachesBackOverTheBlock(t *testing.T) {
 	// continuing it means going back up past the block and along to where it stopped.
 	// Nothing about the block itself has changed, and nothing about it is rewritten.
 	i := grid.NewInline(10, 6)
-	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "Hel", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 	inline(t, i, grid.Cursor{}, lines("prompt"))
 
-	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "lo", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A" + "\x1b[3C" + "lo" + "\x1b[K" + "\r\n"
 	if got != want {
@@ -364,8 +403,15 @@ func TestAWholeRowWillNotShareOneWithAnythingElse(t *testing.T) {
 	// Print is whole rows. What was left open is not part of them, and squeezing the
 	// next block onto the end of it would put two unrelated things on one line.
 	i := grid.NewInline(10, 6)
-	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "Hel", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 
 	got := inline(t, i, grid.Cursor{}, nil)
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
@@ -383,13 +429,22 @@ func TestAppendingToAFullRowStartsTheNextOne(t *testing.T) {
 	// Appending means putting something after what is there, not squeezing it in
 	// beside it — and a row with no room left would wrap, which moves the block.
 	i := grid.NewInline(4, 6)
-	i.Append(func(v grid.View) { v.Text(0, 0, "abcd", grid.Style{}) })
-	i.Append(func(v grid.View) {
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "abcd", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
+	if err := i.Append(func(v grid.View) bool {
 		if w, _ := v.Size(); w != 4 {
 			t.Errorf("the second piece was offered %d columns, want a whole row", w)
 		}
 		v.Text(0, 0, "ef", grid.Style{})
-	})
+
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 
 	got := inline(t, i, grid.Cursor{}, nil)
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" +
@@ -404,26 +459,45 @@ func TestWhatIsAppendedIsOfferedWhatIsLeftOfTheRow(t *testing.T) {
 	// Which is what stops it running past the edge and taking the block's anchor with
 	// it: a caller cannot draw outside the view it was handed.
 	i := grid.NewInline(10, 6)
-	i.Append(func(v grid.View) { v.Text(0, 0, "abc", grid.Style{}) })
-	i.Append(func(v grid.View) {
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "abc", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
+	if err := i.Append(func(v grid.View) bool {
 		if w, _ := v.Size(); w != 7 {
 			t.Fatalf("offered %d columns, want what is left of the row", w)
 		}
-	})
+
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestBreakingARowCostsNothingAndIsNotAFrame(t *testing.T) {
 	// The row was published with the block underneath it already, so ending it is only
 	// a matter of not carrying it on.
 	i := grid.NewInline(10, 6)
-	i.Append(func(v grid.View) { v.Text(0, 0, "Hel", grid.Style{}) })
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "Hel", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 	inline(t, i, grid.Cursor{}, lines("prompt"))
 
 	i.Break()
 	if got := inline(t, i, grid.Cursor{}, lines("prompt")); got != "" {
 		t.Fatalf("ending a row wrote %q", got)
 	}
-	i.Append(func(v grid.View) { v.Text(0, 0, "lo", grid.Style{}) })
+	if err := i.Append(func(v grid.View) bool {
+		v.Text(0, 0, "lo", grid.Style{})
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, lines("prompt"))
 	if strings.Contains(got, "\x1b[1A") {
 		t.Fatalf("frame = %q, want the next piece on a row of its own", got)
@@ -434,7 +508,11 @@ func TestAppendingNothingCostsNoRow(t *testing.T) {
 	// A chunk that came to nothing is not a blank line: it is nothing.
 	i := grid.NewInline(10, 4)
 	inline(t, i, grid.Cursor{}, lines("ab"))
-	i.Append(func(grid.View) {})
+	if err := i.Append(func(grid.View) bool {
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 	if got := inline(t, i, grid.Cursor{}, lines("ab")); got != "" {
 		t.Fatalf("appending nothing wrote %q", got)
 	}
@@ -446,7 +524,9 @@ func TestAppendingNothingCostsNoRow(t *testing.T) {
 func TestPrintingNothingIsNotAFrame(t *testing.T) {
 	i := grid.NewInline(10, 4)
 	inline(t, i, grid.Cursor{}, lines("ab"))
-	i.Print(content(0, func(v grid.View) { v.Text(0, 0, "never", grid.Style{}) }))
+	if err := i.Print(content(0, func(v grid.View) { v.Text(0, 0, "never", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	if got := inline(t, i, grid.Cursor{}, lines("ab")); got != "" {
 		t.Fatalf("printing no rows wrote %q", got)
 	}
@@ -456,7 +536,9 @@ func TestPrintedRowsAreClippedToTheBlocksWidth(t *testing.T) {
 	// A printed row wider than the terminal would wrap, and a wrap moves everything
 	// below it — including the block, whose position is counted in rows.
 	i := grid.NewInline(6, 4)
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "far too long", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "far too long", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	got := inline(t, i, grid.Cursor{}, nil)
 	if !strings.Contains(got, "far to"+"\r\n") {
 		t.Fatalf("frame = %q, want the printed row clipped to six columns", got)
@@ -617,7 +699,9 @@ func TestABlockDrawnAgainCanBeFinishedAgain(t *testing.T) {
 
 func TestFailedInlinePrintReportsFailureWithoutRetry(t *testing.T) {
 	i := grid.NewInline(10, 4)
-	i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) }))
+	if err := i.Print(content(1, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) })); err != nil {
+		t.Error(err)
+	}
 	i.Frame().Text(0, 0, "prompt", grid.Style{})
 	if err := i.Flush(failing{}); !errors.Is(err, errNope) {
 		t.Fatalf("Flush = %v", err)
@@ -665,16 +749,38 @@ func TestInlineSizeIsTheRoomItWasGiven(t *testing.T) {
 	}
 }
 
+func TestAnInlineHeightChangeKeepsTheOpenRow(t *testing.T) {
+	canvas := grid.NewInline(8, 2)
+	if err := canvas.Append(appendLines("ab")); err != nil {
+		t.Fatal(err)
+	}
+	canvas.Resize(8, 4)
+	if column, open := canvas.Tail(); column != 2 || !open {
+		t.Fatalf("tail after height change = %d, %v, want 2, true", column, open)
+	}
+	if err := canvas.Append(appendLines("cd")); err != nil {
+		t.Fatal(err)
+	}
+	if column, open := canvas.Tail(); column != 4 || !open {
+		t.Fatalf("continued tail = %d, %v, want 4, true", column, open)
+	}
+	if got := inline(t, canvas, grid.Cursor{}, nil); !strings.Contains(got, "ab\x1b[Kcd\x1b[K\r\n") {
+		t.Fatalf("continuation split after a height change: %q", got)
+	}
+}
+
 func TestAnInlineBlockWithNoRoomDrawsNothing(t *testing.T) {
 	// None of this may panic: a layout collapses before it disappears.
 	for _, size := range [][2]int{{0, 0}, {0, 4}, {4, 0}} {
 		i := grid.NewInline(size[0], size[1])
 		inline(t, i, grid.Cursor{}, lines("ab", "cd"))
-		i.Print(content(2, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) }))
+		if err := i.Print(content(2, func(v grid.View) { v.Text(0, 0, "said", grid.Style{}) })); err != nil {
+			t.Error(err)
+		}
 		inline(t, i, grid.Cursor{}, nil)
 		var buf bytes.Buffer
-		if err := i.Finish(&buf); err != nil {
-			t.Fatalf("Finish: %v", err)
+		if err := i.Finish(&buf); (err != nil) != (size[0] == 0) {
+			t.Fatalf("Finish with width %d: %v", size[0], err)
 		}
 	}
 }

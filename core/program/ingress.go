@@ -135,12 +135,13 @@ func (i *ByteIngress) Write(p []byte) (n int, err error) {
 func (i *ByteIngress) Close() error { return i.CloseWithError(nil) }
 
 // CloseWithError completes the stream with err after all accepted bytes are
-// delivered. The first close wins. [io.EOF] is normalized to successful completion.
+// delivered. The first close wins. Bare [io.EOF] is normalized to successful
+// completion; wrapped or joined errors are preserved as failures.
 func (i *ByteIngress) CloseWithError(err error) error {
 	if i == nil || i.done == nil {
 		return ErrStopped
 	}
-	if errors.Is(err, io.EOF) {
+	if err == io.EOF { //nolint:errorlint // Only bare EOF ends a reader successfully; wrapped or joined failures must survive.
 		err = nil
 	}
 

@@ -320,6 +320,66 @@ func TestAFailedDrawDoesNotClaimTheFrame(t *testing.T) {
 	}
 }
 
+func TestAFailedDrawStillWaitsForItsAcceptedOutput(t *testing.T) {
+	var p present.Presenter
+	p.RequestFull()
+	cause := errors.New("draw failed after publication")
+	didDraw, err := p.Present(epoch, func(bool) (uint64, error) { return 7, cause })
+	if didDraw || !errors.Is(err, cause) {
+		t.Fatalf("Present = %v, %v, want the incomplete draw's error", didDraw, err)
+	}
+	var d drew
+	if presented(t, &p, epoch, d.draw) || d.calls != 0 {
+		t.Fatal("another frame was drawn while accepted output was still in flight")
+	}
+	p.Wrote(6)
+	if presented(t, &p, epoch, d.draw) || d.calls != 0 {
+		t.Fatal("an earlier receipt released the accepted output")
+	}
+	p.Wrote(7)
+	if !presented(t, &p, epoch, d.draw) || d.calls != 1 || !d.full {
+		t.Fatal("settling accepted output lost the incomplete repaint request")
+	}
+}
+
+func TestWriterReceiptDuringDrawingCannotBeLost(t *testing.T) {
+	cause := errors.New("draw failed after output completed")
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "successful draw"},
+		{name: "failed draw", err: cause},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var p present.Presenter
+			p.RequestFull()
+			didDraw, err := p.Present(epoch, func(bool) (uint64, error) {
+				p.Wrote(7)
+				return 7, test.err
+			})
+			if didDraw != (test.err == nil) || !errors.Is(err, test.err) {
+				t.Fatalf("Present = %v, %v", didDraw, err)
+			}
+			p.Request()
+			d := drew{seq: 8}
+			if !presented(t, &p, epoch, d.draw) || d.full != (test.err != nil) {
+				t.Fatal("completed output blocked the pending request or changed its repaint requirement")
+			}
+			p.Request()
+			p.Wrote(6)
+			if presented(t, &p, epoch, d.draw) {
+				t.Fatal("an older receipt settled newer output")
+			}
+			p.Wrote(8)
+			d.seq = 9
+			if !presented(t, &p, epoch, d.draw) {
+				t.Fatal("the next receipt did not settle its output")
+			}
+		})
+	}
+}
+
 func TestThrottledRequestCannotDelayAnImmediateRepaint(t *testing.T) {
 	var p present.Presenter
 	var d drew

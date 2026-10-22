@@ -191,6 +191,35 @@ func TestChangingTheDepthRepaintsEverything(t *testing.T) {
 	}
 }
 
+func TestQueuedInlineRowsUseTheDepthAtFlush(t *testing.T) {
+	for _, operation := range []string{"Print", "Append"} {
+		t.Run(operation, func(t *testing.T) {
+			canvas := grid.NewInline(4, 1)
+			canvas.SetDepth(grid.NoColor)
+			draw := func(view grid.View) {
+				view.Text(0, 0, "x", grid.Style{FG: grid.RGBColor(200, 30, 30)})
+			}
+			var err error
+			if operation == "Print" {
+				err = canvas.Print(content(1, draw))
+			} else {
+				err = canvas.Append(func(view grid.View) bool { draw(view); return false })
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			canvas.SetDepth(grid.Depth16)
+			var output buffer
+			if err = canvas.Flush(&output); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(output.String(), ";91") {
+				t.Fatalf("queued row = %q, want the current sixteen-color encoding", output.String())
+			}
+		})
+	}
+}
+
 func TestSettingTheSameDepthTwiceCostsNothing(t *testing.T) {
 	s := grid.NewScreen(4, 1)
 	s.SetDepth(grid.Depth256)

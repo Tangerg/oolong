@@ -36,6 +36,7 @@ type toolResult struct {
 
 // agentBackend is the application's model boundary. It knows prompts, plans and tool
 // review, but nothing about terminal frames, components or the owner goroutine.
+// Bare context.Canceled reports cancellation; every other error retains its diagnostics.
 type agentBackend interface {
 	Run(ctx context.Context, prompt string, output agentOutput) error
 }

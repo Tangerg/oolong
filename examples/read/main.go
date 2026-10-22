@@ -114,7 +114,12 @@ func (r *reader) advance() {
 	if len(blocks) > 0 {
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
-		r.runtime.Print(doc)
+		if printErr := r.runtime.Print(doc); printErr != nil {
+			r.renderErr = errors.Join(r.renderErr, printErr)
+			r.open.SetBlocks(blocks)
+			r.stop()
+			return
+		}
 	}
 	r.at++
 	open, err := r.stream.Open()
@@ -128,7 +133,12 @@ func (r *reader) finish() {
 	if len(blocks) > 0 {
 		doc := new(markdown.Doc)
 		doc.SetBlocks(blocks)
-		r.runtime.Print(doc)
+		if printErr := r.runtime.Print(doc); printErr != nil {
+			r.renderErr = errors.Join(r.renderErr, printErr)
+			r.open.SetBlocks(blocks)
+			r.stop()
+			return
+		}
 	}
 	r.open.SetBlocks(nil)
 	r.stop()

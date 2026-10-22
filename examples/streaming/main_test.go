@@ -331,6 +331,19 @@ func TestCancellationSettlesSeparatelyFromFailure(t *testing.T) {
 	}
 }
 
+func TestCancellationCannotHideASourceFailure(t *testing.T) {
+	h := newHost()
+	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error {
+		return errors.Join(context.Canceled, errors.New("source failed"))
+	})
+	defer stop()
+	approve(t, h, c, "fail")
+	got := awaitState(t, c, func(s state) bool { return !s.active && !s.dialog })
+	if !strings.HasPrefix(got.status, "failed:") || !strings.Contains(got.status, "source failed") {
+		t.Fatalf("status hid the source failure: %q", got.status)
+	}
+}
+
 func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 	h := newHost()
 	called := make(chan string, 1)

@@ -163,7 +163,8 @@ builder revokes all retained owner operations and Clipboard, Session, Images and
 InlineRuntime capabilities. Resources deliberately owned beyond Run are accessed
 through their Host or Terminal. Environment is an immutable startup record sampled
 before application construction; the canvas and components use the same facts,
-and a retained Environment remains readable after Run.
+and a retained Environment remains readable after Run. Canvas depth and ground are
+installed before the builder runs, including for inline output produced by construction.
 
 ```mermaid
 flowchart TD
@@ -250,7 +251,16 @@ Frame-local presentation state has one producer per root frame. A `Snapshot`,
 then refine that one pending value. Staging the same owner twice is a programmer error,
 not last-writer-wins behavior. This makes sibling order unable to choose routing or
 scroll geometry, while the generation on `Frame` prevents a saved frame from becoming
-valid again during a later draw.
+valid again during a later draw. Reusing transcript placement at an unchanged width
+still claims that frame's single producer; layout reuse does not bypass ownership.
+Transcript remeasurement likewise prepares every affected height before replacing
+placement. A measurement panic or goroutine exit preserves the complete previous
+row space, including its extents and total height.
+Staging begins with that complete placement, so recovering a measurement panic inside
+a component cannot make the root commit an unprepared zero value. Absolute transcript
+rows identify content: append, remeasurement and reflow reject a range that cannot fit
+in int before publication. Saturating a row address would merge distinct positions;
+an exhausted coordinate namespace requires a new transcript lifecycle.
 
 ### 4.3 Effects
 
@@ -505,6 +515,12 @@ accepted bytes; zero retains caller ownership and Err exposes the cause. Refusal
 does not advance Queued or either completion watermark. Terminal operations that
 return a bool or error report admission, while Drain and Err report settlement.
 Image transmission returns no handle when the writer refuses its bytes.
+Presenter records a draw's nonzero writer sequence even when drawing also fails.
+The incomplete request remains owed, but another draw waits for that sequence's
+completion receipt. A composition error cannot undo output already accepted.
+Acceptance and completion are monotonic projections of the writer's two watermarks;
+whether output remains in flight is derived from their difference. A completion
+receipt arriving during draw is retained before draw returns its accepted sequence.
 
 Synchronous callbacks may originate newer transitions. A matcher cancellation or map
 change revokes interrupted dispatch; Presenter requests from drawing remain owed to a
@@ -713,6 +729,8 @@ Publication is ordered and lossless:
 
 - a partial row may remain open across chunks;
 - a whole-row publication closes a previously open row first;
+- a width change closes the open append row and starts pending continuations below
+  already delivered output;
 - empty chunks publish nothing;
 - a failed write does not silently discard pending output;
 - shutdown publishes or deliberately abandons the final tail according to an explicit
@@ -722,6 +740,19 @@ Publication is ordered and lossless:
 
 The terminal may reflow its history on resize. Oolong does not retain and replay all
 history to simulate control the terminal has not offered.
+Only undelivered cells remain immutable in the publication queue. Flush derives their
+physical rows, margins and encoding from the current width and color depth in one pass;
+zero width defers delivery. An atom wider than the whole terminal refuses the flush
+with errors.ErrUnsupported before any write, retaining all accepted content for a
+retry at a suitable width. No saved margin flag or independent logical-row count can
+override that physical layout.
+Each encoded reflow chunk preserves its assigned columns, including default blanks
+before later content. Whole-row tail trimming cannot shorten a physical chunk after
+layout has established its margin.
+
+Finish releases the terminal anchor only when the publication queue is empty.
+Pending output refuses Finish without writing or changing that anchor; Flush still
+owns its delivery, and a successful flush allows Finish to be retried.
 
 ## 9. Failure and degradation model
 
@@ -753,6 +784,22 @@ transport successfully consuming the whole frame is **delivery**. Committing a l
 block transfers it to the publication plane, which may release the component payload;
 the publication plane then owns enough immutable data to deliver it or report failure.
 
+`grid.Inline.Print`, `grid.Inline.Append` and their `program.InlineRuntime` operations
+return an acceptance error. Nil transfers content to the publication buffer; an error
+refuses it. A zero or stopped runtime returns `program.ErrStopped`, and known display
+or writer failures refuse new output without invoking its drawing callback. Native
+paint regions are discovered during private drawing and refused with
+`errors.ErrUnsupported`: their placement still requires a live frame owner. The grid
+owns the complete Append operation, accepting all its rows together or none. An empty
+continuation returns `io.ErrNoProgress`; a callback's abnormal exit propagates without
+publishing any rows from that call.
+`kit.Printer.Print` carries the same contract, so `kit.Transcript.Commit` retires only
+accepted blocks and returns their count alongside any refusal. The operation borrows
+its original content, scroll, selection and sticky models together: a printer callback
+replacing the view's fields cannot redirect settlement into replacement models.
+Accepted prefixes also settle those models when a later printer call panics or exits
+its goroutine; the abnormal exit still propagates.
+
 A terminal or SSH transport can fail after writing an unknown prefix. That outcome is
 ambiguous: Oolong cannot know which cells the user saw. It must not silently retry the
 frame, replay committed history into a new session, or claim exactly-once delivery. It
@@ -768,6 +815,12 @@ writer's cause instead of waiting indefinitely for input.
 The SSH input reader likewise owns its terminal result. If the session Read exits
 its goroutine without returning, accepted chunks are decoded first and the ordered
 event stream then closes with an interruption error rather than remaining open.
+Input transports and ByteIngress normalize only bare `io.EOF` to a clean end.
+Wrapped and joined errors retain their complete cause; finding EOF inside an error
+tree cannot turn another failure into successful completion.
+Likewise, an ANSI Scanner preserves an oversized-sequence refusal together with a
+later visitor failure in the same Feed call. Stopping semantic delivery cannot erase
+a framing failure that the scanner has already observed.
 
 Screen and Inline enforce the same rule when used directly: the first destination
 write failure ends their publication session. Invalidate cannot repair unknown rows,
@@ -780,6 +833,12 @@ Screen and Inline also own their entire publication operation through external
 callbacks. Drawable, Append, Painter and Writer callbacks may read the canvas and
 draw into their supplied view. They cannot mutate a retained frame view or invoke
 another mutation or publication on the same canvas; mutating-method reentry panics.
+Copies and child views share the drawing authority of their original view. A frame
+view expires when the next Frame, a size change, Flush or Inline.Finish begins;
+Print and Append temporarily exclude writes through it. A Print or Append callback
+view expires when that callback returns, including abnormally. Expired writes panic,
+so a retained view cannot change a delivered front buffer or a later callback's row.
+An application-owned Surface.View remains under that surface owner's control.
 An unwound drawing callback releases its operation without publishing its scratch
 rows. This boundary prevents a callback from replacing pending output or committing
 terminal state for another operation.

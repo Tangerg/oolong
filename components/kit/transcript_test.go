@@ -291,10 +291,11 @@ func TestFollowingTheEndStaysAtTheEndWithAHeaderAbove(t *testing.T) {
 // recordingPrinter stands in for an inline loop.
 type recordingPrinter struct{ rows []int }
 
-func (p *recordingPrinter) Print(content grid.Drawable) {
+func (p *recordingPrinter) Print(content grid.Drawable) error {
 	rows := content.HeightForWidth(20)
 	p.rows = append(p.rows, rows)
 	content.Draw(grid.NewSurface(20, rows).View())
+	return nil
 }
 
 func TestCommittingGivesTheFinishedBlocksToThePrinter(t *testing.T) {
@@ -303,7 +304,7 @@ func TestCommittingGivesTheFinishedBlocksToThePrinter(t *testing.T) {
 
 	var p recordingPrinter
 	view := kit.Transcript{Content: tr}
-	if got := view.Commit(&p, 0); got != 1 {
+	if got, err := view.Commit(&p, 0); got != 1 || err != nil {
 		t.Fatalf("committed %d, want the one finished block", got)
 	}
 	if len(p.rows) != 1 || p.rows[0] != 2 {
@@ -319,13 +320,13 @@ func TestCommitLimitTransfersOnlyTheExcessStablePrefix(t *testing.T) {
 
 	var printer recordingPrinter
 	view := kit.Transcript{Content: tr}
-	if got := view.Commit(&printer, 1); got != 1 {
+	if got, err := view.Commit(&printer, 1); got != 1 || err != nil {
 		t.Fatalf("committed %d blocks, want one", got)
 	}
 	if tr.Len() != 2 || tr.FirstBlock() != 1 || len(printer.rows) != 1 {
 		t.Fatalf("live=%d first=%d printed=%v", tr.Len(), tr.FirstBlock(), printer.rows)
 	}
-	if got := view.Commit(&printer, 0); got != 2 || tr.Len() != 0 {
+	if got, err := view.Commit(&printer, 0); got != 2 || err != nil || tr.Len() != 0 {
 		t.Fatal("a zero limit did not transfer every remaining finished block")
 	}
 }
@@ -336,7 +337,7 @@ func TestCommitRejectsANegativeLimit(t *testing.T) {
 			t.Fatal("a negative commit limit did not panic")
 		}
 	}()
-	new(kit.Transcript).Commit(new(recordingPrinter), -1)
+	_, _ = new(kit.Transcript).Commit(new(recordingPrinter), -1)
 }
 
 func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
@@ -359,7 +360,7 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 	}
 
 	var printer recordingPrinter
-	if got := view.Commit(&printer, 0); got != 1 {
+	if got, err := view.Commit(&printer, 0); got != 1 || err != nil {
 		t.Fatalf("committed %d blocks, want one", got)
 	}
 	if tr.StartRow() != 2 || tr.Height() != 2 {
@@ -386,10 +387,10 @@ func TestCommittingRebasesTheLiveComponentState(t *testing.T) {
 func TestCommittingNothingWhenThereIsNothingToCommitTo(t *testing.T) {
 	tr := session(t, 20, []string{"one"})
 	tr.Finish(0)
-	if got := (&kit.Transcript{Content: tr}).Commit(nil, 0); got != 0 {
+	if got, err := (&kit.Transcript{Content: tr}).Commit(nil, 0); got != 0 || err != nil {
 		t.Errorf("committed %d to nobody", got)
 	}
-	if got := (&kit.Transcript{}).Commit(&recordingPrinter{}, 0); got != 0 {
+	if got, err := (&kit.Transcript{}).Commit(&recordingPrinter{}, 0); got != 0 || err != nil {
 		t.Errorf("a view of nothing committed %d", got)
 	}
 }

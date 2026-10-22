@@ -32,7 +32,9 @@ import (
 // written, whatever the specification says is core; a renderer that showed a table
 // as the pipes it was typed with would be one nobody could use for the thing this
 // module exists for.
-func parse(source []byte) ast.Node { return parser().Parse(gtext.NewReader(source)) }
+func parse(source []byte, context gparser.Context) ast.Node {
+	return parser().Parse(gtext.NewReader(source), gparser.WithContext(context))
+}
 
 var parser = sync.OnceValue(func() gparser.Parser {
 	return goldmark.New(
@@ -51,12 +53,16 @@ var parser = sync.OnceValue(func() gparser.Parser {
 // wants a [Stream], which is this applied to the part that is certainly finished and
 // again to the part that is not.
 func Render(source string, look Look) ([]Block, error) {
+	return render(source, look, nil)
+}
+
+func render(source string, look Look, context gparser.Context) ([]Block, error) {
 	if source == "" {
 		return nil, nil
 	}
 	look = cloneLook(look)
 	r := &renderer{look: look, source: []byte(strings.ToValidUTF8(normalizeNewlines(source), "�"))}
-	root := parse(r.source)
+	root := parse(r.source, context)
 	r.render(root, frame{body: look.Text})
 	return r.blocks, errors.Join(r.errors...)
 }

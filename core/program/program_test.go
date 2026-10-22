@@ -1593,11 +1593,15 @@ func TestZeroRuntimesAreInert(t *testing.T) {
 	after()
 
 	var inline program.InlineRuntime
-	inline.Print(nil)
-	inline.Append(func(grid.View) bool {
+	if err := inline.Print(nil); !errors.Is(err, program.ErrStopped) {
+		t.Error(err)
+	}
+	if err := inline.Append(func(grid.View) bool {
 		t.Fatal("zero inline runtime appended")
 		return false
-	})
+	}); !errors.Is(err, program.ErrStopped) {
+		t.Error(err)
+	}
 }
 
 func TestSuspendRequiresAHandoverHost(t *testing.T) {
@@ -1912,10 +1916,12 @@ func TestAnInlineInterfaceNeverNamesARowOfTheTerminal(t *testing.T) {
 func TestPrintedOutputReachesTheTerminalAboveTheInterface(t *testing.T) {
 	h, root, done := startInline(t)
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.Print(measurer{
+		if err := root.runtime.Print(measurer{
 			measure: func(int) int { return 1 },
 			draw:    func(v grid.View) { v.Text(0, 0, "finished", grid.Style{}) },
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 	})
 	waitFor(t, done, h, "the printed row", func() bool {
 		return strings.Contains(h.frames.String(), "finished")
@@ -1939,10 +1945,12 @@ func TestPrintedOutputIsNotLostToTheExit(t *testing.T) {
 	// the answer, then stop. Pacing must not be able to swallow the answer.
 	h, root, done := startInline(t)
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.Print(measurer{
+		if err := root.runtime.Print(measurer{
 			measure: func(int) int { return 1 },
 			draw:    func(v grid.View) { v.Text(0, 0, "the answer", grid.Style{}) },
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 		root.runtime.Quit()
 	})
 	if err := <-done; err != nil {
@@ -1959,10 +1967,12 @@ func TestEarlyWriterCloseReportsUndeliveredPrint(t *testing.T) {
 		t.Fatal(err)
 	}
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.Print(measurer{
+		if err := root.runtime.Print(measurer{
 			measure: func(int) int { return 1 },
 			draw:    func(v grid.View) { v.Text(0, 0, "must survive", grid.Style{}) },
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 		root.runtime.Quit()
 	})
 	if err := <-done; !errors.Is(err, term.ErrClosed) {
@@ -2005,10 +2015,12 @@ func TestPrintingMeasuresAgainstTheBlocksOwnWidth(t *testing.T) {
 
 	measured := make(chan int, 1)
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.Print(measurer{
+		if err := root.runtime.Print(measurer{
 			measure: func(width int) int { measured <- width; return 1 },
 			draw:    func(v grid.View) { v.Text(0, 0, "printed", grid.Style{}) },
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 	})
 	waitFor(t, done, h, "the printed row", func() bool {
 		return strings.Contains(h.frames.String(), "printed")
@@ -2032,14 +2044,16 @@ func TestAppendedOutputIsFedRowsUntilItSaysItIsDone(t *testing.T) {
 	offered := make(chan int, 4)
 	rest := "one two three four five six seven eight nine"
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.Append(func(v grid.View) bool {
+		if err := root.runtime.Append(func(v grid.View) bool {
 			w, _ := v.Size()
 			offered <- w
 			take := min(len(rest), w)
 			v.Text(0, 0, rest[:take], grid.Style{})
 			rest = rest[take:]
 			return rest != ""
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 	})
 	waitFor(t, done, h, "the appended output", func() bool {
 		return strings.Contains(h.frames.String(), "nine")
@@ -2067,10 +2081,12 @@ func TestAppendingNothingForeverStillEnds(t *testing.T) {
 	h, root, done := startInline(t)
 	rounds := make(chan struct{}, 8)
 	root.runtime.Dispatcher().Post(func() {
-		root.runtime.Append(func(grid.View) bool {
+		if err := root.runtime.Append(func(grid.View) bool {
 			rounds <- struct{}{}
 			return true
-		})
+		}); !errors.Is(err, io.ErrNoProgress) {
+			t.Errorf("empty continuation = %v, want io.ErrNoProgress", err)
+		}
 	})
 	root.runtime.Dispatcher().Post(func() {}) // work queued behind it, which only runs if the runtime got free
 	waitFor(t, done, h, "the append to give up", func() bool { return len(rounds) > 0 })
@@ -2083,7 +2099,11 @@ func TestAppendingNothingForeverStillEnds(t *testing.T) {
 
 func TestPrintingNothingIsIgnored(t *testing.T) {
 	h, root, done := startInline(t)
-	onLoop(t, root.runtime, func() { root.runtime.Print(nil) })
+	onLoop(t, root.runtime, func() {
+		if err := root.runtime.Print(nil); err != nil {
+			t.Error(err)
+		}
+	})
 	onLoop(t, root.runtime, root.runtime.Quit)
 	if err := <-done; err != nil {
 		t.Fatalf("program: %v", err)

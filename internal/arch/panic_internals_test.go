@@ -27,16 +27,16 @@ var internalAssertions = map[string]string{
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.
-	"core/grid:surfaceSize":             "NewSurface and Surface.Resize document the overflow panic",
-	"core/grid:publication.requireIdle": "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
+	"core/grid:surfaceSize":               "NewSurface and Surface.Resize document the overflow panic",
+	"core/grid:publication.requireIdle":   "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
+	"core/grid:viewScope.requireWritable": "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
 	"components/headless:checkItemKeys":                            "NewContainer, Container.Set and Container.Add document the duplicate-key panic",
 	"components/headless:checkFields":                              "NewForm and Form.Set document the nil-field panic",
 	"components/headless:Transcript.assertMutable":                 "Transcript and Transcript.Commit document the read-only publication callback and unsettled-publication panic",
-	"components/headless:Select.setOptions":                        "Select.SetOptions documents the required Same policy",
-	"components/headless:MultiSelect.setOptions":                   "MultiSelect.SetOptions documents the required Same policy",
+	"components/headless:transcriptEndRow":                         "Transcript.Append, Changed and Stage document refusal of unrepresentable absolute row ranges",
 	"components/headless:Table.requireIdle":                        "Table and Table.SetLess document that comparisons cannot reenter ordering mutations",
 	"components/headless:Filter.requireIdle":                       "Filter and Filter.SetItems document that projections cannot reenter source or pattern mutations",
 	"components/kit:Paragraph.requireIdle":                         "Paragraph, SetText and SetLinks document that link detection cannot reenter either setter",

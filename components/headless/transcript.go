@@ -82,6 +82,8 @@ func (t *Transcript) Width() int { return t.width }
 // A session that wrapped would let a [BlockID] a caller is holding — a scroll
 // anchor, a search result, a selection — name a different block than the one it was
 // taken from, so the interface would jump somewhere the user never asked to go.
+// Append also panics before changing the transcript when the new absolute row range
+// cannot fit in int. Row coordinates cannot saturate without losing content identity.
 func (t *Transcript) Append(b Block) BlockID {
 	t.assertMutable()
 	live := BlockID(len(t.blocks))
@@ -93,11 +95,12 @@ func (t *Transcript) Append(b Block) BlockID {
 		return id
 	}
 	height := t.measure(b)
+	end := transcriptEndRow(t.EndRow(), height)
 	if len(t.blocks) == cap(t.blocks) {
 		t.releasedPrefix = 0
 	}
 	t.blocks = append(t.blocks, placed{block: b, height: height, top: t.EndRow()})
-	t.rows = layout.Sum(t.rows, height)
+	t.rows = end - t.start
 	return id
 }
 
@@ -126,6 +129,9 @@ func (t *Transcript) Last() Block {
 // block on every frame — which is the one thing this structure exists to avoid.
 //
 // Everything before i keeps the height it had, because nothing before it moved.
+// Measurement completes before any placement changes. A measurement panic or
+// goroutine exit leaves the last complete row space intact.
+// An absolute row range that cannot fit in int panics before changing placement.
 func (t *Transcript) Changed(id BlockID) {
 	t.assertMutable()
 	i, ok := t.position(id)
@@ -135,29 +141,26 @@ func (t *Transcript) Changed(id BlockID) {
 	t.remeasure(i)
 }
 
-func (t *Transcript) layout() TranscriptLayout {
-	if t == nil {
-		return TranscriptLayout{}
-	}
-	return TranscriptLayout{state: t.transcriptState}
-}
-
 // Stage lays the transcript out at width for a component frame.
 //
 // A changed width is measured into private pending placement. The new row space
 // becomes observable through Height, Extent, selection and search only when
 // the complete Root frame commits. Calling Stage at the committed width reuses the
-// existing placement without allocation.
+// existing placement without allocation. One Transcript may be staged once per
+// frame, including at an unchanged width; an invalid frame or second producer panics.
+// An absolute row range that cannot fit in int panics. Failed preparation preserves
+// the previous placement even if the caller recovers and completes the root frame.
 func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 	if t == nil {
 		return TranscriptLayout{}
 	}
 	t.assertMutable()
-	width = max(width, 0)
-	if t.staged == nil && width == t.width {
-		return t.layout()
-	}
 	frame.enlist(t, &t.staged)
+	t.pendingLayout = t.transcriptState
+	width = max(width, 0)
+	if width == t.width {
+		return TranscriptLayout{state: t.pendingLayout}
+	}
 
 	blocks := make([]placed, len(t.blocks))
 	top := t.start
@@ -166,15 +169,16 @@ func (t *Transcript) Stage(frame Frame, width int) TranscriptLayout {
 		if width > 0 && current.block != nil {
 			height = max(current.block.HeightForWidth(width), 0)
 		}
+		end := transcriptEndRow(top, height)
 		blocks[i] = placed{
 			block: current.block, height: height, top: top, finished: current.finished,
 		}
-		top = layout.Sum(top, height)
+		top = end
 	}
 	t.pendingLayout = transcriptState{
 		blocks: blocks,
 		width:  width,
-		rows:   layout.Remaining(top, t.start),
+		rows:   top - t.start,
 		start:  t.start,
 		first:  t.first,
 	}
@@ -206,7 +210,16 @@ type transcriptState struct {
 	first  BlockID
 }
 
-func (s transcriptState) endRow() int { return layout.Sum(s.start, s.rows) }
+func (s transcriptState) endRow() int { return s.start + s.rows }
+
+// Absolute rows identify retained content. Saturation would let different blocks
+// claim the same row, so exhaustion must be refused before placement is published.
+func transcriptEndRow(top, height int) int {
+	if height > math.MaxInt-top {
+		panic("headless: transcript exhausted row coordinates")
+	}
+	return top + height
+}
 
 func (s transcriptState) position(id BlockID) (int, bool) {
 	return blockPosition(s.first, id, len(s.blocks))
@@ -316,14 +329,20 @@ func (t *Transcript) remeasure(from int) {
 	top := t.start
 	if from > 0 {
 		prev := t.blocks[from-1]
-		top = layout.Sum(prev.top, prev.height)
+		top = prev.top + prev.height
 	}
-	for i := from; i < len(t.blocks); i++ {
-		t.blocks[i].height = t.measure(t.blocks[i].block)
-		t.blocks[i].top = top
-		top = layout.Sum(top, t.blocks[i].height)
+	end := top
+	heights := make([]int, len(t.blocks)-from)
+	for i := range heights {
+		heights[i] = t.measure(t.blocks[from+i].block)
+		end = transcriptEndRow(end, heights[i])
 	}
-	t.rows = layout.Remaining(top, t.start)
+	for i, height := range heights {
+		t.blocks[from+i].height = height
+		t.blocks[from+i].top = top
+		top += height
+	}
+	t.rows = end - t.start
 }
 
 func (t *Transcript) measure(b Block) int {
@@ -480,8 +499,8 @@ func (t *Transcript) Commit(give func(b Block, rows int) bool) int {
 		t.blocks = t.blocks[1:]
 		t.releasedPrefix++
 		t.first++
-		t.start = layout.Sum(t.start, b.height)
-		t.rows = layout.Remaining(t.rows, b.height)
+		t.start += b.height
+		t.rows -= b.height
 	}
 	t.compact()
 	t.publishing = false

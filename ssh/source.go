@@ -264,7 +264,7 @@ func (s *eventSource) take(stream *input.Stream, result readResult) bool {
 		return true
 	}
 	s.deliver(stream.Flush(result.at))
-	if !errors.Is(result.err, io.EOF) {
+	if result.err != io.EOF { //nolint:errorlint // Only bare EOF ends a reader successfully; wrapped or joined failures must survive.
 		s.err = result.err
 	}
 	return false

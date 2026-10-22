@@ -26,9 +26,9 @@ type Presenter struct {
 	// repaint from scratch, no later plain request may downgrade it.
 	full bool
 
-	// inFlight is the writer sequence this presenter is waiting to be told has
-	// reached the terminal, or zero when nothing is outstanding.
-	inFlight uint64
+	// queued and written project one writer's acceptance and completion watermarks.
+	// Completion can arrive during draw, before its accepted sequence is returned.
+	queued, written uint64
 
 	drawnAt time.Time
 	// dueAt is when a throttled request that was turned away becomes allowed.
@@ -90,11 +90,14 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 // writer sequence its bytes were queued under — zero when it queued nothing. A
 // frame that reached the writer becomes the one being waited for, so the next
 // request coalesces instead of piling a second frame behind the first.
+// Sequences belong to one writer lifetime and increase with accepted output.
+// Wrote may report completion before draw returns its sequence.
 //
 // A failed draw does not satisfy the request. Its full-repaint requirement and due
 // time remain pending so a caller that can recover may try again; a caller for which
-// frame construction is fatal can return the error without the presenter recording a
-// frame that never existed.
+// frame construction is fatal can return the error. A nonzero sequence still records
+// accepted output even when draw also returns an error; the next draw waits for Wrote
+// to settle that output before retrying the incomplete request.
 // Requests made by draw belong to a later frame. Present is not reentrant and panics
 // if draw calls it again before returning.
 // A failed draw retains its earlier deadline even if draw requested a throttled frame.
@@ -103,7 +106,7 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 		panic("present: Present is not reentrant")
 	}
 	p.rebaseClock(now)
-	if p.inFlight != 0 || !p.owed {
+	if p.queued > p.written || !p.owed {
 		return false, nil
 	}
 	if !p.dueAt.IsZero() && now.Before(p.dueAt) {
@@ -124,11 +127,9 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 		}
 	}()
 	seq, err := draw(full)
+	p.queued = max(p.queued, seq)
 	if err != nil {
 		return false, err
-	}
-	if seq != 0 {
-		p.inFlight = seq
 	}
 	p.drawnAt = now
 	completed = true
@@ -147,11 +148,10 @@ func (p *Presenter) rebaseClock(now time.Time) {
 }
 
 // Wrote reports that the writer has finished with everything up to seq. The frame
-// being waited for is released once seq reaches it.
+// being waited for is released once seq reaches it. Earlier receipts cannot move
+// completion backwards, including when called from draw before its sequence returns.
 func (p *Presenter) Wrote(seq uint64) {
-	if p.inFlight != 0 && seq >= p.inFlight {
-		p.inFlight = 0
-	}
+	p.written = max(p.written, seq)
 }
 
 // DueAt is when a turned-away throttled request becomes allowed, if one is pending.
@@ -160,5 +160,5 @@ func (p *Presenter) Wrote(seq uint64) {
 // update of a burst is never drawn. While a frame is in flight, no timer is
 // actionable: Wrote is the wakeup that makes the retained deadline eligible.
 func (p *Presenter) DueAt() (time.Time, bool) {
-	return p.dueAt, p.inFlight == 0 && !p.dueAt.IsZero()
+	return p.dueAt, p.queued <= p.written && !p.dueAt.IsZero()
 }

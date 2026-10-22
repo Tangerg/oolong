@@ -22,6 +22,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -126,26 +127,35 @@ func (r *runner) start() {
 
 func (r *runner) accept(batch program.ByteBatch) {
 	if len(batch.Data) > 0 {
-		r.output(string(batch.Data))
+		if err := r.output(string(batch.Data)); err != nil {
+			r.finish(errors.Join(batch.Err, err))
+			return
+		}
 	}
 	if batch.Final {
 		r.finish(batch.Err)
 	}
 }
 
-func (r *runner) output(chunk string) {
+func (r *runner) output(chunk string) error {
 	for _, line := range r.out.Feed(chunk) {
 		paragraph := &kit.Paragraph{}
 		paragraph.SetText([]text.Line{line})
-		r.runtime.Print(paragraph)
+		if err := r.runtime.Print(paragraph); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (r *runner) finish(err error) {
 	for _, line := range r.out.Flush() {
 		paragraph := &kit.Paragraph{}
 		paragraph.SetText([]text.Line{line})
-		r.runtime.Print(paragraph)
+		if printErr := r.runtime.Print(paragraph); printErr != nil {
+			err = errors.Join(err, printErr)
+			break
+		}
 	}
 	r.done = true
 	if r.stopSpinner != nil {

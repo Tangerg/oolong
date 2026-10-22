@@ -161,6 +161,8 @@ Published children must remain semantically stable. Replace document snapshots i
 
 Set the completed look before feeding chunks. `Feed` returns stable blocks once;
 `Open` returns the short tail that can still change; `Flush` settles the end.
+Definitions in published source remain available to later reference links until
+`Flush` or `Reset`; definitions arriving after a link was published cannot revise it.
 
 ```go
 var stream markdown.Stream
@@ -244,6 +246,11 @@ Call `Renderer.Render(ctx, source)` in a worker to prepare an owned PNG. The con
 `examples/mermaid` demonstrates worker preparation, stale-result rejection, source replacement, visible errors and joining workers on exit. Replacement and shutdown erase the image placement before releasing its data. Never release an image still retained by a document.
 
 Syntax stability, image readiness and `Transcript.Finish` are separate states. Never Finish or Commit a pending image placeholder. Only the owner accepting final content or a final visible error may mark it finished. `Stream` does not own asynchronous image jobs; applications retain the matching source and replace uncommitted documents when results arrive.
+
+A finished native image still requires a live frame to own its placement. Inline
+scrollback `Print` and `Append` return `errors.ErrUnsupported` for native paint regions,
+so `kit.Transcript.Commit` retains that block. Keep the image live or explicitly supply
+cell content for permanent publication.
 
 ### Image display and actions
 

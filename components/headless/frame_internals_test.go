@@ -329,26 +329,6 @@ func TestTranscriptReflowCommitsWithTheRootFrame(t *testing.T) {
 	}
 }
 
-type extremeBlock struct{ height int }
-
-func (extremeBlock) Draw(grid.View) {}
-
-func (b extremeBlock) HeightForWidth(int) int { return b.height }
-
-func TestTranscriptPendingRowsCannotWrap(t *testing.T) {
-	maxInt := int(^uint(0) >> 1)
-	var transcript Transcript
-	transcript.Append(extremeBlock{height: maxInt})
-	transcript.Append(extremeBlock{height: 1})
-	fixture := &transcriptFixture{transcript: &transcript, width: 1}
-
-	NewRoot(fixture).Draw(grid.NewSurface(1, 1).View())
-	if fixture.drawnHeight != maxInt || transcript.Height() != maxInt {
-		t.Fatalf("pending height = %d, committed height = %d, want saturation at %d",
-			fixture.drawnHeight, transcript.Height(), maxInt)
-	}
-}
-
 func TestScrollRefinementKeepsTheOriginBeforeProvisionalClamping(t *testing.T) {
 	var scroll Scroll
 	stageScrollForTest(&scroll, 20, 5)

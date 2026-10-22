@@ -77,40 +77,41 @@ func (m *MultiSelect[T]) Prompt() string { return m.Label }
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
 // each taken choice that remains available under Same, wherever it moved.
 // Non-empty options require Same; omitting it is a programmer error and panics.
+// Required reads and identity comparisons finish before options or selection change.
+// An abnormal exit during preparation preserves the previous field.
 func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
-	m.operation++
-	m.matcher.Reset(func() { m.setOptions(options) })
-}
-
-func (m *MultiSelect[T]) setOptions(options []Option[T]) {
-	hadOptions := m.list.Len() > 0
-	var previous []Option[T]
-	if m.value == nil {
-		previous = m.takenOptions()
-	}
 	if len(options) > 0 && m.Same == nil {
 		panic("headless: MultiSelect requires Same before SetOptions")
 	}
-	m.list.SetItems(options)
-	for i := range m.list.items {
-		m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
-	}
-	if m.value != nil {
+	hadOptions := m.list.Len() > 0
+	var taken []bool
+	canonical := true
+	if binding := m.value; binding != nil {
 		if hadOptions {
-			m.Sync()
+			taken, canonical = m.selectionOf(options, binding.Value())
 		}
-		return
-	}
-	m.taken = make([]bool, len(m.list.items))
-	for _, want := range previous {
-		for i, option := range m.list.items {
-			if !m.taken[i] && option.holds(want.Value, m.Same) {
-				m.taken[i] = true
-				break
+	} else {
+		taken = make([]bool, len(options))
+		for _, want := range m.takenOptions() {
+			for i, option := range options {
+				if !taken[i] && option.holds(want.Value, m.Same) {
+					taken[i] = true
+					break
+				}
 			}
 		}
+		clampTaken(taken, m.limit)
 	}
-	clampTaken(m.taken, m.limit)
+	m.matcher.Reset(func() {
+		m.operation++
+		m.list.SetItems(options)
+		for i := range m.list.items {
+			m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
+		}
+		if m.value == nil || hadOptions {
+			m.settleSelection(taken, canonical)
+		}
+	})
 }
 
 // Options returns a copy of what is on offer.
@@ -255,13 +256,13 @@ func (m *MultiSelect[T]) selection() ([]bool, bool) {
 		copy(taken, m.taken)
 		return taken, !clampTaken(taken, m.limit)
 	}
-	return m.selectionOf(binding.Value())
+	return m.selectionOf(m.list.items, binding.Value())
 }
 
-func (m *MultiSelect[T]) selectionOf(bound []T) ([]bool, bool) {
-	taken := make([]bool, len(m.list.items))
+func (m *MultiSelect[T]) selectionOf(options []Option[T], bound []T) ([]bool, bool) {
+	taken := make([]bool, len(options))
 	for _, want := range bound {
-		for i, option := range m.list.items {
+		for i, option := range options {
 			if option.holds(want, m.Same) {
 				taken[i] = true
 				break
@@ -279,7 +280,7 @@ func (m *MultiSelect[T]) selectionOf(bound []T) ([]bool, bool) {
 		return taken, false
 	}
 	at := 0
-	for i, option := range m.list.items {
+	for i, option := range options {
 		if !taken[i] {
 			continue
 		}
@@ -366,8 +367,12 @@ func (m *MultiSelect[T]) Focus(has bool) {
 // Sync reports whether it remained current through normalization. A newer semantic
 // operation started by the accessor revokes it; input callers must then stop dispatch.
 func (m *MultiSelect[T]) Sync() bool {
-	operation := m.operation
 	taken, canonical := m.selection()
+	return m.settleSelection(taken, canonical)
+}
+
+func (m *MultiSelect[T]) settleSelection(taken []bool, canonical bool) bool {
+	operation := m.operation
 	if !canonical && m.value != nil && m.owner != m.settling {
 		m.operation++
 		operation = m.operation

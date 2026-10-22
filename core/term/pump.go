@@ -1,7 +1,6 @@
 package term
 
 import (
-	"errors"
 	"io"
 	"time"
 
@@ -94,7 +93,7 @@ func (p *pump) take(result readResult) (done bool, err error) {
 		return false, nil
 	}
 	p.send(p.stream.Flush(result.at))
-	if errors.Is(result.err, io.EOF) {
+	if result.err == io.EOF { //nolint:errorlint // Only bare EOF ends a reader successfully; wrapped or joined failures must survive.
 		return true, nil
 	}
 	return true, result.err

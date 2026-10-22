@@ -25,7 +25,7 @@ contentType: How-to
 1. 源 goroutine 拥有网络、进程或模型 I/O
 2. `program.ByteIngress` 拥有已经接收、等待界面处理的字节
 3. 界面 goroutine 拥有组件和仍然开放的变换尾部
-4. `InlineRuntime.Print` 交付之后，终端拥有已完成内容
+4. `InlineRuntime.Print` 接受之后，发布缓冲区拥有已完成内容
 
 ```mermaid
 flowchart LR
@@ -33,10 +33,12 @@ flowchart LR
     ingress --> owner["界面所有者"]
     owner --> open["开放尾部"]
     open --> committed["完成块"]
-    committed --> terminal["终端回滚区"]
+    committed -->|接受| publication["发布缓冲区"]
+    publication -->|投递| terminal["终端回滚区"]
 ```
 
-只有第一条边可以阻塞。`ByteIngress.Write` 上的背压限制了内存，同时不会阻塞界面 goroutine，也不会给运行时的通用调度器增加任意容量限制。
+`ByteIngress.Write` 上的背压可以阻塞源 goroutine，以限制待处理输入；它不会阻塞界面
+goroutine，也不会给运行时的通用调度器增加任意容量限制。终端投递在输出 writer 的 goroutine 上执行。
 
 ## 在字节边界定义数据源
 
@@ -108,22 +110,49 @@ func (c *chat) accept(batch program.ByteBatch) {
 但在同一个 Stream 上重入 `Feed`、`Open`、`Flush`、`Reset` 或 `SetLook` 会 panic。
 可以操作另一个 Stream，或在当前操作返回后再变更源文本。renderer panic 不会丢弃源文本。
 
+已发布的链接引用定义由 Stream 保留到 `Flush` 或 `Reset`，后续块可以跨发布切点使用这些定义。
+`Open` 使用临时解析上下文，不会提前提交尚未结束的定义。Stream 只保留定义本身，沿用解析器
+对重复标签采用首个定义的规则，不保留已发布源码或语法树。链接发布之后才到达的定义，不能
+回头修改已经移交的块。
+
 解析器会保留尚未结束的列表和引用容器，包括项目之间的空行。很长的松散列表可能形成
 很长的开放尾部；逐项独立发布会使编号和嵌套关系受输入分块方式影响。
 
 ## 交付完成内容的所有权
 
-在活动 transcript 中保留少量完成块，以支持选择和搜索；通过 transcript 渲染器的发布操作交付更早的块。这个操作会测量并打印同一个 drawable，然后释放它的交互身份。
+在活动 transcript 中保留少量完成块，以支持选择和搜索；通过 transcript 渲染器的发布操作交付更早的块。
+`kit.Transcript.Commit` 只在 `Printer.Print` 返回 nil 后释放对应的块，并返回已接受数量和拒绝错误；
+被拒绝的内容保持存活。同一个 drawable 会被测量并绘制为发布缓冲区中的不可变单元格，后者接手投递或失败报告。
+零值或已停止的 inline runtime 返回 `program.ErrStopped`。
 
 `headless.Transcript.Commit` 在调用下一个块的回调前，立即移除已接受块。
 回调只允许读取 transcript；修改、暂存布局或再次 Commit 都会 panic。回调异常退出时，
 它的输出结果未知，该 transcript 不得继续修改或发布；更早的已接受块仍保持移除状态。
+即使异常退出或视图字段被替换，kit 操作仍会按已接受的行结算原始 scroll、selection 与 sticky 模型。
 
 `grid.Inline` 在回调执行期间拥有整个 Print、Append、Flush 或 Finish 操作。
 回调可以读取画布、绘制传入的 view；进一步的画布操作须安排在外层返回之后。
 重入修改或发布会 panic，嵌套输出不能再替换外层操作的临时绘图状态或终端锚点。
+传入的绘制 view、它的副本与子视图只在该次回调内有效。需要之后继续绘制时保留内容；
+通过保存的回调 view 写入会 panic，即使之前的回调异常退出也一样。
 
-不要在应用状态中重建已经发布的行。终端已经拥有它们；继续保留只会让内存和 resize 工作随着会话年龄增长。
+Scrollback 接收单元格内容。原生绘制区域需要实时帧拥有其放置与移除，`Print` 和 `Append`
+会以 `errors.ErrUnsupported` 拒绝这类内容。保留该块，或先显式替换成单元格内容。
+`Append` 向回调提供当前行的剩余宽度；返回 true 继续下一行，false 表示完成。grid 一次性
+接受这次调用的全部行；不支持的区域或回调异常退出都不会发布其中任何一行。
+在完整空行上没有绘制内容却仍要求继续，会按同样规则返回 `io.ErrNoProgress`。
+
+Flush 按当前宽度对待发单元格换行，并按当前色深编码。宽度变化会关闭开放的追加行，
+待发的续接内容不能使用旧终端列号，之后的 Append 从新行开始。宽度为零时延后输出，
+保留已接受的单元格。若单个显示原子比整个终端还宽，Flush 在写出前返回
+`errors.ErrUnsupported` 并保留全部待发内容；恢复合适的宽度后可以重试。投递成功后释放单元格。
+
+调用 `grid.Inline.Finish` 前先用 Flush 投递全部已接受内容。Finish 在队列非空时返回错误，
+不写出，也不改变终端锚点或开放行；先投递，再重试收尾。零宽度下 Flush 延后投递，
+即使返回 nil，也不意味着待发队列已经为空。
+
+不要在应用状态中重建已经接受的行。发布链路已拥有它们，`program.Run` 会报告后续投递失败。
+重新构建既会让内存和 resize 工作随着会话年龄增长，也可能重放已经投递的输出。
 
 ## 结算取消与失败
 
@@ -135,7 +164,12 @@ func (c *chat) accept(batch program.ByteBatch) {
 - 根据最终 `ByteBatch` 结算界面状态
 - 其他 goroutine 需要释放数据源资源时，等待 `ByteIngress.Done`
 
+示例只将 `context.Canceled` 本身视为取消。包装或合并后的错误会显示完整诊断，
+取消不能掩盖其他失败。
+
 终端写入失败与数据源失败必须分开处理。数据源可能成功结束，但呈现过程仍可能失败。
+正常完成时，以 nil 或 `io.EOF` 本身关闭摄入。包装或合并后的错误会原样进入最终批次，
+与 EOF 合并的其他失败也会保留。
 
 ## 验证完整路径
 

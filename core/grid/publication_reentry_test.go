@@ -25,12 +25,21 @@ func rejectsPublicationReentry(t *testing.T, mutate func()) {
 
 func TestInlineAppendOwnsItsScratchAndPendingOutput(t *testing.T) {
 	i := grid.NewInline(20, 2)
-	i.Append(func(v grid.View) {
+	if err := i.Append(func(v grid.View) bool {
 		v.Text(0, 0, "outer", grid.Style{})
 		rejectsPublicationReentry(t, func() {
-			i.Append(func(v grid.View) { v.Text(0, 0, "inner", grid.Style{}) })
+			if err := i.Append(func(v grid.View) bool {
+				v.Text(0, 0, "inner", grid.Style{})
+				return false
+			}); err != nil {
+				t.Error(err)
+			}
 		})
-	})
+
+		return false
+	}); err != nil {
+		t.Error(err)
+	}
 	var out bytes.Buffer
 	if err := i.Flush(&out); err != nil {
 		t.Fatal(err)
@@ -42,19 +51,25 @@ func TestInlineAppendOwnsItsScratchAndPendingOutput(t *testing.T) {
 
 func TestFailedDrawingReleasesPublicationWithoutPublishingIt(t *testing.T) {
 	i := grid.NewInline(20, 2)
-	i.Append(lines("before"))
+	if err := i.Append(appendLines("before")); err != nil {
+		t.Error(err)
+	}
 	func() {
 		defer func() {
 			if recover() == nil {
 				t.Error("drawing panic was suppressed")
 			}
 		}()
-		i.Append(func(v grid.View) {
+		if err := i.Append(func(v grid.View) bool {
 			v.Text(0, 0, "failed", grid.Style{})
 			panic("drawing failed")
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 	}()
-	i.Append(lines("after"))
+	if err := i.Append(appendLines("after")); err != nil {
+		t.Error(err)
+	}
 	var out bytes.Buffer
 	if err := i.Flush(&out); err != nil {
 		t.Fatal(err)
@@ -205,10 +220,18 @@ func TestCanvasPublicationRejectsMutationsFromExternalCallbacks(t *testing.T) {
 						"Invalidate": canvas.Invalidate,
 						"Frame":      func() { canvas.Frame() },
 						"Flush":      func() { _ = canvas.Flush(io.Discard) },
-						"Print":      func() { inline.Print(content(1, lines("nested"))) },
-						"Append":     func() { inline.Append(lines("nested")) },
-						"Break":      func() { inline.Break() },
-						"Finish":     func() { _ = inline.Finish(io.Discard) },
+						"Print": func() {
+							if err := inline.Print(content(1, lines("nested"))); err != nil {
+								t.Error(err)
+							}
+						},
+						"Append": func() {
+							if err := inline.Append(appendLines("nested")); err != nil {
+								t.Error(err)
+							}
+						},
+						"Break":  func() { inline.Break() },
+						"Finish": func() { _ = inline.Finish(io.Discard) },
 					}
 					calls := 0
 					callback := func() {

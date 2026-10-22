@@ -73,7 +73,9 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 	}
 	draw(t, c, 10)
 	var scrollback countingPrinter
-	c.Retain(&scrollback)
+	if err := c.Retain(&scrollback); err != nil {
+		t.Fatal(err)
+	}
 	if scrollback.blocks == 0 {
 		t.Fatal("nothing was ever handed to the terminal's own scrollback")
 	}
@@ -82,7 +84,7 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 // countingPrinter stands in for the terminal's own output.
 type countingPrinter struct{ blocks int }
 
-func (p *countingPrinter) Print(grid.Drawable) { p.blocks++ }
+func (p *countingPrinter) Print(grid.Drawable) error { p.blocks++; return nil }
 
 func TestMoreOfTheSameAnswerDoesNotTakeTheReaderBackToIt(t *testing.T) {
 	// A reader who scrolled up is reading. An answer still being written arrives in a

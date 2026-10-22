@@ -43,6 +43,7 @@ func main() {
 // replySource is the application's one background boundary. Implementations may read
 // a model, network or process, but must honor ctx and write bytes in source order.
 // They know nothing about frames, components, publication or terminal ownership.
+// Bare context.Canceled reports cancellation; every other error retains its diagnostics.
 type replySource func(ctx context.Context, prompt string, dst io.Writer) error
 
 const (
@@ -333,11 +334,13 @@ func (c *chat) follow() {
 
 func (c *chat) finishReply(err error) {
 	stable, renderErr := c.stream.Flush()
-	err = errors.Join(err, renderErr)
+	if renderErr != nil {
+		err = errors.Join(err, renderErr)
+	}
 	c.finishOpen(stable)
 
 	switch {
-	case errors.Is(err, context.Canceled):
+	case err == context.Canceled: //nolint:errorlint // Only bare cancellation has no failure diagnostics to display.
 		c.status.Doing = "cancelled"
 	case err != nil:
 		c.status.Doing = "failed: " + err.Error()
@@ -386,7 +389,10 @@ func (c *chat) retainWindow() {
 		finished++
 	}
 	if excess := finished - retainedFinished; excess > 0 {
-		c.view.Commit(c.runtime, excess)
+		if _, err := c.view.Commit(c.runtime, excess); err != nil {
+			c.status.Doing = err.Error()
+			return
+		}
 	}
 	c.follow()
 }

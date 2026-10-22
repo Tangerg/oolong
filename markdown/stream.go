@@ -7,12 +7,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/yuin/goldmark/ast"
+	gparser "github.com/yuin/goldmark/parser"
 )
 
 // Stream publishes complete blocks once and retains an open tail so new chunks
 // do not rerender the entire prefix. Parser-confirmed boundaries keep lists and
-// containers together regardless of transport chunking. Definitions must precede
-// published reference links; later definitions cannot revise transferred blocks.
+// containers together regardless of transport chunking. Published reference definitions
+// remain available to later blocks until Flush or Reset ends the document. Definitions
+// must precede published reference links; later ones cannot revise transferred blocks.
 // The zero value is ready. A Stream belongs to one source goroutine and must not
 // be copied after first use. Renderer callbacks may read Look; reentering Feed,
 // Open, Flush, Reset or SetLook panics while source and cache remain unpublished.
@@ -39,6 +41,10 @@ type Stream struct {
 	// at the very start of the held text would be a cut with nothing before it, so the
 	// one value that cannot mean a cut is the one that means there is not one.
 	blank int
+	// references retain only definitions from published source. Parser contexts are
+	// temporary projections: Open cannot commit an unfinished definition, and a
+	// retained parser reference must not keep its AST and source allocation alive.
+	references []gparser.Reference
 
 	// open is the last rendering of what is still arriving, kept so that asking for it
 	// twice in one frame — to measure and to draw — parses once.
@@ -105,7 +111,8 @@ func (s *Stream) Feed(chunk string) ([]Block, error) {
 		return nil, nil
 	}
 	source := s.held.String()
-	done, err := s.render(source[:cut])
+	done, references, err := s.render(source[:cut])
+	s.references = ownReferences(references)
 	// A substring shares the complete builder allocation. Copy the short tail into a
 	// fresh builder at the ownership cut so it cannot retain the published prefix.
 	// Reset releases the old buffer; tail keeps it alive only until WriteString has
@@ -144,7 +151,7 @@ func (s *Stream) Open() ([]Block, error) {
 				source = source[:start]
 			}
 		}
-		s.open, s.openErr = s.render(source)
+		s.open, _, s.openErr = s.render(source)
 		s.fresh = true
 	}
 	return slices.Clone(s.open), s.openErr
@@ -153,7 +160,7 @@ func (s *Stream) Open() ([]Block, error) {
 // Flush publishes whatever is left, which is what the end of an answer is.
 func (s *Stream) Flush() ([]Block, error) {
 	s.requireIdle()
-	done, err := s.render(s.held.String())
+	done, _, err := s.render(s.held.String())
 	s.Reset()
 	return done, err
 }
@@ -164,6 +171,7 @@ func (s *Stream) Reset() {
 	s.held.Reset()
 	s.scanned, s.searched, s.blank = 0, 0, 0
 	s.afterCR = false
+	s.references = nil
 	s.open, s.fresh = nil, false
 	s.openErr = nil
 }
@@ -174,10 +182,24 @@ func (s *Stream) requireIdle() {
 	}
 }
 
-func (s *Stream) render(source string) ([]Block, error) {
+func (s *Stream) render(source string) ([]Block, []gparser.Reference, error) {
 	s.rendering = true
 	defer func() { s.rendering = false }()
-	return Render(source, s.look)
+	context := gparser.NewContext()
+	for _, reference := range s.references {
+		context.AddReference(reference)
+	}
+	blocks, err := render(source, s.look, context)
+	return blocks, context.References(), err
+}
+
+func ownReferences(references []gparser.Reference) []gparser.Reference {
+	for i, reference := range references {
+		references[i] = gparser.NewReference(
+			slices.Clone(reference.Label()), slices.Clone(reference.Destination()), slices.Clone(reference.Title()),
+		)
+	}
+	return references
 }
 
 // Only complete lines can propose boundaries; partial lines may still change their
@@ -221,7 +243,7 @@ func indented(line string) bool {
 // The scanner proposes candidates without creating a second set of block rules.
 func (s *Stream) splitsBlock(cut int) bool {
 	source := []byte(s.held.String())
-	whole := parse(source)
+	whole := parse(source, nil)
 	split := false
 	_ = ast.Walk(whole, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -236,7 +258,7 @@ func (s *Stream) splitsBlock(cut int) bool {
 	if split {
 		return true
 	}
-	prefix := parse(source[:cut])
+	prefix := parse(source[:cut], nil)
 	last := whole.FirstChild()
 	for i := 1; i < prefix.ChildCount() && last != nil; i++ {
 		last = last.NextSibling()

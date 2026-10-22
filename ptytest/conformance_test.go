@@ -245,7 +245,9 @@ func TestAnInlineBlockRedrawnFromNothingLooksTheSame(t *testing.T) {
 		for range 5 {
 			block = picture{rows: freshRows(random, 1+random.IntN(3), cols)}
 			if random.IntN(3) == 0 {
-				renderer.Print(printed{rows: freshRows(random, 1, cols)})
+				if err := renderer.Print(printed{rows: freshRows(random, 1, cols)}); err != nil {
+					t.Error(err)
+				}
 			}
 			block.draw(renderer.Frame())
 			flush()

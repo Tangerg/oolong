@@ -62,6 +62,26 @@ func TestScannerBoundsAndReleasesAnUnfinishedSequence(t *testing.T) {
 	}
 }
 
+func TestScannerPreservesFramingAndVisitorFailuresTogether(t *testing.T) {
+	var scanner ansi.Scanner
+	cause := errors.New("visitor failed")
+	source := "\x1b]" + strings.Repeat("x", 1<<17) + "\x07after\x1b[31m"
+	var visited []string
+	err := scanner.Feed(source, func(piece ansi.Piece) error {
+		visited = append(visited, piece.Raw)
+		return cause
+	})
+	if !errors.Is(err, ansi.ErrSequenceTooLong) || !errors.Is(err, cause) {
+		t.Fatalf("Feed = %v, want both the refused sequence and visitor failure", err)
+	}
+	if len(visited) != 1 || visited[0] != "after" {
+		t.Fatalf("visited = %q, want only the first piece after the refused sequence", visited)
+	}
+	if pending := scanner.Pending(); pending != "" {
+		t.Fatalf("failed scan kept input for replay: %q", pending)
+	}
+}
+
 func TestScannerAppendAllocationsDoNotFollowChunkCount(t *testing.T) {
 	allocations := func(chunks int) float64 {
 		return testing.AllocsPerRun(3, func() {

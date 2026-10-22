@@ -18,6 +18,129 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Fixed
+
+- Inline finishing refuses pending output before changing the terminal anchor.
+  A pending continuation can no longer resume from the wrong row and overwrite
+  delivered output; refusal preserves accepted cells and the open row for flushing.
+- Inline reflow preserves blank columns inside accepted output when a narrower
+  terminal splits a row. Encoding a physical chunk no longer trims its trailing
+  blanks and leaves characters from an earlier frame visible in those columns.
+- Inline publication retains immutable cells until Flush lays them out at the current
+  width and color depth. Queued rows wrap without erasing their last character or
+  shifting the live-frame anchor; zero width keeps them queued until output can resume.
+  An atom wider than the whole terminal refuses the flush with errors.ErrUnsupported
+  before writing, preserving all accepted content for a retry at a suitable width.
+- Repository checks resolve one physical root before comparing workspace and package
+  facts. Running a standalone checkout through a symlink no longer produces a false
+  module-membership failure.
+- Transcript rejects an absolute row range that cannot fit in int before publishing
+  any placement. Append, remeasurement and reflow now share one checked coordinate
+  rule; saturation cannot make block extents disagree with the live row range.
+- Failed transcript staging retains the previous complete placement even when a
+  component recovers a measurement panic and completes its root frame. An unfinished
+  layout can no longer commit a zero transcript and discard retained blocks.
+- Presenter records writer acceptance and completion as monotonic watermarks.
+  Completion reported during drawing survives the callback's return, so already
+  completed output cannot leave future frames waiting for a receipt that was lost.
+- ANSI scanning preserves both an earlier oversized-sequence refusal and a later
+  visitor failure. Stopping delivery cannot replace a framing error already found
+  in the same input chunk.
+- Presenter waits for accepted output even when drawing also returns an error.
+  The incomplete repaint remains pending, and its retry waits for the writer's
+  completion receipt instead of queuing another frame behind unfinished output.
+- Agent and streaming examples classify only bare `context.Canceled` as a clean
+  cancellation. Wrapped or joined errors keep their diagnostics; cancellation cannot
+  hide a backend, rendering or publication failure in the final status.
+- Byte ingress and local or SSH input normalize only bare `io.EOF` to successful
+  completion. A wrapped or joined error remains a failure, so an EOF branch cannot
+  hide another source or transport error. Already accepted bytes still arrive first.
+- Canvas drawing views share their owner's lifetime, including copies and child views.
+  Publication callbacks cannot mutate a retained frame through a view, and expired
+  views cannot change a delivered front buffer or another Append row.
+- Program construction installs the startup color depth and ground before invoking
+  the application builder, so inline output produced there uses the same immutable
+  environment as later frames.
+- Transcript remeasurement prepares every affected height before changing placement.
+  A measurement panic or goroutine exit leaves the previous complete row space intact.
+- Select and MultiSelect prepare option identity and required binding reads before
+  replacing options or selection. Preparation failure retains the previous field;
+  controlled answers remain solely with their accessor.
+- Streaming Markdown retains published reference definitions for later blocks, so
+  transport chunking cannot discard earlier link destinations. Open-tail rendering
+  cannot commit incomplete definitions, and Flush or Reset releases the document's
+  definitions without retaining published source or parser trees.
+- Inline scrollback refuses native paint regions with `errors.ErrUnsupported`
+  instead of silently dropping them. Transcript publication keeps refused images.
+  The grid owns one complete Append across rows: refusal or an abnormal callback exit
+  cannot publish earlier rows from that call. An empty continuation returns
+  `io.ErrNoProgress`, and temporary drawing storage releases its payloads on return.
+- Inline publication reports acceptance explicitly. A zero, stopped or known failed
+  runtime refuses new output without drawing it; transcript retention releases only
+  the accepted prefix and keeps refused blocks. Publication settles the original
+  content, scroll, selection and sticky models even if a printer replaces view fields
+  or a later call exits abnormally; it does not swallow the abnormal exit.
+- Transcript placement claims one live frame owner even when its width is unchanged.
+  Invalid frames, duplicate staging and competing roots cannot bypass the transaction
+  by reusing existing placement; an aborted frame leaves committed geometry intact.
+- Module inventory resolves both its workspace path and working directory to the
+  physical repository, so invoking it inside a symlinked module cannot make Go reject
+  that module as outside its own workspace.
+- The documentation lockfile resolves Vite 8.3.5 within VitePress's declared range,
+  incorporating the upstream development-server and editor-launch security fixes.
+
+### Breaking API migration
+
+#### core
+
+- `grid.(*Inline).Finish` returns an error while accepted output is still queued,
+  including output accepted after an earlier Finish. Flush that output before
+  retrying Finish; refusal writes nothing and preserves the existing anchor.
+- `grid.(*Inline).Resize` closes the open append row when the width changes. Pending
+  continuations begin below already delivered output, and subsequent Append calls
+  receive a fresh row. Do not carry an old column position across a width change.
+- `present.Presenter` follows one writer lifetime, with increasing accepted sequence
+  values. Start a new presenter when replacing a writer whose sequence starts over;
+  completion receipts remain cumulative for the presenter's lifetime.
+- `program.(*ByteIngress).CloseWithError` and terminal input preserve errors that
+  wrap or join `io.EOF`. Use Close, nil or bare io.EOF for normal source completion;
+  report wrapped or joined errors only when the source failed.
+- Views from `grid.(*Screen).Frame` and `grid.(*Inline).Frame` expire at the next
+  Frame, a size change, or the start of Flush or Inline.Finish. Print and Append
+  temporarily exclude writes through retained frame views. Their callback views
+  expire on callback return, including abnormal exits; copies and child views share
+  that lifetime. Retain content and draw it into the next supplied view instead of
+  saving a drawing view. Writes outside its lifetime now panic.
+- `grid.(*Inline).Print`, `grid.(*Inline).Append`, `program.(*InlineRuntime).Print`
+  and `program.(*InlineRuntime).Append` now return an error. Handle refusal before
+  releasing source content. Nil means buffer acceptance; Flush or Run still owns
+  reporting subsequent delivery failures. Zero or stopped runtimes return ErrStopped.
+- `grid.(*Inline).Append` now takes `func(grid.View) bool`, matching the runtime
+  callback: return true to continue on another row and false to finish. The grid
+  accepts every row from one call together. Both Append operations return
+  `io.ErrNoProgress` for an empty continuation and `errors.ErrUnsupported` for native
+  paint regions; neither error accepts any rows from that call. Print also refuses
+  native paint regions. Retain images in live frames or provide explicit cell content
+  before transferring them to scrollback.
+
+#### components
+
+- `headless.(*Transcript).Append`, `headless.(*Transcript).Changed` and
+  `headless.(*Transcript).Stage` panic before replacing placement when the absolute
+  row range exceeds int. Ensure measured ranges fit, including the published prefix;
+  an exhausted row namespace requires a new transcript lifecycle. Silent coordinate
+  saturation is no longer accepted.
+- `kit.Printer.Print` now returns an error: nil accepts ownership and an error refuses
+  content. Update printer implementations to report their actual acceptance result.
+- `kit.(*Transcript).Commit` now returns `(int, error)`. The count includes only the
+  accepted prefix; a refused block and its suffix remain retained. Handle the error
+  without retrying output that was already accepted.
+
+#### ssh
+
+- `Run` preserves wrapped or joined input errors containing `io.EOF`. Session
+  readers must return bare io.EOF for a clean end, as required by io.Reader.
+
 ## [0.24.0] — 2026-10-12
 
 ### Fixed

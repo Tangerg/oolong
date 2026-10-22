@@ -2,6 +2,7 @@ package program_test
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync/atomic"
@@ -61,6 +62,58 @@ func TestByteIngressPreservesDataAndFinalResultOrder(t *testing.T) {
 	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
+	}
+}
+
+func TestByteIngressNormalizesOnlyBareEOF(t *testing.T) {
+	cause := errors.New("source failed")
+	wrapped := fmt.Errorf("source: %w", io.EOF)
+	joined := errors.Join(io.EOF, cause)
+	for _, test := range []struct {
+		name   string
+		result error
+		want   error
+	}{
+		{name: "bare", result: io.EOF},
+		{name: "wrapped", result: wrapped, want: wrapped},
+		{name: "joined", result: joined, want: joined},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := start(t, nil)
+			r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+			final := make(chan error, 1)
+			ingress, err := program.NewByteIngress(program.ByteIngressConfig{
+				Dispatcher: r.root.runtime.Dispatcher(), Limit: 8,
+				Consume: func(batch program.ByteBatch) {
+					if batch.Final {
+						final <- batch.Err
+					}
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ingress.CloseWithError(test.result); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-ingress.Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("ingress did not deliver its terminal result")
+			}
+			r.quit()
+			if err := r.wait(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case got := <-final:
+				if !errors.Is(got, test.want) {
+					t.Fatalf("final result = %v, want %v", got, test.want)
+				}
+			default:
+				t.Fatal("ingress completed without delivering its terminal result")
+			}
+		})
 	}
 }
 

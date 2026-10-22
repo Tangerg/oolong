@@ -250,37 +250,48 @@ func restyle(v grid.View, x, y int, style grid.Style) {
 
 // Commit prints finished leading blocks through [headless.Transcript.Commit] at
 // the committed width. Zero limit transfers all; negative limits panic because
-// publication is irreversible. Nil printer or content transfers nothing.
-func (t *Transcript) Commit(p Printer, limit int) int {
+// publication is irreversible. Nil printer or content transfers nothing. The result
+// counts only accepted blocks; a printer error retains the refused block and suffix
+// and is returned with any accepted prefix. The content and its scroll, selection
+// and sticky state are borrowed together for this operation, even if p replaces the
+// view's fields while publishing. Accepted blocks settle those models even if a
+// later printer call panics or exits its goroutine; the abnormal exit propagates.
+func (t *Transcript) Commit(p Printer, limit int) (int, error) {
 	if limit < 0 {
 		panic("kit: transcript commit limit cannot be negative")
 	}
 	if t.Content == nil || p == nil {
-		return 0
+		return 0, nil
 	}
-	before := t.Content.StartRow()
+	content, scroll, selection, sticky := t.Content, t.Scroll, t.Selection, t.Sticky
+	before, first := content.StartRow(), content.FirstBlock()
+	defer func() {
+		if content.FirstBlock() == first {
+			return
+		}
+		if scroll != nil {
+			scroll.Discard(content.StartRow() - before)
+		}
+		if selection != nil {
+			selection.DiscardBefore(content.StartRow())
+		}
+		if sticky != nil {
+			sticky.DiscardBefore(content.FirstBlock())
+		}
+	}()
 	committed := 0
-	gone := t.Content.Commit(func(b headless.Block, _ int) bool {
+	var err error
+	gone := content.Commit(func(b headless.Block, _ int) bool {
 		if limit > 0 && committed >= limit {
 			return false
 		}
-		p.Print(b)
+		if err = p.Print(b); err != nil {
+			return false
+		}
 		committed++
 		return true
 	})
-	if gone == 0 {
-		return 0
-	}
-	if t.Scroll != nil {
-		t.Scroll.Discard(t.Content.StartRow() - before)
-	}
-	if t.Selection != nil {
-		t.Selection.DiscardBefore(t.Content.StartRow())
-	}
-	if t.Sticky != nil {
-		t.Sticky.DiscardBefore(t.Content.FirstBlock())
-	}
-	return gone
+	return gone, err
 }
 
 // Printer is somewhere finished output can be put permanently.
@@ -288,9 +299,11 @@ func (t *Transcript) Commit(p Printer, limit int) int {
 // It is declared here because Commit is its consumer. Concrete output transports can
 // satisfy it without this package depending on them.
 type Printer interface {
-	// Print draws content into the terminal's own output, above the interface, where
-	// it stays after the program exits.
-	Print(content grid.Drawable)
+	// Print accepts content for finished output above the interface. A nil error
+	// transfers ownership to the printer; an error refuses it and leaves content
+	// with the caller. Acceptance does not
+	// promise delivery: the printer owns reporting any later transport failure.
+	Print(content grid.Drawable) error
 }
 
 // Handle accepts scrolling and left-button selection in local coordinates.

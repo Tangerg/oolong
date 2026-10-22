@@ -380,7 +380,12 @@ func printableTarget(target string) bool {
 // atom, EncodeRow emits styled blanks for the visible columns rather than a
 // partial atom that would advance the terminal beyond the slice.
 func EncodeRow(cells []Cell, depth Depth) string {
-	cells = trimBlankTail(cells)
+	return encodeCells(trimBlankTail(cells), depth)
+}
+
+// encodeCells preserves the supplied columns. A reflow chunk can end in default
+// blanks that still precede accepted content, so only its caller may trim them.
+func encodeCells(cells []Cell, depth Depth) string {
 	p := painter{depth: depth}
 	for i := 0; i < len(cells); {
 		c := &cells[i]

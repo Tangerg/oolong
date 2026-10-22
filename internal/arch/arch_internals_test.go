@@ -556,6 +556,35 @@ func TestModuleScriptResolvesItsPhysicalRepository(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("module inventory through symlink = %q, want %q", got, want)
 	}
+	module := moduleScript(t, root)[0]
+	directory := filepath.Join(link, module)
+	//nolint:gosec // The repository script and derived module path are the contract under test.
+	command := exec.CommandContext(t.Context(), "sh", filepath.Join(link, "scripts", "modules.sh"), "--public")
+	command.Dir = directory
+	command.Env = append(os.Environ(), "PWD="+directory)
+	out, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("module inventory from a symlinked module directory: %v: %s", err, out)
+	}
+	if got := strings.Fields(string(out)); !slices.Equal(got, want) {
+		t.Fatalf("module inventory from a symlinked module directory = %q, want %q", got, want)
+	}
+}
+
+func TestRepositoryChecksUseThePhysicalRoot(t *testing.T) {
+	root := repoRoot(t)
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "repository")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("cannot create repository symlink: %v", err)
+	}
+	t.Chdir(filepath.Join(link, "internal", "arch"))
+	if got := repoRoot(t); got != want {
+		t.Fatalf("repository root through symlink = %q, want physical root %q", got, want)
+	}
 }
 
 func TestModuleInventoryConsumersSeparateAcquisitionFromIteration(t *testing.T) {
@@ -1555,6 +1584,10 @@ func repoRoot(t *testing.T) string {
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("working directory: %v", err)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("physical working directory: %v", err)
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {

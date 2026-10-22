@@ -1,11 +1,16 @@
 package grid
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"io"
+	"slices"
 )
 
 const eraseLine = "\x1b[K"
+
+var errScrollbackPaint = fmt.Errorf("grid: scrollback cannot retain native paint regions: %w", errors.ErrUnsupported)
 
 // Inline keeps finished output in terminal scrollback and draws the active block
 // relative to its last cursor anchor. Terminal reflow on resize requires a full
@@ -18,16 +23,14 @@ type Inline struct {
 	publication publication
 
 	buffers frameBuffer
-	// Printed rows use the block width so terminal wrapping cannot move its cursor anchor.
 	scratch *Surface
 
 	placed Cursor
 
-	// Finished rows need only encoded bytes, not retained cells.
+	// Accepted cells remain immutable until Flush lays them out at the current width.
 	pending []printed
 
-	// Transport chunks need not end rows; retain the open column so later chunks continue it.
-	open bool
+	// Zero closes the append row; a positive column is its retained open tail.
 	tail int
 	// Pending output can advance tail before the terminal receives it; continuations
 	// must start at the last published column.
@@ -60,10 +63,9 @@ type Inline struct {
 	buf, out []byte
 }
 
-// printed is one piece of published output on its way to the terminal, encoded.
+// printed is one piece of accepted output on its way to the terminal.
 type printed struct {
-	row      string
-	atMargin bool
+	cells []Cell
 	// after says this goes onto the end of what was published before it rather than
 	// onto a row of its own. It is what a block that does not begin at a column is:
 	// the cells go where the last ones stopped.
@@ -86,10 +88,19 @@ func NewInline(w, h int) *Inline {
 // Size returns the block's width and the height it may grow to.
 func (i *Inline) Size() (w, h int) { return i.buffers.size() }
 
-// Resize changes the width and the height the block may grow to.
+// Resize changes the width and the height the block may grow to. A width change
+// ends the open append row: terminal reflow cannot preserve its old column anchor.
+// Accepted cells remain queued and wrap at the new width when flushed.
 func (i *Inline) Resize(w, h int) {
 	i.publication.requireIdle()
+	oldWidth, _ := i.buffers.size()
 	if i.buffers.resize(w, h) {
+		if width, _ := i.buffers.size(); width != oldWidth {
+			if len(i.pending) > 0 {
+				i.pending[0].after = false
+			}
+			i.tail, i.flushed = 0, 0
+		}
 		i.Invalidate()
 	}
 }
@@ -133,67 +144,103 @@ func (i *Inline) invalidate() {
 //
 // The view is as tall as the block may grow to, not as tall as the block ends up:
 // its height is decided by what this frame draws into it.
+// The view and its subviews may be written until the next Frame, a size change,
+// or Flush or Finish begins. Print and Append temporarily exclude frame drawing.
+// Writes outside that lifetime panic.
 func (i *Inline) Frame() View {
 	i.publication.requireIdle()
-	return i.buffers.begin(&i.placed)
+	return i.buffers.begin(&i.placed, &i.publication)
 }
 
 // Print queues complete rows above the interface for the next flush. It finishes
-// any row left open by Append so unrelated output cannot join it.
-func (i *Inline) Print(content Drawable) {
+// any row left open by Append so unrelated output cannot join it. Nil means the
+// content was accepted, including empty content; delivery belongs to Flush. After
+// a destination write fails, Print returns that failure without calling content.
+// Native paint regions require a live frame; they refuse the entire publication
+// with errors.ErrUnsupported, leaving pending output and the open row unchanged.
+// The drawing view and its subviews expire when Draw returns, including abnormally.
+func (i *Inline) Print(content Drawable) error {
 	i.publication.begin()
 	defer i.publication.end()
+	if i.publication.failure != nil {
+		return i.publication.failure
+	}
 	if content == nil {
-		return
+		return nil
 	}
 	w, _ := i.buffers.size()
 	rows := content.HeightForWidth(w)
 	if rows <= 0 {
-		return
+		return nil
 	}
 	i.scratch.Resize(w, rows)
-	content.Draw(i.scratch.View())
-	for y := range rows {
-		row, atMargin := encodeInlineRow(i.scratch.row(y), i.buffers.depth)
-		i.pending = append(i.pending, printed{row: row, atMargin: atMargin})
+	defer i.scratch.Reset()
+	content.Draw(i.scratch.borrow(nil))
+	if len(i.scratch.regions()) > 0 {
+		return errScrollbackPaint
 	}
-	i.open, i.tail = false, 0
+	for y := range rows {
+		cells := slices.Clone(trimBlankTail(i.scratch.row(y)))
+		i.pending = append(i.pending, printed{cells: cells})
+	}
+	i.tail = 0
+	return nil
 }
 
-// Append extends an unfinished row across transport chunks. The supplied view
-// contains only its remaining columns so drawing cannot wrap the terminal anchor;
-// a full row continues on the next. Empty drawing publishes nothing.
-func (i *Inline) Append(draw func(View)) {
+// Append extends an unfinished row until draw returns false. Its view contains the
+// remaining columns; true continues on a new row. No rows are accepted until all
+// callbacks return normally. Empty drawing with false is a no-op; requesting another
+// row without drawing in a whole empty row returns io.ErrNoProgress.
+// Nil reports acceptance, not delivery. A destination failure refuses without drawing.
+// Native paint regions refuse the entire append with errors.ErrUnsupported.
+// Each drawing view and its subviews expire when that callback returns.
+func (i *Inline) Append(draw func(View) bool) error {
 	i.publication.begin()
 	defer i.publication.end()
+	if i.publication.failure != nil {
+		return i.publication.failure
+	}
 	if draw == nil {
-		return
+		return nil
 	}
 	w, _ := i.buffers.size()
-	at := 0
-	after := i.open
-	if after {
-		at = i.tail
+	defer i.scratch.Reset()
+	tail := i.tail
+	var pending []printed
+	for {
+		at, after := tail, tail > 0
+		if at >= w {
+			at, after = 0, false
+		}
+		i.scratch.Resize(w-at, 1)
+		more := draw(i.scratch.borrow(nil))
+		if len(i.scratch.regions()) > 0 {
+			return errScrollbackPaint
+		}
+		cells := trimBlankTail(i.scratch.row(0))
+		if len(cells) > 0 {
+			pending = append(pending, printed{
+				cells: slices.Clone(cells), after: after,
+			})
+			tail = at + len(cells)
+		}
+		if !more {
+			break
+		}
+		if len(cells) == 0 && at == 0 {
+			return io.ErrNoProgress
+		}
+		tail = 0
 	}
-	if at >= w {
-		at, after = 0, false
-	}
-	i.scratch.Resize(w-at, 1)
-	draw(i.scratch.View())
-	cells := trimBlankTail(i.scratch.row(0))
-	if len(cells) == 0 {
-		return
-	}
-	i.pending = append(i.pending, printed{
-		row: EncodeRow(cells, i.buffers.depth), atMargin: at+len(cells) == w, after: after,
-	})
-	i.open, i.tail = true, at+len(cells)
+	i.pending = append(i.pending, pending...)
+	i.tail = tail
+	return nil
 }
 
 // Tail is how far along its row the published output has got, and whether the row is
 // open at all. A caller laying text out for [Inline.Append] asks how much of the row is
 // already spoken for; one deciding whether it owes a line break asks the second answer.
-func (i *Inline) Tail() (col int, open bool) { return i.tail, i.open }
+func (i *Inline) Tail() (col int, open bool) { return i.tail, i.tail > 0 }
 
 // Break finishes the open row, so that what is published next begins one of its own.
 //
@@ -202,7 +249,7 @@ func (i *Inline) Tail() (col int, open bool) { return i.tail, i.open }
 // row it has changed its mind about at no cost.
 func (i *Inline) Break() {
 	i.publication.requireIdle()
-	i.open, i.tail = false, 0
+	i.tail = 0
 }
 
 // Cursor is where the last frame asked for the terminal's cursor to go, in the
@@ -210,14 +257,21 @@ func (i *Inline) Break() {
 func (i *Inline) Cursor() Cursor { return i.placed }
 
 // Flush writes changed frames and places the cursor; unchanged frames write nothing.
+// A zero width defers output until a positive width is available.
+// A queued atom wider than the whole terminal returns errors.ErrUnsupported before
+// writing, retaining accepted output for a retry at a width that can represent it.
 // Failed writes permanently end the session because partial output loses the relative
 // anchor and placement inventory. Flush and Finish then return the original error
 // without writing. Abnormal writer exits also end publication.
 func (i *Inline) Flush(w io.Writer) error {
 	i.publication.begin()
 	defer i.publication.end()
+	i.buffers.back.endDrawing()
 	if i.publication.failure != nil {
 		return i.publication.failure
+	}
+	if width, _ := i.buffers.size(); width == 0 {
+		return nil
 	}
 	composed := false
 	defer func() {
@@ -261,11 +315,17 @@ func (i *Inline) Flush(w io.Writer) error {
 // It is the counterpart of giving back the alternate screen, and the reason an
 // inline program has to draw one last frame before it exits: the last thing it
 // showed is the thing that stays.
+// Unflushed output refuses Finish before any write or anchor change. Flush it
+// successfully before retrying; the accepted cells and open row remain intact.
 func (i *Inline) Finish(w io.Writer) error {
 	i.publication.begin()
 	defer i.publication.end()
+	i.buffers.back.endDrawing()
 	if i.publication.failure != nil {
 		return i.publication.failure
+	}
+	if len(i.pending) > 0 {
+		return errors.New("grid: cannot finish with unflushed output")
 	}
 	if i.left {
 		return nil
@@ -287,7 +347,7 @@ func (i *Inline) Finish(w io.Writer) error {
 	i.rows, i.at = 0, image.Point{}
 	// Whatever was left open stays as it is — it is the terminal's output now — but
 	// nothing further belongs on it: the cursor has moved below the block.
-	i.open, i.tail, i.flushed = false, 0, 0
+	i.tail, i.flushed = 0, 0
 	i.left = true
 	i.invalidate()
 	return nil
@@ -319,18 +379,7 @@ func (i *Inline) used() int {
 // already showing this frame. It returns where the payload would leave the cursor,
 // which is the anchor only a completed write may adopt.
 func (i *Inline) compose(used int) (image.Point, error) {
-	// Printing rewrites the rows the block's first rows were on and moves the block
-	// down past them, so nothing the block is showing survives it. A piece that goes
-	// onto the end of a row already published moves nothing: the row it goes on is
-	// above the block already.
-	advance := i.pendingAdvance()
-	full := i.full || advance > 0
-
-	// The rows the block is giving up. They are erased where they are rather than
-	// deleted, which leaves the block shorter with blank rows below it and moves
-	// nothing that is above it.
-	extra := max(i.rows-advance-used, 0)
-	if !i.compositionNeeded(used, extra, full) {
+	if !i.compositionNeeded(used) {
 		return i.at, nil
 	}
 
@@ -343,7 +392,14 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	if i.at.Y > 0 {
 		i.csi(i.at.Y, 'A')
 	}
-	i.composePending()
+	advance, err := i.composePending()
+	if err != nil {
+		return i.at, err
+	}
+	full := i.full || advance > 0
+	// Clear released live rows after accounting for the physical rows that accepted
+	// output now occupies, including wrapping caused by a width change.
+	extra := max(i.rows-advance-used, 0)
 	total := i.composeRows(used, extra, full)
 	return i.composeEnd(used, total, full)
 }
@@ -355,18 +411,8 @@ func (i *Inline) settle(used int, at image.Point) {
 	i.full = false
 }
 
-func (i *Inline) pendingAdvance() int {
-	advance := 0
-	for _, p := range i.pending {
-		if !p.after {
-			advance++
-		}
-	}
-	return advance
-}
-
-func (i *Inline) compositionNeeded(used, extra int, full bool) bool {
-	if full || extra > 0 || len(i.pending) > 0 ||
+func (i *Inline) compositionNeeded(used int) bool {
+	if i.full || i.rows > used || len(i.pending) > 0 ||
 		!sameRegions(i.buffers.front.regions(), i.buffers.back.regions()) || i.cursorPending() {
 		return true
 	}
@@ -379,8 +425,10 @@ func (i *Inline) compositionNeeded(used, extra int, full bool) bool {
 }
 
 // composePending writes immutable output before the live block. It leaves the
-// cursor at the start of the row where the block now begins.
-func (i *Inline) composePending() {
+// cursor at the start of the row where the block now begins and reports how far
+// that start moved. Only this layout pass decides the rows and margins on the wire.
+func (i *Inline) composePending() (int, error) {
+	column, advance := 0, 0
 	for k, p := range i.pending {
 		switch {
 		case k == 0 && p.after:
@@ -390,16 +438,54 @@ func (i *Inline) composePending() {
 			if i.flushed > 0 {
 				i.csi(i.flushed, 'C')
 			}
+			column = i.flushed
 		case k > 0 && !p.after:
 			i.buf = append(i.buf, "\r\n"...)
 		}
-		i.buf = append(i.buf, p.row...)
-		if !p.atMargin {
-			i.buf = append(i.buf, eraseLine...)
+		if !p.after {
+			column = 0
+			advance++
 		}
+		nextColumn, wrapped, err := i.composePrinted(p.cells, column)
+		if err != nil {
+			return 0, err
+		}
+		column = nextColumn
+		advance += wrapped
 	}
 	if len(i.pending) > 0 {
 		i.buf = append(i.buf, "\r\n"...)
+	}
+	return advance, nil
+}
+
+func (i *Inline) composePrinted(cells []Cell, column int) (int, int, error) {
+	width, _ := i.buffers.size()
+	wrapped := 0
+	for {
+		end := 0
+		for end < len(cells) {
+			unit := paintUnitAt(cells, end, len(cells)-end)
+			if unit.width > width-column-end {
+				break
+			}
+			end += unit.width
+		}
+		if end == 0 && column == 0 && len(cells) > 0 {
+			return 0, 0, fmt.Errorf("grid: queued atom width %d exceeds terminal width %d: %w", cells[0].Width(), width, errors.ErrUnsupported)
+		}
+		i.buf = append(i.buf, encodeCells(cells[:end], i.buffers.depth)...)
+		column += end
+		if column < width {
+			i.buf = append(i.buf, eraseLine...)
+		}
+		cells = cells[end:]
+		if len(cells) == 0 {
+			return column, wrapped, nil
+		}
+		i.buf = append(i.buf, "\r\n"...)
+		column = 0
+		wrapped++
 	}
 }
 

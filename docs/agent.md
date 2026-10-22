@@ -61,7 +61,8 @@ An agent run crosses five ownership regions:
 | Accepted answer bytes | `program.ByteIngress` | Until owner delivery |
 | Open Markdown tail | Application owner goroutine | Until the block finishes |
 | Live transcript and review | Headless tree | While interactive |
-| Committed rows | Terminal | Rest of the shell session |
+| Accepted rows | Publication buffer | Until delivery or failure |
+| Delivered rows | Terminal | Rest of the shell session |
 
 Only the backend writes concurrently. Every component and application entity mutates
 on the runtime owner goroutine.
@@ -165,7 +166,10 @@ stable blocks once, and replace only the open document.
 func (a *agent) accept(batch program.ByteBatch) {
     if len(batch.Data) > 0 {
         a.conversation.Markdown(string(batch.Data))
-        a.conversation.Retain(a.runtime)
+        if err := a.conversation.Retain(a.runtime); err != nil {
+            a.finishRun(errors.Join(batch.Err, err))
+            return
+        }
     }
     if batch.Final {
         a.finishRun(batch.Err)
@@ -179,13 +183,14 @@ block is marked finished and never parsed again.
 ## Release finished history
 
 Keep a small interactive window for selection and search. Commit older finished
-blocks through `kit.Transcript.Commit`; the same measured drawable is printed and
-then removed from live ownership.
+blocks through `kit.Transcript.Commit`. Its printer must explicitly accept a block
+before the transcript releases it. A refusal returns an error and preserves that
+block and its suffix; the returned count includes only the accepted prefix.
 
 ```go
 const retainedBlocks = 8
 
-func (c *conversation) Retain(printer kit.Printer) {
+func (c *conversation) Retain(printer kit.Printer) error {
     finished := 0
     for i := range c.content.Len() {
         id := c.content.FirstBlock() + headless.BlockID(i)
@@ -195,13 +200,18 @@ func (c *conversation) Retain(printer kit.Printer) {
         finished++
     }
     if excess := finished - retainedBlocks; excess > 0 {
-        c.view.Commit(printer, excess)
+        if _, err := c.view.Commit(printer, excess); err != nil {
+            return err
+        }
     }
     c.scroll.ToBottom()
+    return nil
 }
 ```
 
-Do not keep a second copy of committed rows for redraw. The terminal owns them now.
+Do not keep a second copy of committed rows for redraw. The publication buffer owns
+them now. Acceptance does not promise delivery: `program.Run` reports later transport
+failures, and a zero or stopped inline runtime refuses publication with `program.ErrStopped`.
 Live memory and resize work must depend on the active tail, not session age.
 
 ## Make tool review a domain handshake
@@ -249,6 +259,8 @@ runtime shutdown:
 
 Treat terminal write failure separately from backend failure. A model may finish
 successfully while the terminal cannot accept the final presentation.
+The example treats only bare `context.Canceled` as cancellation. Wrapped or joined
+errors display their complete diagnostics, so cancellation cannot hide another failure.
 
 ## Test the invariants, not the mock prose
 

@@ -152,9 +152,9 @@ func (c *conversation) stageOpen(blocks []markdown.Block) {
 	c.follow()
 }
 
-func (c *conversation) Retain(printer kit.Printer) {
+func (c *conversation) Retain(printer kit.Printer) error {
 	if c.content.Width() <= 0 {
-		return
+		return nil
 	}
 	finished := 0
 	for i := range c.content.Len() {
@@ -165,9 +165,12 @@ func (c *conversation) Retain(printer kit.Printer) {
 		finished++
 	}
 	if excess := finished - retainedAgentBlocks; excess > 0 {
-		c.view.Commit(printer, excess)
+		if _, err := c.view.Commit(printer, excess); err != nil {
+			return err
+		}
 	}
 	c.follow()
+	return nil
 }
 
 func (c *conversation) Reset() {

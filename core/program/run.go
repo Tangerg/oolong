@@ -109,12 +109,6 @@ func newProgram(cfg Config, host Host) (*program, error) {
 	if err := p.buildInterface(cfg, width, height, depth); err != nil {
 		return nil, err
 	}
-	// What the terminal draws with and on goes to the canvas, not just to the
-	// component: a cell left at the terminal's own colours has no numbers of its own,
-	// and a layer floating over one has to mix with something. This is the only place
-	// that knows both the answer and the surface, so it is the only place that can
-	// join them — see [grid.Ground].
-	p.canvas.SetGround(p.environment.Ground())
 	built = true
 	return p, nil
 }
@@ -122,14 +116,19 @@ func newProgram(cfg Config, host Host) (*program, error) {
 func (p *program) buildInterface(cfg Config, width, height int, depth grid.Depth) error {
 	if cfg.Inline != nil {
 		p.inline = grid.NewInline(width, height)
-		p.inline.SetDepth(depth)
 		p.canvas = p.inline
-		p.root = cfg.Inline(&InlineRuntime{Runtime: &Runtime{p: p}})
 	} else {
-		screen := grid.NewScreen(width, height)
-		screen.SetDepth(depth)
-		p.canvas = screen
-		p.root = cfg.Root(&Runtime{p: p})
+		p.canvas = grid.NewScreen(width, height)
+	}
+	// Construction may publish inline output. Its canvas must already interpret
+	// default colours against the same startup facts given to the component.
+	p.canvas.SetDepth(depth)
+	p.canvas.SetGround(p.environment.Ground())
+	runtime := &Runtime{p: p}
+	if cfg.Inline != nil {
+		p.root = cfg.Inline(&InlineRuntime{Runtime: runtime})
+	} else {
+		p.root = cfg.Root(runtime)
 	}
 	if p.root == nil {
 		return errors.New("program: component builder returned nil")
@@ -144,6 +143,7 @@ type canvas interface {
 	Size() (w, h int)
 	Resize(w, h int)
 	Invalidate()
+	SetDepth(d grid.Depth)
 	SetGround(g grid.Ground)
 	Frame() grid.View
 	Flush(w io.Writer) error

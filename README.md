@@ -52,8 +52,10 @@ Oolong has two runtime modes because terminal output has two distinct lifetimes:
 | `program.Config.Inline` | Output should remain part of the shell session | Committed content remains in terminal scrollback |
 
 An inline interface can publish a finished `grid.Drawable` with
-`InlineRuntime.Print`. Published output leaves the component tree and is never
-redrawn. This keeps memory, resize work, and interaction geometry tied to the live
+`InlineRuntime.Print`. Check its error before releasing the source: nil transfers
+ownership to the publication buffer, and `Run` reports later delivery failures.
+Accepted output leaves the component tree and is never redrawn. This keeps memory,
+resize work, and interaction geometry tied to the live
 tail instead of the age of the session.
 
 ## Build from layers
