@@ -5,8 +5,12 @@ package mermaid_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -100,4 +104,60 @@ func TestOfficialCLI(t *testing.T) {
 			t.Fatalf("browser launch error was lost: %v", err)
 		}
 	})
+}
+
+func TestInstalledBackendPreservesThemePixels(t *testing.T) {
+	seen := make(map[[32]byte]string)
+	for _, theme := range []string{"default", "dark", "forest", "neutral", "base"} {
+		t.Run(theme, func(t *testing.T) {
+			pixels := renderInstalled(t, mermaid.Config{Theme: theme}, "flowchart LR; A[Owner] --> B[Worker]")
+			digest := sha256.Sum256(pixels.Pix)
+			if previous, exists := seen[digest]; exists {
+				t.Fatalf("themes %q and %q rendered identical pixels", previous, theme)
+			}
+			seen[digest] = theme
+		})
+	}
+}
+
+func TestInstalledBackendPreservesFillAndTextColors(t *testing.T) {
+	pixels := renderInstalled(t, mermaid.Config{}, "flowchart LR\n A[VISIBLE]\n classDef colored fill:#ff0000,color:#00ff00\n class A colored")
+	var fill, text int
+	for y := range pixels.Bounds().Dy() {
+		for x := range pixels.Bounds().Dx() {
+			switch pixels.NRGBAAt(x, y) {
+			case (color.NRGBA{R: 255, A: 255}):
+				fill++
+			case (color.NRGBA{G: 255, A: 255}):
+				text++
+			}
+		}
+	}
+	if fill < 100 || text < 10 {
+		t.Fatalf("authored colors lost: fill pixels=%d, text pixels=%d", fill, text)
+	}
+}
+
+func renderInstalled(t *testing.T, config mermaid.Config, source string) *image.NRGBA {
+	t.Helper()
+	config.Executable = os.Getenv("OOLONG_MERMAID_CLI")
+	if config.Executable == "" {
+		t.Skip("set OOLONG_MERMAID_CLI for installed backend integration")
+	}
+	config.Browser = os.Getenv("OOLONG_MERMAID_BROWSER")
+	renderer, err := mermaid.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := renderer.Render(t.Context(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := png.Decode(bytes.NewReader(result.PNG()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pixels := image.NewNRGBA(image.Rectangle{Max: decoded.Bounds().Size()})
+	draw.Draw(pixels, pixels.Bounds(), decoded, decoded.Bounds().Min, draw.Src)
+	return pixels
 }
