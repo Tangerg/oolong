@@ -16,7 +16,6 @@ require (
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/pires/go-proxyproto v0.15.0 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 )

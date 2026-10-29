@@ -16,7 +16,7 @@ This table maps each public module to the reason for importing it:
 
 | Module | Add it when you need | Direct third-party dependencies |
 | --- | --- | --- |
-| `core` | Terminal ownership, grids, input, text, layout, runtime, or in-process tests | `uniseg`, `go-runewidth`, `x/term`, `x/sys` |
+| `core` | Terminal ownership, grids, input, text, layout, runtime, or in-process tests | `uax29`, `go-runewidth`, `x/term`, `x/sys` |
 | `components` | Headless behavior, the default theme, or compound components | None beyond `core` |
 | `markdown` | Finished or incremental GitHub Flavored Markdown (GFM) | `goldmark` |
 | `highlight` | Styled source code | `chroma` |

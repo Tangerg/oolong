@@ -12,7 +12,7 @@ import (
 // the line has to be answered from the line, or that invisible boundary decides what
 // the text says.
 func TestSpanBoundariesDoNotSplitGraphemes(t *testing.T) {
-	for _, source := range []string{"é", "中文", "👩‍💻"} {
+	for _, source := range []string{"é", "中文", "👩‍💻", "ｶﾞ"} {
 		width := text.Width(source)
 		for split := 0; split <= len(source); split++ {
 			line := text.Line{

@@ -16,7 +16,7 @@ Oolong 只在依赖集合发生变化时建立模块边界。请从 `core` 开�
 
 | 模块 | 需要这些能力时添加 | 直接第三方依赖 |
 | --- | --- | --- |
-| `core` | 终端所有权、网格、输入、文本、布局、运行时或进程内测试 | `uniseg`、`go-runewidth`、`x/term`、`x/sys` |
+| `core` | 终端所有权、网格、输入、文本、布局、运行时或进程内测试 | `uax29`、`go-runewidth`、`x/term`、`x/sys` |
 | `components` | Headless 行为、默认主题或复合组件 | 除 `core` 外没有 |
 | `markdown` | 已完成或增量的 GitHub Flavored Markdown (GFM) | `goldmark` |
 | `highlight` | 带样式的源码 | `chroma` |

@@ -227,7 +227,7 @@ body, err := registry.Render(ctx, "latex", source)
 安装经过本次验证的后端并运行示例：
 
 ```sh
-npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11.17.0
+npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11.17.1
 PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
 ```
 
@@ -252,7 +252,7 @@ macOS 和 Windows 使用系统默认图片查看器。只有打开图片或复�
 Windows 安装 Node.js 和官方 CLI 后，可在 PowerShell 运行：
 
 ```powershell
-npm install -g @mermaid-js/mermaid-cli@11.17.0
+npm install -g @mermaid-js/mermaid-cli@11.17.1
 go -C examples run ./mermaid
 ```
 

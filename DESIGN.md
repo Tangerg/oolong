@@ -127,7 +127,7 @@ up.
 
 ### The dependency promise
 
-`core`: `rivo/uniseg`, `mattn/go-runewidth`, `golang.org/x/term`, `golang.org/x/sys`.
+`core`: `clipperhouse/uax29/v2`, `mattn/go-runewidth`, `golang.org/x/term`, `golang.org/x/sys`.
 `components`: none of its own — it imports nothing outside `core` and the standard
 library, and the four appear in its go.mod only as what `core` brought with it. Both
 are promises rather than coincidences, and a test fails when either list grows.

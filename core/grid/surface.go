@@ -7,8 +7,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/core/layout"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 	"github.com/mattn/go-runewidth"
-	"github.com/rivo/uniseg"
 )
 
 // Surface is a rectangle of cells in row-major order. Drawing happens through the
@@ -436,10 +436,9 @@ func (v View) Text(x, y int, s string, style Style) int {
 
 	cx := p.X
 	advanced := 0
-	state := -1
-	var cluster string
-	for len(s) > 0 {
-		cluster, s, _, state = uniseg.StepString(s, state)
+	clusters := graphemes.FromString(s)
+	for clusters.Next() {
+		cluster := clusters.Value()
 		w := ClusterWidth(cluster)
 		if control(cluster) {
 			continue
@@ -548,11 +547,9 @@ func (v View) Link(x, y, w int, target string) {
 
 func graphemeWidth(s string) int {
 	total := 0
-	state := -1
-	var cluster string
-	for len(s) > 0 {
-		cluster, s, _, state = uniseg.StepString(s, state)
-		total = layout.Sum(total, ClusterWidth(cluster))
+	clusters := graphemes.FromString(s)
+	for clusters.Next() {
+		total = layout.Sum(total, ClusterWidth(clusters.Value()))
 	}
 	return total
 }

@@ -401,7 +401,7 @@
       "title": "The layering is checkable",
       "items": [
         "core's internal dependency graph is acyclic and four deep; layout, ansi and diff import nothing internal",
-        "core has four direct external dependencies: uniseg, go-runewidth, x/sys, x/term",
+        "core has four direct external dependencies: uax29, go-runewidth, x/sys, x/term",
         "internal/arch fails CI when a boundary is crossed, so the rules are not advice in a document"
       ]
     },

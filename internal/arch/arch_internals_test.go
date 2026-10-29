@@ -54,7 +54,7 @@ const modulePath = "github.com/Tangerg/oolong"
 // components do not acquire them.
 var dependencyRules = map[string][]string{
 	"core": {
-		"github.com/rivo/uniseg",
+		"github.com/clipperhouse/uax29/v2/graphemes",
 		"github.com/mattn/go-runewidth",
 		"golang.org/x/term",
 		"golang.org/x/sys",

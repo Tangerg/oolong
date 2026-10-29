@@ -426,6 +426,43 @@ func TestClustersStopsWhenTheCallerDoes(t *testing.T) {
 	}
 }
 
+func TestClustersPreserveUnicodeAndByteBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		source   string
+		clusters []string
+		starts   []int
+	}{
+		{"cjk and combining", "a中́x", []string{"a", "中́", "x"}, []int{0, 1, 6}},
+		{"emoji zwj", "👩‍💻x", []string{"👩‍💻", "x"}, []int{0, 11}},
+		{"regional indicators", "🇨🇳x", []string{"🇨🇳", "x"}, []int{0, 8}},
+		{"crlf", "a\r\nb", []string{"a", "\r\n", "b"}, []int{0, 1, 3}},
+		{"invalid utf8", "a\xff\xfeb", []string{"a", "\xff", "\xfe", "b"}, []int{0, 1, 2, 3}},
+		{"halfwidth sound marks", "ｶﾞx", []string{"ｶﾞ", "x"}, []int{0, 6}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var clusters []string
+			var starts []int
+			for at, cluster := range text.Clusters(tc.source) {
+				starts = append(starts, at)
+				clusters = append(clusters, cluster)
+			}
+			if !slices.Equal(clusters, tc.clusters) || !slices.Equal(starts, tc.starts) {
+				t.Fatalf("clusters = %q at %v, want %q at %v", clusters, starts, tc.clusters, tc.starts)
+			}
+			for i, at := range starts {
+				end := at + len(clusters[i])
+				if next := text.NextCluster(tc.source, at); next != end {
+					t.Fatalf("NextCluster(%d) = %d, want %d", at, next, end)
+				}
+				if previous := text.PrevCluster(tc.source, end); previous != at {
+					t.Fatalf("PrevCluster(%d) = %d, want %d", end, previous, at)
+				}
+			}
+		})
+	}
+}
+
 func TestSteppingBetweenClusters(t *testing.T) {
 	const s = "a中b"
 	for _, tc := range []struct {

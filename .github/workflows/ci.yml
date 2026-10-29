@@ -39,9 +39,9 @@ jobs:
         go: ["1.27.0", "1.27.x"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: ${{ matrix.go }}
           cache: true
@@ -49,7 +49,7 @@ jobs:
           # every module with dependencies without another hand-maintained list.
           cache-dependency-path: "**/go.sum"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
 
@@ -101,19 +101,19 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.x"
           cache-dependency-path: "**/go.sum"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
       - name: Install the official CLI and browser
         shell: bash
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/mermaid" --no-audit --no-fund --save-exact @mermaid-js/mermaid-cli@11.17.0
+          npm install --prefix "$RUNNER_TEMP/mermaid" --no-audit --no-fund --save-exact @mermaid-js/mermaid-cli@11.17.1
           cli="$RUNNER_TEMP/mermaid/node_modules/.bin/mmdc"
           if [[ "$RUNNER_OS" == Windows ]]; then cli="$cli.cmd"; fi
           echo "OOLONG_MERMAID_CLI=$cli" >> "$GITHUB_ENV"
@@ -125,8 +125,8 @@ jobs:
     name: modules without workspace
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true
@@ -156,8 +156,8 @@ jobs:
     name: Go 1.27 module floor
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.0"
           cache: false
@@ -188,12 +188,12 @@ jobs:
     name: lint and vulnerabilities
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # API-removal evidence is compared with the preceding immutable module
           # tags, not with an arbitrary parent commit.
           fetch-depth: 0
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true
@@ -249,8 +249,8 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true
@@ -272,8 +272,8 @@ jobs:
     name: documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -284,9 +284,9 @@ jobs:
     name: formatting and modules
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true
@@ -341,21 +341,17 @@ jobs:
             )
           done
 
-      # A workspace that has fallen out of step with the modules in it is a
-      # checkout that builds for the person who wrote it and nobody else.
-      #
-      # Sync writes the workspace build list back into the member modules, so the
-      # evidence of drift is in their go.mod and go.sum files rather than in
-      # go.work. Watching only the file whose name matches the command is watching
-      # the one place the drift does not land.
+      # Use the same local replacements as tidy so an older published module
+      # cannot reintroduce a dependency removed from the current source tree.
+      # Compare the whole checkout: sync writes into member manifests and sums.
       - name: go work sync is a no-op
         run: |
-          go work sync
-          if ! git diff --quiet; then
-            echo "go work sync changed tracked files:"
-            git diff
-            exit 1
-          fi
+          set -euo pipefail
+          tidy_root="$RUNNER_TEMP/oolong-tidy"
+          sync_before="$RUNNER_TEMP/oolong-sync-before"
+          cp -R "$tidy_root" "$sync_before"
+          (cd "$tidy_root" && go work sync)
+          diff -ru "$sync_before" "$tidy_root"
 
   cross:
     name: cross-compile
@@ -379,9 +375,9 @@ jobs:
           - goos: js
             goarch: wasm
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true

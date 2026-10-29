@@ -118,7 +118,7 @@ released together under one version:
 
 | Module | Direct third-party dependencies |
 | --- | --- |
-| [`core`](https://pkg.go.dev/github.com/Tangerg/oolong/core) | `uniseg`, `go-runewidth`, `x/term`, `x/sys` |
+| [`core`](https://pkg.go.dev/github.com/Tangerg/oolong/core) | `uax29`, `go-runewidth`, `x/term`, `x/sys` |
 | [`components`](https://pkg.go.dev/github.com/Tangerg/oolong/components) | None beyond `core` |
 | [`markdown`](https://pkg.go.dev/github.com/Tangerg/oolong/markdown) | `goldmark` |
 | [`highlight`](https://pkg.go.dev/github.com/Tangerg/oolong/highlight) | `chroma` |

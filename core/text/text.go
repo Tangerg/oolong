@@ -19,7 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/rivo/uniseg"
+	"github.com/clipperhouse/uax29/v2/graphemes"
 
 	"github.com/Tangerg/oolong/core/grid"
 	"github.com/Tangerg/oolong/core/layout"
@@ -450,22 +450,19 @@ func (l Line) units() []unit {
 // is one segmentation, and everything that needs it asks here.
 func (l Line) eachCluster() iter.Seq2[string, *Span] {
 	return func(yield func(string, *Span) bool) {
-		at := 0
 		spanIndex, spanEnd := 0, 0
 		if len(l) > 0 {
 			spanEnd = len(l[0].Text)
 		}
-		g := uniseg.NewGraphemes(l.String())
+		g := graphemes.FromString(l.String())
 		for g.Next() {
-			for spanIndex+1 < len(l) && at >= spanEnd {
+			for spanIndex+1 < len(l) && g.Start() >= spanEnd {
 				spanIndex++
 				spanEnd += len(l[spanIndex].Text)
 			}
-			cluster := g.Str()
-			if !yield(cluster, &l[spanIndex]) {
+			if !yield(g.Value(), &l[spanIndex]) {
 				return
 			}
-			at += len(cluster)
 		}
 	}
 }
@@ -550,9 +547,9 @@ func advance(s string, col int) int {
 	if plainASCII(s) {
 		return layout.Sum(col, len(s))
 	}
-	g := uniseg.NewGraphemes(s)
+	g := graphemes.FromString(s)
 	for g.Next() {
-		col = advanceCluster(g.Str(), col)
+		col = advanceCluster(g.Value(), col)
 	}
 	return col
 }
@@ -642,14 +639,14 @@ func (l Line) printable() Line {
 
 func prefix(s string, budget int) string {
 	col, end := 0, 0
-	g := uniseg.NewGraphemes(s)
+	g := graphemes.FromString(s)
 	for g.Next() {
-		next := advanceCluster(g.Str(), col)
+		next := advanceCluster(g.Value(), col)
 		if next > budget {
 			break
 		}
 		col = next
-		_, end = g.Positions()
+		end = g.End()
 	}
 	return s[:end]
 }
@@ -665,14 +662,11 @@ func clusterWidth(cluster string) int { return grid.ClusterWidth(cluster) }
 // thing on screen, and a cursor between them has no position a terminal could show.
 func Clusters(s string) iter.Seq2[int, string] {
 	return func(yield func(int, string) bool) {
-		at, state := 0, -1
-		var cluster string
-		for len(s) > 0 {
-			cluster, s, _, state = uniseg.StepString(s, state)
-			if !yield(at, cluster) {
+		g := graphemes.FromString(s)
+		for g.Next() {
+			if !yield(g.Start(), g.Value()) {
 				return
 			}
-			at += len(cluster)
 		}
 	}
 }

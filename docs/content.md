@@ -235,7 +235,7 @@ body, err := registry.Render(ctx, "latex", source)
 Install the backend version verified for this change and run the example:
 
 ```sh
-npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11.17.0
+npm install --prefix /tmp/oolong-mermaid --save-exact @mermaid-js/mermaid-cli@11.17.1
 PATH="/tmp/oolong-mermaid/node_modules/.bin:$PATH" go -C examples run ./mermaid
 ```
 
@@ -261,7 +261,7 @@ Opening an image uses the system viewer on macOS and Windows. Export files are c
 On Windows, install Node.js and the official CLI, then run from PowerShell:
 
 ```powershell
-npm install -g @mermaid-js/mermaid-cli@11.17.0
+npm install -g @mermaid-js/mermaid-cli@11.17.1
 go -C examples run ./mermaid
 ```
 
