@@ -22,6 +22,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 ### Fixed
 
 - Inline shutdown drains its last accepted frame before admitting cursor cleanup. A writer with one frame slot no longer rejects cleanup merely because the final frame still occupies its capacity; drain failures retain their original cause and leave cleanup available.
+- Add scene-owned read-only composition borrows and explicit frame producer checks. Snapshot staging and refinement respect the same phase; an unsettled candidate refuses a new read-only projection before application callbacks run.
 - Release contract tests assert the module declared by the directory actually inspected by `gorelease`, avoiding false failures from macOS temporary-directory aliases and Windows shell path spelling. The selected module and unique release tag remain checked.
 - Grapheme segmentation isolates malformed UTF-8 bytes before applying Unicode
   boundaries. Truncated multibyte sequences no longer discard adjacent valid text

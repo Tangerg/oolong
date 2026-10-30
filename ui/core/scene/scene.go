@@ -85,6 +85,7 @@ type node struct {
 	id           NodeID
 	generation   Generation
 	done         chan struct{}
+	observing    bool
 }
 
 // NewElement creates an unmounted opaque node. It panics for an empty or duplicated action identifier.
@@ -148,6 +149,9 @@ func (e Element) RequestFocusFirst() error {
 		return ErrDetached
 	}
 	r := e.node.root
+	if err := r.mutable(); err != nil {
+		return err
+	}
 	var target Target
 	r.walk(e.node, func(n *node) bool {
 		if r.focusable(n) {
@@ -200,19 +204,85 @@ func (e Element) RequestFocus() error {
 
 // Invalidate announces a completed controller mutation. It is not a setter for
 // semantic values: Observe obtains those directly from the controller.
+// It panics during a read-only projection or presentation.
 func (e Element) Invalidate() {
+	if err := e.CheckMutation(); err != nil {
+		panic(err)
+	}
 	if e.node != nil && e.node.root != nil {
 		e.node.root.Changed()
 	}
 }
 
 // CheckMutation lets a behavior owner reject a prohibited phase before changing
-// its own model. An unattached model can be edited without a running scene.
+// its own model, including a read-only borrow before the composition is mounted.
 func (e Element) CheckMutation() error {
-	if e.node == nil || e.node.root == nil {
+	if e.node == nil {
 		return nil
 	}
-	return e.node.root.mutable()
+	if e.node.root != nil {
+		return e.node.root.mutable()
+	}
+	if e.detachedOwner().observing {
+		return ErrBusy
+	}
+	return nil
+}
+
+// CheckProjection validates a controller's preparation boundary. Its element
+// must be mounted in the frame's scene; ordinary Prepare may stage geometry,
+// while a read-only projection or an unsettled candidate may not advance it.
+func (e Element) CheckProjection(frame Frame) error {
+	if e.node == nil {
+		return ErrDetached
+	}
+	if e.node.root == nil {
+		if e.detachedOwner().observing {
+			return ErrBusy
+		}
+		return ErrDetached
+	}
+	if e.node.root.observing || e.node.root.pending != nil {
+		return ErrBusy
+	}
+	if err := frame.checkProjection(); err != nil {
+		return err
+	}
+	if e.node.root != frame.transaction.root {
+		return ErrInvalid
+	}
+	return nil
+}
+
+// ReadOnly borrows the composition for a synchronous projection. Controller and
+// attachment mutations are refused until read returns, including before mounting.
+// Nested borrows preserve the enclosing phase. Panic and Goexit release the borrow
+// before propagating. It panics for an empty element, nil callback, or an unsettled
+// frame candidate; settle that candidate before entering another projection.
+func (e Element) ReadOnly(read func()) {
+	if e.node == nil || read == nil {
+		panic(ErrInvalid)
+	}
+	e.project(func() struct{} { read(); return struct{}{} })
+}
+
+func (e Element) project[T any](read func() T) T {
+	if e.node.root != nil {
+		return e.node.root.project(read)
+	}
+	owner := e.detachedOwner()
+	previous := owner.observing
+	owner.observing = true
+	defer func() { owner.observing = previous }()
+	return read()
+}
+
+func (e Element) detachedOwner() *node {
+	owner := e.node
+	for owner.parent != nil {
+		owner = owner.parent
+	}
+	return owner
 }
 
 // SetPaint fills an unmounted behavior part's visual slot. After mounting, its
@@ -220,6 +290,9 @@ func (e Element) CheckMutation() error {
 func (e Element) SetPaint(paint func(Frame)) error {
 	if e.node == nil {
 		return ErrInvalid
+	}
+	if err := e.CheckMutation(); err != nil {
+		return err
 	}
 	if e.node.root != nil {
 		return ErrMounted
@@ -232,6 +305,9 @@ func (e Element) SetPaint(paint func(Frame)) error {
 func (e Element) SetMeasure(measure func(layout.Axis, int) int) error {
 	if e.node == nil {
 		return ErrInvalid
+	}
+	if err := e.CheckMutation(); err != nil {
+		return err
 	}
 	if e.node.root != nil {
 		return ErrMounted
@@ -247,6 +323,9 @@ func (e Element) SetFocusable(focusable func() bool) error {
 	if e.node == nil {
 		return ErrInvalid
 	}
+	if err := e.CheckMutation(); err != nil {
+		return err
+	}
 	if e.node.root != nil {
 		return ErrMounted
 	}
@@ -255,17 +334,20 @@ func (e Element) SetFocusable(focusable func() bool) error {
 }
 
 // Measure returns the nonnegative intrinsic extent, delegating group composition when no callback is supplied.
+// It panics before calling application code while its scene has an unsettled frame candidate.
 func (e Element) Measure(axis layout.Axis, across int) int {
 	if e.node == nil {
 		return 0
 	}
-	if measure := e.node.config.Measure; measure != nil {
-		return max(0, measure(axis, max(0, across)))
-	}
-	if e.node.group != nil {
-		return e.node.group.measure(axis, max(0, across))
-	}
-	return 0
+	return e.project(func() int {
+		if measure := e.node.config.Measure; measure != nil {
+			return max(0, measure(axis, max(0, across)))
+		}
+		if e.node.group != nil {
+			return e.node.group.measure(axis, max(0, across))
+		}
+		return 0
+	})
 }
 
 func (n *node) target() Target {
@@ -342,10 +424,8 @@ func (g *Group) checkSet(items []Item) (map[*node]bool, error) {
 		return nil, ErrInvalid
 	}
 	n := g.element.node
-	if n.root != nil {
-		if err := n.root.mutable(); err != nil {
-			return nil, err
-		}
+	if err := g.element.CheckMutation(); err != nil {
+		return nil, err
 	}
 	keys := make(map[string]bool, len(items))
 	children := make(map[*node]bool, len(items))
@@ -366,6 +446,9 @@ func (g *Group) checkSet(items []Item) (map[*node]bool, error) {
 }
 
 func checkChild(parent, child *node) error {
+	if err := (Element{node: child}).CheckMutation(); err != nil {
+		return err
+	}
 	for ancestor := parent; ancestor != nil; ancestor = ancestor.parent {
 		if ancestor == child {
 			return ErrCycle

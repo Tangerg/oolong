@@ -220,11 +220,12 @@ func (r *Root) Progress() Progress {
 
 // Observe returns a bounded detached projection without changing model, layout
 // or focus. Pagination is pinned to the model revision that produced its cursor.
+// An unsettled frame candidate returns ErrBusy before any projection callback runs.
 func (r *Root) Observe(query Query) (Observation, error) {
 	if r == nil || r.closed {
 		return Observation{}, ErrClosed
 	}
-	if r.preparing || r.observing {
+	if r.preparing || r.observing || r.pending != nil {
 		return Observation{}, ErrBusy
 	}
 	if query.Cursor.Offset < 0 || query.Depth < 0 || query.Limit < 0 || query.TextLimit < 0 {

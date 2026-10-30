@@ -123,6 +123,9 @@ func (r *Root) SetContent(element Element) error {
 }
 
 func (r *Root) canAttach(n *node) error {
+	if err := (Element{node: n}).CheckMutation(); err != nil {
+		return err
+	}
 	if n.root != nil {
 		return ErrMounted
 	}
@@ -208,6 +211,9 @@ func (r *Root) Valid(target Target) bool { return r.resolve(target) != nil }
 // project applies the same read barrier to eligibility and preconditions as to
 // painting and observation. A query cannot detach the target it is authorizing.
 func (r *Root) project[T any](read func() T) T {
+	if r.pending != nil {
+		panic(ErrBusy)
+	}
 	previous := r.observing
 	r.observing = true
 	defer func() { r.observing = previous }()

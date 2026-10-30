@@ -50,10 +50,11 @@ func (s *Snapshot[T]) prepared() any { return s.pending }
 
 // Stage reserves the sole producer of this snapshot in a candidate frame.
 // The returned handle can refine that producer's value until Prepare returns.
-// It panics outside an active Prepare or when a second producer stages the same snapshot.
+// It panics outside an active Prepare, during a read-only projection, or when a
+// second producer stages the same snapshot.
 func (s *Snapshot[T]) Stage(frame Frame, value T) *Staged[T] {
-	if !frame.active() {
-		panic("scene: snapshot staged outside an active Prepare")
+	if err := frame.checkProjection(); err != nil {
+		panic(err)
 	}
 	if s.staged != nil {
 		panic("scene: snapshot has multiple candidate producers")
@@ -78,8 +79,15 @@ func (s *Staged[T]) valid() {
 // Value reads the candidate. It panics after its preparation borrow has expired.
 func (s *Staged[T]) Value() T { s.valid(); return s.snapshot.pending }
 
-// Set refines the candidate. It panics after its preparation borrow has expired.
-func (s *Staged[T]) Set(value T) { s.valid(); s.snapshot.pending = value }
+// Set refines the candidate. It panics after its preparation borrow has expired
+// or while the frame's scene is borrowed for a read-only projection.
+func (s *Staged[T]) Set(value T) {
+	s.valid()
+	if err := s.frame.checkProjection(); err != nil {
+		panic(err)
+	}
+	s.snapshot.pending = value
+}
 
 func (s *Snapshot[T]) commit(tx *transaction) {
 	if s.staged != tx {
@@ -105,6 +113,7 @@ type stagedState interface {
 	prepared() any
 }
 type transaction struct {
+	root       *Root
 	states     []stagedState
 	active     bool
 	generation uint64
@@ -113,6 +122,16 @@ type transaction struct {
 
 func (f Frame) active() bool {
 	return f.transaction != nil && f.transaction.active && f.generation == f.transaction.generation
+}
+
+func (f Frame) checkProjection() error {
+	if !f.active() {
+		return ErrInvalid
+	}
+	if f.transaction.root.observing {
+		return ErrBusy
+	}
+	return nil
 }
 
 func (t *transaction) commit() {
@@ -210,7 +229,7 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	}
 	r.preparing = true
 	candidate := &layoutSnapshot{model: r.modelRevision, revision: next(r.layoutRevision()), epoch: r.geometryEpoch}
-	tx := &transaction{active: true, generation: 1, revision: candidate.revision}
+	tx := &transaction{root: r, active: true, generation: 1, revision: candidate.revision}
 	prepared = &Prepared{root: r, tx: tx, layout: candidate}
 	succeeded := false
 	defer func() {
