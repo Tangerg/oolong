@@ -19,9 +19,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/clipperhouse/uax29/v2/graphemes"
-
 	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/core/internal/grapheme"
 	"github.com/Tangerg/oolong/core/layout"
 )
 
@@ -454,13 +453,13 @@ func (l Line) eachCluster() iter.Seq2[string, *Span] {
 		if len(l) > 0 {
 			spanEnd = len(l[0].Text)
 		}
-		g := graphemes.FromString(l.String())
-		for g.Next() {
-			for spanIndex+1 < len(l) && g.Start() >= spanEnd {
+		clusters := grapheme.New(l.String())
+		for clusters.Next() {
+			for spanIndex+1 < len(l) && clusters.Start() >= spanEnd {
 				spanIndex++
 				spanEnd += len(l[spanIndex].Text)
 			}
-			if !yield(g.Value(), &l[spanIndex]) {
+			if !yield(clusters.Value(), &l[spanIndex]) {
 				return
 			}
 		}
@@ -547,9 +546,9 @@ func advance(s string, col int) int {
 	if plainASCII(s) {
 		return layout.Sum(col, len(s))
 	}
-	g := graphemes.FromString(s)
-	for g.Next() {
-		col = advanceCluster(g.Value(), col)
+	clusters := grapheme.New(s)
+	for clusters.Next() {
+		col = advanceCluster(clusters.Value(), col)
 	}
 	return col
 }
@@ -639,14 +638,14 @@ func (l Line) printable() Line {
 
 func prefix(s string, budget int) string {
 	col, end := 0, 0
-	g := graphemes.FromString(s)
-	for g.Next() {
-		next := advanceCluster(g.Value(), col)
+	clusters := grapheme.New(s)
+	for clusters.Next() {
+		next := advanceCluster(clusters.Value(), col)
 		if next > budget {
 			break
 		}
 		col = next
-		end = g.End()
+		end = clusters.End()
 	}
 	return s[:end]
 }
@@ -660,11 +659,13 @@ func clusterWidth(cluster string) int { return grid.ClusterWidth(cluster) }
 // It is what anything holding a cursor into text needs. A cursor cannot live on a
 // rune boundary: a letter and the accent that modifies it are two runes and one
 // thing on screen, and a cursor between them has no position a terminal could show.
+// Malformed bytes remain separate zero-width clusters so offsets still address s
+// without letting corrupt bytes absorb valid text on either side.
 func Clusters(s string) iter.Seq2[int, string] {
 	return func(yield func(int, string) bool) {
-		g := graphemes.FromString(s)
-		for g.Next() {
-			if !yield(g.Start(), g.Value()) {
+		clusters := grapheme.New(s)
+		for clusters.Next() {
+			if !yield(clusters.Start(), clusters.Value()) {
 				return
 			}
 		}

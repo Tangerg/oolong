@@ -438,6 +438,13 @@ func TestClustersPreserveUnicodeAndByteBoundaries(t *testing.T) {
 		{"regional indicators", "🇨🇳x", []string{"🇨🇳", "x"}, []int{0, 8}},
 		{"crlf", "a\r\nb", []string{"a", "\r\n", "b"}, []int{0, 1, 3}},
 		{"invalid utf8", "a\xff\xfeb", []string{"a", "\xff", "\xfe", "b"}, []int{0, 1, 2, 3}},
+		{"truncated two byte rune", "A\xd7", []string{"A", "\xd7"}, []int{0, 1}},
+		{"truncated three byte rune", "A\xe2", []string{"A", "\xe2"}, []int{0, 1}},
+		{"truncated four byte rune", "A\xf0\x9f", []string{"A", "\xf0", "\x9f"}, []int{0, 1, 2}},
+		{"invalid rune between letters", "A\xe2B", []string{"A", "\xe2", "B"}, []int{0, 1, 2}},
+		{"invalid rune before letters", "A\xf0BC", []string{"A", "\xf0", "B", "C"}, []int{0, 1, 2, 3}},
+		{"invalid byte separates combining mark", "A\xe2\u0301B", []string{"A", "\xe2", "\u0301", "B"}, []int{0, 1, 2, 4}},
+		{"encoded replacement rune", "A\ufffdB", []string{"A", "\ufffd", "B"}, []int{0, 1, 4}},
 		{"halfwidth sound marks", "ｶﾞx", []string{"ｶﾞ", "x"}, []int{0, 6}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -552,6 +559,9 @@ func FuzzCoordinatesMatchCompleteSegmentation(f *testing.F) {
 		"👩‍💻x",
 		"🇨🇳🇬🇧x",
 		"\xffa\x00",
+		"000000000\xd7",
+		"A\xe2B",
+		"A\xf0BC",
 	} {
 		f.Add(seed)
 	}

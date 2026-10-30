@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Tangerg/oolong/core/internal/grapheme"
 	"github.com/Tangerg/oolong/core/layout"
-	"github.com/clipperhouse/uax29/v2/graphemes"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -436,7 +436,7 @@ func (v View) Text(x, y int, s string, style Style) int {
 
 	cx := p.X
 	advanced := 0
-	clusters := graphemes.FromString(s)
+	clusters := grapheme.New(s)
 	for clusters.Next() {
 		cluster := clusters.Value()
 		w := ClusterWidth(cluster)
@@ -547,7 +547,7 @@ func (v View) Link(x, y, w int, target string) {
 
 func graphemeWidth(s string) int {
 	total := 0
-	clusters := graphemes.FromString(s)
+	clusters := grapheme.New(s)
 	for clusters.Next() {
 		total = layout.Sum(total, ClusterWidth(clusters.Value()))
 	}

@@ -40,6 +40,7 @@ func BenchmarkColumnOf(b *testing.B) {
 		{"plain/end", strings.Repeat("the quick brown fox ", 8), -1},
 		{"plain/early-in-long", strings.Repeat("a", 10_000), 10},
 		{"unicode/end", strings.Repeat("the quick 中文 fox ", 8), -1},
+		{"unicode/early-in-long", strings.Repeat("中", 10_000), len("中")},
 		{"unicode/after-early-offset", strings.Repeat("a", 10_000) + "中", 10},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
@@ -64,6 +65,7 @@ func BenchmarkOffsetAt(b *testing.B) {
 		{"plain/end", strings.Repeat("the quick brown fox ", 8), -1},
 		{"plain/early-in-long", strings.Repeat("a", 10_000), 10},
 		{"unicode/end", strings.Repeat("the quick 中文 fox ", 8), -1},
+		{"unicode/early-in-long", strings.Repeat("中", 10_000), 2},
 		{"unicode/after-early-column", strings.Repeat("a", 10_000) + "中", 10},
 	} {
 		b.Run(tc.name, func(b *testing.B) {

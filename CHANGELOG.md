@@ -18,6 +18,13 @@ point of tagging them low rather than not at all.
 
 ## [Unreleased]
 
+### Fixed
+
+- Grapheme segmentation isolates malformed UTF-8 bytes before applying Unicode
+  boundaries. Truncated multibyte sequences no longer discard adjacent valid text
+  or make byte-to-column coordinates disagree with the ASCII fast path. Drawing,
+  wrapping, truncation and cursor movement retain the original byte offsets.
+
 ## [0.25.0] — 2026-10-22
 
 ### Fixed
