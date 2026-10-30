@@ -72,7 +72,21 @@ func TestIndependentReleaseTagsMatchSemanticImports(t *testing.T) {
 }
 
 func TestReleaseGatesKeepTheSelectedModule(t *testing.T) {
+	testReleaseGatesKeepTheSelectedModule(t, t.TempDir())
+}
+
+func TestReleaseGatesKeepTheSelectedModuleThroughSymlink(t *testing.T) {
 	root := t.TempDir()
+	link := filepath.Join(t.TempDir(), "repository")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("cannot create repository symlink: %v", err)
+	}
+	testReleaseGatesKeepTheSelectedModule(t, link)
+}
+
+func testReleaseGatesKeepTheSelectedModule(t *testing.T, root string) {
+	t.Helper()
+	const selectedModule = "example.invalid/oolong/ui"
 	write := func(name, body string) {
 		t.Helper()
 		path := filepath.Join(root, name)
@@ -95,12 +109,18 @@ func TestReleaseGatesKeepTheSelectedModule(t *testing.T) {
 	for _, name := range []string{"sync-workspace.sh", "check-reachability.sh"} {
 		write("scripts/"+name, "#!/bin/sh\nexit 0\n")
 	}
-	write("ui/go.mod", "module example.invalid/oolong/ui\ngo 1.27.0\n")
+	write("ui/go.mod", "module "+selectedModule+"\ngo 1.27.0\n")
 	write("examples/go.mod", "module example.invalid/oolong/examples\ngo 1.27.0\n")
 	write("CHANGELOG.md", "## [ui/v0.1.0]\n")
-	for _, name := range []string{"apidiff", "deadcode", "golangci-lint", "gofumpt", "govulncheck", "npx", "shfmt", "npm", "go", "gorelease"} {
+	for _, name := range []string{"apidiff", "deadcode", "golangci-lint", "gofumpt", "govulncheck", "npx", "shfmt", "npm", "go"} {
 		write("bin/"+name, "#!/bin/sh\nprintf '%s|%s|%s\\n' \"${0##*/}\" \"$PWD\" \"$*\" >> \"$TRACE\"\n")
 	}
+	// Module identity survives MSYS path spelling and symlinked temporary roots.
+	write("bin/gorelease", `#!/bin/sh
+set -eu
+module=$(awk '$1 == "module" { print $2; exit }' go.mod)
+printf 'gorelease|%s|%s\n' "$module" "$*" >> "$TRACE"
+`)
 	write("bin/git", `#!/bin/sh
 printf 'git|%s|%s\n' "$PWD" "$*" >> "$TRACE"
 case "$1" in
@@ -128,7 +148,7 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "gorelease|" + filepath.Join(root, "ui") + "|"
+	want := "gorelease|" + selectedModule + "|"
 	if !strings.Contains(string(trace), want) {
 		t.Fatalf("compatibility did not inspect selected ui module:\n%s", trace)
 	}
