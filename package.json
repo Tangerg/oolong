@@ -12,9 +12,9 @@
     "docs:diagram": "node scripts/render-architecture.mjs --check"
   },
   "devDependencies": {
-    "cspell": "10.1.0",
-    "markdownlint": "0.41.1",
-    "vitepress": "2.0.0-alpha.19"
+    "cspell": "10.4.0",
+    "markdownlint": "0.42.0",
+    "vitepress": "2.0.0-alpha.20"
   },
   "overrides": {
     "micromark-extension-math": {
