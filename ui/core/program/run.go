@@ -593,6 +593,12 @@ func (p *program) renderBlock() error {
 }
 
 func (p *program) finishBlock() error {
+	// The final live frame can occupy all ordinary writer capacity. Cleanup must
+	// wait for that frame rather than lose the cursor restoration to backpressure.
+	if err := p.writer.Drain(term.DrainGrace); err != nil {
+		return frameDrainError(p.writer, err)
+	}
+	p.wrote(p.writer.Written())
 	output, err := p.inline.PrepareFinish()
 	if err != nil {
 		return fmt.Errorf("program: finish inline block: %w", err)
