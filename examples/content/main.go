@@ -12,32 +12,35 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/content"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
 	"github.com/Tangerg/oolong/examples/internal/latexlook"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
-	"github.com/Tangerg/oolong/highlight"
-	"github.com/Tangerg/oolong/latex"
-	"github.com/Tangerg/oolong/markdown"
+	"github.com/Tangerg/oolong/extensions/highlight"
+	"github.com/Tangerg/oolong/extensions/latex"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/core/content"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Root:     func(runtime *program.Runtime) program.Component { return newContent(runtime) },
-		Terminal: term.Features{Probe: true},
-	}); err != nil {
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) { return newContent(runtime).Element(), nil }})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "content:", err)
 		os.Exit(1)
 	}
 }
 
 type contentScreen struct {
+	element   scene.Element
 	runtime   *program.Runtime
 	theme     kit.Theme
 	body      grid.Drawable
@@ -86,6 +89,7 @@ func newContent(runtime *program.Runtime) *contentScreen {
 
 func (s *contentScreen) show(format content.Format, source string) {
 	s.body, s.renderErr = s.registry.Render(context.Background(), format, source)
+	s.element.Invalidate()
 }
 
 func (s *contentScreen) Draw(view grid.View) {
@@ -144,3 +148,17 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
 $$
 
 The modules share a drawable contract. Each owns its layout and optional text projection.`
+
+func (s *contentScreen) Element() scene.Element {
+	if s.element.IsZero() {
+		s.element = scene.NewElement(scene.ElementConfig{
+			Key:       "content",
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
+			Handle: func(event scene.Event) scene.EventResult {
+				return scene.EventResult{Consumed: s.Handle(event.Input)}
+			},
+		})
+	}
+	return s.element
+}

@@ -5,22 +5,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 70, Height: 14})
+	host := uitest.New(t, uitest.Config{Width: 70, Height: 14})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component {
-				return headless.NewRoot(newDashboard(runtime))
-			},
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+			return newDashboard(runtime).Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 
 	// The strip names every pane and the first one is showing.
@@ -77,15 +78,16 @@ func TestTheSliderAnswersThePressThatLandedOnIt(t *testing.T) {
 	// arrive in. Asking the child frame for its own bounds gives a rectangle that
 	// begins at zero, so the slider claimed whichever row happened to be first: a
 	// press on the slider did nothing and a press on the row above it moved the rate.
-	host := programtest.New(t, programtest.Config{Width: 70, Height: 14})
+	host := uitest.New(t, uitest.Config{Width: 70, Height: 14})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component {
-				return headless.NewRoot(newDashboard(runtime))
-			},
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+			return newDashboard(runtime).Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 	host.Type("2")
 	host.Shows(t, "1 tasks/tick")

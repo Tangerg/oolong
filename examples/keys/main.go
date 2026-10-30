@@ -9,13 +9,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 const (
@@ -25,16 +26,18 @@ const (
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Root:     func(runtime *program.Runtime) program.Component { return newKeys(runtime) },
-		Terminal: term.Features{Probe: true},
-	}); err != nil {
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: newKeys})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "keys:", err)
 		os.Exit(1)
 	}
 }
 
 type keys struct {
+	element scene.Element
 	runtime *program.Runtime
 	mapKeys *keymap.Map
 	matcher keymap.Matcher
@@ -44,19 +47,32 @@ type keys struct {
 	last    string
 }
 
-func newKeys(runtime *program.Runtime) *keys {
-	bindings := &keymap.Map{Timeout: 400 * time.Millisecond, Resolve: runtime.After}
+func newKeys(runtime *program.Runtime) (scene.Element, error) {
+	scope, err := runtime.NewScope(program.ScopeConfig{})
+	if err != nil {
+		return scene.Element{}, err
+	}
+	k := &keys{runtime: runtime}
+	bindings := &keymap.Map{Timeout: 400 * time.Millisecond, Resolve: func(delay time.Duration, resolve func()) func() {
+		timer, err := runtime.After(scope, delay, resolve)
+		if err != nil {
+			k.last = err.Error()
+			return func() {}
+		}
+		return timer.Stop
+	}}
 	bindings.Bind(next, input.Chord{Rune: 'g'})
 	bindings.Bind(top, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	bindings.Bind(quit, input.Chord{Rune: 'q'})
 	bindings.Bind(quit, input.Ctrl.Rune('c'))
-	return &keys{
+	*k = keys{
 		runtime: runtime,
 		mapKeys: bindings,
 		theme:   kit.Suited(runtime.Environment().Ground()),
 		glyphs:  kit.GlyphsFor(runtime.Environment().Locale()),
 		last:    "waiting for g or gg",
 	}
+	return k.Element(), nil
 }
 
 func (k *keys) Draw(view grid.View) {
@@ -94,5 +110,20 @@ func (k *keys) Do(action keymap.Action) bool {
 	default:
 		return false
 	}
+	k.element.Invalidate()
 	return true
+}
+
+func (k *keys) Element() scene.Element {
+	if k.element.IsZero() {
+		k.element = scene.NewElement(scene.ElementConfig{
+			Key:       "keys",
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { k.Draw(frame.View) },
+			Handle: func(event scene.Event) scene.EventResult {
+				return scene.EventResult{Consumed: k.Handle(event.Input)}
+			},
+		})
+	}
+	return k.element
 }

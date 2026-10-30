@@ -1,0 +1,445 @@
+package term
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/Tangerg/oolong/ui/internal/fifo"
+)
+
+// ErrClosed marks refused admission after a clean close, or an accepted frame
+// abandoned when the shutdown grace period ran out. When a terminal write caused
+// the transition, [Writer.Err] preserves that original failure.
+var (
+	ErrClosed          = errors.New("term: writer closed")
+	ErrQueueFull       = errors.New("term: writer queue is full")
+	ErrPayloadTooLarge = errors.New("term: frame exceeds writer payload limit")
+)
+
+// WriterConfig bounds both queued and currently written data. Zero budgets use
+// finite defaults; teardown retains separate capacity in the same FIFO.
+type WriterConfig struct {
+	Destination     io.Writer
+	MaxFrames       int
+	MaxFrameBytes   int
+	MaxPendingBytes int
+}
+
+// ErrDrainTimeout means accepted frames did not settle before their caller's
+// deadline. The caller still owns the display: handing it elsewhere would let a
+// late frame arrive in the next owner's output.
+var ErrDrainTimeout = errors.New("term: writer did not drain")
+
+// ErrFrameRefused is how a destination says it declined a frame rather than failed
+// to write one: none of the frame was written, and the next one can still go out. A
+// destination wraps it in whatever says why.
+//
+// Any other error means the destination is gone, and everything queued behind it is
+// abandoned — a stream that has taken half a frame cannot be resumed. Both are
+// reported by [Writer.Err] and both are a reason to stop, because the display no
+// longer shows what the program believes it drew; only one of them also stops the
+// sequences that give the terminal back.
+var ErrFrameRefused = errors.New("term: destination refused the frame")
+
+var errWriteInterrupted = errors.New("term: destination write interrupted; writer ended")
+
+// DrainGrace is how long to wait for queued frames to reach the terminal before
+// abandoning them. A terminal that has stopped accepting bytes must not be able to
+// hold up an exit, and no amount of waiting makes one start accepting them again.
+//
+// It is what [Writer.Close] waits, and the right answer for anyone else with a
+// reason to wait for the terminal to catch up.
+const DrainGrace = 250 * time.Millisecond
+
+// Writer keeps blocking terminal I/O off producer goroutines. Admission assigns
+// sequences in FIFO order under one owner; completion uses a watermark signaled
+// by Changes. Methods are concurrency-safe. A Writer must not be copied after
+// construction. Abnormal worker exits end admission, settle all accepted frames
+// and report an interrupted write.
+type Writer struct {
+	dst io.Writer
+
+	// Admission is nonblocking and charges queued plus in-flight bytes. Control
+	// output has separate reserved capacity but shares FIFO wire order.
+	queueMu                                   sync.Mutex
+	queue                                     fifo.Queue[frame]
+	wake                                      chan struct{}
+	closed                                    bool
+	dataClosed                                bool
+	pendingBytes, pendingFrames               int
+	controlBytes, controlFrames               int
+	maxFrames, maxFrameBytes, maxPendingBytes int
+
+	// changes holds at most one pending wake-up: a consumer that has not yet noticed
+	// the last advance does not need to be told twice. It has exactly one consumer,
+	// and a wake-up taken from it is gone.
+	changes chan struct{}
+
+	// advanced is closed and replaced every time the watermark moves.
+	//
+	// It exists because [Writer.Drain] also waits for the watermark, and a second
+	// consumer of changes would take wake-ups the primary consumer is owed. A closed channel
+	// is a broadcast: every waiter sees it, and none can take it from another.
+	// Waiting on progress from two places was a hang that only appeared on a
+	// machine slow enough for Drain to reach the channel first.
+	advanceMu sync.Mutex
+	advanced  chan struct{}
+
+	queued    atomicSequence
+	written   atomic.Uint64
+	processed atomic.Uint64
+
+	// discarding tells the write goroutine to fail queued frames instead of writing
+	// them once the grace period has passed. A write already in dst cannot be
+	// interrupted, but everything still in the FIFO can be abandoned deterministically.
+	discarding atomic.Bool
+
+	mu      sync.Mutex
+	failure error
+
+	loopDone  chan struct{}
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// frame is one queued payload with the sequence reserved for it.
+type frame struct {
+	seq     uint64
+	data    []byte
+	control bool
+}
+
+// NewWriter starts a writer over cfg.Destination. The caller ends it with [Writer.Close].
+// Negative budgets or a frame limit exceeding the pending byte limit panic.
+//
+// A nil destination is a programmer error and panics here. A writer accepts frames
+// from the goroutine that draws them and writes on one of its own, so a nil surfaced
+// on first use would report the fault on that second goroutine, in a stack that no
+// longer names whoever failed to open the terminal.
+func NewWriter(cfg WriterConfig) *Writer {
+	if cfg.MaxFrames < 0 || cfg.MaxFrameBytes < 0 || cfg.MaxPendingBytes < 0 {
+		panic("term: negative writer budget")
+	}
+	if cfg.MaxFrames == 0 {
+		cfg.MaxFrames = 64
+	}
+	if cfg.MaxFrameBytes == 0 {
+		cfg.MaxFrameBytes = 16 << 20
+	}
+	if cfg.MaxPendingBytes == 0 {
+		cfg.MaxPendingBytes = 32 << 20
+	}
+	if cfg.MaxFrameBytes > cfg.MaxPendingBytes {
+		panic("term: frame limit exceeds pending byte limit")
+	}
+	if cfg.Destination == nil {
+		panic("term: nil writer")
+	}
+	w := &Writer{
+		dst:       cfg.Destination,
+		maxFrames: cfg.MaxFrames, maxFrameBytes: cfg.MaxFrameBytes, maxPendingBytes: cfg.MaxPendingBytes,
+		wake:     make(chan struct{}, 1),
+		changes:  make(chan struct{}, 1),
+		advanced: make(chan struct{}),
+		loopDone: make(chan struct{}),
+	}
+	go w.run()
+	return w
+}
+
+// Queue admits a complete frame without waiting. A refusal retains caller
+// ownership and does not advance any watermark. Capacity refusal is recoverable;
+// it does not become Writer.Err. Success transfers data to the writer; the caller
+// must not mutate or reuse it until Written reaches the returned sequence.
+// It panics if the uint64 sequence space is exhausted.
+func (w *Writer) Queue(data []byte) (uint64, error) { return w.enqueue(data, false) }
+
+// QueueControl is the session owner's bounded teardown path through the same FIFO.
+// It remains available after CloseAdmission; it never overtakes accepted output.
+// Like Queue, it panics if the uint64 sequence space is exhausted.
+func (w *Writer) QueueControl(data []byte) (uint64, error) { return w.enqueue(data, true) }
+
+// CloseAdmission refuses ordinary data while preserving accepted frames and
+// the reserved QueueControl path needed to restore terminal modes.
+func (w *Writer) CloseAdmission() {
+	w.queueMu.Lock()
+	w.dataClosed = true
+	w.queueMu.Unlock()
+}
+
+func (w *Writer) enqueue(data []byte, control bool) (uint64, error) {
+	w.queueMu.Lock()
+	defer w.queueMu.Unlock()
+	if w.closed || w.discarding.Load() || (!control && w.dataClosed) {
+		if err := w.Err(); err != nil {
+			return 0, err
+		}
+		w.recordFailure(ErrClosed)
+		w.signalChange()
+		return 0, ErrClosed
+	}
+	if err := w.Err(); err != nil && (!control || (!errors.Is(err, ErrFrameRefused) && !errors.Is(err, ErrClosed))) {
+		return 0, err
+	}
+	if err := w.capacity(len(data), control); err != nil {
+		return 0, err
+	}
+	seq, ok := w.queued.next(math.MaxUint64)
+	if !ok {
+		panic("term: writer exhausted frame sequences")
+	}
+	if control {
+		w.controlBytes += len(data)
+		w.controlFrames++
+	} else {
+		w.pendingBytes += len(data)
+		w.pendingFrames++
+	}
+	w.queue.Push(frame{seq: seq, data: data, control: control})
+	w.signal()
+	return seq, nil
+}
+
+func (w *Writer) capacity(bytes int, control bool) error {
+	if control {
+		if bytes > 64<<10 {
+			return ErrPayloadTooLarge
+		}
+		if w.controlFrames >= 4 || bytes > (64<<10)-w.controlBytes {
+			return ErrQueueFull
+		}
+	} else {
+		if bytes > w.maxFrameBytes {
+			return ErrPayloadTooLarge
+		}
+		if w.pendingFrames >= w.maxFrames || bytes > w.maxPendingBytes-w.pendingBytes {
+			return ErrQueueFull
+		}
+	}
+	return nil
+}
+
+func (w *Writer) release(f frame) {
+	w.queueMu.Lock()
+	if f.control {
+		w.controlBytes -= len(f.data)
+		w.controlFrames--
+	} else {
+		w.pendingBytes -= len(f.data)
+		w.pendingFrames--
+	}
+	w.queueMu.Unlock()
+}
+
+// signal wakes the writer without accumulating notifications for changes it has
+// not observed yet.
+func (w *Writer) signal() {
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Changes is the stable, single-consumer notification channel for writer state. A
+// receive means [Writer.Written] or [Writer.Err] may have changed; several changes
+// coalesce into one wake-up, so the current values must always be read from the writer.
+func (w *Writer) Changes() <-chan struct{} { return w.changes }
+
+// Queued is the highest accepted sequence. Refused admission does not advance it.
+func (w *Writer) Queued() uint64 { return w.queued.current() }
+
+// Written is the highest sequence in the unbroken run of frames that reached the
+// terminal. A refused or failed frame stops it there, whatever is written afterwards:
+// it is what a caller waits on to know its output arrived, and a later frame cannot
+// vouch for an earlier one that never did.
+func (w *Writer) Written() uint64 { return w.written.Load() }
+
+// Err is the first terminal admission or delivery failure, or nil. A temporary
+// ErrQueueFull or an oversized payload is returned by Queue without poisoning Err.
+//
+// A terminal that has failed a write does not recover, and a UI that cannot reach
+// its terminal has nothing left to do, so this is a reason to exit rather than
+// something to retry. A refused frame — see [ErrFrameRefused] — is the same reason
+// to exit and not the same terminal: frames queued after it are still written, so
+// the exit can reach it.
+func (w *Writer) Err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.failure
+}
+
+// Drain waits until every frame queued so far has been written or failed, or
+// until the timeout passes.
+//
+// It is what to call before handing the terminal to another program, so that
+// program does not find half a frame in front of it. A failed frame counts as
+// drained: a broken terminal must not be able to wedge a shutdown.
+//
+// It takes nothing from [Writer.Changes]. Waiting here must not cost its consumer a
+// wake-up it is owed, which is what the broadcast channel is for.
+func (w *Writer) Drain(timeout time.Duration) error {
+	if !w.drain(w.queued.current(), timeout) {
+		return ErrDrainTimeout
+	}
+	return nil
+}
+
+func (w *Writer) drain(target uint64, timeout time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		// The channel is taken before the watermark is read, so that an advance
+		// landing between the two closes a channel this is about to wait on rather
+		// than one it has already let go of.
+		w.advanceMu.Lock()
+		advanced := w.advanced
+		w.advanceMu.Unlock()
+
+		if w.processed.Load() >= target {
+			return true
+		}
+		select {
+		case <-advanced:
+		case <-w.loopDone:
+			return w.processed.Load() >= target
+		case <-deadline.C:
+			return false
+		}
+	}
+}
+
+// Close drains what it can, stops the goroutine and reports whether anything had
+// to be abandoned. It is idempotent.
+//
+// A write already inside the terminal cannot be interrupted. When the grace period
+// ends with one outstanding, Close returns without waiting for the goroutine: it
+// finishes on its own, discarding what is left rather than writing it.
+func (w *Writer) Close() error {
+	w.closeOnce.Do(func() {
+		// Closing the admission edge and taking its watermark are one transition.
+		// Otherwise a producer can append after Drain's snapshot and have its frame
+		// abandoned by a Close that still reports success.
+		w.queueMu.Lock()
+		w.closed = true
+		target := w.queued.current()
+		w.queueMu.Unlock()
+		w.signal()
+
+		drained := w.drain(target, DrainGrace)
+		if drained {
+			<-w.loopDone
+		} else {
+			w.discarding.Store(true)
+			w.signal()
+			w.closeErr = fmt.Errorf("term: %d frame(s) never reached the terminal: %w",
+				target-min(target, w.written.Load()), ErrClosed)
+		}
+	})
+	return w.closeErr
+}
+
+func (w *Writer) run() {
+	completed := false
+	defer func() {
+		if !completed {
+			// An unwound destination cannot return a receipt for the in-flight frame.
+			// End admission and settle the entire accepted prefix under the same owner.
+			w.queueMu.Lock()
+			w.closed = true
+			w.queue.Clear()
+			w.pendingBytes, w.pendingFrames, w.controlBytes, w.controlFrames = 0, 0, 0, 0
+			w.finish(w.queued.current(), errWriteInterrupted)
+			w.queueMu.Unlock()
+		}
+		// The goroutine is the only reader of dst. Releasing it before publishing
+		// loopDone means a closed Writer cannot retain the terminal transport, while a
+		// timed-out Close never clears a writer still inside its Write method.
+		w.dst = nil
+		close(w.loopDone)
+	}()
+	// A refused frame leaves the destination able to take the next one, so a frame
+	// can succeed after an earlier one never arrived. The watermark is what a caller
+	// waits on to know its output is on the screen, so it stops at the last frame
+	// that got there.
+	arrived := true
+	for {
+		f, ok := w.next()
+		if !ok {
+			completed = true
+			return
+		}
+		err := ErrClosed
+		if !w.discarding.Load() {
+			_, err = io.Copy(w.dst, bytes.NewReader(f.data))
+		}
+		if err != nil {
+			arrived = false
+		} else if arrived {
+			w.written.Store(f.seq)
+		}
+		w.release(f)
+		w.finish(f.seq, err)
+	}
+}
+
+// next waits for the next frame. Once closed, it drains the FIFO before stopping.
+// If the grace period expires, Close turns on discarding and the remaining frames
+// are accounted for without being written.
+func (w *Writer) next() (frame, bool) {
+	for {
+		w.queueMu.Lock()
+		if f, ok := w.queue.Pop(); ok {
+			w.queueMu.Unlock()
+			return f, true
+		}
+		closed := w.closed
+		w.queueMu.Unlock()
+		if closed {
+			return frame{}, false
+		}
+		<-w.wake
+	}
+}
+
+func (w *Writer) finish(seq uint64, err error) {
+	w.recordFailure(err)
+	if err != nil && !errors.Is(err, ErrFrameRefused) {
+		// Refusal must preserve this cause, and Drain cannot settle this frame before
+		// admission knows the destination is unusable.
+		w.discarding.Store(true)
+	}
+	// Only the FIFO worker completes accepted frames. A refused admission has no
+	// sequence, so it cannot overtake an older write or require out-of-order settlement.
+	// Queue the notification before the watermark so Drain cannot return while that
+	// notification is still owed; publish the watermark before waking its waiters.
+	w.signalChange()
+	w.processed.Store(seq)
+	w.advanceMu.Lock()
+	settled := w.advanced
+	w.advanced = make(chan struct{})
+	w.advanceMu.Unlock()
+	close(settled)
+}
+
+func (w *Writer) recordFailure(err error) {
+	if err != nil {
+		w.mu.Lock()
+		if w.failure == nil {
+			w.failure = err
+		}
+		w.mu.Unlock()
+	}
+}
+
+func (w *Writer) signalChange() {
+	select {
+	case w.changes <- struct{}{}:
+	default:
+	}
+}

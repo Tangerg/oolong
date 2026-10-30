@@ -1,6 +1,6 @@
 // Package visualtest captures the screen produced by an example program.
 //
-// It composes programtest's in-process host with ptytest's renderer-sized screen
+// It composes uitest's in-process host with ptytest's renderer-sized screen
 // model. The first drives the real program loop and captures its frame bytes; the
 // second answers what those bytes leave in terminal cells. Keeping that composition
 // here gives examples one visual assertion path instead of a private screen model in
@@ -14,17 +14,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/programtest"
-	"github.com/Tangerg/oolong/ptytest"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/uitest"
+	"github.com/Tangerg/oolong/ui/uitest/ptytest"
 )
 
 var update = flag.Bool("update", false, "update visual golden files")
 
-// Host is a programtest host that also reports the terminal colours an example is
+// Host is a uitest host that also reports the terminal colours an example is
 // being checked against. No other optional capability is invented.
 type Host struct {
-	*programtest.Host
+	*uitest.Host
 	ground grid.Ground
 }
 
@@ -40,7 +40,7 @@ type Config struct {
 func New(tb testing.TB, config Config) *Host {
 	tb.Helper()
 	return &Host{
-		Host:   programtest.New(tb, programtest.Config{Width: config.Width, Height: config.Height}),
+		Host:   uitest.New(tb, uitest.Config{Width: config.Width, Height: config.Height}),
 		ground: config.Ground,
 	}
 }

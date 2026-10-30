@@ -5,8 +5,8 @@
 package latexlook
 
 import (
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/latex"
+	"github.com/Tangerg/oolong/extensions/latex"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 // New returns formula appearance for locale's terminal repertoire.

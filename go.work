@@ -1,24 +1,22 @@
 go 1.27.0
 
-// Every module in the repository, so that a change spanning two of them is one
-// change: built together, tested together, committed together. That is the whole
-// reason to keep them in one repository rather than separate repositories, and it is why this file
-// is committed rather than ignored — without it a checkout does not build.
-//
-// The repository root is not one of them. A module is a unit of distribution and
-// the root distributes nothing: a module there would be an empty thing to tag, an
-// empty page on pkg.go.dev, and a question every reader has to ask. The tests that
-// guard the layering live in ./internal, which is a module because it has to be
-// compiled to run and not because anyone will ever depend on it.
+// Modules are distribution units. Packages inside ui own the UI layers.
 use (
-	./components
-	./core
 	./examples
-	./highlight
-	./internal
-	./latex
-	./markdown
-	./mermaid
-	./ptytest
-	./ssh
+	./extensions/highlight
+	./extensions/latex
+	./extensions/markdown
+	./extensions/mermaid
+	./extensions/ssh
+	./ui
+)
+
+// Versioned replacements are derived by scripts/sync-workspace.sh.
+// Required metadata is local even before a module has its first tag.
+replace (
+	github.com/Tangerg/oolong/extensions/highlight v0.0.0 => ./extensions/highlight
+	github.com/Tangerg/oolong/extensions/latex v0.0.0 => ./extensions/latex
+	github.com/Tangerg/oolong/extensions/markdown v0.0.0 => ./extensions/markdown
+	github.com/Tangerg/oolong/extensions/mermaid v0.0.0 => ./extensions/mermaid
+	github.com/Tangerg/oolong/ui v0.0.0 => ./ui
 )

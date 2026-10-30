@@ -1,0 +1,117 @@
+package kit_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
+)
+
+// BenchmarkParagraphClippedDraw keeps the retained content large while the visible
+// terminal window stays fixed. A viewport projects a full-height child view through a
+// small clip, so steady-state drawing should be paid for by visible rows rather than
+// by the rows hidden above and below it.
+func BenchmarkParagraphClippedDraw(b *testing.B) {
+	const (
+		rows    = 10_000
+		visible = 40
+	)
+	paragraph := kit.NewParagraph(strings.Repeat("content\n", rows), grid.Style{})
+	height := paragraph.HeightForWidth(80)
+	surface := grid.NewSurface(80, visible)
+	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))
+
+	b.ReportAllocs()
+	b.ReportMetric(visible, "visible-rows/op")
+	b.ResetTimer()
+	for b.Loop() {
+		paragraph.Draw(view)
+	}
+}
+
+func BenchmarkParagraphWrappedLinksDraw(b *testing.B) {
+	const visible = 40
+	paragraph := kit.NewParagraph(
+		strings.Repeat("a long linked paragraph ", 400)+"https://example.test/reference",
+		grid.Style{},
+	)
+	paragraph.SetLinks(kit.LinkConfig{Enabled: true})
+	height := paragraph.HeightForWidth(40)
+	surface := grid.NewSurface(40, visible)
+	view := surface.View().Sub(grid.Area(0, -height/2, 40, height))
+
+	b.ReportAllocs()
+	b.ReportMetric(visible, "visible-rows/op")
+	b.ResetTimer()
+	for b.Loop() {
+		paragraph.Draw(view)
+	}
+}
+
+func BenchmarkCodeClippedDraw(b *testing.B) {
+	const (
+		rows    = 10_000
+		visible = 40
+	)
+	lines := make([]text.Line, rows)
+	for i := range lines {
+		lines[i] = text.Of("package content", grid.Style{})
+	}
+	code := kit.NewCode(lines)
+	code.Gutter = kit.LineNumbers{Separator: "│"}
+	height := code.HeightForWidth(80)
+	surface := grid.NewSurface(80, visible)
+	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))
+
+	b.ReportAllocs()
+	b.ReportMetric(visible, "visible-rows/op")
+	b.ResetTimer()
+	for b.Loop() {
+		code.Draw(view)
+	}
+}
+
+func BenchmarkPaletteClippedDraw(b *testing.B) {
+	const (
+		rows    = 10_000
+		visible = 40
+	)
+	found := make([]base.Found, rows)
+	for i := range found {
+		found[i] = base.Found{
+			Command: base.Command{Name: "inspect-session", Title: "Inspect a running session"},
+			At:      []int{0, 2, 5},
+		}
+	}
+	palette := kit.Palette{Found: found, Selected: rows / 2}
+	surface := grid.NewSurface(80, visible)
+	view := surface.View().Sub(grid.Area(0, -rows/2, 80, rows))
+
+	b.ReportAllocs()
+	b.ReportMetric(visible, "visible-rows/op")
+	b.ResetTimer()
+	for b.Loop() {
+		palette.Draw(view)
+	}
+}
+
+func BenchmarkEntryClippedDraw(b *testing.B) {
+	const (
+		rows    = 10_000
+		visible = 40
+	)
+	entry := kit.Entry{Label: "source", Body: strings.Repeat("content\n", rows)}
+	height := entry.HeightForWidth(80)
+	surface := grid.NewSurface(80, visible)
+	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))
+
+	b.ReportAllocs()
+	b.ReportMetric(visible, "visible-rows/op")
+	b.ResetTimer()
+	for b.Loop() {
+		entry.Draw(view)
+	}
+}

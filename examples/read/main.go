@@ -6,10 +6,10 @@
 // certainly finished should stop being redrawn, and what is still being written
 // should look like what it says so far.
 //
-// So a stream splits it. Every block it hands back is printed into the terminal's
-// own scrollback, where it stays after this program exits, and is never parsed or
-// drawn again however long the answer becomes. What is left is short by construction
-// and is re-rendered on every chunk.
+// One StreamDocument owns the complete bounded source. Markdown previews remain
+// revisable until EOF, since later reference definitions can change earlier text.
+// The final immutable document transfers to the publisher, which separately reports
+// acceptance and successful writing into terminal scrollback.
 //
 // Nothing about that is markdown's alone. The same shape — publish what is finished,
 // redraw only what is not — is what any streaming interface built on this does.
@@ -17,31 +17,34 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
 	"github.com/Tangerg/oolong/examples/internal/latexlook"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
-	"github.com/Tangerg/oolong/highlight"
-	"github.com/Tangerg/oolong/latex"
-	"github.com/Tangerg/oolong/markdown"
+	"github.com/Tangerg/oolong/extensions/highlight"
+	"github.com/Tangerg/oolong/extensions/latex"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/content"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Inline:   func(runtime *program.InlineRuntime) program.Component { return newReader(runtime) },
-		Terminal: term.Features{Probe: true},
-	}); err != nil {
+	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { return newReader(runtime).Element(), nil }})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "read:", err)
 		os.Exit(1)
 	}
@@ -50,16 +53,19 @@ func main() {
 // reader is the live part: the block still being written, and a line saying what is
 // happening.
 type reader struct {
-	runtime *program.InlineRuntime
-	theme   kit.Theme
-
-	stream    markdown.Stream
-	open      markdown.Doc
+	runtime   *program.InlineRuntime
+	theme     kit.Theme
+	element   scene.Element
+	document  *content.StreamDocument
+	render    content.Renderer
+	view      *kit.Transcript
 	pieces    []string
 	at        int
-	stop      func()
+	timer     *program.Timer
+	scope     *program.Scope
 	spinner   kit.Spinner
 	renderErr error
+	finished  bool
 }
 
 // How fast the answer arrives. A model's is decided by a model; these two are what a
@@ -93,10 +99,31 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	look.SetRenderer(markdown.FencedCode, func(info, source string) (grid.Drawable, error) {
 		return text.NewBlock(text.BlockConfig{Lines: highlighter.Lines(info, source), Wrap: true}), nil
 	})
-	r.stream.SetLook(look)
+	r.render = markdown.NewRenderer(markdown.RendererConfig{Look: look})
+	var err error
+	r.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown"})
+	if err != nil {
+		panic(err)
+	}
+	r.view, err = kit.NewTranscript(kit.TranscriptConfig{Theme: theme, Glyphs: glyphs, Publisher: runtime.Publisher(), Retention: base.PublishCompleted})
+	if err != nil {
+		panic(err)
+	}
+	if _, err = r.view.Controller().AddDocument(r.document); err != nil {
+		panic(err)
+	}
+	status := scene.NewElement(scene.ElementConfig{Paint: r.paintStatus})
+	r.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
+		Key: "read", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: r.Handle(event.Input)} },
+		Detached: r.view.Controller().Close,
+	}, Items: []scene.Item{{Element: r.view.Element(), Size: layout.Flex(1)}, {Element: status, Size: layout.Fixed(1)}}}).Element()
 
-	runtime.Session().SetTitle("reading")
-	r.stop = runtime.Every(every, r.advance)
+	// Title and notification are optional terminal enhancements.
+	_ = runtime.Session().SetTitle("reading")
+	r.scope, r.renderErr = runtime.NewScope(program.ScopeConfig{})
+	if r.renderErr == nil {
+		r.timer, r.renderErr = runtime.Every(r.scope, every, r.advance)
+	}
 	return r
 }
 
@@ -106,66 +133,43 @@ func (r *reader) advance() {
 		r.finish()
 		return
 	}
-	// Everything the stream calls finished is printed, once, and is the terminal's
-	// from then on. A document is a Drawer and a Measurer and nothing else, which is
-	// what lets the runtime print one without either of them knowing about the other.
-	blocks, err := r.stream.Feed(r.pieces[r.at])
-	r.renderErr = err
-	if len(blocks) > 0 {
-		doc := new(markdown.Doc)
-		doc.SetBlocks(blocks)
-		if printErr := r.runtime.Print(doc); printErr != nil {
-			r.renderErr = errors.Join(r.renderErr, printErr)
-			r.open.SetBlocks(blocks)
-			r.stop()
-			return
-		}
+	if err := r.document.Append([]byte(r.pieces[r.at])); err != nil {
+		r.renderErr = err
+		r.timer.Stop()
+		return
 	}
 	r.at++
-	open, err := r.stream.Open()
-	r.renderErr = errors.Join(r.renderErr, err)
-	r.open.SetBlocks(open)
+	// This finite tutorial prepares a small snapshot synchronously. The same
+	// immutable snapshot can be prepared by program.Work for network-sized sources.
+	r.renderErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
+	r.element.Invalidate()
 }
 
 func (r *reader) finish() {
-	blocks, err := r.stream.Flush()
-	r.renderErr = err
-	if len(blocks) > 0 {
-		doc := new(markdown.Doc)
-		doc.SetBlocks(blocks)
-		if printErr := r.runtime.Print(doc); printErr != nil {
-			r.renderErr = errors.Join(r.renderErr, printErr)
-			r.open.SetBlocks(blocks)
-			r.stop()
-			return
-		}
+	r.renderErr = r.document.End(nil)
+	if r.renderErr == nil {
+		r.renderErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
 	}
-	r.open.SetBlocks(nil)
-	r.stop()
-	r.runtime.Session().SetTitle("")
-	r.runtime.Session().Notify("the answer is finished")
+	r.timer.Stop()
+	r.finished = r.renderErr == nil
+	r.element.Invalidate()
+	// Completion is represented in the scene even when the terminal has no notifier.
+	_ = r.runtime.Session().SetTitle("")
+	_ = r.runtime.Session().Notify("the answer is finished")
 }
 
-// Draw is what is still being written, and a row under it.
-func (r *reader) Draw(v grid.View) {
-	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Measured(0, 0), Of: layout.MeasureFunc(func(_ layout.Axis, width int) int { return r.open.HeightForWidth(width) })},
-		{Size: layout.Fixed(1)},
-	}))
-	r.open.Draw(rows[0])
-	if r.renderErr != nil {
-		kit.Label{Text: r.renderErr.Error(), Style: r.theme.Danger}.Draw(rows[1])
-		return
+func (r *reader) paintStatus(frame scene.Frame) {
+	switch {
+	case r.renderErr != nil:
+		kit.Label{Text: r.renderErr.Error(), Style: r.theme.Danger}.Draw(frame.View)
+	case r.finished:
+		kit.Label{Text: "that is the whole answer — ctrl+c to leave", Style: r.theme.Muted}.Draw(frame.View)
+	default:
+		r.spinner.Draw(frame.View)
 	}
-	if r.at >= len(r.pieces) {
-		kit.Label{
-			Text:  "that is the whole answer — ctrl+c to leave",
-			Style: r.theme.Muted,
-		}.Draw(rows[1])
-		return
-	}
-	r.spinner.Draw(rows[1])
 }
+
+func (r *reader) Element() scene.Element { return r.element }
 
 func (r *reader) Handle(ev input.Event) bool {
 	key, ok := ev.(input.Key)

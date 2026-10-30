@@ -1,6 +1,6 @@
 // Command files browses a directory beside what is in it.
 //
-// Two panes and a keyboard that moves between them, which is what a container is
+// Two panes and a keyboard that moves between them, which is what a scene is
 // for: a key goes to the pane that has it, a press goes to the pane it is over in
 // that pane's own coordinates, and neither is worked out by this program. Tab moves
 // the keyboard, the arrows move within a pane, right and left open and close a
@@ -20,13 +20,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
@@ -34,12 +35,13 @@ func main() {
 	if len(os.Args) > 1 {
 		root = os.Args[1]
 	}
-	if err := program.Run(context.Background(), program.Config{
-		Root: func(runtime *program.Runtime) program.Component {
-			return headless.NewRoot(newBrowser(runtime, read(root, 2)))
-		},
-		Terminal: term.Features{Probe: true, Mouse: true},
-	}); err != nil {
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		return newBrowser(runtime, read(root, 2)).Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "files:", err)
 		os.Exit(1)
 	}
@@ -52,30 +54,30 @@ type entry struct {
 	dir  bool
 }
 
-// browser is a tree, a preview, and the container that decides which of them an
-// event is for.
+// browser composes two scene children. The tree owns selection; its change
+// notification starts a scoped preview task whose stale delivery is revoked.
 type browser struct {
 	runtime *program.Runtime
 	theme   kit.Theme
 
-	tree    *headless.Tree[entry]
-	dressed *kit.Tree[entry]
-	preview *kit.Paragraph
-	window  *headless.Viewport
-	treeBox *kit.Panel
-	viewBox *kit.Panel
-	body    *headless.Container
+	tree         *base.Tree[entry]
+	dressed      *kit.Tree[entry]
+	preview      *kit.Paragraph
+	window       *base.Viewport
+	treeBox      *kit.Panel
+	viewBox      *kit.Panel
+	body         *scene.Group
+	element      scene.Element
+	previewScope *program.Scope
 
-	showing    string
-	generation uint64
+	showing string
 }
 
-func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser {
+func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 	theme := kit.Suited(runtime.Environment().Ground())
 	b := &browser{
 		runtime: runtime,
 		theme:   theme,
-		tree:    headless.NewTree(nodes...),
 		preview: &kit.Paragraph{},
 	}
 	// The tree with a look on it. It is still a widget — it takes the keyboard and
@@ -83,41 +85,54 @@ func newBrowser(runtime *program.Runtime, nodes []headless.Node[entry]) *browser
 	// the bare tree, and nothing here has to dress it at drawing time.
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	b.dressed = kit.NewTree(kit.TreeConfig[entry]{
-		Theme: theme, Glyphs: glyphs, Controller: b.tree,
+		Theme: theme, Glyphs: glyphs, Nodes: nodes,
 		Text: func(e entry) string { return e.name },
 	})
-	b.window = headless.NewViewport(headless.Static{Of: b.preview})
-	b.treeBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs}, Content: b.dressed})
-	b.treeBox.Box.Title = "files"
-	b.viewBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs}, Content: b.window})
-	b.viewBox.Box.Title = "preview"
-
-	// The two framed panes, with a column between them. A panel translates from its
-	// border to its child, while the container translates from the whole row to the
-	// panel. Each object owns exactly the coordinate boundary it drew.
-	b.body = headless.NewContainer(layout.Across,
-		headless.Item{Size: layout.Part(2, 5), Of: b.treeBox},
-		headless.Item{Size: layout.Flex(1), Of: b.viewBox},
-	)
-	b.body.Gap = 1
-	b.body.Focus(true)
+	b.tree = b.dressed.Controller()
+	previewElement := scene.NewElement(scene.ElementConfig{
+		Key:   "file-preview",
+		Paint: func(frame scene.Frame) { b.preview.Draw(frame.View) },
+		Measure: func(axis layout.Axis, width int) int {
+			if axis == layout.Down {
+				return b.preview.HeightForWidth(width)
+			}
+			return 0
+		},
+	})
+	b.window = base.NewViewport(base.ViewportConfig{Content: previewElement})
+	b.treeBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs, Title: "files"}, Content: b.dressed.Element()})
+	b.viewBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs, Title: "preview"}, Content: b.window.Element()})
+	b.body = scene.NewGroup(scene.GroupConfig{Axis: layout.Across, Gap: 1, Items: []scene.Item{
+		{Size: layout.Part(2, 5), Element: b.treeBox.Element()},
+		{Size: layout.Flex(1), Element: b.viewBox.Element()},
+	}})
+	footer := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		kit.Label{Text: "tab: other pane   →/←: open, close   q: quit", Style: b.theme.Subtle}.Draw(frame.View)
+	}})
+	unsubscribe := b.tree.Subscribe(b.show)
+	b.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
+		Key: "files",
+		Preview: func(event scene.Event) scene.EventResult {
+			if key, ok := event.Input.(input.Key); ok && key.Down() && key.Code == input.Tab {
+				return scene.EventResult{Consumed: event.FocusNext(key.Mods.Has(input.Shift))}
+			}
+			return scene.EventResult{Consumed: b.Handle(event.Input)}
+		},
+		Detached: func() {
+			unsubscribe()
+			if b.previewScope != nil {
+				b.previewScope.Close()
+			}
+		},
+	}, Items: []scene.Item{
+		{Size: layout.Flex(1), Element: b.body.Element()},
+		{Size: layout.Fixed(1), Element: footer},
+	}}).Element()
 	b.show()
 	return b
 }
 
-// Draw paints the two panes, and a hint row under them.
-func (b *browser) Draw(v headless.Frame) {
-	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Flex(1)},
-		{Size: layout.Fixed(1)},
-	}))
-	b.body.Draw(rows[0])
-
-	kit.Label{
-		Text:  "tab: other pane   →/←: open, close   q: quit",
-		Style: b.theme.Subtle,
-	}.Draw(rows[1].View)
-}
+func (b *browser) Element() scene.Element { return b.element }
 
 func (b *browser) show() {
 	row, ok := b.tree.CurrentRow()
@@ -125,20 +140,37 @@ func (b *browser) show() {
 		return
 	}
 	b.showing = row.Item.path
-	b.generation++
-	generation := b.generation
+	if b.previewScope != nil {
+		b.previewScope.Close()
+	}
 	selected, theme := row.Item, b.theme
 	b.preview.SetText([]text.Line{text.Of("Loading "+selected.path, theme.Muted)})
 	b.window.Scroll().ToTop()
-	dispatcher := b.runtime.Dispatcher()
-	go func() {
-		lines := preview(selected, theme)
-		dispatcher.Post(func() {
-			if b.generation == generation {
-				b.preview.SetText(lines)
+	scope, err := b.runtime.NewScope(program.ScopeConfig{})
+	if err != nil {
+		b.preview.SetText([]text.Line{text.Of(err.Error(), theme.Danger)})
+		return
+	}
+	b.previewScope = scope
+	_, err = b.runtime.Start(scope, program.Work[[]text.Line]{
+		Run: func(ctx context.Context) ([]text.Line, error) {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return nil, contextErr
 			}
-		})
-	}()
+			return preview(selected, theme), nil
+		},
+		Apply: func(lines []text.Line, err error) {
+			defer scope.Close()
+			if err != nil {
+				lines = []text.Line{text.Of(err.Error(), theme.Danger)}
+			}
+			b.preview.SetText(lines)
+		},
+	})
+	if err != nil {
+		scope.Close()
+		b.preview.SetText([]text.Line{text.Of(err.Error(), theme.Danger)})
+	}
 }
 
 func (b *browser) Handle(ev input.Event) bool {
@@ -146,9 +178,7 @@ func (b *browser) Handle(ev input.Event) bool {
 		b.runtime.Quit()
 		return true
 	}
-	handled := b.body.Handle(ev)
-	b.show()
-	return handled
+	return false
 }
 
 func preview(of entry, theme kit.Theme) []text.Line {
@@ -183,7 +213,7 @@ func preview(of entry, theme kit.Theme) []text.Line {
 	return lines
 }
 
-func read(root string, depth int) []headless.Node[entry] {
+func read(root string, depth int) []base.Node[entry] {
 	if depth < 0 {
 		return nil
 	}
@@ -191,7 +221,7 @@ func read(root string, depth int) []headless.Node[entry] {
 	if err != nil {
 		// A directory nobody may open is not an empty directory, and drawing it as one
 		// tells the reader something untrue about their own filesystem.
-		return []headless.Node[entry]{{Item: entry{name: filepath.Base(root) + ": " + err.Error()}}}
+		return []base.Node[entry]{{Item: entry{name: filepath.Base(root) + ": " + err.Error()}}}
 	}
 	slices.SortFunc(items, func(a, b os.DirEntry) int {
 		if a.IsDir() != b.IsDir() {
@@ -203,13 +233,13 @@ func read(root string, depth int) []headless.Node[entry] {
 		return strings.Compare(a.Name(), b.Name())
 	})
 
-	var nodes []headless.Node[entry]
+	var nodes []base.Node[entry]
 	for _, item := range items {
 		if strings.HasPrefix(item.Name(), ".") {
 			continue
 		}
 		path := filepath.Join(root, item.Name())
-		node := headless.Node[entry]{
+		node := base.Node[entry]{
 			Item: entry{name: item.Name(), path: path, dir: item.IsDir()},
 		}
 		if item.IsDir() {

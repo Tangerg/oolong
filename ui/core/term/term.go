@@ -1,0 +1,955 @@
+// Package term owns the terminal itself: taking it over, giving it back, reading
+// what it sends, and writing frames to it without blocking whoever drew them.
+//
+// It is the only package in the TUI that touches the operating system. Everything
+// above it works in cells, events and frames, and can be tested without a terminal
+// at all — which is the point of putting the parts that need one here and nowhere
+// else.
+package term
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"image"
+	"math"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	xterm "golang.org/x/term"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
+	"github.com/Tangerg/oolong/ui/core/clipboard"
+	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+)
+
+// ErrNotTerminal is reported by [Open] when the process is not attached to a
+// terminal — piped, redirected, or running under something that gave it no tty.
+var ErrNotTerminal = errors.New("term: not a terminal")
+
+// ErrImageIDsExhausted means a terminal session has used every image identity the
+// graphics protocol can represent. Reusing one would make a new image overwrite an
+// older image that can still be present, so the session refuses another transmission.
+var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
+
+// Features are the optional terminal behaviours a session requests.
+//
+// They are separate from [Config] because optional capability requests can travel
+// between terminal transports without carrying the session's screen-ownership
+// decision with them. The zero value asks for none of them, which is a legitimate
+// choice for a session that only wants raw keys.
+type Features struct {
+	// Mouse asks for mouse reporting, including movement and not only clicks.
+	Mouse bool
+	// Focus asks to be told when the terminal window gains or loses focus, which is
+	// what lets a UI stop animating while nobody is looking.
+	Focus bool
+	// Keyboard is the Kitty keyboard protocol enhancements to request. Use
+	// [KeyboardCompatible] for the portable set and add features such as
+	// [input.KeyboardReportEvents] only when the application consumes them.
+	// Terminals that do not implement the protocol ignore the request.
+	Keyboard input.KeyboardFeatures
+	// Probe asks the terminal about itself while [Open] is still running: the
+	// colour it draws on, and the extensions it claims. See [Terminal.Ground]
+	// and [Terminal.Attributes].
+	//
+	// It is the only setting that costs anything — one round trip to the terminal,
+	// normally a millisecond and bounded either way — and the only one whose answer
+	// a session cannot get any other way. A theme that has to be told whether the
+	// terminal is light is a theme that is wrong for half the people who run it.
+	Probe bool
+}
+
+// Config is the complete construction state of a terminal session.
+//
+// Features are requests the driven terminal may or may not support. AltScreen is
+// ownership: it decides whether closing the session restores the screen that was
+// present before it opened. Keeping the two facts distinct lets adapters share
+// feature requests without duplicating that ownership decision.
+type Config struct {
+	// Features are the optional behaviours to request.
+	Features Features
+	// AltScreen draws on a screen of its own, leaving the user's scrollback as it
+	// was. Without it, frames are drawn in place among whatever else is on screen.
+	AltScreen bool
+}
+
+// Terminal is a terminal taken over for a session.
+//
+// It is the whole boundary: raw mode, the modes it turned on, the goroutines
+// reading input, and the writer frames go through. [Terminal.Close] gives all of
+// it back, in the order that leaves the terminal as it was found, and is safe to
+// call more than once — including from a deferred call on a path that already
+// failed. A Terminal must not be copied after construction; the files, modes,
+// goroutines and restoration obligation are one session.
+type Terminal struct {
+	in, out     *os.File
+	inFD, outFD int
+	output      *terminalOutput
+	modes       Modes
+	oldState    *xterm.State
+
+	events chan input.Event
+	writer *Writer
+	// waker ends the reader's wait when this process, rather than the terminal, has
+	// something to say about it.
+	waker *waker
+	// handed is the latch the reader parks on while the terminal is somebody else's
+	// — see [Terminal.Hand].
+	handed handover
+	// said is what the terminal was willing to say about itself, when it was asked.
+	// It is written once during Open and only read afterwards.
+	said answers
+	// clipboard owns OSC 52 encoding and the one live read request. Paste may be
+	// called from any goroutine while the pump settles its answer.
+	clipboard *clipboard.Channel
+	// locale, wheelProfile and imageProtocol are immutable facts of this session.
+	// They are resolved once from the environment passed to OpenOn and the answers
+	// received from this terminal, so later process-environment changes cannot alter
+	// a live terminal's capabilities.
+	locale        string
+	color         grid.Depth
+	wheelProfile  input.Wheel
+	imageProtocol graphics.Protocol
+	// title is what this session called the window, and what it owes the terminal
+	// when it gives it back.
+	title title
+	// task is progress shown outside the cell grid. It owns its keepalive and
+	// pauses it whenever another process owns the terminal.
+	task *taskProgress
+	// pictures numbers the images this session has sent, so that two of them cannot
+	// arrive under one name. It is atomic because sending one is not the interface's
+	// goroutine's business — a picture is usually fetched from somewhere else.
+	pictures atomicSequence
+
+	resized  chan input.Resize
+	resizeMu sync.Mutex
+	// size is the last size anything measured, and the one thing that decides
+	// whether the next measurement is news. Both paths that measure — the platform
+	// watcher and taking the terminal back from a child — advance it. See
+	// [Terminal.noteResize].
+	size       dimensions
+	stop       chan struct{}
+	pumpDone   chan struct{}
+	resizeDone chan struct{}
+
+	closeOnce sync.Once
+	closeErr  error
+	inputErr  error
+}
+
+// Open takes over the terminal on standard input and output.
+//
+// It reports [ErrNotTerminal] when there is no terminal to take over, which is the
+// case a caller has to handle rather than force: a program whose output is being
+// piped wants to write text, not frames.
+func Open(cfg Config) (*Terminal, error) {
+	return OpenOn(os.Stdin, os.Stdout, cfg, os.LookupEnv)
+}
+
+// OpenOn takes over a terminal that is not this process's own.
+//
+// Standard input and output are the ordinary answer and [Open] is the ordinary
+// call. This exists because they are not the only answer: a program serving a
+// session over a pty holds one at each end, and everything below this line worked
+// on whatever files it was handed long before anything could hand it any.
+//
+// lookup is the environment of the files' terminal. It is explicit because the
+// terminal may belong to a pty or another session whose TERM and TMUX are not this
+// process's. Nil means no environment facts are available.
+//
+// OpenOn is also what makes this package testable at all. A terminal that could only
+// ever be the process's own is one whose lifecycle — raw mode, the modes it turns
+// on, the order it puts them back in — could be checked only by running a second
+// program and reading what came out of it.
+func OpenOn(
+	in, out *os.File,
+	cfg Config,
+	lookup func(string) (string, bool),
+) (*Terminal, error) {
+	if in == nil {
+		return nil, errors.New("term: input file is required")
+	}
+	if out == nil {
+		return nil, errors.New("term: output file is required")
+	}
+	inFD, err := checkedTerminalFD(in, "input")
+	if err != nil {
+		return nil, err
+	}
+	if _, outputErr := checkedTerminalFD(out, "output"); outputErr != nil {
+		return nil, outputErr
+	}
+
+	// Raw mode first: it is what stops the terminal from interpreting keys on the
+	// program's behalf, and everything below assumes it.
+	oldState, err := xterm.MakeRaw(inFD)
+	if err != nil {
+		return nil, fmt.Errorf("term: enter raw mode: %w", err)
+	}
+	t := newTerminal(in, out, cfg, lookup, oldState)
+	if err := t.takeOver(inFD); err != nil {
+		return nil, err
+	}
+	t.start(cfg, lookup)
+	return t, nil
+}
+
+func checkedTerminalFD(file *os.File, role string) (int, error) {
+	fd := int(file.Fd())
+	if !xterm.IsTerminal(fd) {
+		return 0, fmt.Errorf("%w: %s is fd %d", ErrNotTerminal, role, fd)
+	}
+	return fd, nil
+}
+
+func newTerminal(
+	in, out *os.File,
+	cfg Config,
+	lookup func(string) (string, bool),
+	oldState *xterm.State,
+) *Terminal {
+	return &Terminal{
+		in:   in,
+		inFD: int(in.Fd()), outFD: int(out.Fd()),
+		out:        out,
+		modes:      cfg.Modes(lookup),
+		oldState:   oldState,
+		events:     make(chan input.Event, 64),
+		resized:    make(chan input.Resize, 1),
+		stop:       make(chan struct{}),
+		pumpDone:   make(chan struct{}),
+		resizeDone: make(chan struct{}),
+		task:       newTaskProgress(),
+		clipboard:  clipboard.New(lookup),
+		locale:     DetectLocale(lookup),
+		color:      DetectDepth(lookup),
+	}
+}
+
+// takeOver acquires the output-side resources in order. Any failure rolls back the
+// complete prefix already acquired, leaving start to run only for a usable session.
+func (t *Terminal) takeOver(inFD int) error {
+	output, err := newTerminalOutput(t.out)
+	if err != nil {
+		return errors.Join(err, xterm.Restore(t.inFD, t.oldState))
+	}
+	t.output = output
+	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
+		return t.abortOpen(err)
+	}
+	defer func() { _ = t.output.SetWriteDeadline(time.Time{}) }()
+	if _, err := t.output.WriteString(t.modes.Enter()); err != nil {
+		return t.abortOpen(fmt.Errorf("term: take over the terminal: %w", err))
+	}
+
+	t.writer = NewWriter(WriterConfig{Destination: t.output})
+	waker, wakeErr := newWaker(inFD)
+	if wakeErr != nil {
+		return t.abortOpen(wakeErr)
+	}
+	t.waker = waker
+	go t.task.run(t.stop, t.writer.Queue)
+	return nil
+}
+
+// start activates the input side after acquisition can no longer fail. Goroutines
+// are deliberately last: no partially opened Terminal is returned, and no rollback
+// path has to coordinate workers that escaped into the session.
+func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
+	// Subscribed before the size is measured, and for that reason: a change between
+	// the measurement and the subscription is one nothing would ever hear about.
+	// See [resizeSource].
+	resizes := subscribeResize()
+
+	// The size is delivered as an event rather than left to be asked for, so a
+	// session learns its size the same way it learns about every later change. No
+	// watcher is running yet, so this is the one write to size that needs no lock.
+	if w, h, err := t.Size(); err == nil {
+		t.size = knownDimensions(w, h)
+		t.events <- input.Resize{Width: w, Height: h}
+	}
+
+	raw := make(chan readResult, 4)
+	go t.read(raw)
+
+	// Asking has to happen here, between the reader starting and the pump starting.
+	// A terminal has exactly one reader; asking any earlier means nothing is
+	// listening for the answer, and any later means two readers race for it.
+	//
+	// The decoder is this session's for the whole of it. Startup input is ordinary
+	// input — the same timing, the same escape grace — so the probe and the pump read
+	// through one stream rather than two agreeing decoders.
+	stream := input.NewStream(input.StreamConfig{Clipboard: t.clipboard})
+	var early []input.Event
+	var end *readResult
+	if cfg.Features.Probe {
+		// One budget covers asking and being answered; the probe holds the transport
+		// to the same instant.
+		pr := &probe{
+			raw: raw, out: t.output, stream: stream,
+			deadline: time.Now().Add(answerGrace),
+		}
+		t.said = pr.run()
+		early = pr.early
+		end = pr.end
+	}
+	t.wheelProfile = input.WheelFor(lookup, t.identity())
+	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
+	t.imageProtocol = graphics.Detect(lookup, t.identity(), sixel)
+
+	p := &pump{
+		raw: raw, end: end, resized: t.resized, stop: t.stop,
+		out: t.events, stream: stream, early: early,
+	}
+	t.startResizeWatcher(resizes)
+	go func() {
+		defer close(t.pumpDone)
+		t.inputErr = p.run()
+		close(t.events)
+	}()
+}
+
+// abortOpen rolls back every resource acquired before a Terminal became usable.
+// Acquisition grows in one direction; every failure leaves through this one edge so
+// adding a resource cannot create a new path that forgets an older one.
+func (t *Terminal) abortOpen(cause error) error {
+	errs := []error{cause}
+	if t.writer != nil {
+		if err := t.writer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("term: stop frame writer after open failed: %w", err))
+		}
+	}
+	errs = append(errs, t.giveBack()...)
+	if t.output != nil {
+		errs = append(errs, t.output.Close())
+	}
+	return errors.Join(errs...)
+}
+
+// Events is the terminal's input, closed when the input ends or the session does.
+func (t *Terminal) Events() <-chan input.Event { return t.events }
+
+// InputErr reports why [Terminal.Events] closed.
+//
+// It must be called only after Events has closed. A clean end of input and a session
+// stopped by [Terminal.Close] report nil; another read failure is preserved as its
+// cause. The channel close synchronizes the pump's write with this read.
+func (t *Terminal) InputErr() error { return t.inputErr }
+
+// Writer is where frames go.
+func (t *Terminal) Writer() *Writer { return t.writer }
+
+// Ground is what the terminal's own two colours are, and whether it said.
+//
+// It answers two questions that used to be one. Which theme suits is decided by the
+// background alone — [grid.RGB.Dark] turns it into a yes or no. What a translucent
+// layer mixes with needs both, because a cell left at the terminal's own colours has
+// no numbers of its own until this says what they are; that is what [grid.Ground] is
+// for and why a frame is given one.
+//
+// A colour the terminal was not asked for, or would not give, comes back as the
+// default — see [grid.Color.Default]. A session that gets one has to choose for
+// itself, because there is no safe guess: dark is the commoner choice and light is
+// the one that becomes unreadable when guessed wrong.
+func (t *Terminal) Ground() grid.Ground {
+	var g grid.Ground
+	if t.said.hasFg {
+		g.FG = grid.RGBColor(t.said.foreground.R, t.said.foreground.G, t.said.foreground.B)
+	}
+	if t.said.hasBg {
+		g.BG = grid.RGBColor(t.said.background.R, t.said.background.G, t.said.background.B)
+	}
+	return g
+}
+
+// Attributes is what the terminal said it was, and whether it said.
+//
+// The class is of little use. What the extensions carry is worth having: sixel
+// graphics is claimed here and nowhere else, so this is how a program learns it
+// can draw pixels on a terminal that does not speak Kitty's protocol.
+func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
+	return t.said.attributes, t.said.hasAttrs
+}
+
+// Copy asks the terminal to put text on the system clipboard, reporting false for
+// text too large to carry — see [clipboard.MaxPayload].
+//
+// The terminal does it rather than the process, because the terminal is the only
+// part of this on the user's side of the connection. Over ssh, in a container, or
+// through a multiplexer running elsewhere, shelling out to pbcopy fills a clipboard
+// nobody can paste from.
+//
+// The sequence is queued beside the frames, so it lands between two of them and
+// never inside one. A terminal is free to refuse and says nothing when it does, so
+// true means asked for rather than done.
+func (t *Terminal) Copy(text string) bool {
+	seq, ok := t.clipboard.Copy(clipboard.System, text)
+	if !ok {
+		return false
+	}
+	_, err := t.writer.Queue([]byte(seq))
+	return err == nil
+}
+
+// Paste asks the terminal what is on the system clipboard.
+//
+// The answer arrives on [Terminal.Events] as an ordinary [input.Paste], because
+// that is what it is: a component that already inserts what the user pasted needs
+// nothing further to insert what they copied somewhere else.
+//
+// It reports whether this request was queued. False means a previous unidentified
+// request is still eligible for an answer or the writer refuses admission. Most
+// terminals refuse to answer, because a program can read what the user copied out of a
+// password manager; that refusal has no reply, so true does not promise an answer.
+func (t *Terminal) Paste() bool {
+	return t.clipboard.Request(clipboard.System, func(sequence string) bool {
+		_, err := t.writer.Queue([]byte(sequence))
+		return err == nil
+	})
+}
+
+// Name is what the terminal called itself when asked, and whether it answered.
+//
+// It is worth more than anything the environment says, which is why everything here
+// that identifies a terminal prefers it. Environment variables do not survive ssh, do
+// not exist in a container, and are rewritten by a multiplexer; an answer to this came
+// from the terminal that is actually drawing.
+//
+// The form is whatever the terminal chose — "kitty(0.32.2)", "WezTerm 20240203" — so
+// it is matched against and not parsed.
+func (t *Terminal) Name() (string, bool) { return t.said.name, t.said.hasName }
+
+// Version is the number a terminal gives when it will not give a name, and whether it
+// gave one. See [input.DeviceVersion] for why the numbers are not interpreted here.
+func (t *Terminal) Version() (input.DeviceVersion, bool) {
+	return t.said.version, t.said.hasVersion
+}
+
+// Keyboard is which of the Kitty keyboard protocol's enhancements the terminal
+// actually turned on, and whether it said.
+//
+// Asking for them is not the same as getting them, and that difference is invisible in
+// the events themselves. A terminal can accept the request for unambiguous key codes
+// and give nothing for key releases: the protocol is live, Shift+Enter works, the
+// teardown still owes a pop — and every key is held forever as far as this program can
+// tell. A component that waits for a key to be let go would wait for ever, and nothing
+// would say why.
+//
+// A session that did not ask for the protocol, or a terminal that does not implement
+// it, reports false.
+func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
+	return t.said.keyboard, t.said.hasKeyboard
+}
+
+// Locale is the terminal environment's character locale. It is the explicit
+// OpenOn environment's answer, not the process environment's, and an empty string
+// means none was supplied.
+func (t *Terminal) Locale() string { return t.locale }
+
+// Color is how much colour this terminal's environment says it can show.
+func (t *Terminal) Color() grid.Depth { return t.color }
+
+func (t *Terminal) identity() string {
+	if t.said.hasName {
+		return t.said.name
+	}
+	return ""
+}
+
+// Wheel is what this terminal's wheel reports are worth.
+//
+// It prefers what the terminal said it was over what the environment claims, for the
+// reason [Terminal.Name] gives.
+func (t *Terminal) Wheel() input.Wheel {
+	return t.wheelProfile
+}
+
+// Graphics is the richest way this terminal will take an image.
+//
+// It is the environment and the terminal's own claims together, which is what it
+// takes: the environment names the terminal, and only the terminal names sixel. A
+// session that did not ask — see [Features.Probe] — gets the answer
+// [graphics.Detect] derives from its environment alone.
+func (t *Terminal) Graphics() graphics.Protocol {
+	return t.imageProtocol
+}
+
+// ReportDirectory tells the terminal which directory the program is working in.
+//
+// It is the other half of leaving relative paths alone. A terminal finds paths in its
+// own output and offers to open them, and it can only resolve "src/main.go" against a
+// directory it knows — which, once a program has changed its own, is not the one the
+// shell started in. Without this the terminal's own path handling quietly stops
+// working for exactly the output a program produces, and the reason a program declines
+// to make a relative path a hyperlink is that the terminal would do it better.
+//
+// The path is made absolute, because a relative one tells the terminal nothing it did
+// not already have. An empty path reports the process's own working directory.
+//
+// It is written beside the frames, so it lands between two of them and never inside
+// one. A terminal that does not implement it ignores it. A nil error means queued;
+// [Terminal.Writer] reports the delivery outcome.
+func (t *Terminal) ReportDirectory(path string) error {
+	if path == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("term: report the directory: %w", err)
+		}
+		path = cwd
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("term: report the directory: %w", err)
+	}
+	// The host is part of the form and is what tells a terminal on the other end of an
+	// ssh connection that the path is not one of its own. A machine that cannot name
+	// itself reports none, which is the form's own way of saying "wherever this is".
+	host, _ := os.Hostname()
+	location := (&url.URL{
+		Scheme: "file",
+		Host:   host,
+		Path:   filepath.ToSlash(abs),
+	}).String()
+	if _, err := t.writer.Queue([]byte("\x1b]7;" + location + "\x1b\\")); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Size is the terminal's size in cells.
+func (t *Terminal) Size() (w, h int, err error) {
+	return xterm.GetSize(t.outFD)
+}
+
+// CellSize is how many pixels one cell is, and whether the terminal said.
+//
+// It is what a picture has to be fitted with — see [graphics.Fit] — and it is the
+// one number about a terminal that cannot be worked out from the others. Plenty of
+// terminals do not report it, which is what the false is for: a picture scaled by an
+// invented cell size is a picture the wrong shape, and not showing one is the better
+// answer.
+func (t *Terminal) CellSize() (image.Point, bool) {
+	pxW, pxH, ok := windowPixels(t.outFD)
+	if !ok {
+		return image.Point{}, false
+	}
+	cols, rows, err := t.Size()
+	if err != nil || cols <= 0 || rows <= 0 {
+		return image.Point{}, false
+	}
+	return image.Pt(pxW/cols, pxH/rows), true
+}
+
+// Transmit queues a picture and returns its handle for later placement in a frame
+// — see [graphics.Image.Placement]. [Terminal.Writer] reports the delivery outcome.
+//
+// The number is this session's to allocate, because two pictures under one name are
+// one picture: nothing above this can know what else has been sent. It is sent
+// beside the frames, so it lands between two of them and never inside one, and it
+// happens once — placing it again on every frame that shows it costs nothing more.
+//
+// A terminal that cannot show pictures is not asked. Whether this one can is
+// [Terminal.Graphics], and a caller that sends without asking has written a
+// megabyte of base64 to something that will print it. It reports
+// [ErrImageIDsExhausted] rather than reusing a handle that may still name an image.
+func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
+	id, ok := t.pictures.next(math.MaxUint32)
+	if !ok {
+		return graphics.Image{}, ErrImageIDsExhausted
+	}
+	var payload bytes.Buffer
+	img, err := graphics.Transmit(&payload, imageID(id), png)
+	if err != nil {
+		return graphics.Image{}, err
+	}
+	if _, err := t.writer.Queue(payload.Bytes()); err != nil {
+		return graphics.Image{}, err
+	}
+	return img, nil
+}
+
+// ReleaseImage queues deletion of transmitted image data and all its placements.
+// The caller must stop drawing the image before releasing it.
+func (t *Terminal) ReleaseImage(img graphics.Image) error {
+	var payload bytes.Buffer
+	if err := img.Release(&payload); err != nil {
+		return err
+	}
+	if _, err := t.writer.Queue(payload.Bytes()); err != nil {
+		return err
+	}
+	return nil
+}
+
+func imageID(id uint64) uint32 {
+	if id > math.MaxUint32 {
+		panic("term: image identity exceeds the graphics protocol")
+	}
+	return uint32(id)
+}
+
+// Close gives the terminal back.
+//
+// The order is the reverse of taking it over, and every step runs even if an
+// earlier one failed: a terminal left in raw mode is unusable, so a failure to
+// write the restore sequences must not be a reason to skip leaving raw mode.
+func (t *Terminal) Close() error {
+	t.closeOnce.Do(func() {
+		close(t.stop)
+		// The reader is waiting for the terminal to say something, and nothing will:
+		// waking it is what lets it see that the session is over. It is also what
+		// releases a reader parked mid-handover, so a session closed while the
+		// terminal is somebody else's still ends.
+		t.waker.wake()
+		<-t.resizeDone
+		<-t.task.done
+
+		// Raw mode must settle independently of output backpressure. The same
+		// deadline covers queued frames and the final restore sequences.
+		var errs []error
+		if err := xterm.Restore(t.inFD, t.oldState); err != nil {
+			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
+		}
+		errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+		t.writer.CloseAdmission()
+		_, cleanupErr := t.writer.QueueControl([]byte(t.task.leave() + t.title.leave() + t.modes.Leave()))
+		errs = append(errs, cleanupErr)
+		errs = append(errs, t.writer.Close())
+		// Deadline cancellation ends the active write before another display owner
+		// can emit output. No abandoned writer can later publish an old frame.
+		<-t.writer.loopDone
+		errs = append(errs, t.writer.Err())
+		if err := t.output.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
+		}
+		// The pump owns the event channel, so it has to have finished before anyone
+		// could observe the channel closed.
+		<-t.pumpDone
+		t.closeErr = errors.Join(errs...)
+	})
+	return t.closeErr
+}
+
+// giveBack restores modes during startup rollback or a handover. The caller owns
+// an output deadline; Close instead queues these sequences behind pending frames.
+func (t *Terminal) giveBack() []error {
+	var errs []error
+	// Session metadata is cleared before modes, so neither a task nor a title leaks
+	// into the next owner.
+	if err := t.control(t.task.leave() + t.title.leave() + t.modes.Leave()); err != nil {
+		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
+	}
+	if err := xterm.Restore(t.inFD, t.oldState); err != nil {
+		errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
+	}
+	return errs
+}
+
+// control joins the session writer once it exists. Startup rollback is the only
+// direct write: no writer has taken ownership of the byte stream at that point.
+func (t *Terminal) control(value string) error {
+	if t.writer == nil {
+		_, err := t.output.WriteString(value)
+		return err
+	}
+	if _, err := t.writer.QueueControl([]byte(value)); err != nil {
+		return err
+	}
+	return errors.Join(t.writer.Drain(DrainGrace), t.writer.Err())
+}
+
+// read waits for the terminal to have something to say, reads it, and hands the
+// chunk to the pump.
+//
+// The waiting is separate from the reading, and that is the whole shape of it. A
+// blocking read cannot be cancelled portably, so a reader that simply read would be
+// inside a read at exactly the moments a session needs it not to be: while the
+// terminal belongs to a child, and after the session has been closed. Waiting first
+// means every one of those finds this goroutine holding nothing — see [waker].
+//
+// Where there is no way to wait — see [interruptible] — the wait reports "maybe"
+// and the read below it does the blocking, which is what a reader that cannot be
+// woken did before any of this existed.
+func (t *Terminal) read(raw chan<- readResult) {
+	defer t.waker.close()
+	for {
+		// Before the read and not after it: a byte taken while the terminal is
+		// somebody else's is a byte they never see.
+		t.handed.park(t.stop)
+		select {
+		case <-t.stop:
+			return
+		default:
+		}
+		ready, err := t.waker.wait()
+		if err != nil {
+			select {
+			case raw <- readResult{err: err, at: time.Now()}:
+			case <-t.stop:
+			}
+			return
+		}
+		if !ready {
+			// This process asked for the reader back, so nothing was read and there is
+			// nothing to hand on. Whether that was a handover or the end of the session
+			// is answered at the top of the loop.
+			continue
+		}
+
+		buf := make([]byte, 4096)
+		n, err := t.in.Read(buf)
+		at := time.Now()
+		if n > 0 || err != nil {
+			select {
+			case raw <- readResult{data: buf[:n], at: at, err: err}:
+			case <-t.stop:
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+		select {
+		case <-t.stop:
+			return
+		default:
+		}
+	}
+}
+
+// SetTitle names the terminal's window, and remembers to put back whatever it was
+// called before.
+//
+// The title is where a program says what it is doing to somebody who is not looking
+// at it: a tab in a window behind this one, a taskbar entry, a window list. That is
+// the whole of its value, and it is why the text should be the task and not the
+// program's name — which the user can already see.
+//
+// It is queued beside the frames, so it lands between two of them and never inside
+// one. A terminal that does not implement it ignores it, and one that does not
+// implement the title stack ignores the putting back — which is why a program that
+// cares should set something sensible on the way out rather than rely on it.
+func (t *Terminal) SetTitle(s string) error {
+	return t.title.to(s, t.writer.Queue)
+}
+
+// Bell asks the terminal for its attention.
+//
+// What that is, is the user's to decide and not this program's: a sound, a flash of
+// the window, a mark on the tab, or nothing at all. That is the reason to send this
+// rather than to invent an attention-getting animation — the user has already told
+// their terminal what they want to happen.
+func (t *Terminal) Bell() error { _, err := t.writer.Queue([]byte{ansi.Bell}); return err }
+
+// Notify asks for a desktop notification.
+//
+// It is for the thing that finished while the user was looking at something else,
+// which is the case a terminal interface cannot answer on its own: the window is
+// not on screen, so nothing drawn in it is seen.
+//
+// Terminals that do not implement it ignore it, and there is no way to find out
+// which did — so a program that has something to say should say it in the interface
+// as well, and treat this as the extra it is.
+func (t *Terminal) Notify(text string) error {
+	_, err := t.writer.Queue([]byte(command(notifySend, text)))
+	return err
+}
+
+// Hand gives the terminal to something else and takes it back when it returns.
+//
+// It is what opening an editor or a pager is made of. The session is put back exactly
+// as it was found — the modes it turned on, off in the opposite order, then cooked
+// mode — and then the whole of that is done again in reverse.
+//
+// The reader comes off the terminal first and goes back on last, which is the part
+// nothing else can do for a caller: a session that only restored the modes would
+// still be reading, and every second keystroke would go to this process.
+//
+// It runs on the caller's goroutine and does not return until run does, because an
+// interface that drew a frame while a child owned the terminal would draw it over the
+// child. The caller is responsible for nothing else writing meanwhile.
+// The optional prepare callback runs after claiming the handover, with the normal
+// interface modes still active. It can finish and drain interface output. A failed
+// prepare returns its error without changing modes or calling run.
+// Nested or concurrent Hand calls return [ErrHandoverActive] without preparing or
+// running their child. A closed session returns [ErrClosed]; closing from run ends the session
+// rather than reacquiring it when run returns.
+//
+// The window may be a different size afterwards with nothing having reported it,
+// because the signal went to whichever process group was in the foreground. A fresh
+// size is asked for and delivered on [Terminal.Events].
+//
+// Where the reader cannot be taken off the terminal this reports
+// [errors.ErrUnsupported] and does nothing, because handing over while still reading
+// is a child that drops every other keystroke. Whether it can is a question about the
+// session rather than the platform: a console can be waited on, and a pipe pretending
+// to be one cannot.
+func (t *Terminal) Hand(prepare, run func() error) (err error) {
+	if run == nil {
+		return nil
+	}
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
+	}
+	if !t.waker.interruptible() {
+		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
+	}
+	parked, acquired := t.handed.hold()
+	if !acquired {
+		return ErrHandoverActive
+	}
+	defer t.handed.release()
+	if prepare != nil {
+		if prepareErr := prepare(); prepareErr != nil {
+			return prepareErr
+		}
+	}
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
+	}
+	if releaseErr := t.release(parked); releaseErr != nil {
+		return releaseErr
+	}
+	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
+	// with its terminal still parked. The panic continues after ownership is restored.
+	defer func() { err = errors.Join(err, t.resume()) }()
+	return run()
+}
+
+func (t *Terminal) release(parked <-chan struct{}) error {
+	// Keepalives are output too. Pause before taking the writer's watermark so a
+	// refresh cannot appear after the drain and inside the child's output.
+	t.task.pause()
+	// Whatever the interface drew has to reach the terminal before the modes go
+	// back, for the same reason it does on the way out: a frame written after the
+	// alternate screen was given up is a frame drawn onto the user's own screen. Do
+	// this before changing modes, so a timeout only needs to end the reader claim
+	// and resume keepalives, without restoring terminal modes.
+	if err := t.writer.Drain(DrainGrace); err != nil {
+		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.task.restore(t.writer.Queue))
+	}
+	if err := t.writer.Err(); err != nil {
+		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.task.restore(t.writer.Queue))
+	}
+
+	// The lifetime claim can already have parked the reader. Confirm that it noticed
+	// before giving the terminal's input and modes to the child.
+	t.park(parked)
+	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
+		return errors.Join(err, t.resume())
+	}
+	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
+		// release is transactional: on failure no child runs and the session is made
+		// live again before the error reaches the caller.
+		return errors.Join(err, t.resume())
+	}
+	return nil
+}
+
+func (t *Terminal) resume() error {
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
+	}
+	var errs []error
+	errs = append(errs, t.output.active(true))
+	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+	if _, err := xterm.MakeRaw(t.inFD); err != nil {
+		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
+	}
+	if err := t.control(t.modes.Enter() + t.title.enter()); err != nil {
+		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
+	}
+	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
+	errs = append(errs, t.task.restore(t.writer.Queue))
+
+	// The same latest-value mailbox a window resize uses, rather than the public
+	// event queue: the pump owns and closes that queue. Report even an unchanged size
+	// because foreground signals belonged to the child while it held the terminal,
+	// and the program must rebuild the screen whose contents the child replaced. The
+	// measurement becomes the watcher's too — those same signals are the ones it did
+	// not get, so what it remembers may be a size that has not been true for a while.
+	if width, height, err := t.Size(); err == nil {
+		t.retakeResize(width, height)
+	}
+	return errors.Join(errs...)
+}
+
+func (t *Terminal) park(parked <-chan struct{}) {
+	t.waker.wake()
+
+	grace := time.NewTimer(parkGrace)
+	defer grace.Stop()
+	select {
+	case <-parked:
+	case <-grace.C:
+	case <-t.stop:
+	}
+}
+
+// SetProgress changes task progress outside the cell grid. Unsupported terminals
+// ignore it. Repeating an unchanged value writes nothing; active values are refreshed
+// often enough for terminals that expire the indicator.
+func (t *Terminal) SetProgress(progress Progress) error {
+	return t.task.to(progress, t.writer.Queue)
+}
+
+// noteResize records what a platform watcher measured and publishes it when it is
+// news.
+//
+// The last size has one owner, and this and [Terminal.retakeResize] are the two
+// paths that may advance it. A watcher keeping its own copy was the older shape and
+// the reason a handover could leave the session the wrong size for good: while a
+// child holds the terminal, its process group gets the resize signals and this one
+// does not, so the watcher comes back remembering a size that is no longer true. If
+// the measurement taken on the way back does not also become the watcher's, a later
+// change back to that remembered size reads as no change at all.
+func (t *Terminal) noteResize(width, height int, err error) {
+	t.resizeMu.Lock()
+	defer t.resizeMu.Unlock()
+	if t.size.observe(width, height, err) {
+		t.publishResize(t.size.point.X, t.size.point.Y)
+	}
+}
+
+// retakeResize records the size measured on taking the terminal back and publishes
+// it whether or not it changed. The program has to rebuild a screen whose contents
+// the child replaced, and that is true at any size.
+func (t *Terminal) retakeResize(width, height int) {
+	t.resizeMu.Lock()
+	defer t.resizeMu.Unlock()
+	t.size.observe(width, height, nil)
+	t.publishResize(width, height)
+}
+
+// publishResize offers the newest measured size to the input pump. Dimensions are
+// replaceable state: when the pump has not consumed an older observation, replace it
+// instead of dropping the newer truth or blocking the platform watcher.
+//
+// The caller holds resizeMu, which is also what serializes the producers below.
+func (t *Terminal) publishResize(width, height int) {
+	latest := input.Resize{Width: width, Height: height}
+	select {
+	case t.resized <- latest:
+		return
+	default:
+	}
+	select {
+	case <-t.resized:
+	default:
+	}
+	// Producers are serialized by resizeMu. After removing their older value the
+	// mailbox has room, even if the pump raced and consumed that value first.
+	t.resized <- latest
+}

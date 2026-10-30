@@ -7,37 +7,43 @@ const englishSidebar: DefaultTheme.SidebarItem[] = [
     text: 'Start',
     items: [
       { text: 'Introduction', link: '/' },
-      { text: 'Build Your First Interface', link: '/getting-started' },
-      { text: 'Choose Modules', link: '/modules' }
+      { text: 'Build Your First Interface', link: '/guides/getting-started' },
+      { text: 'Choose Modules', link: '/guides/modules' }
     ]
   },
   {
     text: 'Build',
     items: [
-      { text: 'Compose Components', link: '/components' },
-      { text: 'Render Rich Content', link: '/content' },
-      { text: 'Stream Bounded Output', link: '/streaming' },
-      { text: 'Build an Agent Interface', link: '/agent' }
+      { text: 'Compose Components', link: '/guides/components' },
+      { text: 'Render Rich Content', link: '/guides/content' },
+      { text: 'Stream Bounded Output', link: '/guides/streaming' },
+      { text: 'Build an Agent Interface', link: '/guides/agent' },
+      { text: 'History and Virtualization', link: '/guides/history' }
     ]
   },
   {
     text: 'Validate',
     items: [
-      { text: 'Test an Interface', link: '/testing' },
-      { text: 'Troubleshoot Applications', link: '/troubleshooting' }
+      { text: 'Test an Interface', link: '/guides/testing' },
+      { text: 'Troubleshoot Applications', link: '/guides/troubleshooting' }
     ]
   },
   {
     text: 'Understand',
     items: [
-      { text: 'Architecture', link: '/architecture' },
-      { text: 'Prior Art', link: '/prior-art' },
-      { text: 'Brand', link: '/brand' }
+      { text: 'Architecture', link: '/core/architecture' },
+      { text: 'Logical Text', link: '/core/text' },
+      { text: 'Lifetimes', link: '/core/lifetimes' },
+      { text: 'Base Behavior', link: '/base/' },
+      { text: 'Kit Appearance', link: '/kit/' },
+      { text: 'Ownership Decisions', link: '/decisions/ownership' },
+      { text: 'Prior Art', link: '/decisions/prior-art' },
+      { text: 'Brand', link: '/decisions/brand' }
     ]
   },
   {
     text: 'Maintain',
-    items: [{ text: 'Prepare a Release', link: '/releasing' }]
+    items: [{ text: 'Prepare a Release', link: '/guides/releasing' }]
   }
 ]
 
@@ -46,37 +52,43 @@ const chineseSidebar: DefaultTheme.SidebarItem[] = [
     text: '开始',
     items: [
       { text: '项目介绍', link: '/zh/' },
-      { text: '构建第一个界面', link: '/zh/getting-started' },
-      { text: '选择模块', link: '/zh/modules' }
+      { text: '构建第一个界面', link: '/zh/guides/getting-started' },
+      { text: '选择模块', link: '/zh/guides/modules' }
     ]
   },
   {
     text: '构建',
     items: [
-      { text: '组合组件', link: '/zh/components' },
-      { text: '渲染富文本', link: '/zh/content' },
-      { text: '构建有界流式输出', link: '/zh/streaming' },
-      { text: '构建 Agent 界面', link: '/zh/agent' }
+      { text: '组合组件', link: '/zh/guides/components' },
+      { text: '渲染富文本', link: '/zh/guides/content' },
+      { text: '构建有界流式输出', link: '/zh/guides/streaming' },
+      { text: '构建 Agent 界面', link: '/zh/guides/agent' },
+      { text: '历史与虚拟化', link: '/zh/guides/history' }
     ]
   },
   {
     text: '验证',
     items: [
-      { text: '测试界面', link: '/zh/testing' },
-      { text: '排查应用问题', link: '/zh/troubleshooting' }
+      { text: '测试界面', link: '/zh/guides/testing' },
+      { text: '排查应用问题', link: '/zh/guides/troubleshooting' }
     ]
   },
   {
     text: '理解',
     items: [
-      { text: '架构', link: '/zh/architecture' },
-      { text: '既有设计', link: '/zh/prior-art' },
-      { text: '品牌', link: '/zh/brand' }
+      { text: '架构', link: '/zh/core/architecture' },
+      { text: '逻辑文本', link: '/zh/core/text' },
+      { text: '生命周期', link: '/zh/core/lifetimes' },
+      { text: 'Base 行为', link: '/zh/base/' },
+      { text: 'Kit 外观', link: '/zh/kit/' },
+      { text: '所有权决策', link: '/zh/decisions/ownership' },
+      { text: '既有设计', link: '/zh/decisions/prior-art' },
+      { text: '品牌', link: '/zh/decisions/brand' }
     ]
   },
   {
     text: '维护',
-    items: [{ text: '准备发布', link: '/zh/releasing' }]
+    items: [{ text: '准备发布', link: '/zh/guides/releasing' }]
   }
 ]
 
@@ -145,10 +157,10 @@ export default defineConfig({
       themeConfig: {
         ...sharedTheme,
         nav: [
-          { text: 'Guide', link: '/getting-started' },
-          { text: 'Architecture', link: '/architecture' },
-          { text: 'Examples', link: '/examples' },
-          { text: 'Go Reference', link: 'https://pkg.go.dev/github.com/Tangerg/oolong/core' }
+          { text: 'Guide', link: '/guides/getting-started' },
+          { text: 'Architecture', link: '/core/architecture' },
+          { text: 'Examples', link: '/guides/examples' },
+          { text: 'Go Reference', link: 'https://pkg.go.dev/github.com/Tangerg/oolong/ui' }
         ],
         sidebar: englishSidebar,
         outline: { label: 'On this page', level: [2, 3] },
@@ -164,10 +176,10 @@ export default defineConfig({
       themeConfig: {
         ...sharedTheme,
         nav: [
-          { text: '指南', link: '/zh/getting-started' },
-          { text: '架构', link: '/zh/architecture' },
-          { text: '示例', link: '/zh/examples' },
-          { text: 'Go 参考', link: 'https://pkg.go.dev/github.com/Tangerg/oolong/core' }
+          { text: '指南', link: '/zh/guides/getting-started' },
+          { text: '架构', link: '/zh/core/architecture' },
+          { text: '示例', link: '/zh/guides/examples' },
+          { text: 'Go 参考', link: 'https://pkg.go.dev/github.com/Tangerg/oolong/ui' }
         ],
         sidebar: chineseSidebar,
         outline: { label: '本页内容', level: [2, 3] },

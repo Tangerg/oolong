@@ -3,20 +3,22 @@ package main
 import (
 	"testing"
 
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 func TestThePeerRenderersComposeAndQuit(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 88, Height: 22})
+	host := uitest.New(t, uitest.Config{Width: 88, Height: 22})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component {
-				return newContent(runtime)
-			},
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+			return newContent(runtime).Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 
 	host.Shows(t, "Three peers, one document")

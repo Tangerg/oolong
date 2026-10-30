@@ -1,0 +1,311 @@
+package term
+
+import (
+	"io"
+	"strings"
+	"time"
+
+	"github.com/Tangerg/oolong/ui/core/deadline"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+)
+
+const (
+	queryBackground = "\x1b]11;?\x07"
+
+	// queryForeground asks the terminal what colour it draws with.
+	//
+	// It is the other half of the same question, and it is asked for a different
+	// reason: the background decides which theme suits, while the pair of them is
+	// what a translucent layer mixes with. A cell left at the terminal's own colours
+	// is the commonest cell there is, and without both answers such a cell cannot be
+	// dimmed — see [grid.Ground].
+	queryForeground = "\x1b]10;?\x07"
+
+	// queryVersion asks the terminal to name itself.
+	//
+	// It is the question worth asking most, because everything else this library does
+	// to identify a terminal reads environment variables — and those do not survive
+	// ssh, do not exist in a container, and are rewritten by a multiplexer. A terminal
+	// that answers this has told the truth about itself; one that does not leaves the
+	// environment as the only evidence there was.
+	queryVersion = "\x1b[>0q"
+
+	// queryDeviceVersion asks for a version number rather than a name.
+	//
+	// It is for the terminals that answer nothing else: Alacritty exports no version
+	// in its environment and declines to answer the question above, and this is what
+	// it does answer.
+	queryDeviceVersion = "\x1b[>0c"
+
+	// queryKeyboard asks which of the Kitty keyboard protocol's enhancements are
+	// actually on, which is not the same as which were asked for.
+	//
+	// It must be written after the request that turns them on, which is what modes
+	// does before any of this runs. Asking first would report the state of a terminal
+	// this session had not spoken to yet.
+	queryKeyboard = "\x1b[?u"
+
+	// queryAttributes asks the terminal what it is.
+	//
+	// It is sent after every other question as the marker that the answers are
+	// over. Every terminal answers this one, so its answer arriving without the
+	// answer to the question that mattered is how a terminal says it did not
+	// understand — which no terminal says any other way. Without it, learning that
+	// a terminal does not support a query would cost the whole timeout, on every
+	// start, for exactly the terminals that can least afford to look slow.
+	queryAttributes = "\x1b[c"
+
+	// answerGrace bounds the wait for a terminal that answers nothing at all.
+	//
+	// It is the backstop rather than the mechanism: a terminal that speaks at all
+	// is done in one round trip, and one that is silent has a broken or filtered
+	// connection. Long enough to cross a slow one, short enough that a start
+	// nobody is waiting on does not look like a hang.
+	answerGrace = 200 * time.Millisecond
+)
+
+// queryWriter is the terminal as a probe needs it: somewhere to write a question,
+// and a way to stop waiting to be allowed to. The second is not optional. A write
+// that cannot time out never reaches the wait that bounds the rest, and until Open
+// returns there is no owner whose Close could give raw mode back.
+type queryWriter interface {
+	io.StringWriter
+	SetWriteDeadline(deadline time.Time) error
+}
+
+// probe puts questions to the terminal during startup and collects the answers.
+//
+// It reads the terminal directly, which is only safe because it runs before the
+// pump goroutine does: a terminal has exactly one reader, and two would race for
+// the same bytes. Everything it decodes and did not ask for — a key the user
+// managed to press first — is kept and handed on.
+//
+// It decodes through the session's own [input.Stream] rather than a parser of its
+// own, and that is the whole of what makes startup input ordinary input. A probe
+// with a bare parser answers "what bytes are these" and nothing else, so the two
+// decisions a stream owns — when an ambiguous escape has waited long enough, and
+// when each event arrived — would go unmade for as long as the probe held the
+// terminal. An Escape pressed while the questions were in flight would come back as
+// the Alt-modified form of whatever the user typed next.
+type probe struct {
+	raw    <-chan readResult
+	out    queryWriter
+	stream *input.Stream
+	// deadline is when the whole exchange must be over, asking included. It is set
+	// by whoever started the probe, which is also what holds the transport to the
+	// same instant; measuring the wait from after the write would leave the write
+	// itself unbounded.
+	deadline time.Time
+
+	early []input.Event
+	end   *readResult
+}
+
+// answers is what a terminal was willing to say about itself.
+type answers struct {
+	background grid.RGB
+	hasBg      bool
+	foreground grid.RGB
+	hasFg      bool
+	attributes input.DeviceAttributes
+	hasAttrs   bool
+	// name is what the terminal called itself, which outranks anything the
+	// environment says.
+	name       string
+	hasName    bool
+	version    input.DeviceVersion
+	hasVersion bool
+	// keyboard is which of the Kitty protocol's enhancements are on, which is not
+	// the same as which were asked for.
+	keyboard    input.KeyboardFeatures
+	hasKeyboard bool
+}
+
+// run asks everything worth asking and returns what came back.
+//
+// A failure to write, a terminal that says nothing, and a terminal that answers
+// only some of it are all the same kind of outcome — a session runs perfectly well
+// without knowing any of this — so none of them is an error.
+func (p *probe) run() answers {
+	var got answers
+	// One budget for the whole exchange, held over the transport as well as the wait.
+	_ = p.out.SetWriteDeadline(p.deadline)
+	defer func() { _ = p.out.SetWriteDeadline(time.Time{}) }()
+	if _, err := p.out.WriteString(queryBackground + queryForeground + queryVersion +
+		queryDeviceVersion + queryKeyboard + queryAttributes); err != nil {
+		return got
+	}
+
+	// The wait ends when the attributes arrive, because they were sent last. What is
+	// left of the budget is what asking did not spend.
+	timer := time.NewTimer(time.Until(p.deadline))
+	defer timer.Stop()
+	// An ambiguous escape waits out its own grace here exactly as it would once the
+	// pump is running. The two deadlines are unrelated: one bounds the exchange, the
+	// other settles a keystroke, and a probe that woke only for the first would carry
+	// an escape past every byte that followed it.
+	due := deadline.NewTimer()
+	defer due.Stop()
+	for !got.hasAttrs {
+		due.Schedule(p.stream.DueAt())
+		select {
+		case result := <-p.raw:
+			if !p.read(result, &got) {
+				return got
+			}
+		case <-due.Channel():
+			if !p.drainRaw(&got) {
+				return got
+			}
+			for _, ev := range p.stream.Expire(time.Now()) {
+				p.take(ev, &got)
+			}
+		case <-timer.C:
+			return got
+		}
+	}
+	return got
+}
+
+func (p *probe) read(result readResult, got *answers) bool {
+	for _, ev := range p.stream.Feed(result.data, result.at) {
+		p.take(ev, got)
+	}
+	if result.err != nil {
+		result.data = nil
+		p.end = &result
+		return false
+	}
+	return true
+}
+
+func (p *probe) drainRaw(got *answers) bool {
+	for {
+		select {
+		case result := <-p.raw:
+			if !p.read(result, got) {
+				return false
+			}
+		default:
+			return true
+		}
+	}
+}
+
+// take files one decoded event: as an answer if it is one, and otherwise as input
+// that belongs to the session.
+func (p *probe) take(ev input.Event, got *answers) {
+	switch ev := ev.(type) {
+	case input.OSC:
+		switch ev.Command {
+		case 10:
+			got.foreground, got.hasFg = parseXParseColor(ev.Params)
+			return
+		case 11:
+			got.background, got.hasBg = parseXParseColor(ev.Params)
+			return
+		}
+		// An answer to a question this program did not ask. It is still addressed
+		// to the program rather than to the terminal, so it is passed on.
+		p.early = append(p.early, ev)
+	case input.DCS:
+		if name, found := strings.CutPrefix(ev.Body, ">|"); found {
+			got.name, got.hasName = name, true
+			return
+		}
+		p.early = append(p.early, ev)
+	case input.DeviceVersion:
+		got.version, got.hasVersion = ev, true
+	case input.KeyboardFlags:
+		got.keyboard, got.hasKeyboard = ev.Features, true
+	case input.DeviceAttributes:
+		got.attributes, got.hasAttrs = ev, true
+	default:
+		p.early = append(p.early, ev)
+	}
+}
+
+// parseXParseColor reads the colour specification a terminal answers a colour
+// query with.
+//
+// The form is the one X has always used: "rgb:" and then three channels of one to
+// four hexadecimal digits, separated by slashes. The digit count is the precision,
+// so "f" and "ffff" are both full brightness and "8" is not the same as "0008" —
+// which is why each channel is scaled by the largest value its own width could
+// hold rather than simply padded.
+func parseXParseColor(spec string) (grid.RGB, bool) {
+	body, ok := strings.CutPrefix(spec, "rgb:")
+	if !ok {
+		return grid.RGB{}, false
+	}
+	parts := strings.Split(body, "/")
+	if len(parts) != 3 {
+		return grid.RGB{}, false
+	}
+	var c grid.RGB
+	for i, channel := range parts {
+		v, ok := parseChannel(channel)
+		if !ok {
+			return grid.RGB{}, false
+		}
+		switch i {
+		case 0:
+			c.R = v
+		case 1:
+			c.G = v
+		case 2:
+			c.B = v
+		}
+	}
+	return c, true
+}
+
+func parseChannel(s string) (uint8, bool) {
+	if len(s) == 0 || len(s) > 4 {
+		return 0, false
+	}
+	value, full := 0, 0
+	for i := range len(s) {
+		digit, ok := hexDigit(s[i])
+		if !ok {
+			return 0, false
+		}
+		value = value*16 + digit
+		full = full*16 + 15
+	}
+	return scaleChannel(value, full), true
+}
+
+// scaleChannel turns a channel worth full at its own width into the eight bits a
+// cell holds.
+//
+// Rounding to nearest rather than towards zero: without it every channel loses up
+// to a step, and a white background answered as "f/f/f" comes back not quite
+// white. The answer is given in the type it is used as, and clamped on the way, so
+// the narrowing is visible here instead of being a conversion whose safety has to
+// be reconstructed by reading the caller.
+func scaleChannel(value, full int) uint8 {
+	scaled := (value*255 + full/2) / full
+	switch {
+	case scaled <= 0:
+		return 0
+	case scaled >= 255:
+		return 255
+	default:
+		return uint8(scaled)
+	}
+}
+
+func hexDigit(c byte) (int, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0'), true
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10, true
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10, true
+	default:
+		return 0, false
+	}
+}

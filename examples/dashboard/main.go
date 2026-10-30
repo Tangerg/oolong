@@ -16,26 +16,29 @@ package main
 import (
 	"context"
 	"fmt"
+	"image"
 	"os"
 	"time"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Root: func(runtime *program.Runtime) program.Component {
-			return headless.NewRoot(newDashboard(runtime))
-		},
-		Terminal: term.Features{Probe: true, Mouse: true},
-	}); err != nil {
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		return newDashboard(runtime).Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "dashboard:", err)
 		os.Exit(1)
 	}
@@ -63,13 +66,15 @@ type dashboard struct {
 	runtime *program.Runtime
 	theme   kit.Theme
 
-	pane   int
-	tabs   *headless.Tabs
-	strip  *kit.Tabs
-	work   *queue
-	watch  *activity
-	prefs  *kit.Settings[preference]
-	motion bool
+	element scene.Element
+	timer   *program.Timer
+	scope   *program.Scope
+	tabs    *base.Tabs
+	strip   *kit.Tabs
+	work    *queue
+	watch   *activity
+	prefs   *kit.Settings[preference]
+	motion  bool
 }
 
 type preference string
@@ -93,32 +98,34 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	})
 
 	d.strip = kit.NewTabs(kit.TabsConfig{
-		Theme: theme, Glyphs: glyphs, Selection: headless.Bind(&d.pane),
-		Items: []headless.Tab{
-			{Title: "tasks", Of: d.work},
-			{Title: "activity", Of: d.watch},
-			{Title: "settings", Of: d.prefs},
+		Theme: theme, Glyphs: glyphs,
+		Items: []base.Tab{
+			{Title: "tasks", Content: d.work.Element()},
+			{Title: "activity", Content: d.watch.Element()},
+			{Title: "settings", Content: d.prefs.Element()},
 		},
 	})
 	d.tabs = d.strip.Controller()
-	d.tabs.Focus(true)
-
-	runtime.Every(120*time.Millisecond, d.advance)
+	footer := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		kit.Label{Text: "1–3 or alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit", Style: d.theme.Subtle}.Draw(frame.View)
+	}})
+	d.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Key: "dashboard", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: d.Handle(event.Input)} }}, Items: []scene.Item{
+		{Element: d.strip.Element(), Size: layout.Flex(1)}, {Element: footer, Size: layout.Fixed(1)},
+	}}).Element()
+	var err error
+	d.scope, err = runtime.NewScope(program.ScopeConfig{})
+	if err != nil {
+		panic(err)
+	}
+	d.timer, err = runtime.Every(d.scope, 120*time.Millisecond, d.advance)
+	if err != nil {
+		d.scope.Close()
+		panic(err)
+	}
 	return d
 }
 
-// Draw is the strip, whichever pane it says, and a hint row under both.
-func (d *dashboard) Draw(v headless.Frame) {
-	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Flex(1)},
-		{Size: layout.Fixed(1)},
-	}))
-	d.strip.Draw(rows[0])
-	kit.Label{
-		Text:  "1–3 or alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit",
-		Style: d.theme.Subtle,
-	}.Draw(rows[1].View)
-}
+func (d *dashboard) Element() scene.Element { return d.element }
 
 func (d *dashboard) Handle(ev input.Event) bool {
 	if key, ok := ev.(input.Key); ok && key.Down() {
@@ -127,18 +134,18 @@ func (d *dashboard) Handle(ev input.Event) bool {
 			d.runtime.Quit()
 			return true
 		case '1', '2', '3':
-			// The shortcut edits application state; Sync performs the controller's
-			// focus transition without turning Draw into a semantic state change.
-			d.pane = int(key.Rune - '1')
-			d.tabs.Sync()
+			d.tabs.Select(int(key.Rune - '1'))
+			if tab, ok := d.tabs.Current(); ok {
+				_ = tab.Content.RequestFocusFirst()
+			}
 			return true
 		}
 	}
-	return d.strip.Handle(ev)
+	return false
 }
 
 func (d *dashboard) advance() {
-	d.work.advance(d.watch.rateValue)
+	d.work.advance(d.watch.rate.Controller().Value())
 	d.watch.record()
 	if d.motion {
 		d.watch.tick()
@@ -148,7 +155,7 @@ func (d *dashboard) advance() {
 func (d *dashboard) preferenceValue(item preference) string {
 	switch item {
 	case ratePreference:
-		return fmt.Sprintf("%d tasks/tick", d.watch.rateValue)
+		return fmt.Sprintf("%d tasks/tick", d.watch.rate.Controller().Value())
 	case motionPreference:
 		if d.motion {
 			return "on"
@@ -165,11 +172,11 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 		return d.watch.rate.Controller().Do(action)
 	case motionPreference:
 		switch action {
-		case headless.Decrease:
+		case base.Decrease:
 			d.motion = false
-		case headless.Increase:
+		case base.Increase:
 			d.motion = true
-		case headless.Activate:
+		case base.Activate:
 			d.motion = !d.motion
 		default:
 			return false
@@ -183,17 +190,18 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 // queue is the tasks pane: rows with a cursor and an order, and the geometry they
 // are drawn through.
 type queue struct {
-	theme kit.Theme
-	rows  *headless.Table[task]
-	view  kit.Table
+	element scene.Element
+	theme   kit.Theme
+	rows    *base.Table[task]
+	view    kit.Table
 	// columns are the complete table geometry from the last accepted frame. A press
 	// arrives between frames and can only be about the boxes it saw.
-	columns headless.Snapshot[kit.TableLayout]
+	columns scene.Snapshot[kit.TableLayout]
 }
 
 func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 	q := &queue{theme: theme}
-	q.rows = new(headless.Table[task])
+	q.rows = new(base.Table[task])
 	q.rows.SetLess(func(a, b task, column int) bool {
 		switch column {
 		case 1:
@@ -217,48 +225,35 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 		Sorted: q.rows.Sorted,
 		Cell:   q.cell,
 	}
+	header := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		width, _ := frame.Size()
+		columns := q.view.Layout(width)
+		q.columns.Stage(frame, columns)
+		columns.Titles(frame.View)
+	}, Handle: func(event scene.Event) scene.EventResult {
+		mouse, ok := event.Input.(input.Mouse)
+		if !ok || mouse.Action != input.MouseDown || mouse.Button != input.ButtonLeft {
+			return scene.EventResult{}
+		}
+		columns, known := event.Read(&q.columns)
+		if !known {
+			return scene.EventResult{}
+		}
+		column, on := columns.ColumnAt(mouse.Pos.X)
+		return scene.EventResult{Consumed: on && q.rows.SortBy(column)}
+	}})
+	if err := q.rows.Element().SetPaint(func(frame scene.Frame) {
+		width, _ := frame.Size()
+		columns := q.view.Layout(width)
+		q.rows.DrawRows(frame, func(view grid.View, at int, item task, selected bool) { q.row(columns, view, at, item, selected) })
+	}); err != nil {
+		panic(err)
+	}
+	q.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{{Element: header, Size: layout.Fixed(1)}, {Element: q.rows.Element(), Size: layout.Flex(1)}}}).Element()
 	return q
 }
 
-// Draw is the header, then the rows.
-//
-// The header is the kit's and the rows are the behaviour's, and they agree about
-// where the columns are because they ask the same table. A widget that owned both
-// would own the cursor and the scrolling as well.
-func (q *queue) Draw(v headless.Frame) {
-	width, _ := v.Size()
-	columns := q.view.Layout(width)
-	q.columns.Stage(v, columns)
-	bands := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Fixed(1)},
-		{Size: layout.Flex(1)},
-	}))
-	columns.Titles(bands[0].View)
-	q.rows.DrawRows(bands[1], func(v grid.View, at int, item task, selected bool) {
-		q.row(columns, v, at, item, selected)
-	})
-}
-
-func (q *queue) HeightForWidth(int) int { return q.rows.Len() + 1 }
-
-// Handle sorts by a heading that was pressed, and hands everything else to the rows
-// — one row down, because the header took the first one.
-func (q *queue) Handle(ev input.Event) bool {
-	if mouse, ok := ev.(input.Mouse); ok {
-		if mouse.Pos.Y == 0 {
-			if mouse.Action != input.MouseDown {
-				return false
-			}
-			column, on := q.columns.Value().ColumnAt(mouse.Pos.X)
-			return on && q.rows.SortBy(column)
-		}
-		mouse.Pos.Y--
-		return q.rows.Handle(mouse)
-	}
-	return q.rows.Handle(ev)
-}
-
-func (q *queue) Focus(has bool) { q.rows.Focus(has) }
+func (q *queue) Element() scene.Element { return q.element }
 
 func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, selected bool) {
 	width, _ := v.Size()
@@ -341,23 +336,17 @@ type activity struct {
 	of      *queue
 	spinner kit.Spinner
 	samples []float64
-	// rateValue belongs to the dashboard rather than its appearance. The slider and
-	// settings pane both edit this one value, so neither can drift from the other.
-	rateValue int
-	rate      *kit.Slider
-	// slider is where the rate slider was drawn. A press arrives in this widget's
-	// coordinates and the slider reasons in its own, so handing the event straight on
-	// aimed it a row above where the user clicked.
-	slider headless.PointerRegion
+	rate    *kit.Slider
+	element scene.Element
 }
 
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 	activity := &activity{
-		theme: theme, glyphs: glyphs, of: of, rateValue: 1,
+		theme: theme, glyphs: glyphs, of: of,
 		samples: make([]float64, 0, 64),
 	}
 	activity.rate = kit.NewSlider(kit.SliderConfig{
-		Theme: theme, Glyphs: glyphs, Value: headless.Bind(&activity.rateValue),
+		Theme: theme, Glyphs: glyphs, Initial: 1,
 		Minimum: 1, Maximum: 4, Label: "rate",
 	})
 	activity.rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
@@ -365,6 +354,9 @@ func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 		Theme: theme, Glyphs: glyphs, Label: "watching",
 	}
 	activity.record()
+	activity.element = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{Paint: activity.Draw}, Items: []scene.Item{{Element: activity.rate.Element()}}, Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
+		return []image.Rectangle{grid.Area(0, 1, space.X, 1)}
+	}}).Element()
 	return activity
 }
 
@@ -372,9 +364,7 @@ func (a *activity) tick() {
 	a.spinner.Tick()
 }
 
-func (a *activity) HeightForWidth(int) int { return 4 + a.of.rows.Len() }
-
-func (a *activity) Draw(v headless.Frame) {
+func (a *activity) Draw(v scene.Frame) {
 	finished, total := a.of.remaining()
 	// The rectangles are kept, not asked of the children afterwards: a child frame's
 	// own bounds begin at zero, and staging a pointer region with those would put the
@@ -395,8 +385,6 @@ func (a *activity) Draw(v headless.Frame) {
 		Total:   total,
 		Percent: true,
 	}.Draw(rows[0].View)
-	a.rate.Draw(rows[1])
-	a.slider.Stage(v, rects[1], a.rate)
 	kit.Sparkline{
 		Theme: a.theme, Glyphs: a.glyphs, Values: a.samples,
 		Minimum: 0, Maximum: 1,
@@ -416,15 +404,7 @@ func (a *activity) Draw(v headless.Frame) {
 	}.Draw(rows[4].View)
 }
 
-func (a *activity) Handle(event input.Event) bool {
-	if mouse, ok := event.(input.Mouse); ok {
-		handled, _ := a.slider.Handle(mouse)
-		return handled
-	}
-	return a.rate.Handle(event)
-}
-
-func (a *activity) Focus(has bool) { a.rate.Focus(has) }
+func (a *activity) Element() scene.Element { return a.element }
 
 // record keeps a bounded history of aggregate completion. The dashboard owns this
 // sampling policy; Sparkline only projects the values it is given.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/components/kit"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func TestPreviewRejectsFIFOWithoutWaitingForAWriter(t *testing.T) {

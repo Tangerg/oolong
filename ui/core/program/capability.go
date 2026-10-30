@@ -1,0 +1,189 @@
+package program
+
+import (
+	"errors"
+	"image"
+
+	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/term"
+)
+
+// Environment is the stable set of terminal facts learned before a program runs.
+// Its zero value reports that nothing was learned.
+type Environment struct{ facts *environmentFacts }
+
+type environmentFacts struct {
+	ground        grid.Ground
+	color         grid.Depth
+	wheel         input.Wheel
+	keyboard      input.KeyboardFeatures
+	knownKeyboard bool
+	locale        string
+}
+
+func environmentFor(host hostServices) Environment {
+	keyboard, known := host.keyboard()
+	return Environment{facts: &environmentFacts{
+		ground: host.ground(), color: host.color(), wheel: host.wheel(),
+		keyboard: keyboard, knownKeyboard: known, locale: host.locale(),
+	}}
+}
+
+// Ground reports the host's foreground and background colours when known.
+func (e Environment) Ground() grid.Ground {
+	if e.facts == nil {
+		return grid.Ground{}
+	}
+	return e.facts.ground
+}
+
+// Color reports the colour depth of the user-facing terminal.
+func (e Environment) Color() grid.Depth {
+	if e.facts == nil {
+		return grid.NoColor
+	}
+	return e.facts.color
+}
+
+// Wheel reports how host wheel events should be scaled.
+func (e Environment) Wheel() input.Wheel {
+	if e.facts == nil {
+		return input.Wheel{}
+	}
+	return e.facts.wheel
+}
+
+// Keyboard reports negotiated keyboard protocol features.
+func (e Environment) Keyboard() (input.KeyboardFeatures, bool) {
+	if e.facts == nil {
+		return 0, false
+	}
+	return e.facts.keyboard, e.facts.knownKeyboard
+}
+
+// Locale reports the character locale of the user-facing terminal. An empty string
+// means the host made no claim; it does not mean the process locale should be used.
+func (e Environment) Locale() string {
+	if e.facts == nil {
+		return ""
+	}
+	return e.facts.locale
+}
+
+// Clipboard is the clipboard associated with the user-facing host. Its zero value
+// refuses writes and reads.
+type Clipboard struct{ runtime *Runtime }
+
+// Copy puts text on the host clipboard when supported.
+func (c Clipboard) Copy(text string) bool { return c.runtime.services().copy(text) }
+
+// Paste requests clipboard contents and reports whether the host accepted the
+// request. False means the host cannot read the clipboard or an earlier unidentified
+// request is still in flight. An accepted answer arrives asynchronously as
+// [input.Paste]; true does not mean the terminal will answer.
+func (c Clipboard) Paste() bool { return c.runtime.services().paste() }
+
+// Session controls the live terminal session around rendered frames. It groups
+// operations that must remain ordered with the interface owner's state. Its zero
+// value returns [errors.ErrUnsupported] for unavailable notifications, Hand and
+// Suspend. Directory reporting remains optional host metadata.
+//
+// Like Clipboard and Images, it retains the runtime lifetime, so a copied capability
+// cannot continue changing an externally owned host after that program ends.
+type Session struct{ runtime *Runtime }
+
+// host is the services of a runtime that may not be there. [Runtime.services] takes
+// a nil receiver, so a zero Session answers as a host with no optional services —
+// which is the right answer for every method that only asks the host something.
+//
+// [Session.Hand] is not one of those and does not come through here.
+func (s Session) host() hostServices {
+	return s.runtime.services()
+}
+
+// ReportDirectory tells the host which directory relative links belong to.
+func (s Session) ReportDirectory(path string) error { return s.host().reportDirectory(path) }
+
+// Hand gives exclusive display ownership to run and repaints after it returns. If
+// pending frames cannot drain, it returns [ErrFrameTimeout] without calling run.
+// A live owner and a [HandoverHost] are required; otherwise it returns
+// [errors.ErrUnsupported] without calling run or disturbing the display. Once a frame
+// or the transport has failed it returns [ErrDisplayFailed] on the same terms: the
+// display cannot be left in a describable state, so it is not given away and the
+// failure is not made to happen a second time.
+// A nil callback is a no-op.
+func (s Session) Hand(run func() error) error {
+	if run == nil {
+		return nil
+	}
+	p := s.runtime.owner()
+	if p == nil || !p.host.canHandOver() {
+		return errors.ErrUnsupported
+	}
+	if p.frameFailed || p.outputFailed {
+		return ErrDisplayFailed
+	}
+	return p.host.hand(func() error {
+		// Preparation belongs inside the host's claim: otherwise a refused nested
+		// handover can draw the interface over a child that still owns the display.
+		defer p.present.RequestFull()
+		if p.inline != nil && p.root != nil {
+			if err := p.leaveBlock(); err != nil {
+				return p.fail(err)
+			}
+		}
+		if err := p.writer.Drain(term.DrainGrace); err != nil {
+			return frameDrainError(p.writer, err)
+		}
+		if err := p.writer.Err(); err != nil {
+			p.outputFailed = true
+			return p.fail(err)
+		}
+		p.root.InvalidateGeometry()
+		return nil
+	}, run)
+}
+
+// Suspend restores the terminal and stops the process until it is continued.
+//
+// It is [Session.Hand] with the child being this process stopping itself, and it
+// fails on exactly the same terms: [errors.ErrUnsupported] without a live owner or a
+// [HandoverHost], [ErrFrameTimeout] when pending frames cannot drain, and
+// [ErrDisplayFailed] once a frame or the transport has failed. Checking any of that
+// here as well would be a second answer to a question Hand already answers.
+func (s Session) Suspend() error { return s.Hand(term.Suspend) }
+
+// SetTitle names the host window when supported.
+func (s Session) SetTitle(title string) error { return s.host().setTitle(title) }
+
+// SetProgress presents task progress outside the cell grid when supported. The
+// zero value clears an earlier value. It is independent of progress drawn inside
+// the interface, which remains ordinary component state.
+func (s Session) SetProgress(progress term.Progress) error { return s.host().setProgress(progress) }
+
+// Bell asks the host for the user's attention.
+func (s Session) Bell() error { return s.host().bell() }
+
+// Notify asks the host to display a desktop notification.
+func (s Session) Notify(text string) error { return s.host().notify(text) }
+
+// Images is the host's image transport. Its zero value reports no protocol and
+// refuses transmission.
+type Images struct{ runtime *Runtime }
+
+// Protocol reports the host's richest image protocol.
+func (i Images) Protocol() graphics.Protocol { return i.runtime.services().graphics() }
+
+// CellSize reports one terminal cell's pixel size when known.
+func (i Images) CellSize() (image.Point, bool) { return i.runtime.services().cellSize() }
+
+// Transmit sends one PNG and returns the image handle used by frames.
+func (i Images) Transmit(png []byte) (graphics.Image, error) {
+	return i.runtime.services().transmit(png)
+}
+
+// Release ends the transmitted image's lifetime. Remove all its placements before
+// calling this; the handle must not be placed again without retransmission.
+func (i Images) Release(img graphics.Image) error { return i.runtime.services().releaseImage(img) }

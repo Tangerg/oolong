@@ -10,20 +10,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/diff"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/diff"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 const (
@@ -34,12 +36,17 @@ const (
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Inline: func(runtime *program.InlineRuntime) program.Component {
-			return headless.NewRoot(newAgent(runtime, mockBackend{delay: 18 * time.Millisecond}))
-		},
-		Terminal: term.Features{Probe: true, Mouse: true},
-	}); err != nil {
+	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+		agent, err := newAgent(context.Background(), runtime, mockBackend{delay: 18 * time.Millisecond})
+		if err != nil {
+			return scene.Element{}, err
+		}
+		return agent.Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "agent:", err)
 		os.Exit(1)
 	}
@@ -55,16 +62,16 @@ type agent struct {
 	conversation *conversation
 	workflow     workflow
 	status       kit.Status
-	composer     kit.Composer
-	commands     headless.Commands[commandAction]
-	completion   headless.Completion
-	body         *headless.Container
-	stack        headless.Stack
+	composer     *kit.Composer
+	commands     base.Commands[commandAction]
+	completion   base.Completion
+	body         *scene.Group
+	element      scene.Element
+	scope        *program.Scope
 
 	review        *reviewRequest
-	reviewAnswer  bool
-	reviewConfirm *headless.Confirm
-	reviewForm    *headless.Form
+	reviewConfirm *base.Confirm
+	reviewForm    *base.Form
 	reviewPane    reviewPane
 	reviewDialog  *kit.Dialog
 
@@ -80,10 +87,10 @@ type commandAction struct {
 	run           func(string)
 }
 
-func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
+func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agentBackend) (*agent, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
-	keys := headless.DefaultEditorKeys()
+	keys := base.DefaultEditorKeys()
 	keys.Bind(sendPrompt, input.Chord{Code: input.Enter})
 	keys.Bind(cancelRun, input.Ctrl.Rune('x'))
 	keys.Bind(quitAgent, input.Ctrl.Rune('c'))
@@ -97,86 +104,111 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) *agent {
 		model:   "oolong-mock-1",
 		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
-	a.conversation = newConversation(theme, glyphs, runtime.Environment().Wheel())
+	var err error
+	a.scope, err = runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig explicitly carries ctx; the analyser does not track context through config fields.
+	if err != nil {
+		return nil, err
+	}
+	a.conversation = newConversation(theme, glyphs, runtime.Environment().Wheel(), runtime.Publisher())
 	a.workflow = newWorkflow(theme, glyphs)
-	a.composer = kit.Composer{
+	a.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme:   theme,
 		Prompt:  glyphs.Marker + " ",
 		Hints:   []keymap.Action{sendPrompt, cancelRun, quitAgent},
 		MaxRows: 5,
-	}
-	a.composer.Editor().Placeholder = "Ask the mock agent to change something"
-	a.composer.Editor().Keys = keys
-	a.composer.Editor().Clipboard = runtime.Clipboard()
-	completionKeys := headless.DefaultCompletionKeys()
-	completionKeys.Bind(headless.Accept, input.Chord{Code: input.Enter})
-	a.completion = headless.Completion{
+	})
+	a.composer.Controller().Placeholder = "Ask the mock agent to change something"
+	a.composer.Controller().Keys = keys
+	a.composer.Controller().Clipboard = runtime.Clipboard()
+	completionKeys := base.DefaultCompletionKeys()
+	completionKeys.Bind(base.Accept, input.Chord{Code: input.Enter})
+	a.completion = base.Completion{
 		Look: theme.Look(glyphs), Keys: completionKeys,
-		Accept: func(candidate headless.Candidate, token headless.Token) {
-			a.composer.Editor().Replace(token.Start, token.End, candidate.Text)
+		Accept: func(candidate base.Candidate, token base.Token) {
+			a.composer.Controller().Replace(token.Start, token.End, candidate.Text)
+			a.completion.Dismiss()
 		},
 	}
-	a.registerCommands()
+	a.registerCommands() //nolint:contextcheck // Deferred UI actions use a.scope.Context(), derived from ctx above, after this constructor returns.
 
-	a.body = headless.NewContainer(layout.Down,
-		headless.Item{Size: layout.Flex(1), Of: a.conversation},
-		headless.Item{Size: layout.Fixed(a.workflow.HeightForWidth(0)), Of: headless.Static{Of: &a.workflow}},
-		headless.Item{Size: layout.Fixed(1), Of: headless.Static{Of: agentStatus{owner: a}}},
-		headless.Item{Size: layout.Measured(1, 0), Of: &a.composer},
-	)
-	a.body.Focus(true)
-	a.stack.SetBase(a.body)
-	a.buildReview()
-	runtime.Session().SetTitle("agent mock")
-	return a
+	workflow := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { a.workflow.Draw(frame.View) }})
+	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { agentStatus{owner: a}.Draw(frame.View) }})
+	a.body = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
+		{Size: layout.Flex(1), Element: a.conversation.Element()},
+		{Size: layout.Fixed(a.workflow.HeightForWidth(0)), Element: workflow},
+		{Size: layout.Fixed(1), Element: status},
+		{Size: layout.Measured(1, 0), Element: a.composer.Element()},
+	}})
+	a.buildReview() //nolint:contextcheck // Review callbacks use the session Scope.Context rather than retaining the construction call.
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{
+		Theme: theme, Glyphs: glyphs,
+		Padding: layout.Symmetric(0, 1), Title: "commands", Footer: "enter complete", FooterAlign: layout.End,
+	}, Content: a.completion.Element()})
+	popup := scene.NewGroup(scene.GroupConfig{
+		Element: scene.ElementConfig{Enabled: a.completion.Open}, Items: []scene.Item{{Element: panel.Element()}},
+		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
+			if !a.completion.Open() || a.reviewDialog.Controller().Open() {
+				return []image.Rectangle{{}}
+			}
+			width := max(0, min(max(a.completion.Width()+4, 32), space.X-2))
+			height := min(a.completion.HeightForWidth(width)+2, space.Y)
+			y := max(space.Y-a.composer.HeightForWidth(space.X)-height, 0)
+			return []image.Rectangle{grid.Area(1, y, width, height)}
+		},
+	})
+	unsubscribe := a.composer.Controller().Session().Subscribe(func(base.ChangeMap) { a.refreshCompletion() })
+	a.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
+		Key:      "agent",
+		Preview:  func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input)} }, //nolint:contextcheck // Input uses the session scope created from ctx above.
+		Detached: func() { unsubscribe(); a.scope.Close(); a.conversation.content.Close() },
+	}, Items: []scene.Item{{Element: a.body.Element()}, {Element: popup.Element()}, {Element: a.reviewDialog.Element()}}}).Element()
+	// The scene and source lifecycle do not require terminal metadata support.
+	_ = runtime.Session().SetTitle("agent mock")
+	return a, nil
 }
 
-func (a *agent) Draw(frame headless.Frame) {
-	a.stack.Draw(frame)
-	if a.stack.Depth() == 0 && a.completion.Open() {
-		a.drawCompletion(frame)
-	}
-}
+func (a *agent) Element() scene.Element { return a.element }
 
 func (a *agent) Handle(event input.Event) bool {
-	if key, ok := event.(input.Key); ok && key.Down() {
-		action, _ := a.keys.Action(key.Chord())
-		switch action {
-		case quitAgent:
-			a.runtime.Quit()
+	key, ok := event.(input.Key)
+	if !ok || !key.Down() {
+		return false
+	}
+	action, _ := a.keys.Action(key.Chord())
+	switch action {
+	case quitAgent:
+		a.runtime.Quit()
+		return true
+	case cancelRun:
+		if a.run != nil {
+			a.stopRun()
 			return true
-		case cancelRun:
-			if a.run != nil {
-				a.stopRun()
-				return true
-			}
 		}
 	}
-
-	if a.stack.Depth() != 0 {
-		return a.stack.Handle(event)
+	if a.reviewDialog.Controller().Open() {
+		if key.Code == input.Esc {
+			a.answerReview(false)
+			return true
+		}
+		return false
 	}
 	if a.completion.Handle(event) {
 		return true
 	}
-	if key, ok := event.(input.Key); ok && key.Down() && key.Code == input.Enter && key.Mods == 0 {
+	if key.Code == input.Enter && key.Mods == 0 {
 		a.submit()
 		return true
 	}
-	handled := a.stack.Handle(event)
-	if handled {
-		a.refreshCompletion()
-	}
-	return handled
+	return false
 }
 
 func (a *agent) submit() {
-	line := strings.TrimSpace(a.composer.Editor().Text())
+	line := strings.TrimSpace(a.composer.Controller().Text())
 	if line == "" {
 		return
 	}
 	if name, arg, command := parseCommand(line); command {
-		a.composer.Editor().Clear()
+		a.composer.Controller().Clear()
 		a.completion.Dismiss()
 		a.runCommand(name, arg)
 		return
@@ -185,23 +217,23 @@ func (a *agent) submit() {
 		a.status.Doing = "finish or cancel the current run first"
 		return
 	}
-	a.composer.Editor().Clear()
+	a.composer.Controller().Clear()
 	a.completion.Dismiss()
 	a.startRun(line)
 }
 
 func (a *agent) registerCommands() {
 	a.commands.Add(
-		headless.Command{Name: "help", Title: "show the commands available in this session"},
+		base.Command{Name: "help", Title: "show the commands available in this session"},
 		commandAction{run: func(string) {
-			a.conversation.Append(&kit.Entry{
+			a.conversation.Append(a.scope.Context(), &kit.Entry{
 				Theme: a.theme, Label: "commands",
 				Body: "/clear — release the live transcript\n/model <fast|careful> — choose the mock plan\n/quit — leave",
 			})
 		}},
 	)
 	a.commands.Add(
-		headless.Command{Name: "clear", Title: "release the live transcript"},
+		base.Command{Name: "clear", Title: "release the live transcript"},
 		commandAction{run: func(string) {
 			if a.run != nil {
 				a.status.Doing = "the active run owns the transcript"
@@ -213,7 +245,7 @@ func (a *agent) registerCommands() {
 		}},
 	)
 	a.commands.Add(
-		headless.Command{Name: "model", Title: "choose fast or careful planning"},
+		base.Command{Name: "model", Title: "choose fast or careful planning"},
 		commandAction{takesArgument: true, run: func(arg string) {
 			switch arg {
 			case "fast", "careful":
@@ -225,7 +257,7 @@ func (a *agent) registerCommands() {
 		}},
 	)
 	a.commands.Add(
-		headless.Command{Name: "quit", Title: "leave the agent", Aliases: []string{"exit"}},
+		base.Command{Name: "quit", Title: "leave the agent", Aliases: []string{"exit"}},
 		commandAction{run: func(string) { a.runtime.Quit() }},
 	)
 }
@@ -253,21 +285,21 @@ func parseCommand(line string) (name, arg string, ok bool) {
 }
 
 func (a *agent) refreshCompletion() {
-	lines := strings.Split(a.composer.Editor().Text(), "\n")
-	line, column := a.composer.Editor().Cursor()
+	lines := strings.Split(a.composer.Controller().Text(), "\n")
+	line, column := a.composer.Controller().Cursor()
 	if line < 0 || line >= len(lines) {
 		a.completion.Dismiss()
 		return
 	}
-	token, ok := headless.TokenAt(lines[line], column, headless.Trigger{Prefix: "/", AtStart: true})
+	token, ok := base.TokenAt(lines[line], column, base.Trigger{Prefix: "/", AtStart: true})
 	if !ok {
 		a.completion.Dismiss()
 		return
 	}
 	found := a.commands.Find(token.Query)
-	candidates := make([]headless.Candidate, 0, len(found))
+	candidates := make([]base.Candidate, 0, len(found))
 	for _, match := range found {
-		candidates = append(candidates, headless.Candidate{
+		candidates = append(candidates, base.Candidate{
 			Text: match.Command.Name, Label: match.Command.Name,
 			Detail: match.Command.Title, Matched: match.At,
 		})
@@ -275,41 +307,25 @@ func (a *agent) refreshCompletion() {
 	a.completion.Offer(token, candidates)
 }
 
-func (a *agent) drawCompletion(frame headless.Frame) {
-	width, height := frame.Size()
-	rows := a.completion.HeightForWidth(width)
-	if width <= 2 || rows <= 0 || height <= 2 {
-		return
-	}
-	box := kit.Box{
-		Theme: a.theme, Glyphs: a.glyphs,
-		Padding: layout.Symmetric(0, 1), Title: "commands", Footer: "enter complete",
-		FooterAlign: layout.End,
-	}
-	popupWidth := min(max(a.completion.Width()+4, 32), width-2)
-	popupHeight := min(rows+2, height)
-	composerRows := a.composer.HeightForWidth(width)
-	y := max(height-composerRows-popupHeight, 0)
-	area := grid.Area(1, y, popupWidth, popupHeight)
-	inner := box.InnerRect(area.Size())
-	box.Draw(frame.View.Sub(area))
-	a.completion.Draw(frame.Sub(area).Sub(inner))
-}
-
 func (a *agent) startRun(prompt string) {
-	a.conversation.User(prompt)
+	a.conversation.User(a.scope.Context(), prompt)
 	a.workflow.Reset()
 	a.status.Doing = "planning with " + a.model
 	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
 	a.started = time.Now()
-	a.stopClock = a.runtime.Every(120*time.Millisecond, a.tick)
+	timer, err := a.runtime.Every(a.scope, 120*time.Millisecond, a.tick)
+	if err != nil {
+		a.finishRun(err)
+		return
+	}
+	a.stopClock = timer.Stop
 
 	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: a.runtime.Dispatcher(), Limit: ingressSize, Consume: a.accept})
 	if err != nil {
 		a.finishRun(err)
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.scope.Context())
 	run := &agentRun{cancel: cancel}
 	a.run = run
 	output := &agentBridge{
@@ -324,15 +340,15 @@ func (a *agent) startRun(prompt string) {
 		err := a.backend.Run(ctx, prompt, output)
 		_ = ingress.CloseWithError(err)
 	}()
-	if err := a.conversation.Retain(a.runtime); err != nil {
+	if err := a.conversation.Err(); err != nil {
 		a.finishRun(err)
 	}
 }
 
 func (a *agent) accept(batch program.ByteBatch) {
 	if len(batch.Data) > 0 {
-		a.conversation.Markdown(string(batch.Data))
-		if err := a.conversation.Retain(a.runtime); err != nil {
+		a.conversation.Markdown(a.scope.Context(), string(batch.Data))
+		if err := a.conversation.Err(); err != nil {
 			a.finishRun(errors.Join(batch.Err, err))
 			return
 		}
@@ -343,8 +359,8 @@ func (a *agent) accept(batch program.ByteBatch) {
 }
 
 func (a *agent) finishRun(err error) {
-	a.conversation.FlushMarkdown()
-	if retainErr := a.conversation.Retain(a.runtime); retainErr != nil {
+	a.conversation.FinishMarkdown(a.scope.Context(), err)
+	if retainErr := a.conversation.Err(); retainErr != nil {
 		err = errors.Join(err, retainErr)
 	}
 	if a.stopClock != nil {
@@ -367,10 +383,10 @@ func (a *agent) finishRun(err error) {
 	case err != nil:
 		a.status.Doing = "failed: " + err.Error()
 		native.State = term.ProgressError
-		a.conversation.Append(&kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()})
+		a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()})
 	default:
 		a.status.Doing = "complete"
-		a.runtime.Session().Notify("mock agent completed")
+		_ = a.runtime.Session().Notify("mock agent completed")
 	}
 	a.settledProgress(native)
 }
@@ -380,15 +396,20 @@ func (a *agent) setProgress(progress term.Progress) {
 		a.stopProgressReset()
 		a.stopProgressReset = nil
 	}
-	a.runtime.Session().SetProgress(progress)
+	_ = a.runtime.Session().SetProgress(progress)
 }
 
 func (a *agent) settledProgress(progress term.Progress) {
 	a.setProgress(progress)
-	a.stopProgressReset = a.runtime.After(2*time.Second, func() {
-		a.runtime.Session().SetProgress(term.Progress{})
+	timer, err := a.runtime.After(a.scope, 2*time.Second, func() {
+		_ = a.runtime.Session().SetProgress(term.Progress{})
 		a.stopProgressReset = nil
 	})
+	if err != nil {
+		a.status.Doing = err.Error()
+		return
+	}
+	a.stopProgressReset = timer.Stop
 }
 
 func (a *agent) stopRun() {
@@ -396,6 +417,7 @@ func (a *agent) stopRun() {
 		return
 	}
 	a.status.Doing = "cancelling"
+	a.element.Invalidate()
 	a.run.Cancel()
 	if a.review != nil {
 		a.answerReview(false)
@@ -423,8 +445,6 @@ func (r *agentRun) Cancel() { r.cancel() }
 // rather than showing a frozen promise of work.
 type agentStatus struct{ owner *agent }
 
-func (agentStatus) HeightForWidth(int) int { return 1 }
-
 func (s agentStatus) Draw(view grid.View) {
 	if s.owner.run != nil {
 		s.owner.status.Draw(view)
@@ -443,46 +463,51 @@ func (s agentStatus) Draw(view grid.View) {
 }
 
 func (a *agent) buildReview() {
-	a.reviewAnswer = true
-	a.reviewConfirm = headless.NewConfirm(headless.ConfirmConfig{
-		Label: "Allow this tool call?", Value: headless.Bind(&a.reviewAnswer),
-		Yes: "apply", No: "deny",
-	})
-	keys := headless.DefaultFormKeys()
-	a.reviewForm = headless.NewForm(a.reviewConfirm)
-	a.reviewForm.Keys = keys
-	a.reviewForm.Done = func() { a.answerReview(a.reviewAnswer) }
-	a.reviewForm.GaveUp = func() { a.answerReview(false) }
+	a.reviewConfirm = base.NewConfirm(base.ConfirmConfig{Label: "Allow this tool call?", Initial: true, Yes: "apply", No: "deny"})
 	dressed := kit.NewForm(kit.FormConfig{
-		Theme: a.theme, Glyphs: a.glyphs, Controller: a.reviewForm,
-		Hints: []keymap.Action{headless.Submit, headless.Cancel},
+		Theme: a.theme, Glyphs: a.glyphs,
+		Fields: []base.Field{a.reviewConfirm}, Keys: base.DefaultFormKeys(),
+		Hints: []keymap.Action{base.Submit, base.Cancel},
+		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+			a.answerReview(a.reviewConfirm.Answer())
+			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+		},
+		Cancel: func(base.SubmissionID) error { a.answerReview(false); return nil },
 	})
+	a.reviewForm = dressed.Controller()
 	change := kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Numbers: true})
-	a.reviewPane = reviewPane{
-		diff:   change,
-		window: headless.NewViewport(headless.Static{Of: change}),
-		form:   dressed, theme: a.theme,
+	content := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { change.Draw(frame.View) }, Measure: func(axis layout.Axis, width int) int {
+		if axis == layout.Down {
+			return change.HeightForWidth(width)
+		}
+		return 0
+	}})
+	a.reviewPane = reviewPane{diff: change, window: base.NewViewport(base.ViewportConfig{Content: content}), form: dressed, theme: a.theme}
+	if err := a.reviewPane.window.Element().SetFocusable(func() bool { return false }); err != nil {
+		panic(err)
 	}
 	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
-		Stack: &a.stack, Theme: a.theme, Glyphs: a.glyphs,
-		Title: "Review tool call", Body: &a.reviewPane,
+		Theme: a.theme, Glyphs: a.glyphs,
+		Title: "Review tool call", Body: a.reviewPane.Element(), Where: layout.Placement{Width: 76, Height: 16, Margin: 1},
 	})
-	a.reviewDialog.Panel().Where = layout.Placement{Width: 76, Height: 16, Margin: 1}
 }
 
 func (a *agent) openReview(request *reviewRequest) {
 	if a.review != nil {
 		a.answerReview(false)
 	}
-	a.conversation.FlushMarkdown()
-	if err := a.conversation.Retain(a.runtime); err != nil {
+	a.conversation.FlushMarkdown(a.scope.Context())
+	if err := a.conversation.Err(); err != nil {
 		a.finishRun(err)
 		request.answer <- false
 		return
 	}
 	a.review = request
-	a.reviewAnswer = true
-	a.reviewConfirm.Say(true)
+	if _, err := a.reviewConfirm.Request(a.scope.Context(), base.ConfirmRequest{ExpectedRevision: a.reviewConfirm.Snapshot().Revision, Value: true}); err != nil {
+		a.status.Doing = err.Error()
+		a.answerReview(false)
+		return
+	}
 	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
@@ -503,22 +528,22 @@ func (a *agent) answerReview(approved bool) {
 		return
 	}
 	a.status.Doing = "tool call denied"
-	a.conversation.Append(&kit.Entry{
+	a.conversation.Append(a.scope.Context(), &kit.Entry{
 		Theme: a.theme, Label: "tool", Body: request.proposal.Path + " — denied",
 	})
 }
 
 func (a *agent) showTool(result toolResult) {
-	a.conversation.FlushMarkdown()
-	a.conversation.Append(&kit.Entry{
+	a.conversation.FlushMarkdown(a.scope.Context())
+	a.conversation.Append(a.scope.Context(), &kit.Entry{
 		Theme: a.theme, Label: result.Name, Body: oneLine(result.Summary),
 	})
 	shown := kit.NewDiff(kit.DiffConfig{
 		Theme: a.theme, Glyphs: a.glyphs,
 		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
 	})
-	a.conversation.Append(shown)
-	if err := a.conversation.Retain(a.runtime); err != nil {
+	a.conversation.Append(a.scope.Context(), shown)
+	if err := a.conversation.Err(); err != nil {
 		a.finishRun(err)
 	}
 }

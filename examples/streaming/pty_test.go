@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/ptytest"
+	"github.com/Tangerg/oolong/ui/uitest/ptytest"
 )
 
 // These are the tests a program.Host cannot write. A host proves the interface

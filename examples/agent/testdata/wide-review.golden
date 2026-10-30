@@ -2,11 +2,11 @@ you
   move validation into its owner
 
 Working plan
-I’ll in╭─Review tool call─────────────────────────────────────────────────────────╮
-The beh│ internal/parser.go — move validation into parser.advance                 │wo
-functio│ 1 1  func parse(token string) error {                                    │
-       │ 2   -    if token == "" { return errEmpty }                              │
-       │ 3 2      return state.advance(token)                                     │
+       ╭─Review tool call─────────────────────────────────────────────────────────╮
+I’ll in│ internal/parser.go — move validation into parser.advance                 │
+       │ 1 1  func parse(token string) error {                                    │
+The beh│ 2   -    if token == "" { return errEmpty }                              │wo
+functio│ 3 2      return state.advance(token)                                     │
        │   3 +}                                                                   │
        │   4 +                                                                    │
        │   5 +func (s *parser) advance(token string) error {                      │

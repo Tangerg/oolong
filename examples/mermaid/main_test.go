@@ -9,16 +9,17 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Tangerg/oolong/core/program"
+	"github.com/Tangerg/oolong/ui/core/program"
 
-	"github.com/Tangerg/oolong/core/graphics"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/programtest"
-	"github.com/Tangerg/oolong/mermaid"
+	"github.com/Tangerg/oolong/extensions/mermaid"
+	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 type imageHost struct {
-	*programtest.Host
+	*uitest.Host
 	mu             sync.Mutex
 	sent, released uint32
 	protocol       graphics.Protocol
@@ -43,7 +44,7 @@ func (h *imageHost) ReleaseImage(graphics.Image) error {
 }
 
 func TestShutdownCancelsWorker(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 70, Height: 20})
+	host := uitest.New(t, uitest.Config{Width: 70, Height: 20})
 	started, stopped := make(chan struct{}), make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -68,7 +69,7 @@ func TestShutdownCancelsWorker(t *testing.T) {
 }
 
 func TestReplacementRejectsStaleResultAndReleasesAcceptedImages(t *testing.T) {
-	host := &imageHost{protocol: graphics.Kitty, Host: programtest.New(t, programtest.Config{Width: 75, Height: 25})}
+	host := &imageHost{protocol: graphics.Kitty, Host: uitest.New(t, uitest.Config{Width: 75, Height: 25})}
 	first, releaseFirst := make(chan struct{}), make(chan struct{})
 	var calls int
 	var mu sync.Mutex
@@ -108,7 +109,7 @@ func TestReplacementRejectsStaleResultAndReleasesAcceptedImages(t *testing.T) {
 }
 
 func TestBackendDiagnosticIsVisible(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 70, Height: 20})
+	host := uitest.New(t, uitest.Config{Width: 70, Height: 20})
 	done := make(chan error, 1)
 	go func() {
 		done <- runScreen(t.Context(), host, func(context.Context, string) (*mermaid.Image, error) { return nil, errors.New("diagram syntax failed") })
@@ -120,14 +121,9 @@ func TestBackendDiagnosticIsVisible(t *testing.T) {
 	}
 }
 
-func TestStalePreparationCannotAdvanceContentState(t *testing.T) {
-	screen := &diagramScreen{generation: 2, pending: true, source: "current source"}
-	screen.accept(1, new(mermaid.Image), nil)
-	if !screen.pending || screen.err != nil || screen.image.ID != 0 || screen.doc.Len() != 0 {
-		t.Fatal("stale preparation changed the current content")
-	}
-	screen.closed = true
-	screen.accept(2, new(mermaid.Image), nil)
+func TestClosedPreparationCannotAdvanceContentState(t *testing.T) {
+	screen := &diagramScreen{closed: true, pending: true, source: "current source"}
+	screen.accept(new(mermaid.Image), nil)
 	if !screen.pending || screen.err != nil || screen.image.ID != 0 || screen.doc.Len() != 0 {
 		t.Fatal("closed content accepted a preparation result")
 	}
@@ -147,7 +143,7 @@ func TestUnsupportedTerminalsNeverReceiveImageData(t *testing.T) {
 		unknown  bool
 	}{{"none", graphics.None, false}, {"sixel", graphics.Sixel, false}, {"geometry", graphics.Kitty, true}} {
 		t.Run(tt.name, func(t *testing.T) {
-			host := &imageHost{Host: programtest.New(t, programtest.Config{Width: 100, Height: 20}), protocol: tt.protocol, unknownCell: tt.unknown}
+			host := &imageHost{Host: uitest.New(t, uitest.Config{Width: 100, Height: 20}), protocol: tt.protocol, unknownCell: tt.unknown}
 			done := make(chan error, 1)
 			go func() {
 				done <- runScreen(t.Context(), host, func(context.Context, string) (*mermaid.Image, error) { return new(mermaid.Image), nil })
@@ -202,18 +198,27 @@ func TestExportPreservesBytes(t *testing.T) {
 }
 
 func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 100, Height: 20})
+	host := uitest.New(t, uitest.Config{Width: 100, Height: 20})
 	screen := &diagramScreen{source: flowchart, prepared: new(mermaid.Image)}
 	opened := make(chan string, 1)
 	screen.open = func(_ context.Context, path string) error { opened <- path; return nil }
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{Host: host, Root: func(r *program.Runtime) program.Component {
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(r *program.Runtime) (scene.Element, error) {
 			screen.runtime = r
+			scope, scopeErr := r.NewScope(program.ScopeConfig{Context: t.Context()})
+			if scopeErr != nil {
+				return scene.Element{}, scopeErr
+			}
+			screen.scope, screen.lifetime = scope, scope
 			screen.writer = host.Writer()
 			screen.setDocument(nil)
-			return screen
+			return screen.Element(), nil
 		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 	host.Shows(t, "Open Image")
 	host.Type("o")

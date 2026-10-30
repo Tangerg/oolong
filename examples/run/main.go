@@ -29,13 +29,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
@@ -46,12 +47,13 @@ func main() {
 	if len(command) == 0 {
 		command = []string{"go", "version"}
 	}
-	if err := program.Run(context.Background(), program.Config{
-		Inline: func(runtime *program.InlineRuntime) program.Component {
-			return newRunner(runtime, command)
-		},
-		Terminal: term.Features{Probe: true},
-	}); err != nil {
+	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+		return newRunner(runtime, command).Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "run:", err)
 		os.Exit(1)
 	}
@@ -59,6 +61,7 @@ func main() {
 
 // runner is the live block: what is still being written, and what is happening.
 type runner struct {
+	element scene.Element
 	runtime *program.InlineRuntime
 	ingress *program.ByteIngress
 	theme   kit.Theme
@@ -82,14 +85,26 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	r := &runner{runtime: runtime, theme: theme, command: command}
 	r.out.Base = theme.Text
-	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs, Label: strings.Join(command, " ")}
+	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs, Label: strings.Join(command, " ") + " — ctrl+e: editor, ctrl+z: suspend"}
 	r.status = "starting"
 
+	// Window metadata and notifications are optional enhancements. The visible status
+	// remains authoritative even when the terminal does not support them.
 	// The window says what is happening to somebody looking at another window, which
 	// is the one thing an interface cannot say by drawing.
-	runtime.Session().SetTitle(strings.Join(command, " "))
-	r.stopSpinner = runtime.Every(120*time.Millisecond, r.spinner.Tick)
-	var err error
+	_ = runtime.Session().SetTitle(strings.Join(command, " "))
+	scope, err := runtime.NewScope(program.ScopeConfig{})
+	if err != nil {
+		r.finish(err)
+		return r
+	}
+	timer, err := runtime.Every(scope, 120*time.Millisecond, r.spinner.Tick)
+	if err != nil {
+		scope.Close()
+		r.finish(err)
+		return r
+	}
+	r.stopSpinner = timer.Stop
 	r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 64 << 10, Consume: r.accept})
 	if err != nil {
 		r.finish(err)
@@ -141,7 +156,7 @@ func (r *runner) output(chunk string) error {
 	for _, line := range r.out.Feed(chunk) {
 		paragraph := &kit.Paragraph{}
 		paragraph.SetText([]text.Line{line})
-		if err := r.runtime.Print(paragraph); err != nil {
+		if _, err := r.runtime.Publish(paragraph); err != nil {
 			return err
 		}
 	}
@@ -152,7 +167,7 @@ func (r *runner) finish(err error) {
 	for _, line := range r.out.Flush() {
 		paragraph := &kit.Paragraph{}
 		paragraph.SetText([]text.Line{line})
-		if printErr := r.runtime.Print(paragraph); printErr != nil {
+		if _, printErr := r.runtime.Publish(paragraph); printErr != nil {
 			err = errors.Join(err, printErr)
 			break
 		}
@@ -166,9 +181,9 @@ func (r *runner) finish(err error) {
 	if err != nil {
 		r.status = err.Error()
 	}
-	r.runtime.Session().SetTitle("")
-	r.runtime.Session().Bell()
-	r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.status)
+	_ = r.runtime.Session().SetTitle("")
+	_ = r.runtime.Session().Bell()
+	_ = r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.status)
 }
 
 // Draw is the line still being written, and a row saying what is happening.
@@ -185,8 +200,9 @@ func (r *runner) Draw(v grid.View) {
 		kit.Label{Text: r.status + "   ctrl+c: leave", Style: r.theme.Muted}.Draw(rows[1])
 		return
 	}
-	r.spinner.Label = strings.Join(r.command, " ") + " — ctrl+e: editor, ctrl+z: suspend"
-	r.spinner.Draw(rows[1])
+	spinner := r.spinner
+	spinner.Label = strings.Join(r.command, " ") + " — ctrl+e: editor, ctrl+z: suspend"
+	spinner.Draw(rows[1])
 }
 
 func (r *runner) Handle(ev input.Event) bool {
@@ -232,4 +248,18 @@ func edit() error {
 	cmd := exec.CommandContext(context.Background(), name, file.Name())
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+func (r *runner) Element() scene.Element {
+	if r.element.IsZero() {
+		r.element = scene.NewElement(scene.ElementConfig{
+			Key:       "run",
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { r.Draw(frame.View) },
+			Handle: func(event scene.Event) scene.EventResult {
+				return scene.EventResult{Consumed: r.Handle(event.Input)}
+			},
+		})
+	}
+	return r.element
 }

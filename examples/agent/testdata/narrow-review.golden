@@ -1,8 +1,8 @@
 you
- ╭─Review tool call───────────────────────╮
-─│ internal/parser.go — move validation … │─
-I│ 1 1  func parse(token string) error {  │
-v│ 2   -    if token == "" { return       │
+─╭─Review tool call───────────────────────╮─
+I│ internal/parser.go — move validation … │
+v│ 1 1  func parse(token string) error {  │
+ │ 2   -    if token == "" { return       │
 T│     │errEmpty }                        │
 a│ 3 2      return state.advance(token)   │
 f│   3 +}                                 │

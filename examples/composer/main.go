@@ -6,36 +6,39 @@ package main
 import (
 	"context"
 	"fmt"
+	"image"
 	"os"
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/fuzzy"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/fuzzy"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 const (
-	submitPrompt keymap.Action        = "submit"
-	quitPrompt   keymap.Action        = "quit"
-	pasteElement headless.ElementKind = 1
-	largePaste                        = 3
+	submitPrompt keymap.Action    = "submit"
+	quitPrompt   keymap.Action    = "quit"
+	pasteElement base.ElementKind = 1
+	largePaste                    = 3
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Root: func(runtime *program.Runtime) program.Component {
-			return headless.NewRoot(newPrompt(runtime))
-		},
-		Terminal: term.Features{Probe: true, Mouse: true},
-	}); err != nil {
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		return newPrompt(runtime).Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "composer:", err)
 		os.Exit(1)
 	}
@@ -49,64 +52,90 @@ type prompt struct {
 	glyphs  kit.Glyphs
 	keys    *keymap.Map
 
-	composer   kit.Composer
-	completion headless.Completion
-	history    *headless.History[draft]
+	composer   *kit.Composer
+	completion base.Completion
+	history    *base.History[draft]
 	output     kit.Paragraph
 	status     string
 	references []reference
 	pastes     map[uint64]string
-	field      headless.PointerRegion
-	// popup is where the completion was drawn. Without it the completion answered a
-	// press wherever it landed, in this widget's coordinates rather than its own —
-	// so a click on the editor picked a candidate, and picked the wrong one.
-	popup headless.PointerRegion
+	element    scene.Element
 }
 
 func newPrompt(runtime *program.Runtime) *prompt {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
-	keys := headless.DefaultEditorKeys()
+	keys := base.DefaultEditorKeys()
 	keys.Bind(submitPrompt, input.Chord{Code: input.Enter})
 	keys.Bind(quitPrompt, input.Ctrl.Rune('c'))
 
 	p := &prompt{
 		runtime: runtime, theme: theme, glyphs: glyphs, keys: keys,
 		status: "paste three or more lines to make one atomic chip",
-		history: headless.NewHistory(headless.HistoryConfig[draft]{
+		history: base.NewHistory(base.HistoryConfig[draft]{
 			Clone: draft.clone,
 			Equal: draft.equal,
 		}),
 		references: []reference{
 			{name: "README.md", detail: "project introduction"},
 			{name: "docs/architecture.md", detail: "ownership and layering"},
-			{name: "core/program", detail: "runtime and ingress"},
-			{name: "components/headless", detail: "behavior without appearance"},
+			{name: "ui/core/program", detail: "runtime and ingress"},
+			{name: "ui/base", detail: "behavior without appearance"},
 		},
 		pastes: make(map[uint64]string),
 	}
-	p.composer = kit.Composer{
+	p.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme: theme, Prompt: glyphs.Marker + " ",
 		Hints: []keymap.Action{submitPrompt, quitPrompt}, MaxRows: 1,
-	}
-	p.composer.Editor().Placeholder = "Type @ to reference something"
-	p.composer.Editor().Keys = keys
-	p.composer.Editor().SetSingleLine(true)
-	p.composer.Editor().Clipboard = runtime.Clipboard()
-	p.composer.Focus(true)
-	p.completion = headless.Completion{
+	})
+	p.composer.Controller().Placeholder = "Type @ to reference something"
+	p.composer.Controller().Keys = keys
+	p.composer.Controller().SetSingleLine(true)
+	p.composer.Controller().Clipboard = runtime.Clipboard()
+	p.completion = base.Completion{
 		Look: theme.Look(glyphs), MaxRows: 5,
-		Accept: func(candidate headless.Candidate, token headless.Token) {
-			p.composer.Editor().Replace(token.Start, token.End, candidate.Text)
+		Accept: func(candidate base.Candidate, token base.Token) {
+			p.composer.Controller().Replace(token.Start, token.End, candidate.Text)
+			p.completion.Dismiss()
 		},
 	}
 	p.output.SetText([]text.Line{
 		text.Of("A prompt can carry text and application-owned elements without becoming a new widget kind.", theme.Text),
 	})
+	unsubscribe := p.composer.Controller().Session().Subscribe(func(base.ChangeMap) {
+		p.releaseRemovedPastes()
+		p.refreshCompletion()
+	})
+	body := scene.NewGroup(scene.GroupConfig{
+		Element: scene.ElementConfig{Paint: p.Draw}, Items: []scene.Item{{Element: p.composer.Element()}},
+		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
+			height := min(p.composer.HeightForWidth(space.X), space.Y)
+			return []image.Rectangle{grid.Area(0, space.Y-height, space.X, height)}
+		},
+	})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{
+		Theme: theme, Glyphs: glyphs, Title: "references", Footer: "tab complete",
+		FooterAlign: layout.End, Padding: layout.Symmetric(0, 1),
+	}, Content: p.completion.Element()})
+	popup := scene.NewGroup(scene.GroupConfig{
+		Element: scene.ElementConfig{Enabled: p.completion.Open}, Items: []scene.Item{{Element: panel.Element()}},
+		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
+			if !p.completion.Open() {
+				return []image.Rectangle{{}}
+			}
+			width := max(0, min(max(p.completion.Width()+4, 38), space.X-2))
+			height := min(p.completion.HeightForWidth(width)+2, space.Y)
+			y := max(space.Y-p.composer.HeightForWidth(space.X)-height, 0)
+			return []image.Rectangle{grid.Area(1, y, width, height)}
+		},
+	})
+	p.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
+		Key: "composer", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input)} }, Detached: unsubscribe,
+	}, Items: []scene.Item{{Element: body.Element()}, {Element: popup.Element()}}}).Element()
 	return p
 }
 
-func (p *prompt) Draw(frame headless.Frame) {
+func (p *prompt) Draw(frame scene.Frame) {
 	width, height := frame.Size()
 	composerRows := min(p.composer.HeightForWidth(width), height)
 	rects := (layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
@@ -119,11 +148,6 @@ func (p *prompt) Draw(frame headless.Frame) {
 	kit.Label{Text: p.status, Style: p.theme.Subtle, Ellipsis: p.glyphs.Ellipsis}.
 		Draw(rows[0].View.Sub(grid.Area(0, 1, width, 1)))
 	p.output.Draw(rows[1].View)
-	p.field.Stage(frame, rects[2], &p.composer)
-	p.composer.Draw(rows[2])
-	if p.completion.Open() {
-		p.drawCompletion(frame, composerRows)
-	}
 }
 
 func (p *prompt) Handle(event input.Event) bool {
@@ -144,15 +168,7 @@ func (p *prompt) Handle(event input.Event) bool {
 	if key, ok := event.(input.Key); ok && key.Down() && p.walk(key) {
 		return true
 	}
-	if mouse, ok := event.(input.Mouse); ok {
-		return p.point(mouse)
-	}
-	handled := p.composer.Handle(event)
-	if handled {
-		p.releaseRemovedPastes()
-		p.refreshCompletion()
-	}
-	return handled
+	return false
 }
 
 func (p *prompt) walk(key input.Key) bool {
@@ -172,19 +188,6 @@ func (p *prompt) walk(key input.Key) bool {
 	return true
 }
 
-// point offers a pointer event to the popup first, because it is drawn over the field.
-func (p *prompt) point(mouse input.Mouse) bool {
-	if handled, _ := p.popup.Handle(mouse); handled {
-		p.releaseRemovedPastes()
-		return true
-	}
-	handled, _ := p.field.Handle(mouse)
-	if handled {
-		p.refreshCompletion()
-	}
-	return handled
-}
-
 func (p *prompt) insertPaste(body string) {
 	p.attach(body)
 	p.status = fmt.Sprintf("%d-line paste attached; backspace removes it atomically",
@@ -193,7 +196,7 @@ func (p *prompt) insertPaste(body string) {
 }
 
 func (p *prompt) attach(body string) {
-	element := p.composer.Editor().InsertElement(pasteElement, pasteLabel(body))
+	element := p.composer.Controller().InsertElement(pasteElement, pasteLabel(body))
 	if element.ID != 0 {
 		if p.pastes == nil {
 			p.pastes = make(map[uint64]string)
@@ -225,7 +228,7 @@ func (d draft) equal(other draft) bool {
 }
 
 func (p *prompt) current() draft {
-	editor := p.composer.Editor()
+	editor := p.composer.Controller()
 	text := editor.Text()
 	lines := strings.Split(text, "\n")
 	starts := make([]int, len(lines))
@@ -251,7 +254,7 @@ func (p *prompt) current() draft {
 // bytes behind them are attached to this draft as they were to the one it came from.
 // A document nobody recorded chips for is exactly its text.
 func (p *prompt) restore(d draft) {
-	editor := p.composer.Editor()
+	editor := p.composer.Controller()
 	if len(d.chips) == 0 {
 		editor.SetText(d.text)
 		p.releaseRemovedPastes()
@@ -302,7 +305,7 @@ func pasteLabel(body string) string {
 
 func (p *prompt) releaseRemovedPastes() {
 	live := make(map[uint64]struct{})
-	for _, id := range p.composer.Editor().RetainedElementIDs() {
+	for _, id := range p.composer.Controller().RetainedElementIDs() {
 		live[id] = struct{}{}
 	}
 	for id := range p.pastes {
@@ -313,7 +316,7 @@ func (p *prompt) releaseRemovedPastes() {
 }
 
 func (p *prompt) submit() {
-	body := strings.TrimSpace(p.composer.Editor().Text())
+	body := strings.TrimSpace(p.composer.Controller().Text())
 	if body == "" {
 		return
 	}
@@ -334,50 +337,32 @@ func (p *prompt) submit() {
 		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),
 	})
 	p.status = "submitted; up restores it without losing the current draft"
-	p.composer.Editor().Clear()
-	p.composer.Editor().ForgetHistory()
+	p.composer.Controller().Clear()
+	p.composer.Controller().ForgetHistory()
 	p.completion.Dismiss()
 	clear(p.pastes)
 }
 
 func (p *prompt) refreshCompletion() {
-	line, column := p.composer.Editor().Cursor()
+	line, column := p.composer.Controller().Cursor()
 	if line != 0 {
 		p.completion.Dismiss()
 		return
 	}
-	token, ok := headless.TokenAt(p.composer.Editor().Text(), column, headless.Trigger{Prefix: "@"})
+	token, ok := base.TokenAt(p.composer.Controller().Text(), column, base.Trigger{Prefix: "@"})
 	if !ok {
 		p.completion.Dismiss()
 		return
 	}
 	matches := fuzzy.FilterFunc(token.Query, p.references, func(r reference) string { return r.name })
-	candidates := make([]headless.Candidate, 0, len(matches))
+	candidates := make([]base.Candidate, 0, len(matches))
 	for _, match := range matches {
 		item := p.references[match.Index]
-		candidates = append(candidates, headless.Candidate{
+		candidates = append(candidates, base.Candidate{
 			Text: item.name, Label: item.name, Detail: item.detail, Matched: match.Match.At,
 		})
 	}
 	p.completion.Offer(token, candidates)
 }
 
-func (p *prompt) drawCompletion(frame headless.Frame, composerRows int) {
-	width, height := frame.Size()
-	rows := p.completion.HeightForWidth(width)
-	if width <= 2 || rows <= 0 {
-		return
-	}
-	box := kit.Box{
-		Theme: p.theme, Glyphs: p.glyphs, Title: "references", Footer: "tab complete",
-		FooterAlign: layout.End, Padding: layout.Symmetric(0, 1),
-	}
-	popupWidth := min(max(p.completion.Width()+4, 38), width-2)
-	popupHeight := min(rows+2, height)
-	y := max(height-composerRows-popupHeight, 0)
-	area := grid.Area(1, y, popupWidth, popupHeight)
-	inner := box.InnerRect(area.Size())
-	box.Draw(frame.View.Sub(area))
-	p.completion.Draw(frame.Sub(area).Sub(inner))
-	p.popup.Stage(frame, inner.Add(area.Min), &p.completion)
-}
+func (p *prompt) Element() scene.Element { return p.element }

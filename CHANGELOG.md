@@ -1,22 +1,23 @@
 # Changelog
 
-All notable changes to this repository. Modules are tagged separately —
-`core/vX.Y.Z`, `components/vX.Y.Z`, `markdown/vX.Y.Z`, `highlight/vX.Y.Z`,
-`latex/vX.Y.Z`, `mermaid/vX.Y.Z`, `ptytest/vX.Y.Z`, `ssh/vX.Y.Z` — and share one version number: a release is a state of the
-repository.
+Current public modules are independently versioned. `ui` contains the UI layers; optional dependency modules live under `extensions/`. Each release section names its module tag, for example `[ui/v0.1.0]`. Historical numeric sections below retain the coordinated release policy and API names that applied at the time.
 
-From 0.1.0 they are also one coordinated release train, as
-[the release policy](docs/architecture.md#13-breaking-change-and-release-policy)
-requires: every public module is tagged at every release with the same version and
-these same notes, whether or not its own files changed, and users upgrade the set
-together. Before 0.1.0 an unchanged module kept the tag it already had, which is why
-some earlier versions are missing from some modules.
-
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
-these modules are pre-1.0: anything exported may still change, and that is the
-point of tagging them low rather than not at all.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). These modules are pre-1.0; incompatible changes are explicit migration decisions. The [release guide](docs/guides/releasing.md) describes the current procedure.
 
 ## [Unreleased]
+
+### Breaking changes
+
+- Replace the separate `core`, `components` and `ptytest` module paths with `github.com/Tangerg/oolong/ui`. Core primitives now live in `ui/core`, unstyled behavior in `ui/base`, appearance in `ui/kit`, semantic automation in `ui/automation`, and test support in `ui/uitest`. Optional modules move to `extensions/{markdown,highlight,latex,mermaid,ssh}`. There are no forwarding packages or compatibility aliases.
+- Replace `program.Run` and ambiguous `Config.Root` / `Config.Inline` selection with `program.NewScreen` / `program.NewInline`, typed Build functions returning `scene.Element`, and the constructed program's `Run`. One scene root now owns attachment, focus, capture, modal eligibility, geometry and semantics; the independent headless routing tree is removed.
+- Kit components hold private base controllers and expose `Controller()` and the same `Element()`. Stateful construction uses explicit Config values. Editable text and undo belong to EditSession; ambiguous controlled accessors and duplicate mutation paths are removed. Explicit domain controls use versioned Snapshot / Change / Subscribe contracts without a local answer copy. ThemeOwner owns application palette changes, with immutable scopes and per-instance overrides.
+- Background results use scoped typed work and owner-side application. Cancellation, completion, stale delivery and physical output settlement are separately observable. Typed scene actions and bounded automation snapshots share production controller commands.
+- Replace `markdown.Stream` and its Feed / Open / Flush prefix protocol with `content.StreamDocument` plus complete immutable snapshot preparation through `markdown.NewRenderer`. Append changes source; End records EOF; Accept verifies identity, revision and finality. Final Markdown is equivalent to whole-source rendering regardless of transport partition.
+- Replace Transcript Append / Changed / Finish / Commit glue with Add or AddDocument and explicit retention configuration. Transcript owns subscriptions, finalization policy, reading state and publication resumption. KeepCompleted preserves bounded recent interactive context; MaxItems bounds retained references. Selection uses content identity, revision and logical text positions.
+- Replace Inline Print / Append / Tail / Break queues with publication admission and immutable frozen content. InlineRuntime.Publish returns a Receipt; Accepted differs from Written, Failed and UnknownPartial. Grid output is a candidate with Commit / Abort, and exact encoded payload admission precedes owner commits. Native paint is refused for permanent history.
+- Add bounded VirtualWindow materialization with stable keys, source revisions and explicit estimated extent. Archive storage and offscreen loading remain application policies rather than hidden copies of transcript content.
+- Replace `ssh.Run` with `ssh.Open` and an explicitly closed host passed to program configuration. Optional session services report unsupported capabilities and delivery errors.
+- Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Fixed
 
@@ -2744,7 +2745,7 @@ also the first evidence that `program.Host` at three methods is a seam somebody 
 can reach.
 
 The rest of the additions are the components the
-[prior-art survey](docs/prior-art.md#a-general-behaviour-now-implemented) found
+[prior-art survey](https://github.com/Tangerg/oolong/blob/042eaa1c6b13bd863f157b48f715386e8e6b61f3/docs/prior-art.md#a-general-behaviour-now-implemented) found
 missing outright: a bounded numeric value, line numbers, an assembled code block,
 columns sized from their content, and a settings list. Each is behaviour in `headless`
 and appearance in `kit`, and the two sliders in the dashboard example drive the same
@@ -2762,7 +2763,7 @@ Breaking. `Form.Fields`, `Tree.Nodes`, `Stack.Base`, `Viewport.Content`,
 `Stack.Push`, `Stack.Contains`, `Stack.Remove` and `History.Limit` change shape because
 identity is an index or a `LayerID` rather than an interface value that could panic on
 comparison. There are no deprecated aliases: see the
-[breaking-change policy](docs/architecture.md#13-breaking-change-and-release-policy).
+[breaking-change policy](https://github.com/Tangerg/oolong/blob/042eaa1c6b13bd863f157b48f715386e8e6b61f3/docs/architecture.md#13-breaking-change-and-release-policy).
 
 ### Added
 
@@ -2921,7 +2922,7 @@ Breaking. `Editor.HandleMouse`, `Doc.Blocks`, `Stream.Look`, `Paragraph.Lines`,
 `kit.Dots` and the exported slice fields on lists, filters, containers, sticky headers
 and choices are replaced by methods; `Drain` and `Present` return errors instead of
 booleans. There are no deprecated aliases: see the
-[breaking-change policy](docs/architecture.md#13-breaking-change-and-release-policy).
+[breaking-change policy](https://github.com/Tangerg/oolong/blob/042eaa1c6b13bd863f157b48f715386e8e6b61f3/docs/architecture.md#13-breaking-change-and-release-policy).
 
 ### Changed
 
@@ -3039,7 +3040,7 @@ live counterpart to `Box`.
 The first three architecture slices are complete and every invariant this document
 can enforce now has a named executable guard. The minor version says that the shape
 of a streaming program has settled; it is still pre-1.0, so [the breaking-change
-policy](docs/architecture.md#13-breaking-change-and-release-policy) still applies and
+policy](https://github.com/Tangerg/oolong/blob/042eaa1c6b13bd863f157b48f715386e8e6b61f3/docs/architecture.md#13-breaking-change-and-release-policy) still applies and
 the modules are still one coordinated release train.
 
 ### Added

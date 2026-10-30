@@ -1,7 +1,7 @@
 # Contributing
 
 Engineering conventions that apply to every change live in [`AGENTS.md`](./AGENTS.md). This page covers only
-what is specific to Oolong: its toolchain, its module and ring boundaries, and the gates a change must pass.
+what is specific to Oolong: its toolchain, its package and module boundaries, and the gates a change must pass.
 
 Before changing behaviour or an exported API, read the boundaries in the
 [README](./README.md#build-from-layers) and the reasoning behind them in [DESIGN.md](./DESIGN.md).
@@ -35,7 +35,7 @@ This is a workspace of several modules. `go.work` is committed and a checkout do
 
 `scripts/modules.sh` is the executable inventory for all workspace modules, and its `--public` form is the
 only tooling source for tagged modules. Public membership is derived from externally importable production
-packages, not an exclusion list; `internal/arch` independently reads Go's package facts and rejects drift from
+packages, not an exclusion list; `ui/internal/arch` independently reads Go's package facts and rejects drift from
 either set.
 
 ## Development workflow
@@ -62,9 +62,8 @@ for m in $modules; do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...); done
 scripts/check-reachability.sh
-go -C internal run ./cmd/apiledger -root ..
-go work sync
-git diff --quiet
+go -C ui run ./internal/cmd/apiledger -root ..
+scripts/sync-workspace.sh --check
 npm ci
 npm run docs:check
 ```
@@ -77,46 +76,22 @@ tag, while a missing `require` still fails.
 Fuzz targets run in CI on every push. Run one locally with:
 
 ```sh
-cd core && go test ./input/ -run '^$' -fuzz FuzzParserDoesNotCareHowBytesArrive -fuzztime=30s
+cd ui && go test ./core/input/ -run '^$' -fuzz FuzzParserDoesNotCareHowBytesArrive -fuzztime=30s
 ```
 
 ## Boundaries
 
-### Modules
+### Packages and modules
 
-A module boundary is where dependencies differ, and nowhere else. It costs version skew and buys an
-independent dependency set.
+The UI module contains core primitives, base behavior, kit appearance, semantic automation and test support. Optional format and transport modules live in `extensions/`. A module boundary exists where independent dependencies and versions are useful; it is not repeated at every package layer.
 
-| Module | Rule |
-| --- | --- |
-| `core` | Carries the whole third-party list and everything the engine is |
-| `components` | Imports nothing outside `core` and the standard library |
-| `markdown`, `highlight`, `latex` | Parser, lexers and palettes, and mathematical parsing with terminal layout. Peers that may not import one another |
-| `mermaid` | Owns CLI/browser preparation, process lifetime and validated PNG output; Windows system calls stay in its process adapter |
-| `ptytest` | Test harness above the product graph; reuses core's terminal-neutral ANSI and text primitives. Product production packages must not depend on it |
+The executable inventory is `scripts/modules.sh`. Its `--public` form derives externally importable production modules. `scripts/sync-workspace.sh --check` verifies that the committed workspace matches the discovered module facts. Do not add a second maintained module list.
 
-Anything wanting a heavy dependency — markdown, syntax highlighting, mathematics — becomes a module of its
-own, so that neither `core` nor `components` hears about it. Consumer-owned core content and drawable contracts are how
-applications compose the peer modules.
+### Import directions
 
-### Rings
+Core foundations provide terminal-neutral values. Text, input, scene, content, publication, transport and runtime compose only their declared lower capabilities. Core never imports base, kit, automation or test support. Base never imports kit. Format extensions consume core contracts; applications compose the extensions together.
 
-A ring boundary lives inside a module, where the compiler cannot see it.
-
-- Foundations (`ansi`, `grid`, `layout`, algorithms) know no decoded protocol, derived model, OS adapter, or
-  runtime.
-- `input` and `text` derive from foundations; `term` adapts protocols to the OS; `program` composes those
-  layers. Those directions are one-way in code and in docs.
-- `core/program` must never know the widgets exist. The module graph does not catch this — `core` could
-  require `components` and Go would allow it.
-- `components/headless` must not depend on `components/kit`, or walking away from one appearance would mean
-  walking away from the behaviour too.
-
-### Enforcement
-
-`internal/arch` enforces both boundaries from a direct dependency DAG. It fails if the graph is incomplete or
-cyclic, and computes every permitted transitive edge rather than maintaining a forbidden matrix. Adding a
-module or package means declaring its one node and its immediate lower dependencies.
+`ui/internal/arch` reads actual Go package imports and checks the declared direct dependency DAG. Commentary may link to a higher-layer example or explain who consumes an API; those references are not imports. Test the real dependency rather than banning useful documentation navigation.
 
 ## Public API changes
 
@@ -140,13 +115,14 @@ is breaking, and raising the `go` directive raises every dependent's toolchain f
 
 ## Documentation and examples
 
-Write one page for one reader task. Tutorials and how-to guides go under `docs`, package reference in Go
+Write one page for one reader task. Tutorials and how-to guides go under `docs/guides`, layer explanations under `docs/core`,
+`docs/base` and `docs/kit`, and decisions under `docs/decisions`. Package reference lives in Go
 comments and executable examples, and complete applications under `examples`. Update the English and Chinese
 pages together when they describe the same contract.
 
-`internal/arch` checks every relative Markdown path and heading anchor. The getting-started programs are
+`ui/internal/arch` checks every relative Markdown path and heading anchor. The getting-started programs are
 extracted and compiled, and the example catalog is derived from command directories. Every documentation page
-declares its reader task in frontmatter, and every English page has the same route below `docs/zh`. Do not add
+declares its reader task in frontmatter, and every current English page has the same route below `docs/zh`. Do not add
 a second hand-maintained count or list.
 
 Install the pinned toolchain once, then run the VitePress development server from the repository root:
@@ -156,33 +132,25 @@ npm ci
 npm run docs:dev
 ```
 
+The architecture diagram has one JSON source. After editing it, run `node scripts/render-architecture.mjs`; `npm run docs:diagram` verifies the generated HTML.
+
 Run `npm run docs:check` before committing navigation, theme, or Markdown changes. It audits the locked
 toolchain, checks prose and internal routes, and emits the same static files that
 `.github/workflows/pages.yml` deploys from `main`. Generated files under `docs/.vitepress/dist` are never
 committed or uploaded by hand.
 
-## Coordinated releases
+## Independent module releases
 
-Tags are immutable dependency promises; never move or recreate one that has been published.
-
-[`scripts/release.sh`](scripts/release.sh) is the only supported release path. It derives dependency phases,
-updates downstream requirements, runs the pinned compatibility policy, and pushes one coordinated version
-across every public module. Read [Prepare a coordinated release](docs/releasing.md), then inspect the dry run
-before enabling its only destructive mode:
+Tags are immutable dependency promises. [`scripts/release.sh`](scripts/release.sh) releases exactly one named public module after validating the committed dependency versions and repository gates. Read [the release procedure](docs/guides/releasing.md), then inspect the dry run:
 
 ```sh
-scripts/release.sh X.Y.Z
-scripts/release.sh X.Y.Z --execute
+scripts/release.sh ui 0.1.0
+scripts/release.sh extensions/markdown 0.2.0
 ```
 
-Branch CI validates the complete workspace before publishing and after the final dependency phase.
-The separate `release contract` workflow validates each module tag against its published dependencies;
-unfinished higher phases in that tag's snapshot are not part of its module contract.
-API comparison belongs to `release.sh` before publication. Tag checks do not ask `gorelease` to suggest a
-next version after that version has already entered the module proxy.
+The optional `--execute` flag publishes the selected tag. The script does not edit requirements, bump peers, create implementation commits or coordinate a shared version. Lower dependencies must already be independently resolvable before a higher module is released. The changelog section uses the full module tag, such as `[ui/v0.1.0]`.
 
-No release tag may contain a `replace` directive. Do not create module tags or edit Oolong dependency versions
-by hand; that would introduce a second release path whose ordering and failure semantics are not guarded.
+Temporary local replacements are allowed only in disposable verification graphs. No release module may contain a committed `replace`. Tag checks test the selected module against its declared published dependencies; they do not require unrelated extensions to share its version. API comparison remains a pre-publication gate.
 
 ## Tests
 

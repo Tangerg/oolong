@@ -4,22 +4,24 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
 	var got answers
 	form := ask(&got)
 
-	host := programtest.New(t, programtest.Config{Width: 50, Height: 20})
+	host := uitest.New(t, uitest.Config{Width: 50, Height: 20})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component { return dress(runtime, form) },
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) { return dress(runtime, form), nil }})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 
 	host.Shows(t, "New session")

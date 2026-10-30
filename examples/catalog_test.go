@@ -9,7 +9,7 @@ import (
 
 func TestCatalogCoversEveryCommand(t *testing.T) {
 	catalogs := make(map[string]string)
-	for _, path := range []string{"../docs/examples.md", "../docs/zh/examples.md"} {
+	for _, path := range []string{"../docs/guides/examples.md", "../docs/zh/guides/examples.md"} {
 		// Paths are fixed repository documentation owned by this test.
 		//nolint:gosec // G304: the test deliberately audits repository-owned files.
 		body, err := os.ReadFile(path)
@@ -37,10 +37,16 @@ func TestCatalogCoversEveryCommand(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(name, "main_test.go")); err != nil {
 			t.Errorf("%s is a command without main_test.go", name)
 		}
-		link := "[`" + name + "`](https://github.com/Tangerg/oolong/tree/main/examples/" + name + ")"
+		entry := "| `" + name + "` | "
+		link := "https://github.com/Tangerg/oolong/tree/main/examples/" + name + ")"
 		for path, catalog := range catalogs {
-			if n := strings.Count(catalog, link); n != 1 {
+			if n := strings.Count(catalog, entry); n != 1 {
 				t.Errorf("%s contains %d entries for %s, want one", path, n, name)
+			}
+			for line := range strings.SplitSeq(catalog, "\n") {
+				if strings.HasPrefix(line, entry) && (!strings.Contains(line, link) || !strings.Contains(line, "`go run ./examples/"+name+"`")) {
+					t.Errorf("%s catalog entry for %s lacks its source link or run command", path, name)
+				}
 			}
 		}
 		// mainPath is derived from a directory entry below the example module.

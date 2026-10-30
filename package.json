@@ -4,11 +4,12 @@
   "type": "module",
   "scripts": {
     "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
+    "docs:build": "npm run docs:diagram && vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "docs:lint": "node scripts/lint-markdown.mjs",
     "spell": "cspell --no-progress --no-summary",
-    "docs:check": "npm audit --audit-level=moderate && npm run spell && npm run docs:lint && npm run docs:build"
+    "docs:check": "npm audit --audit-level=moderate && npm run spell && npm run docs:lint && npm run docs:build",
+    "docs:diagram": "node scripts/render-architecture.mjs --check"
   },
   "devDependencies": {
     "cspell": "10.1.0",

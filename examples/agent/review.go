@@ -1,11 +1,14 @@
 package main
 
 import (
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
+	"image"
+
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 type workflowStep struct {
@@ -82,51 +85,40 @@ type reviewPane struct {
 	// window scrolls the change. A diff is as tall as the change is, and a review
 	// pane is as tall as the terminal: without a window the part that did not fit was
 	// simply not there, and somebody was asked to allow a change they could not read.
-	window *headless.Viewport
-	// scrolling and choosing are where the change and the form were drawn. A pointer
-	// report arrives in this widget's coordinates and each of them reasons in its
-	// own, so handing one straight on aimed it at whatever was at the top of the
-	// pane: a wheel on the last row of the change did nothing at all.
-	scrolling headless.PointerRegion
-	choosing  headless.PointerRegion
-	form      *kit.Form
-	theme     kit.Theme
-	title     string
+	window  *base.Viewport
+	element scene.Element
+	form    *kit.Form
+	theme   kit.Theme
+	title   string
 }
 
-func (p *reviewPane) Draw(frame headless.Frame) {
-	width, height := frame.Size()
-	// The title takes a row and the change must have one: counting only the form
-	// against the pane's height left the change no rows on a short terminal, and
-	// somebody was asked to allow a change that was not on the screen.
-	formRows := min(p.form.HeightForWidth(width), max(height-2, 0))
-	rects := (layout.Flow{Axis: layout.Down}).Rects(frame.Bounds().Size(), []layout.Slot{
-		{Size: layout.Fixed(1)},
-		{Size: layout.Flex(1)},
-		{Size: layout.Fixed(formRows)},
-	})
-	rows := frame.Subs(rects)
-	kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: "…"}.Draw(rows[0].View)
-	p.window.Draw(rows[1])
-	p.scrolling.Stage(frame, rects[1], p.window)
-	p.form.Draw(rows[2])
-	p.choosing.Stage(frame, rects[2], p.form)
-}
-
-// Handle gives the keyboard to the form and the wheel to the change. The form owns
-// the decision; the window owns being able to read what the decision is about.
-func (p *reviewPane) Handle(event input.Event) bool {
-	if mouse, ok := event.(input.Mouse); ok {
-		if handled, _ := p.choosing.Handle(mouse); handled {
-			return true
-		}
-		handled, _ := p.scrolling.Handle(mouse)
-		return handled
+func (p *reviewPane) Element() scene.Element {
+	if !p.element.IsZero() {
+		return p.element
 	}
-	if p.form.Handle(event) {
-		return true
-	}
-	return p.window.Handle(event)
+	title := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: "…"}.Draw(frame.View)
+	}})
+	p.element = scene.NewGroup(scene.GroupConfig{
+		Items: []scene.Item{{Element: title}, {Element: p.window.Element()}, {Element: p.form.Element()}},
+		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
+			key, ok := event.Input.(input.Key)
+			if !ok || !key.Down() {
+				return scene.EventResult{}
+			}
+			switch key.Code {
+			case input.PageUp:
+				return scene.EventResult{Consumed: p.window.Do(base.ScrollPageUp)}
+			case input.PageDown:
+				return scene.EventResult{Consumed: p.window.Do(base.ScrollPageDown)}
+			default:
+				return scene.EventResult{}
+			}
+		}},
+		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
+			formRows := min(p.form.HeightForWidth(space.X), max(space.Y-2, 0))
+			return (layout.Flow{Axis: layout.Down}).Rects(space, []layout.Slot{{Size: layout.Fixed(1)}, {Size: layout.Flex(1)}, {Size: layout.Fixed(formRows)}})
+		},
+	}).Element()
+	return p.element
 }
-
-func (p *reviewPane) Focus(has bool) { p.form.Focus(has) }

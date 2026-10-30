@@ -5,9 +5,9 @@
 package markdownlook
 
 import (
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/markdown"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 // New returns the document appearance shared by the Markdown examples.

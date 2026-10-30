@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 func TestParseCommandKeepsProductSyntaxInTheApplication(t *testing.T) {
@@ -36,18 +36,23 @@ func TestParseCommandKeepsProductSyntaxInTheApplication(t *testing.T) {
 	}
 }
 
-func runAgent(t *testing.T, backend agentBackend) (*programtest.Host, func()) {
+func runAgent(t *testing.T, backend agentBackend) (*uitest.Host, func()) {
 	t.Helper()
-	host := programtest.New(t, programtest.Config{Width: 90, Height: 24})
+	host := uitest.New(t, uitest.Config{Width: 90, Height: 24})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(ctx, program.Config{
-			Host: host,
-			Inline: func(runtime *program.InlineRuntime) program.Component {
-				return headless.NewRoot(newAgent(runtime, backend))
-			},
-		})
+		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+			agent, err := newAgent(ctx, runtime, backend)
+			if err != nil {
+				return scene.Element{}, err
+			}
+			return agent.Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(ctx)
+		}
+		done <- err
 	}()
 
 	var once sync.Once
@@ -160,17 +165,22 @@ func TestCancellationCannotHideABackendFailure(t *testing.T) {
 
 // runAgentAt is runAgent at a size a test chose, for the screens where the size is
 // the thing being tested.
-func runAgentAt(t *testing.T, width, height int) (*programtest.Host, func()) {
+func runAgentAt(t *testing.T, width, height int) (*uitest.Host, func()) {
 	t.Helper()
-	host := programtest.New(t, programtest.Config{Width: width, Height: height})
+	host := uitest.New(t, uitest.Config{Width: width, Height: height})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Inline: func(runtime *program.InlineRuntime) program.Component {
-				return headless.NewRoot(newAgent(runtime, mockBackend{}))
-			},
-		})
+		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+			agent, err := newAgent(t.Context(), runtime, mockBackend{})
+			if err != nil {
+				return scene.Element{}, err
+			}
+			return agent.Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 	return host, func() {
 		host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})

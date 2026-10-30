@@ -1,326 +1,31 @@
 #!/usr/bin/env bash
-#
-# release.sh — cut one coordinated release of every public module.
-#
-# This is the executable form of "Coordinated releases" in CONTRIBUTING.md. The
-# reasoning lives there; what lives here is the part a person should not be asked to
-# remember at eleven at night.
-#
-# The organizing fact is that a published tag is immutable. The Go module proxy and
-# the checksum database keep the first thing they saw under a version forever, so a
-# tag pushed in error cannot be moved, deleted, or corrected — only superseded by a
-# further release that everyone must then upgrade to. Everything this script does
-# before the first tag reaches the remote is undoable; nothing after it is. So the
-# script is a dry run unless it is told otherwise, it verifies before it plans, and it
-# prints the whole plan before it does any of it.
-#
-#   scripts/release.sh 0.2.0             # verify and print the plan
-#   scripts/release.sh 0.2.0 --execute   # do it
-#
-# It never moves a tag, never force-pushes, and never writes a `replace` directive
-# into a module it is about to tag.
+# Release exactly one distribution module. Dependency requirements are reviewed
+# and committed before this script runs; no module is bumped as a side effect.
+# A dry run checks the same graph and compatibility as an executed release.
+# Usage: scripts/release.sh MODULE X.Y.Z [--execute]
 
 set -euo pipefail
 
 MODULE_PATH=github.com/Tangerg/oolong
-
-# The remote's immutable tags own this release. Its newly published modules must
-# not depend on stale proxy or checksum lookup results; other dependencies and
-# downloaded toolchains retain their configured verification.
 export GONOPROXY="$MODULE_PATH/*" GONOSUMDB="$MODULE_PATH/*"
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$root"
 
-# scripts/modules.sh is also consumed by CI and apiledger. It derives membership
-# from go.work and owns the public subset, so neither gate carries another list.
-if ! all_module_output=$(scripts/modules.sh); then
-	echo "release: cannot derive the workspace module inventory" >&2
-	exit 2
-fi
-ALL_MODULES=()
-while IFS= read -r module; do
-	ALL_MODULES+=("$module")
-done <<<"$all_module_output"
-
-if ! public_module_output=$(scripts/modules.sh --public); then
-	echo "release: cannot derive the public module inventory" >&2
-	exit 2
-fi
-PUBLIC_MODULES=()
-while IFS= read -r module; do
-	PUBLIC_MODULES+=("$module")
-done <<<"$public_module_output"
-
-GORELEASE=golang.org/x/exp/cmd/gorelease@v0.0.0-20261007192929-f45ad48fbe92
-
-execute=false
-version=""
-for argument in "$@"; do
-	case "$argument" in
-	--execute) execute=true ;;
-	-h | --help)
-		sed -n '3,25p' "${BASH_SOURCE[0]}" | sed 's|^# \?||'
-		exit 0
-		;;
-	-*)
-		echo "unknown option: $argument" >&2
-		exit 2
-		;;
-	*)
-		if [[ -n "$version" ]]; then
-			echo "give one version" >&2
-			exit 2
-		fi
-		version="$argument"
-		;;
-	esac
-done
-
-if [[ -z "$version" ]]; then
-	echo "usage: scripts/release.sh X.Y.Z [--execute]" >&2
-	exit 2
-fi
-version="v${version#v}"
-
-step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+step() { printf '\n== %s\n' "$*"; }
 note() { printf '   %s\n' "$*"; }
 die() {
-	printf '\n\033[31mstopped:\033[0m %s\n' "$*" >&2
+	printf 'release: %s\n' "$*" >&2
 	exit 1
 }
 
-# ---------------------------------------------------------------------------
-# Preflight. Every one of these has cost somebody a release.
-# ---------------------------------------------------------------------------
-
-step "Preflight"
-
-[[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
-	die "$version is not a canonical version. Pre-release and metadata suffixes are not part of this train."
-
-if ! branch=$(git rev-parse --abbrev-ref HEAD); then
-	die "the current branch cannot be read."
-fi
-[[ "$branch" == "main" ]] || die "on branch $branch. A release is cut from main."
-
-if ! worktree_status=$(git status --porcelain); then
-	die "the working tree status cannot be read."
-fi
-[[ -z "$worktree_status" ]] ||
-	die "the working tree has changes. gorelease refuses to read a dirty tree, and a tag must name a commit that exists."
-
-git fetch --quiet origin --tags
-if ! head=$(git rev-parse HEAD); then
-	die "HEAD cannot be resolved."
-fi
-if ! upstream=$(git rev-parse origin/main); then
-	die "origin/main cannot be resolved after fetching it."
-fi
-[[ "$head" == "$upstream" ]] ||
-	die "main and origin/main differ. Push or pull first: a tag that names an unpushed commit is a tag nobody else can resolve."
-
-# A tag is never moved. Finding one already there means this version was released, or
-# started and abandoned; either way the answer is a new version, not a second attempt.
-for module in "${PUBLIC_MODULES[@]}"; do
-	tag="$module/$version"
-	if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-		die "$tag already exists locally. Tags are immutable; choose the next version."
-	else
-		status=$?
-		[[ "$status" == "1" ]] || die "local tags cannot be inspected for $tag."
-	fi
-	if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
-		die "$tag already exists on the remote. Tags are immutable; choose the next version."
-	else
-		status=$?
-		[[ "$status" == "2" ]] || die "remote tags cannot be inspected for $tag."
-	fi
-done
-
-grep -q "^## \[${version#v}\]" CHANGELOG.md ||
-	die "CHANGELOG.md has no '## [${version#v}]' section. What changed is editorial and this script will not invent it."
-
-# CONTRIBUTING: no release tag may contain a replace directive. A replacement resolves
-# for whoever runs it and for nobody who depends on the tag.
-for module in "${ALL_MODULES[@]}"; do
-	if grep -qE '^\s*replace\s' "$module/go.mod"; then
-		die "$module/go.mod contains a replace directive."
-	else
-		status=$?
-		[[ "$status" == "1" ]] || die "$module/go.mod cannot be inspected for replace directives."
-	fi
-done
-
-note "main is clean, current, and free of $version."
-
-# ---------------------------------------------------------------------------
-# Dependency order, derived rather than listed.
-# ---------------------------------------------------------------------------
-
-# oolong_deps prints the in-repo modules a module requires. Reading them out of go.mod
-# rather than hard-coding an order means adding a module does not silently leave this
-# script releasing in the wrong sequence.
-oolong_deps() {
-	awk -v prefix="$MODULE_PATH/" '
-		$1 == "module" { next }
-		index($0, prefix) {
-			dependency = substr($0, index($0, prefix) + length(prefix))
-			sub(/[[:space:]].*/, "", dependency)
-			print dependency
-		}
-	' "$1/go.mod" |
-		sort -u
-}
-
-# Repeated passes rather than a clever sort: a small module set, and an order anyone can
-# check by reading it.
-order=()
-remaining=("${ALL_MODULES[@]}")
-while ((${#remaining[@]} > 0)); do
-	progressed=false
-	still=()
-	for module in "${remaining[@]}"; do
-		ready=true
-		if ! dependencies=$(oolong_deps "$module"); then
-			die "$module/go.mod cannot be inspected for in-repository dependencies."
-		fi
-		for dependency in $dependencies; do
-			if [[ " ${order[*]-} " != *" $dependency "* ]]; then
-				ready=false
-			fi
-		done
-		if $ready; then
-			order+=("$module")
-			progressed=true
-		else
-			still+=("$module")
-		fi
-	done
-	$progressed || die "the module dependency graph has a cycle among: ${remaining[*]}"
-	# An empty array stays empty: padding it with an empty element would make the
-	# loop condition above stop answering the question it asks.
-	remaining=("${still[@]+"${still[@]}"}")
-done
-
-step "Release order"
-note "${order[*]}"
-
-# ---------------------------------------------------------------------------
-# The gate. The same checks CI runs, because a release is not the place to find out.
-# ---------------------------------------------------------------------------
-
-step "Gate"
-
-for tool in apidiff deadcode golangci-lint gofumpt govulncheck npx shfmt; do
-	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
-done
-
-for module in "${ALL_MODULES[@]}"; do
-	(cd "$module" && go build ./... && go vet ./...) || die "$module does not build or vet."
-done
-note "build and vet"
-
-for module in "${ALL_MODULES[@]}"; do
-	(cd "$module" && go test -race -count=1 ./... >/dev/null) || die "$module has failing tests."
-done
-note "tests with the race detector"
-
-for module in "${ALL_MODULES[@]}"; do
-	(cd "$module" && golangci-lint run ./... >/dev/null 2>&1) || die "$module has lint findings."
-done
-note "golangci-lint"
-
-scripts/check-reachability.sh || die "callable code lacks executable coverage or private code is unreachable."
-note "callable code reachability"
-
-go -C internal run ./cmd/apiledger -root .. -section "${version#v}" ||
-	die "an incompatible exported API change lacks an exact $version migration entry."
-note "breaking API migration ledger"
-
-if ! unformatted=$(gofumpt -l .); then
-	die "gofumpt could not inspect the repository."
-fi
-[[ -z "$unformatted" ]] || die "gofumpt would reformat: ${unformatted//$'\n'/ }"
-note "gofumpt"
-
-shfmt -d scripts || die "shfmt would reformat repository scripts."
-note "shfmt"
-
-for module in "${ALL_MODULES[@]}"; do
-	(cd "$module" && govulncheck ./... >/dev/null) || die "$module has a reachable vulnerability."
-done
-note "govulncheck"
-
-npm ci >/dev/null || die "documentation dependencies do not install from package-lock.json."
-npm run docs:check >/dev/null || die "documentation audit, lint, or build failed."
-note "documentation"
-
-for module in "${ALL_MODULES[@]}"; do
-	if ! fixes=$(cd "$module" && go fix -diff ./...); then
-		die "$module could not be inspected by go fix."
-	fi
-	[[ -z "$fixes" ]] ||
-		die "$module has modernizations go fix would apply."
-done
-note "go fix"
-
-# The floor is only honoured if the sources that only build elsewhere still compile.
-# This is where a platform-specific file quietly raises a module's declared minimum.
-for goos in windows darwin linux; do
-	for module in "${ALL_MODULES[@]}"; do
-		(cd "$module" && GOOS="$goos" CGO_ENABLED=0 go test -run '^$' -exec /usr/bin/true ./... >/dev/null 2>&1) ||
-			die "$module does not build for $goos, sources and tests included."
-	done
-done
-note "windows, darwin and linux source sets"
-
-# WebAssembly is a library source-portability contract, not a claim that Oolong
-# owns a browser or WASI terminal adapter. Vet includes target-specific tests and
-# build proves every package can be consumed by an adapter supplied downstream.
-while read -r goos goarch; do
-	for module in "${ALL_MODULES[@]}"; do
-		(cd "$module" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go vet ./... &&
-			GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build ./...) ||
-			die "$module does not build for $goos/$goarch."
-	done
-done <<'EOF'
-wasip1 wasm
-js wasm
-EOF
-note "WASI and JavaScript WebAssembly source sets"
-
-# ---------------------------------------------------------------------------
-# What each module is proposing, according to the tool CI uses.
-# ---------------------------------------------------------------------------
-
-if ! command -v gorelease >/dev/null; then
-	go install "$GORELEASE"
-fi
-if gorelease_bin=$(command -v gorelease); then
-	:
-else
-	if ! gopath=$(go env GOPATH); then
-		die "the installed gorelease location cannot be derived."
-	fi
-	gorelease_bin="$gopath/bin/gorelease"
-fi
-
-# compatibility checks one module, and is called immediately before that module is
-# tagged rather than for every module up front.
-#
-# CONTRIBUTING says "before each tag", and the difference is not pedantry. gorelease
-# type-checks a module against its published dependencies, so a module using an API
-# its dependency has not released yet cannot be checked until that dependency is
-# tagged — which is the coordinated change these phases exist to make possible.
-# Checking everything first refuses exactly the releases this script was written for.
 compatibility() {
-	local module="$1" previous base report status
-	if ! previous=$(git tag --list "$module/v*" --sort=-v:refname | sed -n '1p'); then
+	local module="$1" pattern="$2" previous base report status
+	if ! previous=$(git tag --list "$pattern" --sort=-v:refname | sed -n '1p'); then
 		die "released tags cannot be inspected for $module."
 	fi
 	base=none
-	[[ -n "$previous" ]] && base="v${previous#*/v}"
+	[[ -n "$previous" ]] && base="${previous##*/}"
 	printf '   %-11s base=%-8s ' "$module" "$base"
 	# Major zero reports every API change without pretending patch-number
 	# compatibility was promised; from v1 the proposal must satisfy Go's rules.
@@ -341,184 +46,166 @@ compatibility() {
 	fi
 }
 
-# ---------------------------------------------------------------------------
-# The plan.
-# ---------------------------------------------------------------------------
-
-# A module is bumped in the phase after every in-repo dependency it has was tagged,
-# because a module's checksum needs a tag and a tag needs the commit that names it.
-# That is the circularity the phases exist to break.
-declare -a phase_of
-phases=1
-for module in "${order[@]}"; do
-	phase=1
-	if ! dependencies=$(oolong_deps "$module"); then
-		die "$module/go.mod cannot be inspected for in-repository dependencies."
+# An immutable tag is the only write this command owns. Failure never causes a
+# tag deletion, movement, force push, dependency edit or unrelated branch push.
+publish() {
+	git tag -a "$tag" -m "$module $version. See CHANGELOG.md." "$head"
+	git push --quiet origin "refs/tags/$tag"
+	local remote
+	if ! remote=$(git ls-remote --tags origin "refs/tags/$tag^{}" | cut -f1); then
+		die "cannot verify $tag on origin"
 	fi
-	for dependency in $dependencies; do
-		for index in "${!order[@]}"; do
-			if [[ "${order[index]}" == "$dependency" ]]; then
-				((phase_of[index] + 1 > phase)) && phase=$((phase_of[index] + 1))
-			fi
-		done
-	done
-	phase_of+=("$phase")
-	((phase > phases)) && phases=$phase
-done
+	[[ "$remote" == "$head" ]] || die "$tag does not point to $head on origin; inspect before any further release"
+	note "published $tag at $head"
+}
 
-step "Plan for $version"
-for ((phase = 1; phase <= phases; phase++)); do
-	bump=()
-	tag=()
-	for index in "${!order[@]}"; do
-		[[ "${phase_of[index]}" == "$phase" ]] || continue
-		module="${order[index]}"
-		if ! dependencies=$(oolong_deps "$module"); then
-			die "$module/go.mod cannot be inspected for in-repository dependencies."
-		fi
-		[[ -n "$dependencies" ]] && bump+=("$module")
-		[[ " ${PUBLIC_MODULES[*]} " == *" $module "* ]] && tag+=("$module/$version")
-	done
-	printf '   phase %d\n' "$phase"
-	[[ ${#bump[@]} -gt 0 ]] && printf '     bump   %s\n' "${bump[*]}"
-	[[ ${#tag[@]} -gt 0 ]] && printf '     tag    %s\n' "${tag[*]}"
-done
-
-# Only the first phase can be checked before anything is tagged. A later module may
-# use an API its dependency has not published yet, which is not a fault to report but
-# the reason the phases exist — so the dry run says what it could not answer instead
-# of failing on it or pretending it passed.
-step "Compatibility, as far as it can be answered now"
-deferred=()
-for index in "${!order[@]}"; do
-	module="${order[index]}"
-	[[ " ${PUBLIC_MODULES[*]} " == *" $module "* ]] || continue
-	if [[ "${phase_of[index]}" == "1" ]]; then
-		compatibility "$module"
-	else
-		deferred+=("$module")
-	fi
-done
-[[ ${#deferred[@]} -gt 0 ]] &&
-	note "checked at their own tag, once what they depend on is published: ${deferred[*]}"
-
-if ! $execute; then
-	printf '\n\033[1mDry run.\033[0m Nothing was written. Re-run with --execute to release.\n'
+if [[ "${1-}" == --help || "${1-}" == -h ]]; then
+	echo "usage: scripts/release.sh MODULE X.Y.Z [--execute]"
 	exit 0
 fi
-
-# ---------------------------------------------------------------------------
-# Execution. From the first tag push onward this cannot be undone.
-# ---------------------------------------------------------------------------
-
-if [[ -t 0 ]]; then
-	printf '\n\033[1mA pushed tag cannot be moved, deleted, or corrected.\033[0m\n'
-	read -r -p "Release $version? Type the version to confirm: " confirmation
-	[[ "$confirmation" == "${version#v}" || "$confirmation" == "$version" ]] ||
-		die "not confirmed."
+[[ $# -ge 2 && $# -le 3 ]] || die "usage: scripts/release.sh MODULE X.Y.Z [--execute]"
+module="$1"
+version="v${2#v}"
+execute=false
+if [[ $# -eq 3 ]]; then
+	[[ "$3" == --execute ]] || die "unknown option: $3"
+	execute=true
 fi
 
-for ((phase = 1; phase <= phases; phase++)); do
-	step "Phase $phase"
+if ! all_module_output=$(scripts/modules.sh); then die "cannot derive workspace modules"; fi
+ALL_MODULES=()
+while IFS= read -r directory; do ALL_MODULES+=("$directory"); done <<<"$all_module_output"
+if ! public_module_output=$(scripts/modules.sh --public); then die "cannot derive public modules"; fi
+public=false
+while IFS= read -r directory; do
+	[[ "$directory" != "$module" ]] || public=true
+done <<<"$public_module_output"
+$public || die "$module is not a public workspace module"
+tag=$(scripts/module-tag.sh "$module" "$version")
 
-	changed=false
-	for index in "${!order[@]}"; do
-		[[ "${phase_of[index]}" == "$phase" ]] || continue
-		module="${order[index]}"
-		if ! dependencies=$(oolong_deps "$module"); then
-			die "$module/go.mod cannot be inspected for in-repository dependencies."
-		fi
-		for dependency in $dependencies; do
-			[[ " ${PUBLIC_MODULES[*]} " == *" $dependency "* ]] || continue
-			note "$module -> $dependency@$version"
-			(cd "$module" &&
-				GOFLAGS=-mod=mod GOWORK=off \
-					go get "$MODULE_PATH/$dependency@$version" >/dev/null &&
-				GOWORK=off go mod tidy >/dev/null) ||
-				die "$module could not resolve $dependency@$version."
-			changed=true
-		done
-	done
-
-	if $changed; then
-		# The bumped graph has to hold on its own, not only inside the workspace.
-		for index in "${!order[@]}"; do
-			[[ "${phase_of[index]}" == "$phase" ]] || continue
-			module="${order[index]}"
-			(cd "$module" && GOWORK=off go mod tidy -diff >/dev/null 2>&1) || die "$module is not tidy after the bump."
-			(cd "$module" && GOWORK=off go test -count=1 ./... >/dev/null) || die "$module fails after the bump."
-		done
-		git add -A
-		git commit --quiet -m "build: point phase $phase at $version
-
-Every module this phase depends on was tagged in an earlier one, which is what lets
-these ask for $version here: a module's checksum needs a tag, and a tag needs the
-commit it names."
-		git push --quiet origin main
-		if ! short_head=$(git rev-parse --short HEAD); then
-			die "the pushed dependency commit cannot be resolved."
-		fi
-		note "committed and pushed $short_head"
-	fi
-
-	head=$(git rev-parse HEAD)
-	pushed=()
-	for index in "${!order[@]}"; do
-		[[ "${phase_of[index]}" == "$phase" ]] || continue
-		module="${order[index]}"
-		[[ " ${PUBLIC_MODULES[*]} " == *" $module "* ]] || continue
-		# Now that everything below it is published, this module can finally be
-		# type-checked against the graph its tag will promise. Before the tag, which
-		# is the last moment it is still free.
-		[[ "$phase" == "1" ]] || compatibility "$module"
-		git tag -a "$module/$version" -m "Part of the ${version#v} release train. See CHANGELOG.md." "$head"
-		pushed+=("$module/$version")
-	done
-	if [[ ${#pushed[@]} -gt 0 ]]; then
-		# GitHub creates no tag push events when more than three tags arrive at
-		# once. Prepare the whole phase first, then give each tag its own event.
-		for tag in "${pushed[@]}"; do
-			git push --quiet origin "$tag"
-		done
-		note "tagged ${pushed[*]}"
-	fi
-done
-
-# ---------------------------------------------------------------------------
-# Verify what this release actually controls.
-# ---------------------------------------------------------------------------
-
-step "Published"
-
-# The remote is the authority and it can be asked immediately: a tag is released when
-# it is on the remote pointing at the commit this run intended.
-#
-# The proxy is deliberately not asked. It is an eventually-consistent cache nobody
-# here owns, it caches a negative answer, and asking it early is how that negative
-# gets cached — so a check that polls it can turn a correct release into an alarming
-# report and make itself the reason. Waiting longer is not a fix either: whatever
-# interval is chosen is a guess about somebody else's crawler. A person who wants to
-# know asks once, later, with the command below.
+step "Preflight $tag"
+branch=$(git rev-parse --abbrev-ref HEAD)
+[[ "$branch" == main ]] || die "release from main, not $branch"
+worktree_status=$(git status --porcelain)
+[[ -z "$worktree_status" ]] || die "commit reviewed changes before releasing"
 git fetch --quiet origin --tags
-for module in "${PUBLIC_MODULES[@]}"; do
-	tag="$module/$version"
-	if ! remote=$(git ls-remote --tags origin "refs/tags/$tag^{}" | cut -f1); then
-		die "the remote cannot be queried for $tag."
+head=$(git rev-parse HEAD)
+upstream=$(git rev-parse origin/main)
+[[ "$head" == "$upstream" ]] || die "main and origin/main differ"
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+	die "$tag already exists; tags are immutable"
+else
+	status=$?
+	[[ "$status" == 1 ]] || die "cannot inspect local tags"
+fi
+if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+	die "$tag already exists on origin"
+else
+	status=$?
+	[[ "$status" == 2 ]] || die "cannot inspect remote tags"
+fi
+grep -Fq "## [$tag]" CHANGELOG.md || die "CHANGELOG.md needs a [$tag] section"
+for directory in "${ALL_MODULES[@]}"; do
+	if grep -qE '^[[:space:]]*replace[[:space:]]' "$directory/go.mod"; then
+		die "$directory/go.mod contains a local replacement"
+	else
+		status=$?
+		[[ "$status" == 1 ]] || die "cannot inspect $directory/go.mod"
 	fi
-	if [[ -z "$remote" ]]; then
-		if ! remote=$(git ls-remote --tags origin "refs/tags/$tag" | cut -f1); then
-			die "the remote cannot be queried for $tag."
-		fi
-	fi
-	[[ -n "$remote" ]] || die "$tag did not reach the remote. Do not retag: check the push and cut the next version if it is half-published."
-	if ! subject=$(git log -1 --format=%s "$remote" 2>/dev/null); then
-		subject='(fetch to see)'
-	fi
-	printf '   %-22s %s  %s\n' "$tag" "${remote:0:7}" "$subject"
+done
+scripts/sync-workspace.sh --check
+
+step "Gate"
+
+for tool in apidiff deadcode golangci-lint gofumpt govulncheck npx shfmt; do
+	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
 done
 
-printf '\n\033[1mReleased %s.\033[0m\n' "$version"
-note "proxy.golang.org fetches on demand and takes its own time. When you want to"
-note "confirm it has caught up, once is enough:"
-note "  GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod \\"
-note "    go list -m $MODULE_PATH/core@$version"
+for directory in "${ALL_MODULES[@]}"; do
+	(cd "$directory" && go build ./... && go vet ./...) || die "$directory does not build or vet."
+done
+note "build and vet"
+
+for directory in "${ALL_MODULES[@]}"; do
+	(cd "$directory" && go test -race -count=1 ./... >/dev/null) || die "$directory has failing tests."
+done
+note "tests with the race detector"
+
+for directory in "${ALL_MODULES[@]}"; do
+	(cd "$directory" && golangci-lint run ./... >/dev/null 2>&1) || die "$directory has lint findings."
+done
+note "golangci-lint"
+
+scripts/check-reachability.sh || die "callable code lacks executable coverage or private code is unreachable."
+note "callable code reachability"
+
+go -C ui run ./internal/cmd/apiledger -root .. -section "$tag" ||
+	die "an incompatible exported API change lacks an exact $version migration entry."
+note "breaking API migration ledger"
+
+if ! unformatted=$(gofumpt -l .); then
+	die "gofumpt could not inspect the repository."
+fi
+[[ -z "$unformatted" ]] || die "gofumpt would reformat: ${unformatted//$'\n'/ }"
+note "gofumpt"
+
+shfmt -d scripts || die "shfmt would reformat repository scripts."
+note "shfmt"
+
+for directory in "${ALL_MODULES[@]}"; do
+	(cd "$directory" && govulncheck ./... >/dev/null) || die "$directory has a reachable vulnerability."
+done
+note "govulncheck"
+
+npm ci >/dev/null || die "documentation dependencies do not install from package-lock.json."
+npm run docs:check >/dev/null || die "documentation audit, lint, or build failed."
+note "documentation"
+
+for directory in "${ALL_MODULES[@]}"; do
+	if ! fixes=$(cd "$directory" && go fix -diff ./...); then
+		die "$directory could not be inspected by go fix."
+	fi
+	[[ -z "$fixes" ]] ||
+		die "$directory has modernizations go fix would apply."
+done
+note "go fix"
+
+# The floor is only honoured if the sources that only build elsewhere still compile.
+# This is where a platform-specific file quietly raises a module's declared minimum.
+for goos in windows darwin linux; do
+	for directory in "${ALL_MODULES[@]}"; do
+		(cd "$directory" && GOOS="$goos" CGO_ENABLED=0 go test -run '^$' -exec /usr/bin/true ./... >/dev/null 2>&1) ||
+			die "$directory does not build for $goos, sources and tests included."
+	done
+done
+note "windows, darwin and linux source sets"
+
+# WebAssembly is a library source-portability contract, not a claim that Oolong
+# owns a browser or WASI terminal adapter. Vet includes target-specific tests and
+# build proves every package can be consumed by an adapter supplied downstream.
+while read -r goos goarch; do
+	for directory in "${ALL_MODULES[@]}"; do
+		(cd "$directory" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go vet ./... &&
+			GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build ./...) ||
+			die "$directory does not build for $goos/$goarch."
+	done
+done <<'EOF'
+wasip1 wasm
+js wasm
+EOF
+note "WASI and JavaScript WebAssembly source sets"
+
+step "Published dependency graph"
+(cd "$module" && GOWORK=off go mod tidy -diff && GOWORK=off go test -count=1 ./...) ||
+	die "$module is not independently consumable with its declared dependency versions"
+command -v gorelease >/dev/null || die "install the pinned gorelease version from CONTRIBUTING.md"
+gorelease_bin=$(command -v gorelease)
+tag_pattern=$(scripts/module-tag.sh --pattern "$module")
+compatibility "$module" "$tag_pattern"
+step "Plan"
+note "tag $tag at $head; no dependency or other module version changes"
+if ! $execute; then
+	note "Dry run complete. Re-run with --execute to publish this one tag."
+	exit 0
+fi
+publish

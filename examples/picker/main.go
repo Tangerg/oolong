@@ -12,29 +12,30 @@ package main
 import (
 	"context"
 	"fmt"
-	"image"
 	"os"
 	"strings"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/fuzzy"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/fuzzy"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
 	chosen := ""
-	err := program.Run(context.Background(), program.Config{
-		Root: func(runtime *program.Runtime) program.Component {
-			return headless.NewRoot(newPicker(runtime, files(), &chosen))
-		},
-		Terminal: term.Features{Probe: true},
-	})
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		return newPicker(runtime, files(), &chosen).Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "picker:", err)
 		os.Exit(1)
@@ -48,10 +49,10 @@ func main() {
 type picker struct {
 	runtime *program.Runtime
 	theme   kit.Theme
-	query   kit.Composer
-	list    *headless.Filter[string]
+	query   *kit.Composer
+	list    *base.Filter[string]
 	chosen  *string
-	areas   headless.Snapshot[pickerAreas]
+	element scene.Element
 }
 
 func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker {
@@ -59,39 +60,37 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 
 	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
-	p.query = kit.Composer{
+	p.query = kit.NewComposer(kit.ComposerConfig{
 		Theme:  theme,
 		Prompt: glyphs.Marker + " ",
-	}
-	p.query.Editor().Placeholder = "type to narrow"
-	p.list = &headless.Filter[string]{
+	})
+	p.query.Controller().Placeholder = "type to narrow"
+	p.list = &base.Filter[string]{
 		Row: p.row,
 	}
 	// What an item reads as travels with the items: an item is whatever the caller
 	// says it is, so this is the one thing the filter cannot work out for itself.
 	p.list.SetItems(items, func(s string) string { return s })
+	if err := p.list.Element().SetFocusable(func() bool { return false }); err != nil {
+		panic(err)
+	}
+	unsubscribe := p.query.Controller().Session().Subscribe(func(base.ChangeMap) {
+		p.list.SetPattern(p.query.Controller().Text())
+	})
+	footer := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		kit.Label{Text: fmt.Sprintf("%d of %d", p.list.Matched(), p.list.Len()), Style: p.theme.Subtle, Align: layout.End}.Draw(frame.View)
+	}})
+	p.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
+		Key: "picker", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input)} }, Detached: unsubscribe,
+	}, Items: []scene.Item{
+		{Size: layout.Fixed(1), Element: p.query.Element()},
+		{Size: layout.Flex(1), Element: p.list.Element()},
+		{Size: layout.Fixed(1), Element: footer},
+	}}).Element()
 	return p
 }
 
-// Draw stacks the query over the matches, with a count where there is room.
-func (p *picker) Draw(v headless.Frame) {
-	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Fixed(1)},
-		{Size: layout.Flex(1)},
-		{Size: layout.Fixed(1)},
-	})
-	rows := v.Subs(rects)
-	p.areas.Stage(v, pickerAreas{query: rects[0], list: rects[1]})
-	p.query.Draw(rows[0])
-	p.list.Draw(rows[1])
-	kit.Label{
-		Text:  fmt.Sprintf("%d of %d", p.list.Matched(), p.list.Len()),
-		Style: p.theme.Subtle,
-		Align: layout.End,
-	}.Draw(rows[2].View)
-}
-
-type pickerAreas struct{ query, list image.Rectangle }
+func (p *picker) Element() scene.Element { return p.element }
 
 // row draws one match, with the characters that answered the query picked out.
 //
@@ -120,48 +119,28 @@ func (p *picker) row(v grid.View, _ int, item string, match fuzzy.Match, selecte
 	}
 }
 
-// Handle sends the arrows to the list and everything else to the field, and keeps
-// the two in step: what was typed is what the list is narrowed by.
-func (p *picker) Handle(ev input.Event) bool {
-	if key, ok := ev.(input.Key); ok && key.Down() {
-		switch {
-		case key.Code == input.Enter:
-			p.pick()
-			return true
-		case key.Code == input.Esc:
-			p.runtime.Quit()
-			return true
-		case moves(key.Code):
-			// The field would take these too — it has a cursor of its own — so the list
-			// is asked first for exactly the four that mean "move through the matches".
-			return p.list.Handle(ev)
-		}
+// Preview keeps navigation policy on the composition. The query's own scene
+// element receives editing and paste; the filter's element receives pointer input.
+func (p *picker) Handle(event input.Event) bool {
+	key, ok := event.(input.Key)
+	if !ok || !key.Down() {
+		return false
 	}
-	if mouse, ok := ev.(input.Mouse); ok {
-		areas := p.areas.Value()
-		switch {
-		case mouse.Pos.In(areas.query):
-			mouse.Pos = mouse.Pos.Sub(areas.query.Min)
-			return p.query.Handle(mouse)
-		case mouse.Pos.In(areas.list):
-			mouse.Pos = mouse.Pos.Sub(areas.list.Min)
-			return p.list.Handle(mouse)
-		default:
-			return false
-		}
-	}
-	before := p.query.Editor().Revision()
-	handled := p.query.Handle(ev)
-	if p.query.Editor().Revision() != before {
-		p.list.SetPattern(p.query.Editor().Text())
-	}
-	return handled
-}
-
-func moves(code input.Code) bool {
-	switch code {
-	case input.Up, input.Down, input.PageUp, input.PageDown:
+	switch key.Code {
+	case input.Enter:
+		p.pick()
 		return true
+	case input.Esc:
+		p.runtime.Quit()
+		return true
+	case input.Up:
+		return p.list.Do(base.SelectPrev)
+	case input.Down:
+		return p.list.Do(base.SelectNext)
+	case input.PageUp:
+		return p.list.Do(base.SelectPageUp)
+	case input.PageDown:
+		return p.list.Do(base.SelectPageDown)
 	default:
 		return false
 	}
@@ -175,7 +154,7 @@ func (p *picker) pick() {
 }
 
 func files() []string {
-	directories := []string{"core/grid", "core/text", "core/term", "components/headless", "components/kit"}
+	directories := []string{"ui/core/grid", "ui/core/text", "ui/core/term", "ui/base", "ui/kit"}
 	names := []string{"doc.go", "main.go", "reader.go", "writer.go", "view.go"}
 	out := make([]string, 0, len(directories)*len(names))
 	for _, dir := range directories {

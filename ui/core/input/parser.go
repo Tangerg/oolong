@@ -1,0 +1,766 @@
+package input
+
+import (
+	"bytes"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
+)
+
+// DefaultEscapeTimeout is how long a byte stream waits before treating a lone
+// escape byte as the Escape key rather than the beginning of a terminal sequence.
+//
+// The parser itself has no clock: a transport feeds bytes into [Parser] and flushes
+// a pending parse after this interval. Keeping the default beside the protocol
+// makes a local terminal and a remote terminal interpret the same byte stream the
+// same way.
+const DefaultEscapeTimeout = 30 * time.Millisecond
+
+// esc is the byte every sequence begins with, under the name this package's own
+// reading of them uses.
+const esc = ansi.Escape
+
+const (
+	// maxSequenceBody bounds control parameters, including Kitty associated text.
+	maxSequenceBody = 64 << 10
+
+	// maxPaste bounds what one paste may accumulate. A terminal that opens a
+	// paste and never closes it would otherwise swallow everything typed
+	// afterwards into a buffer that only grows. On reaching the bound the text so
+	// far is delivered as one Paste event and accumulation begins again, so the
+	// allocation stays bounded without interpreting any of the payload as input.
+	maxPaste = 8 << 20
+)
+
+// pasteClose is the sequence a terminal sends to end a bracketed paste.
+var pasteClose = []byte{esc, '[', '2', '0', '1', '~'}
+
+// dropping says which kind of runaway sequence the parser is throwing away, if
+// any.
+//
+// Both kinds have to be remembered rather than simply left behind: the bytes
+// still to come would otherwise arrive as a flood of keystrokes, and a hostile
+// terminal could aim that.
+type dropping uint8
+
+const (
+	// droppingNothing is the zero value: nothing is being thrown away.
+	droppingNothing dropping = iota
+	// droppingParams is a control sequence whose parameter section overran. It
+	// ends at the first byte a sequence could have ended with.
+	droppingParams
+	// droppingString is an operating system command whose parameters overran. It
+	// ends at a terminator.
+	droppingString
+)
+
+// Parser retains ambiguous bytes across arbitrary chunks so split escape sequences
+// and UTF-8 cannot lose keys. A lone escape needs an external deadline: Pending
+// reports it and Flush ends the wait. A Parser belongs to one reader goroutine,
+// must not be copied after first use, and is not safe for concurrent use.
+type Parser struct {
+	noCopy noCopy
+
+	buf       []byte
+	expiring  bool
+	controlAt int
+	// pasting is set between a paste's opening and closing sequences, when bytes
+	// are text rather than input to interpret.
+	pasting bool
+	paste   []byte
+	// str is the kind of string being accumulated, between its head and its
+	// terminator, when bytes are its body rather than input to interpret.
+	str     stringKind
+	oscCmd  int
+	strBody []byte
+	// dropping is set when a sequence overran what one can hold, and stays set
+	// until that sequence ends. See [Parser.skipParams] and [Parser.skipString].
+	dropping dropping
+}
+
+// noCopy makes the parser's single-owner contract visible to go vet. Its methods
+// are never called.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
+// Feed adds bytes and returns everything now decodable.
+func (p *Parser) Feed(b []byte) []Event {
+	p.buf = append(p.buf, b...)
+	return p.drain(false)
+}
+
+// Flush resolves pending input at the end of the byte stream.
+// Use Ambiguous and Expire for an Escape timer while input can still arrive.
+//
+// A buffered escape becomes the Escape key, and anything after it is re-read as
+// ordinary input. A half-arrived character is dropped, since the rest is never
+// coming. A paste in progress is left alone: it is incomplete rather than
+// ambiguous, and cutting it short would corrupt the text.
+func (p *Parser) Flush() []Event { return p.drain(true) }
+
+// Pending reports whether the parser is waiting for more input. It does not
+// indicate a timeout: partial UTF-8 and paste data must continue waiting. Arm an
+// Escape timer only when Ambiguous reports true, and call Expire when it fires.
+//
+// An open paste and a string being accumulated count even with nothing buffered.
+// Their bytes have been consumed into the payload rather than left in the buffer,
+// so a report drawn from the buffer alone would say a paste that had not reached
+// its terminator was nothing at all.
+func (p *Parser) Pending() bool {
+	return len(p.buf) > 0 || p.dropping != droppingNothing || p.pasting || p.str != noString
+}
+
+// Ambiguous reports whether an Escape timeout can resolve pending input.
+// Incomplete UTF-8, paste payloads and string bodies must wait for more bytes.
+func (p *Parser) Ambiguous() bool {
+	return p.dropping != droppingNothing || (!p.pasting && p.str == noString && len(p.buf) > 0 && p.buf[0] == esc)
+}
+
+// Expire resolves Escape ambiguity without declaring the byte stream finished.
+func (p *Parser) Expire() []Event {
+	if !p.Ambiguous() {
+		return nil
+	}
+	p.expiring = true
+	defer func() { p.expiring = false }()
+	return p.drain(true)
+}
+
+// drain decodes as much as it can. When final, trailing ambiguity is resolved
+// rather than kept.
+func (p *Parser) drain(final bool) (events []Event) {
+	initial := len(p.buf)
+	defer func() {
+		if len(p.buf) > 0 && len(p.buf) < initial/2 {
+			// The undecided tail is short by construction. Clone it after draining so
+			// a lone escape or partial UTF-8 sequence cannot keep an otherwise consumed
+			// terminal read buffer alive while input is idle.
+			p.buf = bytes.Clone(p.buf)
+		}
+	}()
+	for {
+		event, advanced := p.advance(final)
+		if !advanced {
+			return events
+		}
+		if event != nil {
+			events = append(events, event)
+		}
+	}
+}
+
+// advance makes one state transition. Its boolean distinguishes waiting from
+// consuming bytes that deliberately produce no event.
+func (p *Parser) advance(final bool) (Event, bool) {
+	switch {
+	case p.dropping != droppingNothing:
+		return p.advanceRunaway(final)
+	case p.str != noString:
+		return p.readString()
+	case p.pasting:
+		return p.advancePaste()
+	default:
+		return p.advanceInput(final)
+	}
+}
+
+func (p *Parser) advanceRunaway(final bool) (Event, bool) {
+	if p.skipRunaway() {
+		return nil, true
+	}
+	if final {
+		// Input went quiet part-way through, so the runaway sequence is over however
+		// it ended. Staying in this state would eat the next keystroke that happened
+		// to be a parameter byte.
+		//
+		// A command still accumulating gets no such treatment: it is incomplete rather
+		// than ambiguous, and time says nothing about it. Giving up on one already
+		// given up on has to end somewhere; giving up on one still arriving would
+		// corrupt the answer to a query as large as a clipboard.
+		p.dropping = droppingNothing
+		return nil, true
+	}
+	return nil, false
+}
+
+func (p *Parser) advancePaste() (Event, bool) {
+	text, done := p.readPaste()
+	if !done || text == "" {
+		return nil, done
+	}
+	// A paste is bytes a terminal was handed by something else, and Text is a
+	// string, which every consumer will treat as text and eventually put in a cell.
+	// Invalid UTF-8 is replaced rather than passed on, for the same reason a control
+	// character is dropped at the cell: this is where untrusted bytes stop being
+	// untrusted.
+	return Paste{Text: strings.ToValidUTF8(text, "\uFFFD")}, true
+}
+
+func (p *Parser) advanceInput(final bool) (Event, bool) {
+	if len(p.buf) == 0 {
+		return nil, false
+	}
+	n, event, done := p.decode(p.buf, final)
+	if done {
+		p.take(n)
+		return event, true
+	}
+	if !final || (p.expiring && p.buf[0] != esc) {
+		return nil, false
+	}
+	if p.buf[0] == esc {
+		// Nothing followed it in time, so it was the key.
+		p.take(1)
+		return Key{Code: Esc}, true
+	}
+	// A character whose remaining bytes will never arrive. Dropping one byte rather
+	// than the buffer keeps whatever follows decodable.
+	p.take(1)
+	return nil, true
+}
+
+func (p *Parser) skipRunaway() bool {
+	if p.dropping == droppingString {
+		return p.skipString()
+	}
+	return p.skipParams()
+}
+
+// skipParams drops the rest of a control sequence whose parameter section
+// overran, and reports whether it found the end.
+//
+// The bytes are dropped rather than re-read as text. A stream of parameter bytes
+// would otherwise arrive as a flood of keystrokes, which is a worse answer to a
+// malformed sequence than silence — and one that a hostile terminal could aim.
+func (p *Parser) skipParams() bool {
+	i := 0
+	for i < len(p.buf) && ansi.Body(p.buf[i]) {
+		i++
+	}
+	if i >= len(p.buf) {
+		p.take(i)
+		return false
+	}
+	// The byte that ended the run of parameter bytes ends the sequence too, if it
+	// is one a sequence could have ended with. Anything else proved the sequence
+	// malformed and is left to be read on its own terms.
+	if ansi.Final(p.buf[i]) {
+		i++
+	}
+	p.take(i)
+	p.dropping = droppingNothing
+	return true
+}
+
+// take drops n decoded bytes, releasing the buffer once it is empty so an idle
+// parser holds nothing.
+func (p *Parser) take(n int) {
+	p.controlAt = 0
+	p.buf = p.buf[n:]
+	if len(p.buf) == 0 {
+		p.buf = nil
+	}
+}
+
+func (p *Parser) readPaste() (string, bool) {
+	i := 0
+	for i < len(p.buf) {
+		if p.buf[i] == esc {
+			rest := p.buf[i:]
+			switch shared := commonPrefix(rest, pasteClose); {
+			case shared == len(pasteClose):
+				p.take(i + len(pasteClose))
+				return p.closePaste(), true
+			case shared == len(rest):
+				p.take(i)
+				return "", false
+			}
+		}
+		p.paste = append(p.paste, p.buf[i])
+		i++
+		if len(p.paste) >= maxPaste {
+			end := len(p.paste) - 1
+			for end > 0 && !utf8.RuneStart(p.paste[end]) {
+				end--
+			}
+			if utf8.FullRune(p.paste[end:]) {
+				end = len(p.paste)
+			}
+			text := string(p.paste[:end])
+			p.paste = bytes.Clone(p.paste[end:])
+			p.take(i)
+			return text, true
+		}
+	}
+	p.buf = nil
+	return "", false
+}
+
+// takePaste publishes the bounded payload accumulated so far without ending paste
+// mode. A large paste is therefore a sequence of Paste events, never text re-read as
+// keystrokes merely because it crossed an allocation bound.
+func (p *Parser) takePaste() string {
+	text := string(p.paste)
+	p.paste = nil
+	return text
+}
+
+func (p *Parser) closePaste() string {
+	p.pasting = false
+	return p.takePaste()
+}
+
+// decode reads one event from the front of b. It reports how many bytes it
+// consumed, the event — nil when the bytes were understood but mean nothing to
+// report — and whether it got far enough to decide. When it did not, no bytes
+// were consumed.
+//
+// final says the wait for more bytes is over, which only an escape sequence has
+// any use for: it is the difference between a sequence still arriving and one
+// that was never a sequence.
+func (p *Parser) decode(b []byte, final bool) (n int, ev Event, done bool) {
+	switch c := b[0]; {
+	case c == esc:
+		return p.decodeEscape(b, final)
+	case c == 0x0d:
+		return 1, Key{Code: Enter}, true
+	case c == 0x09:
+		return 1, Key{Code: Tab}, true
+	case c == 0x7f, c == 0x08:
+		return 1, Key{Code: Backspace}, true
+	case c >= 0x01 && c <= 0x1a:
+		// Ctrl with a letter, which is what the terminal sends for it. Enter, Tab
+		// and Backspace fall in this range too and are answered above, where their
+		// own names are the truer report.
+		return 1, Key{Code: Character, Rune: rune('a' + c - 1), Mods: Ctrl}, true
+	case c < 0x20:
+		// The rest of the C0 block. Each is Ctrl with a punctuation key, and
+		// naming them is what makes those chords bindable at all.
+		return 1, Key{Code: Character, Rune: c0Rune(c), Mods: Ctrl}, true
+	default:
+		if !utf8.FullRune(b) {
+			return 0, nil, false
+		}
+		r, size := utf8.DecodeRune(b)
+		if r == utf8.RuneError && size == 1 {
+			return 1, nil, true // not valid UTF-8: dropped
+		}
+		return size, Key{Code: Character, Rune: r}, true
+	}
+}
+
+func c0Rune(c byte) rune {
+	switch c {
+	case 0x00:
+		return ' '
+	case 0x1c:
+		return '\\'
+	case 0x1d:
+		return ']'
+	case 0x1e:
+		return '^'
+	case 0x1f:
+		return '_'
+	default:
+		return rune('a' + c - 1)
+	}
+}
+
+// decodeEscape reads a sequence introduced by the escape byte.
+//
+// When the wait is over and the sequence never completed, what arrived is read as
+// a chord instead. Every introducer is also a character a terminal sends for Alt
+// with that key — "\x1b[" is Alt+[ as much as it is the start of a control
+// sequence — and by the time the wait is over the two are no longer ambiguous:
+// both bytes arrived before the pause, so they came in one burst, and a burst is
+// what a chord is. An escape that stood alone never reaches here; it is resolved
+// a step earlier, when nothing had followed it at all.
+func (p *Parser) decodeEscape(b []byte, final bool) (n int, ev Event, done bool) {
+	if len(b) == 1 {
+		return 0, nil, false
+	}
+	n, ev, done = p.decodeIntroduced(b)
+	if !done && final {
+		return decodeAlt(b)
+	}
+	return n, ev, done
+}
+
+func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
+	switch second := b[1]; {
+	case second == '[':
+		return p.decodeControl(b)
+	case second == oscIntro:
+		cmd, size := oscHead(b)
+		switch {
+		case size > 0:
+			p.beginString(oscString, cmd)
+			return size, nil, true
+		case size == 0:
+			return 0, nil, false
+		default:
+			return decodeAlt(b)
+		}
+	case second == dcsIntro:
+		switch size := dcsHead(b); {
+		case size > 0:
+			p.beginString(dcsString, 0)
+			return size, nil, true
+		case size == 0:
+			return 0, nil, false
+		default:
+			return decodeAlt(b)
+		}
+	case second == 'O':
+		if len(b) < 3 {
+			return 0, nil, false
+		}
+		if code, ok := applicationKey(b[2]); ok {
+			return 3, Key{Code: code}, true
+		}
+		return 3, nil, true
+	case second == esc:
+		return 1, Key{Code: Esc}, true
+	case second < 0x20, second == 0x7f:
+		consumed, event, ready := p.decode(b[1:], false)
+		if key, ok := event.(Key); ok {
+			key.Mods |= Alt
+			event = key
+		}
+		return consumed + 1, event, ready
+	default:
+		return decodeAlt(b)
+	}
+}
+
+func decodeAlt(b []byte) (n int, ev Event, done bool) {
+	if !utf8.FullRune(b[1:]) {
+		return 0, nil, false
+	}
+	r, size := utf8.DecodeRune(b[1:])
+	if r == utf8.RuneError && size == 1 {
+		return 1, Key{Code: Esc}, true
+	}
+	return 1 + size, Key{Code: Character, Rune: r, Mods: Alt}, true
+}
+
+func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
+	i := max(2, p.controlAt)
+	for i < len(b) && ansi.Body(b[i]) {
+		i++
+	}
+	if i-2 > maxSequenceBody {
+		// Overran what one may hold. The check does not wait to see whether a
+		// final byte happens to be in this chunk, and it does not drop "whatever
+		// is buffered": either would make the cap depend on where the read split,
+		// and the same bytes would decode differently for arriving in different
+		// pieces. What is dropped is the introducer and the body seen so far, and
+		// [Parser.skipParams] drops the rest wherever it turns up.
+		p.dropping = droppingParams
+		return i, nil, true
+	}
+	if i >= len(b) {
+		p.controlAt = i
+		return 0, nil, false
+	}
+	final := b[i]
+	if !ansi.Final(final) {
+		// A byte that cannot appear in a control sequence. Drop the malformed
+		// prefix and start again at the byte that proved it malformed.
+		return i, nil, true
+	}
+	n = i + 1
+	piece, _, valid := ansi.Next(string(b[:n]))
+	if !valid || piece.Kind != ansi.Control || piece.Intermediates != "" {
+		return n, nil, true
+	}
+	ps := parseParams(piece.Parameters)
+
+	return n, p.controlEvent(ps, final), true
+}
+
+func (p *Parser) controlEvent(ps params, final byte) Event {
+	// A private marker says the sequence is a report and not a key, because a key
+	// never carries one. Dispatching on the final byte alone let a keyboard-flags
+	// reply — "CSI ? 31 u" — decode as a keystroke of an invisible control character.
+	if ps.Marker() != 0 {
+		return ps.report(final)
+	}
+
+	// Everything past here turns a sequence into a keystroke, and a keystroke nobody
+	// pressed is worse than none — so the whole parameter section has to be readable,
+	// not merely the groups this form looks at. The group a form ignores is the one
+	// something pretending to be a terminal is free to fill.
+	//
+	// A report is the other way round: an extension nobody can read is a claim nobody
+	// can act on, and the rest of the list is still worth having. See
+	// [params.deviceAttributes].
+	if !ps.Valid() {
+		return nil
+	}
+
+	switch {
+	case ps.Len() == 0 && final == 'I':
+		return FocusIn{}
+	case ps.Len() == 0 && final == 'O':
+		return FocusOut{}
+	}
+
+	switch final {
+	case 'u':
+		return ps.extendedKey()
+	case '~':
+		return p.decodeNumberedKey(ps)
+	case 'Z':
+		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
+		// reports the same keystroke as tab with shift held, and one keystroke that
+		// arrives under two names is one nothing can be bound to.
+		return ps.modifiedKey(Tab, Shift)
+	default:
+		code, ok := cursorKey(final)
+		if !ok {
+			return nil
+		}
+		return ps.modifiedKey(code, 0)
+	}
+}
+
+func (p *Parser) decodeNumberedKey(ps params) Event {
+	switch num := ps.At(0); num {
+	case pasteOpen:
+		p.pasting = true
+		return nil
+	case pasteCloseNum:
+		return nil
+	default:
+		code, ok := numberedKey(num)
+		if !ok {
+			return nil
+		}
+		mods, transition, ok := ps.keyMeta()
+		if !ok {
+			return nil
+		}
+		return Key{Code: code, Mods: mods, Transition: transition}
+	}
+}
+
+const (
+	pasteOpen     = 200
+	pasteCloseNum = 201
+)
+
+// extendedKeyCode maps a Kitty key number onto a [Code].
+//
+// Numbers in the Unicode private-use area that this program does not recognise
+// are rejected rather than passed through: emitting one as a character would put
+// a glyph nobody typed into the text.
+func extendedKeyCode(num int) (Code, rune, bool) {
+	if code, ok := extendedKeys[num]; ok {
+		return code, 0, true
+	}
+	if num >= 57364 && num <= 57375 {
+		return F1 + Code(num-57364), 0, true
+	}
+	// The private use area is where a terminal puts keys that are not characters,
+	// and this function has already taken the ones it knows about.
+	r, ok := codePoint(num)
+	if !ok || (num >= 0xe000 && num <= 0xf8ff) {
+		return 0, 0, false
+	}
+	return Character, r, true
+}
+
+var extendedKeys = map[int]Code{
+	8: Backspace, 127: Backspace, 57347: Backspace,
+	9: Tab, 57346: Tab,
+	13: Enter, 57345: Enter,
+	27: Esc, 57344: Esc,
+	57348: Insert,
+	57349: Delete,
+	57350: Left,
+	57351: Right,
+	57352: Up,
+	57353: Down,
+	57354: PageUp,
+	57355: PageDown,
+	57356: Home,
+	57357: End,
+}
+
+func mouseMods(bits int) Mods {
+	var mods Mods
+	if bits&4 != 0 {
+		mods |= Shift
+	}
+	if bits&8 != 0 {
+		mods |= Alt
+	}
+	if bits&16 != 0 {
+		mods |= Ctrl
+	}
+	return mods
+}
+
+func mouseButton(bits int) Button {
+	switch bits {
+	case 0:
+		return ButtonLeft
+	case 1:
+		return ButtonMiddle
+	case 2:
+		return ButtonRight
+	default:
+		return ButtonNone
+	}
+}
+
+func commonPrefix(a, b []byte) int {
+	n := min(len(a), len(b))
+	for i := range n {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
+}
+
+func cursorKey(final byte) (Code, bool) {
+	code, ok := cursorKeys[final]
+	return code, ok
+}
+
+var cursorKeys = map[byte]Code{
+	'A': Up, 'B': Down, 'C': Right, 'D': Left,
+	'H': Home, 'F': End,
+	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
+}
+
+func applicationKey(c byte) (Code, bool) {
+	code, ok := applicationKeys[c]
+	return code, ok
+}
+
+var applicationKeys = map[byte]Code{
+	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
+	'A': Up, 'B': Down, 'C': Right, 'D': Left,
+	'H': Home, 'F': End,
+}
+
+func numberedKey(num int) (Code, bool) {
+	code, ok := numberedKeys[num]
+	return code, ok
+}
+
+var numberedKeys = map[int]Code{
+	1: Home, 7: Home,
+	2: Insert,
+	3: Delete,
+	4: End, 8: End,
+	5:  PageUp,
+	6:  PageDown,
+	11: F1, 12: F2, 13: F3, 14: F4, 15: F5,
+	17: F6, 18: F7, 19: F8, 20: F9, 21: F10,
+	23: F11, 24: F12,
+}
+
+func (p *Parser) beginString(kind stringKind, cmd int) {
+	p.str, p.oscCmd, p.strBody = kind, cmd, nil
+}
+
+// readString moves buffered bytes into the current string's body until its terminator
+// arrives, reporting the finished event when one does.
+//
+// Two byte sequences end it: the BEL older terminals use, and the ST that ECMA-48
+// specifies, which is an escape and a backslash. An escape followed by anything else
+// never legitimately appears inside one, so it is taken to have abandoned the string:
+// the body so far is dropped and the escape is read again on its own terms. That is
+// what makes a terminal which stops mid-answer cost one keystroke rather than every
+// keystroke after it.
+func (p *Parser) readString() (Event, bool) {
+	for i := 0; i < len(p.buf); {
+		switch c := p.buf[i]; c {
+		case bel:
+			p.take(i + 1)
+			return p.endString(), true
+		case esc:
+			if i+1 >= len(p.buf) {
+				// What is left could still become ST. Keep the escape.
+				p.take(i)
+				return nil, false
+			}
+			if p.buf[i+1] == '\\' {
+				p.take(i + 2)
+				return p.endString(), true
+			}
+			p.take(i)
+			p.abandonString()
+			return nil, true
+		default:
+			p.strBody = append(p.strBody, c)
+			i++
+			if len(p.strBody) >= maxStringBody {
+				// Overran what one may hold. The rest is dropped wherever it turns up
+				// rather than read as text, for the same reason a runaway control
+				// sequence is: a flood of keystrokes is a worse answer to a malformed
+				// sequence than silence, and one a hostile terminal could aim.
+				p.take(i)
+				p.abandonString()
+				p.dropping = droppingString
+				return nil, true
+			}
+		}
+	}
+	p.buf = nil
+	return nil, false
+}
+
+// endString finishes the current string and returns it as an event.
+//
+// The body is a string, which every consumer will treat as text. Invalid UTF-8 is
+// replaced rather than passed on, for the same reason it is in a paste: this is where
+// untrusted bytes stop being untrusted.
+func (p *Parser) endString() Event {
+	body := strings.ToValidUTF8(string(p.strBody), "�")
+	kind, cmd := p.str, p.oscCmd
+	p.abandonString()
+	if kind == dcsString {
+		return DCS{Body: body}
+	}
+	return OSC{Command: cmd, Params: body}
+}
+
+func (p *Parser) abandonString() {
+	p.str, p.oscCmd, p.strBody = noString, 0, nil
+}
+
+func (p *Parser) skipString() bool {
+	for i := range len(p.buf) {
+		switch p.buf[i] {
+		case bel:
+			p.take(i + 1)
+			p.dropping = droppingNothing
+			return true
+		case esc:
+			if i+1 >= len(p.buf) {
+				p.take(i)
+				return false
+			}
+			if p.buf[i+1] == '\\' {
+				p.take(i + 2)
+			} else {
+				// The escape abandoned the string, and belongs to whatever comes next
+				// rather than to this.
+				p.take(i)
+			}
+			p.dropping = droppingNothing
+			return true
+		}
+	}
+	p.buf = nil
+	return false
+}

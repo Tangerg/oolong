@@ -1,6 +1,6 @@
 # Run the examples
 
-The canonical [example catalog](../docs/examples.md) orders every command by prerequisite, learning goal, controls, and public API. Its [Chinese translation](../docs/zh/examples.md) follows the same executable path.
+The canonical [example catalog](../docs/guides/examples.md) orders every command by prerequisite, learning goal, controls, and public API. Its [Chinese translation](../docs/zh/guides/examples.md) follows the same executable path.
 
 Run one command from the repository root:
 

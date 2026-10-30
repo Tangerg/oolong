@@ -1,67 +1,36 @@
 ---
-layout: home
-title: Oolong
-titleTemplate: false
-description: A streaming-first terminal UI substrate for Go.
+title: Oolong documentation
+description: Terminal interfaces composed from one set of owners.
 contentType: Landing
-hero:
-  name: Oolong
-  text: Streaming-first terminal UI for Go
-  tagline: Streams can be long. The live interface stays bounded.
-  image:
-    src: /brand/oolong-wordmark.png
-    alt: Oolong wordmark with flowing terminal chunks
-  actions:
-    - theme: brand
-      text: Build your first interface
-      link: /getting-started
-    - theme: alt
-      text: Browse examples
-      link: /examples
-features:
-  - title: Streamed output is the primary lifetime
-    details: Finished content becomes terminal scrollback while the interactive tail stays small.
-  - title: Behavior and appearance compose
-    details: Use headless controllers, the polished kit, or your own design system without changing runtime ownership.
-  - title: Go-shaped from the bottom up
-    details: Concrete values, consumer-owned interfaces, explicit errors, and one-way dependencies keep each layer replaceable.
 ---
+
+# Oolong documentation
 
 Language: English | [简体中文](/zh/)
 
 ## Learn by building
 
-Follow the path in order when adopting Oolong. Each step produces a runnable, tested slice and adds one layer without replacing the previous one.
-
-| Level | Build | Outcome |
+| Step | Guide | Runnable result |
 | --- | --- | --- |
-| Beginner | [Your first interface](getting-started.md) | Run a core-only full-screen component |
-| Beginner | [A themeable picker](components.md) | Compose headless behavior, kit appearance, layout, and input |
-| Intermediate | [Markdown, code, and mathematics](content.md) | Use optional renderers independently and together |
-| Intermediate | [Bounded streaming output](streaming.md) | Move ordered background bytes into an inline interface |
-| Advanced | [A bounded agent interface](agent.md) | Join streaming text, domain events, review, and scrollback ownership |
+| 1 | [Your first interface](guides/getting-started.md) | One scene and one terminal session |
+| 2 | [Compose components](guides/components.md) | Shared behavior with replaceable appearance |
+| 3 | [Render rich content](guides/content.md) | Optional Markdown, code and mathematics |
+| 4 | [Stream bounded content](guides/streaming.md) | Revisable previews and explicit permanent publication |
+| 5 | [Build an agent interface](guides/agent.md) | Human and semantic actions over the same scene |
 
-[Browse the example catalog](examples.md) when you prefer to learn from complete commands. Every example includes an in-process test.
+[Browse runnable examples](guides/examples.md). Every command has an in-process test.
 
-## Choose the smallest useful layer
+## Read by layer
 
-Install only the modules your application imports:
+- [Core architecture](core/architecture.md): identity, source, layout, actions, resources and writer progress
+- [Logical text](core/text.md): text positions and cell projections
+- [Lifetimes](core/lifetimes.md): cancellation, delivery, publication and physical writing
+- [Base behavior](base/index.md): reusable controller policy
+- [Kit appearance](kit/index.md): themes and component composition
+- [History and virtualization](guides/history.md): active content, bounded windows and application archives
 
-```sh
-go get github.com/Tangerg/oolong/core@latest
-go get github.com/Tangerg/oolong/components@latest
-```
+## Validate and maintain
 
-Start with `core` for the runtime, terminal, grid, input, text, and layout. Add `components` for reusable headless behavior and the default theme. Optional Markdown, highlighting, LaTeX, SSH, and PTY testing remain separate modules.
+[Testing](guides/testing.md), [troubleshooting](guides/troubleshooting.md), [modules](guides/modules.md), and [independent releases](guides/releasing.md) cover the operational contracts. [Ownership decisions](decisions/ownership.md), [prior art](decisions/prior-art.md) and [brand](decisions/brand.md) record the reasoning and language behind them.
 
-[Choose modules for your interface](modules.md) lists the dependency and release rules.
-
-## Validate and understand the system
-
-- [Test an interface](testing.md) at the in-process and pseudoterminal boundaries
-- [Troubleshoot an application](troubleshooting.md) by symptom and ownership boundary
-- [Read the architecture](architecture.md) for normative lifetime and dependency rules
-- [Compare prior systems](prior-art.md) to understand adopted and rejected ideas
-- [Prepare a coordinated release](releasing.md) when maintaining the repository
-
-Package contracts render on [pkg.go.dev](https://pkg.go.dev/github.com/Tangerg/oolong/core). The [GitHub repository](https://github.com/Tangerg/oolong) contains source, examples, changelog, and contribution policy.
+The public module is `github.com/Tangerg/oolong/ui`; optional dependency boundaries live in `extensions/`. Package contracts and executable Go examples are the API reference. Historical reports under `docs/report` preserve the versions they analyzed.

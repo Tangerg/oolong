@@ -3,18 +3,19 @@ package main
 import (
 	"testing"
 
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 func TestExactAndLongerSequencesBothWork(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 70, Height: 12})
+	host := uitest.New(t, uitest.Config{Width: 70, Height: 12})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component { return newKeys(runtime) },
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: newKeys})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 
 	host.Shows(t, "waiting for g or gg")

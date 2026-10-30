@@ -4,37 +4,41 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 // observedHost adds exactly the session capabilities this example exercises.
 type observedHost struct {
-	*programtest.Host
+	*uitest.Host
 	mu       sync.Mutex
 	title    string
 	rang     int
 	notified []string
 }
 
-func (h *observedHost) SetTitle(title string) {
+func (h *observedHost) SetTitle(title string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.title = title
+	return nil
 }
 
-func (h *observedHost) Bell() {
+func (h *observedHost) Bell() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.rang++
+	return nil
 }
 
-func (h *observedHost) Notify(text string) {
+func (h *observedHost) Notify(text string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.notified = append(h.notified, text)
+	return nil
 }
 
 func (h *observedHost) attention() (int, int) {
@@ -44,18 +48,17 @@ func (h *observedHost) attention() (int, int) {
 }
 
 func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) {
-	host := &observedHost{Host: programtest.New(t, programtest.Config{Width: 60, Height: 8})}
+	host := &observedHost{Host: uitest.New(t, uitest.Config{Width: 60, Height: 8})}
 	var r *runner
 	done := make(chan error, 1)
 	ready := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
+		app, err := program.NewInline(program.InlineConfig{
 			Host: host,
 			// The depth is named rather than detected: a host that reports no colour
 			// makes the assertion below unfalsifiable, which is how the colour claim
 			// came to be written as "or the word red".
-			Color: grid.TrueColor,
-			Inline: func(runtime *program.InlineRuntime) program.Component {
+			Color: grid.TrueColor, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
 				// Not newRunner: that one starts a process, and what is being tested is
 				// what happens to what it says.
 				r = &runner{
@@ -65,9 +68,13 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 				var err error
 				r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 8, Consume: r.accept})
 				ready <- err
-				return r
+				return r.Element(), nil
 			},
 		})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 	if err := <-ready; err != nil {
 		t.Fatal(err)

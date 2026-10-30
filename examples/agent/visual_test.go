@@ -8,11 +8,11 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
 	"github.com/Tangerg/oolong/examples/internal/visualtest"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 var visualGround = grid.Ground{
@@ -26,13 +26,20 @@ func runVisualAgent(t *testing.T, width, height int, depth grid.Depth) (*visualt
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(ctx, program.Config{
+		app, err := program.NewInline(program.InlineConfig{
 			Host:  host,
-			Color: depth,
-			Inline: func(runtime *program.InlineRuntime) program.Component {
-				return headless.NewRoot(newAgent(runtime, mockBackend{}))
+			Color: depth, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+				agent, err := newAgent(ctx, runtime, mockBackend{})
+				if err != nil {
+					return scene.Element{}, err
+				}
+				return agent.Element(), nil
 			},
 		})
+		if err == nil {
+			err = app.Run(ctx)
+		}
+		done <- err
 	}()
 	var once sync.Once
 	stop := func() {

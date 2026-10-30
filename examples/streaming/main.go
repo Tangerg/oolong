@@ -1,10 +1,10 @@
 // Command streaming is Oolong's canonical streaming interface.
 //
 // One path exercises the architecture rather than displaying its pieces beside one
-// another: a background producer writes through bounded ingress, markdown keeps an
-// open tail while publishing stable blocks, a recent selectable transcript remains
-// live, older stable blocks move to terminal scrollback, and a compound dialog owns
-// approval and focus restoration. Resize, cancellation and failure use the same path.
+// another: a background producer writes through bounded ingress, a bounded source
+// document stays revisable until EOF, scoped workers prepare its immutable snapshots,
+// and the final content transfers to terminal scrollback through a receipt. A compound
+// dialog owns approval. Scene owns every coordinate and focus transition.
 package main
 
 import (
@@ -16,25 +16,32 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
-	"github.com/Tangerg/oolong/core/text"
-	"github.com/Tangerg/oolong/markdown"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/content"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Inline: func(runtime *program.InlineRuntime) program.Component {
-			return headless.NewRoot(newChat(runtime))
-		},
-		Terminal: term.Features{Probe: true},
-	}); err != nil {
+	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+		chat, err := newChat(context.Background(), runtime)
+		if err != nil {
+			return scene.Element{}, err
+		}
+		return chat.Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "streaming:", err)
 		os.Exit(1)
 	}
@@ -51,57 +58,57 @@ const (
 	cancelReply keymap.Action = "cancel reply"
 	quit        keymap.Action = "quit"
 
-	ingressLimit     = 64 << 10
-	retainedFinished = 4
+	ingressLimit = 64 << 10
 )
 
 // chat owns the product state and composes the lower-level state machines. Each
 // mutable value has one owner: only the program goroutine calls its methods; the
 // source goroutine can communicate solely through ByteIngress.
 type chat struct {
+	scope   *program.Scope
 	runtime *program.InlineRuntime
 	source  replySource
 	theme   kit.Theme
 	glyphs  kit.Glyphs
 	keys    *keymap.Map
 
-	content   headless.Transcript
-	scroll    headless.Scroll
-	selection headless.Selection
-	view      kit.Transcript
-	composer  kit.Composer
-	status    kit.Status
-	body      *headless.Container
-	stack     headless.Stack
+	content      *base.Transcript
+	view         *kit.Transcript
+	composer     *kit.Composer
+	status       kit.Status
+	element      scene.Element
+	confirm      *base.Confirm
+	form         *base.Form
+	dialog       *kit.Dialog
+	pending      string
+	document     *content.StreamDocument
+	item         *base.TranscriptItem
+	render       content.Renderer
+	prepareScope *program.Scope
 
-	approval   bool
-	dialogOpen bool
-	confirm    *headless.Confirm
-	form       *headless.Form
-	dialog     *kit.Dialog
-	pending    string
-
-	stream  markdown.Stream
-	open    *markdown.Doc
-	openID  headless.BlockID
 	ingress *program.ByteIngress
 	cancel  context.CancelFunc
 	active  bool
 }
 
-func newChat(runtime *program.InlineRuntime) *chat {
-	return newChatWithSource(runtime, defaultReplySource)
+func newChat(ctx context.Context, runtime *program.InlineRuntime) (*chat, error) {
+	return newChatWithSource(ctx, runtime, defaultReplySource)
 }
 
-func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat {
+func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, source replySource) (*chat, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
-	keys := headless.DefaultEditorKeys()
+	keys := base.DefaultEditorKeys()
 	keys.Bind(send, input.Chord{Code: input.Enter})
 	keys.Bind(cancelReply, input.Ctrl.Rune('x'))
 	keys.Bind(quit, input.Ctrl.Rune('c'))
 
+	scope, err := runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig passes ctx to the session lifetime owner.
+	if err != nil {
+		return nil, err
+	}
 	c := &chat{
+		scope:   scope,
 		runtime: runtime,
 		source:  source,
 		theme:   theme,
@@ -109,103 +116,121 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) *chat
 		keys:    keys,
 		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
-	c.scroll.Wheel(runtime.Environment().Wheel())
-	c.view = kit.Transcript{
-		Content: &c.content, Scroll: &c.scroll, Selection: &c.selection,
+	c.view, err = kit.NewTranscript(kit.TranscriptConfig{
 		Theme: theme, Glyphs: glyphs,
+		Publisher: runtime.Publisher(), Retention: base.PublishCompleted, PublishPartial: true,
+	})
+	if err != nil {
+		scope.Close()
+		return nil, err
 	}
-	c.composer = kit.Composer{
+	c.content = c.view.Controller()
+	c.content.Scroll().Wheel(runtime.Environment().Wheel())
+	if err := c.view.Element().SetFocusable(func() bool { return false }); err != nil {
+		panic(err)
+	}
+	c.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme:  theme,
 		Prompt: glyphs.Marker + " ",
-		Hints:  []keymap.Action{send, headless.InsertNewline, cancelReply, quit},
-	}
-	c.composer.Editor().Placeholder = "Ask something, or press ctrl+c to leave"
-	c.composer.Editor().Keys = keys
-	c.composer.Editor().Clipboard = runtime.Clipboard()
-	c.stream.SetLook(markdownLook(theme, glyphs))
-
-	c.body = headless.NewContainer(layout.Down,
-		headless.Item{Size: layout.Flex(1), Of: &c.view},
-		headless.Item{Size: layout.Fixed(1), Of: headless.Static{Of: &c.status}},
-		headless.Item{Size: layout.Measured(1, 0), Of: &c.composer},
-	)
-	c.stack.SetBase(c.body)
-	c.buildApproval()
-	runtime.Session().SetTitle("streaming")
-	return c
+		Hints:  []keymap.Action{send, base.InsertNewline, cancelReply, quit},
+	})
+	c.composer.Controller().Placeholder = "Ask something, or press ctrl+c to leave"
+	c.composer.Controller().Keys = keys
+	c.composer.Controller().Clipboard = runtime.Clipboard()
+	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownLook(theme, glyphs)})
+	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { c.status.Draw(frame.View) }})
+	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
+		{Size: layout.Flex(1), Element: c.view.Element()},
+		{Size: layout.Fixed(1), Element: status},
+		{Size: layout.Measured(1, 0), Element: c.composer.Element()},
+	}})
+	c.buildApproval() //nolint:contextcheck // Deferred approval and preparation use c.scope.Context(), derived from ctx above.
+	c.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
+		Key:     "streaming",
+		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input)} }, //nolint:contextcheck // Input actions use the scope created from ctx above.
+		Detached: func() {
+			c.scope.Close()
+			if c.prepareScope != nil {
+				c.prepareScope.Close()
+			}
+			c.content.Close()
+		},
+	}, Items: []scene.Item{{Element: body.Element()}, {Element: c.dialog.Element()}}}).Element()
+	// Optional window metadata has no bearing on source acceptance.
+	_ = runtime.Session().SetTitle("streaming")
+	return c, nil
 }
 
-// buildApproval composes behavior from headless and appearance from kit. The form
-// owns submission, Dialog owns open/close transitions and focus transfer, while chat
-// owns the bound open value and decides what approval means to the product.
+// The form owns its answer and submission. Dialog owns open state, and scene
+// owns modal eligibility and focus restoration.
 func (c *chat) buildApproval() {
-	c.approval = true
-	c.confirm = headless.NewConfirm(headless.ConfirmConfig{
-		Label: "Send this prompt?", Value: headless.Bind(&c.approval), Yes: "send", No: "cancel",
-	})
-	formKeys := headless.DefaultFormKeys()
-	c.form = headless.NewForm(c.confirm)
-	c.form.Keys = formKeys
-	c.form.Done = c.settleApproval
-	c.form.GaveUp = c.reject
+	c.confirm = base.NewConfirm(base.ConfirmConfig{Label: "Send this prompt?", Initial: true, Yes: "send", No: "cancel"})
 	dressed := kit.NewForm(kit.FormConfig{
-		Theme: c.theme, Glyphs: c.glyphs, Controller: c.form,
-		Hints: []keymap.Action{headless.Submit, headless.Cancel},
+		Theme: c.theme, Glyphs: c.glyphs,
+		Fields: []base.Field{c.confirm}, Keys: base.DefaultFormKeys(),
+		Hints: []keymap.Action{base.Submit, base.Cancel},
+		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+			c.settleApproval()
+			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+		},
+		Cancel: func(base.SubmissionID) error { c.reject(); return nil },
 	})
+	c.form = dressed.Controller()
 	c.dialog = kit.NewDialog(kit.DialogConfig{
-		Stack: &c.stack, Open: headless.Bind(&c.dialogOpen), Theme: c.theme, Glyphs: c.glyphs,
-		Title: "Approve prompt", Body: dressed,
+		Theme: c.theme, Glyphs: c.glyphs,
+		Title: "Approve prompt", Description: "The source starts only after approval.", Body: dressed.Element(),
+		Where: layout.Placement{Width: 48, Height: 7, Margin: 1},
 	})
-	c.dialog.Controller().SetDescription("The source starts only after approval.")
-	c.dialog.Panel().Where = layout.Placement{Width: 48, Height: 7, Margin: 1}
 }
 
-func (c *chat) Draw(frame headless.Frame) { c.stack.Draw(frame) }
+func (c *chat) Element() scene.Element { return c.element }
 
 func (c *chat) Handle(event input.Event) bool {
-	if key, ok := event.(input.Key); ok && key.Down() {
-		action, _ := c.keys.Action(key.Chord())
-		if action == quit {
-			c.runtime.Quit()
+	key, ok := event.(input.Key)
+	if !ok || !key.Down() {
+		return false
+	}
+	action, _ := c.keys.Action(key.Chord())
+	if action == quit {
+		c.runtime.Quit()
+		return true
+	}
+	if c.dialog.Controller().Open() {
+		if key.Code == input.Esc {
+			c.reject()
 			return true
 		}
-		// While a modal is open, its form owns Enter and Escape. Offering Enter to the
-		// application first would make one keystroke mean both send and approve.
-		if c.stack.Depth() == 0 {
-			switch action {
-			case send:
-				c.requestApproval()
-				return true
-			case cancelReply:
-				c.stopReply()
-				return true
-			}
-		}
+		return false
 	}
-	handled := c.stack.Handle(event)
-	if c.pending != "" && !c.dialogOpen {
-		// Stack may dismiss on Escape or a click outside. Dialog has already restored
-		// focus; this settles the product intent that had not been approved.
-		c.pending = ""
-		c.approval = true
+	switch action {
+	case send:
+		c.requestApproval()
+		return true
+	case cancelReply:
+		c.stopReply()
+		return true
+	default:
+		return false
 	}
-	return handled
 }
 
 func (c *chat) requestApproval() {
-	prompt := strings.TrimSpace(c.composer.Editor().Text())
-	if prompt == "" || c.active || c.dialogOpen {
+	prompt := strings.TrimSpace(c.composer.Controller().Text())
+	if prompt == "" || c.active || c.dialog.Controller().Open() {
 		return
 	}
 	c.pending = prompt
-	c.approval = true
-	c.confirm.Say(true)
+	if _, err := c.confirm.Request(c.scope.Context(), base.ConfirmRequest{ExpectedRevision: c.confirm.Snapshot().Revision, Value: true}); err != nil {
+		c.status.Doing = err.Error()
+		c.pending = ""
+		return
+	}
 	c.dialog.Controller().SetDescription("Send “" + clip(prompt) + "” to the source?")
 	c.dialog.Controller().Show()
 }
 
 func (c *chat) settleApproval() {
-	if !c.approval {
+	if !c.confirm.Answer() {
 		c.reject()
 		return
 	}
@@ -220,143 +245,122 @@ func (c *chat) settleApproval() {
 
 func (c *chat) reject() {
 	c.pending = ""
-	c.approval = true
 	c.dialog.Controller().Dismiss()
 }
 
 func (c *chat) startReply(prompt string) {
-	c.composer.Editor().Clear()
-	c.selection.Clear()
-	c.appendFinished(&kit.Entry{
-		Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt,
-	})
-	c.stream.Reset()
-	c.open = nil
+	c.composer.Controller().Clear()
+	c.content.Selection().Clear()
+	c.appendFinished(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	var err error
+	c.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
+	if err != nil {
+		c.setOutcome(err)
+		return
+	}
+	c.item, err = c.content.AddDocument(c.document)
+	if err != nil {
+		c.setOutcome(err)
+		return
+	}
 	c.active = true
 	c.status.Doing = "receiving — ctrl+x cancels"
-	c.runtime.Session().SetTitle("receiving")
-
+	_ = c.runtime.Session().SetTitle("receiving")
 	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: c.runtime.Dispatcher(), Limit: ingressLimit, Consume: c.accept})
 	if err != nil {
 		c.finishReply(err)
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(c.scope.Context())
 	c.ingress, c.cancel = ingress, cancel
-
-	// This waiter ties source lifetime to interface ownership. Normal completion,
-	// cancellation and runtime teardown all close ingress.Done; no goroutine survives
-	// the state machine it serves.
-	go func() {
-		<-ingress.Done()
-		cancel()
-	}()
-	go func() {
-		err := c.source(ctx, prompt, ingress)
-		_ = ingress.CloseWithError(err)
-	}()
-	c.retainWindow()
+	go func() { <-ingress.Done(); cancel() }()
+	go func() { err := c.source(ctx, prompt, ingress); _ = ingress.CloseWithError(err) }()
+	c.element.Invalidate()
 }
 
-// accept is the sole transition from background bytes into interface state. It is
-// always invoked by ByteIngress on the program owner after every earlier byte.
+// The ingress owner appends each accepted batch once. Rendering consumes immutable
+// source snapshots in scoped tasks; a newer snapshot revokes an older delivery.
 func (c *chat) accept(batch program.ByteBatch) {
 	if len(batch.Data) > 0 {
-		c.acceptMarkdown(string(batch.Data))
+		if err := c.document.Append(batch.Data); err != nil {
+			c.finishReply(errors.Join(batch.Err, err))
+			return
+		}
 		c.status.Tick()
 	}
 	if batch.Final {
 		c.finishReply(batch.Err)
 		return
 	}
-	c.retainWindow()
+	c.prepare(false, nil)
 }
 
-func (c *chat) acceptMarkdown(chunk string) {
-	stable, err := c.stream.Feed(chunk)
+func (c *chat) prepare(final bool, sourceErr error) {
+	if c.prepareScope != nil {
+		c.prepareScope.Close()
+	}
+	scope, err := c.runtime.NewScope(program.ScopeConfig{Context: c.scope.Context()})
 	if err != nil {
-		c.appendFinished(&kit.Entry{Theme: c.theme, Label: "render", Body: err.Error()})
-	}
-	if len(stable) > 0 {
-		c.finishOpen(stable)
-	}
-	open, err := c.stream.Open()
-	if err != nil {
-		c.status.Doing = err.Error()
-	}
-	c.stageOpen(open)
-}
-
-// finishOpen converts the existing open tail into one immutable stable block. The
-// identity stays the same, so selection and scroll do not jump while ownership changes.
-func (c *chat) finishOpen(blocks []markdown.Block) {
-	if c.open == nil {
-		if len(blocks) == 0 {
-			return
-		}
-		doc := new(markdown.Doc)
-		doc.SetBlocks(blocks)
-		id := c.content.Append(doc)
-		c.content.Finish(id)
+		c.setOutcome(errors.Join(sourceErr, err))
 		return
 	}
-	c.open.SetBlocks(blocks)
-	c.content.Changed(c.openID)
-	c.content.Finish(c.openID)
-	c.open = nil
-}
-
-func (c *chat) stageOpen(blocks []markdown.Block) {
-	if c.open == nil {
-		if len(blocks) == 0 {
-			return
-		}
-		c.open = new(markdown.Doc)
-		c.open.SetBlocks(blocks)
-		c.openID = c.content.Append(c.open)
-	} else {
-		c.open.SetBlocks(blocks)
-		c.content.Changed(c.openID)
-	}
-	c.follow()
-}
-
-// follow keeps the view at the end only while the reader is already there.
-//
-// Scrolling up is how somebody reads what has gone past. Pulling them back on every
-// chunk that arrives makes that impossible, and an answer that is still being written
-// arrives in a great many chunks.
-func (c *chat) follow() {
-	if c.scroll.FollowingEnd() {
-		c.scroll.ToBottom()
+	c.prepareScope = scope
+	document, renderer := c.document, c.render
+	snapshot := document.Snapshot()
+	_, err = c.runtime.Start(scope, program.Work[content.Prepared]{
+		Run: func(ctx context.Context) (content.Prepared, error) { return snapshot.Prepare(ctx, renderer), nil },
+		Apply: func(prepared content.Prepared, err error) {
+			defer scope.Close()
+			if err == nil {
+				err = document.Accept(prepared)
+			}
+			if err != nil {
+				c.setOutcome(errors.Join(sourceErr, err))
+				return
+			}
+			if final {
+				if prepareErr := document.Current().PrepareError; prepareErr != nil {
+					sourceErr = errors.Join(sourceErr, prepareErr)
+				}
+				c.setOutcome(sourceErr)
+			}
+		},
+	})
+	if err != nil {
+		scope.Close()
+		c.setOutcome(errors.Join(sourceErr, err))
 	}
 }
 
 func (c *chat) finishReply(err error) {
-	stable, renderErr := c.stream.Flush()
-	if renderErr != nil {
-		err = errors.Join(err, renderErr)
+	if c.document == nil {
+		c.setOutcome(err)
+		return
 	}
-	c.finishOpen(stable)
+	if endErr := c.document.End(err); endErr != nil {
+		c.setOutcome(errors.Join(err, endErr))
+		return
+	}
+	c.prepare(true, err)
+}
 
+func (c *chat) setOutcome(err error) {
 	switch {
-	case err == context.Canceled: //nolint:errorlint // Only bare cancellation has no failure diagnostics to display.
+	case err == context.Canceled: //nolint:errorlint // Joined cancellation retains its failure diagnostics.
 		c.status.Doing = "cancelled"
 	case err != nil:
 		c.status.Doing = "failed: " + err.Error()
-		c.appendFinished(&kit.Entry{
-			Theme: c.theme, Label: "source", Body: err.Error(),
-		})
+		c.appendFinished(&kit.Entry{Theme: c.theme, Label: "source", Body: err.Error()})
 	default:
 		c.status.Doing = "complete"
-		c.runtime.Session().Notify("the answer is complete")
+		_ = c.runtime.Session().Notify("the answer is complete")
 	}
 	if c.cancel != nil {
 		c.cancel()
 	}
-	c.runtime.Session().SetTitle("streaming")
+	_ = c.runtime.Session().SetTitle("streaming")
 	c.ingress, c.cancel, c.active = nil, nil, false
-	c.retainWindow()
+	c.element.Invalidate()
 }
 
 func (c *chat) stopReply() {
@@ -365,36 +369,13 @@ func (c *chat) stopReply() {
 	}
 	c.status.Doing = "cancelling"
 	c.cancel()
+	c.element.Invalidate()
 }
 
-func (c *chat) appendFinished(block headless.Block) {
-	id := c.content.Append(block)
-	c.content.Finish(id)
-	c.follow()
-}
-
-// retainWindow deliberately keeps a small recent stable prefix interactive and gives
-// only its excess to terminal scrollback. The open tail is never eligible. Memory,
-// resize and draw work therefore follow this bound rather than the age of the session.
-func (c *chat) retainWindow() {
-	if c.content.Width() <= 0 {
-		return
+func (c *chat) appendFinished(block base.Block) {
+	if _, err := c.content.Add(block); err != nil {
+		c.status.Doing = err.Error()
 	}
-	finished := 0
-	for i := range c.content.Len() {
-		id := c.content.FirstBlock() + headless.BlockID(i)
-		if !c.content.Finished(id) {
-			break
-		}
-		finished++
-	}
-	if excess := finished - retainedFinished; excess > 0 {
-		if _, err := c.view.Commit(c.runtime, excess); err != nil {
-			c.status.Doing = err.Error()
-			return
-		}
-	}
-	c.follow()
 }
 
 func markdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
@@ -447,12 +428,12 @@ func reply(prompt string) string {
 		"You asked **" + clip(prompt) + "**. This answer is arriving as ordered bytes",
 		"from a background producer.",
 		"",
-		"Stable markdown blocks leave the open tail exactly once. Recent blocks remain",
-		"selectable here; older ones move into the terminal's own scrollback.",
+		"The complete Markdown document stays revisable until EOF. While receiving it remains",
+		"selectable here; finalized output moves into the terminal's own scrollback.",
 		"",
 		"- ingress is bounded and applies backpressure",
-		"- the open block may change; committed blocks cannot",
-		"- resize touches only the deliberately retained window",
+		"- provisional content may change; published captures cannot",
+		"- source and publication queues have explicit memory budgets",
 		"",
 		"> Ctrl+X cancels the source without confusing cancellation with failure.",
 		"",

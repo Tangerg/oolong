@@ -7,32 +7,27 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
-
-type bridgeComponent struct{}
-
-func (bridgeComponent) Draw(grid.View)          {}
-func (bridgeComponent) Handle(input.Event) bool { return false }
 
 func runningBridge(t *testing.T) *agentBridge {
 	t.Helper()
-	host := programtest.New(t, programtest.Config{Width: 20, Height: 4})
+	host := uitest.New(t, uitest.Config{Width: 20, Height: 4})
 	ctx, cancel := context.WithCancel(t.Context())
 	ready := make(chan *agentBridge, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(ctx, program.Config{
-			Host: host,
-			Root: func(owner *program.Runtime) program.Component {
-				run := &agentRun{}
-				ready <- &agentBridge{dispatch: owner.Dispatcher(), owner: &agent{run: run}, run: run}
-				return bridgeComponent{}
-			},
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(owner *program.Runtime) (scene.Element, error) {
+			run := &agentRun{}
+			ready <- &agentBridge{dispatch: owner.Dispatcher(), owner: &agent{run: run}, run: run}
+			return scene.NewElement(scene.ElementConfig{}), nil
+		}})
+		if err == nil {
+			err = app.Run(ctx)
+		}
+		done <- err
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -84,7 +79,9 @@ func TestBridgeCancellationPreventsAPendingMutation(t *testing.T) {
 		entered, release := make(chan struct{}), make(chan struct{})
 		unblock := sync.OnceFunc(func() { close(release) })
 		defer unblock()
-		bridge.dispatch.Post(func() { close(entered); <-release })
+		if err := bridge.dispatch.Post(func() { close(entered); <-release }); err != nil {
+			t.Fatal(err)
+		}
 		<-entered
 		ctx, cancel := context.WithCancelCause(t.Context())
 		defer cancel(nil)

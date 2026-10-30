@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tangerg/oolong/core/program"
+	"github.com/Tangerg/oolong/ui/core/program"
 )
 
 type stepState uint8
@@ -189,12 +189,12 @@ func (b *agentBridge) Step(ctx context.Context, update stepUpdate) error {
 }
 
 func (b *agentBridge) Tool(ctx context.Context, result toolResult) error {
-	return b.post(ctx, func() { b.owner.showTool(result) })
+	return b.post(ctx, func() { b.owner.showTool(result) }) //nolint:contextcheck // ctx governs dispatch admission; a claimed UI callback uses the session scope to finish its visible transition.
 }
 
 func (b *agentBridge) Review(ctx context.Context, proposal changeProposal) (bool, error) {
 	request := &reviewRequest{proposal: proposal, answer: make(chan bool, 1)}
-	if err := b.post(ctx, func() { b.owner.openReview(request) }); err != nil {
+	if err := b.post(ctx, func() { b.owner.openReview(request) }); err != nil { //nolint:contextcheck // Request cancellation governs admission and the reply wait; UI callbacks use the session scope.
 		return false, err
 	}
 	select {

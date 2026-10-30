@@ -7,35 +7,57 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/content"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func TestAnEmptyOpenProjectionReplacesTheVisibleTail(t *testing.T) {
-	c := &chat{}
-	c.view = kit.Transcript{Content: &c.content, Scroll: &c.scroll}
-	c.acceptMarkdown("<")
-	if got := drawTail(c); !strings.Contains(got, "<") {
-		t.Fatalf("the incomplete source was not visible: %q", got)
+	document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	c.acceptMarkdown("!-- hidden -->")
-	if got := drawTail(c); strings.Contains(got, "<") {
-		t.Fatalf("the empty projection retained the old tail: %q", got)
+	view, err := kit.NewTranscript(kit.TranscriptConfig{})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func drawTail(c *chat) string {
-	surface := grid.NewSurface(40, 8)
-	headless.NewRoot(&c.view).Draw(surface.View())
-	var drawn strings.Builder
-	for y := range 8 {
-		for x := range 40 {
-			cell, _ := surface.CellAt(x, y)
-			drawn.WriteString(cell.Content())
+	if _, addErr := view.Controller().AddDocument(document); addErr != nil {
+		t.Fatal(addErr)
+	}
+	root, err := scene.NewRoot(scene.RootConfig{Element: view.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	render := markdown.NewRenderer(markdown.RendererConfig{})
+	for i, chunk := range []string{"<", "!-- hidden -->"} {
+		if err := document.Append([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+		if err := document.Accept(document.Snapshot().Prepare(t.Context(), render)); err != nil {
+			t.Fatal(err)
+		}
+		surface := grid.NewSurface(40, 8)
+		frame, err := root.Prepare(surface.View())
+		if err != nil {
+			t.Fatal(err)
+		}
+		frame.Commit(uint64(i + 1))
+		root.Wrote(uint64(i + 1))
+		var shown strings.Builder
+		for y := range 8 {
+			for x := range 40 {
+				cell, _ := surface.CellAt(x, y)
+				shown.WriteString(cell.Content())
+			}
+		}
+		if strings.Contains(shown.String(), "<") != (i == 0) {
+			t.Fatalf("wrong provisional projection: %q", shown.String())
 		}
 	}
-	return drawn.String()
 }
 
 func TestAnEmptyFinalProjectionStillCompletesTheTranscript(t *testing.T) {
@@ -78,18 +100,14 @@ func TestAnEmptyFinalProjectionStillCompletesTheTranscript(t *testing.T) {
 			close(chunks)
 			awaitState(t, c, func(s state) bool { return !s.active })
 			if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
-				for i := range c.content.Len() {
-					id := c.content.FirstBlock() + headless.BlockID(i)
-					if !c.content.Finished(id) {
-						return errors.New("source completion left an unfinished transcript block")
-					}
+				if c.item.State() == base.ContentLive {
+					return errors.New("source completion left a live transcript item")
 				}
-				for range retainedFinished + 3 {
+				for range 7 {
 					c.appendFinished(&kit.Label{Text: "later output"})
 				}
-				c.retainWindow()
-				if c.content.Len() > retainedFinished {
-					return errors.New("the settled tail blocked later scrollback publication")
+				if c.content.Len() != 0 {
+					return errors.New("the settled tail blocked later publication")
 				}
 				return nil
 			}); err != nil {

@@ -3,28 +3,29 @@ package main
 import (
 	"testing"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
-func runPrompt(t *testing.T) (*programtest.Host, <-chan error) {
+func runPrompt(t *testing.T) (*uitest.Host, <-chan error) {
 	t.Helper()
-	host := programtest.New(t, programtest.Config{Width: 80, Height: 16})
+	host := uitest.New(t, uitest.Config{Width: 80, Height: 16})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component {
-				return headless.NewRoot(newPrompt(runtime))
-			},
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+			return newPrompt(runtime).Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 	return host, done
 }
 
-func quit(t *testing.T, host *programtest.Host, done <-chan error) {
+func quit(t *testing.T, host *uitest.Host, done <-chan error) {
 	t.Helper()
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})
 	if err := <-done; err != nil {
@@ -88,7 +89,7 @@ func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
 	p := newPrompt(nil)
 	body := "one\ntwo\nthree\nfour"
 	p.insertPaste(body)
-	editor := p.composer.Editor()
+	editor := p.composer.Controller()
 	id := editor.Elements()[0].ID
 	editor.RemoveElement(id)
 	if len(editor.Elements()) != 0 {
@@ -107,16 +108,16 @@ func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
 	p := newPrompt(nil)
 	p.history.Add(draft{text: "something earlier"})
 	p.insertPaste("one\ntwo\nthree\nfour")
-	p.composer.Editor().Insert("summarize")
-	before := p.composer.Editor().Text()
+	p.composer.Controller().Insert("summarize")
+	before := p.composer.Controller().Text()
 
 	p.recallBack()
 	p.recallForward()
 
-	if got := p.composer.Editor().Text(); got != before {
+	if got := p.composer.Controller().Text(); got != before {
 		t.Fatalf("the draft came back as %q, want %q", got, before)
 	}
-	elements := p.composer.Editor().Elements()
+	elements := p.composer.Controller().Elements()
 	if len(elements) != 1 {
 		t.Fatalf("the draft came back with %d attachments, want the one it had", len(elements))
 	}
@@ -127,12 +128,12 @@ func TestAnUnsentDraftKeepsItsAttachmentsThroughHistory(t *testing.T) {
 
 func TestARecalledEntryTakesTheAttachmentsItWasSentWith(t *testing.T) {
 	p := newPrompt(nil)
-	p.composer.Editor().Insert("[paste 4 lines] ")
+	p.composer.Controller().Insert("[paste 4 lines] ")
 	p.insertPaste("one\ntwo\nthree\nfour")
 	p.submit()
 
 	p.recallBack()
-	elements := p.composer.Editor().Elements()
+	elements := p.composer.Controller().Elements()
 	if len(elements) != 1 {
 		t.Fatalf("the entry came back with %d attachments, want one", len(elements))
 	}
@@ -141,11 +142,11 @@ func TestARecalledEntryTakesTheAttachmentsItWasSentWith(t *testing.T) {
 	}
 
 	// The same words again, with nothing attached, are not last time's attachment.
-	p.composer.Editor().Clear()
-	p.composer.Editor().Insert("[paste 4 lines] [paste 4 lines]")
+	p.composer.Controller().Clear()
+	p.composer.Controller().Insert("[paste 4 lines] [paste 4 lines]")
 	p.submit()
 	p.recallBack()
-	if got := p.composer.Editor().Elements(); len(got) != 0 {
+	if got := p.composer.Controller().Elements(); len(got) != 0 {
 		t.Fatalf("plain words came back with %d attachments", len(got))
 	}
 }
@@ -158,17 +159,17 @@ func TestRecallingADraftGivesBackTheWordsItHad(t *testing.T) {
 	p := newPrompt(nil)
 	p.history.Add(draft{text: "something earlier"})
 	p.insertPaste("one\ntwo\nthree")
-	p.composer.Editor().DeleteBack()
-	p.composer.Editor().Insert("suffix")
-	before := p.composer.Editor().Text()
+	p.composer.Controller().DeleteBack()
+	p.composer.Controller().Insert("suffix")
+	before := p.composer.Controller().Text()
 
 	p.recallBack()
 	p.recallForward()
 
-	if got := p.composer.Editor().Text(); got != before {
+	if got := p.composer.Controller().Text(); got != before {
 		t.Fatalf("the draft came back as %q, want %q", got, before)
 	}
-	if got := p.composer.Editor().Elements(); len(got) != 1 {
+	if got := p.composer.Controller().Elements(); len(got) != 1 {
 		t.Fatalf("the draft came back with %d attachments, want the one it had", len(got))
 	}
 }
@@ -184,7 +185,7 @@ func TestHistoryDistinguishesAttachmentsWithTheSameLabel(t *testing.T) {
 
 	for _, want := range []string{second, first} {
 		p.recallBack()
-		elements := p.composer.Editor().Elements()
+		elements := p.composer.Controller().Elements()
 		if len(elements) != 1 {
 			t.Fatalf("recalled attachments = %v, want one", elements)
 		}

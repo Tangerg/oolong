@@ -1,0 +1,93 @@
+package kit
+
+import (
+	"iter"
+	"strings"
+
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/text"
+)
+
+// Help is a row of key hints.
+//
+// The keystrokes are read out of the same map the handlers read, so a hint cannot
+// disagree with what the key does: there is one place a key is bound, and this asks it.
+// An action with nothing bound to it is not shown, because a hint nobody can press is
+// worse than no hint.
+type Help struct {
+	Theme Theme
+	Keys  *keymap.Map
+	// Show are the actions to show, in the order they matter. Hiding one is leaving it
+	// out: an action that works and that nobody needs told about is simply not listed.
+	//
+	// Each identifier is shown as words by this appearance layer; the key map carries
+	// only identity and binding policy.
+	Show []keymap.Action
+	// Separator sits between hints. Empty uses two spaces, which separates without
+	// adding another thing to look at.
+	Separator string
+}
+
+// HeightForWidth returns one row when a requested action has a binding, otherwise zero.
+func (h Help) HeightForWidth(int) int {
+	for range h.hints() {
+		return 1
+	}
+	return 0
+}
+
+func (h Help) hints() iter.Seq2[keymap.Action, input.Keys] {
+	return func(yield func(keymap.Action, input.Keys) bool) {
+		for _, action := range h.Show {
+			bound := h.Keys.Keys(action)
+			if len(bound) > 0 && !yield(action, bound[0]) {
+				return
+			}
+		}
+	}
+}
+
+// Draw writes as many hints as fit, in order, dropping the rest.
+//
+// Dropping rather than truncating the last one: half a hint is not a hint, and the
+// bindings are listed in the order they matter so the ones that survive a narrow
+// terminal are the ones worth keeping.
+func (h Help) Draw(v grid.View) {
+	w, height := v.Size()
+	if w <= 0 || height <= 0 {
+		return
+	}
+	separator := h.Separator
+	if separator == "" {
+		separator = "  "
+	}
+	sepWidth := text.Width(separator)
+
+	x := 0
+	for action, binding := range h.hints() {
+		key := binding.String()
+		does := actionLabel(action)
+		need := layout.Sum(text.Width(key), 1, text.Width(does))
+		if x > 0 {
+			need = layout.Sum(need, sepWidth)
+		}
+		if layout.Sum(x, need) > w {
+			return
+		}
+		if x > 0 {
+			x = layout.Sum(x, v.Text(x, 0, separator, h.Theme.Subtle))
+		}
+		x = layout.Sum(x, v.Text(x, 0, key, h.Theme.Accent))
+		x = layout.Sum(x, v.Text(x, 0, " ", h.Theme.Muted))
+		x = layout.Sum(x, v.Text(x, 0, does, h.Theme.Muted))
+	}
+}
+
+// actionLabel is presentation policy: action identifiers use hyphens, while this
+// appearance renders them as words. It deliberately does not live in keymap.
+func actionLabel(action keymap.Action) string {
+	return strings.ReplaceAll(action.String(), "-", " ")
+}

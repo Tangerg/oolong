@@ -1,186 +1,144 @@
 package main
 
 import (
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/markdown"
+	"context"
+
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/content"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/publication"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
-const retainedAgentBlocks = 8
-
-// conversation owns the active, interactive tail of the session. It is an application
-// entity rather than a component alias: publication, sticky prompts, streaming tails,
-// selection and their shared lifetime are one invariant here.
-const renderErrorLabel = "render"
-
+// conversation composes a stream document with one transcript and one publisher.
+// Only receiving source remains revisable; an accepted final capture has a receipt
+// and no longer keeps its source bytes alive through the live transcript.
 type conversation struct {
-	theme  kit.Theme
-	glyphs kit.Glyphs
-	wheel  input.Wheel
-
-	content   headless.Transcript
-	scroll    headless.Scroll
-	selection headless.Selection
-	sticky    headless.Sticky
-	view      kit.Transcript
-
-	stream markdown.Stream
-	open   *markdown.Doc
-	openID headless.BlockID
+	theme     kit.Theme
+	glyphs    kit.Glyphs
+	wheel     input.Wheel
+	publisher *publication.Publisher
+	content   *base.Transcript
+	view      *kit.Transcript
+	group     *scene.Group
+	render    content.Renderer
+	document  *content.StreamDocument
+	item      *base.TranscriptItem
+	problem   error
 }
 
-func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel) *conversation {
-	c := &conversation{theme: theme, glyphs: glyphs, wheel: wheel}
-	c.scroll.Wheel(wheel)
-	c.sticky.MinHeight, c.sticky.Gap = 1, 1
-	c.view = kit.Transcript{
-		Content: &c.content, Scroll: &c.scroll, Selection: &c.selection,
-		Sticky: &c.sticky, Theme: theme, Glyphs: glyphs,
+func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel, publisher *publication.Publisher) *conversation {
+	c := &conversation{
+		theme: theme, glyphs: glyphs, wheel: wheel, publisher: publisher,
+		render: markdown.NewRenderer(markdown.RendererConfig{Look: agentMarkdownLook(theme, glyphs)}),
 	}
-	c.stream.SetLook(agentMarkdownLook(theme, glyphs))
+	c.group = scene.NewGroup(scene.GroupConfig{Overlay: true})
+	c.resetView()
 	return c
 }
 
-func (c *conversation) Draw(frame headless.Frame) { c.view.Draw(frame) }
-
-func (c *conversation) Handle(event input.Event) bool { return c.view.Handle(event) }
-
-func (c *conversation) User(prompt string) {
-	c.FlushMarkdown()
-	id := c.append(&kit.Entry{
-		Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt,
+func (c *conversation) resetView() {
+	retention, keep := base.Retain, 0
+	if c.publisher != nil {
+		retention, keep = base.PublishCompleted, 8
+	}
+	view, err := kit.NewTranscript(kit.TranscriptConfig{
+		Theme: c.theme, Glyphs: c.glyphs,
+		Publisher: c.publisher, Retention: retention, PublishPartial: true, KeepCompleted: keep,
 	})
-	c.sticky.Add(id)
+	if err != nil {
+		panic(err)
+	}
+	c.view, c.content = view, view.Controller()
+	c.content.Scroll().Wheel(c.wheel)
+	c.content.Sticky().MinHeight, c.content.Sticky().Gap = 1, 1
+	if err := c.view.Element().SetFocusable(func() bool { return false }); err != nil {
+		panic(err)
+	}
+	if err := c.group.Set(scene.Item{Element: c.view.Element()}); err != nil {
+		panic(err)
+	}
 }
 
-func (c *conversation) Append(block headless.Block) {
-	c.FlushMarkdown()
+func (c *conversation) Element() scene.Element { return c.group.Element() }
+func (c *conversation) Err() error             { return c.problem }
+
+func (c *conversation) User(ctx context.Context, prompt string) {
+	c.FlushMarkdown(ctx)
+	item := c.append(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	if item != nil && item.State() != base.ContentRetired {
+		c.content.Sticky().Add(item.ID())
+	}
+}
+
+func (c *conversation) Append(ctx context.Context, block base.Block) {
+	c.FlushMarkdown(ctx)
 	c.append(block)
 }
 
-func (c *conversation) append(block headless.Block) headless.BlockID {
-	id := c.content.Append(block)
-	c.content.Finish(id)
-	c.scroll.ToBottom()
-	return id
-}
-
-func (c *conversation) Markdown(chunk string) {
-	stable, err := c.stream.Feed(chunk)
+func (c *conversation) append(block base.Block) *base.TranscriptItem {
+	item, err := c.content.Add(block)
 	if err != nil {
-		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
+		c.problem = err
 	}
-	if len(stable) > 0 {
-		c.finishOpen(stable)
-	}
-	open, err := c.stream.Open()
-	if err != nil {
-		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
-	}
-	c.stageOpen(open)
+	return item
 }
 
-// FlushMarkdown ends the answer being written, whatever is left of it.
-//
-// Unconditionally: whether anything was left is the stream's answer and not the
-// question. Ending the block only when something was meant an answer whose last
-// piece rendered to nothing — an HTML comment, a link definition — left a block that
-// never finished, and retention stops at the first block that has not, so nothing
-// after it could ever reach the terminal's own scrollback.
-func (c *conversation) FlushMarkdown() {
-	stable, err := c.stream.Flush()
-	if err != nil {
-		c.append(&kit.Entry{Theme: c.theme, Label: renderErrorLabel, Body: err.Error()})
-	}
-	c.finishOpen(stable)
-}
-
-// follow keeps the view at the end only while the reader is already there.
-//
-// Scrolling up is how somebody reads what has gone past, and an answer still being
-// written arrives in a great many pieces. Pulling the reader back on every one of
-// them makes reading impossible.
-func (c *conversation) follow() {
-	if c.scroll.FollowingEnd() {
-		c.scroll.ToBottom()
-	}
-}
-
-func (c *conversation) finishOpen(blocks []markdown.Block) {
-	if c.open == nil {
-		if len(blocks) == 0 {
-			return
-		}
-		doc := new(markdown.Doc)
-		doc.SetBlocks(blocks)
-		id := c.content.Append(doc)
-		c.content.Finish(id)
-		// Published rather than appended: these blocks are more of an answer that is
-		// being written, not a discrete thing that happened, and there is no reason
-		// for the piece that happened to arrive with no open block behind it to take
-		// a reader away from where they were reading.
-		c.follow()
+func (c *conversation) Markdown(ctx context.Context, chunk string) {
+	if c.problem != nil {
 		return
 	}
-	c.open.SetBlocks(blocks)
-	c.content.Changed(c.openID)
-	c.content.Finish(c.openID)
-	c.open = nil
-}
-
-// stageOpen shows what the answer says so far.
-//
-// Including when that is nothing. Text that turned out to be the beginning of an
-// HTML comment renders to nothing once the comment is closed, and leaving what it
-// looked like on the screen means the reader goes on seeing a stray "<" that the
-// document does not contain.
-func (c *conversation) stageOpen(blocks []markdown.Block) {
-	if c.open == nil {
-		if len(blocks) == 0 {
+	if c.document == nil {
+		var err error
+		c.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
+		if err != nil {
+			c.problem = err
 			return
 		}
-		c.open = new(markdown.Doc)
-		c.open.SetBlocks(blocks)
-		c.openID = c.content.Append(c.open)
-		c.follow()
+		c.item, err = c.content.AddDocument(c.document)
+		if err != nil {
+			c.problem = err
+			return
+		}
+	}
+	if err := c.document.Append([]byte(chunk)); err != nil {
+		c.problem = err
 		return
 	}
-	c.open.SetBlocks(blocks)
-	c.content.Changed(c.openID)
-	c.follow()
+	c.prepare(ctx)
 }
 
-func (c *conversation) Retain(printer kit.Printer) error {
-	if c.content.Width() <= 0 {
-		return nil
+func (c *conversation) prepare(ctx context.Context) {
+	// The mock source is deliberately small. Streaming's companion example puts
+	// this same immutable Prepare result through a scoped background worker.
+	if err := c.document.Accept(c.document.Snapshot().Prepare(ctx, c.render)); err != nil {
+		c.problem = err
 	}
-	finished := 0
-	for i := range c.content.Len() {
-		id := c.content.FirstBlock() + headless.BlockID(i)
-		if !c.content.Finished(id) {
-			break
-		}
-		finished++
+}
+
+// EOF is explicit even when the final projection is empty, so a hidden HTML
+// comment cannot strand an unfinished item ahead of subsequent output.
+func (c *conversation) FlushMarkdown(ctx context.Context) { c.FinishMarkdown(ctx, nil) }
+
+func (c *conversation) FinishMarkdown(ctx context.Context, cause error) {
+	if c.document == nil {
+		return
 	}
-	if excess := finished - retainedAgentBlocks; excess > 0 {
-		if _, err := c.view.Commit(printer, excess); err != nil {
-			return err
-		}
+	if err := c.document.End(cause); err != nil {
+		c.problem = err
+		return
 	}
-	c.follow()
-	return nil
+	c.prepare(ctx)
+	c.document = nil
 }
 
 func (c *conversation) Reset() {
-	c.content = headless.Transcript{}
-	c.scroll = headless.Scroll{}
-	c.scroll.Wheel(c.wheel)
-	c.selection = headless.Selection{}
-	c.sticky = headless.Sticky{MinHeight: 1, Gap: 1}
-	c.stream.Reset()
-	c.open = nil
+	c.content.Close()
+	c.document, c.item, c.problem = nil, nil, nil
+	c.resetView()
 }
 
 func agentMarkdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {

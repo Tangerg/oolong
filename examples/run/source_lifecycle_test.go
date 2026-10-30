@@ -10,14 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 func TestCommandOutputDoesNotOutliveItsProcessOwner(t *testing.T) {
 	for _, ending := range []string{"exit", "cancel"} {
 		t.Run(ending, func(t *testing.T) {
-			host := programtest.New(t, programtest.Config{Width: 40, Height: 4})
+			host := uitest.New(t, uitest.Config{Width: 40, Height: 4})
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			ready := make(chan *runner, 1)
@@ -25,39 +26,40 @@ func TestCommandOutputDoesNotOutliveItsProcessOwner(t *testing.T) {
 			childPID := make(chan int, 1)
 			final := make(chan error, 1)
 			go func() {
-				programDone <- program.Run(ctx, program.Config{
-					Host: host,
-					Inline: func(runtime *program.InlineRuntime) program.Component {
-						r := &runner{
-							runtime: runtime,
-							command: []string{os.Args[0], "-test.run=^TestCommandPipeHolder$", "--", ending},
-						}
-						var output strings.Builder
-						announced := false
-						var err error
-						r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{
-							Dispatcher: runtime.Dispatcher(), Limit: 64 << 10,
-							Consume: func(batch program.ByteBatch) {
-								output.Write(batch.Data)
-								if !announced && strings.Contains(output.String(), "\n") {
-									var pid int
-									if _, parseErr := fmt.Sscanf(output.String(), "retained-stdout:%d\n", &pid); parseErr == nil {
-										announced = true
-										childPID <- pid
-									}
+				app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+					r := &runner{
+						runtime: runtime,
+						command: []string{os.Args[0], "-test.run=^TestCommandPipeHolder$", "--", ending},
+					}
+					var output strings.Builder
+					announced := false
+					var err error
+					r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{
+						Dispatcher: runtime.Dispatcher(), Limit: 64 << 10,
+						Consume: func(batch program.ByteBatch) {
+							output.Write(batch.Data)
+							if !announced && strings.Contains(output.String(), "\n") {
+								var pid int
+								if _, parseErr := fmt.Sscanf(output.String(), "retained-stdout:%d\n", &pid); parseErr == nil {
+									announced = true
+									childPID <- pid
 								}
-								if batch.Final {
-									final <- batch.Err
-								}
-							},
-						})
-						if err != nil {
-							panic(err)
-						}
-						ready <- r
-						return r
-					},
-				})
+							}
+							if batch.Final {
+								final <- batch.Err
+							}
+						},
+					})
+					if err != nil {
+						panic(err)
+					}
+					ready <- r
+					return r.Element(), nil
+				}})
+				if err == nil {
+					err = app.Run(ctx)
+				}
+				programDone <- err
 			}()
 			t.Cleanup(func() {
 				cancel()

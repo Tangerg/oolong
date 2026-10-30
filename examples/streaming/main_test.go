@@ -12,13 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/graphics"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/publication"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
 )
 
 // host is a terminal-shaped fault boundary: events enter causally through one source
@@ -33,7 +34,7 @@ type host struct {
 
 func newHost() *host {
 	b := &buffer{}
-	return &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(b)}
+	return &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(term.WriterConfig{Destination: b})}
 }
 
 func (h *host) Input() program.EventSource  { return h }
@@ -56,9 +57,9 @@ func (h *host) Transmit([]byte) (graphics.Image, error) {
 	return graphics.Image{}, errors.ErrUnsupported
 }
 func (h *host) ReportDirectory(string) error { return nil }
-func (h *host) SetTitle(string)              {}
-func (h *host) Bell()                        {}
-func (h *host) Notify(string)                {}
+func (h *host) SetTitle(string) error        { return nil }
+func (h *host) Bell() error                  { return nil }
+func (h *host) Notify(string) error          { return nil }
 
 func (h *host) Hand(prepare, run func() error) error {
 	if run == nil {
@@ -115,30 +116,27 @@ func awaitText(t *testing.T, h *host, want ...string) {
 type state struct {
 	active, open, dialog bool
 	blocks               int
-	first                headless.BlockID
+	first                base.BlockID
+	written              bool
 	status               string
 	prompt               string
 }
 
 func stateOf(t *testing.T, c *chat) state {
 	t.Helper()
-	result := make(chan state, 1)
-	c.runtime.Dispatcher().Post(func() {
-		result <- state{
-			active: c.active, open: c.open != nil, dialog: c.dialog.Controller().Open(),
-			blocks: c.content.Len(), first: c.content.FirstBlock(), status: c.status.Doing,
-			prompt: c.composer.Editor().Text(),
+	var result state
+	if err := c.runtime.Dispatcher().Inspect(t.Context(), func() error {
+		result = state{
+			active: c.active, open: c.item != nil && c.item.State() == base.ContentLive,
+			dialog: c.dialog.Controller().Open(), blocks: c.content.Len(), first: c.content.FirstBlock(),
+			status: c.status.Doing, prompt: c.composer.Controller().Text(),
+			written: c.item != nil && c.item.Receipt().Snapshot().State == publication.Written,
 		}
-	})
-	select {
-	case got := <-result:
-		return got
-	case <-c.runtime.Dispatcher().Done():
-		t.Fatal("the program stopped before its state could be inspected")
-	case <-time.After(time.Second):
-		t.Fatal("the interface owner did not inspect its state")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
-	return state{}
+	return result
 }
 
 func awaitState(t *testing.T, c *chat, want func(state) bool) state {
@@ -162,14 +160,18 @@ func runSource(t *testing.T, h *host, source replySource) (*chat, func()) {
 	started := make(chan *chat, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(ctx, program.Config{
-			Host: h,
-			Inline: func(runtime *program.InlineRuntime) program.Component {
-				c := newChatWithSource(runtime, source)
-				started <- c
-				return headless.NewRoot(c)
-			},
-		})
+		app, err := program.NewInline(program.InlineConfig{Host: h, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+			c, chatErr := newChatWithSource(ctx, runtime, source)
+			if chatErr != nil {
+				return scene.Element{}, chatErr
+			}
+			started <- c
+			return c.Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(ctx)
+		}
+		done <- err
 	}()
 
 	var c *chat
@@ -246,7 +248,7 @@ func TestApprovalOwnsTheTransitionIntoBackgroundWork(t *testing.T) {
 	awaitState(t, c, func(s state) bool { return !s.active && !s.dialog })
 }
 
-func TestStablePrefixesLeaveABoundedInteractiveWindow(t *testing.T) {
+func TestFinalDocumentTransfersOnlyAfterEOFAndWritingSettles(t *testing.T) {
 	h := newHost()
 	chunks := make(chan string)
 	c, stop := runSource(t, h, func(ctx context.Context, _ string, dst io.Writer) error {
@@ -274,13 +276,16 @@ func TestStablePrefixesLeaveABoundedInteractiveWindow(t *testing.T) {
 		want := fmt.Sprintf("section %d", i)
 		awaitText(t, h, want)
 	}
+	if got := stateOf(t, c); !got.open || got.written {
+		t.Fatal("receiving Markdown was finalized before EOF")
+	}
 	close(chunks)
-	got := awaitState(t, c, func(s state) bool { return !s.active })
-	if got.first == 0 {
+	got := awaitState(t, c, func(s state) bool { return !s.active && s.written })
+	if got.first <= 1 {
 		t.Fatal("no stable prefix was transferred to terminal scrollback")
 	}
-	if got.blocks > retainedFinished {
-		t.Fatalf("retained %d finished blocks, bound is %d", got.blocks, retainedFinished)
+	if got.blocks != 0 {
+		t.Fatalf("retained %d finalized items after publisher accepted ownership", got.blocks)
 	}
 	if got.open {
 		t.Fatal("the open tail survived source completion")
@@ -365,8 +370,5 @@ func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 	default:
 	}
 }
-
-// Commit's consumer contract remains structural across modules.
-var _ kit.Printer = (*program.InlineRuntime)(nil)
 
 func (h *host) ReleaseImage(graphics.Image) error { return nil }

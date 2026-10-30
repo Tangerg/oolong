@@ -12,27 +12,30 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/layout"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
-	"github.com/Tangerg/oolong/markdown"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
-	if err := program.Run(context.Background(), program.Config{
-		Root:     func(runtime *program.Runtime) program.Component { return newMarkdown(runtime) },
-		Terminal: term.Features{Probe: true},
-	}); err != nil {
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) { return newMarkdown(runtime).Element(), nil }})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "markdown:", err)
 		os.Exit(1)
 	}
 }
 
 type markdownScreen struct {
+	element   scene.Element
 	runtime   *program.Runtime
 	theme     kit.Theme
 	doc       markdown.Doc
@@ -91,3 +94,17 @@ themselves out at the width they finally receive.
 | --- | --- |
 | syntax | Markdown |
 | cells | final grid |`
+
+func (s *markdownScreen) Element() scene.Element {
+	if s.element.IsZero() {
+		s.element = scene.NewElement(scene.ElementConfig{
+			Key:       "markdown",
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
+			Handle: func(event scene.Event) scene.EventResult {
+				return scene.EventResult{Consumed: s.Handle(event.Input)}
+			},
+		})
+	}
+	return s.element
+}

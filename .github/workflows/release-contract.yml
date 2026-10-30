@@ -21,8 +21,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# A tag promises its own module and already-published dependencies. Higher release
-# phases may still be unfinished in this snapshot; full workspace CI belongs to main.
+# Each tag promises its selected module and already-published dependencies.
+# Other modules have independent release lifetimes; full workspace CI belongs to main.
 jobs:
   module:
     name: published module contract

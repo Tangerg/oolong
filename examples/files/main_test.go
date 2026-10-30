@@ -3,19 +3,20 @@ package main
 import (
 	"testing"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/programtest"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/uitest"
 )
 
 // tree is a fixed one, so the test says what it means rather than whatever the
 // working directory happened to hold.
-func tree() []headless.Node[entry] {
-	return []headless.Node[entry]{
+func tree() []base.Node[entry] {
+	return []base.Node[entry]{
 		{
 			Item: entry{name: "core", path: "core", dir: true},
-			Children: []headless.Node[entry]{
+			Children: []base.Node[entry]{
 				{Item: entry{name: "grid.go", path: "core/grid.go"}},
 			},
 		},
@@ -24,15 +25,16 @@ func tree() []headless.Node[entry] {
 }
 
 func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
-	host := programtest.New(t, programtest.Config{Width: 70, Height: 14})
+	host := uitest.New(t, uitest.Config{Width: 70, Height: 14})
 	done := make(chan error, 1)
 	go func() {
-		done <- program.Run(t.Context(), program.Config{
-			Host: host,
-			Root: func(runtime *program.Runtime) program.Component {
-				return headless.NewRoot(newBrowser(runtime, tree()))
-			},
-		})
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+			return newBrowser(runtime, tree()).Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
 	}()
 
 	host.Shows(t, "core")

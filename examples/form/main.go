@@ -3,7 +3,7 @@
 // A form is a container with two things added: an answer checked when the keyboard
 // leaves a field, and the set checked on submission. The four fields are the four
 // anything ever asks for — a line of text, one choice, several, and a yes or no —
-// and each of them writes into a variable of this program's own.
+// and each owns its answer until submission creates one application snapshot.
 //
 // The second half is the point of the example. Run it with its output going
 // somewhere that is not a terminal:
@@ -22,16 +22,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Tangerg/oolong/components/headless"
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/keymap"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
+	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
-// answers is what the form collects. The fields bind to these, so there is one place
-// the answers live and it is this program's.
+// answers is an immutable submission snapshot read from the field owners.
 type answers struct {
 	name   string
 	model  string
@@ -42,11 +42,11 @@ type answers struct {
 func main() {
 	var got answers
 	form := ask(&got)
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) { return dress(runtime, form), nil }})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
 
-	err := program.Run(context.Background(), program.Config{
-		Root:     func(runtime *program.Runtime) program.Component { return dress(runtime, form) },
-		Terminal: term.Features{Probe: true},
-	})
 	switch {
 	case errors.Is(err, term.ErrNotTerminal):
 		if said := askInWords(form, os.Stdin, os.Stdout); said != nil {
@@ -60,72 +60,79 @@ func main() {
 	report(got)
 }
 
-func ask(into *answers) *headless.Form {
-	model := headless.NewSelect(headless.SelectConfig[string]{
-		Same:  headless.Equal[string],
-		Label: "Which model?",
-		Value: headless.Bind(&into.model),
+type sessionForm struct {
+	theme *kit.ThemeOwner
+	view  *kit.Form
+	done  func()
+}
+
+func ask(into *answers) *sessionForm {
+	name := base.NewText(base.TextConfig{
+		Label: "What is this session called?", Placeholder: "a name",
+		Check: func(value string) error {
+			if strings.TrimSpace(value) == "" {
+				return errors.New("a name is needed")
+			}
+			return nil
+		},
 	})
-	model.SetOptions(headless.Options("fast", "balanced", "careful"))
-	tools := headless.NewMultiSelect(headless.MultiSelectConfig[string]{
-		Same:  headless.Equal[string],
-		Label: "Which tools may it use?",
-		Value: headless.Bind(&into.tools),
+	model := base.NewSelect(base.SelectConfig[string]{
+		Same: base.Equal[string], Label: "Which model?",
+		Options: base.Options("fast", "balanced", "careful"),
+	})
+	tools := base.NewMultiSelect(base.MultiSelectConfig[string]{
+		Same: base.Equal[string], Label: "Which tools may it use?",
+		Options: base.Options("read", "write", "run"),
 	})
 	tools.SetLimit(2)
-	tools.SetOptions(headless.Options("read", "write", "run"))
-	form := headless.NewForm(
-		headless.NewText(headless.TextConfig{
-			Label:       "What is this session called?",
-			Placeholder: "a name",
-			Value:       headless.Bind(&into.name),
-			Check: func(s string) error {
-				if strings.TrimSpace(s) == "" {
-					return errors.New("a name is needed")
-				}
-				return nil
-			},
-		}),
-		model,
-		tools,
-		headless.NewConfirm(headless.ConfirmConfig{
-			Label: "Stream the answer?",
-			Value: headless.Bind(&into.stream),
-		}),
-	)
-	form.Gap = 1
+	stream := base.NewConfirm(base.ConfirmConfig{Label: "Stream the answer?"})
+	form := &sessionForm{theme: kit.NewThemeOwner(kit.Theme{})}
+	form.view = kit.NewForm(kit.FormConfig{
+		Scope: form.theme.Scope(),
+		Title: "New session", Gap: 1,
+		Keys:   base.DefaultFormKeys(),
+		Hints:  []keymap.Action{base.FocusNext, base.Submit, base.Cancel},
+		Fields: []base.Field{name, model, tools, stream},
+		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+			chosen, _ := model.Chosen()
+			*into = answers{name: name.Text(), model: chosen.Value, tools: tools.Taken(), stream: stream.Answer()}
+			if form.done != nil {
+				form.done()
+			}
+			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+		},
+		Cancel: func(base.SubmissionID) error {
+			if form.done != nil {
+				form.done()
+			}
+			return nil
+		},
+	})
 	return form
 }
 
-// askInWords is the whole of the other path: the conversation, over whatever the
-// program was given instead of a terminal.
-func askInWords(form *headless.Form, in io.Reader, out io.Writer) error {
-	return kit.Ask(form, in, out)
+// The textual and visual flows submit the same field owners and validation tuple.
+func askInWords(form *sessionForm, in io.Reader, out io.Writer) error {
+	_, err := kit.Ask(form.view.Controller(), in, out)
+	return err
 }
 
-func dress(runtime *program.Runtime, form *headless.Form) program.Component {
-	keys := headless.DefaultFormKeys()
-	form.Keys = keys
-	form.Done = runtime.Quit
-	form.GaveUp = runtime.Quit
-	form.Focus(true)
-
-	view := kit.NewForm(kit.FormConfig{
-		Theme:      kit.Suited(runtime.Environment().Ground()),
-		Glyphs:     kit.GlyphsFor(runtime.Environment().Locale()),
-		Controller: form,
-		Title:      "New session",
-		Hints:      []keymap.Action{headless.FocusNext, headless.Submit, headless.Cancel},
-	})
-	return headless.NewRoot(&screen{view: view})
+func dress(runtime *program.Runtime, form *sessionForm) scene.Element {
+	form.done = runtime.Quit
+	form.theme.Set(kit.Suited(runtime.Environment().Ground()))
+	form.view.Glyphs = kit.GlyphsFor(runtime.Environment().Locale())
+	return scene.NewGroup(scene.GroupConfig{
+		Overlay: true,
+		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
+			key, ok := event.Input.(input.Key)
+			if ok && key.Down() && (key.Code == input.Esc || key.Rune == 'c' && key.Mods.Has(input.Ctrl)) {
+				runtime.Quit()
+				return scene.EventResult{Consumed: true}
+			}
+			return scene.EventResult{}
+		}}, Items: []scene.Item{{Element: form.view.Element()}},
+	}).Element()
 }
-
-// screen is the form, drawn.
-type screen struct{ view *kit.Form }
-
-func (s *screen) Draw(v headless.Frame) { s.view.Draw(v) }
-
-func (s *screen) Handle(ev input.Event) bool { return s.view.Handle(ev) }
 
 func report(got answers) {
 	if got.name == "" {

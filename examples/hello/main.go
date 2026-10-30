@@ -13,17 +13,20 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 func main() {
-	err := program.Run(context.Background(), program.Config{
-		Root: func(runtime *program.Runtime) program.Component {
-			return &hello{runtime: runtime}
-		},
-	})
+	app, err := program.NewScreen(program.ScreenConfig{Config: program.Config{}, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		return (&hello{runtime: runtime}).Element(), nil
+	}})
+	if err == nil {
+		err = app.Run(context.Background())
+	}
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hello:", err)
 		os.Exit(1)
@@ -31,6 +34,7 @@ func main() {
 }
 
 type hello struct {
+	element scene.Element
 	runtime *program.Runtime
 	keys    int
 }
@@ -50,5 +54,20 @@ func (h *hello) Handle(event input.Event) bool {
 		return true
 	}
 	h.keys++
+	h.element.Invalidate()
 	return true
+}
+
+func (h *hello) Element() scene.Element {
+	if h.element.IsZero() {
+		h.element = scene.NewElement(scene.ElementConfig{
+			Key:       "hello",
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { h.Draw(frame.View) },
+			Handle: func(event scene.Event) scene.EventResult {
+				return scene.EventResult{Consumed: h.Handle(event.Input)}
+			},
+		})
+	}
+	return h.element
 }

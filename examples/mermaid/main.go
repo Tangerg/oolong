@@ -13,17 +13,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tangerg/oolong/core/text"
+	"github.com/Tangerg/oolong/ui/core/text"
 
-	"github.com/Tangerg/oolong/components/kit"
-	"github.com/Tangerg/oolong/core/graphics"
-	"github.com/Tangerg/oolong/core/grid"
-	"github.com/Tangerg/oolong/core/input"
-	"github.com/Tangerg/oolong/core/program"
-	"github.com/Tangerg/oolong/core/term"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
-	"github.com/Tangerg/oolong/markdown"
-	"github.com/Tangerg/oolong/mermaid"
+	"github.com/Tangerg/oolong/extensions/markdown"
+	"github.com/Tangerg/oolong/extensions/mermaid"
+	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func main() {
@@ -55,14 +56,25 @@ func runScreen(ctx context.Context, host program.Host, prepare func(context.Cont
 			err = errors.Join(err, screen.close())
 		}
 	}()
-	return program.Run(ctx, program.Config{Host: host, Root: func(runtime *program.Runtime) program.Component {
-		screen = &diagramScreen{runtime: runtime, writer: host.Writer(), images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
+	app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		lifetime, lifetimeErr := runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // The explicit config field carries ctx into the lifetime owner.
+		if lifetimeErr != nil {
+			return scene.Element{}, lifetimeErr
+		}
+		screen = &diagramScreen{lifetime: lifetime, runtime: runtime, writer: host.Writer(), images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
 		screen.start(ctx, flowchart)
-		return screen
+		return screen.Element(), nil //nolint:contextcheck // Future input starts work through screen.lifetime, derived from ctx above.
 	}})
+	if err == nil {
+		err = app.Run(ctx)
+	}
+	return err
 }
 
 type diagramScreen struct {
+	element          scene.Element
+	lifetime         *program.Scope
+	scope            *program.Scope
 	runtime          *program.Runtime
 	writer           program.FrameWriter
 	images           program.ImageHost
@@ -75,18 +87,15 @@ type diagramScreen struct {
 	prepared         *mermaid.Image
 	exported, notice string
 	open             func(context.Context, string) error
-	generation       uint64
-	cancel           context.CancelFunc
 	workers          sync.WaitGroup
 	pending, closed  bool
 }
 
 func (s *diagramScreen) start(ctx context.Context, source string) {
-	if s.cancel != nil {
-		s.cancel()
+	if s.scope != nil {
+		s.scope.Close()
 	}
-	s.generation++
-	generation := s.generation
+	defer s.element.Invalidate()
 	s.source = source
 	s.prepared = nil
 	s.exported, s.notice = "", ""
@@ -98,17 +107,30 @@ func (s *diagramScreen) start(ctx context.Context, source string) {
 		s.pending = false
 		return
 	}
-	workerCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
-	dispatch, prepare := s.runtime.Dispatcher(), s.prepare
-	s.workers.Go(func() {
-		result, err := prepare(workerCtx, source)
-		dispatch.Post(func() { s.accept(generation, result, err) })
+	scope, err := s.runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // Context is passed explicitly through ScopeConfig and then into every Work.Run.
+	if err != nil {
+		s.err, s.pending = err, false
+		return
+	}
+	s.scope = scope
+	prepare := s.prepare
+	s.workers.Add(1)
+	_, err = s.runtime.Start(scope, program.Work[*mermaid.Image]{
+		Run: func(ctx context.Context) (*mermaid.Image, error) {
+			defer s.workers.Done()
+			return prepare(ctx, source)
+		},
+		Apply: s.accept,
 	})
+	if err != nil {
+		s.workers.Done()
+		scope.Close()
+		s.err, s.pending = err, false
+	}
 }
 
-func (s *diagramScreen) accept(generation uint64, result *mermaid.Image, err error) {
-	if s.closed || generation != s.generation {
+func (s *diagramScreen) accept(result *mermaid.Image, err error) {
+	if s.closed {
 		return
 	}
 	s.pending = false
@@ -169,8 +191,8 @@ func (s *diagramScreen) release() error {
 	if err := s.image.Placement(1).Erase(&removal); err != nil {
 		return err
 	}
-	if s.writer.Queue(removal.Bytes()) == 0 {
-		return s.writer.Err()
+	if _, err := s.writer.Queue(removal.Bytes()); err != nil {
+		return err
 	}
 	if err := s.images.ReleaseImage(s.image); err != nil {
 		return err
@@ -181,8 +203,11 @@ func (s *diagramScreen) release() error {
 
 func (s *diagramScreen) close() error {
 	s.closed = true
-	if s.cancel != nil {
-		s.cancel()
+	if s.lifetime != nil {
+		s.lifetime.Close()
+	}
+	if s.scope != nil {
+		s.scope.Close()
 	}
 	s.workers.Wait()
 	s.doc.SetBlocks(nil)
@@ -221,6 +246,7 @@ func (s *diagramScreen) Handle(event input.Event) bool {
 		return true
 	}
 	if s.act(key.Rune) {
+		s.element.Invalidate()
 		return true
 	}
 	if key.Rune == 'r' {
@@ -228,7 +254,7 @@ func (s *diagramScreen) Handle(event input.Event) bool {
 		if s.source == sequence {
 			source = flowchart
 		}
-		s.start(context.Background(), source)
+		s.start(s.lifetime.Context(), source)
 		return true
 	}
 	return false
@@ -252,7 +278,9 @@ func (s *diagramScreen) clickAction(x int) bool {
 	for _, action := range diagramActions() {
 		width := text.Width(action.label)
 		if x >= offset && x < offset+width {
-			return s.act(action.key)
+			consumed := s.act(action.key)
+			s.element.Invalidate()
+			return consumed
 		}
 		offset += width + 2
 	}
@@ -306,20 +334,39 @@ func (s *diagramScreen) exportedPath() (string, bool) {
 // openExported hands the file to the system viewer off the interface goroutine, so
 // drawing is not blocked and the terminal is not held open while the viewer runs.
 func (s *diagramScreen) openExported(path string) {
-	dispatch, generation, open := s.runtime.Dispatcher(), s.generation, s.open
-	s.workers.Go(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		err := open(ctx, path)
-		dispatch.Post(func() {
-			if s.closed || generation != s.generation {
-				return
-			}
+	open := s.open
+	s.workers.Add(1)
+	_, err := s.runtime.Start(s.scope, program.Work[struct{}]{
+		Run: func(ctx context.Context) (struct{}, error) {
+			defer s.workers.Done()
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			return struct{}{}, open(ctx, path)
+		},
+		Apply: func(_ struct{}, err error) {
 			if err != nil {
 				s.notice = err.Error()
 			} else {
 				s.notice = "Opened image: " + path
 			}
-		})
+		},
 	})
+	if err != nil {
+		s.workers.Done()
+		s.notice = err.Error()
+	}
+}
+
+func (s *diagramScreen) Element() scene.Element {
+	if s.element.IsZero() {
+		s.element = scene.NewElement(scene.ElementConfig{
+			Key:       "mermaid",
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
+			Handle: func(event scene.Event) scene.EventResult {
+				return scene.EventResult{Consumed: s.Handle(event.Input)}
+			},
+		})
+	}
+	return s.element
 }
