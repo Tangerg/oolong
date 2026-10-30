@@ -278,12 +278,14 @@ func (l *List[T]) Draw(v scene.Frame) {
 
 // DrawRows paints visible items with a frame-local renderer while List retains
 // selection, scrolling and pointer routing. Callbacks must be observationally pure.
+// It panics unless the list is mounted in the frame's scene outside read-only projection.
 func (l *List[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
 	l.drawRows(v, nil, draw)
 }
 
 // A non-nil choice projects an external owner; it never initializes the local cursor.
 func (l *List[T]) drawRows(v scene.Frame, choice *int, draw func(grid.View, int, T, bool)) {
+	requireProjection(l.element, v)
 	width, height := v.Size()
 	total := len(l.items)
 	scroll := l.scroll.Stage(v, total, height)

@@ -13,6 +13,11 @@ type identityBlock struct{}
 func (identityBlock) HeightForWidth(int) int { return 1 }
 func (identityBlock) Draw(grid.View)         {}
 
+type retirementBoundaryBlock int
+
+func (b retirementBoundaryBlock) HeightForWidth(int) int { return int(b) }
+func (retirementBoundaryBlock) Draw(grid.View)           {}
+
 func transcriptPublisher(tb testing.TB) *publication.Publisher {
 	tb.Helper()
 	p, err := publication.New(publication.Config{Width: 80, MaxItems: 1})
@@ -46,6 +51,44 @@ func TestTranscriptIdentityExhaustionCannotReuseAnOldIdentity(t *testing.T) {
 	}
 	if transcript.Len() != 0 {
 		t.Fatal("exhaustion changed retained content")
+	}
+}
+
+func TestTranscriptRetirementPreservesTheLastRepresentableOrigin(t *testing.T) {
+	publisher := transcriptPublisher(t)
+	if _, err := publisher.TryPublish(identityBlock{}); err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := NewTranscript(TranscriptConfig{Publisher: publisher, Retention: PublishCompleted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(transcript.Close)
+	transcript.start = math.MaxInt - 1
+	last, err := transcript.Add(retirementBoundaryBlock(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageTranscriptForTest(transcript, 20)
+	if transcript.EndRow() != math.MaxInt {
+		t.Fatal("the last representable row was refused")
+	}
+	publisher.Commit(publisher.Prepare(), 1)
+	publisher.Written(1)
+	publisher.FlushNotifications()
+	if last.State() != ContentRetired {
+		t.Fatal("the last represented row did not retire")
+	}
+	empty, err := transcript.Add(retirementBoundaryBlock(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageTranscriptForTest(transcript, 20)
+	if transcript.StartRow() != math.MaxInt || transcript.EndRow() != math.MaxInt || transcript.Height() != 0 {
+		t.Fatal("retirement wrapped the exhausted row origin")
+	}
+	if empty.State() != ContentRetired || empty.Receipt().Snapshot().State != publication.Written {
+		t.Fatal("empty content consumed another row coordinate or writer budget")
 	}
 }
 

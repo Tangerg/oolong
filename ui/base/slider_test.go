@@ -87,11 +87,21 @@ type sliderTrack struct {
 	rect    image.Rectangle
 }
 
-func (s sliderTrack) Draw(frame scene.Frame) { s.control.Stage(frame, s.rect) }
+func (s *sliderTrack) Element() scene.Element {
+	element := s.control.Element()
+	if !element.Alive() {
+		if err := element.SetPaint(s.Draw); err != nil {
+			panic(err)
+		}
+	}
+	return element
+}
+
+func (s *sliderTrack) Draw(frame scene.Frame) { s.control.Stage(frame, s.rect) }
 
 func TestSliderDragsAgainstCommittedTrackGeometry(t *testing.T) {
 	slider := base.NewSlider(base.SliderConfig{Maximum: 100})
-	root := newTestRoot(sliderTrack{control: slider, rect: grid.Area(2, 0, 5, 1)})
+	root := newTestRoot(&sliderTrack{control: slider, rect: grid.Area(2, 0, 5, 1)})
 	root.Draw(grid.NewSurface(10, 1).View())
 
 	if slider.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
@@ -157,7 +167,7 @@ func TestSliderRejectsInvalidConfiguration(t *testing.T) {
 
 func TestClippedSliderUsesTheWholeTrackForValues(t *testing.T) {
 	slider := base.NewSlider(base.SliderConfig{Maximum: 100})
-	root := newTestRoot(sliderTrack{control: slider, rect: grid.Area(0, 0, 11, 1)})
+	root := newTestRoot(&sliderTrack{control: slider, rect: grid.Area(0, 0, 11, 1)})
 	root.Draw(grid.NewSurface(6, 1).View())
 	if !slider.Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDown, Button: input.ButtonLeft}) || slider.Value() != 50 {
 		t.Fatalf("value=%d", slider.Value())

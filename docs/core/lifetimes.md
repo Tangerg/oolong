@@ -27,11 +27,25 @@ The UI owner creates `Scope` with `Runtime.NewScope`. `ScopeConfig.Attachment` c
 
 A publication ID identifies accepted responsibility and is never substituted for a transport sequence. Pending and writer-admitted captures share the same item and byte budget; passing a slow queue does not release that budget prematurely.
 
+## Read-only composition borrows
+
+`Element.ReadOnly` runs a synchronous projection while the composition's phase owner refuses model and attachment changes. A mounted composition uses its scene root; an unmounted composition uses its outermost group or element. Mounting or moving the composition during the borrow is refused, so the callback cannot escape to another owner. Nested borrows restore the enclosing phase, including after a panic or goroutine exit.
+
+Transcript uses this primitive around publication capture. Its scroll, selection and sticky controllers already share the same Element, so their commands consult the same phase owner without separate capture flags. `Element.Measure` uses the same boundary. This is an owner-sequence contract, not permission to invoke UI operations concurrently from workers.
+
+A controller's drawing and staging use the frame of the root that mounts its actual Element. Custom controls call `Element.CheckProjection(frame)` before deriving candidate geometry or invoking render callbacks. Mount that Element and fill its paint slot before mounting; an unrelated wrapper cannot become a second geometry producer. Detached controllers still support model operations and measurement, but cannot stage committed geometry. Standalone primitives with no Element follow the phase of their frame.
+
+Read-only borrows also refuse snapshot staging and refinement. A pending candidate must commit or abort before a new read-only borrow or measurement can begin. This prevents a saved candidate from changing the observed geometry inside a callback while preserving Commit's ability to settle already-admitted output without another rejection point.
+
+`ScrollLayout` reads and refines that one staged candidate while Prepare is active. It holds no independently advancing offset copy. A refused refinement leaves both the candidate and its observable offset unchanged; after preparation, read the current controller position through `Scroll.Offset`.
+
 ## Atomic output and shutdown
 
 `Publisher.Prepare` reads an immutable pending prefix. `grid.Inline.Prepare` composes that prefix with the live frame without advancing the anchor. The runtime checks the complete encoded payload and writer capacity, then commits publication, output and scene candidates without running application callbacks between them. Refusal aborts the candidate and keeps the previous complete projection authoritative.
 
 `CloseAdmission` prevents new publication while preserving accepted content for the final frame and drain. `Written` settles actual progress. Terminal failure settles remaining responsibility with its real cause. Deferred `FlushNotifications` runs after all owners settle, allowing Transcript to resume capacity-blocked publication in a later owner turn.
+
+Inline shutdown drains the final accepted frame before admitting cursor cleanup, then waits for cleanup itself. A one-frame writer budget therefore preserves output order and cursor restoration without relying on a background writer winning a scheduling race.
 
 ## Independent resource budgets
 

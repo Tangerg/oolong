@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -8,13 +9,57 @@ import (
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
+func TestTranscriptStageRequiresItsOwnMountedSceneBeforeMeasurement(t *testing.T) {
+	for _, attachment := range []string{"detached", "another scene"} {
+		t.Run(attachment, func(t *testing.T) {
+			model := transcriptModel(t, base.TranscriptConfig{})
+			measurements := 0
+			transcriptAdd(t, model, &measuredTranscriptBlock{rows: 1, measure: func() { measurements++ }})
+			var owner *scene.Root
+			want := scene.ErrDetached
+			if attachment == "another scene" {
+				owner = transcriptScene(t, model)
+				want = scene.ErrInvalid
+			}
+			foreign, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { model.Stage(frame, 20) }})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(foreign.Close)
+			func() {
+				defer func() {
+					got, _ := recover().(error)
+					if !errors.Is(got, want) {
+						t.Errorf("invalid producer panic=%v, want %v", got, want)
+					}
+				}()
+				_, _ = foreign.Prepare(grid.NewSurface(20, 1).View())
+			}()
+			if measurements != 0 || model.Width() != 0 || model.Height() != 0 {
+				t.Fatal("invalid producer read content or changed geometry before refusal")
+			}
+			if owner == nil {
+				owner = transcriptScene(t, model)
+			}
+			transcriptCommit(t, owner, 20, 1, 1)
+			if measurements != 1 || model.Width() != 20 || model.Height() != 1 {
+				t.Fatal("refused producer prevented its owner's valid frame")
+			}
+		})
+	}
+}
+
 func TestTranscriptPlacementRequiresOneLiveFrameOwner(t *testing.T) {
 	for _, test := range []string{"zero frame", "expired frame", "same width twice", "different widths twice", "two roots"} {
 		t.Run(test, func(t *testing.T) {
 			transcript := transcriptModel(t, base.TranscriptConfig{})
 			var saved scene.Frame
 			run := func(frame scene.Frame) { saved = frame; transcript.Stage(frame, 20) }
-			root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { run(frame) }})})
+			element := transcript.Element()
+			if err := element.SetPaint(func(frame scene.Frame) { run(frame) }); err != nil {
+				t.Fatal(err)
+			}
+			root, err := scene.NewRoot(scene.RootConfig{Element: element})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -111,7 +111,7 @@ func TestPointerMatchingReleaseCannotReviveEndedCapture(t *testing.T) {
 
 func TestSliderIgnoresAnotherButtonsRelease(t *testing.T) {
 	slider := base.NewSlider(base.SliderConfig{Maximum: 100})
-	newTestRoot(sliderTrack{control: slider, rect: image.Rect(0, 0, 5, 1)}).
+	newTestRoot(&sliderTrack{control: slider, rect: image.Rect(0, 0, 5, 1)}).
 		Draw(grid.NewSurface(5, 1).View())
 	var parser input.Parser
 	slider.Handle(pointerReport(t, &parser, "\x1b[<0;3;1M"))

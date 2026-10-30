@@ -64,7 +64,9 @@ func (c *Confirm) Draw(v scene.Frame) {
 }
 
 // DrawWith paints the field using this frame's look without changing configuration.
+// It panics unless the field is mounted in the frame's scene outside read-only projection.
 func (c *Confirm) DrawWith(v scene.Frame, look Look) {
+	requireProjection(c.element, v)
 	answer := c.Answer()
 	row := c.frame(v, c.Label, look)
 	w, h := row.Size()

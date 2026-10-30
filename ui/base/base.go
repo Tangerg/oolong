@@ -4,6 +4,9 @@
 // mutation during scene presentation, observation or a pending frame. Raw Handle
 // methods expose local behaviour; applications route physical input through scene
 // so focus, capture and written-frame coordinates remain under its ownership.
+// Draw and Stage on controllers with an Element require that element to be mounted
+// in the supplied frame's scene and panic during read-only projection. Independent
+// Scroll and Pointer atoms instead follow the supplied frame's preparation lifetime.
 package base
 
 import (
@@ -45,6 +48,12 @@ func requireMutable(elements ...scene.Element) {
 		if err := element.CheckMutation(); err != nil {
 			panic(err)
 		}
+	}
+}
+
+func requireProjection(element scene.Element, frame scene.Frame) {
+	if err := element.CheckProjection(frame); err != nil {
+		panic(err)
 	}
 }
 

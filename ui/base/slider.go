@@ -189,10 +189,12 @@ func (s *Slider) Position(cells int) int {
 // Stage publishes the track rectangle an appearance drew, in the slider widget's
 // local coordinates. Pointer events are routed against this rectangle only after the
 // complete root frame commits.
+// It panics unless the slider is mounted in the frame's scene outside read-only projection.
 func (s *Slider) Stage(frame scene.Frame, track image.Rectangle) {
 	if s == nil {
 		return
 	}
+	requireProjection(s.element, frame)
 	s.pointer.Stage(frame, track)
 }
 

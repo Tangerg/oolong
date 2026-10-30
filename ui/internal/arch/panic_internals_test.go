@@ -34,11 +34,12 @@ var internalAssertions = map[string]string{
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
 	"ui/base:checkFields":                          "NewForm and Form.Set document the nil-field panic",
-	"ui/base:Transcript.assertMutable":             "Transcript documents the owner phase, closed lifetime and read-only content capture contracts",
+	"ui/base:Transcript.assertMutable":             "Transcript documents its closed lifetime and uses the scene-owned read-only phase during content capture",
 	"ui/base:Table.requireIdle":                    "Table and Table.SetLess document that comparisons cannot reenter ordering mutations",
 	"ui/base:Filter.requireIdle":                   "Filter and Filter.SetItems document that projections cannot reenter source or pattern mutations",
 	"ui/kit:Paragraph.requireIdle":                 "Paragraph, SetText and SetLinks document that link detection cannot reenter either setter",
 	"ui/base:requireMutable":                       "all live controllers require owner-phase mutation; this common guard checks scene phase before any controller state changes",
+	"ui/base:requireProjection":                    "Stage and drawing require the controller's mounted scene and refuse geometry writes during its read-only phase",
 	"ui/base:subscriptions.add":                    "public Subscribe operations reject nil callbacks before entering the subscription owner",
 	"ui/kit:Composer.ensure":                       "Composer.Element and Controller document that the compound element must be assembled before its editor is independently attached",
 	"ui/core/content:StreamDocument.assertMutable": "StreamDocument documents construction and prohibits reentrant source mutation from its synchronous change notification",

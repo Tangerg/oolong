@@ -35,6 +35,8 @@ Extensions consume small core content or host contracts. Markdown, code highligh
 
 Scene preparation produces an immutable candidate. Geometry, semantic observations and per-component snapshots become current only after compositor admission. Aborting a candidate keeps the prior complete projection. Source and controller changes already made on the owner turn remain facts; a frame abort does not undo them.
 
+A controller stages its geometry only through the root that mounts its actual Element. Read-only composition borrows exclude model changes, attachment changes and snapshot staging or refinement. An unsettled candidate excludes a new read-only borrow, so a previously admitted Commit never needs to invoke callbacks or acquire another permission. The same scene phase owns these rules before and during publication capture; components do not keep separate capture locks.
+
 Pointer events use the projection associated with their arrival or written frame identity. A resize invalidates incompatible geometry, and written history is bounded. Newer geometry must not reinterpret an old cell coordinate. Capture, focus and modal routing are owned centrally by the root rather than by independent component containers.
 
 The runtime composes scene candidates, publication candidates and exact terminal payloads before committing their corresponding owners. A refused writer admission leaves candidates retryable. Physical writer completion advances the receipt separately from frame acceptance. Callbacks are not invoked halfway through those commits.

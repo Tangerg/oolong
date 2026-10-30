@@ -33,6 +33,7 @@ type pointerFrame struct {
 // Stage publishes the control's local hit region, clipped to its frame. A gesture
 // follows the same control when its region moves or resizes. An empty committed
 // region ends that presentation lifetime, so showing it again cannot revive capture.
+// It panics outside active Prepare or during the frame owner's read-only projection.
 func (p *Pointer) Stage(frame scene.Frame, area image.Rectangle) {
 	track := area
 	area = area.Intersect(frame.Visible())

@@ -54,7 +54,11 @@ func BenchmarkTranscriptRetainedReflow(b *testing.B) {
 				}
 			}
 			width := 80
-			root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { transcript.Stage(frame, width) }})})
+			element := transcript.Element()
+			if setErr := element.SetPaint(func(frame scene.Frame) { transcript.Stage(frame, width) }); setErr != nil {
+				b.Fatal(setErr)
+			}
+			root, err := scene.NewRoot(scene.RootConfig{Element: element})
 			if err != nil {
 				b.Fatal(err)
 			}

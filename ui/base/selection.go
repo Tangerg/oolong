@@ -42,7 +42,7 @@ var ErrStaleSelection = errors.New("base: selected content revision is unavailab
 // projections, so a resize cannot silently select a different word.
 type Selection struct {
 	element          scene.Element
-	Clicks           Clicks
+	clicks           Clicks
 	anchor, extent   TextPoint
 	active, dragging bool
 }
@@ -75,7 +75,14 @@ func (s *Selection) Clear() {
 
 	s.anchor, s.extent = TextPoint{}, TextPoint{}
 	s.active, s.dragging = false, false
-	s.Clicks.Reset()
+	s.clicks.Reset()
+}
+
+// SetClickInterval configures the gap between presses in one selection gesture.
+// Nonpositive values use DefaultMultiClick. It panics during a read-only projection.
+func (s *Selection) SetClickInterval(interval time.Duration) {
+	requireMutable(s.element)
+	s.clicks.Within = interval
 }
 
 // Active reports whether a logical range is selected, including an empty range.

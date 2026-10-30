@@ -92,8 +92,21 @@ func assertRowHit(t *testing.T, hit func(image.Point) (int, bool), point image.P
 }
 
 type hitFrameProbe struct {
-	child   testPaint
+	child interface {
+		Element() scene.Element
+		Draw(frame scene.Frame)
+	}
 	inspect func()
+}
+
+func (p *hitFrameProbe) Element() scene.Element {
+	element := p.child.Element()
+	if !element.Alive() {
+		if err := element.SetPaint(p.Draw); err != nil {
+			panic(err)
+		}
+	}
+	return element
 }
 
 func (p *hitFrameProbe) Draw(frame scene.Frame) {

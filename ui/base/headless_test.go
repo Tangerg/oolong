@@ -72,6 +72,16 @@ type transcriptFrame struct {
 	layout     base.TranscriptLayout
 }
 
+func (f *transcriptFrame) Element() scene.Element {
+	element := f.transcript.Element()
+	if !element.Alive() {
+		if err := element.SetPaint(f.Draw); err != nil {
+			panic(err)
+		}
+	}
+	return element
+}
+
 func (f *transcriptFrame) Draw(frame scene.Frame) {
 	if f.draw {
 		width, height := frame.Size()
@@ -87,7 +97,9 @@ func (f *transcriptFrame) Draw(frame scene.Frame) {
 
 func stageTranscript(transcript *base.Transcript, width int) base.TranscriptLayout {
 	frame := &transcriptFrame{transcript: transcript, width: width}
-	newTestRoot(frame).Draw(grid.NewSurface(max(width, 1), 1).View())
+	root := newTestRoot(frame)
+	defer root.root.Close()
+	root.Draw(grid.NewSurface(max(width, 1), 1).View())
 	return frame.layout
 }
 

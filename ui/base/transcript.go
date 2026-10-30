@@ -119,7 +119,6 @@ type Transcript struct {
 	next            BlockID
 	start           int
 	revision        uint64
-	publishing      bool
 	stopPublication func()
 	element         scene.Element
 	scroll          Scroll
@@ -210,9 +209,6 @@ func (t *Transcript) assertMutable() {
 	}
 	if t.closed {
 		panic("base: transcript is closed")
-	}
-	if t.publishing {
-		panic("base: transcript mutation during content capture")
 	}
 }
 
@@ -328,13 +324,11 @@ func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange)
 }
 
 func (t *Transcript) publish() {
-	if t.closed || t.cfg.Retention != PublishCompleted || t.cfg.Publisher == nil || t.publishing {
+	if t.closed || t.cfg.Retention != PublishCompleted || t.cfg.Publisher == nil {
 		return
 	}
 	t.assertMutable()
-	t.publishing = true
 	defer func() {
-		t.publishing = false
 		if cap(t.entries) > 2*len(t.entries)+64 {
 			t.entries = slices.Clone(t.entries)
 		}
@@ -352,7 +346,9 @@ func (t *Transcript) publish() {
 		if rows > math.MaxInt-t.start {
 			panic("base: transcript row origin exhausted")
 		}
-		receipt, err := t.cfg.Publisher.TryPublish(item.body)
+		var receipt publication.Receipt
+		var err error
+		t.element.ReadOnly(func() { receipt, err = t.cfg.Publisher.TryPublish(item.body) })
 		if err != nil {
 			if !errors.Is(err, publication.ErrCapacity) {
 				item.err = errors.Join(item.err, err)
@@ -390,9 +386,6 @@ func (t *Transcript) Close() {
 	t.initialize()
 	if err := t.element.CheckMutation(); err != nil {
 		panic(err)
-	}
-	if t.publishing {
-		panic("base: transcript close during publication")
 	}
 	t.closed = true
 	if t.stopPublication != nil {
@@ -435,8 +428,10 @@ func (t *Transcript) Last() Block {
 // Stage measures into immutable candidate storage. It never updates content,
 // scroll intention or subscriptions and a failed outer frame discards the layout.
 // It panics if the cumulative row coordinates overflow int, or the frame is expired
-// or has already staged this transcript projection.
+// or has already staged this transcript projection. Its Element must be mounted in
+// the frame's scene, outside a read-only projection; violations panic before measurement.
 func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
+	requireProjection(t.element, frame)
 	width = max(width, 0)
 	state := TranscriptLayout{width: width, start: t.start, first: t.FirstBlock()}
 	top := t.start
@@ -676,6 +671,7 @@ type TranscriptView struct {
 }
 
 // StageWindow composes layout, reading anchor, sticky header and pointer mapping into one frame candidate.
+// It has the same frame-owner and panic contract as Stage.
 func (t *Transcript) StageWindow(frame scene.Frame) TranscriptView {
 	width, height := frame.Size()
 	state := t.Stage(frame, width)
@@ -772,10 +768,10 @@ func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
 		return false
 	}
 	if t.clicked != p.revision {
-		t.selection.Clicks.Reset()
+		t.selection.clicks.Reset()
 		t.clicked = p.revision
 	}
-	switch t.selection.Clicks.Press(mouse) {
+	switch t.selection.clicks.Press(mouse) {
 	case 2:
 		if t.selection.SelectWord(p.layout, at) {
 			return true

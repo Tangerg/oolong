@@ -85,10 +85,6 @@ func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	}
 }
 
-type fieldProjection func(scene.Frame)
-
-func (draw fieldProjection) Draw(frame scene.Frame) { draw(frame) }
-
 type capturedFrame struct {
 	bytes  string
 	cursor grid.Cursor
@@ -279,9 +275,8 @@ func headlessDrawPurityCases() []drawPurityCase {
 	cases = append(cases, drawPurityCase{name: "DefaultCompletionRenderer", width: 24, height: 1, draw: func(v grid.View) { renderer.DrawRow(v, candidate, true, Look{}) }, measure: func(int) int { return renderer.Width(candidate) }})
 	transcript, _ := NewTranscript(TranscriptConfig{})
 	_, _ = transcript.Add(purityBlock{text: "transcript", height: 1})
-	var presented TranscriptLayout
-	frame := fieldProjection(func(f scene.Frame) { presented = transcript.Stage(f, 24) })
-	newTestRoot(frame).Draw(grid.NewSurface(24, 1).View())
+	stageTranscriptForTest(transcript, 24)
+	presented := transcript.Layout()
 	cases = append(cases, drawPurityCase{name: "TranscriptLayout", width: 24, height: 2, draw: func(v grid.View) { presented.Draw(v, 0) }})
 	field := NewText(TextConfig{Initial: "seed", Label: "name"})
 	field.editor.MoveLeft()

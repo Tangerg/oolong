@@ -76,7 +76,7 @@ func TestPrimaryControlsRejectAnotherButtonsDrag(t *testing.T) {
 			var pointer base.Pointer
 			stagePointer(&pointer, image.Rect(0, 0, 8, 1))
 			slider := base.NewSlider(base.SliderConfig{Maximum: 7})
-			newTestRoot(sliderTrack{control: slider, rect: image.Rect(0, 0, 8, 1)}).Draw(grid.NewSurface(8, 1).View())
+			newTestRoot(&sliderTrack{control: slider, rect: image.Rect(0, 0, 8, 1)}).Draw(grid.NewSurface(8, 1).View())
 			editor := &base.Editor{}
 			editor.SetText("abcdefg")
 			newTestRoot(editor).Draw(grid.NewSurface(8, 1).View())

@@ -55,7 +55,10 @@ func (s *Scroll) layout(total, window int) {
 // wrong by at most a factor of three on the rest. That is still better than the fixed
 // number of rows per report this used to scroll, which was wrong by that factor on
 // half of them.
-func (s *Scroll) Wheel(w input.Wheel) { s.wheel.Wheel(w) }
+func (s *Scroll) Wheel(w input.Wheel) {
+	requireMutable(s.element)
+	s.wheel.Wheel(w)
+}
 
 // Offset is the current scroll position. Input may change it before another frame
 // commits; use [List.Hit] or [Filter.Hit] to query rows in the presented frame.
@@ -196,11 +199,16 @@ func (s *Scroll) Do(action keymap.Action) bool {
 // continues to see the previous frame. [ScrollLayout.Reveal] updates this staged
 // layout rather than the committed scroll. One Scroll may be staged once per frame;
 // use the returned ScrollLayout to refine that one pending value.
+// It panics during read-only projection or outside the attached owner's scene.
+// An independent Scroll without an Element follows the supplied frame's lifetime.
 func (s *Scroll) Stage(frame scene.Frame, total, window int) ScrollLayout {
+	if !s.element.IsZero() {
+		requireProjection(s.element, frame)
+	}
 	state := s.project(total, window)
 	value := scrollProjection{state: state, revision: s.revision, reveal: s.reveal}
 	staged := s.presentation.Stage(frame, value)
-	return ScrollLayout{staged: staged, state: state, reveal: s.reveal, origin: s.current.offset}
+	return ScrollLayout{staged: staged, reveal: s.reveal, origin: s.current.offset}
 }
 
 // Resolve is the pure layout projection used when a scene group positions content.
@@ -246,52 +254,52 @@ type scrollProjection struct {
 	reveal   *scrollRange
 }
 
-// ScrollLayout must not be copied after first use; its collaborators share one live identity.
+// ScrollLayout borrows the sole staged scroll projection during its owning Prepare
+// call. It must not be copied after first use. Its operations panic after Prepare
+// returns; read Scroll.Offset for the current controller position.
 type ScrollLayout struct {
 	noCopy noCopy
 	staged *scene.Staged[scrollProjection]
-	state  scrollState
 	reveal *scrollRange
 	origin int
 }
 
 // Offset returns the offset of this in-progress candidate layout.
+// It panics after the frame's preparation borrow has expired.
 func (l *ScrollLayout) Offset() int {
-	if l == nil {
+	if l == nil || l.staged == nil {
 		return 0
 	}
-	return l.state.offset
+	return l.staged.Value().state.offset
 }
 
 // Reveal refines this candidate to include the requested rows without changing scroll intent.
+// It panics after Prepare returns or during the frame owner's read-only projection.
 func (l *ScrollLayout) Reveal(first, last int) {
 	if l == nil || l.staged == nil {
 		return
 	}
+	value := l.staged.Value()
+	value.state.offset = l.origin
+	value.state.revealRange(first, last)
+	l.staged.Set(value)
 	l.reveal = &scrollRange{first: first, last: last}
-	l.state.offset = l.origin
-	l.state.revealRange(first, last)
-	l.update()
 }
 
 // Resize refines the candidate viewport, retaining its original offset before provisional clamping.
+// It panics after Prepare returns or during the frame owner's read-only projection.
 func (l *ScrollLayout) Resize(window int) {
 	if l == nil || l.staged == nil {
 		return
 	}
-	if !l.state.following {
-		l.state.offset = l.origin
-	}
-	l.state.layout(l.state.total, window)
-	if l.reveal != nil {
-		l.state.revealRange(l.reveal.first, l.reveal.last)
-	}
-	l.update()
-}
-
-func (l *ScrollLayout) update() {
 	value := l.staged.Value()
-	value.state = l.state
+	if !value.state.following {
+		value.state.offset = l.origin
+	}
+	value.state.layout(value.state.total, window)
+	if l.reveal != nil {
+		value.state.revealRange(l.reveal.first, l.reveal.last)
+	}
 	l.staged.Set(value)
 }
 
@@ -399,10 +407,15 @@ func scrollPages(pages, size int) int {
 
 // Anchor maps a retained logical reading position into this candidate layout.
 // Following and an explicit reveal have priority because they are user intent.
+// A refinement panics after Prepare returns or during the frame owner's read-only projection.
 func (l *ScrollLayout) Anchor(offset int) {
-	if l == nil || l.staged == nil || l.state.following || l.reveal != nil {
+	if l == nil || l.staged == nil {
 		return
 	}
-	l.state.offset = min(max(offset, 0), l.state.max())
-	l.update()
+	value := l.staged.Value()
+	if value.state.following || l.reveal != nil {
+		return
+	}
+	value.state.offset = min(max(offset, 0), value.state.max())
+	l.staged.Set(value)
 }

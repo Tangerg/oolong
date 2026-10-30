@@ -1312,12 +1312,16 @@ func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	dressed := kit.NewTree(kit.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root"}}, Text: func(item string) string { return item }})
 	controller := dressed.Controller()
 	controller.Row = func(grid.View, int, base.Shown[string], bool) { called++ }
+	draw := dressed.Draw
+	if err := controller.Element().SetPaint(func(frame scene.Frame) { draw(frame) }); err != nil {
+		t.Fatal(err)
+	}
 	paintWidget(8, 1, dressed)
 	if called != 0 {
 		t.Fatal("skin used the controller's independent renderer")
 	}
-	direct := scene.NewElement(scene.ElementConfig{Paint: controller.Draw})
-	paintWidget(8, 1, direct)
+	draw = controller.Draw
+	paintWidget(8, 1, dressed)
 	if called != 1 {
 		t.Fatal("skin overwrote the controller's renderer")
 	}

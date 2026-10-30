@@ -138,7 +138,11 @@ func (b *Button) HeightForWidth(int) int { return 1 }
 func (b *Button) Draw(frame scene.Frame) { b.Stage(frame); frame.Text(0, 0, b.label, Look{}.Text) }
 
 // Stage derives this candidate frame's pointer extent for an alternate appearance.
-func (b *Button) Stage(frame scene.Frame) { b.pointer.Stage(frame, frame.Bounds()) }
+// It panics unless the button is mounted in the frame's scene outside read-only projection.
+func (b *Button) Stage(frame scene.Frame) {
+	requireProjection(b.element, frame)
+	b.pointer.Stage(frame, frame.Bounds())
+}
 
 // Do executes a named activation through Press and records its UI error.
 func (b *Button) Do(action keymap.Action) bool {

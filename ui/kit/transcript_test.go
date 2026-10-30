@@ -33,7 +33,11 @@ func (s *said) Rows(int) []text.Row {
 
 func stageContent(tb testing.TB, content *base.Transcript, width int) {
 	tb.Helper()
-	root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { content.Stage(frame, width) }})})
+	element := content.Element()
+	if err := element.SetPaint(func(frame scene.Frame) { content.Stage(frame, width) }); err != nil {
+		tb.Fatal(err)
+	}
+	root, err := scene.NewRoot(scene.RootConfig{Element: element})
 	if err != nil {
 		tb.Fatal(err)
 	}

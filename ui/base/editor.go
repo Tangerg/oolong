@@ -1230,7 +1230,9 @@ func (e *Editor) Draw(frame scene.Frame) {
 // Appearance components use this when an editor participates in a larger theme. The
 // editor remains the single owner of its text, cursor and input configuration; drawing
 // it through another look does not make that look its configuration.
+// It panics unless the editor is mounted in the frame's scene outside read-only projection.
 func (e *Editor) DrawWith(frame scene.Frame, look Look) {
+	requireProjection(e.element, frame)
 	presented := &e.presentation
 	if e.oneLine() {
 		e.lineView(e.Text()).draw(frame, look, presented)

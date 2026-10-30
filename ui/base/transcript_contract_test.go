@@ -360,6 +360,44 @@ func TestTranscriptPointerUsesArrivalFrameLocalProjection(t *testing.T) {
 	}
 }
 
+func TestTranscriptSelectionUsesItsConfiguredClickInterval(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		interval time.Duration
+		want     string
+	}{
+		{name: "default", want: "alpha"},
+		{name: "short", interval: 10 * time.Millisecond, want: "l"},
+		{name: "negative uses default", interval: -time.Second, want: "alpha"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := transcriptModel(t, base.TranscriptConfig{})
+			transcriptAdd(t, model, transcriptBody("alpha beta"))
+			started := time.Unix(100, 0)
+			root, err := scene.NewRoot(scene.RootConfig{Element: model.Element(), Now: func() time.Time { return started }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(root.Close)
+			transcriptCommit(t, root, 20, 1, 1)
+			model.Selection().SetClickInterval(test.interval)
+			for _, elapsed := range []time.Duration{0, 50 * time.Millisecond} {
+				press := input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(1, 0), At: started.Add(elapsed)}
+				if !root.Handle(press) {
+					t.Fatal("presented text refused the click")
+				}
+				press.Action = input.MouseUp
+				press.At = press.At.Add(time.Millisecond)
+				root.Handle(press)
+			}
+			got, err := model.Selection().Text(model.Layout())
+			if err != nil || got != test.want {
+				t.Fatalf("selected %q, want %q: %v", got, test.want, err)
+			}
+		})
+	}
+}
+
 func TestTranscriptSearchCopiesOnlyVisibleMatches(t *testing.T) {
 	m := transcriptModel(t, base.TranscriptConfig{})
 	matches := make([]base.Match, 10000)

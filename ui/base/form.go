@@ -161,6 +161,7 @@ func (f *field) rows(label string) int {
 }
 
 func (f *field) frame(v scene.Frame, label string, look Look) scene.Frame {
+	requireProjection(f.element, v)
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		f.presentation.Stage(v, fieldPresentation{})
