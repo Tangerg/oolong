@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 	"unsafe"
@@ -28,23 +29,34 @@ func (c scratchContent) Draw(view View) {
 	if c.result == "panic" {
 		panic("drawing interrupted")
 	}
+	if c.result == "Goexit" {
+		runtime.Goexit()
+	}
 }
 
 func TestCaptureReleasesItsTemporaryDrawing(t *testing.T) {
-	for _, result := range []string{"accepted", "refused", "panic"} {
+	for _, result := range []string{"accepted", "refused", "panic", "Goexit"} {
 		t.Run(result, func(t *testing.T) {
 			var retained View
 			var err error
 			var panicked any
-			func() {
+			returned := false
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
 				defer func() { panicked = recover() }()
 				_, err = Capture(CaptureConfig{Width: 20, Content: scratchContent{result: result, retained: &retained}})
+				returned = true
 			}()
+			<-done
 			if result == "refused" && !errors.Is(err, errors.ErrUnsupported) || result == "accepted" && err != nil {
 				t.Fatalf("capture=%v", err)
 			}
 			if (panicked != nil) != (result == "panic") {
 				t.Fatalf("panic=%v", panicked)
+			}
+			if returned != (result == "accepted" || result == "refused") {
+				t.Fatalf("capture returned after %s: %v", result, returned)
 			}
 			for _, cell := range retained.surface.cells {
 				if cell != (Cell{}) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"strings"
@@ -154,13 +155,23 @@ type failedBackend struct{ err error }
 func (b failedBackend) Run(context.Context, string, agentOutput) error { return b.err }
 
 func TestCancellationCannotHideABackendFailure(t *testing.T) {
-	host, stop := runAgent(t, failedBackend{err: errors.Join(context.Canceled, errors.New("backend failed"))})
-	host.Shows(t, "Ask the mock agent")
-	host.Type("fail")
-	host.Press(input.Enter)
-	host.Shows(t, "failed:")
-	host.Shows(t, "backend failed")
-	stop()
+	for _, tc := range []struct {
+		name  string
+		cause error
+	}{
+		{name: "joined", cause: errors.Join(context.Canceled, errors.New("backend failed"))},
+		{name: "wrapped", cause: fmt.Errorf("backend failed: %w", context.Canceled)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host, stop := runAgent(t, failedBackend{err: tc.cause})
+			defer stop()
+			host.Shows(t, "Ask the mock agent")
+			host.Type("fail")
+			host.Press(input.Enter)
+			host.Shows(t, "failed:")
+			host.Shows(t, "backend failed")
+		})
+	}
 }
 
 // runAgentAt is runAgent at a size a test chose, for the screens where the size is

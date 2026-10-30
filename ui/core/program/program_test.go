@@ -1634,7 +1634,10 @@ func TestZeroRuntimesAreInert(t *testing.T) {
 		t.Fatal(err)
 	}
 	var inline program.InlineRuntime
-	if err := publish(&inline, nil); !errors.Is(err, program.ErrStopped) {
+	if err := publish(&inline, measurer{
+		measure: func(int) int { t.Error("zero runtime measured content"); return 1 },
+		draw:    func(grid.View) { t.Error("zero runtime drew content") },
+	}); !errors.Is(err, program.ErrStopped) {
 		t.Fatal(err)
 	}
 }

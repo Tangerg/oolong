@@ -26,8 +26,8 @@ type Inline struct {
 	// contribution is private candidate data, never an admission queue.
 	contribution [][]Cell
 
-	// Only successful writes advance the terminal anchor. A failed write makes relative
-	// placement unknowable and permanently ends the session.
+	// Only a committed output advances the anchor. A failed synchronous write
+	// makes relative placement unknowable and permanently ends the session.
 	rows int
 	at   image.Point
 
@@ -68,8 +68,8 @@ func NewInline(w, h int) *Inline {
 func (i *Inline) Size() (w, h int) { return i.buffers.size() }
 
 // Resize changes the width and the height the block may grow to. A width change
-// ends the open append row: terminal reflow cannot preserve its old column anchor.
-// Accepted cells remain queued and wrap at the new width when flushed.
+// invalidates the remembered cells because the terminal may reflow them.
+// Prepare projects caller-owned frozen contributions at the current width.
 func (i *Inline) Resize(w, h int) {
 	i.publication.requireIdle()
 	if i.buffers.resize(w, h) {
@@ -112,7 +112,7 @@ func (i *Inline) invalidate() {
 // The view is as tall as the block may grow to, not as tall as the block ends up:
 // its height is decided by what this frame draws into it.
 // The view and its subviews may be written until the next Frame, a size change,
-// or Flush or Finish begins. Print and Append temporarily exclude frame drawing.
+// or Prepare or PrepareFinish begins, including through Flush or Finish.
 // Writes outside that lifetime panic.
 func (i *Inline) Frame() View {
 	i.publication.requireIdle()
