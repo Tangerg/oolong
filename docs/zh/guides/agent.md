@@ -16,7 +16,7 @@ contentType: How-to
 
 `automation.NewDriver(DriverConfig{Root: runtime.Scene(), Owner: runtime.Dispatcher()})` 将查询和动作调度到 UI 所有者。可以在 Build 阶段保存语义句柄，挂载后再查询。它无法准备帧、推进写入水位或关闭程序的 Root。`Observe` 读取现有语义投影，不启动绘制、不填充隐藏内容、不创建后台工作。
 
-`scene.Query` 限制深度、节点数量和文本。分页绑定模型修订，拒绝混合修订的后续页面。敏感值会被隐藏。`Progress` 分别报告模型、已准备布局和已写入帧进度；观察到模型不代表它已经出现在终端上。
+`scene.Query` 限制深度、节点数量和文本。把不透明的 `Observation.Next` 原样传回 `Query.Cursor`。游标绑定场景、模型修订、实际子树及深度；串用不同遍历会返回 `ErrObservationChanged`。每页节点数与文本预算可调整；零值游标开始新遍历。敏感值会被隐藏。`Progress` 分别报告模型、已准备布局和已写入帧进度；观察到模型不代表它已经出现在终端上。
 
 ## 定位并调用唯一当前目标
 

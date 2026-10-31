@@ -29,7 +29,7 @@ func TestLocatorRequiresEvidenceForTheWholeNameAndSearch(t *testing.T) {
 	defer root.Close()
 	d := automation.NewDriver(automation.DriverConfig{Root: root, Owner: &owner{done: make(chan struct{})}})
 	page, err := d.Observe(t.Context(), scene.Query{Limit: 1})
-	if err != nil || page.Next.Offset == 0 {
+	if err != nil || page.Next == (scene.Cursor{}) {
 		t.Fatalf("first page: %+v, %v", page, err)
 	}
 	for _, tc := range []struct {

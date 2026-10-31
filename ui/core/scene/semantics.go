@@ -142,11 +142,12 @@ type Progress struct {
 	WrittenSequence     uint64
 }
 
-// Cursor pins pagination to a model revision. A changed model rejects the next
-// page rather than presenting a mixed-version tree as one observation.
+// Cursor continues one root, model revision, subtree and depth. Its zero value
+// starts a traversal. Pass Observation.Next unchanged; page budgets may vary.
 type Cursor struct {
-	Revision uint64
-	Offset   int
+	origin        Target
+	revision      uint64
+	depth, offset int
 }
 
 // Query bounds a semantic subtree, output count and text size. Zero limits use package defaults.
@@ -272,10 +273,10 @@ func (r *Root) Observe(query Query) (Observation, error) {
 	if r.preparing || r.observing || r.pending != nil {
 		return Observation{}, ErrBusy
 	}
-	if query.Cursor.Offset < 0 || query.Depth < 0 || query.Limit < 0 || query.TextLimit < 0 {
+	if query.Depth < 0 || query.Limit < 0 || query.TextLimit < 0 {
 		return Observation{}, ErrInvalid
 	}
-	if query.Cursor.Offset > 0 && query.Cursor.Revision != r.modelRevision {
+	if query.Cursor != (Cursor{}) && (query.Cursor.origin.root != r || query.Cursor.revision != r.modelRevision || query.Cursor.depth != query.Depth) {
 		return Observation{}, ErrObservationChanged
 	}
 	r.observing = true
@@ -284,6 +285,9 @@ func (r *Root) Observe(query Query) (Observation, error) {
 	if err != nil {
 		return Observation{}, err
 	}
+	if query.Cursor != (Cursor{}) && (origin == nil || query.Cursor.origin != origin.target()) {
+		return Observation{}, ErrObservationChanged
+	}
 	if query.Limit == 0 {
 		query.Limit = DefaultQueryLimit
 	}
@@ -291,7 +295,10 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		query.TextLimit = DefaultTextLimit
 	}
 	query.Limit, query.TextLimit = min(query.Limit, MaxQueryLimit), min(query.TextLimit, MaxTextLimit)
-	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.Offset > 0}}
+	if origin != nil {
+		query.Cursor = Cursor{origin: origin.target(), revision: r.modelRevision, depth: query.Depth, offset: query.Cursor.offset}
+	}
+	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.offset > 0}}
 	builder.visit(origin, Target{}, 0)
 	return builder.result, nil
 }
@@ -366,10 +373,11 @@ func (b *observationBuilder) visit(n *node, parent Target, depth int) bool {
 }
 
 func (b *observationBuilder) append(n *node, parent Target, semantic Semantic) bool {
-	if b.seen >= b.query.Cursor.Offset {
+	if b.seen >= b.query.Cursor.offset {
 		if len(b.result.Nodes) == b.query.Limit {
 			b.result.Truncated = true
-			b.result.Next = Cursor{Revision: b.root.modelRevision, Offset: b.seen}
+			b.result.Next = b.query.Cursor
+			b.result.Next.offset = b.seen
 			return false
 		}
 		b.result.Nodes = append(b.result.Nodes, b.root.semanticNode(n, parent, semantic, b.query.TextLimit))
