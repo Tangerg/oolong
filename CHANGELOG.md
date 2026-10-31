@@ -28,6 +28,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 ### Fixed
 
 - Shared editors map peer carets and undo/redo through the actual edit, including repeated text. Element metadata and clipboard-ring continuation settle before subscriber callbacks. History owns typing groups across all views.
+- Settings, panel, viewport and dialog content queries use their real scene attachment. Virtual windows support measurement without a builder and preserve the requested viewport through refinement.
 - Markdown layout caches belong to immutable block sequences. Replacing a document during measurement cannot install stale geometry; combined row coordinates are checked before publication. Truncation suffixes obey the same terminal-text policy as retained source.
 
 - Inline shutdown drains its last accepted frame before admitting cursor cleanup. A writer with one frame slot no longer rejects cleanup merely because the final frame still occupies its capacity; drain failures retain their original cause and leave cleanup available.

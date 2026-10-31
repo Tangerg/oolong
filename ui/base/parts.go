@@ -192,8 +192,8 @@ func (t *Table[T]) Element() scene.Element {
 
 // Element returns the one scene identity shared by this controller and its appearance.
 func (s *Settings[T]) Element() scene.Element {
-	if s.element.IsZero() {
-		s.element = scene.NewElement(scene.ElementConfig{
+	if s.list.element.IsZero() {
+		s.list.element = scene.NewElement(scene.ElementConfig{
 			Measure: rowsMeasure(s.list.HeightForWidth), Paint: s.list.Draw,
 			Handle: func(e scene.Event) scene.EventResult {
 				return partEvent(e, s.Handle, &s.list.geometry, &s.list.pointer.geometry)
@@ -203,9 +203,8 @@ func (s *Settings[T]) Element() scene.Element {
 			},
 		})
 	}
-	s.list.element = s.element
-	s.list.scroll.element = s.element
-	return s.element
+	s.list.scroll.element = s.list.element
+	return s.list.element
 }
 
 // Element returns the one scene identity shared by this controller and its appearance.

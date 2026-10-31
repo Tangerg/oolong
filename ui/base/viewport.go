@@ -19,11 +19,10 @@ type ViewportConfig struct {
 // transforms the child route; the viewport does not forward input or focus itself.
 // Viewport must not be copied after first use; its collaborators share one live identity.
 type Viewport struct {
-	noCopy  noCopy
-	Keys    *keymap.Map
-	content scene.Element
-	scroll  Scroll
-	group   *scene.Group
+	noCopy noCopy
+	Keys   *keymap.Map
+	scroll Scroll
+	group  *scene.Group
 }
 
 // NewViewport composes a child and scroll intent. It panics if the child already belongs to another scene relation.
@@ -38,19 +37,19 @@ func (p *Viewport) ensure() {
 		return
 	}
 	p.group = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{
-		Measure: rowsMeasure(p.HeightForWidth), Focusable: func() bool { return !p.content.IsZero() },
+		Measure: rowsMeasure(p.HeightForWidth), Focusable: func() bool { return !p.Content().IsZero() },
 		Paint: func(frame scene.Frame) {
 			w, h := frame.Size()
-			p.scroll.Stage(frame, p.content.Measure(layout.Down, w), h)
+			p.scroll.Stage(frame, p.Content().Measure(layout.Down, w), h)
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			return scene.EventResult{Consumed: !p.content.IsZero() && p.scroll.Handle(event.Input, p.Keys)}
+			return scene.EventResult{Consumed: !p.Content().IsZero() && p.scroll.Handle(event.Input, p.Keys)}
 		},
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {
 			return nil
 		}
-		total := p.content.Measure(layout.Down, space.X)
+		total := items[0].Element.Measure(layout.Down, space.X)
 		offset := p.scroll.Resolve(total, space.Y)
 		return []image.Rectangle{grid.Area(0, -offset, space.X, total)}
 	}})
@@ -64,13 +63,13 @@ func (p *Viewport) Element() scene.Element {
 }
 
 // Content returns the current child identity.
-func (p *Viewport) Content() scene.Element { return p.content }
+func (p *Viewport) Content() scene.Element { item, _ := p.group.At(0); return item.Element }
 
 // SetContent replaces the child and requests focus transfer when appropriate. It panics for an invalid scene relation or mutation during presentation or observation.
 func (p *Viewport) SetContent(content scene.Element) {
 	p.ensure()
 	requireMutable(p.Element())
-	transfer := p.content.FocusedWithin()
+	transfer := p.Content().FocusedWithin()
 	var items []scene.Item
 	if !content.IsZero() {
 		items = []scene.Item{{Element: content, Size: layout.Flex(1)}}
@@ -78,18 +77,16 @@ func (p *Viewport) SetContent(content scene.Element) {
 	if err := p.group.Set(items...); err != nil {
 		panic(err)
 	}
-	p.content = content
 	if transfer {
 		_ = content.RequestFocusFirst()
 	}
-	p.Element().Invalidate()
 }
 
 // Scroll returns the sole scrolling intention owner used by this viewport.
 func (p *Viewport) Scroll() *Scroll { return &p.scroll }
 
 // HeightForWidth measures the child content before viewport clipping.
-func (p *Viewport) HeightForWidth(width int) int { return p.content.Measure(layout.Down, width) }
+func (p *Viewport) HeightForWidth(width int) int { return p.Content().Measure(layout.Down, width) }
 
 // Do applies one named scrolling operation and invalidates the viewport when handled.
 func (p *Viewport) Do(action keymap.Action) bool {

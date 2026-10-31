@@ -16,6 +16,7 @@ type virtualSource struct {
 	keys      []base.ItemKey
 	calls     int
 	mutate    bool
+	heights   []int
 	duplicate bool
 }
 
@@ -32,6 +33,9 @@ func (s *virtualSource) Measure(index, width int) int {
 	s.calls++
 	if s.mutate {
 		s.revision++
+	}
+	if s.heights != nil {
+		return s.heights[index]
 	}
 	return 1 + index%3 + 20/width
 }
@@ -166,4 +170,86 @@ func TestVirtualWindowResolveIsAnOwnerPhase(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate.Commit(1)
+}
+
+func TestMeasuredVirtualWindowCanMountWithoutAnItemBuilder(t *testing.T) {
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: virtualData(3)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := window.Resolve(20, 3, 0)
+	if err != nil || len(current.Items) == 0 {
+		t.Fatalf("range=%+v error=%v", current, err)
+	}
+	root, err := scene.NewRoot(scene.RootConfig{Element: window.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	candidate, err := root.Prepare(grid.NewSurface(20, 3).View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.Commit(1)
+}
+
+func TestVirtualChildFocusSeesItsPublishedRange(t *testing.T) {
+	data := virtualData(3)
+	var window *base.VirtualWindow
+	var seen base.VirtualRange
+	var err error
+	window, err = base.NewVirtualWindow(base.VirtualConfig{Source: data, Build: func(key base.ItemKey) scene.Element {
+		return scene.NewElement(scene.ElementConfig{Key: string(key), Focusable: func() bool { seen = window.Snapshot(); return true }})
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := scene.NewRoot(scene.RootConfig{Element: window.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	got, err := window.Resolve(20, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen.Items) != 1 || seen.Items[0] != got.Items[0] || seen.Revision != got.Revision {
+		t.Fatalf("newly attached child observed stale window %+v; want %+v", seen, got)
+	}
+}
+
+func TestVirtualRefinementPreservesTheRequestedViewport(t *testing.T) {
+	data := virtualData(1)
+	data.heights = []int{7}
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := window.Resolve(20, 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Exact || result.Offset != 5 {
+		t.Errorf("refined end viewport = %+v; want offset 5", result)
+	}
+	result, err = window.Resolve(20, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 0 {
+		t.Errorf("zero-height viewport materialized %+v", result.Items)
+	}
+	data = virtualData(3)
+	data.heights = []int{1, 0, 2}
+	window, err = base.NewVirtualWindow(base.VirtualConfig{Source: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = window.Resolve(20, 8, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 2 || result.Items[0].Index != 0 || result.Items[1].Index != 2 {
+		t.Errorf("visible range includes an empty item: %+v", result.Items)
+	}
 }

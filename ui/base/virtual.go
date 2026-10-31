@@ -67,12 +67,10 @@ type VirtualWindow struct {
 	noCopy    noCopy
 	cfg       VirtualConfig
 	width     int
-	revision  uint64
 	keys      []ItemKey
 	heights   map[ItemKey]measuredHeight
 	window    VirtualRange
 	group     *scene.Group
-	mounted   map[ItemKey]scene.Element
 	resolving bool
 }
 
@@ -93,10 +91,11 @@ func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
 	if cfg.MaxMeasurements == 0 {
 		cfg.MaxMeasurements = 512
 	}
-	v := &VirtualWindow{cfg: cfg, heights: make(map[ItemKey]measuredHeight), mounted: make(map[ItemKey]scene.Element)}
-	v.group = scene.NewGroup(scene.GroupConfig{Layout: func(size image.Point, _ []scene.Item) []image.Rectangle {
-		rects := make([]image.Rectangle, len(v.window.Items))
-		for i, item := range v.window.Items {
+	v := &VirtualWindow{cfg: cfg, heights: make(map[ItemKey]measuredHeight)}
+	v.group = scene.NewGroup(scene.GroupConfig{Layout: func(size image.Point, children []scene.Item) []image.Rectangle {
+		rects := make([]image.Rectangle, len(children))
+		for i := range children {
+			item := v.window.Items[i]
 			rects[i] = image.Rect(0, item.Top-v.window.Offset, size.X, item.Top-v.window.Offset+item.Height)
 		}
 		return rects
@@ -170,18 +169,22 @@ func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error)
 	if len(retained) > v.cfg.MaxMeasurements {
 		return VirtualRange{}, ErrVirtualLimit
 	}
-	children, mounted, err := v.materialize(result.Items)
+	children, err := v.materialize(result.Items)
 	if err != nil {
 		return VirtualRange{}, err
 	}
 	if !v.sameSource(revision, count) {
 		return VirtualRange{}, ErrVirtualSourceChanged
 	}
+	if err = v.group.CheckSet(children...); err != nil {
+		return VirtualRange{}, err
+	}
+	// Installing children invokes scene predicates after attachment. They must
+	// already observe the range to which those children belong.
+	v.keys, v.heights, v.width, v.window = keys, retained, width, result
 	if err = v.group.Set(children...); err != nil {
 		return VirtualRange{}, err
 	}
-	v.keys, v.heights, v.width, v.revision = keys, retained, width, revision
-	v.window, v.mounted = result, mounted
 	return v.Snapshot(), nil
 }
 
@@ -189,7 +192,7 @@ func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error)
 // It receives a separate map so a refused candidate cannot change live geometry.
 func (v *VirtualWindow) cachedHeights(width int, revision uint64) map[ItemKey]measuredHeight {
 	cache := make(map[ItemKey]measuredHeight)
-	if revision == v.revision && width == v.width {
+	if revision == v.window.Revision && width == v.width {
 		maps.Copy(cache, v.heights)
 	}
 	return cache
@@ -203,7 +206,7 @@ func (v *VirtualWindow) sourceKeys(revision uint64, count int) ([]ItemKey, error
 	if count < 0 || count > v.cfg.MaxItems {
 		return nil, ErrVirtualLimit
 	}
-	if revision == v.revision && len(v.keys) == count && v.keys != nil {
+	if revision == v.window.Revision && len(v.keys) == count && v.keys != nil {
 		return v.keys, nil
 	}
 	keys := make([]ItemKey, count)
@@ -231,9 +234,9 @@ func (v *VirtualWindow) measureWindow(keys []ItemKey, cache map[ItemKey]measured
 		if err != nil {
 			return VirtualRange{}, err
 		}
-		offset = min(max(offset, 0), max(tops[len(keys)]-height, 0))
-		from := max(offset-v.cfg.Overscan, 0)
-		through := offset + min(height, math.MaxInt-offset)
+		at := min(max(offset, 0), max(tops[len(keys)]-height, 0))
+		from := max(at-v.cfg.Overscan, 0)
+		through := at + min(height, math.MaxInt-at)
 		through += min(v.cfg.Overscan, math.MaxInt-through)
 		items, changed, err := v.measureRange(keys, tops, cache, width, from, through, &measured)
 		if err != nil {
@@ -242,7 +245,7 @@ func (v *VirtualWindow) measureWindow(keys []ItemKey, cache map[ItemKey]measured
 		if changed {
 			continue
 		}
-		return VirtualRange{Items: items, Offset: offset, Total: tops[len(keys)], Exact: exact || len(cache) == len(keys)}, nil
+		return VirtualRange{Items: items, Offset: at, Total: tops[len(keys)], Exact: exact || len(cache) == len(keys)}, nil
 	}
 }
 
@@ -265,10 +268,13 @@ func (v *VirtualWindow) estimateTops(keys []ItemKey, cache map[ItemKey]measuredH
 }
 
 func (v *VirtualWindow) measureRange(keys []ItemKey, tops []int, cache map[ItemKey]measuredHeight, width, from, through int, measured *int) ([]VirtualItem, bool, error) {
+	if from >= through {
+		return nil, false, nil
+	}
 	var items []VirtualItem
 	changed := false
 	for index, key := range keys {
-		if tops[index+1] <= from || tops[index] >= through {
+		if tops[index+1] == tops[index] || tops[index+1] <= from || tops[index] >= through {
 			continue
 		}
 		rows, ok := cache[key]
@@ -290,22 +296,25 @@ func (v *VirtualWindow) measureRange(keys []ItemKey, tops []int, cache map[ItemK
 	return items, changed, nil
 }
 
-func (v *VirtualWindow) materialize(items []VirtualItem) ([]scene.Item, map[ItemKey]scene.Element, error) {
-	mounted := make(map[ItemKey]scene.Element, len(items))
+func (v *VirtualWindow) materialize(items []VirtualItem) ([]scene.Item, error) {
 	if v.cfg.Build == nil {
-		return nil, mounted, nil
+		return nil, nil
+	}
+	current := v.group.Items()
+	mounted := make(map[ItemKey]scene.Element, len(current))
+	for _, item := range current {
+		mounted[ItemKey(item.Key)] = item.Element
 	}
 	children := make([]scene.Item, len(items))
 	for index, item := range items {
-		element := v.mounted[item.Key]
+		element := mounted[item.Key]
 		if element.IsZero() {
 			element = v.cfg.Build(item.Key)
 		}
 		if element.IsZero() {
-			return nil, nil, errors.New("base: virtual item builder returned no element")
+			return nil, errors.New("base: virtual item builder returned no element")
 		}
-		mounted[item.Key] = element
 		children[index] = scene.Item{Key: string(item.Key), Element: element}
 	}
-	return children, mounted, nil
+	return children, nil
 }

@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
@@ -51,4 +53,22 @@ func TestSettingsPointerSelectionUsesTheListCommittedWindow(t *testing.T) {
 	if settings.List().Selected() != 1 {
 		t.Fatalf("press selected %d, want row 1", settings.List().Selected())
 	}
+}
+
+func TestSettingsListCannotCreateASecondSceneIdentity(t *testing.T) {
+	var settings base.Settings[string]
+	first := settings.List().Element()
+	root, err := scene.NewRoot(scene.RootConfig{Element: first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	if element := settings.Element(); element != first || settings.List().Element() != first {
+		t.Fatal("accessing the composite replaced its already mounted list identity")
+	}
+	candidate, err := root.Prepare(grid.NewSurface(12, 2).View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.Commit(1)
 }

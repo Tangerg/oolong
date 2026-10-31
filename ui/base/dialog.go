@@ -27,9 +27,8 @@ type DialogConfig struct {
 // Dialog must not be copied after first use; its collaborators share one live identity.
 type Dialog struct {
 	noCopy         noCopy
-	open           bool
 	title, detail  string
-	content        scene.Element
+	parked         scene.Element
 	place          func(image.Point) image.Rectangle
 	backdrop       func(scene.Frame)
 	dismissOutside bool
@@ -44,7 +43,7 @@ func NewDialog(config DialogConfig) *Dialog {
 	if config.Content.IsZero() {
 		panic("base: dialog requires content")
 	}
-	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), content: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, keys: config.Keys}
+	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), parked: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, keys: config.Keys}
 	d.ensure()
 	if config.Initial {
 		d.Show()
@@ -57,7 +56,7 @@ func (d *Dialog) ensure() {
 		return
 	}
 	dismiss := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionDismiss, Label: "Dismiss", Availability: func(struct{}) scene.Availability {
-		return scene.Availability{Disabled: !d.open, Reason: "dialog is closed"}
+		return scene.Availability{Disabled: !d.Open(), Reason: "dialog is closed"}
 	}, Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
 		d.Dismiss()
 		return scene.ActionResult[struct{}]{State: scene.Applied}, nil
@@ -65,9 +64,9 @@ func (d *Dialog) ensure() {
 	d.group = scene.NewGroup(scene.GroupConfig{
 		Overlay: true, Modal: true,
 		Element: scene.ElementConfig{
-			Enabled: func() bool { return d.open }, Handle: d.handleEvent,
+			Enabled: d.Open, Handle: d.handleEvent,
 			Paint: func(frame scene.Frame) {
-				if !d.open {
+				if !d.Open() {
 					return
 				}
 				if d.backdrop != nil {
@@ -76,7 +75,7 @@ func (d *Dialog) ensure() {
 				d.presentation.Stage(frame, d.placement(frame.Bounds().Size()))
 			}, Semantics: func() scene.Semantic {
 				state := scene.SemanticState(0)
-				if d.open {
+				if d.Open() {
 					state = scene.StateOpen
 				}
 				return scene.Semantic{Role: scene.RoleDialog, Name: d.title, Description: d.detail, State: state}
@@ -102,39 +101,43 @@ func (d *Dialog) placement(space image.Point) image.Rectangle {
 func (d *Dialog) Element() scene.Element { d.ensure(); return d.group.Element() }
 
 // Open reports the current open policy. A nil dialog is closed.
-func (d *Dialog) Open() bool { return d != nil && d.open }
+func (d *Dialog) Open() bool {
+	if d == nil {
+		return false
+	}
+	_, open := d.group.At(0)
+	return open
+}
 
 // Show opens the content and requests modal focus settlement. It panics for missing or foreign-owned content, or during presentation or observation.
 func (d *Dialog) Show() {
-	if d == nil || d.open {
+	if d == nil || d.Open() {
 		return
 	}
 	d.ensure()
-	if d.content.IsZero() {
+	if d.parked.IsZero() {
 		panic("base: dialog requires content")
 	}
 	requireMutable(d.Element())
-	d.open = true
-	if err := d.group.Set(scene.Item{Element: d.content, Size: layout.Flex(1)}); err != nil {
-		d.open = false
+	child := d.parked
+	d.parked = scene.Element{}
+	if err := d.group.Set(scene.Item{Element: child, Size: layout.Flex(1)}); err != nil {
+		d.parked = child
 		panic(err)
 	}
-	d.Element().Invalidate()
 }
 
 // Dismiss closes the modal group and lets scene restore valid focus. It panics during presentation or observation.
 func (d *Dialog) Dismiss() {
-	if d == nil || !d.open {
+	if d == nil || !d.Open() {
 		return
 	}
 	requireMutable(d.Element())
-	d.open = false
+	d.parked = d.Content()
+	d.matcher.Clear()
 	if err := d.group.Set(); err != nil {
-		d.open = true
 		panic(err)
 	}
-	d.matcher.Clear()
-	d.Element().Invalidate()
 }
 
 // Content is the one child owned by this dialog while open.
@@ -142,7 +145,10 @@ func (d *Dialog) Content() scene.Element {
 	if d == nil {
 		return scene.Element{}
 	}
-	return d.content
+	if item, ok := d.group.At(0); ok {
+		return item.Element
+	}
+	return d.parked
 }
 
 // SetContent atomically replaces the dialog body. It panics for empty content, an invalid active child relation, or mutation during presentation or observation.
@@ -151,12 +157,13 @@ func (d *Dialog) SetContent(content scene.Element) {
 	if content.IsZero() {
 		panic("base: dialog requires content")
 	}
-	if d.open {
+	if d.Open() {
 		if err := d.group.Set(scene.Item{Element: content, Size: layout.Flex(1)}); err != nil {
 			panic(err)
 		}
+		return
 	}
-	d.content = content
+	d.parked = content
 	d.Element().Invalidate()
 }
 
@@ -184,7 +191,7 @@ func (d *Dialog) SetDescription(description string) {
 func (d *Dialog) Trigger(label string) *Button {
 	return NewButton(ButtonConfig{Label: label, Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
 		state := scene.Unchanged
-		if !d.open {
+		if !d.Open() {
 			d.Show()
 			state = scene.Applied
 		}
@@ -193,7 +200,7 @@ func (d *Dialog) Trigger(label string) *Button {
 }
 
 func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
-	if !d.open {
+	if !d.Open() {
 		return scene.EventResult{}
 	}
 	if mouse, ok := event.Input.(input.Mouse); ok {

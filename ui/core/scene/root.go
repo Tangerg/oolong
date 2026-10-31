@@ -117,7 +117,6 @@ func (r *Root) SetContent(element Element) error {
 	if element.node != nil {
 		r.attach(element.node)
 	}
-	r.settleFocus()
 	r.Changed()
 	return nil
 }
@@ -433,9 +432,11 @@ func (r *Root) Changed() {
 	if err := r.mutable(); err != nil {
 		panic(err)
 	}
-	r.settleFocus()
+	// Focus predicates can exit abnormally; the installed model must already
+	// have its new observation revision and wakeup before they run.
 	r.modelRevision = next(r.modelRevision)
 	r.signal()
+	r.settleFocus()
 }
 
 func (r *Root) signal() {

@@ -29,3 +29,5 @@ A field controller owns its value. Form output and semantic values are projectio
 `VirtualWindow.Resolve` runs explicitly on the owner before painting. A `VirtualSource` supplies dataset revision, stable keys and pure height measurements. The window retains only materialized elements and bounded measurements, reusing an element while its key remains present. Leaving the window detaches its target; reappearing later receives a new mount lifetime.
 
 Estimated total height remains marked inexact until all relevant heights are known. The metadata index and prefix pass are bounded by `MaxItems` and `MaxKeyBytes`; measurement work is bounded by `MaxMeasurements`. See [history and virtualization](../guides/history.md) for the separate ownership of archived content.
+
+With no Build callback the virtual window can measure a range without mounting any rows. Its scene layout describes only actual children. An explicit scroll offset remains the request while estimated heights are refined; consult the resulting range for the final offset.

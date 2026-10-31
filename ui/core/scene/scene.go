@@ -411,6 +411,15 @@ func (g *Group) Items() []Item {
 	return slices.Clone(g.items)
 }
 
+// At reads one current child relation without copying the collection. A nil
+// group or out-of-range index returns a zero Item and false.
+func (g *Group) At(index int) (Item, bool) {
+	if g == nil || index < 0 || index >= len(g.items) {
+		return Item{}, false
+	}
+	return g.items[index], true
+}
+
 // CheckSet validates a proposed child relation without publishing it. Owners that
 // compose several groups may preflight all relations before changing their model.
 // It does not reserve children; each subsequent Set validates its current state.
@@ -493,7 +502,6 @@ func (g *Group) Set(items ...Item) error {
 		}
 	}
 	if n.root != nil {
-		n.root.settleFocus()
 		n.root.Changed()
 	}
 	return nil

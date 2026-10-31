@@ -19,7 +19,6 @@ type PanelConfig struct {
 type Panel struct {
 	noCopy noCopy
 	Box    Box
-	child  scene.Element
 	group  *scene.Group
 }
 
@@ -40,7 +39,7 @@ func (p *Panel) ensure() {
 			if axis == layout.Down {
 				return p.HeightForWidth(across)
 			}
-			return layout.Sum(p.Box.Overhead().X, p.child.Measure(axis, across))
+			return layout.Sum(p.Box.Overhead().X, p.Content().Measure(axis, across))
 		},
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {
@@ -54,12 +53,12 @@ func (p *Panel) ensure() {
 func (p *Panel) Element() scene.Element { p.ensure(); return p.group.Element() }
 
 // Content returns the scene child currently inside the panel.
-func (p *Panel) Content() scene.Element { return p.child }
+func (p *Panel) Content() scene.Element { item, _ := p.group.At(0); return item.Element }
 
 // SetContent replaces the child and requests focus transfer from the old content. It panics for an invalid scene relation or mutation during presentation or observation.
 func (p *Panel) SetContent(child scene.Element) {
 	p.ensure()
-	transfer := p.child.FocusedWithin()
+	transfer := p.Content().FocusedWithin()
 	var items []scene.Item
 	if !child.IsZero() {
 		items = []scene.Item{{Element: child, Size: layout.Flex(1)}}
@@ -67,7 +66,6 @@ func (p *Panel) SetContent(child scene.Element) {
 	if err := p.group.Set(items...); err != nil {
 		panic(err)
 	}
-	p.child = child
 	if transfer {
 		_ = child.RequestFocusFirst()
 	}
@@ -76,5 +74,5 @@ func (p *Panel) SetContent(child scene.Element) {
 // HeightForWidth adds box overhead to the child's measured height.
 func (p *Panel) HeightForWidth(width int) int {
 	overhead := p.Box.Overhead()
-	return layout.Sum(overhead.Y, p.child.Measure(layout.Down, layout.Remaining(width, overhead.X)))
+	return layout.Sum(overhead.Y, p.Content().Measure(layout.Down, layout.Remaining(width, overhead.X)))
 }

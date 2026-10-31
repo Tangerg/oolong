@@ -330,3 +330,24 @@ func TestZeroByteLayoutWaitsForInheritedWrite(t *testing.T) {
 		t.Fatalf("inherited write did not settle layout: %+v", r.Progress())
 	}
 }
+
+func TestGroupAtReadsTheCurrentChildRelation(t *testing.T) {
+	child := scene.NewElement(scene.ElementConfig{})
+	g := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Key: "a", Element: child}}})
+	item, ok := g.At(0)
+	if !ok || item.Element != child || item.Key != "a" {
+		t.Fatal("child relation missing")
+	}
+	item.Element = scene.Element{}
+	if item, ok = g.At(0); !ok || item.Element != child {
+		t.Fatal("reading a relation exposed writable child storage")
+	}
+	if err := g.Set(); err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range []int{-1, 0, 1} {
+		if item, ok = g.At(i); ok || !item.Element.IsZero() {
+			t.Fatalf("removed or invalid child still visible at %d", i)
+		}
+	}
+}
