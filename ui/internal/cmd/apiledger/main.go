@@ -18,7 +18,7 @@ func main() {
 func run() int {
 	cfg := apiledger.Config{Log: os.Stdout}
 	flag.StringVar(&cfg.Root, "root", ".", "repository root")
-	flag.StringVar(&cfg.Section, "section", "Unreleased", "CHANGELOG release section")
+	flag.StringVar(&cfg.ReleaseTag, "release", "", "check only the public module and changelog section belonging to this tag")
 	flag.StringVar(&cfg.APIDiff, "apidiff", "apidiff", "apidiff executable")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

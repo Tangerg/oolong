@@ -71,6 +71,68 @@ func TestIndependentReleaseTagsMatchSemanticImports(t *testing.T) {
 	}
 }
 
+func TestTagContractSelectsTheDirectoryWhoseManifestOwnsTheTag(t *testing.T) {
+	root := t.TempDir()
+	scripts := filepath.Join(root, "scripts")
+	if err := os.MkdirAll(scripts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tool, err := readRepositoryFile(filepath.Join(repoRoot(t), "scripts", "module-tag.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const inventory = "#!/bin/sh\nset -eu\ntest \"$1\" = --public\nprintf '%s\\n' ui ui/v2 extensions/view\n"
+	const inspector = "#!/bin/sh\nset -eu\nmodule=$(awk '$1 == \"module\" {print $2}' go.mod)\nprintf '%s|%s\\n' \"$module\" \"$*\"\n"
+	for name, script := range map[string]string{"module-tag.sh": string(tool), "modules.sh": inventory, "gorelease": inspector} {
+		//nolint:gosec // G306: these three executable scripts run only in the isolated fixture.
+		if err = os.WriteFile(filepath.Join(scripts, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, directory := range []string{"ui", "ui/v2", "extensions/view"} {
+		physical := filepath.Join(root, filepath.FromSlash(directory))
+		if err = os.MkdirAll(physical, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(physical, "go.mod"), []byte("module example.invalid/oolong/"+directory+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workflow, err := readRepositoryFile(filepath.Join(repoRoot(t), ".github", "workflows", "release-contract.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, body, found := strings.Cut(string(workflow), "        run: |\n")
+	if !found {
+		t.Fatal("release validation workflow has no shell step")
+	}
+	for _, tc := range []struct{ tag, module, version, want string }{
+		{tag: "ui/v0.2.0", want: "ui|-base=none -version=v0.2.0"},
+		{tag: "ui/v2.1.0", want: "ui/v2|-base=none -version=v2.1.0"},
+		{tag: "extensions/view/v1.2.3", want: "extensions/view|-base=none -version=v1.2.3"},
+		{module: "ui/v2", version: "v2.0.1", want: "ui/v2|-base=none -version=v2.0.1"},
+		{tag: "ui/v3.0.0"},
+		{tag: "ui/v2.01.0"},
+		{tag: "examples/v0.1.0"},
+	} {
+		refType := "branch"
+		if tc.tag != "" {
+			refType = "tag"
+		}
+		cmd := exec.CommandContext(t.Context(), "bash", "-c", body) //nolint:gosec // Repository-authored release step running only fixture tools.
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "PATH="+scripts+string(os.PathListSeparator)+os.Getenv("PATH"), "GITHUB_REF_TYPE="+refType, "GITHUB_REF_NAME="+tc.tag, "INPUT_MODULE="+tc.module, "INPUT_VERSION="+tc.version)
+		out, runErr := cmd.Output()
+		if tc.want == "" {
+			if runErr == nil || len(out) != 0 {
+				t.Errorf("invalid tag %q reached gorelease: %q, %v", tc.tag, out, runErr)
+			}
+		} else if runErr != nil || strings.TrimSpace(string(out)) != "example.invalid/oolong/"+tc.want {
+			t.Errorf("contract for tag %q, module %q: %q, %v; want %s", tc.tag, tc.module, out, runErr, tc.want)
+		}
+	}
+}
+
 func TestReleaseGatesKeepTheSelectedModule(t *testing.T) {
 	testReleaseGatesKeepTheSelectedModule(t, t.TempDir())
 }

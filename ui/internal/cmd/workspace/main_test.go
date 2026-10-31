@@ -81,3 +81,60 @@ func TestManualReplacementsAreNotSilentlyOverwritten(t *testing.T) {
 		t.Fatal("manual ownership was overwritten")
 	}
 }
+
+func TestSyncPreservesMembershipAfterTheGeneratedDirective(t *testing.T) {
+	for _, ending := range []struct{ name, newline string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(ending.name, func(t *testing.T) {
+			checkPreservedMembership(t, ending.newline)
+		})
+	}
+}
+
+func checkPreservedMembership(t *testing.T, newline string) {
+	t.Helper()
+	root := workspaceFixture(t)
+	if err := syncWorkspace(t.Context(), root, false); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(root, "go.work")
+	body, err := os.ReadFile(work) //nolint:gosec // Isolated fixture manifest.
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.ReplaceAll(string(body), "\n", newline))
+	//nolint:gosec // G703: go.work belongs to the isolated fixture.
+	if err = os.WriteFile(work, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = syncWorkspace(t.Context(), root, true); err != nil {
+		t.Fatalf("canonical generated block refused before mutation: %v", err)
+	}
+	newMember := filepath.Join(root, "fresh")
+	if err = os.Mkdir(newMember, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(newMember, "go.mod"), []byte("module example.invalid/oolong/fresh\n\ngo 1.27.0\nrequire example.invalid/oolong/ui v0.5.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	suffix := strings.ReplaceAll("\n// A newly added module owns this directive.\nuse ./fresh\n", "\n", newline)
+	//nolint:gosec // G703: fixed go.work inside the isolated workspace.
+	if err = os.WriteFile(work, append(body, suffix...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = syncWorkspace(t.Context(), root, false); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(work) //nolint:gosec // Isolated fixture manifest.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(body), suffix) || !strings.Contains(string(body), "example.invalid/oolong/ui v0.5.0 => ./ui") {
+		t.Fatalf("sync lost member or replacement:\n%s", body)
+	}
+	if newline == "\r\n" && strings.Contains(strings.ReplaceAll(string(body), "\r\n", ""), "\n") {
+		t.Fatal("generated block introduced bare LF into the CRLF workspace")
+	}
+	if err = syncWorkspace(t.Context(), root, true); err != nil {
+		t.Fatalf("sync did not reach a fixed point: %v", err)
+	}
+}

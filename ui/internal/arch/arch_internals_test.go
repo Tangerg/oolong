@@ -406,6 +406,34 @@ func TestModuleScriptFailsClosedWhenPackageFactsAreUnavailable(t *testing.T) {
 	}
 }
 
+func TestModuleInventoryIncludesGroupedAndIndependentUseDirectives(t *testing.T) {
+	fixture := t.TempDir()
+	write := func(name string, body []byte) {
+		t.Helper()
+		path := filepath.Join(fixture, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"scripts/modules.sh", "ui/internal/cmd/workspace/main.go"} {
+		body, err := readRepositoryFile(filepath.Join(repoRoot(t), filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(name, body)
+	}
+	write("go.work", []byte("go 1.27.0\nuse (\n ./one\n)\nuse ./two\n"))
+	for _, module := range []string{"one", "two"} {
+		write(module+"/go.mod", []byte("module example.invalid/"+module+"\n\ngo 1.27.0\n"))
+	}
+	if got := moduleScript(t, fixture); !slices.Equal(got, []string{"one", "two"}) {
+		t.Fatalf("module inventory = %q", got)
+	}
+}
+
 func TestModuleScriptResolvesItsPhysicalRepository(t *testing.T) {
 	root := repoRoot(t)
 	link := filepath.Join(t.TempDir(), "repository")

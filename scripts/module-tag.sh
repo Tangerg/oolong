@@ -32,18 +32,38 @@ module_tag() {
 	printf '%s/%s\n' "$prefix" "$proposed"
 }
 
-[[ $# == 2 ]] || die "usage: scripts/module-tag.sh MODULE vX.Y.Z | --pattern MODULE"
-if [[ "$1" == --pattern ]]; then
-	directory="$2"
-	proposed=--pattern
-else
-	directory="$1"
-	proposed="$2"
-fi
-case "/$directory/" in
-*'/../'* | *'/./'* | '//'* | *'//'* | *'\\'*) die "invalid module directory: $directory" ;;
-esac
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-path=$(sed -n 's/^module[[:space:]]*//p' "$root/$directory/go.mod")
-[[ -n "$path" ]] || die "$directory/go.mod has no module path"
-module_tag "$directory" "$path" "$proposed"
+
+directory_tag() {
+	local directory="$1" path
+	case "/$directory/" in
+	*'/../'* | *'/./'* | '//'* | *'//'* | *'\\'*) die "invalid module directory: $directory" ;;
+	esac
+	path=$(sed -n 's/^module[[:space:]]*//p' "$root/$directory/go.mod")
+	[[ -n "$path" ]] || die "$directory/go.mod has no module path"
+	module_tag "$directory" "$path" "$2"
+}
+
+# A major-version directory and its parent may share a tag prefix. The public
+# module whose forward mapping produces the exact tag owns its release.
+resolve_tag() {
+	local tag="$1" directories directory pattern candidate selected=
+	directories=$("$root/scripts/modules.sh" --public)
+	while IFS= read -r directory; do
+		pattern=$(directory_tag "$directory" --pattern)
+		[[ "$tag" == $pattern ]] || continue
+		candidate=$(directory_tag "$directory" "${tag##*/}")
+		[[ "$candidate" == "$tag" ]] || continue
+		[[ -z "$selected" ]] || die "ambiguous public module tag: $tag"
+		selected="$directory"
+	done <<<"$directories"
+	[[ -n "$selected" ]] || die "no public module owns tag: $tag"
+	printf '%s\n' "$selected"
+}
+
+[[ $# == 2 ]] || die "usage: scripts/module-tag.sh MODULE vX.Y.Z | --pattern MODULE | --resolve TAG"
+case "$1" in
+--resolve) resolve_tag "$2" ;;
+--pattern) directory_tag "$2" --pattern ;;
+*) directory_tag "$1" "$2" ;;
+esac

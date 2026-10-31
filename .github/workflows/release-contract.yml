@@ -49,18 +49,12 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          module="$INPUT_MODULE"
-          version="$INPUT_VERSION"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            module="${GITHUB_REF_NAME%%/v*}"
-            version="v${GITHUB_REF_NAME#*/v}"
+            tag="$GITHUB_REF_NAME"
+          else
+            tag=$(scripts/module-tag.sh "$INPUT_MODULE" "$INPUT_VERSION")
           fi
-
-          public_modules=$(scripts/modules.sh --public)
-          case " ${public_modules//$'\n'/ } " in
-            *" $module "*) ;;
-            *) echo "unknown public module: $module" >&2; exit 2 ;;
-          esac
-
+          module=$(scripts/module-tag.sh --resolve "$tag")
+          [[ "$GITHUB_REF_TYPE" == "tag" || "$module" == "$INPUT_MODULE" ]] || exit 2
           cd "$module"
-          gorelease -base=none -version="$version"
+          gorelease -base=none -version="${tag##*/}"

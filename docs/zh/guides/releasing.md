@@ -30,3 +30,5 @@ scripts/release.sh ui 0.1.0 --execute
 ```
 
 执行只创建并推送已审查的一个 tag，然后验证其远端提交。失败不授权删除或移动 tag、强推或绕过发布路径。应先检查真实状态，再决定后续操作。固定工具版本与质量门禁见 [CONTRIBUTING.md](https://github.com/Tangerg/oolong/blob/main/CONTRIBUTING.md)。
+
+要从已有标签查找公开模块目录，运行 `scripts/module-tag.sh --resolve TAG`。它按正向规则验证归属，也适用于存放在独立子目录中的主版本。每个模块使用自己的迁移记录：已发布 API 在开发 workspace 之外导出，当前 API 在本仓 workspace 中导出。

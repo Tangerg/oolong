@@ -19,28 +19,12 @@ case "${1-}" in
 	;;
 esac
 
-modules=$(
-	sed -n '/^use (/,/^)/p' "$root/go.work" |
-		sed -n 's|^[[:space:]]*\./||p'
-)
-if [ -z "$modules" ]; then
-	echo "modules.sh: go.work declares no modules" >&2
+host_os=$(go env GOHOSTOS)
+host_arch=$(go env GOHOSTARCH)
+if ! modules=$(GOOS="$host_os" GOARCH="$host_arch" GOWORK=off go run "$root/ui/internal/cmd/workspace/main.go" -root "$root" -members); then
+	echo "modules.sh: cannot inspect workspace membership" >&2
 	exit 2
 fi
-seen_modules=
-for module in $modules; do
-	case " $seen_modules " in
-	*" $module "*)
-		echo "modules.sh: go.work declares $module more than once" >&2
-		exit 2
-		;;
-	esac
-	if [ ! -f "$root/$module/go.mod" ]; then
-		echo "modules.sh: $module has no go.mod" >&2
-		exit 2
-	fi
-	seen_modules="${seen_modules}${seen_modules:+ }$module"
-done
 
 public_module() {
 	module=$1
@@ -69,7 +53,7 @@ public_module() {
 
 if [ "${1-}" = "--public" ]; then
 	public_modules=
-	for module in $seen_modules; do
+	for module in $modules; do
 		if public_module "$module"; then
 			public_modules="${public_modules}${public_modules:+ }$module"
 		else
@@ -89,6 +73,6 @@ if [ "${1-}" = "--public" ]; then
 	exit 0
 fi
 
-for module in $seen_modules; do
+for module in $modules; do
 	printf '%s\n' "$module"
 done

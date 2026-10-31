@@ -101,6 +101,72 @@ func TestCheckerRequiresEveryPlatformBreakInTheExactModuleLedger(t *testing.T) {
 	}
 }
 
+func TestIndependentModuleLedgersForWorkspaceAndOneRelease(t *testing.T) {
+	root := t.TempDir()
+	const coreRelease = "core/v0.11.0"
+	const coreSection = "## [core/v0.11.0]\n#### core\n- `grid.Cell.Width` changed.\n"
+	writeChangelog(t, root, "## [Unreleased]\n#### latex\n- `latex.GlyphsFor` changed.\n"+coreSection)
+	runner := &fixtureRunner{sections: map[string]string{"core": coreRelease}}
+	if err := newChecker(Config{Root: root}, runner).check(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	writeChangelog(t, root, "## [Unreleased]\n"+coreSection)
+	if err := newChecker(Config{Root: root}, runner).check(t.Context()); err == nil || !strings.Contains(err.Error(), "latex") {
+		t.Fatalf("workspace missed peer's unrecorded break: %v", err)
+	}
+	if err := newChecker(Config{Root: root, ReleaseTag: coreRelease}, runner).check(t.Context()); err != nil {
+		t.Fatalf("another module changed the selected release contract: %v", err)
+	}
+}
+
+// Resolve exports with Go itself: changing cwd alone does not select an old
+// module when the environment still points at today's workspace.
+func TestBaselineAndCurrentExportsResolveDifferentModuleTrees(t *testing.T) {
+	root := t.TempDir()
+	const modulePath = "example.invalid/sample"
+	for _, name := range []string{"released", "checkout"} {
+		dir := filepath.Join(root, name)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+modulePath+"\n\ngo 1.27.0\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "code.go"), []byte("package sample\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	work := filepath.Join(root, "go.work")
+	if err := os.WriteFile(work, []byte("go 1.27.0\nuse ./checkout\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOWORK", work)
+	r := moduleResolvingRunner{}
+	c := newChecker(Config{Root: root}, &r)
+	release := moduleRelease{name: "sample", path: modulePath, previousDir: filepath.Join(root, "released"), currentDir: filepath.Join(root, "checkout")}
+	if _, err := c.breakingSymbols(t.Context(), t.TempDir(), release); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"released", "checkout"} {
+		if r[dir] != len(platforms) {
+			t.Errorf("resolved %s for %d platforms, want %d", dir, r[dir], len(platforms))
+		}
+	}
+}
+
+type moduleResolvingRunner map[string]int
+
+func (r moduleResolvingRunner) run(ctx context.Context, cmd command) (string, error) {
+	if len(cmd.args) > 1 && cmd.args[1] == "-w" {
+		out, err := (osRunner{}).run(ctx, command{dir: cmd.dir, name: "go", args: []string{"list", "-f", "{{.Dir}}", cmd.args[len(cmd.args)-1]}, env: cmd.env})
+		if err != nil {
+			return out, err
+		}
+		r[filepath.Base(strings.TrimSpace(out))]++
+	}
+	return "", nil
+}
+
 func TestModuleReleaseRequiresAnExactOrModuleQualifiedSymbol(t *testing.T) {
 	release := moduleRelease{name: "latex", path: "github.com/Tangerg/oolong/extensions/latex", tag: "latex/v0.10.0"}
 	for _, ledger := range []string{
@@ -175,6 +241,7 @@ func writeChangelog(t *testing.T, root, contents string) {
 
 type fixtureRunner struct {
 	commands []command
+	sections map[string]string
 }
 
 func (r *fixtureRunner) run(_ context.Context, cmd command) (string, error) {
@@ -182,6 +249,13 @@ func (r *fixtureRunner) run(_ context.Context, cmd command) (string, error) {
 	switch {
 	case cmd.name == "sh" && len(cmd.args) == 2 && filepath.Base(cmd.args[0]) == "modules.sh" && cmd.args[1] == "--public":
 		return "components\ncore\nfresh\nlatex\n", nil
+	case cmd.name == "sh" && len(cmd.args) == 2 && filepath.Base(cmd.args[0]) == "ledger-section.sh":
+		if section := r.sections[cmd.args[1]]; section != "" {
+			return section + "\n", nil
+		}
+		return "Unreleased\n", nil
+	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && cmd.args[1] == "--resolve" && cmd.args[2] == "core/v0.11.0":
+		return "core\n", nil
 	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && cmd.args[1] == "--pattern":
 		return cmd.args[2] + "/v[01].*\n", nil
 	case cmd.name == "git":

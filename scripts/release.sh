@@ -139,7 +139,7 @@ note "golangci-lint"
 scripts/check-reachability.sh || die "callable code lacks executable coverage or private code is unreachable."
 note "callable code reachability"
 
-go -C ui run ./internal/cmd/apiledger -root .. -section "$tag" ||
+go -C ui run ./internal/cmd/apiledger -root .. -release "$tag" ||
 	die "an incompatible exported API change lacks an exact $version migration entry."
 note "breaking API migration ledger"
 

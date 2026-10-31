@@ -230,8 +230,7 @@ jobs:
       - name: breaking APIs have migration entries
         run: |
           set -euo pipefail
-          section=$(sh scripts/ledger-section.sh)
-          go -C ui run ./internal/cmd/apiledger -root .. -section "$section"
+          go -C ui run ./internal/cmd/apiledger -root ..
 
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
       - name: govulncheck

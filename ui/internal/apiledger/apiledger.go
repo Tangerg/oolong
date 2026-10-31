@@ -24,17 +24,17 @@ const (
 )
 
 // Config identifies the repository and release ledger to check. Empty fields use
-// the current directory, the Unreleased section, apidiff from PATH, and discard
-// informational progress.
+// the current directory, each module's own pending changelog section, apidiff
+// from PATH, and discard informational progress. ReleaseTag selects only its owner.
 type Config struct {
-	Root    string
-	Section string
-	APIDiff string
-	Log     io.Writer
+	Root       string
+	ReleaseTag string
+	APIDiff    string
+	Log        io.Writer
 }
 
-// Check compares every released public workspace module with its latest immutable
-// tag and requires each incompatible symbol to be named in that module's changelog
+// Check compares each selected public module with its latest immutable tag
+// and requires each incompatible symbol to be named in that module's changelog
 // ledger. A public module with no immutable tag is reported to Config.Log because it
 // has no compatibility baseline to compare.
 func Check(ctx context.Context, cfg Config) error {
@@ -42,21 +42,17 @@ func Check(ctx context.Context, cfg Config) error {
 }
 
 type checker struct {
-	root    string
-	section string
-	apidiff string
-	log     io.Writer
-	runner  runner
+	root       string
+	releaseTag string
+	apidiff    string
+	log        io.Writer
+	runner     runner
 }
 
 func newChecker(cfg Config, runner runner) *checker {
 	root := cfg.Root
 	if root == "" {
 		root = "."
-	}
-	section := cfg.Section
-	if section == "" {
-		section = "Unreleased"
 	}
 	apidiff := cfg.APIDiff
 	if apidiff == "" {
@@ -66,7 +62,7 @@ func newChecker(cfg Config, runner runner) *checker {
 	if log == nil {
 		log = io.Discard
 	}
-	return &checker{root: root, section: section, apidiff: apidiff, log: log, runner: runner}
+	return &checker{root: root, releaseTag: cfg.ReleaseTag, apidiff: apidiff, log: log, runner: runner}
 }
 
 func (c *checker) check(ctx context.Context) error {
@@ -74,11 +70,7 @@ func (c *checker) check(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read CHANGELOG.md: %w", err)
 	}
-	changes, err := releaseSection(string(document), c.section)
-	if err != nil {
-		return err
-	}
-	modules, err := c.publicModules(ctx)
+	modules, err := c.selectedModules(ctx)
 	if err != nil {
 		return err
 	}
@@ -90,7 +82,19 @@ func (c *checker) check(ctx context.Context) error {
 
 	var problems []string
 	for _, module := range modules {
-		moduleProblems, checkErr := c.checkModule(ctx, scratch, changes, module)
+		section := c.releaseTag
+		if section == "" {
+			output, selectionErr := c.script(ctx, "sh", "ledger-section.sh", module)
+			if selectionErr != nil {
+				return selectionErr
+			}
+			section = strings.TrimSpace(output)
+		}
+		changes, sectionErr := releaseSection(string(document), section)
+		if sectionErr != nil {
+			return sectionErr
+		}
+		moduleProblems, checkErr := c.checkModule(ctx, scratch, changes, section, module)
 		if checkErr != nil {
 			return checkErr
 		}
@@ -102,13 +106,22 @@ func (c *checker) check(ctx context.Context) error {
 	return nil
 }
 
-func (c *checker) publicModules(ctx context.Context) ([]string, error) {
+func (c *checker) script(ctx context.Context, shell, name string, args ...string) (string, error) {
 	root, err := filepath.Abs(c.root)
 	if err != nil {
-		return nil, fmt.Errorf("resolve repository root: %w", err)
+		return "", err
 	}
-	script := filepath.Join(root, "scripts", "modules.sh")
-	out, err := c.run(ctx, command{dir: root, name: "sh", args: []string{script, "--public"}})
+	return c.run(ctx, command{dir: root, name: shell, args: append([]string{filepath.Join(root, "scripts", name)}, args...)})
+}
+
+func (c *checker) selectedModules(ctx context.Context) ([]string, error) {
+	var out string
+	var err error
+	if c.releaseTag != "" {
+		out, err = c.script(ctx, "bash", "module-tag.sh", "--resolve", c.releaseTag)
+	} else {
+		out, err = c.script(ctx, "sh", "modules.sh", "--public")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +148,7 @@ func (c *checker) publicModules(ctx context.Context) ([]string, error) {
 	return unique, nil
 }
 
-func (c *checker) checkModule(ctx context.Context, scratch, changes, module string) ([]string, error) {
+func (c *checker) checkModule(ctx context.Context, scratch, changes, section, module string) ([]string, error) {
 	release, found, err := c.moduleRelease(ctx, module)
 	if err != nil {
 		return nil, err
@@ -150,7 +163,7 @@ func (c *checker) checkModule(ctx context.Context, scratch, changes, module stri
 	if err != nil || len(symbols) == 0 {
 		return nil, err
 	}
-	return release.migrationProblems(changes, c.section, symbols), nil
+	return release.migrationProblems(changes, section, symbols), nil
 }
 
 type moduleRelease struct {
@@ -208,14 +221,18 @@ func (c *checker) breakingSymbols(ctx context.Context, scratch string, release m
 	if err := os.MkdirAll(moduleScratch, 0o700); err != nil {
 		return nil, fmt.Errorf("create %s API workspace: %w", release.name, err)
 	}
+	work, err := filepath.Abs(filepath.Join(c.root, "go.work"))
+	if err != nil {
+		return nil, err
+	}
 	set := make(map[string]struct{})
 	for _, goos := range platforms {
 		oldAPI := filepath.Join(moduleScratch, goos+"-old.api")
 		newAPI := filepath.Join(moduleScratch, goos+"-new.api")
-		if err := c.export(ctx, release.previousDir, oldAPI, release.path, goos); err != nil {
+		if err := c.export(ctx, release.previousDir, oldAPI, release.path, goos, goWorkOff); err != nil {
 			return nil, err
 		}
-		if err := c.export(ctx, release.currentDir, newAPI, release.path, goos); err != nil {
+		if err := c.export(ctx, release.currentDir, newAPI, release.path, goos, work); err != nil {
 			return nil, err
 		}
 		out, err := c.run(ctx, command{dir: c.root, name: c.apidiff, args: []string{"-m", oldAPI, newAPI}})
@@ -269,13 +286,7 @@ func (m moduleRelease) namesSymbol(ledger, symbol string) bool {
 }
 
 func (c *checker) latestTag(ctx context.Context, module string) (string, error) {
-	root, err := filepath.Abs(c.root)
-	if err != nil {
-		return "", err
-	}
-	pattern, err := c.run(ctx, command{
-		dir: root, name: "bash", args: []string{filepath.Join(root, "scripts", "module-tag.sh"), "--pattern", module},
-	})
+	pattern, err := c.script(ctx, "bash", "module-tag.sh", "--pattern", module)
 	if err != nil {
 		return "", err
 	}
@@ -293,10 +304,10 @@ func (c *checker) latestTag(ctx context.Context, module string) (string, error) 
 	return "", nil
 }
 
-func (c *checker) export(ctx context.Context, directory, output, modulePath, goos string) error {
+func (c *checker) export(ctx context.Context, directory, output, modulePath, goos, work string) error {
 	_, err := c.run(ctx, command{
 		dir: directory, name: c.apidiff, args: []string{"-m", "-w", output, modulePath},
-		env: map[string]string{"GOOS": goos, "CGO_ENABLED": "0"},
+		env: map[string]string{"GOOS": goos, "CGO_ENABLED": "0", goWorkEnv: work},
 	})
 	return err
 }
