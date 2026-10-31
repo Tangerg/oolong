@@ -7,7 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
-	"github.com/Tangerg/oolong/ui/core/publication"
+
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
@@ -15,7 +15,7 @@ import (
 type TranscriptConfig struct {
 	Key            string
 	Name           string
-	Publisher      *publication.Publisher
+	Publisher      base.TranscriptPublisher
 	Retention      base.Retention
 	PublishPartial bool
 	KeepCompleted  int

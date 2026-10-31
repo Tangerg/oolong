@@ -32,10 +32,9 @@ type ByteBatch struct {
 // is stopped. A ByteIngress must not be copied after construction: its pending bytes,
 // backpressure and final delivery belong to one stream.
 type ByteIngress struct {
-	dispatch Dispatcher
-	slot     *reservation
-	limit    int
-	consume  func(ByteBatch)
+	slot    *reservation
+	limit   int
+	consume func(ByteBatch)
 
 	mu      sync.Mutex
 	pending []byte
@@ -81,12 +80,11 @@ func NewByteIngress(config ByteIngressConfig) (*ByteIngress, error) {
 		return nil, err
 	}
 	i := &ByteIngress{
-		slot:     slot,
-		dispatch: config.Dispatcher,
-		limit:    config.Limit,
-		consume:  config.Consume,
-		room:     make(chan struct{}, 1),
-		done:     make(chan struct{}),
+		slot:    slot,
+		limit:   config.Limit,
+		consume: config.Consume,
+		room:    make(chan struct{}, 1),
+		done:    make(chan struct{}),
 	}
 	go i.waitForOwner(ownerDone)
 	return i, nil
@@ -122,13 +120,13 @@ func (i *ByteIngress) Write(p []byte) (n int, err error) {
 
 		take := min(available, len(p))
 		i.pending = append(i.pending, p[:take]...)
-		post := !i.posted
+		slot, post := i.slot, !i.posted
 		i.posted = true
 		i.mu.Unlock()
 
 		n += take
 		p = p[take:]
-		if post && !i.slot.post(i.drain) {
+		if post && !slot.post(i.drain) {
 			i.stop()
 			return n, ErrStopped
 		}
@@ -161,12 +159,12 @@ func (i *ByteIngress) CloseWithError(err error) error {
 	}
 	i.closed = true
 	i.result = err
-	post := !i.posted
+	slot, post := i.slot, !i.posted
 	i.posted = true
 	i.mu.Unlock()
 
 	i.signalRoom()
-	if post && !i.slot.post(i.drain) {
+	if post && !slot.post(i.drain) {
 		i.stop()
 		return ErrStopped
 	}
@@ -237,7 +235,6 @@ func (i *ByteIngress) stop() {
 func (i *ByteIngress) releaseTerminalReferences() {
 	i.result = nil
 	i.consume = nil
-	i.dispatch = Dispatcher{}
 }
 
 func (i *ByteIngress) writeErr() error {
@@ -257,6 +254,12 @@ func (i *ByteIngress) signalRoom() {
 }
 
 func (i *ByteIngress) settle() {
-	i.slot.close()
-	i.once.Do(func() { close(i.done) })
+	i.once.Do(func() {
+		i.mu.Lock()
+		slot := i.slot
+		i.slot = nil
+		i.mu.Unlock()
+		slot.close()
+		close(i.done)
+	})
 }

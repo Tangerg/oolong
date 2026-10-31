@@ -115,7 +115,8 @@ func (s *Scope) eligible(p *program) bool {
 // TaskState records the worker outcome, independently of cancellation requests.
 type TaskState uint8
 
-// Worker outcomes change once, when Run returns or exits abnormally.
+// Worker outcomes change once. Only bare cancellation, deadline or scope closure
+// denotes a cancelled outcome; wrapped and joined errors retain a failed outcome.
 const (
 	TaskRunning TaskState = iota
 	TaskSucceeded
@@ -294,10 +295,10 @@ func (t *Task) complete(err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.status.Err = err
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		t.status.State = TaskSucceeded
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded), errors.Is(err, ErrScopeClosed):
+	case context.Canceled, context.DeadlineExceeded, ErrScopeClosed: //nolint:errorlint // A cancellation branch cannot erase additional worker diagnostics.
 		t.status.State = TaskCancelled
 	default:
 		t.status.State = TaskFailed

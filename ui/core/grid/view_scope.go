@@ -2,7 +2,7 @@ package grid
 
 // viewScope is the drawing authority borrowed from a canvas. Copies and subviews
 // share its lifetime; only the surface can revoke it. A frame borrow also observes
-// publication, which temporarily excludes drawing while Print or Append runs.
+// publication, which excludes drawing while its output transaction is unsettled.
 type viewScope struct {
 	publication *publication
 	open        bool

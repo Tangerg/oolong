@@ -123,8 +123,9 @@ func (c *Channel) Request(sel Selection, send func(string) bool) bool {
 }
 
 // Answer settles a live request only for its selection and receive interval.
-// Invalid payloads settle with an error rather than empty success; malformed or
-// foreign-selection replies remain raw events. at is transport receive time before
+// A matching reply consumes the request even when its payload is invalid or empty;
+// in that case it returns false and produces no paste. Foreign or unrecognized
+// selections leave the request pending. at is transport receive time before
 // queueing: pre-request and deadline replies cannot settle, while delayed decoding
 // preserves timely replies.
 func (c *Channel) Answer(params string, at time.Time) (string, bool) {
@@ -136,13 +137,12 @@ func (c *Channel) Answer(params string, at time.Time) (string, bool) {
 	if !c.live(at) {
 		return "", false
 	}
-	selection, ok := selectionOf(params)
+	selection, payload, ok := splitAnswer(params)
 	if !ok || selection != c.selection {
 		return "", false
 	}
 	c.pending = false
-	_, text, ok := parse(params)
-	return text, ok
+	return decodePayload(payload)
 }
 
 // live is the one ownership rule for both issuing a request and settling its answer.
@@ -178,45 +178,37 @@ func normalized(sel Selection) Selection {
 	return sel
 }
 
-func selectionOf(params string) (Selection, bool) {
-	selection, _, found := strings.Cut(params, ";")
+func splitAnswer(params string) (Selection, string, bool) {
+	selection, payload, found := strings.Cut(params, ";")
 	if !found || len(selection) != 1 {
-		return 0, false
+		return 0, "", false
 	}
 	switch selection[0] {
 	case 'c':
-		return System, true
+		return System, payload, true
 	case 'p':
-		return Primary, true
+		return Primary, payload, true
 	default:
-		return 0, false
+		return 0, "", false
 	}
 }
 
-// parse reads the text out of a terminal's answer. The request lifecycle belongs to
-// Channel.Answer; keeping this decoder private prevents a caller from accepting an
-// answer it never asked for.
-func parse(params string) (Selection, string, bool) {
-	which, ok := selectionOf(params)
-	if !ok {
-		return 0, "", false
-	}
-	_, payload, _ := strings.Cut(params, ";")
+func decodePayload(payload string) (string, bool) {
 	if len(payload) > base64.StdEncoding.EncodedLen(MaxPayload) {
-		return 0, "", false
+		return "", false
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil || len(raw) > MaxPayload {
-		return 0, "", false
+		return "", false
 	}
 	// Emptiness is decided after decoding, not before. The encoding ignores line
 	// breaks, so a payload of one newline is a non-empty field carrying no text at
 	// all — and an answer with nothing in it, delivered as a paste, replaces what the
 	// user had selected with nothing.
 	if len(raw) == 0 {
-		return 0, "", false
+		return "", false
 	}
-	return which, strings.ToValidUTF8(string(raw), "�"), true
+	return strings.ToValidUTF8(string(raw), "�"), true
 }
 
 // encode wraps a payload in the sequence that carries it. ST is used rather than

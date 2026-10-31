@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking changes
 
+- Replace `program.(*InlineRuntime).Publish` with `runtime.Publisher().TryPublish(body)`. The returned `program.Publisher` grants admission and notification only. The compositor owns geometry and settlement. `program.InlineConfig.Publication` accepts `publication.Limits`; only a standalone publisher configures width and ground. Transcript configs consume the producer contract.
+- `program.(*Runtime).Scene` returns a session-bound semantic capability, not the compositor's root. Keep it from Build and use Observe, Invoke and Changes on the owner sequence. `automation.DriverConfig.Root` accepts this capability or an independently owned scene root.
 - `scene.SemanticNode.TextTruncated` is replaced by `TruncatedText` with per-field flags. A continuation page is incomplete even when it is the last page. Check `Next` to continue paging and handle `scene.ErrIncompleteObservation` when exact absence or uniqueness cannot be proved. Use the Element's Enabled predicate to disable a node; scene owns its observed disabled and focused flags.
 - A password mask belongs to the shared edit session. Applying it affects input normalization, rendering and semantic redaction in every connected editor; use separate sessions for independent policies.
 
@@ -20,13 +22,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Background results use scoped typed work and owner-side application. Cancellation, completion, stale delivery and physical output settlement are separately observable. Typed scene actions and bounded automation snapshots share production controller commands.
 - Replace `markdown.Stream` and its Feed / Open / Flush prefix protocol with `content.StreamDocument` plus complete immutable snapshot preparation through `markdown.NewRenderer`. Append changes source; End records EOF; Accept verifies identity, revision and finality. Final Markdown is equivalent to whole-source rendering regardless of transport partition.
 - Replace Transcript Append / Changed / Finish / Commit glue with Add or AddDocument and explicit retention configuration. Transcript owns subscriptions, finalization policy, reading state and publication resumption. KeepCompleted preserves bounded recent interactive context; MaxItems bounds retained references. Selection uses content identity, revision and logical text positions.
-- Replace Inline Print / Append / Tail / Break queues with publication admission and immutable frozen content. InlineRuntime.Publish returns a Receipt; Accepted differs from Written, Failed and UnknownPartial. Grid output is a candidate with Commit / Abort, and exact encoded payload admission precedes owner commits. Native paint is refused for permanent history.
+- Replace Inline Print / Append / Tail / Break queues with publication admission and immutable frozen content. The inline producer returns a Receipt; Accepted differs from Written, Failed and UnknownPartial. Grid output is a candidate with Commit / Abort, and exact encoded payload admission precedes owner commits. Native paint is refused for permanent history.
 - Add bounded VirtualWindow materialization with stable keys, source revisions and explicit estimated extent. Archive storage and offscreen loading remain application policies rather than hidden copies of transcript content.
 - Replace `ssh.Run` with `ssh.Open` and an explicitly closed host passed to program configuration. Optional session services report unsupported capabilities and delivery errors.
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Fixed
 
+- Runtime publication settles confirmed writes before classifying remaining receipts on failure. Ordered repaint reports refusal; ended byte ingress releases its queue reservation. Wrapped or joined cancellation errors preserve their failure outcome, and stale example producers cannot settle another run.
 - Shared editors map peer carets and undo/redo through the actual edit, including repeated text. Element metadata and clipboard-ring continuation settle before subscriber callbacks. History owns typing groups across all views.
 - Settings, panel, viewport and dialog content queries use their real scene attachment. Virtual windows support measurement without a builder and preserve the requested viewport through refinement.
 - Markdown layout caches belong to immutable block sequences. Replacing a document during measurement cannot install stale geometry; combined row coordinates are checked before publication. Truncation suffixes obey the same terminal-text policy as retained source.

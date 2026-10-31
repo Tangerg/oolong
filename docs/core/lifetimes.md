@@ -50,3 +50,5 @@ Inline shutdown drains the final accepted frame before admitting cursor cleanup,
 ## Independent resource budgets
 
 StreamDocument bounds retained source bytes. Capture bounds cells and owned strings. Publisher bounds complete retained captures. The runtime bounds action and resource admission; the writer bounds encoded bytes and pending transport. These quantities are deliberately not added into a fictitious universal memory number, and caller allocations inside a custom renderer remain the caller's responsibility.
+
+An application obtains a producer with `runtime.Publisher()`. Its `TryPublish` checks the live session and writer on every admission, including through a saved handle. A successful admission schedules a frame. Only the compositor can set geometry, admit a writer sequence, or settle receipts. For a custom compositor, construct and own a separate `publication.Publisher`.

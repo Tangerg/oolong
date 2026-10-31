@@ -52,14 +52,14 @@ type ScreenConfig struct {
 type InlineConfig struct {
 	Config
 	Build       func(*InlineRuntime) (scene.Element, error)
-	Publication publication.Config
+	Publication publication.Limits
 }
 
 type runConfig struct {
 	Config
 	build       func(*Runtime) (scene.Element, error)
 	inline      bool
-	publication publication.Config
+	publication publication.Limits
 }
 
 // Screen owns one alternate-screen session. Construction does no I/O and Run
@@ -95,10 +95,7 @@ func NewInline(cfg InlineConfig) (*Inline, error) {
 	if cfg.Build == nil {
 		return nil, errors.New("program: inline requires Build")
 	}
-	// The geometry is determined by the host; budget validation is pure.
-	validation := cfg.Publication
-	validation.Width = 1
-	if _, err := publication.New(validation); err != nil {
+	if err := cfg.Publication.Validate(); err != nil {
 		return nil, err
 	}
 	return &Inline{cfg: runConfig{

@@ -261,3 +261,10 @@ func TestTranscriptRetirementSurvivesCaptureAbnormalExit(t *testing.T) {
 		})
 	}
 }
+
+func TestTranscriptRejectsATypedNilPublisher(t *testing.T) {
+	var publisher *publication.Publisher
+	if _, err := base.NewTranscript(base.TranscriptConfig{Retention: base.PublishCompleted, Publisher: publisher}); err == nil {
+		t.Fatal("accepted a missing publication dependency")
+	}
+}

@@ -134,9 +134,7 @@ func (p *program) buildInterface(cfg runConfig, width, height int, depth grid.De
 	p.canvas.SetDepth(depth)
 	p.canvas.SetGround(p.environment.Ground())
 	if cfg.inline {
-		policy := cfg.publication
-		policy.Width, policy.Ground = width, p.environment.Ground()
-		publisher, err := publication.New(policy)
+		publisher, err := publication.New(publication.Config{Limits: cfg.publication, Width: width, Ground: p.environment.Ground()})
 		if err != nil {
 			return err
 		}
@@ -223,7 +221,7 @@ func (p *program) fail(err error) error {
 	return err
 }
 
-// takeFailure consumes the recorded failure. Draw takes it on the next loop turn
+// takeFailure consumes the recorded failure. The loop takes it on the next turn
 // when there is one, and run takes it when Quit or cancellation means there is not.
 // Taking clears it, so the two paths cannot report the same failure twice.
 func (p *program) takeFailure() error {
@@ -262,7 +260,11 @@ func (p *program) loop(ctx context.Context) error {
 	p.present.RequestFull()
 	for !p.quit.Load() {
 		p.flushNotifications()
-		if err := p.draw(); err != nil {
+		if err := p.takeFailure(); err != nil {
+			p.frameFailed = true
+			return err
+		}
+		if err := p.draw(); err != nil && !errors.Is(err, term.ErrQueueFull) {
 			p.frameFailed = true
 			return err
 		}
@@ -406,13 +408,7 @@ func (p *program) handleInput(ev scene.CapturedInput) error {
 }
 
 func (p *program) draw() error {
-	if err := p.takeFailure(); err != nil {
-		return err
-	}
 	_, err := p.present.Present(time.Now(), p.compose)
-	if errors.Is(err, term.ErrQueueFull) {
-		return nil
-	}
 	return err
 }
 
@@ -614,6 +610,9 @@ func (p *program) finishBlock() error {
 }
 
 func (p *program) repaint() error {
+	if err := p.takeFailure(); err != nil {
+		return err
+	}
 	if err := p.writer.Drain(term.DrainGrace); err != nil {
 		return frameDrainError(p.writer, err)
 	}
@@ -625,7 +624,9 @@ func (p *program) repaint() error {
 	if err := p.draw(); err != nil {
 		return err
 	}
-	return errors.Join(p.writer.Drain(term.DrainGrace), p.writer.Err())
+	err := p.writer.Drain(term.DrainGrace)
+	p.wrote(p.writer.Written())
+	return errors.Join(err, p.writer.Err())
 }
 
 // RepaintSource optionally supplies ordered requests for a complete output frame.

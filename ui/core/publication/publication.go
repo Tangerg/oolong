@@ -19,10 +19,16 @@ var (
 	ErrClosed   = errors.New("publication: closed")
 )
 
-// Config bounds retained captures; zero limits use conservative per-item and session defaults.
+// Config combines the standalone compositor's capture geometry and retention limits.
 type Config struct {
-	Width           int
-	Ground          grid.Ground
+	Limits
+	Width  int
+	Ground grid.Ground
+}
+
+// Limits bounds retained captures independently of host geometry. Zero fields
+// use conservative defaults for one item and for the session as a whole.
+type Limits struct {
 	MaxItems        int
 	MaxCells        int
 	MaxItemBytes    int64
@@ -120,25 +126,40 @@ func (*noCopy) Unlock() {}
 
 // New creates a bounded owner for pending and writer-admitted permanent content.
 func New(cfg Config) (*Publisher, error) {
-	if cfg.Width <= 0 || cfg.MaxItems < 0 || cfg.MaxCells < 0 || cfg.MaxItemBytes < 0 || cfg.MaxPendingBytes < 0 {
-		return nil, errors.New("publication: invalid configuration")
+	if cfg.Width <= 0 {
+		return nil, errors.New("publication: width must be positive")
 	}
-	if cfg.MaxItems == 0 {
-		cfg.MaxItems = 128
+	limits, err := cfg.normalized()
+	if err != nil {
+		return nil, err
 	}
-	if cfg.MaxCells == 0 {
-		cfg.MaxCells = 1 << 16
-	}
-	if cfg.MaxItemBytes == 0 {
-		cfg.MaxItemBytes = 4 << 20
-	}
-	if cfg.MaxPendingBytes == 0 {
-		cfg.MaxPendingBytes = 8 << 20
-	}
-	if cfg.MaxItemBytes > cfg.MaxPendingBytes {
-		return nil, errors.New("publication: item budget exceeds pending budget")
-	}
+	cfg.Limits = limits
 	return &Publisher{cfg: cfg}, nil
+}
+
+// Validate checks the effective budgets, including zero-valued defaults.
+func (l Limits) Validate() error { _, err := l.normalized(); return err }
+
+func (l Limits) normalized() (Limits, error) {
+	if l.MaxItems < 0 || l.MaxCells < 0 || l.MaxItemBytes < 0 || l.MaxPendingBytes < 0 {
+		return Limits{}, errors.New("publication: invalid configuration")
+	}
+	if l.MaxItems == 0 {
+		l.MaxItems = 128
+	}
+	if l.MaxCells == 0 {
+		l.MaxCells = 1 << 16
+	}
+	if l.MaxItemBytes == 0 {
+		l.MaxItemBytes = 4 << 20
+	}
+	if l.MaxPendingBytes == 0 {
+		l.MaxPendingBytes = 8 << 20
+	}
+	if l.MaxItemBytes > l.MaxPendingBytes {
+		return Limits{}, errors.New("publication: item budget exceeds pending budget")
+	}
+	return l, nil
 }
 
 func (p *Publisher) assertIdle() {

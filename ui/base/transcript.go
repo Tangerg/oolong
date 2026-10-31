@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	"math"
+	"reflect"
 	"slices"
 	"sort"
 
@@ -43,11 +44,32 @@ const (
 	ContentRetired
 )
 
+// TranscriptPublisher admits complete content and notifies the UI owner when progress
+// may allow a refused prefix to resume. Only successful admission transfers the content.
+// Subscribe returns an idempotent cancellation and does not call fn during registration.
+type TranscriptPublisher interface {
+	TryPublish(body grid.Drawable) (publication.Receipt, error)
+	Subscribe(fn func()) func()
+}
+
+func missingPublisher(sink TranscriptPublisher) bool {
+	if sink == nil {
+		return true
+	}
+	value := reflect.ValueOf(sink)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
 // TranscriptConfig combines reading policy, bounded retention and an optional publication owner.
 type TranscriptConfig struct {
 	Key            string
 	Name           string
-	Publisher      *publication.Publisher
+	Publisher      TranscriptPublisher
 	Retention      Retention
 	PublishPartial bool
 	// KeepCompleted retains this many trailing items of the complete leading run.
@@ -144,8 +166,11 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if cfg.MaxItems < 0 || cfg.KeepCompleted < 0 || cfg.Retention > PublishCompleted {
 		return nil, errors.New("base: invalid transcript configuration")
 	}
-	if cfg.Retention == PublishCompleted && cfg.Publisher == nil {
-		return nil, errors.New("base: publishing transcript requires a publisher")
+	if missingPublisher(cfg.Publisher) {
+		if cfg.Retention == PublishCompleted {
+			return nil, errors.New("base: publishing transcript requires a publisher")
+		}
+		cfg.Publisher = nil
 	}
 	maxItems := cfg.MaxItems
 	if maxItems == 0 {

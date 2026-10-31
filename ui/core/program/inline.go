@@ -7,41 +7,50 @@ import (
 	"github.com/Tangerg/oolong/ui/core/publication"
 )
 
-// InlineRuntime exposes permanent publication only for an inline session. The
-// publisher is the unique owner of accepted pending content and its receipts.
+// InlineRuntime exposes permanent publication only for an inline session.
 type InlineRuntime struct{ *Runtime }
 
-// Publisher is owner-only. A known transport failure closes publication before
-// any new content can run its measurement or painting callbacks.
-func (r *InlineRuntime) Publisher() *publication.Publisher {
+// Publisher grants producer-side access to permanent output on the UI owner.
+// The compositor retains exclusive authority over geometry, writer admission and settlement.
+func (r *InlineRuntime) Publisher() Publisher {
 	if r == nil {
-		return nil
+		return Publisher{}
 	}
-	p := r.owner()
-	if p == nil {
-		return nil
-	}
-	if err := p.writer.Err(); err != nil && p.publisher != nil {
-		p.publisher.Fail(err, true)
-		p.outputFailed = true
-		_ = p.fail(err)
-	}
-	return p.publisher
+	return Publisher{runtime: r.Runtime}
 }
 
-// Publish freezes and accepts content, then requests a frame. The returned
-// receipt distinguishes acceptance from successful terminal writing.
-func (r *InlineRuntime) Publish(content grid.Drawable) (publication.Receipt, error) {
-	publisher := r.Publisher()
-	if publisher == nil {
-		if r != nil && r.owner() != nil {
-			return publication.Receipt{}, errors.ErrUnsupported
-		}
+// Publisher offers complete content and observes progress without granting writer
+// authority. Retained copies follow the session lifetime; the zero value is stopped.
+type Publisher struct{ runtime *Runtime }
+
+// TryPublish accepts a complete capture and schedules its frame. A stopped session,
+// or a known writer failure, refuses before measurement or drawing. A written receipt
+// is settled from the actual writer watermark, including on a later transport failure.
+func (sink Publisher) TryPublish(body grid.Drawable) (publication.Receipt, error) {
+	p := sink.runtime.owner()
+	if p == nil {
 		return publication.Receipt{}, ErrStopped
 	}
-	receipt, err := publisher.TryPublish(content)
+	if p.publisher == nil {
+		return publication.Receipt{}, errors.ErrUnsupported
+	}
+	if err := p.writer.Err(); err != nil {
+		p.outputFailed = true
+		p.failPublications(err)
+		_ = p.fail(err)
+	}
+	receipt, err := p.publisher.TryPublish(body)
 	if err == nil {
-		r.Refresh()
+		sink.runtime.Refresh()
 	}
 	return receipt, err
+}
+
+// Subscribe observes settled progress on the UI owner. The returned cancellation
+// is idempotent; stopped and non-inline sessions register no callback.
+func (sink Publisher) Subscribe(fn func()) func() {
+	if p := sink.runtime.owner(); p != nil && p.publisher != nil {
+		return p.publisher.Subscribe(fn)
+	}
+	return func() {}
 }

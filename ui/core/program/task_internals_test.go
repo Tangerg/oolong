@@ -3,6 +3,7 @@ package program
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -218,5 +219,40 @@ func TestInspectDoesNotAdvanceModelOrRequestAFrame(t *testing.T) {
 	drawn, err := p.present.Present(time.Now(), func(bool) (uint64, error) { t.Error("read scheduled a frame"); return 0, nil })
 	if drawn || err != nil {
 		t.Fatalf("read changed presenter: %v, %v", drawn, err)
+	}
+}
+
+func TestWorkerOutcomeKeepsDiagnosticCancellationErrors(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		err   error
+		state TaskState
+	}{
+		{"cancel", context.Canceled, TaskCancelled},
+		{"deadline", context.DeadlineExceeded, TaskCancelled},
+		{"scope", ErrScopeClosed, TaskCancelled},
+		{"backend", errors.Join(context.Canceled, errors.New("backend failed")), TaskFailed},
+		{"source", fmt.Errorf("read failed: %w", context.DeadlineExceeded), TaskFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			p, rt := taskOwner(t)
+			scope, err := rt.NewScope(ScopeConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer scope.Close()
+			task, err := rt.Start(scope, Work[int]{Run: func(context.Context) (int, error) { return 0, test.err }, Apply: func(_ int, err error) {
+				if !errors.Is(err, test.err) {
+					t.Errorf("delivered diagnostic=%v", err)
+				}
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			settleTask(t, p, task)
+			if status := task.Snapshot(); status.State != test.state || !errors.Is(status.Err, test.err) || status.CancelRequested || status.Delivery != DeliveryApplied {
+				t.Fatalf("worker outcome=%+v", status)
+			}
+		})
 	}
 }

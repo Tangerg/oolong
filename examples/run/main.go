@@ -156,7 +156,7 @@ func (r *runner) output(chunk string) error {
 	for _, line := range r.out.Feed(chunk) {
 		paragraph := &kit.Paragraph{}
 		paragraph.SetText([]text.Line{line})
-		if _, err := r.runtime.Publish(paragraph); err != nil {
+		if _, err := r.runtime.Publisher().TryPublish(paragraph); err != nil {
 			return err
 		}
 	}
@@ -167,7 +167,7 @@ func (r *runner) finish(err error) {
 	for _, line := range r.out.Flush() {
 		paragraph := &kit.Paragraph{}
 		paragraph.SetText([]text.Line{line})
-		if _, printErr := r.runtime.Publish(paragraph); printErr != nil {
+		if _, printErr := r.runtime.Publisher().TryPublish(paragraph); printErr != nil {
 			err = errors.Join(err, printErr)
 			break
 		}

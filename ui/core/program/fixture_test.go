@@ -49,7 +49,7 @@ func runFixture(ctx context.Context, config any) error {
 }
 
 func publish(runtime *program.InlineRuntime, body grid.Drawable) error {
-	_, err := runtime.Publish(body)
+	_, err := runtime.Publisher().TryPublish(body)
 	return err
 }
 

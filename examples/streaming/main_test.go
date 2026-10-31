@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -127,7 +128,7 @@ func stateOf(t *testing.T, c *chat) state {
 	var result state
 	if err := c.runtime.Dispatcher().Inspect(t.Context(), func() error {
 		result = state{
-			active: c.active, open: c.item != nil && c.item.State() == base.ContentLive,
+			active: c.document != nil, open: c.item != nil && c.item.State() == base.ContentLive,
 			dialog: c.dialog.Controller().Open(), blocks: c.content.Len(), first: c.content.FirstBlock(),
 			status: c.status.Doing, prompt: c.composer.Controller().Text(),
 			written: c.item != nil && c.item.Receipt().Snapshot().State == publication.Written,
@@ -380,3 +381,49 @@ func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 }
 
 func (h *host) ReleaseImage(graphics.Image) error { return nil }
+
+func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
+	h := newHost()
+	defer func() {
+		if err := h.writer.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	started := make(chan *program.ByteIngress, 2)
+	c, stop := runSource(t, h, func(ctx context.Context, _ string, dst io.Writer) error {
+		started <- dst.(*program.ByteIngress)
+		<-ctx.Done()
+		return context.Cause(ctx)
+	})
+	defer stop()
+	owner := c.runtime.Dispatcher()
+	if err := owner.Invoke(t.Context(), func() error { c.startReply("first"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	first := <-started
+	if err := owner.Invoke(t.Context(), func() error {
+		if _, err := first.Write([]byte("late first reply")); err != nil {
+			return err
+		}
+		previous := c.document
+		cause := errors.New("local preparation failed")
+		c.setOutcome(cause)
+		if state := previous.Current(); state.State != content.Failed || !errors.Is(state.SourceError, cause) {
+			t.Errorf("retired source still needs an owner: %+v", state)
+		}
+		c.startReply("second")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	<-first.Done()
+	if err := owner.Inspect(t.Context(), func() error {
+		if c.document == nil || c.document.Snapshot().Final() || c.document.Snapshot().Text() != "" || !strings.Contains(c.status.Doing, "receiving") {
+			t.Errorf("old bytes or EOF changed next reply: %s", c.status.Doing)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

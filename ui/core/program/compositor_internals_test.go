@@ -199,3 +199,23 @@ func TestInlineCleanupPreservesADrainFailure(t *testing.T) {
 		t.Fatal("refused cleanup consumed its retry")
 	}
 }
+
+func TestOrderedRepaintCannotReportUnadmittedOutput(t *testing.T) {
+	root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Paint: func(f scene.Frame) { f.Text(0, 0, "repaint", grid.Style{}) }})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	writer := &admissionWriter{refuse: true, changes: make(chan struct{}, 1)}
+	p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: writer}
+	var replied bool
+	err = p.answerRepaint(func(result error) {
+		replied = true
+		if !errors.Is(result, term.ErrQueueFull) {
+			t.Errorf("repaint receipt=%v", result)
+		}
+	})
+	if !replied || !errors.Is(err, term.ErrQueueFull) || root.Progress().LayoutRevision != 0 {
+		t.Fatalf("unadmitted repaint: replied=%v err=%v layout=%d", replied, err, root.Progress().LayoutRevision)
+	}
+}

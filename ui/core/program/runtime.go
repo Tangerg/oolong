@@ -1,6 +1,8 @@
 package program
 
 import (
+	"context"
+
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
@@ -95,11 +97,50 @@ func (r *Runtime) Quit() {
 	p.tasks.signal()
 }
 
-// Scene is the attached scene for owner-side composition and semantic observation.
+// Scene grants owner-side semantic access without transferring frame or transport
+// authority. A handle obtained during Build begins observing after attachment.
 // Background callers enter through Dispatcher.Inspect or Invoke before using it.
-func (r *Runtime) Scene() *scene.Root {
-	if p := r.owner(); p != nil {
-		return p.root
+func (r *Runtime) Scene() Scene { return Scene{runtime: r} }
+
+// Scene follows one runtime's attached UI. Its zero value and retained handles
+// after Run report ErrStopped; a live builder without a root reports scene.ErrDetached.
+type Scene struct{ runtime *Runtime }
+
+func (s Scene) root() (*scene.Root, error) {
+	p := s.runtime.owner()
+	if p == nil {
+		return nil, ErrStopped
 	}
-	return nil
+	if p.root == nil {
+		return nil, scene.ErrDetached
+	}
+	return p.root, nil
+}
+
+// Observe reads bounded semantic evidence from the current attachment on the UI owner.
+func (s Scene) Observe(query scene.Query) (scene.Observation, error) {
+	root, err := s.root()
+	if err != nil {
+		return scene.Observation{}, err
+	}
+	return root.Observe(query)
+}
+
+// Invoke routes a semantic action to the same attachment and controller as human input.
+func (s Scene) Invoke(ctx context.Context, target scene.Target, action scene.ActionID, params any) (scene.Invocation, error) {
+	root, err := s.root()
+	if err != nil {
+		return scene.Invocation{}, err
+	}
+	return root.Invoke(ctx, target, action, params)
+}
+
+// Changes closes on the next attached scene transition. Before attachment it is
+// nil; after the session stops, or on the zero value, it is already closed.
+func (s Scene) Changes() <-chan struct{} {
+	p := s.runtime.owner()
+	if p == nil {
+		return closedSignal
+	}
+	return p.root.Changes()
 }

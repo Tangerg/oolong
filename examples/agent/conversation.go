@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
-	"github.com/Tangerg/oolong/ui/core/publication"
+
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
 )
@@ -20,7 +20,7 @@ type conversation struct {
 	theme     kit.Theme
 	glyphs    kit.Glyphs
 	wheel     input.Wheel
-	publisher *publication.Publisher
+	publisher base.TranscriptPublisher
 	content   *base.Transcript
 	view      *kit.Transcript
 	group     *scene.Group
@@ -30,7 +30,7 @@ type conversation struct {
 	problem   error
 }
 
-func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel, publisher *publication.Publisher) *conversation {
+func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel, publisher base.TranscriptPublisher) *conversation {
 	c := &conversation{
 		theme: theme, glyphs: glyphs, wheel: wheel, publisher: publisher,
 		render: markdown.NewRenderer(markdown.RendererConfig{Look: agentMarkdownLook(theme, glyphs)}),

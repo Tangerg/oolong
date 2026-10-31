@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
+
+	"github.com/Tangerg/oolong/ui/core/input"
 
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -118,5 +121,43 @@ func TestBridgeKeepsRunIdentityWithTheApplication(t *testing.T) {
 	}
 	if committed {
 		t.Fatal("a superseded run changed its replacement")
+	}
+}
+
+type captureRuns struct{ started chan *agentBridge }
+
+func (b captureRuns) Run(ctx context.Context, _ string, output agentOutput) error {
+	b.started <- output.(*agentBridge)
+	<-ctx.Done()
+	return context.Cause(ctx)
+}
+
+func TestLateIngressCannotFinishTheNextAgentRun(t *testing.T) {
+	started := make(chan *agentBridge, 2)
+	host, stop := runAgent(t, captureRuns{started})
+	defer stop()
+	host.Shows(t, "Ask the mock agent")
+	host.Type("first")
+	host.Press(input.Enter)
+	first := <-started
+	if err := first.dispatch.Invoke(t.Context(), func() error {
+		if _, err := first.Write([]byte("late first run text")); err != nil {
+			return err
+		}
+		first.owner.finishRun(errors.New("local result failed"))
+		first.owner.startRun("second")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second := <-started
+	<-first.ingress.Done()
+	if err := second.dispatch.Inspect(t.Context(), func() error {
+		if second.owner.run != second.run || second.owner.conversation.document != nil || !strings.Contains(second.owner.status.Doing, "planning") {
+			t.Errorf("old bytes or EOF changed the next run: %s", second.owner.status.Doing)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

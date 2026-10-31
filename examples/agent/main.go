@@ -308,6 +308,9 @@ func (a *agent) refreshCompletion() {
 }
 
 func (a *agent) startRun(prompt string) {
+	ctx, cancel := context.WithCancel(a.scope.Context())
+	run := &agentRun{cancel: cancel}
+	a.run = run
 	a.conversation.User(a.scope.Context(), prompt)
 	a.workflow.Reset()
 	a.status.Doing = "planning with " + a.model
@@ -320,14 +323,15 @@ func (a *agent) startRun(prompt string) {
 	}
 	a.stopClock = timer.Stop
 
-	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: a.runtime.Dispatcher(), Limit: ingressSize, Consume: a.accept})
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: a.runtime.Dispatcher(), Limit: ingressSize, Consume: func(batch program.ByteBatch) {
+		if a.run == run {
+			a.accept(batch)
+		}
+	}})
 	if err != nil {
 		a.finishRun(err)
 		return
 	}
-	ctx, cancel := context.WithCancel(a.scope.Context())
-	run := &agentRun{cancel: cancel}
-	a.run = run
 	output := &agentBridge{
 		ingress: ingress, dispatch: a.runtime.Dispatcher(), owner: a, run: run,
 	}

@@ -62,7 +62,7 @@ Create a `content.StreamDocument`, add it once to a Transcript, and append sourc
 
 A Transcript combines document subscriptions, reading state and retention. `PublishCompleted` transfers only an eligible complete prefix to its configured publisher. `KeepCompleted` can retain a bounded recent context on the interactive surface; the default is zero. Publication refusal retains the original content and automatically retries when capacity changes.
 
-`InlineRuntime.Publish` returns a `publication.Receipt`. `Accepted` means immutable content and output responsibility have transferred; `Written` means the terminal writer completed the associated bytes. `Failed` and `UnknownPartial` preserve failure information. Publication and writer budgets are checked at their respective owners. No application-side sequence of Changed, Finish and Commit calls is required.
+`InlineRuntime.Publisher().TryPublish` returns a `publication.Receipt`. `Accepted` means immutable content and output responsibility have transferred; `Written` means the terminal writer completed the associated bytes. `Failed` and `UnknownPartial` preserve failure information. Publication and writer budgets are checked at their respective owners. No application-side sequence of Changed, Finish and Commit calls is required.
 
 Read [bounded streaming](docs/guides/streaming.md) and [history and virtualization](docs/guides/history.md) before choosing retention limits or archive policy.
 

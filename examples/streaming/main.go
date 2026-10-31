@@ -86,9 +86,7 @@ type chat struct {
 	render       content.Renderer
 	prepareScope *program.Scope
 
-	ingress *program.ByteIngress
-	cancel  context.CancelFunc
-	active  bool
+	cancel context.CancelFunc
 }
 
 func newChat(ctx context.Context, runtime *program.InlineRuntime) (*chat, error) {
@@ -216,7 +214,7 @@ func (c *chat) Handle(event input.Event) bool {
 
 func (c *chat) requestApproval() {
 	prompt := strings.TrimSpace(c.composer.Controller().Text())
-	if prompt == "" || c.active || c.dialog.Controller().Open() {
+	if prompt == "" || c.document != nil || c.dialog.Controller().Open() {
 		return
 	}
 	c.pending = prompt
@@ -263,16 +261,16 @@ func (c *chat) startReply(prompt string) {
 		c.setOutcome(err)
 		return
 	}
-	c.active = true
 	c.status.Doing = "receiving — ctrl+x cancels"
 	_ = c.runtime.Session().SetTitle("receiving")
-	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: c.runtime.Dispatcher(), Limit: ingressLimit, Consume: c.accept})
+	document := c.document
+	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: c.runtime.Dispatcher(), Limit: ingressLimit, Consume: func(batch program.ByteBatch) { c.accept(document, batch) }})
 	if err != nil {
 		c.finishReply(err)
 		return
 	}
 	ctx, cancel := context.WithCancel(c.scope.Context())
-	c.ingress, c.cancel = ingress, cancel
+	c.cancel = cancel
 	go func() { <-ingress.Done(); cancel() }()
 	go func() { err := c.source(ctx, prompt, ingress); _ = ingress.CloseWithError(err) }()
 	c.element.Invalidate()
@@ -280,7 +278,11 @@ func (c *chat) startReply(prompt string) {
 
 // The ingress owner appends each accepted batch once. Rendering consumes immutable
 // source snapshots in scoped tasks; a newer snapshot revokes an older delivery.
-func (c *chat) accept(batch program.ByteBatch) {
+func (c *chat) accept(document *content.StreamDocument, batch program.ByteBatch) {
+	// Closing an ingress does not withdraw a batch already queued on the UI owner.
+	if c.document != document || document.Current().State == content.Finalizing {
+		return
+	}
 	if len(batch.Data) > 0 {
 		if err := c.document.Append(batch.Data); err != nil {
 			c.finishReply(errors.Join(batch.Err, err))
@@ -292,10 +294,12 @@ func (c *chat) accept(batch program.ByteBatch) {
 		c.finishReply(batch.Err)
 		return
 	}
-	c.prepare(false, nil)
+	c.prepare()
 }
 
-func (c *chat) prepare(final bool, sourceErr error) {
+func (c *chat) prepare() {
+	document, renderer := c.document, c.render
+	sourceErr := document.Current().SourceError
 	if c.prepareScope != nil {
 		c.prepareScope.Close()
 	}
@@ -305,12 +309,15 @@ func (c *chat) prepare(final bool, sourceErr error) {
 		return
 	}
 	c.prepareScope = scope
-	document, renderer := c.document, c.render
 	snapshot := document.Snapshot()
 	_, err = c.runtime.Start(scope, program.Work[content.Prepared]{
 		Run: func(ctx context.Context) (content.Prepared, error) { return snapshot.Prepare(ctx, renderer), nil },
 		Apply: func(prepared content.Prepared, err error) {
 			defer scope.Close()
+			if c.document != document {
+				return
+			}
+			c.prepareScope = nil
 			if err == nil {
 				err = document.Accept(prepared)
 			}
@@ -318,7 +325,7 @@ func (c *chat) prepare(final bool, sourceErr error) {
 				c.setOutcome(errors.Join(sourceErr, err))
 				return
 			}
-			if final {
+			if snapshot.Final() {
 				if prepareErr := document.Current().PrepareError; prepareErr != nil {
 					sourceErr = errors.Join(sourceErr, prepareErr)
 				}
@@ -334,17 +341,42 @@ func (c *chat) prepare(final bool, sourceErr error) {
 
 func (c *chat) finishReply(err error) {
 	if c.document == nil {
-		c.setOutcome(err)
 		return
 	}
 	if endErr := c.document.End(err); endErr != nil {
 		c.setOutcome(errors.Join(err, endErr))
 		return
 	}
-	c.prepare(true, err)
+	c.prepare()
 }
 
 func (c *chat) setOutcome(err error) {
+	document := c.document
+	c.document = nil
+	if c.prepareScope != nil {
+		c.prepareScope.Close()
+		c.prepareScope = nil
+	}
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
+	if document != nil && err != nil {
+		// A local preparation failure can finish this reply before its source returns.
+		// Settle the original document too: no later task will prepare that revision.
+		if state := document.Current().State; state == content.Receiving || state == content.Preparing {
+			if endErr := document.End(err); endErr != nil {
+				err = errors.Join(err, endErr)
+			}
+		}
+		if document.Current().State == content.Finalizing {
+			failed := document.Snapshot().Prepare(c.scope.Context(), func(context.Context, string) (grid.Drawable, error) { return nil, err })
+			if acceptErr := document.Accept(failed); acceptErr != nil {
+				err = errors.Join(err, acceptErr)
+			}
+		}
+	}
+
 	switch {
 	case err == context.Canceled: //nolint:errorlint // Joined cancellation retains its failure diagnostics.
 		c.status.Doing = "cancelled"
@@ -355,11 +387,7 @@ func (c *chat) setOutcome(err error) {
 		c.status.Doing = "complete"
 		_ = c.runtime.Session().Notify("the answer is complete")
 	}
-	if c.cancel != nil {
-		c.cancel()
-	}
 	_ = c.runtime.Session().SetTitle("streaming")
-	c.ingress, c.cancel, c.active = nil, nil, false
 	c.element.Invalidate()
 }
 

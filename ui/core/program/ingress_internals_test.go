@@ -68,7 +68,7 @@ func TestByteIngressStopReleasesPendingBytes(t *testing.T) {
 	}
 	ingress.mu.Lock()
 	pending, stopped := len(ingress.pending), ingress.stopped
-	consumer, dispatcher, result := ingress.consume, ingress.dispatch.tasks, ingress.result
+	consumer, reservation, result := ingress.consume, ingress.slot, ingress.result
 	ingress.mu.Unlock()
 	if pending != 0 {
 		t.Fatalf("stopped ingress retained %d pending bytes", pending)
@@ -76,7 +76,7 @@ func TestByteIngressStopReleasesPendingBytes(t *testing.T) {
 	if !stopped {
 		t.Fatal("ingress did not enter its terminal state")
 	}
-	if consumer != nil || dispatcher != nil || result != nil {
+	if consumer != nil || reservation != nil || result != nil {
 		t.Fatal("stopped ingress retained references across its owner boundary")
 	}
 	if _, err := ingress.Write([]byte("later")); !errors.Is(err, ErrStopped) {
@@ -108,10 +108,10 @@ func TestByteIngressFinalDeliverySettlesCrossBoundaryReferences(t *testing.T) {
 	}
 
 	ingress.mu.Lock()
-	consumer, dispatcher, result := ingress.consume, ingress.dispatch.tasks, ingress.result
+	consumer, reservation, result := ingress.consume, ingress.slot, ingress.result
 	ingress.mu.Unlock()
-	if consumer != nil || dispatcher != nil || result != nil {
-		t.Fatal("finished ingress retained consumer, dispatcher, or terminal error")
+	if consumer != nil || reservation != nil || result != nil {
+		t.Fatal("finished ingress retained consumer, queue reservation, or terminal error")
 	}
 	tasks.stop()
 }
