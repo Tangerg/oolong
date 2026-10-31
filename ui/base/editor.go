@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
 
@@ -17,7 +18,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Editor owns text, grapheme-aligned cursor positions and visual-row navigation.
+// Editor is one view of an EditSession, with its own caret, selection and navigation.
 // The zero value is ready. An Editor must not be copied after first use.
 type Editor struct {
 	element  scene.Element
@@ -54,8 +55,6 @@ type Editor struct {
 	rowEnd    Caret
 	rowEndSet bool
 
-	// Whole-document byte offsets let [text.Edit] shift every mark through one edit policy.
-
 	kills        editorKillRing
 	continuation editorContinuation
 	yank         editorYank
@@ -64,11 +63,6 @@ type Editor struct {
 
 	// Inverted so a standalone zero-value editor owns the keyboard.
 	blurred bool
-
-	typing bool
-	// Cursor and presentation changes must not advance the semantic content generation.
-	// Setters enforce one-line storage before a mask or mode change can hide content.
-	mask string
 
 	scroll Scroll
 	// Scroll owns request consumption and cancellation; drawing only resolves its visual row.
@@ -91,6 +85,7 @@ func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
 }
 
 type editorState struct {
+	change    ChangeMap // maps this history snapshot to the state it replaces on undo or redo
 	lines     []string
 	line, col int
 	// Text cannot reconstruct element identities, so undo must retain the marks.
@@ -114,32 +109,20 @@ func (e *Editor) SingleLine() bool { return e.document().singleLine }
 // It clears history so undo cannot restore invalid multi-line content. A non-empty
 // mask still requires one-line storage when the explicit setting is disabled.
 func (e *Editor) SetSingleLine(enabled bool) {
-	e.requireMutable()
-	if e.document().singleLine == enabled {
-		return
-	}
-	wasOneLine := e.oneLine()
-	e.document().singleLine = enabled
-	e.oneLineChanged(wasOneLine)
+	e.setPolicy(enabled, e.Mask())
 }
 
-// Mask reports what each text cluster is drawn as. Empty means text is shown.
-func (e *Editor) Mask() string { return e.mask }
+// Mask reports the shared session's display mask. Empty means text is shown.
+func (e *Editor) Mask() string { return e.document().mask }
 
-// SetMask changes the glyph drawn for each text cluster. Invalid masks panic: they
-// must be visible, free of tabs and controls, and remain separate when repeated.
-// A non-empty mask applies the one-line transition of [Editor.SetSingleLine].
+// SetMask changes how every view of this document draws and redacts its text.
+// A non-empty mask also requires single-line storage for every writer, including
+// Reset. It panics for invisible or joining masks, or during scene projection.
 func (e *Editor) SetMask(mask string) {
-	e.requireMutable()
 	if mask != "" && !maskable(mask) {
 		panic("base: editor mask must be visible terminal text that does not join a copy of itself")
 	}
-	if e.mask == mask {
-		return
-	}
-	wasOneLine := e.oneLine()
-	e.mask = strings.Clone(mask)
-	e.oneLineChanged(wasOneLine)
+	e.setPolicy(e.SingleLine(), mask)
 }
 
 // Repeated masks must not join into grapheme clusters, or multiplication would place
@@ -159,28 +142,41 @@ func clusters(s string) int {
 	return n
 }
 
-func (e *Editor) oneLineChanged(wasOneLine bool) {
-	defer e.revealCursor()
-	nowOneLine := e.oneLine()
-	if wasOneLine == nowOneLine {
+func (e *Editor) setPolicy(singleLine bool, mask string) {
+	e.requireMutable()
+	doc := e.document()
+	if doc.singleLine == singleLine && doc.mask == mask {
 		return
 	}
-	e.endTyping()
-	e.layout.stale = true
-	if !nowOneLine {
-		return
+	e.connect()
+	entering := !e.oneLine() && (singleLine || mask != "")
+	if entering && len(doc.lines) > 1 {
+		e.requireContentRevision()
 	}
-	// Old undo snapshots may contain lines even when the current value does not.
-	e.document().history.clear()
-	if len(e.document().lines) <= 1 {
-		return
+	doc.singleLine, doc.mask = singleLine, strings.Clone(mask)
+	if entering {
+		// Older snapshots could restore line breaks even if today's text has none.
+		doc.history.clear()
+		if len(doc.lines) > 1 {
+			before := doc.lines
+			at := e.offsetOf(Caret{Line: e.line, Col: e.col})
+			flattened := strings.Join(before, " ")
+			doc.lines = []string{flattened}
+			e.line, e.col = 0, e.snapElement(0, at, true)
+			e.selecting = false
+			e.endTyping()
+			doc.commit(e, before, ChangeMap{OldEnd: len(flattened), NewEnd: len(flattened)}, false)
+			return
+		}
 	}
-	e.requireContentRevision()
-	at := e.offsetOf(Caret{Line: e.line, Col: e.col})
-	e.document().lines = []string{strings.Join(e.document().lines, " ")}
-	e.line, e.col = 0, e.snapElement(0, at, true)
-	e.selecting = false
-	e.contentChanged()
+	for _, ref := range doc.views {
+		if view := ref.Value(); view != nil {
+			view.endTyping()
+			view.layout.stale = true
+			view.revealCursor()
+		}
+	}
+	doc.invalidateViews()
 }
 
 // SetText replaces the content and places the cursor at its end.
@@ -204,7 +200,13 @@ func (e *Editor) replaceDocument(s string, remember bool) {
 	if remember {
 		e.snapshot()
 	}
-	e.replaceRange(start, end, s)
+	// A whole replacement supplies no particular edit location. Preserve its
+	// unchanged edges; explicit range edits keep their actual coordinates.
+	previous := e.Text()
+	prefix := commonRunePrefix(previous, s)
+	oldEnd, newEnd := commonRuneSuffixStarts(previous, s, prefix)
+	before, _ := e.applyRange(start, end, s)
+	e.document().commit(e, before, ChangeMap{Start: prefix, OldEnd: oldEnd, NewEnd: newEnd}, true)
 }
 
 func commonRunePrefix(a, b string) int {
@@ -272,9 +274,14 @@ func (e *Editor) SetCursor(line, col int) {
 }
 
 // Insert inserts text at the cursor, splitting lines at newlines.
-func (e *Editor) Insert(s string) {
+func (e *Editor) Insert(s string) { e.insert(s, false) }
+
+func (e *Editor) insert(s string, typed bool) {
 	e.requireMutable()
 	if s == "" {
+		if typed {
+			e.document().history.endTyping(e)
+		}
 		return
 	}
 	e.ensure()
@@ -285,11 +292,17 @@ func (e *Editor) Insert(s string) {
 	}
 	s, changed := e.prepareReplacement(start, end, s)
 	if !changed {
+		if typed {
+			e.document().history.endTyping(e)
+		}
 		e.finishReplacement(end)
 		return
 	}
-	if !e.typing {
+	if e.document().history.typist.Value() != e {
 		e.snapshot()
+	}
+	if typed {
+		e.document().history.typist = weak.Make(e)
 	}
 	// Selection replacement and insertion share one undo step.
 	e.replaceRange(start, end, s)
@@ -375,21 +388,13 @@ var (
 	flatLineBreaks    = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 )
 
-func (e *Editor) oneLine() bool { return e.document().singleLine || e.mask != "" }
+func (e *Editor) oneLine() bool { return e.SingleLine() || e.Mask() != "" }
 
 // InsertRune puts one character in.
 func (e *Editor) InsertRune(r rune) {
 	e.requireMutable()
 	// InsertRune cannot create logical lines; Printable preserves tabs but not line breaks.
-	e.typeText(text.Printable(string(r)))
-}
-
-// A handled no-op closes typing so the next insertion has its own undo snapshot.
-func (e *Editor) typeText(s string) {
-	e.requireMutable()
-	before := e.document().revision
-	e.Insert(s)
-	e.typing = e.document().revision != before
+	e.insert(text.Printable(string(r)), true)
 }
 
 // Newline splits the line at the cursor, and does nothing at all in a field that holds
@@ -410,16 +415,16 @@ func (e *Editor) DeleteBack() {
 	e.ensure()
 	e.breakContinuation()
 	if e.col > 0 {
-		if !e.typing {
+		if e.document().history.typist.Value() != e {
 			e.snapshot()
 		}
 		at := text.PrevCluster(e.document().lines[e.line], e.col)
 		if el, inside := e.insideElement(e.line, at); inside {
 			at = el.Start
 		}
+		// Corrections extend the same undo group; settle it before publication.
+		e.document().history.typist = weak.Make(e)
 		e.replaceRange(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
-		// Coalesce corrections with the typing burst they amend.
-		e.typing = true
 		return
 	}
 	if e.line == 0 {
@@ -520,18 +525,12 @@ func (e *Editor) Yank() {
 	if !ok {
 		return
 	}
-	start := Caret{Line: e.line, Col: e.col}
-	if selected, _, ok := e.Selection(); ok {
-		start = selected
+	e.ensure()
+	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	if first, last, selected := e.Selection(); selected {
+		start, end = first, last
 	}
-	killed = e.canonicalText(killed)
-	offset := e.offsetOf(start)
-	e.Insert(killed)
-	e.yank = editorYank{
-		start: start,
-		end:   e.caretAt(offset + len(killed)),
-	}
-	e.continuation = editorContinuationYank
+	e.applyYank(start, end, killed, 0)
 }
 
 // YankPop replaces the immediately preceding yank with the next older kill, cycling
@@ -548,21 +547,25 @@ func (e *Editor) YankPop() {
 		e.endTyping()
 		return
 	}
-	yank := e.yank
-	offset := e.offsetOf(yank.start)
-	killed, changed := e.prepareReplacement(yank.start, yank.end, killed)
+	e.applyYank(e.yank.start, e.yank.end, killed, next)
+}
+
+func (e *Editor) applyYank(start, end Caret, killed string, ring int) {
+	offset := e.offsetOf(start)
+	killed, changed := e.prepareReplacement(start, end, killed)
+	var before []string
+	var change ChangeMap
 	if changed {
 		e.snapshot()
-		e.replaceRange(yank.start, yank.end, killed)
+		before, change = e.applyRange(start, end, killed)
 	} else {
-		e.finishReplacement(yank.end)
+		e.finishReplacement(end)
 	}
-	e.yank = editorYank{
-		start: yank.start,
-		end:   e.caretAt(offset + len(killed)),
-		ring:  next,
-	}
+	e.yank = editorYank{start: start, end: e.caretAt(offset + len(killed)), ring: ring}
 	e.continuation = editorContinuationYank
+	if changed {
+		e.document().commit(e, before, change, true)
+	}
 }
 
 // MoveLeft moves one cluster left, over a line break when there is nowhere else.
@@ -660,7 +663,6 @@ func (e *Editor) Undo() {
 		return
 	}
 	e.restore(previous)
-	e.typing = false
 }
 
 // Redo steps forward again.
@@ -676,7 +678,6 @@ func (e *Editor) Redo() {
 		return
 	}
 	e.restore(next)
-	e.typing = false
 }
 
 func (e *Editor) ensure() {
@@ -691,9 +692,6 @@ func (e *Editor) ensure() {
 	}
 }
 
-// Content invalidation must not close typing, or each keystroke becomes an undo step.
-func (e *Editor) contentChanged() { e.document().commit(e) }
-
 // requireContentRevision keeps exhaustion on the caller's side of a mutation, so a
 // recovered panic cannot leave changed content carrying its old observation token.
 func (e *Editor) requireContentRevision() {
@@ -706,7 +704,7 @@ func (e *Editor) requireContentRevision() {
 // Movement and editing share this boundary so typing, drag and soft-break affinity cannot drift.
 func (e *Editor) endTyping() {
 	e.dragging = false
-	e.typing = false
+	e.document().history.endTyping(e)
 	e.rowEndSet = false
 	e.breakContinuation()
 }
@@ -734,12 +732,13 @@ func (e *Editor) restore(s editorState) {
 	if changed {
 		e.requireContentRevision()
 	}
-	e.document().lines = append([]string(nil), s.lines...)
+	before := e.document().lines
+	e.document().lines = slices.Clone(s.lines)
 	e.document().marks = append([]text.Mark(nil), s.marks...)
 	e.line, e.col = s.line, s.col
 	e.selecting = false
 	if changed {
-		e.contentChanged()
+		e.document().commit(e, before, s.change.inverse(), false)
 	}
 }
 
@@ -811,10 +810,13 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	}
 	at := e.offsetOf(start) + len(lead)
 	replacement, changedText := e.prepareReplacement(start, end, lead+body+" ")
+	var before []string
+	var change ChangeMap
 	if changedText {
-		e.replaceRange(start, end, replacement)
+		before, change = e.applyRange(start, end, replacement)
 	} else {
 		e.requireContentRevision()
+		before = e.document().lines
 		e.finishReplacement(end)
 	}
 	mark := text.Mark{
@@ -828,10 +830,9 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 		return a.Start - b.Start
 	})
 	e.document().marks = slices.Insert(e.document().marks, where, mark)
-	if !changedText {
-		e.contentChanged()
-	}
-	return e.elementOf(mark)
+	inserted := e.elementOf(mark)
+	e.document().commit(e, before, change, true)
+	return inserted
 }
 
 // Joining depends on neighboring text: two valid regional-indicator labels can
@@ -959,11 +960,6 @@ func (e *Editor) byteLength() int {
 		n += len(line)
 	}
 	return n
-}
-
-// Caret coordinates refer to the old lines, so shift marks before replacing storage.
-func (e *Editor) removed(start, end Caret, s string) {
-	e.edited(text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s})
 }
 
 func (e *Editor) offsetOf(c Caret) int {
@@ -1117,7 +1113,7 @@ func (e *Editor) typed(key input.Key) bool {
 	// the unshifted key on the physical keyboard: on a layout where the key beside "1"
 	// produces "@", inserting the code would type "2".
 	if key.Text != "" {
-		e.typeText(key.Text)
+		e.insert(key.Text, true)
 		return true
 	}
 	if key.Code == input.Character && key.Rune != 0 {
@@ -1327,7 +1323,7 @@ func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
 	out := make([]text.Row, len(rows))
 	for i, row := range rows {
 		shown := e.document().lines[row.line][row.start:row.end]
-		if e.mask != "" {
+		if e.Mask() != "" {
 			// A masked field must not disclose its value to an appearance callback.
 			shown = e.shown()
 		}
@@ -1393,7 +1389,7 @@ func (e *Editor) rows(width int) []editorRow {
 
 func (e *Editor) lineView(value string) editorLineView {
 	view := editorLineView{
-		value: value, placeholder: e.Placeholder, mask: e.mask,
+		value: value, placeholder: e.Placeholder, mask: e.Mask(),
 		cursor: e.col, anchor: e.anchor.Col, selecting: e.selecting,
 		blurred: e.blurred, left: e.geometry.read(&e.presentation).left,
 		gutter: e.Gutter, cursorStyle: e.CursorStyle,
@@ -1410,14 +1406,14 @@ func (e *Editor) shown() string {
 }
 
 func (e *Editor) lineAt(at int) int {
-	if e.mask == "" {
+	if e.Mask() == "" {
 		return at
 	}
 	line := e.document().lines[0]
 	if at <= 0 {
 		return 0
 	}
-	want := at / len(e.mask)
+	want := at / len(e.Mask())
 	seen := 0
 	for offset := range text.Clusters(line) {
 		if seen == want {
@@ -1556,16 +1552,25 @@ func (e *Editor) finishReplacement(at Caret) {
 
 // The caller has proved a semantic change and taken any required undo snapshot.
 func (e *Editor) replaceRange(start, end Caret, s string) {
+	before, change := e.applyRange(start, end, s)
+	e.document().commit(e, before, change, true)
+}
+
+// Separate application from publication so metadata such as an element mark
+// joins the same revision before any subscriber or scene predicate can run.
+func (e *Editor) applyRange(start, end Caret, s string) ([]string, ChangeMap) {
 	e.requireContentRevision()
 	e.layout.stale = true
-	e.removed(start, end, s)
+	before := slices.Clone(e.document().lines)
+	edit := text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s}
+	e.edited(edit)
+	change := ChangeMap{Start: edit.Start, OldEnd: edit.End, NewEnd: edit.Start + len(s)}
 	head := e.document().lines[start.Line][:start.Col]
 	tail := e.document().lines[end.Line][end.Col:]
 	if !strings.Contains(s, "\n") {
 		e.document().lines = slices.Replace(e.document().lines, start.Line, end.Line+1, ownedEditorLine(head, s, tail))
 		e.finishReplacement(Caret{Line: start.Line, Col: start.Col + len(s)})
-		e.contentChanged()
-		return
+		return before, change
 	}
 	parts := strings.Split(s, "\n")
 	inserted := make([]string, len(parts))
@@ -1578,7 +1583,7 @@ func (e *Editor) replaceRange(start, end Caret, s string) {
 	inserted[last] = ownedEditorLine(inserted[last], tail)
 	e.document().lines = slices.Replace(e.document().lines, start.Line, end.Line+1, inserted...)
 	e.finishReplacement(cursor)
-	e.contentChanged()
+	return before, change
 }
 
 // Copy puts the selection where a paste would find it, and reports whether anything
@@ -1669,7 +1674,7 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 	if to.Before(from) {
 		from, to = to, from
 	}
-	if e.mask != "" {
+	if e.Mask() != "" {
 		view := e.lineView(e.Text())
 		shown := view.shown()
 		if from.Line != 0 || to.Line != 0 {

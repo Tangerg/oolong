@@ -24,14 +24,14 @@ func (c ChangeMap) Position(offset int) int {
 	case offset < c.Start:
 		return max(offset, 0)
 	case offset >= c.OldEnd:
-		return c.NewEnd + offset - c.OldEnd
+		return c.NewEnd + (offset - c.OldEnd)
 	default:
 		return c.Start + min(offset-c.Start, c.NewEnd-c.Start)
 	}
 }
 
-// EditSession owns document bytes, element identities, the revision and one undo
-// sequence. Editors only own their cursor, selection and scroll position.
+// EditSession owns document bytes, element identities, input and masking policy,
+// the revision and one undo sequence. Editors own their caret, selection and scroll.
 // It is used on one UI owner sequence and must not be copied after first use.
 type EditSession struct {
 	changes    subscriptions[ChangeMap]
@@ -42,7 +42,7 @@ type EditSession struct {
 	history    editorHistory
 	revision   uint64
 	singleLine bool
-	published  string
+	mask       string
 	views      []weak.Pointer[Editor]
 	lastChange ChangeMap
 }
@@ -147,15 +147,14 @@ func (e *Editor) connect() {
 	session.views = append(session.views, weak.Make(e))
 }
 
-func (s *EditSession) commit(initiator *Editor) {
+func (s *EditSession) commit(initiator *Editor, oldLines []string, change ChangeMap, extendHistory bool) {
 	if s.revision == math.MaxUint64 {
 		panic("base: edit session exhausted revisions")
 	}
-	before, after := s.published, s.Text()
-	start := commonRunePrefix(before, after)
-	oldEnd, newEnd := commonRuneSuffixStarts(before, after, start)
-	change := ChangeMap{Before: s.revision, After: s.revision + 1, Start: start, OldEnd: oldEnd, NewEnd: newEnd}
-	oldLines := strings.Split(before, "\n")
+	change.Before, change.After = s.revision, s.revision+1
+	if extendHistory {
+		s.history.extend(change)
+	}
 	kept := s.views[:0]
 	for _, reference := range s.views {
 		view := reference.Value()
@@ -181,16 +180,19 @@ func (s *EditSession) commit(initiator *Editor) {
 	}
 	clear(s.views[len(kept):])
 	s.views = kept
-	s.published = after
 	s.lastChange = change
-	s.revision++
+	s.revision = change.After
 	initiator.revealCursor()
-	for _, reference := range kept {
+	s.invalidateViews()
+	s.changes.publish(change)
+}
+
+func (s *EditSession) invalidateViews() {
+	for _, reference := range s.views {
 		if view := reference.Value(); view != nil {
 			view.element.Invalidate()
 		}
 	}
-	s.changes.publish(change)
 }
 
 func (e *Editor) requireMutable() {

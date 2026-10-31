@@ -25,3 +25,5 @@ Transcript endpoints additionally carry `BlockID`, prepared-content revision and
 `Transcript.Layout().Hit` creates logical endpoints from displayed cells. `Selection.Text(layout)` reads printable text from that projection, and `Selection.Rects(layout)` projects highlights back to cells. Both refuse unavailable selected revisions. Unknown non-text content keeps physical row slots but supplies no fabricated copy text.
 
 A reading anchor is a projection of content identity, logical position, viewport offset and the scroll owner's follow-end intent. Reflow derives a new offset from it; the anchor does not independently advance scroll state. A sticky header and its body use the same candidate content map.
+
+An editor reports the actual changed byte interval to the session. Identical neighboring text cannot move the edit to a different location. Undo and redo use the corresponding inverse and forward intervals. A shared password mask constrains every writer, including Reset, and redacts every view’s semantic value. Each view still owns its own caret, selection and scrolling.

@@ -9,6 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 ### Breaking changes
 
 - `scene.SemanticNode.TextTruncated` is replaced by `TruncatedText` with per-field flags. A continuation page is incomplete even when it is the last page. Check `Next` to continue paging and handle `scene.ErrIncompleteObservation` when exact absence or uniqueness cannot be proved. Use the Element's Enabled predicate to disable a node; scene owns its observed disabled and focused flags.
+- A password mask belongs to the shared edit session. Applying it affects input normalization, rendering and semantic redaction in every connected editor; use separate sessions for independent policies.
 
 - Remove `base.Selection.Clicks`: gesture history is private to the selection owner. Use `(*base.Selection).SetClickInterval` to configure the multi-click interval; scene projection phases reject this mutation just like other selection commands.
 - Controller drawing and staging require the frame of their mounted Element's root. Mount the actual Element and configure its paint slot before mounting instead of painting an unmounted controller through an unrelated wrapper. `Element.CheckProjection(frame)` exposes this ownership check to composed controls. Read-only projection and measurement cannot start while that root has an unsettled candidate.
@@ -26,6 +27,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
+- Shared editors map peer carets and undo/redo through the actual edit, including repeated text. Element metadata and clipboard-ring continuation settle before subscriber callbacks. History owns typing groups across all views.
 - Markdown layout caches belong to immutable block sequences. Replacing a document during measurement cannot install stale geometry; combined row coordinates are checked before publication. Truncation suffixes obey the same terminal-text policy as retained source.
 
 - Inline shutdown drains its last accepted frame before admitting cursor cleanup. A writer with one frame slot no longer rejects cleanup merely because the final frame still occupies its capacity; drain failures retain their original cause and leave cleanup available.

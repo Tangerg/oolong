@@ -232,7 +232,7 @@ func meaningOfEditor(editor *Editor) editorMeaning {
 		maxRows: editor.MaxRows, singleLine: editor.SingleLine(),
 		mask: editor.Mask(), gutter: editor.Gutter, cursor: editor.CursorStyle,
 		undo: cloneEditorStates(editor.document().history.undo), redo: cloneEditorStates(editor.document().history.redo),
-		kills: cloneEditorKills(editor.kills.entries), typing: editor.typing,
+		kills: cloneEditorKills(editor.kills.entries), typing: editor.document().history.typist.Value() == editor,
 		continuation: editor.continuation, yank: editor.yank,
 	}
 }
