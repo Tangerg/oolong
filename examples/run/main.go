@@ -33,6 +33,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -63,21 +64,16 @@ func main() {
 type runner struct {
 	element scene.Element
 	runtime *program.InlineRuntime
-	ingress *program.ByteIngress
 	theme   kit.Theme
 	command []string
 
 	// out reads the escape sequences a command wrote back into styled text. It holds
 	// the state between chunks — the colour in force, half a sequence — which is why
 	// it is a decoder and not a function.
-	out     text.Decoder
-	spinner kit.Spinner
-	// stopSpinner ends the animation. A run that has finished is not doing anything,
-	// and a ticker that goes on waking the loop for an animation nobody is drawing is
-	// a program that never goes quiet.
-	stopSpinner func()
-	status      string
-	done        bool
+	out       text.Decoder
+	spinner   kit.Spinner
+	result    string
+	actionErr error
 }
 
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
@@ -85,8 +81,7 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	r := &runner{runtime: runtime, theme: theme, command: command}
 	r.out.Base = theme.Text
-	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs, Label: strings.Join(command, " ") + " — ctrl+e: editor, ctrl+z: suspend"}
-	r.status = "starting"
+	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs}
 
 	// Window metadata and notifications are optional enhancements. The visible status
 	// remains authoritative even when the terminal does not support them.
@@ -98,106 +93,134 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 		r.finish(err)
 		return r
 	}
-	timer, err := runtime.Every(scope, 120*time.Millisecond, r.spinner.Tick)
-	if err != nil {
+	if _, err := runtime.Every(scope, 120*time.Millisecond, r.spinner.Tick); err != nil {
 		scope.Close()
 		r.finish(err)
 		return r
 	}
-	r.stopSpinner = timer.Stop
-	r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 64 << 10, Consume: r.accept})
-	if err != nil {
+	if _, err := r.start(scope); err != nil {
 		r.finish(err)
-		return r
 	}
-	go r.start()
 	return r
 }
 
-// start runs the command and writes what it says into the bounded ingress.
-//
-// The reading happens here, on a goroutine of its own. ByteIngress batches adjacent
-// reads, bounds how far this producer can lead the interface, and calls accept on the
-// one goroutine that owns the interface. Nothing here touches what is on screen.
-func (r *runner) start() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
+func (r *runner) start(scope *program.Scope) (*program.Task, error) {
+	progress := make(chan struct{}, 1)
+	unsubscribe := r.runtime.Publisher().Subscribe(func() {
 		select {
-		case <-r.ingress.Done():
-			cancel()
-		case <-ctx.Done():
+		case progress <- struct{}{}:
+		default:
 		}
-	}()
+	})
+	task, err := r.runtime.Start(scope, program.Work[struct{}]{
+		Run: func(ctx context.Context) (struct{}, error) { return struct{}{}, r.run(ctx, progress) },
+		Apply: func(_ struct{}, err error) {
+			unsubscribe()
+			scope.Close()
+			r.finish(err)
+		},
+	})
+	if err != nil {
+		unsubscribe()
+		scope.Close()
+	}
+	return task, err
+}
 
-	//nolint:gosec // G204: running what the user asked for on their own command line
+type commandWriter struct{ write func([]byte) error }
+
+func (w *commandWriter) Write(data []byte) (int, error) {
+	if err := w.write(data); err != nil {
+		return 0, err
+	}
+	return len(data), nil
+}
+
+func (r *runner) run(ctx context.Context, progress <-chan struct{}) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	output := &commandWriter{write: func(data []byte) error {
+		err := r.publish(ctx, progress, func() []text.Line { return r.out.Feed(string(data)) })
+		if err != nil {
+			cancel(err)
+		}
+		return err
+	}}
+	// A single stdout/stderr writer keeps the byte stream ordered. Cmd waits for
+	// each write; downstream pressure thus reaches the child through its pipe.
+	//nolint:gosec // G204: running the user's own command line.
 	cmd := exec.CommandContext(ctx, r.command[0], r.command[1:]...)
-	cmd.Stdout, cmd.Stderr = r.ingress, r.ingress
-	// Cmd owns the copy and wait together. A descendant may retain stdout after the
-	// command exits; the grace ends that pipe lifetime with ErrWaitDelay rather than
-	// leaving the source blocked after its interface owner is gone.
+	cmd.Stdout, cmd.Stderr = output, output
+	// A descendant may retain stdout after the command exits.
 	cmd.WaitDelay = time.Second
-	_ = r.ingress.CloseWithError(cmd.Run())
+	result := cmd.Run()
+	if cause := context.Cause(ctx); cause != nil {
+		return errors.Join(result, cause)
+	}
+	return errors.Join(result, r.publish(ctx, progress, r.out.Flush))
 }
 
-func (r *runner) accept(batch program.ByteBatch) {
-	if len(batch.Data) > 0 {
-		if err := r.output(string(batch.Data)); err != nil {
-			r.finish(errors.Join(batch.Err, err))
-			return
-		}
-	}
-	if batch.Final {
-		r.finish(batch.Err)
-	}
-}
-
-func (r *runner) output(chunk string) error {
-	for _, line := range r.out.Feed(chunk) {
-		paragraph := &kit.Paragraph{}
-		paragraph.SetText([]text.Line{line})
-		if _, err := r.runtime.Publisher().TryPublish(paragraph); err != nil {
+// The worker retains at most one command read while waiting for publication.
+// Only the UI owner advances the decoder and offers lines. An accepted prefix is
+// never replayed; the worker waits for a capacity notification before retrying.
+func (r *runner) publish(ctx context.Context, progress <-chan struct{}, decode func() []text.Line) error {
+	var lines []text.Line
+	for {
+		err := r.runtime.Dispatcher().Invoke(ctx, func() error {
+			if decode != nil {
+				lines = decode()
+				decode = nil
+			}
+			for len(lines) != 0 {
+				paragraph := &kit.Paragraph{}
+				paragraph.SetText(lines[:1])
+				if _, err := r.runtime.Publisher().TryPublish(paragraph); err != nil {
+					return err
+				}
+				lines = lines[1:]
+			}
+			return nil
+		})
+		if !errors.Is(err, publication.ErrCapacity) {
 			return err
 		}
+		select {
+		case <-progress:
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
 	}
-	return nil
 }
 
 func (r *runner) finish(err error) {
-	for _, line := range r.out.Flush() {
-		paragraph := &kit.Paragraph{}
-		paragraph.SetText([]text.Line{line})
-		if _, printErr := r.runtime.Publisher().TryPublish(paragraph); printErr != nil {
-			err = errors.Join(err, printErr)
-			break
-		}
-	}
-	r.done = true
-	if r.stopSpinner != nil {
-		r.stopSpinner()
-		r.stopSpinner = nil
-	}
-	r.status = "done"
+	r.result = "done"
 	if err != nil {
-		r.status = err.Error()
+		r.result = "failed: " + err.Error()
 	}
 	_ = r.runtime.Session().SetTitle("")
 	_ = r.runtime.Session().Bell()
-	_ = r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.status)
+	_ = r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.result)
 }
 
 // Draw is the line still being written, and a row saying what is happening.
 func (r *runner) Draw(v grid.View) {
-	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
+	slots := []layout.Slot{
 		{Size: layout.Fixed(1)},
 		{Size: layout.Fixed(1)},
-	}))
+	}
+	if r.actionErr != nil {
+		slots = append(slots, layout.Slot{Size: layout.Fixed(1)})
+	}
+	rows := v.Subs((layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), slots))
+	if r.actionErr != nil {
+		kit.Label{Text: r.actionErr.Error(), Style: r.theme.Danger}.Draw(rows[2])
+	}
 	// The open line is drawn rather than printed: it is not finished, and what is
 	// printed is finished for good.
 	r.out.Open().Draw(rows[0], 0, 0)
 
-	if r.done {
-		kit.Label{Text: r.status + "   ctrl+c: leave", Style: r.theme.Muted}.Draw(rows[1])
+	if r.result != "" {
+		kit.Label{Text: r.result + "   ctrl+c: leave", Style: r.theme.Muted}.Draw(rows[1])
 		return
 	}
 	spinner := r.spinner
@@ -217,13 +240,9 @@ func (r *runner) Handle(ev input.Event) bool {
 		// The terminal is given away and taken back: the modes this session turned on
 		// go off in the opposite order, the child gets a terminal with no idea a
 		// program was using it, and the whole of that happens again in reverse.
-		if err := r.runtime.Session().Hand(edit); err != nil {
-			r.status = err.Error()
-		}
+		r.actionErr = r.runtime.Session().Hand(edit)
 	case 'z':
-		if err := r.runtime.Session().Suspend(); err != nil {
-			r.status = err.Error()
-		}
+		r.actionErr = r.runtime.Session().Suspend()
 	default:
 		return false
 	}

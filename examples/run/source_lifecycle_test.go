@@ -21,39 +21,23 @@ func TestCommandOutputDoesNotOutliveItsProcessOwner(t *testing.T) {
 			host := uitest.New(t, uitest.Config{Width: 40, Height: 4})
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			ready := make(chan *runner, 1)
+			ready := make(chan *program.Task, 1)
 			programDone := make(chan error, 1)
-			childPID := make(chan int, 1)
-			final := make(chan error, 1)
 			go func() {
-				app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+				app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { //nolint:contextcheck // Run(ctx) parents this scope; cancellation through the runtime is under test.
 					r := &runner{
 						runtime: runtime,
 						command: []string{os.Args[0], "-test.run=^TestCommandPipeHolder$", "--", ending},
 					}
-					var output strings.Builder
-					announced := false
-					var err error
-					r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{
-						Dispatcher: runtime.Dispatcher(), Limit: 64 << 10,
-						Consume: func(batch program.ByteBatch) {
-							output.Write(batch.Data)
-							if !announced && strings.Contains(output.String(), "\n") {
-								var pid int
-								if _, parseErr := fmt.Sscanf(output.String(), "retained-stdout:%d\n", &pid); parseErr == nil {
-									announced = true
-									childPID <- pid
-								}
-							}
-							if batch.Final {
-								final <- batch.Err
-							}
-						},
-					})
+					scope, err := runtime.NewScope(program.ScopeConfig{})
 					if err != nil {
-						panic(err)
+						return scene.Element{}, err
 					}
-					ready <- r
+					task, err := r.start(scope)
+					ready <- task
+					if err != nil {
+						return scene.Element{}, err
+					}
 					return r.Element(), nil
 				}})
 				if err == nil {
@@ -67,18 +51,17 @@ func TestCommandOutputDoesNotOutliveItsProcessOwner(t *testing.T) {
 					t.Errorf("run output program: %v", err)
 				}
 			})
-			r := <-ready
-			sourceDone := make(chan struct{})
-			go func() {
-				r.start()
-				close(sourceDone)
-			}()
+			task := <-ready
+			sourceDone := task.Done()
 			var pid int
-			select {
-			case pid = <-childPID:
-			case <-time.After(5 * time.Second):
-				t.Fatal("command did not announce its pipe holder")
-			}
+			host.Until(t, "child to announce its pipe holder", func() bool {
+				_, tail, found := strings.Cut(host.Frames(), "retained-stdout:")
+				if !found {
+					return false
+				}
+				_, err := fmt.Sscanf(tail, "%d", &pid)
+				return err == nil
+			})
 			child, err := os.FindProcess(pid)
 			if err != nil {
 				t.Fatal(err)
@@ -105,7 +88,7 @@ func TestCommandOutputDoesNotOutliveItsProcessOwner(t *testing.T) {
 				t.Fatal("command source kept waiting for a pipe its process no longer owns")
 			}
 			if ending == "exit" {
-				if err := <-final; !errors.Is(err, exec.ErrWaitDelay) {
+				if err := task.Snapshot().Err; !errors.Is(err, exec.ErrWaitDelay) {
 					t.Fatalf("incomplete output = %v, want exec.ErrWaitDelay", err)
 				}
 			}

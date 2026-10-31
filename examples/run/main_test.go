@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/text"
 	"github.com/Tangerg/oolong/ui/uitest"
 )
 
@@ -51,7 +58,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	host := &observedHost{Host: uitest.New(t, uitest.Config{Width: 60, Height: 8})}
 	var r *runner
 	done := make(chan error, 1)
-	ready := make(chan error, 1)
+	ready := make(chan struct{})
 	go func() {
 		app, err := program.NewInline(program.InlineConfig{
 			Host: host,
@@ -63,11 +70,9 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 				// what happens to what it says.
 				r = &runner{
 					runtime: runtime,
-					command: []string{"a", "command"}, status: "running",
+					command: []string{"a", "command"},
 				}
-				var err error
-				r.ingress, err = program.NewByteIngress(program.ByteIngressConfig{Dispatcher: runtime.Dispatcher(), Limit: 8, Consume: r.accept})
-				ready <- err
+				close(ready)
 				return r.Element(), nil
 			},
 		})
@@ -76,23 +81,21 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 		}
 		done <- err
 	}()
-	if err := <-ready; err != nil {
-		t.Fatal(err)
-	}
+	<-ready
 	host.Shows(t, "ctrl+e: editor")
 
 	// A chunk boundary can fall anywhere, including inside an escape sequence.
-	if _, err := r.ingress.Write([]byte("plain \x1b[3")); err != nil {
+	if err := r.publish(t.Context(), nil, func() []text.Line { return r.out.Feed("plain \x1b[3") }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.ingress.Write([]byte("1mred\x1b[0m and more\nsecond line\nhalf a li")); err != nil {
+	if err := r.publish(t.Context(), nil, func() []text.Line { return r.out.Feed("1mred\x1b[0m and more\nsecond line\nhalf a li") }); err != nil {
 		t.Fatal(err)
 	}
 
 	// What a newline finished is printed into the terminal's own output; what is left
 	// is still being drawn.
 	host.Until(t, "the terminal to receive the finished lines", func() bool {
-		return contains(host.Frames(), "second line")
+		return strings.Contains(host.Frames(), "second line")
 	})
 	host.Shows(t, "half a li")
 
@@ -100,10 +103,13 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	// as the colour the palette gives it.
 	host.Until(t, "the output to keep its colour", func() bool {
 		host.Repaint()
-		return contains(host.Frames(), "128;0;0")
+		return strings.Contains(host.Frames(), "128;0;0")
 	})
 
-	if err := r.ingress.Close(); err != nil {
+	if err := r.publish(t.Context(), nil, r.out.Flush); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.runtime.Dispatcher().Invoke(t.Context(), func() error { r.finish(nil); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	host.Until(t, "the run to be said to be over", func() bool {
@@ -111,22 +117,52 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 		return rang == 1 && notified == 1
 	})
 
+	host.Send(input.Key{Code: input.Character, Rune: 'e', Mods: input.Ctrl})
+	host.Shows(t, errors.ErrUnsupported.Error())
+	host.Shows(t, "done   ctrl+c: leave")
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})
 	if err := <-done; err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}
 }
 
-func contains(haystack, needle string) bool {
-	return len(needle) > 0 && len(haystack) >= len(needle) &&
-		(haystack == needle || indexOf(haystack, needle) >= 0)
-}
-
-func indexOf(haystack, needle string) int {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return i
+func TestCommandBurstHonorsPublicationCapacity(t *testing.T) {
+	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "burst-fixture" {
+		fmt.Print("burst-first\nburst-middle\nburst-last")
+		os.Exit(0)
+	}
+	host := &observedHost{Host: uitest.New(t, uitest.Config{Width: 60, Height: 6})}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		app, err := program.NewInline(program.InlineConfig{
+			Host: host, Publication: publication.Limits{MaxItems: 1},
+			Build: func(rt *program.InlineRuntime) (scene.Element, error) {
+				return newRunner(rt, []string{os.Args[0], "-test.run=^TestCommandBurstHonorsPublicationCapacity$", "--", "burst-fixture"}).Element(), nil
+			},
+		})
+		if err == nil {
+			err = app.Run(ctx)
+		}
+		done <- err
+	}()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("run: %v", err)
+		}
+	})
+	host.Until(t, "the command to finish", func() bool {
+		rang, notified := host.attention()
+		return rang > 0 && notified > 0
+	})
+	host.Shows(t, "done   ctrl+c: leave")
+	for _, line := range []string{"burst-first", "burst-middle", "burst-last"} {
+		if !strings.Contains(host.Frames(), line) {
+			t.Errorf("command completed without publishing %q", line)
 		}
 	}
-	return -1
+	if rang, notified := host.attention(); rang != 1 || notified != 1 {
+		t.Fatalf("command announced %d bells and %d notifications", rang, notified)
+	}
 }
