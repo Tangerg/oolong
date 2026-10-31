@@ -44,7 +44,7 @@ type Field interface {
 	// starts a newer Validate or Reply or replaces the checked answer. An obsolete
 	// check cannot publish Error.
 	Validate() error
-	// Validation returns a read-only receipt for the last successful validation, or
+	// Validation returns a read-only receipt for the last completed answer check, or
 	// nil when none is current. The receipt reports false when another Validate or
 	// Reply has begun or the checked answer is no longer current. Reading it must be pure; it cannot
 	// validate again or advance the answer. Form retains it across later callbacks.
@@ -132,7 +132,7 @@ func (f *field) Error() error { return f.checked.err }
 // Validation returns a receipt whose validity belongs to this field's checked answer.
 func (f *field) Validation() func() bool {
 	checked := f.checked
-	if checked.err != nil || checked.current == nil || checked.validation != f.validation || !checked.current() {
+	if checked.current == nil || checked.validation != f.validation || !checked.current() {
 		return nil
 	}
 	return func() bool { return checked.validation == f.validation && checked.current() }
@@ -208,6 +208,9 @@ func (f *field) validate(prepare func() error, check func() fieldCheck) error {
 	if turn != f.validation || errors.Is(err, ErrValidationSuperseded) {
 		return ErrValidationSuperseded
 	}
+	if errors.Is(err, ErrReplyUnavailable) {
+		return err
+	}
 	checked := fieldCheck{err: err, validation: turn}
 	if err == nil {
 		checked = check()
@@ -217,6 +220,7 @@ func (f *field) validate(prepare func() error, check func() fieldCheck) error {
 		return ErrValidationSuperseded
 	}
 	f.checked = checked
+	f.element.Invalidate()
 	return checked.err
 }
 
@@ -371,18 +375,15 @@ func (f *Form) Set(fields ...Field) {
 	requireMutable(f.group.Element())
 	items := make([]scene.Item, 0, len(fields)+1)
 	for _, field := range fields {
-		items = append(items, scene.Item{Element: field.Element(), Size: layout.Measured(1, 0)})
+		item := scene.Item{Element: field.Element(), Size: layout.Measured(1, 0)}
+		if f.paintField != nil {
+			item.Paint = func(frame scene.Frame) { f.paintField(frame, field) }
+		}
+		items = append(items, item)
 	}
 	items = append(items, scene.Item{Element: f.status, Size: layout.Measured(0, 0)})
 	if err := f.group.CheckSet(items...); err != nil {
 		panic(err)
-	}
-	for _, field := range fields {
-		if f.paintField != nil {
-			if err := field.Element().SetPaint(func(frame scene.Frame) { f.paintField(frame, field) }); err != nil && !errors.Is(err, scene.ErrMounted) {
-				panic(err)
-			}
-		}
 	}
 	f.fields = own(f.fields, fields)
 	f.sequence++
@@ -419,14 +420,25 @@ func (f *Form) Focused() Field {
 
 // Submit validates every field, captures their revisions and starts one identified attempt. Started is not completion. It panics during presentation or observation.
 func (f *Form) Submit() (scene.ActionResult[SubmissionID], error) {
+	return f.SubmitWith(nil)
+}
+
+// SubmitWith collects and validates each field through collect before submitting.
+// A successful collector must leave a current Validation receipt on that field;
+// a collection error stops immediately. A nil collector validates all fields.
+// Changing the field relation or starting another attempt supersedes this call.
+func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[SubmissionID], error) {
 	requireMutable(f.Element())
 	f.sequence++
 	id := f.sequence
 	f.problem = nil
 	f.attempt = Submission{ID: id, State: SubmissionIdle}
 	f.submitted = nil
-	versions, validationErr := f.validateSubmission(id)
+	versions, validationErr := f.validateSubmission(id, collect)
 	if validationErr != nil {
+		if f.sequence == id {
+			f.Element().Invalidate()
+		}
 		return scene.ActionResult[SubmissionID]{}, validationErr
 	}
 	f.submitted = versions
@@ -486,7 +498,7 @@ func (f *Form) Settle(id SubmissionID, outcome SubmissionOutcome) bool {
 // Submission returns the current attempt, with Current computed from the exact submitted field revisions.
 func (f *Form) Submission() Submission {
 	result := f.attempt
-	result.Current = result.ID != 0
+	result.Current = result.State != SubmissionIdle
 	for _, field := range f.submitted {
 		if field.field.Revision() != field.revision {
 			result.Current = false
@@ -544,7 +556,8 @@ func (f *Form) Do(action keymap.Action) bool {
 	case Submit:
 		_, _ = f.Submit()
 	case Cancel:
-		if err := f.Cancel(); err != nil {
+		id := f.attempt.ID
+		if err := f.Cancel(); err != nil && f.attempt.ID == id && f.attempt.State == SubmissionPending {
 			f.problem = err
 			f.Element().Invalidate()
 		}
@@ -574,38 +587,53 @@ func (f *Form) keys() *keymap.Map {
 	return formKeys()
 }
 
-func (f *Form) validateSubmission(id SubmissionID) ([]fieldVersion, error) {
+func checkSubmissionField(field Field, collect func(Field) error) error {
+	if collect == nil {
+		return field.Validate()
+	}
+	if err := collect(field); err != nil {
+		return err
+	}
+	return field.Error()
+}
+
+func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([]fieldVersion, error) {
 	var validations []func() bool
 	var versions []fieldVersion
 	var firstInvalid Field
+	var problem error
 	for _, field := range f.fields {
-		err := field.Validate()
+		err := checkSubmissionField(field, collect)
 		if f.sequence != id {
 			return nil, ErrSubmissionStale
 		}
+		if err != nil && (collect != nil || errors.Is(err, ErrValidationSuperseded)) {
+			return nil, err
+		}
 		if err != nil && firstInvalid == nil {
-			firstInvalid = field
-			f.problem = err
+			firstInvalid, problem = field, err
 		}
 		validations = append(validations, field.Validation())
 		versions = append(versions, fieldVersion{field: field, revision: field.Revision()})
 	}
-	if firstInvalid != nil {
-		_ = firstInvalid.Element().RequestFocusFirst()
-		f.Element().Invalidate()
-		return nil, f.problem
-	}
 	if !currentValidations(validations) {
 		return nil, ErrValidationSuperseded
 	}
+	if firstInvalid != nil {
+		f.problem = problem
+		_ = firstInvalid.Element().RequestFocusFirst()
+		return nil, problem
+	}
 	if f.check != nil {
 		err := f.check()
-		if f.sequence != id || !currentValidations(validations) {
+		if f.sequence != id {
+			return nil, ErrSubmissionStale
+		}
+		if !currentValidations(validations) {
 			return nil, ErrValidationSuperseded
 		}
 		if err != nil {
 			f.problem = err
-			f.Element().Invalidate()
 			return nil, err
 		}
 	}

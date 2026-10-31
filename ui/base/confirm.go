@@ -16,7 +16,7 @@ import (
 //
 // The zero value answers no and is ready. A Confirm must not be copied after first
 // use: its answer, matcher and committed pointer split are one mutable field.
-// NewConfirm installs its initial answer. Say is the only answer transition.
+// NewConfirm selects the answer owner; every change goes through Request.
 type Confirm struct {
 	noCopy noCopy
 
@@ -51,8 +51,13 @@ func (c *Confirm) Answer() bool {
 // Say requests an answer against the current revision. ChangeError reports a
 // rejected UI request; use Request when the caller needs the typed result directly.
 func (c *Confirm) Say(yes bool) {
-	snapshot := c.Snapshot()
-	_, c.changeErr = c.Request(context.Background(), ConfirmRequest{ExpectedRevision: snapshot.Revision, Value: yes})
+	_, _ = c.requestAnswer(c.Snapshot(), yes)
+}
+
+func (c *Confirm) requestAnswer(before ConfirmSnapshot, yes bool) (scene.ActionResult[ConfirmSnapshot], error) {
+	result, err := c.Request(context.Background(), ConfirmRequest{ExpectedRevision: before.Revision, Value: yes})
+	c.changeErr = err
+	return result, err
 }
 
 // HeightForWidth is the label, the two answers on one row, and the problem if there is one.
@@ -120,7 +125,7 @@ func (c *Confirm) Do(action keymap.Action) bool {
 		c.Say(false)
 	case Toggle:
 		snapshot := c.Snapshot()
-		_, c.changeErr = c.Request(context.Background(), ConfirmRequest{ExpectedRevision: snapshot.Revision, Value: !snapshot.Value})
+		_, _ = c.requestAnswer(snapshot, !snapshot.Value)
 	default:
 		return false
 	}
@@ -180,7 +185,8 @@ func (c *Confirm) Ask() string {
 }
 
 // Reply takes either answer, or as much of one as is unambiguous — nobody types
-// "yes" in full twice.
+// "yes" in full twice. A domain request that only started returns ErrConfirmPending;
+// only an accepted, current answer is validated.
 func (c *Confirm) Reply(said string) error {
 	return c.validate(func() error {
 		said = strings.ToLower(strings.TrimSpace(said))
@@ -191,12 +197,18 @@ func (c *Confirm) Reply(said string) error {
 			return fmt.Errorf("say %s or %s", yes, no)
 		case yesMatch && noMatch:
 			return fmt.Errorf("%q could mean either %s or %s", said, yes, no)
-		case yesMatch:
-			c.Say(true)
-		case noMatch:
-			c.Say(false)
-		default:
+		case !yesMatch && !noMatch:
 			return fmt.Errorf("say %s or %s", yes, no)
+		}
+		result, err := c.requestAnswer(c.Snapshot(), yesMatch)
+		if result.State == scene.Started && err == nil {
+			err = ErrConfirmPending
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrReplyUnavailable, err)
+		}
+		if result.Value.Value != yesMatch || result.Value != c.Snapshot() {
+			return ErrValidationSuperseded
 		}
 		return nil
 	}, c.checkAnswer)

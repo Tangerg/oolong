@@ -2,6 +2,7 @@ package kit
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 
@@ -29,16 +30,13 @@ func Ask(form *base.Form, in io.Reader, out io.Writer) (scene.ActionResult[base.
 		return scene.ActionResult[base.SubmissionID]{}, nil
 	}
 	lines := bufio.NewScanner(in)
-	for _, field := range form.Fields() {
+	return form.SubmitWith(func(field base.Field) error {
 		spoken, ok := field.(spokenField)
 		if !ok {
-			return scene.ActionResult[base.SubmissionID]{}, fmt.Errorf("kit: %q cannot be answered in words", field.Prompt())
+			return fmt.Errorf("kit: %q cannot be answered in words", field.Prompt())
 		}
-		if err := ask(spoken, lines, out); err != nil {
-			return scene.ActionResult[base.SubmissionID]{}, err
-		}
-	}
-	return form.Submit()
+		return ask(spoken, lines, out)
+	})
 }
 
 // spokenField is the capability Ask consumes from a field.
@@ -65,6 +63,8 @@ func ask(field spokenField, lines *bufio.Scanner, out io.Writer) error {
 		}
 		if err := field.Reply(lines.Text()); err == nil {
 			return nil
+		} else if errors.Is(err, base.ErrReplyUnavailable) || errors.Is(err, base.ErrValidationSuperseded) {
+			return err
 		} else if _, printed := fmt.Fprintf(out, "%v\n", err); printed != nil {
 			return printed
 		}

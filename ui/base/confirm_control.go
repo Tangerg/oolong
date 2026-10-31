@@ -10,6 +10,9 @@ import (
 // ErrConfirmStale rejects a request made against a superseded domain revision.
 var ErrConfirmStale = errors.New("base: confirm request revision is stale")
 
+// ErrConfirmPending reports a spoken reply whose domain change has started but has not completed.
+var ErrConfirmPending = errors.New("base: confirmation is awaiting domain publication")
+
 // ConfirmSnapshot is an atomic domain value and its monotonically increasing
 // revision. A revision changes even when the value changes away and back.
 type ConfirmSnapshot struct {

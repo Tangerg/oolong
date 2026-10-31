@@ -3,10 +3,13 @@ package base
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 )
+
+// ErrReplyUnavailable means an answer could not be applied by its owner. A spoken
+// adapter must stop instead of asking the user to correct or repeat that input.
+var ErrReplyUnavailable = errors.New("base: reply unavailable")
 
 // Ask is the label and the choices, numbered.
 func (s *Select[T]) Ask() string {
@@ -20,7 +23,7 @@ func (s *Select[T]) Reply(said string) error {
 		if err != nil {
 			return err
 		}
-		s.selectAt(at)
+		s.list.Select(at)
 		return nil
 	}, s.checkAnswer)
 }
@@ -51,10 +54,7 @@ func (m *MultiSelect[T]) Reply(said string) error {
 		if m.limit > 0 && count > m.limit {
 			return fmt.Errorf("at most %d may be chosen", m.limit)
 		}
-		current, _ := m.selection()
-		if !slices.Equal(current, taken) {
-			m.store(taken)
-		}
+		m.store(taken)
 		return nil
 	}, m.checkAnswer)
 }

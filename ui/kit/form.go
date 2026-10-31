@@ -13,9 +13,8 @@ import (
 )
 
 // FormConfig supplies the form's initial fields, semantic title, submission policy and appearance. Scope supplies the live application palette.
-// Fields give this form their presentation slot; supplying a kit Input's Controller
-// explicitly replaces its standalone skin with the form look. Values remain owned
-// by those exact controllers.
+// Fields use the form look while attached. Removing a field restores its own
+// presentation; its value and scene identity stay with its controller.
 type FormConfig struct {
 	Key        string
 	Scope      *ThemeScope
