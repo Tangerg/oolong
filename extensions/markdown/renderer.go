@@ -8,7 +8,6 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 // RendererConfig freezes the appearance used by each independent whole-source preparation.
@@ -25,17 +24,9 @@ func NewRenderer(cfg RendererConfig) content.Renderer {
 			return nil, err
 		}
 		blocks, err := Render(source, look)
-		doc := &documentView{}
-		doc.doc.SetBlocks(blocks)
-		return doc, err
+		return &documentView{blocks: blocks}, err
 	}
 }
-
-type documentView struct{ doc Doc }
-
-func (d *documentView) HeightForWidth(width int) int { return d.doc.HeightForWidth(width) }
-func (d *documentView) Draw(view grid.View)          { d.doc.Draw(view) }
-func (d *documentView) Rows(width int) []text.Row    { return d.doc.Rows(width) }
 
 func cloneLook(look Look) Look {
 	look.Headings = slices.Clone(look.Headings)

@@ -27,9 +27,10 @@ var internalAssertions = map[string]string{
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.
-	"ui/core/grid:surfaceSize":               "NewSurface and Surface.Resize document the overflow panic",
-	"ui/core/grid:publication.requireIdle":   "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
-	"ui/core/grid:viewScope.requireWritable": "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
+	"extensions/markdown:documentView.arrange": "Doc measurement, drawing and row projection document refusal when combined block heights cannot fit an int",
+	"ui/core/grid:surfaceSize":                 "NewSurface and Surface.Resize document the overflow panic",
+	"ui/core/grid:publication.requireIdle":     "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
+	"ui/core/grid:viewScope.requireWritable":   "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.

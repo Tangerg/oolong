@@ -183,7 +183,7 @@ type docMeaning struct{ blocks []blockMeaning }
 // meaning into fresh strings removes that possibility.
 func meaningOfDoc(doc *Doc) docMeaning {
 	meaning := docMeaning{}
-	for _, block := range doc.blocks {
+	for _, block := range doc.Blocks() {
 		var body strings.Builder
 		for _, line := range block.lines {
 			body.WriteString(line.String())
@@ -249,8 +249,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 		},
 		{lines: []text.Line{plain("after the rule")}, blankBefore: true},
 	})
-	prepared := &documentView{}
-	prepared.doc.SetBlocks(doc.Blocks())
+	prepared := &documentView{blocks: doc.Blocks()}
 	return append(cases, drawPurityCase{
 		name: "*Doc", width: 14, height: 6,
 		draw: doc.Draw, measure: doc.HeightForWidth,
@@ -258,6 +257,6 @@ func markdownDrawPurityCases() []drawPurityCase {
 	}, drawPurityCase{
 		name: "*documentView", width: 14, height: 6,
 		draw: prepared.Draw, measure: prepared.HeightForWidth,
-		state: func() any { return meaningOfDoc(&prepared.doc) },
+		state: func() any { return meaningOfDoc(&Doc{view: prepared}) },
 	})
 }

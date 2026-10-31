@@ -11,9 +11,9 @@ import (
 )
 
 func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
-	doc := &Doc{places: []placedBlock{{layout: blockLayout{rows: []row{{Line: text.Of("old", grid.Style{})}}}}}}
-	doc.arrange(10)
-	if len(doc.places) != 0 {
+	doc := &documentView{}
+	doc.layout.Store(&documentLayout{width: 8, places: []placedBlock{{layout: blockLayout{rows: []row{{Line: text.Of("old", grid.Style{})}}}}}})
+	if len(doc.arrange(10).places) != 0 {
 		t.Fatal("removed block still retained")
 	}
 }
@@ -21,39 +21,33 @@ func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 func TestReplacingADocumentReleasesItsCachedRowsBeforeAnotherLayout(t *testing.T) {
 	doc := &Doc{}
 	doc.SetBlocks(mustRender(t, strings.Repeat("old content ", 128), Look{}))
-	doc.arrange(20)
-	doc.SetBlocks(nil)
-	if doc.fresh || len(doc.places) != 0 {
-		t.Fatalf("invalidated document retained %d row(s)", len(doc.places))
+	if len(doc.view.arrange(20).places) == 0 {
+		t.Fatal("fixture has no cached geometry")
 	}
-	for i, cached := range doc.places[:cap(doc.places)] {
-		if !reflect.DeepEqual(cached, placedBlock{}) {
-			t.Fatalf("cached row %d retained replaced content %+v", i, cached)
-		}
+	doc.SetBlocks(nil)
+	if current := doc.view.layout.Load(); current != nil {
+		t.Fatal("replacement retained the discarded placement cache")
 	}
 }
 
 func TestDocCopyDetachesItsWrap(t *testing.T) {
 	var original Doc
 	original.SetBlocks(mustRender(t, "original words", Look{}))
-	original.arrange(8)
-	want := append([]placedBlock(nil), original.places...)
+	want := append([]placedBlock(nil), original.view.arrange(8).places...)
 
 	copied := original
 	copied.SetBlocks(mustRender(t, "replacement", Look{}))
-	copied.arrange(8)
+	copied.view.arrange(8)
 
-	original.arrange(8)
-	if got := original.places; !reflect.DeepEqual(got, want) {
+	if got := original.view.arrange(8).places; !reflect.DeepEqual(got, want) {
 		t.Fatalf("original wrap after changing copy = %+v, want %+v", got, want)
 	}
 }
 
 func TestDocCopyOwnsSubsequentAppends(t *testing.T) {
 	blocks := mustRender(t, "first", Look{})
-	original := Doc{blocks: make([]Block, len(blocks), len(blocks)+2)}
-	copy(original.blocks, blocks)
-	original.blocksOwner = &original
+	original := Doc{view: &documentView{blocks: make([]Block, len(blocks), len(blocks)+2)}}
+	copy(original.view.blocks, blocks)
 
 	copied := original
 	copied.Append(mustRender(t, "copied", Look{})...)
@@ -76,11 +70,11 @@ func TestWrappingReleasesOversizedRowStorage(t *testing.T) {
 	}
 	var doc Doc
 	doc.SetBlocks(blocks)
-	doc.arrange(10)
+	doc.view.arrange(10)
 	doc.SetBlocks(blocks[:1])
-	doc.arrange(10)
-	if cap(doc.places) > 2*len(doc.places)+16 {
-		t.Fatalf("document retains capacity %d for %d row", cap(doc.places), len(doc.places))
+	places := doc.view.arrange(10).places
+	if cap(places) > 2*len(places)+16 {
+		t.Fatalf("document retains capacity %d for %d row", cap(places), len(places))
 	}
 }
 

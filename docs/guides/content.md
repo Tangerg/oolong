@@ -29,3 +29,5 @@ Native terminal images remain live resources. Capturing their cell rectangle is 
 ## Keep copying honest
 
 Rendered rows can supply `text.Row` soft-wrap metadata. That supports logical copying and reflow without claiming a general Markdown source map. Format diagnostics belong to preparation, and no parser, network operation or external renderer runs from `Paint` or `HeightForWidth`.
+
+Each Markdown block sequence owns its width cache. A reader that began before `Doc.SetBlocks` finishes against its original sequence; later readers see the replacement. A layout whose combined child heights and separator rows cannot fit in an int is refused before it can replace a valid cached layout. Embedded content retains its own concurrency contract.

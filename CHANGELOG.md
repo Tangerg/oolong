@@ -26,6 +26,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
+- Markdown layout caches belong to immutable block sequences. Replacing a document during measurement cannot install stale geometry; combined row coordinates are checked before publication. Truncation suffixes obey the same terminal-text policy as retained source.
+
 - Inline shutdown drains its last accepted frame before admitting cursor cleanup. A writer with one frame slot no longer rejects cleanup merely because the final frame still occupies its capacity; drain failures retain their original cause and leave cleanup available.
 - `scene.Element.ReadOnly` owns synchronous projection phases for both mounted and detached compositions. Transcript capture and element measurement reuse this boundary, so capture callbacks cannot mutate reading controllers, alter appearance slots, change geometry through another root or move the composition to another phase owner. Snapshot staging and refinement respect the same phase. Nested calls, panic and goroutine exit release only their own borrow; pending candidates settle before a new borrow starts.
 - Release contract tests assert the module declared by the directory actually inspected by `gorelease`, avoiding false failures from macOS temporary-directory aliases and Windows shell path spelling. The selected module and unique release tag remain checked.

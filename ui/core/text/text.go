@@ -354,6 +354,9 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 	if l.Width() <= width {
 		return l.printable()
 	}
+	// The returned spans can also be copied as plain text. The suffix must obey
+	// the same drawable-text rule as the retained source, even when it fits.
+	ellipsis = Of(ellipsis, grid.Style{}).printable().String()
 	if Width(ellipsis) > width {
 		ellipsis = prefix(ellipsis, width)
 	}

@@ -8,97 +8,95 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
+	"sync/atomic"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Doc is a rendered document, ready to be measured and drawn.
-//
-// It draws into a grid view and is a
-// [grid.Drawable], which is what lets it go into a
-// slot, container or viewport belonging to a package this one has never heard of.
-// Copies detach block and layout storage before either can be changed. Embedded
-// content remains shared and must obey Renderer's stable-result contract.
-type Doc struct {
-	// blocks are private because every mutation must invalidate placements. Exposing this
-	// slice made it possible to change the document while its cached wrap still
-	// described the old one.
+// Doc owns a replaceable sequence of immutable blocks. A copy initially reads
+// the same sequence; subsequent replacements and appends affect only the receiver.
+// A projection finishes against the sequence captured when it started, even if
+// an embedded drawable replaces the document during a layout callback.
+type Doc struct{ view *documentView }
+
+// documentView binds the cache to the blocks it describes. A delayed layout may
+// populate its own version; it cannot publish geometry for a replacement.
+type documentView struct {
 	blocks []Block
-	// blocksOwner identifies the value allowed to append into spare block capacity.
-	// A copied Doc detaches before appending, so two values cannot overwrite each
-	// other's logical document through a shared backing array.
-	blocksOwner *Doc
-
-	// places is an immutable layout snapshot shared by measurement and drawing.
-	places  []placedBlock
-	height  int
-	atWidth int
-	fresh   bool
+	layout atomic.Pointer[documentLayout]
+	// One append may use the spare tail. Other copies deriving from this exact
+	// sequence must detach; readers only access the immutable prefix.
+	extended atomic.Bool
 }
 
-// SetBlocks replaces the document. Blocks are immutable values; Doc copies the
-// slice so the caller may reuse it after this returns.
+// SetBlocks replaces the document and owns the supplied slice.
 func (d *Doc) SetBlocks(blocks []Block) {
-	d.blocks = slices.Clone(blocks)
-	d.blocksOwner = d
-	d.invalidate()
+	d.view = &documentView{blocks: slices.Clone(blocks)}
 }
 
-// Append adds blocks to the end, which is what a stream does as they are finished.
+// Append adds immutable blocks while preserving the meaning of earlier copies.
 func (d *Doc) Append(blocks ...Block) {
 	if len(blocks) == 0 {
 		return
 	}
-	d.ownBlocks()
-	d.blocks = append(d.blocks, blocks...)
-	d.invalidate()
-}
-
-func (d *Doc) ownBlocks() {
-	if d.blocksOwner == d {
-		return
+	var prefix []Block
+	if previous := d.view; previous != nil {
+		prefix = previous.blocks
+		if !previous.extended.CompareAndSwap(false, true) {
+			prefix = slices.Clip(prefix)
+		}
 	}
-	d.blocks = slices.Clone(d.blocks)
-	d.blocksOwner = d
-}
-
-func (d *Doc) invalidate() {
-	d.places = nil
-	d.height = 0
-	d.fresh = false
+	d.view = &documentView{blocks: append(prefix, blocks...)}
 }
 
 // Len reports how many rendered blocks the document owns.
 func (d *Doc) Len() int {
-	if d == nil {
+	if d == nil || d.view == nil {
 		return 0
 	}
-	return len(d.blocks)
+	return len(d.view.blocks)
 }
 
-// Blocks returns the immutable rendered blocks in document order. The returned
-// slice is independent; the blocks themselves are values safe to share.
+// Blocks returns an independent slice of the immutable blocks in document order.
 func (d *Doc) Blocks() []Block {
-	if d == nil {
+	if d == nil || d.view == nil {
 		return nil
 	}
-	return slices.Clone(d.blocks)
+	return slices.Clone(d.view.blocks)
 }
 
-// HeightForWidth reports the composed physical height at width.
-func (d *Doc) HeightForWidth(width int) int { d.arrange(width); return d.height }
+// HeightForWidth returns the composed height. It panics if the row space cannot fit in int.
+func (d *Doc) HeightForWidth(width int) int { return d.view.HeightForWidth(width) }
 
-// Draw delegates to each block using the same geometry as measurement and Rows.
-func (d *Doc) Draw(v grid.View) {
+// Draw paints the visible blocks from one layout. It panics for unrepresentable row space.
+func (d *Doc) Draw(v grid.View) { d.view.Draw(v) }
+
+// Rows projects meaningful text using the same placements as Draw. A child
+// without Rows contributes blank rows. It panics for unrepresentable row space.
+func (d *Doc) Rows(width int) []text.Row { return d.view.Rows(width) }
+
+type placedBlock struct {
+	top    int
+	layout blockLayout
+}
+
+type documentLayout struct {
+	places        []placedBlock
+	width, height int
+}
+
+func (d *documentView) HeightForWidth(width int) int { return d.arrange(width).height }
+
+func (d *documentView) Draw(v grid.View) {
 	if v.Empty() {
 		return
 	}
 	width, _ := v.Size()
-	d.arrange(width)
-	visible := v.Visible()
-	for _, placed := range d.places {
+	positions, visible := d.arrange(width), v.Visible()
+	for _, placed := range positions.places {
 		if placed.top >= visible.Max.Y || placed.top+placed.layout.height <= visible.Min.Y {
 			continue
 		}
@@ -106,40 +104,41 @@ func (d *Doc) Draw(v grid.View) {
 	}
 }
 
-// Rows projects visible text using the same block placements as Draw. A child
-// without Rows contributes blank physical rows, preserving selection coordinates.
-func (d *Doc) Rows(width int) []text.Row {
-	d.arrange(width)
-	rows := make([]text.Row, d.height)
-	for _, placed := range d.places {
+func (d *documentView) Rows(width int) []text.Row {
+	positions := d.arrange(width)
+	rows := make([]text.Row, positions.height)
+	for _, placed := range positions.places {
 		copy(rows[placed.top:], placed.layout.project())
 	}
 	return rows
 }
 
-type placedBlock struct {
-	top    int
-	layout blockLayout
-}
-
-func (d *Doc) arrange(width int) {
-	if d.fresh && d.atWidth == width {
-		return
+func (d *documentView) arrange(width int) *documentLayout {
+	if d == nil {
+		return &documentLayout{}
 	}
-	var places []placedBlock
-	height := 0
+	if previous := d.layout.Load(); previous != nil && previous.width == width {
+		return previous
+	}
+	result := &documentLayout{width: width}
 	for _, block := range d.blocks {
 		placed := block.layout(width)
 		if placed.height == 0 {
 			continue
 		}
-		if block.blankBefore && height > 0 {
-			height++
+		gap := 0
+		if block.blankBefore && result.height > 0 {
+			gap = 1
 		}
-		places = append(places, placedBlock{top: height, layout: placed})
-		height += placed.height
+		if placed.height > math.MaxInt-result.height-gap {
+			panic("markdown: document row space exhausted")
+		}
+		top := result.height + gap
+		result.places = append(result.places, placedBlock{top: top, layout: placed})
+		result.height = top + placed.height
 	}
-	d.places, d.height, d.atWidth, d.fresh = places, height, width, true
+	d.layout.Store(result)
+	return result
 }
 
 // Look is how a document is drawn: a style for every part of one, and the characters

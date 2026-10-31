@@ -116,3 +116,14 @@ func FuzzClustersPartitionOriginalBytes(f *testing.F) {
 		}
 	})
 }
+
+func TestTruncateReturnsOnlyDrawableSuffixText(t *testing.T) {
+	for _, tc := range []struct{ suffix, want string }{
+		{"!\x1b\x00\xff", "ab!"},
+		{"\x1bX\xffYZQ", "XYZ"},
+	} {
+		if got := text.Truncate("abcdef", 3, tc.suffix); got != tc.want {
+			t.Errorf("returned %q, want drawable text %q", got, tc.want)
+		}
+	}
+}
