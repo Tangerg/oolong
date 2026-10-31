@@ -2,4 +2,6 @@
 
 package term
 
-func windowPixels(int) (w, h int, ok bool) { return 0, 0, false }
+import "image"
+
+func cellSize(int) (image.Point, bool) { return image.Point{}, false }

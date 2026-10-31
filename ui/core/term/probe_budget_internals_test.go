@@ -131,3 +131,20 @@ func TestProbeHandsInputEndToThePump(t *testing.T) {
 		})
 	}
 }
+
+type noDeadlineWriter struct{ attempted bool }
+
+func (*noDeadlineWriter) SetWriteDeadline(time.Time) error { return errors.ErrUnsupported }
+func (w *noDeadlineWriter) WriteString(string) (int, error) {
+	w.attempted = true
+	return 0, io.ErrClosedPipe
+}
+
+func TestProbeCannotAttemptAnUnboundedWrite(t *testing.T) {
+	out := &noDeadlineWriter{}
+	pr := &probe{out: out, deadline: time.Now().Add(answerGrace)}
+	pr.run()
+	if out.attempted {
+		t.Fatal("optional probe wrote after the transport refused its write deadline")
+	}
+}

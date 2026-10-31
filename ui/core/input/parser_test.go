@@ -187,6 +187,10 @@ func TestMouseReports(t *testing.T) {
 
 func TestMouseReportsThatMustBeRefused(t *testing.T) {
 	for _, in := range []string{
+		"\x1b[<0;0;1M",        // column zero cannot name a terminal cell
+		"\x1b[<0;1;m",         // an omitted row cannot release the first row
+		"\x1b[<0;1;1;2M",      // an unknown report is not a three-parameter mouse press
+		"\x1b[<0;1:2;1M",      // these positions have no subparameters
 		"\x1b[<0;10M",         // no row
 		"\x1b[<0;99999999;5M", // a column beyond any encoding
 		"\x1b[<66;1;1M",       // the horizontal wheel, which nothing here reads

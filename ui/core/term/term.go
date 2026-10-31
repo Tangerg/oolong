@@ -94,6 +94,12 @@ type Terminal struct {
 	modes       Modes
 	oldState    *xterm.State
 
+	// The reader claim begins before prepare, while the session still owns the
+	// display. Only a successful release hands the modes and descriptor flags
+	// to a child. Serialize physical transitions with Close, never callbacks.
+	modeMu    sync.Mutex
+	ownsModes bool
+
 	events chan input.Event
 	writer *Writer
 	// waker ends the reader's wait when this process, rather than the terminal, has
@@ -240,20 +246,23 @@ func (t *Terminal) takeOver(inFD int) error {
 		return errors.Join(err, xterm.Restore(t.inFD, t.oldState))
 	}
 	t.output = output
+	// Acquire everything that can fail before entering terminal modes. Rollback
+	// never needs to send restoration through a writer it has already stopped.
+	waker, err := newWaker(inFD)
+	if err != nil {
+		return t.abortOpen(err)
+	}
+	t.waker = waker
 	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
 		return t.abortOpen(err)
 	}
 	defer func() { _ = t.output.SetWriteDeadline(time.Time{}) }()
+	t.ownsModes = true // Even a failed write may have entered a prefix of the modes.
 	if _, err := t.output.WriteString(t.modes.Enter()); err != nil {
 		return t.abortOpen(fmt.Errorf("term: take over the terminal: %w", err))
 	}
 
 	t.writer = NewWriter(WriterConfig{Destination: t.output})
-	waker, wakeErr := newWaker(inFD)
-	if wakeErr != nil {
-		return t.abortOpen(wakeErr)
-	}
-	t.waker = waker
 	go t.task.run(t.stop, t.writer.Queue)
 	return nil
 }
@@ -320,15 +329,15 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 // adding a resource cannot create a new path that forgets an older one.
 func (t *Terminal) abortOpen(cause error) error {
 	errs := []error{cause}
-	if t.writer != nil {
-		if err := t.writer.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("term: stop frame writer after open failed: %w", err))
-		}
+	if t.ownsModes {
+		errs = append(errs, t.giveBack()...)
+	} else {
+		errs = append(errs, xterm.Restore(t.inFD, t.oldState))
 	}
-	errs = append(errs, t.giveBack()...)
-	if t.output != nil {
-		errs = append(errs, t.output.Close())
+	if t.waker != nil {
+		t.waker.close()
 	}
+	errs = append(errs, t.output.active(false), t.output.Close())
 	return errors.Join(errs...)
 }
 
@@ -535,15 +544,7 @@ func (t *Terminal) Size() (w, h int, err error) {
 // invented cell size is a picture the wrong shape, and not showing one is the better
 // answer.
 func (t *Terminal) CellSize() (image.Point, bool) {
-	pxW, pxH, ok := windowPixels(t.outFD)
-	if !ok {
-		return image.Point{}, false
-	}
-	cols, rows, err := t.Size()
-	if err != nil || cols <= 0 || rows <= 0 {
-		return image.Point{}, false
-	}
-	return image.Pt(pxW/cols, pxH/rows), true
+	return cellSize(t.outFD)
 }
 
 // Transmit queues a picture and returns its handle for later placement in a frame
@@ -610,31 +611,47 @@ func (t *Terminal) Close() error {
 		<-t.resizeDone
 		<-t.task.done
 
-		// Raw mode must settle independently of output backpressure. The same
-		// deadline covers queued frames and the final restore sequences.
-		var errs []error
-		if err := xterm.Restore(t.inFD, t.oldState); err != nil {
-			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
-		}
-		errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
-		t.writer.CloseAdmission()
-		_, cleanupErr := t.writer.QueueControl([]byte(t.task.leave() + t.title.leave() + t.modes.Leave()))
-		errs = append(errs, cleanupErr)
-		errs = append(errs, t.writer.Close())
-		// Deadline cancellation ends the active write before another display owner
-		// can emit output. No abandoned writer can later publish an old frame.
-		<-t.writer.loopDone
-		errs = append(errs, t.writer.Err())
-		if err := t.output.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
-		}
+		t.closeErr = t.closeOutput()
 		// The pump owns the event channel, so it has to have finished before anyone
 		// could observe the channel closed.
 		<-t.pumpDone
-		t.closeErr = errors.Join(errs...)
 	})
 	return t.closeErr
 }
+
+// closeOutput releases only the display the session still owns. A child may
+// close its parent session after changing its own modes or descriptor flags.
+func (t *Terminal) closeOutput() error {
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
+	var errs []error
+	t.writer.CloseAdmission()
+	if t.ownsModes {
+		// Raw mode must settle independently of output backpressure. The same
+		// deadline covers queued frames and the final restore sequences.
+		if err := xterm.Restore(t.inFD, t.oldState); err != nil {
+			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
+		}
+	}
+	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+	if t.ownsModes {
+		_, cleanupErr := t.writer.QueueControl([]byte(t.leaveSequence()))
+		errs = append(errs, cleanupErr)
+	}
+	errs = append(errs, t.writer.Close())
+	<-t.writer.loopDone
+	errs = append(errs, t.writer.Err())
+	var flagsErr error
+	if t.ownsModes {
+		flagsErr = t.output.active(false)
+	}
+	if err := errors.Join(flagsErr, t.output.Close()); err != nil {
+		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+func (t *Terminal) leaveSequence() string { return t.task.leave() + t.title.leave() + t.modes.Leave() }
 
 // giveBack restores modes during startup rollback or a handover. The caller owns
 // an output deadline; Close instead queues these sequences behind pending frames.
@@ -642,7 +659,7 @@ func (t *Terminal) giveBack() []error {
 	var errs []error
 	// Session metadata is cleared before modes, so neither a task nor a title leaks
 	// into the next owner.
-	if err := t.control(t.task.leave() + t.title.leave() + t.modes.Leave()); err != nil {
+	if err := t.control(t.leaveSequence()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
 	}
 	if err := xterm.Restore(t.inFD, t.oldState); err != nil {
@@ -845,23 +862,40 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 	// The lifetime claim can already have parked the reader. Confirm that it noticed
 	// before giving the terminal's input and modes to the child.
 	t.park(parked)
-	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
-		return errors.Join(err, t.resume())
-	}
-	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
-		// release is transactional: on failure no child runs and the session is made
-		// live again before the error reaches the caller.
-		return errors.Join(err, t.resume())
-	}
-	return nil
-}
-
-func (t *Terminal) resume() error {
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
 	select {
 	case <-t.stop:
 		return ErrClosed
 	default:
 	}
+	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
+		return errors.Join(err, t.task.restore(t.writer.Queue))
+	}
+	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
+		// release is transactional: on failure no child runs and the session is made
+		// live again before the error reaches the caller.
+		return errors.Join(err, t.retakeModes())
+	}
+	t.ownsModes = false
+	return nil
+}
+
+func (t *Terminal) resume() error {
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
+	select {
+	case <-t.stop:
+		return ErrClosed
+	default:
+	}
+	return t.retakeModes()
+}
+
+// The caller holds modeMu. From the first attempt, Close again owns cleanup
+// even if reacquisition only succeeds in part.
+func (t *Terminal) retakeModes() error {
+	t.ownsModes = true
 	var errs []error
 	errs = append(errs, t.output.active(true))
 	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))

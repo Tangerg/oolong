@@ -130,7 +130,9 @@ type answers struct {
 func (p *probe) run() answers {
 	var got answers
 	// One budget for the whole exchange, held over the transport as well as the wait.
-	_ = p.out.SetWriteDeadline(p.deadline)
+	if err := p.out.SetWriteDeadline(p.deadline); err != nil {
+		return got
+	}
 	defer func() { _ = p.out.SetWriteDeadline(time.Time{}) }()
 	if _, err := p.out.WriteString(queryBackground + queryForeground + queryVersion +
 		queryDeviceVersion + queryKeyboard + queryAttributes); err != nil {
@@ -181,7 +183,7 @@ func (p *probe) read(result readResult, got *answers) bool {
 }
 
 func (p *probe) drainRaw(got *answers) bool {
-	for {
+	for !got.hasAttrs {
 		select {
 		case result := <-p.raw:
 			if !p.read(result, got) {
@@ -191,11 +193,17 @@ func (p *probe) drainRaw(got *answers) bool {
 			return true
 		}
 	}
+	return false
 }
 
 // take files one decoded event: as an answer if it is one, and otherwise as input
 // that belongs to the session.
 func (p *probe) take(ev input.Event, got *answers) {
+	// The marker ends the exchange even in the middle of one transport read.
+	if got.hasAttrs {
+		p.early = append(p.early, ev)
+		return
+	}
 	switch ev := ev.(type) {
 	case input.OSC:
 		switch ev.Command {

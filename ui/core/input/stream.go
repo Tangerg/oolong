@@ -66,9 +66,9 @@ func (s *Stream) escapeGrace() time.Duration {
 // The returned slice is the caller's. Whether the parse is now waiting on time is
 // answered by [Stream.DueAt], which every feed brings up to date.
 func (s *Stream) Feed(chunk []byte, at time.Time) []Event {
-	var events []Event
-	if s.waiting && !at.Before(s.deadline) {
-		events = s.Expire(s.deadline)
+	events := s.Expire(at)
+	if len(chunk) == 0 {
+		return events
 	}
 	events = append(events, s.settle(s.decoder().Feed(chunk), at)...)
 	s.arm(at)
@@ -89,8 +89,9 @@ func (s *Stream) Expire(at time.Time) []Event {
 // Flush ends the stream. A buffered escape becomes the Escape key and a half-arrived
 // character is dropped, because the rest is never coming.
 func (s *Stream) Flush(at time.Time) []Event {
+	events := s.Expire(at)
 	s.disarm()
-	return s.settle(s.decoder().Flush(), at)
+	return append(events, s.settle(s.decoder().Flush(), at)...)
 }
 
 // DueAt is when a waiting ambiguous sequence must be settled, if one is waiting.

@@ -180,15 +180,15 @@ func (ps params) extendedKey() Event {
 }
 
 func (ps params) mouse(down bool) Event {
-	if ps.Len() < 3 {
+	if ps.Len() != 3 || ps.Group(0).Len() != 1 || ps.Group(1).Len() != 1 || ps.Group(2).Len() != 1 {
 		return nil
 	}
 	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
-	if bits < 0 || bits & ^127 != 0 || x < 0 || y < 0 {
+	if bits < 0 || bits & ^127 != 0 || x < 1 || y < 1 {
 		return nil
 	}
 	// The terminal counts from one; everything above this package counts from zero.
-	ev := Mouse{Pos: image.Pt(max(x-1, 0), max(y-1, 0)), Mods: mouseMods(bits)}
+	ev := Mouse{Pos: image.Pt(x-1, y-1), Mods: mouseMods(bits)}
 	switch {
 	case bits&64 != 0:
 		switch bits & 3 {

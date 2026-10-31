@@ -3,9 +3,12 @@ package term_test
 import (
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	xterm "golang.org/x/term"
 
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -336,6 +339,48 @@ func TestClosingDuringHandoverCannotReenterTerminalModes(t *testing.T) {
 	called := false
 	if err := tty.Hand(nil, func() error { called = true; return nil }); called || !errors.Is(err, term.ErrClosed) {
 		t.Fatalf("Hand on closed session called child = %v, error = %v", called, err)
+	}
+}
+
+func TestClosingASessionInAChildLeavesTheChildsTerminalAlone(t *testing.T) {
+	primary, replica := pty(t)
+	fd := int(replica.Fd())
+	tty, openErr := term.OpenOn(replica, replica, term.Config{AltScreen: true, Features: term.Features{Keyboard: term.KeyboardCompatible}}, nil)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+	if err := tty.SetTitle("session"); err != nil {
+		t.Fatal(err)
+	}
+	handErr := tty.Hand(nil, func() error {
+		read(t, primary, 50*time.Millisecond) // Discard the session's acquisition and release.
+		original, err := xterm.MakeRaw(fd)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = xterm.Restore(fd, original) }()
+		child, err := xterm.GetState(fd)
+		if err != nil {
+			return err
+		}
+		if closeErr := tty.Close(); closeErr != nil {
+			return closeErr
+		}
+		state, err := xterm.GetState(fd)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(state, child) {
+			t.Error("session teardown replaced the child's terminal settings")
+		}
+		if output := read(t, primary, 50*time.Millisecond); output != "" {
+			t.Errorf("session teardown wrote into the child's terminal: %q", output)
+		}
+		return nil
+	})
+	if !errors.Is(handErr, term.ErrClosed) {
+		t.Fatalf("Hand on a session closed by its child: %v", handErr)
 	}
 }
 

@@ -79,6 +79,27 @@ func TestProbeKeepsHalfAnAnswer(t *testing.T) {
 	}
 }
 
+func TestProbeMarkerHandsTheRestOfTheReadToTheSession(t *testing.T) {
+	tty, _ := answered(t, "\x1b[?62;4c\x1b[?63c!")
+	attrs, ok := tty.Attributes()
+	if !ok || attrs.Class != 62 || !attrs.Has(4) {
+		t.Errorf("an event after the marker replaced the startup answer: %+v", attrs)
+	}
+	for {
+		ev, ok := next(t, tty)
+		if !ok {
+			t.Fatal("missing event after the probe")
+		}
+		if _, resize := ev.(input.Resize); resize {
+			continue
+		}
+		if attrs, ok := ev.(input.DeviceAttributes); !ok || attrs.Class != 63 {
+			t.Fatalf("first event belongs to session: got %+v", ev)
+		}
+		break
+	}
+}
+
 func TestProbeLearnsWhatTheTerminalClaims(t *testing.T) {
 	tty, _ := answered(t, "\x1b]11;rgb:0/0/0\x07\x1b[?62;4;22c")
 

@@ -60,7 +60,3 @@ func (o *terminalOutput) active(active bool) error {
 	err = raw.Control(func(fd uintptr) { _, result = unix.FcntlInt(fd, unix.F_SETFL, flags) })
 	return errors.Join(err, result)
 }
-
-func (o *terminalOutput) Close() error {
-	return errors.Join(o.File.Close(), o.active(false))
-}

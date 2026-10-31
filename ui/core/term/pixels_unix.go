@@ -2,22 +2,22 @@
 
 package term
 
-import "golang.org/x/sys/unix"
+import (
+	"image"
 
-// windowPixels is the terminal window's size in pixels, and whether it said.
-//
-// It comes from the same place the size in cells does, which is the only way to
-// learn it without asking the terminal a question and waiting for the answer: the
-// window size the operating system keeps has two more fields in it, and a terminal
-// that fills them in has told the truth about itself for free.
-//
-// Plenty of terminals leave them zero. That is what the false is for, and it is why
-// nothing here guesses a cell size — a picture scaled by an invented number is a
-// picture the wrong shape, which is worse than one that was not shown.
-func windowPixels(fd int) (w, h int, ok bool) {
+	"golang.org/x/sys/unix"
+)
+
+// Derive pixel and cell dimensions from one kernel window measurement: two
+// independent reads could combine the pixels before a resize with the rows after.
+func cellSize(fd int) (image.Point, bool) {
 	size, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ)
-	if err != nil || size.Xpixel == 0 || size.Ypixel == 0 {
-		return 0, 0, false
+	if err != nil || size.Col == 0 || size.Row == 0 {
+		return image.Point{}, false
 	}
-	return int(size.Xpixel), int(size.Ypixel), true
+	cell := image.Pt(int(size.Xpixel/size.Col), int(size.Ypixel/size.Row))
+	if cell.X == 0 || cell.Y == 0 {
+		return image.Point{}, false
+	}
+	return cell, true
 }

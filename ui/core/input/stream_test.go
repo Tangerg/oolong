@@ -57,6 +57,28 @@ func TestStreamUsesArrivalTimeToResolveBufferedEscape(t *testing.T) {
 // What a transport is entitled to assume, stated once here because every transport
 // now assumes it rather than deciding it again.
 
+func TestEmptyReadsCannotExtendAnEscapeDeadline(t *testing.T) {
+	var stream input.Stream
+	at := time.Unix(1, 0)
+	stream.Feed([]byte{27}, at)
+	due, _ := stream.DueAt()
+	stream.Feed(nil, due.Add(-time.Nanosecond))
+	events := stream.Feed([]byte("q"), due)
+	if len(events) != 2 || events[0].(input.Key).Code != input.Esc || !events[1].(input.Key).IsRune('q', 0) {
+		t.Fatalf("empty read turned a later key into a continuation: %+v", events)
+	}
+}
+
+func TestEndAfterEscapeDeadlineKeepsTheDeadlineTime(t *testing.T) {
+	var stream input.Stream
+	stream.Feed([]byte{27}, time.Unix(1, 0))
+	due, _ := stream.DueAt()
+	events := stream.Flush(due.Add(time.Second))
+	if len(events) != 1 || events[0].(input.Key).Code != input.Esc || !events[0].(input.Key).At.Equal(due) {
+		t.Fatalf("EOF restamped a previously due Escape: %+v", events)
+	}
+}
+
 func TestTheZeroStreamIsADecoderOfItsOwn(t *testing.T) {
 	// A transport with nothing to say about the parser, the grace or the clipboard
 	// should not have to say it. Nothing here is constructed.
