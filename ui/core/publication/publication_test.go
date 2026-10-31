@@ -361,3 +361,40 @@ type callbackBody struct{ draw func(grid.View) }
 
 func (callbackBody) HeightForWidth(int) int { return 1 }
 func (b callbackBody) Draw(v grid.View)     { b.draw(v) }
+
+func TestCloseFromListenerStillPublishesTheFinalState(t *testing.T) {
+	p := newPublisher(t, publication.Config{})
+	r, err := p.TryPublish(&block{text: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []publication.State
+	p.Subscribe(func() {
+		seen = append(seen, r.Snapshot().State)
+		p.Close(nil)
+	})
+	p.FlushNotifications()
+	p.FlushNotifications()
+	if len(seen) != 2 || seen[0] != publication.Accepted || seen[1] != publication.Failed {
+		t.Fatalf("subscriber missed the final outcome: %v", seen)
+	}
+}
+
+func TestInterruptedFinalNotificationResumesWithTheNextSubscriber(t *testing.T) {
+	p := newPublisher(t, publication.Config{})
+	var order []int
+	p.Subscribe(func() { order = append(order, 1); panic("interrupted") })
+	p.Subscribe(func() { order = append(order, 2) })
+	p.Close(nil)
+	func() {
+		defer func() {
+			if recover() != "interrupted" {
+				t.Error("callback panic did not propagate")
+			}
+		}()
+		p.FlushNotifications()
+	}()
+	if !p.FlushNotifications() || len(order) != 2 || order[0] != 1 || order[1] != 2 || p.FlushNotifications() {
+		t.Fatalf("terminal delivery = %v; want both subscribers exactly once", order)
+	}
+}

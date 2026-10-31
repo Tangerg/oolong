@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -115,6 +116,7 @@ type Publisher struct {
 	dirty        bool
 	notifying    bool
 	listeners    []*listener
+	delivery     []*listener
 }
 
 type listener struct{ fn func() }
@@ -395,29 +397,42 @@ func (p *Publisher) Subscribe(fn func()) func() {
 // FlushNotifications is called after the compositor has settled all owners.
 // Transitions requested by callbacks remain dirty for the next turn, so they
 // cannot recursively observe a half-committed frame or starve terminal input.
+// If a callback exits abnormally, the next flush resumes with its successor.
 func (p *Publisher) FlushNotifications() bool {
 	p.assertIdle()
-	if p == nil || !p.dirty || p.notifying {
+	if p == nil || p.notifying {
 		return false
 	}
-	p.dirty, p.notifying = false, true
-	defer func() { p.notifying = false }()
-	listeners := append([]*listener(nil), p.listeners...)
-	for _, l := range listeners {
-		if l.fn != nil {
-			l.fn()
+	if len(p.delivery) == 0 {
+		if !p.dirty {
+			return false
+		}
+		p.dirty = false
+		if p.closed != nil {
+			// The terminal turn takes the registry itself. A Close during an
+			// earlier callback instead schedules this turn after its delivery.
+			p.delivery, p.listeners = p.listeners, nil
+		} else {
+			p.delivery = slices.Clone(p.listeners)
 		}
 	}
-	active := p.listeners[:0]
-	for _, l := range p.listeners {
-		if p.closed != nil {
+	final := p.closed != nil && !p.dirty
+	p.notifying = true
+	defer func() { p.notifying = false }()
+	for len(p.delivery) != 0 {
+		l := p.delivery[0]
+		p.delivery[0] = nil
+		p.delivery = p.delivery[1:]
+		if len(p.delivery) == 0 {
+			p.delivery = nil
+		}
+		fn := l.fn
+		if final {
 			l.fn = nil
 		}
-		if l.fn != nil {
-			active = append(active, l)
+		if fn != nil {
+			fn()
 		}
 	}
-	clear(p.listeners[len(active):])
-	p.listeners = active
 	return true
 }
