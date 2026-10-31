@@ -25,8 +25,8 @@ func TestContinuationBelongsToItsSemanticTraversal(t *testing.T) {
 		q scene.Query
 	}{{b, scene.Query{RootKey: "a"}}, {a, scene.Query{RootKey: "b"}}, {a, scene.Query{RootKey: "a", Depth: 1}}} {
 		c.q.Cursor = page.Next
-		if _, err := c.r.Observe(c.q); !errors.Is(err, scene.ErrObservationChanged) {
-			t.Errorf("mixed traversal accepted: %v", err)
+		if _, pageErr := c.r.Observe(c.q); !errors.Is(pageErr, scene.ErrObservationChanged) {
+			t.Errorf("mixed traversal accepted: %v", pageErr)
 		}
 	}
 	continued, err := a.Observe(scene.Query{Root: page.Nodes[0].Target, Limit: 8, Cursor: page.Next})

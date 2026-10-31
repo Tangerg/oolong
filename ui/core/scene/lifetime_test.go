@@ -55,8 +55,7 @@ func TestSettlementKeepsUndeliveredCallbacksInOrder(t *testing.T) {
 	for _, interrupt := range []bool{false, true} {
 		var order []string
 		var r *scene.Root
-		var tail scene.Element
-		tail = scene.NewElement(scene.ElementConfig{Detached: func() { order = append(order, "new") }})
+		tail := scene.NewElement(scene.ElementConfig{Detached: func() { order = append(order, "new") }})
 		first := scene.NewElement(scene.ElementConfig{Detached: func() {
 			order = append(order, "first")
 			if err := r.SetContent(scene.Element{}); err != nil {

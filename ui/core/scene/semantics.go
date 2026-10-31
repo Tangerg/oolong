@@ -276,18 +276,13 @@ func (r *Root) Observe(query Query) (Observation, error) {
 	if query.Depth < 0 || query.Limit < 0 || query.TextLimit < 0 {
 		return Observation{}, ErrInvalid
 	}
-	if query.Cursor != (Cursor{}) && (query.Cursor.origin.root != r || query.Cursor.revision != r.modelRevision || query.Cursor.depth != query.Depth) {
-		return Observation{}, ErrObservationChanged
-	}
 	r.observing = true
 	defer func() { r.observing = false }()
-	origin, err := r.queryRoot(query)
+	origin, cursor, err := r.traversal(query)
 	if err != nil {
 		return Observation{}, err
 	}
-	if query.Cursor != (Cursor{}) && (origin == nil || query.Cursor.origin != origin.target()) {
-		return Observation{}, ErrObservationChanged
-	}
+	query.Cursor = cursor
 	if query.Limit == 0 {
 		query.Limit = DefaultQueryLimit
 	}
@@ -295,12 +290,28 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		query.TextLimit = DefaultTextLimit
 	}
 	query.Limit, query.TextLimit = min(query.Limit, MaxQueryLimit), min(query.TextLimit, MaxTextLimit)
-	if origin != nil {
-		query.Cursor = Cursor{origin: origin.target(), revision: r.modelRevision, depth: query.Depth, offset: query.Cursor.offset}
-	}
 	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.offset > 0}}
 	builder.visit(origin, Target{}, 0)
 	return builder.result, nil
+}
+
+func (r *Root) traversal(q Query) (*node, Cursor, error) {
+	c := q.Cursor
+	if c != (Cursor{}) && (c.origin.root != r || c.revision != r.modelRevision) {
+		return nil, Cursor{}, ErrObservationChanged
+	}
+	origin, err := r.queryRoot(q)
+	if err != nil {
+		return nil, Cursor{}, err
+	}
+	cursor := Cursor{revision: r.modelRevision, depth: q.Depth, offset: c.offset}
+	if origin != nil {
+		cursor.origin = origin.target()
+	}
+	if c != (Cursor{}) && c != cursor {
+		return nil, Cursor{}, ErrObservationChanged
+	}
+	return origin, cursor, nil
 }
 
 func (r *Root) queryRoot(query Query) (*node, error) {
