@@ -119,3 +119,41 @@ func TestTabsRejectFailedStructureBeforeChangingSelection(t *testing.T) {
 		t.Fatal("failed mounting partially published tab metadata")
 	}
 }
+
+func TestTabsPublishBothRelationsBeforeFocusProjection(t *testing.T) {
+	a, b := scene.NewElement(scene.ElementConfig{}), scene.NewElement(scene.ElementConfig{})
+	tabs := base.NewTabs(base.TabsConfig{Items: []base.Tab{{Key: "a", Content: a}}})
+	armed := false
+	calls := 0
+	if err := tabs.Element().SetFocusable(func() bool {
+		if armed {
+			calls++
+			current, _ := tabs.Current()
+			if current.Key != "b" || a.Alive() || !b.Alive() {
+				t.Errorf("focus saw selected=%s old attached=%t new attached=%t", current.Key, a.Alive(), b.Alive())
+			}
+			panic("projection interrupted")
+		}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root, err := scene.NewRoot(scene.RootConfig{Element: tabs.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	armed = true
+	func() {
+		defer func() {
+			if got := recover(); got != "projection interrupted" {
+				t.Fatalf("panic=%v", got)
+			}
+		}()
+		tabs.Set(base.Tab{Key: "b", Content: b})
+	}()
+	armed = false
+	if current, _ := tabs.Current(); calls != 1 || current.Content != b || !current.Content.Alive() || a.Alive() {
+		t.Fatalf("partial tab publication after focus callback: current=%v old=%t new=%t calls=%d", current.Key, a.Alive(), b.Alive(), calls)
+	}
+}

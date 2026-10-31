@@ -102,10 +102,8 @@ func (t *Tabs) Set(items ...Tab) {
 	if len(items) > 0 && !items[selected].Content.IsZero() {
 		panel = []scene.Item{{Element: items[selected].Content, Size: layout.Flex(1)}}
 	}
-	if err := t.strip.CheckSet(children...); err != nil {
-		panic(err)
-	}
-	if err := t.panel.CheckSet(panel...); err != nil {
+	updates := []scene.GroupItems{{Group: t.strip, Items: children}, {Group: t.panel, Items: panel}}
+	if err := t.group.CheckChildItems(updates...); err != nil {
 		panic(err)
 	}
 	focused := t.Panel().FocusedWithin()
@@ -116,10 +114,7 @@ func (t *Tabs) Set(items ...Tab) {
 			part.tab = item
 		}
 		t.parts, t.selected = parts, selected
-		if err := t.strip.Set(children...); err != nil {
-			panic(err)
-		}
-		if err := t.panel.Set(panel...); err != nil {
+		if err := t.group.SetChildItems(updates...); err != nil {
 			panic(err)
 		}
 		if focused {
@@ -189,7 +184,6 @@ func (t *Tabs) Select(index int) {
 	if focused {
 		_ = t.Panel().RequestFocusFirst()
 	}
-	t.Element().Invalidate()
 }
 
 func (t *Tabs) selectPart(part *tabPart) {
