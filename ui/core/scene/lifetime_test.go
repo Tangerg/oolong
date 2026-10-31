@@ -109,3 +109,33 @@ func TestClosingCoveredModalKeepsOriginalReturnAddress(t *testing.T) {
 		t.Fatal("closing both scopes lost the original opener")
 	}
 }
+
+func TestReorderedModalRetainsFocusOfEachSurvivingLayer(t *testing.T) {
+	a, b := scene.NewGroup(scene.GroupConfig{Modal: true}), scene.NewGroup(scene.GroupConfig{Modal: true})
+	g := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{item("a", a.Element()), item("b", b.Element())}})
+	r := root(t, g.Element())
+	a2, b2 := control(), control()
+	for _, opened := range []struct {
+		layer *scene.Group
+		pick  *routedControl
+	}{{a, a2}, {b, b2}} {
+		if err := opened.layer.Set(item("first", control().element), item("second", opened.pick.element)); err != nil {
+			t.Fatal(err)
+		}
+		if err := opened.pick.element.RequestFocus(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.Move(1, 0); err != nil {
+		t.Fatal(err)
+	}
+	if r.Focus() != a2.element.Target() {
+		t.Error("uncovered layer lost its focus")
+	}
+	if err := a.Set(); err != nil {
+		t.Fatal(err)
+	}
+	if r.Focus() != b2.element.Target() {
+		t.Error("reordered opener lost its focus")
+	}
+}

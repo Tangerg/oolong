@@ -336,20 +336,26 @@ func (r *Root) settleFocus() {
 	for common < len(modals) && common < len(r.scopes) && modals[common] == r.scopes[common].modal {
 		common++
 	}
-	// Splice at the first changed layer. A modal that survives removal of a
-	// covered layer inherits that layer's return address, not its dead child.
-	opener := r.focus
-	if common < len(r.scopes) {
-		opener = r.scopes[common].opener
+	if common < len(r.scopes) || common < len(modals) {
+		// A layer's last focus is the next layer's opener, or the current focus
+		// for the top layer. Carry it by attachment when layers move. Removing a
+		// covered layer splices its opener into the surviving return path.
+		within := make(map[Target]Target, len(r.scopes)-common)
+		opener := r.focus
+		for i := len(r.scopes) - 1; i >= common; i-- {
+			scope := r.scopes[i]
+			within[scope.modal] = opener
+			opener = scope.opener
+		}
 		r.scopes = slices.Delete(r.scopes, common, len(r.scopes))
-	}
-	for _, modal := range modals[common:] {
-		r.scopes = append(r.scopes, focusScope{modal: modal, opener: opener})
-		opener = Target{}
-	}
-	if opener != r.focus {
-		if n := r.resolve(opener); n != nil && r.focusable(n) {
-			r.setFocus(opener)
+		for _, modal := range modals[common:] {
+			r.scopes = append(r.scopes, focusScope{modal: modal, opener: opener})
+			opener = within[modal]
+		}
+		if opener != r.focus {
+			if n := r.resolve(opener); n != nil && r.focusable(n) {
+				r.setFocus(opener)
+			}
 		}
 	}
 	if n := r.resolve(r.focus); n != nil && r.focusable(n) {
