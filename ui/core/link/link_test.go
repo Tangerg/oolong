@@ -71,6 +71,11 @@ func TestDetect(t *testing.T) {
 			want: []link.Link{{Start: 0, End: 43, Target: "https://en.wikipedia.org/wiki/Go_(language)"}},
 		},
 		{
+			name: "keep the IPv6 host bracket, trim the prose bracket",
+			in:   "[http://[::1]].",
+			want: []link.Link{{Start: 1, End: 13, Target: "http://[::1]"}},
+		},
+		{
 			name: "a scheme with nothing after it is not a link",
 			in:   "the scheme is https://",
 			want: nil,

@@ -358,3 +358,17 @@ func TestAPrivateCommandEndingInMIsNotStyle(t *testing.T) {
 		t.Fatalf("Decode of plain SGR lost its attribute: %+v", lines[0][0])
 	}
 }
+
+func TestMalformedStreamTextIsIndependentOfReadBoundaries(t *testing.T) {
+	const source = "a\xff\xfe\x1b[1m好\ufffd\xf0\x80z\n"
+	want := text.Decode(source, grid.Style{})
+	for split := 0; split <= len(source); split++ {
+		var d text.Decoder
+		got := d.Feed(source[:split])
+		got = append(got, d.Feed(source[split:])...)
+		got = append(got, d.Flush()...)
+		if len(got) != 1 || styled(got[0]) != styled(want[0]) {
+			t.Fatalf("split at byte %d: got %v, want %v", split, got, want)
+		}
+	}
+}

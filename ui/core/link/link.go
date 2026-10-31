@@ -297,18 +297,31 @@ func inOrder(found []Link) Links {
 
 // trimTrailing strips the sentence punctuation off the end of a match.
 //
-// A closing parenthesis is the exception, and it needs a heuristic rather than a
-// rule: it is kept while the match still holds an unclosed one, so the path in
-// en.wikipedia.org/wiki/Go_(language) survives, and dropped otherwise, so prose
-// that wrapped a URL in brackets does not leak one into it.
+// Keep a closing delimiter that belongs to the URL, including an IPv6 host's
+// final bracket. Count surplus closers once so removing a run of punctuation
+// does not repeatedly rescan the entire candidate.
 func trimTrailing(text string) string {
+	if text == "" || !strings.ContainsRune(trailing, rune(text[len(text)-1])) {
+		return text
+	}
+	round := strings.Count(text, ")") - strings.Count(text, "(")
+	square := strings.Count(text, "]") - strings.Count(text, "[")
 	for len(text) > 0 {
 		last := text[len(text)-1]
 		if !strings.ContainsRune(trailing, rune(last)) {
 			break
 		}
-		if last == ')' && strings.Count(text, "(") >= strings.Count(text, ")") {
-			break
+		switch last {
+		case ')':
+			if round <= 0 {
+				return text
+			}
+			round--
+		case ']':
+			if square <= 0 {
+				return text
+			}
+			square--
 		}
 		text = text[:len(text)-1]
 	}

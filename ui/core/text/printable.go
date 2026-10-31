@@ -9,7 +9,7 @@ import (
 //
 // A tab is kept, because it is laid out rather than obeyed — see [TabStop] — and
 // every other control character is an instruction for a terminal this package is
-// not asking it to perform. Invalid UTF-8 becomes replacement text. Cleaning occurs
+// not asking it to perform. Each invalid UTF-8 byte becomes a replacement rune. Cleaning occurs
 // before layout rather than at the cell so measuring, cursor offsets and drawing see
 // the same text.
 //
@@ -21,7 +21,7 @@ func Printable(s string) string {
 	}
 	var b strings.Builder
 	b.Grow(len(s))
-	for _, r := range strings.ToValidUTF8(s, "\ufffd") {
+	for _, r := range s {
 		if !droppedRune(r) {
 			b.WriteRune(r)
 		}
