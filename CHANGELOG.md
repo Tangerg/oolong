@@ -29,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
+- The [ownership review](docs/report/oolong-ownership-review-24aabeb.md) records the reproduced failures, API migration and verification scope for this pass.
 - Runtime publication settles confirmed writes before classifying remaining receipts on failure. Ordered repaint reports refusal; ended byte ingress releases its queue reservation. Wrapped or joined cancellation errors preserve their failure outcome, and stale example producers cannot settle another run.
 - Shared editors map peer carets and undo/redo through the actual edit, including repeated text. Element metadata and clipboard-ring continuation settle before subscriber callbacks. History owns typing groups across all views.
 - Settings, panel, viewport and dialog content queries use their real scene attachment. Virtual windows support measurement without a builder and preserve the requested viewport through refinement.
