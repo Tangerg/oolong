@@ -176,3 +176,43 @@ func TestClippedSliderUsesTheWholeTrackForValues(t *testing.T) {
 		t.Fatal("clipped part accepted a press")
 	}
 }
+
+func TestSliderConfigurationWakesObserversWhenItChanges(t *testing.T) {
+	for _, change := range []string{"label", "bounds", "step"} {
+		t.Run(change, func(t *testing.T) {
+			s := base.NewSlider(base.SliderConfig{Minimum: 0, Maximum: 10, Initial: 5})
+			root, err := scene.NewRoot(scene.RootConfig{Element: s.Element()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			set := func() {
+				switch change {
+				case "label":
+					s.SetLabel("gain")
+				case "bounds":
+					s.SetBounds(0, 20)
+				case "step":
+					s.SetStep(2)
+				}
+			}
+			wake := root.Changes()
+			set()
+			select {
+			case <-wake:
+			default:
+				t.Fatal("committed slider configuration did not wake its scene")
+			}
+			if s.Value() != 5 {
+				t.Fatalf("configuration changed the value to %d", s.Value())
+			}
+			wake = root.Changes()
+			set()
+			select {
+			case <-wake:
+				t.Fatal("identical configuration woke the scene")
+			default:
+			}
+		})
+	}
+}

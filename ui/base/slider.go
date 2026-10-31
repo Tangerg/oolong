@@ -86,8 +86,11 @@ func (s *Slider) SetBounds(minimum, maximum int) {
 	if maximum < minimum || maximum-minimum < 0 {
 		panic("base: slider bounds have an invalid span")
 	}
+	changed := s.minimum != minimum || s.maximum != maximum
 	s.minimum, s.maximum = minimum, maximum
-	s.Set(s.value.get())
+	if !s.Set(s.value.get()) && changed {
+		s.element.Invalidate()
+	}
 }
 
 // Step returns how much one increase or decrease changes the value. The zero Slider
@@ -110,8 +113,9 @@ func (s *Slider) SetStep(step int) {
 	if step <= 0 {
 		panic("base: slider step must be positive")
 	}
-	if s != nil {
+	if s != nil && s.Step() != step {
 		s.step = step
+		s.element.Invalidate()
 	}
 }
 
@@ -120,7 +124,7 @@ func (s *Slider) Value() int {
 	if s == nil {
 		return 0
 	}
-	return min(max(s.value.get(), s.minimum), s.maximum)
+	return s.value.get()
 }
 
 // Set changes the value, clamped to the slider's bounds, and reports whether the
@@ -173,8 +177,9 @@ func (s *Slider) SetLabel(label string) {
 	if s != nil {
 		requireMutable(s.element)
 	}
-	if s != nil {
+	if s != nil && s.label != label {
 		s.label = strings.Clone(label)
+		s.element.Invalidate()
 	}
 }
 

@@ -90,12 +90,12 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 		}
 	}
 	s.matcher.Reset(func() {
-		s.list.SetItems(options)
+		s.list.replaceItems(options, at)
 		for i := range s.list.items {
 			s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
 		}
-		s.list.Select(at)
 		s.invalidateValidation()
+		s.list.notifyChange()
 	})
 }
 
@@ -125,7 +125,7 @@ func (s *Select[T]) Draw(v scene.Frame) {
 
 // DrawWith paints the field using this frame's look without changing configuration.
 func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
-	s.list.drawRows(s.frame(v, s.Label, look), nil, func(v grid.View, _ int, option Option[T], under bool) {
+	s.list.DrawRows(s.frame(v, s.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
 		if s.Row != nil {
 			s.Row(v, option, under, under, look)
 		} else {
@@ -155,7 +155,7 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 		return handled
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
-		return s.list.mouse(s.local(mouse), s.selectAt)
+		return s.list.mouse(s.local(mouse), s.list.Select)
 	}
 	return false
 }
@@ -170,7 +170,7 @@ func (s *Select[T]) Do(action keymap.Action) bool {
 	if at == before {
 		s.list.reveal(before)
 	} else {
-		s.selectAt(at)
+		s.list.Select(at)
 	}
 	return true
 }
@@ -206,15 +206,13 @@ func (s *Select[T]) focusChanged(has bool) {
 	}
 }
 
-func (s *Select[T]) selectAt(at int) { s.list.Select(at); s.element.Invalidate() }
-
 // Choose selects an available value using the configured identity rule.
 func (s *Select[T]) Choose(value T) bool {
 	at, ok := s.indexOf(s.list.items, value)
 	if !ok {
 		return false
 	}
-	s.selectAt(at)
+	s.list.Select(at)
 	return true
 }
 

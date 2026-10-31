@@ -16,8 +16,6 @@ import (
 // copied after first use. Methods panic on a nil *List.
 type List[T any] struct {
 	changes  subscriptions[struct{}]
-	changing int
-	changed  bool
 	element  scene.Element
 	geometry eventGeometry
 	noCopy   noCopy
@@ -37,7 +35,6 @@ type List[T any] struct {
 	revision        uint64
 	contentRevision uint64
 	selected        int
-	blurred         bool
 	scroll          Scroll
 	// presentation is the committed window and first visible row. Both are routing
 	// geometry: a page and a press must refer to the same complete frame.
@@ -71,7 +68,6 @@ func (l *List[T]) Select(i int) {
 	if next != l.selected {
 		l.selected = next
 		l.revision++
-		l.element.Invalidate()
 		l.reveal(next)
 		l.notifyChange()
 	}
@@ -89,33 +85,28 @@ func (l *List[T]) Move(n int) {
 // routing waits for its next complete frame so old geometry cannot select new items.
 func (l *List[T]) SetItems(items []T) {
 	requireMutable(l.element)
-	l.changing++
-	defer func() {
-		l.changing--
-		if l.changing == 0 && l.changed {
-			l.changed = false
-			l.changes.publish(struct{}{})
-		}
-	}()
 	l.matcher.Reset(func() {
-		l.replaceItems(items)
-		l.Select(l.selected)
+		l.replaceItems(items, l.selected)
 		l.notifyChange()
 	})
 }
 
-// Collection replacement invalidates routing; its controller owns selection.
-func (l *List[T]) replaceItems(items []T) {
+// Install rows, cursor and routing identity without calling observers. A composed
+// control can complete its own state before publishing this one list change.
+func (l *List[T]) replaceItems(items []T, selected int) {
 	requireMutable(l.element)
 	l.revision++
 	l.contentRevision++
-	l.element.Invalidate()
 	l.pointer.Left()
 	l.items = own(l.items, items)
 	l.itemsID = new(byte)
+	next := l.clampIndex(selected)
 	if len(l.items) == 0 {
 		l.scroll.ToTop()
+	} else if next != l.selected {
+		l.reveal(next)
 	}
+	l.selected = next
 }
 
 // Items returns a copy of the items in list order.
@@ -256,9 +247,8 @@ func (l *List[T]) keys() *keymap.Map {
 // HeightForWidth returns one row per item.
 func (l *List[T]) HeightForWidth(int) int { return len(l.items) }
 
-// Focus changes keyboard ownership.
+// Losing focus cancels an unfinished gesture or key sequence.
 func (l *List[T]) focusChanged(has bool) {
-	l.blurred = !has
 	if !has {
 		l.pointer.Left()
 		l.matcher.Clear()
@@ -266,7 +256,7 @@ func (l *List[T]) focusChanged(has bool) {
 }
 
 // Focused reports whether this list has the keyboard.
-func (l *List[T]) Focused() bool { return !l.blurred }
+func (l *List[T]) Focused() bool { return l.element.Focused() }
 
 // Scroll exposes the position, for a scrollbar drawn beside the list.
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }
@@ -280,25 +270,14 @@ func (l *List[T]) Draw(v scene.Frame) {
 // selection, scrolling and pointer routing. Callbacks must be observationally pure.
 // It panics unless the list is mounted in the frame's scene outside read-only projection.
 func (l *List[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
-	l.drawRows(v, nil, draw)
-}
-
-// A non-nil choice projects an external owner; it never initializes the local cursor.
-func (l *List[T]) drawRows(v scene.Frame, choice *int, draw func(grid.View, int, T, bool)) {
 	requireProjection(l.element, v)
 	width, height := v.Size()
 	total := len(l.items)
 	scroll := l.scroll.Stage(v, total, height)
 	selected := l.Selected()
-	if choice != nil {
-		selected = *choice
-		if selected >= 0 && selected != l.geometry.read(&l.presentation).selected {
-			scroll.Reveal(selected, selected)
-		}
-	}
 	first := scroll.Offset()
 	l.presentation.Stage(v, listPresentation{
-		visible: v.Visible(), window: height, first: first, total: total, selected: selected, itemsID: l.itemsID,
+		visible: v.Visible(), window: height, first: first, total: total, itemsID: l.itemsID,
 	})
 	l.pointer.Stage(v, v.Bounds())
 	if draw == nil {
@@ -323,9 +302,9 @@ func (l *List[T]) reveal(at int) {
 }
 
 type listPresentation struct {
-	itemsID                        *byte
-	visible                        image.Rectangle
-	window, first, total, selected int
+	itemsID              *byte
+	visible              image.Rectangle
+	window, first, total int
 }
 
 func (l *List[T]) clampIndex(i int) int {
@@ -346,9 +325,6 @@ func (l *List[T]) Subscribe(callback func()) func() {
 }
 
 func (l *List[T]) notifyChange() {
-	if l.changing > 0 {
-		l.changed = true
-		return
-	}
+	l.element.Invalidate()
 	l.changes.publish(struct{}{})
 }

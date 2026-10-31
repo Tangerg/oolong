@@ -19,7 +19,7 @@ import (
 type editorLineView struct {
 	value, placeholder, mask string
 	cursor, anchor, left     int
-	selecting, blurred       bool
+	selecting, focused       bool
 	gutter                   RowGutter
 	cursorStyle              grid.CursorStyle
 }
@@ -83,7 +83,7 @@ func (e editorLineView) draw(frame scene.Frame, look Look, presented *scene.Snap
 			}
 		}
 	}
-	if !e.blurred {
+	if e.focused {
 		view.PlaceCursor(cursor-left, 0, e.cursorStyle)
 	}
 	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left, visible: frame.Visible()})

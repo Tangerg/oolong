@@ -202,7 +202,7 @@ type editorMeaning struct {
 	elements     []Element
 	elementIDs   identitySequence
 	matcherKeys  input.Keys
-	blurred      bool
+	focused      bool
 	look         Look
 	placeholder  string
 	keys         *keymap.Map
@@ -226,7 +226,7 @@ func meaningOfEditor(editor *Editor) editorMeaning {
 		selection: editor.Selected(), anchor: editor.anchor, selecting: editor.selecting,
 		wantColumn: editor.wantColumn, rowEnd: editor.rowEnd, rowEndSet: editor.rowEndSet,
 		elements: editor.Elements(), elementIDs: editor.document().elementIDs,
-		matcherKeys: editor.matcher.Keys(), blurred: editor.blurred,
+		matcherKeys: editor.matcher.Keys(), focused: editor.element.Focused(),
 		look: editor.Look, placeholder: editor.Placeholder,
 		keys: editor.Keys, clipboard: editor.Clipboard,
 		maxRows: editor.MaxRows, singleLine: editor.SingleLine(),

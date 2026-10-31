@@ -61,9 +61,6 @@ type Editor struct {
 
 	matcher keymap.Matcher
 
-	// Inverted so a standalone zero-value editor owns the keyboard.
-	blurred bool
-
 	scroll Scroll
 	// Scroll owns request consumption and cancellation; drawing only resolves its visual row.
 	cursorReveal *scrollRange
@@ -1335,14 +1332,8 @@ func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
 	e.Gutter.Draw(view, out)
 }
 
-// Focus takes the keyboard, or gives it up. A field without it draws no cursor.
-//
-// A frame has one cursor and the terminal draws it, so two fields both asking for it
-// is not two cursors: it is one, wherever the last of them happened to draw. This is
-// how the question is settled — see [Focusable], and note that a field nobody has
-// told anything believes it has the keyboard, which is what makes a lone field work.
+// Losing the keyboard ends transient input. Cursor painting reads scene focus directly.
 func (e *Editor) focusChanged(has bool) {
-	e.blurred = !has
 	if !has {
 		e.endTyping()
 		e.matcher.Clear()
@@ -1350,7 +1341,7 @@ func (e *Editor) focusChanged(has bool) {
 }
 
 func (e *Editor) placeCursor(v grid.View, x, y int) {
-	if e.blurred {
+	if !e.element.Focused() {
 		return
 	}
 	v.PlaceCursor(x, y, e.CursorStyle)
@@ -1391,7 +1382,7 @@ func (e *Editor) lineView(value string) editorLineView {
 	view := editorLineView{
 		value: value, placeholder: e.Placeholder, mask: e.Mask(),
 		cursor: e.col, anchor: e.anchor.Col, selecting: e.selecting,
-		blurred: e.blurred, left: e.geometry.read(&e.presentation).left,
+		focused: e.element.Focused(), left: e.geometry.read(&e.presentation).left,
 		gutter: e.Gutter, cursorStyle: e.CursorStyle,
 	}
 	if value != e.Text() {

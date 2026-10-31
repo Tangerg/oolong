@@ -74,14 +74,14 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	}
 	clampTaken(taken, m.limit)
 	m.matcher.Reset(func() {
-		m.list.SetItems(options)
+		m.list.replaceItems(options, m.list.selected)
 		for i := range m.list.items {
 			m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
 		}
 		m.taken = taken
 		m.revision++
-		m.element.Invalidate()
 		m.invalidateValidation()
+		m.list.notifyChange()
 	})
 }
 
@@ -112,8 +112,7 @@ func (m *MultiSelect[T]) Limit() int {
 
 // Taken returns a copy of the selected values in option order.
 func (m *MultiSelect[T]) Taken() []T {
-	taken, _ := m.selection()
-	return m.valuesOf(taken)
+	return m.valuesOf(m.taken)
 }
 
 func (m *MultiSelect[T]) valuesOf(taken []bool) []T {
@@ -177,7 +176,7 @@ func (m *MultiSelect[T]) Toggle() bool {
 }
 
 func (m *MultiSelect[T]) toggle() bool {
-	before, _ := m.selection()
+	before := m.taken
 	at := m.list.Selected()
 	if at < 0 || at >= len(before) {
 		return false
@@ -188,8 +187,7 @@ func (m *MultiSelect[T]) toggle() bool {
 	proposed := slices.Clone(before)
 	proposed[at] = !proposed[at]
 	m.store(proposed)
-	after, _ := m.selection()
-	return !slices.Equal(before, after)
+	return true
 }
 
 // HeightForWidth is the label, the options within their cap, and the problem if there is one.
@@ -208,50 +206,14 @@ func (m *MultiSelect[T]) Draw(v scene.Frame) {
 
 // DrawWith paints the field using this frame's look without changing configuration.
 func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
-	taken, _ := m.selection()
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
-		chosen := at < len(taken) && taken[at]
+		chosen := at < len(m.taken) && m.taken[at]
 		if m.Row != nil {
 			m.Row(v, option, under, chosen, look)
 		} else {
 			look.choice(v, option.Label, under, chosen)
 		}
 	})
-}
-
-func (m *MultiSelect[T]) selection() ([]bool, bool) { return slices.Clone(m.taken), true }
-
-func (m *MultiSelect[T]) selectionOf(options []Option[T], bound []T) ([]bool, bool) {
-	taken := make([]bool, len(options))
-	for _, want := range bound {
-		for i, option := range options {
-			if option.holds(want, m.Same) {
-				taken[i] = true
-				break
-			}
-		}
-	}
-	clamped := clampTaken(taken, m.limit)
-	count := 0
-	for _, selected := range taken {
-		if selected {
-			count++
-		}
-	}
-	if clamped || len(bound) != count {
-		return taken, false
-	}
-	at := 0
-	for i, option := range options {
-		if !taken[i] {
-			continue
-		}
-		if !option.holds(bound[at], m.Same) {
-			return taken, false
-		}
-		at++
-	}
-	return taken, true
 }
 
 // Handle moves the cursor and takes choices.
@@ -305,7 +267,17 @@ func (m *MultiSelect[T]) focusChanged(has bool) {
 
 // SetTaken replaces the chosen set. Unavailable and duplicate values are discarded.
 func (m *MultiSelect[T]) SetTaken(values []T) {
-	taken, _ := m.selectionOf(m.list.items, values)
+	requireMutable(m.element)
+	taken := make([]bool, len(m.list.items))
+	for _, want := range values {
+		for i, option := range m.list.items {
+			if option.holds(want, m.Same) {
+				taken[i] = true
+				break
+			}
+		}
+	}
+	clampTaken(taken, m.limit)
 	m.store(taken)
 }
 

@@ -42,7 +42,8 @@ type tableOrder struct {
 func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 	t.requireIdle()
 	if less == nil {
-		t.less, t.order = nil, nil
+		t.less = nil
+		t.ClearSort()
 		return
 	}
 	if t.order == nil {
@@ -88,7 +89,10 @@ func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 // ClearSort clears sort metadata without moving rows.
 func (t *Table[T]) ClearSort() {
 	t.requireIdle()
-	t.order = nil
+	if t.order != nil {
+		t.order = nil
+		t.element.Invalidate()
+	}
 }
 
 // SetItems replaces rows and reapplies the active sort.
@@ -162,14 +166,15 @@ func (t *Table[T]) configureRows() {
 }
 
 func (t *Table[T]) requireIdle() {
+	requireMutable(t.element)
 	if t.sorting {
 		panic("base: table ordering mutation during comparison")
 	}
 }
 
 func (t *Table[T]) replaceRows(items []T, selected int) {
-	t.list().SetItems(items)
-	t.rows.Select(selected)
+	t.rows.replaceItems(items, selected)
+	t.rows.notifyChange()
 }
 
 // Sorting a permutation preserves the selected row without requiring T equality.

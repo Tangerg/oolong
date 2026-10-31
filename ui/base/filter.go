@@ -186,15 +186,16 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 }
 
 func (f *Filter[T]) requireIdle() {
+	requireMutable(f.element)
 	if f.matching {
 		panic("base: filter source mutation during projection")
 	}
 }
 
 func (f *Filter[T]) replaceMatches(hits []hit[T]) {
-	f.list.SetItems(hits)
-	f.list.Select(0)
+	f.list.replaceItems(hits, 0)
 	f.list.Scroll().ToTop()
+	f.list.notifyChange()
 }
 
 // Preparation borrows complete inputs and leaves the last publication readable.

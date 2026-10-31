@@ -187,12 +187,12 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 			return
 		}
 		c.token = cloneToken(t)
-		c.list.SetItems(candidates)
+		c.list.replaceItems(candidates, 0)
 		for i := range c.list.items {
 			c.list.items[i] = cloneCandidate(c.list.items[i])
 		}
-		c.list.Select(0)
 		c.list.Scroll().ToTop()
+		c.list.notifyChange()
 	})
 }
 
@@ -202,8 +202,8 @@ func (c *Completion) Dismiss() bool {
 	requireMutable(c.element)
 	return c.matcher.Reset(func() {
 		c.token = Token{}
-		c.list.SetItems(nil)
-		c.list.Select(0)
+		c.list.replaceItems(nil, 0)
+		c.list.notifyChange()
 	})
 }
 
