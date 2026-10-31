@@ -43,46 +43,59 @@ func resolveBackend(cfg Config) (backend, error) {
 // npm shims are shell programs. Resolve the official package's declared entry
 // point instead of feeding command arguments through cmd.exe or parsing a shim.
 func npmCLI(shim string) (string, error) {
-	directory := filepath.Dir(shim)
-	resolved, err := filepath.EvalSymlinks(shim)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	entry, err := filepath.EvalSymlinks(shim)
+	if err != nil {
 		return "", err
 	}
-	roots := []string{filepath.Join(directory, "node_modules", "@mermaid-js", "mermaid-cli"), filepath.Join(directory, "..", "@mermaid-js", "mermaid-cli")}
-	if err == nil {
-		roots = append(roots, filepath.Join(filepath.Dir(resolved), ".."))
+	dir := filepath.Dir(entry)
+	// An npm-generated launcher lives in .bin (local) or beside node_modules
+	// (global). A symlink instead selects its target's own installation.
+	switch filepath.Base(entry) {
+	case "mmdc", "mmdc.cmd", "mmdc.ps1":
+		modules := filepath.Join(dir, "node_modules")
+		if filepath.Base(dir) == ".bin" {
+			modules = filepath.Dir(dir)
+		}
+		root := filepath.Join(modules, "@mermaid-js", "mermaid-cli")
+		if _, statErr := os.Stat(filepath.Join(root, "package.json")); !errors.Is(statErr, os.ErrNotExist) {
+			return cliEntry(root)
+		}
 	}
-	for _, root := range roots {
-		data, err := os.ReadFile(filepath.Join(root, "package.json")) //nolint:gosec // G304: installed backend metadata selected by trusted executable configuration.
-		if errors.Is(err, os.ErrNotExist) {
-			continue
+
+	// The declared binary may be nested at any depth within its package.
+	for root := dir; ; root = filepath.Dir(root) {
+		if _, statErr := os.Stat(filepath.Join(root, "package.json")); !errors.Is(statErr, os.ErrNotExist) {
+			return cliEntry(root)
 		}
-		if err != nil {
-			return "", err
+		if filepath.Dir(root) == root {
+			return "", errors.New("mermaid: no npm package owns the selected mmdc entry point")
 		}
-		var metadata struct {
-			Name string            `json:"name"`
-			Bin  map[string]string `json:"bin"`
-		}
-		if err = json.Unmarshal(data, &metadata); err != nil {
-			return "", fmt.Errorf("mermaid: CLI package metadata: %w", err)
-		}
-		entry := metadata.Bin["mmdc"]
-		if metadata.Name != "@mermaid-js/mermaid-cli" || entry == "" || !filepath.IsLocal(entry) {
-			return "", errors.New("mermaid: invalid official CLI entry point")
-		}
-		script, err := filepath.Abs(filepath.Join(root, entry))
-		if err != nil {
-			return "", err
-		}
-		info, err := os.Stat(script)
-		if err != nil {
-			return "", err
-		}
-		if !info.Mode().IsRegular() {
-			return "", errors.New("mermaid: CLI entry point is not a regular file")
-		}
-		return script, nil
 	}
-	return "", errors.New("mermaid: npm CLI package not found beside shim; configure Executable with the installed mmdc entry point")
+}
+
+func cliEntry(root string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(root, "package.json")) //nolint:gosec // G304: trusted installed backend metadata.
+	if err != nil {
+		return "", err
+	}
+	var metadata struct {
+		Name string            `json:"name"`
+		Bin  map[string]string `json:"bin"`
+	}
+	if err = json.Unmarshal(data, &metadata); err != nil {
+		return "", fmt.Errorf("mermaid: CLI package metadata: %w", err)
+	}
+	entry := metadata.Bin["mmdc"]
+	if metadata.Name != "@mermaid-js/mermaid-cli" || !filepath.IsLocal(entry) {
+		return "", errors.New("mermaid: invalid official CLI entry point")
+	}
+	script := filepath.Join(root, entry)
+	info, err := os.Stat(script)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("mermaid: CLI entry point is not a regular file")
+	}
+	return script, nil
 }
