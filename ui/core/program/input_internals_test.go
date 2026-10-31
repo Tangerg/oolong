@@ -28,13 +28,13 @@ func TestNormalizedInputBudgetPreservesEdges(t *testing.T) {
 	source.events <- input.Key{Transition: input.Release}
 	close(source.events)
 	first := <-pipe.events
-	if key := first.event.Input.(input.Key); key.Text != "a" {
+	if key := first.event.Input().(input.Key); key.Text != "a" {
 		t.Fatalf("first key = %+v", key)
 	}
 	pipe.consumed <- first.bytes
 	select {
 	case next := <-pipe.events:
-		if key := next.event.Input.(input.Key); key.Transition != input.Release {
+		if key := next.event.Input().(input.Key); key.Transition != input.Release {
 			t.Fatalf("release lost: %+v", key)
 		}
 		pipe.consumed <- next.bytes

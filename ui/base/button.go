@@ -72,7 +72,7 @@ func NewButton(config ButtonConfig) *Button {
 }
 
 func (b *Button) handleEvent(event scene.Event) scene.EventResult {
-	if mouse, ok := event.Input.(input.Mouse); ok {
+	if mouse, ok := event.Input().(input.Mouse); ok {
 		return partEvent(event, func(input.Event) bool {
 			accepted := b.pointer.Handle(mouse)
 			if !accepted || b.pointer.button != input.ButtonLeft {
@@ -84,7 +84,7 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 			return mouse.Action == input.MouseDown || mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp
 		}, &b.pointer.geometry)
 	}
-	key, ok := event.Input.(input.Key)
+	key, ok := event.Input().(input.Key)
 	if !ok {
 		return scene.EventResult{}
 	}

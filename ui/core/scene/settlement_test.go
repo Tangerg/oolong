@@ -161,7 +161,7 @@ func TestStoredPressCannotCaptureDuringPaintingOrAfterRelease(t *testing.T) {
 			}
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown {
+			if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
 				press = event
 			}
 			return scene.EventResult{Consumed: true}

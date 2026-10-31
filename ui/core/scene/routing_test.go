@@ -33,11 +33,11 @@ func control() *routedControl {
 			}
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			c.events = append(c.events, event.Input)
+			c.events = append(c.events, event.Input())
 			if c.onEvent != nil {
 				c.onEvent(event)
 			}
-			mouse, pointer := event.Input.(input.Mouse)
+			mouse, pointer := event.Input().(input.Mouse)
 			return scene.EventResult{Consumed: c.takes, Capture: c.takes && pointer && mouse.Action == input.MouseDown}
 		},
 		Paint: func(frame scene.Frame) { width, height := frame.Size(); c.size = image.Pt(width, height) },
@@ -59,7 +59,7 @@ func TestKeysUseOneFocusAndOnlyDeclinedKeysReachParentPolicy(t *testing.T) {
 	a, b := control(), control()
 	g := scene.NewGroup(scene.GroupConfig{
 		Element: scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-			key, ok := event.Input.(input.Key)
+			key, ok := event.Input().(input.Key)
 			if ok && key.Is(input.Tab, 0) {
 				return scene.EventResult{Consumed: event.FocusNext(false)}
 			}
@@ -136,7 +136,7 @@ func TestHoverLeaveCannotActivateAnElementItRemoved(t *testing.T) {
 	draw(t, r, 10, 2, 0)
 	r.Handle(input.Mouse{Action: input.MouseMove})
 	a.onEvent = func(event scene.Event) {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseLeave {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseLeave {
 			a.onEvent = nil
 			if err := g.Set(item("a", a.element)); err != nil {
 				t.Fatal(err)
@@ -158,7 +158,7 @@ func TestReentrantPointerRouteCannotResumeAnOlderPress(t *testing.T) {
 	draw(t, r, 10, 2, 0)
 	r.Handle(input.Mouse{Action: input.MouseMove})
 	a.onEvent = func(event scene.Event) {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseLeave {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseLeave {
 			a.onEvent = nil
 			r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
 		}
@@ -344,14 +344,14 @@ func TestPreviewCannotResumeAnAttachmentItRemoved(t *testing.T) {
 func TestDecorativeAndInitiallyDisabledOverlaysDoNotStealPointerHits(t *testing.T) {
 	backgroundPresses, overlayPresses := 0, 0
 	background := scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
 			backgroundPresses++
 		}
 		return scene.EventResult{Consumed: true}
 	}})
 	enabled := false
 	overlay := scene.NewElement(scene.ElementConfig{Enabled: func() bool { return enabled }, Handle: func(event scene.Event) scene.EventResult {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
 			overlayPresses++
 		}
 		return scene.EventResult{Consumed: true}

@@ -145,7 +145,7 @@ func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, sour
 	c.buildApproval() //nolint:contextcheck // Deferred approval and preparation use c.scope.Context(), derived from ctx above.
 	c.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
 		Key:     "streaming",
-		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input)} }, //nolint:contextcheck // Input actions use the scope created from ctx above.
+		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input())} }, //nolint:contextcheck // Input actions use the scope created from ctx above.
 		Detached: func() {
 			c.scope.Close()
 			if c.prepareScope != nil {

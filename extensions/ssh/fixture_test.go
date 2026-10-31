@@ -20,7 +20,7 @@ func fixtureElement(component interface {
 	return scene.NewElement(scene.ElementConfig{
 		Paint: func(frame scene.Frame) { component.Draw(frame.View) },
 		Handle: func(event scene.Event) scene.EventResult {
-			return scene.EventResult{Consumed: component.Handle(event.Input)}
+			return scene.EventResult{Consumed: component.Handle(event.Input())}
 		},
 	})
 }

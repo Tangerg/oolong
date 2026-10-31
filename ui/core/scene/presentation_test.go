@@ -17,7 +17,7 @@ func TestInputReadsItsWrittenProjectionRatherThanNewAdmission(t *testing.T) {
 	e := scene.NewElement(scene.ElementConfig{
 		Paint: func(frame scene.Frame) { projection.Stage(frame, firstRow) },
 		Handle: func(event scene.Event) scene.EventResult {
-			mouse, ok := event.Input.(input.Mouse)
+			mouse, ok := event.Input().(input.Mouse)
 			if !ok || mouse.Action != input.MouseDown {
 				return scene.EventResult{}
 			}

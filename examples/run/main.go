@@ -257,7 +257,7 @@ func (r *runner) Element() scene.Element {
 			Focusable: func() bool { return true },
 			Paint:     func(frame scene.Frame) { r.Draw(frame.View) },
 			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: r.Handle(event.Input)}
+				return scene.EventResult{Consumed: r.Handle(event.Input())}
 			},
 		})
 	}

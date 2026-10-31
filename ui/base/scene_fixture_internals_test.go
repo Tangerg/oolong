@@ -53,9 +53,9 @@ func testElement(value any) scene.Element {
 	}
 	if handler, ok := value.(interface{ Handle(event input.Event) bool }); ok {
 		config.Handle = func(event scene.Event) scene.EventResult {
-			accepted := handler.Handle(event.Input)
+			accepted := handler.Handle(event.Input())
 			result := scene.EventResult{Consumed: accepted}
-			if mouse, ok := event.Input.(input.Mouse); ok && accepted && mouse.Action == input.MouseDown {
+			if mouse, ok := event.Input().(input.Mouse); ok && accepted && mouse.Action == input.MouseDown {
 				result.Focus = true
 				result.Capture = true
 			}

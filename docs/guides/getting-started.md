@@ -40,7 +40,7 @@ func main() {
                     frame.Text(0, 0, "Hello, Oolong — press q to quit", grid.Style{})
                 },
                 Handle: func(event scene.Event) scene.EventResult {
-                    key, ok := event.Input.(input.Key)
+                    key, ok := event.Input().(input.Key)
                     if ok && key.Down() && key.Rune == 'q' {
                         runtime.Quit()
                         return scene.EventResult{Consumed: true}

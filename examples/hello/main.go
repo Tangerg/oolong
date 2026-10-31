@@ -65,7 +65,7 @@ func (h *hello) Element() scene.Element {
 			Focusable: func() bool { return true },
 			Paint:     func(frame scene.Frame) { h.Draw(frame.View) },
 			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: h.Handle(event.Input)}
+				return scene.EventResult{Consumed: h.Handle(event.Input())}
 			},
 		})
 	}

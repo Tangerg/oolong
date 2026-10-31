@@ -68,9 +68,9 @@ func partEvent(event scene.Event, handle func(input.Event) bool, projections ...
 		}
 	}()
 
-	consumed := handle(event.Input)
+	consumed := handle(event.Input())
 	result := scene.EventResult{Consumed: consumed}
-	if mouse, ok := event.Input.(input.Mouse); ok && consumed && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft {
+	if mouse, ok := event.Input().(input.Mouse); ok && consumed && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft {
 		result.Focus, result.Capture = true, true
 	}
 	return result

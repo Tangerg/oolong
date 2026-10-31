@@ -730,8 +730,8 @@ func (t *Transcript) StageWindow(frame scene.Frame) TranscriptView {
 
 func (t *Transcript) handle(event scene.Event) scene.EventResult {
 	presented, valid := event.Read(&t.presentation)
-	consumed := t.handleInput(event.Input, presented, valid)
-	mouse, ok := event.Input.(input.Mouse)
+	consumed := t.handleInput(event.Input(), presented, valid)
+	mouse, ok := event.Input().(input.Mouse)
 	return scene.EventResult{Consumed: consumed, Capture: consumed && ok && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft, Focus: consumed && ok && mouse.Action == input.MouseDown}
 }
 

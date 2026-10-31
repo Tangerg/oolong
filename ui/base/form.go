@@ -521,7 +521,7 @@ func (f *Form) HeightForWidth(width int) int {
 }
 
 func (f *Form) handleEvent(event scene.Event) scene.EventResult {
-	key, ok := event.Input.(input.Key)
+	key, ok := event.Input().(input.Key)
 	if !ok {
 		return scene.EventResult{}
 	}

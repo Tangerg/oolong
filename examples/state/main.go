@@ -123,7 +123,7 @@ func dress(runtime *program.Runtime, form *stateForm) scene.Element {
 	return scene.NewGroup(scene.GroupConfig{
 		Axis: layout.Down,
 		Element: scene.ElementConfig{Detached: form.confirm.Close, Preview: func(event scene.Event) scene.EventResult {
-			key, ok := event.Input.(input.Key)
+			key, ok := event.Input().(input.Key)
 			if ok && key.Down() && (key.Code == input.Esc || key.Rune == 'c' && key.Mods.Has(input.Ctrl)) {
 				runtime.Quit()
 				return scene.EventResult{Consumed: true}

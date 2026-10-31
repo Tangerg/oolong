@@ -49,7 +49,7 @@ func (f *observedField) Focus(has bool) { f.focused = has }
 
 func (f *observedField) Element() scene.Element {
 	if f.element.IsZero() {
-		f.element = scene.NewElement(scene.ElementConfig{Paint: f.Draw, Measure: func(layout.Axis, int) int { return 1 }, Focusable: func() bool { return true }, FocusChanged: f.Focus, Handle: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: f.Handle(event.Input)} }})
+		f.element = scene.NewElement(scene.ElementConfig{Paint: f.Draw, Measure: func(layout.Axis, int) int { return 1 }, Focusable: func() bool { return true }, FocusChanged: f.Focus, Handle: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: f.Handle(event.Input())} }})
 	}
 	return f.element
 }

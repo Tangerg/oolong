@@ -34,7 +34,7 @@ func TestDialogOutsideDismissPolicyAndCoordinateTranslation(t *testing.T) {
 func TestModalContentMayConsumeEscapeAndKeysCanBeRebound(t *testing.T) {
 	consumed := 0
 	body := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }, Handle: func(event scene.Event) scene.EventResult {
-		if key, ok := event.Input.(input.Key); ok && key.Code == input.Esc {
+		if key, ok := event.Input().(input.Key); ok && key.Code == input.Esc {
 			consumed++
 			return scene.EventResult{Consumed: true}
 		}

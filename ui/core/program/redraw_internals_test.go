@@ -26,7 +26,7 @@ func TestDeclinedInputStillPresentsResolvedPrefixAction(t *testing.T) {
 	g := input.Chord{Code: input.Character, Rune: 'g'}
 	c.keys.Bind("short", g)
 	c.keys.Bind("long", g, g)
-	root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input)} }})})
+	root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input())} }})})
 	if err != nil {
 		t.Fatal(err)
 	}

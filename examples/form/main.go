@@ -124,7 +124,7 @@ func dress(runtime *program.Runtime, form *sessionForm) scene.Element {
 	return scene.NewGroup(scene.GroupConfig{
 		Overlay: true,
 		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
-			key, ok := event.Input.(input.Key)
+			key, ok := event.Input().(input.Key)
 			if ok && key.Down() && (key.Code == input.Esc || key.Rune == 'c' && key.Mods.Has(input.Ctrl)) {
 				runtime.Quit()
 				return scene.EventResult{Consumed: true}

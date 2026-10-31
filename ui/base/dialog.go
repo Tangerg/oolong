@@ -203,7 +203,7 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 	if !d.Open() {
 		return scene.EventResult{}
 	}
-	if mouse, ok := event.Input.(input.Mouse); ok {
+	if mouse, ok := event.Input().(input.Mouse); ok {
 		area, valid := event.Read(&d.presentation)
 		if valid && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft && !mouse.Pos.In(area) && d.dismissOutside {
 			d.Dismiss()
@@ -211,7 +211,7 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 		}
 		return scene.EventResult{}
 	}
-	key, ok := event.Input.(input.Key)
+	key, ok := event.Input().(input.Key)
 	if !ok {
 		return scene.EventResult{}
 	}

@@ -223,7 +223,7 @@ func (t *Tabs) Do(action keymap.Action) bool {
 }
 
 func (t *Tabs) handleEvent(event scene.Event) scene.EventResult {
-	key, ok := event.Input.(input.Key)
+	key, ok := event.Input().(input.Key)
 	if !ok {
 		return scene.EventResult{}
 	}
@@ -304,11 +304,11 @@ func (t *Tabs) newPart(key string) *tabPart {
 			}
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft {
+			if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft {
 				t.selectPart(part)
 				return scene.EventResult{Consumed: true, Focus: true}
 			}
-			key, ok := event.Input.(input.Key)
+			key, ok := event.Input().(input.Key)
 			if !ok {
 				return scene.EventResult{}
 			}

@@ -81,7 +81,7 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 		kit.Label{Text: fmt.Sprintf("%d of %d", p.list.Matched(), p.list.Len()), Style: p.theme.Subtle, Align: layout.End}.Draw(frame.View)
 	}})
 	p.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
-		Key: "picker", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input)} }, Detached: unsubscribe,
+		Key: "picker", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input())} }, Detached: unsubscribe,
 	}, Items: []scene.Item{
 		{Size: layout.Fixed(1), Element: p.query.Element()},
 		{Size: layout.Flex(1), Element: p.list.Element()},

@@ -15,7 +15,7 @@ func geometryOwner(t *testing.T) (*program, *int, *int) {
 	root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{
 		Paint: func(frame scene.Frame) { frame.Text(0, 0, "target", grid.Style{}) },
 		Handle: func(event scene.Event) scene.EventResult {
-			if mouse, ok := event.Input.(input.Mouse); ok {
+			if mouse, ok := event.Input().(input.Mouse); ok {
 				switch mouse.Action {
 				case input.MouseDown:
 					presses++

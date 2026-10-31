@@ -18,13 +18,21 @@ type EventResult struct {
 // Event coordinates belong to Target, not to the terminal or its parent. The
 // scene has already checked attachment, scope and current interaction eligibility.
 type Event struct {
-	Input  input.Event
-	Target Target
-	root   *Root
-	area   image.Rectangle
-	layout *layoutSnapshot
-	turn   uint64
+	input     input.Event
+	target    Target
+	root      *Root
+	area      image.Rectangle
+	layout    *layoutSnapshot
+	turn      uint64
+	delivery  uint64
+	focusTurn uint64
 }
+
+// Input returns the routed input in local coordinates.
+func (e Event) Input() input.Event { return e.input }
+
+// Target returns the exact attachment that received this delivery.
+func (e Event) Target() Target { return e.target }
 
 // Read returns the geometry projection belonging to this input, not the latest
 // admitted frame. Keyboard events read the current projection. Missing geometry
@@ -34,7 +42,7 @@ func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 	if snapshot == nil {
 		return zero, false
 	}
-	if _, pointer := e.Input.(input.Mouse); !pointer {
+	if _, pointer := e.input.(input.Mouse); !pointer {
 		return snapshot.Value(), true
 	}
 	if e.layout == nil {
@@ -53,43 +61,52 @@ func (e Event) CurrentLayout() bool {
 	return e.root != nil && (e.layout == nil || e.root.layout == e.layout)
 }
 
-// RequestFocus asks the scene to focus the current event target.
-func (e Event) RequestFocus() error {
-	if e.root == nil {
-		return ErrDetached
-	}
-	return e.root.RequestFocus(e.Target)
-}
-
-// FocusNext traverses eligible targets in scene order, optionally backward.
-func (e Event) FocusNext(backward bool) bool {
-	return e.root != nil && e.root.FocusNext(backward)
-}
-
-// Capture claims this pointer press for the event target until its release or revocation.
-// The input turn and attachment must still be current; pure phases reject the request.
-func (e Event) Capture() error {
+// checkDelivery guards the authority of one callback, independently of whether
+// its input and frame remain useful as read-only evidence afterwards.
+func (e Event) checkDelivery() error {
 	if e.root == nil {
 		return ErrDetached
 	}
 	if err := e.root.mutable(); err != nil {
 		return err
 	}
-	if e.turn != e.root.inputTurn || e.layout == nil || e.layout.epoch != e.root.geometryEpoch {
+	_, pointer := e.input.(input.Mouse)
+	if e.turn != e.root.inputTurn || e.delivery != e.root.delivery || e.root.resolve(e.target) == nil || !pointer && e.focusTurn != e.root.focusTurn {
 		return ErrStale
 	}
-	mouse, ok := e.Input.(input.Mouse)
+	return nil
+}
+
+// RequestFocus asks the scene to focus the target during its current delivery.
+func (e Event) RequestFocus() error {
+	if err := e.checkDelivery(); err != nil {
+		return err
+	}
+	return e.root.RequestFocus(e.target)
+}
+
+// FocusNext traverses eligible targets while this delivery is current.
+func (e Event) FocusNext(backward bool) bool {
+	return e.checkDelivery() == nil && e.root.FocusNext(backward)
+}
+
+// Capture claims this delivered pointer press until release or revocation.
+func (e Event) Capture() error {
+	if err := e.checkDelivery(); err != nil {
+		return err
+	}
+	if e.layout == nil || e.layout.epoch != e.root.geometryEpoch {
+		return ErrStale
+	}
+	mouse, ok := e.input.(input.Mouse)
 	if !ok || mouse.Action != input.MouseDown {
 		return ErrInvalid
 	}
-	n := e.root.resolve(e.Target)
-	if n == nil {
-		return ErrStale
-	}
+	n := e.root.resolve(e.target)
 	if !e.root.allowed(n) {
 		return ErrUnavailable
 	}
-	e.root.capture = capture{target: e.Target, button: mouse.Button, area: e.area}
+	e.root.capture = capture{target: e.target, button: mouse.Button, area: e.area}
 	return nil
 }
 
@@ -102,7 +119,7 @@ type capture struct {
 
 func (c capture) cancel(n *node) {
 	if n != nil && n.config.Handle != nil {
-		n.config.Handle(Event{Input: input.Mouse{Action: input.MouseCancel, Button: c.button}, Target: c.target})
+		n.config.Handle(Event{input: input.Mouse{Action: input.MouseCancel, Button: c.button}, target: c.target})
 	}
 }
 
@@ -110,18 +127,21 @@ func (c capture) cancel(n *node) {
 // Its lifetime is bounded by the host's input queue; processing never replaces
 // that map with a newer layout and thereby retargets an old physical click.
 type CapturedInput struct {
-	Input  input.Event
+	input  input.Event
 	root   *Root
 	layout *layoutSnapshot
 }
+
+// Input returns the input that arrived with this geometry.
+func (c CapturedInput) Input() input.Event { return c.input }
 
 // CaptureInput may be called by the input reader goroutine. All other root
 // operations, including HandleInput, belong to the interface owner sequence.
 func (r *Root) CaptureInput(event input.Event) CapturedInput {
 	if r == nil {
-		return CapturedInput{Input: event}
+		return CapturedInput{input: event}
 	}
-	captured := CapturedInput{Input: event, root: r}
+	captured := CapturedInput{input: event, root: r}
 	history := r.published.Load()
 	if history == nil {
 		return captured
@@ -152,7 +172,7 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 	r.inputTurn = next(r.inputTurn)
 	turn := r.inputTurn
 	var consumed bool
-	if mouse, ok := event.Input.(input.Mouse); ok {
+	if mouse, ok := event.input.(input.Mouse); ok {
 		if event.layout != nil && event.layout.epoch != r.geometryEpoch {
 			event.layout = nil
 		}
@@ -162,7 +182,7 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 		if n == nil {
 			n = r.content.node
 		}
-		consumed = r.bubble(n, event.Input, nil)
+		consumed = r.bubble(n, event.input, nil)
 	}
 	return consumed || r.inputTurn != turn
 }
@@ -359,7 +379,9 @@ func (r *Root) dispatch(n *node, handle func(Event) EventResult, event input.Eve
 		mouse.Pos = mouse.Pos.Sub(area.Min)
 		event = mouse
 	}
-	delivery := Event{Input: event, Target: target, root: r, area: area, layout: snapshot, turn: turn}
+	r.delivery = next(r.delivery)
+	defer func() { r.delivery = next(r.delivery) }()
+	delivery := Event{input: event, target: target, root: r, area: area, layout: snapshot, turn: turn, delivery: r.delivery, focusTurn: focusTurn}
 	result := handle(delivery)
 	if r.resolve(target) == nil || r.inputTurn != turn || !pointer && r.focusTurn != focusTurn {
 		return EventResult{Consumed: true}

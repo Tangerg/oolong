@@ -168,7 +168,7 @@ func TestPointerUsesArrivalWrittenGeometryAndCurrentAttachment(t *testing.T) {
 	var received []string
 	leaf := func(name string) scene.Element {
 		return scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-			if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown {
+			if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
 				received = append(received, name)
 			}
 			return scene.EventResult{Consumed: true}
@@ -204,7 +204,7 @@ func TestPointerUsesArrivalWrittenGeometryAndCurrentAttachment(t *testing.T) {
 func TestCaptureKeepsForeignReleaseAndEndsOnDetach(t *testing.T) {
 	var received []input.MouseAction
 	e := scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-		mouse, ok := event.Input.(input.Mouse)
+		mouse, ok := event.Input().(input.Mouse)
 		if !ok {
 			return scene.EventResult{}
 		}

@@ -109,7 +109,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	footer := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
 		kit.Label{Text: "1–3 or alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit", Style: d.theme.Subtle}.Draw(frame.View)
 	}})
-	d.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Key: "dashboard", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: d.Handle(event.Input)} }}, Items: []scene.Item{
+	d.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Key: "dashboard", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: d.Handle(event.Input())} }}, Items: []scene.Item{
 		{Element: d.strip.Element(), Size: layout.Flex(1)}, {Element: footer, Size: layout.Fixed(1)},
 	}}).Element()
 	var err error
@@ -231,7 +231,7 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 		q.columns.Stage(frame, columns)
 		columns.Titles(frame.View)
 	}, Handle: func(event scene.Event) scene.EventResult {
-		mouse, ok := event.Input.(input.Mouse)
+		mouse, ok := event.Input().(input.Mouse)
 		if !ok || mouse.Action != input.MouseDown || mouse.Button != input.ButtonLeft {
 			return scene.EventResult{}
 		}

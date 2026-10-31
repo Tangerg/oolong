@@ -382,7 +382,7 @@ func (p *program) handle(ev input.Event) error {
 }
 
 func (p *program) handleInput(ev scene.CapturedInput) error {
-	switch e := ev.Input.(type) {
+	switch e := ev.Input().(type) {
 	case input.Resize:
 		if err := ValidateSize(e.Width, e.Height); err != nil {
 			return err

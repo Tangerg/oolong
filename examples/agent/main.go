@@ -159,7 +159,7 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 	unsubscribe := a.composer.Controller().Session().Subscribe(func(base.ChangeMap) { a.refreshCompletion() })
 	a.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
 		Key:      "agent",
-		Preview:  func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input)} }, //nolint:contextcheck // Input uses the session scope created from ctx above.
+		Preview:  func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input())} }, //nolint:contextcheck // Input uses the session scope created from ctx above.
 		Detached: func() { unsubscribe(); a.scope.Close(); a.conversation.content.Close() },
 	}, Items: []scene.Item{{Element: a.body.Element()}, {Element: popup.Element()}, {Element: a.reviewDialog.Element()}}}).Element()
 	// The scene and source lifecycle do not require terminal metadata support.

@@ -26,7 +26,7 @@ func ExampleNewScreen() {
 		return scene.NewElement(scene.ElementConfig{
 			Paint: func(frame scene.Frame) { frame.Text(0, 0, now.Format(time.TimeOnly), grid.Style{}) },
 			Handle: func(event scene.Event) scene.EventResult {
-				if key, ok := event.Input.(input.Key); ok && key.Down() && key.Rune == 'q' {
+				if key, ok := event.Input().(input.Key); ok && key.Down() && key.Rune == 'q' {
 					runtime.Quit()
 					return scene.EventResult{Consumed: true}
 				}

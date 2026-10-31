@@ -49,6 +49,7 @@ type Root struct {
 	now             func() time.Time
 	geometryEpoch   uint64
 	namespace       *namespace
+	delivery        uint64
 	inputTurn       uint64
 	focusTurn       uint64
 }
@@ -189,7 +190,7 @@ func (r *Root) detach(n *node) {
 	if r.hover == previous {
 		r.hover = Target{}
 		if n.config.Handle != nil {
-			r.notifications = append(r.notifications, func() { n.config.Handle(Event{Input: input.Mouse{Action: input.MouseLeave}, Target: previous}) })
+			r.notifications = append(r.notifications, func() { n.config.Handle(Event{input: input.Mouse{Action: input.MouseLeave}, target: previous}) })
 		}
 	}
 	if n.group != nil {

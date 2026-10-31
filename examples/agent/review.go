@@ -102,7 +102,7 @@ func (p *reviewPane) Element() scene.Element {
 	p.element = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{{Element: title}, {Element: p.window.Element()}, {Element: p.form.Element()}},
 		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
-			key, ok := event.Input.(input.Key)
+			key, ok := event.Input().(input.Key)
 			if !ok || !key.Down() {
 				return scene.EventResult{}
 			}

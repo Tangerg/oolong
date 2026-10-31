@@ -17,7 +17,7 @@ func TestReleaseDuringPressDoesNotRestoreCapture(t *testing.T) {
 	r := root(t, a.element)
 	draw(t, r, 10, 1, 0)
 	a.onEvent = func(event scene.Event) {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
 			a.onEvent = nil
 			r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft})
 		}
@@ -36,7 +36,7 @@ func TestCancellationMayStartANewerCapture(t *testing.T) {
 	draw(t, r, 10, 2, 0)
 	r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
 	a.onEvent = func(event scene.Event) {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseCancel {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseCancel {
 			a.onEvent = nil
 			r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonRight, Pos: image.Pt(0, 1)})
 		}
@@ -54,7 +54,7 @@ func TestAbnormalCallbackDoesNotClearNewerCapture(t *testing.T) {
 	r := root(t, g.Element())
 	draw(t, r, 10, 2, 0)
 	a.onEvent = func(event scene.Event) {
-		if mouse, ok := event.Input.(input.Mouse); ok && mouse.Action == input.MouseDown {
+		if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
 			a.onEvent = nil
 			r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonRight, Pos: image.Pt(0, 1)})
 			panic("interrupted callback")
@@ -148,7 +148,7 @@ func TestContentRevocationCannotClearACaptureStartedByItsCancelCallback(t *testi
 	var revision uint64
 	var released bool
 	first := scene.NewElement(scene.ElementConfig{Semantics: func() scene.Semantic { return scene.Semantic{ContentRevision: revision} }, Handle: func(event scene.Event) scene.EventResult {
-		mouse, ok := event.Input.(input.Mouse)
+		mouse, ok := event.Input().(input.Mouse)
 		if !ok {
 			return scene.EventResult{}
 		}
@@ -158,7 +158,7 @@ func TestContentRevocationCannotClearACaptureStartedByItsCancelCallback(t *testi
 		return scene.EventResult{Consumed: true, Capture: mouse.Action == input.MouseDown}
 	}})
 	second := scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-		mouse, ok := event.Input.(input.Mouse)
+		mouse, ok := event.Input().(input.Mouse)
 		if !ok {
 			return scene.EventResult{}
 		}
@@ -178,5 +178,37 @@ func TestContentRevocationCannotClearACaptureStartedByItsCancelCallback(t *testi
 	r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, Pos: image.Pt(2, 1)})
 	if !released {
 		t.Fatal("the obsolete release cleared the replacement capture")
+	}
+}
+
+func TestOldDeliveryCannotMoveCurrentFocus(t *testing.T) {
+	a, b := control(), control()
+	r := root(t, scene.NewGroup(scene.GroupConfig{Items: []scene.Item{item("a", a.element), item("b", b.element)}}).Element())
+	var saved scene.Event
+	a.onEvent = func(event scene.Event) {
+		saved = event
+		if err := b.element.RequestFocus(); err != nil {
+			t.Fatal(err)
+		}
+		if err := event.RequestFocus(); !errors.Is(err, scene.ErrStale) {
+			t.Errorf("obsolete key reclaimed focus: %v", err)
+		}
+	}
+	r.Handle(input.Key{Code: input.Tab})
+	if saved.FocusNext(false) || !b.element.Focused() {
+		t.Fatal("an expired key traversed focus")
+	}
+}
+
+func TestPressCannotBeClaimedAfterItsDeliveryReturns(t *testing.T) {
+	a := control()
+	r := root(t, a.element)
+	draw(t, r, 10, 1, 0)
+	var press scene.Event
+	a.takes = false
+	a.onEvent = func(event scene.Event) { press = event }
+	r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+	if err := press.Capture(); !errors.Is(err, scene.ErrStale) {
+		t.Fatalf("retained press claimed capture: %v", err)
 	}
 }

@@ -43,9 +43,9 @@ func TestSmallInputQueueDrainsAContinuousKeyStreamThroughEOF(t *testing.T) {
 		const count = 128
 		next := 0
 		element := scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-			key, ok := event.Input.(input.Key)
+			key, ok := event.Input().(input.Key)
 			if !ok || key.Text != strconv.Itoa(next) {
-				t.Errorf("event %d = %#v", next, event.Input)
+				t.Errorf("event %d = %#v", next, event.Input())
 			}
 			next++
 			return scene.EventResult{Consumed: true}

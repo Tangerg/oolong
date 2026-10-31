@@ -121,7 +121,7 @@ func (k *keys) Element() scene.Element {
 			Focusable: func() bool { return true },
 			Paint:     func(frame scene.Frame) { k.Draw(frame.View) },
 			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: k.Handle(event.Input)}
+				return scene.EventResult{Consumed: k.Handle(event.Input())}
 			},
 		})
 	}

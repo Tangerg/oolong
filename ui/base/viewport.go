@@ -43,7 +43,7 @@ func (p *Viewport) ensure() {
 			p.scroll.Stage(frame, p.Content().Measure(layout.Down, w), h)
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			return scene.EventResult{Consumed: !p.Content().IsZero() && p.scroll.Handle(event.Input, p.Keys)}
+			return scene.EventResult{Consumed: !p.Content().IsZero() && p.scroll.Handle(event.Input(), p.Keys)}
 		},
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {

@@ -113,10 +113,10 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 	b.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
 		Key: "files",
 		Preview: func(event scene.Event) scene.EventResult {
-			if key, ok := event.Input.(input.Key); ok && key.Down() && key.Code == input.Tab {
+			if key, ok := event.Input().(input.Key); ok && key.Down() && key.Code == input.Tab {
 				return scene.EventResult{Consumed: event.FocusNext(key.Mods.Has(input.Shift))}
 			}
-			return scene.EventResult{Consumed: b.Handle(event.Input)}
+			return scene.EventResult{Consumed: b.Handle(event.Input())}
 		},
 		Detached: func() {
 			unsubscribe()

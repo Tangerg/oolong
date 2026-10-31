@@ -114,7 +114,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	}
 	status := scene.NewElement(scene.ElementConfig{Paint: r.paintStatus})
 	r.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
-		Key: "read", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: r.Handle(event.Input)} },
+		Key: "read", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: r.Handle(event.Input())} },
 		Detached: r.view.Controller().Close,
 	}, Items: []scene.Item{{Element: r.view.Element(), Size: layout.Flex(1)}, {Element: status, Size: layout.Fixed(1)}}}).Element()
 

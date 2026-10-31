@@ -89,7 +89,7 @@ func (s *latexScreen) Element() scene.Element {
 			Focusable: func() bool { return true },
 			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
 			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: s.Handle(event.Input)}
+				return scene.EventResult{Consumed: s.Handle(event.Input())}
 			},
 		})
 	}

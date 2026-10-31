@@ -130,7 +130,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		},
 	})
 	p.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
-		Key: "composer", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input)} }, Detached: unsubscribe,
+		Key: "composer", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input())} }, Detached: unsubscribe,
 	}, Items: []scene.Item{{Element: body.Element()}, {Element: popup.Element()}}}).Element()
 	return p
 }
