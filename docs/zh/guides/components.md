@@ -26,4 +26,6 @@ contentType: How-to
 
 [Base 参考](../base/index.md)与 [kit 参考](../kit/index.md)定义两侧职责。[State 示例](https://github.com/Tangerg/oolong/tree/main/examples/state) 展示显式所有者更新与归一化，不保留竞争性的 accessor 存储。
 
+若外观只属于某一次组合，在子关系的 `scene.Item.Paint` 上提供画法；移出子项后，元素自己的画法仍然有效。若一个控制器需要同时替换多个兄弟组的子项，父组可用 `CheckChildItems` 和 `SetChildItems` 对直属子组整体预检、一次安装。
+
 `state` 示例包含四个自有草稿：提交时归一化，拒绝时保留草稿；另有 `ConfirmControl` 以同一领域所有者与外部重置动作共享答案，并演示动态 ThemeOwner 与 ThemeScope 组合。

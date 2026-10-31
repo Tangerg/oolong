@@ -14,6 +14,12 @@ The UI owner creates `Scope` with `Runtime.NewScope`. `ScopeConfig.Attachment` c
 
 `TaskStatus` separates the worker outcome, `CancelRequested`, and result delivery. Calling `Cancel` requests cooperation; it cannot truthfully declare external work finished. A successful worker can have revoked UI delivery after its view is detached. `Task.Done` and `Task.Settled` expose those distinct boundaries. Ordinary dispatcher congestion does not discard an already accepted task's completion.
 
+## Moving a live element
+
+An attachment's `Done` closes at detach. Its old blur, capture cancellation or detach callback may still be queued or executing. If mounting the same element returns `scene.ErrCleanupPending`, let the old callback return and flush the old root on its owner before retrying. Unrelated elements can mount immediately. An interrupted flush keeps the remaining notifications in order; reentering a flush does not overtake them. Closing a root wakes current and subsequent change subscribers.
+
+A routed event retains its input for inspection. Its imperative focus and capture methods expire with the callback or a newer input turn. Save the element or a generation-checked target for a later command.
+
 ## Permanent publication
 
 `Publisher.TryPublish` captures a complete drawable into immutable owned cells before accepting responsibility. Native painters are refused because their lifetime requires live frame ownership. Capture errors, unsupported output and capacity refusal leave responsibility with the caller. Empty captured content receives a written no-op receipt with sequence zero.

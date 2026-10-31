@@ -24,4 +24,6 @@ Construct once and keep the component instance. Repeated calls to `Element()` ar
 
 Keep the base controller and set its unmounted element's paint or measure slot. Draw the supplied `scene.Frame` using core text, grid and layout primitives. Read the controller for value and state. Use the provided candidate geometry for paint; events use the arrival-frame projection through `scene.Event.Read`.
 
+For a skin that belongs only to a particular composition, set `scene.Item.Paint` on the child relation. Removing the child reveals its own painter again. If one controller replaces the children of multiple sibling groups together, the parent can preflight and install those direct child relations with `CheckChildItems` and `SetChildItems`.
+
 The [base reference](../base/index.md) and [kit reference](../kit/index.md) define what belongs on each side. The [state example](https://github.com/Tangerg/oolong/tree/main/examples/state) shows four owned drafts with submission normalization and rejection that preserves the draft, a `ConfirmControl` backed by one domain owner shared with an external reset action, and live ThemeOwner / ThemeScope composition.

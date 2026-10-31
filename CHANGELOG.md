@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking changes
 
+- Read a routed event through `scene.Event.Input()` and `Target()`, and a captured input through `scene.CapturedInput.Input()`. Focus and capture commands belong to the active handler. To request focus later, use the current element or root.
+- A detached element with outstanding lifecycle callbacks returns `scene.ErrCleanupPending` on remount. Settle its old root's notifications on its owner sequence before reusing it. Retained children keep their attachment when reordered.
+- Custom `base.Field.Validation` receipts must identify the checked answer on failed as well as successful validations. Spoken confirmation distinguishes an unavailable or pending domain request from an accepted answer. `Form.SubmitWith` binds external answer collection to the submission it validates.
+- `scene.Cursor` is opaque. Pass `Observation.Next` unchanged as `Query.Cursor` until it equals `scene.Cursor{}`; do not construct an offset or compare numeric revisions across scenes.
+- Use keyed literals for `scene.Item`; its optional `Paint` belongs to the child relation and leaves the element's own painter intact.
+
 - Replace `program.(*InlineRuntime).Publish` with `runtime.Publisher().TryPublish(body)`. The returned `program.Publisher` grants admission and notification only. The compositor owns geometry and settlement. `program.InlineConfig.Publication` accepts `publication.Limits`; only a standalone publisher configures width and ground. Transcript configs consume the producer contract.
 - `program.(*Runtime).Scene` returns a session-bound semantic capability, not the compositor's root. Keep it from Build and use Observe, Invoke and Changes on the owner sequence. `automation.DriverConfig.Root` accepts this capability or an independently owned scene root.
 - `scene.SemanticNode.TextTruncated` is replaced by `TruncatedText` with per-field flags. A continuation page is incomplete even when it is the last page. Check `Next` to continue paging and handle `scene.ErrIncompleteObservation` when exact absence or uniqueness cannot be proved. Use the Element's Enabled predicate to disable a node; scene owns its observed disabled and focused flags.
@@ -28,6 +34,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Fixed
+
+- Scene construction revokes provisional attachments on interruption; notification delivery preserves order after reentry or interruption. Modal reordering and out-of-order dismissal preserve the focus of surviving layers.
+- Editor cursors and lists read actual scene focus. Tabs, collection controls and form field painters publish coherent relations; meaningful slider configuration changes wake observers.
+- Terminal handover and failed startup respect the current owner. Startup probe boundaries, escape deadlines, mouse coordinates, cell dimensions and bracketed IPv6 links no longer inherit unrelated input or state. Decoding replaces each invalid UTF-8 byte consistently across reads.
+- Publication delivers terminal receipts after listener reentry. The command example propagates backpressure without losing a final line. The reading example displays final preparation failures. Mermaid follows the selected CLI installation; release tooling uses Go's parsed module identity.
 
 - The [ownership review](docs/report/oolong-ownership-review-24aabeb.md) records the reproduced failures, API migration and verification scope for this pass.
 - Runtime publication settles confirmed writes before classifying remaining receipts on failure. Ordered repaint reports refusal; ended byte ingress releases its queue reservation. Wrapped or joined cancellation errors preserve their failure outcome, and stale example producers cannot settle another run.
