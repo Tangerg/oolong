@@ -1,22 +1,13 @@
 // Command read shows an answer as it is written.
 //
-// It is the deepest of these and the one the library is for. Markdown arrives a few
-// words at a time — from a model, over a network, from anything that produces text
-// before it has finished thinking — and two things have to be true at once: what is
-// certainly finished should stop being redrawn, and what is still being written
-// should look like what it says so far.
-//
-// One StreamDocument owns the complete bounded source. Markdown previews remain
-// revisable until EOF, since later reference definitions can change earlier text.
-// The final immutable document transfers to the publisher, which separately reports
-// acceptance and successful writing into terminal scrollback.
-//
-// Nothing about that is markdown's alone. The same shape — publish what is finished,
-// redraw only what is not — is what any streaming interface built on this does.
+// Each preview uses the complete Markdown source available so far: a reference
+// definition arriving near the end can change a link near the start. EOF is the
+// point at which the prepared document can be offered to terminal scrollback.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -53,19 +44,18 @@ func main() {
 // reader is the live part: the block still being written, and a line saying what is
 // happening.
 type reader struct {
-	runtime   *program.InlineRuntime
-	theme     kit.Theme
-	element   scene.Element
-	document  *content.StreamDocument
-	render    content.Renderer
-	view      *kit.Transcript
-	pieces    []string
-	at        int
-	timer     *program.Timer
-	scope     *program.Scope
-	spinner   kit.Spinner
-	renderErr error
-	finished  bool
+	runtime  *program.InlineRuntime
+	theme    kit.Theme
+	element  scene.Element
+	document *content.StreamDocument
+	render   content.Renderer
+	view     *kit.Transcript
+	pieces   []string
+	at       int
+	timer    *program.Timer
+	scope    *program.Scope
+	spinner  kit.Spinner
+	stepErr  error
 }
 
 // How fast the answer arrives. A model's is decided by a model; these two are what a
@@ -120,9 +110,9 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 
 	// Title and notification are optional terminal enhancements.
 	_ = runtime.Session().SetTitle("reading")
-	r.scope, r.renderErr = runtime.NewScope(program.ScopeConfig{})
-	if r.renderErr == nil {
-		r.timer, r.renderErr = runtime.Every(r.scope, every, r.advance)
+	r.scope, r.stepErr = runtime.NewScope(program.ScopeConfig{})
+	if r.stepErr == nil {
+		r.timer, r.stepErr = runtime.Every(r.scope, every, r.advance)
 	}
 	return r
 }
@@ -134,35 +124,43 @@ func (r *reader) advance() {
 		return
 	}
 	if err := r.document.Append([]byte(r.pieces[r.at])); err != nil {
-		r.renderErr = err
+		r.stepErr = err
 		r.timer.Stop()
 		return
 	}
 	r.at++
 	// This finite tutorial prepares a small snapshot synchronously. The same
 	// immutable snapshot can be prepared by program.Work for network-sized sources.
-	r.renderErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
+	r.stepErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
 	r.element.Invalidate()
 }
 
 func (r *reader) finish() {
-	r.renderErr = r.document.End(nil)
-	if r.renderErr == nil {
-		r.renderErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
+	r.stepErr = r.document.End(nil)
+	if r.stepErr == nil {
+		r.stepErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
 	}
 	r.timer.Stop()
-	r.finished = r.renderErr == nil
 	r.element.Invalidate()
 	// Completion is represented in the scene even when the terminal has no notifier.
 	_ = r.runtime.Session().SetTitle("")
-	_ = r.runtime.Session().Notify("the answer is finished")
+	message := "the answer is finished"
+	if err := r.problem(r.document.Current()); err != nil {
+		message = err.Error()
+	}
+	_ = r.runtime.Session().Notify(message)
+}
+
+func (r *reader) problem(change content.DocumentChange) error {
+	return errors.Join(r.stepErr, change.SourceError, change.PrepareError)
 }
 
 func (r *reader) paintStatus(frame scene.Frame) {
-	switch {
-	case r.renderErr != nil:
-		kit.Label{Text: r.renderErr.Error(), Style: r.theme.Danger}.Draw(frame.View)
-	case r.finished:
+	change := r.document.Current()
+	switch err := r.problem(change); {
+	case err != nil:
+		kit.Label{Text: err.Error(), Style: r.theme.Danger}.Draw(frame.View)
+	case change.State == content.Final:
 		kit.Label{Text: "that is the whole answer — ctrl+c to leave", Style: r.theme.Muted}.Draw(frame.View)
 	default:
 		r.spinner.Draw(frame.View)
@@ -195,13 +193,12 @@ func answer() string {
 	return strings.Join([]string{
 		"# What is happening here",
 		"",
-		"This answer is arriving a few characters at a time. Everything above the",
-		"line at the bottom has been **published**: it was parsed once, printed into",
-		"your terminal's own scrollback, and will never be looked at again.",
+		"This answer is arriving a few characters at a time. You are looking at",
+		"a **preview**: even an earlier [reference][guide] can change when its",
+		"definition arrives. Nothing here is permanent until the answer ends.",
 		"",
-		"- A list is one block, so it is published whole.",
-		"- Its items are not published one at a time.",
-		"- Which is what stops a list from being rewritten as it grows.",
+		"- This list grows as its items arrive.",
+		"- Each preview uses the whole source received so far.",
 		"",
 		"> A quotation keeps its bar down every row, including the rows a wrap made.",
 		"",
@@ -217,9 +214,10 @@ func answer() string {
 		`x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`,
 		"$$",
 		"",
-		"The last paragraph is the one still being written, which is why it is drawn",
-		"rather than printed. When it ends, it is printed too — and then this program",
-		"owns nothing on your screen at all.",
+		"The definition below completes the earlier link. At EOF the final document",
+		"is offered to the terminal's scrollback as one publication.",
+		"",
+		"[guide]: https://github.com/Tangerg/oolong",
 		"",
 	}, "\n")
 }

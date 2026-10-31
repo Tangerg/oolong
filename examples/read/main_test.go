@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -54,7 +57,7 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 		done <- err
 	}()
 
-	host.Until(t, "the first block to be published", func() bool {
+	host.Until(t, "the Markdown heading to become visible", func() bool {
 		return strings.Contains(host.Frames(), "What is happening here")
 	})
 	// And the whole answer arrives, ending with the row that says so.
@@ -71,4 +74,41 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}
+}
+
+func TestFinalPreparationFailureDoesNotAnnounceSuccess(t *testing.T) {
+	host := &observedHost{Host: uitest.New(t, uitest.Config{Width: 72, Height: 10})}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(rt *program.InlineRuntime) (scene.Element, error) {
+			r := read(rt, 64, time.Hour)
+			r.render = func(context.Context, string) (grid.Drawable, error) {
+				return nil, errors.New("renderer unavailable")
+			}
+			r.finish()
+			return r.Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(ctx)
+		}
+		done <- err
+	}()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("run: %v", err)
+		}
+	})
+	host.Until(t, "the final outcome to be reported", func() bool {
+		_, notified := host.state()
+		return notified > 0
+	})
+	host.mu.Lock()
+	message := host.notified[0]
+	host.mu.Unlock()
+	if !strings.Contains(message, "renderer unavailable") {
+		t.Errorf("notification lost final preparation error: %q", message)
+	}
+	host.Shows(t, "renderer unavailable")
 }
