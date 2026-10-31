@@ -3,6 +3,7 @@ package scene
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -30,10 +31,10 @@ type Root struct {
 	focus           Target
 	capture         capture
 	hover           Target
-	restore         map[*node]Target
-	activeModal     *node
+	scopes          []focusScope
 	changes         chan struct{}
 	notifications   []func()
+	flushing        bool
 	preparing       bool
 	observing       bool
 	closed          bool
@@ -56,7 +57,7 @@ type namespace struct{ _ byte }
 
 // NewRoot mounts one content element and establishes its initial focus.
 func NewRoot(cfg RootConfig) (*Root, error) {
-	r := &Root{nodes: make(map[NodeID]*node), restore: make(map[*node]Target), changes: make(chan struct{})}
+	r := &Root{nodes: make(map[NodeID]*node), changes: make(chan struct{})}
 	r.namespace = &namespace{}
 	if cfg.InputHistory < 0 {
 		return nil, ErrInvalid
@@ -69,9 +70,20 @@ func NewRoot(cfg RootConfig) (*Root, error) {
 	if r.now == nil {
 		r.now = time.Now
 	}
+	// A focus predicate can observe a provisional attachment and then unwind
+	// the constructor. Revoke its lease without publishing lifecycle callbacks
+	// from a root that never became available to its owner.
+	mounted := false
+	defer func() {
+		if !mounted {
+			r.revoke()
+			r.notifications = nil
+		}
+	}()
 	if err := r.SetContent(cfg.Element); err != nil {
 		return nil, err
 	}
+	mounted = true
 	return r, nil
 }
 
@@ -247,14 +259,18 @@ func (r *Root) allowed(n *node) bool {
 	return false
 }
 
-func (r *Root) modal() *node {
-	var current *node
+func (r *Root) walkModals(visit func(*node)) {
 	r.walk(r.content.node, func(n *node) bool {
 		if n.group != nil && n.group.config.Modal && len(n.group.items) != 0 && r.enabled(n) {
-			current = n
+			visit(n)
 		}
 		return true
 	})
+}
+
+func (r *Root) modal() *node {
+	var current *node
+	r.walkModals(func(n *node) { current = n })
 	return current
 }
 
@@ -310,16 +326,30 @@ func (r *Root) setFocus(target Target) {
 	r.signal()
 }
 
+// Each modal layer remembers the focus to restore when that layer disappears.
+type focusScope struct{ modal, opener Target }
+
 func (r *Root) settleFocus() {
-	modal := r.modal()
-	if modal != r.activeModal {
-		previous := r.activeModal
-		r.activeModal = modal
-		r.restoreFocus(previous)
-		if modal != nil {
-			if _, remembered := r.restore[modal]; !remembered {
-				r.restore[modal] = r.focus
-			}
+	var modals []Target
+	r.walkModals(func(n *node) { modals = append(modals, n.target()) })
+	common := 0
+	for common < len(modals) && common < len(r.scopes) && modals[common] == r.scopes[common].modal {
+		common++
+	}
+	// Splice at the first changed layer. A modal that survives removal of a
+	// covered layer inherits that layer's return address, not its dead child.
+	opener := r.focus
+	if common < len(r.scopes) {
+		opener = r.scopes[common].opener
+		r.scopes = slices.Delete(r.scopes, common, len(r.scopes))
+	}
+	for _, modal := range modals[common:] {
+		r.scopes = append(r.scopes, focusScope{modal: modal, opener: opener})
+		opener = Target{}
+	}
+	if opener != r.focus {
+		if n := r.resolve(opener); n != nil && r.focusable(n) {
+			r.setFocus(opener)
 		}
 	}
 	if n := r.resolve(r.focus); n != nil && r.focusable(n) {
@@ -334,27 +364,6 @@ func (r *Root) settleFocus() {
 		return true
 	})
 	r.setFocus(first)
-}
-
-func (r *Root) restoreFocus(previous *node) {
-	if previous == nil || r.modalEligible(previous) {
-		return
-	}
-	candidate, ok := r.restore[previous]
-	if !ok {
-		return
-	}
-	delete(r.restore, previous)
-	if n := r.resolve(candidate); n != nil && r.focusable(n) {
-		r.setFocus(candidate)
-	}
-}
-
-func (r *Root) modalEligible(n *node) bool {
-	if n == nil || n.root != r || n.group == nil || !n.group.config.Modal || len(n.group.items) == 0 {
-		return false
-	}
-	return r.enabled(n)
 }
 
 // FocusNext is a traversal mechanism. Composite controllers may request a
@@ -413,12 +422,20 @@ func (r *Root) walk(n *node, visit func(*node) bool) bool {
 // produced them has completed. Runtime owners call it between owner turns, never
 // while a frame is prepared or admitted. Notifications may schedule new work.
 func (r *Root) FlushNotifications() {
-	if r == nil || r.preparing || r.observing || r.pending != nil {
+	if r == nil || r.flushing || r.preparing || r.observing || r.pending != nil {
 		return
 	}
-	batch := r.notifications
-	r.notifications = nil
-	for _, notify := range batch {
+	r.flushing = true
+	defer func() { r.flushing = false }()
+	for remaining := len(r.notifications); len(r.notifications) > 0 && (remaining > 0 || r.closed); remaining-- {
+		// Claim only this callback. A panic or Goexit must not discard its
+		// successors, and a recursive flush must not overtake them.
+		notify := r.notifications[0]
+		r.notifications[0] = nil
+		r.notifications = r.notifications[1:]
+		if len(r.notifications) == 0 {
+			r.notifications = nil
+		}
 		notify()
 	}
 }
@@ -443,10 +460,12 @@ func (r *Root) signal() {
 	if r.changes != nil {
 		close(r.changes)
 	}
-	r.changes = make(chan struct{})
+	if !r.closed {
+		r.changes = make(chan struct{})
+	}
 }
 
-// Changes returns a broadcast channel closed by the next model, layout or write transition.
+// Changes returns a broadcast channel closed by the next model, layout or write transition. It stays closed after Close.
 func (r *Root) Changes() <-chan struct{} {
 	if r == nil {
 		return nil
@@ -454,25 +473,30 @@ func (r *Root) Changes() <-chan struct{} {
 	return r.changes
 }
 
-// Close revokes every attachment and clears routing state. Repeated calls have no effect.
+// Close revokes every attachment and clears routing state. A later call can finish notifications interrupted by a callback.
 // It panics during a pure phase or while a prepared candidate awaits settlement; abort that candidate first.
 func (r *Root) Close() {
-	if r == nil || r.closed {
+	if r == nil {
 		return
 	}
-	if err := r.mutable(); err != nil {
-		panic(err)
+	if !r.closed {
+		if err := r.mutable(); err != nil {
+			panic(err)
+		}
+		r.revoke()
 	}
+	r.FlushNotifications()
+}
+
+func (r *Root) revoke() {
 	if r.content.node != nil {
 		r.detach(r.content.node)
 	}
 	r.content = Element{}
 	r.closed = true
 	r.capture = capture{}
-	clear(r.restore)
-	r.activeModal = nil
+	r.scopes = nil
 	r.layout, r.written, r.inFlight = nil, nil, nil
 	r.published.Store(nil)
 	r.signal()
-	r.FlushNotifications()
 }
