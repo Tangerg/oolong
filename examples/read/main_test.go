@@ -86,7 +86,7 @@ func TestFinalPreparationFailureDoesNotAnnounceSuccess(t *testing.T) {
 			r.render = func(context.Context, string) (grid.Drawable, error) {
 				return nil, errors.New("renderer unavailable")
 			}
-			r.finish()
+			r.finish(nil)
 			return r.Element(), nil
 		}})
 		if err == nil {

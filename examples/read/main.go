@@ -52,7 +52,6 @@ type reader struct {
 	view     *kit.Transcript
 	pieces   []string
 	at       int
-	timer    *program.Timer
 	scope    *program.Scope
 	spinner  kit.Spinner
 	stepErr  error
@@ -112,7 +111,10 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	_ = runtime.Session().SetTitle("reading")
 	r.scope, r.stepErr = runtime.NewScope(program.ScopeConfig{})
 	if r.stepErr == nil {
-		r.timer, r.stepErr = runtime.Every(r.scope, every, r.advance)
+		_, r.stepErr = runtime.Every(r.scope, every, r.advance)
+		if r.stepErr != nil {
+			r.scope.Close()
+		}
 	}
 	return r
 }
@@ -120,12 +122,11 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 func (r *reader) advance() {
 	r.spinner.Tick()
 	if r.at >= len(r.pieces) {
-		r.finish()
+		r.finish(nil)
 		return
 	}
 	if err := r.document.Append([]byte(r.pieces[r.at])); err != nil {
-		r.stepErr = err
-		r.timer.Stop()
+		r.finish(err)
 		return
 	}
 	r.at++
@@ -135,12 +136,12 @@ func (r *reader) advance() {
 	r.element.Invalidate()
 }
 
-func (r *reader) finish() {
-	r.stepErr = r.document.End(nil)
+func (r *reader) finish(cause error) {
+	r.stepErr = r.document.End(cause)
 	if r.stepErr == nil {
 		r.stepErr = r.document.Accept(r.document.Snapshot().Prepare(r.scope.Context(), r.render))
 	}
-	r.timer.Stop()
+	r.scope.Close()
 	r.element.Invalidate()
 	// Completion is represented in the scene even when the terminal has no notifier.
 	_ = r.runtime.Session().SetTitle("")
