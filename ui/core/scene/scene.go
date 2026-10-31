@@ -16,15 +16,18 @@ import (
 
 // Scene errors distinguish attachment, eligibility and lifecycle failures.
 var (
-	ErrDetached    = errors.New("scene: element is not attached")
-	ErrMounted     = errors.New("scene: element is already attached")
-	ErrStale       = errors.New("scene: target attachment has expired")
-	ErrBusy        = errors.New("scene: mutation during presentation or observation")
-	ErrClosed      = errors.New("scene: root is closed")
-	ErrUnavailable = errors.New("scene: target is unavailable")
-	ErrDuplicate   = errors.New("scene: duplicate child or key")
-	ErrCycle       = errors.New("scene: attachment cycle")
-	ErrInvalid     = errors.New("scene: invalid configuration")
+	ErrDetached = errors.New("scene: element is not attached")
+	ErrMounted  = errors.New("scene: element is already attached")
+	// ErrCleanupPending means the previous attachment still has lifecycle
+	// callbacks to finish. Flush the previous root's notifications, then retry.
+	ErrCleanupPending = errors.New("scene: previous attachment cleanup pending")
+	ErrStale          = errors.New("scene: target attachment has expired")
+	ErrBusy           = errors.New("scene: mutation during presentation or observation")
+	ErrClosed         = errors.New("scene: root is closed")
+	ErrUnavailable    = errors.New("scene: target is unavailable")
+	ErrDuplicate      = errors.New("scene: duplicate child or key")
+	ErrCycle          = errors.New("scene: attachment cycle")
+	ErrInvalid        = errors.New("scene: invalid configuration")
 )
 
 type noCopy struct{}
@@ -86,6 +89,8 @@ type node struct {
 	generation   Generation
 	done         chan struct{}
 	observing    bool
+	// lifecycle counts callbacks queued or running for this node's generation.
+	lifecycle int
 }
 
 // NewElement creates an unmounted opaque node. It panics for an empty or duplicated action identifier.
@@ -359,6 +364,9 @@ type Item struct {
 	Key     string
 	Size    layout.Sizing
 	Element Element
+	// Paint supplies this child's appearance while in this relation. Nil uses
+	// the element's own painter. Descendants are traversed in either case.
+	Paint func(Frame)
 }
 
 // GroupConfig selects child geometry. Layout is a pure variation point. Its returned rectangles
@@ -424,15 +432,19 @@ func (g *Group) At(index int) (Item, bool) {
 // compose several groups may preflight all relations before changing their model.
 // It does not reserve children; each subsequent Set validates its current state.
 func (g *Group) CheckSet(items ...Item) error {
-	_, err := g.checkSet(items)
+	_, err := g.checkSet(items, nil)
 	return err
 }
 
-func (g *Group) checkSet(items []Item) (map[*node]bool, error) {
-	if g == nil {
+func (g *Group) checkSet(items []Item, nextID *uint64) (map[*node]bool, error) {
+	if g == nil || g.element.IsZero() {
 		return nil, ErrInvalid
 	}
 	n := g.element.node
+	if nextID == nil && n.root != nil {
+		next := n.root.nextID
+		nextID = &next
+	}
 	if err := g.element.CheckMutation(); err != nil {
 		return nil, err
 	}
@@ -447,14 +459,14 @@ func (g *Group) checkSet(items []Item) (map[*node]bool, error) {
 			return nil, ErrDuplicate
 		}
 		children[child], keys[item.Key] = true, true
-		if err := checkChild(n, child); err != nil {
+		if err := checkChild(n, child, nextID); err != nil {
 			return nil, err
 		}
 	}
 	return children, nil
 }
 
-func checkChild(parent, child *node) error {
+func checkChild(parent, child *node, nextID *uint64) error {
 	if err := (Element{node: child}).CheckMutation(); err != nil {
 		return err
 	}
@@ -467,18 +479,27 @@ func checkChild(parent, child *node) error {
 		return ErrMounted
 	}
 	if parent.root != nil && child.root == nil {
-		return parent.root.canAttach(child)
+		return parent.root.checkAttachment(child, nextID)
 	}
 	return nil
 }
 
 // Set validates the complete relation before changing it. Reordering retained
 // children keeps their attachment; removal immediately revokes its generation.
+// Attaching a child whose previous callbacks have not settled returns [ErrCleanupPending].
 func (g *Group) Set(items ...Item) error {
-	children, err := g.checkSet(items)
+	children, err := g.checkSet(items, nil)
 	if err != nil {
 		return err
 	}
+	g.install(items, children)
+	if r := g.element.node.root; r != nil {
+		r.Changed()
+	}
+	return nil
+}
+
+func (g *Group) install(items []Item, children map[*node]bool) {
 	n := g.element.node
 	previous := g.items
 	g.items = slices.Clone(items)
@@ -501,10 +522,76 @@ func (g *Group) Set(items ...Item) error {
 			n.root.attach(child)
 		}
 	}
-	if n.root != nil {
-		n.root.Changed()
+}
+
+// GroupItems replaces the immediate child relation of Group.
+type GroupItems struct {
+	Group *Group
+	Items []Item
+}
+
+// CheckChildItems validates replacements for this group's direct child groups.
+// It does not reserve children. Each group may appear once and each element may
+// have only one parent. Moving between groups requires detachment first.
+func (g *Group) CheckChildItems(updates ...GroupItems) error {
+	_, err := g.checkChildItems(updates)
+	return err
+}
+
+// SetChildItems replaces the specified sibling relations together. All checks
+// finish before any detach or attach; focus predicates observe the complete tree.
+// It accepts direct child groups of this parent only, including before mounting.
+func (g *Group) SetChildItems(updates ...GroupItems) error {
+	children, err := g.checkChildItems(updates)
+	if err != nil {
+		return err
+	}
+	for i, update := range updates {
+		update.Group.install(update.Items, children[i])
+	}
+	if r := g.element.node.root; r != nil && len(updates) > 0 {
+		r.Changed()
 	}
 	return nil
+}
+
+func (g *Group) checkChildItems(updates []GroupItems) ([]map[*node]bool, error) {
+	if g == nil || g.element.IsZero() {
+		return nil, ErrInvalid
+	}
+	if err := g.element.CheckMutation(); err != nil {
+		return nil, err
+	}
+	parent := g.element.node
+	var nextID uint64
+	if parent.root != nil {
+		nextID = parent.root.nextID
+	}
+	groups := make(map[*Group]bool, len(updates))
+	claimed := make(map[*node]bool)
+	children := make([]map[*node]bool, len(updates))
+	for i, update := range updates {
+		target := update.Group
+		if target == nil || target.element.IsZero() || target.element.node.parent != parent {
+			return nil, ErrInvalid
+		}
+		if groups[target] {
+			return nil, ErrDuplicate
+		}
+		groups[target] = true
+		relation, err := target.checkSet(update.Items, &nextID)
+		if err != nil {
+			return nil, err
+		}
+		for child := range relation {
+			if claimed[child] {
+				return nil, ErrDuplicate
+			}
+			claimed[child] = true
+		}
+		children[i] = relation
+	}
+	return children, nil
 }
 
 // Move changes a retained child's position without unmounting it.

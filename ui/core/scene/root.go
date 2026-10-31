@@ -33,7 +33,7 @@ type Root struct {
 	hover           Target
 	scopes          []focusScope
 	changes         chan struct{}
-	notifications   []func()
+	notifications   []lifecycleCall
 	flushing        bool
 	preparing       bool
 	observing       bool
@@ -78,6 +78,9 @@ func NewRoot(cfg RootConfig) (*Root, error) {
 	defer func() {
 		if !mounted {
 			r.revoke()
+			for _, call := range r.notifications {
+				call.release()
+			}
 			r.notifications = nil
 		}
 	}()
@@ -107,6 +110,7 @@ func (r *Root) Content() Element {
 }
 
 // SetContent replaces the composition after validating its entire attachment relation.
+// It returns [ErrCleanupPending] if a previous generation still has callbacks to deliver.
 func (r *Root) SetContent(element Element) error {
 	if err := r.mutable(); err != nil {
 		return err
@@ -135,18 +139,31 @@ func (r *Root) SetContent(element Element) error {
 }
 
 func (r *Root) canAttach(n *node) error {
+	nextID := r.nextID
+	return r.checkAttachment(n, &nextID)
+}
+
+func (r *Root) checkAttachment(n *node, nextID *uint64) error {
 	if err := (Element{node: n}).CheckMutation(); err != nil {
 		return err
 	}
 	if n.root != nil {
 		return ErrMounted
 	}
-	if n.generation == Generation(math.MaxUint64) || r.nextID == math.MaxUint64 {
+	if n.lifecycle != 0 {
+		return ErrCleanupPending
+	}
+	if n.identityRoot != r.namespace {
+		if *nextID == math.MaxUint64 {
+			return fmt.Errorf("%w: attachment identity exhausted", ErrInvalid)
+		}
+		*nextID++
+	} else if n.generation == Generation(math.MaxUint64) {
 		return fmt.Errorf("%w: attachment identity exhausted", ErrInvalid)
 	}
 	if n.group != nil {
 		for _, item := range n.group.items {
-			if err := r.canAttach(item.Element.node); err != nil {
+			if err := r.checkAttachment(item.Element.node, nextID); err != nil {
 				return err
 			}
 		}
@@ -184,13 +201,13 @@ func (r *Root) detach(n *node) {
 		held := r.capture
 		r.capture.revoked = true
 		if n.config.Handle != nil {
-			r.notifications = append(r.notifications, func() { held.cancel(n) })
+			r.notify(n, func() { held.cancel(n) })
 		}
 	}
 	if r.hover == previous {
 		r.hover = Target{}
 		if n.config.Handle != nil {
-			r.notifications = append(r.notifications, func() { n.config.Handle(Event{input: input.Mouse{Action: input.MouseLeave}, target: previous}) })
+			r.notify(n, func() { n.config.Handle(Event{input: input.Mouse{Action: input.MouseLeave}, target: previous}) })
 		}
 	}
 	if n.group != nil {
@@ -199,7 +216,7 @@ func (r *Root) detach(n *node) {
 		}
 	}
 	if n.config.Detached != nil {
-		r.notifications = append(r.notifications, n.config.Detached)
+		r.notify(n, n.config.Detached)
 	}
 }
 
@@ -312,12 +329,12 @@ func (r *Root) setFocus(target Target) {
 	r.focusTurn = next(r.focusTurn)
 	if old := r.nodes[previous.Node]; previous.root == r && old != nil && old.generation == previous.Generation {
 		if notify := old.config.FocusChanged; notify != nil {
-			r.notifications = append(r.notifications, func() { notify(false) })
+			r.notify(old, func() { notify(false) })
 		}
 	}
 	if n := r.resolve(target); n != nil && n.config.FocusChanged != nil {
 		notify := n.config.FocusChanged
-		r.notifications = append(r.notifications, func() {
+		r.notify(n, func() {
 			if r.focus == target {
 				notify(true)
 			}
@@ -425,6 +442,26 @@ func (r *Root) walk(n *node, visit func(*node) bool) bool {
 	return true
 }
 
+// A queued lifecycle callback still owns access to its controller even after
+// detach revokes routing. Hold that generation through callback return, including
+// reentrant mutation, panic and Goexit; other nodes have no such obligation.
+type lifecycleCall struct {
+	owner *node
+	run   func()
+}
+
+func (r *Root) notify(n *node, run func()) {
+	n.lifecycle++
+	r.notifications = append(r.notifications, lifecycleCall{owner: n, run: run})
+}
+
+func (c lifecycleCall) release() { c.owner.lifecycle-- }
+
+func (c lifecycleCall) deliver() {
+	defer c.release()
+	c.run()
+}
+
 // FlushNotifications runs settlement notifications after the operation that
 // produced them has completed. Runtime owners call it between owner turns, never
 // while a frame is prepared or admitted. Notifications may schedule new work.
@@ -437,13 +474,13 @@ func (r *Root) FlushNotifications() {
 	for remaining := len(r.notifications); len(r.notifications) > 0 && (remaining > 0 || r.closed); remaining-- {
 		// Claim only this callback. A panic or Goexit must not discard its
 		// successors, and a recursive flush must not overtake them.
-		notify := r.notifications[0]
-		r.notifications[0] = nil
+		call := r.notifications[0]
+		r.notifications[0] = lifecycleCall{}
 		r.notifications = r.notifications[1:]
 		if len(r.notifications) == 0 {
 			r.notifications = nil
 		}
-		notify()
+		call.deliver()
 	}
 }
 

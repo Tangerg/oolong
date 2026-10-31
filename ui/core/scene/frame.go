@@ -241,7 +241,7 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	}()
 	frame := Frame{View: view, transaction: tx, generation: tx.generation}
 	if r.content.node != nil {
-		r.paint(r.content.node, frame, image.Point{}, candidate)
+		r.paint(Item{Element: r.content}, frame, image.Point{}, candidate)
 	}
 	candidate.projections = make(map[stagedState]any, len(tx.states))
 	for _, state := range tx.states {
@@ -252,20 +252,25 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	return prepared, nil
 }
 
-func (r *Root) paint(n *node, frame Frame, origin image.Point, into *layoutSnapshot) {
+func (r *Root) paint(item Item, frame Frame, origin image.Point, into *layoutSnapshot) {
+	n := item.Element.node
 	placed := geometry{target: n.target(), area: frame.Bounds().Add(origin), clip: frame.Visible().Add(origin), hit: r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil)}
 	if n.config.Semantics != nil {
 		placed.content = n.config.Semantics().ContentRevision
 	}
 	into.geometry = append(into.geometry, placed)
-	if n.config.Paint != nil {
-		n.config.Paint(frame)
+	paint := item.Paint
+	if paint == nil {
+		paint = n.config.Paint
+	}
+	if paint != nil {
+		paint(frame)
 	}
 	if g := n.group; g != nil {
 		width, height := frame.Size()
 		areas := g.rectangles(image.Pt(width, height))
 		for i, item := range g.items {
-			r.paint(item.Element.node, frame.Sub(areas[i]), origin.Add(areas[i].Min), into)
+			r.paint(item, frame.Sub(areas[i]), origin.Add(areas[i].Min), into)
 		}
 	}
 }
