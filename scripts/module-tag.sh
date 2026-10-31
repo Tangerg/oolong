@@ -39,8 +39,8 @@ directory_tag() {
 	case "/$directory/" in
 	*'/../'* | *'/./'* | '//'* | *'//'* | *'\\'*) die "invalid module directory: $directory" ;;
 	esac
-	path=$(sed -n 's/^module[[:space:]]*//p' "$root/$directory/go.mod")
-	[[ -n "$path" ]] || die "$directory/go.mod has no module path"
+	[[ -f "$root/$directory/go.mod" ]] || die "$directory has no go.mod"
+	path=$(GOWORK=off go -C "$root/$directory" list -m -f '{{.Path}}')
 	module_tag "$directory" "$path" "$2"
 }
 

@@ -1,6 +1,7 @@
 package arch
 
 import (
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"os/exec"
@@ -82,7 +83,7 @@ func TestTagContractSelectsTheDirectoryWhoseManifestOwnsTheTag(t *testing.T) {
 		t.Fatal(err)
 	}
 	const inventory = "#!/bin/sh\nset -eu\ntest \"$1\" = --public\nprintf '%s\\n' ui ui/v2 extensions/view\n"
-	const inspector = "#!/bin/sh\nset -eu\nmodule=$(awk '$1 == \"module\" {print $2}' go.mod)\nprintf '%s|%s\\n' \"$module\" \"$*\"\n"
+	const inspector = "#!/bin/sh\nset -eu\nmodule=$(GOWORK=off go list -m -f '{{.Path}}')\nprintf '%s|%s\\n' \"$module\" \"$*\"\n"
 	for name, script := range map[string]string{"module-tag.sh": string(tool), "modules.sh": inventory, "gorelease": inspector} {
 		//nolint:gosec // G306: these three executable scripts run only in the isolated fixture.
 		if err = os.WriteFile(filepath.Join(scripts, name), []byte(script), 0o700); err != nil {
@@ -94,7 +95,7 @@ func TestTagContractSelectsTheDirectoryWhoseManifestOwnsTheTag(t *testing.T) {
 		if err = os.MkdirAll(physical, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err = os.WriteFile(filepath.Join(physical, "go.mod"), []byte("module example.invalid/oolong/"+directory+"\n"), 0o600); err != nil {
+		if err = os.WriteFile(filepath.Join(physical, "go.mod"), []byte("module \"example.invalid/oolong/"+directory+"\" // a valid Go manifest\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -174,9 +175,15 @@ func testReleaseGatesKeepTheSelectedModule(t *testing.T, root string) {
 	write("ui/go.mod", "module "+selectedModule+"\ngo 1.27.0\n")
 	write("examples/go.mod", "module example.invalid/oolong/examples\ngo 1.27.0\n")
 	write("CHANGELOG.md", "## [ui/v0.1.0]\n")
-	for _, name := range []string{"apidiff", "deadcode", "golangci-lint", "gofumpt", "govulncheck", "npx", "shfmt", "npm", "go"} {
+	for _, name := range []string{"apidiff", "deadcode", "golangci-lint", "gofumpt", "govulncheck", "npx", "shfmt", "npm"} {
 		write("bin/"+name, "#!/bin/sh\nprintf '%s|%s|%s\\n' \"${0##*/}\" \"$PWD\" \"$*\" >> \"$TRACE\"\n")
 	}
+	write("bin/go", `#!/bin/sh
+printf 'go|%s|%s\n' "$PWD" "$*" >> "$TRACE"
+if [ "$1" = -C ] && [ "$3" = list ]; then
+ awk '$1 == "module" {print $2}' "$2/go.mod"
+fi
+`)
 	// Module identity survives MSYS path spelling and symlinked temporary roots.
 	write("bin/gorelease", `#!/bin/sh
 set -eu
@@ -295,5 +302,55 @@ func TestReleaseComparisonPropagatesToolFailure(t *testing.T) {
 				t.Fatalf("failed=%t error=%v\n%s", fail, err, output)
 			}
 		})
+	}
+}
+
+func TestStandaloneReplacementsUseParsedModuleIdentities(t *testing.T) {
+	root := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		//nolint:gosec // G306,G703: only fixture scripts in t.TempDir are executed.
+		if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("scripts/modules.sh", "#!/bin/sh\nprintf '%s\\n' ui extension\n")
+	for _, member := range []string{"ui", "extension"} {
+		write(member+"/go.mod", "module \"example.invalid/"+member+"\" // independent module\n\ngo 1.27.0\n")
+	}
+	dir := filepath.Join(root, "extension")
+	cmd := exec.CommandContext(t.Context(), "sh", filepath.Join(repoRoot(t), "scripts", "replace-local-modules.sh"), root) //nolint:gosec // G204: repository script and fixture checkout.
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("apply standalone replacements: %s: %v", out, err)
+	}
+	inspect := exec.CommandContext(t.Context(), "go", "mod", "edit", "-json")
+	inspect.Dir = dir
+	inspect.Env = append(os.Environ(), "GOWORK=off")
+	out, err := inspect.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Replace []struct{ Old, New struct{ Path string } }
+	}
+	if err = json.Unmarshal(out, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Replace) != 1 || manifest.Replace[0].Old.Path != "example.invalid/ui" {
+		t.Fatalf("replacement identities (including self): %+v", manifest.Replace)
+	}
+	// Git Bash and Go may spell the same Windows fixture directory differently.
+	old, err := os.Stat(filepath.Join(root, "ui"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := os.Stat(manifest.Replace[0].New.Path)
+	if err != nil || !os.SameFile(old, local) {
+		t.Fatalf("replacement target %s is not the fixture's ui module: %v", manifest.Replace[0].New.Path, err)
 	}
 }
