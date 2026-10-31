@@ -17,9 +17,17 @@ type Owner interface {
 	Done() <-chan struct{}
 }
 
+// Scene is the semantic capability needed by a driver. Frame settlement and
+// transport completion remain with the compositor that owns them.
+type Scene interface {
+	Observe(query scene.Query) (scene.Observation, error)
+	Invoke(ctx context.Context, target scene.Target, action scene.ActionID, params any) (scene.Invocation, error)
+	Changes() <-chan struct{}
+}
+
 // DriverConfig connects one scene to its interface-owner dispatcher.
 type DriverConfig struct {
-	Root  *scene.Root
+	Root  Scene
 	Owner Owner
 }
 

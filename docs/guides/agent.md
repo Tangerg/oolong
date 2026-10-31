@@ -29,3 +29,5 @@ Actions requiring parameters receive their concrete parameter type. Mouse, key a
 `Driver.Wait` subscribes while observing on the owner, then rechecks on change. Its predicate states a specific requirement: a value changed, a particular target disappeared, a task result was applied, or a written watermark reached the relevant sequence. It does not wait for every future task an application could create.
 
 Cancellation requests, worker completion, UI delivery, publication acceptance and terminal writing remain separate facts. A cancelled view cannot revive a detached target, and a successful background operation can still have revoked UI delivery.
+
+A page can omit nodes before it as well as after it. Follow `Observation.Next` for pagination. `FindUnique` returns `ErrIncompleteObservation` when a missing page, depth boundary or clipped candidate name prevents a proof. A displayed name prefix never authorizes an exact-name action; clipping an unrelated description does not invalidate a complete name. Node eligibility comes from the same scene rule used by input and invocation.

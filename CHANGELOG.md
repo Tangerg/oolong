@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking changes
 
+- `scene.SemanticNode.TextTruncated` is replaced by `TruncatedText` with per-field flags. A continuation page is incomplete even when it is the last page. Check `Next` to continue paging and handle `scene.ErrIncompleteObservation` when exact absence or uniqueness cannot be proved. Use the Element's Enabled predicate to disable a node; scene owns its observed disabled and focused flags.
+
 - Remove `base.Selection.Clicks`: gesture history is private to the selection owner. Use `(*base.Selection).SetClickInterval` to configure the multi-click interval; scene projection phases reject this mutation just like other selection commands.
 - Controller drawing and staging require the frame of their mounted Element's root. Mount the actual Element and configure its paint slot before mounting instead of painting an unmounted controller through an unrelated wrapper. `Element.CheckProjection(frame)` exposes this ownership check to composed controls. Read-only projection and measurement cannot start while that root has an unsettled candidate.
 - `base.ScrollLayout` is a preparation borrow: read its offset and refine it only while Prepare is active. After preparation, read the current controller position through `Scroll.Offset`. Candidate geometry has one staged representation, so refused refinements cannot leave a second offset ahead of the frame.

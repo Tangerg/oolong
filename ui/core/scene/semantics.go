@@ -42,7 +42,7 @@ const (
 // SemanticState combines independently projected accessibility states.
 type SemanticState uint16
 
-// Semantic flags project current state. Scene alone supplies actual focus.
+// Semantic flags project current state. Scene supplies actual focus and node eligibility.
 const (
 	StateFocused SemanticState = 1 << iota
 	StateSelected
@@ -111,6 +111,16 @@ type ActionDescription struct {
 	RequiresParameters bool
 }
 
+// TextTruncation records which displayed fields lost a suffix to the query budget.
+type TextTruncation uint8
+
+// Truncation flags distinguish incomplete names used by locators from unrelated display text.
+const (
+	NameTruncated TextTruncation = 1 << iota
+	DescriptionTruncated
+	ValueTruncated
+)
+
 // SemanticNode combines model meaning with geometry from the admitted frame.
 type SemanticNode struct {
 	Target Target
@@ -120,7 +130,7 @@ type SemanticNode struct {
 	Bounds        image.Rectangle
 	HasBounds     bool
 	Actions       []ActionDescription
-	TextTruncated bool
+	TruncatedText TextTruncation
 }
 
 // Progress separates model, layout and confirmed writer advancement.
@@ -162,12 +172,14 @@ const (
 
 // Observation errors keep absence, ambiguity and stale pagination explicit.
 var (
-	ErrNotFound           = errors.New("scene: no matching target")
-	ErrAmbiguous          = errors.New("scene: more than one matching target")
-	ErrObservationChanged = errors.New("scene: observation changed between pages")
+	ErrIncompleteObservation = errors.New("scene: incomplete observation")
+	ErrNotFound              = errors.New("scene: no matching target")
+	ErrAmbiguous             = errors.New("scene: more than one matching target")
+	ErrObservationChanged    = errors.New("scene: observation changed between pages")
 )
 
-// Observation is a detached bounded semantic projection with explicit pagination and progress.
+// Observation is a detached bounded semantic projection. Truncated means that
+// nodes were omitted before, after, or below this page. Only Next requests another page.
 type Observation struct {
 	Progress  Progress
 	Nodes     []SemanticNode
@@ -182,23 +194,55 @@ type Match struct {
 	Name string
 }
 
+type matchEvidence uint8
+
+const (
+	noMatch matchEvidence = iota
+	exactMatch
+	possibleMatch
+)
+
+func (m Match) evaluate(node SemanticNode) matchEvidence {
+	if m.Key != "" && node.Key != m.Key || m.Role != RoleNone && node.Role != m.Role {
+		return noMatch
+	}
+	if m.Name == "" {
+		return exactMatch
+	}
+	if node.TruncatedText&NameTruncated != 0 {
+		// A clipped name is strictly longer than its displayed prefix.
+		if len(m.Name) > len(node.Name) && strings.HasPrefix(m.Name, node.Name) {
+			return possibleMatch
+		}
+		return noMatch
+	}
+	if m.Name == node.Name {
+		return exactMatch
+	}
+	return noMatch
+}
+
 // FindUnique rejects absent, ambiguous or truncated results instead of guessing a target.
 func (o Observation) FindUnique(match Match) (Target, error) {
 	var found Target
+	incomplete := o.Truncated
 	for _, node := range o.Nodes {
-		if match.Key != "" && node.Key != match.Key || match.Role != RoleNone && node.Role != match.Role || match.Name != "" && node.Name != match.Name {
-			continue
+		switch match.evaluate(node) {
+		case noMatch:
+		case possibleMatch:
+			incomplete = true
+		case exactMatch:
+			if !found.IsZero() {
+				return Target{}, ErrAmbiguous
+			}
+			found = node.Target
 		}
-		if !found.IsZero() {
-			return Target{}, ErrAmbiguous
-		}
-		found = node.Target
+	}
+	if incomplete {
+		return Target{}, ErrIncompleteObservation
 	}
 	if found.IsZero() {
 		return Target{}, ErrNotFound
-	}
-	if o.Truncated {
-		return Target{}, errors.New("scene: cannot prove a unique match in a truncated observation")
 	}
 	return found, nil
 }
@@ -247,7 +291,7 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		query.TextLimit = DefaultTextLimit
 	}
 	query.Limit, query.TextLimit = min(query.Limit, MaxQueryLimit), min(query.TextLimit, MaxTextLimit)
-	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress()}}
+	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.Offset > 0}}
 	builder.visit(origin, Target{}, 0)
 	return builder.result, nil
 }
@@ -335,31 +379,38 @@ func (b *observationBuilder) append(n *node, parent Target, semantic Semantic) b
 }
 
 func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit int) SemanticNode {
-	truncated := len(semantic.Name) > textLimit || len(semantic.Description) > textLimit || !semantic.Sensitive && len(semantic.Value) > textLimit
-	semantic.Name = boundedText(semantic.Name, textLimit)
-	semantic.Description = boundedText(semantic.Description, textLimit)
+	var truncated TextTruncation
+	clip := func(value string, field TextTruncation) string {
+		if len(value) > textLimit {
+			truncated |= field
+		}
+		return boundedText(value, textLimit)
+	}
+	semantic.Name = clip(semantic.Name, NameTruncated)
+	semantic.Description = clip(semantic.Description, DescriptionTruncated)
 	if semantic.Sensitive {
 		semantic.Value = ""
 	} else {
-		semantic.Value = boundedText(semantic.Value, textLimit)
+		semantic.Value = clip(semantic.Value, ValueTruncated)
 	}
 	semantic.ContentID = strings.Clone(semantic.ContentID)
 	semantic.Relations = slices.Clone(semantic.Relations)
-	semantic.State &^= StateFocused
+	allowed := r.allowed(n)
+	semantic.State &^= StateFocused | StateDisabled
 	if r.focus == n.target() {
 		semantic.State |= StateFocused
 	}
-	if !r.allowed(n) {
+	if !allowed {
 		semantic.State |= StateDisabled
 	}
-	entry := SemanticNode{Target: n.target(), Parent: parent, Key: strings.Clone(n.config.Key), Semantic: semantic, TextTruncated: truncated}
+	entry := SemanticNode{Target: n.target(), Parent: parent, Key: strings.Clone(n.config.Key), Semantic: semantic, TruncatedText: truncated}
 	if placement, ok := findGeometry(r.layout, n.target()); ok {
 		entry.Bounds, entry.HasBounds = placement.clip, true
 	}
 	for _, action := range n.config.Actions {
 		availability, err := action.availability(nil)
 		needs := err != nil
-		if !r.allowed(n) {
+		if !allowed {
 			availability = Availability{Disabled: true, Reason: "target is outside the active scope"}
 		}
 		entry.Actions = append(entry.Actions, ActionDescription{ID: action.id, Label: strings.Clone(action.label), ParameterType: action.parameter.String(), ResultType: action.result.String(), Availability: availability, RequiresParameters: needs})
