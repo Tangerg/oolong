@@ -3,6 +3,7 @@ package ptytest
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"sync"
 )
@@ -17,10 +18,17 @@ type Transcript struct {
 	mu   sync.Mutex
 	buf  bytes.Buffer
 	grew chan struct{}
+	done chan struct{}
+	err  error // Written by the PTY reader before done closes.
 }
 
 func newTranscript() *Transcript {
-	return &Transcript{grew: make(chan struct{})}
+	return &Transcript{grew: make(chan struct{}), done: make(chan struct{})}
+}
+
+func (t *Transcript) finish(err error) {
+	t.err = err
+	close(t.done)
 }
 
 func (t *Transcript) append(p []byte) {
@@ -64,13 +72,11 @@ func (t *Transcript) Screen(size Size) (*Screen, error) {
 	return screen, nil
 }
 
-// WaitFor blocks until every token has appeared. If ctx ends first, the returned
-// error unwraps to [context.Cause] of ctx.
-//
-// Every token, not the last one: a test waiting for a frame usually has more than
-// one thing to say about it, and waiting for them one at a time would pass on a
-// transcript where they arrived in the wrong order.
+// WaitFor waits for every token, in any order. A missing token reports the
+// reader failure, [io.EOF] when output ended cleanly, or [context.Cause] when
+// the caller stopped waiting. It checks the last bytes received before reporting absence.
 func (t *Transcript) WaitFor(ctx context.Context, tokens ...string) error {
+	var cause error
 	for {
 		t.mu.Lock()
 		text := t.buf.String()
@@ -80,10 +86,18 @@ func (t *Transcript) WaitFor(ctx context.Context, tokens ...string) error {
 		if containsAll(text, tokens) {
 			return nil
 		}
+		if cause != nil {
+			return &missing{tokens: absent(text, tokens), transcript: text, err: cause}
+		}
 		select {
 		case <-grew:
+		case <-t.done:
+			cause = t.err
+			if cause == nil {
+				cause = io.EOF
+			}
 		case <-ctx.Done():
-			return &missing{tokens: absent(text, tokens), transcript: text, err: context.Cause(ctx)}
+			cause = context.Cause(ctx)
 		}
 	}
 }
@@ -97,7 +111,7 @@ type missing struct {
 
 func (m *missing) Error() string {
 	return "ptytest: never saw " + strings.Join(quoteAll(m.tokens), ", ") +
-		"\nwhat arrived was:\n" + m.transcript
+		": " + m.err.Error() + "\nwhat arrived was:\n" + m.transcript
 }
 
 func (m *missing) Unwrap() error { return m.err }

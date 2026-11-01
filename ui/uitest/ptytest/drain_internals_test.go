@@ -11,15 +11,17 @@ import (
 )
 
 func TestDrainObservesReaderCompletionAndCancellation(t *testing.T) {
-	s := &Session{readDone: make(chan struct{})}
+	s := &Session{transcript: newTranscript()}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := s.Drain(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	want := errors.New("read failed")
-	s.readErr = want
-	close(s.readDone)
+	s.transcript.finish(want)
+	if err := s.Transcript().WaitFor(t.Context(), "missing"); !errors.Is(err, want) {
+		t.Fatalf("transcript wait discarded read failure: %v", err)
+	}
 	if err := s.Drain(t.Context()); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
@@ -35,9 +37,9 @@ func TestCloseReportsGroupRefusalWithoutWaitingForTheLeader(t *testing.T) {
 	}
 	s := &Session{
 		primary: primary, process: &os.Process{},
-		readDone: make(chan struct{}), waitDone: make(chan struct{}),
+		transcript: newTranscript(), waitDone: make(chan struct{}),
 	}
-	close(s.readDone)
+	s.transcript.finish(nil)
 	if err := s.Close(); err == nil {
 		t.Fatal("an unowned process group was reported stopped")
 	}
@@ -84,10 +86,10 @@ func TestClosePreservesReaderAndProcessFailures(t *testing.T) {
 	readFailure := errors.New("transcript reader failed")
 	waitFailure := errors.New("process wait failed")
 	s := &Session{
-		primary: primary, readDone: make(chan struct{}), waitDone: make(chan struct{}),
-		readErr: readFailure, waitErr: waitFailure,
+		primary: primary, transcript: newTranscript(), waitDone: make(chan struct{}),
+		waitErr: waitFailure,
 	}
-	close(s.readDone)
+	s.transcript.finish(readFailure)
 	close(s.waitDone)
 	for range 2 {
 		if err := s.Close(); !errors.Is(err, readFailure) || !errors.Is(err, waitFailure) {

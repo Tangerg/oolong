@@ -79,25 +79,23 @@ type Session struct {
 	process    *os.Process
 	transcript *Transcript
 
-	readDone chan struct{}
 	waitDone chan struct{}
 
 	// waitErr is written by the one goroutine that reaps the child, before
 	// waitDone closes, and read only after — which is what makes it safe without
 	// a lock.
 	waitErr error
-	readErr error
 
-	closeOnce sync.Once
-	closeErr  error
+	stopCancel func() bool
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 // Start runs a command on a new pty.
 //
-// Cancelling ctx kills the program. A test that hands it t.Context() therefore
-// cannot leave one behind however it fails — which matters more here than
-// anywhere else in the repository, because what would be left behind is a process
-// holding a terminal.
+// Cancelling ctx closes the session and kills its process group, even if
+// descendants retain the terminal after the direct child exits. Call Close to
+// collect teardown errors or to end the session before ctx.
 func Start(ctx context.Context, cfg Config, name string, args ...string) (*Session, error) {
 	size := cfg.Size
 	if size == (Size{}) {
@@ -126,10 +124,9 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 	cmd.Dir = cfg.Dir
 	cmd.Env = cfg.Env
 	attach(cmd, replica)
-	// Cancellation ends the session, not just its leader — the same thing Close
-	// does, because it is the same promise: nothing this harness started is left
-	// behind on the terminal it allocated.
-	cmd.Cancel = func() error { return endSession(cmd.Process) }
+	// CommandContext checks cancellation during Start. The session owns all later
+	// cancellation: an exec.Cmd watcher stops as soon as the direct child exits.
+	cmd.Cancel = nil
 
 	if err := cmd.Start(); err != nil {
 		_ = primary.Close()
@@ -140,16 +137,15 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 		primary:    primary,
 		process:    cmd.Process,
 		transcript: newTranscript(),
-		readDone:   make(chan struct{}),
 		waitDone:   make(chan struct{}),
 	}
 	go s.read()
 	go s.wait(cmd)
+	s.stopCancel = context.AfterFunc(ctx, s.close)
 	return s, nil
 }
 
 func (s *Session) read() {
-	defer close(s.readDone)
 	buf := make([]byte, 4096)
 	for {
 		n, err := s.primary.Read(buf)
@@ -159,9 +155,10 @@ func (s *Session) read() {
 		if err != nil {
 			// Close unblocks this read by closing under it, which is an ending and
 			// not a failure — the same as the far end going away.
-			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) && !readClosed(err) {
-				s.readErr = err
+			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || readClosed(err) {
+				err = nil
 			}
+			s.transcript.finish(err)
 			return
 		}
 	}
@@ -210,8 +207,8 @@ func (s *Session) Wait(ctx context.Context) error {
 // bound the wait: a descendant can retain the terminal after the direct child exits.
 func (s *Session) Drain(ctx context.Context) error {
 	select {
-	case <-s.readDone:
-		return s.readErr
+	case <-s.transcript.done:
+		return s.transcript.err
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	}
@@ -222,6 +219,14 @@ func (s *Session) Drain(ctx context.Context) error {
 // process, reader and teardown errors. Failed group termination closes the PTY and
 // returns the failure without waiting indefinitely for an unstopped process.
 func (s *Session) Close() error {
+	if s.stopCancel != nil {
+		s.stopCancel()
+	}
+	s.close()
+	return s.closeErr
+}
+
+func (s *Session) close() {
 	s.closeOnce.Do(func() {
 		// Whether the program is still running says nothing about the session it
 		// started. A child that exited having left something of its own behind left
@@ -232,7 +237,7 @@ func (s *Session) Close() error {
 		// outside this session still holds the replica: the descriptor is in the
 		// runtime's poller, so the pending read is unblocked rather than waited for.
 		closeErr := s.primary.Close()
-		<-s.readDone
+		<-s.transcript.done
 		var waitErr error
 		if endErr == nil {
 			<-s.waitDone
@@ -244,7 +249,6 @@ func (s *Session) Close() error {
 			default:
 			}
 		}
-		s.closeErr = errors.Join(endErr, closeErr, s.readErr, waitErr)
+		s.closeErr = errors.Join(endErr, closeErr, s.transcript.err, waitErr)
 	})
-	return s.closeErr
 }

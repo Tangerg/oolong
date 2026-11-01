@@ -3,6 +3,7 @@
 package ptytest_test
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"syscall"
@@ -79,6 +80,38 @@ func TestClosingEndsTheSessionAProgramLeftBehind(t *testing.T) {
 			t.Fatalf("process %d outlived the session that started it", descendant)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The leader waits until its child has installed HUP handling before exiting.
+// That leaves the replica open without relying on scheduler ordering.
+func TestCancellationAfterTheLeaderExitsClosesTheSession(t *testing.T) {
+	needPTY(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	s, err := ptytest.Start(ctx, ptytest.Config{Dir: t.TempDir()}, "sh", "-c",
+		`(trap '' HUP; touch ready; exec sleep 300) & pid=$!; while ! test -e ready; do sleep 0.01; done; printf 'descendant %d\n' "$pid"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	deadline, end := context.WithTimeout(t.Context(), 5*time.Second)
+	defer end()
+	waitFor(t, s.Transcript(), "descendant ")
+	descendant := reportedPID(t, s.Transcript().String())
+	if err := s.Wait(deadline); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := s.Drain(deadline); err != nil {
+		t.Fatalf("context ended but the session is still holding the terminal: %v", err)
+	}
+	for alive(descendant) {
+		select {
+		case <-deadline.Done():
+			t.Fatalf("descendant %d outlived cancellation", descendant)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 

@@ -227,3 +227,20 @@ func TestDrainCapturesTheFinalOutputAfterWait(t *testing.T) {
 		t.Fatal("final bytes missing")
 	}
 }
+
+func TestMissingTranscriptTokenReportsEOFAsSoonAsOutputEnds(t *testing.T) {
+	needPTY(t)
+	session, err := ptytest.Start(t.Context(), ptytest.Config{}, "echo", "last")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := session.Transcript().WaitFor(ctx, "missing"); !errors.Is(err, io.EOF) {
+		t.Fatalf("missing token after the terminal closed: %v", err)
+	}
+	if err := session.Transcript().WaitFor(ctx, "last"); err != nil {
+		t.Fatalf("final bytes disappeared: %v", err)
+	}
+}
