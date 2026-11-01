@@ -64,14 +64,16 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 		panic("base: MultiSelect requires Same before SetOptions")
 	}
 	taken := make([]bool, len(options))
-	for _, want := range m.takenOptions() {
-		for i, option := range options {
-			if !taken[i] && option.holds(want.Value, m.Same) {
-				taken[i] = true
-				break
+	m.Element().ReadOnly(func() {
+		for _, want := range m.takenOptions() {
+			for i, option := range options {
+				if !taken[i] && option.holds(want.Value, m.Same) {
+					taken[i] = true
+					break
+				}
 			}
 		}
-	}
+	})
 	clampTaken(taken, m.limit)
 	m.matcher.Reset(func() {
 		m.list.replaceItems(options, m.list.selected)
@@ -269,14 +271,16 @@ func (m *MultiSelect[T]) focusChanged(has bool) {
 func (m *MultiSelect[T]) SetTaken(values []T) {
 	requireMutable(m.element)
 	taken := make([]bool, len(m.list.items))
-	for _, want := range values {
-		for i, option := range m.list.items {
-			if option.holds(want, m.Same) {
-				taken[i] = true
-				break
+	m.Element().ReadOnly(func() {
+		for _, want := range values {
+			for i, option := range m.list.items {
+				if option.holds(want, m.Same) {
+					taken[i] = true
+					break
+				}
 			}
 		}
-	}
+	})
 	clampTaken(taken, m.limit)
 	m.store(taken)
 }

@@ -135,12 +135,16 @@ func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
 }
 
 func (s *Select[T]) indexOf(options []Option[T], want T) (int, bool) {
-	for i, option := range options {
-		if option.holds(want, s.Same) {
-			return i, true
+	index := -1
+	s.Element().ReadOnly(func() {
+		for i, option := range options {
+			if option.holds(want, s.Same) {
+				index = i
+				break
+			}
 		}
-	}
-	return 0, false
+	})
+	return index, index >= 0
 }
 
 // Handle moves the cursor, and takes the choice with it.

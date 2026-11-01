@@ -57,6 +57,8 @@ var renderingCallbacks = map[string]callbackRule{
 	"ui/base:FormConfig.Submit":           {callbackEvent, "construction retains the typed submission action"},
 	"ui/base:FormConfig.PaintField":       {callbackProjection, "construction retains field chrome projection"},
 	"ui/base:Tabs.paintTab":               {callbackProjection, "tab chrome projects the current tab state"},
+	"ui/base:TabsConfig.StripRows":        {callbackProjection, "the skin measures the same strip decoration it draws"},
+	"ui/base:Tabs.stripRows":              {callbackProjection, "layout and measurement both project strip height"},
 	"ui/base:TabsConfig.PaintTab":         {callbackProjection, "construction retains tab chrome projection"},
 	"ui/base:Transcript.stopPublication":  {callbackEvent, "closing the transcript revokes its publication subscription"},
 	"ui/base:TranscriptItem.cancel":       {callbackEvent, "removing an item revokes its document subscription"},

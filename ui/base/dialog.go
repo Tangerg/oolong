@@ -136,20 +136,21 @@ func (d *Dialog) Dismiss() {
 		return
 	}
 	requireMutable(d.Element())
-	d.parked = d.Content()
-	d.matcher.Clear()
-	// Focus settlement can unwind after the child relation has been removed.
-	// The domain waiting for this dismissal must still be released in that case.
-	if d.dismissed != nil {
-		defer func() {
-			if !d.Open() {
-				d.dismissed()
-			}
-		}()
-	}
-	if err := d.group.Set(); err != nil {
-		panic(err)
-	}
+	d.matcher.Reset(func() {
+		d.parked = d.Content()
+		// Focus settlement can unwind after the child relation has been removed.
+		// The domain waiting for this dismissal must still be released in that case.
+		if d.dismissed != nil {
+			defer func() {
+				if !d.Open() {
+					d.dismissed()
+				}
+			}()
+		}
+		if err := d.group.Set(); err != nil {
+			panic(err)
+		}
+	})
 }
 
 // Content is the one child owned by this dialog while open.

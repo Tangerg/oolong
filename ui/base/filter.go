@@ -49,9 +49,9 @@ type Filter[T any] struct {
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
 	Keys *keymap.Map
 
-	pattern  string
-	matching bool
-	list     List[hit[T]]
+	pattern string
+
+	list List[hit[T]]
 }
 
 // hit is one item that matched, and how.
@@ -70,7 +70,7 @@ func (f *Filter[T]) Pattern() string { return f.pattern }
 // leave the cursor on whatever happened to land there, which is how a reader picks
 // something they did not mean.
 func (f *Filter[T]) SetPattern(pattern string) {
-	f.requireIdle()
+	requireMutable(f.element)
 	if pattern == f.pattern {
 		return
 	}
@@ -91,7 +91,7 @@ func (f *Filter[T]) SetPattern(pattern string) {
 // It cannot call SetItems or SetPattern on this filter; doing so panics. If text
 // panics, the previous source, projection, matches and cursor remain intact.
 func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
-	f.requireIdle()
+	requireMutable(f.element)
 	items = slices.Clone(items)
 	hits := f.matches(items, text, f.pattern)
 	f.list.matcher.Reset(func() {
@@ -186,13 +186,6 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 	}
 }
 
-func (f *Filter[T]) requireIdle() {
-	requireMutable(f.element)
-	if f.matching {
-		panic("base: filter source mutation during projection")
-	}
-}
-
 func (f *Filter[T]) replaceMatches(hits []hit[T]) {
 	f.list.replaceItems(hits, 0)
 	f.list.Scroll().ToTop()
@@ -212,9 +205,8 @@ func (f *Filter[T]) matches(items []T, project func(T) string, pattern string) [
 		return hits
 	}
 
-	f.matching = true
-	defer func() { f.matching = false }()
-	ranked := fuzzy.FilterFunc(pattern, items, project)
+	var ranked []fuzzy.Ranked
+	f.Element().ReadOnly(func() { ranked = fuzzy.FilterFunc(pattern, items, project) })
 	hits := make([]hit[T], 0, len(ranked))
 	for _, r := range ranked {
 		hits = append(hits, hit[T]{item: items[r.Index], match: r.Match})

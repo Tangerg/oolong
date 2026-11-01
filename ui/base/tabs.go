@@ -2,6 +2,7 @@ package base
 
 import (
 	"context"
+	"image"
 	"slices"
 	"strings"
 
@@ -26,12 +27,13 @@ type tabPart struct {
 
 // TabsConfig supplies the initial pane relation and navigation policy. PaintTab is a pure appearance slot on each owned trigger.
 type TabsConfig struct {
-	Items     []Tab
-	Initial   int
-	Keys      *keymap.Map
-	NoWrap    bool
-	Gap       int
-	StripRows int
+	Items   []Tab
+	Initial int
+	Keys    *keymap.Map
+	NoWrap  bool
+	Gap     int
+	// StripRows is the appearance's intrinsic strip height. Nil or nonpositive means one.
+	StripRows func() int
 	PaintTab  func(scene.Frame, Tab, bool)
 }
 
@@ -44,7 +46,8 @@ type Tabs struct {
 	selected            int
 	Keys                *keymap.Map
 	NoWrap              bool
-	gap, stripRows      int
+	gap                 int
+	stripRows           func() int
 	paintTab            func(scene.Frame, Tab, bool)
 	strip, panel, group *scene.Group
 	matcher             keymap.Matcher
@@ -66,10 +69,21 @@ func (t *Tabs) ensure() {
 		tab, _ := t.Current()
 		return scene.Semantic{Role: scene.RoleTabPanel, Name: tab.Title}
 	}}})
-	t.group = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Handle: t.handleEvent}, Items: []scene.Item{
-		{Element: t.strip.Element(), Size: layout.Fixed(max(1, t.stripRows))},
-		{Element: t.panel.Element(), Size: layout.Flex(1)},
+	t.group = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Handle: t.handleEvent, Measure: func(axis layout.Axis, across int) int {
+		if axis == layout.Down {
+			return t.HeightForWidth(across)
+		}
+		return max(t.Strip().Measure(axis, across), t.Panel().Measure(axis, across))
+	}}, Items: []scene.Item{{Element: t.strip.Element()}, {Element: t.panel.Element()}}, Layout: func(size image.Point, _ []scene.Item) []image.Rectangle {
+		return (layout.Flow{Axis: layout.Down}).Rects(size, []layout.Slot{{Size: layout.Fixed(t.stripHeight())}, {Size: layout.Flex(1)}})
 	}})
+}
+
+func (t *Tabs) stripHeight() int {
+	if t.stripRows == nil {
+		return 1
+	}
+	return max(1, readProjection(t.Element(), t.stripRows))
 }
 
 // Element is the scene composition of this controller's strip and selected panel.
@@ -235,7 +249,7 @@ func (t *Tabs) handleEvent(event scene.Event) scene.EventResult {
 
 // HeightForWidth measures the trigger strip and selected pane without changing selection.
 func (t *Tabs) HeightForWidth(width int) int {
-	rows := max(1, t.stripRows)
+	rows := t.stripHeight()
 	if tab, ok := t.Current(); ok {
 		return layout.Sum(rows, tab.Content.Measure(layout.Down, width))
 	}
@@ -286,7 +300,7 @@ func (t *Tabs) newPart(key string) *tabPart {
 		},
 		Measure: func(axis layout.Axis, _ int) int {
 			if axis == layout.Down {
-				return max(1, t.stripRows)
+				return t.stripHeight()
 			}
 			return text.Width(part.tab.Title)
 		},

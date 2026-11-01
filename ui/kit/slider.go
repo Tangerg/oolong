@@ -31,16 +31,12 @@ type Slider struct {
 }
 
 // SliderConfig is the complete construction state of [Slider].
-//
-// Value chooses state ownership without selecting a second constructor. Nil starts a
-// locally owned value at Minimum. Format is optional and has the same zero meaning as
-// [Slider.Format].
 type SliderConfig struct {
 	Scope      *ThemeScope
 	Appearance ThemeOverride
 	Theme      Theme
 	Glyphs     Glyphs
-	// Value is optional caller-owned state. Nil starts local state at Minimum.
+	// Initial seeds the controller-owned value, clamped to the configured range.
 	Initial int
 	// Minimum and Maximum are inclusive and may be equal.
 	Minimum, Maximum int

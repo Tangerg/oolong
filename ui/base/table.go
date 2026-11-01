@@ -27,8 +27,7 @@ type Table[T any] struct {
 
 	less func(a, b T, column int) bool
 
-	order   *tableOrder
-	sorting bool
+	order *tableOrder
 }
 
 type tableOrder struct {
@@ -40,7 +39,7 @@ type tableOrder struct {
 // clears the sort without moving rows. Reentrant ordering mutations panic; comparison
 // panics leave rows, comparator and reported order intact.
 func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
-	t.requireIdle()
+	requireMutable(t.element)
 	if less == nil {
 		t.less = nil
 		t.ClearSort()
@@ -61,7 +60,7 @@ func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 // metadata publish together after comparison succeeds. Repeating the current column
 // reverses the order.
 func (t *Table[T]) SortBy(column int) bool {
-	t.requireIdle()
+	requireMutable(t.element)
 	if t.less == nil || column < 0 || t.rows.Len() == 0 {
 		return false
 	}
@@ -88,7 +87,7 @@ func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 
 // ClearSort clears sort metadata without moving rows.
 func (t *Table[T]) ClearSort() {
-	t.requireIdle()
+	requireMutable(t.element)
 	if t.order != nil {
 		t.order = nil
 		t.element.Invalidate()
@@ -97,7 +96,7 @@ func (t *Table[T]) ClearSort() {
 
 // SetItems replaces rows and reapplies the active sort.
 func (t *Table[T]) SetItems(items []T) {
-	t.requireIdle()
+	requireMutable(t.element)
 	items = slices.Clone(items)
 	selected := min(max(t.rows.selected, 0), max(len(items)-1, 0))
 	if t.order != nil {
@@ -165,13 +164,6 @@ func (t *Table[T]) configureRows() {
 	t.rows.Keys, t.rows.Wrap = t.Keys, t.Wrap
 }
 
-func (t *Table[T]) requireIdle() {
-	requireMutable(t.element)
-	if t.sorting {
-		panic("base: table ordering mutation during comparison")
-	}
-}
-
 func (t *Table[T]) replaceRows(items []T, selected int) {
 	t.rows.replaceItems(items, selected)
 	t.rows.notifyChange()
@@ -184,26 +176,27 @@ func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, 
 	if len(items) < 2 {
 		return items, selected
 	}
-	t.sorting = true
-	defer func() { t.sorting = false }()
+
 	permutation := make([]int, len(items))
 	for i := range permutation {
 		permutation[i] = i
 	}
 	// Compare both directions to preserve ties and caller order in the stable sort.
-	slices.SortStableFunc(permutation, func(a, b int) int {
-		x, y := items[a], items[b]
-		if order.descending {
-			x, y = y, x
-		}
-		switch {
-		case less(x, y, order.column):
-			return -1
-		case less(y, x, order.column):
-			return 1
-		default:
-			return 0
-		}
+	t.Element().ReadOnly(func() {
+		slices.SortStableFunc(permutation, func(a, b int) int {
+			x, y := items[a], items[b]
+			if order.descending {
+				x, y = y, x
+			}
+			switch {
+			case less(x, y, order.column):
+				return -1
+			case less(y, x, order.column):
+				return 1
+			default:
+				return 0
+			}
+		})
 	})
 
 	moved := selected

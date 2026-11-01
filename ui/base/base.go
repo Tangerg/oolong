@@ -43,6 +43,12 @@ func (g *eventGeometry) read[T any](snapshot *scene.Snapshot[T]) T {
 	return snapshot.Value()
 }
 
+func readProjection[T any](element scene.Element, read func() T) T {
+	var result T
+	element.ReadOnly(func() { result = read() })
+	return result
+}
+
 func requireMutable(elements ...scene.Element) {
 	for _, element := range elements {
 		if err := element.CheckMutation(); err != nil {

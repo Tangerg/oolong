@@ -147,33 +147,17 @@ func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error)
 	}
 	v.resolving = true
 	defer func() { v.resolving = false }()
-	revision, count := v.cfg.Source.Revision(), v.cfg.Source.Len()
-	keys, err := v.sourceKeys(revision, count)
+	var candidate virtualCandidate
+	var err error
+	v.Element().ReadOnly(func() { candidate, err = v.prepare(width, height, offset) })
 	if err != nil {
 		return VirtualRange{}, err
 	}
-	cache := v.cachedHeights(width, revision)
-	result, err := v.measureWindow(keys, cache, width, height, offset)
+	children, err := v.materialize(candidate.window.Items)
 	if err != nil {
 		return VirtualRange{}, err
 	}
-	result.Revision = revision
-	if !v.sameSource(revision, count) {
-		return VirtualRange{}, ErrVirtualSourceChanged
-	}
-	// Only the active window retains measurements; scrolling cannot grow an age-based cache.
-	retained := make(map[ItemKey]measuredHeight, len(result.Items))
-	for _, item := range result.Items {
-		retained[item.Key] = cache[item.Key]
-	}
-	if len(retained) > v.cfg.MaxMeasurements {
-		return VirtualRange{}, ErrVirtualLimit
-	}
-	children, err := v.materialize(result.Items)
-	if err != nil {
-		return VirtualRange{}, err
-	}
-	if !v.sameSource(revision, count) {
+	if !readProjection(v.Element(), func() bool { return v.sameSource(candidate.window.Revision, len(candidate.keys)) }) {
 		return VirtualRange{}, ErrVirtualSourceChanged
 	}
 	if err = v.group.CheckSet(children...); err != nil {
@@ -181,11 +165,43 @@ func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error)
 	}
 	// Installing children invokes scene predicates after attachment. They must
 	// already observe the range to which those children belong.
-	v.keys, v.heights, v.width, v.window = keys, retained, width, result
+	v.keys, v.heights, v.width, v.window = candidate.keys, candidate.heights, width, candidate.window
 	if err = v.group.Set(children...); err != nil {
 		return VirtualRange{}, err
 	}
 	return v.Snapshot(), nil
+}
+
+type virtualCandidate struct {
+	keys    []ItemKey
+	heights map[ItemKey]measuredHeight
+	window  VirtualRange
+}
+
+func (v *VirtualWindow) prepare(width, height, offset int) (virtualCandidate, error) {
+	revision, count := v.cfg.Source.Revision(), v.cfg.Source.Len()
+	keys, err := v.sourceKeys(revision, count)
+	if err != nil {
+		return virtualCandidate{}, err
+	}
+	cache := v.cachedHeights(width, revision)
+	result, err := v.measureWindow(keys, cache, width, height, offset)
+	if err != nil {
+		return virtualCandidate{}, err
+	}
+	result.Revision = revision
+	if !v.sameSource(revision, count) {
+		return virtualCandidate{}, ErrVirtualSourceChanged
+	}
+	// Only the active window retains measurements; scrolling cannot grow an age-based cache.
+	retained := make(map[ItemKey]measuredHeight, len(result.Items))
+	for _, item := range result.Items {
+		retained[item.Key] = cache[item.Key]
+	}
+	if len(retained) > v.cfg.MaxMeasurements {
+		return virtualCandidate{}, ErrVirtualLimit
+	}
+	return virtualCandidate{keys: keys, heights: retained, window: result}, nil
 }
 
 // A candidate can reuse measurements only under the exact source and width key.

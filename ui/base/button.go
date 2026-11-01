@@ -43,7 +43,7 @@ func NewButton(config ButtonConfig) *Button {
 				return scene.Availability{Disabled: true, Reason: "no action"}
 			}
 			if config.Availability != nil {
-				return config.Availability()
+				return readProjection(b.element, config.Availability)
 			}
 			return scene.Availability{}
 		},
@@ -62,8 +62,8 @@ func NewButton(config ButtonConfig) *Button {
 		Paint: b.Draw,
 		FocusChanged: func(has bool) {
 			if !has {
-				b.matcher.Clear()
 				b.pointer.Left()
+				b.matcher.Clear()
 			}
 		},
 		Handle: b.handleEvent, Semantics: func() scene.Semantic { return scene.Semantic{Role: scene.RoleButton, Name: b.label} }, Actions: []scene.ActionBinding{b.action.Binding()},

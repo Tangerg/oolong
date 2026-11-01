@@ -43,7 +43,7 @@ type ConfirmControl interface {
 // Snapshot reads one complete value version from the selected value owner.
 func (c *Confirm) Snapshot() ConfirmSnapshot {
 	if c.control != nil {
-		return c.control.Snapshot()
+		return readProjection(c.Element(), c.control.Snapshot)
 	}
 	return ConfirmSnapshot{Value: c.answer.get(), Revision: c.answer.revision}
 }

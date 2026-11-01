@@ -36,8 +36,6 @@ var internalAssertions = map[string]string{
 	// and those operations document the rule.
 	"ui/base:checkFields":                          "NewForm and Form.Set document the nil-field panic",
 	"ui/base:Transcript.assertMutable":             "Transcript documents its closed lifetime and uses the scene-owned read-only phase during content capture",
-	"ui/base:Table.requireIdle":                    "Table and Table.SetLess document that comparisons cannot reenter ordering mutations",
-	"ui/base:Filter.requireIdle":                   "Filter and Filter.SetItems document that projections cannot reenter source or pattern mutations",
 	"ui/kit:Paragraph.requireIdle":                 "Paragraph, SetText and SetLinks document that link detection cannot reenter either setter",
 	"ui/base:requireMutable":                       "all live controllers require owner-phase mutation; this common guard checks scene phase before any controller state changes",
 	"ui/base:requireProjection":                    "Stage and drawing require the controller's mounted scene and refuse geometry writes during its read-only phase",

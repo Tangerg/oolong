@@ -1249,7 +1249,7 @@ func TestNewTabsProvidesTheFinishedStripAndItsController(t *testing.T) {
 			{Title: "files", Content: testElement(kit.Label{Text: "two"})},
 		},
 	})
-	if tabs.Controller() == nil || !tabs.Rule {
+	if tabs.Controller() == nil || tabs.Rule() == "" {
 		t.Fatal("the short constructor omitted its controller or finished default rule")
 	}
 	tabs.Controller().Select(1)
