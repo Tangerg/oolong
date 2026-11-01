@@ -14,7 +14,7 @@ Run `go run ./examples/agent` and read the [agent example](https://github.com/Ta
 
 ## Observe without mutating
 
-`automation.NewDriver(DriverConfig{Root: runtime.Scene(), Owner: runtime.Dispatcher()})` schedules queries and actions onto the UI owner. The semantic handle may be retained from Build; queries run after attachment. It cannot prepare frames, advance a transport watermark, or close the program’s root. `Observe` reads the existing semantic projection and does not start painting, populate hidden content or create background work.
+`automation.NewDriver(runtime)` schedules queries and actions onto the UI owner. The semantic handle may be retained from Build; queries run after attachment. It cannot prepare frames, advance a transport watermark, or close the program’s root. `Observe` reads the existing semantic projection and does not start painting, populate hidden content or create background work.
 
 A `scene.Query` bounds depth, node count and text. Pass the opaque `Observation.Next` back as `Query.Cursor`. It identifies the same scene, model revision, resolved subtree and depth; mixing traversals returns `ErrObservationChanged`. The page size and text budget can change. A zero cursor starts a new traversal. Sensitive values are redacted. `Progress` separately reports model, prepared layout and written-frame progress. An observation is not proof that its model has already appeared on the terminal.
 

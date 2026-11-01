@@ -11,10 +11,14 @@ import (
 )
 
 type owner struct {
+	root     *scene.Root
 	mu       sync.Mutex
 	done     chan struct{}
 	observed chan struct{}
 }
+
+func (o *owner) Scene() *scene.Root { return o.root }
+func (o *owner) Dispatcher() *owner { return o }
 
 func (o *owner) Inspect(ctx context.Context, fn func() error) error {
 	if err := ctx.Err(); err != nil {
@@ -52,8 +56,8 @@ func TestWaitObservesRealModelChangesWithoutPolling(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	o := &owner{done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(automation.DriverConfig{Root: r, Owner: o})
+	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
+	driver := automation.NewDriver(o)
 	result := make(chan error, 1)
 	go func() {
 		_, err := driver.Wait(context.Background(), scene.Query{}, func(observation scene.Observation) bool {
@@ -86,8 +90,8 @@ func TestTargetExpiresWhileLocatorResolvesReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	o := &owner{done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(automation.DriverConfig{Root: r, Owner: o})
+	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
+	driver := automation.NewDriver(o)
 	target, err := driver.Find(context.Background(), scene.Query{}, scene.Match{Key: "save"})
 	if err != nil {
 		t.Fatal(err)
@@ -117,8 +121,8 @@ func TestLocatorRejectsAmbiguityAndTruncatedEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	o := &owner{done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(automation.DriverConfig{Root: r, Owner: o})
+	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
+	driver := automation.NewDriver(o)
 	if _, err := driver.Find(context.Background(), scene.Query{}, scene.Match{Role: scene.RoleButton, Name: "Delete"}); !errors.Is(err, scene.ErrAmbiguous) {
 		t.Fatalf("ambiguous: %v", err)
 	}
@@ -133,8 +137,8 @@ func TestWaitHonorsCancellationWithoutChangingModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	o := &owner{done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(automation.DriverConfig{Root: r, Owner: o})
+	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
+	driver := automation.NewDriver(o)
 	before := r.Progress()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

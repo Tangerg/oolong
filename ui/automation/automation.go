@@ -25,14 +25,19 @@ type Scene interface {
 	Changes() <-chan struct{}
 }
 
-// DriverConfig connects one scene to its interface-owner dispatcher.
-type DriverConfig struct {
-	Root  Scene
-	Owner Owner
+// Session provides the scene and dispatcher of one UI owner. The type
+// parameters let both the program runtime and standalone owners expose their
+// concrete capabilities without an adapter.
+type Session[S Scene, D Owner] interface {
+	Scene() S
+	Dispatcher() D
 }
 
-// Driver serializes local automation through the same owner used by physical input. It owns no UI state.
-type Driver struct{ config DriverConfig }
+// Driver serializes local automation through the same owner used by physical input.
+type Driver struct {
+	root  Scene
+	owner Owner
+}
 
 // Driver errors distinguish invalid configuration from an owner that has stopped.
 var (
@@ -40,11 +45,17 @@ var (
 	ErrStopped = errors.New("automation: owner stopped")
 )
 
-// NewDriver creates a local driver. Operations report ErrInvalid for a missing root or owner.
-func NewDriver(cfg DriverConfig) *Driver { return &Driver{config: cfg} }
+// NewDriver binds automation to one session. A program.Runtime can be passed
+// directly during Build; queries run on its own dispatcher after attachment.
+func NewDriver[S Scene, D Owner](session Session[S, D]) *Driver {
+	if session == nil {
+		return &Driver{}
+	}
+	return &Driver{root: session.Scene(), owner: session.Dispatcher()}
+}
 
 func (d *Driver) valid() error {
-	if d == nil || d.config.Root == nil || d.config.Owner == nil {
+	if d == nil || d.root == nil || d.owner == nil {
 		return ErrInvalid
 	}
 	return nil
@@ -56,9 +67,9 @@ func (d *Driver) Observe(ctx context.Context, query scene.Query) (scene.Observat
 		return scene.Observation{}, err
 	}
 	var observation scene.Observation
-	err := d.config.Owner.Inspect(ctx, func() error {
+	err := d.owner.Inspect(ctx, func() error {
 		var err error
-		observation, err = d.config.Root.Observe(query)
+		observation, err = d.root.Observe(query)
 		return err
 	})
 	return observation, err
@@ -79,9 +90,9 @@ func (d *Driver) Invoke(ctx context.Context, target scene.Target, action scene.A
 		return scene.Invocation{}, err
 	}
 	var result scene.Invocation
-	err := d.config.Owner.Invoke(ctx, func() error {
+	err := d.owner.Invoke(ctx, func() error {
 		var err error
-		result, err = d.config.Root.Invoke(ctx, target, action, params)
+		result, err = d.root.Invoke(ctx, target, action, params)
 		return err
 	})
 	return result, err
@@ -106,8 +117,8 @@ func (l Locator) Invoke(ctx context.Context, action scene.ActionID, params any) 
 		return scene.Invocation{}, err
 	}
 	var result scene.Invocation
-	err := l.driver.config.Owner.Invoke(ctx, func() error {
-		observation, err := l.driver.config.Root.Observe(l.query)
+	err := l.driver.owner.Invoke(ctx, func() error {
+		observation, err := l.driver.root.Observe(l.query)
 		if err != nil {
 			return err
 		}
@@ -115,7 +126,7 @@ func (l Locator) Invoke(ctx context.Context, action scene.ActionID, params any) 
 		if err != nil {
 			return err
 		}
-		result, err = l.driver.config.Root.Invoke(ctx, target, action, params)
+		result, err = l.driver.root.Invoke(ctx, target, action, params)
 		return err
 	})
 	return result, err
@@ -134,10 +145,10 @@ func (d *Driver) Wait(ctx context.Context, query scene.Query, ready func(scene.O
 	for {
 		var observation scene.Observation
 		var changed <-chan struct{}
-		err := d.config.Owner.Inspect(ctx, func() error {
+		err := d.owner.Inspect(ctx, func() error {
 			var err error
-			observation, err = d.config.Root.Observe(query)
-			changed = d.config.Root.Changes()
+			observation, err = d.root.Observe(query)
+			changed = d.root.Changes()
 			return err
 		})
 		if err != nil {
@@ -150,7 +161,7 @@ func (d *Driver) Wait(ctx context.Context, query scene.Query, ready func(scene.O
 		case <-changed:
 		case <-ctx.Done():
 			return scene.Observation{}, context.Cause(ctx)
-		case <-d.config.Owner.Done():
+		case <-d.owner.Done():
 			return scene.Observation{}, ErrStopped
 		}
 	}
