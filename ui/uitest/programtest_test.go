@@ -144,7 +144,7 @@ func TestEventsCanBeQueuedBeforeTheProgramStarts(t *testing.T) {
 func TestResizeUsesTheProgramSurfaceBound(t *testing.T) {
 	host := uitest.New(t, uitest.Config{Width: 20, Height: 3})
 	for _, size := range []struct{ width, height int }{
-		{0, 3}, {-1, 3}, {program.MaxCells, 2},
+		{0, 3}, {-1, 3}, {grid.MaxTerminalCells, 2},
 	} {
 		if host.Resize(size.width, size.height) {
 			t.Errorf("Resize(%d, %d) accepted invalid geometry", size.width, size.height)

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/term"
@@ -63,7 +64,7 @@ type Config struct {
 // context has been cancelled, so a failed test cannot leave a goroutine behind.
 func New(tb testing.TB, config Config) *Host {
 	tb.Helper()
-	if err := program.ValidateSize(config.Width, config.Height); err != nil {
+	if err := grid.ValidateTerminalSize(config.Width, config.Height); err != nil {
 		tb.Fatalf("uitest: %v", err)
 	}
 	out := newSink()
@@ -148,9 +149,9 @@ func (h *Host) Press(code input.Code) bool {
 }
 
 // Resize changes the reported size and sends the corresponding event.
-// Dimensions outside [program.ValidateSize] are rejected.
+// Dimensions outside [grid.ValidateTerminalSize] are rejected.
 func (h *Host) Resize(width, height int) bool {
-	if program.ValidateSize(width, height) != nil || h == nil || h.input == nil {
+	if grid.ValidateTerminalSize(width, height) != nil || h == nil || h.input == nil {
 		return false
 	}
 	h.sizeMu.Lock()
@@ -267,7 +268,7 @@ func (h *Host) Repaints() <-chan func(error) {
 }
 
 // visibleRuns projects a renderer frame into contiguous visible text runs without
-// becoming a second terminal model. SGR and OSC metadata change appearance around
+// becoming a second terminal model. SGR and OSC hyperlinks change appearance around
 // adjacent cells and therefore disappear. A sequence that changes cell geometry
 // inserts a boundary so text on different rows or across an erasure cannot become a
 // false match merely because its escape bytes were removed.
@@ -283,17 +284,23 @@ func visibleRuns(frame string) (string, error) {
 		case ansi.Plain:
 			visible.WriteString(piece.Raw)
 		case ansi.String:
-			// OSC hyperlinks and other string commands change metadata, not cell
-			// adjacency. Hosts with graphics are outside uitest's deliberately
-			// minimal capability set.
+			// A hyperlink preserves adjacency. An opaque painter (including OSC
+			// inline images) is not evidence that the text on its sides is joined.
+			if piece.Final != ']' || !strings.HasPrefix(piece.Body, "8;") {
+				visible.WriteByte(0)
+			}
 		case ansi.Control:
 			if piece.Final != 'm' || piece.Intermediates != "" || ansi.Parse(piece.Parameters).Marker() != 0 {
 				visible.WriteByte(0)
 			}
 		case ansi.Other:
-			if !strings.HasPrefix(piece.Raw, "\x1b(") {
-				visible.WriteByte(0)
+			if piece.Raw == "\x1b(B" {
+				continue
 			}
+			if strings.HasPrefix(piece.Raw, "\x1b(") {
+				return "", fmt.Errorf("unsupported character set %q", piece.Raw)
+			}
+			visible.WriteByte(0)
 		case ansi.Malformed:
 			return "", fmt.Errorf("malformed escape stream at %q", piece.Raw)
 		}

@@ -131,7 +131,7 @@ func (h *Host) resize(next charmssh.Window) (input.Resize, bool, error) {
 	if next.Height > 0 {
 		window.Height = next.Height
 	}
-	if err := program.ValidateSize(window.Width, window.Height); err != nil {
+	if err := grid.ValidateTerminalSize(window.Width, window.Height); err != nil {
 		return input.Resize{}, false, fmt.Errorf("%w: %w", ErrWindowSize, err)
 	}
 	if window.Width == h.window.Width && window.Height == h.window.Height {

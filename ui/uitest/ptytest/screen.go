@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -62,14 +63,14 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
-// NewScreen returns a blank screen-state assertion model.
+// NewScreen returns a blank screen-state assertion model. Like the program it
+// models, it refuses allocations exceeding [grid.ValidateTerminalSize].
 func NewScreen(size Size) (*Screen, error) {
-	if err := size.check(); err != nil {
+	if err := grid.ValidateTerminalSize(size.Cols, size.Rows); err != nil {
 		return nil, err
 	}
-	maxInt := int(^uint(0) >> 1)
-	if size.Rows > maxInt/size.Cols {
-		return nil, fmt.Errorf("ptytest: screen size %dx%d: cell count overflows int", size.Cols, size.Rows)
+	if err := size.check(); err != nil {
+		return nil, err
 	}
 	return &Screen{
 		size:  size,
@@ -88,24 +89,16 @@ func (s *Screen) Size() Size {
 
 // Apply consumes the next renderer-output chunk.
 //
-// Chunks may split UTF-8 text or an escape sequence. Undecided suffixes are retained
-// up to a fixed bound and completed by the next call. Apply either consumes the whole
+// Chunks may split UTF-8, a grapheme or an escape sequence. A single grapheme
+// may occupy at most 64 KiB regardless of chunking; ordinary text runs can be
+// longer. The ANSI scanner bounds unfinished escapes. Apply either consumes the whole
 // chunk or returns at the first unsupported complete piece; earlier complete pieces
 // remain applied and callers should stop after an error.
 func (s *Screen) Apply(chunk []byte) error {
 	if s == nil || len(chunk) == 0 {
 		return nil
 	}
-	err := s.scan.Feed(string(chunk), func(piece ansi.Piece) error {
-		if piece.Kind == ansi.Plain {
-			if !utf8.ValidString(piece.Raw) {
-				return fmt.Errorf("%w: malformed UTF-8", ErrUnsupportedOutput)
-			}
-			s.writePlain(piece.Raw)
-			return nil
-		}
-		return s.applySequence(piece)
-	})
+	err := s.scan.Feed(string(chunk), s.applySequence)
 	if errors.Is(err, ansi.ErrSequenceTooLong) {
 		return fmt.Errorf("%w: %w", ErrUnsupportedOutput, err)
 	}
@@ -174,18 +167,26 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 	}
 	switch piece.Kind {
 	case ansi.Plain:
-		s.writePlain(piece.Raw)
-		return nil
+		if !utf8.ValidString(piece.Raw) {
+			return fmt.Errorf("%w: malformed UTF-8", ErrUnsupportedOutput)
+		}
+		return s.writePlain(piece.Raw)
 	case ansi.Control:
 		return s.control(piece)
 	case ansi.String:
 		if piece.Final == ']' {
-			return nil
+			command, _, _ := strings.Cut(piece.Body, ";")
+			// Title, working directory, hyperlink, notifications, palette queries
+			// and clipboard do not paint cells. Inline images also use OSC.
+			switch command {
+			case "0", "1", "2", "7", "8", "9", "10", "11", "52":
+				return nil
+			}
 		}
 	case ansi.Other:
-		// Character-set selection is harmless for UTF-8 renderer output. Other
-		// unparameterized escapes are not emitted by the cell renderer.
-		if strings.HasPrefix(piece.Raw, "\x1b(") {
+		// The ASCII designation preserves the text model. DEC line drawing and
+		// other character sets would change the meaning of subsequent bytes.
+		if piece.Raw == "\x1b(B" {
 			return nil
 		}
 	case ansi.Malformed:
@@ -201,12 +202,13 @@ func (s *Screen) control(piece ansi.Piece) error {
 	if piece.Intermediates != "" {
 		// DECSCUSR changes only cursor appearance. Other intermediate-bearing CSI
 		// sequences are outside the renderer subset until a renderer emits one.
-		if piece.Final == 'q' && piece.Intermediates == " " {
+		if piece.Final == 'q' && piece.Intermediates == " " && params.Marker() == 0 &&
+			params.Len() <= 1 && params.Group(0).Len() <= 1 && params.At(0) <= 6 {
 			return nil
 		}
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
 	}
-	if ignoresControl(piece.Final, params) {
+	if ignoresControl(piece, params) {
 		return nil
 	}
 	if params.Marker() != 0 {
@@ -217,31 +219,39 @@ func (s *Screen) control(piece ansi.Piece) error {
 
 // ignoresControl reports session traffic that paints no cells. The model accepts
 // the question or mode change but never fabricates a terminal answer.
-func ignoresControl(final byte, params ansi.Params) bool {
-	switch final {
-	case 'h', 'l':
-		if params.Marker() != '?' || params.Len() == 0 {
-			return false
-		}
-		for i := range params.Len() {
-			// These are session or appearance modes emitted around renderer frames.
-			// Unmodelled origin, insert or autowrap modes would change later cells.
-			if params.Group(i).Len() != 1 {
-				return false
-			}
-			switch params.At(i) {
-			case 25, 1003, 1004, 1006, 1049, 2004, 2026:
-			default:
-				return false
-			}
-		}
+func ignoresControl(piece ansi.Piece, params ansi.Params) bool {
+	switch piece.Raw {
+	case "\x1b[c", "\x1b[0c", "\x1b[>c", "\x1b[>0c", "\x1b[>q", "\x1b[>0q",
+		"\x1b[?u", "\x1b[<u", "\x1b[22;0t", "\x1b[23;0t":
+		// Probes, keyboard mode and title stack. Other window commands can
+		// resize the terminal and invalidate this model's fixed geometry.
 		return true
-	case 'c', 'q', 't':
-		return true
+	}
+	switch piece.Final {
 	case 'u':
-		return params.Marker() != 0
+		return params.Marker() == '>' && params.Len() == 1 && params.Group(0).Len() == 1
+	case 'h', 'l':
+		return nonCellModes(params)
 	}
 	return false
+}
+
+func nonCellModes(params ansi.Params) bool {
+	if params.Marker() != '?' || params.Len() == 0 {
+		return false
+	}
+	for i := range params.Len() {
+		// Unmodelled origin, insert or autowrap modes change subsequent cells.
+		if params.Group(i).Len() != 1 {
+			return false
+		}
+		switch params.At(i) {
+		case 25, 1003, 1004, 1006, 1049, 2004, 2026:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Screen) executeControl(final byte, params ansi.Params, raw string) error {
@@ -304,17 +314,19 @@ func defaultOne(n int) int {
 	return n
 }
 
-func (s *Screen) writePlain(raw string) {
+func (s *Screen) writePlain(raw string) error {
 	for raw != "" {
 		i := strings.IndexAny(raw, "\b\t\n\r")
 		if i < 0 {
-			s.writeText(raw)
-			return
+			return s.writeText(raw)
 		}
-		s.writeText(raw[:i])
+		if err := s.writeText(raw[:i]); err != nil {
+			return err
+		}
 		s.controlByte(raw[i])
 		raw = raw[i+1:]
 	}
+	return nil
 }
 
 func (s *Screen) controlByte(b byte) {
@@ -335,18 +347,24 @@ func (s *Screen) controlByte(b byte) {
 	s.pendingWrap = false
 }
 
-func (s *Screen) writeText(raw string) {
+func (s *Screen) writeText(raw string) error {
 	if raw == "" {
-		return
+		return nil
 	}
 	source := s.grapheme + raw
 	s.grapheme = ""
 	last := ""
 	for _, cluster := range text.Clusters(source) {
 		s.putText(last)
+		// An arbitrary number of combining marks can extend even one cell.
+		// Check before retaining it as either a displayed or undecided cluster.
+		if len(cluster) > 64<<10 {
+			return fmt.Errorf("%w: grapheme exceeds 64 KiB", ErrUnsupportedOutput)
+		}
 		last = cluster
 	}
 	s.grapheme = strings.Clone(last)
+	return nil
 }
 
 func (s *Screen) settleGrapheme() {

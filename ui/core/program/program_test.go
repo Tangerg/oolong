@@ -1214,7 +1214,7 @@ func TestHostSizesAreValidatedBeforeTheyReachTheGrid(t *testing.T) {
 		{},
 		image.Pt(-1, 10),
 		image.Pt(10, -1),
-		image.Pt(program.MaxCells, 2),
+		image.Pt(grid.MaxTerminalCells, 2),
 	} {
 		t.Run(size.String(), func(t *testing.T) {
 			host := &minimalHost{w: size.X, h: size.Y}
@@ -1225,7 +1225,7 @@ func TestHostSizesAreValidatedBeforeTheyReachTheGrid(t *testing.T) {
 					return fixtureElement(&component{}), nil
 				},
 			})
-			if !errors.Is(err, program.ErrInvalidSize) {
+			if !errors.Is(err, grid.ErrInvalidTerminalSize) {
 				t.Fatalf("error = %v, want ErrInvalidSize", err)
 			}
 			if built {
@@ -1233,7 +1233,7 @@ func TestHostSizesAreValidatedBeforeTheyReachTheGrid(t *testing.T) {
 			}
 		})
 	}
-	if err := program.ValidateSize(program.MaxCells, 1); err != nil {
+	if err := grid.ValidateTerminalSize(grid.MaxTerminalCells, 1); err != nil {
 		t.Fatalf("maximum bounded surface was rejected: %v", err)
 	}
 }
@@ -1241,8 +1241,8 @@ func TestHostSizesAreValidatedBeforeTheyReachTheGrid(t *testing.T) {
 func TestAnInvalidResizeEndsTheProgramInsteadOfAllocatingIt(t *testing.T) {
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	r.host.send(input.Resize{Width: program.MaxCells, Height: 2})
-	if err := r.wait(); !errors.Is(err, program.ErrInvalidSize) {
+	r.host.send(input.Resize{Width: grid.MaxTerminalCells, Height: 2})
+	if err := r.wait(); !errors.Is(err, grid.ErrInvalidTerminalSize) {
 		t.Fatalf("program error = %v, want ErrInvalidSize", err)
 	}
 	if got := r.root.handled.Load(); got != 0 {

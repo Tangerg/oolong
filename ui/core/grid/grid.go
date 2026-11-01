@@ -5,11 +5,33 @@
 package grid
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"math"
 
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
+
+// MaxTerminalCells bounds a physical terminal's reported geometry before its
+// cell stores are allocated. It does not limit independently owned surfaces.
+const MaxTerminalCells = 1 << 18
+
+// ErrInvalidTerminalSize rejects empty or excessive terminal geometry.
+var ErrInvalidTerminalSize = errors.New("grid: invalid terminal size")
+
+// ValidateTerminalSize reports whether the reported dimensions can safely back a
+// terminal screen. Hosts and screen assertion models share this admission rule.
+func ValidateTerminalSize(width, height int) error {
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("%w: %dx%d", ErrInvalidTerminalSize, width, height)
+	}
+	if width > MaxTerminalCells/height {
+		return fmt.Errorf("%w: %dx%d exceeds %d cells", ErrInvalidTerminalSize,
+			width, height, MaxTerminalCells)
+	}
+	return nil
+}
 
 // Area builds a rectangle from a terminal-natural origin and size. The result is
 // half-open: it covers columns [x, x+w) and rows [y, y+h). Negative sizes become

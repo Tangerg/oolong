@@ -41,7 +41,7 @@ type Host interface {
 	// Writer is where frames go. The interface is defined here, where it is used;
 	// a host is not coupled to the terminal package's concrete writer.
 	Writer() FrameWriter
-	// Size is the terminal's size in cells. The result must satisfy [ValidateSize].
+	// Size is the terminal's size in cells. The result must satisfy [grid.ValidateTerminalSize].
 	Size() (w, h int, err error)
 }
 

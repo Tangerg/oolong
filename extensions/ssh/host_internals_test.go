@@ -11,8 +11,8 @@ import (
 	charmssh "charm.land/ssh"
 
 	"github.com/Tangerg/oolong/ui/core/clipboard"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
-	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
@@ -164,7 +164,7 @@ func TestAWindowUpdateIsAtomicAndZeroKeepsItsAxis(t *testing.T) {
 
 func TestAnInvalidLaterWindowEndsInputWithoutChangingSize(t *testing.T) {
 	h := &Host{window: charmssh.Window{Width: 80, Height: 24}}
-	_, changed, err := h.resize(charmssh.Window{Width: program.MaxCells, Height: 2})
+	_, changed, err := h.resize(charmssh.Window{Width: grid.MaxTerminalCells, Height: 2})
 	if !errors.Is(err, ErrWindowSize) || changed {
 		t.Fatalf("resize = changed %t, error %v", changed, err)
 	}

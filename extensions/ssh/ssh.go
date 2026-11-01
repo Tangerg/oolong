@@ -10,8 +10,8 @@ import (
 	charmssh "charm.land/ssh"
 
 	"github.com/Tangerg/oolong/ui/core/clipboard"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
-	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
@@ -65,7 +65,7 @@ func Open(cfg Config) (*Host, error) {
 }
 
 func validateInitialWindow(window charmssh.Window) error {
-	if err := program.ValidateSize(window.Width, window.Height); err != nil {
+	if err := grid.ValidateTerminalSize(window.Width, window.Height); err != nil {
 		return fmt.Errorf("%w: %w", ErrWindowSize, err)
 	}
 	return nil

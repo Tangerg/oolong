@@ -331,7 +331,10 @@ func TestScreenRejectsOutputOutsideItsCellSubset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, seq := range []string{"\x1bPimage payload\x1b\\", "\x1b[?6h", "\x1b[?7l", "\x1b[4h"} {
+	for _, seq := range []string{
+		"\x1bPimage payload\x1b\\", "\x1b[?6h", "\x1b[?7l", "\x1b[4h", "\x1b[8;1;1t", "\x1b(0",
+		"\x1b]1337;File=inline=1:AAAA\x07",
+	} {
 		if err := shown.Apply([]byte(seq)); !errors.Is(err, ptytest.ErrUnsupportedOutput) {
 			t.Fatalf("%q gave %v, want ErrUnsupportedOutput", seq, err)
 		}
@@ -399,5 +402,35 @@ func TestTabStopsAtTheLastColumnOfItsRow(t *testing.T) {
 	}
 	if want := "       X"; rows[0] != want {
 		t.Fatalf("row 0 = %q, want %q", rows[0], want)
+	}
+}
+
+func TestScreenBoundsItsCellStoreBeforeAllocation(t *testing.T) {
+	const cols = 1024
+	_, err := ptytest.NewScreen(ptytest.Size{Cols: cols, Rows: grid.MaxTerminalCells/cols + 1})
+	if !errors.Is(err, grid.ErrInvalidTerminalSize) {
+		t.Fatalf("oversized screen: %v", err)
+	}
+}
+
+func TestScreenBoundsEachGraphemeIndependentlyOfReadBoundaries(t *testing.T) {
+	const limit = 64 << 10
+	prefix := "ab" + strings.Repeat("\u0301", limit/2-1)
+	// The cluster starting at b fits before the final combining mark and then
+	// exceeds the bound. The complete a stays visible either way.
+	for _, chunks := range [][]string{{prefix + "\u0301"}, {prefix, "\u0301"}} {
+		shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, chunk := range chunks {
+			err = shown.Apply([]byte(chunk))
+			if err != nil {
+				break
+			}
+		}
+		if !errors.Is(err, ptytest.ErrUnsupportedOutput) || shown.At(0, 0) != "a" {
+			t.Fatalf("in %d chunks, oversized grapheme error=%v, prefix=%q", len(chunks), err, shown.At(0, 0))
+		}
 	}
 }

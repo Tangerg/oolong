@@ -203,7 +203,7 @@ func TestRunRequiresAnAllocatedCellWindow(t *testing.T) {
 		{"no PTY", charmssh.Window{}, false, ssh.ErrNoPTY, false},
 		{"no columns", charmssh.Window{Height: 24}, true, ssh.ErrWindowSize, true},
 		{"no rows", charmssh.Window{Width: 80}, true, ssh.ErrWindowSize, true},
-		{"too many cells", charmssh.Window{Width: program.MaxCells, Height: 2}, true, ssh.ErrWindowSize, true},
+		{"too many cells", charmssh.Window{Width: grid.MaxTerminalCells, Height: 2}, true, ssh.ErrWindowSize, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			session := &fakeSession{ptyOK: tc.pty, window: tc.window}
@@ -213,8 +213,8 @@ func TestRunRequiresAnAllocatedCellWindow(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tc.wantErr)
 			}
-			if tc.wantSize && !errors.Is(err, program.ErrInvalidSize) {
-				t.Fatalf("error = %v, want underlying program.ErrInvalidSize", err)
+			if tc.wantSize && !errors.Is(err, grid.ErrInvalidTerminalSize) {
+				t.Fatalf("error = %v, want underlying grid.ErrInvalidTerminalSize", err)
 			}
 		})
 	}

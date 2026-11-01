@@ -65,7 +65,7 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateSize(width, height); err != nil {
+	if err := grid.ValidateTerminalSize(width, height); err != nil {
 		return nil, err
 	}
 	frames := host.Writer()
@@ -384,7 +384,7 @@ func (p *program) handle(ev input.Event) error {
 func (p *program) handleInput(ev scene.CapturedInput) error {
 	switch e := ev.Input().(type) {
 	case input.Resize:
-		if err := ValidateSize(e.Width, e.Height); err != nil {
+		if err := grid.ValidateTerminalSize(e.Width, e.Height); err != nil {
 			return err
 		}
 		p.canvas.Resize(e.Width, e.Height)
