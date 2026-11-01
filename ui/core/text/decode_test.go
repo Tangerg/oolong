@@ -372,3 +372,27 @@ func TestMalformedStreamTextIsIndependentOfReadBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestEndOfStreamDistinguishesTruncatedTextFromAnEscape(t *testing.T) {
+	for _, tc := range []struct{ tail, want string }{{"\xe2\x82", "x\ufffd\ufffd"}, {"\x1b[31", "x"}, {"\x1b]8;;unfinished", "x"}} {
+		for split := 0; split <= len(tc.tail); split++ {
+			var d text.Decoder
+			d.Feed("x" + tc.tail[:split])
+			d.Feed(tc.tail[split:])
+			lines := d.Flush()
+			if len(lines) != 1 || lines[0].String() != tc.want {
+				t.Fatalf("tail %q split %d: %v, want %q", tc.tail, split, lines, tc.want)
+			}
+		}
+	}
+}
+
+func TestOpenLineCannotRewriteCompletedOutput(t *testing.T) {
+	var d text.Decoder
+	d.Feed("original")
+	read := d.Open()
+	read[0].Text = "changed"
+	if got := d.Flush()[0].String(); got != "original" {
+		t.Fatalf("borrower rewrote output: %q", got)
+	}
+}

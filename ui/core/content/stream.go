@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -278,19 +279,18 @@ func (d *StreamDocument) Subscribe(fn func(DocumentChange)) func() {
 
 func (d *StreamDocument) notify() {
 	d.notifying = true
-	defer func() { d.notifying = false }()
+	defer func() {
+		d.notifying = false
+		d.listeners = slices.DeleteFunc(d.listeners, func(l *documentListener) bool { return l.fn == nil })
+	}()
 	change := d.Current()
-	for _, listener := range d.listeners {
-		if listener.fn != nil {
-			listener.fn(change)
-		}
+	// Install delivery in reverse so callbacks run in registration order, even
+	// when a predecessor panics or exits its goroutine after the final transition.
+	for _, listener := range slices.Backward(d.listeners) {
+		defer func() {
+			if listener.fn != nil {
+				listener.fn(change)
+			}
+		}()
 	}
-	active := d.listeners[:0]
-	for _, listener := range d.listeners {
-		if listener.fn != nil {
-			active = append(active, listener)
-		}
-	}
-	clear(d.listeners[len(active):])
-	d.listeners = active
 }

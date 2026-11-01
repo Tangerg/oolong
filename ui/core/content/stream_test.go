@@ -187,3 +187,30 @@ func TestRegistryPreparationKeepsDispatchAndDocumentIdentityTogether(t *testing.
 		t.Fatal("unknown format did not settle as an explicit preparation failure")
 	}
 }
+
+func TestInterruptedSubscriberDoesNotHideTheFinalResult(t *testing.T) {
+	d := newStream(t, 32)
+	if err := d.End(nil); err != nil {
+		t.Fatal(err)
+	}
+	var stop func()
+	var final []string
+	d.Subscribe(func(content.DocumentChange) { stop(); panic("subscriber") })
+	stop = d.Subscribe(func(content.DocumentChange) { final = append(final, "cancelled") })
+	d.Subscribe(func(change content.DocumentChange) {
+		if change.State == content.Final {
+			final = append(final, "final")
+		}
+	})
+	func() {
+		defer func() {
+			if got := recover(); got != "subscriber" {
+				t.Errorf("panic=%v", got)
+			}
+		}()
+		_ = d.Accept(d.Snapshot().Prepare(t.Context(), plainRenderer))
+	}()
+	if len(final) != 1 || final[0] != "final" {
+		t.Fatalf("remaining subscribers saw %v, document is %v", final, d.Current().State)
+	}
+}

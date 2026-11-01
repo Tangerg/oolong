@@ -1,6 +1,7 @@
 package text
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -57,9 +58,10 @@ func (d *Decoder) Feed(chunk string) []Line {
 	return lines
 }
 
-// Open returns a borrowed read-only view of the unfinished line. Use [Line.Clone]
-// to retain or modify it. New visible input invalidates the cached view.
-func (d *Decoder) Open() Line {
+// Open returns a detached snapshot of the unfinished line.
+func (d *Decoder) Open() Line { return slices.Clone(d.openLine()) }
+
+func (d *Decoder) openLine() Line {
 	if !d.dirty {
 		return d.open
 	}
@@ -71,12 +73,12 @@ func (d *Decoder) Open() Line {
 	return d.open
 }
 
-// Flush ends the stream: the open line, if there is one, and nothing else.
-//
-// A sequence that never finished is dropped rather than shown, for the reason a
-// cell drops a control character — half of a sequence is not text, and printing it
-// would print the introducer.
+// Flush ends the stream. An incomplete escape is discarded; a partial UTF-8
+// character is now known to be malformed text and follows the usual byte policy.
 func (d *Decoder) Flush() []Line {
+	if pending := d.scan.Pending(); pending != "" && pending[0] != ansi.Escape {
+		d.append(pending)
+	}
 	d.scan.Reset()
 	if len(d.runs) == 0 {
 		return nil
@@ -181,7 +183,7 @@ func (d *Decoder) append(s string) {
 // takeLine transfers the current immutable line to the caller and starts a new
 // decoder-owned line. The returned line shares no mutable run storage.
 func (d *Decoder) takeLine() Line {
-	line := d.Open()
+	line := d.openLine()
 	d.runs = nil
 	d.open = nil
 	d.dirty = false
