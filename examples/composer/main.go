@@ -58,7 +58,7 @@ type prompt struct {
 	output     kit.Paragraph
 	status     string
 	references []reference
-	pastes     map[uint64]string
+	pastes     map[base.ElementID]string
 	element    scene.Element
 }
 
@@ -82,7 +82,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			{name: "ui/core/program", detail: "runtime and ingress"},
 			{name: "ui/base", detail: "behavior without appearance"},
 		},
-		pastes: make(map[uint64]string),
+		pastes: make(map[base.ElementID]string),
 	}
 	p.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme: theme, Prompt: glyphs.Marker + " ",
@@ -197,9 +197,9 @@ func (p *prompt) insertPaste(body string) {
 
 func (p *prompt) attach(body string) {
 	element := p.composer.Controller().InsertElement(pasteElement, pasteLabel(body))
-	if element.ID != 0 {
+	if element.ID != (base.ElementID{}) {
 		if p.pastes == nil {
-			p.pastes = make(map[uint64]string)
+			p.pastes = make(map[base.ElementID]string)
 		}
 		p.pastes[element.ID] = strings.Clone(body)
 	}
@@ -304,7 +304,7 @@ func pasteLabel(body string) string {
 }
 
 func (p *prompt) releaseRemovedPastes() {
-	live := make(map[uint64]struct{})
+	live := make(map[base.ElementID]struct{})
 	for _, id := range p.composer.Controller().RetainedElementIDs() {
 		live[id] = struct{}{}
 	}

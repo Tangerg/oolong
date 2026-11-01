@@ -160,7 +160,7 @@ func assertEditorStorage(t *testing.T, editor *base.Editor) {
 	}
 	elements := editor.Elements()
 	for _, element := range elements {
-		body := element.Text(editor)
+		body := element.Text()
 		if element.Line < 0 || element.Line >= len(lines) || element.Start < 0 ||
 			element.End > len(lines[element.Line]) || element.Start >= element.End ||
 			body == "" || strings.Contains(body, "\n") {

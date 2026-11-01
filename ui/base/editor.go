@@ -1,6 +1,7 @@
 package base
 
 import (
+	"cmp"
 	"image"
 	"math"
 	"slices"
@@ -791,9 +792,13 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 		return Element{}
 	}
 	e.ensure()
-	id, ok := e.document().elementIDs.next()
+	doc := e.document()
+	id, ok := doc.elementIDs.next()
 	if !ok {
 		panic("base: editor exhausted element identities")
+	}
+	if doc.elementOwner == nil {
+		doc.elementOwner = new(byte)
 	}
 	e.endTyping()
 	e.snapshot()
@@ -870,13 +875,16 @@ func (e *Editor) ElementAt(line, col int) (Element, bool) {
 
 // RemoveElement deletes an element's text and forgets it, reporting whether it was
 // there to remove.
-func (e *Editor) RemoveElement(id uint64) bool {
+func (e *Editor) RemoveElement(id ElementID) bool {
 	e.requireMutable()
+	if id.owner != e.document().elementOwner || id.owner == nil {
+		return false
+	}
 	for _, m := range e.document().marks {
-		if m.ID != id {
+		if m.ID != id.serial {
 			continue
 		}
-		el := e.elementOf(m)
+		el := e.elementRange(m)
 		e.endTyping()
 		e.snapshot()
 		// Remove the trailing separator inserted with the element so removing a chip leaves no gap.
@@ -896,7 +904,7 @@ func (e *Editor) insideElement(line, col int) (Element, bool) {
 	at := e.offsetOf(Caret{Line: line, Col: col})
 	for _, m := range e.document().marks {
 		if m.Within(at) {
-			return e.elementOf(m), true
+			return e.elementRange(m), true
 		}
 	}
 	return Element{}, false
@@ -977,6 +985,12 @@ func (e *Editor) caretAt(at int) Caret {
 }
 
 func (e *Editor) elementOf(m text.Mark) Element {
+	el := e.elementRange(m)
+	el.body = strings.Clone(e.document().lines[el.Line][el.Start:el.End])
+	return el
+}
+
+func (e *Editor) elementRange(m text.Mark) Element {
 	start := e.caretAt(m.Start)
 	end := e.caretAt(m.End)
 	if end.Line != start.Line {
@@ -986,7 +1000,7 @@ func (e *Editor) elementOf(m text.Mark) Element {
 		end = Caret{Line: start.Line, Col: len(e.document().lines[start.Line])}
 	}
 	return Element{
-		ID:    m.ID,
+		ID:    ElementID{owner: e.document().elementOwner, serial: m.ID},
 		Kind:  kindOf(m.Kind),
 		Line:  start.Line,
 		Start: start.Col,
@@ -997,7 +1011,7 @@ func (e *Editor) elementOf(m text.Mark) Element {
 // RetainedElementIDs returns identities reachable from the document or undo/redo
 // history. Applications may release associated payloads only after they disappear
 // from this set. The returned slice is owned by the caller.
-func (e *Editor) RetainedElementIDs() []uint64 {
+func (e *Editor) RetainedElementIDs() []ElementID {
 	ids := make(map[uint64]struct{})
 	for _, mark := range e.document().marks {
 		ids[mark.ID] = struct{}{}
@@ -1009,11 +1023,11 @@ func (e *Editor) RetainedElementIDs() []uint64 {
 			}
 		}
 	}
-	out := make([]uint64, 0, len(ids))
+	out := make([]ElementID, 0, len(ids))
 	for id := range ids {
-		out = append(out, id)
+		out = append(out, ElementID{owner: e.document().elementOwner, serial: id})
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b ElementID) int { return cmp.Compare(a.serial, b.serial) })
 	return out
 }
 

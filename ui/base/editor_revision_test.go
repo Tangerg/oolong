@@ -133,7 +133,7 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"kill to start", func(e *base.Editor) { e.KillToStart() }},
 		{"undo", func(e *base.Editor) { e.Undo() }},
 		{"redo", func(e *base.Editor) { e.Redo() }},
-		{"unknown element", func(e *base.Editor) { e.RemoveElement(99) }},
+		{"unknown element", func(e *base.Editor) { e.RemoveElement(base.ElementID{}) }},
 		{"cursor", func(e *base.Editor) { e.SetCursor(3, 8) }},
 		{"movement", func(e *base.Editor) { e.MoveRight() }},
 		{"selection", func(e *base.Editor) { e.SelectAll() }},

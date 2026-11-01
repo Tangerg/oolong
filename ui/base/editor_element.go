@@ -14,14 +14,21 @@ import (
 // what is this package's business is that the text behaves as one thing.
 type ElementKind uint8
 
+// ElementID names a retained mark within its originating edit session, including
+// its undo history. It is comparable and does not retain the document.
+type ElementID struct {
+	owner  *byte
+	serial uint64
+}
+
 // Element is an atomic run of editor text: movement skips it and deletion removes
 // it whole. Editing may join its boundary to a neighboring grapheme, ending its
 // identity without removing the text. Undo restores that identity; payload owners
 // can track its lifetime with [Editor.RetainedElementIDs].
 type Element struct {
-	// ID is unique within one editor and stable for as long as the element exists.
+	// ID is unique to the edit session and stable for as long as the element exists.
 	// It is what a program keys its own record of the element by.
-	ID   uint64
+	ID   ElementID
 	Kind ElementKind
 	// Line is the logical line the element sits on, and Start and End its byte range
 	// within that line, the end exclusive.
@@ -30,20 +37,12 @@ type Element struct {
 	// what makes it one thing on screen is that it is one run of cells.
 	Line       int
 	Start, End int
+	body       string
 }
 
-// Text is the element's own text, given the editor it belongs to.
-func (el Element) Text(e *Editor) string {
-	e.ensure()
-	if el.Line < 0 || el.Line >= len(e.document().lines) {
-		return ""
-	}
-	line := e.document().lines[el.Line]
-	if el.Start < 0 || el.End > len(line) || el.Start >= el.End {
-		return ""
-	}
-	return line[el.Start:el.End]
-}
+// Text returns the content captured with this element's coordinates. Further
+// edits cannot make an old snapshot read a replacement range.
+func (el Element) Text() string { return el.body }
 
 // Both ends need grapheme boundaries so an element cannot partly own a neighbor.
 // Actual neighboring text may still join the normalized body; the editor checks it

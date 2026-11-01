@@ -35,17 +35,18 @@ func (c ChangeMap) Position(offset int) int {
 // the revision and one undo sequence. Editors own their caret, selection and scroll.
 // It is used on one UI owner sequence and must not be copied after first use.
 type EditSession struct {
-	changes    subscriptions[ChangeMap]
-	noCopy     noCopy
-	lines      []string
-	marks      []text.Mark
-	elementIDs identitySequence
-	history    editorHistory
-	revision   uint64
-	singleLine bool
-	mask       string
-	views      []weak.Pointer[Editor]
-	lastChange ChangeMap
+	changes      subscriptions[ChangeMap]
+	noCopy       noCopy
+	lines        []string
+	marks        []text.Mark
+	elementIDs   identitySequence
+	elementOwner *byte
+	history      editorHistory
+	revision     uint64
+	singleLine   bool
+	mask         string
+	views        []weak.Pointer[Editor]
+	lastChange   ChangeMap
 }
 
 // EditSessionConfig supplies the initial document and its single-line policy. Views sharing a session cannot configure a second document policy.

@@ -17,7 +17,7 @@ func TestElementIsInsertedWithASeparator(t *testing.T) {
 	if got, want := e.Text(), "@main.go "; got != want {
 		t.Errorf("text = %q, want %q", got, want)
 	}
-	if got := el.Text(e); got != "@main.go" {
+	if got := el.Text(); got != "@main.go" {
 		t.Errorf("the element's own text is %q", got)
 	}
 	// The separator is ordinary text and not part of the element: it is there to be
@@ -46,7 +46,7 @@ func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
 			if got := e.Text(); got != tc.want+" " {
 				t.Fatalf("text = %q, want the element and its separator %q", got, tc.want+" ")
 			}
-			if got := el.Text(e); got != tc.want {
+			if got := el.Text(); got != tc.want {
 				t.Fatalf("element text = %q, want %q", got, tc.want)
 			}
 			if el.Line != 0 || el.Start != 0 || el.End != len(tc.want) {
@@ -62,7 +62,7 @@ func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
 func TestAnElementCannotOwnInvisibleTerminalInstructions(t *testing.T) {
 	var editor base.Editor
 	element := editor.InsertElement(fileChip, "a\x00\x1bb")
-	if got := element.Text(&editor); got != "ab" {
+	if got := element.Text(); got != "ab" {
 		t.Fatalf("element text = %q, want ab", got)
 	}
 	if got := editor.Text(); got != "ab " {
@@ -77,7 +77,7 @@ func TestElementsSurviveAOneLineModeTransition(t *testing.T) {
 	editor.SetSingleLine(true)
 
 	got := editor.Elements()
-	if len(got) != 1 || got[0].ID != element.ID || got[0].Text(&editor) != "@main.go" {
+	if len(got) != 1 || got[0].ID != element.ID || got[0].Text() != "@main.go" {
 		t.Fatalf("one-line transition disturbed the element: %+v", got)
 	}
 }
@@ -158,12 +158,12 @@ func TestEditingAroundAnElementMovesIt(t *testing.T) {
 		t.Fatalf("the editor holds %+v, want the one element", got)
 	}
 	if got[0].ID != el.ID {
-		t.Errorf("the element came back with identity %d, want %d", got[0].ID, el.ID)
+		t.Errorf("the element came back with identity %v, want %v", got[0].ID, el.ID)
 	}
 	if got[0].Start != len("look at ") {
 		t.Errorf("the element is at %d, want it moved along by the text before it", got[0].Start)
 	}
-	if text := got[0].Text(e); text != "@main.go" {
+	if text := got[0].Text(); text != "@main.go" {
 		t.Errorf("the element now covers %q", text)
 	}
 }
@@ -212,9 +212,9 @@ func TestAnElementCoversTheSameWordsAfterEveryKindOfEdit(t *testing.T) {
 			continue
 		}
 		if got[0].ID != el.ID {
-			t.Errorf("%s: the element came back as %d, want %d", tc.name, got[0].ID, el.ID)
+			t.Errorf("%s: the element came back as %v, want %v", tc.name, got[0].ID, el.ID)
 		}
-		if body := got[0].Text(e); body != "@main.go" {
+		if body := got[0].Text(); body != "@main.go" {
 			t.Errorf("%s: the element now covers %q", tc.name, body)
 		}
 	}
@@ -234,7 +234,7 @@ func TestElementsSurviveALineBreakAboveThem(t *testing.T) {
 		t.Errorf("the element is at line %d column %d, want 1:0", got[0].Line, got[0].Start)
 	}
 	if got[0].ID != el.ID {
-		t.Errorf("identity changed to %d", got[0].ID)
+		t.Errorf("identity changed to %v", got[0].ID)
 	}
 }
 
@@ -270,7 +270,7 @@ func TestRemoveElement(t *testing.T) {
 	if got := e.Elements(); len(got) != 1 {
 		t.Fatalf("the editor holds %+v, want one", got)
 	}
-	if e.RemoveElement(9999) {
+	if e.RemoveElement(base.ElementID{}) {
 		t.Error("removing an element that is not there reported true")
 	}
 }
@@ -292,7 +292,7 @@ func TestUndoGivesBackTheSameElement(t *testing.T) {
 		t.Fatalf("undo gave back %+v, want the element", got)
 	}
 	if got[0].ID != el.ID {
-		t.Errorf("undo gave back identity %d, want %d", got[0].ID, el.ID)
+		t.Errorf("undo gave back identity %v, want %v", got[0].ID, el.ID)
 	}
 }
 
@@ -306,8 +306,8 @@ func TestElementsAreReportedInOrder(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("the editor holds %+v", got)
 	}
-	if got[0].Text(e) != "@a.go" || got[1].Text(e) != "@b.go" {
-		t.Errorf("in the order %q then %q, want a then b", got[0].Text(e), got[1].Text(e))
+	if got[0].Text() != "@a.go" || got[1].Text() != "@b.go" {
+		t.Errorf("in the order %q then %q, want a then b", got[0].Text(), got[1].Text())
 	}
 }
 
@@ -324,8 +324,8 @@ func TestElementsAreACopy(t *testing.T) {
 
 func TestInsertingNoElementDoesNothing(t *testing.T) {
 	e := editorWith("text")
-	if el := e.InsertElement(fileChip, ""); el.ID != 0 {
-		t.Errorf("an element of no text was given identity %d", el.ID)
+	if el := e.InsertElement(fileChip, ""); el.ID != (base.ElementID{}) {
+		t.Errorf("an element of no text was given identity %v", el.ID)
 	}
 	if got := e.Text(); got != "text" {
 		t.Errorf("text = %q", got)
@@ -333,14 +333,13 @@ func TestInsertingNoElementDoesNothing(t *testing.T) {
 }
 
 func TestElementTextOfSomethingThatIsNotThere(t *testing.T) {
-	e := editorWith("short")
 	for _, el := range []base.Element{
 		{Line: 9, Start: 0, End: 2},
 		{Line: 0, Start: -1, End: 2},
 		{Line: 0, Start: 0, End: 99},
 		{Line: 0, Start: 3, End: 3},
 	} {
-		if got := el.Text(e); got != "" {
+		if got := el.Text(); got != "" {
 			t.Errorf("%+v reported the text %q", el, got)
 		}
 	}
@@ -370,7 +369,7 @@ func TestElementsSurviveEveryWayOfMoving(t *testing.T) {
 	if len(got) != 1 || got[0].ID != el.ID {
 		t.Fatalf("after moving about, the editor holds %+v", got)
 	}
-	if text := got[0].Text(e); text != "@main.go" {
+	if text := got[0].Text(); text != "@main.go" {
 		t.Errorf("the element covers %q", text)
 	}
 }
@@ -458,7 +457,7 @@ func TestReplacingTheWholeTextReleasesItsElements(t *testing.T) {
 
 			e.Undo()
 			got := e.Elements()
-			if len(got) != 1 || got[0].ID != before.ID || got[0].Text(e) != "@main.go" {
+			if len(got) != 1 || got[0].ID != before.ID || got[0].Text() != "@main.go" {
 				t.Fatalf("undo restored the text without its element identity: %+v", got)
 			}
 		})
@@ -523,7 +522,7 @@ func TestAnElementHasABoundaryAtBothEnds(t *testing.T) {
 	e := editorWith("")
 	el := e.InsertElement(fileChip, "1\u0605")
 
-	if got := el.Text(e); got != "1" {
+	if got := el.Text(); got != "1" {
 		t.Fatalf("element text = %q, want the part of the label that can end a run of cells", got)
 	}
 	for _, at := range []int{el.Start, el.End} {
@@ -532,7 +531,7 @@ func TestAnElementHasABoundaryAtBothEnds(t *testing.T) {
 		}
 	}
 	// A label that is nothing but such a mark is no label at all.
-	if got := e.InsertElement(fileChip, "\u0605"); got.ID != 0 {
+	if got := e.InsertElement(fileChip, "\u0605"); got.ID != (base.ElementID{}) {
 		t.Fatalf("a label with no run of cells in it became element %+v", got)
 	}
 }
@@ -547,7 +546,7 @@ func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) 
 	if got := e.Text(); got != "\U0001F1EF \U0001F1F5x " {
 		t.Fatalf("text = %q, want the element kept apart from what precedes it", got)
 	}
-	if got := el.Text(e); got != "\U0001F1F5x" {
+	if got := el.Text(); got != "\U0001F1F5x" {
 		t.Fatalf("element text = %q", got)
 	}
 
