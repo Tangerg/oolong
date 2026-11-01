@@ -341,13 +341,22 @@ var iterm2Programs = []string{"iterm", "mintty"}
 // a different terminal in their environment. Explicit inputs keep detection specific
 // to each terminal rather than global.
 func Detect(lookup func(string) (string, bool), name string, sixel bool) Protocol {
-	// What the terminal called itself, first. An environment describes the terminal a
-	// session was started from, which over ssh, in a container, or under a multiplexer
-	// is not the terminal it is talking to; an answer to a question came from the one
-	// that is actually drawing.
-	if p, ok := named(name); ok {
-		return p
+	return environmentProtocol(lookup).Negotiated(name, sixel)
+}
+
+// Negotiated resolves probe answers against the protocol measured from the
+// environment before acquisition. A known name wins; sixel is the fallback.
+func (p Protocol) Negotiated(name string, sixel bool) Protocol {
+	if known, ok := named(name); ok {
+		return known
 	}
+	if p == None && sixel {
+		return Sixel
+	}
+	return p
+}
+
+func environmentProtocol(lookup func(string) (string, bool)) Protocol {
 	if environmentValue(lookup, "KITTY_WINDOW_ID") != "" ||
 		environmentValue(lookup, "GHOSTTY_RESOURCES_DIR") != "" {
 		return Kitty
@@ -356,9 +365,6 @@ func Detect(lookup func(string) (string, bool), name string, sixel bool) Protoco
 		environmentValue(lookup, "TERM_PROGRAM") + " " +
 		environmentValue(lookup, "LC_TERMINAL")); ok {
 		return p
-	}
-	if sixel {
-		return Sixel
 	}
 	return None
 }

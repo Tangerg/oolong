@@ -102,7 +102,7 @@ func (h *Host) Writer() program.FrameWriter {
 	if h == nil || h.writer == nil {
 		return nil
 	}
-	return h.writer
+	return h.writer.Frames()
 }
 
 // Size returns the current size, initially the dimensions passed to New.

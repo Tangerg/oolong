@@ -74,7 +74,7 @@ func newHost(
 func (h *Host) Input() program.EventSource { return h.source }
 
 // Writer is the same bounded FIFO used for session modes and application frames.
-func (h *Host) Writer() program.FrameWriter { return h.writer }
+func (h *Host) Writer() program.FrameWriter { return h.writer.Frames() }
 
 // Locale is the accepted session's locale, frozen when the host was opened.
 func (h *Host) Locale() string { return h.locale }

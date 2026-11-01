@@ -678,3 +678,90 @@ func TestASizeChangeWhileOpeningIsNotLost(t *testing.T) {
 		}
 	}
 }
+
+func TestHandoverRevokesBothRetainedFramesAndTerminalCommands(t *testing.T) {
+	tty, primary := open(t, term.Config{})
+	writer := tty.Writer()
+	if _, ok := any(writer).(interface {
+		QueueControl(data []byte) (uint64, error)
+	}); ok {
+		t.Error("session frame handle exposes teardown admission")
+	}
+	if _, ok := any(writer).(interface{ Close() error }); ok {
+		t.Error("session frame handle can close the terminal writer")
+	}
+	read(t, primary, 200*time.Millisecond)
+	err := tty.Hand(func() error { _, e := writer.Queue([]byte("prepared")); return e }, func() error {
+		read(t, primary, 200*time.Millisecond)
+		seq, e := writer.Queue([]byte("leaked frame"))
+		if seq != 0 || !errors.Is(e, term.ErrHandoverActive) {
+			t.Errorf("child frame admitted: %d %v", seq, e)
+		}
+		if e = tty.SetTitle("leaked title"); !errors.Is(e, term.ErrHandoverActive) {
+			t.Errorf("child title admitted: %v", e)
+		}
+		if e = tty.Bell(); !errors.Is(e, term.ErrHandoverActive) {
+			t.Errorf("child bell admitted: %v", e)
+		}
+		if e = tty.Notify("leaked message"); !errors.Is(e, term.ErrHandoverActive) {
+			t.Errorf("child notification admitted: %v", e)
+		}
+		if tty.Copy("leaked clipboard") || tty.Paste() {
+			t.Error("clipboard admission crossed handover")
+		}
+		if e = writer.Drain(time.Second); e != nil {
+			t.Fatal(e)
+		}
+		if seen := read(t, primary, 20*time.Millisecond); seen != "" {
+			t.Errorf("parent output in child's PTY: %q", seen)
+		}
+		return nil
+	})
+	if errors.Is(err, errors.ErrUnsupported) {
+		t.Skip("reader cannot be parked")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = writer.Queue([]byte("returned")); err != nil {
+		t.Fatalf("admission did not resume: %v", err)
+	}
+	if err = writer.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if seen := read(t, primary, 200*time.Millisecond); !strings.Contains(seen, "returned") {
+		t.Fatal("missing resumed frame", seen)
+	}
+}
+
+func TestOpenResolvesEnvironmentOnceBeforeTakingTheTerminal(t *testing.T) {
+	_, replica := pty(t)
+	fd := int(replica.Fd())
+	before, err := xterm.GetState(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries := map[string]int{}
+	var raw bool
+	tty, err := term.OpenOn(replica, replica, term.Config{}, func(name string) (string, bool) {
+		state, stateErr := xterm.GetState(fd)
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		raw = raw || *state != *before
+		queries[name]++
+		return "", false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tty.Close() }()
+	if raw {
+		t.Error("lookup ran while terminal was already in raw mode")
+	}
+	for name, n := range queries {
+		if n != 1 {
+			t.Errorf("environment fact %s sampled %d times", name, n)
+		}
+	}
+}

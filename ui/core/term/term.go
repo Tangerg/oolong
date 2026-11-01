@@ -192,17 +192,18 @@ func OpenOn(
 		return nil, outputErr
 	}
 
-	// Raw mode first: it is what stops the terminal from interpreting keys on the
-	// program's behalf, and everything below assumes it.
+	// Resolve every caller-provided environment fact before raw mode, files or
+	// readers need cleanup. A lookup may panic or leave its goroutine.
+	t := newTerminal(in, out, cfg, startupEnvironment(lookup))
 	oldState, err := xterm.MakeRaw(inFD)
 	if err != nil {
 		return nil, fmt.Errorf("term: enter raw mode: %w", err)
 	}
-	t := newTerminal(in, out, cfg, lookup, oldState)
+	t.oldState = oldState
 	if err := t.takeOver(inFD); err != nil {
 		return nil, err
 	}
-	t.start(cfg, lookup)
+	t.start(cfg)
 	return t, nil
 }
 
@@ -214,27 +215,48 @@ func checkedTerminalFD(file *os.File, role string) (int, error) {
 	return fd, nil
 }
 
+// Capabilities share environment keys. Read each key from the provider once
+// without maintaining a separate list of which keys the detectors understand.
+func startupEnvironment(lookup func(string) (string, bool)) func(string) (string, bool) {
+	if lookup == nil {
+		return nil
+	}
+	type fact struct {
+		value string
+		set   bool
+	}
+	facts := make(map[string]fact)
+	return func(name string) (string, bool) {
+		f, ok := facts[name]
+		if !ok {
+			f.value, f.set = lookup(name)
+			facts[name] = f
+		}
+		return f.value, f.set
+	}
+}
+
 func newTerminal(
 	in, out *os.File,
 	cfg Config,
 	lookup func(string) (string, bool),
-	oldState *xterm.State,
 ) *Terminal {
 	return &Terminal{
 		in:   in,
 		inFD: int(in.Fd()), outFD: int(out.Fd()),
-		out:        out,
-		modes:      cfg.Modes(lookup),
-		oldState:   oldState,
-		events:     make(chan input.Event, 64),
-		resized:    make(chan input.Resize, 1),
-		stop:       make(chan struct{}),
-		pumpDone:   make(chan struct{}),
-		resizeDone: make(chan struct{}),
-		task:       newTaskProgress(),
-		clipboard:  clipboard.New(lookup),
-		locale:     DetectLocale(lookup),
-		color:      DetectDepth(lookup),
+		out:           out,
+		modes:         cfg.Modes(lookup),
+		events:        make(chan input.Event, 64),
+		resized:       make(chan input.Resize, 1),
+		stop:          make(chan struct{}),
+		pumpDone:      make(chan struct{}),
+		resizeDone:    make(chan struct{}),
+		task:          newTaskProgress(),
+		clipboard:     clipboard.New(lookup),
+		locale:        DetectLocale(lookup),
+		color:         DetectDepth(lookup),
+		wheelProfile:  input.WheelFor(lookup, ""),
+		imageProtocol: graphics.Detect(lookup, "", false),
 	}
 }
 
@@ -270,7 +292,7 @@ func (t *Terminal) takeOver(inFD int) error {
 // start activates the input side after acquisition can no longer fail. Goroutines
 // are deliberately last: no partially opened Terminal is returned, and no rollback
 // path has to coordinate workers that escaped into the session.
-func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
+func (t *Terminal) start(cfg Config) {
 	// Subscribed before the size is measured, and for that reason: a change between
 	// the measurement and the subscription is one nothing would ever hear about.
 	// See [resizeSource].
@@ -308,9 +330,9 @@ func (t *Terminal) start(cfg Config, lookup func(string) (string, bool)) {
 		early = pr.early
 		end = pr.end
 	}
-	t.wheelProfile = input.WheelFor(lookup, t.identity())
+	t.wheelProfile = t.wheelProfile.Negotiated(t.identity())
 	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
-	t.imageProtocol = graphics.Detect(lookup, t.identity(), sixel)
+	t.imageProtocol = t.imageProtocol.Negotiated(t.identity(), sixel)
 
 	p := &pump{
 		raw: raw, end: end, resized: t.resized, stop: t.stop,
@@ -352,7 +374,7 @@ func (t *Terminal) Events() <-chan input.Event { return t.events }
 func (t *Terminal) InputErr() error { return t.inputErr }
 
 // Writer is where frames go.
-func (t *Terminal) Writer() *Writer { return t.writer }
+func (t *Terminal) Writer() FrameSink { return t.writer.Frames() }
 
 // Ground is what the terminal's own two colours are, and whether it said.
 //
@@ -602,6 +624,7 @@ func imageID(id uint64) uint32 {
 // write the restore sequences must not be a reason to skip leaving raw mode.
 func (t *Terminal) Close() error {
 	t.closeOnce.Do(func() {
+		t.writer.CloseAdmission()
 		close(t.stop)
 		// The reader is waiting for the terminal to say something, and nothing will:
 		// waking it is what lets it see that the session is over. It is also what
@@ -625,7 +648,6 @@ func (t *Terminal) closeOutput() error {
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
 	var errs []error
-	t.writer.CloseAdmission()
 	if t.ownsModes {
 		// Raw mode must settle independently of output backpressure. The same
 		// deadline covers queued frames and the final restore sequences.
@@ -847,16 +869,19 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 	// Keepalives are output too. Pause before taking the writer's watermark so a
 	// refresh cannot appear after the drain and inside the child's output.
 	t.task.pause()
+	if err := t.writer.pauseAdmission(); err != nil {
+		return err
+	}
 	// Whatever the interface drew has to reach the terminal before the modes go
 	// back, for the same reason it does on the way out: a frame written after the
 	// alternate screen was given up is a frame drawn onto the user's own screen. Do
 	// this before changing modes, so a timeout only needs to end the reader claim
 	// and resume keepalives, without restoring terminal modes.
 	if err := t.writer.Drain(DrainGrace); err != nil {
-		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.task.restore(t.writer.Queue))
+		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.resumeOutput())
 	}
 	if err := t.writer.Err(); err != nil {
-		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.task.restore(t.writer.Queue))
+		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.resumeOutput())
 	}
 
 	// The lifetime claim can already have parked the reader. Confirm that it noticed
@@ -870,7 +895,7 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 	default:
 	}
 	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
-		return errors.Join(err, t.task.restore(t.writer.Queue))
+		return errors.Join(err, t.resumeOutput())
 	}
 	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
 		// release is transactional: on failure no child runs and the session is made
@@ -906,7 +931,10 @@ func (t *Terminal) retakeModes() error {
 		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
 	}
 	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
-	errs = append(errs, t.task.restore(t.writer.Queue))
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	errs = append(errs, t.resumeOutput())
 
 	// The same latest-value mailbox a window resize uses, rather than the public
 	// event queue: the pump owns and closes that queue. Report even an unchanged size
@@ -918,6 +946,11 @@ func (t *Terminal) retakeModes() error {
 		t.retakeResize(width, height)
 	}
 	return errors.Join(errs...)
+}
+
+func (t *Terminal) resumeOutput() error {
+	t.writer.resumeAdmission()
+	return t.task.restore(t.writer.Queue)
 }
 
 func (t *Terminal) park(parked <-chan struct{}) {

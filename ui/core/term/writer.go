@@ -72,7 +72,7 @@ type Writer struct {
 	queue                                     fifo.Queue[frame]
 	wake                                      chan struct{}
 	closed                                    bool
-	dataClosed                                bool
+	admissionErr                              error
 	pendingBytes, pendingFrames               int
 	controlBytes, controlFrames               int
 	maxFrames, maxFrameBytes, maxPendingBytes int
@@ -154,6 +154,22 @@ func NewWriter(cfg WriterConfig) *Writer {
 	return w
 }
 
+// FrameSink admits ordinary frames and observes their writer. The session owner
+// alone can close admission, send restoration sequences, or close the writer.
+type FrameSink interface {
+	Queue(data []byte) (uint64, error)
+	Changes() <-chan struct{}
+	Written() uint64
+	Queued() uint64
+	Err() error
+	Drain(timeout time.Duration) error
+}
+
+type framePort struct{ FrameSink }
+
+// Frames returns the ordinary producer capability, including across handovers.
+func (w *Writer) Frames() FrameSink { return framePort{w} }
+
 // Queue admits a complete frame without waiting. A refusal retains caller
 // ownership and does not advance any watermark. Capacity refusal is recoverable;
 // it does not become Writer.Err. Success transfers data to the writer; the caller
@@ -170,14 +186,37 @@ func (w *Writer) QueueControl(data []byte) (uint64, error) { return w.enqueue(da
 // the reserved QueueControl path needed to restore terminal modes.
 func (w *Writer) CloseAdmission() {
 	w.queueMu.Lock()
-	w.dataClosed = true
+	w.admissionErr = ErrClosed
 	w.queueMu.Unlock()
+}
+
+// Seal ordinary admission before taking the drain watermark. Otherwise another
+// producer can enqueue between draining the last frame and handing off the PTY.
+func (w *Writer) pauseAdmission() error {
+	w.queueMu.Lock()
+	defer w.queueMu.Unlock()
+	if w.admissionErr != nil {
+		return w.admissionErr
+	}
+	w.admissionErr = ErrHandoverActive
+	return nil
+}
+
+func (w *Writer) resumeAdmission() {
+	w.queueMu.Lock()
+	defer w.queueMu.Unlock()
+	if errors.Is(w.admissionErr, ErrHandoverActive) {
+		w.admissionErr = nil
+	}
 }
 
 func (w *Writer) enqueue(data []byte, control bool) (uint64, error) {
 	w.queueMu.Lock()
 	defer w.queueMu.Unlock()
-	if w.closed || w.discarding.Load() || (!control && w.dataClosed) {
+	if !control && w.admissionErr != nil {
+		return 0, w.admissionErr
+	}
+	if w.closed || w.discarding.Load() {
 		if err := w.Err(); err != nil {
 			return 0, err
 		}

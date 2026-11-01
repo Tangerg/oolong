@@ -106,9 +106,19 @@ var wheelProfiles = []struct {
 // replace outer-terminal batching because they emit one report per notch. The
 // lookup is explicit so each session and test supplies its own environment.
 func WheelFor(lookup func(string) (string, bool), name string) Wheel {
+	return environmentWheel(lookup).Negotiated(name)
+}
+
+// Negotiated applies a terminal's reported identity to an already measured
+// environment profile. An unrecognized or absent report preserves that profile.
+func (w Wheel) Negotiated(name string) Wheel {
 	if wheel, ok := profileOf(name); ok {
 		return wheel
 	}
+	return w
+}
+
+func environmentWheel(lookup func(string) (string, bool)) Wheel {
 	if lookup == nil {
 		return Wheel{}
 	}
