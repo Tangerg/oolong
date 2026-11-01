@@ -13,10 +13,10 @@ func PrefersUnicode(value string) bool {
 	if value == "" {
 		return true
 	}
-	_, charset, found := strings.Cut(value, ".")
+	base, _, _ := strings.Cut(value, "@")
+	_, charset, found := strings.Cut(base, ".")
 	if !found {
 		return false
 	}
-	charset = strings.ToLower(strings.ReplaceAll(charset, "-", ""))
-	return strings.HasPrefix(charset, "utf8")
+	return strings.EqualFold(charset, "utf8") || strings.EqualFold(charset, "utf-8")
 }

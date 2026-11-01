@@ -19,6 +19,8 @@ func TestPrefersUnicodeKeepsTheModernDefaultOrRequiresUTF8(t *testing.T) {
 		{"POSIX", false},
 		{"en_US", false},
 		{"en_US.ISO-8859-1", false},
+		{"en_US.UTF-80", false},
+		{"C@variant.UTF-8", false},
 	} {
 		if got := text.PrefersUnicode(test.locale); got != test.want {
 			t.Errorf("PrefersUnicode(%q) = %t, want %t", test.locale, got, test.want)
