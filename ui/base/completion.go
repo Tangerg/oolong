@@ -220,8 +220,12 @@ func (c *Completion) Current() (Candidate, bool) {
 		return Candidate{}, false
 	}
 	candidate, ok := c.list.Current()
-	candidate.Matched = slices.Clone(candidate.Matched)
-	return candidate, ok
+	return candidate.snapshot(), ok
+}
+
+func (c Candidate) snapshot() Candidate {
+	c.Matched = slices.Clone(c.Matched)
+	return c
 }
 
 func cloneToken(token Token) Token {
@@ -274,25 +278,25 @@ func (c *Completion) Do(action keymap.Action) bool {
 		c.Dismiss()
 		return true
 	case Accept:
-		accept := c.Accept
-		if accept == nil {
-			// Nothing accepting could do, so the keystroke is left for whatever else
-			// might want it rather than swallowed.
-			return false
-		}
-		candidate, ok := c.list.Current()
-		if !ok {
-			return false
-		}
-		token := c.token
-		// Closed before the callback, so what it does to the text cannot be
-		// interpreted as another query for a completion that is still open.
-		if c.Dismiss() {
-			accept(candidate, token)
-		}
-		return true
+		_, handled := c.acceptCurrent()
+		return handled
 	}
 	return c.list.Do(action)
+}
+
+// A superseding offer consumes the physical key but did not accept its old
+// candidate. The semantic caller needs that outcome separately.
+func (c *Completion) acceptCurrent() (scene.ActionResult[Candidate], bool) {
+	candidate, ok := c.list.Current()
+	accept, token := c.Accept, c.token
+	if !ok || accept == nil {
+		return scene.ActionResult[Candidate]{}, false
+	}
+	if !c.Dismiss() {
+		return scene.ActionResult[Candidate]{}, true
+	}
+	accept(candidate.snapshot(), token)
+	return scene.ActionResult[Candidate]{State: scene.Applied, Value: candidate}, true
 }
 
 // HeightForWidth is how tall the list wants to be: a row per candidate, capped.
@@ -309,7 +313,7 @@ func (c *Completion) Width() int {
 	widest := 0
 	renderer := c.renderer()
 	for _, candidate := range c.list.items {
-		widest = max(widest, renderer.Width(candidate))
+		widest = max(widest, renderer.Width(c.forRenderer(candidate)))
 	}
 	return widest
 }
@@ -333,6 +337,13 @@ func (DefaultCompletionRenderer) Width(candidate Candidate) int {
 	return width
 }
 
+func (c *Completion) forRenderer(candidate Candidate) Candidate {
+	if c.Renderer != nil {
+		return candidate.snapshot()
+	}
+	return candidate
+}
+
 func (c *Completion) renderer() CompletionRenderer {
 	if c.Renderer != nil {
 		return c.Renderer
@@ -351,7 +362,7 @@ func (c *Completion) Draw(v scene.Frame) {
 	width, height := v.Size()
 	renderer := c.renderer()
 	c.list.DrawRows(v.Sub(grid.Area(0, 0, width, min(height, c.rows()))), func(view grid.View, _ int, candidate Candidate, selected bool) {
-		renderer.DrawRow(view, candidate, selected, c.Look)
+		renderer.DrawRow(view, c.forRenderer(candidate), selected, c.Look)
 	})
 }
 

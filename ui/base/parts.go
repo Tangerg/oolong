@@ -246,12 +246,8 @@ func (c *Completion) Element() scene.Element {
 		accept := scene.NewAction(scene.ActionConfig[struct{}, Candidate]{ID: scene.ActionActivate, Label: "Accept completion", Availability: func(struct{}) scene.Availability {
 			return scene.Availability{Disabled: !c.Open() || c.Accept == nil, Reason: "completion is not accepting"}
 		}, Run: func(context.Context, struct{}) (scene.ActionResult[Candidate], error) {
-			candidate, _ := c.Current()
-			state := scene.Unchanged
-			if c.Do(Accept) {
-				state = scene.Applied
-			}
-			return scene.ActionResult[Candidate]{State: state, Value: candidate}, nil
+			result, _ := c.acceptCurrent()
+			return result, nil
 		}})
 		dismiss := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionDismiss, Label: "Dismiss completion", Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
 			state := scene.Unchanged

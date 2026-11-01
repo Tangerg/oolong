@@ -181,6 +181,7 @@ func (f *Filter[T]) Draw(v scene.Frame) {
 
 func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 	if f.Row != nil {
+		got.match.At = slices.Clone(got.match.At)
 		f.Row(v, at, got.item, got.match, selected)
 	}
 }

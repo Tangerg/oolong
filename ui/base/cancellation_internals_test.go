@@ -214,3 +214,27 @@ func TestCollectionReplacementPublishesBeforeMatcherCancellation(t *testing.T) {
 		})
 	}
 }
+
+func TestSemanticActivationReportsOnlyAnAcceptedCompletion(t *testing.T) {
+	var completion Completion
+	var keys keymap.Map
+	keys.Bind(Accept, input.Chord{Rune: 'g'})
+	keys.Bind(SelectNext, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
+	keys.Resolve = func(time.Duration, func()) func() {
+		return func() { completion.Offer(Token{}, []Candidate{{Text: "new"}}) }
+	}
+	completion.Keys = &keys
+	called := 0
+	completion.Accept = func(Candidate, Token) { called++ }
+	completion.Offer(Token{}, []Candidate{{Text: "old"}})
+	r := newTestRoot(completion.Element())
+	completion.Handle(input.Key{Rune: 'g'})
+	result, err := r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, nil)
+	if err != nil || result.State != scene.Unchanged || called != 0 {
+		t.Fatalf("receipt for a superseded candidate: %+v, %v, calls=%d", result, err, called)
+	}
+	result, err = r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, nil)
+	if err != nil || result.State != scene.Applied || called != 1 {
+		t.Fatalf("new offer: %+v, %v, calls=%d", result, err, called)
+	}
+}
