@@ -3,6 +3,7 @@ package input
 import (
 	"image"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -72,12 +73,14 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 		// nobody held — the same class of mistake as reading a rune out of an
 		// integer and asking afterwards whether it was one.
 		bits := group.At(0) - 1
+		const shortcutMods = Shift | Alt | Ctrl | Super | Hyper | Meta
+		const lockBits = 1<<6 | 1<<7
 		// Caps/Num lock describe text generation; unsupported identity modifiers
 		// must never become an unmodified key binding.
-		if bits & ^(int(Shift|Alt|Ctrl|Super)|64|128) != 0 {
+		if bits & ^(int(shortcutMods)|lockBits) != 0 {
 			return 0, Press, false
 		}
-		mods = Mods(bits & int(Shift|Alt|Ctrl|Super))
+		mods = Mods(bits & int(shortcutMods))
 	}
 	if group.Len() < 2 {
 		return mods, Press, true
@@ -100,11 +103,8 @@ func (ps params) text() (string, bool) {
 	}
 	var b strings.Builder
 	for cp := range ps.Group(2).Values() {
-		if cp == 0 {
-			continue
-		}
 		r, ok := codePoint(cp)
-		if !ok {
+		if !ok || unicode.IsControl(r) {
 			return "", false
 		}
 		b.WriteRune(r)
@@ -142,41 +142,39 @@ func (ps params) modifiedKey(code Code, extra Mods) Event {
 // only form that distinguishes releases from presses and can say what text a key
 // produced.
 func (ps params) extendedKey() Event {
-	if ps.Len() == 0 || ps.Len() > 3 {
-		return nil // a bare sequence here is a cursor report, not a key
-	}
-	primary := ps.Group(0)
-	if primary.Len() == 0 || primary.Len() > 3 {
+	if ps.Len() > 3 {
 		return nil
-	}
-	// Alternate key codes are accepted and then ignored: reporting the key that
-	// was pressed is this type's job, and reporting which key it would have been
-	// under another layout is not.
-	for i := 1; i < primary.Len(); i++ {
-		alternate := primary.At(i)
-		if _, ok := codePoint(alternate); alternate != 0 && !ok {
-			return nil
-		}
 	}
 	mods, transition, ok := ps.keyMeta()
 	if !ok {
 		return nil
 	}
+	key, ok := primaryKey(ps.Group(0), mods)
+	if !ok {
+		return nil
+	}
 	text, ok := ps.text()
-	if !ok {
+	if !ok || key.Code == Character && key.Rune == 0 && text == "" {
 		return nil
 	}
-	if primary.At(0) == 0 {
-		if text == "" {
-			return nil
-		}
-		return Key{Code: Character, Text: text, Mods: mods, Transition: transition}
+	key.Text, key.Transition = text, transition
+	return key
+}
+
+func primaryKey(group ansi.Parameter, mods Mods) (Key, bool) {
+	if group.Len() == 0 || group.Len() > 3 {
+		return Key{}, false
 	}
-	code, r, ok := extendedKeyCode(primary.At(0))
-	if !ok {
-		return nil
+	code, r, ok := extendedKeyCode(group.At(0))
+	shifted, shiftedOK := codePoint(group.At(1))
+	base, baseOK := codePoint(group.At(2))
+	if !ok || !shiftedOK || !baseOK || shifted != 0 && !mods.Has(Shift) {
+		return Key{}, false
 	}
-	return Key{Code: code, Rune: r, Mods: mods, Transition: transition, Text: text}
+	if group.At(0) == 0 && (shifted != 0 || base != 0) {
+		return Key{}, false
+	}
+	return Key{Code: code, Rune: r, ShiftedRune: shifted, BaseRune: base, Mods: mods}, true
 }
 
 func (ps params) mouse(down bool) Event {
@@ -228,8 +226,8 @@ func (ps params) report(final byte) Event {
 		return ps.mouse(final == 'M')
 	case ps.Marker() == '?' && final == 'c':
 		return ps.deviceAttributes()
-	case ps.Marker() == '?' && final == 'u':
-		return KeyboardFlags{Features: KeyboardFeatures(max(ps.At(0), 0))}
+	case ps.Marker() == '?' && final == 'u' && ps.Len() == 1 && ps.Group(0).Len() == 1 && ps.Valid():
+		return KeyboardFlags{Features: KeyboardFeatures(ps.At(0))}
 	case ps.Marker() == '>' && final == 'c':
 		return DeviceVersion{Kind: max(ps.At(0), 0), Version: max(ps.At(1), 0), Patch: max(ps.At(2), 0)}
 	default:

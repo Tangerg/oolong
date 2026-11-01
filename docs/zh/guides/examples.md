@@ -25,6 +25,7 @@ contentType: Reference
 | `files` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/files) | `go run ./examples/files` |
 | `form` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/form) | `go run ./examples/form` |
 | `hello` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/hello) | `go run ./examples/hello` |
+| `image` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/image) | `go run ./examples/image` |
 | `keys` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/keys) | `go run ./examples/keys` |
 | `latex` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/latex) | `go run ./examples/latex` |
 | `markdown` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/markdown) | `go run ./examples/markdown` |

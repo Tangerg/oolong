@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	imagepng "image/png"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/graphics"
@@ -90,5 +92,69 @@ func TestRevocationCannotReassignAWireIDInsideItsDelete(t *testing.T) {
 	})
 	if !errors.Is(err, refusal) || first.Live() || !owner.Bind(wire).Live() {
 		t.Fatal("delete settlement revived a revoked resource or stranded its wire ID")
+	}
+}
+
+func TestCropsShareOneTransmissionAndKeepIndependentPlacements(t *testing.T) {
+	var data, out bytes.Buffer
+	if err := imagepng.Encode(&data, image.NewGray(image.Rect(0, 0, 80, 40))); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := graphics.Transmit(&out, 31, data.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var owner graphics.ImageOwner
+	resource := owner.Bind(wire)
+	left, right := resource.Placement(1), resource.Placement(2)
+	left.Source = image.Rect(-5, 10, 20, 50)
+	right.Source = image.Rect(20, 10, 40, 40)
+	if got := left.SourceBounds(); got != image.Rect(0, 10, 20, 40) {
+		t.Fatalf("source bounds = %v", got)
+	}
+	canvas := owner.NativeTarget().Screen(4, 3)
+	draw := func() string {
+		t.Helper()
+		out.Reset()
+		frame := canvas.Frame()
+		left.Draw(frame, image.Rect(0, 0, 2, 3))
+		right.Draw(frame, image.Rect(2, 0, 4, 3))
+		if err := canvas.Flush(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	first := draw()
+	if !strings.Contains(first, "a=p,i=31,p=1,x=0,y=10,w=20,h=30,c=2,r=3,") ||
+		!strings.Contains(first, "a=p,i=31,p=2,x=20,y=10,w=20,h=30,c=2,r=3,") ||
+		strings.Contains(first, "a=t") {
+		t.Fatalf("placing two crops: %q", first)
+	}
+	if unchanged := draw(); strings.Contains(unchanged, "a=p") {
+		t.Fatalf("unchanged crops were repainted: %q", unchanged)
+	}
+	left.Source = image.Rect(40, 10, 60, 40)
+	if next := draw(); !strings.Contains(next, "a=p,i=31,p=1,x=40,y=10,w=20,h=30,") ||
+		strings.Contains(next, "a=t") || strings.Contains(next, "p=2") {
+		t.Fatalf("updating one crop disturbed its peer or retransmitted data: %q", next)
+	}
+	if err := owner.Release(resource, func(i graphics.Image) error { return i.Release(&out) }); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	left.Draw(canvas.Frame(), image.Rect(0, 0, 2, 3))
+	if err := canvas.Flush(&out); !errors.Is(err, graphics.ErrImageReleased) || out.Len() != 0 {
+		t.Fatalf("cropped placement after release = %q, %v", &out, err)
+	}
+}
+
+func TestPlacementRejectsAnEmptySourceIntersectionBeforeWriting(t *testing.T) {
+	var out bytes.Buffer
+	p := (graphics.Image{ID: 3, Size: image.Pt(12, 12)}).Placement(1)
+	for _, crop := range []image.Rectangle{image.Rect(1, 2, 1, 7), image.Rect(12, 0, 24, 10)} {
+		p.Source = crop
+		if err := p.Paint(&out, image.Pt(2, 2)); err == nil || out.Len() != 0 {
+			t.Fatalf("painting %v wrote %q, err = %v", crop, &out, err)
+		}
 	}
 }

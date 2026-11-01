@@ -193,6 +193,20 @@ func (r Resource) Placement(id uint32) ResourcePlacement {
 type ResourcePlacement struct {
 	resource Resource
 	id       uint32
+	// Source is a half-open rectangle in the transmitted image's pixels.
+	// Its zero value selects the entire image.
+	Source image.Rectangle
+}
+
+// SourceBounds is the intersection with the transmitted image, before scaling to cells.
+func (p ResourcePlacement) SourceBounds() image.Rectangle {
+	return sourceBounds(p.resource.Size(), p.Source)
+}
+
+// Draw uses the transmission and placement identities to reconcile a region across frames.
+func (p ResourcePlacement) Draw(v grid.View, area image.Rectangle) {
+	id := uint64(p.resource.ID())<<32 | uint64(p.id)
+	v.Paint(area, id, p)
 }
 
 // SamePlacement identifies a particular transmission even if a retired wire
@@ -229,7 +243,9 @@ func (p ResourcePlacement) Paint(w io.Writer, size image.Point) error {
 	if !p.target().Accepts(w) {
 		return grid.ErrForeignPaint
 	}
-	return p.resource.record.wire.Placement(p.id).Paint(w, size)
+	wire := p.resource.record.wire.Placement(p.id)
+	wire.Source = p.Source
+	return wire.Paint(w, size)
 }
 
 // Erase has no work once data release has removed all of its placements.

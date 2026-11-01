@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+### Added
+
+- Local terminal probing now checks direct PNG support on the active channel. Set `kit.Image.Source` to show a region of a transmitted PNG. Run `go run ./examples/image` to try it.
+- Kitty keyboard reports retain shifted and base-layout key identities, F13–F35, and dedicated keypad keys. `keymap.Map.ActionFor` and sequence matching use them for shortcuts. Editors preserve associated text. Use keyed literals for `input.Key`, `kit.Image`, and `graphics.ImagePlacement` when setting their optional fields.
+
 ### Breaking changes
 
 - Retransmit Kitty images needed after a terminal handoff. The outgoing session releases its live images and cancels outstanding clipboard reads. Calling `Terminal.Transmit` without live-image support returns `errors.ErrUnsupported`.

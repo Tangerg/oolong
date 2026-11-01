@@ -89,3 +89,10 @@ func TestKeyboardModesUseTheDrivenTerminalEnvironment(t *testing.T) {
 		})
 	}
 }
+
+func TestKeyboardTextRequestsItsWirePrerequisite(t *testing.T) {
+	modes := (term.Config{Features: term.Features{Keyboard: input.KeyboardReportText}}).Modes(nil)
+	if !strings.Contains(modes.Enter(), "\x1b[>24u") || !strings.Contains(modes.Leave(), "\x1b[<u") {
+		t.Fatalf("text-reporting acquisition %q, restoration %q", modes.Enter(), modes.Leave())
+	}
+}

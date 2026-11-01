@@ -44,6 +44,8 @@ func ByteSize(event Event) int {
 		return eventOverhead + len(e.Params)
 	case DCS:
 		return eventOverhead + len(e.Body)
+	case APC:
+		return eventOverhead + len(e.Body)
 	case DeviceAttributes:
 		return eventOverhead + len(e.claims)
 	case Mouse, KeyboardFlags, DeviceVersion, Resize, FocusIn, FocusOut:
@@ -84,8 +86,7 @@ func Stamp(events []Event, at time.Time) []Event {
 // Mods is the set of modifier keys held during an event.
 type Mods uint8
 
-// The modifiers a terminal can report. Super is last because it is the only one
-// that needs the Kitty protocol to arrive at all.
+// Modifier bits follow the Kitty wire encoding before its one-based offset.
 const (
 	Shift Mods = 1 << iota
 	Alt
@@ -93,6 +94,8 @@ const (
 	// Super is the platform's own modifier — Command on macOS, the Windows key
 	// elsewhere. Only terminals speaking the Kitty keyboard protocol report it.
 	Super
+	Hyper
+	Meta
 )
 
 // Has reports whether every modifier in want is held.
@@ -101,7 +104,7 @@ func (m Mods) Has(want Mods) bool { return m&want == want }
 var modifierNames = [...]struct {
 	mod  Mods
 	name string
-}{{Ctrl, "ctrl"}, {Alt, "alt"}, {Shift, "shift"}, {Super, "super"}}
+}{{Ctrl, "ctrl"}, {Alt, "alt"}, {Shift, "shift"}, {Super, "super"}, {Hyper, "hyper"}, {Meta, "meta"}}
 
 // String names the modifiers in the order a keybinding is conventionally written.
 func (m Mods) String() string {
@@ -120,7 +123,7 @@ type Code int
 
 // The keys a terminal can report: a character press, then the named keys in the
 // order a keyboard is usually described — what finishes a line, what cancels,
-// what edits, then movement, then the function row.
+// what edits, then movement, the function row and the numeric keypad.
 const (
 	// Character is the zero value, so a Key literal with only a rune in it is a
 	// character press — which is what most of them are.
@@ -151,6 +154,58 @@ const (
 	F10
 	F11
 	F12
+	F13
+	F14
+	F15
+	F16
+	F17
+	F18
+	F19
+	F20
+	F21
+	F22
+	F23
+	F24
+	F25
+	F26
+	F27
+	F28
+	F29
+	F30
+	F31
+	F32
+	F33
+	F34
+	F35
+	Keypad0
+	Keypad1
+	Keypad2
+	Keypad3
+	Keypad4
+	Keypad5
+	Keypad6
+	Keypad7
+	Keypad8
+	Keypad9
+	KeypadDecimal
+	KeypadDivide
+	KeypadMultiply
+	KeypadSubtract
+	KeypadAdd
+	KeypadEnter
+	KeypadEqual
+	KeypadSeparator
+	KeypadLeft
+	KeypadRight
+	KeypadUp
+	KeypadDown
+	KeypadPageUp
+	KeypadPageDown
+	KeypadHome
+	KeypadEnd
+	KeypadInsert
+	KeypadDelete
+	KeypadBegin
 )
 
 // String names the key the way a help line would print it.
@@ -158,7 +213,10 @@ func (c Code) String() string {
 	if name, ok := codeNames[c]; ok {
 		return name
 	}
-	if c >= F1 && c <= F12 {
+	if key, ok := keypadKeys[c]; ok {
+		return key.name
+	}
+	if c >= F1 && c <= F35 {
 		return "f" + strconv.Itoa(int(c-F1)+1)
 	}
 	return "unknown"
@@ -204,13 +262,18 @@ const (
 type Key struct {
 	Code Code
 	Rune rune
-	Mods Mods
+	// ShiftedRune is the character for the shifted key in the active layout.
+	// BaseRune is the same physical key in the standard PC-101 layout.
+	// Either is zero when the terminal omitted that alternate identity.
+	ShiftedRune rune
+	BaseRune    rune
+	Mods        Mods
 	// Transition is Press unless the terminal speaks the Kitty keyboard protocol,
 	// which is the only way repeats and releases are ever reported.
 	Transition Transition
 	// Text is what the key produced, when the terminal was able to say. It can
 	// hold more than one code point, and is empty on terminals that do not report
-	// it — Rune is the fallback and the common case.
+	// it. [Key.FallbackRune] supplies the character fallback.
 	Text string
 	// At is when the keystroke arrived, as whatever read it saw. It is zero when
 	// nothing timed it, which is what a parser fed bytes directly produces.
@@ -373,6 +436,12 @@ type DCS struct{ Body string }
 
 func (DCS) terminalEvent() {}
 
+// APC carries an application-program command reply. The parser recognizes Kitty
+// graphics acknowledgements beginning with Gi= and retains their complete body.
+type APC struct{ Body string }
+
+func (APC) terminalEvent() {}
+
 // KeyboardFlags is a terminal's answer about which keyboard protocol enhancements
 // are turned on.
 //
@@ -406,8 +475,8 @@ const (
 	KeyboardReportAlternates
 	// KeyboardReportAllAsEscapes makes even plain letters arrive as sequences.
 	KeyboardReportAllAsEscapes
-	// KeyboardReportText adds the text a key produced, which the terminal knows and a
-	// program guessing from a keycode does not.
+	// KeyboardReportText requests associated text. Session setup also enables
+	// KeyboardReportAllAsEscapes, its prerequisite in the Kitty protocol.
 	KeyboardReportText
 
 	// KeyboardAll is every enhancement this version understands. Unknown bits a

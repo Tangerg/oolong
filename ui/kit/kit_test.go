@@ -1419,6 +1419,31 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 	equalRows(t, paint(8, 2, shown.Draw), []string{"........", "........"})
 }
 
+func TestImageMeasuresAndPaintsTheSelectedPixels(t *testing.T) {
+	var owner graphics.ImageOwner
+	picture := kit.Image{
+		Of:   owner.Bind(graphics.Image{ID: 3, Size: image.Pt(200, 100)}),
+		Cell: image.Pt(10, 10), Source: image.Rect(120, 80, 240, 160), Alt: "map",
+	}
+	if got := picture.HeightForWidth(16); got != 2 {
+		t.Fatalf("height of visible 80x20 pixels = %d", got)
+	}
+	screen := owner.NativeTarget().Screen(16, 4)
+	picture.Draw(screen.Frame())
+	var wire strings.Builder
+	if err := screen.Flush(&wire); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(wire.String(), "a=p,i=3,p=1,x=120,y=80,w=80,h=20,c=8,r=2,") {
+		t.Fatalf("cropped placement = %q", &wire)
+	}
+	picture.Source = image.Rect(200, 0, 210, 20)
+	if got := picture.HeightForWidth(8); got != 1 {
+		t.Fatalf("empty intersection reserved %d rows", got)
+	}
+	equalRows(t, paint(8, 1, picture.Draw), []string{"map....."})
+}
+
 // spy is a body that records whether it was told it has the keyboard.
 type spy struct{ focused bool }
 

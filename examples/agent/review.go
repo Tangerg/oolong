@@ -119,14 +119,17 @@ func (p *reviewPane) Element() scene.Element {
 			if p.sessionKey(key) {
 				return scene.EventResult{Consumed: true}
 			}
-			switch key.Code {
-			case input.PageUp:
-				return scene.EventResult{Consumed: p.window.Do(base.ScrollPageUp)}
-			case input.PageDown:
-				return scene.EventResult{Consumed: p.window.Do(base.ScrollPageDown)}
-			default:
-				return scene.EventResult{}
+			for chord := range key.ShortcutChords() {
+				switch chord.Code {
+				case input.PageUp:
+					return scene.EventResult{Consumed: p.window.Do(base.ScrollPageUp)}
+				case input.PageDown:
+					return scene.EventResult{Consumed: p.window.Do(base.ScrollPageDown)}
+				default:
+					continue
+				}
 			}
+			return scene.EventResult{}
 		}},
 		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
 			formRows := min(p.form.HeightForWidth(space.X), max(space.Y-2, 0))

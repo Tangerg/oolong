@@ -152,7 +152,7 @@ func (p *prompt) Draw(frame scene.Frame) {
 
 func (p *prompt) Handle(event input.Event) bool {
 	if key, ok := event.(input.Key); ok && key.Down() {
-		if action, _ := p.keys.Action(key.Chord()); action == quitPrompt {
+		if action, _ := p.keys.ActionFor(key); action == quitPrompt {
 			p.runtime.Quit()
 			return true
 		}
@@ -172,20 +172,23 @@ func (p *prompt) Handle(event input.Event) bool {
 }
 
 func (p *prompt) walk(key input.Key) bool {
-	switch key.Code {
-	case input.Up:
-		p.recallBack()
-	case input.Down:
-		p.recallForward()
-	case input.Enter:
-		p.submit()
+	for chord := range key.ShortcutChords() {
+		switch chord.Code {
+		case input.Up:
+			p.recallBack()
+		case input.Down:
+			p.recallForward()
+		case input.Enter:
+			p.submit()
+			return true
+		default:
+			continue
+		}
+		p.releaseRemovedPastes()
+		p.refreshCompletion()
 		return true
-	default:
-		return false
 	}
-	p.releaseRemovedPastes()
-	p.refreshCompletion()
-	return true
+	return false
 }
 
 func (p *prompt) insertPaste(body string) {

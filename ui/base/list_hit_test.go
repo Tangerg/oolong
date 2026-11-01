@@ -310,3 +310,13 @@ func TestListCallsRowRendererOnlyForUnclippedRows(t *testing.T) {
 		t.Fatalf("painted %v, want just rows 50 and 51", painted)
 	}
 }
+
+func TestKeypadArrowMovesListSelection(t *testing.T) {
+	var list base.List[string]
+	list.SetItems([]string{"first", "second"})
+	var parser input.Parser
+	events := parser.Feed([]byte("\x1b[57420u"))
+	if len(events) != 1 || !list.Handle(events[0]) || list.Selected() != 1 {
+		t.Fatalf("keypad down: events=%v selected=%d", events, list.Selected())
+	}
+}

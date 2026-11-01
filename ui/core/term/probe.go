@@ -2,15 +2,23 @@ package term
 
 import (
 	"io"
+	"math"
+	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/deadline"
+	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
 const (
+	// Probe the PNG decoder used by Transmit as well as the direct transport.
+	// Some embedded terminals support raw RGB but have no PNG decoder.
+	queryPixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
+
 	queryBackground = "\x1b]11;?\x07"
 
 	// queryForeground asks the terminal what colour it draws with.
@@ -98,12 +106,22 @@ type probe struct {
 	// itself unbounded.
 	deadline time.Time
 
-	early []input.Event
-	end   *readResult
+	graphicsReplyPrefix string
+	early               []input.Event
+	end                 *readResult
 }
+
+type graphicsProbeResult uint8
+
+const (
+	graphicsUnanswered graphicsProbeResult = iota
+	graphicsAccepted
+	graphicsRejected
+)
 
 // answers is what a terminal was willing to say about itself.
 type answers struct {
+	kitty      graphicsProbeResult
 	background grid.RGB
 	hasBg      bool
 	foreground grid.RGB
@@ -134,8 +152,13 @@ func (p *probe) run() answers {
 		return got
 	}
 	defer func() { _ = p.out.SetWriteDeadline(time.Time{}) }()
+	// A fresh request ID keeps a late reply to an earlier session from claiming
+	// this one. a=q tests direct transfer without displaying or retaining an image.
+	id := strconv.FormatUint(uint64(rand.Uint32N(math.MaxUint32))+1, 10) //nolint:gosec // A correlation ID is not a secret.
+	p.graphicsReplyPrefix = "Gi=" + id + ";"
+	queryGraphics := "\x1b_Gi=" + id + ",a=q,t=d,f=100;" + queryPixelPNG + "\x1b\\"
 	if _, err := p.out.WriteString(queryBackground + queryForeground + queryVersion +
-		queryDeviceVersion + queryKeyboard + queryAttributes); err != nil {
+		queryDeviceVersion + queryKeyboard + queryGraphics + queryAttributes); err != nil {
 		return got
 	}
 
@@ -223,6 +246,13 @@ func (p *probe) take(ev input.Event, got *answers) {
 			return
 		}
 		p.early = append(p.early, ev)
+	case input.APC:
+		result := p.graphicsResult(ev.Body)
+		if result == graphicsUnanswered || got.kitty != graphicsUnanswered {
+			p.early = append(p.early, ev)
+			return
+		}
+		got.kitty = result
 	case input.DeviceVersion:
 		got.version, got.hasVersion = ev, true
 	case input.KeyboardFlags:
@@ -232,6 +262,35 @@ func (p *probe) take(ev input.Event, got *answers) {
 	default:
 		p.early = append(p.early, ev)
 	}
+}
+
+func (p *probe) graphicsResult(body string) graphicsProbeResult {
+	message, ours := strings.CutPrefix(body, p.graphicsReplyPrefix)
+	switch {
+	case !ours || p.graphicsReplyPrefix == "" || message == "":
+		return graphicsUnanswered
+	case message == "OK":
+		return graphicsAccepted
+	default:
+		return graphicsRejected
+	}
+}
+
+// DA1 is sent last. Once it arrives, a missing Kitty reply rules out direct
+// graphics on this channel, even when TERM names the outer terminal.
+func (a answers) graphics(hint graphics.Protocol) graphics.Protocol {
+	if a.kitty == graphicsAccepted {
+		return graphics.Kitty
+	}
+	sixel := a.hasAttrs && a.attributes.Has(sixelAttribute)
+	protocol := hint.Negotiated(a.name, sixel)
+	if protocol == graphics.Kitty && (a.hasAttrs || a.kitty == graphicsRejected) {
+		if sixel {
+			return graphics.Sixel
+		}
+		return graphics.None
+	}
+	return protocol
 }
 
 // parseXParseColor reads the colour specification a terminal answers a colour

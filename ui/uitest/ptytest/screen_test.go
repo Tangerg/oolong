@@ -135,7 +135,7 @@ func TestScreenIgnoresSessionTrafficThatPaintsNoCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := "\x1b[>31u\x1b[>0q\x1b[5 q\x1b[c\x1b[22;0t\x1b]10;?\x07text"
+	output := "\x1b[>31u\x1b[>0q\x1b[5 q\x1b[c\x1b[22;0t\x1b]10;?\x07\x1b_Gi=5,a=q,t=d,f=100;xyz\x1b\\text"
 	if err := shown.Apply([]byte(output)); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestScreenRejectsOutputOutsideItsCellSubset(t *testing.T) {
 	}
 	for _, seq := range []string{
 		"\x1bPimage payload\x1b\\", "\x1b[?6h", "\x1b[?7l", "\x1b[4h", "\x1b[8;1;1t", "\x1b(0",
-		"\x1b]1337;File=inline=1:AAAA\x07",
+		"\x1b]1337;File=inline=1:AAAA\x07", "\x1b_Ga=q,a=T;AAAA\x1b\\", "\x1b_Ga=p,i=1;\x1b\\",
 	} {
 		if err := shown.Apply([]byte(seq)); !errors.Is(err, ptytest.ErrUnsupportedOutput) {
 			t.Fatalf("%q gave %v, want ErrUnsupportedOutput", seq, err)

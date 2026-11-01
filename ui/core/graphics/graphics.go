@@ -182,6 +182,8 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 type ImagePlacement struct {
 	Image Image
 	ID    uint32
+	// Source selects source pixels. Its zero value displays the entire image.
+	Source image.Rectangle
 }
 
 // Placement names one placement without transmitting or drawing it. It panics
@@ -197,7 +199,16 @@ func (i Image) Placement(id uint32) ImagePlacement {
 	return ImagePlacement{Image: i, ID: id}
 }
 
-// Paint shows this placement at the cursor without moving the cursor.
+func sourceBounds(size image.Point, source image.Rectangle) image.Rectangle {
+	bounds := image.Rectangle{Max: size}
+	if source == (image.Rectangle{}) {
+		return bounds
+	}
+	return bounds.Intersect(source)
+}
+
+// Paint shows this placement at the cursor without moving it. A nonzero source
+// with no pixels inside the image returns an error before writing any bytes.
 func (p ImagePlacement) Paint(w io.Writer, size image.Point) error {
 	if p.Image.ID == 0 {
 		return errImageIdentity
@@ -205,7 +216,15 @@ func (p ImagePlacement) Paint(w io.Writer, size image.Point) error {
 	if p.ID == 0 {
 		return errPlacementIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", p.Image.ID, p.ID, size.X, size.Y))
+	var crop string
+	if p.Source != (image.Rectangle{}) {
+		bounds := sourceBounds(p.Image.Size, p.Source)
+		if bounds.Empty() {
+			return errors.New("graphics: source rectangle contains no image pixels")
+		}
+		crop = fmt.Sprintf(",x=%d,y=%d,w=%d,h=%d", bounds.Min.X, bounds.Min.Y, bounds.Dx(), bounds.Dy())
+	}
+	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d%s,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", p.Image.ID, p.ID, crop, size.X, size.Y))
 }
 
 // Erase removes only this placement, retaining the image for later Paint calls.

@@ -33,6 +33,9 @@ type Image struct {
 	// Placement is the placement identity within Of. Zero uses 1; simultaneous
 	// views of one image must choose distinct nonzero identities.
 	Placement uint32
+	// Source selects a rectangle in the original PNG's pixels. Zero displays the whole
+	// image. A selection outside the image draws Alt.
+	Source image.Rectangle
 	// Cell is how many pixels one terminal cell is, as reported by the host.
 	// The zero value is a terminal that never said, which draws the alternative text:
 	// a picture scaled by an invented cell size is a picture the wrong shape.
@@ -57,10 +60,8 @@ const defaultMaxRows = 8
 // HeightForWidth is how many rows the picture takes at this width, or one row for the
 // alternative text where it cannot be shown.
 func (i Image) HeightForWidth(width int) int {
-	if _, rows, ok := i.fit(width); ok {
-		return rows
-	}
-	return 1
+	_, cells := i.fit(width)
+	return max(1, cells.Y)
 }
 
 // Draw keeps the room the picture needs, or writes the alternative text.
@@ -69,36 +70,30 @@ func (i Image) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	cols, rows, ok := i.fit(width)
-	if !ok {
+	placement, cells := i.fit(width)
+	if cells.Y == 0 {
 		Label{Text: i.Alt, Style: i.Theme.Muted, Align: i.Align, Ellipsis: i.Glyphs.Ellipsis}.Draw(v)
 		return
 	}
-	at := i.Align.Offset(width, cols)
-	// The identity is the picture's own: two frames that show the same picture in the
-	// same place say nothing between them, which is what a terminal wants to hear
-	// about something it is already showing.
-	placement := i.Placement
-	if placement == 0 {
-		placement = 1
-	}
-	id := uint64(i.Of.ID())<<32 | uint64(placement)
-	v.Paint(grid.Area(at, 0, cols, min(rows, height)), id, i.Of.Placement(placement))
+	at := i.Align.Offset(width, cells.X)
+	placement.Draw(v, grid.Area(at, 0, cells.X, min(cells.Y, height)))
 }
 
-func (i Image) fit(width int) (cols, rows int, ok bool) {
-	if !i.Of.Live() || i.Of.Size().X <= 0 || i.Of.Size().Y <= 0 || i.Cell.X <= 0 || i.Cell.Y <= 0 {
-		return 0, 0, false
+func (i Image) fit(width int) (graphics.ResourcePlacement, image.Point) {
+	if !i.Of.Live() || i.Cell.X <= 0 || i.Cell.Y <= 0 || width <= 0 {
+		return graphics.ResourcePlacement{}, image.Point{}
 	}
-	if width <= 0 {
-		return 0, 0, false
+	placement := i.Of.Placement(max(i.Placement, 1))
+	placement.Source = i.Source
+	bounds := placement.SourceBounds()
+	if bounds.Empty() {
+		return graphics.ResourcePlacement{}, image.Point{}
 	}
 	limit := i.MaxRows
 	if limit <= 0 {
 		limit = defaultMaxRows
 	}
-	box := graphics.Fit(i.Of.Size(), i.Cell, image.Pt(width, limit))
-	return box.X, box.Y, true
+	return placement, graphics.Fit(bounds.Size(), i.Cell, image.Pt(width, limit))
 }
 
 // Width is the cell width of the alternative text. It lets Image satisfy a

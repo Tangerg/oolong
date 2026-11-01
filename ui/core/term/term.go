@@ -351,8 +351,7 @@ func (t *Terminal) start(cfg Config) {
 		end = pr.end
 	}
 	t.wheelProfile = t.wheelProfile.Negotiated(t.identity())
-	sixel := t.said.hasAttrs && t.said.attributes.Has(sixelAttribute)
-	t.imageProtocol = t.imageProtocol.Negotiated(t.identity(), sixel)
+	t.imageProtocol = t.said.graphics(t.imageProtocol)
 
 	p := &pump{
 		raw: raw, end: end, resized: t.resized, stop: t.stop,
@@ -523,8 +522,7 @@ func (t *Terminal) Wheel() input.Wheel {
 
 // Graphics is the richest way this terminal will take an image.
 //
-// It is the environment and the terminal's own claims together, which is what it
-// takes: the environment names the terminal, and only the terminal names sixel. A
+// An answered direct-transfer probe takes precedence over terminal name hints. A
 // session that did not ask — see [Features.Probe] — gets the answer
 // [graphics.Detect] derives from its environment alone.
 func (t *Terminal) Graphics() graphics.Protocol {

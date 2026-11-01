@@ -1089,9 +1089,9 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 	// what it named was not a movement after all — which is what keeps this to one
 	// rule instead of a second binding for every direction.
 	if key.Mods&input.Shift != 0 {
-		unshifted := key.Chord()
+		unshifted := key
 		unshifted.Mods &^= input.Shift
-		if action, bound := e.keys().Action(unshifted); bound {
+		if action, bound := e.keys().ActionFor(unshifted); bound {
 			had := e.selecting
 			e.Anchor()
 			if e.move(action) {
@@ -1136,8 +1136,8 @@ func (e *Editor) typed(key input.Key) bool {
 		e.insert(key.Text, true)
 		return true
 	}
-	if key.Code == input.Character && key.Rune != 0 {
-		e.InsertRune(key.Rune)
+	if r := key.FallbackRune(); r != 0 {
+		e.InsertRune(r)
 		return true
 	}
 	return false

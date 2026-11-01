@@ -8,6 +8,12 @@ Run one command from the repository root:
 go run ./examples/hello
 ```
 
+To preview a PNG in a Kitty graphics terminal, press `1` for the full image, `2` or `3` for either half, and `q` to quit.
+
+```sh
+go run ./examples/image docs/public/brand/oolong-icon.png
+```
+
 Test the complete example module with:
 
 ```sh

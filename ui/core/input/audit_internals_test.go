@@ -50,7 +50,7 @@ func TestEscapeExpiryPreservesIncompleteCharacter(t *testing.T) {
 }
 
 func TestProtocolIdentity(t *testing.T) {
-	for _, source := range []string{"\x1b[113;17u", "\x1b[113;33u", "\x1b[<128;1;1M", "\x1b[1 A", "\x1b[0u"} {
+	for _, source := range []string{"\x1b[113;257u", "\x1b[<128;1;1M", "\x1b[1 A", "\x1b[0u"} {
 		var p Parser
 		if events := p.Feed([]byte(source)); len(events) != 0 {
 			t.Fatalf("%q: %#v", source, events)

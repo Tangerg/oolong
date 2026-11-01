@@ -145,7 +145,7 @@ func TestProbeAsksNothingUnlessAsked(t *testing.T) {
 	// And nothing was asked of it, which is the observable half: a session that did
 	// not ask must not be heard asking.
 	written := read(t, primary, 200*time.Millisecond)
-	for _, query := range []string{"\x1b]11;?", "\x1b[c"} {
+	for _, query := range []string{"\x1b]11;?", "\x1b_G", "\x1b[c"} {
 		if strings.Contains(written, query) {
 			t.Errorf("the terminal was asked %q anyway, in %q", query, written)
 		}
@@ -460,13 +460,11 @@ func TestGraphicsNeedsBothFacts(t *testing.T) {
 	}
 }
 
-func TestGraphicsPrefersAHandleOverAClaim(t *testing.T) {
-	// A protocol that lets an image be named is worth more than one that only draws
-	// pixels, however loudly the second is claimed.
+func TestGraphicsMarkerRulesOutAnUnansweredKittyQuery(t *testing.T) {
 	t.Setenv("TERM", "xterm-kitty")
 	tty, _ := answered(t, "\x1b[?62;4c")
-	if got := tty.Graphics(); got != graphics.Kitty {
-		t.Errorf("= %v, want kitty", got)
+	if got := tty.Graphics(); got != graphics.Sixel {
+		t.Errorf("filtered graphics query with a sixel claim: %v", got)
 	}
 }
 
@@ -485,8 +483,7 @@ func TestTheTerminalNamesItself(t *testing.T) {
 	}
 }
 
-// TestTheNameDecidesTheProtocol, whatever the environment left behind.
-func TestTheNameDecidesTheProtocol(t *testing.T) {
+func TestTerminalNameCannotOverrideAnUnansweredGraphicsQuery(t *testing.T) {
 	for _, k := range []string{"KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR", "LC_TERMINAL"} {
 		t.Setenv(k, "")
 	}
@@ -494,8 +491,8 @@ func TestTheNameDecidesTheProtocol(t *testing.T) {
 	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
 
 	tty, _ := answered(t, "\x1bP>|kitty(0.32.2)\x1b\\\x1b[?62c")
-	if got := tty.Graphics(); got != graphics.Kitty {
-		t.Errorf("graphics = %v, want kitty — the environment was stale", got)
+	if got := tty.Graphics(); got != graphics.None {
+		t.Errorf("name alone enabled graphics after the query went unanswered: %v", got)
 	}
 	if got := tty.Wheel(); got != (input.Wheel{Reports: 3, Rows: 3, Trackpad: 3}) {
 		t.Errorf("wheel = %+v, want kitty's", got)

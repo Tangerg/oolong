@@ -122,7 +122,10 @@ func (p *Parser) Pending() bool {
 func (p *Parser) Ambiguous() bool {
 	// A discarded OSC/DCS body still has framing. Silence in its payload
 	// grants no keyboard authority; only a trailing Escape is ambiguous.
-	return p.dropping == droppingParams || (!p.pasting && p.str == noString && len(p.buf) > 0 && p.buf[0] == esc)
+	if p.dropping == droppingParams {
+		return true
+	}
+	return !p.pasting && (p.str == noString || p.dropping == droppingString) && len(p.buf) > 0 && p.buf[0] == esc
 }
 
 // Expire resolves Escape ambiguity without declaring the byte stream finished.
@@ -180,6 +183,7 @@ func (p *Parser) advanceRunaway(final bool) (Event, bool) {
 	if final {
 		// EOF releases every discard. During a live stream only ambiguous
 		// input can reach this branch; an ordinary string payload has no timer.
+		p.abandonString()
 		p.dropping = droppingNothing
 		return nil, true
 	}
@@ -395,25 +399,11 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 		return p.decodeControl(b)
 	case second == oscIntro:
 		cmd, size := oscHead(b)
-		switch {
-		case size > 0:
-			p.beginString(oscString, cmd)
-			return size, nil, true
-		case size == 0:
-			return 0, nil, false
-		default:
-			return decodeAlt(b)
-		}
+		return p.introduceString(b, oscString, cmd, size)
 	case second == dcsIntro:
-		switch size := dcsHead(b); {
-		case size > 0:
-			p.beginString(dcsString, 0)
-			return size, nil, true
-		case size == 0:
-			return 0, nil, false
-		default:
-			return decodeAlt(b)
-		}
+		return p.introduceString(b, dcsString, 0, dcsHead(b))
+	case second == apcIntro:
+		return p.introduceString(b, apcString, 0, graphicsHead(b))
 	case second == 'O':
 		if len(b) < 3 {
 			return 0, nil, false
@@ -514,6 +504,9 @@ func controlEvent(ps params, final byte) Event {
 	}
 
 	switch final {
+	case 'R':
+		// CSI row;column R is a cursor-position reply. F3 uses SS3 R or CSI 13 ~.
+		return nil
 	case 'u':
 		return ps.extendedKey()
 	case '~':
@@ -553,8 +546,9 @@ func extendedKeyCode(num int) (Code, rune, bool) {
 	if code, ok := extendedKeys[num]; ok {
 		return code, 0, true
 	}
-	if num >= 57364 && num <= 57375 {
-		return F1 + Code(num-57364), 0, true
+	// Kitty numbers the function row and then the keypad consecutively.
+	if offset := num - kittyF1; offset >= 0 && offset <= int(KeypadBegin-F1) {
+		return F1 + Code(offset), 0, true
 	}
 	// The private use area is where a terminal puts keys that are not characters,
 	// and this function has already taken the ones it knows about.
@@ -564,6 +558,8 @@ func extendedKeyCode(num int) (Code, rune, bool) {
 	}
 	return Character, r, true
 }
+
+const kittyF1 = 57364
 
 var extendedKeys = map[int]Code{
 	8: Backspace, 127: Backspace, 57347: Backspace,
@@ -619,10 +615,10 @@ func commonPrefix(a, b []byte) int {
 	return n
 }
 
-// CSI and SS3 use the same final-byte identities for these keys.
+// SS3 final-byte identities are also used by CSI keys except for cursor-position replies.
 var finalKeys = map[byte]Code{
 	'A': Up, 'B': Down, 'C': Right, 'D': Left,
-	'H': Home, 'F': End,
+	'H': Home, 'F': End, 'E': KeypadBegin,
 	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
 }
 
@@ -636,16 +632,25 @@ var numberedKeys = map[int]Code{
 	11: F1, 12: F2, 13: F3, 14: F4, 15: F5,
 	17: F6, 18: F7, 19: F8, 20: F9, 21: F10,
 	23: F11, 24: F12,
+	kittyF1 + int(KeypadBegin-F1): KeypadBegin,
 }
 
-func (p *Parser) beginString(kind stringKind, cmd int) {
-	p.str, p.oscCmd, p.strBody = kind, cmd, nil
+func (p *Parser) introduceString(b []byte, kind stringKind, cmd, size int) (int, Event, bool) {
+	switch {
+	case size < 0:
+		return decodeAlt(b)
+	case size == 0:
+		return 0, nil, false
+	default:
+		p.str, p.oscCmd, p.strBody = kind, cmd, nil
+		return size, nil, true
+	}
 }
 
 // readString moves buffered bytes into the current string's body until its terminator
 // arrives, reporting the finished event when one does.
 //
-// Two byte sequences end it: the BEL older terminals use, and the ST that ECMA-48
+// OSC and DCS also accept BEL. Graphics replies require the ST that ECMA-48
 // specifies, which is an escape and a backslash. An escape followed by anything else
 // never legitimately appears inside one, so it is taken to have abandoned the string:
 // the body so far is dropped and the escape is read again on its own terms. That is
@@ -653,11 +658,12 @@ func (p *Parser) beginString(kind stringKind, cmd int) {
 // keystroke after it.
 func (p *Parser) readString() (Event, bool) {
 	for i := 0; i < len(p.buf); {
-		switch c := p.buf[i]; c {
-		case bel:
+		c := p.buf[i]
+		switch {
+		case c == bel && p.str != apcString:
 			p.take(i + 1)
 			return p.endString(), true
-		case esc:
+		case c == esc:
 			if i+1 >= len(p.buf) {
 				// What is left could still become ST. Keep the escape.
 				p.take(i)
@@ -679,7 +685,7 @@ func (p *Parser) readString() (Event, bool) {
 				// sequence is: a flood of keystrokes is a worse answer to a malformed
 				// sequence than silence, and one a hostile terminal could aim.
 				p.take(i)
-				p.abandonString()
+				p.strBody = nil
 				p.dropping = droppingString
 				return nil, true
 			}
@@ -698,10 +704,14 @@ func (p *Parser) endString() Event {
 	body := strings.ToValidUTF8(string(p.strBody), "�")
 	kind, cmd := p.str, p.oscCmd
 	p.abandonString()
-	if kind == dcsString {
+	switch kind {
+	case apcString:
+		return APC{Body: body}
+	case dcsString:
 		return DCS{Body: body}
+	default:
+		return OSC{Command: cmd, Params: body}
 	}
-	return OSC{Command: cmd, Params: body}
 }
 
 func (p *Parser) abandonString() {
@@ -710,12 +720,13 @@ func (p *Parser) abandonString() {
 
 func (p *Parser) skipString() bool {
 	for i := range len(p.buf) {
-		switch p.buf[i] {
-		case bel:
+		switch {
+		case p.buf[i] == bel && p.str != apcString:
 			p.take(i + 1)
+			p.abandonString()
 			p.dropping = droppingNothing
 			return true
-		case esc:
+		case p.buf[i] == esc:
 			if i+1 >= len(p.buf) {
 				p.take(i)
 				return false
@@ -727,6 +738,7 @@ func (p *Parser) skipString() bool {
 				// rather than to this.
 				p.take(i)
 			}
+			p.abandonString()
 			p.dropping = droppingNothing
 			return true
 		}

@@ -174,14 +174,8 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 	case ansi.Control:
 		return s.control(piece)
 	case ansi.String:
-		if piece.Final == ']' {
-			command, _, _ := strings.Cut(piece.Body, ";")
-			// Title, working directory, hyperlink, notifications, palette queries
-			// and clipboard do not paint cells. Inline images also use OSC.
-			switch command {
-			case "0", "1", "2", "7", "8", "9", "10", "11", "52":
-				return nil
-			}
+		if nonPaintingString(piece) {
+			return nil
 		}
 	case ansi.Other:
 		// The ASCII designation preserves the text model. DEC line drawing and
@@ -192,6 +186,44 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 	case ansi.Malformed:
 	}
 	return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
+}
+
+func nonPaintingString(piece ansi.Piece) bool {
+	switch piece.Final {
+	case '_':
+		return kittyQuery(piece.Body)
+	case ']':
+		command, _, _ := strings.Cut(piece.Body, ";")
+		switch command {
+		case "0", "1", "2", "7", "8", "9", "10", "11", "52":
+			return true
+		}
+	}
+	return false
+}
+
+// A graphics capability query leaves the cell grid untouched. Opaque painters
+// and commands with conflicting actions remain outside this assertion model.
+func kittyQuery(body string) bool {
+	body, ok := strings.CutPrefix(body, "G")
+	controls, _, payload := strings.Cut(body, ";")
+	if !ok || !payload {
+		return false
+	}
+	query := false
+	for field := range strings.SplitSeq(controls, ",") {
+		key, value, valid := strings.Cut(field, "=")
+		if !valid || len(key) != 1 || value == "" {
+			return false
+		}
+		if key == "a" {
+			if query || value != "q" {
+				return false
+			}
+			query = true
+		}
+	}
+	return query
 }
 
 func (s *Screen) control(piece ansi.Piece) error {

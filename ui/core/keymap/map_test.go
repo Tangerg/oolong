@@ -78,6 +78,8 @@ func TestAChordSurvivesBeingWrittenDownAndReadBack(t *testing.T) {
 		{Code: input.PageDown},
 		{Code: input.F1},
 		{Code: input.F12},
+		(input.Meta | input.Hyper).With(input.F35),
+		input.Shift.With(input.KeypadBegin),
 		input.Ctrl.With(input.F5),
 		input.Ctrl.Rune('w'),
 		input.Alt.Rune('b'),
@@ -102,7 +104,7 @@ func TestAChordSurvivesBeingWrittenDownAndReadBack(t *testing.T) {
 func TestWhatIsNotAKeystrokeIsNotReadAsOne(t *testing.T) {
 	// Guessing would be worse than refusing: "contrl+a" is a typo in somebody's
 	// configuration, and reading it as the letter c binds a key they never asked for.
-	for _, s := range []string{"", "ctrl+", "contrl+a", "unknown", "char", "f13", "f0", "ab"} {
+	for _, s := range []string{"", "ctrl+", "contrl+a", "unknown", "char", "f36", "f0", "ab"} {
 		if chord, ok := input.ParseChord(s); ok {
 			t.Errorf("%q was read as %+v, want it refused", s, chord)
 		}
@@ -641,6 +643,63 @@ func TestKeybindingTextPreservesWhitespaceAndCannotEmitTerminalControls(t *testi
 	for _, invalid := range []input.Chord{{Code: input.Enter, Rune: 'z'}, {Mods: 255, Rune: 'x'}, {Rune: 0xd800}} {
 		if _, err := invalid.MarshalText(); err == nil {
 			t.Fatalf("an unrepresentable chord serialized successfully: %#v", invalid)
+		}
+	}
+}
+
+func TestReportedAlternateKeysResolveOneBindingPerStroke(t *testing.T) {
+	var parser input.Parser
+	events := parser.Feed([]byte("\x1b[61:43:93;6u"))
+	if len(events) != 1 {
+		t.Fatal(events)
+	}
+	key := events[0].(input.Key)
+	local := (input.Shift | input.Ctrl).Rune('=')
+	shifted := input.Ctrl.Rune('+')
+	physical := (input.Shift | input.Ctrl).Rune(']')
+	var bindings keymap.Map
+	var matcher keymap.Matcher
+	for _, candidate := range []input.Chord{physical, shifted, local} {
+		action := keymap.Action(candidate.String())
+		bindings.Bind(action, candidate)
+		if got, ok := bindings.ActionFor(key); !ok || got != action {
+			t.Fatalf("lookup with %v: got %q, want %q", candidate, got, action)
+		}
+		if got, ok := match(&matcher, &bindings, key); !ok || got != action {
+			t.Fatalf("dispatch with %v: got %q, want %q", candidate, got, action)
+		}
+	}
+	key.Transition = input.Release
+	if got, ok := bindings.ActionFor(key); ok || got != "" {
+		t.Fatalf("release matched %q", got)
+	}
+
+	var sequence keymap.Map
+	sequence.Bind("two strokes", input.Ctrl.Rune('w'), shifted)
+	first := parser.Feed([]byte("\x1b[1094::119;5u"))[0].(input.Key)
+	if _, handled := match(&matcher, &sequence, first); !handled || matcher.Keys().String() != "ctrl+w" {
+		t.Fatalf("physical prefix: %v", matcher.Keys())
+	}
+	key.Transition = input.Repeat
+	if got, handled := match(&matcher, &sequence, key); !handled || got != "two strokes" {
+		t.Fatalf("shifted continuation: %q, %t", got, handled)
+	}
+}
+
+func TestKeypadShortcutsPreferDedicatedBindings(t *testing.T) {
+	var bindings keymap.Map
+	key := input.Key{Code: input.KeypadEnter, Mods: input.Ctrl}
+	for _, code := range []input.Code{input.Enter, input.KeypadEnter} {
+		want := keymap.Action(code.String())
+		bindings.Bind(want, input.Ctrl.With(code))
+		if got, ok := bindings.ActionFor(key); !ok || got != want {
+			t.Fatalf("most specific binding = %q; want %q", got, want)
+		}
+	}
+	for code := input.Keypad0; code <= input.KeypadBegin; code++ {
+		chord := input.Hyper.With(code)
+		if got, ok := input.ParseChord(chord.String()); !ok || got != chord {
+			t.Fatalf("keypad shortcut %v did not round-trip", chord)
 		}
 	}
 }

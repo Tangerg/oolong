@@ -39,6 +39,31 @@ func newTestWriter(t *testing.T, dst io.Writer) *term.Writer {
 	return w
 }
 
+type batchDestination struct {
+	ready <-chan struct{}
+	dst   io.Writer
+}
+
+func (b batchDestination) Write(frame []byte) (int, error) {
+	<-b.ready
+	return b.dst.Write(frame)
+}
+
+// Faults must occur after admission when a test checks the fate of already
+// accepted frames. Otherwise a fast destination can correctly refuse a later Queue.
+func queueBeforeDelivery(t *testing.T, dst io.Writer, frames ...string) *term.Writer {
+	t.Helper()
+	ready := make(chan struct{})
+	defer close(ready)
+	w := newTestWriter(t, batchDestination{ready: ready, dst: dst})
+	for _, frame := range frames {
+		if _, err := w.Queue([]byte(frame)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return w
+}
+
 // blocker holds writes until it is released, standing in for a terminal that has
 // stopped accepting bytes.
 type blocker struct {
@@ -225,13 +250,7 @@ func TestChangesCoalesce(t *testing.T) {
 
 func TestAShortWriteWithoutErrorFailsAndStopsFurtherWrites(t *testing.T) {
 	dst := &brokenShort{}
-	w := newTestWriter(t, dst)
-	if _, err := w.Queue([]byte("hello")); err != nil {
-		t.Error(err)
-	}
-	if _, err := w.Queue([]byte("later")); err != nil {
-		t.Error(err)
-	}
+	w := queueBeforeDelivery(t, dst, "hello", "later")
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("never drained: %v", err)
 	}
@@ -248,16 +267,7 @@ func TestAShortWriteWithoutErrorFailsAndStopsFurtherWrites(t *testing.T) {
 
 func TestAFailedWriteIsReportedAndStopsFurtherWrites(t *testing.T) {
 	dst := &failing{ok: 1}
-	w := newTestWriter(t, dst)
-	if _, err := w.Queue([]byte("first")); err != nil {
-		t.Error(err)
-	}
-	if _, err := w.Queue([]byte("second")); err != nil {
-		t.Error(err)
-	}
-	if _, err := w.Queue([]byte("third")); err != nil {
-		t.Error(err)
-	}
+	w := queueBeforeDelivery(t, dst, "first", "second", "third")
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("failed frames never settled: %v", err)
 	}
@@ -385,13 +395,7 @@ func TestDrainCountsFailedFramesAsAccountedFor(t *testing.T) {
 
 func TestAPartialWriteFailsTheFrameAndStopsLaterWrites(t *testing.T) {
 	dst := &partial{}
-	w := newTestWriter(t, dst)
-	if _, err := w.Queue([]byte("first frame")); err != nil {
-		t.Error(err)
-	}
-	if _, err := w.Queue([]byte("second frame")); err != nil {
-		t.Error(err)
-	}
+	w := queueBeforeDelivery(t, dst, "first frame", "second frame")
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("partially failed frames were not accounted for: %v", err)
 	}
@@ -531,13 +535,7 @@ func (d *closedDestination) Write([]byte) (int, error) {
 
 func TestDestinationClosureStopsLaterWrites(t *testing.T) {
 	dst := &closedDestination{}
-	w := newTestWriter(t, dst)
-	if _, err := w.Queue([]byte("first")); err != nil {
-		t.Error(err)
-	}
-	if _, err := w.Queue([]byte("second")); err != nil {
-		t.Error(err)
-	}
+	w := queueBeforeDelivery(t, dst, "first", "second")
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatal(err)
 	}

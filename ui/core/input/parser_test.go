@@ -129,9 +129,19 @@ func TestExtendedKeyReports(t *testing.T) {
 		{"release", "\x1b[97;1:3u", input.Key{Code: input.Character, Rune: 'a', Transition: input.Release}},
 		{"named key", "\x1b[57352u", input.Key{Code: input.Up}},
 		{"function key", "\x1b[57364u", input.Key{Code: input.F1}},
+		{"keypad digit", "\x1b[57400;1;49u", input.Key{Code: input.Keypad1, Text: "1"}},
+		{"keypad decimal", "\x1b[57409;1;44u", input.Key{Code: input.KeypadDecimal, Text: ","}},
+		{"keypad enter", "\x1b[57414u", input.Key{Code: input.KeypadEnter}},
+		{"keypad left", "\x1b[57417u", input.Key{Code: input.KeypadLeft}},
+		{"keypad begin", "\x1b[1;2E", input.Key{Code: input.KeypadBegin, Mods: input.Shift}},
+		{"numbered keypad begin", "\x1b[57427~", input.Key{Code: input.KeypadBegin}},
+		{"legacy F3", "\x1bOR", input.Key{Code: input.F3}},
+		{"modified F3", "\x1b[13;5~", input.Key{Code: input.F3, Mods: input.Ctrl}},
 		{"super modifier", "\x1b[97;9u", input.Key{Code: input.Character, Rune: 'a', Mods: input.Super}},
 		{"associated text", "\x1b[97;1;98u", input.Key{Code: input.Character, Rune: 'a', Text: "b"}},
-		{"alternate codes accepted", "\x1b[97:65:97u", input.Key{Code: input.Character, Rune: 'a'}},
+		{"alternate keys", "\x1b[97:65:113;2u", input.Key{Rune: 'a', ShiftedRune: 'A', BaseRune: 'q', Mods: input.Shift}},
+		{"base layout only", "\x1b[1094::119;5u", input.Key{Rune: 'ц', BaseRune: 'w', Mods: input.Ctrl}},
+		{"extended function keys", "\x1b[57398;49:2u", input.Key{Code: input.F35, Mods: input.Hyper | input.Meta, Transition: input.Repeat}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := one(t, tc.in).(input.Key); got != tc.want {
@@ -150,9 +160,20 @@ func TestExtendedKeyReportsThatMustBeRefused(t *testing.T) {
 		"\x1b[97;99999999999u", // a modifier parameter beyond any encoding
 		"\x1b[97;1:9u",         // an event type this protocol does not define
 		"\x1b[97;1:2:3u",       // too many subparameters
-		"\x1b[57400u",          // a private-use number this program does not know
+		"\x1b[57455u",          // a private-use number this program does not know
 		"\x1b[97;1;2;3u",       // more parameter groups than the report has
 		"\x1b[97;1;1114112u",   // associated text outside Unicode
+		"\x1b[97:65u",          // shifted alternate without Shift
+		"\x1b[97::55296;5u",    // surrogate in base layout field
+		"\x1b[0::97;;98u",      // text-only report inventing a physical key
+		"\x1b[97;;98:27u",      // associated text containing ESC
+		"\x1b[97;;98:0u",       // associated text containing NUL
+		"\x1b[97;;127u",        // associated text containing DEL
+		"\x1b[97;;155u",        // associated text containing C1 CSI
+		"\x1b[1;5R",            // a cursor-position report from row 1 is not Ctrl+F3
+		"\x1b[?u",              // a keyboard query, not a flags response
+		"\x1b[?1;2u",           // flags must be one decimal integer
+		"\x1b[?999999999u",     // malformed flags must not indicate support
 	} {
 		if events := feed(in); len(events) != 0 {
 			t.Errorf("%q produced %+v, want nothing", in, events)

@@ -25,6 +25,7 @@ Run these commands from the repository root. The table follows directories conta
 | `files` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/files) | `go run ./examples/files` |
 | `form` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/form) | `go run ./examples/form` |
 | `hello` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/hello) | `go run ./examples/hello` |
+| `image` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/image) | `go run ./examples/image` |
 | `keys` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/keys) | `go run ./examples/keys` |
 | `latex` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/latex) | `go run ./examples/latex` |
 | `markdown` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/markdown) | `go run ./examples/markdown` |

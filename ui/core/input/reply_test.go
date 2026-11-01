@@ -1,6 +1,8 @@
 package input_test
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,5 +180,45 @@ func TestBothStringsShareTheirBound(t *testing.T) {
 		if got := p.Feed([]byte("\x1b\\z")); len(got) != 1 {
 			t.Errorf("%q: after the terminator, got %+v", intro, got)
 		}
+	}
+}
+
+func TestGraphicsReplyIsOneEventAcrossReadBoundaries(t *testing.T) {
+	const body = "Gi=31,p=7;ENOENT:missing image"
+	const sequence = "\x1b_" + body + "\x1b\\"
+	for split := 0; split <= len(sequence); split++ {
+		var p input.Parser
+		events := p.Feed([]byte(sequence[:split]))
+		events = append(events, p.Feed([]byte(sequence[split:]))...)
+		if !slices.Equal(events, []input.Event{input.APC{Body: body}}) || p.Pending() {
+			t.Fatalf("split %d: %#v", split, events)
+		}
+		if input.ByteSize(events[0]) <= len(body) {
+			t.Fatal("graphics reply payload was not charged")
+		}
+	}
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b_Gi=31;OK\a")); len(events) != 0 || p.Ambiguous() {
+		t.Fatalf("BEL ended a graphics reply: %#v", events)
+	}
+	if events := p.Feed([]byte("\x1b[A")); !slices.Equal(events, []input.Event{input.Key{Code: input.Up}}) {
+		t.Fatalf("interrupted reply swallowed the next key: %#v", events)
+	}
+	if events := p.Feed([]byte("\x1b_Gx")); !slices.Equal(events, []input.Event{
+		input.Key{Code: input.Character, Rune: '_', Mods: input.Alt},
+		input.Key{Code: input.Character, Rune: 'G'},
+		input.Key{Code: input.Character, Rune: 'x'},
+	}) {
+		t.Fatalf("unrelated Alt+_ input: %#v", events)
+	}
+}
+
+func TestOversizedGraphicsReplyIsDiscardedThroughST(t *testing.T) {
+	var p input.Parser
+	if got := p.Feed([]byte("\x1b_Gi=31;" + strings.Repeat("x", 1<<20) + "\abogus")); len(got) != 0 {
+		t.Fatalf("oversized reply produced input: %d events", len(got))
+	}
+	if got := p.Feed([]byte("\x1b\\a")); !slices.Equal(got, []input.Event{input.Key{Code: input.Character, Rune: 'a'}}) || p.Pending() {
+		t.Fatalf("input after oversized reply: %#v", got)
 	}
 }

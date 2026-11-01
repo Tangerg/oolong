@@ -17,6 +17,10 @@ const (
 	// message would cost Alt+Shift+X and Alt+^ for sequences nothing here asks for.
 	oscIntro = ']'
 	dcsIntro = 'P'
+	apcIntro = '_'
+
+	// The image-id prefix distinguishes graphics replies from a literal Alt+_.
+	graphicsReplyHead = "Gi="
 
 	// maxOSCCommand bounds how many digits a command number may have. The longest in
 	// use is four — iTerm2's 1337 — so five is room to spare and a bound all the same.
@@ -38,6 +42,7 @@ const (
 	noString stringKind = iota
 	oscString
 	dcsString
+	apcString
 )
 
 // oscHead reads the command number at the start of an operating system command.
@@ -104,4 +109,17 @@ func dcsHead(b []byte) (size int) {
 	default:
 		return -1
 	}
+}
+
+func graphicsHead(b []byte) int {
+	const introducer = 2
+	after := b[introducer:]
+	n := min(len(after), len(graphicsReplyHead))
+	if string(after[:n]) != graphicsReplyHead[:n] {
+		return -1
+	}
+	if n < len(graphicsReplyHead) {
+		return 0
+	}
+	return introducer
 }

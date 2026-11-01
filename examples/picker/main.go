@@ -126,24 +126,27 @@ func (p *picker) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	switch key.Code {
-	case input.Enter:
-		p.pick()
-		return true
-	case input.Esc:
-		p.runtime.Quit()
-		return true
-	case input.Up:
-		return p.list.Do(base.SelectPrev)
-	case input.Down:
-		return p.list.Do(base.SelectNext)
-	case input.PageUp:
-		return p.list.Do(base.SelectPageUp)
-	case input.PageDown:
-		return p.list.Do(base.SelectPageDown)
-	default:
-		return false
+	for chord := range key.ShortcutChords() {
+		switch chord.Code {
+		case input.Enter:
+			p.pick()
+			return true
+		case input.Esc:
+			p.runtime.Quit()
+			return true
+		case input.Up:
+			return p.list.Do(base.SelectPrev)
+		case input.Down:
+			return p.list.Do(base.SelectNext)
+		case input.PageUp:
+			return p.list.Do(base.SelectPageUp)
+		case input.PageDown:
+			return p.list.Do(base.SelectPageDown)
+		default:
+			continue
+		}
 	}
+	return false
 }
 
 func (p *picker) pick() {

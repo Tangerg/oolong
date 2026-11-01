@@ -194,7 +194,7 @@ func (a *agent) Handle(event input.Event) bool {
 	if a.completion.Handle(event) {
 		return true
 	}
-	if action, _ := a.keys.Action(key.Chord()); action == sendPrompt {
+	if action, _ := a.keys.ActionFor(key); action == sendPrompt {
 		a.submit()
 		return true
 	}
@@ -204,7 +204,7 @@ func (a *agent) Handle(event input.Event) bool {
 // The root and the review pane opt into the same session commands. Other
 // root shortcuts must not run behind an open review.
 func (a *agent) sessionKey(key input.Key) bool {
-	action, _ := a.keys.Action(key.Chord())
+	action, _ := a.keys.ActionFor(key)
 	switch action {
 	case quitAgent:
 		a.runtime.Quit()

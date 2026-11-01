@@ -1,12 +1,18 @@
 package term
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
+	"image/png"
 	"io"
+	"strconv"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
@@ -146,5 +152,58 @@ func TestProbeCannotAttemptAnUnboundedWrite(t *testing.T) {
 	pr.run()
 	if out.attempted {
 		t.Fatal("optional probe wrote after the transport refused its write deadline")
+	}
+}
+
+type answerWriter func(string)
+
+func (answerWriter) SetWriteDeadline(time.Time) error { return nil }
+
+func (w answerWriter) WriteString(query string) (int, error) {
+	w(query)
+	return len(query), nil
+}
+
+func TestDirectGraphicsQueryOwnsTheStartupDecision(t *testing.T) {
+	pixel, err := base64.StdEncoding.DecodeString(queryPixelPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(pixel))
+	if err != nil || img.Bounds().Dx() != 1 || img.Bounds().Dy() != 1 {
+		t.Fatal("invalid 1×1 probe PNG:", err)
+	}
+	const marker = "\x1b[?62;4c"
+	for _, tc := range []struct {
+		name, reply string
+		hint, want  graphics.Protocol
+		early       int
+	}{
+		{"direct OK", "KEY;OK" + marker, graphics.None, graphics.Kitty, 0},
+		{"direct error", "KEY;EINVAL:unsupported", graphics.Kitty, graphics.None, 0},
+		{"missing before DA", marker, graphics.Kitty, graphics.Sixel, 0},
+		{"unanswered exchange", "", graphics.Kitty, graphics.Kitty, 0},
+		{"wrong identity", "other;OK" + marker, graphics.None, graphics.Sixel, 1},
+		{"late answer", marker + "KEY;OK", graphics.None, graphics.Sixel, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := make(chan readResult, 1)
+			w := answerWriter(func(query string) {
+				_, tail, ok := strings.Cut(query, "\x1b_Gi=")
+				id, suffix, found := strings.Cut(tail, ",")
+				value, err := strconv.ParseUint(id, 10, 32)
+				if !ok || !found || err != nil || value == 0 || suffix != "a=q,t=d,f=100;"+queryPixelPNG+"\x1b\\\x1b[c" {
+					t.Fatalf("unexpected query %q", query)
+				}
+				reply := strings.NewReplacer("KEY;OK", "\x1b_Gi="+id+";OK\x1b\\",
+					"other;OK", "\x1b_Gi=0;OK\x1b\\", "KEY;EINVAL:unsupported", "\x1b_Gi="+id+";EINVAL:unsupported\x1b\\").Replace(tc.reply)
+				raw <- readResult{data: []byte(reply), err: io.EOF}
+			})
+			p := probe{raw: raw, out: w, stream: &input.Stream{}, deadline: time.Now().Add(time.Second)}
+			got := p.run()
+			if actual := got.graphics(tc.hint); actual != tc.want || len(p.early) != tc.early {
+				t.Fatalf("graphics = %v, early = %#v, want %v and %d events", actual, p.early, tc.want, tc.early)
+			}
+		})
 	}
 }

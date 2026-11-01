@@ -79,6 +79,9 @@ func compatibleKeyboard(
 	lookup func(string) (string, bool),
 ) input.KeyboardFeatures {
 	features &= input.KeyboardAll
+	if features.Has(input.KeyboardReportText) {
+		features |= input.KeyboardReportAllAsEscapes
+	}
 	if features == 0 || lookup == nil {
 		return features
 	}

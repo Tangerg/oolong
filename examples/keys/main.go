@@ -26,7 +26,7 @@ const (
 )
 
 func main() {
-	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: newKeys})
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Keyboard: term.KeyboardCompatible}, Build: newKeys})
 	if err == nil {
 		err = app.Run(context.Background())
 	}

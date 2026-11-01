@@ -197,7 +197,7 @@ func (c *chat) Handle(event input.Event) bool {
 	if c.quitKey(key) {
 		return true
 	}
-	action, _ := c.keys.Action(key.Chord())
+	action, _ := c.keys.ActionFor(key)
 	switch action {
 	case send:
 		c.requestApproval()
@@ -211,7 +211,7 @@ func (c *chat) Handle(event input.Event) bool {
 }
 
 func (c *chat) quitKey(key input.Key) bool {
-	action, _ := c.keys.Action(key.Chord())
+	action, _ := c.keys.ActionFor(key)
 	if action != quit {
 		return false
 	}

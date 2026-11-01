@@ -232,6 +232,19 @@ func (m *Map) Action(keys ...input.Chord) (Action, bool) {
 	return node.action, true
 }
 
+// ActionFor resolves a single press or repeat using the same layout-aware
+// precedence as Matcher.Handle. It never consumes a sequence prefix.
+func (m *Map) ActionFor(key input.Key) (Action, bool) {
+	if !key.Down() {
+		return "", false
+	}
+	node, _ := m.matchKey(nil, key)
+	if node == nil || node.action == "" {
+		return "", false
+	}
+	return node.action, true
+}
+
 // Handle advances the matcher with key and runs a completed action through do.
 // Matched reports whether this key belonged to bindings. Handled reports the
 // callback's answer, except that an unfinished prefix is always handled.
@@ -254,19 +267,18 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 		return true, true
 	}
 
-	chord := key.Chord()
-	prefix := slices.Clone(m.keys)
-	node, ok := bindings.follow(append(prefix, chord))
-	if !ok && len(prefix) > 0 {
+	prefix := m.keys
+	node, chord := bindings.matchKey(prefix, key)
+	if node == nil && len(prefix) > 0 {
 		// The key proves the longer binding will not arrive. Settle an exact prefix,
 		// if there was one, then give this key a fresh reading of its own.
 		if m.resolveExact() {
 			return true, true
 		}
 		prefix = nil
-		node, ok = bindings.follow(input.Keys{chord})
+		node, chord = bindings.matchKey(nil, key)
 	}
-	if !ok {
+	if node == nil {
 		m.Clear()
 		return false, false
 	}
@@ -363,8 +375,20 @@ type trieNode struct {
 	action Action
 }
 
+func (m *Map) matchKey(prefix input.Keys, key input.Key) (*trieNode, input.Chord) {
+	parent, ok := m.follow(prefix)
+	if ok {
+		for chord := range key.ShortcutChords() {
+			if child := parent.next[chord]; child != nil {
+				return child, chord
+			}
+		}
+	}
+	return nil, input.Chord{}
+}
+
 func (m *Map) follow(keys input.Keys) (*trieNode, bool) {
-	if m == nil || m.root == nil || len(keys) == 0 {
+	if m == nil || m.root == nil {
 		return nil, false
 	}
 	node := m.root

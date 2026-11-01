@@ -3,6 +3,7 @@ package input
 import (
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,6 +21,84 @@ type Chord struct {
 	Code Code
 	Rune rune
 	Mods Mods
+}
+
+// A dedicated keypad binding takes precedence over the corresponding ordinary
+// key. Keypad Begin has no ordinary equivalent.
+var keypadKeys = map[Code]struct {
+	name       string
+	equivalent Chord
+}{
+	Keypad0:         {"kp-0", Chord{Rune: '0'}},
+	Keypad1:         {"kp-1", Chord{Rune: '1'}},
+	Keypad2:         {"kp-2", Chord{Rune: '2'}},
+	Keypad3:         {"kp-3", Chord{Rune: '3'}},
+	Keypad4:         {"kp-4", Chord{Rune: '4'}},
+	Keypad5:         {"kp-5", Chord{Rune: '5'}},
+	Keypad6:         {"kp-6", Chord{Rune: '6'}},
+	Keypad7:         {"kp-7", Chord{Rune: '7'}},
+	Keypad8:         {"kp-8", Chord{Rune: '8'}},
+	Keypad9:         {"kp-9", Chord{Rune: '9'}},
+	KeypadDecimal:   {"kp-decimal", Chord{Rune: '.'}},
+	KeypadDivide:    {"kp-divide", Chord{Rune: '/'}},
+	KeypadMultiply:  {"kp-multiply", Chord{Rune: '*'}},
+	KeypadSubtract:  {"kp-subtract", Chord{Rune: '-'}},
+	KeypadAdd:       {"kp-add", Chord{Rune: '+'}},
+	KeypadEnter:     {"kp-enter", Chord{Code: Enter}},
+	KeypadEqual:     {"kp-equal", Chord{Rune: '='}},
+	KeypadSeparator: {"kp-separator", Chord{Rune: ','}},
+	KeypadLeft:      {"kp-left", Chord{Code: Left}},
+	KeypadRight:     {"kp-right", Chord{Code: Right}},
+	KeypadUp:        {"kp-up", Chord{Code: Up}},
+	KeypadDown:      {"kp-down", Chord{Code: Down}},
+	KeypadPageUp:    {"kp-pageup", Chord{Code: PageUp}},
+	KeypadPageDown:  {"kp-pagedown", Chord{Code: PageDown}},
+	KeypadHome:      {"kp-home", Chord{Code: Home}},
+	KeypadEnd:       {"kp-end", Chord{Code: End}},
+	KeypadInsert:    {"kp-insert", Chord{Code: Insert}},
+	KeypadDelete:    {"kp-delete", Chord{Code: Delete}},
+	KeypadBegin:     {"kp-begin", Chord{}},
+}
+
+// ShortcutChords yields binding candidates in priority order. A local binding wins
+// over a shifted symbol and the base layout. A dedicated keypad key wins over its
+// ordinary equivalent. Text-only events have no shortcut identity.
+func (k Key) ShortcutChords() iter.Seq[Chord] {
+	return func(yield func(Chord) bool) {
+		if k.Code == Character && k.Rune == 0 {
+			return
+		}
+		if !yield(k.Chord()) {
+			return
+		}
+		if k.Code != Character {
+			equivalent := keypadKeys[k.Code].equivalent
+			if equivalent != (Chord{}) {
+				equivalent.Mods = k.Mods
+				yield(equivalent)
+			}
+			return
+		}
+		if k.ShiftedRune != 0 && k.Mods.Has(Shift) && !yield((k.Mods &^ Shift).Rune(k.ShiftedRune)) {
+			return
+		}
+		if k.BaseRune != 0 && k.BaseRune != k.Rune {
+			yield(k.Mods.Rune(k.BaseRune))
+		}
+	}
+}
+
+// FallbackRune is the character to use when the terminal provided no associated
+// text. Callers decide whether the modifiers and transition allow insertion.
+// A base-layout shortcut identity never supplies text.
+func (k Key) FallbackRune() rune {
+	if k.Code != Character {
+		return keypadKeys[k.Code].equivalent.Rune
+	}
+	if k.ShiftedRune != 0 && k.Mods.Has(Shift) {
+		return k.ShiftedRune
+	}
+	return k.Rune
 }
 
 // String writes the chord the way a keybinding is conventionally written, and the way
@@ -138,7 +217,7 @@ func codeNamed(name string) (Code, bool) {
 		return code, true
 	}
 	if rest, ok := strings.CutPrefix(name, "f"); ok {
-		if n, err := strconv.Atoi(rest); err == nil && n >= 1 && n <= 12 {
+		if n, err := strconv.Atoi(rest); err == nil && n >= 1 && n <= int(F35-F1)+1 {
 			return F1 + Code(n-1), true
 		}
 	}
@@ -152,7 +231,10 @@ func codeNamed(name string) (Code, bool) {
 // key that produced text is called — and a name that parsed to it would be a chord
 // with no character in it.
 var codesByName = func() map[string]Code {
-	out := make(map[string]Code, len(codeNames))
+	out := make(map[string]Code, len(codeNames)+len(keypadKeys))
+	for code, key := range keypadKeys {
+		out[key.name] = code
+	}
 	for code, name := range codeNames {
 		if code == Character {
 			continue

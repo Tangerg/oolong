@@ -45,3 +45,41 @@ func TestEditorSelectionWaitsForItsPressedButton(t *testing.T) {
 		})
 	}
 }
+
+func TestEditorUsesKittyTextAndLayoutShortcutsIndependently(t *testing.T) {
+	var editor base.Editor
+	var parser input.Parser
+	send := func(wire string) bool {
+		t.Helper()
+		events := parser.Feed([]byte(wire))
+		if len(events) != 1 {
+			t.Fatalf("%q: %v", wire, events)
+		}
+		return editor.Handle(events[0])
+	}
+	if !send("\x1b[50:64;2u") || !send("\x1b[0;;101:769u") || !send("\x1b[97:65;2;196u") || editor.Text() != "@e\u0301Ä" {
+		t.Fatalf("reported text and shifted fallback: %q", editor.Text())
+	}
+	if send("\x1b[97::122;5:3u") || editor.Text() != "@e\u0301Ä" {
+		t.Fatalf("release changed the editor: %q", editor.Text())
+	}
+	if !send("\x1b[1094::119;5u") || editor.Text() == "@e\u0301Ä" {
+		t.Fatalf("Ctrl+w on a Cyrillic layout did not edit the document: %q", editor.Text())
+	}
+}
+
+func TestKeypadTextAndNavigationReachTheEditor(t *testing.T) {
+	var editor base.Editor
+	var parser input.Parser
+	// A localized decimal, a digit with no associated text, and a physical
+	// keypad arrow exercise three distinct projections of the same wire identity.
+	events := parser.Feed([]byte("\x1b[57400;1;49u\x1b[57409;1;44u\x1b[57401u\x1b[57417u\x1b[57402u"))
+	for _, event := range events {
+		if !editor.Handle(event) {
+			t.Fatalf("unhandled keypad event %v", event)
+		}
+	}
+	if got := editor.Text(); got != "1,32" {
+		t.Fatalf("keypad editing produced %q", got)
+	}
+}
