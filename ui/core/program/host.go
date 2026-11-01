@@ -13,7 +13,7 @@ import (
 
 // EventSource is one ordered input stream and its terminal result.
 //
-// Events closes after the last event. Once it has closed, Err reports why the
+// Events supplies immutable input values, not pointers or wrappers. It closes after the last event. Once it has closed, Err reports why the
 // stream ended: nil means a clean end of input, while a non-nil error is the
 // transport failure that ended it. Err must not report end-of-file as a failure.
 //

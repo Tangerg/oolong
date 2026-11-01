@@ -135,9 +135,13 @@ type CapturedInput struct {
 // Input returns the input that arrived with this geometry.
 func (c CapturedInput) Input() input.Event { return c.input }
 
-// CaptureInput may be called by the input reader goroutine. All other root
+// CaptureInput accepts immutable terminal values; invalid inputs return a zero capture.
+// It may be called by the input reader goroutine. All other root
 // operations, including HandleInput, belong to the interface owner sequence.
 func (r *Root) CaptureInput(event input.Event) CapturedInput {
+	if input.ByteSize(event) == 0 {
+		return CapturedInput{}
+	}
 	if r == nil {
 		return CapturedInput{input: event}
 	}

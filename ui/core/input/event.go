@@ -20,10 +20,31 @@ import (
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 )
 
-// Event is one thing the terminal reported. The set is closed by the unexported
-// method: a consumer's switch over events is exhaustive by construction.
+// Event is one terminal report. A host supplies the concrete value types in this
+// package. Pointers and wrappers cannot serve as immutable arrival snapshots.
 type Event interface {
 	terminalEvent()
+}
+
+// ByteSize charges one queue unit plus variable payload bytes for a normalized
+// terminal event. Zero rejects a non-event or a mutable/noncanonical representation.
+func ByteSize(event Event) int {
+	switch e := event.(type) {
+	case Key:
+		return 1 + len(e.Text)
+	case Paste:
+		return 1 + len(e.Text)
+	case OSC:
+		return 1 + len(e.Params)
+	case DCS:
+		return 1 + len(e.Body)
+	case DeviceAttributes:
+		return 1 + len(e.claims)
+	case Mouse, KeyboardFlags, DeviceVersion, Resize, FocusIn, FocusOut:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // Stamp fills missing arrival times in events and returns the same slice.

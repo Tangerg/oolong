@@ -8,6 +8,9 @@ import (
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
+// ErrInvalidInput rejects host input without an immutable terminal event value.
+var ErrInvalidInput = errors.New("program: input source returned an invalid event")
+
 // ErrInputTooLarge ends input instead of retaining a single unbounded event.
 var ErrInputTooLarge = errors.New("program: input event exceeds queue byte budget")
 
@@ -67,9 +70,14 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 				p.err = source.Err()
 				return
 			}
-			item = ownerInput{event: root.CaptureInput(event), bytes: inputBytes(event)}
+			captured := root.CaptureInput(event)
+			item = ownerInput{event: captured, bytes: input.ByteSize(captured.Input())}
 		}
-		if item.bytes > limit {
+		switch {
+		case item.bytes == 0:
+			p.err = ErrInvalidInput
+			return
+		case item.bytes > limit:
 			p.err = ErrInputTooLarge
 			return
 		}
@@ -92,18 +100,4 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 			}
 		}
 	}
-}
-
-func inputBytes(event input.Event) int {
-	switch event := event.(type) {
-	case input.Key:
-		return 1 + len(event.Text)
-	case input.Paste:
-		return 1 + len(event.Text)
-	case input.OSC:
-		return 1 + len(event.Params)
-	case input.DCS:
-		return 1 + len(event.Body)
-	}
-	return 1
 }

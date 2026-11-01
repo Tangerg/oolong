@@ -17,11 +17,13 @@ func TestVisibleRunsJoinAppearanceBoundaries(t *testing.T) {
 }
 
 func TestVisibleRunsKeepGeometryBoundaries(t *testing.T) {
-	got, err := visibleRuns("\x1b[1;1Hhello \x1b[2;1Hworld")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(got, "hello world") {
-		t.Fatalf("repaint text = %q, joined text across cursor movement", got)
+	for _, seq := range []string{"\x1b[2;1H", "\x1b[?6h", "\x1b[8;10;20t"} {
+		got, err := visibleRuns("hello " + seq + "world")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(got, "hello world") {
+			t.Errorf("%q joined text across geometry operation %q", got, seq)
+		}
 	}
 }

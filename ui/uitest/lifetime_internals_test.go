@@ -105,3 +105,15 @@ func TestSentResizeUsesTheHostSizeOwner(t *testing.T) {
 		t.Fatal("generic Send bypassed resize validation")
 	}
 }
+
+func TestHostRejectsMutableOrEmptyInputBeforeQueueing(t *testing.T) {
+	h := New(t, Config{Width: 8, Height: 3})
+	for _, event := range []input.Event{(*input.Key)(nil), &input.Resize{Width: 20, Height: 10}, nil} {
+		if h.Send(event) {
+			t.Errorf("accepted %T", event)
+		}
+	}
+	if w, h, err := h.Size(); err != nil || w != 8 || h != 3 {
+		t.Fatalf("invalid event changed reported size: %d,%d %v", w, h, err)
+	}
+}

@@ -115,12 +115,12 @@ func (h *Host) Size() (width, height int, err error) {
 	return h.w, h.h, nil
 }
 
-// Send queues an event for the program and reports whether the host was open.
+// Send queues a concrete terminal report and returns false for invalid input or a closed host.
 // It does not wait for the program to receive earlier events.
 // Resize events use [Host.Resize] so geometry validation, reported size and input
 // admission remain one transition.
 func (h *Host) Send(event input.Event) bool {
-	if h == nil || h.input == nil {
+	if h == nil || h.input == nil || input.ByteSize(event) == 0 {
 		return false
 	}
 	if resized, ok := event.(input.Resize); ok {
@@ -287,7 +287,7 @@ func visibleRuns(frame string) (string, error) {
 			// adjacency. Hosts with graphics are outside uitest's deliberately
 			// minimal capability set.
 		case ansi.Control:
-			if !transparentControl(piece.Final) {
+			if piece.Final != 'm' || piece.Intermediates != "" || ansi.Parse(piece.Parameters).Marker() != 0 {
 				visible.WriteByte(0)
 			}
 		case ansi.Other:
@@ -299,17 +299,6 @@ func visibleRuns(frame string) (string, error) {
 		}
 	}
 	return visible.String(), nil
-}
-
-// transparentControl names renderer controls that cannot change which cells are
-// adjacent. Everything not on this short list is a geometry boundary by default.
-func transparentControl(final byte) bool {
-	switch final {
-	case 'c', 'h', 'l', 'm', 'q', 't':
-		return true
-	default:
-		return false
-	}
 }
 
 // Close ends input and stops the frame writer. Concurrent and repeated calls wait

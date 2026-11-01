@@ -60,3 +60,32 @@ func TestOversizedNormalizedInputEndsWithAnExplicitCause(t *testing.T) {
 		t.Fatalf("cause = %v", pipe.err)
 	}
 }
+
+func TestNormalizedInputCannotBypassTheBudgetThroughItsShape(t *testing.T) {
+	for _, tc := range []struct {
+		event input.Event
+		want  error
+	}{{&input.Paste{Text: "long"}, ErrInvalidInput}, {input.Attributes(62, 123456789), ErrInputTooLarge}} {
+		source := &pipeSource{events: make(chan input.Event, 1)}
+		source.events <- tc.event
+		close(source.events)
+		pipe := newInputPipe(t.Context(), nil, source, source.Events(), Config{InputBytes: 2})
+		if item, open := <-pipe.events; open {
+			t.Errorf("%T bypassed budget with a charge of %d", tc.event, item.bytes)
+		}
+		<-pipe.done
+		if !errors.Is(pipe.err, tc.want) {
+			t.Errorf("%T ended with %v, want %v", tc.event, pipe.err, tc.want)
+		}
+	}
+}
+
+func TestSceneCannotRetainAMutableInputAlias(t *testing.T) {
+	p, _ := taskOwner(t)
+	mouse := &input.Mouse{}
+	arrival := p.root.CaptureInput(mouse)
+	mouse.Action = input.MouseDown
+	if arrival.Input() != nil || p.root.HandleInput(arrival) {
+		t.Fatal("mutable input escaped the capture boundary")
+	}
+}
