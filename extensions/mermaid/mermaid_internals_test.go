@@ -7,6 +7,7 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,8 +49,28 @@ func TestDiagnosticsBoundMemoryWithoutBreakingWriterContract(t *testing.T) {
 	if n, err := output.Write([]byte("abcdef")); n != 6 || err != nil {
 		t.Fatalf("n=%d error=%v", n, err)
 	}
-	if n, err := output.Write([]byte("more")); n != 4 || err != nil || output.Len() != 3 {
-		t.Fatalf("n=%d error=%v output=%q", n, err, output.String())
+	if n, err := output.Write([]byte("more")); n != 4 || err != nil || output.buffer.Len() != 3 {
+		t.Fatalf("n=%d error=%v output=%q", n, err, output.buffer.String())
+	}
+}
+
+func TestBackendPipeCannotBypassDiagnosticLimit(t *testing.T) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = read.Close() })
+	const message = "diagnostics from subprocess"
+	if _, err = io.WriteString(write, message); err != nil {
+		t.Fatal(err)
+	}
+	if err = write.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output := &boundedOutput{limit: 3}
+	n, err := io.Copy(output, read)
+	if err != nil || n != int64(len(message)) || output.buffer.String() != message[:3] {
+		t.Fatalf("copied=%d retained=%q err=%v", n, output.buffer.String(), err)
 	}
 }
 

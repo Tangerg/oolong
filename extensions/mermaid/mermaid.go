@@ -218,7 +218,7 @@ func (r *Renderer) Render(ctx context.Context, source string) (result *Image, er
 	diagnostics := &boundedOutput{limit: 64 << 10}
 	cmd.Stdout, cmd.Stderr = diagnostics, diagnostics
 	if runErr := run(ctx, cmd); runErr != nil {
-		return nil, fmt.Errorf("mermaid: backend: %w: %s", runErr, diagnostics.String())
+		return nil, fmt.Errorf("mermaid: backend: %w: %s", runErr, diagnostics.buffer.String())
 	}
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause
@@ -333,12 +333,12 @@ func decodePNG(data []byte, maxPixels int64) (*Image, error) {
 }
 
 type boundedOutput struct {
-	bytes.Buffer
-	limit int
+	buffer bytes.Buffer
+	limit  int
 }
 
 func (b *boundedOutput) Write(data []byte) (int, error) {
 	length := len(data)
-	_, _ = b.Buffer.Write(data[:min(length, max(0, b.limit-b.Len()))])
+	_, _ = b.buffer.Write(data[:min(length, max(0, b.limit-b.buffer.Len()))])
 	return length, nil
 }
