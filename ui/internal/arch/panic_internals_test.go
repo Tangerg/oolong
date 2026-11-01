@@ -46,7 +46,7 @@ var internalAssertions = map[string]string{
 
 	// Frame discipline. The transaction is reachable only through a Frame the running
 	// Root handed out, and both of those types document what violating it costs.
-	"ui/core/scene:Staged.valid":               "Staged documents its lifetime within the owning Prepare transaction",
+	"ui/core/scene:Staged.valid":               "Staged documents the issuing paint callback and its nested read-only boundary",
 	"ui/core/scene:Root.project":               "Element.ReadOnly and Measure document refusal before callbacks while a frame candidate awaits settlement",
 	"ui/core/scene:Prepared.requireSettlement": "Prepared.Commit and Prepared.Abort document the live candidate identity and pure-phase preconditions",
 	"ui/core/scene:Snapshot.commit":            "Snapshot.Stage enlists a snapshot at most once in its owning transaction; only that transaction can commit it",
