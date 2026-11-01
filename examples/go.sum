@@ -2,6 +2,16 @@ codeberg.org/go-fonts/dejavu v0.4.0 h1:2yn58Vkh4CFK3ipacWUAIE3XVBGNa0y1bc95Bmfx9
 codeberg.org/go-fonts/dejavu v0.4.0/go.mod h1:abni088lmhQJvso2Lsb7azCKzwkfcnttl6tL1UTWKzg=
 codeberg.org/go-latex/latex v0.3.0 h1:LKTaDHFbEC2PH1sh0sYv6PZ1pzs/g2aoeV1HItWj/bg=
 codeberg.org/go-latex/latex v0.3.0/go.mod h1:8ETijTpK2bFtwRAXLXe1RZJrYxnc5pibibZfQBj+Lk4=
+github.com/Tangerg/oolong/extensions/highlight v0.26.0 h1:wrBYkF6utiDTNsTgnjzOXce9T8a1OJODv7EBZkX6/Nk=
+github.com/Tangerg/oolong/extensions/highlight v0.26.0/go.mod h1:SmgOt4IIaksEFWnDW1/2sByX1y7zqf3dwh09wvvsN9Q=
+github.com/Tangerg/oolong/extensions/latex v0.26.0 h1:cB2qzjSWyT1vl5zIRUUXhKposJjL2mbA+0ac63E1yGs=
+github.com/Tangerg/oolong/extensions/latex v0.26.0/go.mod h1:TJg+FbOmkpU+S9ncZSoCGFF2mDf/YG2eDOoydSnrXm4=
+github.com/Tangerg/oolong/extensions/markdown v0.26.0 h1:mmryay751joKy46nilVf0fRnhdb/Yynq3cqsJW3gXXo=
+github.com/Tangerg/oolong/extensions/markdown v0.26.0/go.mod h1:F20RuzIxNn9340BoIkhWwONvvSNVWDBPO40sIZRogjc=
+github.com/Tangerg/oolong/extensions/mermaid v0.26.0 h1:+YfSt7jXDni0UZWRAy2lvPqxM7D/F11ESueAAWZDI4w=
+github.com/Tangerg/oolong/extensions/mermaid v0.26.0/go.mod h1:r+dVsLYIjDbIEOUjwiE/GZT4x5QY5gqy5nuYDuIJvdQ=
+github.com/Tangerg/oolong/ui v0.26.0 h1:P0lFx83xQH873kORjpQHjZyR5uAMKKPEEWO7HdqaLYo=
+github.com/Tangerg/oolong/ui v0.26.0/go.mod h1:1W5YhVk/lHJJ4i6nhyByoHVpWfaIlH1/0ZEMymMKmb4=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r5BXYZs=
