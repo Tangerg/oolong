@@ -268,8 +268,9 @@ func TestModalFocusAndActionEligibilityHaveOneOwner(t *testing.T) {
 
 func TestObservationIsPureBoundedAndRedactsSensitiveValues(t *testing.T) {
 	value := "secret"
-	e := scene.NewElement(scene.ElementConfig{Key: "password", Semantics: func() scene.Semantic {
-		return scene.Semantic{Role: scene.RoleTextBox, Name: "Password", Value: value, Sensitive: true, Relations: []scene.Relation{{Kind: scene.LabelledBy}}}
+	var e scene.Element
+	e = scene.NewElement(scene.ElementConfig{Key: "password", Semantics: func() scene.Semantic {
+		return scene.Semantic{Role: scene.RoleTextBox, Name: "Password", Value: value, Sensitive: true, Relations: []scene.Relation{{Kind: scene.LabelledBy, Target: e.Target()}}}
 	}})
 	r := root(t, e)
 	before := r.Progress()

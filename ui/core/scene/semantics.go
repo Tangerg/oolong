@@ -413,7 +413,7 @@ func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit
 		semantic.Value = clip(semantic.Value, ValueTruncated)
 	}
 	semantic.ContentID = strings.Clone(semantic.ContentID)
-	semantic.Relations = slices.Clone(semantic.Relations)
+	semantic.Relations = slices.DeleteFunc(slices.Clone(semantic.Relations), func(rel Relation) bool { return !r.Valid(rel.Target) })
 	allowed := r.allowed(n)
 	semantic.State &^= StateFocused | StateDisabled
 	if r.focus == n.target() {
@@ -427,10 +427,12 @@ func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit
 		entry.Bounds, entry.HasBounds = placement.clip, true
 	}
 	for _, action := range n.config.Actions {
-		availability, err := action.availability(nil)
-		needs := err != nil
+		var availability Availability
+		needs := !unitParameter(action.parameter)
 		if !allowed {
 			availability = Availability{Disabled: true, Reason: "target is outside the active scope"}
+		} else if !needs {
+			availability, _ = action.availability(nil)
 		}
 		entry.Actions = append(entry.Actions, ActionDescription{ID: action.id, Label: strings.Clone(action.label), ParameterType: action.parameter.String(), ResultType: action.result.String(), Availability: availability, RequiresParameters: needs})
 	}

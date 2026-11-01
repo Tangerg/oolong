@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -174,11 +175,16 @@ func (a *Action[P, R]) Binding() ActionBinding {
 	}
 }
 
+func unitParameter(t reflect.Type) bool { return t.Kind() == reflect.Struct && t.NumField() == 0 }
+
 func actionParameter[T any](value any) (T, error) {
 	var zero T
 	if value == nil {
 		typ := reflect.TypeFor[T]()
-		if typ.Kind() == reflect.Struct && typ.NumField() == 0 {
+		if unitParameter(typ) {
+			return zero, nil
+		}
+		if slices.Contains([]reflect.Kind{reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer}, typ.Kind()) {
 			return zero, nil
 		}
 	}
