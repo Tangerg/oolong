@@ -8,7 +8,8 @@ import (
 // Painter writes terminal-native content into a frame region. Paint must preserve
 // the cursor or subsequent relative output moves to the wrong position. Erase removes
 // persistent named images when their region disappears; cell-only painters need no
-// erasure output.
+// erasure output. The writer belongs to the synchronous callback; after it returns,
+// writes fail with [io.ErrClosedPipe].
 type Painter interface {
 	// Paint writes what puts this in a region of size cells, with the
 	// terminal's cursor already at its top-left corner, and leaves the cursor there.
@@ -35,13 +36,22 @@ func (p painted) same(other painted) bool {
 	return p.id != 0 && p.id == other.id && p.rect == other.rect
 }
 
-// bytesTo lets a painter write into a frame's own buffer, so one frame is still one
-// write to the terminal.
-type bytesTo struct{ buf *[]byte }
+// Each painter borrows the encoder only for its own callback. Dropping the
+// buffer pointer also prevents a retained writer from retaining the canvas.
+type paintWriter struct{ buf *[]byte }
 
-func (b bytesTo) Write(p []byte) (int, error) {
-	*b.buf = append(*b.buf, p...)
+func (w *paintWriter) Write(p []byte) (int, error) {
+	if w.buf == nil {
+		return 0, io.ErrClosedPipe
+	}
+	*w.buf = append(*w.buf, p...)
 	return len(p), nil
+}
+
+func withPaintWriter(buf *[]byte, call func(io.Writer) error) error {
+	w := &paintWriter{buf: buf}
+	defer func() { w.buf = nil }()
+	return call(w)
 }
 
 // repaint writes what turns the regions the terminal is showing into the regions
@@ -51,7 +61,7 @@ func (b bytesTo) Write(p []byte) (int, error) {
 // is the same picture in two places to a terminal that remembers it, and painting
 // the new one first would leave both on screen until the old one was taken away —
 // which is the one order that flickers.
-func repaint(out io.Writer, was, now []painted, move func(image.Point)) error {
+func repaint(out *[]byte, was, now []painted, move func(image.Point)) error {
 	if len(was) == 0 && len(now) == 0 {
 		return nil
 	}
@@ -59,7 +69,7 @@ func repaint(out io.Writer, was, now []painted, move func(image.Point)) error {
 		if held(now, before) {
 			continue
 		}
-		if err := before.by.Erase(out); err != nil {
+		if err := withPaintWriter(out, before.by.Erase); err != nil {
 			return err
 		}
 	}
@@ -68,7 +78,7 @@ func repaint(out io.Writer, was, now []painted, move func(image.Point)) error {
 			continue
 		}
 		move(region.rect.Min)
-		if err := region.by.Paint(out, region.rect.Size()); err != nil {
+		if err := withPaintWriter(out, func(w io.Writer) error { return region.by.Paint(w, region.rect.Size()) }); err != nil {
 			return err
 		}
 	}

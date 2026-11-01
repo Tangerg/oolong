@@ -460,7 +460,7 @@ func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 	if len(was) == 0 && len(now) == 0 {
 		return cur, nil
 	}
-	out := bytesTo{&i.buf}
+	out := &i.buf
 	move := func(to image.Point) {
 		if up := cur.Y - to.Y; up > 0 {
 			i.csi(up, 'A')

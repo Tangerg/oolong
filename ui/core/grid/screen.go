@@ -235,7 +235,7 @@ func (s *Screen) Flush(w io.Writer) error {
 // what makes a resize and a handover come back right.
 func (s *Screen) paintRegions() error {
 	was := s.buffers.front.regions()
-	out := bytesTo{&s.frame.out}
+	out := &s.frame.out
 	if s.repaintAll {
 		s.repaintAll = false
 		if err := repaint(out, was, nil, s.frame.moveToPoint); err != nil {

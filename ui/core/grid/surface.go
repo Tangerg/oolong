@@ -241,6 +241,15 @@ type View struct {
 	cursor *Cursor
 }
 
+// A standalone view keeps its layout box across resize. Only the surface owns
+// the storage extent; an earlier clip cannot authorize cells removed since.
+func (v View) clipped() image.Rectangle {
+	if v.surface == nil {
+		return image.Rectangle{}
+	}
+	return v.clip.Intersect(v.surface.Bounds())
+}
+
 // Size returns the box the view was laid out into.
 func (v View) Size() (w, h int) { return v.size.X, v.size.Y }
 
@@ -253,11 +262,11 @@ func (v View) Visible() image.Rectangle {
 	if v.surface == nil {
 		return image.Rectangle{}
 	}
-	return untranslateRect(v.clip, v.origin)
+	return untranslateRect(v.clipped(), v.origin)
 }
 
 // Empty reports whether the view has nowhere to draw.
-func (v View) Empty() bool { return v.surface == nil || v.clip.Empty() }
+func (v View) Empty() bool { return v.clipped().Empty() }
 
 // Sub returns a view onto r, expressed in this view's coordinates. Clipping only ever
 // narrows: a caller cannot hand a child room it does not have itself.
@@ -270,7 +279,7 @@ func (v View) Sub(r image.Rectangle) View {
 		scope:   v.scope,
 		origin:  translatePoint(v.origin, r.Min),
 		size:    rectangleSize(r),
-		clip:    v.clip.Intersect(translateRect(r, v.origin)),
+		clip:    v.clipped().Intersect(translateRect(r, v.origin)),
 		cursor:  v.cursor,
 	}
 }
@@ -297,7 +306,7 @@ func (v View) PlaceCursor(x, y int, style CursorStyle) {
 		return
 	}
 	p := translatePoint(image.Pt(x, y), v.origin)
-	if !p.In(v.clip) {
+	if !p.In(v.clipped()) {
 		return
 	}
 	*v.cursor = Cursor{Visible: true, Pos: p, Style: style.normalized()}
@@ -316,7 +325,7 @@ func (v View) CellAt(x, y int) (Cell, bool) {
 
 func (v View) cellAt(x, y int) *Cell {
 	p := translatePoint(image.Pt(x, y), v.origin)
-	if v.surface == nil || !p.In(v.clip) {
+	if v.surface == nil || !p.In(v.clipped()) {
 		return nil
 	}
 	return v.surface.cellAt(p.X, p.Y)
@@ -329,7 +338,7 @@ func (v View) cellAt(x, y int) *Cell {
 func (v View) MergeStyle(x, y int, style Style) bool {
 	v.scope.requireWritable()
 	p := translatePoint(image.Pt(x, y), v.origin)
-	if v.surface == nil || !p.In(v.clip) {
+	if v.surface == nil || !p.In(v.clipped()) {
 		return false
 	}
 	if head, _ := v.surface.atomAt(p.X, p.Y); head != p.X {
@@ -358,7 +367,7 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	if v.surface == nil || over.Default() || opacity <= 0 {
 		return
 	}
-	area := v.clip.Intersect(translateRect(r, v.origin))
+	area := v.clipped().Intersect(translateRect(r, v.origin))
 	if area.Empty() {
 		return
 	}
@@ -384,7 +393,7 @@ func (v View) Fade(r image.Rectangle, amount float64) {
 	if v.surface == nil || amount <= 0 {
 		return
 	}
-	area := v.clip.Intersect(translateRect(r, v.origin))
+	area := v.clipped().Intersect(translateRect(r, v.origin))
 	if area.Empty() {
 		return
 	}
@@ -401,7 +410,7 @@ func (v View) Fill(r image.Rectangle, style Style) {
 	if v.surface == nil {
 		return
 	}
-	area := v.clip.Intersect(translateRect(r, v.origin))
+	area := v.clipped().Intersect(translateRect(r, v.origin))
 	if area.Empty() {
 		return
 	}
@@ -429,8 +438,9 @@ func (v View) Text(x, y int, s string, style Style) int {
 	if v.surface == nil {
 		return 0
 	}
+	clip := v.clipped()
 	p := translatePoint(image.Pt(x, y), v.origin)
-	if p.Y < v.clip.Min.Y || p.Y >= v.clip.Max.Y {
+	if p.Y < clip.Min.Y || p.Y >= clip.Max.Y {
 		return graphemeWidth(s)
 	}
 
@@ -450,11 +460,11 @@ func (v View) Text(x, y int, s string, style Style) int {
 		end := layout.Translate(cx, w)
 		advanced = layout.Sum(advanced, w)
 		switch {
-		case end <= v.clip.Min.X || cx >= v.clip.Max.X:
+		case end <= clip.Min.X || cx >= clip.Max.X:
 			// The column still advances: a caller measuring what it drew is asking
 			// about the text, not about how much of it landed.
-		case cx < v.clip.Min.X || end > v.clip.Max.X:
-			v.blank(min(max(cx, v.clip.Min.X), v.clip.Max.X), min(end, v.clip.Max.X), p.Y, style)
+		case cx < clip.Min.X || end > clip.Max.X:
+			v.blank(min(max(cx, clip.Min.X), clip.Max.X), min(end, clip.Max.X), p.Y, style)
 		default:
 			v.writeAtom(cx, p.Y, w, cluster, style)
 		}
@@ -516,7 +526,7 @@ func (v View) combine(cx, y int, cluster string) {
 		head = layout.Translate(head, int(prev.span))
 		prev = v.surface.cellAt(head, y)
 	}
-	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clip) {
+	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clipped()) {
 		return
 	}
 	prev.content += cluster
@@ -530,12 +540,13 @@ func (v View) Link(x, y, w int, target string) {
 	if v.surface == nil || w <= 0 {
 		return
 	}
+	clip := v.clipped()
 	at := translatePoint(image.Pt(x, y), v.origin)
-	if at.Y < v.clip.Min.Y || at.Y >= v.clip.Max.Y {
+	if at.Y < clip.Min.Y || at.Y >= clip.Max.Y {
 		return
 	}
-	from := max(at.X, v.clip.Min.X)
-	to := min(layout.Translate(at.X, w), v.clip.Max.X)
+	from := max(at.X, clip.Min.X)
+	to := min(layout.Translate(at.X, w), clip.Max.X)
 	if from >= to {
 		return
 	}
@@ -662,7 +673,7 @@ func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
 		return
 	}
 	area := translateRect(r, v.origin)
-	if !area.In(v.clip) {
+	if !area.In(v.clipped()) {
 		return
 	}
 	v.surface.paints = append(v.surface.paints, painted{rect: area, id: id, by: by})
