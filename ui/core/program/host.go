@@ -158,12 +158,14 @@ type NotifyHost interface{ Notify(text string) error }
 // ImageHost transmits images and reports the protocol geometry needed to place
 // them. These methods form one capability: a handle from Transmit cannot be placed
 // without the protocol and cell geometry that interpret it. ReleaseImage ends the
-// transmitted resource lifetime after its placements have been removed.
+// transmitted resource lifetime and removes its placements. NativeTarget must
+// identify the same stable destination as Transmit and ReleaseImage.
 type ImageHost interface {
+	NativeTarget() grid.NativeTarget
 	Graphics() graphics.Protocol
 	CellSize() (image.Point, bool)
-	Transmit(png []byte) (graphics.Image, error)
-	ReleaseImage(img graphics.Image) error
+	Transmit(png []byte) (graphics.Resource, error)
+	ReleaseImage(img graphics.Resource) error
 }
 
 // hostServices is the resolved set of optional host capabilities. It owns the
@@ -309,14 +311,14 @@ func (s hostServices) cellSize() (image.Point, bool) {
 	return s.images.CellSize()
 }
 
-func (s hostServices) transmit(png []byte) (graphics.Image, error) {
+func (s hostServices) transmit(png []byte) (graphics.Resource, error) {
 	if s.images == nil {
-		return graphics.Image{}, errors.ErrUnsupported
+		return graphics.Resource{}, errors.ErrUnsupported
 	}
 	return s.images.Transmit(png)
 }
 
-func (s hostServices) releaseImage(img graphics.Image) error {
+func (s hostServices) releaseImage(img graphics.Resource) error {
 	if s.images == nil {
 		return errors.ErrUnsupported
 	}

@@ -1,6 +1,7 @@
 package grid
 
 import (
+	"errors"
 	"image"
 	"io"
 )
@@ -19,6 +20,16 @@ type Painter interface {
 	Erase(w io.Writer) error
 }
 
+// NativePainter is a Painter bound to a destination and a particular resource
+// generation. Validation also runs for unchanged regions, before a diff may
+// elide painting. SamePlacement compares two native resources after their
+// caller-supplied region ID and rectangle already match.
+type NativePainter interface {
+	Painter
+	CheckTarget(target NativeTarget) error
+	SamePlacement(other Painter) bool
+}
+
 // painted is a region of a surface that something else writes into.
 type painted struct {
 	rect image.Rectangle
@@ -33,12 +44,37 @@ type painted struct {
 // Zero is deliberately not an identity: it is the caller's way to request a fresh
 // paint when it has no stable generation of its own.
 func (p painted) same(other painted) bool {
-	return p.id != 0 && p.id == other.id && p.rect == other.rect
+	if p.id == 0 || p.id != other.id || p.rect != other.rect {
+		return false
+	}
+	if n, ok := p.by.(NativePainter); ok {
+		return n.SamePlacement(other.by)
+	}
+	_, native := other.by.(NativePainter)
+	return !native
 }
 
-// Each painter borrows the encoder only for its own callback. Dropping the
-// buffer pointer also prevents a retained writer from retaining the canvas.
-type paintWriter struct{ buf *[]byte }
+// NativeTarget is the identity of a native drawing destination. Its zero value
+// accepts ordinary painters, but grants no host-bound resource access.
+type NativeTarget struct{ id *byte }
+
+// NewNativeTarget allocates a distinct physical destination identity.
+func NewNativeTarget() NativeTarget { return NativeTarget{id: new(byte)} }
+
+// Accepts reports whether w is this destination's live painter callback.
+func (t NativeTarget) Accepts(w io.Writer) bool {
+	p, ok := w.(*paintWriter)
+	return ok && p.buf != nil && t.id != nil && p.target == t
+}
+
+// ErrForeignPaint rejects a region belonging to a different native destination.
+var ErrForeignPaint = errors.New("grid: native resource belongs to another destination")
+
+// Each painter borrows the encoder only for its own callback.
+type paintWriter struct {
+	buf    *[]byte
+	target NativeTarget
+}
 
 func (w *paintWriter) Write(p []byte) (int, error) {
 	if w.buf == nil {
@@ -48,8 +84,8 @@ func (w *paintWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func withPaintWriter(buf *[]byte, call func(io.Writer) error) error {
-	w := &paintWriter{buf: buf}
+func withPaintWriter(target NativeTarget, buf *[]byte, call func(io.Writer) error) error {
+	w := &paintWriter{buf: buf, target: target}
 	defer func() { w.buf = nil }()
 	return call(w)
 }
@@ -61,7 +97,7 @@ func withPaintWriter(buf *[]byte, call func(io.Writer) error) error {
 // is the same picture in two places to a terminal that remembers it, and painting
 // the new one first would leave both on screen until the old one was taken away —
 // which is the one order that flickers.
-func repaint(out *[]byte, was, now []painted, move func(image.Point)) error {
+func repaint(target NativeTarget, out *[]byte, was, now []painted, move func(image.Point)) error {
 	if len(was) == 0 && len(now) == 0 {
 		return nil
 	}
@@ -69,7 +105,7 @@ func repaint(out *[]byte, was, now []painted, move func(image.Point)) error {
 		if held(now, before) {
 			continue
 		}
-		if err := withPaintWriter(out, before.by.Erase); err != nil {
+		if err := withPaintWriter(target, out, before.by.Erase); err != nil {
 			return err
 		}
 	}
@@ -78,7 +114,7 @@ func repaint(out *[]byte, was, now []painted, move func(image.Point)) error {
 			continue
 		}
 		move(region.rect.Min)
-		if err := withPaintWriter(out, func(w io.Writer) error { return region.by.Paint(w, region.rect.Size()) }); err != nil {
+		if err := withPaintWriter(target, out, func(w io.Writer) error { return region.by.Paint(w, region.rect.Size()) }); err != nil {
 			return err
 		}
 	}

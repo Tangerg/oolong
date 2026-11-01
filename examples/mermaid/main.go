@@ -4,7 +4,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -47,7 +46,7 @@ func run(ctx context.Context) (err error) {
 	return runScreen(ctx, program.TerminalHost(terminal), backend.Render)
 }
 
-// The host outlives Run so image erasure and release remain ordered on its writer.
+// The host outlives Run so its image owner can release the final resource.
 func runScreen(ctx context.Context, host program.Host, prepare func(context.Context, string) (*mermaid.Image, error)) (err error) {
 	images, _ := host.(program.ImageHost)
 	var screen *diagramScreen
@@ -61,7 +60,7 @@ func runScreen(ctx context.Context, host program.Host, prepare func(context.Cont
 		if lifetimeErr != nil {
 			return scene.Element{}, lifetimeErr
 		}
-		screen = &diagramScreen{lifetime: lifetime, runtime: runtime, writer: host.Writer(), images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
+		screen = &diagramScreen{lifetime: lifetime, runtime: runtime, images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
 		screen.start(ctx, flowchart)
 		return screen.Element(), nil //nolint:contextcheck // Future input starts work through screen.lifetime, derived from ctx above.
 	}})
@@ -76,12 +75,11 @@ type diagramScreen struct {
 	lifetime         *program.Scope
 	scope            *program.Scope
 	runtime          *program.Runtime
-	writer           program.FrameWriter
 	images           program.ImageHost
 	prepare          func(context.Context, string) (*mermaid.Image, error)
 	theme            kit.Theme
 	doc              markdown.Doc
-	image            graphics.Image
+	image            graphics.Resource
 	err              error
 	source           string
 	prepared         *mermaid.Image
@@ -184,20 +182,13 @@ func (s *diagramScreen) setDocument(child grid.Drawable) {
 }
 
 func (s *diagramScreen) release() error {
-	if s.image.ID == 0 {
+	if s.image.ID() == 0 {
 		return nil
-	}
-	var removal bytes.Buffer
-	if err := s.image.Placement(1).Erase(&removal); err != nil {
-		return err
-	}
-	if _, err := s.writer.Queue(removal.Bytes()); err != nil {
-		return err
 	}
 	if err := s.images.ReleaseImage(s.image); err != nil {
 		return err
 	}
-	s.image = graphics.Image{}
+	s.image = graphics.Resource{}
 	return nil
 }
 

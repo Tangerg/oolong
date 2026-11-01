@@ -57,9 +57,12 @@ type Inline struct {
 //
 // The height is a ceiling rather than a size: it is what the terminal can spare,
 // and the block takes as much of it as the interface draws into.
-func NewInline(w, h int) *Inline {
+func NewInline(w, h int) *Inline { return (NativeTarget{}).Inline(w, h) }
+
+// Inline creates a canvas fixed to the native destination for its lifetime.
+func (target NativeTarget) Inline(w, h int) *Inline {
 	return &Inline{
-		buffers: newFrameBuffer(w, h),
+		buffers: newFrameBuffer(w, h, target),
 		full:    true,
 	}
 }
@@ -160,6 +163,9 @@ func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 	}()
 	if i.publication.failure != nil {
 		return nil, i.publication.failure
+	}
+	if err = i.buffers.checkTargets(); err != nil {
+		return nil, err
 	}
 	width, _ := i.buffers.size()
 	if width <= 0 {
@@ -476,12 +482,12 @@ func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 	}
 	if full || i.repaintAll {
 		i.repaintAll = false
-		if err := repaint(out, was, nil, move); err != nil {
+		if err := repaint(i.buffers.target, out, was, nil, move); err != nil {
 			return cur, err
 		}
 		was = nil
 	}
-	if err := repaint(out, was, now, move); err != nil {
+	if err := repaint(i.buffers.target, out, was, now, move); err != nil {
 		return cur, err
 	}
 	return cur, nil

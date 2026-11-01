@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
 	"io"
 	"strings"
 	"sync"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/content"
-	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
@@ -48,15 +46,10 @@ func (h *host) Copy(string) bool            { return false }
 func (h *host) Paste() bool                 { return false }
 func (h *host) Wheel() input.Wheel          { return input.Wheel{} }
 
-func (h *host) Graphics() graphics.Protocol   { return graphics.None }
-func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
 func (h *host) Keyboard() (input.KeyboardFeatures, bool) {
 	return 0, false
 }
 
-func (h *host) Transmit([]byte) (graphics.Image, error) {
-	return graphics.Image{}, errors.ErrUnsupported
-}
 func (h *host) ReportDirectory(string) error { return nil }
 func (h *host) SetTitle(string) error        { return nil }
 func (h *host) Bell() error                  { return nil }
@@ -379,8 +372,6 @@ func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 	default:
 	}
 }
-
-func (h *host) ReleaseImage(graphics.Image) error { return nil }
 
 func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
 	h := newHost()

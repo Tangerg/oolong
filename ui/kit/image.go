@@ -29,7 +29,7 @@ import (
 type Image struct {
 	// Of is the picture, as the terminal knows it. The zero value is no picture,
 	// which draws the alternative text.
-	Of graphics.Image
+	Of graphics.Resource
 	// Placement is the placement identity within Of. Zero uses 1; simultaneous
 	// views of one image must choose distinct nonzero identities.
 	Placement uint32
@@ -82,12 +82,12 @@ func (i Image) Draw(v grid.View) {
 	if placement == 0 {
 		placement = 1
 	}
-	id := uint64(i.Of.ID)<<32 | uint64(placement)
+	id := uint64(i.Of.ID())<<32 | uint64(placement)
 	v.Paint(grid.Area(at, 0, cols, min(rows, height)), id, i.Of.Placement(placement))
 }
 
 func (i Image) fit(width int) (cols, rows int, ok bool) {
-	if i.Of.ID == 0 || i.Of.Size.X <= 0 || i.Of.Size.Y <= 0 || i.Cell.X <= 0 || i.Cell.Y <= 0 {
+	if !i.Of.Live() || i.Of.Size().X <= 0 || i.Of.Size().Y <= 0 || i.Cell.X <= 0 || i.Cell.Y <= 0 {
 		return 0, 0, false
 	}
 	if width <= 0 {
@@ -97,7 +97,7 @@ func (i Image) fit(width int) (cols, rows int, ok bool) {
 	if limit <= 0 {
 		limit = defaultMaxRows
 	}
-	box := graphics.Fit(i.Of.Size, i.Cell, image.Pt(width, limit))
+	box := graphics.Fit(i.Of.Size(), i.Cell, image.Pt(width, limit))
 	return box.X, box.Y, true
 }
 

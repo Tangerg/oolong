@@ -123,11 +123,15 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 }
 
 func (p *program) buildInterface(cfg runConfig, width, height int, depth grid.Depth) error {
+	var target grid.NativeTarget
+	if p.host.images != nil {
+		target = p.host.images.NativeTarget()
+	}
 	if cfg.inline {
-		p.inline = grid.NewInline(width, height)
+		p.inline = target.Inline(width, height)
 		p.canvas = p.inline
 	} else {
-		p.canvas = grid.NewScreen(width, height)
+		p.canvas = target.Screen(width, height)
 	}
 	// Construction may publish inline output. Its canvas must already interpret
 	// default colours against the same startup facts given to the component.

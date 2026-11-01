@@ -13,6 +13,7 @@ import (
 
 	"github.com/Tangerg/oolong/extensions/mermaid"
 	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/uitest"
@@ -20,6 +21,7 @@ import (
 
 type imageHost struct {
 	*uitest.Host
+	images         graphics.ImageOwner
 	mu             sync.Mutex
 	sent, released uint32
 	protocol       graphics.Protocol
@@ -27,20 +29,24 @@ type imageHost struct {
 	copied         string
 }
 
+func (h *imageHost) NativeTarget() grid.NativeTarget { return h.images.NativeTarget() }
+
 func (h *imageHost) Graphics() graphics.Protocol   { return h.protocol }
 func (h *imageHost) CellSize() (image.Point, bool) { return image.Pt(8, 16), !h.unknownCell }
-func (h *imageHost) Transmit([]byte) (graphics.Image, error) {
+func (h *imageHost) Transmit([]byte) (graphics.Resource, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.sent++
-	return graphics.Image{ID: h.sent, Size: image.Pt(80, 32)}, nil
+	return h.images.Bind(graphics.Image{ID: h.sent, Size: image.Pt(80, 32)}), nil
 }
 
-func (h *imageHost) ReleaseImage(graphics.Image) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.released++
-	return nil
+func (h *imageHost) ReleaseImage(resource graphics.Resource) error {
+	return h.images.Release(resource, func(graphics.Image) error {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.released++
+		return nil
+	})
 }
 
 func TestShutdownCancelsWorker(t *testing.T) {
@@ -124,7 +130,7 @@ func TestBackendDiagnosticIsVisible(t *testing.T) {
 func TestClosedPreparationCannotAdvanceContentState(t *testing.T) {
 	screen := &diagramScreen{closed: true, pending: true, source: "current source"}
 	screen.accept(new(mermaid.Image), nil)
-	if !screen.pending || screen.err != nil || screen.image.ID != 0 || screen.doc.Len() != 0 {
+	if !screen.pending || screen.err != nil || screen.image.ID() != 0 || screen.doc.Len() != 0 {
 		t.Fatal("closed content accepted a preparation result")
 	}
 }
@@ -211,7 +217,6 @@ func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 				return scene.Element{}, scopeErr
 			}
 			screen.scope, screen.lifetime = scope, scope
-			screen.writer = host.Writer()
 			screen.setDocument(nil)
 			return screen.Element(), nil
 		}})

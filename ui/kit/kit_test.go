@@ -1410,7 +1410,7 @@ func TestAPictureTakesTheRoomItNeedsOrSaysWhatItWas(t *testing.T) {
 	// With a handle and a cell size it keeps the room, and the cells stay blank: what
 	// goes there is written by the frame, not drawn into it.
 	shown := kit.Image{
-		Of:   graphics.Image{ID: 3, Size: image.Pt(200, 100)},
+		Of:   new(graphics.ImageOwner).Bind(graphics.Image{ID: 3, Size: image.Pt(200, 100)}),
 		Cell: image.Pt(10, 20),
 	}
 	if got := shown.HeightForWidth(40); got != 5 {

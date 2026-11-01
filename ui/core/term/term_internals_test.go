@@ -520,7 +520,7 @@ func TestTerminalImageReleaseUsesTheOrderedFrameWriter(t *testing.T) {
 	if _, err := writer.Queue([]byte("prior-frame")); err != nil {
 		t.Error(err)
 	}
-	if err := terminal.ReleaseImage(graphics.Image{ID: 9}); err != nil {
+	if err := terminal.ReleaseImage(terminal.imageOwner.Bind(graphics.Image{ID: 9})); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Drain(time.Second); err != nil {
@@ -544,10 +544,10 @@ func TestTerminalCommandsReportRefusedAdmission(t *testing.T) {
 	if err := terminal.ReportDirectory(t.TempDir()); !errors.Is(err, ErrClosed) {
 		t.Errorf("ReportDirectory = %v, want ErrClosed", err)
 	}
-	if img, err := terminal.Transmit(data.Bytes()); !errors.Is(err, ErrClosed) || img != (graphics.Image{}) {
+	if img, err := terminal.Transmit(data.Bytes()); !errors.Is(err, ErrClosed) || img != (graphics.Resource{}) {
 		t.Errorf("Transmit = %+v, %v; want no handle and ErrClosed", img, err)
 	}
-	if err := terminal.ReleaseImage(graphics.Image{ID: 9}); !errors.Is(err, ErrClosed) {
+	if err := terminal.ReleaseImage(terminal.imageOwner.Bind(graphics.Image{ID: 9})); !errors.Is(err, ErrClosed) {
 		t.Errorf("ReleaseImage = %v, want ErrClosed", err)
 	}
 	if got := writer.Queued(); got != 0 {
@@ -576,4 +576,53 @@ func TestPumpPreservesInputEndTimeUnderBackpressure(t *testing.T) {
 			t.Fatalf("end stamped with decoding time: %+v; want %v", key, ended)
 		}
 	})
+}
+
+func TestImageReleaseCannotAddressAnotherTerminal(t *testing.T) {
+	var pngData bytes.Buffer
+	if err := png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	var a, b bytes.Buffer
+	first := &Terminal{writer: NewWriter(WriterConfig{Destination: &a})}
+	second := &Terminal{writer: NewWriter(WriterConfig{Destination: &b})}
+	defer func() { _ = first.writer.Close(); _ = second.writer.Close() }()
+	left, err := first.Transmit(pngData.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := second.Transmit(pngData.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = second.ReleaseImage(left); err == nil {
+		t.Error("foreign handle released the local image with the same wire ID")
+	}
+	if err = first.writer.pauseAdmission(); err != nil {
+		t.Fatal(err)
+	}
+	if err = first.ReleaseImage(left); !errors.Is(err, ErrHandoverActive) || !left.Live() {
+		t.Fatalf("handover did not refuse release while preserving retry: %v", err)
+	}
+	first.writer.resumeAdmission()
+	if err = first.ReleaseImage(left); err != nil {
+		t.Fatal(err)
+	}
+	if err = first.ReleaseImage(left); err == nil {
+		t.Error("retired handle erased the same image twice")
+	}
+	if err = second.ReleaseImage(right); err != nil {
+		t.Fatal(err)
+	}
+	if err = first.writer.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err = second.writer.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	for _, stream := range []string{a.String(), b.String()} {
+		if strings.Count(stream, "a=d,d=I,i=1") != 1 {
+			t.Error("unexpected wire deletes", stream)
+		}
+	}
 }

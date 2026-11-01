@@ -30,7 +30,7 @@ func TestInlinePanicDoesNotDrawAgainDuringCleanup(t *testing.T) {
 func TestImageOwnerCanReleaseTransmittedData(t *testing.T) {
 	host := newHost(t)
 	err := runFixture(t.Context(), program.ScreenConfig{Host: host, Build: func(r *program.Runtime) (scene.Element, error) {
-		if err := r.Images().Release(graphics.Image{ID: 1}); err != nil {
+		if err := r.Images().Release(host.imageOwner.Bind(graphics.Image{ID: 1})); err != nil {
 			t.Fatal(err)
 		}
 		r.Quit()

@@ -1,6 +1,7 @@
 // Package graphics encodes Kitty and iTerm2 terminal images from PNG without decoding
-// pixels or owning their placement. Live regions require reusable handles and erasure;
-// [Protocol.Supports] distinguishes these from printed output. Sixel is detected but
+// pixels. ImageOwner binds transmitted data to one native destination. Live regions
+// require reusable handles and erasure; [Protocol.Supports] distinguishes these
+// from printed output. Sixel is detected but
 // not encoded because its encoding requires pixel decoding.
 package graphics
 

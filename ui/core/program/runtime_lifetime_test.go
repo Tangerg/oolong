@@ -133,12 +133,12 @@ func TestInlineStartupPublicationUsesTheSelectedColorDepth(t *testing.T) {
 	}
 }
 
-func (h *imageLifetimeHost) Transmit([]byte) (graphics.Image, error) {
+func (h *imageLifetimeHost) Transmit([]byte) (graphics.Resource, error) {
 	h.transmitted++
-	return graphics.Image{ID: 1}, nil
+	return h.imageOwner.Bind(graphics.Image{ID: 1}), nil
 }
 
-func (h *imageLifetimeHost) ReleaseImage(graphics.Image) error { h.released++; return nil }
+func (h *imageLifetimeHost) ReleaseImage(graphics.Resource) error { h.released++; return nil }
 
 func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 	for _, buildFails := range []bool{false, true} {
@@ -185,7 +185,7 @@ func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 			if _, err := images.Transmit(nil); !errors.Is(err, errors.ErrUnsupported) {
 				t.Errorf("ended image transmission = %v", err)
 			}
-			if err := images.Release(graphics.Image{ID: 1}); !errors.Is(err, errors.ErrUnsupported) {
+			if err := images.Release(graphics.Resource{}); !errors.Is(err, errors.ErrUnsupported) {
 				t.Errorf("ended image release = %v", err)
 			}
 			if err := publish(runtime, measurer{

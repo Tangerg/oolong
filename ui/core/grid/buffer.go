@@ -7,10 +7,11 @@ package grid
 type frameBuffer struct {
 	front, back *Surface
 	depth       Depth
+	target      NativeTarget
 }
 
-func newFrameBuffer(w, h int) frameBuffer {
-	return frameBuffer{front: NewSurface(w, h), back: NewSurface(w, h)}
+func newFrameBuffer(w, h int, target NativeTarget) frameBuffer {
+	return frameBuffer{target: target, front: NewSurface(w, h), back: NewSurface(w, h)}
 }
 
 func (b *frameBuffer) size() (w, h int) { return b.back.Size() }
@@ -53,3 +54,16 @@ func (b *frameBuffer) begin(cursor *Cursor, owner *publication) View {
 }
 
 func (b *frameBuffer) swap() { b.front, b.back = b.back, b.front }
+
+// Validate even unchanged regions: a different terminal may have issued the
+// same numeric painter ID for the same cell rectangle.
+func (b *frameBuffer) checkTargets() error {
+	for _, r := range b.back.regions() {
+		if p, ok := r.by.(NativePainter); ok {
+			if err := p.CheckTarget(b.target); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

@@ -95,9 +95,12 @@ type Screen struct {
 
 // NewScreen returns a screen of the given size whose first flush repaints
 // everything.
-func NewScreen(w, h int) *Screen {
+func NewScreen(w, h int) *Screen { return (NativeTarget{}).Screen(w, h) }
+
+// Screen creates a canvas fixed to the native destination for its lifetime.
+func (target NativeTarget) Screen(w, h int) *Screen {
 	return &Screen{
-		buffers: newFrameBuffer(w, h),
+		buffers: newFrameBuffer(w, h, target),
 		full:    true,
 	}
 }
@@ -185,6 +188,9 @@ func (s *Screen) Prepare() (output *Output, err error) {
 	if s.publication.failure != nil {
 		return nil, s.publication.failure
 	}
+	if err = s.buffers.checkTargets(); err != nil {
+		return nil, err
+	}
 	s.frame.restart()
 	s.paintCells()
 	s.frame.end()
@@ -238,12 +244,12 @@ func (s *Screen) paintRegions() error {
 	out := &s.frame.out
 	if s.repaintAll {
 		s.repaintAll = false
-		if err := repaint(out, was, nil, s.frame.moveToPoint); err != nil {
+		if err := repaint(s.buffers.target, out, was, nil, s.frame.moveToPoint); err != nil {
 			return err
 		}
 		was = nil
 	}
-	if err := repaint(out, was, s.buffers.back.regions(), s.frame.moveToPoint); err != nil {
+	if err := repaint(s.buffers.target, out, was, s.buffers.back.regions(), s.frame.moveToPoint); err != nil {
 		return err
 	}
 	if len(s.buffers.back.regions()) > 0 || len(was) > 0 {

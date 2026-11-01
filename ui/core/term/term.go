@@ -131,7 +131,8 @@ type Terminal struct {
 	// pictures numbers the images this session has sent, so that two of them cannot
 	// arrive under one name. It is atomic because sending one is not the interface's
 	// goroutine's business — a picture is usually fetched from somewhere else.
-	pictures atomicSequence
+	pictures   atomicSequence
+	imageOwner graphics.ImageOwner
 
 	resized  chan input.Resize
 	resizeMu sync.Mutex
@@ -558,6 +559,9 @@ func (t *Terminal) Size() (w, h int, err error) {
 	return xterm.GetSize(t.outFD)
 }
 
+// NativeTarget is the image namespace of this physical terminal.
+func (t *Terminal) NativeTarget() grid.NativeTarget { return t.imageOwner.NativeTarget() }
+
 // CellSize is how many pixels one cell is, and whether the terminal said.
 //
 // It is what a picture has to be fitted with — see [graphics.Fit] — and it is the
@@ -581,33 +585,35 @@ func (t *Terminal) CellSize() (image.Point, bool) {
 // [Terminal.Graphics], and a caller that sends without asking has written a
 // megabyte of base64 to something that will print it. It reports
 // [ErrImageIDsExhausted] rather than reusing a handle that may still name an image.
-func (t *Terminal) Transmit(png []byte) (graphics.Image, error) {
+func (t *Terminal) Transmit(png []byte) (graphics.Resource, error) {
 	id, ok := t.pictures.next(math.MaxUint32)
 	if !ok {
-		return graphics.Image{}, ErrImageIDsExhausted
+		return graphics.Resource{}, ErrImageIDsExhausted
 	}
 	var payload bytes.Buffer
 	img, err := graphics.Transmit(&payload, imageID(id), png)
 	if err != nil {
-		return graphics.Image{}, err
+		return graphics.Resource{}, err
 	}
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
 	if _, err := t.writer.Queue(payload.Bytes()); err != nil {
-		return graphics.Image{}, err
+		return graphics.Resource{}, err
 	}
-	return img, nil
+	return t.imageOwner.Bind(img), nil
 }
 
 // ReleaseImage queues deletion of transmitted image data and all its placements.
 // The caller must stop drawing the image before releasing it.
-func (t *Terminal) ReleaseImage(img graphics.Image) error {
-	var payload bytes.Buffer
-	if err := img.Release(&payload); err != nil {
+func (t *Terminal) ReleaseImage(resource graphics.Resource) error {
+	return t.imageOwner.Release(resource, func(img graphics.Image) error {
+		var payload bytes.Buffer
+		if err := img.Release(&payload); err != nil {
+			return err
+		}
+		_, err := t.writer.Queue(payload.Bytes())
 		return err
-	}
-	if _, err := t.writer.Queue(payload.Bytes()); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 func imageID(id uint64) uint32 {
@@ -647,6 +653,7 @@ func (t *Terminal) Close() error {
 func (t *Terminal) closeOutput() error {
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
+	defer t.imageOwner.RevokeAll()
 	var errs []error
 	if t.ownsModes {
 		// Raw mode must settle independently of output backpressure. The same

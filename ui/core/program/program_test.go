@@ -55,6 +55,7 @@ type host struct {
 	progress       term.Progress
 	rang           int
 	notified       []string
+	imageOwner     graphics.ImageOwner
 	releasedImages []graphics.Image
 }
 
@@ -406,8 +407,10 @@ func (h *host) Graphics() graphics.Protocol { return graphics.None }
 
 func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
 
-func (h *host) Transmit([]byte) (graphics.Image, error) {
-	return graphics.Image{}, errors.ErrUnsupported
+func (h *host) NativeTarget() grid.NativeTarget { return h.imageOwner.NativeTarget() }
+
+func (h *host) Transmit([]byte) (graphics.Resource, error) {
+	return graphics.Resource{}, errors.ErrUnsupported
 }
 
 func (h *host) timesHanded() int {
@@ -877,7 +880,7 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	}
 
 	var images program.Images
-	if err := images.Release(graphics.Image{}); !errors.Is(err, errors.ErrUnsupported) {
+	if err := images.Release(graphics.Resource{}); !errors.Is(err, errors.ErrUnsupported) {
 		t.Fatal(err)
 	}
 	if images.Protocol() != graphics.None {
@@ -2478,7 +2481,6 @@ func TestAnInterfaceCanSayThingsThatAreNotDrawn(t *testing.T) {
 	}
 }
 
-func (h *host) ReleaseImage(img graphics.Image) error {
-	h.releasedImages = append(h.releasedImages, img)
-	return nil
+func (h *host) ReleaseImage(img graphics.Resource) error {
+	return h.imageOwner.Release(img, func(wire graphics.Image) error { h.releasedImages = append(h.releasedImages, wire); return nil })
 }

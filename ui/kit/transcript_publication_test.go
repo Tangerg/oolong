@@ -23,7 +23,7 @@ func TestTranscriptRetainsNativeImagesThatScrollbackCannotOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native, err := model.Add(kit.Image{Of: graphics.Image{ID: 1, Size: image.Pt(20, 20)}, Cell: image.Pt(10, 10)})
+	native, err := model.Add(kit.Image{Of: new(graphics.ImageOwner).Bind(graphics.Image{ID: 1, Size: image.Pt(20, 20)}), Cell: image.Pt(10, 10)})
 	if err != nil {
 		t.Fatal(err)
 	}

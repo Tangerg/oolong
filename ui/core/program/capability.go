@@ -180,10 +180,10 @@ func (i Images) Protocol() graphics.Protocol { return i.runtime.services().graph
 func (i Images) CellSize() (image.Point, bool) { return i.runtime.services().cellSize() }
 
 // Transmit sends one PNG and returns the image handle used by frames.
-func (i Images) Transmit(png []byte) (graphics.Image, error) {
+func (i Images) Transmit(png []byte) (graphics.Resource, error) {
 	return i.runtime.services().transmit(png)
 }
 
 // Release ends the transmitted image's lifetime. Remove all its placements before
 // calling this; the handle must not be placed again without retransmission.
-func (i Images) Release(img graphics.Image) error { return i.runtime.services().releaseImage(img) }
+func (i Images) Release(img graphics.Resource) error { return i.runtime.services().releaseImage(img) }
