@@ -106,7 +106,6 @@ type Publisher struct {
 	cfg          Config
 	next         ID
 	bytes        int64
-	items        int
 	pending      []*entry
 	inflight     []*entry
 	preparing    bool
@@ -201,7 +200,8 @@ func (p *Publisher) TryPublish(body grid.Drawable) (Receipt, error) {
 		}
 		return Receipt{}, err
 	}
-	if frozen.RowCount() > 0 && p.items >= p.cfg.MaxItems || frozen.StoredBytes() > p.cfg.MaxPendingBytes-p.bytes {
+	items, usedBytes := p.Pending()
+	if frozen.RowCount() > 0 && items >= p.cfg.MaxItems || frozen.StoredBytes() > p.cfg.MaxPendingBytes-usedBytes {
 		return Receipt{}, ErrCapacity
 	}
 	p.next++
@@ -212,7 +212,6 @@ func (p *Publisher) TryPublish(body grid.Drawable) (Receipt, error) {
 	}
 	p.pending = append(p.pending, &entry{contribution: Contribution{ID: p.next, Content: frozen}, receipt: r})
 	p.bytes += frozen.StoredBytes()
-	p.items++
 	p.dirty = true
 	return Receipt{record: r}, nil
 }
@@ -319,7 +318,6 @@ func (p *Publisher) Written(sequence uint64) {
 		}
 		e.receipt.update(Written, e.sequence, nil)
 		p.bytes -= e.contribution.Content.StoredBytes()
-		p.items--
 		n++
 	}
 	clear(p.inflight[:n])
@@ -356,7 +354,7 @@ func (p *Publisher) Fail(err error, unknownPartial bool) {
 	clear(p.pending)
 	clear(p.inflight)
 	p.pending, p.inflight = nil, nil
-	p.bytes, p.items = 0, 0
+	p.bytes = 0
 	p.dirty = true
 }
 
@@ -368,7 +366,7 @@ func (p *Publisher) Pending() (items int, bytes int64) {
 	if p == nil {
 		return 0, 0
 	}
-	return p.items, p.bytes
+	return len(p.pending) + len(p.inflight), p.bytes
 }
 
 // Subscribe observes settled admission/progress on a later owner turn. It does

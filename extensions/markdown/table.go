@@ -49,7 +49,7 @@ func columnAlignments(in []east.Alignment) []columnAlignment {
 	return out
 }
 
-func (t *table) appendRows(dst []row, room int) []row {
+func (t *table) appendRows(dst []text.Wrapped, room int) []text.Wrapped {
 	widths, grid := t.columnWidths(room)
 	if grid {
 		return t.appendGrid(dst, widths)
@@ -157,11 +157,11 @@ func (t *table) columns() int {
 	return columns
 }
 
-func (t *table) appendGrid(dst []row, widths []int) []row {
+func (t *table) appendGrid(dst []text.Wrapped, widths []int) []text.Wrapped {
 	for rowIndex, cells := range t.rows {
 		dst = t.appendRow(dst, cells, widths)
 		if rowIndex == 0 && t.header {
-			dst = append(dst, row{Line: t.ruleLine(widths)})
+			dst = append(dst, text.Wrapped{Line: t.ruleLine(widths)})
 		}
 	}
 	return dst
@@ -169,7 +169,7 @@ func (t *table) appendGrid(dst []row, widths []int) []row {
 
 // appendRow adds every physical row one logical row wraps into, so a cell that took
 // two rows leaves the cells beside it padded rather than shifted.
-func (t *table) appendRow(dst []row, cells []text.Line, widths []int) []row {
+func (t *table) appendRow(dst []text.Wrapped, cells []text.Line, widths []int) []text.Wrapped {
 	wrapped := make([][]text.Wrapped, len(widths))
 	height := 1
 	for column, width := range widths {
@@ -192,7 +192,7 @@ func (t *table) appendRow(dst []row, cells []text.Line, widths []int) []row {
 			}
 			line = appendAligned(line, cell, width, t.alignment(column))
 		}
-		dst = append(dst, row{Line: line})
+		dst = append(dst, text.Wrapped{Line: line})
 	}
 	return dst
 }
@@ -261,7 +261,7 @@ func fillTo(glyph string, width int) string {
 // appendRecords uses the heading cells as field names. No labels are invented for
 // a table without a heading; each cell simply gets a line of its own. A blank row
 // keeps adjacent records distinct without introducing product-specific furniture.
-func (t *table) appendRecords(dst []row, room int) []row {
+func (t *table) appendRecords(dst []text.Wrapped, room int) []text.Wrapped {
 	var keys []text.Line
 	records := t.rows
 	if t.header && len(t.rows) > 1 {
@@ -269,7 +269,7 @@ func (t *table) appendRecords(dst []row, room int) []row {
 	}
 	for recordIndex, record := range records {
 		if recordIndex > 0 {
-			dst = append(dst, row{})
+			dst = append(dst, text.Wrapped{})
 		}
 		for column := range max(len(keys), len(record)) {
 			var key, value text.Line
@@ -285,7 +285,7 @@ func (t *table) appendRecords(dst []row, room int) []row {
 				line = append(line, text.Span{Text: ": ", Style: t.rail})
 			}
 			line = append(line, value...)
-			dst = appendWrapped(dst, line, room)
+			dst = append(dst, line.Wrap(room)...)
 		}
 	}
 	return dst

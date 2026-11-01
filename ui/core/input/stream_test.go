@@ -264,3 +264,19 @@ func TestClipboardSettlementUsesTheTransportArrival(t *testing.T) {
 		}
 	})
 }
+
+func TestDiscardedControlStringCannotBecomeKeystrokesAcrossAPause(t *testing.T) {
+	for _, introducer := range []string{"\x1b]52;", "\x1bP>|"} {
+		var stream input.Stream
+		at := time.Unix(1, 0)
+		stream.Feed([]byte(introducer+strings.Repeat("A", 1<<20)), at)
+		events := stream.Feed([]byte("still payload\x07x"), at.Add(time.Second))
+		if len(events) != 1 {
+			t.Fatalf("%q body escaped the decoder: %v", introducer, events)
+		}
+		key, ok := events[0].(input.Key)
+		if !ok || !key.IsRune('x', 0) {
+			t.Fatalf("%q next event = %v", introducer, events[0])
+		}
+	}
+}

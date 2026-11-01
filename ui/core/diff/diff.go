@@ -116,36 +116,26 @@ func (s Script) String() string {
 // from, and changing the script after this call cannot change an already-built hunk.
 func (s Script) Hunks(context int) []Hunk {
 	context = max(context, 0)
-	keep := make([]bool, len(s))
-	changed := false
+	var out []Hunk
+	start, end := 0, 0
 	for i, line := range s {
 		if line.Kind == Context {
 			continue
 		}
-		changed = true
-		// Clamp the distance before moving either endpoint. Adding an arbitrary
-		// context to i first would make the most generous valid request wrap around
-		// and hide the change it was meant to include.
-		before := min(context, i)
-		after := min(context, len(s)-1-i)
-		for j := i - before; j <= i+after; j++ {
-			keep[j] = true
+		// Windows arrive in order. Merge each one once so dense changes
+		// do not repeatedly mark the same context, even at MaxInt.
+		left := i - min(context, i)
+		right := i + 1 + min(context, len(s)-1-i)
+		if end == 0 || left > end {
+			if end != 0 {
+				out = append(out, hunkOf(s[start:end]))
+			}
+			start = left
 		}
+		end = right
 	}
-	if !changed {
-		return nil
-	}
-
-	var out []Hunk
-	for i := 0; i < len(s); i++ {
-		if !keep[i] {
-			continue
-		}
-		start := i
-		for i < len(s) && keep[i] {
-			i++
-		}
-		out = append(out, hunkOf(s[start:i]))
+	if end != 0 {
+		out = append(out, hunkOf(s[start:end]))
 	}
 	return out
 }

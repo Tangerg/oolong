@@ -79,13 +79,7 @@ func (r *Registry) Render(ctx context.Context, format Format, source string) (gr
 	if render == nil {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownFormat, name)
 	}
-	result, err := render(ctx, source)
-	if nilContent(result) {
-		result = nil
-		if err == nil {
-			err = ErrInvalidResult
-		}
-	}
+	result, err := checkedResult(render(ctx, source))
 	if err != nil {
 		return result, fmt.Errorf("content: render %q: %w", name, err)
 	}
@@ -104,6 +98,18 @@ func normalize(format Format) (Format, error) {
 		}
 	}
 	return Format(strings.ToLower(name)), nil
+}
+
+// Typed nils are possible through either renderer entry point. A missing body
+// can only represent failure, and an existing cause belongs to the renderer.
+func checkedResult(body grid.Drawable, err error) (grid.Drawable, error) {
+	if !nilContent(body) {
+		return body, err
+	}
+	if err == nil {
+		err = ErrInvalidResult
+	}
+	return nil, err
 }
 
 func nilContent(value grid.Drawable) bool {

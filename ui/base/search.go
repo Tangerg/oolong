@@ -136,6 +136,10 @@ func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Spa
 			// nothing between two others produces.
 			lo, hi = 0, 0
 		}
+		if lo < hi {
+			// A matching rune may be only part of the grapheme that owns its cells.
+			lo = text.PrevCluster(rows[i].Text, lo+1)
+		}
 		startCol := text.ColumnOf(rows[i].Text, lo)
 		dst = append(dst, Span{
 			Col: layout.Sum(rows[i].Offset, startCol), Width: text.ColumnOf(rows[i].Text, hi) - startCol,
@@ -162,7 +166,7 @@ func rowAt(starts []int, rows []text.Row, offset int) int {
 			hi = mid - 1
 		}
 	}
-	if offset > starts[lo]+len(rows[lo].Text) && lo+1 < len(rows) {
+	if lo+1 < len(rows) && rows[lo+1].Joined && offset >= starts[lo]+len(rows[lo].Text) {
 		return lo + 1
 	}
 	return lo

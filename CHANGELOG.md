@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking changes
 
+- Replace calls through `base.Field.HeightForWidth` with `field.Element().Measure(layout.Down, width)`. A custom field supplies its intrinsic size on the same element the form arranges. Concrete built-in fields retain their measurement methods.
+- A masked editor or text field returns an empty value from the semantic fill action. Check the action state to learn whether it applied. `Editor.Insert` starts an independent undo step for programmatic insertion.
+- `kit.Cell.HeightForWidth` reports one clipped table row. Use `Cell.Preferred` for the requested column width.
+
 - `base.FormConfig.Submit` takes a form-issued `base.SubmissionID` and returns `(scene.ActionState, error)`. Only an accepted asynchronous attempt can be settled. Carry the opaque ID to the owner turn; do not construct or replay a number.
 - `base.Element.Text()` returns captured text without taking an editor. Use the comparable `base.ElementID` for payloads and removal in the issuing edit session. `kit.Tabs.SetRule` changes decoration and measured height together; `base.TabsConfig.StripRows` measures current appearance.
 - Prepare grants each painter a synchronous cell and geometry borrow. Do not retain a `scene.Frame`, its `grid.View` or a `scene.Staged` handle for a sibling callback. A captured press consumes its route; pointer commands require valid original content and receiver geometry. `Event.Read` reports presence in the scene's projection, including for nil values.
@@ -48,6 +52,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Fixed
+
+- Nested flow groups measure the same fixed sizes, floors, bounds and gaps they allocate. Observations and focus traversals reuse the active modal for a synchronous scan. Frame geometry is indexed by attachment for routing and semantic bounds.
+- Bracketed paste chunks fit the default input queue after UTF-8 decoding. An idle gap in an oversized terminal string keeps its payload out of the keyboard route. Numeric-leading notification text is prefixed with a bullet so it cannot select an OSC 9 terminal command. A title that cannot be restored during terminal handover returns `term.ErrPayloadTooLarge` before admission.
+- List painters receive visible rows, and search highlights cover whole display graphemes. A delayed settings action cannot move to a later selection that happens to point to the same row.
+- Markdown preserves list markers and quote rails in nesting order. Highlighting retains a trailing blank code row. LaTeX preserves word boundaries in text mode and accepts spaces before command arguments.
+- Input EOF also ends SSH window intake. The streaming examples deliver accepted bytes before reporting a failed producer, including callbacks that panic or exit their goroutine.
+- Release validation and the API migration ledger select their baseline from the same canonical module tags. The proposed version and its predecessor are checked together for pre-1.0 releases.
 
 - Keyboard fallback uses the active modal even without a focusable child. Pointer preview, propagation, returned effects and direct commands check one route. Capture cancellation and stale focus gains cannot transfer authority to a replacement.
 - A group owns a layout's rectangle result before nested layout callbacks can reuse its scratch buffer. A copied child view cannot bypass a painter's write guard, including in a read-only callback or after abnormal exit.

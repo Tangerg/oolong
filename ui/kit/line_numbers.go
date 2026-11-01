@@ -54,8 +54,12 @@ func (n LineNumbers) Draw(view grid.View, rows []text.Row) {
 			continue
 		}
 		value := layout.Sum(n.first(), max(row.Line-1, 0))
-		label := right(decimal(value), digits) + n.Separator
-		view.Text(0, y, text.Truncate(label, width, ""), n.Style)
+		number := decimal(value)
+		padding := layout.Remaining(digits, len(number))
+		for x := visible.Min.X; x < min(padding, visible.Max.X); x++ {
+			view.Text(x, y, " ", n.Style)
+		}
+		view.Text(padding, y, text.Truncate(number+n.Separator, width-padding, ""), n.Style)
 	}
 }
 

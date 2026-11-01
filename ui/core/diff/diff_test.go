@@ -199,3 +199,13 @@ func TestTwoTextsWithTooLittleInCommonAreSaidToBeReplaced(t *testing.T) {
 		t.Fatal("want all of one and then all of the other")
 	}
 }
+
+func BenchmarkHunksWithOverlappingContext(b *testing.B) {
+	script := make(diff.Script, 12000)
+	for index := range script {
+		script[index] = diff.Line{Kind: diff.Added, Text: "change", New: index + 1}
+	}
+	for b.Loop() {
+		_ = script.Hunks(len(script))
+	}
+}

@@ -67,3 +67,16 @@ func TestMeterValueColumnIsAtomic(t *testing.T) {
 		t.Fatalf("exact value width = %d, want 5", got)
 	}
 }
+
+func TestCellHeightIsIndependentOfItsPreferredColumnWidth(t *testing.T) {
+	cell := LabelCell(Label{Text: "header"})
+	for _, width := range []int{1, 6, 20} {
+		if got := cell.HeightForWidth(width); got != 1 {
+			t.Errorf("cell height at width %d = %d, want one row", width, got)
+		}
+	}
+	columns := Table{Rows: 1, Columns: []Column{{Size: layout.Measured(0, 0)}}, Cell: func(int, int) Cell { return cell }}
+	if got := columns.Layout(20).Widths()[0]; got != cell.Preferred {
+		t.Errorf("fitted column width = %d, want %d", got, cell.Preferred)
+	}
+}

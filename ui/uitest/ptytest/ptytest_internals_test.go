@@ -115,3 +115,13 @@ func TestATranscriptScreenUsesOneConcurrentSnapshot(t *testing.T) {
 		t.Fatalf("snapshot changed after more output arrived: %q", got)
 	}
 }
+
+func TestMissingTokenErrorQuotesTerminalCommands(t *testing.T) {
+	tr := newTranscript()
+	tr.append([]byte("\x1b]52;c;RXhhbXBsZQ==\x07"))
+	tr.finish(nil)
+	err := tr.WaitFor(t.Context(), "absent")
+	if err == nil || strings.ContainsAny(err.Error(), "\x1b\x07") || !strings.Contains(err.Error(), `\x1b]52`) {
+		t.Fatalf("diagnostic = %q", err)
+	}
+}

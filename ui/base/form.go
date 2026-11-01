@@ -35,7 +35,6 @@ var ErrInvalidValue = errors.New("base: invalid field value")
 type Field interface {
 	Element() scene.Element
 	Draw(frame scene.Frame)
-	HeightForWidth(width int) int
 
 	Prompt() string
 	// Validate checks what has been entered, remembers what was wrong with it, and
@@ -315,7 +314,7 @@ type Form struct {
 	cancel     func(SubmissionID) error
 	paintField func(scene.Frame, Field)
 	group      *scene.Group
-	status     scene.Element
+	status     scene.Item
 	problem    func() error
 	attempt    Submission
 	submitted  []fieldVersion
@@ -337,7 +336,7 @@ func (f *Form) ensure() {
 		return
 	}
 	submit := scene.NewAction(scene.ActionConfig[struct{}, SubmissionID]{ID: scene.ActionSubmit, Label: "Submit", Run: func(context.Context, struct{}) (scene.ActionResult[SubmissionID], error) { return f.Submit() }})
-	f.status = scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+	f.status = scene.Item{Element: scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
 		if problem := f.Error(); problem != nil {
 			w, _ := frame.Size()
 			frame.Text(0, 0, text.Truncate(problem.Error(), w, ""), grid.Style{})
@@ -348,8 +347,9 @@ func (f *Form) ensure() {
 			value = problem.Error()
 		}
 		return scene.Semantic{Role: scene.RoleStatus, Value: value}
-	}})
+	}})}
 	f.group = scene.NewGroup(scene.GroupConfig{
+		Items: []scene.Item{f.status},
 		Element: scene.ElementConfig{Key: f.key, Measure: rowsMeasure(f.HeightForWidth), Handle: f.handleEvent, Semantics: func() scene.Semantic {
 			state := scene.SemanticState(0)
 			if f.attempt.State == SubmissionPending {
@@ -360,16 +360,9 @@ func (f *Form) ensure() {
 			}
 			return scene.Semantic{Role: scene.RoleForm, Name: f.title, State: state}
 		}, Actions: []scene.ActionBinding{submit.Binding()}},
-		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
-			extra := 0
-			if f.Error() != nil {
-				extra = 1
-			}
-			slots := make([]layout.Slot, len(f.fields))
-			for i, field := range f.fields {
-				slots[i] = layout.Slot{Size: layout.Measured(1, 0), Of: field.Element()}
-			}
-			rects := (layout.Flow{Axis: layout.Down, Gap: f.Gap}).Rects(image.Pt(space.X, layout.Remaining(space.Y, extra)), slots)
+		Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
+			flow, slots, extra := f.fieldLayout(items)
+			rects := flow.Rects(image.Pt(space.X, layout.Remaining(space.Y, extra)), slots)
 			return append(rects, grid.Area(0, layout.Remaining(space.Y, extra), space.X, extra))
 		},
 	})
@@ -388,7 +381,7 @@ func (f *Form) Set(fields ...Field) {
 		}
 		items = append(items, item)
 	}
-	items = append(items, scene.Item{Element: f.status, Size: layout.Measured(0, 0)})
+	items = append(items, f.status)
 	if err := f.group.CheckSet(items...); err != nil {
 		panic(err)
 	}
@@ -550,17 +543,25 @@ func (f *Form) canCancel() bool { return f.cancel != nil && f.attempt.State == S
 
 // HeightForWidth measures fields, inter-field gaps and the current form problem without validating or changing submission state.
 func (f *Form) HeightForWidth(width int) int {
-	rows := 0
-	for i, field := range f.fields {
-		if i > 0 {
-			rows = layout.Sum(rows, max(0, f.Gap))
-		}
-		rows = layout.Sum(rows, field.HeightForWidth(width))
+	if f.group == nil {
+		return 0
 	}
+	flow, slots, extra := f.fieldLayout(f.group.Items())
+	return layout.Sum(flow.Wanted(width, slots), extra)
+}
+
+// The status is the final child and occupies its own row without an inter-field gap.
+func (f *Form) fieldLayout(items []scene.Item) (layout.Flow, []layout.Slot, int) {
+	fields := items[:len(items)-1]
+	slots := make([]layout.Slot, len(fields))
+	for i, field := range fields {
+		slots[i] = layout.Slot{Size: field.Size, Of: field.Element}
+	}
+	extra := 0
 	if f.Error() != nil {
-		rows = layout.Sum(rows, 1)
+		extra = 1
 	}
-	return rows
+	return layout.Flow{Axis: layout.Down, Gap: f.Gap}, slots, extra
 }
 
 func (f *Form) handleEvent(event scene.Event) scene.EventResult {

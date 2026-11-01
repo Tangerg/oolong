@@ -58,6 +58,8 @@ var errWriteInterrupted = errors.New("term: destination write interrupted; write
 // reason to wait for the terminal to catch up.
 const DrainGrace = 250 * time.Millisecond
 
+const controlByteLimit = 64 << 10
+
 // Writer keeps blocking terminal I/O off producer goroutines. Admission assigns
 // sequences in FIFO order under one owner; completion uses a watermark signaled
 // by Changes. Methods are concurrency-safe. A Writer must not be copied after
@@ -248,10 +250,10 @@ func (w *Writer) enqueue(data []byte, control bool) (uint64, error) {
 
 func (w *Writer) capacity(bytes int, control bool) error {
 	if control {
-		if bytes > 64<<10 {
+		if bytes > controlByteLimit {
 			return ErrPayloadTooLarge
 		}
-		if w.controlFrames >= 4 || bytes > (64<<10)-w.controlBytes {
+		if w.controlFrames >= 4 || bytes > controlByteLimit-w.controlBytes {
 			return ErrQueueFull
 		}
 	} else {

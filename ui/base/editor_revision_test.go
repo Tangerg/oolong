@@ -343,3 +343,16 @@ func TestRevisionIsMonotonicAcrossCoalescedTypingAndHistory(t *testing.T) {
 		t.Fatalf("redo restored an old revision: got %d, want 5", got)
 	}
 }
+
+func TestExplicitInsertionHasItsOwnUndoStepBetweenTypingRuns(t *testing.T) {
+	var e base.Editor
+	e.InsertRune('a')
+	e.Insert("inserted")
+	e.InsertRune('z')
+	for _, want := range []string{"ainserted", "a", ""} {
+		e.Undo()
+		if got := e.Text(); got != want {
+			t.Fatalf("undo restored %q, want %q", got, want)
+		}
+	}
+}

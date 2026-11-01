@@ -72,6 +72,12 @@ func TestLedgerSectionFollowsOneModuleTag(t *testing.T) {
 	commit()
 	expect("fresh", "fresh/v0.3.0")
 	run("git", "tag", "ui/v0.3.0")
+	for _, tag := range []string{"ui/v1.0.0-rc.1", "ui/v0.30.0/peer/v0.2.0", "ui/v0.300.00", "fresh/v0.4.0"} {
+		run("git", "tag", tag)
+	}
+	if latest := run("bash", "scripts/module-tag.sh", "--latest", "ui"); latest != "ui/v0.3.0" {
+		t.Fatalf("latest canonical ui release = %q", latest)
+	}
 	expect("fresh", "fresh/v0.3.0")
 	write("CHANGELOG.md", "## [Unreleased]\n## [ui/v0.2.0]\n## [fresh/v0.3.0]\n## [ui/v0.1.0]\n")
 	expect("ui", "ui/v0.2.0")

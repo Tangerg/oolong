@@ -676,3 +676,24 @@ func styleFields(form *base.Form, look base.Look) {
 		}
 	}
 }
+
+func TestFormMeasuresTheSameFieldSlotsItLaysOut(t *testing.T) {
+	a, b := new(observedField), new(observedField)
+	a.element = scene.NewElement(scene.ElementConfig{Measure: func(layout.Axis, int) int { return 3 }})
+	b.element = scene.NewElement(scene.ElementConfig{})
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{a, b}, Gap: 2})
+	if got := form.HeightForWidth(4); got != 6 {
+		t.Fatalf("form measured %d rows, want three for its first field, two for the gap and one for the second field", got)
+	}
+}
+
+func TestZeroFormCanPresentItsStatus(t *testing.T) {
+	var f base.Form
+	if f.HeightForWidth(10) != 0 {
+		t.Fatal("an unmounted empty form requested space")
+	}
+	newTestRoot(&f).Draw(grid.NewSurface(10, 1).View())
+	if f.HeightForWidth(10) != 0 {
+		t.Fatal("the empty status should reserve no space")
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
+	"github.com/Tangerg/oolong/examples/internal/streamtask"
 	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/content"
@@ -87,7 +88,7 @@ type chat struct {
 	render       content.Renderer
 	prepareScope *program.Scope
 
-	cancel context.CancelFunc
+	producer *program.Task
 }
 
 func newChat(ctx context.Context, runtime *program.InlineRuntime) (*chat, error) {
@@ -264,10 +265,9 @@ func (c *chat) startReply(prompt string) {
 		c.finishReply(err)
 		return
 	}
-	ctx, cancel := context.WithCancel(c.scope.Context())
-	c.cancel = cancel
-	go func() { <-ingress.Done(); cancel() }()
-	go func() { err := c.source(ctx, prompt, ingress); _ = ingress.CloseWithError(err) }()
+	c.producer = streamtask.Start(c.runtime.Runtime, c.scope, ingress, func(ctx context.Context) error {
+		return c.source(ctx, prompt, ingress)
+	})
 	c.element.Invalidate()
 }
 
@@ -352,10 +352,8 @@ func (c *chat) setOutcome(err error) {
 		c.prepareScope.Close()
 		c.prepareScope = nil
 	}
-	if c.cancel != nil {
-		c.cancel()
-		c.cancel = nil
-	}
+	c.producer.Cancel()
+	c.producer = nil
 	if document != nil && err != nil {
 		// A local preparation failure can finish this reply before its source returns.
 		// Settle the original document too: no later task will prepare that revision.
@@ -387,11 +385,11 @@ func (c *chat) setOutcome(err error) {
 }
 
 func (c *chat) stopReply() {
-	if c.cancel == nil {
+	if c.producer == nil {
 		return
 	}
 	c.status.Doing = "cancelling"
-	c.cancel()
+	c.producer.Cancel()
 	c.element.Invalidate()
 }
 

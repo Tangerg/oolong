@@ -276,18 +276,17 @@ func (l *List[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
 	scroll := l.scroll.Stage(v, total, height)
 	selected := l.Selected()
 	first := scroll.Offset()
+	visible := v.Visible()
 	l.presentation.Stage(v, listPresentation{
-		visible: v.Visible(), window: height, first: first, total: total, itemsID: l.itemsID,
+		visible: visible, window: height, first: first, total: total, itemsID: l.itemsID,
 	})
 	l.pointer.Stage(v, v.Bounds())
-	if draw == nil {
+	if draw == nil || visible.Empty() {
 		return
 	}
-	for y := range height {
+	end := min(visible.Max.Y, total-first)
+	for y := visible.Min.Y; y < end; y++ {
 		index := first + y
-		if index >= total {
-			break
-		}
 		row := v.Sub(grid.Area(0, y, width, 1)).View
 		draw(row, index, l.items[index], index == selected)
 	}

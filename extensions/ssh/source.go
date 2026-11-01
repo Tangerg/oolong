@@ -88,9 +88,12 @@ func (s *eventSource) Err() error { return s.err }
 // in flight ends with the channel. This is why [Open] requires exclusive use of
 // session input for the remaining channel lifetime.
 func (s *eventSource) Close() {
-	s.closeOnce.Do(func() { close(s.stop) })
+	s.stopIntake()
 	<-s.done
-	<-s.resizeDone
+}
+
+func (s *eventSource) stopIntake() {
+	s.closeOnce.Do(func() { close(s.stop) })
 }
 
 // readInput takes the session's bytes until the session ends or nobody is left to
@@ -233,6 +236,12 @@ func (s *eventSource) postResize(resized input.Resize) {
 func (s *eventSource) run() {
 	defer close(s.done)
 	defer close(s.events)
+	defer func() {
+		// A terminal read or resize failure ends the other feed as well. A read
+		// already blocked on the caller's SSH channel may still outlive us.
+		s.stopIntake()
+		<-s.resizeDone
+	}()
 	stream := input.NewStream(input.StreamConfig{Clipboard: s.clip})
 
 	due := deadline.NewTimer()

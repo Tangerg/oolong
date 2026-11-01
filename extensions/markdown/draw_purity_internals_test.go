@@ -202,14 +202,22 @@ func meaningOfDoc(doc *Doc) docMeaning {
 		meaning.blocks = append(meaning.blocks, blockMeaning{
 			text:   body.String(),
 			table:  tableBody.String(),
-			marker: block.marker.String(),
-			rail:   block.rail.String(),
-			indent: block.indent,
+			marker: markText(block.prefix.markers),
+			rail:   markText(block.prefix.rails),
+			indent: block.prefix.indent,
 			rule:   block.rule,
 			gap:    block.blankBefore,
 		})
 	}
 	return meaning
+}
+
+func markText(mark *prefixMark) string {
+	var out strings.Builder
+	for ; mark != nil; mark = mark.next {
+		out.WriteString(mark.span.Text)
+	}
+	return out.String()
 }
 
 func plain(s string) text.Line { return text.Of(s, grid.Style{}) }
@@ -230,11 +238,11 @@ func markdownDrawPurityCases() []drawPurityCase {
 		{lines: []text.Line{plain("a heading")}},
 		{
 			lines:  []text.Line{plain("an item long enough to wrap twice over")},
-			marker: plain("- "), indent: 2, blankBefore: true,
+			prefix: blockPrefix{indent: 2, markers: &prefixMark{span: text.Span{Text: "- "}}}, blankBefore: true,
 		},
 		{
-			lines: []text.Line{plain("a quotation that also wraps")},
-			rail:  plain("| "), indent: 2, blankBefore: true,
+			lines:  []text.Line{plain("a quotation that also wraps")},
+			prefix: blockPrefix{indent: 2, rails: &prefixMark{span: text.Span{Text: "| "}}}, blankBefore: true,
 		},
 		{lines: []text.Line{plain("-")}, rule: true, blankBefore: true},
 		{

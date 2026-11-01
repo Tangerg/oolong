@@ -8,29 +8,20 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
-func TestDimensionsReportOnlySuccessfulChanges(t *testing.T) {
-	last := knownDimensions(80, 24)
-	if last.observe(80, 24, nil) {
-		t.Fatal("the opening size was reported twice")
-	}
-	if last.observe(0, 0, errors.New("size unavailable")) {
-		t.Fatal("a failed observation became a resize")
-	}
-	if !last.observe(100, 30, nil) {
-		t.Fatal("a changed size was not reported")
-	}
-	if last.observe(100, 30, nil) {
-		t.Fatal("an unchanged size was reported after a change")
-	}
+func fixedSize(width, height int) func() (int, int, error) {
+	return func() (int, int, error) { return width, height, nil }
 }
 
-func TestDimensionsReportFirstSizeWhenOpeningSizeWasUnavailable(t *testing.T) {
-	var last dimensions
-	if last.observe(0, 0, errors.New("size unavailable")) {
-		t.Fatal("a failed first observation became a resize")
+func TestFailedMeasurementNeverPublishesEvenWhenForced(t *testing.T) {
+	terminal := &Terminal{resized: make(chan input.Resize, 1)}
+	fail := func() (int, int, error) { return 0, 0, errors.New("size unavailable") }
+	terminal.noteResize(fail, true)
+	if terminal.size.known || len(terminal.resized) != 0 {
+		t.Fatal("a failed measurement became the current geometry")
 	}
-	if !last.observe(80, 24, nil) {
-		t.Fatal("the first available size was not reported")
+	terminal.noteResize(fixedSize(80, 24), false)
+	if got := <-terminal.resized; got != (input.Resize{Width: 80, Height: 24}) {
+		t.Fatalf("first successful measurement = %+v", got)
 	}
 }
 
@@ -53,11 +44,11 @@ func TestResizePollingReportsChangesAndStops(t *testing.T) {
 	terminal := &Terminal{resized: make(chan input.Resize, 1), size: knownDimensions(80, 24)}
 	go func() {
 		defer close(done)
-		pollResize(stop, ticks, func() (int, int, error) {
-			observation := <-observations
-			return observation.width, observation.height, observation.err
-		}, func(width, height int, err error) {
-			terminal.noteResize(width, height, err)
+		pollResize(stop, ticks, func() {
+			terminal.noteResize(func() (int, int, error) {
+				observation := <-observations
+				return observation.width, observation.height, observation.err
+			}, false)
 			select {
 			case resized := <-terminal.resized:
 				reports <- result{width: resized.Width, height: resized.Height}
@@ -105,8 +96,8 @@ func TestResizePollingReportsChangesAndStops(t *testing.T) {
 
 func TestResizeMailboxKeepsTheNewestObservation(t *testing.T) {
 	terminal := &Terminal{resized: make(chan input.Resize, 1)}
-	terminal.retakeResize(80, 24)
-	terminal.retakeResize(100, 30)
+	terminal.noteResize(fixedSize(80, 24), true)
+	terminal.noteResize(fixedSize(100, 30), true)
 
 	got := <-terminal.resized
 	if got.Width != 100 || got.Height != 30 {
@@ -126,13 +117,13 @@ func TestTakingTheTerminalBackTellsTheWatcherWhatItMissed(t *testing.T) {
 	terminal := &Terminal{resized: make(chan input.Resize, 1), size: knownDimensions(80, 24)}
 
 	// The child resized it and nothing here was told.
-	terminal.retakeResize(100, 30)
+	terminal.noteResize(fixedSize(100, 30), true)
 	if got := <-terminal.resized; got != (input.Resize{Width: 100, Height: 30}) {
 		t.Fatalf("taking the terminal back reported %+v", got)
 	}
 
 	// And now the user puts it back the way it was.
-	terminal.noteResize(80, 24, nil)
+	terminal.noteResize(fixedSize(80, 24), false)
 	select {
 	case got := <-terminal.resized:
 		if got != (input.Resize{Width: 80, Height: 24}) {

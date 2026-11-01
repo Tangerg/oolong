@@ -103,3 +103,23 @@ func TestOneFunctionIsTheWholeOfTheWiring(t *testing.T) {
 		t.Fatalf("the plugged-in highlighter produced %v", lines)
 	}
 }
+
+func TestHighlightPreservesEverySourceRow(t *testing.T) {
+	for _, language := range []string{"go", "diff", "Bash Session"} {
+		t.Run(language, func(t *testing.T) {
+			for _, source := range []string{"", "x", "x\n", "x\n\n", "\n\n", "x\r\n\r", "x\ry"} {
+				normalized := strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
+				lines := highlight.New("").Lines(language, source)
+				want := strings.Split(normalized, "\n")
+				if len(lines) != len(want) {
+					t.Fatalf("Lines(%q) returned %d rows, want %d", source, len(lines), len(want))
+				}
+				for i, row := range want {
+					if lines[i].String() != row {
+						t.Fatalf("Lines(%q)[%d] = %q, want %q", source, i, lines[i].String(), row)
+					}
+				}
+			}
+		})
+	}
+}

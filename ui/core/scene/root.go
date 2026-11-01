@@ -274,10 +274,13 @@ func (r *Root) enabled(n *node) bool {
 }
 
 func (r *Root) allowed(n *node) bool {
+	return n != nil && r.allowedIn(n, r.modal())
+}
+
+func (r *Root) allowedIn(n, modal *node) bool {
 	if !r.enabled(n) {
 		return false
 	}
-	modal := r.modal()
 	if modal == nil {
 		return true
 	}
@@ -304,8 +307,8 @@ func (r *Root) modal() *node {
 	return current
 }
 
-func (r *Root) focusable(n *node) bool {
-	return r.allowed(n) && n.config.Focusable != nil && r.project(n.config.Focusable)
+func (r *Root) focusableIn(n, modal *node) bool {
+	return r.allowedIn(n, modal) && n.config.Focusable != nil && r.project(n.config.Focusable)
 }
 
 // Focus returns the single current keyboard target, or zero when none is eligible.
@@ -325,7 +328,7 @@ func (r *Root) RequestFocus(target Target) error {
 	if n == nil {
 		return ErrStale
 	}
-	if !r.focusable(n) {
+	if !r.focusableIn(n, r.modal()) {
 		return ErrUnavailable
 	}
 	r.setFocus(target)
@@ -362,7 +365,11 @@ type focusScope struct{ modal, opener Target }
 
 func (r *Root) settleFocus() {
 	var modals []Target
-	r.walkModals(func(n *node) { modals = append(modals, n.target()) })
+	var active *node
+	r.walkModals(func(n *node) {
+		active = n
+		modals = append(modals, n.target())
+	})
 	common := 0
 	for common < len(modals) && common < len(r.scopes) && modals[common] == r.scopes[common].modal {
 		common++
@@ -384,17 +391,17 @@ func (r *Root) settleFocus() {
 			opener = within[modal]
 		}
 		if opener != r.focus {
-			if n := r.resolve(opener); n != nil && r.focusable(n) {
+			if n := r.resolve(opener); n != nil && r.focusableIn(n, active) {
 				r.setFocus(opener)
 			}
 		}
 	}
-	if n := r.resolve(r.focus); n != nil && r.focusable(n) {
+	if n := r.resolve(r.focus); n != nil && r.focusableIn(n, active) {
 		return
 	}
 	var first Target
 	r.walk(r.content.node, func(n *node) bool {
-		if r.focusable(n) {
+		if r.focusableIn(n, active) {
 			first = n.target()
 			return false
 		}
@@ -410,8 +417,9 @@ func (r *Root) FocusNext(backward bool) bool {
 		return false
 	}
 	var targets []Target
+	active := r.modal()
 	r.walk(r.content.node, func(n *node) bool {
-		if r.focusable(n) {
+		if r.focusableIn(n, active) {
 			targets = append(targets, n.target())
 		}
 		return true

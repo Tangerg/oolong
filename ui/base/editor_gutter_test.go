@@ -1,12 +1,14 @@
 package base_test
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -72,5 +74,20 @@ func TestMaskedEditorDoesNotDiscloseItsValueToAGutter(t *testing.T) {
 
 	if len(gutter.rows) != 1 || gutter.rows[0].Text != "••••••" {
 		t.Fatalf("gutter rows = %#v, want only the displayed mask", gutter.rows)
+	}
+}
+
+type measuringGutter struct{ check func() }
+
+func (g measuringGutter) Width(int) int            { g.check(); return 1 }
+func (measuringGutter) Draw(grid.View, []text.Row) {}
+
+func TestStandaloneEditorMeasurementCannotEditItsDocument(t *testing.T) {
+	e := base.NewEditor(base.EditorConfig{Initial: "unchanged"})
+	e.Gutter = measuringGutter{check: func() { e.SetText("replaced") }}
+	var failure error
+	func() { defer func() { failure, _ = recover().(error) }(); e.HeightForWidth(10) }()
+	if !errors.Is(failure, scene.ErrBusy) || e.Text() != "unchanged" {
+		t.Fatalf("measurement changed the document: failure=%v text=%q", failure, e.Text())
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/examples/internal/streamtask"
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/diff"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -312,8 +313,7 @@ func (a *agent) refreshCompletion() {
 }
 
 func (a *agent) startRun(prompt string) {
-	ctx, cancel := context.WithCancel(a.scope.Context())
-	run := &agentRun{cancel: cancel}
+	run := &agentRun{}
 	a.run = run
 	if err := a.conversation.User(a.scope.Context(), prompt); err != nil {
 		a.finishRun(err)
@@ -343,14 +343,9 @@ func (a *agent) startRun(prompt string) {
 		ingress: ingress, dispatch: a.runtime.Dispatcher(), owner: a, run: run,
 	}
 
-	go func() {
-		<-ingress.Done()
-		cancel()
-	}()
-	go func() {
-		err := a.backend.Run(ctx, prompt, output)
-		_ = ingress.CloseWithError(err)
-	}()
+	run.task = streamtask.Start(a.runtime.Runtime, a.scope, ingress, func(ctx context.Context) error {
+		return a.backend.Run(ctx, prompt, output)
+	})
 }
 
 func (a *agent) accept(batch program.ByteBatch) {
@@ -375,7 +370,7 @@ func (a *agent) finishRun(err error) {
 		err = errors.Join(err, reviewErr)
 	}
 	if a.run != nil {
-		a.run.Cancel()
+		a.run.task.Cancel()
 	}
 	a.run = nil
 	a.status.Elapsed = ""
@@ -424,7 +419,7 @@ func (a *agent) stopRun() {
 	}
 	a.status.Doing = "cancelling"
 	a.element.Invalidate()
-	a.run.Cancel()
+	a.run.task.Cancel()
 	if err := a.answerReview(false); err != nil {
 		a.finishRun(err)
 	}
@@ -440,11 +435,7 @@ func (a *agent) tick() {
 
 func clip(s string) string { return text.Truncate(strings.TrimSpace(s), 52, "…") }
 
-type agentRun struct {
-	cancel context.CancelFunc
-}
-
-func (r *agentRun) Cancel() { r.cancel() }
+type agentRun struct{ task *program.Task }
 
 // agentStatus distinguishes an active operation from an idle outcome. A Status is a
 // busy indicator even when its spinner is not ticking, so idle states use plain text

@@ -295,3 +295,17 @@ func TestAControlSequenceThisPackageDoesNotImplementIsRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestMacroArgumentsKeepTheirOwnWhitespaceSemantics(t *testing.T) {
+	for _, tc := range []struct{ spaced, equivalent string }{
+		{"\\textbf \t{one\ttwo\r\nthree}", `\textbf{one two three}`},
+		{`\textbf{one \textit {two three}}`, `\textbf{one two three}`},
+		{"\\frac % comment\n {a} \t {b}", `\frac{a}{b}`},
+		{`\sqrt [3] {x}`, `\sqrt[3]{x}`},
+	} {
+		got := rendered(t, tc.spaced)
+		if want := rendered(t, tc.equivalent); !slices.Equal(got, want) {
+			t.Errorf("Render(%q) = %q, want %q", tc.spaced, got, want)
+		}
+	}
+}

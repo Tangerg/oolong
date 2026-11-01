@@ -271,11 +271,14 @@ func (e *Editor) SetCursor(line, col int) {
 	e.wantColumn = -1
 }
 
-// Insert inserts text at the cursor, splitting lines at newlines.
+// Insert inserts text at the cursor as one undo step, splitting lines at newlines.
 func (e *Editor) Insert(s string) { e.insert(s, false) }
 
 func (e *Editor) insert(s string, typed bool) {
 	e.requireMutable()
+	if !typed {
+		e.endTyping()
+	}
 	if s == "" {
 		if typed {
 			e.document().history.endTyping(e)
@@ -398,9 +401,9 @@ func (e *Editor) InsertRune(r rune) {
 // Newline splits the line at the cursor, and does nothing at all in a field that holds
 // one line.
 func (e *Editor) Newline() {
-	e.requireMutable()
-	e.endTyping()
 	if e.oneLine() {
+		e.requireMutable()
+		e.endTyping()
 		return
 	}
 	e.Insert("\n")
@@ -1049,7 +1052,6 @@ func (e *Editor) ForgetHistory() {
 func (e *Editor) Handle(ev input.Event) bool {
 	e.requireMutable()
 	if paste, ok := ev.(input.Paste); ok {
-		e.endTyping()
 		e.Insert(paste.Text)
 		return true
 	}
@@ -1320,7 +1322,7 @@ func (e *Editor) gutterWidth() int {
 	if e.Gutter == nil {
 		return 0
 	}
-	return max(e.Gutter.Width(len(e.document().lines)), 0)
+	return readProjection(e.Element(), func() int { return max(e.Gutter.Width(len(e.document().lines)), 0) })
 }
 
 func (e *Editor) textWidth(total int) int {

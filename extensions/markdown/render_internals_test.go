@@ -27,11 +27,15 @@ func TestRendererDepthUsesAnExplicitStackAndPersistentRails(t *testing.T) {
 		t.Fatalf("blocks = %d, want 1", len(rendered.blocks))
 	}
 	block := rendered.blocks[0]
-	if block.indent != depth*2 {
-		t.Fatalf("indent = %d, want %d", block.indent, depth*2)
+	if block.prefix.indent != depth*2 {
+		t.Fatalf("indent = %d, want %d", block.prefix.indent, depth*2)
 	}
-	if len(block.rail) != depth {
-		t.Fatalf("rail segments = %d, want %d", len(block.rail), depth)
+	rails := 0
+	for mark := block.prefix.rails; mark != nil; mark = mark.next {
+		rails++
+	}
+	if rails != depth {
+		t.Fatalf("rail segments = %d, want %d", rails, depth)
 	}
 	if got := block.lines[0].String(); got != "deep" {
 		t.Fatalf("text = %q, want deep", got)

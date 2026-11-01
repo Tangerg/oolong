@@ -178,9 +178,21 @@ type layoutSnapshot struct {
 	revision    uint64
 	sequence    uint64
 	geometry    []geometry
+	byNode      map[NodeID]int
 	projections map[stagedState]any
 	writtenAt   time.Time
 	epoch       uint64
+}
+
+// The index addresses paint order in this frame. Remounting can reuse a node ID,
+// so only the full attachment stored at that position can authorize a hit.
+func (s *layoutSnapshot) lookup(target Target) (geometry, bool) {
+	if s != nil {
+		if i, ok := s.byNode[target.node]; ok && s.geometry[i].target == target {
+			return s.geometry[i], true
+		}
+	}
+	return geometry{}, false
 }
 
 // Prepared owns one complete candidate. Commit publishes only prepared values;
@@ -255,7 +267,13 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 		return nil, ErrBusy
 	}
 	r.preparing = true
-	candidate := &layoutSnapshot{model: r.modelRevision, revision: next(r.layoutRevision()), epoch: r.geometryEpoch}
+	candidate := &layoutSnapshot{
+		model:    r.modelRevision,
+		revision: next(r.layoutRevision()),
+		epoch:    r.geometryEpoch,
+		geometry: make([]geometry, 0, len(r.nodes)),
+		byNode:   make(map[NodeID]int, len(r.nodes)),
+	}
 	tx := &transaction{root: r, revision: candidate.revision}
 	prepared = &Prepared{root: r, tx: tx, layout: candidate}
 	succeeded := false
@@ -283,6 +301,7 @@ func (r *Root) paint(item Item, view grid.View, tx *transaction, origin image.Po
 	n := item.Element.node
 	placed := geometry{target: n.target(), area: view.Bounds().Add(origin), clip: view.Visible().Add(origin), hit: r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil)}
 	placed.content = r.contentVersion(n)
+	into.byNode[placed.target.node] = len(into.geometry)
 	into.geometry = append(into.geometry, placed)
 	paint := item.Paint
 	if paint == nil {

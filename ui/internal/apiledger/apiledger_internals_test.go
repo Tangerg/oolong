@@ -256,14 +256,12 @@ func (r *fixtureRunner) run(_ context.Context, cmd command) (string, error) {
 		return "Unreleased\n", nil
 	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && cmd.args[1] == "--resolve" && cmd.args[2] == "core/v0.11.0":
 		return "core\n", nil
-	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && cmd.args[1] == "--pattern":
-		return cmd.args[2] + "/v[01].*\n", nil
-	case cmd.name == "git":
-		module := strings.TrimSuffix(cmd.args[2], "/v[01].*")
+	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && cmd.args[1] == "--latest":
+		module := cmd.args[2]
 		if module == "fresh" {
 			return "", nil
 		}
-		return module + "/v0.10.0\n" + module + "/v0.9.0\n", nil
+		return module + "/v0.10.0\n", nil
 	case cmd.name == "go" && slices.Equal(cmd.args, []string{"list", "-m", "-f", "{{.Path}}"}):
 		return "github.com/Tangerg/oolong/" + filepath.Base(cmd.dir) + "\n", nil
 	case cmd.name == "go" && len(cmd.args) >= 2 && cmd.args[0] == "mod" && cmd.args[1] == "download":
@@ -323,10 +321,8 @@ type majorModuleRunner struct{}
 
 func (majorModuleRunner) run(_ context.Context, cmd command) (string, error) {
 	switch {
-	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && slices.Equal(cmd.args[1:], []string{"--pattern", "ui/v2"}):
-		return "ui/v2.*\n", nil
-	case cmd.name == "git" && slices.Equal(cmd.args, []string{"tag", "--list", "ui/v2.*", "--sort=-v:refname"}):
-		return "ui/v2.3.0\nui/v2.1.0\n", nil
+	case cmd.name == "bash" && len(cmd.args) == 3 && filepath.Base(cmd.args[0]) == "module-tag.sh" && slices.Equal(cmd.args[1:], []string{"--latest", "ui/v2"}):
+		return "ui/v2.3.0\n", nil
 	case cmd.name == "go" && slices.Equal(cmd.args, []string{"list", "-m", "-f", "{{.Path}}"}):
 		return "example.com/oolong/ui/v2\n", nil
 	case cmd.name == "go" && slices.Equal(cmd.args, []string{"mod", "download", "example.com/oolong/ui/v2@v2.3.0"}):

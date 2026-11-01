@@ -334,3 +334,25 @@ func TestSourcePreservesInputEndTimeUnderBackpressure(t *testing.T) {
 		}
 	})
 }
+
+func TestWindowIntakeRetiresWithTheEventStream(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		windows := make(chan charmssh.Window)
+		reader := make(chanReader)
+		source := newEventSource(t.Context().Done(), reader, windows, func(charmssh.Window) (input.Resize, bool, error) {
+			t.Error("accepted resize after terminal input ended")
+			return input.Resize{}, false, nil
+		}, nil)
+		defer source.Close()
+		reader <- readResult{err: io.EOF}
+		for range source.Events() {
+			t.Fatal("unexpected event")
+		}
+		synctest.Wait()
+		select {
+		case windows <- charmssh.Window{Width: 80, Height: 24}:
+			t.Fatal("window watcher survived the input stream")
+		default:
+		}
+	})
+}

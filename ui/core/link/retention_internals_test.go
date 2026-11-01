@@ -12,7 +12,7 @@ func TestFilteringLinksClearsDiscardedStorage(t *testing.T) {
 		{Start: 2, End: 5, Target: "discarded"},
 		{Start: 20, End: 25, Target: "also kept"},
 	}
-	ordered := inOrder(found)
+	ordered := inOrder(found, nil)
 	if len(ordered) != 2 {
 		t.Fatalf("kept %d links, want two", len(ordered))
 	}

@@ -454,3 +454,9 @@ func TestATableRuleFillsItsColumnExactly(t *testing.T) {
 		}
 	}
 }
+
+func TestNestedListAndQuotePrefixesFollowTheSourceOrder(t *testing.T) {
+	equal(t, render(t, 20, "- - child\n- next"), []string{"• • child", "• next"})
+	equal(t, render(t, 16, "- > - long text goes here"), []string{"• │ • long text", "  │   goes here"})
+	equal(t, render(t, 20, "1. > - ```\n   >   data\n   >   ```"), []string{"1. │ • data"})
+}

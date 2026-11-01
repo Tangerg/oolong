@@ -18,7 +18,7 @@ contentType: Reference
 
 运行 `scripts/modules.sh` 获取所有工作区模块，运行 `scripts/modules.sh --public` 获取可发布模块。工具依据仓库和 Go 包事实推导成员，本文不再维护第二份依赖数量或版本目录。
 
-`go.work` 支持本地组合。`scripts/sync-workspace.sh` 推导模块条目，`--check` 验证它们。工作区内测试通过，不能证明模块 tag 可以独立解析。发布门禁还会在 `GOWORK=off` 下使用选定模块声明的已发布依赖运行测试。
+`go.work` 的 `use` 指令定义工作区成员。`scripts/sync-workspace.sh` 根据成员声明的依赖生成带版本的替换规则，`--check` 验证这些规则。工作区内测试通过，不能证明模块 tag 可以独立解析。发布门禁还会在 `GOWORK=off` 下使用选定模块声明的已发布依赖运行测试。
 
 ## 独立版本
 

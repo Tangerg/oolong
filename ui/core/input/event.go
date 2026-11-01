@@ -26,22 +26,28 @@ type Event interface {
 	terminalEvent()
 }
 
+// MaxDecodedEventBytes bounds the queue charge of any single event emitted by
+// the terminal decoder. A host can use this bound to admit complete paste chunks.
+const MaxDecodedEventBytes = 4 << 20
+
+const eventOverhead = 1
+
 // ByteSize charges one queue unit plus variable payload bytes for a normalized
 // terminal event. Zero rejects a non-event or a mutable/noncanonical representation.
 func ByteSize(event Event) int {
 	switch e := event.(type) {
 	case Key:
-		return 1 + len(e.Text)
+		return eventOverhead + len(e.Text)
 	case Paste:
-		return 1 + len(e.Text)
+		return eventOverhead + len(e.Text)
 	case OSC:
-		return 1 + len(e.Params)
+		return eventOverhead + len(e.Params)
 	case DCS:
-		return 1 + len(e.Body)
+		return eventOverhead + len(e.Body)
 	case DeviceAttributes:
-		return 1 + len(e.claims)
+		return eventOverhead + len(e.claims)
 	case Mouse, KeyboardFlags, DeviceVersion, Resize, FocusIn, FocusOut:
-		return 1
+		return eventOverhead
 	default:
 		return 0
 	}

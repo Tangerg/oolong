@@ -47,121 +47,97 @@ func parse(source string) (node ast.Node, err error) {
 			node, err = nil, parseFailure(recovered)
 		}
 	}()
-	node, err = golatex.ParseExpr(mathDelimiter + braceScriptAtoms(spacedTextArguments(source)) + mathDelimiter)
+	node, err = golatex.ParseExpr(mathDelimiter + braceScriptAtoms(parserSpacing(source)) + mathDelimiter)
 	if err != nil {
 		return nil, explain(err.Error())
 	}
 	return node, nil
 }
 
-// textModeMacros take an argument the caller wrote as text. Everything else here is
-// mathematics, where the space between two tokens is not a character and TeX is right
-// to drop it.
-var textModeMacros = []string{
-	`\textbf`, `\textit`, `\texttt`, `\textsf`, `\textcal`, `\textdefault`,
-	`\textbb`, `\textfrak`, `\textscr`, `\textregular`, `\operatorname`,
-}
-
-// spacedTextArguments makes the spaces of a text-mode argument survive a math-mode
-// parser.
-//
-// The expression reaches that parser in math mode, where a space between two tokens
-// is dropped before an AST exists — so a font applied afterwards cannot put back what
-// the parse never saw, and two words come out as one. Each space is written as the
-// escape the parser does carry and this package already renders as one column. Like
-// [braceScriptAtoms], this is the boundary that owns the difference between the
-// source the caller wrote and the source the parser reads.
-func spacedTextArguments(source string) string {
+// The parser reads all arguments in math mode and requires each macro argument
+// delimiter immediately. Keep text whitespace as explicit atoms and discard the
+// optional math whitespace before a delimiter before handing it the expression.
+func parserSpacing(source string) string {
 	var out strings.Builder
 	out.Grow(len(source))
+	depth, textDepth := 0, 0
 	for at := 0; at < len(source); {
-		name := textModeMacroAt(source, at)
-		if name == "" {
-			next := at + 1
-			if source[at] == '\\' && next < len(source) {
-				next++
+		switch source[at] {
+		case '\\':
+			var startsText bool
+			at, startsText = writeControlSequence(&out, source, at)
+			if startsText && textDepth == 0 {
+				textDepth = depth + 1
 			}
-			out.WriteString(source[at:next])
-			at = next
-			continue
+		case '{':
+			depth++
+			out.WriteByte('{')
+			at++
+		case '}', ']':
+			if source[at] == '}' {
+				if depth == textDepth {
+					textDepth = 0
+				}
+				depth--
+			}
+			out.WriteByte(source[at])
+			at++
+			if textDepth == 0 {
+				at = argumentStart(source, at)
+			}
+		default:
+			at = writeParserByte(&out, source, at, textDepth > 0)
 		}
-		out.WriteString(name)
-		at += len(name)
-		if at >= len(source) || source[at] != '{' {
-			continue
-		}
-		end, closed := groupEnd(source, at)
-		if !closed {
-			// Unbalanced source is validateSource's to report, with the braces the
-			// caller actually wrote.
-			continue
-		}
-		out.WriteByte('{')
-		out.WriteString(spacesAsAtoms(source[at+1 : end]))
-		out.WriteByte('}')
-		at = end + 1
 	}
 	return out.String()
 }
 
-// textModeMacroAt is the text-mode macro beginning at, or empty. A longer name is a
-// different macro: \textbfx is not \textbf.
-func textModeMacroAt(source string, at int) string {
-	if source[at] != '\\' {
-		return ""
+func writeParserByte(out *strings.Builder, source string, at int, text bool) int {
+	if !text || !isSpace(source[at]) {
+		out.WriteByte(source[at])
+		return at + 1
 	}
-	for _, name := range textModeMacros {
-		if !strings.HasPrefix(source[at:], name) {
-			continue
-		}
-		rest := source[at+len(name):]
-		if rest == "" || !isMacroLetter(rest[0]) {
-			return name
-		}
+	out.WriteString(`\,`)
+	if source[at] == '\r' && at+1 < len(source) && source[at+1] == '\n' {
+		return at + 2
 	}
-	return ""
+	return at + 1
+}
+
+func writeControlSequence(out *strings.Builder, source string, at int) (next int, startsText bool) {
+	end := at + 1
+	for end < len(source) && isMacroLetter(source[end]) {
+		end++
+	}
+	if end == at+1 {
+		end = min(end+1, len(source))
+		out.WriteString(source[at:end])
+		return end, false
+	}
+	name := source[at:end]
+	out.WriteString(name)
+	next = argumentStart(source, end)
+	_, text := textStyle(name)
+	return next, text && next < len(source) && source[next] == '{'
+}
+
+func argumentStart(source string, at int) int {
+	next := at
+	for next < len(source) && isSpace(source[next]) {
+		next++
+	}
+	if next < len(source) && (source[next] == '{' || source[next] == '[') {
+		return next
+	}
+	return at
 }
 
 func isMacroLetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-func groupEnd(source string, open int) (int, bool) {
-	depth := 0
-	for at := open; at < len(source); at++ {
-		if source[at] == '\\' {
-			at++
-			continue
-		}
-		switch source[at] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return at, true
-			}
-		}
-	}
-	return 0, false
-}
-
-func spacesAsAtoms(argument string) string {
-	var out strings.Builder
-	out.Grow(len(argument))
-	for at := 0; at < len(argument); at++ {
-		if argument[at] == '\\' && at+1 < len(argument) {
-			out.WriteString(argument[at : at+2])
-			at++
-			continue
-		}
-		if argument[at] == ' ' {
-			out.WriteString(`\,`)
-			continue
-		}
-		out.WriteByte(argument[at])
-	}
-	return out.String()
+func isSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\r' || b == '\n'
 }
 
 func braceScriptAtoms(source string) string {
@@ -182,7 +158,7 @@ func braceScriptAtoms(source string) string {
 
 		out.WriteByte(source[at])
 		at++
-		for at < len(source) && (source[at] == ' ' || source[at] == '\t' || source[at] == '\r' || source[at] == '\n') {
+		for at < len(source) && isSpace(source[at]) {
 			at++
 		}
 		if at == len(source) || source[at] == '{' || source[at] == '\\' {
@@ -221,9 +197,6 @@ func withoutComments(source string) string {
 }
 
 func validateSource(source string) error {
-	if !utf8.ValidString(source) {
-		return &parseError{message: "source is not valid UTF-8"}
-	}
 	var groups nesting
 	escaped := false
 	for at, r := range source {
@@ -244,6 +217,9 @@ func validateSource(source string) error {
 		if err := groups.step(r); err != nil {
 			return err
 		}
+	}
+	if escaped {
+		return &parseError{message: "source ends with an incomplete control sequence"}
 	}
 	return groups.closed()
 }
@@ -522,20 +498,33 @@ func (r *formulaRenderer) overline(name string, args ast.List, style grid.Style)
 	return overlined(content, r.look.Glyphs, r.look.Rule), nil
 }
 
-func (r *formulaRenderer) appearanceMacro(name string, args ast.List, style grid.Style) (box, bool, error) {
+func textStyle(name string) (grid.Style, bool) {
 	switch name {
-	case `\mathbf`, `\textbf`:
+	case `\textbf`:
+		return grid.Style{Attr: grid.Bold}, true
+	case `\textit`:
+		return grid.Style{Attr: grid.Italic}, true
+	case `\texttt`, `\textsf`, `\textcal`, `\textdefault`, `\textbb`, `\textfrak`,
+		`\textscr`, `\textregular`, `\operatorname`:
+		return grid.Style{}, true
+	default:
+		return grid.Style{}, false
+	}
+}
+
+func (r *formulaRenderer) appearanceMacro(name string, args ast.List, style grid.Style) (box, bool, error) {
+	if appearance, ok := textStyle(name); ok {
+		rendered, err := r.styledArg(name, args, style.Merge(appearance))
+		return rendered, true, err
+	}
+	switch name {
+	case `\mathbf`:
 		rendered, err := r.styledArg(name, args, style.Merge(grid.Style{Attr: grid.Bold}))
 		return rendered, true, err
-	case `\mathit`, `\textit`:
+	case `\mathit`:
 		rendered, err := r.styledArg(name, args, style.Merge(grid.Style{Attr: grid.Italic}))
 		return rendered, true, err
-	case `\mathtt`, `\texttt`, `\mathsf`, `\textsf`, `\mathcal`, `\textcal`,
-		`\mathdefault`, `\textdefault`, `\mathbb`, `\textbb`, `\mathfrak`, `\textfrak`,
-		`\mathscr`, `\textscr`, `\mathregular`, `\textregular`:
-		rendered, err := r.styledArg(name, args, style)
-		return rendered, true, err
-	case `\operatorname`:
+	case `\mathtt`, `\mathsf`, `\mathcal`, `\mathdefault`, `\mathbb`, `\mathfrak`, `\mathscr`, `\mathregular`:
 		rendered, err := r.styledArg(name, args, style)
 		return rendered, true, err
 	case `\exp`:

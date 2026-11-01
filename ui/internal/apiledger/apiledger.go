@@ -176,7 +176,8 @@ type moduleRelease struct {
 }
 
 func (c *checker) moduleRelease(ctx context.Context, module string) (moduleRelease, bool, error) {
-	previous, err := c.latestTag(ctx, module)
+	previous, err := c.script(ctx, "bash", "module-tag.sh", "--latest", module)
+	previous = strings.TrimSpace(previous)
 	if err != nil || previous == "" {
 		return moduleRelease{}, false, err
 	}
@@ -283,25 +284,6 @@ func (m moduleRelease) namesSymbol(ledger, symbol string) bool {
 		}
 	}
 	return false
-}
-
-func (c *checker) latestTag(ctx context.Context, module string) (string, error) {
-	pattern, err := c.script(ctx, "bash", "module-tag.sh", "--pattern", module)
-	if err != nil {
-		return "", err
-	}
-	out, err := c.run(ctx, command{
-		dir: c.root, name: "git", args: []string{"tag", "--list", strings.TrimSpace(pattern), "--sort=-v:refname"},
-	})
-	if err != nil {
-		return "", err
-	}
-	for line := range strings.Lines(out) {
-		if tag := strings.TrimSpace(line); tag != "" {
-			return tag, nil
-		}
-	}
-	return "", nil
 }
 
 func (c *checker) export(ctx context.Context, directory, output, modulePath, goos, work string) error {

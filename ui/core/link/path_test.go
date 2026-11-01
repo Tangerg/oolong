@@ -266,3 +266,18 @@ func TestOverlappingShapesKeepTheFirst(t *testing.T) {
 		t.Errorf("found %v, want only the whole path", targets(got))
 	}
 }
+
+func TestURLAndItsPathNeverTriggerFilesystemQueries(t *testing.T) {
+	input := "www.example.com/src/main.go?file=secret.go then local.go"
+	var queried []string
+	found := link.Detect(input, func(path string) bool {
+		queried = append(queried, path)
+		return true
+	})
+	if len(found) != 2 || found[0].Kind != link.URL || found[1].Target != "local.go" {
+		t.Fatalf("links = %+v", found)
+	}
+	if len(queried) != 1 || queried[0] != "local.go" {
+		t.Fatalf("filesystem queried for %q", queried)
+	}
+}

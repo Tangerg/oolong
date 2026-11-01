@@ -66,17 +66,11 @@ func render(source string, look Look, context gparser.Context) ([]Block, error) 
 	return r.blocks, errors.Join(r.errors...)
 }
 
-// frame is where a block sits: how far in its text starts, what is drawn beside it,
-// what its text is drawn in, and whether it follows a blank row.
-//
-// It is one value carried down the tree rather than four arguments, because every
-// one of them is inherited by default and changed by exactly one kind of node: a
-// list changes the indent, a quotation changes the rail and the body, and a list
-// item decides whether what is inside it is spaced out.
 type frame struct {
-	indent int
-	rail   *railChain
-	body   grid.Style
+	indent  int
+	rails   *prefixMark
+	pending *pendingMark
+	body    grid.Style
 	// tight says no blank row goes before this block: the first block of a document,
 	// and the first block of a list item.
 	tight bool
@@ -87,69 +81,46 @@ type frame struct {
 	dense bool
 }
 
-// railChain is a quotation prefix as persistent segments. Nested quotations share
-// their prefix and add one segment, so depth costs one allocation per level rather
-// than copying the complete rail at every level. A Block materializes the line once
-// when ownership crosses into the renderer result.
-type railChain struct {
-	previous *railChain
-	span     text.Span
-	depth    int
+// A list item owns its marker until its first emitted block claims it. An item
+// that begins with a nested list may transfer several still-pending markers.
+type pendingMark struct {
+	mark  *prefixMark
+	outer *pendingMark
 }
 
-func (r *railChain) segments() int {
-	if r == nil {
-		return 0
+func (p *pendingMark) take() *prefixMark {
+	var first *prefixMark
+	for item := p; item != nil && item.mark != nil; item = item.outer {
+		mark := item.mark
+		mark.next = first
+		first = mark
+		item.mark = nil
 	}
-	return r.depth
+	return first
 }
 
-func (r *railChain) line() text.Line {
-	if r == nil {
-		return nil
-	}
-	line := make(text.Line, r.depth)
-	for current := r; current != nil; current = current.previous {
-		line[current.depth-1] = current.span
-	}
-	return line
+func (f *frame) place(span text.Span) *prefixMark {
+	mark := &prefixMark{column: f.indent, span: span}
+	f.indent = layout.Sum(f.indent, text.Width(span.Text))
+	return mark
 }
 
-// renderer walks the tree and leaves blocks behind it.
 type renderer struct {
 	look   Look
 	source []byte
 	blocks []Block
 	errors []error
-	// marker waits for the next block pushed, which is how a list item's bullet
-	// reaches the first line of whatever the item begins with — a paragraph, a nested
-	// list, a block of code.
-	marker text.Line
-	// markerDepth is how many rail segments stood outside the list the marker begins
-	// an item of. The mark goes after those and before anything the item quotes,
-	// because that is where it is: inside them and outside these.
-	markerDepth int
 }
 
-func (r *renderer) push(b Block) {
-	b.marker, b.markerDepth, r.marker = r.marker, r.markerDepth, nil
+func (r *renderer) push(b Block, in frame) {
+	b.prefix = blockPrefix{indent: in.indent, rails: in.rails, markers: in.pending.take()}
+	b.blankBefore = !in.tight
 	r.blocks = append(r.blocks, b)
 }
 
-type renderActionKind uint8
-
-const (
-	renderNode renderActionKind = iota
-	setMarker
-	clearMarker
-)
-
 type renderAction struct {
-	kind        renderActionKind
-	node        ast.Node
-	frame       frame
-	marker      text.Line
-	markerDepth int
+	node  ast.Node
+	frame frame
 }
 
 // render walks the block tree with explicit actions. Markdown nesting is input, not
@@ -162,14 +133,7 @@ func (r *renderer) render(root ast.Node, in frame) {
 		last := len(stack) - 1
 		action := stack[last]
 		stack = stack[:last]
-		switch action.kind {
-		case setMarker:
-			r.marker, r.markerDepth = action.marker, action.markerDepth
-		case clearMarker:
-			r.marker = nil
-		case renderNode:
-			r.block(action.node, action.frame, &stack)
-		}
+		r.block(action.node, action.frame, &stack)
 	}
 }
 
@@ -180,7 +144,7 @@ func (r *renderer) scheduleChildren(stack *[]renderAction, n ast.Node, in frame)
 		at := in
 		first := child.PreviousSibling() == nil
 		at.tight = (in.tight && first) || (in.dense && !first)
-		*stack = append(*stack, renderAction{kind: renderNode, node: child, frame: at})
+		*stack = append(*stack, renderAction{node: child, frame: at})
 	}
 }
 
@@ -192,37 +156,29 @@ func (r *renderer) scheduleChildren(stack *[]renderAction, n ast.Node, in frame)
 func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	switch node := n.(type) {
 	case *ast.Heading:
-		r.push(Block{
-			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
-			lines: r.inline(node, r.look.heading(node.Level)),
-		})
-	case *ast.Paragraph:
-		r.push(Block{
-			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
-			lines: r.inline(node, in.body),
-		})
-	case *ast.TextBlock:
-		r.push(Block{
-			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
-			lines: r.inline(node, in.body),
-		})
+		r.push(Block{lines: r.inline(node, r.look.heading(node.Level))}, in)
+	case *ast.Paragraph, *ast.TextBlock:
+		r.push(Block{lines: r.inline(node, in.body)}, in)
 	case *ast.List:
 		r.list(node, in, stack)
 	case *ast.ListItem:
 		if node.ChildCount() == 0 {
-			// An item with nothing in it is still an item. Its mark is waiting to be
-			// attached to the first block inside it, and with no block to attach it to
-			// the mark would be cleared and the item would vanish from the list.
+			// The first row carries the marker even for an empty item.
 			r.push(Block{
-				indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
 				lines: []text.Line{nil},
-			})
+			}, in)
 			return
 		}
 		r.scheduleChildren(stack, node, in)
 	case *ast.Blockquote:
 		inner := in
-		inner.rail, inner.indent = r.quoted(in.rail, in.indent)
+		bar := r.look.Glyphs.Bar
+		if bar == "" {
+			bar = " "
+		}
+		rail := text.Span{Text: bar + " ", Style: r.look.Rail}
+		inner.rails = inner.place(rail)
+		inner.rails.next = in.rails
 		inner.body = r.look.Quote
 		r.scheduleChildren(stack, node, inner)
 	case *ast.FencedCodeBlock:
@@ -233,9 +189,9 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 		r.math(node, in)
 	case *ast.ThematicBreak:
 		r.push(Block{
-			indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, rule: true,
+			rule:  true,
 			lines: r.rule(),
-		})
+		}, in)
 	case *east.Table:
 		r.table(node, in)
 	case *ast.HTMLBlock:
@@ -265,7 +221,7 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 	for item := n.LastChild(); item != nil; item = item.PreviousSibling() {
 		marker := r.bullet(n, ordinal(number, index))
 		inner := in
-		inner.indent = layout.Sum(in.indent, marker.Width())
+		inner.pending = &pendingMark{mark: inner.place(marker), outer: in.pending}
 		// An item is against the one before it in a tight list and spaced from it in a
 		// loose one, which is the distinction markdown draws by whether there are blank
 		// lines between them — and the one thing about a list a reader notices.
@@ -276,11 +232,7 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 		// paragraph above it.
 		inner.tight = (index == 0 && in.tight) || (index > 0 && n.IsTight)
 		inner.dense = n.IsTight
-		*stack = append(*stack,
-			renderAction{kind: clearMarker},
-			renderAction{kind: renderNode, node: item, frame: inner},
-			renderAction{kind: setMarker, marker: marker, markerDepth: in.rail.segments()},
-		)
+		*stack = append(*stack, renderAction{node: item, frame: inner})
 		index--
 	}
 }
@@ -292,32 +244,16 @@ func ordinal(start, index int) int {
 	return layout.Translate(start, index)
 }
 
-func (r *renderer) bullet(n *ast.List, number int) text.Line {
+func (r *renderer) bullet(n *ast.List, number int) text.Span {
 	if n.IsOrdered() {
-		return text.Of(strconv.Itoa(number)+". ", r.look.Marker)
+		return text.Span{Text: strconv.Itoa(number) + ". ", Style: r.look.Marker}
 	}
 	if r.look.Glyphs.Bullet == "" {
 		// No bullet to draw, and the indent still has to happen or a list reads as a
 		// paragraph with odd line breaks.
-		return text.Of("  ", r.look.Marker)
+		return text.Span{Text: "  ", Style: r.look.Marker}
 	}
-	return text.Of(r.look.Glyphs.Bullet+" ", r.look.Marker)
-}
-
-// quoted adds one persistent rail segment and advances the content indent by this
-// segment only. Adding the complete accumulated rail at every level would move a
-// depth-n quotation by the triangular number of columns.
-func (r *renderer) quoted(previous *railChain, indent int) (*railChain, int) {
-	bar := r.look.Glyphs.Bar
-	if bar == "" {
-		bar = " "
-	}
-	span := text.Span{Text: bar + " ", Style: r.look.Rail}
-	depth := 1
-	if previous != nil {
-		depth = previous.depth + 1
-	}
-	return &railChain{previous: previous, span: span, depth: depth}, layout.Sum(indent, text.Width(span.Text))
+	return text.Span{Text: r.look.Glyphs.Bullet + " ", Style: r.look.Marker}
 }
 
 func (r *renderer) code(n ast.Node, language string, in frame) {
@@ -357,7 +293,7 @@ func (r *renderer) extension(kind Extension, info, source string, in frame) {
 		}
 		child = text.NewBlock(text.BlockConfig{Lines: lines, Wrap: kind != DisplayMath})
 	}
-	r.push(Block{indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight, content: child})
+	r.push(Block{content: child}, in)
 }
 
 func nilDrawable(value grid.Drawable) bool {
@@ -695,13 +631,12 @@ func (r *renderer) table(n *east.Table, in frame) {
 		return
 	}
 	r.push(Block{
-		indent: in.indent, rail: in.rail.line(), blankBefore: !in.tight,
 		table: &table{
 			rows: rows, aligns: columnAlignments(n.Alignments), header: header,
 			separator: r.column(), divider: r.look.Glyphs.Divider,
 			rail: r.look.Rail, rule: r.look.Rule,
 		},
-	})
+	}, in)
 }
 
 // cells reads the table into styled cells and says whether the first row is its

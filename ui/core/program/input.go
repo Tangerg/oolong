@@ -36,7 +36,7 @@ func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, eve
 		count = 256
 	}
 	if bytes == 0 {
-		bytes = 4 << 20
+		bytes = input.MaxDecodedEventBytes
 	}
 	p := &inputPipe{events: make(chan ownerInput, count), consumed: make(chan int, count+1), done: make(chan struct{})}
 	var repaints <-chan func(int, int, error)

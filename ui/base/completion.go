@@ -312,9 +312,11 @@ func (c *Completion) HeightForWidth(int) int {
 func (c *Completion) Width() int {
 	widest := 0
 	renderer := c.renderer()
-	for _, candidate := range c.list.items {
-		widest = max(widest, renderer.Width(c.forRenderer(candidate)))
-	}
+	c.Element().ReadOnly(func() {
+		for _, candidate := range c.list.items {
+			widest = max(widest, renderer.Width(c.forRenderer(candidate)))
+		}
+	})
 	return widest
 }
 

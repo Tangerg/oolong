@@ -250,3 +250,16 @@ func TestNilFormulaIsEmpty(t *testing.T) {
 	}
 	formula.Draw(grid.View{})
 }
+
+func TestAnIncompleteEscapeCannotConsumeTheParserDelimiter(t *testing.T) {
+	for _, source := range []string{`\`, `x\`, `x^\`} {
+		formula := latex.Render(source, latex.Look{})
+		rows := formula.Rows(20)
+		if formula.Err() == nil || len(rows) != 1 || rows[0].Text != source {
+			t.Fatalf("Render(%q) = %v, %v", source, rows, formula.Err())
+		}
+	}
+	if got := rendered(t, `x\$y`); !slices.Equal(got, []string{"x$y"}) {
+		t.Fatalf("explicitly escaped dollar = %q", got)
+	}
+}

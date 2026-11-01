@@ -82,13 +82,7 @@ func (s SourceSnapshot) Prepare(ctx context.Context, render Renderer) Prepared {
 		result.err = ErrUnknownFormat
 		return result
 	}
-	result.body, result.err = render(ctx, s.source)
-	if nilContent(result.body) {
-		result.body = nil
-		if result.err == nil {
-			result.err = ErrInvalidResult
-		}
-	}
+	result.body, result.err = checkedResult(render(ctx, s.source))
 	return result
 }
 

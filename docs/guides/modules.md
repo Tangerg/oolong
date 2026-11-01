@@ -18,7 +18,7 @@ Optional modules live at `github.com/Tangerg/oolong/extensions/<name>`. Parser, 
 
 Run `scripts/modules.sh` for all workspace modules and `scripts/modules.sh --public` for publishable modules. The tools derive membership from the repository and Go package facts. This page intentionally does not maintain another dependency count or version catalog.
 
-`go.work` supports local composition. `scripts/sync-workspace.sh` derives its module entries; `--check` verifies them. Tests with a workspace do not prove a tagged module is independently resolvable. The release gate also tests the selected module with `GOWORK=off` and its declared published dependencies.
+The `use` directives in `go.work` define workspace membership. `scripts/sync-workspace.sh` derives versioned replacements from member requirements. Pass `--check` to verify those replacements. Tests with a workspace do not prove a tagged module is independently resolvable. The release gate also tests the selected module with `GOWORK=off` and its declared published dependencies.
 
 ## Independent versions
 

@@ -109,6 +109,11 @@ func highlight(language, source string, scheme *chroma.Style) []text.Line {
 	if len(out) == 0 {
 		return plain(source)
 	}
+	// Chroma omits the final empty row and some lexers synthesize their own
+	// terminator. Only a line ending in the caller's source opens another row.
+	if strings.HasSuffix(source, "\n") || strings.HasSuffix(source, "\r") {
+		out = append(out, nil)
+	}
 	return out
 }
 
@@ -155,6 +160,7 @@ func colour(c chroma.Colour) grid.Color {
 }
 
 func plain(source string) []text.Line {
+	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 	rows := strings.Split(source, "\n")
 	out := make([]text.Line, 0, len(rows))
 	for _, row := range rows {

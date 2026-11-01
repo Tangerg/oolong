@@ -290,7 +290,7 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		query.TextLimit = DefaultTextLimit
 	}
 	query.Limit, query.TextLimit = min(query.Limit, MaxQueryLimit), min(query.TextLimit, MaxTextLimit)
-	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.offset > 0}}
+	builder := observationBuilder{root: r, modal: r.modal(), query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.offset > 0}}
 	builder.visit(origin, Target{}, 0)
 	return builder.result, nil
 }
@@ -349,6 +349,7 @@ func (r *Root) queryRoot(query Query) (*node, error) {
 
 type observationBuilder struct {
 	root   *Root
+	modal  *node
 	query  Query
 	result Observation
 	seen   int
@@ -391,13 +392,14 @@ func (b *observationBuilder) append(n *node, parent Target, semantic Semantic) b
 			b.result.Next.offset = b.seen
 			return false
 		}
-		b.result.Nodes = append(b.result.Nodes, b.root.semanticNode(n, parent, semantic, b.query.TextLimit))
+		b.result.Nodes = append(b.result.Nodes, b.semanticNode(n, parent, semantic))
 	}
 	b.seen++
 	return true
 }
 
-func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit int) SemanticNode {
+func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Semantic) SemanticNode {
+	r, textLimit := b.root, b.query.TextLimit
 	var truncated TextTruncation
 	clip := func(value string, field TextTruncation) string {
 		if len(value) > textLimit {
@@ -414,7 +416,7 @@ func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit
 	}
 	semantic.ContentID = strings.Clone(semantic.ContentID)
 	semantic.Relations = slices.DeleteFunc(slices.Clone(semantic.Relations), func(rel Relation) bool { return !r.Valid(rel.Target) })
-	allowed := r.allowed(n)
+	allowed := r.allowedIn(n, b.modal)
 	semantic.State &^= StateFocused | StateDisabled
 	if r.focus == n.target() {
 		semantic.State |= StateFocused
@@ -423,7 +425,7 @@ func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit
 		semantic.State |= StateDisabled
 	}
 	entry := SemanticNode{Target: n.target(), Parent: parent, Key: strings.Clone(n.config.Key), Semantic: semantic, TruncatedText: truncated}
-	if placement, ok := findGeometry(r.layout, n.target()); ok && r.layout.epoch == r.geometryEpoch {
+	if placement, ok := r.layout.lookup(n.target()); ok && r.layout.epoch == r.geometryEpoch {
 		entry.Bounds, entry.HasBounds = placement.clip, true
 	}
 	for _, action := range n.config.Actions {

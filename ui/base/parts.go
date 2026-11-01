@@ -22,20 +22,13 @@ func rowsMeasure(height func(int) int) func(layout.Axis, int) int {
 // Element returns the one scene identity shared by this controller and its appearance.
 func (t *Text) Element() scene.Element {
 	if t.element.IsZero() {
-		fill := scene.NewAction(scene.ActionConfig[string, string]{ID: scene.ActionFill, Label: "Fill", Run: func(_ context.Context, value string) (scene.ActionResult[string], error) {
-			state := scene.Unchanged
-			if t.Text() != oneLineText(value) {
-				t.SetText(value)
-				state = scene.Applied
-			}
-			return scene.ActionResult[string]{State: state, Value: t.Text()}, nil
-		}})
+		t.editor.SetSingleLine(true)
 		t.element = scene.NewElement(scene.ElementConfig{
 			Key: t.key, Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, t.Handle, &t.geometry, &t.editor.geometry) }, Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleTextBox, Name: t.Label, Value: t.Text(), Sensitive: t.Mask() != "", ContentRevision: t.Revision(), State: t.semanticState()}
-			}, Actions: []scene.ActionBinding{fill.Binding()},
+				return scene.Semantic{Role: scene.RoleTextBox, Name: t.Label, Value: t.editor.semanticValue(), Sensitive: t.Mask() != "", ContentRevision: t.Revision(), State: t.semanticState()}
+			}, Actions: []scene.ActionBinding{t.editor.fillAction()},
 		})
 	}
 	t.editor.element = t.element
@@ -127,24 +120,41 @@ func (m *MultiSelect[T]) Element() scene.Element {
 // Element returns the one scene identity shared by this controller and its appearance.
 func (e *Editor) Element() scene.Element {
 	if e.element.IsZero() {
-		fill := scene.NewAction(scene.ActionConfig[string, string]{ID: scene.ActionFill, Label: "Fill", Run: func(_ context.Context, value string) (scene.ActionResult[string], error) {
-			state := scene.Unchanged
-			if e.Text() != e.canonicalText(value) {
-				e.SetText(value)
-				state = scene.Applied
-			}
-			return scene.ActionResult[string]{State: state, Value: e.Text()}, nil
-		}})
 		e.element = scene.NewElement(scene.ElementConfig{
 			Measure: rowsMeasure(e.HeightForWidth), Paint: e.Draw,
 			Handle: func(event scene.Event) scene.EventResult { return partEvent(event, e.Handle, &e.geometry) }, Focusable: func() bool { return true }, FocusChanged: e.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleTextBox, Name: e.Placeholder, Value: e.Text(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}
-			}, Actions: []scene.ActionBinding{fill.Binding()},
+				return scene.Semantic{Role: scene.RoleTextBox, Name: e.Placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}
+			}, Actions: []scene.ActionBinding{e.fillAction()},
 		})
 	}
 	e.scroll.element = e.element
 	return e.element
+}
+
+// A synchronous edit subscriber may replace the answer or change its masking policy.
+func (e *Editor) fillAction() scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[string, string]{
+		ID: scene.ActionFill, Label: "Fill", Run: func(_ context.Context, value string) (scene.ActionResult[string], error) {
+			masked := e.Mask() != ""
+			result := scene.ActionResult[string]{}
+			if e.Text() != e.canonicalText(value) {
+				e.SetText(value)
+				result.State = scene.Applied
+			}
+			if !masked {
+				result.Value = e.semanticValue()
+			}
+			return result, nil
+		},
+	}).Binding()
+}
+
+func (e *Editor) semanticValue() string {
+	if e.Mask() != "" {
+		return ""
+	}
+	return e.Text()
 }
 
 // Element returns the one scene identity shared by this controller and its appearance.

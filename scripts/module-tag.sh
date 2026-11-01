@@ -35,13 +35,28 @@ module_tag() {
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 directory_tag() {
-	local directory="$1" path
+	local directory="$1" path pattern tags tag candidate
 	case "/$directory/" in
 	*'/../'* | *'/./'* | '//'* | *'//'* | *'\\'*) die "invalid module directory: $directory" ;;
 	esac
 	[[ -f "$root/$directory/go.mod" ]] || die "$directory has no go.mod"
 	path=$(GOWORK=off go -C "$root/$directory" list -m -f '{{.Path}}')
-	module_tag "$directory" "$path" "$2"
+	if [[ "$2" != --latest ]]; then
+		module_tag "$directory" "$path" "$2"
+		return
+	fi
+	pattern=$(module_tag "$directory" "$path" --pattern)
+	tags=$(git -C "$root" tag --list "$pattern" --sort=-v:refname)
+	while IFS= read -r tag; do
+		[[ -n "$tag" ]] || continue
+		# Git globs also match prereleases and nested tags. Only the forward
+		# mapping can identify a version published by this module.
+		if candidate=$(module_tag "$directory" "$path" "${tag##*/}" 2>/dev/null) && [[ "$candidate" == "$tag" ]]; then
+			printf '%s\n' "$tag"
+			return
+		fi
+	done <<<"$tags"
+	return 0
 }
 
 # A major-version directory and its parent may share a tag prefix. The public
@@ -61,9 +76,9 @@ resolve_tag() {
 	printf '%s\n' "$selected"
 }
 
-[[ $# == 2 ]] || die "usage: scripts/module-tag.sh MODULE vX.Y.Z | --pattern MODULE | --resolve TAG"
+[[ $# == 2 ]] || die "usage: scripts/module-tag.sh MODULE vX.Y.Z | --pattern MODULE | --latest MODULE | --resolve TAG"
 case "$1" in
 --resolve) resolve_tag "$2" ;;
---pattern) directory_tag "$2" --pattern ;;
+--pattern | --latest) directory_tag "$2" "$1" ;;
 *) directory_tag "$1" "$2" ;;
 esac

@@ -175,7 +175,7 @@ func TestSliderSettlesInvalidatedGestures(t *testing.T) {
 }
 
 func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
-	for _, replace := range []bool{false, true} {
+	for _, change := range []string{"replace", "select", "select and return"} {
 		var resolve func()
 		keys := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
 			resolve = fn
@@ -191,14 +191,18 @@ func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
 		}
 		settings.List().SetItems([]string{"one", "two"})
 		settings.Handle(input.Key{Code: input.Character, Rune: 'g'})
-		if replace {
+		switch change {
+		case "replace":
 			settings.List().SetItems([]string{"new", "items"})
-		} else {
+		case "select":
 			settings.List().Select(1)
+		case "select and return":
+			settings.List().Select(1)
+			settings.List().Select(0)
 		}
 		resolve()
 		if changes != 0 {
-			t.Fatal("a deferred action edited another setting")
+			t.Fatalf("a deferred action edited a stale selection after %s", change)
 		}
 		settings.Handle(input.Key{Code: input.Character, Rune: 'g'})
 		if changes != 0 {

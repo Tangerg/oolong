@@ -1,6 +1,7 @@
 package kit_test
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -63,4 +64,14 @@ func TestLineNumbersCanStartAtASourceOffset(t *testing.T) {
 		" 99│.",
 		"100│.",
 	})
+}
+
+func TestLineNumbersUseOnlyTheVisiblePadding(t *testing.T) {
+	screen := grid.NewSurface(2, 1)
+	screen.View().Text(0, 0, "xx", grid.Style{})
+	wide := screen.View().Sub(grid.Area(0, 0, math.MaxInt, 1))
+	kit.LineNumbers{}.Draw(wide, []text.Row{{Line: 1}})
+	if got := rowOf(screen.View(), 0, 2); got != "  " {
+		t.Fatalf("visible padding = %q, want two empty cells", got)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -111,7 +112,7 @@ type missing struct {
 
 func (m *missing) Error() string {
 	return "ptytest: never saw " + strings.Join(quoteAll(m.tokens), ", ") +
-		": " + m.err.Error() + "\nwhat arrived was:\n" + m.transcript
+		": " + m.err.Error() + "\nwhat arrived was:\n" + strconv.Quote(m.transcript)
 }
 
 func (m *missing) Unwrap() error { return m.err }

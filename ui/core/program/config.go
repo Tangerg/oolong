@@ -26,7 +26,8 @@ type Config struct {
 	// clocks and ingress streams. Zero selects the documented finite defaults.
 	Actions   int
 	Resources int
-	// InputEvents and InputBytes bound the normalized-input queue.
+	// InputEvents and InputBytes bound the normalized-input queue. The default
+	// byte budget accommodates every event emitted by the terminal decoder.
 	InputEvents int
 	InputBytes  int
 }

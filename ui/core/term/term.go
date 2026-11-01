@@ -189,19 +189,21 @@ func OpenOn(
 	if err != nil {
 		return nil, err
 	}
-	if _, outputErr := checkedTerminalFD(out, "output"); outputErr != nil {
-		return nil, outputErr
+	outFD, err := checkedTerminalFD(out, "output")
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve every caller-provided environment fact before raw mode, files or
 	// readers need cleanup. A lookup may panic or leave its goroutine.
 	t := newTerminal(in, out, cfg, startupEnvironment(lookup))
+	t.inFD, t.outFD = inFD, outFD
 	oldState, err := xterm.MakeRaw(inFD)
 	if err != nil {
 		return nil, fmt.Errorf("term: enter raw mode: %w", err)
 	}
 	t.oldState = oldState
-	if err := t.takeOver(inFD); err != nil {
+	if err := t.takeOver(); err != nil {
 		return nil, err
 	}
 	t.start(cfg)
@@ -209,8 +211,21 @@ func OpenOn(
 }
 
 func checkedTerminalFD(file *os.File, role string) (int, error) {
-	fd := int(file.Fd())
-	if !xterm.IsTerminal(fd) {
+	// File.Fd can switch a pollable descriptor back to blocking, even when
+	// this file is rejected and no session will ever restore its flags.
+	raw, err := file.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var fd int
+	var terminal bool
+	if err := raw.Control(func(value uintptr) {
+		fd = int(value)
+		terminal = xterm.IsTerminal(fd)
+	}); err != nil {
+		return 0, err
+	}
+	if !terminal {
 		return 0, fmt.Errorf("%w: %s is fd %d", ErrNotTerminal, role, fd)
 	}
 	return fd, nil
@@ -243,8 +258,7 @@ func newTerminal(
 	lookup func(string) (string, bool),
 ) *Terminal {
 	return &Terminal{
-		in:   in,
-		inFD: int(in.Fd()), outFD: int(out.Fd()),
+		in:            in,
 		out:           out,
 		modes:         cfg.Modes(lookup),
 		events:        make(chan input.Event, 64),
@@ -263,7 +277,7 @@ func newTerminal(
 
 // takeOver acquires the output-side resources in order. Any failure rolls back the
 // complete prefix already acquired, leaving start to run only for a usable session.
-func (t *Terminal) takeOver(inFD int) error {
+func (t *Terminal) takeOver() error {
 	output, err := newTerminalOutput(t.out)
 	if err != nil {
 		return errors.Join(err, xterm.Restore(t.inFD, t.oldState))
@@ -271,7 +285,7 @@ func (t *Terminal) takeOver(inFD int) error {
 	t.output = output
 	// Acquire everything that can fail before entering terminal modes. Rollback
 	// never needs to send restoration through a writer it has already stopped.
-	waker, err := newWaker(inFD)
+	waker, err := newWaker(t.inFD)
 	if err != nil {
 		return t.abortOpen(err)
 	}
@@ -781,8 +795,9 @@ func (t *Terminal) read(raw chan<- readResult) {
 // one. A terminal that does not implement it ignores it, and one that does not
 // implement the title stack ignores the putting back — which is why a program that
 // cares should set something sensible on the way out rather than rely on it.
+// A title too large to restore after a handover returns [ErrPayloadTooLarge].
 func (t *Terminal) SetTitle(s string) error {
-	return t.title.to(s, t.writer.Queue)
+	return t.title.to(s, len(t.modes.Enter()), t.writer.Queue)
 }
 
 // Bell asks the terminal for its attention.
@@ -802,8 +817,10 @@ func (t *Terminal) Bell() error { _, err := t.writer.Queue([]byte{ansi.Bell}); r
 // Terminals that do not implement it ignore it, and there is no way to find out
 // which did — so a program that has something to say should say it in the interface
 // as well, and treat this as the extra it is.
+// Numeric-leading text is prefixed with a bullet to distinguish it from OSC 9
+// control commands on terminals that share the notification namespace.
 func (t *Terminal) Notify(text string) error {
-	_, err := t.writer.Queue([]byte(command(notifySend, text)))
+	_, err := t.writer.Queue([]byte(notification(text)))
 	return err
 }
 
@@ -949,9 +966,7 @@ func (t *Terminal) retakeModes() error {
 	// and the program must rebuild the screen whose contents the child replaced. The
 	// measurement becomes the watcher's too — those same signals are the ones it did
 	// not get, so what it remembers may be a size that has not been true for a while.
-	if width, height, err := t.Size(); err == nil {
-		t.retakeResize(width, height)
-	}
+	t.noteResize(t.Size, true)
 	return errors.Join(errs...)
 }
 
@@ -979,32 +994,16 @@ func (t *Terminal) SetProgress(progress Progress) error {
 	return t.task.to(progress, t.writer.Queue)
 }
 
-// noteResize records what a platform watcher measured and publishes it when it is
-// news.
-//
-// The last size has one owner, and this and [Terminal.retakeResize] are the two
-// paths that may advance it. A watcher keeping its own copy was the older shape and
-// the reason a handover could leave the session the wrong size for good: while a
-// child holds the terminal, its process group gets the resize signals and this one
-// does not, so the watcher comes back remembering a size that is no longer true. If
-// the measurement taken on the way back does not also become the watcher's, a later
-// change back to that remembered size reads as no change at all.
-func (t *Terminal) noteResize(width, height int, err error) {
+// Measure under the same lock as publication: a delayed watcher must not
+// overwrite a newer handover measurement. Handover forces a repaint even
+// when the child returned the same size, because the display may have changed.
+func (t *Terminal) noteResize(measure func() (int, int, error), force bool) {
 	t.resizeMu.Lock()
 	defer t.resizeMu.Unlock()
-	if t.size.observe(width, height, err) {
-		t.publishResize(t.size.point.X, t.size.point.Y)
+	width, height, err := measure()
+	if err == nil && (t.size.observe(width, height) || force) {
+		t.publishResize(width, height)
 	}
-}
-
-// retakeResize records the size measured on taking the terminal back and publishes
-// it whether or not it changed. The program has to rebuild a screen whose contents
-// the child replaced, and that is true at any size.
-func (t *Terminal) retakeResize(width, height int) {
-	t.resizeMu.Lock()
-	defer t.resizeMu.Unlock()
-	t.size.observe(width, height, nil)
-	t.publishResize(width, height)
 }
 
 // publishResize offers the newest measured size to the input pump. Dimensions are

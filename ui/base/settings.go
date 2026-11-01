@@ -26,9 +26,8 @@ type Settings[T any] struct {
 	// list is browsed.
 	EditKeys *keymap.Map
 
-	matcher   keymap.Matcher
-	editItems *byte
-	editIndex int
+	matcher      keymap.Matcher
+	editRevision uint64
 }
 
 // Focus takes or releases the keyboard with the list. Releasing it also
@@ -55,18 +54,18 @@ func (s *Settings[T]) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	items, index := s.list.itemsID, s.list.Selected()
-	if s.editItems != items || s.editIndex != index {
-		if !s.matcher.Reset(func() { s.editItems, s.editIndex = items, index }) {
+	revision := s.list.revision
+	if s.editRevision != revision {
+		if !s.matcher.Reset(func() { s.editRevision = revision }) {
 			return true
 		}
 	}
-	if s.list.itemsID != items || s.list.Selected() != index {
+	if s.list.revision != revision {
 		return true
 	}
 	_, handled := s.matcher.Handle(s.editKeys(), key, func(action keymap.Action) bool {
 		// A delayed value action belongs to the row where its sequence began.
-		return s.list.itemsID == items && s.list.Selected() == index && s.Do(action)
+		return s.list.revision == revision && s.Do(action)
 	})
 	return handled
 }

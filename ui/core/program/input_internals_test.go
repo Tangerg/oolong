@@ -3,6 +3,7 @@ package program
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,4 +115,29 @@ func TestInputSourceFailureUnwindsOnTheProgramOwner(t *testing.T) {
 		}
 	}()
 	_ = p.err()
+}
+
+func TestDefaultInputBudgetDeliversALargeBracketedPaste(t *testing.T) {
+	const payload = "abcd\xff"
+	text := strings.Repeat(payload, 1<<20)
+	var parser input.Parser
+	events := parser.Feed([]byte("\x1b[200~" + text + "\x1b[201~"))
+	source := &pipeSource{events: make(chan input.Event, len(events))}
+	for _, ev := range events {
+		source.events <- ev
+	}
+	close(source.events)
+	pipe := newInputPipe(t.Context(), nil, source, source.Events(), Config{})
+	var delivered strings.Builder
+	for item := range pipe.events {
+		paste, ok := item.event.Input().(input.Paste)
+		if !ok {
+			t.Fatalf("paste became %T", item.event.Input())
+		}
+		delivered.WriteString(paste.Text)
+		pipe.consumed <- item.bytes
+	}
+	if err := pipe.err(); err != nil || delivered.String() != strings.ToValidUTF8(text, "�") {
+		t.Fatalf("delivered %d bytes; input ended with %v", delivered.Len(), err)
+	}
 }

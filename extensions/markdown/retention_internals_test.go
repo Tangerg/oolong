@@ -12,7 +12,7 @@ import (
 
 func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 	doc := &documentView{}
-	doc.layout.Store(&documentLayout{width: 8, places: []placedBlock{{layout: blockLayout{rows: []row{{Line: text.Of("old", grid.Style{})}}}}}})
+	doc.layout.Store(&documentLayout{width: 8, places: []placedBlock{{layout: blockLayout{rows: []text.Wrapped{{Line: text.Of("old", grid.Style{})}}}}}})
 	if len(doc.arrange(10).places) != 0 {
 		t.Fatal("removed block still retained")
 	}
@@ -106,6 +106,30 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 		if at >= sourceStart && at < sourceEnd {
 			t.Errorf("%s still shares the caller's source allocation", name)
+		}
+	}
+}
+
+func TestNestedParagraphsShareRailsAndRetainOnlyTheirOwnMarkers(t *testing.T) {
+	const depth = 32
+	indent := strings.Repeat("  ", depth)
+	source := strings.Repeat("- ", depth) + "> first\n" + indent + ">\n" +
+		indent + "> again\n" + indent + ">\n" + indent + "> - child\n" + indent + "> - next"
+	blocks := mustRender(t, source, Look{Glyphs: Glyphs{Bullet: "-", Bar: "|"}})
+	if len(blocks) != 4 || blocks[0].prefix.rails == nil {
+		t.Fatalf("expected four quoted blocks, got %d", len(blocks))
+	}
+	for i, want := range []int{depth, 0, 1, 1} {
+		prefix := blocks[i].prefix
+		if prefix.rails != blocks[0].prefix.rails {
+			t.Fatalf("block %d copied the enclosing quotation", i)
+		}
+		markers := 0
+		for m := prefix.markers; m != nil; m = m.next {
+			markers++
+		}
+		if markers != want {
+			t.Fatalf("block %d retains %d markers, want %d", i, markers, want)
 		}
 	}
 }

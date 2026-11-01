@@ -160,3 +160,36 @@ func TestYankCannotResumeAcrossASubscribersEdit(t *testing.T) {
 		})
 	}
 }
+
+func TestMaskedFillReceiptCannotExposeTheValue(t *testing.T) {
+	var editor base.Editor
+	editor.SetMask("*")
+	session := editor.Session()
+	cancel := session.Subscribe(func(base.ChangeMap) {
+		if editor.Text() == "input" {
+			session.Reset("replacement secret")
+		}
+	})
+	defer cancel()
+	field := new(base.Text)
+	field.SetMask("*")
+	for _, test := range []struct {
+		name    string
+		element scene.Element
+		want    string
+		read    func() string
+	}{
+		{"editor", editor.Element(), "replacement secret", editor.Text},
+		{"text field", field.Element(), "input", field.Text},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := newTestRoot(test.element)
+			for _, value := range []string{"input", test.want} {
+				result, err := root.root.Invoke(t.Context(), test.element.Target(), scene.ActionFill, value)
+				if err != nil || result.Value != "" || test.read() != test.want {
+					t.Fatalf("masked fill returned a value or failed to fill (err=%v)", err)
+				}
+			}
+		})
+	}
+}

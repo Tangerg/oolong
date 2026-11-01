@@ -20,30 +20,11 @@ die() {
 }
 
 compatibility() {
-	local module="$1" pattern="$2" previous base report status
-	if ! previous=$(git tag --list "$pattern" --sort=-v:refname | sed -n '1p'); then
-		die "released tags cannot be inspected for $module."
-	fi
-	base=none
-	[[ -n "$previous" ]] && base="${previous##*/}"
-	printf '   %-11s base=%-8s ' "$module" "$base"
-	# Major zero reports every API change without pretending patch-number
-	# compatibility was promised; from v1 the proposal must satisfy Go's rules.
-	if [[ "$version" == v0.* ]]; then
-		(cd "$module" && GOWORK=off "$gorelease_bin" -base=none -version="$version" >/dev/null) ||
-			die "$module: $version is not a usable version for this module."
-		if report=$(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" 2>&1); then
-			printf '%s\n' "$report"
-		else
-			status=$?
-			printf '%s\n' "$report" >&2
-			die "$module: compatibility comparison failed (status $status)."
-		fi
-	else
-		(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" -version="$version" >/dev/null) ||
-			die "$module: $version violates Go compatibility against $base."
-		printf 'compatible with %s\n' "$base"
-	fi
+	local module="$1" previous base=none
+	previous=$(scripts/module-tag.sh --latest "$module")
+	[[ -z "$previous" ]] || base="${previous##*/}"
+	(cd "$module" && GOWORK=off "$gorelease_bin" -base="$base" -version="$version") ||
+		die "$module: $version is not a usable release against $base."
 }
 
 # An immutable tag is the only write this command owns. Failure never causes a
@@ -200,8 +181,7 @@ step "Published dependency graph"
 	die "$module is not independently consumable with its declared dependency versions"
 command -v gorelease >/dev/null || die "install the pinned gorelease version from CONTRIBUTING.md"
 gorelease_bin=$(command -v gorelease)
-tag_pattern=$(scripts/module-tag.sh --pattern "$module")
-compatibility "$module" "$tag_pattern"
+compatibility "$module"
 step "Plan"
 note "tag $tag at $head; no dependency or other module version changes"
 if ! $execute; then

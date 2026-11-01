@@ -49,8 +49,8 @@ func LabelCell(label Label) Cell {
 	}
 }
 
-// HeightForWidth reports the cell's intrinsic width.
-func (c Cell) HeightForWidth(int) int { return max(c.Preferred, 0) }
+// HeightForWidth is one row, even when a narrow column clips the cell.
+func (Cell) HeightForWidth(int) int { return 1 }
 
 // Draw paints the cell over its row style.
 func (c Cell) Draw(view grid.View, base grid.Style) {
@@ -160,7 +160,7 @@ func (t Table) preferred(column int) int {
 		return widest
 	}
 	for row := range max(t.Rows, 0) {
-		widest = max(widest, t.Cell(row, column).HeightForWidth(1))
+		widest = max(widest, t.Cell(row, column).Preferred)
 	}
 	return widest
 }

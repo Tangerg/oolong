@@ -150,7 +150,7 @@ func (e Event) Capture() error {
 	if !ok || mouse.Action != input.MouseDown {
 		return ErrInvalid
 	}
-	placement, _ := findGeometry(e.route.layout, e.target)
+	placement, _ := e.route.layout.lookup(e.target)
 	e.route.root.capture = capture{target: e.target, button: mouse.Button, content: placement.content}
 	return nil
 }
@@ -288,7 +288,7 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 	if mouse.Action == input.MouseUp && !mouse.Releases(held.button) {
 		return false, true
 	}
-	placement, ok := findGeometry(snapshot, held.target)
+	placement, ok := snapshot.lookup(held.target)
 	q := r.route(n, mouse, snapshot)
 	if !ok || placement.content != held.content || q.check(held.target) != nil {
 		r.revokeCapture(mouse, held, n)
@@ -350,7 +350,7 @@ func (r *Root) modalPointer(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 	if modal == nil {
 		return false
 	}
-	placement, ok := findGeometry(snapshot, modal.target())
+	placement, ok := snapshot.lookup(modal.target())
 	if !ok {
 		return false
 	}
@@ -382,7 +382,7 @@ func (r *Root) currentGeometry(n *node, snapshot *layoutSnapshot) bool {
 	if snapshot == nil || snapshot.epoch != r.geometryEpoch {
 		return false
 	}
-	p, ok := findGeometry(snapshot, n.target())
+	p, ok := snapshot.lookup(n.target())
 	return ok && r.currentContent(n, p)
 }
 
@@ -409,7 +409,7 @@ func (q inputRoute) offer(n *node, handle func(Event) EventResult, event input.E
 	}
 	var area image.Rectangle
 	if q.pointer {
-		p, ok := findGeometry(q.layout, n.target())
+		p, ok := q.layout.lookup(n.target())
 		if !ok {
 			return EventResult{Consumed: true}
 		}
@@ -460,7 +460,7 @@ func (r *Root) hoverTo(target Target, mouse input.Mouse, snapshot *layoutSnapsho
 	previous := r.hover
 	r.hover = target
 	if n := r.resolve(previous); n != nil && n.config.Handle != nil {
-		placement, _ := findGeometry(snapshot, previous)
+		placement, _ := snapshot.lookup(previous)
 		mouse.Action = input.MouseLeave
 		mouse.Pos = mouse.Pos.Sub(placement.area.Min)
 		n.config.Handle(Event{input: mouse, target: previous, route: inputRoute{layout: snapshot, pointer: true}})
@@ -468,14 +468,3 @@ func (r *Root) hoverTo(target Target, mouse input.Mouse, snapshot *layoutSnapsho
 }
 
 func (r *Root) leave(mouse input.Mouse) { r.hoverTo(Target{}, mouse, r.written) }
-
-func findGeometry(snapshot *layoutSnapshot, target Target) (geometry, bool) {
-	if snapshot != nil {
-		for _, placement := range snapshot.geometry {
-			if placement.target == target {
-				return placement, true
-			}
-		}
-	}
-	return geometry{}, false
-}

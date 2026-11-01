@@ -25,13 +25,8 @@ type Block struct {
 	table   *table
 	content grid.Drawable
 
-	indent int
-	marker text.Line
-	// markerDepth is how many rail segments stand outside the marker. See
-	// [withMarker].
-	markerDepth int
-	rail        text.Line
-	rule        bool
+	prefix blockPrefix
+	rule   bool
 
 	blankBefore bool
 }
@@ -67,11 +62,10 @@ func (b Block) BlankBefore() bool { return b.blankBefore }
 
 // blockLayout keeps an embedded child's geometry without flattening its drawing.
 type blockLayout struct {
-	rows                []row
+	rows                []text.Wrapped
 	child               grid.Drawable
 	left, width, height int
-	rail, marker        text.Line
-	markerDepth         int
+	prefix              blockPrefix
 }
 
 func (b Block) layout(width int) blockLayout {
@@ -79,80 +73,56 @@ func (b Block) layout(width int) blockLayout {
 		return blockLayout{}
 	}
 	if b.content == nil {
-		rows := b.appendRows(nil, width)
-		return blockLayout{rows: rows, width: width, height: len(rows)}
+		rows := b.wrapped(width)
+		return blockLayout{rows: rows, left: b.prefix.indent, width: width, height: len(rows), prefix: b.prefix}
 	}
-	left := min(max(b.indent, 0), width)
+	left := min(b.prefix.indent, width)
 	room := width - left
 	height := 0
 	if room > 0 {
 		height = max(0, b.content.HeightForWidth(room))
 	}
-	return blockLayout{child: b.content, left: left, width: room, height: height, rail: b.rail, marker: b.marker, markerDepth: b.markerDepth}
+	return blockLayout{child: b.content, left: left, width: room, height: height, prefix: b.prefix}
 }
 
-// withMarker is the first row's prefix: the quotation bars the item sits inside, the
-// mark that begins it, and then the bars of whatever the item itself quotes.
-//
-// The bars and the mark do not occupy the same columns, which is what replacing one
-// with the other got wrong: every item of a quoted list lost its bar and the list
-// drifted left by the width of it. Nor are they in a fixed order — a list in a
-// quotation is a bar then a bullet, and a quotation in a list item is a bullet then a
-// bar — which is why the mark is placed by how many bars stood outside the list it
-// begins an item of.
-func withMarker(rail, marker text.Line, depth, indent int) text.Line {
-	if len(marker) == 0 {
-		return rail
-	}
-	depth = min(max(depth, 0), len(rail))
-	out := make(text.Line, 0, len(rail)+len(marker)+1)
-	out = append(out, rail[:depth]...)
-	// Whatever the indent holds beyond the bars and this mark belongs to the lists
-	// this item is nested inside. Their marks were drawn on their own first rows and
-	// this one stands to the right of the room they took.
-	if gap := indent - rail.Width() - marker.Width(); gap > 0 {
-		out = append(out, text.Span{Text: strings.Repeat(" ", gap)})
-	}
-	out = append(out, marker...)
-	return append(out, rail[depth:]...)
+// Nested blocks share the immutable quotation rails. Empty list indentation
+// only needs a column count; only the block that shows a marker retains it.
+type blockPrefix struct {
+	indent         int
+	rails, markers *prefixMark
 }
 
-// alongsideMarker is the prefix of every row after the first: the same bars in the
-// same columns, with blanks where the mark stood.
-//
-// A rail belongs to the quotation and stands in the quotation's columns, which is
-// what hanging it off the left of each row's own text got wrong. Only the first row
-// was padded out to the item's indent, so a quoted list item that wrapped drew its
-// bar underneath its own second line — two columns in, and further in for every level
-// of nesting.
-func alongsideMarker(rail, marker text.Line, depth, indent int) text.Line {
-	width := marker.Width()
-	if len(rail) == 0 || width <= 0 {
-		return rail
+type prefixMark struct {
+	column int
+	span   text.Span
+	next   *prefixMark
+}
+
+func (m *prefixMark) draw(v grid.View, y int) {
+	for ; m != nil; m = m.next {
+		text.Line{m.span}.Draw(v, m.column, y)
 	}
-	return withMarker(rail, text.Line{{Text: strings.Repeat(" ", width)}}, depth, indent)
 }
 
 func (p blockLayout) draw(v grid.View) {
-	if p.child == nil {
-		drawRows(v, p.rows)
-		return
+	if p.child != nil {
+		p.child.Draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
 	}
-	p.child.Draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
 	visible := v.Visible()
-	continued := alongsideMarker(p.rail, p.marker, p.markerDepth, p.left)
 	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
-		prefix := continued
-		if y == 0 && len(p.marker) > 0 {
-			prefix = withMarker(p.rail, p.marker, p.markerDepth, p.left)
+		p.prefix.rails.draw(v, y)
+		if y == 0 {
+			p.prefix.markers.draw(v, y)
 		}
-		prefix.Draw(v, 0, y)
+		if p.child == nil {
+			p.rows[y].Draw(v, p.left, y)
+		}
 	}
 }
 
 func (p blockLayout) project() []text.Row {
 	if p.child == nil {
-		return publicRows(p.rows)
+		return publicRows(p.rows, p.left)
 	}
 	rows := make([]text.Row, p.height)
 	if projector, ok := p.child.(interface{ Rows(width int) []text.Row }); ok {
@@ -164,64 +134,27 @@ func (p blockLayout) project() []text.Row {
 	return rows
 }
 
-// row is one physical row: what it says, where it starts, and the decoration that
-// ends immediately before it.
-type row struct {
-	text.Wrapped
-	at     int
-	prefix text.Line
-}
-
-func (b Block) appendRows(dst []row, width int) []row {
-	start := len(dst)
-	at := max(b.indent, 0)
-	room := max(layout.Remaining(width, at), 1)
+func (b Block) wrapped(width int) []text.Wrapped {
+	room := max(layout.Remaining(width, b.prefix.indent), 1)
 	switch {
 	case b.table != nil:
-		dst = b.table.appendRows(dst, room)
+		return b.table.appendRows(nil, room)
 	case b.rule:
-		dst = append(dst, row{Line: stretch(b.lines, room)})
+		return []text.Wrapped{{Line: stretch(b.lines, room)}}
 	default:
+		var rows []text.Wrapped
 		for _, line := range b.lines {
-			dst = appendWrapped(dst, line, room)
+			rows = append(rows, line.Wrap(room)...)
 		}
-	}
-
-	for i := start; i < len(dst); i++ {
-		dst[i].at = at
-		dst[i].prefix = alongsideMarker(b.rail, b.marker, b.markerDepth, b.indent)
-	}
-	if start < len(dst) && len(b.marker) > 0 {
-		dst[start].prefix = withMarker(b.rail, b.marker, b.markerDepth, b.indent)
-	}
-	return dst
-}
-
-func appendWrapped(dst []row, line text.Line, width int) []row {
-	for _, wrapped := range line.Wrap(width) {
-		dst = append(dst, row{Wrapped: wrapped})
-	}
-	return dst
-}
-
-func drawRows(v grid.View, rows []row) {
-	visible := v.Visible()
-	first := min(max(visible.Min.Y, 0), len(rows))
-	last := min(max(visible.Max.Y, first), len(rows))
-	for y := first; y < last; y++ {
-		r := rows[y]
-		if len(r.prefix) > 0 {
-			r.prefix.Draw(v, 0, y)
-		}
-		r.Draw(v, r.at, y)
+		return rows
 	}
 }
 
-func publicRows(rows []row) []text.Row {
+func publicRows(rows []text.Wrapped, offset int) []text.Row {
 	out := make([]text.Row, len(rows))
 	for i, row := range rows {
 		out[i] = text.Row{
-			Text: row.Line.String(), Offset: row.at,
+			Text: row.Line.String(), Offset: offset,
 			Joined: row.Joined, Gap: row.Gap,
 		}
 	}

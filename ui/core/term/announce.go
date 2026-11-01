@@ -27,6 +27,7 @@ const (
 	// notifySend is the desktop notification iTerm2 defined and others followed. It
 	// is the one with any reach; the alternatives are one terminal apiece.
 	notifySend = "\x1b]9;"
+	commandEnd = string(rune(ansi.Bell))
 )
 
 // title is the window title a session set, and what has to be put back after it.
@@ -36,58 +37,58 @@ const (
 // unwinding.
 type title struct {
 	mu sync.Mutex
-	// pushed says the terminal is holding the title this session found, so it owes a
-	// pop.
-	pushed bool
-	text   string
+	// An accepted command also owns the obligation to pop the saved title.
+	set string
 }
 
 // to advances the retained title and its output in the same order.
-func (t *title) to(s string, queue func([]byte) (uint64, error)) error {
+func (t *title) to(s string, modeBytes int, queue func([]byte) (uint64, error)) error {
+	set := titleCommand(s)
+	// Reacquisition restores modes and the title stack in one reserved frame.
+	if len(set) > controlByteLimit-modeBytes-len(titlePush) {
+		return ErrPayloadTooLarge
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	out := ""
-	if !t.pushed {
-		// Whatever the terminal was called is kept before it is replaced, which is
-		// what makes putting it back possible at all: there is no way to ask a
-		// terminal what its title is.
-		out = titlePush
+	out := set
+	if t.set == "" {
+		out = titlePush + set
 	}
-	if _, err := queue([]byte(out + command(titleSet, s))); err != nil {
+	if _, err := queue([]byte(out)); err != nil {
 		return err
 	}
-	t.pushed = true
-	t.text = strings.Clone(s)
+	t.set = set
 	return nil
 }
 
 func (t *title) enter() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.pushed {
+	if t.set == "" {
 		return ""
 	}
-	return titlePush + command(titleSet, t.text)
+	return titlePush + t.set
 }
 
 func (t *title) leave() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.pushed {
+	if t.set == "" {
 		return ""
 	}
 	return titlePop
 }
 
-// command is a string command: an introducer, a body that cannot end it early, and
-// the terminator every terminal understands.
-func command(intro, body string) string {
-	var b strings.Builder
-	b.Grow(len(intro) + len(body) + 1)
-	b.WriteString(intro)
-	b.WriteString(printable(body))
-	b.WriteByte(ansi.Bell)
-	return b.String()
+func titleCommand(text string) string { return titleSet + printable(text) + commandEnd }
+
+func notification(text string) string {
+	body := printable(text)
+	// OSC 9 also selects ConEmu commands by the first digit. Frame numeric
+	// text as a bullet so even a notification from an untrusted source stays text.
+	if first := strings.TrimSpace(body); first != "" && first[0] >= '0' && first[0] <= '9' {
+		body = "• " + body
+	}
+	return notifySend + body + commandEnd
 }
 
 // printable drops what cannot go inside a sequence.

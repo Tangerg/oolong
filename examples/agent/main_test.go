@@ -233,3 +233,21 @@ func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
 	}
 	host.Hides(t, "func parse")
 }
+
+type panickingBackend struct{}
+
+func (panickingBackend) Run(_ context.Context, _ string, output agentOutput) error {
+	if _, err := io.WriteString(output, "partial response"); err != nil {
+		return err
+	}
+	panic(errors.New("producer failed"))
+}
+
+func TestBackendPanicKeepsTheSessionAndPartialResponse(t *testing.T) {
+	host, stop := runAgent(t, panickingBackend{})
+	defer stop()
+	host.Type("start")
+	host.Press(input.Enter)
+	host.Shows(t, "partial response")
+	host.Shows(t, "producer failed")
+}

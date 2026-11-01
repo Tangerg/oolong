@@ -31,7 +31,8 @@ const (
 	// afterwards into a buffer that only grows. On reaching the bound the text so
 	// far is delivered as one Paste event and accumulation begins again, so the
 	// allocation stays bounded without interpreting any of the payload as input.
-	maxPaste = 8 << 20
+	// Each malformed input byte can expand to a UTF-8 replacement rune.
+	maxPaste = (MaxDecodedEventBytes - eventOverhead) / len("�")
 )
 
 // pasteClose is the sequence a terminal sends to end a bracketed paste.
@@ -117,7 +118,9 @@ func (p *Parser) Pending() bool {
 // Ambiguous reports whether an Escape timeout can resolve pending input.
 // Incomplete UTF-8, paste payloads and string bodies must wait for more bytes.
 func (p *Parser) Ambiguous() bool {
-	return p.dropping != droppingNothing || (!p.pasting && p.str == noString && len(p.buf) > 0 && p.buf[0] == esc)
+	// A discarded OSC/DCS body still has framing. Silence in its payload
+	// grants no keyboard authority; only a trailing Escape is ambiguous.
+	return p.dropping == droppingParams || (!p.pasting && p.str == noString && len(p.buf) > 0 && p.buf[0] == esc)
 }
 
 // Expire resolves Escape ambiguity without declaring the byte stream finished.
@@ -173,14 +176,8 @@ func (p *Parser) advanceRunaway(final bool) (Event, bool) {
 		return nil, true
 	}
 	if final {
-		// Input went quiet part-way through, so the runaway sequence is over however
-		// it ended. Staying in this state would eat the next keystroke that happened
-		// to be a parameter byte.
-		//
-		// A command still accumulating gets no such treatment: it is incomplete rather
-		// than ambiguous, and time says nothing about it. Giving up on one already
-		// given up on has to end somewhere; giving up on one still arriving would
-		// corrupt the answer to a query as large as a clipboard.
+		// EOF releases every discard. During a live stream only ambiguous
+		// input can reach this branch; an ordinary string payload has no timer.
 		p.dropping = droppingNothing
 		return nil, true
 	}

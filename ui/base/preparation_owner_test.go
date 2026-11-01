@@ -119,3 +119,24 @@ func TestStandaloneQueriesUseTheSamePurePhaseAsSceneQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type measuringCompletion struct {
+	base.DefaultCompletionRenderer
+	measure func()
+}
+
+func (r measuringCompletion) Width(candidate base.Candidate) int {
+	r.measure()
+	return r.DefaultCompletionRenderer.Width(candidate)
+}
+
+func TestCompletionCannotDismissItselfWhileComputingItsWidth(t *testing.T) {
+	var c base.Completion
+	c.Renderer = measuringCompletion{measure: func() { c.Dismiss() }}
+	c.Offer(base.Token{}, []base.Candidate{{Text: "abc"}})
+	var failure error
+	func() { defer func() { failure, _ = recover().(error) }(); c.Width() }()
+	if !errors.Is(failure, scene.ErrBusy) || !c.Open() {
+		t.Fatalf("measurement changed its own offer: failure=%v open=%v", failure, c.Open())
+	}
+}

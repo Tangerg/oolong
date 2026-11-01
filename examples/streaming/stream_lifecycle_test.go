@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
 )
@@ -115,4 +117,17 @@ func TestAnEmptyFinalProjectionStillCompletesTheTranscript(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSourceExitSettlesTheDocument(t *testing.T) {
+	h := newHost()
+	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error {
+		runtime.Goexit()
+		return nil
+	})
+	defer stop()
+	approve(t, h, c, "start")
+	awaitState(t, c, func(s state) bool {
+		return !s.active && !s.open && strings.Contains(s.status, program.ErrTaskAborted.Error())
+	})
 }

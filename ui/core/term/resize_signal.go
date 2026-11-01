@@ -33,7 +33,7 @@ func (t *Terminal) startResizeWatcher(source resizeSource) {
 		for {
 			select {
 			case <-source.changed:
-				t.noteResize(t.Size())
+				t.noteResize(t.Size, false)
 			case <-t.stop:
 				return
 			}

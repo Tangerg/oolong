@@ -202,7 +202,7 @@ case "$1" in
  ls-remote)
   if [ "$2" = --exit-code ]; then exit 2; fi
   printf 'reviewed-commit\trefs/tags/ui/v0.1.0^{}\n' ;;
- fetch|status|tag|push) ;;
+ -C|fetch|status|tag|push) ;;
  *) exit 99 ;;
 esac
 `)
@@ -289,14 +289,21 @@ func TestReleaseComparisonPropagatesToolFailure(t *testing.T) {
 			if fail {
 				source += "echo comparison-failed >&2\nexit 42\n"
 			} else {
-				source += "echo compatible\n"
+				source += "test \"$*\" = '-base=v0.3.0 -version=v0.4.0' || exit 2\necho compatible\n"
 			}
 			executable := filepath.Join(dir, "gorelease")
 			//nolint:gosec // G306: this isolated fake tool must be executable by the test.
 			if err := os.WriteFile(executable, []byte(source), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			script := fmt.Sprintf("version=v0.4.0\ngorelease_bin=%q\ngit() { echo extensions/markdown/v0.3.0; }\n", executable) + function + "compatibility extensions/markdown 'extensions/markdown/v[01].*'\n"
+			if err := os.Mkdir(filepath.Join(dir, "scripts"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			//nolint:gosec // The isolated fixture supplies the release baseline to the command under test.
+			if err := os.WriteFile(filepath.Join(dir, "scripts", "module-tag.sh"), []byte("#!/bin/sh\ntest \"$*\" = '--latest extensions/markdown' || exit 2\necho extensions/markdown/v0.3.0\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			script := fmt.Sprintf("version=v0.4.0\ngorelease_bin=%q\n", executable) + function + "compatibility extensions/markdown\n"
 			output, err := runReleaseFragment(t, dir, script)
 			if (err != nil) != fail {
 				t.Fatalf("failed=%t error=%v\n%s", fail, err, output)

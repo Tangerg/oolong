@@ -21,10 +21,7 @@ func knownDimensions(width, height int) dimensions {
 	return dimensions{point: image.Pt(width, height), known: true}
 }
 
-func (d *dimensions) observe(width, height int, err error) bool {
-	if err != nil {
-		return false
-	}
+func (d *dimensions) observe(width, height int) bool {
 	next := image.Pt(width, height)
 	if d.known && d.point == next {
 		return false
@@ -33,25 +30,16 @@ func (d *dimensions) observe(width, height int, err error) bool {
 	return true
 }
 
-// pollResize observes a platform whose console has no independent resize signal.
-// The clock, source and sink are arguments because the loop owns policy rather than
-// either mechanism: Windows supplies a ticker and Terminal.Size, while tests can
-// prove ordering, error recovery and shutdown without sleeping. Whether an
-// observation is news belongs to the terminal that keeps the last one — see
-// [Terminal.noteResize].
-func pollResize(
-	stop <-chan struct{},
-	ticks <-chan time.Time,
-	size func() (int, int, error),
-	note func(width, height int, err error),
-) {
+// Polling and signal-based platforms offer the same measurement to the
+// terminal, which serializes it against handover.
+func pollResize(stop <-chan struct{}, ticks <-chan time.Time, observe func()) {
 	for {
 		select {
 		case _, ok := <-ticks:
 			if !ok {
 				return
 			}
-			note(size())
+			observe()
 		case <-stop:
 			return
 		}

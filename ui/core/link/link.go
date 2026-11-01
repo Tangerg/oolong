@@ -141,11 +141,11 @@ const trailing = ".,;:!?)]}"
 // doing something no reader of its documentation had reason to expect.
 func Detect(s string, exists func(path string) bool) Links {
 	found := detectURLs(s)
-	found = append(found, detectPaths(s, exists)...)
+	found = append(found, detectPaths(s, pathPattern)...)
 	if exists != nil {
-		found = append(found, detectBare(s, exists)...)
+		found = append(found, detectPaths(s, barePattern)...)
 	}
-	return inOrder(found)
+	return inOrder(found, exists)
 }
 
 func detectURLs(s string) []Link {
@@ -164,41 +164,14 @@ func detectURLs(s string) []Link {
 	return found
 }
 
-func detectPaths(s string, exists func(path string) bool) []Link {
+func detectPaths(s string, pattern *regexp.Regexp) []Link {
 	var found []Link
-	for _, m := range pathPattern.FindAllStringIndex(s, -1) {
-		if !startsWord(s, m[0]) {
-			continue
+	for _, m := range pattern.FindAllStringIndex(s, -1) {
+		if startsWord(s, m[0]) {
+			if l, ok := pathAt(s, m[0], m[1]); ok {
+				found = append(found, l)
+			}
 		}
-		l, ok := pathAt(s, m[0], m[1])
-		if !ok {
-			continue
-		}
-		// A relative path is confirmed when there is anything to confirm it with. A
-		// rooted one is not asked about: it says where it is, and a reference to a
-		// file that has not been written yet is still a reference to that file.
-		rooted := strings.HasPrefix(l.Target, "/") || strings.HasPrefix(l.Target, "~/")
-		if l.Kind == File && exists != nil && !rooted && !exists(l.Target) {
-			continue
-		}
-		found = append(found, l)
-	}
-	return found
-}
-
-// detectBare finds names with no directory part, which only the filesystem can tell
-// from prose.
-func detectBare(s string, exists func(path string) bool) []Link {
-	var found []Link
-	for _, m := range barePattern.FindAllStringIndex(s, -1) {
-		if !startsWord(s, m[0]) {
-			continue
-		}
-		l, ok := pathAt(s, m[0], m[1])
-		if !ok || !exists(l.Target) {
-			continue
-		}
-		found = append(found, l)
 	}
 	return found
 }
@@ -276,12 +249,18 @@ func startsWord(s string, at int) bool {
 // Overlap is possible because the shapes are looked for separately, and two links over
 // the same cells would stamp one target on top of the other — leaving whichever ran
 // last, which is not a rule anybody could predict from the text.
-func inOrder(found []Link) Links {
+func inOrder(found []Link, exists func(string) bool) Links {
 	slices.SortStableFunc(found, func(a, b Link) int { return cmp.Compare(a.Start, b.Start) })
 	out := found[:0]
 	end := 0
 	for _, l := range found {
 		if l.Start < end {
+			continue
+		}
+		// A filesystem lookup can do I/O. Only a relative file that can
+		// actually win its range has anything for the caller to confirm.
+		if l.Kind == File && exists != nil && !strings.HasPrefix(l.Target, "/") &&
+			!strings.HasPrefix(l.Target, "~/") && !exists(l.Target) {
 			continue
 		}
 		// Detection slices targets out of s. The result is the ownership boundary: a

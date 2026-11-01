@@ -167,8 +167,9 @@ func (e Element) RequestFocusFirst() error {
 		return err
 	}
 	var target Target
+	active := r.modal()
 	r.walk(e.node, func(n *node) bool {
-		if r.focusable(n) {
+		if r.focusableIn(n, active) {
 			target = n.target()
 			return false
 		}
@@ -620,6 +621,10 @@ func (g *Group) Move(from, to int) error {
 }
 
 func (g *Group) measure(axis layout.Axis, across int) int {
+	if axis == g.config.Axis && !g.config.Overlay && g.config.Layout == nil {
+		flow, slots := g.flow()
+		return flow.Wanted(across, slots)
+	}
 	if g.config.Overlay || axis != g.config.Axis {
 		extent := 0
 		for _, item := range g.items {
@@ -653,11 +658,16 @@ func (g *Group) rectangles(space image.Point) []image.Rectangle {
 		}
 		return rects
 	}
+	flow, slots := g.flow()
+	return flow.Rects(space, slots)
+}
+
+func (g *Group) flow() (layout.Flow, []layout.Slot) {
 	slots := make([]layout.Slot, len(g.items))
 	for i, item := range g.items {
 		slots[i] = layout.Slot{Size: item.Size, Of: item.Element}
 	}
-	return (layout.Flow{Axis: g.config.Axis, Gap: g.config.Gap}).Rects(space, slots)
+	return layout.Flow{Axis: g.config.Axis, Gap: g.config.Gap}, slots
 }
 
 func next(value uint64) uint64 {

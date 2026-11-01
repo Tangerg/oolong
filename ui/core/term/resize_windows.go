@@ -25,6 +25,6 @@ func (t *Terminal) startResizeWatcher(source resizeSource) {
 	go func() {
 		defer close(t.resizeDone)
 		defer source.ticker.Stop()
-		pollResize(t.stop, source.ticker.C, t.Size, t.noteResize)
+		pollResize(t.stop, source.ticker.C, func() { t.noteResize(t.Size, false) })
 	}()
 }
