@@ -25,16 +25,18 @@ var ErrInvocationAborted = errors.New("program: invoked callback did not return"
 // panics still unwind Run with their original value. Normal completion requests a
 // frame, but Invoke does not wait for that frame to be drawn or written.
 func (d Dispatcher) Invoke(ctx context.Context, fn func() error) error {
-	return d.invoke(ctx, fn, true)
+	return d.dispatch(ctx, fn, true)
 }
 
-// Inspect reads the UI owner without requesting a frame or advancing model state.
-// Its callback must not mutate the scene or application state.
-func (d Dispatcher) Inspect(ctx context.Context, fn func() error) error {
-	return d.invoke(ctx, fn, false)
+// Dispatch runs fn on the interface goroutine with the admission, cancellation
+// and completion guarantees of Invoke. A frame is requested when fn advances the
+// scene revision, including before returning an error. This lets semantic actions
+// own their change outcome and keeps observations from invalidating the model.
+func (d Dispatcher) Dispatch(ctx context.Context, fn func() error) error {
+	return d.dispatch(ctx, fn, false)
 }
 
-func (d Dispatcher) invoke(ctx context.Context, fn func() error, changes bool) error {
+func (d Dispatcher) dispatch(ctx context.Context, fn func() error, invalidate bool) error {
 	if fn == nil {
 		return errors.New("program: invoke requires a callback")
 	}
@@ -46,7 +48,7 @@ func (d Dispatcher) invoke(ctx context.Context, fn func() error, changes bool) e
 			if err := ctx.Err(); err != nil {
 				return false, context.Cause(ctx)
 			}
-			return changes, fn()
+			return invalidate, fn()
 		},
 		done: make(chan struct{}),
 	}

@@ -166,17 +166,7 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 
 // Do runs one of the field's actions by name. See [Doer].
 func (s *Select[T]) Do(action keymap.Action) bool {
-	before := s.selected()
-	at, known := s.list.target(action, before)
-	if !known {
-		return false
-	}
-	if at == before {
-		s.list.reveal(before)
-	} else {
-		s.list.Select(at)
-	}
-	return true
+	return s.list.Do(action)
 }
 
 // Validate checks the choice.

@@ -194,7 +194,7 @@ func (a *agent) Handle(event input.Event) bool {
 	if a.completion.Handle(event) {
 		return true
 	}
-	if key.Code == input.Enter && key.Mods == 0 {
+	if action, _ := a.keys.Action(key.Chord()); action == sendPrompt {
 		a.submit()
 		return true
 	}
@@ -233,8 +233,6 @@ func (a *agent) submit() {
 		a.status.Doing = "finish or cancel the current run first"
 		return
 	}
-	a.composer.Controller().Clear()
-	a.completion.Dismiss()
 	a.startRun(line)
 }
 
@@ -332,6 +330,8 @@ func (a *agent) startRun(prompt string) {
 		a.finishRun(err)
 		return
 	}
+	a.composer.Controller().Clear()
+	a.completion.Dismiss()
 	a.workflow.Reset()
 	a.status.Doing = "planning with " + a.model
 	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
@@ -547,6 +547,7 @@ func (a *agent) openReview(request *reviewRequest) error {
 	}
 	a.review = request
 	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
+	a.reviewPane.window.Scroll().ToTop()
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
 	a.status.Doing = "waiting for tool approval"

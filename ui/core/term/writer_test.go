@@ -126,12 +126,17 @@ func TestFramesReachTheTerminalInOrder(t *testing.T) {
 }
 
 func TestANilDestinationIsRejectedBeforeStartingTheWriter(t *testing.T) {
-	defer func() {
-		if got := recover(); got != "term: nil writer" {
-			t.Fatalf("panic = %v, want the nil-writer contract", got)
-		}
-	}()
-	term.NewWriter(term.WriterConfig{Destination: nil})
+	for _, destination := range []io.Writer{nil, (*bytes.Buffer)(nil)} {
+		func() {
+			defer func() {
+				if got := recover(); got != "term: nil writer" {
+					t.Fatalf("destination %T: panic = %v", destination, got)
+				}
+			}()
+			writer := term.NewWriter(term.WriterConfig{Destination: destination})
+			_ = writer.Close()
+		}()
+	}
 }
 
 func TestQueueDoesNotWaitForTheTerminal(t *testing.T) {

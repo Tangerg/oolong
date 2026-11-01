@@ -36,7 +36,10 @@ type Spring struct {
 }
 
 // To sets what the spring is moving toward, keeping the speed it already has.
-func (s *Spring) To(target float64) { s.target = target }
+func (s *Spring) To(target float64) {
+	s.target = target
+	s.settle()
+}
 
 // Set puts the value where it is asked and stops it there, which is how to place a
 // spring without animating it — the first frame, or a resize nobody should watch.
@@ -56,7 +59,13 @@ func (s *Spring) Velocity() float64 { return s.velocity }
 // enough that nothing further would be visible. It is what tells its owner it can stop
 // the clock driving this, and it is the same question [Transition.Done] answers.
 func (s *Spring) Done() bool {
-	return math.Abs(s.position-s.target) < settledDistance && math.Abs(s.velocity) < settledSpeed
+	return s.position == s.target && s.velocity == 0
+}
+
+func (s *Spring) settle() {
+	if math.Abs(s.position-s.target) < settledDistance && math.Abs(s.velocity) < settledSpeed {
+		s.Set(s.target)
+	}
 }
 
 // Tick advances the spring by one step.
@@ -76,7 +85,6 @@ func (s *Spring) Tick() {
 		damping = defaultDamping
 	}
 	if s.Done() {
-		s.position, s.velocity = s.target, 0
 		return
 	}
 
@@ -93,10 +101,7 @@ func (s *Spring) Tick() {
 		u, v = creep(u, v, frequency, damping)
 	}
 	s.position, s.velocity = s.target+u, v
-	if s.Done() {
-		// Snap settled motion to the target so integer rendering cannot lag by one.
-		s.position, s.velocity = s.target, 0
-	}
+	s.settle()
 }
 
 func ring(u, v, frequency, damping float64) (float64, float64) {

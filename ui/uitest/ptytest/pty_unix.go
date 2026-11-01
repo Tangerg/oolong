@@ -99,13 +99,6 @@ func endSession(process *os.Process) error {
 	return fmt.Errorf("ptytest: terminate process group: %w", err)
 }
 
-func signalResize(process *os.Process) error {
-	if process == nil {
-		return nil
-	}
-	return process.Signal(syscall.SIGWINCH)
-}
-
 // readClosed reports whether an error is just the far end of the pty going away.
 //
 // Linux reports EIO when the last replica closes, which is the ordinary end of a

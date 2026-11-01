@@ -68,18 +68,23 @@ func TestReplacementsAreDerivedFromEveryRequiredLocalVersion(t *testing.T) {
 }
 
 func TestManualReplacementsAreNotSilentlyOverwritten(t *testing.T) {
-	root := workspaceFixture(t)
-	path := filepath.Join(root, "go.work")
-	body, err := os.ReadFile(path) //nolint:gosec // G304: fixed go.work inside t.TempDir.
-	if err != nil {
-		t.Fatal(err)
-	}
-	body = append(body, []byte("\nreplace example.invalid/external v1.0.0 => ./ui\n")...)
-	if err := os.WriteFile(path, body, 0o600); err != nil { //nolint:gosec // G703: path is the fixed go.work inside t.TempDir.
-		t.Fatal(err)
-	}
-	if err := syncWorkspace(t.Context(), root, false); err == nil {
-		t.Fatal("manual ownership was overwritten")
+	for _, manual := range []string{
+		"replace example.invalid/external v1.0.0 => ./ui",
+		"replace(\nexample.invalid/external v1.0.0 => ./ui\n)",
+	} {
+		root := workspaceFixture(t)
+		path := filepath.Join(root, "go.work")
+		body, err := os.ReadFile(path) //nolint:gosec // G304: root is the isolated workspace fixture.
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = append(body, []byte("\n"+manual+"\n")...)
+		if err := os.WriteFile(path, body, 0o600); err != nil { //nolint:gosec // G703: path is the fixed go.work inside t.TempDir.
+			t.Fatal(err)
+		}
+		if err := syncWorkspace(t.Context(), root, false); err == nil {
+			t.Fatalf("manual workspace replacement accepted: %s", manual)
+		}
 	}
 }
 

@@ -193,3 +193,26 @@ func TestMaskedFillReceiptCannotExposeTheValue(t *testing.T) {
 		})
 	}
 }
+
+func TestPeerUndoRedoPreservesItsOwnSelection(t *testing.T) {
+	s := base.NewEditSession(base.EditSessionConfig{Initial: "abc"})
+	writer := base.NewEditor(base.EditorConfig{Session: s})
+	reader := base.NewEditor(base.EditorConfig{Session: s})
+	reader.SetCursor(0, 1)
+	reader.Anchor()
+	reader.MoveRight()
+	writer.Insert("x")
+	for _, step := range []struct {
+		apply func()
+		want  string
+	}{
+		{reader.Undo, "abc"},
+		{reader.Redo, "xabc"},
+		{writer.Undo, "abc"},
+	} {
+		step.apply()
+		if reader.Text() != step.want || reader.Selected() != "b" {
+			t.Fatalf("document=%q selection=%q, want %q with b selected", reader.Text(), reader.Selected(), step.want)
+		}
+	}
+}

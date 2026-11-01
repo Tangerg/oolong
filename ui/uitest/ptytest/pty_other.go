@@ -21,8 +21,6 @@ func attach(*exec.Cmd, *os.File) {}
 
 func setSize(*os.File, Size) error { return ErrUnsupported }
 
-func signalResize(*os.Process) error { return ErrUnsupported }
-
 func endSession(*os.Process) error { return ErrUnsupported }
 
 func readClosed(error) bool { return false }

@@ -2,6 +2,7 @@ package base
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -106,21 +107,21 @@ func TestTranscriptReleasesTheFullAllocationAfterPrefixRetires(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	original := transcript.entries
+	original := slices.Collect(transcript.entries.Values())
 	for sequence := uint64(1); sequence <= 1900; sequence++ {
 		p.Commit(p.Prepare(), sequence)
 		p.Written(sequence)
 		p.FlushNotifications()
 	}
-	if len(transcript.entries) != 100 {
-		t.Fatalf("retained %d items", len(transcript.entries))
+	if transcript.Len() != 100 {
+		t.Fatalf("retained %d items", transcript.Len())
 	}
 	for _, item := range original[:1900] {
 		if item != nil && item.body != nil {
 			t.Fatal("retired prefix still retains a content payload")
 		}
 	}
-	if cap(transcript.entries) > 2*len(transcript.entries)+64 {
-		t.Fatalf("small suffix pins capacity %d", cap(transcript.entries))
+	if transcript.entries.Capacity() > 2*transcript.Len()+64 {
+		t.Fatalf("small suffix pins capacity %d", transcript.entries.Capacity())
 	}
 }

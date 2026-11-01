@@ -3,8 +3,10 @@ package program_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
+	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -199,5 +201,50 @@ func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 				t.Fatal("a capability outlived the program that authorized its host operations")
 			}
 		})
+	}
+}
+
+func TestEndedSessionHandlesDoNotRetainTheirHost(t *testing.T) {
+	for _, inline := range []bool{false, true} {
+		for _, failBuild := range []bool{false, true} {
+			h := newHost(t)
+			ref := weak.Make(h)
+			var retained *program.Runtime
+			build := func(rt *program.Runtime) (scene.Element, error) {
+				retained = rt
+				if failBuild {
+					return scene.Element{}, errors.New("builder failed")
+				}
+				rt.Quit()
+				return scene.NewElement(scene.ElementConfig{}), nil
+			}
+			var session interface {
+				Run(ctx context.Context) error
+			}
+			var err error
+			cfg := program.Config{Host: h}
+			if inline {
+				session, err = program.NewInline(program.InlineConfig{Config: cfg, Build: func(rt *program.InlineRuntime) (scene.Element, error) {
+					return build(rt.Runtime)
+				}})
+			} else {
+				session, err = program.NewScreen(program.ScreenConfig{Config: cfg, Build: build})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = session.Run(t.Context())
+			if (err != nil) != failBuild {
+				t.Fatal(err)
+			}
+			runtime.GC()
+			if ref.Value() != nil {
+				t.Errorf("ended session retains host: inline=%t failed build=%t", inline, failBuild)
+			}
+			if err := session.Run(t.Context()); !errors.Is(err, program.ErrAlreadyRun) {
+				t.Errorf("repeated Run = %v", err)
+			}
+			runtime.KeepAlive(retained)
+		}
 	}
 }

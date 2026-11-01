@@ -38,7 +38,7 @@ const (
 	Started
 )
 
-// ActionResult carries a typed value and an explicit change or start outcome.
+// ActionResult reports what took effect even when a later part of the operation failed.
 type ActionResult[T any] struct {
 	State ActionState
 	Value T
@@ -101,8 +101,8 @@ func (a *Action[P, R]) run(ctx context.Context, params P) (ActionResult[R], erro
 		return zero, err
 	}
 	result, err := a.config.Run(ctx, params)
-	if err == nil && result.State > Started {
-		return zero, fmt.Errorf("%w: action returned an unknown state", ErrInvalid)
+	if result.State > Started {
+		return zero, errors.Join(err, fmt.Errorf("%w: action returned an unknown state", ErrInvalid))
 	}
 	return result, err
 }
@@ -230,7 +230,7 @@ func (r *Root) Invoke(ctx context.Context, target Target, action ActionID, param
 		}
 		before := r.modelRevision
 		result, err := binding.invoke(ctx, params)
-		if err == nil && result.State != Unchanged && before == r.modelRevision {
+		if result.State != Unchanged && before == r.modelRevision {
 			r.Changed()
 		}
 		return result, err

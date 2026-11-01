@@ -56,9 +56,19 @@ const (
 // task is a row of the table.
 type task struct {
 	name  string
-	state string
 	done  int
 	total int
+}
+
+func (t task) state() string {
+	switch {
+	case t.done >= t.total:
+		return done
+	case t.done > 0:
+		return running
+	default:
+		return waiting
+	}
 }
 
 // dashboard is the strip and the panes under it.
@@ -205,7 +215,7 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 	q.rows.SetLess(func(a, b task, column int) bool {
 		switch column {
 		case 1:
-			return a.state < b.state
+			return a.state() < b.state()
 		case 2:
 			return a.done*b.total < b.done*a.total
 		default:
@@ -276,7 +286,7 @@ func (q *queue) cell(row, column int) kit.Cell {
 	case 0:
 		return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: "…"})
 	case 1:
-		return kit.LabelCell(kit.Label{Text: item.state, Style: q.state(item), Ellipsis: "…"})
+		return kit.LabelCell(kit.Label{Text: item.state(), Style: q.state(item), Ellipsis: "…"})
 	default:
 		return kit.Cell{
 			Preferred: 12,
@@ -294,11 +304,9 @@ func (q *queue) cell(row, column int) kit.Cell {
 }
 
 func (q *queue) state(of task) grid.Style {
-	switch of.state {
+	switch of.state() {
 	case done:
 		return q.theme.Success
-	case "failed":
-		return q.theme.Danger
 	default:
 		return q.theme.Muted
 	}
@@ -312,10 +320,6 @@ func (q *queue) advance(by int) {
 			continue
 		}
 		item.done = min(item.done+max(by, 0), item.total)
-		item.state = running
-		if item.done == item.total {
-			item.state = done
-		}
 	}
 	q.rows.SetItems(items)
 }
@@ -443,9 +447,9 @@ func (a *activity) bars() []kit.Bar {
 
 func tasks() []task {
 	return []task{
-		{name: "build", state: waiting, done: 3, total: 12},
-		{name: "test", state: waiting, done: 1, total: 20},
-		{name: "vet", state: waiting, done: 0, total: 6},
-		{name: "lint", state: waiting, done: 0, total: 9},
+		{name: "build", done: 3, total: 12},
+		{name: "test", done: 1, total: 20},
+		{name: "vet", done: 0, total: 6},
+		{name: "lint", done: 0, total: 9},
 	}
 }

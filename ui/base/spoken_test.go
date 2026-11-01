@@ -31,3 +31,13 @@ func TestAnAmbiguousSpokenConfirmationIsRefused(t *testing.T) {
 		t.Fatal("a prefix shared by both answers was guessed")
 	}
 }
+
+func TestExactConfirmationCanBeAPrefixOfTheOtherAnswer(t *testing.T) {
+	field := &base.Confirm{Yes: "on", No: "once"}
+	if err := field.Reply("ON"); err != nil || !field.Answer() {
+		t.Fatalf("exact answer was not accepted: %v", err)
+	}
+	if err := field.Reply("o"); err == nil {
+		t.Fatal("ambiguous abbreviation was accepted")
+	}
+}

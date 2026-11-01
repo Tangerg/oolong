@@ -219,6 +219,8 @@ func TestSpacingMacrosOccupyTheRoomTheyName(t *testing.T) {
 		want   string
 	}{
 		{`a \, b`, "a b"},
+		{`a\ b`, "a b"},
+		{`\textbf{a\ b}`, "a b"},
 		{`a \quad b`, "a  b"},
 		{`a \qquad b`, "a    b"},
 		{`a \! b`, "ab"},

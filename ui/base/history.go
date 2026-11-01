@@ -1,9 +1,8 @@
 package base
 
 import (
-	"slices"
-
 	"github.com/Tangerg/oolong/ui/core/fuzzy"
+	"github.com/Tangerg/oolong/ui/internal/fifo"
 )
 
 // History owns a bounded sequence and a walk that restores its starting draft.
@@ -17,7 +16,7 @@ import (
 type History[T any] struct {
 	noCopy noCopy
 
-	entries []T
+	entries fifo.Queue[T]
 	// at counts from the end: zero is the draft, one the newest entry. Shrinking
 	// may leave it one past the oldest retained entry, so Forward reaches that
 	// entry before returning to newer ones and finally the draft.
@@ -76,7 +75,7 @@ func (h *History[T]) Limit() int {
 // Add ends the current walk and records a snapshot of value, unless Equal matches
 // the newest entry. Nonconsecutive duplicates and zero values are retained.
 func (h *History[T]) Add(value T) {
-	duplicate := len(h.entries) > 0 && h.equal != nil && h.equal(h.entries[len(h.entries)-1], value)
+	duplicate := h.Len() > 0 && h.equal != nil && h.equal(h.entries.At(h.Len()-1), value)
 	if !duplicate {
 		value = h.snapshot(value)
 	}
@@ -85,7 +84,7 @@ func (h *History[T]) Add(value T) {
 	if duplicate {
 		return
 	}
-	h.entries = append(h.entries, value)
+	h.entries.Push(value)
 	h.trim()
 }
 
@@ -98,27 +97,25 @@ func (h *History[T]) snapshot(value T) T {
 
 func (h *History[T]) trim() {
 	limit := h.Limit()
-	if len(h.entries) > limit {
-		dropped := len(h.entries) - limit
-		clear(h.entries[:dropped])
-		h.entries = trim(h.entries[dropped:])
-		if h.at > len(h.entries) {
-			h.at = len(h.entries) + 1
+	if h.Len() > limit {
+		h.entries.Discard(h.Len() - limit)
+		if h.at > h.Len() {
+			h.at = h.Len() + 1
 		}
 	}
 }
 
 // Len reports the number of retained entries, excluding the draft.
-func (h *History[T]) Len() int { return len(h.entries) }
+func (h *History[T]) Len() int { return h.entries.Len() }
 
 // At returns a snapshot of the entry n steps back, one being the newest.
 // Out-of-range steps return the zero value and false without changing the walk.
 func (h *History[T]) At(n int) (T, bool) {
-	if n < 1 || n > len(h.entries) {
+	if n < 1 || n > h.Len() {
 		var zero T
 		return zero, false
 	}
-	return h.snapshot(h.entries[len(h.entries)-n]), true
+	return h.snapshot(h.entries.At(h.Len() - n)), true
 }
 
 // Walking reports whether Back has moved away from the draft.
@@ -127,7 +124,7 @@ func (h *History[T]) Walking() bool { return h.at > 0 }
 // Back snapshots current as the draft only on the first successful step. Later
 // steps return older entry snapshots; the oldest boundary returns zero and false.
 func (h *History[T]) Back(current T) (T, bool) {
-	if h.at >= len(h.entries) {
+	if h.at >= h.Len() {
 		var zero T
 		return zero, false
 	}
@@ -182,8 +179,9 @@ func (h *History[T]) Recall(query string, text func(T) string) []Recalled[T] {
 	if query != "" && text == nil {
 		return nil
 	}
-	out := make([]Recalled[T], 0, len(h.entries))
-	for i, entry := range slices.Backward(h.entries) {
+	out := make([]Recalled[T], 0, h.Len())
+	for step := 1; step <= h.Len(); step++ {
+		entry := h.entries.At(h.Len() - step)
 		var match fuzzy.Match
 		if query != "" {
 			var ok bool
@@ -192,7 +190,7 @@ func (h *History[T]) Recall(query string, text func(T) string) []Recalled[T] {
 				continue
 			}
 		}
-		out = append(out, Recalled[T]{Entry: h.snapshot(entry), Step: len(h.entries) - i, At: match.At})
+		out = append(out, Recalled[T]{Entry: h.snapshot(entry), Step: step, At: match.At})
 	}
 	return out
 }

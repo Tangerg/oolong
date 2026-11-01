@@ -9,15 +9,9 @@ import (
 // ErrHandoverActive means another Hand already owns terminal reacquisition.
 var ErrHandoverActive = errors.New("term: terminal handover already active")
 
-// parkGrace is how long a handover waits for the reader to come off the terminal.
-//
-// It normally takes no time at all: the reader waits for the terminal to have
-// something to say before it reads, so waking it is enough. The wait is for the
-// one case that is not instant — the reader holding a chunk nothing downstream is
-// taking, because the interface's own goroutine is inside this call and is not
-// draining events. Going ahead anyway is the right answer there: the cost is one
-// chunk of input read by this process instead of by the child, and the cost of
-// waiting for ever is a program that cannot be got out of.
+// An input queue waiting on the UI owner cannot drain while that owner is
+// handing over the terminal. Refuse the handover before changing modes in
+// that case: only the reader can confirm it stopped consuming keystrokes.
 const parkGrace = 100 * time.Millisecond
 
 // handover is the reader's side of giving the terminal up: a latch it parks on,

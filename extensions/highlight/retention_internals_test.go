@@ -5,12 +5,14 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/alecthomas/chroma/v2"
+
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 func TestHighlightedTextDoesNotRetainItsSource(t *testing.T) {
 	source := strings.Repeat("// discarded\n", 1<<12) + "var kept = 1\n"
-	lines := highlight("go", source, schemeOf(""))
+	lines := New("").Lines("go", source)
 	assertDetachedText(t, source, lines)
 }
 
@@ -33,5 +35,25 @@ func assertDetachedText(t *testing.T, source string, lines []text.Line) {
 				t.Fatalf("line %d span %d still shares the source allocation", row, column)
 			}
 		}
+	}
+}
+
+type interruptedLexer struct{ chroma.Lexer }
+
+func (interruptedLexer) Tokenise(*chroma.TokeniseOptions, string) (chroma.Iterator, error) {
+	first := true
+	return func() chroma.Token {
+		if !first {
+			panic("lexer interrupted")
+		}
+		first = false
+		return chroma.Token{Type: chroma.Comment, Value: "partial"}
+	}, nil
+}
+
+func TestInterruptedLexerFallsBackToEverySourceRow(t *testing.T) {
+	lines := highlight(interruptedLexer{}, "one\r\ntwo\n", New("").resolved())
+	if len(lines) != 3 || lines[0].String() != "one" || lines[1].String() != "two" || lines[2].String() != "" {
+		t.Fatalf("interrupted highlight lost source: %v", lines)
 	}
 }

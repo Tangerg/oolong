@@ -5,9 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/kit"
 	"github.com/Tangerg/oolong/ui/uitest"
 )
 
@@ -113,5 +115,23 @@ func TestTheSliderAnswersThePressThatLandedOnIt(t *testing.T) {
 	host.Type("q")
 	if err := <-done; err != nil {
 		t.Fatalf("the program ended with %v", err)
+	}
+}
+
+func TestTaskStatusIsDerivedFromCompletedWork(t *testing.T) {
+	work := newQueue(kit.Theme{}, kit.Glyphs{})
+	state := func(row int) string {
+		surface := grid.NewSurface(10, 1)
+		work.cell(row, 1).Draw(surface.View(), grid.Style{})
+		return strings.TrimSpace(surface.Rows()[0])
+	}
+	if state(0) != running || state(2) != waiting {
+		t.Fatalf("initial build=%q vet=%q", state(0), state(2))
+	}
+	work.advance(100)
+	for row := range work.rows.Len() {
+		if got := state(row); got != done {
+			t.Errorf("finished row %d: %q", row, got)
+		}
 	}
 }

@@ -28,3 +28,17 @@ func Same(a, b any) bool {
 	}
 	return false
 }
+
+// IsNil recognizes an absent implementation even when its interface has a dynamic type.
+func IsNil(implementation any) bool {
+	if implementation == nil {
+		return true
+	}
+	value := reflect.ValueOf(implementation)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}

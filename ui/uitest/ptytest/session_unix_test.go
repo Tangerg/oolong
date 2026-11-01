@@ -102,6 +102,11 @@ func TestCancellationAfterTheLeaderExitsClosesTheSession(t *testing.T) {
 	if err := s.Wait(deadline); err != nil {
 		t.Fatal(err)
 	}
+	// The descendant still holds the PTY. Its geometry can change after the
+	// leader has been reaped, without sending a signal to that dead process.
+	if err := s.Resize(ptytest.Size{Cols: 41, Rows: 13}); err != nil {
+		t.Fatalf("resize after the session leader exited: %v", err)
+	}
 	cancel()
 	if err := s.Drain(deadline); err != nil {
 		t.Fatalf("context ended but the session is still holding the terminal: %v", err)

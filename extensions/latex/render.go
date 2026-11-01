@@ -105,6 +105,12 @@ func writeParserByte(out *strings.Builder, source string, at int, text bool) int
 }
 
 func writeControlSequence(out *strings.Builder, source string, at int) (next int, startsText bool) {
+	// The parser discards a control-space token in math mode. Reuse the
+	// explicit spacing atom that survives the parser for both text and math.
+	if strings.HasPrefix(source[at:], `\ `) {
+		out.WriteString(`\,`)
+		return at + 2, false
+	}
 	end := at + 1
 	for end < len(source) && isMacroLetter(source[end]) {
 		end++
@@ -533,7 +539,7 @@ func (r *formulaRenderer) appearanceMacro(name string, args ast.List, style grid
 			return box{}, true, err
 		}
 		return horizontal(atom("exp ", style), content), true, nil
-	case `\ `, `\,`, `\:`, `\;`:
+	case `\,`, `\:`, `\;`:
 		return atom(" ", style), true, nil
 	case `\quad`:
 		return atom("  ", style), true, nil

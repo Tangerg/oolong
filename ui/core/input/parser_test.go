@@ -664,15 +664,14 @@ func TestAPasteThisPackageCannotReadDoesNotOpenOne(t *testing.T) {
 	// rather than an event, so nothing coming out of it proves nothing. A paste
 	// opened by a sequence this package could not read swallows everything typed
 	// afterwards into a document as text.
-	var p input.Parser
-	if events := p.Feed([]byte("\x1b[200;999999999999~")); len(events) != 0 {
-		t.Fatalf("an unreadable opener decoded as %+v", events)
-	}
-	if p.Pending() {
-		t.Fatal("an unreadable opener opened a paste")
-	}
-	if events := p.Feed([]byte("a")); len(events) != 1 {
-		t.Fatalf("what was typed afterwards decoded as %+v, want the a key", events)
+	for _, opener := range []string{"\x1b[200;999999999999~", "\x1b[200;1~", "\x1b[200:1~", "\x1b[0200~"} {
+		var p input.Parser
+		if events := p.Feed([]byte(opener)); len(events) != 0 || p.Pending() {
+			t.Errorf("%q changed input state: events=%+v pending=%t", opener, events, p.Pending())
+		}
+		if events := p.Feed([]byte("a")); len(events) != 1 || events[0] != (input.Key{Code: input.Character, Rune: 'a'}) {
+			t.Errorf("key following %q = %+v, want a", opener, events)
+		}
 	}
 }
 

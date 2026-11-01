@@ -91,3 +91,23 @@ func TestStandaloneEditorMeasurementCannotEditItsDocument(t *testing.T) {
 		t.Fatalf("measurement changed the document: failure=%v text=%q", failure, e.Text())
 	}
 }
+
+type queryingGutter struct{ editor *base.Editor }
+
+func (queryingGutter) Width(int) int                { return 1 }
+func (g queryingGutter) Draw(grid.View, []text.Row) { g.editor.HeightForWidth(20) }
+
+func TestGutterMeasurementCannotReplaceThePaintedLayout(t *testing.T) {
+	e := base.NewEditor(base.EditorConfig{Initial: "abcdef"})
+	e.Gutter = queryingGutter{e}
+	equalRows(t, paintWidget(4, 2, e), []string{".abc", ".def"})
+}
+
+func TestZeroEditorGutterReceivesItsEmptyLogicalLine(t *testing.T) {
+	gutter := new(recordingGutter)
+	e := &base.Editor{Gutter: gutter}
+	paintWidget(8, 1, e)
+	if len(gutter.rows) != 1 || gutter.rows[0].Line != 1 || gutter.rows[0].Text != "" {
+		t.Fatalf("empty editor gutter rows=%v", gutter.rows)
+	}
+}

@@ -17,11 +17,12 @@ import (
 // editorLineView is read-only rendering input, shared by Editor and controlled Text.
 // It owns no editor history, input matcher, mutable document or frame transaction.
 type editorLineView struct {
-	value, placeholder, mask string
-	cursor, anchor, left     int
-	selecting, focused       bool
-	gutter                   RowGutter
-	cursorStyle              grid.CursorStyle
+	editorProjectionKey
+	value, placeholder   string
+	cursor, anchor, left int
+	selecting, focused   bool
+	gutter               RowGutter
+	cursorStyle          grid.CursorStyle
 }
 
 func (e editorLineView) shown() string {
@@ -86,5 +87,5 @@ func (e editorLineView) draw(frame scene.Frame, look Look, presented *scene.Snap
 	if e.focused {
 		view.PlaceCursor(cursor-left, 0, e.cursorStyle)
 	}
-	presented.Stage(frame, editorPresentation{width: width, gutter: gutter, left: left, visible: frame.Visible()})
+	presented.Stage(frame, editorPresentation{content: e.editorProjectionKey, width: width, gutter: gutter, left: left, visible: frame.Visible()})
 }

@@ -144,6 +144,7 @@ type Terminal struct {
 	// watcher and taking the terminal back from a child — advance it. See
 	// [Terminal.noteResize].
 	size       dimensions
+	readerDone chan struct{}
 	stop       chan struct{}
 	pumpDone   chan struct{}
 	resizeDone chan struct{}
@@ -267,6 +268,7 @@ func newTerminal(
 		events:        make(chan input.Event, 64),
 		resized:       make(chan input.Resize, 1),
 		stop:          make(chan struct{}),
+		readerDone:    make(chan struct{}),
 		pumpDone:      make(chan struct{}),
 		resizeDone:    make(chan struct{}),
 		task:          newTaskProgress(),
@@ -760,6 +762,7 @@ func (t *Terminal) control(value string) error {
 // and the read below it does the blocking, which is what a reader that cannot be
 // woken did before any of this existed.
 func (t *Terminal) read(raw chan<- readResult) {
+	defer close(t.readerDone)
 	defer t.waker.close()
 	for {
 		// Before the read and not after it: a byte taken while the terminal is
@@ -870,6 +873,8 @@ func (t *Terminal) Notify(text string) error {
 // The optional prepare callback runs after claiming the handover, with the normal
 // interface modes still active. It can finish and drain interface output. A failed
 // prepare returns its error without changing modes or calling run.
+// If the reader cannot park within the handover grace period, Hand returns an
+// error wrapping [os.ErrDeadlineExceeded] without running the child.
 // Nested or concurrent Hand calls return [ErrHandoverActive] without preparing or
 // running their child. A closed session returns [ErrClosed]; closing from run ends the session
 // rather than reacquiring it when run returns.
@@ -943,7 +948,9 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 
 	// The lifetime claim can already have parked the reader. Confirm that it noticed
 	// before giving the terminal's input and modes to the child.
-	t.park(parked)
+	if err := t.park(parked); err != nil {
+		return errors.Join(err, t.resumeOutput())
+	}
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
 	select {
@@ -1010,15 +1017,20 @@ func (t *Terminal) resumeOutput() error {
 	return t.task.restore(t.writer.Queue)
 }
 
-func (t *Terminal) park(parked <-chan struct{}) {
+func (t *Terminal) park(parked <-chan struct{}) error {
 	t.waker.wake()
 
 	grace := time.NewTimer(parkGrace)
 	defer grace.Stop()
 	select {
 	case <-parked:
+		return nil
+	case <-t.readerDone:
+		return nil
 	case <-grace.C:
+		return fmt.Errorf("term: wait for reader before handover: %w", os.ErrDeadlineExceeded)
 	case <-t.stop:
+		return ErrClosed
 	}
 }
 

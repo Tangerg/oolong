@@ -300,7 +300,7 @@ func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 	var out inlineWriter
 
 	stack := make([]inlineAction, 0, 16)
-	pushInlineChildren(&stack, n, style, "")
+	pushInlineChildren(&stack, n, style, nil)
 	for len(stack) > 0 {
 		last := len(stack) - 1
 		action := stack[last]
@@ -321,27 +321,27 @@ func (r *renderer) writeInline(out *inlineWriter, stack *[]inlineAction, action 
 }
 
 func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
+	link := ""
+	if action.link != nil {
+		link = *action.link
+	}
 	switch node := action.node.(type) {
 	case *ast.Text:
 		value := string(node.Segment.Value(r.source))
 		if !node.IsRaw() {
 			value = markdownText(value)
 		}
-		out.add(value, action.style, action.link)
+		out.add(value, action.style, link)
 		switch {
 		case node.HardLineBreak():
 			out.breakLine()
 		case node.SoftLineBreak():
-			out.add(" ", action.style, action.link)
+			out.add(" ", action.style, link)
 		}
 	case *ast.String:
-		value := string(node.Value)
-		if !node.IsRaw() && !node.IsCode() {
-			value = markdownText(value)
-		}
-		out.add(value, action.style, action.link)
+		out.add(stringValue(node), action.style, link)
 	case *ast.CodeSpan:
-		out.add(r.codeSpan(node), action.style.Merge(r.look.Code), action.link)
+		out.add(r.codeSpan(node), action.style.Merge(r.look.Code), link)
 	case *ast.AutoLink:
 		// What the document showed and where it goes are two things, and they differ
 		// whenever the protocol was inferred rather than written: "www.example.com"
@@ -361,10 +361,13 @@ func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 		// package for what a terminal will take — so what is left is what it was
 		// called and where it is.
 		target := markdownText(string(node.Destination))
-		out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), target)
+		if action.link == nil {
+			link = target
+		}
+		out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), link)
 		r.target(out, target, "", action.style)
 	case *east.TaskCheckBox:
-		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), action.link)
+		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), link)
 	case *ast.RawHTML:
 	default:
 		return false
@@ -389,7 +392,7 @@ func (r *renderer) pushInline(stack *[]inlineAction, action inlineAction) {
 		*stack = append(*stack, inlineAction{
 			target: true, destination: target, shown: r.plain(node), style: action.style,
 		})
-		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), target)
+		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), &target)
 	default:
 		pushInlineChildren(stack, action.node, action.style, action.link)
 	}
@@ -442,14 +445,14 @@ func (w *inlineWriter) flush() {
 type inlineAction struct {
 	node  ast.Node
 	style grid.Style
-	link  string
+	link  *string
 
 	target      bool
 	destination string
 	shown       string
 }
 
-func pushInlineChildren(stack *[]inlineAction, n ast.Node, style grid.Style, link string) {
+func pushInlineChildren(stack *[]inlineAction, n ast.Node, style grid.Style, link *string) {
 	for child := n.LastChild(); child != nil; child = child.PreviousSibling() {
 		*stack = append(*stack, inlineAction{node: child, style: style, link: link})
 	}
@@ -509,12 +512,22 @@ func (r *renderer) plain(n ast.Node) string {
 		case *ast.CodeSpan:
 			b.WriteString(r.codeSpan(node))
 		case *ast.String:
-			b.Write(node.Value)
+			b.WriteString(stringValue(node))
+		case *ast.AutoLink:
+			b.Write(node.Label(r.source))
 		default:
 			pushNodes(node)
 		}
 	}
 	return b.String()
+}
+
+func stringValue(node *ast.String) string {
+	value := string(node.Value)
+	if node.IsRaw() || node.IsCode() {
+		return value
+	}
+	return markdownText(value)
 }
 
 func markdownText(source string) string {

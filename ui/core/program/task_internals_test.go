@@ -201,16 +201,16 @@ func TestTaskAdmissionRejectsBeforeLaunching(t *testing.T) {
 	}
 }
 
-func TestInspectDoesNotAdvanceModelOrRequestAFrame(t *testing.T) {
+func TestReadOnlyDispatchDoesNotAdvanceModelOrRequestAFrame(t *testing.T) {
 	p, rt := taskOwner(t)
 	before := p.root.Progress()
 	done := make(chan error, 1)
-	go func() { done <- rt.Dispatcher().Inspect(t.Context(), func() error { return nil }) }()
+	go func() { done <- rt.Dispatcher().Dispatch(t.Context(), func() error { return nil }) }()
 	select {
 	case <-p.tasks.wake:
 		p.runTasks()
 	case <-time.After(5 * time.Second):
-		t.Fatal("inspect was not admitted")
+		t.Fatal("dispatch was not admitted")
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -356,5 +356,30 @@ func TestTaskReleasesCancellationCapabilitiesAtTheirOwnSettlement(t *testing.T) 
 				check(false, false)
 			})
 		})
+	}
+}
+
+func TestDispatchPresentsAnExplicitChangeEvenWhenTheCallbackFails(t *testing.T) {
+	p, rt := taskOwner(t)
+	before := p.root.Progress().ModelRevision
+	want := errors.New("partial update")
+	done := make(chan error, 1)
+	go func() {
+		done <- rt.Dispatcher().Dispatch(t.Context(), func() error {
+			p.root.Changed()
+			return want
+		})
+	}()
+	<-p.tasks.wake
+	p.runTasks()
+	if err := <-done; !errors.Is(err, want) {
+		t.Fatal(err)
+	}
+	if got := p.root.Progress().ModelRevision; got != before+1 {
+		t.Fatalf("one change advanced revision from %d to %d", before, got)
+	}
+	drawn, err := p.present.Present(time.Now(), func(bool) (uint64, error) { return 0, nil })
+	if err != nil || !drawn {
+		t.Fatalf("changed model not presented: drawn=%t err=%v", drawn, err)
 	}
 }

@@ -255,12 +255,21 @@ func nonCellModes(params ansi.Params) bool {
 }
 
 func (s *Screen) executeControl(final byte, params ansi.Params, raw string) error {
+	if final == 'm' {
+		return nil
+	}
+	maxParams := 1
+	switch final {
+	case 'H', 'f', 'r':
+		maxParams = 2
+	}
+	if params.Len() > maxParams || params.Group(0).Len() > 1 || params.Group(1).Len() > 1 {
+		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
+	}
 	if s.moveCursor(final, params) {
 		return nil
 	}
 	switch final {
-	case 'm':
-		return nil
 	case 'K':
 		if err := s.eraseLine(params.At(0), raw); err != nil {
 			return err
@@ -460,8 +469,7 @@ func (s *Screen) setMargins(params ansi.Params, raw string) error {
 	if end == 0 {
 		end = s.size.Rows
 	}
-	if params.Len() > 2 || params.Group(0).Len() > 1 || params.Group(1).Len() > 1 ||
-		end > s.size.Rows || params.Len() > 0 && top+1 >= end {
+	if end > s.size.Rows || params.Len() > 0 && top+1 >= end {
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
 	}
 	s.top, s.end = top, end

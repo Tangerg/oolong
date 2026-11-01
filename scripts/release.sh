@@ -31,7 +31,7 @@ compatibility() {
 # tag deletion, movement, force push, dependency edit or unrelated branch push.
 publish() {
 	git tag -a "$tag" -m "$module $version. See CHANGELOG.md." "$head"
-	git push --quiet origin "refs/tags/$tag"
+	git push --quiet --no-follow-tags origin "refs/tags/$tag"
 	local remote
 	if ! remote=$(git ls-remote --tags origin "refs/tags/$tag^{}" | cut -f1); then
 		die "cannot verify $tag on origin"
@@ -87,7 +87,8 @@ else
 fi
 grep -Fq "## [$tag]" CHANGELOG.md || die "CHANGELOG.md needs a [$tag] section"
 for directory in "${ALL_MODULES[@]}"; do
-	if grep -qE '^[[:space:]]*replace[[:space:]]' "$directory/go.mod"; then
+	manifest=$(GOWORK=off go -C "$directory" mod edit -print) || die "cannot inspect $directory/go.mod"
+	if grep -q '^replace ' <<<"$manifest"; then
 		die "$directory/go.mod contains a local replacement"
 	else
 		status=$?

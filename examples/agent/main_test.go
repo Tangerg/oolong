@@ -232,6 +232,13 @@ func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
 		})
 	}
 	host.Hides(t, "func parse")
+	host.Press(input.Esc)
+	host.Shows(t, "complete")
+
+	host.Type("review another proposal")
+	host.Press(input.Enter)
+	host.Shows(t, "Allow this tool call?")
+	host.Shows(t, "func parse")
 }
 
 type panickingBackend struct{}

@@ -93,9 +93,12 @@ func RequireSymmetricModes(t TestingT, transcript []byte, modes ...Mode) {
 	t.Helper()
 	text := string(transcript)
 
-	ons := make([]int, len(modes))
-	offs := make([]int, len(modes))
+	ordered := make([]string, 2*len(modes))
 	for i, mode := range modes {
+		if mode.On == "" || mode.Off == "" {
+			t.Errorf("%s needs non-empty on and off sequences", mode.Name)
+			return
+		}
 		if n := strings.Count(text, mode.On); n != 1 {
 			t.Errorf("%s was turned on %d times, want once", mode.Name, n)
 			return
@@ -104,22 +107,7 @@ func RequireSymmetricModes(t TestingT, transcript []byte, modes ...Mode) {
 			t.Errorf("%s was turned off %d times, want once", mode.Name, n)
 			return
 		}
-		ons[i] = strings.Index(text, mode.On)
-		offs[i] = strings.Index(text, mode.Off)
-		if offs[i] < ons[i] {
-			t.Errorf("%s was turned off before it was turned on", mode.Name)
-			return
-		}
+		ordered[i], ordered[len(ordered)-1-i] = mode.On, mode.Off
 	}
-
-	for i := 1; i < len(modes); i++ {
-		if ons[i] < ons[i-1] {
-			t.Errorf("%s was turned on before %s, which is out of order",
-				modes[i].Name, modes[i-1].Name)
-		}
-		if offs[i] > offs[i-1] {
-			t.Errorf("%s was turned off after %s; a session has to be unwound in the "+
-				"order it was set up, backwards", modes[i].Name, modes[i-1].Name)
-		}
-	}
+	RequireOrdered(t, transcript, ordered...)
 }

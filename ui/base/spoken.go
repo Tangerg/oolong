@@ -75,9 +75,6 @@ func choices[T any](options []Option[T]) string {
 
 func choose[T any](said string, options []Option[T]) (int, error) {
 	said = strings.TrimSpace(said)
-	if said == "" {
-		return 0, errors.New("nothing was said")
-	}
 	if n, err := strconv.Atoi(said); err == nil {
 		if n < 1 || n > len(options) {
 			return 0, fmt.Errorf("there is no choice %d", n)
@@ -85,6 +82,13 @@ func choose[T any](said string, options []Option[T]) (int, error) {
 		return n - 1, nil
 	}
 
+	return chooseLabel(said, options)
+}
+
+func chooseLabel[T any](said string, options []Option[T]) (int, error) {
+	if said == "" {
+		return 0, errors.New("nothing was said")
+	}
 	switch named := namedBy(said, options); {
 	case named.ambiguousExact:
 		return 0, fmt.Errorf("%q names more than one choice", said)

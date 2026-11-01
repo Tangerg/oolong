@@ -231,7 +231,9 @@ func testReleaseGatesKeepTheSelectedModule(t *testing.T, root string) {
 	}
 	write("bin/go", `#!/bin/sh
 printf 'go|%s|%s\n' "$PWD" "$*" >> "$TRACE"
-if [ "$1" = -C ] && [ "$3" = list ]; then
+if [ "$1" = -C ] && [ "$3" = mod ]; then
+ exec "$FIXTURE_GO" "$@"
+elif [ "$1" = -C ] && [ "$3" = list ]; then
  awk '$1 == "module" {print $2}' "$2/go.mod"
 fi
 `)
@@ -257,9 +259,13 @@ case "$1" in
  *) exit 99 ;;
 esac
 `)
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
 	command := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "scripts", "release.sh"), "ui", "0.1.0", "--execute") //nolint:gosec // G204: the copied release script can reach only fixture tools.
 	command.Dir = root
-	command.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"), "TRACE="+filepath.Join(root, "events"))
+	command.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"), "TRACE="+filepath.Join(root, "events"), "FIXTURE_GO="+goBin)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("fixture release: %v\n%s", err, output)
@@ -274,6 +280,12 @@ esac
 	}
 	if !strings.Contains(string(trace), "tag -a ui/v0.1.0 -m ui v0.1.0.") || strings.Contains(string(trace), "tag -a examples/") {
 		t.Fatalf("release module changed during gates:\n%s", trace)
+	}
+	write("examples/go.mod", "module example.invalid/oolong/examples\n\ngo 1.27.0\n\nreplace(\n example.invalid/pkg => ../ui\n)\n")
+	check := exec.CommandContext(t.Context(), "bash", filepath.Join(root, "scripts", "release.sh"), "ui", "0.1.0") //nolint:gosec // Release preflight runs against fixture tools.
+	check.Dir, check.Env = command.Dir, command.Env
+	if out, err := check.CombinedOutput(); err == nil || !strings.Contains(string(out), "examples/go.mod contains a local replacement") {
+		t.Fatalf("release accepted or misdiagnosed a grouped replacement: %v\n%s", err, out)
 	}
 }
 
@@ -316,7 +328,7 @@ publish
 			if !strings.HasPrefix(commands[0], "tag -a extensions/markdown/v0.4.0 ") || !strings.HasSuffix(commands[0], " reviewed-commit") {
 				t.Fatalf("tag = %q", commands[0])
 			}
-			if failure != "tag" && commands[1] != "push --quiet origin refs/tags/extensions/markdown/v0.4.0" {
+			if failure != "tag" && commands[1] != "push --quiet --no-follow-tags origin refs/tags/extensions/markdown/v0.4.0" {
 				t.Fatalf("push = %q", commands)
 			}
 			for _, line := range commands {
@@ -325,6 +337,34 @@ publish
 				}
 			}
 		})
+	}
+}
+
+func TestReleaseIgnoresTheUsersFollowTagsPreference(t *testing.T) {
+	publish := scriptFunction(t, "release.sh", "publish")
+	output, err := runReleaseFragment(t, t.TempDir(), `
+git init --bare -q remote.git
+git init -q work
+cd work
+git config user.name Fixture
+git config user.email fixture@example.invalid
+git config commit.gpgsign false
+git config tag.gpgsign false
+git config push.followTags true
+git remote add origin ../remote.git
+git commit -q --allow-empty -m reviewed
+git tag -a unrelated/v1.0.0 -m unrelated
+module=ui
+version=v1.0.0
+tag="$module/$version"
+head=$(git rev-parse HEAD)
+note() { :; }
+`+publish+`
+publish
+[[ "$(git ls-remote --refs --tags origin | cut -f2)" == "refs/tags/$tag" ]]
+`)
+	if err != nil {
+		t.Fatalf("release must publish only the selected module tag: %v\n%s", err, output)
 	}
 }
 

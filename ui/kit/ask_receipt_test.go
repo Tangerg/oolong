@@ -36,3 +36,21 @@ func TestAskSubmitsOnlyTheQuestionsAndAnswersItCollected(t *testing.T) {
 		})
 	}
 }
+
+func TestAskWritesPromptsAndValidationErrorsAsTerminalText(t *testing.T) {
+	field := base.NewText(base.TextConfig{Label: "Name\x1b[2J\nrequired", Check: func(answer string) error {
+		if answer == "" {
+			return errors.New("bad\x1b]0;title\abell")
+		}
+		return nil
+	}})
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
+	var out strings.Builder
+	result, err := kit.Ask(form, strings.NewReader("\nok\n"), &out)
+	if err != nil || result.State != scene.Applied {
+		t.Fatalf("state=%v err=%v", result.State, err)
+	}
+	if got, want := out.String(), "Name[2J\nrequired\n> bad]0;titlebell\nName[2J\nrequired\n> "; got != want {
+		t.Fatalf("spoken form output=%q, want %q", got, want)
+	}
+}

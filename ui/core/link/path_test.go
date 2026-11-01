@@ -36,6 +36,7 @@ func TestPathsWhoseShapeIsEvidenceEnough(t *testing.T) {
 		{"edited src/main.go today", "src/main.go"},
 		{"under .grok/sessions/x.json", ".grok/sessions/x.json"},
 		{"the file images/1.png", "images/1.png"},
+		{"edit view/main.storyboard", "view/main.storyboard"},
 		{"an encoded one /tmp/%2Fa/b.txt", "/tmp/%2Fa/b.txt"},
 		{"a directory /var/log/", "/var/log/"},
 	} {
@@ -279,5 +280,13 @@ func TestURLAndItsPathNeverTriggerFilesystemQueries(t *testing.T) {
 	}
 	if len(queried) != 1 || queried[0] != "local.go" {
 		t.Fatalf("filesystem queried for %q", queried)
+	}
+}
+
+func TestBareLinkChecksCompleteExtension(t *testing.T) {
+	const name = "settings.entitlements"
+	got := link.Detect(name, files(name))
+	if len(got) != 1 || got[0].Target != name || got[0].Text(name) != name {
+		t.Fatalf("links = %+v, want %q", got, name)
 	}
 }

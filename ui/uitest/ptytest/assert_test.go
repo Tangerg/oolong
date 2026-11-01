@@ -137,3 +137,19 @@ func TestRequireSymmetricModesCatchesOffBeforeOn(t *testing.T) {
 		t.Fatal("passed on a mode turned off before it was turned on")
 	}
 }
+
+func TestRequireSymmetricModesRejectsReusedBytes(t *testing.T) {
+	var r recorder
+	ptytest.RequireSymmetricModes(&r, []byte("A-B"), ptytest.Mode{Name: "one", On: "A", Off: "B"}, ptytest.Mode{Name: "two", On: "A", Off: "B"})
+	if !r.failed() {
+		t.Fatal("one transition was counted twice")
+	}
+}
+
+func TestRequireSymmetricModesRejectsEmptyTransitions(t *testing.T) {
+	var r recorder
+	ptytest.RequireSymmetricModes(&r, nil, ptytest.Mode{})
+	if !r.failed() {
+		t.Fatal("empty transcript supplied both transitions")
+	}
+}

@@ -40,7 +40,7 @@ type Renderer struct{ scheme *chroma.Style }
 
 // New constructs a renderer for style. An unknown name uses the highlighter's
 // fallback scheme, so source always remains readable.
-func New(style Style) Renderer { return Renderer{scheme: schemeOf(style)} }
+func New(style Style) Renderer { return Renderer{scheme: styles.Get(string(style))} }
 
 // Lines is one block of code, highlighted.
 //
@@ -50,7 +50,7 @@ func New(style Style) Renderer { return Renderer{scheme: schemeOf(style)} }
 // nobody could name is still code, and showing it uncoloured is the whole of what
 // going wrong here should cost.
 func (r Renderer) Lines(language, source string) []text.Line {
-	return highlight(language, source, r.resolved())
+	return highlight(lexerFor(language, source), source, r.resolved())
 }
 
 // Background is the colour a style expects its code to sit on, and whether it has
@@ -75,21 +75,13 @@ func (r Renderer) resolved() *chroma.Style {
 	return styles.Fallback
 }
 
-func schemeOf(style Style) *chroma.Style {
-	if scheme := styles.Get(string(style)); scheme != nil {
-		return scheme
-	}
-	return styles.Fallback
-}
-
-func highlight(language, source string, scheme *chroma.Style) []text.Line {
-	lexer := lexerFor(language, source)
-	iterator, err := lexer.Tokenise(nil, source)
-	if err != nil {
+func highlight(lexer chroma.Lexer, source string, scheme *chroma.Style) []text.Line {
+	tokens := tokenize(lexer, source)
+	if len(tokens) == 0 {
 		return plain(source)
 	}
 
-	rows := chroma.SplitTokensIntoLines(iterator.Tokens())
+	rows := chroma.SplitTokensIntoLines(tokens)
 	out := make([]text.Line, 0, len(rows))
 	for _, row := range rows {
 		var line text.Line
@@ -115,6 +107,21 @@ func highlight(language, source string, scheme *chroma.Style) []text.Line {
 		out = append(out, nil)
 	}
 	return out
+}
+
+// Chroma permits lexer failures to panic while iterating, after Tokenise returned
+// successfully. Discard partial tokens so fallback renders the complete source.
+func tokenize(lexer chroma.Lexer, source string) (tokens []chroma.Token) {
+	defer func() {
+		if recover() != nil {
+			tokens = nil
+		}
+	}()
+	iterator, err := lexer.Tokenise(nil, source)
+	if err != nil {
+		return nil
+	}
+	return iterator.Tokens()
 }
 
 // lexerFor picks the lexer for a language, guessing from the source when the name

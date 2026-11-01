@@ -280,3 +280,12 @@ func TestATimelineRejectsAmbiguousFrameOrder(t *testing.T) {
 		}()
 	}
 }
+
+func TestRetargetingWithinSpringToleranceSettlesAtExactTarget(t *testing.T) {
+	var s anim.Spring
+	s.Set(0.9999)
+	s.To(1)
+	if !s.Done() || s.Value() != 1 || s.Velocity() != 0 {
+		t.Fatalf("settled=%t position=%v velocity=%v", s.Done(), s.Value(), s.Velocity())
+	}
+}

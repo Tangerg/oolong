@@ -184,7 +184,9 @@ func (s *EditSession) commit(initiator *Editor, oldLines []string, change Change
 	s.views = kept
 	s.lastChange = change
 	s.revision = change.After
-	initiator.revealCursor()
+	if initiator != nil {
+		initiator.revealCursor()
+	}
 	s.changes.publish(change, s.invalidateViews)
 }
 

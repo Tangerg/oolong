@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/internal/fifo"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // ErrClosed marks refused admission after a clean close, or an accepted frame
@@ -141,7 +142,7 @@ func NewWriter(cfg WriterConfig) *Writer {
 	if cfg.MaxFrameBytes > cfg.MaxPendingBytes {
 		panic("term: frame limit exceeds pending byte limit")
 	}
-	if cfg.Destination == nil {
+	if identity.IsNil(cfg.Destination) {
 		panic("term: nil writer")
 	}
 	w := &Writer{

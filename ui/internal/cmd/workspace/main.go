@@ -123,7 +123,8 @@ func surroundingDirectives(source string) (prefix, suffix, newline string, err e
 	}
 	for _, outside := range []string{prefix, suffix} {
 		for line := range strings.Lines(outside) {
-			if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "replace" {
+			directive, _, _ := strings.Cut(line, "(")
+			if fields := strings.Fields(directive); len(fields) > 0 && fields[0] == "replace" {
 				return "", "", "", errors.New("workspace: a manual replacement cannot be overwritten")
 			}
 		}

@@ -243,10 +243,14 @@ func (c *chat) settleApproval() {
 }
 
 func (c *chat) startReply(prompt string) {
+	_, err := c.content.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	if err != nil {
+		c.status.Doing = "failed: " + err.Error()
+		c.element.Invalidate()
+		return
+	}
 	c.composer.Controller().Clear()
 	c.content.Selection().Clear()
-	c.appendFinished(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
-	var err error
 	c.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
 	if err != nil {
 		c.setOutcome(err)
@@ -374,8 +378,8 @@ func (c *chat) setOutcome(err error) {
 	case err == context.Canceled: //nolint:errorlint // Joined cancellation retains its failure diagnostics.
 		c.status.Doing = "cancelled"
 	case err != nil:
-		c.status.Doing = "failed: " + err.Error()
-		c.appendFinished(&kit.Entry{Theme: c.theme, Label: "source", Body: err.Error()})
+		_, appendErr := c.content.Add(&kit.Entry{Theme: c.theme, Label: "source", Body: err.Error()})
+		c.status.Doing = "failed: " + errors.Join(err, appendErr).Error()
 	default:
 		c.status.Doing = "complete"
 		_ = c.runtime.Session().Notify("the answer is complete")
@@ -391,12 +395,6 @@ func (c *chat) stopReply() {
 	c.status.Doing = "cancelling"
 	c.producer.Cancel()
 	c.element.Invalidate()
-}
-
-func (c *chat) appendFinished(block base.Block) {
-	if _, err := c.content.Add(block); err != nil {
-		c.status.Doing = err.Error()
-	}
 }
 
 // defaultReplySource stands in for a remote producer. Its timer exists only while an

@@ -20,7 +20,7 @@ type owner struct {
 func (o *owner) Scene() *scene.Root { return o.root }
 func (o *owner) Dispatcher() *owner { return o }
 
-func (o *owner) Inspect(ctx context.Context, fn func() error) error {
+func (o *owner) Dispatch(ctx context.Context, fn func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -34,14 +34,6 @@ func (o *owner) Inspect(ctx context.Context, fn func() error) error {
 	return err
 }
 
-func (o *owner) Invoke(ctx context.Context, fn func() error) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return fn()
-}
 func (o *owner) Done() <-chan struct{} { return o.done }
 
 func TestWaitObservesRealModelChangesWithoutPolling(t *testing.T) {
@@ -97,7 +89,7 @@ func TestTargetExpiresWhileLocatorResolvesReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	locator := driver.Locate(scene.Query{}, scene.Match{Key: "save"})
-	if err := o.Invoke(context.Background(), func() error { return group.Set(scene.Item{Key: "save", Element: button()}) }); err != nil {
+	if err := o.Dispatch(context.Background(), func() error { return group.Set(scene.Item{Key: "save", Element: button()}) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := driver.Invoke(context.Background(), target, scene.ActionActivate, nil); !errors.Is(err, scene.ErrStale) {
@@ -153,5 +145,27 @@ func TestWaitHonorsCancellationWithoutChangingModel(t *testing.T) {
 	}
 	if r.Progress() != before {
 		t.Fatal("pure observation advanced the model")
+	}
+}
+
+type customSession struct {
+	root       *scene.Root
+	dispatcher *owner
+}
+
+func (s *customSession) Scene() *scene.Root { return s.root }
+func (s *customSession) Dispatcher() *owner { return s.dispatcher }
+
+func TestDriverRejectsAbsentSessionCapabilities(t *testing.T) {
+	root, err := scene.NewRoot(scene.RootConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	for _, session := range []*customSession{nil, {root: root}, {dispatcher: &owner{}}} {
+		driver := automation.NewDriver(session)
+		if _, err := driver.Observe(t.Context(), scene.Query{}); !errors.Is(err, automation.ErrInvalid) {
+			t.Fatalf("absent capability: %v", err)
+		}
 	}
 }

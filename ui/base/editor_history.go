@@ -53,25 +53,27 @@ func (c ChangeMap) inverse() ChangeMap {
 }
 
 func (h *editorHistory) back(current editorState) (editorState, bool) {
-	h.typist = weak.Pointer[Editor]{}
-	previous, ok := popEditorState(&h.undo)
-	if !ok {
-		return editorState{}, false
-	}
-	current.change = previous.change.inverse()
-	h.redo = pushEditorState(h.redo, current)
-	return previous, true
+	return h.transfer(&h.undo, &h.redo, current)
 }
 
 func (h *editorHistory) forward(current editorState) (editorState, bool) {
+	return h.transfer(&h.redo, &h.undo, current)
+}
+
+func (h *editorHistory) transfer(from, to *[]editorState, current editorState) (editorState, bool) {
 	h.typist = weak.Pointer[Editor]{}
-	next, ok := popEditorState(&h.redo)
+	saved, ok := popEditorState(from)
 	if !ok {
 		return editorState{}, false
 	}
-	current.change = next.change.inverse()
-	h.undo = pushEditorState(h.undo, current)
-	return next, true
+	// Replaying another view's edit maps every caret through the document change.
+	// Its inverse must not acquire the replaying view's unrelated caret.
+	if current.view != saved.view {
+		current.view = weak.Pointer[Editor]{}
+	}
+	current.change = saved.change.inverse()
+	*to = pushEditorState(*to, current)
+	return saved, true
 }
 
 func pushEditorState(stack []editorState, state editorState) []editorState {

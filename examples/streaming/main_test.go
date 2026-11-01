@@ -119,7 +119,7 @@ type state struct {
 func stateOf(t *testing.T, c *chat) state {
 	t.Helper()
 	var result state
-	if err := c.runtime.Dispatcher().Inspect(t.Context(), func() error {
+	if err := c.runtime.Dispatcher().Dispatch(t.Context(), func() error {
 		result = state{
 			active: c.document != nil, open: c.item != nil && c.item.State() == base.ContentLive,
 			dialog: c.dialog.Controller().Open(), blocks: c.content.Len(), first: c.content.FirstBlock(),
@@ -409,7 +409,7 @@ func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
 	}
 	<-started
 	<-first.Done()
-	if err := owner.Inspect(t.Context(), func() error {
+	if err := owner.Dispatch(t.Context(), func() error {
 		if c.document == nil || c.document.Snapshot().Final() || c.document.Snapshot().Text() != "" || !strings.Contains(c.status.Doing, "receiving") {
 			t.Errorf("old bytes or EOF changed next reply: %s", c.status.Doing)
 		}

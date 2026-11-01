@@ -5,7 +5,6 @@ import (
 	"errors"
 	"image"
 	"math"
-	"reflect"
 	"slices"
 	"sort"
 
@@ -17,6 +16,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/fifo"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // ErrStaleMatches rejects physical row and column matches from a different transcript, content revision or width.
@@ -53,19 +54,6 @@ const (
 type TranscriptPublisher interface {
 	TryPublish(body grid.Drawable) (publication.Receipt, error)
 	Subscribe(fn func()) func()
-}
-
-func missingPublisher(sink TranscriptPublisher) bool {
-	if sink == nil {
-		return true
-	}
-	value := reflect.ValueOf(sink)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
 }
 
 const defaultTranscriptItems = 64
@@ -166,7 +154,7 @@ type Transcript struct {
 	cfg             TranscriptConfig
 	initialized     bool
 	closed          bool
-	entries         []*TranscriptItem
+	entries         fifo.Queue[*TranscriptItem]
 	next            BlockID
 	start           int
 	revision        uint64
@@ -193,7 +181,7 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if cfg.MaxItems < 0 || cfg.KeepCompleted < 0 || cfg.Retention > PublishCompleted {
 		return nil, errors.New("base: invalid transcript configuration")
 	}
-	if missingPublisher(cfg.Publisher) {
+	if identity.IsNil(cfg.Publisher) {
 		if cfg.Retention == PublishCompleted {
 			return nil, errors.New("base: publishing transcript requires a publisher")
 		}
@@ -296,7 +284,7 @@ func (t *Transcript) Selection() *Selection { return &t.selection }
 func (t *Transcript) Sticky() *Sticky { return &t.sticky }
 
 // Len counts current retained references, including documents awaiting preparation.
-func (t *Transcript) Len() int { return len(t.entries) }
+func (t *Transcript) Len() int { return t.entries.Len() }
 
 // Width is the last committed layout width; preparing or aborting a frame does not advance it.
 func (t *Transcript) Width() int { return t.geometry.Value().Width() }
@@ -312,8 +300,8 @@ func (t *Transcript) EndRow() int { return t.geometry.Value().EndRow() }
 
 // FirstBlock is the first retained identity, or the next identity when the transcript is empty.
 func (t *Transcript) FirstBlock() BlockID {
-	if len(t.entries) > 0 {
-		return t.entries[0].id
+	if t.entries.Len() > 0 {
+		return t.entries.At(0).id
 	}
 	if t.next == 0 {
 		return 1
@@ -323,7 +311,7 @@ func (t *Transcript) FirstBlock() BlockID {
 
 func (t *Transcript) add(body Block, document *content.StreamDocument) (*TranscriptItem, error) {
 	t.assertMutable()
-	if len(t.entries) >= t.cfg.MaxItems {
+	if t.entries.Len() >= t.cfg.MaxItems {
 		return nil, ErrTranscriptCapacity
 	}
 	if t.next == BlockID(math.MaxUint64) {
@@ -335,7 +323,7 @@ func (t *Transcript) add(body Block, document *content.StreamDocument) (*Transcr
 		item.cancel = document.Subscribe(func(change content.DocumentChange) { t.accept(item, change) })
 	}
 	t.next++
-	t.entries = append(t.entries, item)
+	t.entries.Push(item)
 	t.changed()
 	t.publish()
 	return item, nil
@@ -373,13 +361,8 @@ func (t *Transcript) publish() {
 		return
 	}
 	t.assertMutable()
-	defer func() {
-		if cap(t.entries) > 2*len(t.entries)+64 {
-			t.entries = slices.Clone(t.entries)
-		}
-	}()
 	completed := 0
-	for _, item := range t.entries {
+	for item := range t.entries.Values() {
 		change := item.content()
 		complete := change.State == content.Final || t.cfg.PublishPartial && change.State == content.Partial
 		if change.Body == nil || !complete {
@@ -388,7 +371,7 @@ func (t *Transcript) publish() {
 		completed++
 	}
 	for range max(completed-t.cfg.KeepCompleted, 0) {
-		item := t.entries[0]
+		item := t.entries.At(0)
 		_, rows, _ := t.geometry.Value().Extent(item.id)
 		if rows > math.MaxInt-t.start {
 			panic("base: transcript row origin exhausted")
@@ -408,11 +391,7 @@ func (t *Transcript) publish() {
 		t.selection.DiscardBefore(item.id + 1)
 		item.err = nil
 		item.retire()
-		t.entries[0] = nil
-		t.entries = t.entries[1:]
-		if len(t.entries) == 0 {
-			t.entries = nil
-		}
+		t.entries.Discard(1)
 		t.sticky.DiscardBefore(t.FirstBlock())
 		t.changed()
 	}
@@ -433,11 +412,10 @@ func (t *Transcript) Close() {
 		defer t.stopPublication()
 		t.stopPublication = nil
 	}
-	for _, item := range t.entries {
+	for item := range t.entries.Values() {
 		item.retire()
 	}
-	clear(t.entries)
-	t.entries = nil
+	t.entries.Clear()
 	t.selection.Clear()
 	t.sticky.SetBlocks(nil)
 	t.changed()
@@ -445,7 +423,7 @@ func (t *Transcript) Close() {
 
 // Block resolves a currently retained identity, returning nil after retirement.
 func (t *Transcript) Block(id BlockID) Block {
-	for _, item := range t.entries {
+	for item := range t.entries.Values() {
 		if item.id == id {
 			return item.content().Body
 		}
@@ -455,10 +433,10 @@ func (t *Transcript) Block(id BlockID) Block {
 
 // Last returns the final retained passive result, which can be nil before its first preparation.
 func (t *Transcript) Last() Block {
-	if len(t.entries) == 0 {
+	if t.entries.Len() == 0 {
 		return nil
 	}
-	return t.entries[len(t.entries)-1].content().Body
+	return t.entries.At(t.entries.Len() - 1).content().Body
 }
 
 // Stage measures into immutable candidate storage. It never updates content,
@@ -471,7 +449,7 @@ func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 	width = max(width, 0)
 	state := TranscriptLayout{key: transcriptLayoutKey{owner: t.namespace, revision: t.revision, width: width}, start: t.start, first: t.FirstBlock()}
 	top := t.start
-	for _, item := range t.entries {
+	for item := range t.entries.Values() {
 		change := item.content()
 		rows := 0
 		if change.Body != nil && width > 0 {

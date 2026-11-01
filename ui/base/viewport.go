@@ -69,7 +69,11 @@ func (p *Viewport) Content() scene.Element { item, _ := p.group.At(0); return it
 func (p *Viewport) SetContent(content scene.Element) {
 	p.ensure()
 	requireMutable(p.Element())
-	transfer := p.Content().FocusedWithin()
+	previous := p.Content()
+	if previous == content {
+		return
+	}
+	transfer := previous.FocusedWithin()
 	var items []scene.Item
 	if !content.IsZero() {
 		items = []scene.Item{{Element: content, Size: layout.Flex(1)}}

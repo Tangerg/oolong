@@ -1,8 +1,11 @@
 // Package fifo provides an ownership-safe in-memory first-in, first-out queue for
-// core's internal adapters.
+// the UI's internal owners.
 package fifo
 
-import "slices"
+import (
+	"iter"
+	"slices"
+)
 
 // Queue owns an ordered collection of values waiting to be taken.
 //
@@ -17,8 +20,26 @@ type Queue[T any] struct {
 // Len reports the number of values waiting.
 func (q *Queue[T]) Len() int { return len(q.items) - q.head }
 
-// Push adds value at the end.
-func (q *Queue[T]) Push(value T) { q.items = append(q.items, value) }
+// Capacity includes removed slots still backed by the live allocation.
+func (q *Queue[T]) Capacity() int { return cap(q.items) }
+
+// At reads one live value by its zero-based index.
+func (q *Queue[T]) At(index int) T { return q.items[q.head:][index] }
+
+// Values visits the live sequence in order. The queue must not change during iteration.
+func (q *Queue[T]) Values() iter.Seq[T] {
+	return func(yield func(T) bool) { slices.Values(q.items[q.head:])(yield) }
+}
+
+// Push appends values in order.
+func (q *Queue[T]) Push(values ...T) { q.items = append(q.items, values...) }
+
+// Discard releases at most count oldest values.
+func (q *Queue[T]) Discard(count int) {
+	if n := min(count, q.Len()); n > 0 {
+		q.release(n)
+	}
+}
 
 // Pop removes and returns the oldest value.
 func (q *Queue[T]) Pop() (T, bool) {
@@ -59,14 +80,14 @@ func (q *Queue[T]) release(n int) {
 		q.head = 0
 		return
 	}
-	if q.head < len(q.items)/2 {
-		return
-	}
-	if cap(q.items) > 2*live+64 {
+	if cap(q.items) > 2*live+16 {
 		items := make([]T, live)
 		copy(items, q.items[q.head:])
 		q.items = items
 		q.head = 0
+		return
+	}
+	if q.head < len(q.items)/2 {
 		return
 	}
 	copy(q.items, q.items[q.head:])

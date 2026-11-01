@@ -23,10 +23,8 @@ import (
 // A console is signalled for anything in its input queue, and not everything in
 // there is a keystroke: a mouse report, a focus change and a window resize are
 // records too. A wait woken by one of those falls into a read that then blocks until
-// a key arrives, which is where a reader that could not be interrupted always was.
-// The handover notices — it waits a moment for the reader to park and goes ahead
-// without it — so the cost is what it has always been on this platform, and the
-// common case, where nothing is pending, now works.
+// a key arrives. Hand refuses the handover if the reader cannot confirm that
+// it parked, so the next key never belongs to both the session and its child.
 type waker struct {
 	// input is the console this session reads, and console says it is one. A session
 	// whose input is a pipe cannot be woken, which is what [waker.interruptible]
@@ -63,18 +61,20 @@ func (w *waker) wait() (bool, error) {
 		// reader that cannot be woken did before any of this existed.
 		return true, nil
 	}
-	which, err := windows.WaitForMultipleObjects([]windows.Handle{w.input, w.signal}, false, windows.INFINITE)
+	// A wait-any selects the lowest ready index. A handover already requested
+	// must take precedence over starting another potentially blocking console read.
+	which, err := windows.WaitForMultipleObjects([]windows.Handle{w.signal, w.input}, false, windows.INFINITE)
 	if err != nil {
 		return false, fmt.Errorf("term: watch the terminal: %w", err)
 	}
 	switch which {
 	case windows.WAIT_OBJECT_0:
-		return true, nil
-	case windows.WAIT_OBJECT_0 + 1:
 		// Manual-reset, so it is cleared here rather than by the wait: one wake-up
 		// must not answer the next one as well.
 		_ = windows.ResetEvent(w.signal)
 		return false, nil
+	case windows.WAIT_OBJECT_0 + 1:
+		return true, nil
 	default:
 		return false, fmt.Errorf("term: watch the terminal: the wait ended with %d", which)
 	}

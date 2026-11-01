@@ -46,3 +46,23 @@ func TestFenceInfoHasSemanticTextButCodeKeepsItsSource(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkedImageKeepsItsLabelAndOuterDestination(t *testing.T) {
+	for _, tc := range []struct{ source, want string }{
+		{"[![<ada@example.test>](badge.png)](project)", "project"},
+		{"![<ada@example.test>](badge.png)", "badge.png"},
+		{"[![<ada@example.test>](badge.png)]()", ""},
+	} {
+		var doc markdown.Doc
+		doc.SetBlocks(mustRender(t, tc.source, markdown.Look{}))
+		rows := doc.Rows(40)
+		if len(rows) != 1 || rows[0].Text != "[ada@example.test]" {
+			t.Fatalf("image label: %+v", rows)
+		}
+		surface := grid.NewSurface(40, 1)
+		doc.Draw(surface.View())
+		if got := cellAt(surface, 0, 0).Link; got != tc.want {
+			t.Errorf("%s points at %q, want %q", tc.source, got, tc.want)
+		}
+	}
+}

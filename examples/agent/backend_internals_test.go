@@ -154,7 +154,7 @@ func TestLateIngressCannotFinishTheNextAgentRun(t *testing.T) {
 	}
 	second := <-started
 	<-first.ingress.Done()
-	if err := second.dispatch.Inspect(t.Context(), func() error {
+	if err := second.dispatch.Dispatch(t.Context(), func() error {
 		if second.owner.run != second.run || second.owner.conversation.document != nil || !strings.Contains(second.owner.status.Doing, "planning") {
 			t.Errorf("old bytes or EOF changed the next run: %s", second.owner.status.Doing)
 		}
@@ -219,7 +219,7 @@ func TestReviewCancellationWithdrawsItsDialog(t *testing.T) {
 		t.Fatalf("withdrawn request = %v", got)
 	}
 	host.Shows(t, "review cancelled")
-	if err := bridge.dispatch.Inspect(t.Context(), func() error {
+	if err := bridge.dispatch.Dispatch(t.Context(), func() error {
 		if bridge.owner.review != nil || bridge.owner.reviewDialog.Controller().Open() {
 			t.Error("cancelled proposal is still actionable")
 		}

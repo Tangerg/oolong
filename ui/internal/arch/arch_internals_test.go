@@ -70,7 +70,7 @@ var rings = []struct {
 	{"ui/core/", "foundation"},
 	{"ui/base/", "base"},
 	{"ui/kit/", "kit"},
-	{"ui/internal/identity/", "componentbase"},
+	{"ui/internal/identity/", "identity"},
 	{"ui/internal/focus/", "componentbase"},
 	{"ui/internal/fifo/", "foundation"},
 	{"extensions/markdown/", "extensions/markdown"},
@@ -88,7 +88,8 @@ var rings = []struct {
 var dependencies = map[string][]string{
 	// Algorithms, escape encodings, geometry and cell values know nothing above
 	// them.
-	"foundation": nil,
+	"identity":   nil,
+	"foundation": {"identity"},
 
 	// Decoded input is built from foundational byte protocols. Key maps add caller
 	// policy, but terminal adapters and runtime orchestration never acquire it.

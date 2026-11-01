@@ -57,7 +57,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Replace `ssh.Run` with `ssh.Open` and an explicitly closed host passed to program configuration. Optional session services report unsupported capabilities and delivery errors.
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
+### Breaking API migration
+
+#### ui
+
+- Replace `program.Dispatcher.Inspect` with `program.Dispatcher.Dispatch`. Custom implementations of `automation.Owner` provide `automation.Owner.Dispatch` and `Done` in place of `automation.Owner.Inspect` and `automation.Owner.Invoke`. Dispatch serializes observation and action execution without claiming a model change. Use `program.Dispatcher.Invoke` for application callbacks that require implicit invalidation.
+
 ### Fixed
+
+- Terminal handover waits for exclusive input ownership. If the reader cannot park, the handover returns a deadline error and the session resumes accepting frames. Supplying a typed nil transport is rejected at admission.
+- Undo in a shared editor preserves each view's cursor and selection. Retained tabs and viewports preserve the focused descendant. History, transcript and sticky headers release storage when their retained prefix is discarded.
+- An automation action reporting an applied change or a start advances the scene even when a later step reports an error. A missing target, rejected action or unchanged result leaves the model revision intact unless the action itself invalidated the scene.
+- Markdown image links preserve the surrounding destination. Failed highlighting retains the complete source. Rejected streaming submissions keep their drafts, and spoken form prompts and validation messages render terminal controls as text.
 
 - Input, clipboard requests and live images respect terminal handoff. A rejected frame cannot replace the transport failure for earlier frames. Closing a byte ingress wakes every blocked producer. Confirmations arriving before publication admission are retained.
 - An intercepted captured release cancels the gesture exactly once, including when a preview panics or starts another press. Automation pagination resumes at the next node and preserves its semantic parent without replaying earlier siblings.

@@ -131,7 +131,7 @@ func (t *Tabs) Set(items ...Tab) {
 		if err := t.group.SetChildItems(updates...); err != nil {
 			panic(err)
 		}
-		if focused {
+		if focused && !t.Panel().FocusedWithin() {
 			_ = t.Panel().RequestFocusFirst()
 		}
 	})
@@ -195,7 +195,7 @@ func (t *Tabs) Select(index int) {
 	if err := t.panel.Set(panel...); err != nil {
 		panic(err)
 	}
-	if focused {
+	if focused && !t.Panel().FocusedWithin() {
 		_ = t.Panel().RequestFocusFirst()
 	}
 }

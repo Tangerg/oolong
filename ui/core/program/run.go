@@ -14,6 +14,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // Run draws the interface until it is asked to stop, its input ends, or the terminal
@@ -69,7 +70,7 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 		return nil, err
 	}
 	frames := host.Writer()
-	if frames == nil {
+	if identity.IsNil(frames) {
 		return nil, errors.New("program: host returned no frame writer")
 	}
 	changes := frames.Changes()
@@ -77,7 +78,7 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 		return nil, errors.New("program: frame writer returned no changes channel")
 	}
 	source := host.Input()
-	if source == nil {
+	if identity.IsNil(source) {
 		return nil, errors.New("program: host returned no input source")
 	}
 	events := source.Events()
@@ -86,7 +87,6 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 	}
 	p := &program{
 		host:          hostServicesFor(host),
-		input:         source,
 		writer:        frames,
 		changes:       changes,
 		frameInterval: cfg.FrameInterval,
@@ -181,7 +181,6 @@ type program struct {
 	publisher   *publication.Publisher
 	nextTask    uint64
 	host        hostServices
-	input       EventSource
 	inputPipe   *inputPipe
 	canvas      canvas
 	// inline is the canvas again when the interface is drawn in the terminal's own
@@ -373,12 +372,14 @@ func (p *program) apply(task func() bool) {
 		return
 	}
 	before := p.root.Progress().ModelRevision
-	if task() {
-		if p.root != nil && p.root.Progress().ModelRevision == before {
-			p.root.Changed()
+	invalidate := task()
+	if p.root.Progress().ModelRevision == before {
+		if !invalidate {
+			return
 		}
-		p.present.RequestBy(time.Now(), p.frameInterval)
+		p.root.Changed()
 	}
+	p.present.RequestBy(time.Now(), p.frameInterval)
 }
 
 // handle deals with one terminal event.
@@ -690,6 +691,14 @@ func (p *program) flushNotifications() {
 }
 
 func (p *program) stop() {
+	// A retained Runtime still exposes its startup environment. Once cleanup
+	// unwinds it must not keep the host, frame buffers or queued input reachable.
+	defer func() {
+		p.host = hostServices{}
+		p.root, p.canvas, p.inline, p.publisher = nil, nil, nil, nil
+		p.writer, p.changes, p.inputPipe = nil, nil, nil
+		p.ctx, p.cancel = nil, nil
+	}()
 	p.stopWork()
 	if p.publisher != nil {
 		p.publisher.Close(ErrStopped)

@@ -99,7 +99,7 @@ func (r *Runtime) Quit() {
 
 // Scene grants owner-side semantic access without transferring frame or transport
 // authority. A handle obtained during Build begins observing after attachment.
-// Background callers enter through Dispatcher.Inspect or Invoke before using it.
+// Background callers enter through Dispatcher.Dispatch before using it.
 func (r *Runtime) Scene() Scene { return Scene{runtime: r} }
 
 // Scene follows one runtime's attached UI. Its zero value and retained handles

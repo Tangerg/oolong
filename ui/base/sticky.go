@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/anim"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/fifo"
 )
 
 // Sticky pins a block to the top of the view once it has been scrolled past.
@@ -33,9 +34,7 @@ type Sticky struct {
 	// Only the caller knows which blocks mean anything: in a session the prompts are
 	// worth pinning and the answers are not, and nothing here can tell one from the
 	// other.
-	blocks []BlockID
-	// releasedPrefix keeps the original allocation visible after advancing the slice.
-	releasedPrefix int
+	blocks fifo.Queue[BlockID]
 	// MinHeight is how far a header may be collapsed before it stops shrinking and
 	// starts scrolling off instead. Zero means it does not collapse.
 	//
@@ -50,17 +49,14 @@ type Sticky struct {
 // caller may reuse or change its input afterwards.
 func (s *Sticky) SetBlocks(blocks []BlockID) {
 	requireMutable(s.element)
-	s.blocks = slices.Clone(blocks)
-	s.releasedPrefix = 0
+	s.blocks.Clear()
+	s.blocks.Push(blocks...)
 }
 
 // Add appends pinnable block identities in transcript order.
 func (s *Sticky) Add(blocks ...BlockID) {
 	requireMutable(s.element)
-	if len(blocks) > cap(s.blocks)-len(s.blocks) {
-		s.releasedPrefix = 0
-	}
-	s.blocks = append(s.blocks, blocks...)
+	s.blocks.Push(blocks...)
 }
 
 // Blocks returns a copy of the pinnable identities in transcript order.
@@ -68,7 +64,7 @@ func (s *Sticky) Blocks() []BlockID {
 	if s == nil {
 		return nil
 	}
-	return slices.Clone(s.blocks)
+	return slices.Collect(s.blocks.Values())
 }
 
 // Len reports how many pinnable identities Sticky owns.
@@ -76,7 +72,7 @@ func (s *Sticky) Len() int {
 	if s == nil {
 		return 0
 	}
-	return len(s.blocks)
+	return s.blocks.Len()
 }
 
 // Pinned is the header for one frame.
@@ -103,7 +99,7 @@ func (p Pinned) Visible() int { return max(p.Height-p.ClipTop, 0) }
 // header repeating something already visible two rows below is noise, and the moment
 // it stops being visible is exactly the moment it starts being worth showing.
 func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
-	if rows <= 0 || len(s.blocks) == 0 ||
+	if rows <= 0 || s.blocks.Len() == 0 ||
 		from < t.StartRow() || from >= t.EndRow() {
 		// A view scrolled past everything has nothing below the header for the header
 		// to give context to.
@@ -149,7 +145,7 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 	var found BlockID
 	ok := false
-	for _, id := range s.blocks {
+	for id := range s.blocks.Values() {
 		top, _, exists := t.Extent(id)
 		if !exists {
 			continue
@@ -163,7 +159,7 @@ func (s *Sticky) pinnedAt(t TranscriptLayout, row int) (BlockID, bool) {
 }
 
 func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
-	for _, candidate := range s.blocks {
+	for candidate := range s.blocks.Values() {
 		if candidate <= id {
 			continue
 		}
@@ -182,23 +178,8 @@ func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
 func (s *Sticky) DiscardBefore(first BlockID) {
 	requireMutable(s.element)
 	n := 0
-	for n < len(s.blocks) && s.blocks[n] < first {
+	for n < s.blocks.Len() && s.blocks.At(n) < first {
 		n++
 	}
-	if n == 0 {
-		return
-	}
-	allocation := cap(s.blocks) + s.releasedPrefix
-	clear(s.blocks[:n])
-	s.blocks = s.blocks[n:]
-	s.releasedPrefix += n
-	if len(s.blocks) == 0 {
-		s.blocks = nil
-		s.releasedPrefix = 0
-		return
-	}
-	if allocation > 2*len(s.blocks)+16 {
-		s.blocks = slices.Clone(s.blocks)
-		s.releasedPrefix = 0
-	}
+	s.blocks.Discard(n)
 }

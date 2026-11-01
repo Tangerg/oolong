@@ -43,3 +43,25 @@ func TestImageOwnerCanReleaseTransmittedData(t *testing.T) {
 		t.Fatal("image release did not reach host")
 	}
 }
+
+type absentInputHost struct{ *host }
+
+func (h absentInputHost) Input() program.EventSource { return (*host)(nil) }
+
+func TestTypedNilTransportIsRefusedBeforeBuild(t *testing.T) {
+	build := func(*program.Runtime) (scene.Element, error) {
+		t.Fatal("invalid transport reached the application")
+		return scene.Element{}, nil
+	}
+	if _, err := program.NewScreen(program.ScreenConfig{Host: (*host)(nil), Build: build}); err == nil {
+		t.Fatal("typed nil host accepted")
+	}
+	for _, h := range []program.Host{
+		&minimalHost{w: 1, h: 1},
+		absentInputHost{newHost(t)},
+	} {
+		if err := runFixture(t.Context(), program.ScreenConfig{Host: h, Build: build}); err == nil {
+			t.Fatalf("%T accepted an absent transport", h)
+		}
+	}
+}

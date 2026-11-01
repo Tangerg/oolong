@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"image"
 	"math"
-	"reflect"
 
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // MaxTerminalCells bounds a physical terminal's reported geometry before its
@@ -173,16 +173,7 @@ type Drawable interface {
 // IsNilDrawable recognizes absent content across an interface boundary, including
 // typed nils. Each consumer decides whether absence is a no-op or a refusal.
 func IsNilDrawable(body Drawable) bool {
-	if body == nil {
-		return true
-	}
-	value := reflect.ValueOf(body)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
+	return identity.IsNil(body)
 }
 
 // Merge lays over on top of s: whatever over states wins, whatever it leaves at

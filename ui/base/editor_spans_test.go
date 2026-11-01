@@ -463,3 +463,31 @@ func TestTypingAfterClickingPastARowGoesWhereTheCaretIs(t *testing.T) {
 		t.Errorf("text = %q", got)
 	}
 }
+
+func TestEditorPressRequiresTheDisplayedDocumentAndPolicy(t *testing.T) {
+	for _, mode := range []string{"multiline edit", "single-line edit", "mask change"} {
+		t.Run(mode, func(t *testing.T) {
+			e := base.NewEditor(base.EditorConfig{Initial: "abcd", SingleLine: mode != "multiline edit"})
+			root := newTestRoot(e)
+			defer root.root.Close()
+			view := grid.NewSurface(20, 2).View()
+			root.Draw(view)
+			if mode == "mask change" {
+				e.SetMask("**")
+			} else {
+				e.SetText("another answer")
+			}
+			before, col := e.Cursor()
+			if root.Handle(click(1, 0)) || e.Handle(click(1, 0)) {
+				t.Fatal("press applied to a different document projection")
+			}
+			if line, after := e.Cursor(); line != before || after != col {
+				t.Fatalf("stale press moved caret to (%d,%d)", line, after)
+			}
+			root.Draw(view)
+			if !root.Handle(click(1, 0)) {
+				t.Fatal("press failed after drawing the current document")
+			}
+		})
+	}
+}

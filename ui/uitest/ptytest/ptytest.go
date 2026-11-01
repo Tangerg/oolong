@@ -179,16 +179,10 @@ func (s *Session) Transcript() *Transcript { return s.transcript }
 // Write sends bytes to the program as though they were typed.
 func (s *Session) Write(p []byte) (int, error) { return s.primary.Write(p) }
 
-// Resize changes the terminal's size and tells the program, the way a terminal
-// emulator would: the winsize first, then the signal.
+// Resize changes the PTY geometry. The kernel notifies the current foreground
+// process group when the size changes, even after the original child exits.
 func (s *Session) Resize(size Size) error {
-	if err := size.check(); err != nil {
-		return err
-	}
-	if err := setSize(s.primary, size); err != nil {
-		return err
-	}
-	return signalResize(s.process)
+	return setSize(s.primary, size)
 }
 
 // Wait blocks until the program exits. If ctx ends first, Wait returns

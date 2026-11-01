@@ -1,9 +1,11 @@
 package base
 
 import (
+	"runtime"
 	"slices"
 	"strconv"
 	"testing"
+	"weak"
 )
 
 func TestHistoryReleasesARegistryHighWaterMark(t *testing.T) {
@@ -14,26 +16,30 @@ func TestHistoryReleasesARegistryHighWaterMark(t *testing.T) {
 	}
 	history.SetLimit(1)
 
-	if len(history.entries) != 1 || history.entries[0] != "1023" {
-		t.Fatalf("reduced history = %v, want only the newest entry", history.entries)
+	if history.Len() != 1 || history.entries.At(0) != "1023" {
+		t.Fatalf("reduced history = %v, want only the newest entry", slices.Collect(history.entries.Values()))
 	}
-	if cap(history.entries) > 2*len(history.entries)+16 {
-		t.Fatalf("one entry retains capacity %d from the old limit", cap(history.entries))
+	if history.entries.Capacity() > 2*history.Len()+16 {
+		t.Fatalf("one entry retains capacity %d from the old limit", history.entries.Capacity())
 	}
 }
 
 func TestHistoryReleasesEvictedReferences(t *testing.T) {
 	var history History[[]byte]
-	history.Add([]byte("one"))
-	history.Add([]byte("two"))
-	history.Add([]byte("three"))
-	retained := history.entries
-	history.SetLimit(1)
-	if retained[0] != nil || retained[1] != nil {
-		t.Fatalf("evicted entries retain references: %v", retained[:2])
+	evicted := func() weak.Pointer[byte] {
+		value := make([]byte, 256)
+		history.Add(value)
+		return weak.Make(&value[0])
 	}
-	if string(history.entries[0]) != "three" {
-		t.Fatalf("retained entry = %q, want three", history.entries[0])
+	one, two := evicted(), evicted()
+	history.Add([]byte("three"))
+	history.SetLimit(1)
+	runtime.GC()
+	if one.Value() != nil || two.Value() != nil {
+		t.Fatal("evicted entries retain their payloads")
+	}
+	if string(history.entries.At(0)) != "three" {
+		t.Fatalf("retained entry = %q, want three", history.entries.At(0))
 	}
 }
 

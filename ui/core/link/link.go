@@ -112,7 +112,7 @@ var pathPattern = regexp.MustCompile(
 	`'[^']*\.[A-Za-z0-9]+'` +
 		`|"[^"]*\.[A-Za-z0-9]+"` +
 		`|~?/[A-Za-z0-9\-._~%@+]+(?:/[A-Za-z0-9\-._~%@+]+)*/?` +
-		`|[A-Za-z0-9\-._~%@+]+(?:/[A-Za-z0-9\-._~%@+]+)*/[A-Za-z0-9\-._~%@+]*\.[A-Za-z0-9]{1,8}`,
+		`|[A-Za-z0-9\-._~%@+]+(?:/[A-Za-z0-9\-._~%@+]+)*/[A-Za-z0-9\-._~%@+]*\.[A-Za-z0-9]+`,
 )
 
 // barePattern finds a name with an extension and no directory part.
@@ -120,7 +120,7 @@ var pathPattern = regexp.MustCompile(
 // It is the shape that cannot be told from prose by looking at it: "node.js" is a file
 // in one sentence and a runtime in the next, and "1.2.3" and "U.S.A" are neither. So
 // it is only ever reported when something that can see the filesystem says it is there.
-var barePattern = regexp.MustCompile(`[A-Za-z0-9\-._~%@+]+\.[A-Za-z0-9]{1,8}`)
+var barePattern = regexp.MustCompile(`[A-Za-z0-9\-._~%@+]+\.[A-Za-z0-9]+`)
 
 // linePattern is a line, and optionally a column, written after a path.
 var linePattern = regexp.MustCompile(`^:([0-9]{1,9})(?::([0-9]{1,9}))?`)
@@ -134,7 +134,8 @@ const trailing = ".,;:!?)]}"
 // exists is given a path exactly as it was written, relative and unexpanded, and
 // answers whether there is a file there. Nil asks nothing and leaves ambiguous bare
 // filenames out, which is the right answer for text whose paths belong to somebody
-// else's machine. URLs and self-evident rooted or qualified paths need no lookup.
+// else's machine. When supplied, exists confirms all relative file targets. URLs,
+// rooted paths and home-relative paths never trigger a lookup.
 //
 // It is an argument rather than a call into the operating system because this package
 // reads text. A library that quietly stat'd every word of a model's output would be

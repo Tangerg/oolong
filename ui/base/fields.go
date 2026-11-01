@@ -56,7 +56,7 @@ func (t *Text) Draw(v scene.Frame) { t.DrawWith(v, Look{}) }
 
 // DrawWith paints this frame using a supplied look without changing field configuration or its answer.
 func (t *Text) DrawWith(v scene.Frame, look Look) {
-	view := t.editor.lineView(t.Text())
+	view := t.editor.lineView()
 	view.placeholder, view.gutter, view.cursorStyle = t.Placeholder, t.Gutter, t.CursorStyle
 	view.draw(t.frame(v, t.Label, look), look, &t.editor.presentation)
 }

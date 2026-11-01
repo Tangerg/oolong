@@ -315,6 +315,7 @@ func TestScreenRejectsMalformedControlParametersBeforeActingOnThem(t *testing.T)
 		"\x1b[xA",
 		"\x1b[99999999999C",
 		"\x1b[1:xH",
+		"\x1b[1:2H", "\x1b[1;2;3f", "\x1b[1;2A", "\x1b[2;1J", "\x1b[2:1S",
 	} {
 		shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 3})
 		if err != nil {

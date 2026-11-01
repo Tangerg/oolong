@@ -106,7 +106,9 @@ func TestAnEmptyFinalProjectionStillCompletesTheTranscript(t *testing.T) {
 					return errors.New("source completion left a live transcript item")
 				}
 				for range 7 {
-					c.appendFinished(&kit.Label{Text: "later output"})
+					if _, err := c.content.Add(&kit.Label{Text: "later output"}); err != nil {
+						return err
+					}
 				}
 				if c.content.Len() != 0 {
 					return errors.New("the settled tail blocked later publication")
@@ -130,4 +132,39 @@ func TestSourceExitSettlesTheDocument(t *testing.T) {
 	awaitState(t, c, func(s state) bool {
 		return !s.active && !s.open && strings.Contains(s.status, program.ErrTaskAborted.Error())
 	})
+}
+
+func TestTranscriptRefusalPreservesPromptAndSourceFailure(t *testing.T) {
+	h := newHost()
+	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error {
+		t.Error("started a source after refusing its prompt")
+		return nil
+	})
+	defer stop()
+	if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
+		full, err := base.NewTranscript(base.TranscriptConfig{MaxItems: 1})
+		if err != nil {
+			return err
+		}
+		if _, err = full.Add(&kit.Label{Text: "existing"}); err != nil {
+			return err
+		}
+		previous := c.content
+		c.content = full
+		defer func() { c.content = previous; full.Close() }()
+		const prompt = "keep my draft"
+		c.composer.Controller().SetText(prompt)
+		c.startReply(prompt)
+		if c.composer.Controller().Text() != prompt || c.producer != nil || c.document != nil {
+			t.Error("transcript refusal advanced the reply or discarded the draft")
+		}
+		cause := errors.New("source disconnected")
+		c.setOutcome(cause)
+		if !strings.Contains(c.status.Doing, cause.Error()) || !strings.Contains(c.status.Doing, base.ErrTranscriptCapacity.Error()) {
+			t.Errorf("lost a failure: %q", c.status.Doing)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

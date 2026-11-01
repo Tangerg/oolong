@@ -5,7 +5,6 @@ import "github.com/Tangerg/oolong/ui/core/text"
 type editorRow struct {
 	line       int
 	start, end int
-	joined     bool
 }
 
 // The editor retains one immutable projection; wrapping and byte/cell conversion
@@ -24,7 +23,7 @@ func (l *editorLayout) rowsFor(lines []string, width int) []editorRow {
 	l.projection = text.NewLayout(text.LayoutConfig{Lines: lines, Width: width})
 	l.rows = make([]editorRow, l.projection.Len())
 	for i, row := range l.projection.Rows() {
-		l.rows[i] = editorRow{line: row.Line, start: row.From, end: row.To, joined: row.Joined}
+		l.rows[i] = editorRow{line: row.Line, start: row.From, end: row.To}
 	}
 	l.width, l.stale = width, false
 	return l.rows

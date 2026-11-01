@@ -655,3 +655,23 @@ func TestOnlyAdmittedKittyImagesConsumeAnIdentity(t *testing.T) {
 		t.Fatalf("first accepted image = %d, %v", r.ID(), err)
 	}
 }
+
+func TestUnparkedReaderRefusesHandoverAndReopensOutput(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		wake, err := newWaker(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer wake.close()
+		writer := NewWriter(WriterConfig{Destination: io.Discard})
+		defer func() { _ = writer.Close() }()
+		term := &Terminal{waker: wake, writer: writer, task: newTaskProgress()}
+		err = term.release(make(chan struct{}))
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("reader never parked: %v", err)
+		}
+		if _, err := writer.Queue([]byte("interface")); err != nil {
+			t.Fatalf("failed handover kept output sealed: %v", err)
+		}
+	})
+}

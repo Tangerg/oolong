@@ -35,7 +35,9 @@ const (
 	maxPaste = (MaxDecodedEventBytes - eventOverhead) / len("�")
 )
 
-// pasteClose is the sequence a terminal sends to end a bracketed paste.
+// Only the exact framing sequences may change whether subsequent bytes are keys or text.
+const pasteOpen = "\x1b[200~"
+
 var pasteClose = []byte{esc, '[', '2', '0', '1', '~'}
 
 // dropping says which kind of runaway sequence the parser is throwing away, if
@@ -416,7 +418,7 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 		if len(b) < 3 {
 			return 0, nil, false
 		}
-		if code, ok := applicationKey(b[2]); ok {
+		if code, ok := finalKeys[b[2]]; ok {
 			return 3, Key{Code: code}, true
 		}
 		return 3, nil, true
@@ -471,16 +473,20 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return i, nil, true
 	}
 	n = i + 1
+	if string(b[:n]) == pasteOpen {
+		p.pasting = true
+		return n, nil, true
+	}
 	piece, _, valid := ansi.Next(string(b[:n]))
 	if !valid || piece.Kind != ansi.Control || piece.Intermediates != "" {
 		return n, nil, true
 	}
 	ps := parseParams(piece.Parameters)
 
-	return n, p.controlEvent(ps, final), true
+	return n, controlEvent(ps, final), true
 }
 
-func (p *Parser) controlEvent(ps params, final byte) Event {
+func controlEvent(ps params, final byte) Event {
 	// A private marker says the sequence is a report and not a key, because a key
 	// never carries one. Dispatching on the final byte alone let a keyboard-flags
 	// reply — "CSI ? 31 u" — decode as a keystroke of an invisible control character.
@@ -511,14 +517,14 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 	case 'u':
 		return ps.extendedKey()
 	case '~':
-		return p.decodeNumberedKey(ps)
+		return ps.numberedKey()
 	case 'Z':
 		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
 		// reports the same keystroke as tab with shift held, and one keystroke that
 		// arrives under two names is one nothing can be bound to.
 		return ps.modifiedKey(Tab, Shift)
 	default:
-		code, ok := cursorKey(final)
+		code, ok := finalKeys[final]
 		if !ok {
 			return nil
 		}
@@ -526,30 +532,17 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 	}
 }
 
-func (p *Parser) decodeNumberedKey(ps params) Event {
-	switch num := ps.At(0); num {
-	case pasteOpen:
-		p.pasting = true
+func (ps params) numberedKey() Event {
+	code, ok := numberedKeys[ps.At(0)]
+	if !ok {
 		return nil
-	case pasteCloseNum:
-		return nil
-	default:
-		code, ok := numberedKey(num)
-		if !ok {
-			return nil
-		}
-		mods, transition, ok := ps.keyMeta()
-		if !ok {
-			return nil
-		}
-		return Key{Code: code, Mods: mods, Transition: transition}
 	}
+	mods, transition, ok := ps.keyMeta()
+	if !ok {
+		return nil
+	}
+	return Key{Code: code, Mods: mods, Transition: transition}
 }
-
-const (
-	pasteOpen     = 200
-	pasteCloseNum = 201
-)
 
 // extendedKeyCode maps a Kitty key number onto a [Code].
 //
@@ -626,31 +619,11 @@ func commonPrefix(a, b []byte) int {
 	return n
 }
 
-func cursorKey(final byte) (Code, bool) {
-	code, ok := cursorKeys[final]
-	return code, ok
-}
-
-var cursorKeys = map[byte]Code{
+// CSI and SS3 use the same final-byte identities for these keys.
+var finalKeys = map[byte]Code{
 	'A': Up, 'B': Down, 'C': Right, 'D': Left,
 	'H': Home, 'F': End,
 	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
-}
-
-func applicationKey(c byte) (Code, bool) {
-	code, ok := applicationKeys[c]
-	return code, ok
-}
-
-var applicationKeys = map[byte]Code{
-	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
-	'A': Up, 'B': Down, 'C': Right, 'D': Left,
-	'H': Home, 'F': End,
-}
-
-func numberedKey(num int) (Code, bool) {
-	code, ok := numberedKeys[num]
-	return code, ok
 }
 
 var numberedKeys = map[int]Code{

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 // Ask puts a form one question at a time, in words.
@@ -50,7 +52,10 @@ type spokenField interface {
 // this is the consumer of the optional spoken-field capability.
 func ask(field spokenField, lines *bufio.Scanner, out io.Writer) error {
 	for {
-		if _, err := fmt.Fprintf(out, "%s\n> ", field.Ask()); err != nil {
+		if err := writeAnswerLines(out, field.Ask()); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(out, "> "); err != nil {
 			return err
 		}
 		if !lines.Scan() {
@@ -65,8 +70,19 @@ func ask(field spokenField, lines *bufio.Scanner, out io.Writer) error {
 			return nil
 		} else if errors.Is(err, base.ErrReplyUnavailable) || errors.Is(err, base.ErrValidationSuperseded) {
 			return err
-		} else if _, printed := fmt.Fprintf(out, "%v\n", err); printed != nil {
+		} else if printed := writeAnswerLines(out, err.Error()); printed != nil {
 			return printed
 		}
 	}
+}
+
+// Field text can originate outside the application. Preserve logical lines while
+// applying the screen renderer's control-character policy to each one.
+func writeAnswerLines(out io.Writer, message string) error {
+	for line := range strings.SplitSeq(message, "\n") {
+		if _, err := fmt.Fprintln(out, text.Printable(line)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -7,13 +7,13 @@ import (
 	"errors"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
-// Owner supplies the interface owner's read and action admission boundaries.
-// Inspect must not request a new frame merely because a pure query ran.
+// Owner serializes callbacks with UI input. Dispatch waits for completion and
+// leaves semantic invalidation to the scene or application that changed it.
 type Owner interface {
-	Inspect(ctx context.Context, inspect func() error) error
-	Invoke(ctx context.Context, invoke func() error) error
+	Dispatch(ctx context.Context, fn func() error) error
 	Done() <-chan struct{}
 }
 
@@ -48,10 +48,14 @@ var (
 // NewDriver binds automation to one session. A program.Runtime can be passed
 // directly during Build; queries run on its own dispatcher after attachment.
 func NewDriver[S Scene, D Owner](session Session[S, D]) *Driver {
-	if session == nil {
+	if identity.IsNil(session) {
 		return &Driver{}
 	}
-	return &Driver{root: session.Scene(), owner: session.Dispatcher()}
+	root, owner := session.Scene(), session.Dispatcher()
+	if identity.IsNil(root) || identity.IsNil(owner) {
+		return &Driver{}
+	}
+	return &Driver{root: root, owner: owner}
 }
 
 func (d *Driver) valid() error {
@@ -67,7 +71,7 @@ func (d *Driver) Observe(ctx context.Context, query scene.Query) (scene.Observat
 		return scene.Observation{}, err
 	}
 	var observation scene.Observation
-	err := d.owner.Inspect(ctx, func() error {
+	err := d.owner.Dispatch(ctx, func() error {
 		var err error
 		observation, err = d.root.Observe(query)
 		return err
@@ -90,7 +94,7 @@ func (d *Driver) Invoke(ctx context.Context, target scene.Target, action scene.A
 		return scene.Invocation{}, err
 	}
 	var result scene.Invocation
-	err := d.owner.Invoke(ctx, func() error {
+	err := d.owner.Dispatch(ctx, func() error {
 		var err error
 		result, err = d.root.Invoke(ctx, target, action, params)
 		return err
@@ -117,7 +121,7 @@ func (l Locator) Invoke(ctx context.Context, action scene.ActionID, params any) 
 		return scene.Invocation{}, err
 	}
 	var result scene.Invocation
-	err := l.driver.owner.Invoke(ctx, func() error {
+	err := l.driver.owner.Dispatch(ctx, func() error {
 		observation, err := l.driver.root.Observe(l.query)
 		if err != nil {
 			return err
@@ -145,7 +149,7 @@ func (d *Driver) Wait(ctx context.Context, query scene.Query, ready func(scene.O
 	for {
 		var observation scene.Observation
 		var changed <-chan struct{}
-		err := d.owner.Inspect(ctx, func() error {
+		err := d.owner.Dispatch(ctx, func() error {
 			var err error
 			observation, err = d.root.Observe(query)
 			changed = d.root.Changes()

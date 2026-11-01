@@ -189,17 +189,11 @@ func (c *Confirm) Ask() string {
 // only an accepted, current answer is validated.
 func (c *Confirm) Reply(said string) error {
 	return c.validate(func() error {
-		said = strings.ToLower(strings.TrimSpace(said))
-		yes, no := strings.ToLower(c.word(true)), strings.ToLower(c.word(false))
-		yesMatch, noMatch := strings.HasPrefix(yes, said), strings.HasPrefix(no, said)
-		switch {
-		case said == "":
-			return fmt.Errorf("say %s or %s", yes, no)
-		case yesMatch && noMatch:
-			return fmt.Errorf("%q could mean either %s or %s", said, yes, no)
-		case !yesMatch && !noMatch:
-			return fmt.Errorf("say %s or %s", yes, no)
+		at, err := chooseLabel(strings.TrimSpace(said), Options(c.word(true), c.word(false)))
+		if err != nil {
+			return err
 		}
+		yesMatch := at == 0
 		result, err := c.requestAnswer(c.Snapshot(), yesMatch)
 		if result.State == scene.Started && err == nil {
 			err = ErrConfirmPending

@@ -157,3 +157,33 @@ func TestTabsPublishBothRelationsBeforeFocusProjection(t *testing.T) {
 		t.Fatalf("partial tab publication after focus callback: current=%v old=%t new=%t calls=%d", current.Key, a.Alive(), b.Alive(), calls)
 	}
 }
+
+func TestRefreshingAContainerPreservesFocusInsideItsRetainedPane(t *testing.T) {
+	for _, name := range []string{"tabs", "viewport"} {
+		t.Run(name, func(t *testing.T) {
+			first, second := new(base.Editor), new(base.Editor)
+			pane := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: first.Element()}, {Element: second.Element()}}}).Element()
+			var container scene.Element
+			var refresh func()
+			if name == "tabs" {
+				selected := base.Tab{Key: "selected", Content: pane}
+				tabs := base.NewTabs(base.TabsConfig{Items: []base.Tab{selected, {Key: "other"}}})
+				container = tabs.Element()
+				refresh = func() { tabs.Set(tabs.Items()[1], selected) }
+			} else {
+				viewport := base.NewViewport(base.ViewportConfig{Content: pane})
+				container = viewport.Element()
+				refresh = func() { viewport.SetContent(pane) }
+			}
+			root := newTestRoot(container)
+			defer root.root.Close()
+			if err := second.Element().RequestFocus(); err != nil {
+				t.Fatal(err)
+			}
+			refresh()
+			if !second.Element().Focused() {
+				t.Fatal("refresh moved focus away from the retained field")
+			}
+		})
+	}
+}

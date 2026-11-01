@@ -70,6 +70,7 @@ type Editor struct {
 }
 
 type editorPresentation struct {
+	content                    editorProjectionKey
 	width, gutter, first, left int
 	visible                    image.Rectangle
 }
@@ -83,6 +84,7 @@ func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
 }
 
 type editorState struct {
+	view      weak.Pointer[Editor]
 	change    ChangeMap // maps this history snapshot to the state it replaces on undo or redo
 	lines     []string
 	line, col int
@@ -721,6 +723,7 @@ const maxUndo = 200
 
 func (e *Editor) state() editorState {
 	return editorState{
+		view:  weak.Make(e),
 		lines: append([]string(nil), e.document().lines...),
 		line:  e.line,
 		col:   e.col,
@@ -736,10 +739,14 @@ func (e *Editor) restore(s editorState) {
 	before := e.document().lines
 	e.document().lines = slices.Clone(s.lines)
 	e.document().marks = append([]text.Mark(nil), s.marks...)
-	e.line, e.col = s.line, s.col
-	e.selecting = false
+	var restored *Editor
+	if s.view.Value() == e {
+		e.line, e.col = s.line, s.col
+		e.selecting = false
+		restored = e
+	}
 	if changed {
-		e.document().commit(e, before, s.change.inverse(), false)
+		e.document().commit(restored, before, s.change.inverse(), false)
 	}
 }
 
@@ -1244,7 +1251,7 @@ func (e *Editor) DrawWith(frame scene.Frame, look Look) {
 	requireProjection(e.element, frame)
 	presented := &e.presentation
 	if e.oneLine() {
-		e.lineView(e.Text()).draw(frame, look, presented)
+		e.lineView().draw(frame, look, presented)
 		return
 	}
 	v := frame.View
@@ -1281,9 +1288,10 @@ func (e *Editor) drawMultiline(
 		scroll.Reveal(cursorRow, cursorRow)
 	}
 	first := scroll.Offset()
-	presentation := editorPresentation{width: width, gutter: gutter, first: first, visible: frame.Visible()}
+	projection := e.layout.projection
+	presentation := editorPresentation{content: e.projectionKey(), width: width, gutter: gutter, first: first, visible: frame.Visible()}
 	last := min(layout.Sum(first, height), len(rows))
-	e.drawGutter(gutterView, rows[first:last])
+	e.drawGutter(gutterView, projection, first, last)
 
 	if e.Empty() && e.Placeholder != "" {
 		view.Text(0, 0, text.Truncate(e.Placeholder, width, look.Ellipsis), look.Subtle)
@@ -1297,7 +1305,7 @@ func (e *Editor) drawMultiline(
 		if index >= len(rows) {
 			break
 		}
-		row, _ := e.layout.projection.Row(index)
+		row, _ := projection.Row(index)
 		text.Of(row.Text, look.Text).Draw(view, 0, y)
 	}
 	// The selection is laid over the text rather than drawn into it, so a run that
@@ -1323,30 +1331,23 @@ func (e *Editor) gutterWidth() int {
 	if e.Gutter == nil {
 		return 0
 	}
-	return readProjection(e.Element(), func() int { return max(e.Gutter.Width(len(e.document().lines)), 0) })
+	return readProjection(e.Element(), func() int { return max(e.Gutter.Width(max(len(e.document().lines), 1)), 0) })
 }
 
 func (e *Editor) textWidth(total int) int {
 	return layout.Remaining(total, e.gutterWidth())
 }
 
-func (e *Editor) drawGutter(view grid.View, rows []editorRow) {
+func (e *Editor) drawGutter(view grid.View, projection *text.Layout, first, last int) {
 	if e.Gutter == nil {
 		return
 	}
-	out := make([]text.Row, len(rows))
-	for i, row := range rows {
-		shown := e.document().lines[row.line][row.start:row.end]
-		if e.Mask() != "" {
-			// A masked field must not disclose its value to an appearance callback.
-			shown = e.shown()
-		}
-		out[i] = text.Row{
-			Text: shown,
-			Line: row.line + 1, Joined: row.joined,
-		}
+	rows := make([]text.Row, last-first)
+	for i := range rows {
+		row, _ := projection.Row(first + i)
+		rows[i] = text.Row{Text: row.Text, Line: row.Line + 1, Joined: row.Joined}
 	}
-	e.Gutter.Draw(view, out)
+	e.Gutter.Draw(view, rows)
 }
 
 // Losing the keyboard ends transient input. Cursor painting reads scene focus directly.
@@ -1395,22 +1396,30 @@ func (e *Editor) rows(width int) []editorRow {
 	return e.layout.rowsFor(lines, width)
 }
 
-func (e *Editor) lineView(value string) editorLineView {
-	view := editorLineView{
-		value: value, placeholder: e.Placeholder, mask: e.Mask(),
+// A pointer may only address the text and display policy used by its arrival frame.
+type editorProjectionKey struct {
+	revision   uint64
+	singleLine bool
+	mask       string
+}
+
+func (e *Editor) projectionKey() editorProjectionKey {
+	return editorProjectionKey{revision: e.Revision(), singleLine: e.oneLine(), mask: e.Mask()}
+}
+
+func (e *Editor) lineView() editorLineView {
+	return editorLineView{
+		editorProjectionKey: e.projectionKey(),
+		value:               e.Text(), placeholder: e.Placeholder,
 		cursor: e.col, anchor: e.anchor.Col, selecting: e.selecting,
 		focused: e.element.Focused(), left: e.geometry.read(&e.presentation).left,
 		gutter: e.Gutter, cursorStyle: e.CursorStyle,
 	}
-	if value != e.Text() {
-		view.cursor, view.selecting = len(value), false
-	}
-	return view
 }
 
 func (e *Editor) shown() string {
 	e.ensure()
-	return e.lineView(e.document().lines[0]).shown()
+	return e.lineView().shown()
 }
 
 func (e *Editor) lineAt(at int) int {
@@ -1683,7 +1692,7 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 		from, to = to, from
 	}
 	if e.Mask() != "" {
-		view := e.lineView(e.Text())
+		view := e.lineView()
 		shown := view.shown()
 		if from.Line != 0 || to.Line != 0 {
 			return nil
@@ -1787,6 +1796,9 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 			return false
 		}
 	default:
+		return false
+	}
+	if presented.content != e.projectionKey() {
 		return false
 	}
 	point, ok := presented.textPoint(ev.Pos)
