@@ -408,9 +408,9 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 	modelField.Label = "Model"
 	modelField.Choose(model)
 	done := 0
-	form := base.NewForm(base.FormConfig{Fields: []base.Field{nameField, modelField}, Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{nameField, modelField}, Submit: func(base.SubmissionID) (scene.ActionState, error) {
 		done++
-		return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+		return scene.Applied, nil
 	}})
 	newTestRoot(form).Draw(grid.NewSurface(20, 8).View())
 

@@ -69,12 +69,12 @@ func fields(values *answers) (*stateForm, *base.Text) {
 		Title: "Who owns this text?", Gap: 1,
 		Fields: []base.Field{local, exact, normalized, guarded, form.confirm},
 		Keys:   base.DefaultFormKeys(), Hints: []keymap.Action{base.FocusNext, base.Submit, base.Cancel},
-		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+		Submit: func(base.SubmissionID) (scene.ActionState, error) {
 			*values = answers{exact: exact.Text(), normalized: strings.ToUpper(normalized.Text()), guarded: guarded.Text()}
 			if form.done != nil {
 				form.done()
 			}
-			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+			return scene.Applied, nil
 		},
 		Cancel: func(base.SubmissionID) error {
 			if form.done != nil {

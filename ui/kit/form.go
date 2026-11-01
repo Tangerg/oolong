@@ -27,7 +27,7 @@ type FormConfig struct {
 	Keys       *keymap.Map
 	Gap        int
 	Check      func() error
-	Submit     func(base.SubmissionID) (scene.ActionResult[base.SubmissionID], error)
+	Submit     func(base.SubmissionID) (scene.ActionState, error)
 	Cancel     func(base.SubmissionID) error
 }
 

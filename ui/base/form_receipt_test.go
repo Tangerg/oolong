@@ -56,8 +56,8 @@ func TestCancelFailureCannotReplaceANewerSubmissionOutcome(t *testing.T) {
 	var form *base.Form
 	failed := errors.New("old cancellation failed")
 	form = base.NewForm(base.FormConfig{
-		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
-			return scene.ActionResult[base.SubmissionID]{State: scene.Started, Value: id}, nil
+		Submit: func(base.SubmissionID) (scene.ActionState, error) {
+			return scene.Started, nil
 		},
 		Cancel: func(id base.SubmissionID) error {
 			if !form.Settle(id, base.SubmissionOutcome{Cancelled: true}) {

@@ -126,8 +126,14 @@ type field struct {
 	presentation scene.Snapshot[fieldPresentation]
 }
 
-// Error is what checking the answer last found.
-func (f *field) Error() error { return f.checked.err }
+// Error describes the current answer, not a replacement for the one that failed validation.
+func (f *field) Error() error {
+	c := f.checked
+	if c.err == nil || c.validation != f.validation || c.current != nil && !c.current() {
+		return nil
+	}
+	return c.err
+}
 
 // Validation returns a receipt whose validity belongs to this field's checked answer.
 func (f *field) Validation() func() bool {
@@ -242,7 +248,7 @@ func (f *field) focus(has bool, forward func(bool), reconcile func(), validate f
 
 // SubmissionID identifies one validated attempt, independently of the worker
 // carrying it out. A later attempt revokes settlement of an earlier one.
-type SubmissionID uint64
+type SubmissionID struct{ identity *byte }
 
 // SubmissionState distinguishes a pending attempt from its terminal outcome.
 type SubmissionState uint8
@@ -274,21 +280,23 @@ type fieldVersion struct {
 	revision uint64
 }
 
-// ErrSubmissionStale reports a request superseded by a newer submission or field relation.
 var (
+	// ErrSubmissionAborted reports that the submit callback exited without accepting work.
+	ErrSubmissionAborted = errors.New("base: submission callback did not return")
+	// ErrSubmissionStale reports a request superseded by a newer submission or field relation.
 	ErrSubmissionStale = errors.New("base: submission is no longer current")
 	// ErrNotCancellable reports that no active attempt accepts a cancellation request.
 	ErrNotCancellable = errors.New("base: submission cannot be cancelled")
 )
 
-// FormConfig supplies one field relation and event-side submission policy. Submit must return its supplied ID; Started remains pending until Settle. PaintField is a pure optional appearance slot.
+// FormConfig supplies one field relation and event-side submission policy. Submit returns Started only after accepting work; Settle may complete that attempt after the callback returns. PaintField is a pure optional appearance slot.
 type FormConfig struct {
 	Key, Title string
 	Fields     []Field
 	Keys       *keymap.Map
 	Gap        int
 	Check      func() error
-	Submit     func(SubmissionID) (scene.ActionResult[SubmissionID], error)
+	Submit     func(SubmissionID) (scene.ActionState, error)
 	Cancel     func(SubmissionID) error
 	PaintField func(scene.Frame, Field)
 }
@@ -303,13 +311,12 @@ type Form struct {
 	Keys       *keymap.Map
 	Gap        int
 	check      func() error
-	submit     func(SubmissionID) (scene.ActionResult[SubmissionID], error)
+	submit     func(SubmissionID) (scene.ActionState, error)
 	cancel     func(SubmissionID) error
 	paintField func(scene.Frame, Field)
 	group      *scene.Group
 	status     scene.Element
-	problem    error
-	sequence   SubmissionID
+	problem    func() error
 	attempt    Submission
 	submitted  []fieldVersion
 	matcher    keymap.Matcher
@@ -331,14 +338,14 @@ func (f *Form) ensure() {
 	}
 	submit := scene.NewAction(scene.ActionConfig[struct{}, SubmissionID]{ID: scene.ActionSubmit, Label: "Submit", Run: func(context.Context, struct{}) (scene.ActionResult[SubmissionID], error) { return f.Submit() }})
 	f.status = scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		if f.problem != nil {
+		if problem := f.Error(); problem != nil {
 			w, _ := frame.Size()
-			frame.Text(0, 0, text.Truncate(f.problem.Error(), w, ""), grid.Style{})
+			frame.Text(0, 0, text.Truncate(problem.Error(), w, ""), grid.Style{})
 		}
 	}, Semantics: func() scene.Semantic {
 		value := ""
-		if f.problem != nil {
-			value = f.problem.Error()
+		if problem := f.Error(); problem != nil {
+			value = problem.Error()
 		}
 		return scene.Semantic{Role: scene.RoleStatus, Value: value}
 	}})
@@ -348,14 +355,14 @@ func (f *Form) ensure() {
 			if f.attempt.State == SubmissionPending {
 				state |= scene.StateBusy
 			}
-			if f.problem != nil {
+			if f.Error() != nil {
 				state |= scene.StateInvalid
 			}
 			return scene.Semantic{Role: scene.RoleForm, Name: f.title, State: state}
 		}, Actions: []scene.ActionBinding{submit.Binding()}},
 		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
 			extra := 0
-			if f.problem != nil {
+			if f.Error() != nil {
 				extra = 1
 			}
 			slots := make([]layout.Slot, len(f.fields))
@@ -386,7 +393,6 @@ func (f *Form) Set(fields ...Field) {
 		panic(err)
 	}
 	f.fields = own(f.fields, fields)
-	f.sequence++
 	f.attempt = Submission{}
 	f.submitted = nil
 	f.problem = nil
@@ -406,7 +412,15 @@ func (f *Form) Add(fields ...Field) *Form {
 func (f *Form) Fields() []Field { return slices.Clone(f.fields) }
 
 // Error is the current field, form or submission problem exposed by the form.
-func (f *Form) Error() error { return f.problem }
+func (f *Form) Error() error {
+	if f.attempt.Err != nil {
+		return f.attempt.Err
+	}
+	if f.problem == nil {
+		return nil
+	}
+	return readProjection(f.group.Element(), f.problem)
+}
 
 // Focused projects the scene's actual keyboard target onto the current field relation.
 func (f *Form) Focused() Field {
@@ -429,42 +443,53 @@ func (f *Form) Submit() (scene.ActionResult[SubmissionID], error) {
 // Changing the field relation or starting another attempt supersedes this call.
 func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[SubmissionID], error) {
 	requireMutable(f.Element())
-	f.sequence++
-	id := f.sequence
+	id := SubmissionID{identity: new(byte)}
 	f.problem = nil
 	f.attempt = Submission{ID: id, State: SubmissionIdle}
 	f.submitted = nil
 	versions, validationErr := f.validateSubmission(id, collect)
 	if validationErr != nil {
-		if f.sequence == id {
+		if f.attempt.ID == id {
 			f.Element().Invalidate()
 		}
 		return scene.ActionResult[SubmissionID]{}, validationErr
 	}
 	f.submitted = versions
-	f.attempt = Submission{ID: id, State: SubmissionPending}
-	result := scene.ActionResult[SubmissionID]{State: scene.Applied, Value: id}
-	var err error
-	if f.submit != nil {
-		result, err = f.submit(id)
-	}
-	if f.sequence != id {
+	state, err := f.start(id)
+	if f.attempt.ID != id {
 		return scene.ActionResult[SubmissionID]{}, ErrSubmissionStale
 	}
+	if err == nil && state != scene.Started && state != scene.Applied && state != scene.Unchanged {
+		err = errors.New("base: submission callback returned an invalid action state")
+	}
 	if err != nil {
-		f.Settle(id, SubmissionOutcome{Err: err})
+		f.complete(SubmissionOutcome{Err: err})
 		return scene.ActionResult[SubmissionID]{}, err
 	}
-	if result.Value != id || result.State != scene.Applied && result.State != scene.Started && result.State != scene.Unchanged {
-		err = errors.New("base: submission callback returned an invalid attempt result")
-		f.Settle(id, SubmissionOutcome{Err: err})
-		return scene.ActionResult[SubmissionID]{}, err
+	if state == scene.Started {
+		f.attempt.State = SubmissionPending
+		f.Element().Invalidate()
+	} else {
+		f.complete(SubmissionOutcome{})
 	}
-	if result.State != scene.Started {
-		f.Settle(id, SubmissionOutcome{})
+	return scene.ActionResult[SubmissionID]{State: state, Value: id}, nil
+}
+
+// The callback decides admission. Only work it actually accepted may be settled
+// later; an abnormal exit propagates after recording failure on its own attempt.
+func (f *Form) start(id SubmissionID) (scene.ActionState, error) {
+	if f.submit == nil {
+		return scene.Applied, nil
 	}
-	f.Element().Invalidate()
-	return result, nil
+	returned := false
+	defer func() {
+		if !returned && f.attempt.ID == id {
+			f.complete(SubmissionOutcome{Err: ErrSubmissionAborted})
+		}
+	}()
+	state, err := f.submit(id)
+	returned = true
+	return state, err
 }
 
 func currentValidations(validations []func() bool) bool {
@@ -480,9 +505,14 @@ func currentValidations(validations []func() bool) bool {
 // Current reports whether it still describes the draft now visible to the user.
 func (f *Form) Settle(id SubmissionID, outcome SubmissionOutcome) bool {
 	requireMutable(f.Element())
-	if id == 0 || f.attempt.ID != id || f.attempt.State != SubmissionPending {
+	if f.attempt.ID != id || f.attempt.State != SubmissionPending {
 		return false
 	}
+	f.complete(outcome)
+	return true
+}
+
+func (f *Form) complete(outcome SubmissionOutcome) {
 	state := SubmissionSucceeded
 	if outcome.Cancelled {
 		state = SubmissionCancelled
@@ -490,9 +520,8 @@ func (f *Form) Settle(id SubmissionID, outcome SubmissionOutcome) bool {
 		state = SubmissionFailed
 	}
 	f.attempt.State, f.attempt.Err = state, outcome.Err
-	f.problem = outcome.Err
+	f.problem = nil
 	f.Element().Invalidate()
-	return true
 }
 
 // Submission returns the current attempt, with Current computed from the exact submitted field revisions.
@@ -528,7 +557,7 @@ func (f *Form) HeightForWidth(width int) int {
 		}
 		rows = layout.Sum(rows, field.HeightForWidth(width))
 	}
-	if f.problem != nil {
+	if f.Error() != nil {
 		rows = layout.Sum(rows, 1)
 	}
 	return rows
@@ -563,7 +592,7 @@ func (f *Form) Do(action keymap.Action) bool {
 		}
 		id := f.attempt.ID
 		if err := f.Cancel(); err != nil && f.attempt.ID == id && f.attempt.State == SubmissionPending {
-			f.problem = err
+			f.problem = func() error { return err }
 			f.Element().Invalidate()
 		}
 	default:
@@ -602,6 +631,15 @@ func checkSubmissionField(field Field, collect func(Field) error) error {
 	return field.Error()
 }
 
+func (f *Form) fieldProblem() error {
+	for _, field := range f.fields {
+		if err := field.Error(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([]fieldVersion, error) {
 	var validations []func() bool
 	var versions []fieldVersion
@@ -609,7 +647,7 @@ func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([
 	var problem error
 	for _, field := range f.fields {
 		err := checkSubmissionField(field, collect)
-		if f.sequence != id {
+		if f.attempt.ID != id {
 			return nil, ErrSubmissionStale
 		}
 		if err != nil && (collect != nil || errors.Is(err, ErrValidationSuperseded)) {
@@ -625,25 +663,36 @@ func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([
 		return nil, ErrValidationSuperseded
 	}
 	if firstInvalid != nil {
-		f.problem = problem
+		f.problem = f.fieldProblem
 		_ = firstInvalid.Element().RequestFocusFirst()
 		return nil, problem
 	}
-	if f.check != nil {
-		err := f.check()
-		if f.sequence != id {
-			return nil, ErrSubmissionStale
-		}
-		if !currentValidations(validations) {
-			return nil, ErrValidationSuperseded
-		}
-		if err != nil {
-			f.problem = err
-			return nil, err
+	if err := f.checkDraft(id, validations); err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
+
+func (f *Form) checkDraft(id SubmissionID, validations []func() bool) error {
+	if f.check == nil {
+		return nil
+	}
+	err := f.check()
+	if f.attempt.ID != id {
+		return ErrSubmissionStale
+	}
+	if !currentValidations(validations) {
+		return ErrValidationSuperseded
+	}
+	if err != nil {
+		f.problem = func() error {
+			if currentValidations(validations) {
+				return err
+			}
+			return nil
 		}
 	}
-
-	return versions, nil
+	return err
 }
 
 // Title is the semantic form name also read by kit appearance.

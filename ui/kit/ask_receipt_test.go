@@ -25,9 +25,9 @@ func TestAskSubmitsOnlyTheQuestionsAndAnswersItCollected(t *testing.T) {
 				}
 				return nil
 			}})
-			form = base.NewForm(base.FormConfig{Fields: []base.Field{first, second}, Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+			form = base.NewForm(base.FormConfig{Fields: []base.Field{first, second}, Submit: func(base.SubmissionID) (scene.ActionState, error) {
 				submitted = true
-				return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+				return scene.Applied, nil
 			}})
 			_, err := kit.Ask(form, strings.NewReader("one\ntwo\n"), io.Discard)
 			if want := map[string]error{"replace fields": base.ErrSubmissionStale, "edit previous answer": base.ErrValidationSuperseded}[mode]; !errors.Is(err, want) || submitted {

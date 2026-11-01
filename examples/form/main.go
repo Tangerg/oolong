@@ -93,13 +93,13 @@ func ask(into *answers) *sessionForm {
 		Keys:   base.DefaultFormKeys(),
 		Hints:  []keymap.Action{base.FocusNext, base.Submit, base.Cancel},
 		Fields: []base.Field{name, model, tools, stream},
-		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+		Submit: func(base.SubmissionID) (scene.ActionState, error) {
 			chosen, _ := model.Chosen()
 			*into = answers{name: name.Text(), model: chosen.Value, tools: tools.Taken(), stream: stream.Answer()}
 			if form.done != nil {
 				form.done()
 			}
-			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+			return scene.Applied, nil
 		},
 		Cancel: func(base.SubmissionID) error {
 			if form.done != nil {

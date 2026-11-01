@@ -152,10 +152,10 @@ func TestValidationReceiptRejectsAnEditAwayAndBack(t *testing.T) {
 func TestFormStartedIsPendingUntilItsMatchingSettlement(t *testing.T) {
 	text := base.NewText(base.TextConfig{Initial: "draft"})
 	var started []base.SubmissionID
-	cancelled := base.SubmissionID(0)
-	form := base.NewForm(base.FormConfig{Fields: []base.Field{text}, Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+	var cancelled base.SubmissionID
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{text}, Submit: func(id base.SubmissionID) (scene.ActionState, error) {
 		started = append(started, id)
-		return scene.ActionResult[base.SubmissionID]{State: scene.Started, Value: id}, nil
+		return scene.Started, nil
 	}, Cancel: func(id base.SubmissionID) error { cancelled = id; return nil }})
 	first, err := form.Submit()
 	if err != nil || first.State != scene.Started || form.Submission().State != base.SubmissionPending {
@@ -365,8 +365,8 @@ func TestControllerInputRejectsPurePhaseBeforeAdvancingMatchers(t *testing.T) {
 
 func TestFormCancellationRejectsPurePhaseBeforeCallingWorker(t *testing.T) {
 	requests := 0
-	form := base.NewForm(base.FormConfig{Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
-		return scene.ActionResult[base.SubmissionID]{State: scene.Started, Value: id}, nil
+	form := base.NewForm(base.FormConfig{Submit: func(base.SubmissionID) (scene.ActionState, error) {
+		return scene.Started, nil
 	}, Cancel: func(base.SubmissionID) error { requests++; return nil }})
 	if _, err := form.Submit(); err != nil {
 		t.Fatal(err)

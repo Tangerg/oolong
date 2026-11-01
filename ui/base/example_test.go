@@ -20,9 +20,9 @@ func ExampleForm() {
 	name := base.NewText(base.TextConfig{Label: "Name"})
 	model := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Label: "Model", Options: base.Options("fast", "good")})
 	sure := base.NewConfirm(base.ConfirmConfig{Label: "Sure?"})
-	form := base.NewForm(base.FormConfig{Fields: []base.Field{name, model, sure}, Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{name, model, sure}, Submit: func(base.SubmissionID) (scene.ActionState, error) {
 		fmt.Println("collected:", name.Text(), chosenValue(model), sure.Answer())
-		return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+		return scene.Applied, nil
 	}})
 	styleFields(form, base.Look{Taken: "x", Free: "-"})
 	root := newTestRoot(form)

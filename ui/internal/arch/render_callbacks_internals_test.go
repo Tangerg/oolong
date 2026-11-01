@@ -49,6 +49,7 @@ var renderingCallbacks = map[string]callbackRule{
 	"ui/base:DialogConfig.Backdrop":       {callbackProjection, "construction retains the backdrop projection"},
 	"ui/base:DialogConfig.Place":          {callbackProjection, "construction retains pure dialog placement"},
 	"ui/base:Form.cancel":                 {callbackEvent, "cancellation follows the explicit submission identity"},
+	"ui/base:Form.problem":                {callbackProjection, "form status projects the current field errors or evidence for a failed form check"},
 	"ui/base:Form.check":                  {callbackEvent, "whole-form validation belongs to submission"},
 	"ui/base:Form.submit":                 {callbackEvent, "submission invokes application policy once per admitted intent"},
 	"ui/base:Form.paintField":             {callbackProjection, "field chrome paints only its assigned frame"},

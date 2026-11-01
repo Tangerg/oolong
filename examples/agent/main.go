@@ -474,11 +474,11 @@ func (a *agent) buildReview() {
 		Theme: a.theme, Glyphs: a.glyphs,
 		Fields: []base.Field{a.reviewConfirm}, Keys: base.DefaultFormKeys(),
 		Hints: []keymap.Action{base.Submit, base.Cancel},
-		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
+		Submit: func(base.SubmissionID) (scene.ActionState, error) {
 			if err := a.answerReview(a.reviewConfirm.Answer()); err != nil {
-				return scene.ActionResult[base.SubmissionID]{}, err
+				return scene.Unchanged, err
 			}
-			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
+			return scene.Applied, nil
 		},
 		Cancel: func(base.SubmissionID) error { return a.answerReview(false) },
 	})
