@@ -90,3 +90,25 @@ func queueInvocationWithValues(ctx context.Context, dispatch Dispatcher, returne
 	}()
 	return callbackRef, contextRef
 }
+
+func TestCancelledInvokeCannotInvalidateAnUnchangedScene(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p, rt := taskOwner(t)
+		before := p.root.Progress()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		returned := make(chan error, 1)
+		go func() {
+			returned <- rt.Dispatcher().Invoke(ctx, func() error { t.Error("cancelled callback ran"); return nil })
+		}()
+		synctest.Wait()
+		cancel()
+		if err := <-returned; !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+		p.runTasks()
+		if after := p.root.Progress(); after != before {
+			t.Fatalf("cancel advanced untouched scene from %+v to %+v", before, after)
+		}
+	})
+}

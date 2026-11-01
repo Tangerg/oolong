@@ -40,7 +40,6 @@ type ByteIngress struct {
 	pending []byte
 	result  error
 	closed  bool
-	posted  bool
 	stopped bool
 
 	room chan struct{}
@@ -118,18 +117,17 @@ func (i *ByteIngress) Write(p []byte) (n int, err error) {
 			}
 		}
 
+		if !i.admitDrain() {
+			i.mu.Unlock()
+			i.stop()
+			return n, ErrStopped
+		}
 		take := min(available, len(p))
 		i.pending = append(i.pending, p[:take]...)
-		slot, post := i.slot, !i.posted
-		i.posted = true
 		i.mu.Unlock()
 
 		n += take
 		p = p[take:]
-		if post && !slot.post(i.drain) {
-			i.stop()
-			return n, ErrStopped
-		}
 	}
 	return n, nil
 }
@@ -157,17 +155,16 @@ func (i *ByteIngress) CloseWithError(err error) error {
 		i.mu.Unlock()
 		return ErrStopped
 	}
-	i.closed = true
-	i.result = err
-	slot, post := i.slot, !i.posted
-	i.posted = true
-	i.mu.Unlock()
-
-	i.signalRoom()
-	if post && !slot.post(i.drain) {
+	if !i.admitDrain() {
+		i.mu.Unlock()
 		i.stop()
 		return ErrStopped
 	}
+	i.closed = true
+	i.result = err
+	i.mu.Unlock()
+
+	i.signalRoom()
 	return nil
 }
 
@@ -179,6 +176,20 @@ func (i *ByteIngress) Done() <-chan struct{} {
 	return i.done
 }
 
+// With mu held, pending bytes already have one scheduled (possibly taken)
+// drain. Only the queue decides whether that drain still has a live owner.
+func (i *ByteIngress) admitDrain() bool {
+	if len(i.pending) == 0 {
+		return i.slot.post(i.drain)
+	}
+	select {
+	case <-i.slot.queue.done:
+		return false
+	default:
+		return true
+	}
+}
+
 func (i *ByteIngress) drain() bool {
 	i.mu.Lock()
 	if i.stopped {
@@ -188,7 +199,6 @@ func (i *ByteIngress) drain() bool {
 	batch := ByteBatch{Data: i.pending, Err: i.result, Final: i.closed}
 	consume := i.consume
 	i.pending = nil
-	i.posted = false
 	if batch.Final {
 		i.stopped = true
 		i.releaseTerminalReferences()

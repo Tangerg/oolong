@@ -46,9 +46,14 @@ func newTaskQueue() *taskQueue {
 	}
 }
 
-func (q *taskQueue) post(fn func()) error { return q.postWithEffect(fn, true) }
+func (q *taskQueue) post(fn func()) error {
+	if fn == nil {
+		return q.enqueue(nil)
+	}
+	return q.enqueue(func() bool { fn(); return true })
+}
 
-func (q *taskQueue) postWithEffect(fn func(), changes bool) error {
+func (q *taskQueue) enqueue(fn func() bool) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.stopped {
@@ -60,7 +65,7 @@ func (q *taskQueue) postWithEffect(fn func(), changes bool) error {
 		if q.ordinary >= q.capacity {
 			return ErrQueueFull
 		}
-		q.tasks.Push(queuedTask{fn: func() bool { fn(); return changes }})
+		q.tasks.Push(queuedTask{fn: fn})
 		q.ordinary++
 	}
 	q.signal()

@@ -675,11 +675,26 @@ func (p *program) flushNotifications() {
 
 func (p *program) stop() {
 	p.stopWork()
+	if p.publisher != nil {
+		p.publisher.Close(ErrStopped)
+		defer p.flushClosedPublisher()
+	}
 	if p.root != nil {
 		p.root.Close()
 	}
-	if p.publisher != nil {
-		p.publisher.Close(ErrStopped)
-		p.publisher.FlushNotifications()
+}
+
+// There is no later owner turn after stop. A closed publisher cannot register
+// more listeners and claims each callback before running it. Unwinding must
+// therefore finish only the uncalled suffix, never replay the interrupted call.
+func (p *program) flushClosedPublisher() {
+	finished := false
+	defer func() {
+		if !finished {
+			p.flushClosedPublisher()
+		}
+	}()
+	for p.publisher.FlushNotifications() {
 	}
+	finished = true
 }

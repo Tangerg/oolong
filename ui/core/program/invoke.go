@@ -42,18 +42,18 @@ func (d Dispatcher) invoke(ctx context.Context, fn func() error, changes bool) e
 		return context.Cause(ctx)
 	}
 	call := &invocation{
-		pending: func() error {
+		pending: func() (bool, error) {
 			if err := ctx.Err(); err != nil {
-				return context.Cause(ctx)
+				return false, context.Cause(ctx)
 			}
-			return fn()
+			return changes, fn()
 		},
 		done: make(chan struct{}),
 	}
 	if d.tasks == nil {
 		return ErrStopped
 	}
-	if err := d.tasks.postWithEffect(call.run, changes); err != nil {
+	if err := d.tasks.enqueue(call.run); err != nil {
 		return err
 	}
 	select {
@@ -72,22 +72,23 @@ func (d Dispatcher) invoke(ctx context.Context, fn func() error, changes bool) e
 // is still waiting in the dispatcher's FIFO.
 type invocation struct {
 	mu      sync.Mutex
-	pending func() error
+	pending func() (bool, error)
 	done    chan struct{}
 	err     error
 }
 
-func (i *invocation) run() {
+func (i *invocation) run() bool {
 	i.mu.Lock()
 	fn := i.pending
 	i.pending = nil
 	i.mu.Unlock()
 	if fn == nil {
-		return
+		return false
 	}
 	err := ErrInvocationAborted
 	defer func() { i.complete(err) }()
-	err = fn()
+	changed, err := fn()
+	return changed
 }
 
 func (i *invocation) cancel(err error) {

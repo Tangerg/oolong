@@ -2,6 +2,7 @@ package program
 
 import (
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -217,5 +218,60 @@ func TestOrderedRepaintCannotReportUnadmittedOutput(t *testing.T) {
 	})
 	if !replied || !errors.Is(err, term.ErrQueueFull) || root.Progress().LayoutRevision != 0 {
 		t.Fatalf("unadmitted repaint: replied=%v err=%v layout=%d", replied, err, root.Progress().LayoutRevision)
+	}
+}
+
+func TestStopSettlesEveryPublisherWhenUserCleanupUnwinds(t *testing.T) {
+	for _, stopAt := range []string{"detach", "subscriber"} {
+		for _, exit := range []string{"panic", "Goexit"} {
+			t.Run(stopAt+"/"+exit, func(t *testing.T) {
+				interrupt := func() {
+					if exit == "Goexit" {
+						runtime.Goexit()
+					}
+					panic("cleanup")
+				}
+				root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Detached: func() {
+					if stopAt == "detach" {
+						interrupt()
+					}
+				}})})
+				if err != nil {
+					t.Fatal(err)
+				}
+				pub, err := publication.New(publication.Config{Width: 8})
+				if err != nil {
+					t.Fatal(err)
+				}
+				receipt, err := pub.TryPublish(permanentLine("pending"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				n := 0
+				pub.Subscribe(func() {
+					if stopAt == "subscriber" {
+						interrupt()
+					}
+				})
+				pub.Subscribe(func() { n++ })
+				finished := make(chan struct{})
+				go func() {
+					defer close(finished)
+					defer func() {
+						v := recover()
+						if (exit == "panic" && v != "cleanup") || (exit == "Goexit" && v != nil) {
+							t.Errorf("wrong exit: %v", v)
+						}
+					}()
+					p := program{root: root, publisher: pub}
+					p.stop()
+					t.Error("cleanup swallowed the interruption")
+				}()
+				<-finished
+				if status := receipt.Snapshot(); status.State != publication.Failed || !errors.Is(status.Err, ErrStopped) || n != 1 {
+					t.Errorf("status=%+v, final notifications=%d", status, n)
+				}
+			})
+		}
 	}
 }

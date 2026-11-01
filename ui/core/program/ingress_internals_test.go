@@ -143,3 +143,60 @@ func TestByteIngressOwnerShutdownSettlesAPanickingFinalConsumer(t *testing.T) {
 		t.Fatal("panicking final consumer left Done open after owner shutdown")
 	}
 }
+
+func TestIngressAdmissionUsesTheDispatcherEvenBeforeItsShutdownWatcherRuns(t *testing.T) {
+	for _, alreadyQueued := range []bool{false, true} {
+		q := newTaskQueue()
+		slot, err := q.reserve()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Keep the shutdown notification deliberately undelivered. The queue
+		// has already revoked the reservation, independently of its observer.
+		i := &ByteIngress{slot: slot, limit: 8, done: make(chan struct{}), room: make(chan struct{}, 1), consume: func(ByteBatch) { t.Fatal("called without an owner") }}
+		if alreadyQueued {
+			if _, writeErr := i.Write([]byte("a")); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+		}
+		q.stop()
+		if n, writeErr := i.Write([]byte("b")); n != 0 || !errors.Is(writeErr, ErrStopped) {
+			t.Errorf("queued=%v: accepted bytes after stop: (%d,%v)", alreadyQueued, n, writeErr)
+		}
+		if closeErr := i.Close(); !errors.Is(closeErr, ErrStopped) {
+			t.Errorf("queued=%v: accepted completion after stop: %v", alreadyQueued, closeErr)
+		}
+		i.stop()
+	}
+}
+
+func TestIngressClaimedDrainAlsoOwnsTheFinalBatch(t *testing.T) {
+	q := newTaskQueue()
+	q.resourceCapacity = 1
+	defer q.stop()
+	i, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: q}, Limit: 4, Consume: func(batch ByteBatch) {
+		if !batch.Final || string(batch.Data) != "ab" {
+			t.Errorf("batch=%+v", batch)
+		}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = i.Write([]byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	batch := q.take()
+	if _, err = i.Write([]byte("b")); err != nil {
+		t.Fatal(err)
+	}
+	if err = i.Close(); err != nil {
+		t.Fatal(err)
+	}
+	batch[0]()
+	<-i.Done()
+	slot, err := q.reserve()
+	if err != nil {
+		t.Fatalf("finished stream retained a redundant queued drain: %v", err)
+	}
+	slot.close()
+}
