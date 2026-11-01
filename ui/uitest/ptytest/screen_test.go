@@ -284,12 +284,26 @@ func TestScreenModelsAtomsWiderThanTwoColumns(t *testing.T) {
 	assertScreenRows(t, shown, "  xz")
 }
 
+// DECSTBM homes the cursor, including when it restores the full-height region.
+func TestMarginsHomeTheCursorAndClearPendingWrap(t *testing.T) {
+	for _, sequence := range []string{"\x1b[2;3r", "\x1b[r"} {
+		shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 3})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := shown.Apply([]byte("\x1b[2;1HABCD" + sequence + "X")); err != nil {
+			t.Fatal(err)
+		}
+		assertTrimmedScreenRows(t, shown, []string{"X", "ABCD", ""})
+	}
+}
+
 func TestScreenRejectsInvalidErasureAndScrollMargins(t *testing.T) {
 	shown, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sequence := range []string{"\x1b[3J", "\x1b[3K", "\x1b[3;2r", "\x1b[1;4r"} {
+	for _, sequence := range []string{"\x1b[3J", "\x1b[3K", "\x1b[3;2r", "\x1b[1;4r", "\x1b[2;2r", "\x1b[1;2;3r", "\x1b[1:2;3r"} {
 		if err := shown.Apply([]byte(sequence)); !errors.Is(err, ptytest.ErrUnsupportedOutput) {
 			t.Fatalf("sequence %q gave %v, want ErrUnsupportedOutput", sequence, err)
 		}
@@ -317,8 +331,10 @@ func TestScreenRejectsOutputOutsideItsCellSubset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := shown.Apply([]byte("\x1bPimage payload\x1b\\")); !errors.Is(err, ptytest.ErrUnsupportedOutput) {
-		t.Fatalf("device-control output gave %v, want ErrUnsupportedOutput", err)
+	for _, seq := range []string{"\x1bPimage payload\x1b\\", "\x1b[?6h", "\x1b[?7l", "\x1b[4h"} {
+		if err := shown.Apply([]byte(seq)); !errors.Is(err, ptytest.ErrUnsupportedOutput) {
+			t.Fatalf("%q gave %v, want ErrUnsupportedOutput", seq, err)
+		}
 	}
 }
 

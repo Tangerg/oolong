@@ -219,7 +219,24 @@ func (s *Screen) control(piece ansi.Piece) error {
 // the question or mode change but never fabricates a terminal answer.
 func ignoresControl(final byte, params ansi.Params) bool {
 	switch final {
-	case 'c', 'h', 'l', 'q', 't':
+	case 'h', 'l':
+		if params.Marker() != '?' || params.Len() == 0 {
+			return false
+		}
+		for i := range params.Len() {
+			// These are session or appearance modes emitted around renderer frames.
+			// Unmodelled origin, insert or autowrap modes would change later cells.
+			if params.Group(i).Len() != 1 {
+				return false
+			}
+			switch params.At(i) {
+			case 25, 1003, 1004, 1006, 1049, 2004, 2026:
+			default:
+				return false
+			}
+		}
+		return true
+	case 'c', 'q', 't':
 		return true
 	case 'u':
 		return params.Marker() != 0
@@ -420,19 +437,17 @@ func (s *Screen) eraseDisplay(mode int, raw string) error {
 }
 
 func (s *Screen) setMargins(params ansi.Params, raw string) error {
-	if params.Len() == 0 {
-		s.top, s.end = 0, s.size.Rows
-		return nil
-	}
 	top := defaultOne(params.At(0)) - 1
 	end := params.At(1)
 	if end == 0 {
 		end = s.size.Rows
 	}
-	if top < 0 || end > s.size.Rows || top >= end {
+	if params.Len() > 2 || params.Group(0).Len() > 1 || params.Group(1).Len() > 1 ||
+		end > s.size.Rows || params.Len() > 0 && top+1 >= end {
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
 	}
 	s.top, s.end = top, end
+	s.move(0, 0)
 	return nil
 }
 
