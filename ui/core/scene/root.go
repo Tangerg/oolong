@@ -346,8 +346,9 @@ func (r *Root) setFocus(target Target) {
 	}
 	if n := r.resolve(target); n != nil && n.config.FocusChanged != nil {
 		notify := n.config.FocusChanged
+		turn := r.focusTurn
 		r.notify(n, func() {
-			if r.focus == target {
+			if r.focusTurn == turn {
 				notify(true)
 			}
 		})

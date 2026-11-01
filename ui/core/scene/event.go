@@ -18,14 +18,59 @@ type EventResult struct {
 // Event coordinates belong to Target, not to the terminal or its parent. The
 // scene has already checked attachment, scope and current interaction eligibility.
 type Event struct {
-	input     input.Event
-	target    Target
-	root      *Root
-	area      image.Rectangle
-	layout    *layoutSnapshot
-	turn      uint64
-	delivery  uint64
-	focusTurn uint64
+	input    input.Event
+	target   Target
+	route    inputRoute
+	delivery uint64
+}
+
+// A route keeps the original hit/focus as well as each callback's receiver.
+// Preview, propagation and commands returned by a handler all use this evidence.
+type inputRoute struct {
+	root            *Root
+	origin          Target
+	layout          *layoutSnapshot
+	turn, focusTurn uint64
+	pointer         bool
+}
+
+func (r *Root) route(n *node, event input.Event, snapshot *layoutSnapshot) inputRoute {
+	_, pointer := event.(input.Mouse)
+	return inputRoute{root: r, origin: n.target(), layout: snapshot, turn: r.inputTurn, focusTurn: r.focusTurn, pointer: pointer}
+}
+
+func (q inputRoute) check(target Target) error {
+	r := q.root
+	if r == nil {
+		return ErrDetached
+	}
+	if err := r.mutable(); err != nil {
+		return err
+	}
+	if q.turn != r.inputTurn || !q.pointer && q.focusTurn != r.focusTurn {
+		return ErrStale
+	}
+	if err := q.checkTarget(q.origin); err != nil {
+		return err
+	}
+	if target != q.origin {
+		return q.checkTarget(target)
+	}
+	return nil
+}
+
+func (q inputRoute) checkTarget(target Target) error {
+	n := q.root.resolve(target)
+	if n == nil {
+		return ErrStale
+	}
+	if !q.root.allowed(n) {
+		return ErrUnavailable
+	}
+	if q.pointer && !q.root.currentGeometry(n, q.layout) {
+		return ErrStale
+	}
+	return nil
 }
 
 // Input returns the routed input in local coordinates.
@@ -34,23 +79,25 @@ func (e Event) Input() input.Event { return e.input }
 // Target returns the exact attachment that received this delivery.
 func (e Event) Target() Target { return e.target }
 
-// Read returns the geometry projection belonging to this input, not the latest
-// admitted frame. Keyboard events read the current projection. Missing geometry
-// is explicit; a caller must not substitute a newer text or scrolling layout.
+// Read returns a value staged in this pointer's arrival frame or, for other
+// input, the scene's current admitted frame. A missing projection is distinct
+// from a producer that deliberately staged the zero value.
 func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 	var zero T
-	if snapshot == nil {
-		return zero, false
-	}
+	layout := e.route.layout
 	if _, pointer := e.input.(input.Mouse); !pointer {
-		return snapshot.Value(), true
+		r := e.route.root
+		if r == nil || r.layout == nil || r.layout.epoch != r.geometryEpoch {
+			return zero, false
+		}
+		layout = r.layout
 	}
-	if e.layout == nil {
+	if layout == nil || snapshot == nil {
 		return zero, false
 	}
-	value, ok := e.layout.projections[snapshot]
-	if !ok {
-		return zero, false
+	value, ok := layout.projections[snapshot]
+	if value == nil {
+		return zero, ok
 	}
 	projection, ok := value.(T)
 	return projection, ok
@@ -58,37 +105,27 @@ func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 
 // CurrentLayout reports whether this input belongs to the latest admitted geometry.
 func (e Event) CurrentLayout() bool {
-	if e.root == nil || e.root.closed {
+	r := e.route.root
+	if r == nil || r.closed {
 		return false
 	}
-	if _, pointer := e.input.(input.Mouse); !pointer {
+	if !e.route.pointer {
 		return true
 	}
-	return e.layout != nil && e.root.layout == e.layout && e.layout.epoch == e.root.geometryEpoch
+	return e.route.layout != nil && r.layout == e.route.layout && e.route.layout.epoch == r.geometryEpoch
 }
 
-// checkDelivery guards the authority of one callback, independently of whether
-// its input and frame remain useful as read-only evidence afterwards.
 func (e Event) checkDelivery() error {
-	if e.root == nil {
+	if e.route.root == nil {
 		return ErrDetached
 	}
-	if err := e.root.mutable(); err != nil {
-		return err
-	}
-	n := e.root.resolve(e.target)
-	_, pointer := e.input.(input.Mouse)
-	if e.turn != e.root.inputTurn || e.delivery != e.root.delivery || n == nil {
-		return ErrStale
-	}
-	if pointer {
-		if !e.root.currentGeometry(n, e.layout) {
-			return ErrStale
+	if e.delivery != e.route.root.delivery {
+		if err := e.route.root.mutable(); err != nil {
+			return err
 		}
-	} else if e.focusTurn != e.root.focusTurn {
 		return ErrStale
 	}
-	return nil
+	return e.route.check(e.target)
 }
 
 // RequestFocus asks the scene to focus the target during its current delivery.
@@ -96,15 +133,15 @@ func (e Event) RequestFocus() error {
 	if err := e.checkDelivery(); err != nil {
 		return err
 	}
-	return e.root.RequestFocus(e.target)
+	return e.route.root.RequestFocus(e.target)
 }
 
 // FocusNext traverses eligible targets while this delivery is current.
 func (e Event) FocusNext(backward bool) bool {
-	return e.checkDelivery() == nil && e.root.FocusNext(backward)
+	return e.checkDelivery() == nil && e.route.root.FocusNext(backward)
 }
 
-// Capture claims this delivered pointer press until release or revocation.
+// Capture claims and consumes this delivered press until release or revocation.
 func (e Event) Capture() error {
 	if err := e.checkDelivery(); err != nil {
 		return err
@@ -113,18 +150,15 @@ func (e Event) Capture() error {
 	if !ok || mouse.Action != input.MouseDown {
 		return ErrInvalid
 	}
-	n := e.root.resolve(e.target)
-	if !e.root.allowed(n) {
-		return ErrUnavailable
-	}
-	e.root.capture = capture{target: e.target, button: mouse.Button, area: e.area}
+	placement, _ := findGeometry(e.route.layout, e.target)
+	e.route.root.capture = capture{target: e.target, button: mouse.Button, content: placement.content}
 	return nil
 }
 
 type capture struct {
 	target  Target
 	button  input.Button
-	area    image.Rectangle
+	content contentVersion
 	revoked bool
 }
 
@@ -198,9 +232,14 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 	} else {
 		n := r.resolve(r.focus)
 		if n == nil {
-			n = r.content.node
+			n = r.modal()
+			if n == nil {
+				n = r.content.node
+			}
 		}
-		consumed = r.bubble(n, event.input, nil)
+		if n != nil {
+			consumed = r.route(n, event.input, nil).bubble(event.input)
+		}
 	}
 	return consumed || r.inputTurn != turn
 }
@@ -249,21 +288,19 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 	if mouse.Action == input.MouseUp && !mouse.Releases(held.button) {
 		return false, true
 	}
-	area := held.area
-	if placement, ok := findGeometry(snapshot, held.target); ok {
-		if !r.currentContent(n, placement) {
-			r.revokeCapture(mouse, held, n)
-			return true, true
-		}
-		area = placement.area
+	placement, ok := findGeometry(snapshot, held.target)
+	q := r.route(n, mouse, snapshot)
+	if !ok || placement.content != held.content || q.check(held.target) != nil {
+		r.revokeCapture(mouse, held, n)
+		return true, true
 	}
 	if mouse.Releases(held.button) {
 		r.capture = capture{}
 	}
-	if r.preview(n, mouse, snapshot) {
+	if q.preview(n, mouse) {
 		return true, true
 	}
-	return r.deliver(n, mouse, area, snapshot).Consumed, true
+	return q.dispatch(n, n.config.Handle, mouse, placement.area).Consumed, true
 }
 
 func (r *Root) revokeCapture(mouse input.Mouse, held capture, n *node) {
@@ -294,14 +331,15 @@ func (r *Root) hitMouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 		if !r.allowed(n) {
 			return r.modalPointer(mouse, snapshot)
 		}
-		if !r.currentContent(n, placement) {
+		q := r.route(n, mouse, snapshot)
+		if q.check(placement.target) != nil {
 			return false
 		}
 		r.hoverTo(n.target(), mouse, snapshot)
 		if r.inputTurn != turn || r.resolve(placement.target) == nil || r.hover != placement.target {
 			return true
 		}
-		return r.bubble(n, mouse, snapshot)
+		return q.bubble(mouse)
 	}
 	r.leave(mouse)
 	return false
@@ -316,53 +354,28 @@ func (r *Root) modalPointer(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 	if !ok {
 		return false
 	}
-	return r.deliver(modal, mouse, placement.area, snapshot).Consumed
+	return r.route(modal, mouse, snapshot).dispatch(modal, modal.config.Handle, mouse, placement.area).Consumed
 }
 
-// preview offers the same route from its outermost allowed ancestor to the target.
-// It lets application policy consume a key or paste before a focused primitive.
-func (r *Root) preview(start *node, event input.Event, snapshot *layoutSnapshot) bool {
-	if start == nil {
-		return false
+// preview offers one route from its outermost allowed ancestor to the hit or focus.
+func (q inputRoute) preview(start *node, event input.Event) bool {
+	if q.check(q.origin) != nil {
+		return true
 	}
-	origin := start.target()
-	var path []Target
-	modal := r.modal()
-	for n := start; n != nil && r.enabled(n); n = n.parent {
-		path = append(path, n.target())
+	var path []*node
+	modal := q.root.modal()
+	for n := start; n != nil; n = n.parent {
+		path = append(path, n)
 		if n == modal {
 			break
 		}
 	}
-	for _, target := range slices.Backward(path) {
-		n := r.resolve(target)
-		if n == nil || !r.enabled(n) || r.resolve(origin) == nil || !r.allowed(start) {
-			return true
-		}
-		if n.config.Preview == nil {
-			continue
-		}
-		var area image.Rectangle
-		if _, pointer := event.(input.Mouse); pointer {
-			placement, ok := findGeometry(snapshot, target)
-			if !ok {
-				continue
-			}
-			area = placement.area
-		}
-		if r.dispatch(n, n.config.Preview, event, area, snapshot).Consumed || !r.routeCurrent(origin, snapshot) {
+	for _, n := range slices.Backward(path) {
+		if q.offer(n, n.config.Preview, event).Consumed {
 			return true
 		}
 	}
 	return false
-}
-
-func (r *Root) routeCurrent(origin Target, snapshot *layoutSnapshot) bool {
-	n := r.resolve(origin)
-	if r.mutable() != nil || !r.allowed(n) {
-		return false
-	}
-	return snapshot == nil || r.currentGeometry(n, snapshot)
 }
 
 func (r *Root) currentGeometry(n *node, snapshot *layoutSnapshot) bool {
@@ -373,69 +386,69 @@ func (r *Root) currentGeometry(n *node, snapshot *layoutSnapshot) bool {
 	return ok && r.currentContent(n, p)
 }
 
-func (r *Root) bubble(start *node, event input.Event, snapshot *layoutSnapshot) bool {
-	if start == nil {
-		return false
-	}
-	origin := start.target()
-	if !r.routeCurrent(origin, snapshot) || r.preview(start, event, snapshot) {
+func (q inputRoute) bubble(event input.Event) bool {
+	n := q.root.resolve(q.origin)
+	if n == nil || q.preview(n, event) {
 		return true
 	}
-	for n := start; n != nil; n = n.parent {
-		target := n.target()
-		if !r.allowed(n) {
-			return false
-		}
-		var area image.Rectangle
-		if _, pointer := event.(input.Mouse); pointer {
-			placement, ok := findGeometry(snapshot, target)
-			if !ok {
-				return false
-			}
-			area = placement.area
-		}
-		result := r.deliver(n, event, area, snapshot)
-		if result.Consumed || !r.routeCurrent(origin, snapshot) {
+	modal := q.root.modal()
+	for ; n != nil; n = n.parent {
+		if q.offer(n, n.config.Handle, event).Consumed {
 			return true
+		}
+		if n == modal {
+			break
 		}
 	}
 	return false
 }
 
-func (r *Root) deliver(n *node, event input.Event, area image.Rectangle, snapshot *layoutSnapshot) EventResult {
-	if n == nil {
+func (q inputRoute) offer(n *node, handle func(Event) EventResult, event input.Event) EventResult {
+	if handle == nil {
 		return EventResult{}
 	}
-	return r.dispatch(n, n.config.Handle, event, area, snapshot)
+	var area image.Rectangle
+	if q.pointer {
+		p, ok := findGeometry(q.layout, n.target())
+		if !ok {
+			return EventResult{Consumed: true}
+		}
+		area = p.area
+	}
+	return q.dispatch(n, handle, event, area)
 }
 
-func (r *Root) dispatch(n *node, handle func(Event) EventResult, event input.Event, area image.Rectangle, snapshot *layoutSnapshot) EventResult {
-	if n == nil || handle == nil {
+func (q inputRoute) dispatch(n *node, handle func(Event) EventResult, event input.Event, area image.Rectangle) EventResult {
+	target := n.target()
+	if q.check(target) != nil {
+		return EventResult{Consumed: true}
+	}
+	if handle == nil {
 		return EventResult{}
 	}
-	target := n.target()
-	turn := r.inputTurn
-	focusTurn := r.focusTurn
-	_, pointer := event.(input.Mouse)
 	if mouse, ok := event.(input.Mouse); ok {
 		mouse.Pos = mouse.Pos.Sub(area.Min)
 		event = mouse
 	}
+	r := q.root
 	r.delivery = next(r.delivery)
 	defer func() { r.delivery = next(r.delivery) }()
-	delivery := Event{input: event, target: target, root: r, area: area, layout: snapshot, turn: turn, delivery: r.delivery, focusTurn: focusTurn}
+	delivery := Event{input: event, target: target, route: q, delivery: r.delivery}
 	result := handle(delivery)
-	if r.mutable() != nil || r.resolve(target) == nil || r.inputTurn != turn || !pointer && r.focusTurn != focusTurn {
+	if delivery.checkDelivery() != nil {
 		return EventResult{Consumed: true}
 	}
 	if result.Focus {
 		_ = delivery.RequestFocus()
-		if !pointer && r.focusTurn != focusTurn {
+		if !q.pointer && q.focusTurn != r.focusTurn {
 			return EventResult{Consumed: true}
 		}
 	}
-	if result.Capture && result.Consumed {
+	if result.Consumed && result.Capture {
 		_ = delivery.Capture()
+	}
+	if mouse, ok := event.(input.Mouse); ok && mouse.Action == input.MouseDown && r.capture.target == target && !r.capture.revoked {
+		result.Consumed = true
 	}
 	return result
 }
@@ -446,10 +459,11 @@ func (r *Root) hoverTo(target Target, mouse input.Mouse, snapshot *layoutSnapsho
 	}
 	previous := r.hover
 	r.hover = target
-	if n := r.resolve(previous); n != nil {
+	if n := r.resolve(previous); n != nil && n.config.Handle != nil {
 		placement, _ := findGeometry(snapshot, previous)
 		mouse.Action = input.MouseLeave
-		r.deliver(n, mouse, placement.area, snapshot)
+		mouse.Pos = mouse.Pos.Sub(placement.area.Min)
+		n.config.Handle(Event{input: mouse, target: previous, route: inputRoute{layout: snapshot, pointer: true}})
 	}
 }
 
