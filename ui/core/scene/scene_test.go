@@ -65,7 +65,7 @@ func TestAttachmentIdentitySurvivesMoveButNotUnmount(t *testing.T) {
 	if err := g.Set(item("a", a), item("b", b)); err != nil {
 		t.Fatal(err)
 	}
-	if a.Target().Node != old.Node || a.Target().Generation <= old.Generation {
+	if a.Target().Node() != old.Node() || a.Target().Generation() <= old.Generation() {
 		t.Fatal("remount did not preserve identity and advance generation")
 	}
 	if r.Valid(old) {
@@ -75,7 +75,7 @@ func TestAttachmentIdentitySurvivesMoveButNotUnmount(t *testing.T) {
 	if err := g.Set(item("a", replacement)); err != nil {
 		t.Fatal(err)
 	}
-	if replacement.Target().Node == old.Node {
+	if replacement.Target().Node() == old.Node() {
 		t.Fatal("same key revived another instance")
 	}
 }

@@ -19,7 +19,9 @@ type DialogConfig struct {
 	Place              func(image.Point) image.Rectangle
 	Backdrop           func(scene.Frame)
 	DismissOutside     bool
-	Keys               *keymap.Map
+	// Dismissed runs once after the dialog actually closes, including semantic dismissal.
+	Dismissed func()
+	Keys      *keymap.Map
 }
 
 // Dialog owns its open policy. The private modal group is its only attachment
@@ -32,6 +34,7 @@ type Dialog struct {
 	place          func(image.Point) image.Rectangle
 	backdrop       func(scene.Frame)
 	dismissOutside bool
+	dismissed      func()
 	keys           *keymap.Map
 	matcher        keymap.Matcher
 	group          *scene.Group
@@ -43,7 +46,7 @@ func NewDialog(config DialogConfig) *Dialog {
 	if config.Content.IsZero() {
 		panic("base: dialog requires content")
 	}
-	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), parked: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, keys: config.Keys}
+	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), parked: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, dismissed: config.Dismissed, keys: config.Keys}
 	d.ensure()
 	if config.Initial {
 		d.Show()
@@ -135,6 +138,15 @@ func (d *Dialog) Dismiss() {
 	requireMutable(d.Element())
 	d.parked = d.Content()
 	d.matcher.Clear()
+	// Focus settlement can unwind after the child relation has been removed.
+	// The domain waiting for this dismissal must still be released in that case.
+	if d.dismissed != nil {
+		defer func() {
+			if !d.Open() {
+				d.dismissed()
+			}
+		}()
+	}
 	if err := d.group.Set(); err != nil {
 		panic(err)
 	}

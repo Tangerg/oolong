@@ -156,7 +156,20 @@ type geometry struct {
 	target  Target
 	area    image.Rectangle
 	clip    image.Rectangle
-	content uint64
+	content contentVersion
+}
+
+type contentVersion struct {
+	id       string
+	revision uint64
+}
+
+func (r *Root) contentVersion(n *node) contentVersion {
+	if n.config.Semantics == nil {
+		return contentVersion{}
+	}
+	s := r.project(n.config.Semantics)
+	return contentVersion{s.ContentID, s.ContentRevision}
 }
 
 type layoutSnapshot struct {
@@ -182,15 +195,13 @@ type Prepared struct {
 
 // Commit atomically publishes the candidate after writer admission. Zero inherits the previous writer sequence.
 // Wrote then publishes its input geometry, including when that watermark was already confirmed.
-// It panics if the candidate has already settled, is foreign, or regresses the writer sequence.
+// It panics if the candidate has already settled, is foreign, regresses the writer sequence, or settlement interrupts a pure phase.
 func (p *Prepared) Commit(sequence uint64) {
 	if p == nil || p.done {
 		panic("scene: candidate already settled")
 	}
+	p.requireSettlement()
 	r := p.root
-	if r.pending != p {
-		panic("scene: candidate is not owned by this root")
-	}
 	if sequence == 0 {
 		sequence = r.lastSequence
 	}
@@ -203,20 +214,35 @@ func (p *Prepared) Commit(sequence uint64) {
 	r.layout = p.layout
 	r.pending = nil
 	p.done = true
-	r.inFlight = p.layout
+	if n := len(r.inFlight); n != 0 && r.inFlight[n-1].sequence == sequence {
+		r.inFlight[n-1] = p.layout
+	} else {
+		r.inFlight = append(r.inFlight, p.layout)
+	}
 	r.signal()
 }
 
 // Abort discards an unsettled candidate without undoing model or attachment changes.
+// It panics if called on a copy of a live candidate or during a pure projection. It panics during a pure phase.
 func (p *Prepared) Abort() {
 	if p == nil || p.done {
 		return
 	}
+	p.requireSettlement()
 	p.tx.abort()
-	if p.root.pending == p {
-		p.root.pending = nil
-	}
+	p.root.pending = nil
 	p.done = true
+}
+
+// The writer clock may be sampled between preparation and admission. Its pure
+// read must not be able to commit or discard the candidate it interrupted.
+func (p *Prepared) requireSettlement() {
+	if p.root.pending != p {
+		panic("scene: candidate is not owned by this root")
+	}
+	if p.root.preparing || p.root.observing {
+		panic(ErrBusy)
+	}
 }
 
 // Prepare paints a complete candidate without publishing geometry. A panic aborts every staged projection before propagating.
@@ -224,7 +250,7 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	if err := r.mutable(); err != nil {
 		return nil, err
 	}
-	if r.pending != nil {
+	if len(r.inFlight) >= r.maxPendingFrames {
 		return nil, ErrBusy
 	}
 	r.preparing = true
@@ -255,9 +281,7 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 func (r *Root) paint(item Item, frame Frame, origin image.Point, into *layoutSnapshot) {
 	n := item.Element.node
 	placed := geometry{target: n.target(), area: frame.Bounds().Add(origin), clip: frame.Visible().Add(origin), hit: r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil)}
-	if n.config.Semantics != nil {
-		placed.content = n.config.Semantics().ContentRevision
-	}
+	placed.content = r.contentVersion(n)
 	into.geometry = append(into.geometry, placed)
 	paint := item.Paint
 	if paint == nil {
@@ -268,7 +292,7 @@ func (r *Root) paint(item Item, frame Frame, origin image.Point, into *layoutSna
 	}
 	if g := n.group; g != nil {
 		width, height := frame.Size()
-		areas := g.rectangles(image.Pt(width, height))
+		areas := r.project(func() []image.Rectangle { return g.rectangles(image.Pt(width, height)) })
 		for i, item := range g.items {
 			r.paint(item, frame.Sub(areas[i]), origin.Add(areas[i].Min), into)
 		}
@@ -276,21 +300,35 @@ func (r *Root) paint(item Item, frame Frame, origin image.Point, into *layoutSna
 }
 
 // Wrote advances transport completion. It is distinct from logical layout and
-// does not claim that a physical terminal has displayed the bytes.
+// does not claim that a physical terminal has displayed the bytes. It panics during
+// paint or observation; report writer progress between these pure phases.
 func (r *Root) Wrote(sequence uint64) {
 	if r == nil || r.closed || sequence < r.writtenSequence {
 		return
 	}
-	advanced := sequence > r.writtenSequence
+	if r.preparing || r.observing {
+		panic(ErrBusy)
+	}
+	covered := 0
+	for covered < len(r.inFlight) && r.inFlight[covered].sequence <= sequence {
+		covered++
+	}
+	if covered == 0 && sequence == r.writtenSequence {
+		return
+	}
+	if covered > 0 {
+		// One watermark provides one observation time. Intermediate frames
+		// crossed together cannot be assigned invented timestamps.
+		at := r.readOnly(r.now)
+		r.publishWritten(r.inFlight[covered-1], at)
+		clear(r.inFlight[:covered])
+		r.inFlight = r.inFlight[covered:]
+		if len(r.inFlight) == 0 {
+			r.inFlight = nil
+		}
+	}
 	r.writtenSequence = sequence
-	if r.inFlight != nil && r.inFlight.sequence <= sequence {
-		r.publishWritten(r.inFlight)
-		r.inFlight = nil
-		advanced = true
-	}
-	if advanced {
-		r.signal()
-	}
+	r.signal()
 }
 
 // InvalidateGeometry refuses coordinate input until a complete replacement frame
@@ -309,16 +347,16 @@ func (r *Root) InvalidateGeometry() {
 	r.published.Store(nil)
 	previous := r.capture
 	r.capture.revoked = true
+	r.signal()
 	if n := r.resolve(previous.target); n != nil && !previous.revoked {
 		previous.cancel(n)
 	}
-	r.signal()
 }
 
 type writtenHistory struct{ layouts []*layoutSnapshot }
 
-func (r *Root) publishWritten(snapshot *layoutSnapshot) {
-	snapshot.writtenAt = r.now()
+func (r *Root) publishWritten(snapshot *layoutSnapshot, at time.Time) {
+	snapshot.writtenAt = at
 	r.written = snapshot
 	history := r.published.Load()
 	var layouts []*layoutSnapshot

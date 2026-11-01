@@ -423,7 +423,7 @@ func (r *Root) semanticNode(n *node, parent Target, semantic Semantic, textLimit
 		semantic.State |= StateDisabled
 	}
 	entry := SemanticNode{Target: n.target(), Parent: parent, Key: strings.Clone(n.config.Key), Semantic: semantic, TruncatedText: truncated}
-	if placement, ok := findGeometry(r.layout, n.target()); ok {
+	if placement, ok := findGeometry(r.layout, n.target()); ok && r.layout.epoch == r.geometryEpoch {
 		entry.Bounds, entry.HasBounds = placement.clip, true
 	}
 	for _, action := range n.config.Actions {

@@ -427,3 +427,21 @@ func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSemanticDismissDropsOnlyTheUnsubmittedPrompt(t *testing.T) {
+	h := newHost()
+	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error { return nil })
+	defer stop()
+	h.typeText("unsubmitted")
+	h.events <- input.Key{Code: input.Enter}
+	awaitState(t, c, func(s state) bool { return s.dialog })
+	if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
+		_, invokeErr := c.runtime.Scene().Invoke(t.Context(), c.dialog.Element().Target(), scene.ActionDismiss, nil)
+		if c.pending != "" || c.dialog.Controller().Open() || c.document != nil || c.composer.Controller().Text() != "unsubmitted" {
+			t.Errorf("dismissal left pending=%q open=%t live=%t draft=%q", c.pending, c.dialog.Controller().Open(), c.document != nil, c.composer.Controller().Text())
+		}
+		return invokeErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

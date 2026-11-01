@@ -81,7 +81,8 @@ type reviewRequest struct {
 }
 
 type reviewPane struct {
-	diff *kit.Diff
+	sessionKey func(input.Key) bool
+	diff       *kit.Diff
 	// window scrolls the change. A diff is as tall as the change is, and a review
 	// pane is as tall as the terminal: without a window the part that did not fit was
 	// simply not there, and somebody was asked to allow a change they could not read.
@@ -105,6 +106,9 @@ func (p *reviewPane) Element() scene.Element {
 			key, ok := event.Input().(input.Key)
 			if !ok || !key.Down() {
 				return scene.EventResult{}
+			}
+			if p.sessionKey(key) {
+				return scene.EventResult{Consumed: true}
 			}
 			switch key.Code {
 			case input.PageUp:

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/content"
@@ -135,7 +136,7 @@ func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, sour
 	c.composer.Controller().Placeholder = "Ask something, or press ctrl+c to leave"
 	c.composer.Controller().Keys = keys
 	c.composer.Controller().Clipboard = runtime.Clipboard()
-	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownLook(theme, glyphs)})
+	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownlook.New(theme, glyphs)})
 	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { c.status.Draw(frame.View) }})
 	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Size: layout.Flex(1), Element: c.view.Element()},
@@ -171,12 +172,16 @@ func (c *chat) buildApproval() {
 			c.settleApproval()
 			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
 		},
-		Cancel: func(base.SubmissionID) error { c.reject(); return nil },
+		Cancel: func(base.SubmissionID) error { c.dialog.Controller().Dismiss(); return nil },
 	})
 	c.form = dressed.Controller()
+	body := scene.NewGroup(scene.GroupConfig{Overlay: true, Items: []scene.Item{{Element: dressed.Element()}}, Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
+		key, ok := event.Input().(input.Key)
+		return scene.EventResult{Consumed: ok && key.Down() && c.quitKey(key)}
+	}}})
 	c.dialog = kit.NewDialog(kit.DialogConfig{
 		Theme: c.theme, Glyphs: c.glyphs,
-		Title: "Approve prompt", Description: "The source starts only after approval.", Body: dressed.Element(),
+		Title: "Approve prompt", Description: "The source starts only after approval.", Body: body.Element(), Dismissed: func() { c.pending = "" },
 		Where: layout.Placement{Width: 48, Height: 7, Margin: 1},
 	})
 }
@@ -188,18 +193,10 @@ func (c *chat) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	action, _ := c.keys.Action(key.Chord())
-	if action == quit {
-		c.runtime.Quit()
+	if c.quitKey(key) {
 		return true
 	}
-	if c.dialog.Controller().Open() {
-		if key.Code == input.Esc {
-			c.reject()
-			return true
-		}
-		return false
-	}
+	action, _ := c.keys.Action(key.Chord())
 	switch action {
 	case send:
 		c.requestApproval()
@@ -210,6 +207,15 @@ func (c *chat) Handle(event input.Event) bool {
 	default:
 		return false
 	}
+}
+
+func (c *chat) quitKey(key input.Key) bool {
+	action, _ := c.keys.Action(key.Chord())
+	if action != quit {
+		return false
+	}
+	c.runtime.Quit()
+	return true
 }
 
 func (c *chat) requestApproval() {
@@ -228,22 +234,11 @@ func (c *chat) requestApproval() {
 }
 
 func (c *chat) settleApproval() {
-	if !c.confirm.Answer() {
-		c.reject()
-		return
-	}
 	prompt := c.pending
-	c.pending = ""
 	c.dialog.Controller().Dismiss()
-	if prompt == "" {
-		return
+	if c.confirm.Answer() && prompt != "" {
+		c.startReply(prompt)
 	}
-	c.startReply(prompt)
-}
-
-func (c *chat) reject() {
-	c.pending = ""
-	c.dialog.Controller().Dismiss()
 }
 
 func (c *chat) startReply(prompt string) {
@@ -403,27 +398,6 @@ func (c *chat) stopReply() {
 func (c *chat) appendFinished(block base.Block) {
 	if _, err := c.content.Add(block); err != nil {
 		c.status.Doing = err.Error()
-	}
-}
-
-func markdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
-	return markdown.Look{
-		Text:     theme.Text,
-		Headings: []grid.Style{theme.Heading, theme.Strong},
-		Strong:   theme.Strong,
-		Emphasis: grid.Style{Attr: grid.Italic},
-		Struck:   grid.Style{Attr: grid.Strike},
-		Code:     theme.Info,
-		Block:    theme.Muted,
-		Link:     theme.Accent,
-		Quote:    theme.Muted,
-		Rail:     theme.Subtle,
-		Marker:   theme.Accent,
-		Rule:     theme.Subtle,
-		Glyphs: markdown.Glyphs{
-			Bullet: glyphs.Bullet, Bar: glyphs.Vertical, Divider: glyphs.Horizontal,
-			Checked: glyphs.Taken, Unchecked: glyphs.Free,
-		},
 	}
 }
 

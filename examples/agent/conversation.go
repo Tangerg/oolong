@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 
+	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/content"
-	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -26,8 +27,6 @@ type conversation struct {
 	group     *scene.Group
 	render    content.Renderer
 	document  *content.StreamDocument
-	item      *base.TranscriptItem
-	problem   error
 }
 
 func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel, publisher base.TranscriptPublisher) *conversation {
@@ -64,93 +63,83 @@ func (c *conversation) resetView() {
 }
 
 func (c *conversation) Element() scene.Element { return c.group.Element() }
-func (c *conversation) Err() error             { return c.problem }
 
-func (c *conversation) User(ctx context.Context, prompt string) {
-	c.FlushMarkdown(ctx)
-	item := c.append(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
-	if item != nil && item.State() != base.ContentRetired {
+func (c *conversation) User(ctx context.Context, prompt string) error {
+	if err := c.FinishMarkdown(ctx, nil); err != nil {
+		return err
+	}
+	item, err := c.content.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	if err == nil && item.State() != base.ContentRetired {
 		c.content.Sticky().Add(item.ID())
 	}
+	return err
 }
 
-func (c *conversation) Append(ctx context.Context, block base.Block) {
-	c.FlushMarkdown(ctx)
-	c.append(block)
-}
-
-func (c *conversation) append(block base.Block) *base.TranscriptItem {
-	item, err := c.content.Add(block)
-	if err != nil {
-		c.problem = err
+func (c *conversation) Append(ctx context.Context, blocks ...base.Block) error {
+	if err := c.FinishMarkdown(ctx, nil); err != nil {
+		return err
 	}
-	return item
-}
-
-func (c *conversation) Markdown(ctx context.Context, chunk string) {
-	if c.problem != nil {
-		return
-	}
-	if c.document == nil {
-		var err error
-		c.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
-		if err != nil {
-			c.problem = err
-			return
+	for _, block := range blocks {
+		if _, err := c.content.Add(block); err != nil {
+			return err
 		}
-		c.item, err = c.content.AddDocument(c.document)
-		if err != nil {
-			c.problem = err
-			return
+	}
+	return nil
+}
+
+func (c *conversation) beginMarkdown() (*base.TranscriptItem, error) {
+	document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
+	if err != nil {
+		return nil, err
+	}
+	item, err := c.content.AddDocument(document)
+	if err == nil {
+		c.document = document
+	}
+	return item, err
+}
+
+func (c *conversation) Markdown(ctx context.Context, chunk string) error {
+	if c.document == nil {
+		if _, err := c.beginMarkdown(); err != nil {
+			return err
 		}
 	}
 	if err := c.document.Append([]byte(chunk)); err != nil {
-		c.problem = err
-		return
+		return err
 	}
-	c.prepare(ctx)
+	return c.document.Accept(c.document.Snapshot().Prepare(ctx, c.render))
 }
 
-func (c *conversation) prepare(ctx context.Context) {
-	// The mock source is deliberately small. Streaming's companion example puts
-	// this same immutable Prepare result through a scoped background worker.
-	if err := c.document.Accept(c.document.Snapshot().Prepare(ctx, c.render)); err != nil {
-		c.problem = err
+// A provisional projection can recover as the source grows. At EOF the accepted
+// final revision owns both source and preparation diagnostics.
+func (c *conversation) FinishMarkdown(ctx context.Context, cause error) error {
+	doc := c.document
+	if doc == nil {
+		return cause
 	}
-}
-
-// EOF is explicit even when the final projection is empty, so a hidden HTML
-// comment cannot strand an unfinished item ahead of subsequent output.
-func (c *conversation) FlushMarkdown(ctx context.Context) { c.FinishMarkdown(ctx, nil) }
-
-func (c *conversation) FinishMarkdown(ctx context.Context, cause error) {
-	if c.document == nil {
-		return
-	}
-	if err := c.document.End(cause); err != nil {
-		c.problem = err
-		return
-	}
-	c.prepare(ctx)
 	c.document = nil
+	if err := doc.End(cause); err != nil {
+		return errors.Join(cause, err)
+	}
+	if err := doc.Accept(doc.Snapshot().Prepare(ctx, c.render)); err != nil {
+		return errors.Join(cause, err)
+	}
+	change := doc.Current()
+	if change.PrepareError != nil {
+		return errors.Join(change.SourceError, change.PrepareError)
+	}
+	return change.SourceError
 }
 
 func (c *conversation) Reset() {
 	c.content.Close()
-	c.document, c.item, c.problem = nil, nil, nil
+	c.document = nil
 	c.resetView()
 }
 
 func agentMarkdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
-	return markdown.Look{
-		Text: theme.Text, Headings: []grid.Style{theme.Heading, theme.Strong},
-		Strong: theme.Strong, Emphasis: grid.Style{Attr: grid.Italic},
-		Struck: theme.Muted, Code: theme.Info, Block: theme.Sunken,
-		Link: theme.Accent, Quote: theme.Muted, Rail: theme.Subtle,
-		Marker: theme.Accent, Rule: theme.Divider,
-		Glyphs: markdown.Glyphs{
-			Bullet: glyphs.Bullet, Bar: glyphs.Vertical, Divider: glyphs.Horizontal,
-			Checked: glyphs.Taken, Unchecked: glyphs.Free,
-		},
-	}
+	look := markdownlook.New(theme, glyphs)
+	look.Struck, look.Block = theme.Muted, theme.Sunken
+	return look
 }

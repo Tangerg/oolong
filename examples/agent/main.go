@@ -174,6 +174,22 @@ func (a *agent) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
+	if a.sessionKey(key) {
+		return true
+	}
+	if a.completion.Handle(event) {
+		return true
+	}
+	if key.Code == input.Enter && key.Mods == 0 {
+		a.submit()
+		return true
+	}
+	return false
+}
+
+// The root and the review pane opt into the same session commands. Other
+// root shortcuts must not run behind an open review.
+func (a *agent) sessionKey(key input.Key) bool {
 	action, _ := a.keys.Action(key.Chord())
 	switch action {
 	case quitAgent:
@@ -184,20 +200,6 @@ func (a *agent) Handle(event input.Event) bool {
 			a.stopRun()
 			return true
 		}
-	}
-	if a.reviewDialog.Controller().Open() {
-		if key.Code == input.Esc {
-			a.answerReview(false)
-			return true
-		}
-		return false
-	}
-	if a.completion.Handle(event) {
-		return true
-	}
-	if key.Code == input.Enter && key.Mods == 0 {
-		a.submit()
-		return true
 	}
 	return false
 }
@@ -226,10 +228,12 @@ func (a *agent) registerCommands() {
 	a.commands.Add(
 		base.Command{Name: "help", Title: "show the commands available in this session"},
 		commandAction{run: func(string) {
-			a.conversation.Append(a.scope.Context(), &kit.Entry{
+			if err := a.conversation.Append(a.scope.Context(), &kit.Entry{
 				Theme: a.theme, Label: "commands",
 				Body: "/clear — release the live transcript\n/model <fast|careful> — choose the mock plan\n/quit — leave",
-			})
+			}); err != nil {
+				a.status.Doing = err.Error()
+			}
 		}},
 	)
 	a.commands.Add(
@@ -311,7 +315,10 @@ func (a *agent) startRun(prompt string) {
 	ctx, cancel := context.WithCancel(a.scope.Context())
 	run := &agentRun{cancel: cancel}
 	a.run = run
-	a.conversation.User(a.scope.Context(), prompt)
+	if err := a.conversation.User(a.scope.Context(), prompt); err != nil {
+		a.finishRun(err)
+		return
+	}
 	a.workflow.Reset()
 	a.status.Doing = "planning with " + a.model
 	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
@@ -344,15 +351,11 @@ func (a *agent) startRun(prompt string) {
 		err := a.backend.Run(ctx, prompt, output)
 		_ = ingress.CloseWithError(err)
 	}()
-	if err := a.conversation.Err(); err != nil {
-		a.finishRun(err)
-	}
 }
 
 func (a *agent) accept(batch program.ByteBatch) {
 	if len(batch.Data) > 0 {
-		a.conversation.Markdown(a.scope.Context(), string(batch.Data))
-		if err := a.conversation.Err(); err != nil {
+		if err := a.conversation.Markdown(a.scope.Context(), string(batch.Data)); err != nil {
 			a.finishRun(errors.Join(batch.Err, err))
 			return
 		}
@@ -363,16 +366,13 @@ func (a *agent) accept(batch program.ByteBatch) {
 }
 
 func (a *agent) finishRun(err error) {
-	a.conversation.FinishMarkdown(a.scope.Context(), err)
-	if retainErr := a.conversation.Err(); retainErr != nil {
-		err = errors.Join(err, retainErr)
-	}
+	err = a.conversation.FinishMarkdown(a.scope.Context(), err)
 	if a.stopClock != nil {
 		a.stopClock()
 		a.stopClock = nil
 	}
-	if a.review != nil {
-		a.answerReview(false)
+	if reviewErr := a.answerReview(false); reviewErr != nil {
+		err = errors.Join(err, reviewErr)
 	}
 	if a.run != nil {
 		a.run.Cancel()
@@ -387,7 +387,9 @@ func (a *agent) finishRun(err error) {
 	case err != nil:
 		a.status.Doing = "failed: " + err.Error()
 		native.State = term.ProgressError
-		a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()})
+		if appendErr := a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()}); appendErr != nil {
+			a.status.Doing = "failed: " + errors.Join(err, appendErr).Error()
+		}
 	default:
 		a.status.Doing = "complete"
 		_ = a.runtime.Session().Notify("mock agent completed")
@@ -423,8 +425,8 @@ func (a *agent) stopRun() {
 	a.status.Doing = "cancelling"
 	a.element.Invalidate()
 	a.run.Cancel()
-	if a.review != nil {
-		a.answerReview(false)
+	if err := a.answerReview(false); err != nil {
+		a.finishRun(err)
 	}
 }
 
@@ -473,10 +475,12 @@ func (a *agent) buildReview() {
 		Fields: []base.Field{a.reviewConfirm}, Keys: base.DefaultFormKeys(),
 		Hints: []keymap.Action{base.Submit, base.Cancel},
 		Submit: func(id base.SubmissionID) (scene.ActionResult[base.SubmissionID], error) {
-			a.answerReview(a.reviewConfirm.Answer())
+			if err := a.answerReview(a.reviewConfirm.Answer()); err != nil {
+				return scene.ActionResult[base.SubmissionID]{}, err
+			}
 			return scene.ActionResult[base.SubmissionID]{State: scene.Applied, Value: id}, nil
 		},
-		Cancel: func(base.SubmissionID) error { a.answerReview(false); return nil },
+		Cancel: func(base.SubmissionID) error { return a.answerReview(false) },
 	})
 	a.reviewForm = dressed.Controller()
 	change := kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Numbers: true})
@@ -486,30 +490,37 @@ func (a *agent) buildReview() {
 		}
 		return 0
 	}})
-	a.reviewPane = reviewPane{diff: change, window: base.NewViewport(base.ViewportConfig{Content: content}), form: dressed, theme: a.theme}
+	a.reviewPane = reviewPane{sessionKey: a.sessionKey, diff: change, window: base.NewViewport(base.ViewportConfig{Content: content}), form: dressed, theme: a.theme}
 	if err := a.reviewPane.window.Element().SetFocusable(func() bool { return false }); err != nil {
 		panic(err)
 	}
 	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
 		Theme: a.theme, Glyphs: a.glyphs,
+		Dismissed: func() {
+			if err := a.answerReview(false); err != nil {
+				a.finishRun(err)
+			}
+		},
 		Title: "Review tool call", Body: a.reviewPane.Element(), Where: layout.Placement{Width: 76, Height: 16, Margin: 1},
 	})
 }
 
 func (a *agent) openReview(request *reviewRequest) {
-	if a.review != nil {
-		a.answerReview(false)
+	err := a.answerReview(false)
+	if err == nil {
+		err = a.conversation.FinishMarkdown(a.scope.Context(), nil)
 	}
-	a.conversation.FlushMarkdown(a.scope.Context())
-	if err := a.conversation.Err(); err != nil {
+	if err != nil {
 		a.finishRun(err)
 		request.answer <- false
 		return
 	}
 	a.review = request
 	if _, err := a.reviewConfirm.Request(a.scope.Context(), base.ConfirmRequest{ExpectedRevision: a.reviewConfirm.Snapshot().Revision, Value: true}); err != nil {
-		a.status.Doing = err.Error()
-		a.answerReview(false)
+		if denyErr := a.answerReview(false); denyErr != nil {
+			err = errors.Join(err, denyErr)
+		}
+		a.finishRun(err)
 		return
 	}
 	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
@@ -519,35 +530,31 @@ func (a *agent) openReview(request *reviewRequest) {
 	a.reviewDialog.Controller().Show()
 }
 
-func (a *agent) answerReview(approved bool) {
+func (a *agent) answerReview(approved bool) error {
 	request := a.review
 	if request == nil {
-		return
+		return nil
 	}
 	a.review = nil
 	a.reviewDialog.Controller().Dismiss()
 	request.answer <- approved
 	if approved {
 		a.status.Doing = "applying approved change"
-		return
+		return nil
 	}
 	a.status.Doing = "tool call denied"
-	a.conversation.Append(a.scope.Context(), &kit.Entry{
+	return a.conversation.Append(a.scope.Context(), &kit.Entry{
 		Theme: a.theme, Label: "tool", Body: request.proposal.Path + " — denied",
 	})
 }
 
 func (a *agent) showTool(result toolResult) {
-	a.conversation.FlushMarkdown(a.scope.Context())
-	a.conversation.Append(a.scope.Context(), &kit.Entry{
-		Theme: a.theme, Label: result.Name, Body: oneLine(result.Summary),
-	})
+	entry := &kit.Entry{Theme: a.theme, Label: result.Name, Body: oneLine(result.Summary)}
 	shown := kit.NewDiff(kit.DiffConfig{
 		Theme: a.theme, Glyphs: a.glyphs,
 		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
 	})
-	a.conversation.Append(a.scope.Context(), shown)
-	if err := a.conversation.Err(); err != nil {
+	if err := a.conversation.Append(a.scope.Context(), entry, shown); err != nil {
 		a.finishRun(err)
 	}
 }

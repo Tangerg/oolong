@@ -171,10 +171,13 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 	if r == nil || r.mutable() != nil || event.root != r {
 		return false
 	}
-	r.settleFocus()
-	r.FlushNotifications()
 	r.inputTurn = next(r.inputTurn)
 	turn := r.inputTurn
+	r.settleFocus()
+	r.FlushNotifications()
+	if r.inputTurn != turn || r.mutable() != nil {
+		return true
+	}
 	var consumed bool
 	if mouse, ok := event.input.(input.Mouse); ok {
 		if event.layout != nil && event.layout.epoch != r.geometryEpoch {
@@ -199,7 +202,7 @@ func (r *Root) mouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 		if n := r.resolve(previous.target); n != nil && !previous.revoked {
 			previous.cancel(n)
 		}
-		if r.inputTurn != turn {
+		if r.inputTurn != turn || r.mutable() != nil {
 			return true
 		}
 		if mouse.Action == input.MouseCancel {
@@ -264,7 +267,7 @@ func (r *Root) revokeCapture(mouse input.Mouse, held capture, n *node) {
 }
 
 func (r *Root) currentContent(n *node, placement geometry) bool {
-	return n.config.Semantics == nil || r.project(n.config.Semantics).ContentRevision == placement.content
+	return r.contentVersion(n) == placement.content
 }
 
 func (r *Root) hitMouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
@@ -313,8 +316,12 @@ func (r *Root) preview(start *node, event input.Event, snapshot *layoutSnapshot)
 	}
 	origin := start.target()
 	var path []Target
+	modal := r.modal()
 	for n := start; n != nil && r.enabled(n); n = n.parent {
 		path = append(path, n.target())
+		if n == modal {
+			break
+		}
 	}
 	for _, target := range slices.Backward(path) {
 		n := r.resolve(target)
@@ -332,15 +339,31 @@ func (r *Root) preview(start *node, event input.Event, snapshot *layoutSnapshot)
 			}
 			area = placement.area
 		}
-		if r.dispatch(n, n.config.Preview, event, area, snapshot).Consumed || r.resolve(origin) == nil {
+		if r.dispatch(n, n.config.Preview, event, area, snapshot).Consumed || !r.routeCurrent(origin, snapshot) {
 			return true
 		}
 	}
 	return false
 }
 
+func (r *Root) routeCurrent(origin Target, snapshot *layoutSnapshot) bool {
+	n := r.resolve(origin)
+	if r.mutable() != nil || !r.allowed(n) {
+		return false
+	}
+	if snapshot == nil {
+		return true
+	}
+	p, ok := findGeometry(snapshot, origin)
+	return snapshot.epoch == r.geometryEpoch && ok && r.currentContent(n, p)
+}
+
 func (r *Root) bubble(start *node, event input.Event, snapshot *layoutSnapshot) bool {
-	if r.preview(start, event, snapshot) {
+	if start == nil {
+		return false
+	}
+	origin := start.target()
+	if !r.routeCurrent(origin, snapshot) || r.preview(start, event, snapshot) {
 		return true
 	}
 	for n := start; n != nil; n = n.parent {
@@ -357,7 +380,7 @@ func (r *Root) bubble(start *node, event input.Event, snapshot *layoutSnapshot) 
 			area = placement.area
 		}
 		result := r.deliver(n, event, area, snapshot)
-		if result.Consumed || r.resolve(target) == nil {
+		if result.Consumed || !r.routeCurrent(origin, snapshot) {
 			return true
 		}
 	}
@@ -387,7 +410,7 @@ func (r *Root) dispatch(n *node, handle func(Event) EventResult, event input.Eve
 	defer func() { r.delivery = next(r.delivery) }()
 	delivery := Event{input: event, target: target, root: r, area: area, layout: snapshot, turn: turn, delivery: r.delivery, focusTurn: focusTurn}
 	result := handle(delivery)
-	if r.resolve(target) == nil || r.inputTurn != turn || !pointer && r.focusTurn != focusTurn {
+	if r.mutable() != nil || r.resolve(target) == nil || r.inputTurn != turn || !pointer && r.focusTurn != focusTurn {
 		return EventResult{Consumed: true}
 	}
 	if result.Focus {

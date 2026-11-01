@@ -21,6 +21,7 @@ type DialogConfig struct {
 	Where              layout.Placement
 	Border             Border
 	DismissOutside     bool
+	Dismissed          func()
 	Keys               *keymap.Map
 }
 
@@ -42,7 +43,7 @@ func NewDialog(config DialogConfig) *Dialog {
 	d := &Dialog{appearance: look, Where: config.Where}
 	d.panel = NewPanel(PanelConfig{Box: Box{Glyphs: config.Glyphs, Border: config.Border, Padding: layout.Symmetric(0, 1)}, Content: config.Body})
 	d.controller = base.NewDialog(base.DialogConfig{
-		Initial: config.Initial, Title: config.Title, Description: config.Description, Content: d.panel.Element(), Keys: config.Keys, DismissOutside: config.DismissOutside,
+		Initial: config.Initial, Title: config.Title, Description: config.Description, Content: d.panel.Element(), Keys: config.Keys, DismissOutside: config.DismissOutside, Dismissed: config.Dismissed,
 		Place:    func(space image.Point) image.Rectangle { return d.Where.In(space) },
 		Backdrop: func(frame scene.Frame) { d.appearance.palette().Scrim.Over(frame.View) },
 	})

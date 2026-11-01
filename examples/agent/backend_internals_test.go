@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 
@@ -159,5 +160,39 @@ func TestLateIngressCannotFinishTheNextAgentRun(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSemanticDismissAnswersTheWaitingReview(t *testing.T) {
+	started := make(chan *agentBridge, 1)
+	host, stop := runAgent(t, captureRuns{started})
+	defer stop()
+	host.Type("review")
+	host.Press(input.Enter)
+	bridge := <-started
+	type outcome struct {
+		approved bool
+		err      error
+	}
+	replied := make(chan outcome, 1)
+	go func() {
+		yes, err := bridge.Review(t.Context(), changeProposal{Path: "main.go", Summary: "review change"})
+		replied <- outcome{yes, err}
+	}()
+	host.Shows(t, "Review tool call")
+	if err := bridge.dispatch.Invoke(t.Context(), func() error {
+		a := bridge.owner
+		_, err := a.runtime.Scene().Invoke(t.Context(), a.reviewDialog.Element().Target(), scene.ActionDismiss, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-replied:
+		if got.approved || got.err != nil {
+			t.Fatalf("dismissal returned %+v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("dismissed a dialog without answering its backend")
 	}
 }

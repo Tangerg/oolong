@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
@@ -62,19 +65,29 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 	}
 	c := newConversation(kit.Theme{}, kit.GlyphsFor(""), input.Wheel{}, publisher)
 	draw(t, c, 10)
-	c.Markdown(t.Context(), "<")
-	c.Markdown(t.Context(), "!-- hidden -->")
-	c.FlushMarkdown(t.Context())
-	if c.item.State() == base.ContentLive {
+	first, err := c.beginMarkdown()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Markdown(t.Context(), "<"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Markdown(t.Context(), "!-- hidden -->"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.FinishMarkdown(t.Context(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if first.State() == base.ContentLive {
 		t.Fatal("the answer remained live after EOF")
 	}
-	first := c.item
 	for range 20 {
-		c.Markdown(t.Context(), "a line\n\n")
-		c.FlushMarkdown(t.Context())
-	}
-	if c.Err() != nil {
-		t.Fatal(c.Err())
+		if err := c.Markdown(t.Context(), "a line\n\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.FinishMarkdown(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if c.content.Len() != 8 || first.State() != base.ContentRetired || first.Receipt().Snapshot().ID == 0 {
 		t.Fatal("settled content did not transfer to the publisher")
@@ -86,15 +99,21 @@ func TestMoreOfTheSameAnswerDoesNotTakeTheReaderBackToIt(t *testing.T) {
 	// great many pieces, and the piece that happens to arrive with no open block
 	// behind it is no more a reason to move them than any of the others.
 	c := newTestConversation(t)
-	c.User(t.Context(), strings.Repeat("a long prompt that fills the window\n", 20))
-	c.Markdown(t.Context(), "first\n\n<!-- separator -->\n\n")
+	if err := c.User(t.Context(), strings.Repeat("a long prompt that fills the window\n", 20)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Markdown(t.Context(), "first\n\n<!-- separator -->\n\n"); err != nil {
+		t.Fatal(err)
+	}
 	draw(t, c, 6)
 	c.content.Scroll().ToTop()
 	if c.content.Scroll().FollowingEnd() {
 		t.Fatal("the reader is at the end after scrolling to the top")
 	}
 
-	c.Markdown(t.Context(), "second\n\nthird\n")
+	if err := c.Markdown(t.Context(), "second\n\nthird\n"); err != nil {
+		t.Fatal(err)
+	}
 	draw(t, c, 6)
 	if c.content.Scroll().FollowingEnd() {
 		t.Fatal("more of the same answer took the reader back to the end of it")
@@ -108,15 +127,70 @@ func TestTextThatTurnedOutToBeACommentStopsBeingOnTheScreen(t *testing.T) {
 	for _, settle := range []string{"open", "flushed"} {
 		t.Run(settle, func(t *testing.T) {
 			c := newTestConversation(t)
-			c.Markdown(t.Context(), "<")
+			if err := c.Markdown(t.Context(), "<"); err != nil {
+				t.Fatal(err)
+			}
 			draw(t, c, 8)
-			c.Markdown(t.Context(), "!-- hidden -->")
+			if err := c.Markdown(t.Context(), "!-- hidden -->"); err != nil {
+				t.Fatal(err)
+			}
 			if settle == "flushed" {
-				c.FlushMarkdown(t.Context())
+				if err := c.FinishMarkdown(t.Context(), nil); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if got := drawn(t, c, 8); strings.Contains(got, "<") {
 				t.Fatalf("the screen still says %q", got)
 			}
 		})
+	}
+}
+
+func TestFinalRendererFailureCannotAnnounceRunSuccess(t *testing.T) {
+	started := make(chan *agentBridge, 1)
+	host, stop := runAgent(t, captureRuns{started})
+	defer stop()
+	host.Type("verify final document")
+	host.Press(input.Enter)
+	bridge := <-started
+	failure := errors.New("final projection failed")
+	if err := bridge.dispatch.Invoke(t.Context(), func() error {
+		a := bridge.owner
+		a.conversation.render = func(context.Context, string) (grid.Drawable, error) {
+			return nil, failure
+		}
+		if err := a.conversation.Markdown(t.Context(), "retained source"); err != nil {
+			return err
+		}
+		a.finishRun(nil)
+		if !strings.Contains(a.status.Doing, failure.Error()) {
+			t.Errorf("failed final renderer produced status %q", a.status.Doing)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSourceErrorDoesNotPoisonTheNextRun(t *testing.T) {
+	started := make(chan *agentBridge, 2)
+	host, stop := runAgent(t, captureRuns{started})
+	defer stop()
+	host.Type("first")
+	host.Press(input.Enter)
+	first := <-started
+	if err := first.dispatch.Invoke(t.Context(), func() error {
+		a := first.owner
+		a.accept(program.ByteBatch{Data: make([]byte, (1<<20)+1)})
+		if a.run != nil || !strings.Contains(a.status.Doing, "failed:") {
+			t.Errorf("oversized first run: %s", a.status.Doing)
+		}
+		a.startRun("independent next run")
+		if a.run == nil {
+			t.Errorf("previous failure leaked to next run: %s", a.status.Doing)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

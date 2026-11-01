@@ -511,11 +511,13 @@ func (f *Form) Submission() Submission {
 // Cancel requests cancellation of the pending attempt. It does not settle the attempt; the worker or application must deliver Settle.
 func (f *Form) Cancel() error {
 	requireMutable(f.Element())
-	if f.cancel == nil || f.attempt.State != SubmissionPending {
+	if !f.canCancel() {
 		return ErrNotCancellable
 	}
 	return f.cancel(f.attempt.ID)
 }
+
+func (f *Form) canCancel() bool { return f.cancel != nil && f.attempt.State == SubmissionPending }
 
 // HeightForWidth measures fields, inter-field gaps and the current form problem without validating or changing submission state.
 func (f *Form) HeightForWidth(width int) int {
@@ -556,6 +558,9 @@ func (f *Form) Do(action keymap.Action) bool {
 	case Submit:
 		_, _ = f.Submit()
 	case Cancel:
+		if !f.canCancel() {
+			return false
+		}
 		id := f.attempt.ID
 		if err := f.Cancel(); err != nil && f.attempt.ID == id && f.attempt.State == SubmissionPending {
 			f.problem = err

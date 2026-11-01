@@ -16,42 +16,46 @@ type RootConfig struct {
 	// InputHistory bounds timestamp lookup for host-buffered mouse reports.
 	// Already captured inputs retain their own immutable snapshot separately.
 	InputHistory int
-	Now          func() time.Time
+	// MaxPendingFrames bounds admitted input maps awaiting writer confirmation.
+	// Zero allows eight. Prepare returns ErrBusy at capacity, before painting.
+	MaxPendingFrames int
+	Now              func() time.Time
 }
 
 // Root is the sole owner of live attachment, actual focus, capture and geometry.
 // Except CaptureInput, its operations run on the UI owner sequence.
 // A Root must not be copied after first use.
 type Root struct {
-	noCopy          noCopy
-	content         Element
-	nodes           map[NodeID]*node
-	nextID          uint64
-	modelRevision   uint64
-	focus           Target
-	capture         capture
-	hover           Target
-	scopes          []focusScope
-	changes         chan struct{}
-	notifications   []lifecycleCall
-	flushing        bool
-	preparing       bool
-	observing       bool
-	closed          bool
-	pending         *Prepared
-	layout          *layoutSnapshot
-	written         *layoutSnapshot
-	inFlight        *layoutSnapshot
-	lastSequence    uint64
-	writtenSequence uint64
-	published       atomic.Pointer[writtenHistory]
-	inputHistory    int
-	now             func() time.Time
-	geometryEpoch   uint64
-	namespace       *namespace
-	delivery        uint64
-	inputTurn       uint64
-	focusTurn       uint64
+	noCopy           noCopy
+	content          Element
+	nodes            map[NodeID]*node
+	nextID           uint64
+	modelRevision    uint64
+	focus            Target
+	capture          capture
+	hover            Target
+	scopes           []focusScope
+	changes          chan struct{}
+	notifications    []lifecycleCall
+	flushing         bool
+	preparing        bool
+	observing        bool
+	closed           bool
+	pending          *Prepared
+	layout           *layoutSnapshot
+	written          *layoutSnapshot
+	inFlight         []*layoutSnapshot
+	maxPendingFrames int
+	lastSequence     uint64
+	writtenSequence  uint64
+	published        atomic.Pointer[writtenHistory]
+	inputHistory     int
+	now              func() time.Time
+	geometryEpoch    uint64
+	namespace        *namespace
+	delivery         uint64
+	inputTurn        uint64
+	focusTurn        uint64
 }
 
 type namespace struct{ _ byte }
@@ -60,8 +64,12 @@ type namespace struct{ _ byte }
 func NewRoot(cfg RootConfig) (*Root, error) {
 	r := &Root{nodes: make(map[NodeID]*node), changes: make(chan struct{})}
 	r.namespace = &namespace{}
-	if cfg.InputHistory < 0 {
+	if cfg.InputHistory < 0 || cfg.MaxPendingFrames < 0 {
 		return nil, ErrInvalid
+	}
+	r.maxPendingFrames = cfg.MaxPendingFrames
+	if r.maxPendingFrames == 0 {
+		r.maxPendingFrames = 8
 	}
 	r.inputHistory = cfg.InputHistory
 	if r.inputHistory == 0 {
@@ -224,8 +232,8 @@ func (r *Root) resolve(target Target) *node {
 	if r == nil || r.closed || target.root != r {
 		return nil
 	}
-	n := r.nodes[target.Node]
-	if n == nil || n.generation != target.Generation || n.config.Part != target.Part {
+	n := r.nodes[target.node]
+	if n == nil || n.generation != target.generation || n.config.Part != target.part {
 		return nil
 	}
 	return n
@@ -243,6 +251,10 @@ func (r *Root) project[T any](read func() T) T {
 	if r.pending != nil {
 		panic(ErrBusy)
 	}
+	return r.readOnly(read)
+}
+
+func (r *Root) readOnly[T any](read func() T) T {
 	previous := r.observing
 	r.observing = true
 	defer func() { r.observing = previous }()
@@ -327,7 +339,7 @@ func (r *Root) setFocus(target Target) {
 	previous := r.focus
 	r.focus = target
 	r.focusTurn = next(r.focusTurn)
-	if old := r.nodes[previous.Node]; previous.root == r && old != nil && old.generation == previous.Generation {
+	if old := r.nodes[previous.node]; previous.root == r && old != nil && old.generation == previous.generation {
 		if notify := old.config.FocusChanged; notify != nil {
 			r.notify(old, func() { notify(false) })
 		}
@@ -470,7 +482,14 @@ func (r *Root) FlushNotifications() {
 		return
 	}
 	r.flushing = true
-	defer func() { r.flushing = false }()
+	defer func() {
+		r.flushing = false
+		// A closed runtime may never have another owner turn. Even while
+		// unwinding a failed callback, finish every revoked generation's cleanup.
+		if r.closed && len(r.notifications) != 0 {
+			r.FlushNotifications()
+		}
+	}()
 	for remaining := len(r.notifications); len(r.notifications) > 0 && (remaining > 0 || r.closed); remaining-- {
 		// Claim only this callback. A panic or Goexit must not discard its
 		// successors, and a recursive flush must not overtake them.
@@ -517,7 +536,7 @@ func (r *Root) Changes() <-chan struct{} {
 	return r.changes
 }
 
-// Close revokes every attachment and clears routing state. A later call can finish notifications interrupted by a callback.
+// Close revokes every attachment and clears routing state. Every pending cleanup runs even if another callback exits abnormally.
 // It panics during a pure phase or while a prepared candidate awaits settlement; abort that candidate first.
 func (r *Root) Close() {
 	if r == nil {

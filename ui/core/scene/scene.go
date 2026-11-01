@@ -47,14 +47,23 @@ type (
 // Target names one attachment in one root. Copying it does not extend that
 // attachment's lifetime; a later element with the same key is a different target.
 type Target struct {
-	Node       NodeID
-	Generation Generation
-	Part       PartID
+	node       NodeID
+	generation Generation
+	part       PartID
 	root       *Root
 }
 
+// Node names the element within this root's namespace.
+func (t Target) Node() NodeID { return t.node }
+
+// Generation identifies this particular mount of the node.
+func (t Target) Generation() Generation { return t.generation }
+
+// Part identifies the component part addressed by this attachment.
+func (t Target) Part() PartID { return t.part }
+
 // IsZero reports whether this handle names no attachment.
-func (t Target) IsZero() bool { return t.root == nil || t.Node == 0 }
+func (t Target) IsZero() bool { return t.root == nil || t.node == 0 }
 
 // Valid is an owner-turn query, not a concurrency-safe lifetime lease.
 func (t Target) Valid() bool { return t.root != nil && t.root.resolve(t) != nil }
@@ -356,7 +365,7 @@ func (e Element) Measure(axis layout.Axis, across int) int {
 }
 
 func (n *node) target() Target {
-	return Target{Node: n.id, Generation: n.generation, Part: n.config.Part, root: n.root}
+	return Target{node: n.id, generation: n.generation, part: n.config.Part, root: n.root}
 }
 
 // Item is one keyed child relation and its layout request.
