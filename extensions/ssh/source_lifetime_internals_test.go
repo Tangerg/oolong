@@ -44,3 +44,19 @@ func TestSourceReportsAReaderExitAfterDeliveringAcceptedBytes(t *testing.T) {
 		}
 	})
 }
+
+type panickingReader struct{ cause error }
+
+func (r panickingReader) Read([]byte) (int, error) { panic(r.cause) }
+
+func TestSSHReaderPanicEndsItsOwnSession(t *testing.T) {
+	cause := errors.New("ssh read failure")
+	source := newEventSource(t.Context().Done(), panickingReader{cause}, nil, nil, nil)
+	defer source.Close()
+	for range source.Events() {
+		t.Fatal("unexpected input after panic")
+	}
+	if !errors.Is(source.Err(), cause) || !errors.Is(source.Err(), errReadInterrupted) {
+		t.Fatal("lost read failure", source.Err())
+	}
+}

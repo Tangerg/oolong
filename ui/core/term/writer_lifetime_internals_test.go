@@ -54,3 +54,47 @@ func TestWriterExitSettlesAcceptedFramesAndEndsAdmission(t *testing.T) {
 		}
 	})
 }
+
+type destinationPanic struct{ cause error }
+
+func (d destinationPanic) Write([]byte) (int, error) { panic(d.cause) }
+
+func TestDestinationPanicSettlesWriterWithoutKillingItsSession(t *testing.T) {
+	cause := errors.New("broken terminal bridge")
+	w := NewWriter(WriterConfig{Destination: destinationPanic{cause}})
+	if _, err := w.Queue([]byte("frame")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(w.Err(), cause) || !errors.Is(w.Err(), errWriteInterrupted) || w.Written() != 0 {
+		t.Fatalf("write=%d error=%v", w.Written(), w.Err())
+	}
+	_ = w.Close()
+}
+
+type partialRefusal struct{ calls int }
+
+func (d *partialRefusal) Write([]byte) (int, error) {
+	d.calls++
+	return 1, ErrFrameRefused
+}
+
+func TestPartialRefusalCannotAuthorizeAnotherTerminalWrite(t *testing.T) {
+	d := &partialRefusal{}
+	w := NewWriter(WriterConfig{Destination: d})
+	defer func() { _ = w.Close() }()
+	if _, err := w.Queue([]byte("long frame")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if seq, err := w.QueueControl([]byte("restore")); seq != 0 || err == nil {
+		t.Fatalf("control frame admitted after ambiguous prefix: seq=%d error=%v", seq, err)
+	}
+	if d.calls != 1 || w.Written() != 0 {
+		t.Fatalf("writes=%d watermark=%d", d.calls, w.Written())
+	}
+}

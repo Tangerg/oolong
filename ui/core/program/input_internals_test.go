@@ -42,8 +42,8 @@ func TestNormalizedInputBudgetPreservesEdges(t *testing.T) {
 		t.Fatal("budget was not returned to the reader")
 	}
 	<-pipe.done
-	if pipe.err != nil {
-		t.Fatal(pipe.err)
+	if pipe.err() != nil {
+		t.Fatal(pipe.err())
 	}
 }
 
@@ -56,8 +56,8 @@ func TestOversizedNormalizedInputEndsWithAnExplicitCause(t *testing.T) {
 	if _, open := <-pipe.events; open {
 		t.Fatal("oversized input retained")
 	}
-	if !errors.Is(pipe.err, ErrInputTooLarge) {
-		t.Fatalf("cause = %v", pipe.err)
+	if !errors.Is(pipe.err(), ErrInputTooLarge) {
+		t.Fatalf("cause = %v", pipe.err())
 	}
 }
 
@@ -74,8 +74,8 @@ func TestNormalizedInputCannotBypassTheBudgetThroughItsShape(t *testing.T) {
 			t.Errorf("%T bypassed budget with a charge of %d", tc.event, item.bytes)
 		}
 		<-pipe.done
-		if !errors.Is(pipe.err, tc.want) {
-			t.Errorf("%T ended with %v, want %v", tc.event, pipe.err, tc.want)
+		if !errors.Is(pipe.err(), tc.want) {
+			t.Errorf("%T ended with %v, want %v", tc.event, pipe.err(), tc.want)
 		}
 	}
 }
@@ -88,4 +88,30 @@ func TestSceneCannotRetainAMutableInputAlias(t *testing.T) {
 	if arrival.Input() != nil || p.root.HandleInput(arrival) {
 		t.Fatal("mutable input escaped the capture boundary")
 	}
+}
+
+type sourceWithResult struct {
+	pipeSource
+	result func() error
+}
+
+func (s *sourceWithResult) Err() error { return s.result() }
+
+func TestInputSourceFailureUnwindsOnTheProgramOwner(t *testing.T) {
+	cause := errors.New("source failed while obtaining final status")
+	var called bool
+	s := &sourceWithResult{result: func() error { called = true; panic(cause) }}
+	s.events = make(chan input.Event)
+	close(s.events)
+	p := newInputPipe(t.Context(), nil, s, s.Events(), Config{})
+	<-p.done
+	if called {
+		t.Fatal("input worker invoked external status callback")
+	}
+	defer func() {
+		if got, ok := recover().(error); !ok || !errors.Is(got, cause) {
+			t.Error("owner did not receive the original panic")
+		}
+	}()
+	_ = p.err()
 }

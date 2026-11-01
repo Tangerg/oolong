@@ -206,11 +206,11 @@ func (i *ByteIngress) drain() bool {
 	i.mu.Unlock()
 
 	i.signalRoom()
+	if batch.Final {
+		defer i.settle()
+	}
 	if len(batch.Data) > 0 || batch.Final {
 		consume(batch)
-	}
-	if batch.Final {
-		i.settle()
 	}
 	return len(batch.Data) > 0 || batch.Final
 }
@@ -234,8 +234,8 @@ func (i *ByteIngress) stop() {
 	i.mu.Unlock()
 
 	// stopped and settled are deliberately not the same bit. A final consumer runs
-	// after stopped is published; if it panics, the dispatcher shutdown path arrives
-	// here with stopped already true and must still release every Done waiter.
+	// after stopped is published. Its deferred cleanup or a concurrent dispatcher
+	// shutdown must still release every Done waiter exactly once.
 	i.signalRoom()
 	i.settle()
 }

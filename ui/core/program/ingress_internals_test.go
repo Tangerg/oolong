@@ -116,7 +116,7 @@ func TestByteIngressFinalDeliverySettlesCrossBoundaryReferences(t *testing.T) {
 	tasks.stop()
 }
 
-func TestByteIngressOwnerShutdownSettlesAPanickingFinalConsumer(t *testing.T) {
+func TestFinalIngressConsumerUnwindSettlesBeforeOwnerShutdown(t *testing.T) {
 	tasks := newTaskQueue()
 	ingress, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: tasks}, Limit: 16, Consume: func(ByteBatch) {
 		panic("consumer failed")
@@ -136,11 +136,11 @@ func TestByteIngressOwnerShutdownSettlesAPanickingFinalConsumer(t *testing.T) {
 		queued[0]()
 	}()
 
-	tasks.stop()
+	defer tasks.stop()
 	select {
 	case <-ingress.Done():
-	case <-time.After(5 * time.Second):
-		t.Fatal("panicking final consumer left Done open after owner shutdown")
+	default:
+		t.Fatal("panicking final consumer left Done open until unrelated owner shutdown")
 	}
 }
 

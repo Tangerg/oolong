@@ -42,7 +42,8 @@ var ErrDrainTimeout = errors.New("term: writer did not drain")
 //
 // Any other error means the destination is gone, and everything queued behind it is
 // abandoned — a stream that has taken half a frame cannot be resumed. Both are
-// reported by [Writer.Err] and both are a reason to stop, because the display no
+// reported by [Writer.Err]. A nonzero write count with this error is a partial
+// write, never a clean refusal. Either is a reason to stop, because the display no
 // longer shows what the program believes it drew; only one of them also stops the
 // sequences that give the terminal back.
 var ErrFrameRefused = errors.New("term: destination refused the frame")
@@ -354,7 +355,7 @@ func (w *Writer) run() {
 			w.closed = true
 			w.queue.Clear()
 			w.pendingBytes, w.pendingFrames, w.controlBytes, w.controlFrames = 0, 0, 0, 0
-			w.finish(w.queued.current(), errWriteInterrupted)
+			w.finish(w.queued.current(), errWriteInterrupted, false)
 			w.queueMu.Unlock()
 		}
 		// The goroutine is the only reader of dst. Releasing it before publishing
@@ -374,9 +375,9 @@ func (w *Writer) run() {
 			completed = true
 			return
 		}
-		err := ErrClosed
+		err, refused := ErrClosed, false
 		if !w.discarding.Load() {
-			_, err = io.Copy(w.dst, bytes.NewReader(f.data))
+			refused, err = writeFrame(w.dst, f.data)
 		}
 		if err != nil {
 			arrived = false
@@ -384,8 +385,24 @@ func (w *Writer) run() {
 			w.written.Store(f.seq)
 		}
 		w.release(f)
-		w.finish(f.seq, err)
+		w.finish(f.seq, err, refused)
 	}
+}
+
+// Only a normal, zero-byte refusal leaves a usable stream. A panic or a
+// contradictory positive byte count can leave an escape sequence half written.
+func writeFrame(dst io.Writer, data []byte) (refused bool, err error) {
+	defer func() {
+		if v := recover(); v != nil {
+			cause, ok := v.(error)
+			if !ok {
+				cause = fmt.Errorf("panic: %v", v)
+			}
+			err = errors.Join(errWriteInterrupted, cause)
+		}
+	}()
+	n, err := io.Copy(dst, bytes.NewReader(data))
+	return n == 0 && errors.Is(err, ErrFrameRefused), err
 }
 
 // next waits for the next frame. Once closed, it drains the FIFO before stopping.
@@ -407,9 +424,9 @@ func (w *Writer) next() (frame, bool) {
 	}
 }
 
-func (w *Writer) finish(seq uint64, err error) {
+func (w *Writer) finish(seq uint64, err error, refused bool) {
 	w.recordFailure(err)
-	if err != nil && !errors.Is(err, ErrFrameRefused) {
+	if err != nil && !refused {
 		// Refusal must preserve this cause, and Drain cannot settle this frame before
 		// admission knows the destination is unusable.
 		w.discarding.Store(true)

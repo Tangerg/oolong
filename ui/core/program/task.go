@@ -3,6 +3,7 @@ package program
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 
@@ -156,7 +157,9 @@ type Task struct {
 }
 
 // Work transfers a result from Run on a worker to Apply on the UI owner. Run
-// must cooperate with cancellation; Apply must not block and may be revoked.
+// must cooperate with cancellation. A Run panic becomes an ErrTaskAborted failure
+// on that task; an error panic remains discoverable via errors.Is. Apply runs
+// synchronously, must not block, and may be revoked.
 type Work[T any] struct {
 	Run   func(context.Context) (T, error)
 	Apply func(T, error)
@@ -202,6 +205,15 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 	var value T
 	err := ErrTaskAborted
 	defer func() {
+		// The worker has no caller stack to unwind into. Report its failure on
+		// the task, so the UI owner still gets to decide and restore its session.
+		if v := recover(); v != nil {
+			cause, ok := v.(error)
+			if !ok {
+				cause = fmt.Errorf("panic: %v", v)
+			}
+			err = errors.Join(ErrTaskAborted, cause)
+		}
 		stopCancellation()
 		if ctx.Err() != nil {
 			t.noteCancellation()

@@ -108,7 +108,15 @@ func (s *eventSource) readInput() {
 		if !completed {
 			// The reader owns the ordered terminal result even when Read unwinds.
 			// Earlier accepted chunks still precede this failure in the raw stream.
-			s.offer(readResult{at: time.Now(), err: errReadInterrupted})
+			err := errReadInterrupted
+			if v := recover(); v != nil {
+				cause, ok := v.(error)
+				if !ok {
+					cause = fmt.Errorf("panic: %v", v)
+				}
+				err = errors.Join(err, cause)
+			}
+			s.offer(readResult{at: time.Now(), err: err})
 		}
 	}()
 	s.readChunks()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -254,5 +255,29 @@ func TestWorkerOutcomeKeepsDiagnosticCancellationErrors(t *testing.T) {
 				t.Fatalf("worker outcome=%+v", status)
 			}
 		})
+	}
+}
+
+func TestWorkerPanicSettlesOnItsOwnTask(t *testing.T) {
+	for _, value := range []any{errors.New("renderer failed"), "renderer failed"} {
+		p, rt := taskOwner(t)
+		scope, err := rt.NewScope(ScopeConfig{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var applied error
+		task, err := rt.Start(scope, Work[int]{Run: func(context.Context) (int, error) { panic(value) }, Apply: func(_ int, err error) { applied = err }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		settleTask(t, p, task)
+		st := task.Snapshot()
+		if st.State != TaskFailed || !errors.Is(applied, ErrTaskAborted) || !strings.Contains(applied.Error(), "renderer failed") {
+			t.Fatalf("panic became %+v, apply=%v", st, applied)
+		}
+		if cause, ok := value.(error); ok && !errors.Is(applied, cause) {
+			t.Fatal("lost panic error identity", applied)
+		}
+		scope.Close()
 	}
 }

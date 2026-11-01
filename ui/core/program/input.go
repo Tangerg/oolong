@@ -27,7 +27,7 @@ type inputPipe struct {
 	events   chan ownerInput
 	consumed chan int
 	done     chan struct{}
-	err      error // Published by closing events.
+	result   func() error // Transferred to the owner by closing events.
 }
 
 func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, cfg Config) *inputPipe {
@@ -67,7 +67,7 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 			item = ownerInput{repaint: true, reply: reply, bytes: 1}
 		case event, ok := <-events:
 			if !ok {
-				p.err = source.Err()
+				p.result = source.Err
 				return
 			}
 			captured := root.CaptureInput(event)
@@ -75,10 +75,10 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 		}
 		switch {
 		case item.bytes == 0:
-			p.err = ErrInvalidInput
+			p.result = func() error { return ErrInvalidInput }
 			return
 		case item.bytes > limit:
-			p.err = ErrInputTooLarge
+			p.result = func() error { return ErrInputTooLarge }
 			return
 		}
 		// The owner may be returning credit while the event queue is full.
@@ -100,4 +100,13 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 			}
 		}
 	}
+}
+
+// An external source's terminal callback belongs to the Run caller, where a
+// panic or goroutine exit unwinds normal program and terminal cleanup.
+func (p *inputPipe) err() error {
+	if p.result == nil {
+		return nil
+	}
+	return p.result()
 }

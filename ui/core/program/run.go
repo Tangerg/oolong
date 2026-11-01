@@ -285,7 +285,7 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 
 	case item, ok := <-p.inputPipe.events:
 		if !ok {
-			return true, p.inputPipe.err
+			return true, p.inputPipe.err()
 		}
 		select {
 		case p.inputPipe.consumed <- item.bytes:
