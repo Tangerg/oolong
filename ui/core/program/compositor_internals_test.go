@@ -210,7 +210,7 @@ func TestOrderedRepaintCannotReportUnadmittedOutput(t *testing.T) {
 	writer := &admissionWriter{refuse: true, changes: make(chan struct{}, 1)}
 	p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: writer}
 	var replied bool
-	err = p.answerRepaint(func(result error) {
+	err = p.answerRepaint(func(_, _ int, result error) {
 		replied = true
 		if !errors.Is(result, term.ErrQueueFull) {
 			t.Errorf("repaint receipt=%v", result)
@@ -218,6 +218,41 @@ func TestOrderedRepaintCannotReportUnadmittedOutput(t *testing.T) {
 	})
 	if !replied || !errors.Is(err, term.ErrQueueFull) || root.Progress().LayoutRevision != 0 {
 		t.Fatalf("unadmitted repaint: replied=%v err=%v layout=%d", replied, err, root.Progress().LayoutRevision)
+	}
+}
+
+func TestClaimedRepaintAnswersWhenPaintDoesNotReturn(t *testing.T) {
+	for _, exit := range []string{"panic", "Goexit"} {
+		t.Run(exit, func(t *testing.T) {
+			root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Paint: func(scene.Frame) {
+				if exit == "Goexit" {
+					runtime.Goexit()
+				}
+				panic("interrupt repaint")
+			}})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(root.Close)
+			p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: &admissionWriter{}}
+			var receipt error
+			var recovered any
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				defer func() { recovered = recover() }()
+				_ = p.answerRepaint(func(w, h int, failure error) {
+					if w != 0 || h != 0 {
+						t.Errorf("aborted paint reported %dx%d", w, h)
+					}
+					receipt = failure
+				})
+			}()
+			<-done
+			if !errors.Is(receipt, ErrInvocationAborted) || !p.frameFailed || (exit == "panic") != (recovered == "interrupt repaint") {
+				t.Fatalf("receipt=%v frameFailed=%t recovered=%v", receipt, p.frameFailed, recovered)
+			}
+		})
 	}
 }
 

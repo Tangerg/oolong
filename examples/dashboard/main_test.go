@@ -41,12 +41,14 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 		Action: input.MouseDown,
 		Button: input.ButtonLeft,
 	})
-	host.Until(t, "the rows to be in the order of the column that was pressed", func() bool {
-		host.Repaint()
-		frame := host.Frame()
-		lint, test := strings.Index(frame, "lint"), strings.Index(frame, "test")
-		return lint >= 0 && test >= 0 && lint < test
-	})
+	snapshot, err := host.Repaint(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lint, test := strings.Index(snapshot.Frame, "lint"), strings.Index(snapshot.Frame, "test")
+	if lint < 0 || test < 0 || lint >= test {
+		t.Fatalf("rows are not in the selected order: %q", snapshot.Frame)
+	}
 
 	// A numeric shortcut writes the caller-owned selection and asks the controller
 	// to settle focus. The same strip then projects that one source of truth.

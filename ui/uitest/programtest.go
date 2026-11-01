@@ -13,7 +13,6 @@
 package uitest
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -163,12 +162,46 @@ func (h *Host) Resize(width, height int) bool {
 	return true
 }
 
-// Repaint asks the program for a full frame at its current size.
-func (h *Host) Repaint() bool {
-	if h == nil || h.input == nil {
-		return false
+// FrameSnapshot records the output through one acknowledged full repaint and the
+// size of the painted canvas. Frame is the final write within Frames.
+type FrameSnapshot struct {
+	Width, Height int
+	Frame, Frames string
+}
+
+// Repaint requests a full frame after preceding input and waits for its delivery.
+// Bound ctx to the program lifetime: a program that stops before taking the request
+// cannot acknowledge it. Closing the host also releases the wait.
+func (h *Host) Repaint(ctx context.Context) (FrameSnapshot, error) {
+	if cause := context.Cause(ctx); cause != nil {
+		return FrameSnapshot{}, cause
 	}
-	return h.input.postRepaint(nil)
+	if h == nil || h.input == nil {
+		return FrameSnapshot{}, program.ErrStopped
+	}
+	result := make(chan error, 1)
+	var snapshot FrameSnapshot
+	admitted := h.input.postRepaint(func(width, height int, err error) {
+		if err == nil {
+			snapshot.Width, snapshot.Height = width, height
+			snapshot.Frame, snapshot.Frames = h.out.snapshot()
+		}
+		result <- err
+	})
+	if !admitted {
+		return FrameSnapshot{}, program.ErrStopped
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			return FrameSnapshot{}, err
+		}
+		return snapshot, nil
+	case <-ctx.Done():
+		return FrameSnapshot{}, context.Cause(ctx)
+	case <-h.input.ended:
+		return FrameSnapshot{}, program.ErrStopped
+	}
 }
 
 // Frames returns every byte written so far as a string.
@@ -176,18 +209,20 @@ func (h *Host) Frames() string {
 	if h == nil || h.out == nil {
 		return ""
 	}
-	return h.out.String()
+	_, frames := h.out.snapshot()
+	return frames
 }
 
 // Frame returns the most recent frame write.
 //
-// Ordinary frames are diffs. Call Repaint before an assertion that needs the whole
-// screen, or use Shows and Hides, which do that automatically.
+// Ordinary frames are diffs. Use the snapshot returned by Repaint for an assertion
+// that needs a full frame, or use Shows and Hides.
 func (h *Host) Frame() string {
 	if h == nil || h.out == nil {
 		return ""
 	}
-	return h.out.Last()
+	frame, _ := h.out.snapshot()
+	return strings.Clone(frame)
 }
 
 // Until waits for output activity until cond becomes true, failing the test with
@@ -236,31 +271,22 @@ func (h *Host) assertText(tb testing.TB, text string, want bool) {
 	ctx, cancel := context.WithTimeout(tb.Context(), assertionTimeout)
 	defer cancel()
 	for {
-		result := make(chan error, 1)
-		var frame string
-		if h == nil || h.input == nil || !h.input.postRepaint(func(err error) { frame = h.Frame(); result <- err }) {
-			tb.Fatal("uitest: repaint source is closed")
+		snapshot, err := h.Repaint(ctx)
+		if err != nil {
+			tb.Fatalf("uitest: waiting for visibility %t of %q: %v; last frame %q", want, text, err, h.Frame())
 		}
-		select {
-		case err := <-result:
-			if err != nil {
-				tb.Fatalf("uitest: repaint failed: %v", err)
-			}
-			visible, err := visibleRuns(frame)
-			if err != nil {
-				tb.Fatal(err)
-			}
-			if strings.Contains(visible, text) == want {
-				return
-			}
-		case <-ctx.Done():
-			tb.Fatalf("uitest: timed out waiting for visibility %t of %q; last frame %q", want, text, h.Frame())
+		visible, err := visibleRuns(snapshot.Frame)
+		if err != nil {
+			tb.Fatal(err)
+		}
+		if strings.Contains(visible, text) == want {
+			return
 		}
 	}
 }
 
 // Repaints is the ordered complete-frame request stream consumed by program.Run.
-func (h *Host) Repaints() <-chan func(error) {
+func (h *Host) Repaints() <-chan func(int, int, error) {
 	if h == nil || h.input == nil {
 		return nil
 	}
@@ -338,7 +364,7 @@ type eventSource struct {
 	closed bool
 
 	events   chan input.Event
-	repaints chan func(error)
+	repaints chan func(int, int, error)
 	wake     chan struct{}
 	done     chan struct{}
 	ended    chan struct{}
@@ -347,7 +373,7 @@ type eventSource struct {
 func newEventSource() *eventSource {
 	source := &eventSource{
 		events:   make(chan input.Event),
-		repaints: make(chan func(error)),
+		repaints: make(chan func(int, int, error)),
 		wake:     make(chan struct{}, 1),
 		done:     make(chan struct{}),
 		ended:    make(chan struct{}),
@@ -359,7 +385,7 @@ func newEventSource() *eventSource {
 type hostEvent struct {
 	input   input.Event
 	repaint bool
-	reply   func(error)
+	reply   func(int, int, error)
 }
 
 func (s *eventSource) post(event input.Event) bool { return s.enqueue(hostEvent{input: event}) }
@@ -370,7 +396,7 @@ func (s *eventSource) accepting() bool {
 	return !s.closed
 }
 
-func (s *eventSource) postRepaint(reply func(error)) bool {
+func (s *eventSource) postRepaint(reply func(int, int, error)) bool {
 	return s.enqueue(hostEvent{repaint: true, reply: reply})
 }
 
@@ -441,8 +467,8 @@ func (s *eventSource) close() {
 // sink accumulates terminal output and broadcasts each frame write to every waiter.
 type sink struct {
 	mu      sync.Mutex
-	all     bytes.Buffer
-	last    string
+	all     strings.Builder
+	last    int
 	changed chan struct{}
 }
 
@@ -450,7 +476,7 @@ func newSink() *sink { return &sink{changed: make(chan struct{})} }
 
 func (s *sink) Write(p []byte) (int, error) {
 	s.mu.Lock()
-	s.last = string(p)
+	s.last = s.all.Len()
 	n, err := s.all.Write(p)
 	changed := s.changed
 	s.changed = make(chan struct{})
@@ -459,16 +485,11 @@ func (s *sink) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (s *sink) String() string {
+func (s *sink) snapshot() (frame, frames string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.all.String()
-}
-
-func (s *sink) Last() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.last
+	frames = s.all.String()
+	return frames[s.last:], frames
 }
 
 func (s *sink) Changed() <-chan struct{} {

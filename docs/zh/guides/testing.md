@@ -10,7 +10,9 @@ contentType: How-to
 
 ## 选择测试边界
 
-直接控制器测试验证值与交互策略。`scene.Root` 候选验证挂载、焦点、语义动作、几何和中止行为。`ui/automation` 验证远程代理使用的相同查询与动作。将 `uitest.New` 作为 `program.Config.Host` 在进程内运行会话，使用 `uitest/ptytest` 验证终端屏幕或真实 PTY 一致性。
+直接控制器测试验证值与交互策略。`scene.Root` 候选验证挂载、焦点、语义动作、几何和中止行为。`ui/automation` 验证远程代理使用的相同查询与动作。将 `uitest.New` 作为 `program.ScreenConfig` 或 `program.InlineConfig` 的 Host 在进程内运行会话，使用 `uitest/ptytest` 验证终端屏幕或真实 PTY 一致性。
+
+需要断言某次重绘时，调用 `host.Repaint(ctx)`。快照包含实际绘制的画布尺寸、完整帧和截至该帧的全部输出；请求之后出现普通写入，并不代表请求的帧已经画好。给上下文设置时限，这样即使程序在接收请求前退出，测试也不会挂起。取消真实 PTY 会话时，即使直接子进程已经退出，同一进程组中仍占用终端的后代也会被终止。若输出结束时仍未出现所等待的内容，`WaitFor` 返回读取错误或 `io.EOF`。
 
 截图验证外观，但不能证明键盘和代理能够调用同一动作。相关事实重要时，应同时断言动作结果、target 生命周期、源修订或写入回执。
 

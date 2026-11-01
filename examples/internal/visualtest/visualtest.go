@@ -9,10 +9,12 @@ package visualtest
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/uitest"
@@ -67,29 +69,23 @@ func (h *Host) Capture(tb testing.TB) Capture {
 	if h == nil || h.Host == nil {
 		tb.Fatal("visualtest: capture from nil host")
 	}
-	before := len(h.Frames())
-	if !h.Repaint() {
-		tb.Fatal("visualtest: host refused repaint")
-	}
-	h.Until(tb, "a complete visual-test repaint", func() bool {
-		return len(h.Frames()) > before
-	})
-
-	width, height, err := h.Size()
+	ctx, cancel := context.WithTimeout(tb.Context(), 5*time.Second)
+	defer cancel()
+	snapshot, err := h.Repaint(ctx)
 	if err != nil {
-		tb.Fatalf("visualtest: read host size: %v", err)
+		tb.Fatalf("visualtest: repaint: %v", err)
 	}
-	screen, err := ptytest.NewScreen(ptytest.Size{Cols: width, Rows: height})
+	screen, err := ptytest.NewScreen(ptytest.Size{Cols: snapshot.Width, Rows: snapshot.Height})
 	if err != nil {
 		tb.Fatalf("visualtest: create screen: %v", err)
 	}
-	if err := screen.Apply([]byte(h.Frames())); err != nil {
+	if err := screen.Apply([]byte(snapshot.Frames)); err != nil {
 		tb.Fatalf("visualtest: interpret frames: %v", err)
 	}
 	if err := screen.Flush(); err != nil {
 		tb.Fatalf("visualtest: finish screen: %v", err)
 	}
-	return Capture{Rows: screen.Rows(), Encoding: h.Frame()}
+	return Capture{Rows: screen.Rows(), Encoding: snapshot.Frame}
 }
 
 // Match compares the visible part of rows with the golden file at path. Running the

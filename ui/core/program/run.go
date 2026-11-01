@@ -313,14 +313,20 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 // answerRepaint redraws from nothing and tells whoever asked how it went, before the
 // loop ends on the same error: a caller waiting on the reply would otherwise learn
 // only that the program had stopped.
-func (p *program) answerRepaint(reply func(error)) error {
-	err := p.repaint()
-	if reply != nil {
-		reply(err)
-	}
-	if err != nil {
-		p.frameFailed = true
-	}
+func (p *program) answerRepaint(reply func(int, int, error)) error {
+	err := ErrInvocationAborted
+	defer func() {
+		var width, height int
+		if err == nil {
+			width, height = p.canvas.Size()
+		} else {
+			p.frameFailed = true
+		}
+		if reply != nil {
+			reply(width, height, err)
+		}
+	}()
+	err = p.repaint()
 	return err
 }
 
@@ -631,11 +637,14 @@ func (p *program) repaint() error {
 
 // RepaintSource optionally supplies ordered requests for a complete output frame.
 // The source must deliver preceding input before delivering its repaint request.
-// Each callback runs on the program owner after that frame has settled, with nil
-// only when output succeeded. Callbacks must not block. A closed stream ends these
-// requests without ending ordinary input. Requests not received before Run ends
-// are abandoned; callers must also observe their Run context or completion.
-type RepaintSource interface{ Repaints() <-chan func(error) }
+// A claimed request receives the drawn size in cells or zero dimensions and an
+// error. An interrupted repaint reports [ErrInvocationAborted] as it unwinds.
+// Callbacks run on the program owner and must not block. Closing the stream only
+// ends repaint requests. Run can stop before claiming a request, so callers must
+// also observe their Run context or completion.
+type RepaintSource interface {
+	Repaints() <-chan func(width, height int, err error)
+}
 
 func frameDrainError(writer FrameWriter, drainErr error) error {
 	return errors.Join(ErrFrameTimeout, drainErr, writer.Err())

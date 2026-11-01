@@ -3,6 +3,7 @@ package uitest_test
 import (
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
 
@@ -209,4 +210,36 @@ func TestFramesKeepEveryWriteWhileFrameKeepsTheLast(t *testing.T) {
 	if frame := host.Frame(); strings.Contains(frame, "alpha") {
 		t.Errorf("Frame kept a superseded write: %q", frame)
 	}
+}
+
+func TestPrequeuedRepaintReportsTheCanvasThatReallyDrewIt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		host := uitest.New(t, uitest.Config{Width: 8, Height: 2})
+		result := make(chan uitest.FrameSnapshot, 1)
+		go func() {
+			snapshot, err := host.Repaint(t.Context())
+			if err != nil {
+				t.Error(err)
+			}
+			result <- snapshot
+		}()
+		synctest.Wait()
+		// The repaint was requested at 8×2, but before the program opened the
+		// terminal it grew. Its first and subsequent frames use the opening size.
+		host.Resize(20, 3)
+		run := make(chan error, 1)
+		go func() {
+			run <- runFixture(t.Context(), program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+				return fixtureElement(&component{runtime: runtime, text: "complete frame"}), nil
+			}})
+		}()
+		snapshot := <-result
+		host.Type("q")
+		if err := <-run; err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Width != 20 || snapshot.Height != 3 || !strings.Contains(snapshot.Frame, "complete frame") {
+			t.Fatalf("acknowledged the wrong canvas: %+v", snapshot)
+		}
+	})
 }

@@ -17,7 +17,7 @@ var ErrInputTooLarge = errors.New("program: input event exceeds queue byte budge
 type ownerInput struct {
 	event   scene.CapturedInput
 	repaint bool
-	reply   func(error)
+	reply   func(int, int, error)
 	bytes   int
 }
 
@@ -39,7 +39,7 @@ func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, eve
 		bytes = 4 << 20
 	}
 	p := &inputPipe{events: make(chan ownerInput, count), consumed: make(chan int, count+1), done: make(chan struct{})}
-	var repaints <-chan func(error)
+	var repaints <-chan func(int, int, error)
 	if source, ok := source.(RepaintSource); ok {
 		repaints = source.Repaints()
 	}
@@ -47,7 +47,7 @@ func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, eve
 	return p
 }
 
-func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(error), limit int) {
+func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), limit int) {
 	defer close(p.done)
 	defer close(p.events)
 	pending := 0

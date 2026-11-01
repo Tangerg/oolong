@@ -102,7 +102,6 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	// And the colour survived the chunk boundary: red is 31, which the frame carries
 	// as the colour the palette gives it.
 	host.Until(t, "the output to keep its colour", func() bool {
-		host.Repaint()
 		return strings.Contains(host.Frames(), "128;0;0")
 	})
 

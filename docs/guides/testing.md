@@ -10,7 +10,9 @@ Language: English | [简体中文](../zh/guides/testing.md)
 
 ## Choose the boundary
 
-Use direct controller tests for value and interaction policy. Use `scene.Root` candidates for attachment, focus, semantic actions, geometry and abort behavior. Use `ui/automation` for the same queries and actions a remote agent uses. Use `uitest.New` as a `program.Config.Host` to run sessions in process, and `uitest/ptytest` for terminal-screen or real-PTY conformance.
+Use direct controller tests for value and interaction policy. Use `scene.Root` candidates for attachment, focus, semantic actions, geometry and abort behavior. Use `ui/automation` for the same queries and actions a remote agent uses. Use `uitest.New` as the host in `program.ScreenConfig` or `program.InlineConfig` to run sessions in process, and `uitest/ptytest` for terminal-screen or real-PTY conformance.
+
+For an ordered visual assertion, call `host.Repaint(ctx)`. Its snapshot combines the actual canvas size, the full frame, and the output up through that frame. An ordinary write after a request does not prove the repaint happened. Bound the context so a test can also finish if the program exits before taking the request. A real PTY session closes on cancellation, including when its direct child has exited but another member of its process group retains the terminal. If a transcript token never arrived, `WaitFor` reports the reader failure or `io.EOF` once output ends.
 
 A screenshot checks appearance, but it does not prove that the same action is available to a keyboard or an agent. Pair visual assertions with action results, target lifetime, source revision or writer receipts when those facts matter.
 

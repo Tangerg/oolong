@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image"
 	"io"
-	"strings"
 	"sync"
 	"testing"
 
@@ -210,10 +209,7 @@ func TestTheChangeUnderReviewCanBeReadOnAShortTerminal(t *testing.T) {
 	host.Type("move validation into its owner")
 	host.Press(input.Enter)
 	host.Shows(t, "Allow this tool call?")
-	host.Until(t, "the change itself to be on the screen", func() bool {
-		host.Repaint()
-		return strings.Contains(host.Frame(), "func")
-	})
+	host.Shows(t, "func")
 }
 
 func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
@@ -225,10 +221,7 @@ func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
 	host.Type("move validation into its owner")
 	host.Press(input.Enter)
 	host.Shows(t, "Allow this tool call?")
-	host.Until(t, "the top of the change to be on the screen", func() bool {
-		host.Repaint()
-		return strings.Contains(host.Frame(), "func parse")
-	})
+	host.Shows(t, "func parse")
 
 	for range 6 {
 		host.Send(input.Mouse{
@@ -238,8 +231,5 @@ func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
 			Action: input.WheelDown,
 		})
 	}
-	host.Until(t, "the change to have scrolled past its first row", func() bool {
-		host.Repaint()
-		return !strings.Contains(host.Frame(), "func parse")
-	})
+	host.Hides(t, "func parse")
 }

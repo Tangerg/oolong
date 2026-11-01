@@ -1,12 +1,14 @@
 package uitest
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
@@ -115,5 +117,41 @@ func TestHostRejectsMutableOrEmptyInputBeforeQueueing(t *testing.T) {
 	}
 	if w, h, err := h.Size(); err != nil || w != 8 || h != 3 {
 		t.Fatalf("invalid event changed reported size: %d,%d %v", w, h, err)
+	}
+}
+
+func TestRepaintCapturesTheAcknowledgedFrame(t *testing.T) {
+	host := New(t, Config{Width: 8, Height: 3})
+	go func() {
+		reply := <-host.Repaints()
+		// A later resize can already be queued, and an unrelated frame can have
+		// arrived. Neither belongs to the geometry or last write acknowledged here.
+		host.Resize(9, 4)
+		_, _ = host.out.Write([]byte("prior"))
+		_, _ = host.out.Write([]byte("requested"))
+		reply(7, 2, nil)
+		_, _ = host.out.Write([]byte("later"))
+	}()
+	snapshot, err := host.Repaint(t.Context())
+	if err != nil || snapshot != (FrameSnapshot{Width: 7, Height: 2, Frame: "requested", Frames: "priorrequested"}) {
+		t.Fatalf("settled snapshot: %+v, %v", snapshot, err)
+	}
+}
+
+func TestRepaintReportsOwnerFailureAndAbandonment(t *testing.T) {
+	host := New(t, Config{Width: 8, Height: 3})
+	want := errors.New("frame was refused")
+	go func() { (<-host.Repaints())(0, 0, want) }()
+	if _, err := host.Repaint(t.Context()); !errors.Is(err, want) {
+		t.Fatalf("delivery error = %v", err)
+	}
+	ctx, cancel := context.WithCancelCause(t.Context())
+	go func() { <-host.Repaints(); cancel(want) }()
+	if _, err := host.Repaint(ctx); !errors.Is(err, want) {
+		t.Fatalf("cancelled wait = %v", err)
+	}
+	go func() { <-host.Repaints(); _ = host.Close() }()
+	if _, err := host.Repaint(t.Context()); !errors.Is(err, program.ErrStopped) {
+		t.Fatalf("closed host = %v", err)
 	}
 }
