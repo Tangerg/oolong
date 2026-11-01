@@ -82,12 +82,13 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	}
 	spans := make([]Span, 0, len(locations))
 	result.Matches = make([]Match, 0, len(locations))
+	columns := matchColumns{row: -1}
 	for _, location := range locations {
 		if err := ctx.Err(); err != nil {
 			return Result{Query: config.Query, Revision: config.Revision}, err
 		}
 		first := len(spans)
-		row, next, ok := spread(spans, location[0], location[1], config.Rows, starts)
+		row, next, ok := columns.spread(spans, location[0], location[1], config.Rows, starts)
 		if ok {
 			spans = next
 			last := len(spans)
@@ -119,7 +120,35 @@ func join(rows []text.Row) (joined string, starts []int) {
 	return b.String(), starts
 }
 
-func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Span, bool) {
+// Regex locations arrive in byte order. Retain the last grapheme so distinct
+// rune matches in the same displayed cell can each project its complete extent.
+type matchColumns struct {
+	row         int
+	start, end  int
+	left, right int
+}
+
+func (c *matchColumns) column(row int, value string, offset int, roundUp bool) int {
+	if row != c.row {
+		*c = matchColumns{row: row}
+	}
+	if offset > c.end {
+		for _, cluster := range text.Clusters(value[c.end:]) {
+			c.start, c.left = c.end, c.right
+			c.end += len(cluster)
+			c.right = text.Advance(cluster, c.left)
+			if offset <= c.end {
+				break
+			}
+		}
+	}
+	if offset > c.start && (offset == c.end || roundUp) {
+		return c.right
+	}
+	return c.left
+}
+
+func (c *matchColumns) spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Span, bool) {
 	first := rowAt(starts, rows, from)
 	if first < 0 {
 		return 0, dst, false
@@ -136,14 +165,9 @@ func spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Spa
 			// nothing between two others produces.
 			lo, hi = 0, 0
 		}
-		if lo < hi {
-			// A matching rune may be only part of the grapheme that owns its cells.
-			lo = text.PrevCluster(rows[i].Text, lo+1)
-		}
-		startCol := text.ColumnOf(rows[i].Text, lo)
-		dst = append(dst, Span{
-			Col: layout.Sum(rows[i].Offset, startCol), Width: text.ColumnOf(rows[i].Text, hi) - startCol,
-		})
+		startCol := c.column(i, rows[i].Text, lo, lo == hi)
+		endCol := c.column(i, rows[i].Text, hi, true)
+		dst = append(dst, Span{Col: layout.Sum(rows[i].Offset, startCol), Width: endCol - startCol})
 	}
 	if len(dst) == before {
 		// A real match can live entirely in whitespace consumed by wrapping.

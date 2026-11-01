@@ -1126,3 +1126,14 @@ func TestTextHandedBackIsTextThatWouldBeDrawn(t *testing.T) {
 		}
 	}
 }
+
+func TestAdvanceComposesAtGraphemeBoundaries(t *testing.T) {
+	parts := []string{"a", "\t", "中", "e\u0301", "\t", "z"}
+	col := 0
+	for _, part := range parts {
+		col = text.Advance(part, col)
+	}
+	if want := text.Width(strings.Join(parts, "")); col != want || text.Advance("\t", -1) != text.TabStop {
+		t.Fatalf("composed column = %d, want %d", col, want)
+	}
+}

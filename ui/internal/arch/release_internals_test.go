@@ -1,8 +1,11 @@
 package arch
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json/v2"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,30 +110,78 @@ func TestTagContractSelectsTheDirectoryWhoseManifestOwnsTheTag(t *testing.T) {
 	if !found {
 		t.Fatal("release validation workflow has no shell step")
 	}
+	proxy := t.TempDir()
+	const prefix = "example.invalid/oolong/"
+	for _, tc := range []struct{ module, version, code string }{
+		{"ui", "v0.2.0", "package ui"},
+		{"ui/v2", "v2.1.0", "package ui"},
+		{"extensions/view", "v1.2.3", "package view"},
+		{"ui", "v0.3.0", "package ui\nvar Broken = undefined"},
+	} {
+		publishFixtureModule(t, proxy, prefix+tc.module, tc.version, tc.code)
+	}
+	cache := t.TempDir()
+	proxyURL := url.URL{Scheme: "file", Path: "/" + strings.TrimPrefix(filepath.ToSlash(proxy), "/")}
 	for _, tc := range []struct{ tag, module, version, want string }{
-		{tag: "ui/v0.2.0", want: "ui|-base=none -version=v0.2.0"},
-		{tag: "ui/v2.1.0", want: "ui/v2|-base=none -version=v2.1.0"},
-		{tag: "extensions/view/v1.2.3", want: "extensions/view|-base=none -version=v1.2.3"},
-		{module: "ui/v2", version: "v2.0.1", want: "ui/v2|-base=none -version=v2.0.1"},
+		{tag: "ui/v0.2.0", want: "Built " + prefix + "ui@v0.2.0"},
+		{tag: "ui/v2.1.0", want: "Built " + prefix + "ui/v2@v2.1.0"},
+		{tag: "extensions/view/v1.2.3", want: "Built " + prefix + "extensions/view@v1.2.3"},
+		{module: "ui/v2", version: "v2.0.1", want: prefix + "ui/v2|-base=none -version=v2.0.1"},
+		{tag: "ui/v0.3.0"}, // The module exists but the bytes served to a consumer cannot build.
+		{tag: "ui/v0.4.0"}, // Only the checkout exists.
 		{tag: "ui/v3.0.0"},
 		{tag: "ui/v2.01.0"},
 		{tag: "examples/v0.1.0"},
 	} {
-		refType := "branch"
+		event := "workflow_dispatch"
 		if tc.tag != "" {
-			refType = "tag"
+			event = "push"
 		}
-		cmd := exec.CommandContext(t.Context(), "bash", "-c", body) //nolint:gosec // Repository-authored release step running only fixture tools.
+		cmd := exec.CommandContext(t.Context(), "bash", "-c", body) //nolint:gosec // The fixture only builds modules from its isolated file proxy.
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "PATH="+scripts+string(os.PathListSeparator)+os.Getenv("PATH"), "GITHUB_REF_TYPE="+refType, "GITHUB_REF_NAME="+tc.tag, "INPUT_MODULE="+tc.module, "INPUT_VERSION="+tc.version)
-		out, runErr := cmd.Output()
+		cmd.Env = append(os.Environ(), "PATH="+scripts+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"GITHUB_EVENT_NAME="+event, "GITHUB_REF_TYPE=tag", "GITHUB_REF_NAME="+tc.tag, "INPUT_MODULE="+tc.module, "INPUT_VERSION="+tc.version,
+			"GOWORK=off", "GOFLAGS=-modcacherw", "GOPROXY="+proxyURL.String(), "GONOPROXY=none", "GOSUMDB=off", "GOMODCACHE="+cache, "RUNNER_TEMP="+t.TempDir())
+		out, runErr := cmd.CombinedOutput()
 		if tc.want == "" {
-			if runErr == nil || len(out) != 0 {
-				t.Errorf("invalid tag %q reached gorelease: %q, %v", tc.tag, out, runErr)
+			if runErr == nil {
+				t.Errorf("accepted invalid release %q: %s", tc.tag, out)
 			}
-		} else if runErr != nil || strings.TrimSpace(string(out)) != "example.invalid/oolong/"+tc.want {
+		} else if runErr != nil || !strings.Contains(string(out), tc.want) {
 			t.Errorf("contract for tag %q, module %q: %q, %v; want %s", tc.tag, tc.module, out, runErr, tc.want)
 		}
+	}
+}
+
+func publishFixtureModule(t *testing.T, proxy, module, version, source string) {
+	t.Helper()
+	dir := filepath.Join(proxy, filepath.FromSlash(module), "@v")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mod := "module " + module + "\n\ngo 1.27.0\n"
+	info := fmt.Sprintf(`{"Version":%q,"Time":"2020-01-01T00:00:00Z"}`, version)
+	for ext, data := range map[string]string{".mod": mod, ".info": info} {
+		if err := os.WriteFile(filepath.Join(dir, version+ext), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	for name, data := range map[string]string{"go.mod": mod, "api.go": source} {
+		file, err := writer.Create(module + "@" + version + "/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = file.Write([]byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, version+".zip"), archive.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

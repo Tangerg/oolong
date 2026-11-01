@@ -147,3 +147,42 @@ func TestThemePublicationWakesEverySceneDespiteAnInterruptedPredicate(t *testing
 		t.Fatal("a committed theme left a consumer asleep")
 	}
 }
+
+func TestThemeHandleReassignmentCannotRebindMountedConsumers(t *testing.T) {
+	owner := kit.NewThemeOwner(kit.Dark())
+	branch := owner.Scope()
+	descendant := branch.With(kit.ThemeOverride{})
+	button := kit.NewButton(kit.ButtonConfig{Label: "one", Scope: branch})
+	root := newTestRoot(button)
+	other := kit.NewThemeOwner(kit.Light())
+	*branch = *other.Scope()
+	if descendant.Snapshot().Palette != kit.Dark() || owner.Scope().Snapshot().Palette != kit.Dark() {
+		t.Error("a caller-owned handle rewired an existing scope")
+	}
+	surface := grid.NewSurface(12, 1)
+	root.Draw(surface.View())
+	if cellAt(surface, 0, 0).Style.FG != kit.Dark().Muted.FG {
+		t.Fatal("button silently changed palette")
+	}
+	wake := root.root.Changes()
+	next := kit.Dark()
+	next.Muted = grid.Style{FG: grid.RGBColor(2, 3, 4)}
+	owner.Set(next)
+	select {
+	case <-wake:
+	default:
+		t.Fatal("original owner no longer wakes the consumer")
+	}
+	root.Draw(surface.View())
+	if cellAt(surface, 0, 0).Style.FG != next.Muted.FG {
+		t.Fatal("invalidation and palette came from different owners")
+	}
+}
+
+func TestZeroThemeOwnerCanPublishThroughItsScope(t *testing.T) {
+	var owner kit.ThemeOwner
+	scope := owner.Scope()
+	if !owner.Set(kit.Dark()) || scope.Snapshot().Palette != kit.Dark() || scope.Snapshot().Revision != owner.Revision() {
+		t.Fatal("theme scope lost the zero owner's publication")
+	}
+}

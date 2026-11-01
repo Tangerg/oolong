@@ -119,26 +119,25 @@ func (s *Slider) track(view grid.View) {
 		return
 	}
 	position := s.controller.Position(width)
-	for x := range width {
-		glyph, style := s.Glyphs.SliderTrack, s.appearance.palette().Subtle
+	visible := view.Visible()
+	if visible.Min.Y != 0 || visible.Empty() {
+		return
+	}
+	palette := s.appearance.palette()
+	for x := visible.Min.X; x < visible.Max.X; x++ {
+		glyph, style := s.Glyphs.SliderTrack, palette.Subtle
 		if x < position {
-			style = s.appearance.palette().Accent
+			style = palette.Accent
 		}
 		if x == position {
-			glyph, style = s.Glyphs.SliderThumb, s.appearance.palette().Accent
+			glyph, style = s.Glyphs.SliderThumb, palette.Accent
 			if s.controller.Focused() {
-				style = style.Merge(s.appearance.palette().Selection)
+				style = style.Merge(palette.Selection)
 			}
 		}
 		view.Text(x, 0, glyph, style)
 	}
 }
-
-// Handle forwards input to the controller.
-
-// Focus forwards keyboard ownership to the controller.
-
-// Semantics forwards the controller's structural meaning.
 
 func (s *Slider) format(value int) string {
 	if s.Format != nil {

@@ -83,8 +83,8 @@ func (i terminalInput) Err() error { return i.InputErr() }
 // Implementations must preserve queue order, report successful completion as a
 // watermark and be safe for concurrent use. Changes returns one stable,
 // single-consumer channel for the writer's lifetime; a receive means Written or Err
-// may have changed. Closing it means the writer has permanently stopped and Err must
-// report the cause. Drain returns nil only after every frame accepted before the call
+// may have changed. Closing it means the writer has permanently stopped. Err preserves
+// any delivery failure. Drain returns nil only after every frame accepted before the call
 // has either been written or accounted for. [term.Writer] is the standard implementation.
 type FrameWriter interface {
 	// Queue takes ownership only on acceptance. The caller does not read or change

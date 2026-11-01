@@ -1985,14 +1985,14 @@ func TestPrintedOutputIsNotLostToTheExit(t *testing.T) {
 
 func TestEarlyWriterCloseReportsUndeliveredPrint(t *testing.T) {
 	h, root, done := startInline(t)
-	if err := h.writer.Close(); err != nil {
-		t.Fatal(err)
-	}
 	if err := root.runtime.Dispatcher().Post(func() {
 		if err := publish(root.runtime, measurer{
 			measure: func(int) int { return 1 },
 			draw:    func(v grid.View) { v.Text(0, 0, "must survive", grid.Style{}) },
 		}); err != nil {
+			t.Error(err)
+		}
+		if err := h.writer.Close(); err != nil {
 			t.Error(err)
 		}
 		root.runtime.Quit()

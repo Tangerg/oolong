@@ -12,6 +12,7 @@ package fuzzy
 
 import (
 	"cmp"
+	"iter"
 	"slices"
 	"unicode"
 	"unicode/utf8"
@@ -59,81 +60,111 @@ func Score(pattern, candidate string) (Match, bool) {
 	if pattern == "" {
 		return Match{}, true
 	}
-	first, _ := utf8.DecodeRuneInString(pattern)
-	best, found := Match{}, false
-	for _, from := range anchors(candidate, first) {
-		if m, ok := scoreFrom(pattern, candidate, from); ok && (!found || m.Score > best.Score) {
-			best, found = m, true
+	firstRune, _ := utf8.DecodeRuneInString(pattern)
+	var needle []rune
+	var points []matchPoint
+	var best Match
+	for first := range anchors(candidate, firstRune) {
+		if points == nil {
+			length := utf8.RuneCountInString(pattern)
+			if length > len(candidate)-first.offset {
+				break
+			}
+			needle = []rune(pattern)
+			points = make([]matchPoint, length)
 		}
-	}
-	return best, found
-}
-
-// anchors are the offsets worth starting a match at: the first place the pattern's
-// first character appears, and every later place it appears at the start of a word.
-//
-// Anywhere else is not worth trying. A placement is better than an earlier one
-// because it collects the word-start bonus, so the places that could win are the
-// places that would collect it.
-func anchors(candidate string, first rune) []int {
-	var out []int
-	prev := rune(-1)
-	for at, r := range candidate {
-		if folds(r, first) && (len(out) == 0 || at == 0 || opensWord(prev)) {
-			out = append(out, at)
-		}
-		prev = r
-	}
-	return out
-}
-
-func scoreFrom(pattern, candidate string, from int) (Match, bool) {
-	at := make([]int, 0, utf8.RuneCountInString(pattern))
-	score := 0
-
-	// index counts characters rather than bytes, so that the gap between two matched
-	// characters is measured in what a reader sees.
-	index, matchedAt := 0, -1
-	prev := rune(-1)
-	if from > 0 {
-		prev, _ = utf8.DecodeLastRuneInString(candidate[:from])
-	}
-
-	rest := pattern
-	for off, r := range candidate[from:] {
-		if rest == "" {
+		points[0] = first
+		score, ok := extend(candidate, needle, points)
+		if !ok {
+			// Every later anchor starts inside this failed suffix.
 			break
 		}
-		p, size := utf8.DecodeRuneInString(rest)
-		if folds(r, p) {
-			score += perCharacter
-			if from+off == 0 || opensWord(prev) {
-				score += bonusWordStart
-			}
-			if from+off == 0 {
-				score += bonusStart
-			}
-			switch {
-			case matchedAt < 0:
-			case index == matchedAt+1:
-				score += bonusConsecutive
-			default:
-				score -= penaltyGap * (index - matchedAt - 1)
-			}
-			if r == p {
-				score += bonusSameCase
-			}
-			at = append(at, from+off)
-			matchedAt = index
-			rest = rest[size:]
+		if score <= best.Score {
+			continue
 		}
-		prev = r
+		if best.At == nil {
+			best.At = make([]int, len(points))
+		}
+		best.Score = score
+		for i, point := range points {
+			best.At[i] = point.offset
+		}
+	}
+	return best, best.Score != 0
+}
+
+type matchPoint struct {
+	offset, index int
+	char          rune
+	wordStart     bool
+}
+
+func anchors(candidate string, first rune) iter.Seq[matchPoint] {
+	return func(yield func(matchPoint) bool) {
+		prev, index, found := rune(-1), 0, false
+		for offset, char := range candidate {
+			wordStart := opensWord(prev)
+			if (!found || wordStart) && folds(char, first) {
+				found = true
+				if !yield(matchPoint{offset, index, char, wordStart}) {
+					return
+				}
+			}
+			prev = char
+			index++
+		}
+	}
+}
+
+// Advancing the anchor can only move each greedy match forward. Reuse the
+// previous suffix positions until a preceding match overtakes them.
+func extend(candidate string, pattern []rune, points []matchPoint) (int, bool) {
+	score := 0
+	for i, want := range pattern {
+		if i > 0 {
+			prev := points[i-1]
+			if points[i].offset <= prev.offset {
+				next, ok := prev.next(candidate, want)
+				if !ok {
+					return 0, false
+				}
+				points[i] = next
+			}
+			gap := points[i].index - prev.index - 1
+			if gap == 0 {
+				score += bonusConsecutive
+			} else {
+				score -= penaltyGap * gap
+			}
+		}
+		p := points[i]
+		score += perCharacter
+		if p.wordStart {
+			score += bonusWordStart
+		}
+		if p.offset == 0 {
+			score += bonusStart
+		}
+		if p.char == want {
+			score += bonusSameCase
+		}
+	}
+	return max(score, 1), true
+}
+
+func (p matchPoint) next(candidate string, want rune) (matchPoint, bool) {
+	prev, index := p.char, p.index
+	for delta, char := range candidate[p.offset:] {
+		if delta == 0 {
+			continue
+		}
 		index++
+		if folds(char, want) {
+			return matchPoint{p.offset + delta, index, char, opensWord(prev)}, true
+		}
+		prev = char
 	}
-	if rest != "" {
-		return Match{}, false
-	}
-	return Match{Score: max(score, 1), At: at}, true
+	return matchPoint{}, false
 }
 
 // folds reports whether two characters are the same under Unicode's simple case

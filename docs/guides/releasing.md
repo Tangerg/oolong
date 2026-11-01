@@ -32,3 +32,5 @@ scripts/release.sh ui 0.1.0 --execute
 Execution creates and pushes the one reviewed tag, then verifies its remote commit. Failure does not authorize tag deletion, movement, force-push or another release path. Inspect the actual state before deciding what to do next. See [CONTRIBUTING.md](https://github.com/Tangerg/oolong/blob/main/CONTRIBUTING.md) for exact tool pins and quality gates.
 
 To identify the public directory for an existing tag, run `scripts/module-tag.sh --resolve TAG`. The command validates the forward mapping, including major versions stored in a subdirectory. Each module’s migration check uses its own release section. The published API is exported outside the development workspace, and the current API uses this checkout’s workspace.
+
+After a tag is pushed, CI creates an empty consumer module outside the checkout and builds the exact published version against its resolved dependencies. Manual validation of a proposed version uses the checked-out source.

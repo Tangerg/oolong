@@ -218,7 +218,7 @@ func (r *Renderer) Render(ctx context.Context, source string) (result *Image, er
 	diagnostics := &boundedOutput{limit: 64 << 10}
 	cmd.Stdout, cmd.Stderr = diagnostics, diagnostics
 	if runErr := run(ctx, cmd); runErr != nil {
-		return nil, fmt.Errorf("mermaid: backend: %w: %s", runErr, diagnostics.buffer.String())
+		return nil, fmt.Errorf("mermaid: backend: %w: %q", runErr, diagnostics.buffer.String())
 	}
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause

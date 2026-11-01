@@ -31,6 +31,8 @@ func TestSearchProjectsLogicalMatchesToVisibleCells(t *testing.T) {
 		{name: "matched hard newline", query: "t\ns", regex: true, rows: []text.Row{{Text: "first"}, {Text: "second"}}, want: []base.Match{{Spans: []base.Span{{Col: 4, Width: 1}, {Width: 1}}}}},
 		{name: "combining mark", query: "\u0301", rows: []text.Row{{Text: "x e\u0301"}}, want: []base.Match{{Spans: []base.Span{{Col: 2, Width: 1}}}}},
 		{name: "emoji component", query: "💻", rows: []text.Row{{Text: "👩‍💻"}}, want: []base.Match{{Spans: []base.Span{{Width: 2}}}}},
+		{name: "repeated runes inside one cell", query: ".", regex: true, rows: []text.Row{{Text: "e\u0301", Offset: 2}}, want: []base.Match{{Spans: []base.Span{{Col: 2, Width: 1}}}, {Spans: []base.Span{{Col: 2, Width: 1}}}}},
+		{name: "tab in decorated row", query: "猫", rows: []text.Row{{Text: "猫\t猫", Offset: 3}}, want: []base.Match{{Spans: []base.Span{{Col: 3, Width: 2}}}, {Spans: []base.Span{{Col: 11, Width: 2}}}}},
 		{name: "entire consumed gap", query: " ", rows: []text.Row{{Text: "before"}, {Text: "after", Joined: true, Gap: " ", Offset: 2}}, want: []base.Match{{Row: 1, Spans: []base.Span{{Col: 2}}}}},
 		{name: "consumed wrap spaces", query: "   a", rows: []text.Row{{Text: "before"}, {Text: "after", Joined: true, Gap: "    "}}, want: []base.Match{{Row: 1, Spans: []base.Span{{Width: 1}}}}},
 	}

@@ -1536,3 +1536,16 @@ func flushCanvas(canvas regionCanvas, writer io.Writer) error {
 		panic("unknown test canvas")
 	}
 }
+
+func TestEncodingSlicedAtomsPreservesVisibleColumns(t *testing.T) {
+	s := grid.NewSurface(4, 1)
+	s.View().Text(0, 0, "界a", grid.Style{})
+	row := s.Row(0)
+	if got := grid.EncodeRow(row[1:3], grid.TrueColor); got != " a" {
+		t.Fatalf("left clip encoded %q, want a blank before a", got)
+	}
+	joined := []grid.Cell{row[0], row[2]}
+	if got := grid.EncodeRow(joined, grid.TrueColor); got != " a" {
+		t.Fatalf("incomplete head swallowed its neighbor: %q", got)
+	}
+}

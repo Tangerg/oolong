@@ -45,20 +45,42 @@ func detectShifts(prev, next *Surface) []verticalShift {
 		return nil
 	}
 
+	links := make([]int, height-1)
 	var shifts []verticalShift
-	for delta := 1; height-delta >= minShiftOverlap; delta++ {
-		if rowsEqual(prev, top+delta, next, top, height-delta) {
-			shifts = append(shifts, verticalShift{top: top, bottom: bottom, delta: delta})
-			break
-		}
+	if overlap := rowOverlap(prev, next, top, bottom, links); overlap >= minShiftOverlap {
+		shifts = append(shifts, verticalShift{top: top, bottom: bottom, delta: height - overlap})
 	}
-	for delta := 1; height-delta >= minShiftOverlap; delta++ {
-		if rowsEqual(prev, top, next, top+delta, height-delta) {
-			shifts = append(shifts, verticalShift{top: top, bottom: bottom, delta: -delta})
-			break
-		}
+	if overlap := rowOverlap(next, prev, top, bottom, links); overlap >= minShiftOverlap {
+		shifts = append(shifts, verticalShift{top: top, bottom: bottom, delta: overlap - height})
 	}
 	return shifts
+}
+
+// A shift preserves a suffix of from equal to a prefix of to. KMP failure
+// links skip overlaps already disproved, even in a long band of identical rows.
+func rowOverlap(from, to *Surface, top, bottom int, links []int) int {
+	size := bottom - top - 1
+	if rowsEqual(from, top+1, to, top, size) {
+		return size
+	}
+	extend := func(surface *Surface, row, matched int) int {
+		for !rowEqual(surface, row, to, top+matched) {
+			if matched == 0 {
+				return 0
+			}
+			matched = links[matched-1]
+		}
+		return matched + 1
+	}
+	links[0] = 0
+	for i := 1; i < size; i++ {
+		links[i] = extend(to, top+i, links[i-1])
+	}
+	matched := 0
+	for row := top + 1; row < bottom; row++ {
+		matched = extend(from, row, matched)
+	}
+	return matched
 }
 
 func (v verticalShift) exposed() (y0, y1 int) {

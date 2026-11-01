@@ -2,7 +2,7 @@
 // goroutine. Background work enters through [Dispatcher], so interface state needs
 // no locks. The driver parks until input, work or writer progress arrives; timers
 // are explicit. Inline programs publish finished content to terminal scrollback
-// through [InlineRuntime.Publish].
+// through [InlineRuntime.Publisher].
 package program
 
 import "errors"
@@ -20,6 +20,8 @@ var ErrFrameTimeout = errors.New("program: frame writer did not drain")
 // it a usable position in its progress watermark. Continuing would allow a later
 // frame to overtake output the presenter still owns, so publication stops instead.
 var ErrInvalidFrameSequence = errors.New("program: invalid frame writer sequence")
+
+var errAdmissionInterrupted = errors.New("program: writer admission did not return")
 
 // ErrDisplayFailed means a frame or the transport carrying it has already failed, so
 // the display can no longer be left in a state anything else could take over. It is

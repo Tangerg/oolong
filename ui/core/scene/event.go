@@ -3,7 +3,6 @@ package scene
 import (
 	"image"
 	"slices"
-	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 )
@@ -151,7 +150,7 @@ func (e Event) Capture() error {
 		return ErrInvalid
 	}
 	placement, _ := e.route.layout.lookup(e.target)
-	e.route.root.capture = capture{target: e.target, button: mouse.Button, content: placement.content}
+	e.route.root.capture = capture{target: e.target, button: mouse.Button, content: placement.content, press: e.route.turn}
 	return nil
 }
 
@@ -159,8 +158,17 @@ type capture struct {
 	target  Target
 	button  input.Button
 	content contentVersion
-	revoked bool
+	press   uint64
+	phase   capturePhase
 }
+
+type capturePhase uint8
+
+const (
+	captureActive capturePhase = iota
+	captureReleasing
+	captureRevoked
+)
 
 func (c capture) cancel(n *node) {
 	if n != nil && n.config.Handle != nil {
@@ -191,14 +199,15 @@ func (r *Root) CaptureInput(event input.Event) CapturedInput {
 		return CapturedInput{input: event}
 	}
 	captured := CapturedInput{input: event, root: r}
+	mouse, pointer := event.(input.Mouse)
+	if !pointer {
+		return captured
+	}
 	history := r.published.Load()
 	if history == nil {
 		return captured
 	}
-	var at time.Time
-	if mouse, ok := event.(input.Mouse); ok {
-		at = mouse.At
-	}
+	at := mouse.At
 	for _, snapshot := range slices.Backward(history.layouts) {
 		if at.IsZero() || !at.Before(snapshot.writtenAt) {
 			captured.layout = snapshot
@@ -249,7 +258,7 @@ func (r *Root) mouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 	if mouse.Action == input.MouseCancel || mouse.Action == input.MouseDown {
 		previous := r.capture
 		r.capture = capture{}
-		if n := r.resolve(previous.target); n != nil && !previous.revoked {
+		if n := r.resolve(previous.target); n != nil && previous.phase != captureRevoked {
 			previous.cancel(n)
 		}
 		if r.inputTurn != turn || r.mutable() != nil {
@@ -281,7 +290,7 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 		return false, false
 	}
 	n := r.resolve(held.target)
-	if held.revoked || !r.allowed(n) {
+	if held.phase == captureRevoked || !r.allowed(n) {
 		r.revokeCapture(mouse, held, n)
 		return true, true
 	}
@@ -294,19 +303,43 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 		r.revokeCapture(mouse, held, n)
 		return true, true
 	}
+	if held.phase == captureReleasing {
+		return true, true
+	}
+	handle := n.config.Handle
 	if mouse.Releases(held.button) {
-		r.capture = capture{}
+		r.capture.phase = captureReleasing
+		defer r.finishRelease(held, n)
+		if handle != nil {
+			handle = func(e Event) EventResult {
+				r.capture = capture{}
+				return n.config.Handle(e)
+			}
+		}
 	}
 	if q.preview(n, mouse) {
 		return true, true
 	}
-	return q.dispatch(n, n.config.Handle, mouse, placement.area).Consumed, true
+	return q.dispatch(n, handle, mouse, placement.area).Consumed, true
+}
+
+// A preview can intercept the release, unwind or start a new press. Only
+// the original gesture still awaiting its owning handler needs cancellation.
+func (r *Root) finishRelease(held capture, n *node) {
+	if r.capture.press != held.press {
+		return
+	}
+	cancel := r.capture.phase == captureReleasing
+	r.capture = capture{}
+	if cancel {
+		held.cancel(n)
+	}
 }
 
 func (r *Root) revokeCapture(mouse input.Mouse, held capture, n *node) {
 	turn := r.inputTurn
-	r.capture.revoked = true
-	if !held.revoked {
+	r.capture.phase = captureRevoked
+	if held.phase != captureRevoked {
 		held.cancel(n)
 	}
 	if r.inputTurn == turn && mouse.Releases(held.button) {
@@ -447,7 +480,7 @@ func (q inputRoute) dispatch(n *node, handle func(Event) EventResult, event inpu
 	if result.Consumed && result.Capture {
 		_ = delivery.Capture()
 	}
-	if mouse, ok := event.(input.Mouse); ok && mouse.Action == input.MouseDown && r.capture.target == target && !r.capture.revoked {
+	if mouse, ok := event.(input.Mouse); ok && mouse.Action == input.MouseDown && r.capture.target == target && r.capture.phase == captureActive {
 		result.Consumed = true
 	}
 	return result

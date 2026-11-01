@@ -398,3 +398,20 @@ func TestInterruptedFinalNotificationResumesWithTheNextSubscriber(t *testing.T) 
 		t.Fatalf("terminal delivery = %v; want both subscribers exactly once", order)
 	}
 }
+
+func TestCompletionBeforeBatchCommitCannotBeLost(t *testing.T) {
+	p := newPublisher(t, publication.Config{})
+	r, err := p.TryPublish(&block{text: "delivered"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := p.Prepare()
+	p.Written(7)
+	p.Written(5)
+	p.Commit(b, 7)
+	items, size := p.Pending()
+	p.Close(nil)
+	if got := r.Snapshot(); got.State != publication.Written || got.Sequence != 7 || items != 0 || size != 0 {
+		t.Fatalf("accepted completed output = %+v, pending = (%d, %d)", got, items, size)
+	}
+}

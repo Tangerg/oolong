@@ -147,3 +147,15 @@ func TestLinkWorkIsBoundedByTheVisibleSurface(t *testing.T) {
 		}
 	}
 }
+
+func TestIsolatedMarkDoesNotRetainTheCallersAllocation(t *testing.T) {
+	source := strings.Repeat("unrelated", 1<<12) + "\u0301"
+	mark := source[len(source)-len("\u0301"):]
+	s := NewSurface(3, 1)
+	s.View().Text(1, 0, mark, Style{})
+	cell, _ := s.CellAt(0, 0)
+	//nolint:gosec // Allocation identity is compared without dereferencing either address.
+	if cell.content != mark || unsafe.StringData(cell.content) == unsafe.StringData(mark) {
+		t.Fatal("isolated mark on a blank cell did not acquire its own storage")
+	}
+}

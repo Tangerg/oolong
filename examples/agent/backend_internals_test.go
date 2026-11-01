@@ -53,10 +53,11 @@ func TestBridgeCancellationWaitsForAClaimedMutation(t *testing.T) {
 		returned := make(chan error, 1)
 		committed := false
 		go func() {
-			returned <- bridge.post(ctx, func() {
+			returned <- bridge.post(ctx, func() error {
 				close(entered)
 				<-release
 				committed = true
+				return nil
 			})
 		}()
 		<-entered
@@ -92,7 +93,7 @@ func TestBridgeCancellationPreventsAPendingMutation(t *testing.T) {
 		cause := errors.New("superseded")
 		returned := make(chan error, 1)
 		committed := false
-		go func() { returned <- bridge.post(ctx, func() { committed = true }) }()
+		go func() { returned <- bridge.post(ctx, func() error { committed = true; return nil }) }()
 		synctest.Wait()
 		cancel(cause)
 		if err := <-returned; !errors.Is(err, cause) {
@@ -117,7 +118,7 @@ func TestBridgeKeepsRunIdentityWithTheApplication(t *testing.T) {
 		t.Fatal(err)
 	}
 	committed := false
-	if err := bridge.post(t.Context(), func() { committed = true }); !errors.Is(err, context.Canceled) {
+	if err := bridge.post(t.Context(), func() error { committed = true; return nil }); !errors.Is(err, context.Canceled) {
 		t.Fatalf("stale run mutation = %v, want cancellation", err)
 	}
 	if committed {
@@ -194,5 +195,48 @@ func TestSemanticDismissAnswersTheWaitingReview(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("dismissed a dialog without answering its backend")
+	}
+}
+
+func TestReviewCancellationWithdrawsItsDialog(t *testing.T) {
+	started := make(chan *agentBridge, 1)
+	host, stop := runAgent(t, captureRuns{started})
+	defer stop()
+	host.Type("review")
+	host.Press(input.Enter)
+	bridge := <-started
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	done := make(chan error, 1)
+	go func() {
+		_, err := bridge.Review(ctx, changeProposal{Path: "obsolete.go"})
+		done <- err
+	}()
+	host.Shows(t, "Review tool call")
+	cause := errors.New("proposal expired")
+	cancel(cause)
+	if got := <-done; !errors.Is(got, cause) {
+		t.Fatalf("withdrawn request = %v", got)
+	}
+	host.Shows(t, "review cancelled")
+	if err := bridge.dispatch.Inspect(t.Context(), func() error {
+		if bridge.owner.review != nil || bridge.owner.reviewDialog.Controller().Open() {
+			t.Error("cancelled proposal is still actionable")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectedPlanUpdateReachesTheBackend(t *testing.T) {
+	bridge := runningBridge(t)
+	if err := bridge.dispatch.Invoke(t.Context(), func() error { bridge.owner.workflow.Reset(); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []stepUpdate{{Index: -1}, {Index: 4}, {State: 255}} {
+		if err := bridge.Step(t.Context(), update); err == nil {
+			t.Errorf("acknowledged invalid step %+v", update)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,5 +137,16 @@ func checkPreservedMembership(t *testing.T, newline string) {
 	}
 	if err = syncWorkspace(t.Context(), root, true); err != nil {
 		t.Fatalf("sync did not reach a fixed point: %v", err)
+	}
+}
+
+func TestGoDiagnosticsDoNotBecomeWorkspaceJSON(t *testing.T) {
+	root, err := exec.CommandContext(t.Context(), "go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOPATH", strings.TrimSpace(string(root)))
+	if _, err := memberDirectories(t.Context(), workspaceFixture(t)); err != nil {
+		t.Fatal(err)
 	}
 }

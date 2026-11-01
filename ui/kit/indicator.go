@@ -66,13 +66,14 @@ func (s Scrollbar) Needed() bool { return s.Total > s.Window && s.Window > 0 }
 // Draw paints the bar down the first column of v.
 func (s Scrollbar) Draw(v grid.View) {
 	_, h := v.Size()
-	if h <= 0 {
+	visible := v.Visible()
+	if visible.Empty() {
 		return
 	}
 	track, thumb := s.Glyphs.ScrollTrack, s.Glyphs.ScrollThumb
 	if !s.Needed() {
 		if track != "" {
-			for y := range h {
+			for y := visible.Min.Y; y < visible.Max.Y; y++ {
 				v.Text(0, y, track, s.Theme.Subtle)
 			}
 		}
@@ -88,7 +89,7 @@ func (s Scrollbar) Draw(v grid.View) {
 	if scrollable > 0 && span > 0 {
 		top = layout.Scale(span, s.Offset, scrollable)
 	}
-	for y := range h {
+	for y := visible.Min.Y; y < visible.Max.Y; y++ {
 		if y >= top && y < layout.Sum(top, size) {
 			if thumb != "" {
 				v.Text(0, y, thumb, s.Theme.Muted)

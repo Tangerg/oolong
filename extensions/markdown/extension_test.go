@@ -3,6 +3,7 @@ package markdown_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/content"
@@ -149,4 +150,14 @@ func TestDeclineJoinedWithFailureDoesNotHideDiagnostic(t *testing.T) {
 		t.Fatal("joined failure was suppressed")
 	}
 	equal(t, rows(t, 20, blocks), []string{"source"})
+}
+
+func TestExtensionFailuresKeepIdentityAndQuoteTerminalData(t *testing.T) {
+	failure := errors.New("adapter failed\x1b]52;c;ZA==\x07")
+	appearance := look()
+	appearance.SetRenderer(markdown.FencedCode, func(string, string) (grid.Drawable, error) { return nil, failure })
+	_, err := markdown.Render("~~~lang\x1b[2J\nsource\n~~~", appearance)
+	if !errors.Is(err, failure) || strings.ContainsAny(err.Error(), "\x1b\x07") {
+		t.Fatalf("extension error = %q", err)
+	}
 }

@@ -100,7 +100,8 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 // to settle that output before retrying the incomplete request.
 // Requests made by draw belong to a later frame. Present is not reentrant and panics
 // if draw calls it again before returning.
-// A failed draw retains its earlier deadline even if draw requested a throttled frame.
+// Once a draw starts its pacing deadline is spent. A refusal remains ready for
+// the next driver wakeup without continuously rearming an expired timer.
 func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error)) (bool, error) {
 	if p.drawing != nil {
 		panic("present: Present is not reentrant")
@@ -112,16 +113,14 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 	if !p.dueAt.IsZero() && now.Before(p.dueAt) {
 		return false, nil
 	}
-	full, dueAt := p.full, p.dueAt
+	full := p.full
 	p.owed, p.full, p.dueAt = false, false, time.Time{}
 	p.drawing = &now
 	completed := false
 	defer func() {
 		p.drawing = nil
 		if !completed {
-			if !p.owed || dueAt.IsZero() || (!p.dueAt.IsZero() && dueAt.Before(p.dueAt)) {
-				p.dueAt = dueAt
-			}
+			p.dueAt = time.Time{}
 			p.owed = true
 			p.full = p.full || full
 		}

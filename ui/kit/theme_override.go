@@ -27,12 +27,11 @@ type ThemeOverride struct {
 	Scrim     *Scrim
 }
 
-func cloneToken[T any](token *T) *T {
-	if token == nil {
-		return nil
+func freezeToken[T any](dst **T, explicit *T) {
+	if explicit != nil {
+		value := *explicit
+		*dst = &value
 	}
-	value := *token
-	return &value
 }
 
 func applyToken[T any](token *T, current T) T {
@@ -42,28 +41,29 @@ func applyToken[T any](token *T, current T) T {
 	return *token
 }
 
-func (o ThemeOverride) clone() ThemeOverride {
-	return ThemeOverride{
-		Text:      cloneToken(o.Text),
-		Muted:     cloneToken(o.Muted),
-		Subtle:    cloneToken(o.Subtle),
-		Strong:    cloneToken(o.Strong),
-		Heading:   cloneToken(o.Heading),
-		Accent:    cloneToken(o.Accent),
-		Success:   cloneToken(o.Success),
-		Warning:   cloneToken(o.Warning),
-		Danger:    cloneToken(o.Danger),
-		Info:      cloneToken(o.Info),
-		Border:    cloneToken(o.Border),
-		Divider:   cloneToken(o.Divider),
-		Selection: cloneToken(o.Selection),
-		Surface:   cloneToken(o.Surface),
-		Sunken:    cloneToken(o.Sunken),
-		Added:     cloneToken(o.Added),
-		Removed:   cloneToken(o.Removed),
-		Context:   cloneToken(o.Context),
-		Scrim:     cloneToken(o.Scrim),
-	}
+// Inherited tokens are already owned by an immutable scope. Only explicit
+// overrides borrow pointers from the caller and need their own snapshot.
+func (o ThemeOverride) over(parent ThemeOverride) ThemeOverride {
+	freezeToken(&parent.Text, o.Text)
+	freezeToken(&parent.Muted, o.Muted)
+	freezeToken(&parent.Subtle, o.Subtle)
+	freezeToken(&parent.Strong, o.Strong)
+	freezeToken(&parent.Heading, o.Heading)
+	freezeToken(&parent.Accent, o.Accent)
+	freezeToken(&parent.Success, o.Success)
+	freezeToken(&parent.Warning, o.Warning)
+	freezeToken(&parent.Danger, o.Danger)
+	freezeToken(&parent.Info, o.Info)
+	freezeToken(&parent.Border, o.Border)
+	freezeToken(&parent.Divider, o.Divider)
+	freezeToken(&parent.Selection, o.Selection)
+	freezeToken(&parent.Surface, o.Surface)
+	freezeToken(&parent.Sunken, o.Sunken)
+	freezeToken(&parent.Added, o.Added)
+	freezeToken(&parent.Removed, o.Removed)
+	freezeToken(&parent.Context, o.Context)
+	freezeToken(&parent.Scrim, o.Scrim)
+	return parent
 }
 
 func (o ThemeOverride) apply(palette Theme) Theme {

@@ -315,12 +315,10 @@ type paintUnit struct {
 
 func paintUnitAt(cells []Cell, i, remaining int) paintUnit {
 	cell := &cells[i]
-	available := min(remaining, len(cells)-i)
-	width := cell.Width()
-	if width < 1 {
-		width = 1
-	} else if width > available {
-		width = available
+	width := 1
+	limit := min(cell.Width(), remaining, len(cells)-i)
+	for width < limit && cells[i+width].span == span(-width) {
+		width++
 	}
 	return paintUnit{cell: cell, width: width}
 }
@@ -376,7 +374,7 @@ func printableTarget(target string) bool {
 // It is how a finished transcript line is printed into the terminal's own
 // scrollback, where the line must survive on its own with no screen to address.
 // The result always closes an open hyperlink and returns to the default style, so
-// rows can be concatenated safely. If cells ends inside a multi-column display
+// rows can be concatenated safely. If cells starts or ends inside a multi-column display
 // atom, EncodeRow emits styled blanks for the visible columns rather than a
 // partial atom that would advance the terminal beyond the slice.
 func EncodeRow(cells []Cell, depth Depth) string {
@@ -388,11 +386,6 @@ func EncodeRow(cells []Cell, depth Depth) string {
 func encodeCells(cells []Cell, depth Depth) string {
 	p := painter{depth: depth}
 	for i := 0; i < len(cells); {
-		c := &cells[i]
-		if c.span < 0 {
-			i++
-			continue
-		}
 		unit := paintUnitAt(cells, i, len(cells)-i)
 		unit.paint(&p)
 		i += unit.width

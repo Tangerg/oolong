@@ -1,7 +1,10 @@
 package term_test
 
 import (
+	"bytes"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"reflect"
 	"strings"
@@ -764,4 +767,66 @@ func TestOpenResolvesEnvironmentOnceBeforeTakingTheTerminal(t *testing.T) {
 			t.Errorf("environment fact %s sampled %d times", name, n)
 		}
 	}
+}
+
+func TestHandoverEndsThePreviousForegroundsInputAndImageLifetimes(t *testing.T) {
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	tty, primary := open(t, term.Config{})
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	resource, err := tty.Transmit(data.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tty.Paste() {
+		t.Fatal("cannot issue clipboard read")
+	}
+	// The key and open paste are decoded in the same read. Observing the key
+	// proves the parser entered paste mode before the foreground changes.
+	if _, err := primary.WriteString("a\x1b[200~old"); err != nil {
+		t.Fatal(err)
+	}
+	readKey := func(want rune) {
+		t.Helper()
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case ev := <-tty.Events():
+				if _, ok := ev.(input.Resize); ok {
+					continue
+				}
+				if key, ok := ev.(input.Key); !ok || !key.IsRune(want, 0) {
+					t.Fatalf("got %T %+v, want key %q", ev, ev, want)
+				}
+				return
+			case <-timer.C:
+				t.Fatalf("new foreground key %q was swallowed by previous input", want)
+			}
+		}
+	}
+	readKey('a')
+	if err := tty.Hand(nil, func() error {
+		if output := read(t, primary, 100*time.Millisecond); !strings.Contains(output, "a=d,d=I,i=1") {
+			t.Error("the child inherited the previous foreground image allocation")
+		}
+		return nil
+	}); err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			t.Skip("reader cannot be parked")
+		}
+		t.Fatal(err)
+	}
+	if !tty.Paste() {
+		t.Error("previous foreground still owns the anonymous clipboard reply")
+	}
+	if resource.Live() {
+		t.Error("external owner could replace a supposedly live terminal image")
+	}
+	if _, err := primary.WriteString("b"); err != nil {
+		t.Fatal(err)
+	}
+	readKey('b')
 }

@@ -78,7 +78,7 @@ func (t *Transcript) Draw(frame scene.Frame) {
 	}
 	window := t.controller.StageWindow(frame)
 	if window.Pinned.Rows > 0 {
-		t.drawHeader(window.Content, frame.View, window.Pinned)
+		t.drawHeader(window, frame.View)
 		if !window.Header.Empty() {
 			t.mark(frame.View.Sub(window.Header), window.HeaderFrom, window.Content)
 		}
@@ -87,36 +87,33 @@ func (t *Transcript) Draw(frame scene.Frame) {
 	t.mark(window.Body, window.From, window.Content)
 }
 
-func (t *Transcript) drawHeader(content base.TranscriptLayout, view grid.View, pinned base.Pinned) {
+func (t *Transcript) drawHeader(window base.TranscriptView, view grid.View) {
 	palette := t.appearance.palette()
-	width, _ := view.Size()
-	block := content.Block(pinned.Block)
-	if block == nil {
-		return
-	}
-	visible := pinned.Visible()
-	block.Draw(view.Sub(image.Rect(0, -pinned.ClipTop, width, visible)))
-	for y := range visible {
-		for x := range width {
+	window.Content.Draw(view.Sub(window.Header), window.HeaderFrom)
+	visible := window.Header.Intersect(view.Visible())
+	for y := visible.Min.Y; y < visible.Max.Y; y++ {
+		for x := visible.Min.X; x < visible.Max.X; x++ {
 			restyle(view, x, y, palette.Surface)
 		}
 	}
-	view.Fade(image.Rect(0, 0, width, visible), 1-pinned.Fade)
-	if t.Glyphs.Horizontal != "" && pinned.Rows > visible {
-		for x := range width {
-			view.Text(x, visible, t.Glyphs.Horizontal, palette.Divider)
-		}
+	view.Fade(visible, 1-window.Pinned.Fade)
+	headerRows := window.Pinned.Visible()
+	if window.Pinned.Rows > headerRows {
+		drawRule(view, headerRows, t.Glyphs.Horizontal, palette.Divider)
 	}
 }
 
 func (t *Transcript) mark(view grid.View, from int, content base.TranscriptLayout) {
+	visible := view.Visible()
+	if visible.Empty() {
+		return
+	}
 	palette := t.appearance.palette()
-	selection := t.controller.Selection()
-	width, height := view.Size()
-	if rects, err := selection.Rects(content); err == nil {
+	if rects, err := t.controller.Selection().Rects(content); err == nil {
 		for _, rect := range rects {
-			for y := max(rect.Min.Y-from, 0); y < min(rect.Max.Y-from, height); y++ {
-				for x := max(rect.Min.X, 0); x < min(rect.Max.X, width); x++ {
+			area := rect.Sub(image.Pt(0, from)).Intersect(visible)
+			for y := area.Min.Y; y < area.Max.Y; y++ {
+				for x := area.Min.X; x < area.Max.X; x++ {
 					restyle(view, x, y, palette.Selection)
 				}
 			}
@@ -126,8 +123,8 @@ func (t *Transcript) mark(view grid.View, from int, content base.TranscriptLayou
 }
 
 func (t *Transcript) markMatches(view grid.View, from int, content base.TranscriptLayout, palette Theme) {
-	width, height := view.Size()
-	first, matches := t.controller.MatchesIn(content, from, layout.Sum(from, height))
+	visible := view.Visible()
+	first, matches := t.controller.MatchesIn(content, layout.Sum(from, visible.Min.Y), layout.Sum(from, visible.Max.Y))
 	for i, match := range matches {
 		style := palette.Selection
 		if first+i == t.controller.CurrentMatch(content) {
@@ -135,12 +132,11 @@ func (t *Transcript) markMatches(view grid.View, from int, content base.Transcri
 		}
 		for row, span := range match.Spans {
 			y := layout.Relative(layout.Sum(match.Row, row), from)
-			if y < 0 || y >= height {
+			if y < visible.Min.Y || y >= visible.Max.Y {
 				continue
 			}
-			start := max(span.Col, 0)
-			end := min(layout.Sum(start, span.Width), width)
-			for x := start; x < end; x++ {
+			end := min(layout.Sum(span.Col, span.Width), visible.Max.X)
+			for x := max(span.Col, visible.Min.X); x < end; x++ {
 				restyle(view, x, y, style)
 			}
 		}

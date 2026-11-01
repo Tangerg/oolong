@@ -621,9 +621,12 @@ func (g *Group) Move(from, to int) error {
 }
 
 func (g *Group) measure(axis layout.Axis, across int) int {
-	if axis == g.config.Axis && !g.config.Overlay && g.config.Layout == nil {
+	if !g.config.Overlay && g.config.Layout == nil {
 		flow, slots := g.flow()
-		return flow.Wanted(across, slots)
+		if axis == flow.Axis {
+			return flow.Wanted(across, slots)
+		}
+		return flow.CrossWanted(across, slots)
 	}
 	if g.config.Overlay || axis != g.config.Axis {
 		extent := 0

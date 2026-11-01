@@ -68,13 +68,20 @@ func (b bar) Draw(v grid.View) {
 		fraction = 1
 	}
 	filled := fraction * float64(w)
-	whole := int(filled)
+	whole := w
+	if filled < float64(w) {
+		whole = int(filled)
+	}
 	steps := b.glyphs.BarSteps
 	step := 0
 	if len(steps) > 0 {
 		step = min(int((filled-float64(whole))*float64(len(steps)+1)), len(steps))
 	}
-	for x := range w {
+	visible := v.Visible()
+	if visible.Min.Y != 0 || visible.Empty() {
+		return
+	}
+	for x := visible.Min.X; x < visible.Max.X; x++ {
 		switch {
 		case x < whole:
 			v.Text(x, 0, b.glyphs.BarFull, b.full)

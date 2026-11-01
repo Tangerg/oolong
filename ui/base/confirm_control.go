@@ -89,7 +89,7 @@ func (c *Confirm) Close() {
 	}
 	c.closed = true
 	if c.unsubscribe != nil {
-		c.unsubscribe()
+		defer c.unsubscribe()
 		c.unsubscribe = nil
 	}
 	c.element.Invalidate()

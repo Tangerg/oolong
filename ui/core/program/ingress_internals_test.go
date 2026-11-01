@@ -2,8 +2,10 @@ package program
 
 import (
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -153,7 +155,7 @@ func TestIngressAdmissionUsesTheDispatcherEvenBeforeItsShutdownWatcherRuns(t *te
 		}
 		// Keep the shutdown notification deliberately undelivered. The queue
 		// has already revoked the reservation, independently of its observer.
-		i := &ByteIngress{slot: slot, limit: 8, done: make(chan struct{}), room: make(chan struct{}, 1), consume: func(ByteBatch) { t.Fatal("called without an owner") }}
+		i := &ByteIngress{slot: slot, limit: 8, done: make(chan struct{}), consume: func(ByteBatch) { t.Fatal("called without an owner") }}
 		if alreadyQueued {
 			if _, writeErr := i.Write([]byte("a")); writeErr != nil {
 				t.Fatal(writeErr)
@@ -199,4 +201,37 @@ func TestIngressClaimedDrainAlsoOwnsTheFinalBatch(t *testing.T) {
 		t.Fatalf("finished stream retained a redundant queued drain: %v", err)
 	}
 	slot.close()
+}
+
+func TestClosingIngressReleasesEveryBlockedProducerBeforeFinalDelivery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		q := newTaskQueue()
+		defer q.stop()
+		i, err := NewByteIngress(ByteIngressConfig{Dispatcher: Dispatcher{tasks: q}, Limit: 1, Consume: func(ByteBatch) {}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := i.Write([]byte("a")); err != nil {
+			t.Fatal(err)
+		}
+		results := make(chan error, 3)
+		for range cap(results) {
+			go func() { _, writeErr := i.Write([]byte("b")); results <- writeErr }()
+		}
+		synctest.Wait()
+		if err := i.Close(); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		for range cap(results) {
+			select {
+			case err := <-results:
+				if !errors.Is(err, io.ErrClosedPipe) {
+					t.Fatal(err)
+				}
+			default:
+				t.Fatal("writers still waiting for the owner to consume after ingress closed")
+			}
+		}
+	})
 }

@@ -506,3 +506,94 @@ func TestTranscriptRecentRetentionLeavesRoomForNewSources(t *testing.T) {
 		}
 	}
 }
+
+func TestTranscriptClosedWhileMountedRevokesRouting(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{Key: "history"})
+	transcriptAdd(t, m, transcriptBody("hello"))
+	root := transcriptScene(t, m)
+	transcriptCommit(t, root, 10, 2, 1)
+	m.Close()
+	observed, err := root.Observe(scene.Query{RootKey: "history"})
+	if err != nil || len(observed.Nodes) != 1 || !observed.Nodes[0].State.Has(scene.StateDisabled) {
+		t.Errorf("closed transcript not disabled: %v, %v", observed, err)
+	}
+	root.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+}
+
+func TestVisibleIdentityWindowBelongsToAdmittedLayout(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{})
+	transcriptAdd(t, m, transcriptBody("first"))
+	root := transcriptScene(t, m)
+	transcriptCommit(t, root, 10, 1, 1)
+	first, last := m.Visible(20, 1)
+	transcriptAdd(t, m, transcriptBody("unpainted"))
+	if a, b := m.Visible(20, 1); a != first || b != last {
+		t.Fatalf("unpainted model changed empty frame span from [%d,%d) to [%d,%d)", first, last, a, b)
+	}
+}
+
+func TestBaseTranscriptPaintsThePinnedRowItHitTests(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{})
+	header := transcriptAdd(t, m, transcriptBody("title"))
+	transcriptAdd(t, m, transcriptBody("first\nsecond\nthird\nfourth"))
+	m.Sticky().Add(header.ID())
+	root := transcriptScene(t, m)
+	surface := transcriptCommit(t, root, 10, 3, 1)
+	cell, _ := surface.View().CellAt(0, 0)
+	if cell.Content() != "t" {
+		t.Fatalf("pinned header text missing: %+v", cell)
+	}
+}
+
+type interruptingPublisher struct{ *publication.Publisher }
+
+func (interruptingPublisher) Subscribe(func()) func() {
+	return func() { panic("unsubscribe interrupted") }
+}
+
+func TestTranscriptCloseRetiresContentEvenWhenUnsubscribePanics(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{Publisher: interruptingPublisher{}, Retention: base.PublishCompleted})
+	doc := transcriptDocument(t)
+	item, err := m.AddDocument(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() {
+			if got := recover(); got != "unsubscribe interrupted" {
+				t.Fatalf("unexpected interruption %v", got)
+			}
+		}()
+		m.Close()
+	}()
+	if m.Len() != 0 || item.State() != base.ContentRetired {
+		t.Fatal("teardown retained the document after Close")
+	}
+	if err := doc.Append([]byte("after close")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTranscriptRejectsTypedNilBeforeAllocatingAnItem(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{})
+	var block *text.Block
+	if item, err := m.Add(block); err == nil || item != nil || m.Len() != 0 {
+		t.Fatalf("typed nil admitted: item=%v error=%v len=%d", item, err, m.Len())
+	}
+}
+
+func TestTranscriptSkipsBlocksOutsideTheVisibleClip(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{})
+	var draws []int
+	for i := range 12 {
+		transcriptAdd(t, m, transcriptCaptureBlock(func() { draws = append(draws, i) }))
+	}
+	root := transcriptScene(t, m)
+	transcriptCommit(t, root, 5, 2, 1)
+	draws = nil
+	view := grid.NewSurface(5, 2).View().Sub(grid.Area(0, -6, 5, 12))
+	m.Layout().Draw(view, 0)
+	if !reflect.DeepEqual(draws, []int{6, 7}) {
+		t.Fatalf("clipped draw visited blocks %v", draws)
+	}
+}

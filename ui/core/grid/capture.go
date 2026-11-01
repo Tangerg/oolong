@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"unsafe"
 )
 
@@ -41,7 +40,7 @@ func Capture(cfg CaptureConfig) (Frozen, error) {
 	if err != nil {
 		return Frozen{}, err
 	}
-	if cfg.Content == nil {
+	if IsNilDrawable(cfg.Content) {
 		return Frozen{}, nil
 	}
 	height := cfg.Content.HeightForWidth(cfg.Width)
@@ -57,28 +56,66 @@ func Capture(cfg CaptureConfig) (Frozen, error) {
 	}
 	surface := NewSurface(cfg.Width, height)
 	surface.SetGround(cfg.Ground)
-	defer surface.Reset()
+	surface.capture = &captureStorage{limit: cfg.MaxBytes, values: make(map[string]string)}
+	defer surface.releaseScratch()
 	cfg.Content.Draw(surface.borrow(nil))
 	surface.endDrawing()
-	if len(surface.regions()) != 0 {
-		return Frozen{}, errScrollbackPaint
+	if surface.capture.err != nil {
+		return Frozen{}, surface.capture.err
 	}
-	out := Frozen{rows: make([][]Cell, height), width: cfg.Width}
-	out.bytes = int64(height) * int64(unsafe.Sizeof([]Cell{}))
-	for y := range height {
-		row := trimBlankTail(surface.row(y))
+	return surface.freeze(cfg.MaxBytes)
+}
+
+// A permanent capture owns a distinct string once. Admission happens before
+// copying caller data, including text that a later drawing operation overwrites.
+type captureStorage struct {
+	limit, used int64
+	err         error
+	values      map[string]string
+}
+
+func (p *captureStorage) own(value string) string {
+	if p == nil || value == "" {
+		return ownedCluster(value)
+	}
+	if owned, ok := p.values[value]; ok {
+		return owned
+	}
+	cost := int64(len(value))
+	if cost > p.limit-p.used {
+		p.err = ErrCaptureLimit
+		return ""
+	}
+	owned := ownedCluster(value)
+	p.values[owned] = owned
+	p.used += cost
+	return owned
+}
+
+// Once drawing ends, consuming a string from the pool charges only its first
+// retained occurrence. Overwritten data never counts against a published receipt.
+func (p *captureStorage) retainedCost(value string) int64 {
+	if _, ok := p.values[value]; !ok {
+		return 0
+	}
+	delete(p.values, value)
+	return int64(len(value))
+}
+
+func (s *Surface) freeze(limit int64) (Frozen, error) {
+	out := Frozen{rows: make([][]Cell, s.h), width: s.w}
+	out.bytes = int64(s.h) * int64(unsafe.Sizeof([]Cell{}))
+	for y := range s.h {
+		row := trimBlankTail(s.row(y))
+		cost := int64(len(row)) * int64(unsafe.Sizeof(Cell{}))
 		for _, cell := range row {
-			cost := int64(unsafe.Sizeof(Cell{})) + int64(len(cell.content)) + int64(len(cell.Link))
-			if cost > cfg.MaxBytes-out.bytes {
-				return Frozen{}, ErrCaptureLimit
-			}
-			out.bytes += cost
+			cost += s.capture.retainedCost(cell.content) + s.capture.retainedCost(cell.Link)
 		}
+		if cost > limit-out.bytes {
+			return Frozen{}, ErrCaptureLimit
+		}
+		out.bytes += cost
 		out.rows[y] = slices.Clone(row)
-		for x := range out.rows[y] {
-			out.rows[y][x].content = strings.Clone(out.rows[y][x].content)
-			out.rows[y][x].Link = strings.Clone(out.rows[y][x].Link)
-		}
 	}
 	return out, nil
 }

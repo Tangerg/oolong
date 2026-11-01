@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	xterm "golang.org/x/term"
@@ -108,6 +109,9 @@ type Terminal struct {
 	// handed is the latch the reader parks on while the terminal is somebody else's
 	// — see [Terminal.Hand].
 	handed handover
+	// The reader orders this boundary after its earlier bytes and before its
+	// next read, even if backpressure outlasted the handover.
+	restartInput atomic.Bool
 	// said is what the terminal was willing to say about itself, when it was asked.
 	// It is written once during Open and only read afterwards.
 	said answers
@@ -128,11 +132,10 @@ type Terminal struct {
 	// task is progress shown outside the cell grid. It owns its keepalive and
 	// pauses it whenever another process owns the terminal.
 	task *taskProgress
-	// pictures numbers the images this session has sent, so that two of them cannot
-	// arrive under one name. It is atomic because sending one is not the interface's
-	// goroutine's business — a picture is usually fetched from somewhere else.
-	pictures   atomicSequence
-	imageOwner graphics.ImageOwner
+	// modeMu keeps image ID allocation, frame admission and binding in the same
+	// terminal lifetime. Refusing a transmission consumes no wire identity.
+	lastImageID uint32
+	imageOwner  graphics.ImageOwner
 
 	resized  chan input.Resize
 	resizeMu sync.Mutex
@@ -600,41 +603,59 @@ func (t *Terminal) CellSize() (image.Point, bool) {
 // megabyte of base64 to something that will print it. It reports
 // [ErrImageIDsExhausted] rather than reusing a handle that may still name an image.
 func (t *Terminal) Transmit(png []byte) (graphics.Resource, error) {
-	id, ok := t.pictures.next(math.MaxUint32)
-	if !ok {
-		return graphics.Resource{}, ErrImageIDsExhausted
-	}
-	var payload bytes.Buffer
-	img, err := graphics.Transmit(&payload, imageID(id), png)
-	if err != nil {
-		return graphics.Resource{}, err
+	if !t.Graphics().Supports(graphics.Live) {
+		return graphics.Resource{}, errors.ErrUnsupported
 	}
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
+	if t.lastImageID == math.MaxUint32 {
+		return graphics.Resource{}, ErrImageIDsExhausted
+	}
+	// Encoding only increases the payload. An oversized source cannot fit even
+	// before the framing and base64 overhead are added.
+	if len(png) > t.writer.maxFrameBytes {
+		return graphics.Resource{}, ErrPayloadTooLarge
+	}
+	var payload bytes.Buffer
+	img, err := graphics.Transmit(&payload, t.lastImageID+1, png)
+	if err != nil {
+		return graphics.Resource{}, err
+	}
 	if _, err := t.writer.Queue(payload.Bytes()); err != nil {
 		return graphics.Resource{}, err
 	}
+	t.lastImageID = img.ID
 	return t.imageOwner.Bind(img), nil
 }
 
 // ReleaseImage queues deletion of transmitted image data and all its placements.
 // The caller must stop drawing the image before releasing it.
 func (t *Terminal) ReleaseImage(resource graphics.Resource) error {
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
 	return t.imageOwner.Release(resource, func(img graphics.Image) error {
-		var payload bytes.Buffer
-		if err := img.Release(&payload); err != nil {
-			return err
-		}
-		_, err := t.writer.Queue(payload.Bytes())
-		return err
+		return deleteImage(img, t.writer.Queue)
 	})
 }
 
-func imageID(id uint64) uint32 {
-	if id > math.MaxUint32 {
-		panic("term: image identity exceeds the graphics protocol")
+func deleteImage(img graphics.Image, queue func([]byte) (uint64, error)) error {
+	var payload bytes.Buffer
+	if err := img.Release(&payload); err != nil {
+		return err
 	}
-	return uint32(id)
+	_, err := queue(payload.Bytes())
+	return err
+}
+
+// Never delete by ID after the child takes over. Draining between admissions
+// keeps cleanup inside the writer's fixed control budget for any image count.
+func (t *Terminal) releaseImages() error {
+	return t.imageOwner.ReleaseAll(func(img graphics.Image) error {
+		if err := t.writer.Drain(DrainGrace); err != nil {
+			return err
+		}
+		return deleteImage(img, t.writer.QueueControl)
+	})
 }
 
 // Close gives the terminal back.
@@ -678,6 +699,7 @@ func (t *Terminal) closeOutput() error {
 	}
 	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
 	if t.ownsModes {
+		errs = append(errs, t.releaseImages())
 		_, cleanupErr := t.writer.QueueControl([]byte(t.leaveSequence()))
 		errs = append(errs, cleanupErr)
 	}
@@ -702,6 +724,7 @@ func (t *Terminal) giveBack() []error {
 	var errs []error
 	// Session metadata is cleared before modes, so neither a task nor a title leaks
 	// into the next owner.
+	errs = append(errs, t.releaseImages())
 	if err := t.control(t.leaveSequence()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
 	}
@@ -747,12 +770,12 @@ func (t *Terminal) read(raw chan<- readResult) {
 			return
 		default:
 		}
+		if t.restartInput.Swap(false) && !t.sendRead(raw, readResult{restart: true}) {
+			return
+		}
 		ready, err := t.waker.wait()
 		if err != nil {
-			select {
-			case raw <- readResult{err: err, at: time.Now()}:
-			case <-t.stop:
-			}
+			t.sendRead(raw, readResult{err: err, at: time.Now()})
 			return
 		}
 		if !ready {
@@ -766,9 +789,7 @@ func (t *Terminal) read(raw chan<- readResult) {
 		n, err := t.in.Read(buf)
 		at := time.Now()
 		if n > 0 || err != nil {
-			select {
-			case raw <- readResult{data: buf[:n], at: at, err: err}:
-			case <-t.stop:
+			if !t.sendRead(raw, readResult{data: buf[:n], at: at, err: err}) {
 				return
 			}
 		}
@@ -780,6 +801,15 @@ func (t *Terminal) read(raw chan<- readResult) {
 			return
 		default:
 		}
+	}
+}
+
+func (t *Terminal) sendRead(raw chan<- readResult, result readResult) bool {
+	select {
+	case raw <- result:
+		return true
+	case <-t.stop:
+		return false
 	}
 }
 
@@ -844,6 +874,9 @@ func (t *Terminal) Notify(text string) error {
 // running their child. A closed session returns [ErrClosed]; closing from run ends the session
 // rather than reacquiring it when run returns.
 //
+// A successful handoff revokes transmitted images and outstanding clipboard
+// reads. Retransmit live images before repainting after Hand returns. An
+// accepted image deletion also stands if a later handoff step fails.
 // The window may be a different size afterwards with nothing having reported it,
 // because the signal went to whichever process group was in the foreground. A fresh
 // size is asked for and delivered on [Terminal.Events].
@@ -927,6 +960,8 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 		return errors.Join(err, t.retakeModes())
 	}
 	t.ownsModes = false
+	t.clipboard.CancelPending()
+	t.restartInput.Store(true)
 	return nil
 }
 

@@ -432,3 +432,21 @@ func TestPresentReentryPanicsAndPreservesTheUnfinishedRequest(t *testing.T) {
 		t.Fatal("panic erased the unfinished frame request")
 	}
 }
+
+func TestRefusedPacedDrawParksUntilTheNextDriverWakeup(t *testing.T) {
+	var p present.Presenter
+	p.Request()
+	var d drew
+	presented(t, &p, epoch, d.draw)
+	p.RequestBy(epoch, time.Second)
+	refusal := errors.New("capacity exhausted")
+	if _, err := p.Present(epoch.Add(time.Second), func(bool) (uint64, error) { return 0, refusal }); !errors.Is(err, refusal) {
+		t.Fatal(err)
+	}
+	if at, armed := p.DueAt(); armed {
+		t.Fatalf("a refused frame rearmed its expired timer %v", at)
+	}
+	if !presented(t, &p, epoch.Add(time.Second), d.draw) {
+		t.Fatal("writer wakeup did not retry the owed frame")
+	}
+}

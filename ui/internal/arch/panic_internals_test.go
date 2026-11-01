@@ -20,10 +20,8 @@ import (
 // a panic that moves into caller-reachable code fails this test until it is either
 // documented on the exported API or explained here.
 var internalAssertions = map[string]string{
-	"ui/core/ansi:Scanner.requireIdle": "Scanner documents that its active visitor cannot reenter Feed or Reset",
-	// The exported entry reserves through the protocol's own maximum and reports
-	// ErrImageIDsExhausted, so the narrowing conversion can never see an overflow.
-	"ui/core/term:imageID": "Terminal.Transmit returns ErrImageIDsExhausted before reserving past math.MaxUint32",
+	"ui/core/ansi:Scanner.requireIdle":          "Scanner documents that its active visitor cannot reenter Feed or Reset",
+	"ui/core/publication:Publisher.checkPrefix": "Commit and FailAdmission require the current pending prefix issued by this publisher",
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.
@@ -34,7 +32,6 @@ var internalAssertions = map[string]string{
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
-	"ui/base:checkFields":                          "NewForm and Form.Set document the nil-field panic",
 	"ui/base:Transcript.assertMutable":             "Transcript documents its closed lifetime and uses the scene-owned read-only phase during content capture",
 	"ui/kit:Paragraph.requireIdle":                 "Paragraph, SetText and SetLinks document that link detection cannot reenter either setter",
 	"ui/base:requireMutable":                       "all live controllers require owner-phase mutation; this common guard checks scene phase before any controller state changes",

@@ -34,3 +34,13 @@ func BenchmarkSearchNoMatch(b *testing.B) {
 		benchmarkSearchResult, _ = Scan(b.Context(), config)
 	}
 }
+
+func BenchmarkScanLongUnicodeRow(b *testing.B) {
+	config := ScanConfig{Query: "猫", Rows: []text.Row{{Text: strings.Repeat("猫犬", 2000)}}}
+	for b.Loop() {
+		result, err := Scan(b.Context(), config)
+		if err != nil || len(result.Matches) != 2000 {
+			b.Fatal(err, len(result.Matches))
+		}
+	}
+}

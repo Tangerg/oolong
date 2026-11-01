@@ -9,9 +9,10 @@ import (
 )
 
 type readResult struct {
-	data []byte
-	at   time.Time
-	err  error
+	data    []byte
+	at      time.Time
+	err     error
+	restart bool
 }
 
 // pump turns raw terminal bytes into events.
@@ -86,6 +87,10 @@ func (p *pump) run() error {
 }
 
 func (p *pump) take(result readResult) (done bool, err error) {
+	if result.restart {
+		p.stream.Reset()
+		return false, nil
+	}
 	if !p.send(p.stream.Feed(result.data, result.at)) {
 		return true, nil
 	}

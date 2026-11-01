@@ -82,7 +82,6 @@ func NewByteIngress(config ByteIngressConfig) (*ByteIngress, error) {
 		slot:    slot,
 		limit:   config.Limit,
 		consume: config.Consume,
-		room:    make(chan struct{}, 1),
 		done:    make(chan struct{}),
 	}
 	go i.waitForOwner(ownerDone)
@@ -108,13 +107,13 @@ func (i *ByteIngress) Write(p []byte) (n int, err error) {
 
 		available := i.limit - len(i.pending)
 		if available == 0 {
-			i.mu.Unlock()
-			select {
-			case <-i.room:
-				continue
-			case <-i.done:
-				return n, i.writeErr()
+			if i.room == nil {
+				i.room = make(chan struct{})
 			}
+			room := i.room
+			i.mu.Unlock()
+			<-room
+			continue
 		}
 
 		if !i.admitDrain() {
@@ -162,9 +161,8 @@ func (i *ByteIngress) CloseWithError(err error) error {
 	}
 	i.closed = true
 	i.result = err
+	i.wakeWriters()
 	i.mu.Unlock()
-
-	i.signalRoom()
 	return nil
 }
 
@@ -203,9 +201,8 @@ func (i *ByteIngress) drain() bool {
 		i.stopped = true
 		i.releaseTerminalReferences()
 	}
+	i.wakeWriters()
 	i.mu.Unlock()
-
-	i.signalRoom()
 	if batch.Final {
 		defer i.settle()
 	}
@@ -231,12 +228,12 @@ func (i *ByteIngress) stop() {
 		i.pending = nil
 	}
 	i.releaseTerminalReferences()
+	i.wakeWriters()
 	i.mu.Unlock()
 
 	// stopped and settled are deliberately not the same bit. A final consumer runs
 	// after stopped is published. Its deferred cleanup or a concurrent dispatcher
 	// shutdown must still release every Done waiter exactly once.
-	i.signalRoom()
 	i.settle()
 }
 
@@ -247,19 +244,12 @@ func (i *ByteIngress) releaseTerminalReferences() {
 	i.consume = nil
 }
 
-func (i *ByteIngress) writeErr() error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.closed {
-		return io.ErrClosedPipe
-	}
-	return ErrStopped
-}
-
-func (i *ByteIngress) signalRoom() {
-	select {
-	case i.room <- struct{}{}:
-	default:
+// Under mu, release everyone waiting on this capacity epoch. Closing admission
+// must wake blocked producers even if the final consumer never takes another turn.
+func (i *ByteIngress) wakeWriters() {
+	if i.room != nil {
+		close(i.room)
+		i.room = nil
 	}
 }
 

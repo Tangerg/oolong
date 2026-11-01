@@ -369,9 +369,9 @@ func (r *Root) InvalidateGeometry() {
 	r.geometryEpoch = next(r.geometryEpoch)
 	r.published.Store(nil)
 	previous := r.capture
-	r.capture.revoked = true
+	r.capture.phase = captureRevoked
 	r.signal()
-	if n := r.resolve(previous.target); n != nil && !previous.revoked {
+	if n := r.resolve(previous.target); n != nil && previous.phase != captureRevoked {
 		previous.cancel(n)
 	}
 }

@@ -90,7 +90,7 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	rule := mustRender(t, "---", look)
 	code := mustRender(t, "```go\nx\n```", look)
 	provided[0][0].Text = "changed"
-	if got := rule[0].lines[0].String(); got != "kept" {
+	if got := rule[0].rule.Text; got != "kept" {
 		t.Fatalf("rule glyph = %q, want owned kept", got)
 	}
 	if got := code[0].Rows(20)[0].Text; got != "kept" {
@@ -100,7 +100,7 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	sourceEnd := sourceStart + uintptr(len(source))
 	for name, value := range map[string]string{
-		"rule": rule[0].lines[0][0].Text,
+		"rule": rule[0].rule.Text,
 		"code": code[0].Rows(20)[0].Text,
 	} {
 		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.

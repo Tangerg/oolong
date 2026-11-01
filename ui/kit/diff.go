@@ -128,7 +128,7 @@ func (d *Diff) Draw(v grid.View) {
 	for y := first; y < last; y++ {
 		row := rows[y]
 		if row.gap {
-			d.gap(v, y, width)
+			drawRule(v, y, d.glyphs.Ellipsis, d.theme.Subtle)
 			continue
 		}
 		d.line(v, y, width, row)
@@ -281,17 +281,6 @@ func (g diffGutter) mark(kind diff.Kind) string {
 		return ""
 	}
 	return kind.String()
-}
-
-func (d *Diff) gap(v grid.View, y, w int) {
-	mark := d.glyphs.Ellipsis
-	step := text.Width(mark)
-	if step <= 0 {
-		return
-	}
-	for x := 0; x < w; x += step {
-		v.Text(x, y, mark, d.theme.Subtle)
-	}
 }
 
 func (d *Diff) style(kind diff.Kind) grid.Style {

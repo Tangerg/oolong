@@ -229,7 +229,7 @@ type ExtensionError struct {
 }
 
 func (e *ExtensionError) Error() string {
-	return fmt.Sprintf("markdown: block %d extension %d (%s): %v", e.Block, e.Extension, e.Info, e.Err)
+	return fmt.Sprintf("markdown: block %d extension %d (%q): %q", e.Block, e.Extension, e.Info, e.Err)
 }
 
 // Unwrap preserves the backend's diagnostic identity.

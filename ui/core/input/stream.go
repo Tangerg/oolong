@@ -58,6 +58,13 @@ func (s *Stream) escapeGrace() time.Duration {
 	return s.grace
 }
 
+// Reset discards incomplete framing and its deadline at a break in transport
+// ownership. No key or paste can be inferred from bytes the next reader missed.
+func (s *Stream) Reset() {
+	s.parser = nil
+	s.disarm()
+}
+
 // Feed decodes the next bytes, stamped with when they arrived.
 //
 // Drivers record at when the transport read completes, before queueing the bytes.

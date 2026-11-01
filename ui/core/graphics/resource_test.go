@@ -67,3 +67,28 @@ func TestResourcePlacementUsesDestinationAndTransmissionGeneration(t *testing.T)
 		})
 	}
 }
+
+func TestRevocationCannotReassignAWireIDInsideItsDelete(t *testing.T) {
+	var owner graphics.ImageOwner
+	wire := graphics.Image{ID: 1}
+	first := owner.Bind(wire)
+	refusal := errors.New("transport refused")
+	err := owner.Release(first, func(graphics.Image) error {
+		owner.RevokeAll()
+		if first.Live() {
+			t.Fatal("revoked transmission stayed live")
+		}
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("new transmission reused the in-flight delete's ID")
+				}
+			}()
+			owner.Bind(wire)
+		}()
+		return refusal
+	})
+	if !errors.Is(err, refusal) || first.Live() || !owner.Bind(wire).Live() {
+		t.Fatal("delete settlement revived a revoked resource or stranded its wire ID")
+	}
+}

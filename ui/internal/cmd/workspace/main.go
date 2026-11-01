@@ -232,9 +232,11 @@ func readGoJSON(ctx context.Context, root string, target any, args ...string) er
 	command := exec.CommandContext(ctx, "go", args...) //nolint:gosec // Arguments are fixed Go metadata operations, never shell input.
 	command.Dir = root
 	command.Env = append(os.Environ(), "GOWORK=off")
-	output, err := command.CombinedOutput()
+	var diagnostic bytes.Buffer
+	command.Stderr = &diagnostic
+	output, err := command.Output()
 	if err != nil {
-		return fmt.Errorf("workspace: go %s: %w\n%s", strings.Join(args, " "), err, output)
+		return fmt.Errorf("workspace: go %s: %w\n%s", strings.Join(args, " "), err, diagnostic.String())
 	}
 	return json.Unmarshal(output, target)
 }

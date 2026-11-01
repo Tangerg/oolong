@@ -1291,7 +1291,8 @@ func (e *Editor) drawMultiline(
 		return presentation
 	}
 
-	for y := range height {
+	visible := view.Visible()
+	for y := visible.Min.Y; y < visible.Max.Y; y++ {
 		index := layout.Sum(first, y)
 		if index >= len(rows) {
 			break
@@ -1304,11 +1305,11 @@ func (e *Editor) drawMultiline(
 	// above did not have to be told which of them was selected.
 	for _, span := range e.spansOfSelection(width) {
 		y := span.Row - first
-		if y < 0 || y >= height {
+		if y < visible.Min.Y || y >= visible.Max.Y {
 			continue
 		}
-		end := min(layout.Sum(span.Col, span.Width), width)
-		for x := max(span.Col, 0); x < end; x++ {
+		end := min(layout.Sum(span.Col, span.Width), visible.Max.X)
+		for x := max(span.Col, visible.Min.X); x < end; x++ {
 			view.MergeStyle(x, y, look.Selection)
 		}
 	}

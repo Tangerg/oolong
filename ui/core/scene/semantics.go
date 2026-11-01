@@ -145,9 +145,25 @@ type Progress struct {
 // Cursor continues one root, model revision, subtree and depth. Its zero value
 // starts a traversal. Pass Observation.Next unchanged; page budgets may vary.
 type Cursor struct {
-	origin        Target
-	revision      uint64
-	depth, offset int
+	origin   Target
+	revision uint64
+	depth    int
+	next     *continuation
+}
+
+// The model revision pins child order. A bookmark stores just the path to
+// the first omitted node, so readers can replay a cursor without retaining
+// detached subtrees or reevaluating the callbacks for earlier siblings.
+type continuation struct {
+	path  []observationStep
+	modal Target
+	root  Target
+	key   string
+}
+
+type observationStep struct {
+	child  int
+	parent Target
 }
 
 // Query bounds a semantic subtree, output count and text size. Zero limits use package defaults.
@@ -290,25 +306,37 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		query.TextLimit = DefaultTextLimit
 	}
 	query.Limit, query.TextLimit = min(query.Limit, MaxQueryLimit), min(query.TextLimit, MaxTextLimit)
-	builder := observationBuilder{root: r, modal: r.modal(), query: query, result: Observation{Progress: r.Progress(), Truncated: query.Cursor.offset > 0}}
+	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress()}}
+	if cursor.next == nil {
+		builder.modal = r.modal()
+	} else {
+		builder.resume = cursor.next.path
+		builder.modal = r.resolve(cursor.next.modal)
+		builder.result.Truncated = true
+	}
 	builder.visit(origin, Target{}, 0)
 	return builder.result, nil
 }
 
 func (r *Root) traversal(q Query) (*node, Cursor, error) {
 	c := q.Cursor
-	if c != (Cursor{}) && (c.origin.root != r || c.revision != r.modelRevision) {
-		return nil, Cursor{}, ErrObservationChanged
+	if c.next != nil {
+		if c.origin.root != r || c.revision != r.modelRevision || c.depth != q.Depth {
+			return nil, Cursor{}, ErrObservationChanged
+		}
+		if q.Root == c.next.root && q.RootKey == c.next.key {
+			return r.resolve(c.origin), c, nil
+		}
 	}
 	origin, err := r.queryRoot(q)
 	if err != nil {
 		return nil, Cursor{}, err
 	}
-	cursor := Cursor{revision: r.modelRevision, depth: q.Depth, offset: c.offset}
+	cursor := Cursor{revision: r.modelRevision, depth: q.Depth, next: c.next}
 	if origin != nil {
 		cursor.origin = origin.target()
 	}
-	if c != (Cursor{}) && c != cursor {
+	if c.next != nil && cursor.origin != c.origin {
 		return nil, Cursor{}, ErrObservationChanged
 	}
 	return origin, cursor, nil
@@ -352,7 +380,8 @@ type observationBuilder struct {
 	modal  *node
 	query  Query
 	result Observation
-	seen   int
+	resume []observationStep
+	path   []observationStep
 }
 
 func (b *observationBuilder) visit(n *node, parent Target, depth int) bool {
@@ -363,39 +392,50 @@ func (b *observationBuilder) visit(n *node, parent Target, depth int) bool {
 		b.result.Truncated = true
 		return true
 	}
-	var semantic Semantic
-	if n.config.Semantics != nil {
-		semantic = n.config.Semantics()
-	}
-	if semantic.Role != RoleNone || semantic.Name != "" || n.config.Key != "" || len(n.config.Actions) > 0 {
-		if !b.append(n, parent, semantic) {
+	first := 0
+	if depth < len(b.resume) {
+		step := b.resume[depth]
+		first, parent = step.child, step.parent
+	} else {
+		b.resume = nil
+		var more bool
+		parent, more = b.project(n, parent)
+		if !more {
 			return false
 		}
-		parent = n.target()
 	}
-	if n.group == nil {
-		return true
-	}
-	for _, item := range n.group.items {
-		if !b.visit(item.Element.node, parent, depth+1) {
-			return false
+	if n.group != nil {
+		for child := first; child < len(n.group.items); child++ {
+			b.path = append(b.path, observationStep{child: child, parent: parent})
+			if !b.visit(n.group.items[child].Element.node, parent, depth+1) {
+				return false
+			}
+			b.path = b.path[:depth]
 		}
 	}
 	return true
 }
 
-func (b *observationBuilder) append(n *node, parent Target, semantic Semantic) bool {
-	if b.seen >= b.query.Cursor.offset {
-		if len(b.result.Nodes) == b.query.Limit {
-			b.result.Truncated = true
-			b.result.Next = b.query.Cursor
-			b.result.Next.offset = b.seen
-			return false
-		}
-		b.result.Nodes = append(b.result.Nodes, b.semanticNode(n, parent, semantic))
+func (b *observationBuilder) project(n *node, parent Target) (Target, bool) {
+	var semantic Semantic
+	if n.config.Semantics != nil {
+		semantic = n.config.Semantics()
 	}
-	b.seen++
-	return true
+	if semantic.Role == RoleNone && semantic.Name == "" && n.config.Key == "" && len(n.config.Actions) == 0 {
+		return parent, true
+	}
+	if len(b.result.Nodes) == b.query.Limit {
+		next := &continuation{path: slices.Clone(b.path), root: b.query.Root, key: strings.Clone(b.query.RootKey)}
+		if b.modal != nil {
+			next.modal = b.modal.target()
+		}
+		b.result.Truncated = true
+		b.result.Next = b.query.Cursor
+		b.result.Next.next = next
+		return parent, false
+	}
+	b.result.Nodes = append(b.result.Nodes, b.semanticNode(n, parent, semantic))
+	return n.target(), true
 }
 
 func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Semantic) SemanticNode {

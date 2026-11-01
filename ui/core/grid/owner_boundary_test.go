@@ -65,3 +65,25 @@ func TestNativePainterCannotWriteIntoAnotherCallback(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputAliasesShareSettlement(t *testing.T) {
+	screen := grid.NewScreen(3, 1)
+	screen.Frame().Text(0, 0, "x", grid.Style{})
+	first, err := screen.Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := *first
+	first.Commit()
+	screen.Frame().Text(0, 0, "y", grid.Style{})
+	second, err := screen.Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Abort()
+	if alias.Bytes() != nil || alias.Len() != 0 {
+		t.Fatal("settled alias retained an admitted payload")
+	}
+	alias.Abort()
+	rejectsPublicationReentry(t, func() { screen.Frame() })
+}

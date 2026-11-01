@@ -205,13 +205,13 @@ func (s *Screen) Prepare() (output *Output, err error) {
 		payload = append(payload, s.frame.out...)
 		payload = append(payload, endSync...)
 	}
-	output = &Output{payload: payload, settle: func(commit bool) {
+	output = newOutput(payload, func(commit bool) {
 		if commit {
 			s.cursor, s.full, s.repaintAll = afterCursor, afterFull, afterRepaint
 			s.buffers.swap()
 		}
 		s.publication.end()
-	}}
+	})
 	return output, nil
 }
 

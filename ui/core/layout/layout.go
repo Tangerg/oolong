@@ -7,6 +7,7 @@ package layout
 import (
 	"image"
 	"math/bits"
+	"slices"
 )
 
 // Align is how an extent sits in a larger space.
@@ -295,6 +296,45 @@ func (f Flow) Divide(total, across int, slots []Slot) []int {
 func (f Flow) Wanted(across int, slots []Slot) int {
 	wanted, gaps := wanted(f.Axis, across, slots), f.gaps(len(slots))
 	return Sum(wanted, gaps)
+}
+
+// CrossWanted measures the perpendicular extent of a flow with a known
+// main-axis total. Fixed and proportional requests can be divided immediately.
+// A measured request that itself depends on the unknown cross extent gets the
+// largest main extent it can receive, respecting its cap and preceding floors.
+// An application with mutually dependent constraints can supply its own measure.
+func (f Flow) CrossWanted(total int, slots []Slot) int {
+	requests := slices.Clone(slots)
+	for i := range requests {
+		requests[i].Of = nil
+	}
+	sizes := f.Divide(total, 0, requests)
+	axis := Across
+	if f.Axis == Across {
+		axis = Down
+	}
+	remaining := Remaining(total, f.gaps(len(slots)))
+	extent := 0
+	for i, slot := range slots {
+		available := sizes[i]
+		if slot.Size.kind == measuredSizing {
+			available = remaining
+			if slot.Size.maximum > 0 {
+				available = min(available, slot.Size.maximum)
+			}
+		}
+		if slot.Size.kind != flexSizing {
+			remaining = Remaining(remaining, sizes[i])
+		}
+		if available > 0 {
+			if slot.Cross.Size > 0 {
+				extent = max(extent, slot.Cross.Size)
+			} else if slot.Of != nil {
+				extent = max(extent, slot.Of.Measure(axis, available))
+			}
+		}
+	}
+	return extent
 }
 
 func (f Flow) gaps(slots int) int {

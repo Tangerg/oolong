@@ -197,3 +197,13 @@ func TestFilterIsFilterFuncOverStrings(t *testing.T) {
 		t.Fatalf("Filter = %+v, FilterFunc = %+v", plain, byText)
 	}
 }
+
+func BenchmarkMissingPaletteSuffix(b *testing.B) {
+	label := strings.Repeat("a ", 3000)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, ok := fuzzy.Score("absent", label); ok {
+			b.Fatal("unexpected match")
+		}
+	}
+}

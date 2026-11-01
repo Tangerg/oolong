@@ -65,7 +65,7 @@ func (s *Scroll) Wheel(w input.Wheel) {
 func (s *Scroll) Offset() int { return s.resolved().offset }
 
 // FollowingEnd reports whether the window is following the end of the content.
-func (s *Scroll) FollowingEnd() bool { return s.current.following }
+func (s *Scroll) FollowingEnd() bool { return s.resolved().following }
 
 // By scrolls a number of rows: negative towards the start, positive towards the end.
 //
@@ -205,46 +205,55 @@ func (s *Scroll) Stage(frame scene.Frame, total, window int) ScrollLayout {
 	if !s.element.IsZero() {
 		requireProjection(s.element, frame)
 	}
-	state := s.project(total, window)
+	state, reveal := s.basis()
+	origin := state.offset
+	if reveal != nil {
+		origin = reveal.origin
+	}
+	state.project(total, window, reveal)
 	value := scrollProjection{state: state, revision: s.revision, reveal: s.reveal}
 	staged := s.presentation.Stage(frame, value)
-	return ScrollLayout{staged: staged, reveal: s.reveal, origin: s.current.offset}
+	return ScrollLayout{staged: staged, reveal: reveal, origin: origin}
 }
 
 // Resolve is the pure layout projection used when a scene group positions content.
-func (s *Scroll) Resolve(total, window int) int { return s.project(total, window).offset }
+func (s *Scroll) Resolve(total, window int) int {
+	state, reveal := s.basis()
+	state.project(total, window, reveal)
+	return state.offset
+}
 
-func (s *Scroll) project(total, window int) scrollState {
-	state := s.current
-	if s.reveal != nil {
-		state.offset = s.reveal.origin
+func (s *scrollState) project(total, window int, reveal *scrollRange) {
+	if reveal != nil {
+		s.offset = reveal.origin
 	}
-	state.layout(total, window)
-	if s.reveal != nil {
-		state.revealRange(s.reveal.first, s.reveal.last)
+	s.layout(total, window)
+	if reveal != nil {
+		s.revealRange(reveal.first, reveal.last)
 	}
-	return state
 }
 
 func (s *Scroll) resolved() scrollState {
-	shown := s.presentation.Value()
-	if shown.revision == s.revision {
-		return shown.state
-	}
-	return s.current
+	state, _ := s.basis()
+	return state
 }
 
-// A command starts at the last displayed projection, then owns its new intent.
-// Painting never consumes that intent or advances the scroll model.
+// The admitted offset and reveal receipt apply until a newer command supersedes
+// them. Both the next input and the next paint must start at that same position.
+func (s *Scroll) basis() (scrollState, *scrollRange) {
+	shown := s.presentation.Value()
+	if shown.revision != s.revision {
+		return s.current, s.reveal
+	}
+	if shown.state.window > 0 && shown.reveal == s.reveal {
+		return shown.state, nil
+	}
+	return shown.state, s.reveal
+}
+
 func (s *Scroll) begin() {
 	requireMutable(s.element)
-	shown := s.presentation.Value()
-	if shown.revision == s.revision {
-		s.current = shown.state
-		if shown.state.window > 0 && shown.reveal == s.reveal {
-			s.reveal = nil
-		}
-	}
+	s.current, s.reveal = s.basis()
 	s.revision++
 }
 
@@ -418,4 +427,5 @@ func (l *ScrollLayout) Anchor(offset int) {
 	}
 	value.state.offset = min(max(offset, 0), value.state.max())
 	l.staged.Set(value)
+	l.origin = offset
 }

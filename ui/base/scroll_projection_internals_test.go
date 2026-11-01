@@ -62,3 +62,32 @@ func TestScrollCandidateRefinementPublishesOnlyAsACompleteFrame(t *testing.T) {
 		t.Fatalf("committed refinement=%d window=%d", scroll.Offset(), scroll.resolved().window)
 	}
 }
+
+func TestAdmittedAnchorSurvivesViewportRefinementAndRepaint(t *testing.T) {
+	var scroll Scroll
+	reflow := true
+	element := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		candidate := scroll.Stage(frame, 100, 10)
+		if reflow {
+			candidate.Anchor(70)
+		}
+		candidate.Resize(8)
+	}})
+	root, err := scene.NewRoot(scene.RootConfig{Element: element})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	for sequence := uint64(1); sequence <= 2; sequence++ {
+		frame, prepareErr := root.Prepare(grid.NewSurface(8, 10).View())
+		if prepareErr != nil {
+			t.Fatal(prepareErr)
+		}
+		frame.Commit(sequence)
+		root.Wrote(sequence)
+		if offset := scroll.Offset(); offset != 70 {
+			t.Fatalf("frame %d placed the anchor at row %d", sequence, offset)
+		}
+		reflow = false
+	}
+}

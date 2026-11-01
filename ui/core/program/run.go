@@ -353,7 +353,7 @@ func (p *program) writerChanged(open bool) error {
 			p.failPublications(err)
 			return err
 		}
-		err := errors.New("program: frame writer changes channel closed")
+		err := fmt.Errorf("program: frame writer changes channel closed: %w", term.ErrClosed)
 		p.failPublications(err)
 		return err
 	}
@@ -457,7 +457,7 @@ func (p *program) compose(full bool) (uint64, error) {
 	defer output.Abort()
 	seq := uint64(0)
 	if output.Len() > 0 {
-		seq, err = p.queue(output.Bytes())
+		seq, err = p.queue(output.Bytes(), batch)
 		if err != nil {
 			return 0, err
 		}
@@ -490,11 +490,26 @@ func (p *program) wrote(sequence uint64) {
 // held wherever somebody remembered it and nowhere else: a host whose writer broke
 // the sequence contract once would be handed the next frame anyway, into a stream
 // whose position this program has just said it no longer knows.
-func (p *program) queue(frame []byte) (uint64, error) {
+func (p *program) queue(frame []byte, batch publication.Batch) (uint64, error) {
 	if p.outputFailed {
 		return 0, ErrDisplayFailed
 	}
+	// A panic or Goexit inside an external writer can follow a real write.
+	// Neither the attempted batch nor the physical display is safe to replay.
+	uncertain := errAdmissionInterrupted
+	defer func() {
+		if uncertain != nil {
+			p.outputFailed = true
+			p.publisher.FailAdmission(batch, uncertain)
+		}
+	}()
 	seq, err := p.writer.Queue(frame)
+	if err == nil && seq <= p.queued || err != nil && seq != 0 {
+		p.publisher.Written(p.writer.Written())
+		uncertain = errors.Join(fmt.Errorf("%w: got %d after %d", ErrInvalidFrameSequence, seq, p.queued), err, p.writer.Err())
+		return 0, uncertain
+	}
+	uncertain = nil
 	if err != nil {
 		if fatal := p.writer.Err(); fatal != nil {
 			err = fatal
@@ -503,18 +518,6 @@ func (p *program) queue(frame []byte) (uint64, error) {
 			p.outputFailed = true
 			p.failPublications(err)
 		}
-		return 0, err
-	}
-	if seq == 0 {
-		p.outputFailed = true
-		if err := p.writer.Err(); err != nil {
-			return 0, err
-		}
-	}
-	if seq == 0 || seq <= p.queued {
-		p.outputFailed = true
-		err := fmt.Errorf("%w: got %d after %d", ErrInvalidFrameSequence, seq, p.queued)
-		p.failPublications(err)
 		return 0, err
 	}
 	p.queued = seq
@@ -611,7 +614,7 @@ func (p *program) finishBlock() error {
 	}
 	defer output.Abort()
 	if output.Len() > 0 {
-		if _, err := p.queue(output.Bytes()); err != nil {
+		if _, err := p.queue(output.Bytes(), publication.Batch{}); err != nil {
 			return err
 		}
 	}

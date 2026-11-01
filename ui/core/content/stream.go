@@ -199,12 +199,13 @@ func (d *StreamDocument) End(cause error) error {
 	return nil
 }
 
-// Snapshot clones source into immutable worker input and preserves the originating identity.
+// Snapshot shares an immutable prefix of the append-only source. New bytes
+// extend the builder beyond this string, even when its backing allocation is reused.
 func (d *StreamDocument) Snapshot() SourceSnapshot {
 	if d == nil {
 		return SourceSnapshot{}
 	}
-	return SourceSnapshot{owner: d.id, revision: d.revision, format: d.cfg.Format, source: strings.Clone(d.source.String()), final: d.ended}
+	return SourceSnapshot{owner: d.id, revision: d.revision, format: d.cfg.Format, source: d.source.String(), final: d.ended}
 }
 
 // Accept transfers a prepared result only when identity, revision and EOF still match.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"reflect"
 
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
@@ -167,6 +168,21 @@ type Style struct {
 type Drawable interface {
 	Draw(view View)
 	HeightForWidth(width int) int
+}
+
+// IsNilDrawable recognizes absent content across an interface boundary, including
+// typed nils. Each consumer decides whether absence is a no-op or a refusal.
+func IsNilDrawable(body Drawable) bool {
+	if body == nil {
+		return true
+	}
+	value := reflect.ValueOf(body)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }
 
 // Merge lays over on top of s: whatever over states wins, whatever it leaves at

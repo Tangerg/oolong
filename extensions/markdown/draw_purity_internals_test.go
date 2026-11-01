@@ -170,7 +170,7 @@ type blockMeaning struct {
 	marker string
 	rail   string
 	indent int
-	rule   bool
+	rule   text.Span
 	gap    bool
 }
 
@@ -199,13 +199,17 @@ func meaningOfDoc(doc *Doc) docMeaning {
 				tableBody.WriteByte('\n')
 			}
 		}
+		var rule text.Span
+		if block.rule != nil {
+			rule = *block.rule
+		}
 		meaning.blocks = append(meaning.blocks, blockMeaning{
 			text:   body.String(),
 			table:  tableBody.String(),
 			marker: markText(block.prefix.markers),
 			rail:   markText(block.prefix.rails),
 			indent: block.prefix.indent,
-			rule:   block.rule,
+			rule:   rule,
 			gap:    block.blankBefore,
 		})
 	}
@@ -244,7 +248,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 			lines:  []text.Line{plain("a quotation that also wraps")},
 			prefix: blockPrefix{indent: 2, rails: &prefixMark{span: text.Span{Text: "| "}}}, blankBefore: true,
 		},
-		{lines: []text.Line{plain("-")}, rule: true, blankBefore: true},
+		{rule: &text.Span{Text: "-"}, blankBefore: true},
 		{
 			table: &table{
 				rows: [][]text.Line{

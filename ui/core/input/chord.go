@@ -2,8 +2,12 @@ package input
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Chord is one keystroke: a key with the modifiers held down with it.
@@ -30,9 +34,13 @@ func (c Chord) String() string {
 		b.WriteString(c.Code.String())
 		return b.String()
 	}
-	if c.Rune == ' ' {
+	switch {
+	case c.Rune == ' ':
 		b.WriteString("space")
-	} else {
+	case unicode.IsSpace(c.Rune) || !unicode.IsPrint(c.Rune):
+		// Keep controls and separators out of help output and sequence syntax.
+		fmt.Fprintf(&b, "%U", c.Rune)
+	default:
 		b.WriteRune(c.Rune)
 	}
 	return b.String()
@@ -40,7 +48,13 @@ func (c Chord) String() string {
 
 // MarshalText writes the chord as [Chord.String] does, so a keybinding survives being
 // written to a configuration file and read back.
-func (c Chord) MarshalText() ([]byte, error) { return []byte(c.String()), nil }
+func (c Chord) MarshalText() ([]byte, error) {
+	written := c.String()
+	if read, ok := ParseChord(written); !ok || read != c {
+		return nil, notAKeystroke(written)
+	}
+	return []byte(written), nil
+}
 
 // UnmarshalText reads what MarshalText wrote.
 //
@@ -89,23 +103,32 @@ func ParseChord(s string) (Chord, bool) {
 	}
 	// One character and no more. A name this package does not know is not a key, and
 	// guessing that the first rune of it was meant would bind "contrl+a" to "c".
-	r := []rune(s)
-	if len(r) != 1 {
+	r, ok := parseRune(s)
+	if !ok {
 		return Chord{}, false
 	}
-	return Chord{Code: Character, Rune: r[0], Mods: mods}, true
+	return Chord{Code: Character, Rune: r, Mods: mods}, true
+}
+
+func parseRune(s string) (rune, bool) {
+	if code, ok := strings.CutPrefix(s, "U+"); ok && len(code) >= 4 && len(code) <= 6 {
+		value, err := strconv.ParseUint(code, 16, 32)
+		if err == nil && value <= unicode.MaxRune && utf8.ValidRune(rune(value)) {
+			return rune(value), true
+		}
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if size != len(s) || r == utf8.RuneError && size == 1 {
+		return 0, false
+	}
+	return r, true
 }
 
 func modNamed(name string) (Mods, bool) {
-	switch name {
-	case "ctrl":
-		return Ctrl, true
-	case "alt":
-		return Alt, true
-	case "shift":
-		return Shift, true
-	case "super":
-		return Super, true
+	for _, named := range modifierNames {
+		if named.name == name {
+			return named.mod, true
+		}
 	}
 	return 0, false
 }
@@ -153,7 +176,13 @@ func (k Keys) String() string {
 }
 
 // MarshalText writes the sequence as [Keys.String] does.
-func (k Keys) MarshalText() ([]byte, error) { return []byte(k.String()), nil }
+func (k Keys) MarshalText() ([]byte, error) {
+	written := k.String()
+	if read, ok := ParseKeys(written); !ok || !slices.Equal(k, read) {
+		return nil, notAKeystroke(written)
+	}
+	return []byte(written), nil
+}
 
 // UnmarshalText reads what MarshalText wrote.
 func (k *Keys) UnmarshalText(b []byte) error {

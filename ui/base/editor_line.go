@@ -75,10 +75,10 @@ func (e editorLineView) draw(frame scene.Frame, look Look, presented *scene.Snap
 		view.Text(0, 0, text.Truncate(e.placeholder, width, look.Ellipsis), look.Subtle)
 	} else {
 		text.Of(shown, look.Text).Draw(view, -left, 0)
-		if e.selecting {
+		if visible := view.Visible(); e.selecting && !visible.Empty() && visible.Min.Y == 0 {
 			from := text.ColumnOf(shown, e.shownAt(min(e.anchor, e.cursor))) - left
 			to := text.ColumnOf(shown, e.shownAt(max(e.anchor, e.cursor))) - left
-			for x := max(from, 0); x < min(to, width); x++ {
+			for x := max(from, visible.Min.X); x < min(to, visible.Max.X); x++ {
 				view.MergeStyle(x, 0, look.Selection)
 			}
 		}

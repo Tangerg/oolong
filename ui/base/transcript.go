@@ -68,6 +68,8 @@ func missingPublisher(sink TranscriptPublisher) bool {
 	}
 }
 
+const defaultTranscriptItems = 64
+
 // TranscriptConfig combines reading policy, bounded retention and an optional publication owner.
 type TranscriptConfig struct {
 	Key            string
@@ -178,7 +180,6 @@ type Transcript struct {
 	geometry        scene.Snapshot[TranscriptLayout]
 	presentation    scene.Snapshot[transcriptPresentation]
 	clicked         uint64
-	scrollAction    *scene.Action[ScrollRequest, int]
 }
 
 // ActionScroll is the typed transcript action shared by semantic callers and reading controls.
@@ -200,7 +201,7 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	}
 	maxItems := cfg.MaxItems
 	if maxItems == 0 {
-		maxItems = 64
+		maxItems = defaultTranscriptItems
 	}
 	if cfg.KeepCompleted >= maxItems || cfg.KeepCompleted > 0 && cfg.Retention != PublishCompleted {
 		return nil, errors.New("base: recent completion retention requires publication and space for new content")
@@ -217,14 +218,13 @@ func (t *Transcript) initialize() {
 	t.initialized = true
 	t.namespace = new(byte)
 	if t.cfg.MaxItems == 0 {
-		t.cfg.MaxItems = 64
+		t.cfg.MaxItems = defaultTranscriptItems
 	}
 	t.next = 1
 	t.current = -1
 	t.scroll.ToBottom()
-	t.scrollAction = scene.NewAction(scene.ActionConfig[ScrollRequest, int]{
+	scrollAction := scene.NewAction(scene.ActionConfig[ScrollRequest, int]{
 		ID: ActionScroll, Label: "Scroll document",
-		Availability: func(ScrollRequest) scene.Availability { return scene.Availability{Disabled: t.closed} },
 		Run: func(_ context.Context, request ScrollRequest) (scene.ActionResult[int], error) {
 			before := t.scroll.Offset()
 			t.scroll.By(request.Rows)
@@ -238,13 +238,22 @@ func (t *Transcript) initialize() {
 	})
 	t.element = scene.NewElement(scene.ElementConfig{
 		Key:       t.cfg.Key,
-		Focusable: func() bool { return !t.closed },
+		Enabled:   func() bool { return !t.closed },
+		Focusable: func() bool { return true },
 		Semantics: func() scene.Semantic {
-			return scene.Semantic{Role: scene.RoleDocument, Name: t.cfg.Name, ContentRevision: t.revision, Availability: scene.ContentLive}
+			availability := scene.ContentLive
+			if t.closed {
+				availability = scene.ContentRetired
+			}
+			return scene.Semantic{Role: scene.RoleDocument, Name: t.cfg.Name, ContentRevision: t.revision, Availability: availability}
 		},
 		Handle:  t.handle,
-		Actions: []scene.ActionBinding{t.scrollAction.Binding()},
-		Paint:   func(frame scene.Frame) { view := t.StageWindow(frame); view.Content.Draw(view.Body, view.From) },
+		Actions: []scene.ActionBinding{scrollAction.Binding()},
+		Paint: func(frame scene.Frame) {
+			view := t.StageWindow(frame)
+			view.Content.Draw(frame.Sub(view.Header).View, view.HeaderFrom)
+			view.Content.Draw(view.Body, view.From)
+		},
 	})
 	t.scroll.element = t.element
 	t.selection.element = t.element
@@ -278,7 +287,7 @@ func (t *Transcript) changed() {
 func (t *Transcript) Element() scene.Element { t.initialize(); return t.element }
 
 // Scroll returns the owned reading-intent controller, not a copy of its current projection.
-func (t *Transcript) Scroll() *Scroll { return &t.scroll }
+func (t *Transcript) Scroll() *Scroll { t.initialize(); return &t.scroll }
 
 // Selection returns the owned logical selection shared by input, copying and appearance.
 func (t *Transcript) Selection() *Selection { return &t.selection }
@@ -335,7 +344,7 @@ func (t *Transcript) add(body Block, document *content.StreamDocument) (*Transcr
 // Add takes immutable passive content that is already final. Mutable sources use
 // AddDocument so revision and completion cannot be maintained by a second caller.
 func (t *Transcript) Add(body Block) (*TranscriptItem, error) {
-	if body == nil {
+	if grid.IsNilDrawable(body) {
 		return nil, errors.New("base: transcript content is nil")
 	}
 	return t.add(body, nil)
@@ -421,7 +430,7 @@ func (t *Transcript) Close() {
 	}
 	t.closed = true
 	if t.stopPublication != nil {
-		t.stopPublication()
+		defer t.stopPublication()
 		t.stopPublication = nil
 	}
 	for _, item := range t.entries {
@@ -430,6 +439,7 @@ func (t *Transcript) Close() {
 	clear(t.entries)
 	t.entries = nil
 	t.selection.Clear()
+	t.sticky.SetBlocks(nil)
 	t.changed()
 }
 
@@ -522,22 +532,14 @@ func (l TranscriptLayout) FirstBlock() BlockID { return l.first }
 
 // Block resolves the passive content held by this immutable layout, including earlier committed frames.
 func (l TranscriptLayout) Block(id BlockID) Block {
-	for _, b := range l.blocks {
-		if b.id == id {
-			return b.block
-		}
-	}
-	return nil
+	b, _ := l.placed(id)
+	return b.block
 }
 
-// Extent returns the absolute top and height of a content identity in this layout.
+// Extent reads the placement in this immutable frame.
 func (l TranscriptLayout) Extent(id BlockID) (top, height int, ok bool) {
-	for _, b := range l.blocks {
-		if b.id == id {
-			return b.top, b.height, true
-		}
-	}
-	return 0, 0, false
+	b, ok := l.placed(id)
+	return b.top, b.height, ok
 }
 
 func (l TranscriptLayout) window(from, count int) (int, int, bool) {
@@ -575,11 +577,12 @@ func (l TranscriptLayout) At(row int) (BlockID, int, bool) {
 
 // Draw paints only placements intersecting the supplied row window and leaves geometry unchanged.
 func (l TranscriptLayout) Draw(view grid.View, from int) {
-	width, height := view.Size()
-	if width <= 0 || height <= 0 {
+	width, _ := view.Size()
+	visible := view.Visible()
+	if visible.Empty() {
 		return
 	}
-	first, last := l.visible(from, height)
+	first, last := l.visible(layout.Translate(from, visible.Min.Y), visible.Dy())
 	for _, b := range l.blocks[first:last] {
 		if b.block != nil && b.height > 0 {
 			b.block.Draw(view.Sub(grid.Area(0, b.top-from, width, b.height)))
@@ -602,12 +605,9 @@ func (l TranscriptLayout) Rows(from, count int) []text.Row {
 		if b.mapping == nil {
 			continue
 		}
-		for i, row := range b.mapping.rows {
-			at := b.top + i - from
-			if at >= 0 && at < count {
-				out[at] = row
-			}
-		}
+		source := min(max(from-b.top, 0), len(b.mapping.rows))
+		destination := max(b.top-from, 0)
+		copy(out[destination:], b.mapping.rows[source:])
 	}
 	return out
 }
@@ -622,7 +622,7 @@ func (t *Transcript) At(row int) (BlockID, int, bool) { return t.geometry.Value(
 func (t *Transcript) Visible(from, rows int) (BlockID, BlockID) {
 	l := t.geometry.Value()
 	a, b := l.visible(from, rows)
-	first := t.FirstBlock() + BlockID(len(t.entries))
+	first := l.first + BlockID(len(l.blocks))
 	if a < len(l.blocks) {
 		first = l.blocks[a].id
 	}
@@ -754,6 +754,9 @@ func (t *Transcript) StageWindow(frame scene.Frame) TranscriptView {
 }
 
 func (t *Transcript) handle(event scene.Event) scene.EventResult {
+	if t.closed {
+		return scene.EventResult{}
+	}
 	presented, valid := event.Read(&t.presentation)
 	consumed := t.handleInput(event.Input(), presented, valid)
 	mouse, ok := event.Input().(input.Mouse)

@@ -24,19 +24,16 @@ type ThemeOwner struct {
 	palette   Theme
 	revision  uint64
 	consumers []weak.Pointer[themeConsumer]
-	root      ThemeScope
 }
 
 // NewThemeOwner installs the application's initial palette. A zero palette keeps
 // terminal default colours; it is a complete palette, not an absent configuration.
 func NewThemeOwner(initial Theme) *ThemeOwner {
-	owner := &ThemeOwner{palette: initial, revision: 1}
-	owner.root.owner = owner
-	return owner
+	return &ThemeOwner{palette: initial, revision: 1}
 }
 
 // Scope is the application's immutable root theme scope.
-func (o *ThemeOwner) Scope() *ThemeScope { return &o.root }
+func (o *ThemeOwner) Scope() *ThemeScope { return &ThemeScope{owner: o} }
 
 // Revision advances exactly once per changed application palette.
 func (o *ThemeOwner) Revision() uint64 { return o.revision }
@@ -82,36 +79,25 @@ func (o *ThemeOwner) Set(palette Theme) bool {
 // theme tokens.
 type ThemeScope struct {
 	owner    *ThemeOwner
-	parent   *ThemeScope
 	override ThemeOverride
 }
 
 // With creates a child scope. Explicit zero styles are retained, so an override
 // can deliberately restore terminal defaults. The caller's pointers are copied.
 func (s *ThemeScope) With(override ThemeOverride) *ThemeScope {
-	return &ThemeScope{owner: s.owner, parent: s, override: override.clone()}
+	return &ThemeScope{owner: s.owner, override: override.over(s.override)}
 }
 
 // Snapshot resolves the current application palette through this branch in
 // application, parent scope, then child scope order. It has no side effects.
 func (s *ThemeScope) Snapshot() ThemeSnapshot {
-	palette := s.owner.palette
-	var apply func(*ThemeScope)
-	apply = func(scope *ThemeScope) {
-		if scope.parent != nil {
-			apply(scope.parent)
-		}
-		palette = scope.override.apply(palette)
-	}
-	apply(s)
-	return ThemeSnapshot{Palette: palette, Revision: s.owner.revision}
+	return ThemeSnapshot{Palette: s.override.apply(s.owner.palette), Revision: s.owner.revision}
 }
 
 type themeConsumer struct{ element scene.Element }
 
 type appearance struct {
-	scope    *ThemeScope
-	override ThemeOverride
+	scope    ThemeScope
 	consumer *themeConsumer
 }
 
@@ -125,7 +111,10 @@ func newAppearance(palette Theme, scope *ThemeScope, override ThemeOverride) (ap
 	if scope == nil {
 		scope = NewThemeOwner(palette).Scope()
 	}
-	return appearance{scope: scope, override: override.clone()}, nil
+	if scope.owner == nil {
+		return appearance{}, errors.New("kit: theme scope has no owner")
+	}
+	return appearance{scope: *scope.With(override)}, nil
 }
 
 func (a *appearance) bind(element scene.Element) {
@@ -134,10 +123,10 @@ func (a *appearance) bind(element scene.Element) {
 }
 
 func (a *appearance) palette() Theme {
-	if a.scope == nil {
+	if a.scope.owner == nil {
 		return Theme{}
 	}
-	return a.override.apply(a.scope.Snapshot().Palette)
+	return a.scope.Snapshot().Palette
 }
 
 func (o *ThemeOwner) retain(consumer *themeConsumer) {

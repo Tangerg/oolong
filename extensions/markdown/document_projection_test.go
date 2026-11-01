@@ -88,3 +88,22 @@ func TestPreparedWidthsCanBeReadConcurrently(t *testing.T) {
 	}
 	readers.Wait()
 }
+
+func TestThematicBreakProjectsDecorationWithinTheVisibleClip(t *testing.T) {
+	for _, glyph := range []string{"-", "ab", "界"} {
+		var doc markdown.Doc
+		doc.SetBlocks(mustRender(t, "---", markdown.Look{Glyphs: markdown.Glyphs{Divider: glyph}}))
+		if got := doc.HeightForWidth(math.MaxInt); got != 1 {
+			t.Fatalf("height = %d", got)
+		}
+		if rows := doc.Rows(math.MaxInt); len(rows) != 1 || rows[0].Text != "" {
+			t.Fatal("a thematic break must occupy one semantic row without inventing document text")
+		}
+		screen := grid.NewSurface(2, 1)
+		doc.Draw(screen.View().Sub(grid.Area(-4, 0, math.MaxInt, 1)))
+		first, _ := screen.CellAt(0, 0)
+		if got := first.Content(); got != string([]rune(glyph)[0]) {
+			t.Fatalf("%q clipped at column 4: %q", glyph, got)
+		}
+	}
+}

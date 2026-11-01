@@ -63,8 +63,8 @@ func NewComposer(config ComposerConfig) *Composer {
 func (c *Composer) Controller() *base.Editor { c.ensure(); return &c.editor }
 
 func (c *Composer) ensure() {
-	if c.appearance.scope == nil {
-		c.appearance = appearance{scope: NewThemeOwner(Theme{}).Scope()}
+	if c.appearance.scope.owner == nil {
+		c.appearance.scope.owner = NewThemeOwner(Theme{})
 	}
 	if c.group != nil {
 		return

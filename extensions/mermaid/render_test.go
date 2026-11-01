@@ -66,6 +66,7 @@ func backendConfig(t *testing.T, startupDelay time.Duration) mermaid.Config {
  stage('render entered');
  if(source.startsWith('wait:')) {await ready(source.slice(5),'ready'); await new Promise(()=>{setInterval(()=>{},1000)});}
  if(source.startsWith('spin:')) {process.on('SIGINT',()=>{});await ready(source.slice(5),String(globalThis.browserPID));while(true){}}
+ if(source==='control') throw Error('untrusted\x1b]52;foo\x07\u009b2J');
  if(source==='fail') throw Error('intentional backend diagnostic');
  return {data:Buffer.from('%s','base64')};}`, filepath.Join(root, "stages.jsonl"), startupDelay.Milliseconds(), base64.StdEncoding.EncodeToString(data.Bytes())))
 	write("node_modules/puppeteer/package.json", `{"name":"puppeteer","type":"module","exports":"./index.js"}`)
@@ -289,5 +290,16 @@ func TestReadinessReportsBackendFailureAndCancellation(t *testing.T) {
 			}
 			// Cleanup cancels and joins the still-running render before its files disappear.
 		})
+	}
+}
+
+func TestBackendDiagnosticCannotEmitTerminalCommands(t *testing.T) {
+	renderer, err := mermaid.New(backendConfig(t, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = renderer.Render(t.Context(), "control")
+	if err == nil || !strings.Contains(err.Error(), "untrusted") || strings.ContainsAny(err.Error(), "\x1b\x07\u009b") {
+		t.Fatalf("backend error = %q", err)
 	}
 }

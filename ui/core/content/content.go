@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -103,24 +102,11 @@ func normalize(format Format) (Format, error) {
 // Typed nils are possible through either renderer entry point. A missing body
 // can only represent failure, and an existing cause belongs to the renderer.
 func checkedResult(body grid.Drawable, err error) (grid.Drawable, error) {
-	if !nilContent(body) {
+	if !grid.IsNilDrawable(body) {
 		return body, err
 	}
 	if err == nil {
 		err = ErrInvalidResult
 	}
 	return nil, err
-}
-
-func nilContent(value grid.Drawable) bool {
-	if value == nil {
-		return true
-	}
-	v := reflect.ValueOf(value)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return v.IsNil()
-	default:
-		return false
-	}
 }

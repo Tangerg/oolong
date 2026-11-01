@@ -8,7 +8,7 @@ import (
 )
 
 func TestTextExtentArithmeticSaturates(t *testing.T) {
-	if got := advance("\t", math.MaxInt); got != math.MaxInt {
+	if got := Advance("\t", math.MaxInt); got != math.MaxInt {
 		t.Fatalf("tab advanced the largest column to %d", got)
 	}
 	w := wrapper{rowWidth: math.MaxInt}

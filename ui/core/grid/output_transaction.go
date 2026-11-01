@@ -6,16 +6,21 @@ import "slices"
 // diff baseline or inline anchor. The caller admits Bytes to its one writer and
 // then commits, or aborts without accepting any bytes. Settlement runs no user code.
 // While an Output is unsettled its canvas cannot begin another operation.
-// An Output must not be copied after construction.
-type Output struct {
-	noCopy  noCopy
+// Copies refer to the same transaction on the canvas owner sequence.
+type Output struct{ *outputState }
+
+type outputState struct {
 	payload []byte
 	settle  func(bool)
 }
 
+func newOutput(payload []byte, settle func(bool)) *Output {
+	return &Output{&outputState{payload: payload, settle: settle}}
+}
+
 // Bytes returns a detached payload which an asynchronous writer may own.
 func (o *Output) Bytes() []byte {
-	if o == nil {
+	if o == nil || o.outputState == nil {
 		return nil
 	}
 	return slices.Clone(o.payload)
@@ -23,7 +28,7 @@ func (o *Output) Bytes() []byte {
 
 // Len is zero for a settled output; it does not allocate a payload copy.
 func (o *Output) Len() int {
-	if o == nil {
+	if o == nil || o.outputState == nil {
 		return 0
 	}
 	return len(o.payload)
@@ -32,7 +37,7 @@ func (o *Output) Len() int {
 // Commit panics if this output was already committed or aborted. It runs only
 // after the writer has accepted Bytes, so settlement cannot call user code.
 func (o *Output) Commit() {
-	if o == nil || o.settle == nil {
+	if o == nil || o.outputState == nil || o.settle == nil {
 		panic("grid: output already settled")
 	}
 	settle := o.settle
@@ -42,7 +47,7 @@ func (o *Output) Commit() {
 
 // Abort is idempotent and releases the candidate without advancing the canvas.
 func (o *Output) Abort() {
-	if o == nil || o.settle == nil {
+	if o == nil || o.outputState == nil || o.settle == nil {
 		return
 	}
 	settle := o.settle

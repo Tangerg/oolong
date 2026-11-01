@@ -3,7 +3,6 @@ package markdown
 import (
 	"errors"
 	"html"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -188,28 +187,13 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	case *mathBlock:
 		r.math(node, in)
 	case *ast.ThematicBreak:
-		r.push(Block{
-			rule:  true,
-			lines: r.rule(),
-		}, in)
+		r.push(Block{rule: &text.Span{Text: r.look.Glyphs.Divider, Style: r.look.Rule}}, in)
 	case *east.Table:
 		r.table(node, in)
 	case *ast.HTMLBlock:
 	default:
 		r.scheduleChildren(stack, n, in)
 	}
-}
-
-// rule is what a thematic break draws: one divider, repeated to the width when the
-// block is drawn.
-//
-// A look with no divider still gets a row, because that is what a break is for: it
-// separates, and a separator that vanished would join the two things it was between.
-func (r *renderer) rule() []text.Line {
-	if r.look.Glyphs.Divider == "" {
-		return []text.Line{nil}
-	}
-	return []text.Line{text.Of(r.look.Glyphs.Divider, r.look.Rule)}
 }
 
 func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
@@ -276,7 +260,7 @@ func (r *renderer) extension(kind Extension, info, source string, in frame) {
 		child, err = render(info, source)
 		if err == ErrUnhandled { //nolint:errorlint // Only an explicit decline suppresses diagnostics; joined failures remain observable.
 			child, err = nil, nil
-		} else if nilDrawable(child) {
+		} else if grid.IsNilDrawable(child) {
 			child = nil
 			if err == nil {
 				err = errors.New("renderer returned nil content without an error")
@@ -294,19 +278,6 @@ func (r *renderer) extension(kind Extension, info, source string, in frame) {
 		child = text.NewBlock(text.BlockConfig{Lines: lines, Wrap: kind != DisplayMath})
 	}
 	r.push(Block{content: child}, in)
-}
-
-func nilDrawable(value grid.Drawable) bool {
-	if value == nil {
-		return true
-	}
-	v := reflect.ValueOf(value)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return v.IsNil()
-	default:
-		return false
-	}
 }
 
 func (r *renderer) sourceLines(n ast.Node) []string {

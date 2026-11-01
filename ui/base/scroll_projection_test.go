@@ -81,3 +81,14 @@ func TestReadOnlyRefinementCannotPublishASecondScrollCandidate(t *testing.T) {
 		})
 	}
 }
+
+func TestZeroTranscriptUsesReadingIntentSetBeforeMount(t *testing.T) {
+	var transcript base.Transcript
+	transcript.Scroll().ToTop()
+	transcriptAdd(t, &transcript, transcriptBody("one\ntwo\nthree"))
+	root := transcriptScene(t, &transcript)
+	transcriptCommit(t, root, 10, 1, 1)
+	if transcript.Scroll().FollowingEnd() || transcript.Scroll().Offset() != 0 {
+		t.Fatal("initialization overwrote explicit reading intent")
+	}
+}

@@ -389,3 +389,16 @@ func linesOf(s string, style grid.Style) []text.Line {
 	}
 	return lines
 }
+
+// The first visible cell can cut through a multi-column glyph. Start at its
+// original tile boundary so the grid applies its usual wide-cell clipping.
+func drawRule(v grid.View, y int, glyph string, style grid.Style) {
+	visible := v.Visible()
+	step := text.Width(glyph)
+	if step <= 0 || y < visible.Min.Y || y >= visible.Max.Y {
+		return
+	}
+	for x := visible.Min.X - visible.Min.X%step; x < visible.Max.X; x = layout.Sum(x, step) {
+		v.Text(x, y, glyph, style)
+	}
+}

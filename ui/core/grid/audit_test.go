@@ -3,6 +3,8 @@ package grid_test
 import (
 	"bytes"
 	"errors"
+	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -184,5 +186,20 @@ func TestCellScrollCannotMoveAnUnchangedImagePlacement(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "\x1b[1S") {
 		t.Fatalf("hardware scroll moved a fixed image: %q", out.String())
+	}
+}
+
+func TestCopyRowsClipsTheRangeBeforeCopying(t *testing.T) {
+	src, dst := grid.NewSurface(1, 3), grid.NewSurface(1, 2)
+	src.View().Text(0, 1, "b", grid.Style{})
+	src.View().Text(0, 2, "c", grid.Style{})
+	dst.CopyRows(src, 0, -1, math.MaxInt)
+	if got := dst.Rows(); !slices.Equal(got, []string{"b", "c"}) {
+		t.Fatalf("copy with a clipped start = %v", got)
+	}
+	dst.CopyRows(src, math.MinInt, 0, math.MaxInt)
+	dst.CopyRows(src, 0, math.MaxInt, math.MaxInt)
+	if got := dst.Rows(); !slices.Equal(got, []string{"b", "c"}) {
+		t.Fatalf("disjoint ranges changed the destination: %v", got)
 	}
 }

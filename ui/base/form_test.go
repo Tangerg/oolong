@@ -697,3 +697,68 @@ func TestZeroFormCanPresentItsStatus(t *testing.T) {
 		t.Fatal("the empty status should reserve no space")
 	}
 }
+
+type probingField struct {
+	observedField
+	inspect func(string)
+}
+
+func (f *probingField) Revision() uint64 {
+	f.inspect("revision")
+	return 0
+}
+
+func (f *probingField) Validation() func() bool {
+	f.inspect("validation")
+	return func() bool { f.inspect("receipt"); return true }
+}
+
+func TestFormBorrowsCustomFieldEvidenceReadOnly(t *testing.T) {
+	field := &probingField{}
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
+	seen := make(map[string]int)
+	field.inspect = func(operation string) {
+		seen[operation]++
+		defer func() {
+			got, _ := recover().(error)
+			if !errors.Is(got, scene.ErrBusy) {
+				t.Errorf("%s query allowed form mutation: %v", operation, got)
+			}
+		}()
+		form.SetTitle("mutated from evidence")
+	}
+	if _, err := form.Submit(); err != nil {
+		t.Fatal(err)
+	}
+	if !form.Submission().Current || seen["receipt"] == 0 || seen["validation"] == 0 || seen["revision"] < 2 || form.Title() != "" {
+		t.Fatalf("invalid submission evidence: calls=%v title=%q", seen, form.Title())
+	}
+}
+
+type countedFormField struct {
+	observedField
+	calls int
+}
+
+func (f *countedFormField) Element() scene.Element {
+	f.calls++
+	return f.observedField.Element()
+}
+
+func TestFormAcquiresEachElementOnceAfterMutationAdmission(t *testing.T) {
+	form := base.NewForm(base.FormConfig{})
+	field := &countedFormField{}
+	form.Element().ReadOnly(func() {
+		defer func() {
+			got, _ := recover().(error)
+			if !errors.Is(got, scene.ErrBusy) || field.calls != 0 {
+				t.Errorf("refused Set inspected %d field elements, err=%v", field.calls, got)
+			}
+		}()
+		form.Set(field)
+	})
+	form.Set(field)
+	if field.calls != 1 {
+		t.Fatalf("Set acquired the field identity %d times", field.calls)
+	}
+}

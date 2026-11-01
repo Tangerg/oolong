@@ -54,7 +54,6 @@ type Channel struct {
 	tmux bool
 
 	mu        sync.Mutex
-	pending   bool
 	selection Selection
 	until     time.Time
 	now       func() time.Time
@@ -117,7 +116,7 @@ func (c *Channel) Request(sel Selection, send func(string) bool) bool {
 	if !send(c.wrap(encode(sel, "?"))) {
 		return false
 	}
-	c.pending, c.selection = true, sel
+	c.selection = sel
 	c.until = now.Add(responseTimeout)
 	return true
 }
@@ -141,8 +140,18 @@ func (c *Channel) Answer(params string, at time.Time) (string, bool) {
 	if !ok || selection != c.selection {
 		return "", false
 	}
-	c.pending = false
+	c.until = time.Time{}
 	return decodePayload(payload)
+}
+
+// CancelPending revokes the outstanding read when another foreground owner takes
+// the terminal. Its reply can no longer be attributed to this session.
+func (c *Channel) CancelPending() {
+	if c != nil {
+		c.mu.Lock()
+		c.until = time.Time{}
+		c.mu.Unlock()
+	}
 }
 
 // live is the one ownership rule for both issuing a request and settling its answer.
@@ -150,7 +159,7 @@ func (c *Channel) Answer(params string, at time.Time) (string, bool) {
 // deadline semantics; keeping the comparison here prevents the two operations from
 // disagreeing at that exact boundary.
 func (c *Channel) live(at time.Time) bool {
-	return c.pending && !at.Before(c.until.Add(-responseTimeout)) && at.Before(c.until)
+	return !c.until.IsZero() && !at.Before(c.until.Add(-responseTimeout)) && at.Before(c.until)
 }
 
 func (c *Channel) clock() time.Time {

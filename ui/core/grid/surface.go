@@ -17,6 +17,7 @@ import (
 type Surface struct {
 	noCopy  noCopy
 	drawing *viewScope
+	capture *captureStorage
 
 	w, h  int
 	cells []Cell
@@ -76,6 +77,14 @@ func (s *Surface) Reset() {
 	clear(s.cells)
 	clear(s.paints)
 	s.paints = s.paints[:0]
+}
+
+// A retained callback view cannot keep a finished one-shot raster or its
+// capture pool alive. Standalone surfaces keep their storage across Reset.
+func (s *Surface) releaseScratch() {
+	s.endDrawing()
+	s.cells, s.paints, s.capture = nil, nil, nil
+	s.w, s.h = 0, 0
 }
 
 // Size returns the surface's width and height.
@@ -139,20 +148,17 @@ func (s *Surface) row(y int) []Cell {
 // an over-tall item into a scratch surface and lift the visible slice of it into
 // place. Overlapping rows on one surface read as if copied through a temporary.
 func (s *Surface) CopyRows(src *Surface, srcTop, dstTop, n int) {
-	if s == nil || src == nil || src.w != s.w {
+	if s == nil || src == nil || src.w != s.w || s.w == 0 {
 		return
 	}
-	for step := range n {
-		i := step
-		if s == src && dstTop > srcTop {
-			i = n - 1 - step
-		}
-		sy, dy := srcTop+i, dstTop+i
-		if sy < 0 || sy >= src.h || dy < 0 || dy >= s.h {
-			continue
-		}
-		copy(s.row(dy), src.row(sy))
+	first := max(0, layout.Relative(0, srcTop), layout.Relative(0, dstTop))
+	end := min(n, layout.Relative(src.h, srcTop), layout.Relative(s.h, dstTop))
+	if first >= end {
+		return
 	}
+	// Intersect the requested offsets before indexing. A clipped request can
+	// be much taller than either surface, and copy handles overlap in place.
+	copy(s.cells[(dstTop+first)*s.w:(dstTop+end)*s.w], src.cells[(srcTop+first)*s.w:(srcTop+end)*s.w])
 }
 
 // repairAtom blanks the whole multi-column atom containing (x, y) so an overwrite
@@ -477,10 +483,14 @@ func (v View) Text(x, y int, s string, style Style) int {
 // the cluster, and continuations pointing back at it.
 func (v View) writeAtom(cx, y, w int, cluster string, style Style) {
 	surf := v.surface
+	content := surf.capture.own(cluster)
+	if content == "" {
+		return
+	}
 	for offset := range w {
 		surf.repairAtom(layout.Translate(cx, offset), y)
 	}
-	head := Cell{content: ownedCluster(cluster), Style: style}
+	head := Cell{content: content, Style: style}
 	if w > 1 {
 		head.span = span(w)
 	}
@@ -529,6 +539,18 @@ func (v View) combine(cx, y int, cluster string) {
 	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clipped()) {
 		return
 	}
+	if prev.content == "" {
+		prev.content = v.surface.capture.own(cluster)
+		return
+	}
+	if pool := v.surface.capture; pool != nil {
+		if int64(len(cluster)) > pool.limit-int64(len(prev.content)) {
+			pool.err = ErrCaptureLimit
+			return
+		}
+		prev.content = pool.own(prev.content + cluster)
+		return
+	}
 	prev.content += cluster
 }
 
@@ -550,7 +572,7 @@ func (v View) Link(x, y, w int, target string) {
 	if from >= to {
 		return
 	}
-	target = strings.Clone(target)
+	target = v.surface.capture.own(target)
 	v.surface.mutateAppearance(Area(from, at.Y, to-from, 1), func(_ *Style, link *string) {
 		*link = target
 	})
@@ -630,11 +652,12 @@ func control(cluster string) bool {
 //
 // It is the way out of the grid for a program with no terminal: output being piped, a
 // run under a build server, a transcript written to a file. A caller that wants the
-// colours too has [EncodeRow].
+// colours too has [EncodeRow]. The drawing view expires when the callback returns.
 func Render(w, h int, draw func(View)) []string {
 	s := NewSurface(w, h)
+	defer s.releaseScratch()
 	if draw != nil {
-		draw(s.View())
+		draw(s.borrow(nil))
 	}
 	return s.Rows()
 }
@@ -674,6 +697,10 @@ func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
 	}
 	area := translateRect(r, v.origin)
 	if !area.In(v.clipped()) {
+		return
+	}
+	if store := v.surface.capture; store != nil {
+		store.err = errScrollbackPaint
 		return
 	}
 	v.surface.paints = append(v.surface.paints, painted{rect: area, id: id, by: by})

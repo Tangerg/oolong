@@ -43,3 +43,20 @@ func BenchmarkBlockStableDraw(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkLinkedLineDraw(b *testing.B) {
+	v := grid.NewSurface(512, 1).View()
+	line := text.Line{{Text: strings.Repeat("x", 512), Link: strings.Repeat("target", 2048)}}
+	b.ReportAllocs()
+	for b.Loop() {
+		line.Draw(v, 0, 0)
+	}
+}
+
+func BenchmarkTruncateLongLabel(b *testing.B) {
+	line := text.Of(strings.Repeat("a", 1<<18), grid.Style{})
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = line.Truncate(16, "…")
+	}
+}

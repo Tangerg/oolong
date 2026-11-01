@@ -222,8 +222,6 @@ func (w *Writer) enqueue(data []byte, control bool) (uint64, error) {
 		if err := w.Err(); err != nil {
 			return 0, err
 		}
-		w.recordFailure(ErrClosed)
-		w.signalChange()
 		return 0, ErrClosed
 	}
 	if err := w.Err(); err != nil && (!control || (!errors.Is(err, ErrFrameRefused) && !errors.Is(err, ErrClosed))) {
@@ -291,6 +289,7 @@ func (w *Writer) signal() {
 // Changes is the stable, single-consumer notification channel for writer state. A
 // receive means [Writer.Written] or [Writer.Err] may have changed; several changes
 // coalesce into one wake-up, so the current values must always be read from the writer.
+// The channel closes when the worker has settled its last frame.
 func (w *Writer) Changes() <-chan struct{} { return w.changes }
 
 // Queued is the highest accepted sequence. Refused admission does not advance it.
@@ -302,8 +301,8 @@ func (w *Writer) Queued() uint64 { return w.queued.current() }
 // vouch for an earlier one that never did.
 func (w *Writer) Written() uint64 { return w.written.Load() }
 
-// Err is the first terminal admission or delivery failure, or nil. A temporary
-// ErrQueueFull or an oversized payload is returned by Queue without poisoning Err.
+// Err reports the first delivery failure. An admission refusal belongs to
+// its Queue caller and cannot replace the outcome of any accepted frame.
 //
 // A terminal that has failed a write does not recover, and a UI that cannot reach
 // its terminal has nothing left to do, so this is a reason to exit rather than
@@ -403,6 +402,7 @@ func (w *Writer) run() {
 		// loopDone means a closed Writer cannot retain the terminal transport, while a
 		// timed-out Close never clears a writer still inside its Write method.
 		w.dst = nil
+		close(w.changes)
 		close(w.loopDone)
 	}()
 	// A refused frame leaves the destination able to take the next one, so a frame

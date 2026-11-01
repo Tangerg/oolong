@@ -132,11 +132,19 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 	}
 	a.registerCommands() //nolint:contextcheck // Deferred UI actions use a.scope.Context(), derived from ctx above, after this constructor returns.
 
-	workflow := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { a.workflow.Draw(frame.View) }})
+	workflow := scene.NewElement(scene.ElementConfig{
+		Paint: func(frame scene.Frame) { a.workflow.Draw(frame.View) },
+		Measure: func(axis layout.Axis, width int) int {
+			if axis == layout.Down {
+				return a.workflow.HeightForWidth(width)
+			}
+			return 0
+		},
+	})
 	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { agentStatus{owner: a}.Draw(frame.View) }})
 	a.body = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Size: layout.Flex(1), Element: a.conversation.Element()},
-		{Size: layout.Fixed(a.workflow.HeightForWidth(0)), Element: workflow},
+		{Size: layout.Measured(0, 0), Element: workflow},
 		{Size: layout.Fixed(1), Element: status},
 		{Size: layout.Measured(1, 0), Element: a.composer.Element()},
 	}})
@@ -159,9 +167,14 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 	})
 	unsubscribe := a.composer.Controller().Session().Subscribe(func(base.ChangeMap) { a.refreshCompletion() })
 	a.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
-		Key:      "agent",
-		Preview:  func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input())} }, //nolint:contextcheck // Input uses the session scope created from ctx above.
-		Detached: func() { unsubscribe(); a.scope.Close(); a.conversation.content.Close() },
+		Key:     "agent",
+		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input())} }, //nolint:contextcheck // Input uses the session scope created from ctx above.
+		Detached: func() {
+			unsubscribe()
+			a.withdrawReview(program.ErrScopeClosed)
+			a.scope.Close()
+			a.conversation.content.Close()
+		},
 	}, Items: []scene.Item{{Element: a.body.Element()}, {Element: popup.Element()}, {Element: a.reviewDialog.Element()}}}).Element()
 	// The scene and source lifecycle do not require terminal metadata support.
 	_ = runtime.Session().SetTitle("agent mock")
@@ -366,9 +379,7 @@ func (a *agent) finishRun(err error) {
 		a.stopClock()
 		a.stopClock = nil
 	}
-	if reviewErr := a.answerReview(false); reviewErr != nil {
-		err = errors.Join(err, reviewErr)
-	}
+	a.withdrawReview(context.Canceled)
 	if a.run != nil {
 		a.run.task.Cancel()
 	}
@@ -420,9 +431,7 @@ func (a *agent) stopRun() {
 	a.status.Doing = "cancelling"
 	a.element.Invalidate()
 	a.run.task.Cancel()
-	if err := a.answerReview(false); err != nil {
-		a.finishRun(err)
-	}
+	a.withdrawReview(context.Canceled)
 }
 
 func (a *agent) tick() {
@@ -496,29 +505,53 @@ func (a *agent) buildReview() {
 	})
 }
 
-func (a *agent) openReview(request *reviewRequest) {
-	err := a.answerReview(false)
-	if err == nil {
-		err = a.conversation.FinishMarkdown(a.scope.Context(), nil)
+func (a *agent) openReview(request *reviewRequest) error {
+	if a.review != nil {
+		return errors.New("another tool review is pending")
 	}
+	if err := a.conversation.FinishMarkdown(a.scope.Context(), nil); err != nil {
+		return err
+	}
+	if _, err := a.reviewConfirm.Request(a.scope.Context(), base.ConfirmRequest{ExpectedRevision: a.reviewConfirm.Snapshot().Revision, Value: true}); err != nil {
+		return err
+	}
+	// Reserve cancellation delivery before presentation so a full ordinary dispatch
+	// queue cannot leave an expired proposal visible or an unanswered worker blocked.
+	delivery, err := a.runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
-		a.finishRun(err)
-		request.answer <- false
-		return
+		return err
+	}
+	_, err = a.runtime.Start(delivery, program.Work[struct{}]{
+		Run: func(ctx context.Context) (struct{}, error) {
+			select {
+			case <-request.done:
+				return struct{}{}, nil
+			case <-request.ctx.Done():
+				return struct{}{}, context.Cause(request.ctx) //nolint:contextcheck // The proposal expires independently of the delivery worker.
+			case <-a.scope.Context().Done():
+				return struct{}{}, context.Cause(a.scope.Context()) //nolint:contextcheck // An agent detach also withdraws outstanding reviews.
+			case <-ctx.Done():
+				return struct{}{}, context.Cause(ctx)
+			}
+		},
+		Apply: func(_ struct{}, cause error) {
+			defer delivery.Close()
+			if cause != nil && a.review == request {
+				a.withdrawReview(cause)
+			}
+		},
+	})
+	if err != nil {
+		delivery.Close()
+		return err
 	}
 	a.review = request
-	if _, err := a.reviewConfirm.Request(a.scope.Context(), base.ConfirmRequest{ExpectedRevision: a.reviewConfirm.Snapshot().Revision, Value: true}); err != nil {
-		if denyErr := a.answerReview(false); denyErr != nil {
-			err = errors.Join(err, denyErr)
-		}
-		a.finishRun(err)
-		return
-	}
 	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
 	a.status.Doing = "waiting for tool approval"
 	a.reviewDialog.Controller().Show()
+	return nil
 }
 
 func (a *agent) answerReview(approved bool) error {
@@ -526,26 +559,45 @@ func (a *agent) answerReview(approved bool) error {
 	if request == nil {
 		return nil
 	}
-	a.review = nil
-	a.reviewDialog.Controller().Dismiss()
-	request.answer <- approved
+	if cause := context.Cause(request.ctx); cause != nil {
+		a.withdrawReview(cause)
+		return nil
+	}
+	a.dismissReview()
+	defer close(request.done)
+	request.approved = approved
 	if approved {
 		a.status.Doing = "applying approved change"
 		return nil
 	}
 	a.status.Doing = "tool call denied"
-	return a.conversation.Append(a.scope.Context(), &kit.Entry{
+	request.err = a.conversation.Append(a.scope.Context(), &kit.Entry{
 		Theme: a.theme, Label: "tool", Body: request.proposal.Path + " — denied",
 	})
+	return request.err
 }
 
-func (a *agent) showTool(result toolResult) {
+func (a *agent) withdrawReview(cause error) {
+	if request := a.review; request != nil {
+		a.dismissReview()
+		a.status.Doing = "tool review cancelled"
+		request.err = cause
+		close(request.done)
+	}
+}
+
+// Dismissal notifies its owner synchronously. Release the request before that
+// callback can turn a completed or cancelled operation into a second decision.
+func (a *agent) dismissReview() {
+	a.review = nil
+	a.reviewDialog.Controller().Dismiss()
+}
+
+func (a *agent) showTool(result toolResult) error {
 	entry := &kit.Entry{Theme: a.theme, Label: result.Name, Body: oneLine(result.Summary)}
 	shown := kit.NewDiff(kit.DiffConfig{
 		Theme: a.theme, Glyphs: a.glyphs,
 		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
 	})
-	if err := a.conversation.Append(a.scope.Context(), entry, shown); err != nil {
-		a.finishRun(err)
-	}
+	return a.conversation.Append(a.scope.Context(), entry, shown)
 }

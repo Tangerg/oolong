@@ -157,10 +157,12 @@ func Render(source string, look Look) *Formula {
 		return f
 	}
 
+	// Keep exact source for callers while parsing and fallback share physical line boundaries.
+	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 	laidOut, err := render(source, look)
 	if err != nil {
 		f.err = err
-		f.lines = sourceLines(f.source, look.Error)
+		f.lines = sourceLines(source, look.Error)
 	} else {
 		f.lines = laidOut.lines()
 	}

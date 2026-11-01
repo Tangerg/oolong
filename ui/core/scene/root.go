@@ -207,8 +207,8 @@ func (r *Root) detach(n *node) {
 	n.done = nil
 	if r.capture.target == previous {
 		held := r.capture
-		r.capture.revoked = true
-		if n.config.Handle != nil {
+		r.capture.phase = captureRevoked
+		if held.phase != captureRevoked && n.config.Handle != nil {
 			r.notify(n, func() { held.cancel(n) })
 		}
 	}

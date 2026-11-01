@@ -77,9 +77,15 @@ func (r Receipt) Snapshot() Status {
 	return r.record.status
 }
 
-func (r *record) update(state State, sequence uint64, err error) {
+func (r *record) admit(sequence uint64) {
 	r.mu.Lock()
-	r.status.State, r.status.Sequence, r.status.Err = state, sequence, err
+	r.status.Sequence = sequence
+	r.mu.Unlock()
+}
+
+func (r *record) settle(state State, err error) {
+	r.mu.Lock()
+	r.status.State, r.status.Err = state, err
 	r.mu.Unlock()
 }
 
@@ -92,7 +98,6 @@ type Contribution struct {
 type entry struct {
 	contribution Contribution
 	receipt      *record
-	sequence     uint64
 }
 
 // Publisher belongs to the UI owner. Capacity covers both not-yet-composed and
@@ -112,6 +117,7 @@ type Publisher struct {
 	closed       error
 	admissionErr error
 	lastSequence uint64
+	written      uint64
 	dirty        bool
 	notifying    bool
 	listeners    []*listener
@@ -283,17 +289,12 @@ func (p *Publisher) Commit(b Batch, sequence uint64) {
 	if len(b.entries) == 0 {
 		return
 	}
-	if p == nil || p.closed != nil || b.owner != p || len(b.entries) > len(p.pending) || sequence == 0 || sequence <= p.lastSequence {
+	if p == nil || p.closed != nil || sequence == 0 || sequence <= p.lastSequence {
 		panic("publication: invalid batch commit")
 	}
-	for i, e := range b.entries {
-		if p.pending[i] != e {
-			panic("publication: stale batch commit")
-		}
-	}
+	p.checkPrefix(b)
 	for _, e := range b.entries {
-		e.sequence = sequence
-		e.receipt.update(Accepted, sequence, nil)
+		e.receipt.admit(sequence)
 	}
 	p.inflight = append(p.inflight, b.entries...)
 	clear(p.pending[:len(b.entries)])
@@ -302,21 +303,35 @@ func (p *Publisher) Commit(b Batch, sequence uint64) {
 		p.pending = nil
 	}
 	p.lastSequence = sequence
+	p.Written(p.written)
 	p.dirty = true
 }
 
-// Written projects the physical writer watermark and releases all covered inflight captures.
+func (p *Publisher) checkPrefix(b Batch) {
+	if b.owner != p || len(b.entries) > len(p.pending) {
+		panic("publication: invalid batch")
+	}
+	for i, e := range b.entries {
+		if p.pending[i] != e {
+			panic("publication: stale batch")
+		}
+	}
+}
+
+// Written projects the physical writer watermark, including completion reported
+// between writer admission and Commit. Earlier observations cannot undo it.
 func (p *Publisher) Written(sequence uint64) {
 	p.assertIdle()
 	if p == nil {
 		return
 	}
+	p.written = max(p.written, sequence)
 	n := 0
 	for _, e := range p.inflight {
-		if e.sequence > sequence {
+		if e.receipt.status.Sequence > p.written {
 			break
 		}
-		e.receipt.update(Written, e.sequence, nil)
+		e.receipt.settle(Written, nil)
 		p.bytes -= e.contribution.Content.StoredBytes()
 		n++
 	}
@@ -333,6 +348,18 @@ func (p *Publisher) Written(sequence uint64) {
 // Fail terminates every accepted responsibility. Only items handed to a writer
 // can have an unknown partial result; still-pending items are definitely unwritten.
 func (p *Publisher) Fail(err error, unknownPartial bool) {
+	p.fail(err, unknownPartial, Batch{})
+}
+
+// FailAdmission settles an attempted batch when the transport returned no reliable
+// admission decision. A zero batch means that frame carried no publications.
+// A later contribution outside the attempted prefix is definitely unwritten.
+// It panics for a nonempty stale or foreign batch.
+func (p *Publisher) FailAdmission(b Batch, err error) {
+	p.fail(err, true, b)
+}
+
+func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
 	p.assertIdle()
 	if p == nil || p.closed != nil {
 		return
@@ -340,16 +367,22 @@ func (p *Publisher) Fail(err error, unknownPartial bool) {
 	if err == nil {
 		err = ErrClosed
 	}
+	if len(attempted.entries) > 0 {
+		p.checkPrefix(attempted)
+	}
 	p.closed = err
-	for _, e := range p.pending {
-		e.receipt.update(Failed, 0, err)
+	for _, e := range attempted.entries {
+		e.receipt.settle(UnknownPartial, err)
+	}
+	for _, e := range p.pending[len(attempted.entries):] {
+		e.receipt.settle(Failed, err)
 	}
 	state := Failed
 	if unknownPartial {
 		state = UnknownPartial
 	}
 	for _, e := range p.inflight {
-		e.receipt.update(state, e.sequence, err)
+		e.receipt.settle(state, err)
 	}
 	clear(p.pending)
 	clear(p.inflight)

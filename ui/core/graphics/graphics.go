@@ -148,16 +148,15 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 	if err != nil {
 		return Image{}, err
 	}
-	payload := base64.StdEncoding.EncodeToString(png)
-
+	// Only the final chunk may contain base64 padding. A multiple of three
+	// source bytes can be encoded and written independently of the next chunk.
+	const rawChunk = chunkLimit / 4 * 3
 	for first := true; ; first = false {
-		chunk := payload
-		if len(chunk) > chunkLimit {
-			chunk = chunk[:chunkLimit]
-		}
-		payload = payload[len(chunk):]
+		n := min(len(png), rawChunk)
+		chunk := base64.StdEncoding.EncodeToString(png[:n])
+		png = png[n:]
 		more := 0
-		if len(payload) > 0 {
+		if len(png) > 0 {
 			more = 1
 		}
 		// a=t transmits without placing, f=100 says the payload is PNG, q=2 asks the

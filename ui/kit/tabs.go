@@ -53,14 +53,7 @@ func NewTabs(config TabsConfig) *Tabs {
 		},
 	})
 	if err := t.controller.Strip().SetPaint(func(frame scene.Frame) {
-		if t.rule != "" {
-			width, height := frame.Size()
-			if height > 1 {
-				for x := range width {
-					frame.Text(x, 1, t.rule, t.appearance.palette().Border)
-				}
-			}
-		}
+		drawRule(frame.View, 1, t.rule, t.appearance.palette().Border)
 	}); err != nil {
 		panic(err)
 	}

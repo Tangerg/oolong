@@ -370,11 +370,13 @@ func (f *Form) ensure() {
 
 // Set preflights the entire field relation before replacing it. It panics for nil or duplicate fields, an invalid attachment relation, or mutation during presentation or observation.
 func (f *Form) Set(fields ...Field) {
-	checkFields(fields)
 	f.ensure()
 	requireMutable(f.group.Element())
 	items := make([]scene.Item, 0, len(fields)+1)
 	for _, field := range fields {
+		if field == nil {
+			panic("base: nil form field")
+		}
 		item := scene.Item{Element: field.Element(), Size: layout.Measured(1, 0)}
 		if f.paintField != nil {
 			item.Paint = func(frame scene.Frame) { f.paintField(frame, field) }
@@ -485,13 +487,15 @@ func (f *Form) start(id SubmissionID) (scene.ActionState, error) {
 	return state, err
 }
 
-func currentValidations(validations []func() bool) bool {
-	for _, current := range validations {
-		if current == nil || !current() {
-			return false
+func (f *Form) currentValidations(validations []func() bool) bool {
+	return readProjection(f.group.Element(), func() bool {
+		for _, current := range validations {
+			if current == nil || !current() {
+				return false
+			}
 		}
-	}
-	return true
+		return true
+	})
 }
 
 // Settle accepts only the active attempt. Success describes the submitted snapshot;
@@ -521,11 +525,15 @@ func (f *Form) complete(outcome SubmissionOutcome) {
 func (f *Form) Submission() Submission {
 	result := f.attempt
 	result.Current = result.State != SubmissionIdle
-	for _, field := range f.submitted {
-		if field.field.Revision() != field.revision {
-			result.Current = false
-			break
-		}
+	if len(f.submitted) > 0 {
+		f.group.Element().ReadOnly(func() {
+			for _, field := range f.submitted {
+				if field.field.Revision() != field.revision {
+					result.Current = false
+					break
+				}
+			}
+		})
 	}
 	return result
 }
@@ -602,19 +610,6 @@ func (f *Form) Do(action keymap.Action) bool {
 	return true
 }
 
-func checkFields(fields []Field) {
-	seen := map[scene.Element]bool{}
-	for _, field := range fields {
-		if field == nil {
-			panic("base: nil form field")
-		}
-		if seen[field.Element()] {
-			panic("base: duplicate form field")
-		}
-		seen[field.Element()] = true
-	}
-}
-
 func (f *Form) keys() *keymap.Map {
 	if f.Keys != nil {
 		return f.Keys
@@ -622,14 +617,14 @@ func (f *Form) keys() *keymap.Map {
 	return formKeys()
 }
 
-func checkSubmissionField(field Field, collect func(Field) error) error {
+func (f *Form) checkSubmissionField(field Field, collect func(Field) error) error {
 	if collect == nil {
 		return field.Validate()
 	}
 	if err := collect(field); err != nil {
 		return err
 	}
-	return field.Error()
+	return readProjection(f.group.Element(), field.Error)
 }
 
 func (f *Form) fieldProblem() error {
@@ -647,7 +642,7 @@ func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([
 	var firstInvalid Field
 	var problem error
 	for _, field := range f.fields {
-		err := checkSubmissionField(field, collect)
+		err := f.checkSubmissionField(field, collect)
 		if f.attempt.ID != id {
 			return nil, ErrSubmissionStale
 		}
@@ -657,10 +652,12 @@ func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([
 		if err != nil && firstInvalid == nil {
 			firstInvalid, problem = field, err
 		}
-		validations = append(validations, field.Validation())
-		versions = append(versions, fieldVersion{field: field, revision: field.Revision()})
+		f.group.Element().ReadOnly(func() {
+			validations = append(validations, field.Validation())
+			versions = append(versions, fieldVersion{field: field, revision: field.Revision()})
+		})
 	}
-	if !currentValidations(validations) {
+	if !f.currentValidations(validations) {
 		return nil, ErrValidationSuperseded
 	}
 	if firstInvalid != nil {
@@ -682,12 +679,12 @@ func (f *Form) checkDraft(id SubmissionID, validations []func() bool) error {
 	if f.attempt.ID != id {
 		return ErrSubmissionStale
 	}
-	if !currentValidations(validations) {
+	if !f.currentValidations(validations) {
 		return ErrValidationSuperseded
 	}
 	if err != nil {
 		f.problem = func() error {
-			if currentValidations(validations) {
+			if f.currentValidations(validations) {
 				return err
 			}
 			return nil

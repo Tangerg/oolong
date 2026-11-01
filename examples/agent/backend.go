@@ -185,35 +185,36 @@ type agentBridge struct {
 func (b *agentBridge) Write(p []byte) (int, error) { return b.ingress.Write(p) }
 
 func (b *agentBridge) Step(ctx context.Context, update stepUpdate) error {
-	return b.post(ctx, func() { b.owner.workflow.Apply(update) })
+	return b.post(ctx, func() error { return b.owner.workflow.Apply(update) })
 }
 
 func (b *agentBridge) Tool(ctx context.Context, result toolResult) error {
-	return b.post(ctx, func() { b.owner.showTool(result) }) //nolint:contextcheck // ctx governs dispatch admission; a claimed UI callback uses the session scope to finish its visible transition.
+	return b.post(ctx, func() error { return b.owner.showTool(result) }) //nolint:contextcheck // ctx governs dispatch admission; a claimed UI callback uses the session scope to finish its visible transition.
 }
 
 func (b *agentBridge) Review(ctx context.Context, proposal changeProposal) (bool, error) {
-	request := &reviewRequest{proposal: proposal, answer: make(chan bool, 1)}
-	if err := b.post(ctx, func() { b.owner.openReview(request) }); err != nil { //nolint:contextcheck // Request cancellation governs admission and the reply wait; UI callbacks use the session scope.
+	request := &reviewRequest{ctx: ctx, proposal: proposal, done: make(chan struct{})}
+	if err := b.post(ctx, func() error { return b.owner.openReview(request) }); err != nil { //nolint:contextcheck // Request cancellation governs admission and the reply wait; UI callbacks use the session scope.
 		return false, err
 	}
 	select {
-	case answer := <-request.answer:
-		return answer, nil
-	case <-ctx.Done():
-		return false, context.Cause(ctx)
+	case <-request.done:
 	case <-b.dispatch.Done():
-		return false, program.ErrStopped
+		select {
+		case <-request.done:
+		default:
+			return false, program.ErrStopped
+		}
 	}
+	return request.approved, request.err
 }
 
-func (b *agentBridge) post(ctx context.Context, fn func()) error {
+func (b *agentBridge) post(ctx context.Context, fn func() error) error {
 	return b.dispatch.Invoke(ctx, func() error {
 		if b.owner.run != b.run {
 			return context.Canceled
 		}
-		fn()
-		return nil
+		return fn()
 	})
 }
 

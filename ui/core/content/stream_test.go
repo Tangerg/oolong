@@ -214,3 +214,19 @@ func TestInterruptedSubscriberDoesNotHideTheFinalResult(t *testing.T) {
 		t.Fatalf("remaining subscribers saw %v, document is %v", final, d.Current().State)
 	}
 }
+
+func BenchmarkSnapshotOfLiveDocument(b *testing.B) {
+	d, err := content.NewStreamDocument(content.StreamConfig{Format: "text"})
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := d.Append(make([]byte, 1<<20)); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if len(d.Snapshot().Text()) != 1<<20 {
+			b.Fatal("snapshot lost source")
+		}
+	}
+}

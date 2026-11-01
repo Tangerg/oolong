@@ -263,3 +263,16 @@ func TestAnIncompleteEscapeCannotConsumeTheParserDelimiter(t *testing.T) {
 		t.Fatalf("explicitly escaped dollar = %q", got)
 	}
 }
+
+func TestPhysicalLineEndingsAgreeInCommentsAndFallback(t *testing.T) {
+	for _, source := range []string{"x% ignored\n+2", "bad\x00\nnext"} {
+		want := latex.Render(source, latex.Look{})
+		for _, newline := range []string{"\r\n", "\r"} {
+			original := strings.ReplaceAll(source, "\n", newline)
+			got := latex.Render(original, latex.Look{})
+			if got.Source() != original || (got.Err() == nil) != (want.Err() == nil) || !slices.Equal(got.Rows(20), want.Rows(20)) {
+				t.Errorf("Render(%q) = %+v, %v; want %+v", original, got.Rows(20), got.Err(), want.Rows(20))
+			}
+		}
+	}
+}

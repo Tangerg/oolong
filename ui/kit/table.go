@@ -266,8 +266,9 @@ func (t Table) mark(column int) string {
 
 func (l TableLayout) drawRow(v grid.View, y int, draw func(col int, cell grid.View)) {
 	for col, box := range l.boxes {
-		if box.Dx() > 0 {
-			draw(col, v.Sub(grid.Area(box.Min.X, y, box.Dx(), 1)))
+		cell := v.Sub(grid.Area(box.Min.X, y, box.Dx(), 1))
+		if !cell.Empty() {
+			draw(col, cell)
 		}
 	}
 }

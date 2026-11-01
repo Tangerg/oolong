@@ -58,3 +58,21 @@ func BenchmarkObservePaintedList(b *testing.B) {
 		}
 	}
 }
+
+func TestCrossAxisMeasurementUsesAllocatedChildWidths(t *testing.T) {
+	block := func() scene.Element {
+		return scene.NewElement(scene.ElementConfig{Measure: func(axis layout.Axis, across int) int {
+			if axis == layout.Across {
+				return 8
+			}
+			return (8 + max(1, across) - 1) / max(1, across)
+		}})
+	}
+	row := scene.NewGroup(scene.GroupConfig{Axis: layout.Across, Gap: 1, Items: []scene.Item{
+		{Element: block(), Size: layout.Fixed(3)},
+		{Element: block(), Size: layout.Flex(1)},
+	}})
+	if got := row.Element().Measure(layout.Down, 12); got != 3 {
+		t.Fatalf("three-column child wraps into three rows; parent reserved %d", got)
+	}
+}

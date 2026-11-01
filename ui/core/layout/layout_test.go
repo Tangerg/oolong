@@ -661,3 +661,23 @@ func TestASatisfiableFloorSurvivesASlotBeforeIt(t *testing.T) {
 		})
 	}
 }
+
+func TestCrossWantedDoesNotAskForTheUnknownAxis(t *testing.T) {
+	var widths []int
+	probe := layout.MeasureFunc(func(axis layout.Axis, width int) int {
+		if axis != layout.Down {
+			t.Fatalf("cross measurement recursed into %v", axis)
+		}
+		widths = append(widths, width)
+		return (12 + width - 1) / width
+	})
+	flow := layout.Flow{Axis: layout.Across, Gap: 1}
+	got := flow.CrossWanted(14, []layout.Slot{
+		{Size: layout.Fixed(4), Of: probe},
+		{Size: layout.Measured(2, 7), Of: probe},
+		{Size: layout.Flex(1), Of: probe},
+	})
+	if got != 3 || !slices.Equal(widths, []int{4, 7, 6}) {
+		t.Fatalf("height %d, widths %v", got, widths)
+	}
+}

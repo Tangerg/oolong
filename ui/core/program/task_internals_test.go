@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -279,5 +280,81 @@ func TestWorkerPanicSettlesOnItsOwnTask(t *testing.T) {
 			t.Fatal("lost panic error identity", applied)
 		}
 		scope.Close()
+	}
+}
+
+func TestWorkerWithoutApplySettlesWithoutAnOwnerTurn(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p, rt := taskOwner(t)
+		p.tasks.resourceCapacity = 2
+		scope, err := rt.NewScope(ScopeConfig{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer scope.Close()
+		for range 2 {
+			task, startErr := rt.Start(scope, Work[int]{Run: func(context.Context) (int, error) { return 1, nil }})
+			if startErr != nil {
+				t.Fatal(startErr)
+			}
+			synctest.Wait()
+			select {
+			case <-task.Settled():
+				if status := task.Snapshot(); status.State != TaskSucceeded || status.Delivery != DeliveryRevoked {
+					t.Fatal(status)
+				}
+			default:
+				t.Fatal("task with no owner callback retained its reserved capacity")
+			}
+		}
+	})
+}
+
+func TestTaskReleasesCancellationCapabilitiesAtTheirOwnSettlement(t *testing.T) {
+	for _, workerFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint("worker first ", workerFirst), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				p, rt := taskOwner(t)
+				scope, err := rt.NewScope(ScopeConfig{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer scope.Close()
+				run := make(chan struct{})
+				task, err := rt.Start(scope, Work[int]{
+					Run: func(context.Context) (int, error) { <-run; return 1, nil },
+					Apply: func(int, error) {
+						if !workerFirst {
+							t.Error("delivered to revoked scope")
+						}
+					},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				check := func(worker, delivery bool) {
+					t.Helper()
+					task.mu.Lock()
+					defer task.mu.Unlock()
+					if (task.cancel != nil) != worker || (task.stopDelivery != nil) != delivery {
+						t.Errorf("retained worker=%t delivery=%t, want %t/%t", task.cancel != nil, task.stopDelivery != nil, worker, delivery)
+					}
+				}
+				check(true, true)
+				if workerFirst {
+					close(run)
+					synctest.Wait()
+					check(false, true)
+					p.runTasks()
+				} else {
+					scope.Close()
+					synctest.Wait()
+					check(true, false)
+					close(run)
+				}
+				synctest.Wait()
+				check(false, false)
+			})
+		})
 	}
 }

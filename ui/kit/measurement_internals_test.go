@@ -2,12 +2,14 @@ package kit
 
 import (
 	"image"
+	"math"
 	"strconv"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
@@ -78,5 +80,24 @@ func TestCellHeightIsIndependentOfItsPreferredColumnWidth(t *testing.T) {
 	columns := Table{Rows: 1, Columns: []Column{{Size: layout.Measured(0, 0)}}, Cell: func(int, int) Cell { return cell }}
 	if got := columns.Layout(20).Widths()[0]; got != cell.Preferred {
 		t.Errorf("fitted column width = %d, want %d", got, cell.Preferred)
+	}
+}
+
+func TestHugeClippedMeterUsesOnlyVisibleCells(t *testing.T) {
+	surface := grid.NewSurface(2, 1)
+	writes := 0
+	v := surface.View().RestrictWrites(func() error {
+		writes++
+		if writes > 4 {
+			t.Fatal("meter visited cells outside the visible region")
+		}
+		return nil
+	}).Sub(grid.Area(0, 0, math.MaxInt, 1))
+	bar{fraction: 1, glyphs: Glyphs{BarFull: "#", BarEmpty: "."}}.Draw(v)
+	for x := range 2 {
+		cell, _ := surface.View().CellAt(x, 0)
+		if cell.Content() != "#" {
+			t.Fatal("full meter lost its visible extent")
+		}
 	}
 }

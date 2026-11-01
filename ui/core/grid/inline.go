@@ -193,13 +193,13 @@ func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 		payload = append(payload, endSync...)
 		after.left = false
 	}
-	output = &Output{payload: payload, settle: func(commit bool) {
+	output = newOutput(payload, func(commit bool) {
 		if commit {
 			i.restore(after)
 			i.buffers.swap()
 		}
 		i.publication.end()
-	}}
+	})
 	return output, nil
 }
 
@@ -247,14 +247,14 @@ func (i *Inline) PrepareFinish() (output *Output, err error) {
 		payload = append(payload, defaultCursor...)
 		payload = append(payload, showCursor...)
 	}
-	output = &Output{payload: payload, settle: func(commit bool) {
+	output = newOutput(payload, func(commit bool) {
 		if commit {
 			i.rows, i.at = 0, image.Point{}
 			i.left = true
 			i.invalidate()
 		}
 		i.publication.end()
-	}}
+	})
 	return output, nil
 }
 

@@ -349,7 +349,7 @@ func TestFramesQueuedAfterFailureCannotEnterTheAcceptedFIFO(t *testing.T) {
 	}
 
 	for range 100 {
-		if seq, _ := w.Queue([]byte("too late")); seq != 0 {
+		if seq, err := w.Queue([]byte("too late")); seq != 0 || !errors.Is(err, errBroken) {
 			t.Fatalf("unusable destination accepted frame %d", seq)
 		}
 	}
@@ -464,15 +464,18 @@ func TestQueueAfterCloseIsRefusedRatherThanFatal(t *testing.T) {
 	}
 	// Shutting down while something still wanted to draw is ordinary, and must not
 	// take the process down with it.
-	seq, _ := w.Queue([]byte("too late"))
+	seq, err := w.Queue([]byte("too late"))
+	if !errors.Is(err, term.ErrClosed) {
+		t.Fatal(err)
+	}
 	if seq != 0 {
 		t.Fatal("a refused frame received an accepted sequence")
 	}
 	if err := w.Drain(time.Second); err != nil {
 		t.Fatalf("a refused frame was never accounted for: %v", err)
 	}
-	if !errors.Is(w.Err(), term.ErrClosed) {
-		t.Fatalf("refused frame error = %v, want ErrClosed", w.Err())
+	if w.Err() != nil {
+		t.Fatalf("late admission changed delivery outcome: %v", w.Err())
 	}
 }
 
@@ -498,7 +501,7 @@ func TestPostCloseRefusalDoesNotAbandonAcceptedFrames(t *testing.T) {
 		if err := w.Drain(time.Second); err != nil {
 			t.Fatal(err)
 		}
-		if w.Written() != lastAccepted || !errors.Is(w.Err(), term.ErrClosed) {
+		if w.Written() != lastAccepted || w.Err() != nil {
 			t.Fatalf("written=%d error=%v", w.Written(), w.Err())
 		}
 		for _, want := range []string{"first", "second"} {
@@ -689,10 +692,49 @@ func TestRefusedAdmissionCannotCreateAnAcceptedFrame(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if sequence, _ := w.Queue([]byte("refused")); sequence != 0 || w.Queued() != 0 {
+	if sequence, err := w.Queue([]byte("refused")); !errors.Is(err, term.ErrClosed) || sequence != 0 || w.Queued() != 0 {
 		t.Fatalf("refused frame claimed acceptance: sequence=%d queued=%d", sequence, w.Queued())
 	}
-	if !errors.Is(w.Err(), term.ErrClosed) {
-		t.Fatalf("refused admission lost its cause: %v", w.Err())
+	if w.Err() != nil {
+		t.Fatalf("refused admission created a delivery failure: %v", w.Err())
 	}
+}
+
+func TestAnIdleWriterShutdownWakesTheProgressConsumer(t *testing.T) {
+	w := newTestWriter(t, io.Discard)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case _, open := <-w.Changes():
+		if open {
+			t.Fatal("worker ended without closing its progress channel")
+		}
+	default:
+		t.Fatal("an idle frame loop could wait forever after writer shutdown")
+	}
+}
+
+func TestLateAdmissionCannotHideTheDeliveryFailureOfAnAcceptedFrame(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		in, out := io.Pipe()
+		defer func() { _ = out.Close() }()
+		w := newTestWriter(t, out)
+		if _, err := w.Queue([]byte("accepted")); err != nil {
+			t.Fatal(err)
+		}
+		closed := make(chan error, 1)
+		go func() { closed <- w.Close() }()
+		synctest.Wait()
+		if _, err := w.Queue([]byte("late")); !errors.Is(err, term.ErrClosed) {
+			t.Fatal(err)
+		}
+		_ = in.CloseWithError(errBroken)
+		if err := <-closed; err != nil {
+			t.Fatal(err)
+		}
+		if !errors.Is(w.Err(), errBroken) {
+			t.Fatalf("delivery cause = %v", w.Err())
+		}
+	})
 }

@@ -113,12 +113,11 @@ func (m *transcriptTextMap) rects(selected text.Range) []image.Rectangle {
 }
 
 func (l TranscriptLayout) placed(id BlockID) (placed, bool) {
-	for _, block := range l.blocks {
-		if block.id == id {
-			return block, true
-		}
+	// IDs are allocated consecutively and retirement removes only a prefix.
+	if id < l.first || id-l.first >= BlockID(len(l.blocks)) {
+		return placed{}, false
 	}
-	return placed{}, false
+	return l.blocks[id-l.first], true
 }
 
 func (l TranscriptLayout) point(block placed, position text.Position) TextPoint {

@@ -53,8 +53,7 @@ func TestWriterPanicsBeforeItsSequenceCanWrap(t *testing.T) {
 }
 
 func TestTerminalRefusesToReuseAnImageIdentity(t *testing.T) {
-	var terminal Terminal
-	terminal.pictures.last.Store(math.MaxUint32)
+	terminal := Terminal{imageProtocol: graphics.Kitty, lastImageID: math.MaxUint32}
 	if _, err := terminal.Transmit(nil); !errors.Is(err, ErrImageIDsExhausted) {
 		t.Fatalf("Transmit error = %v, want ErrImageIDsExhausted", err)
 	}
@@ -540,7 +539,7 @@ func TestTerminalCommandsReportRefusedAdmission(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	terminal := Terminal{writer: writer}
+	terminal := Terminal{writer: writer, imageProtocol: graphics.Kitty}
 	if err := terminal.ReportDirectory(t.TempDir()); !errors.Is(err, ErrClosed) {
 		t.Errorf("ReportDirectory = %v, want ErrClosed", err)
 	}
@@ -584,8 +583,8 @@ func TestImageReleaseCannotAddressAnotherTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	var a, b bytes.Buffer
-	first := &Terminal{writer: NewWriter(WriterConfig{Destination: &a})}
-	second := &Terminal{writer: NewWriter(WriterConfig{Destination: &b})}
+	first := &Terminal{writer: NewWriter(WriterConfig{Destination: &a}), imageProtocol: graphics.Kitty}
+	second := &Terminal{writer: NewWriter(WriterConfig{Destination: &b}), imageProtocol: graphics.Kitty}
 	defer func() { _ = first.writer.Close(); _ = second.writer.Close() }()
 	left, err := first.Transmit(pngData.Bytes())
 	if err != nil {
@@ -624,5 +623,35 @@ func TestImageReleaseCannotAddressAnotherTerminal(t *testing.T) {
 		if strings.Count(stream, "a=d,d=I,i=1") != 1 {
 			t.Error("unexpected wire deletes", stream)
 		}
+	}
+}
+
+func TestOnlyAdmittedKittyImagesConsumeAnIdentity(t *testing.T) {
+	var pngData bytes.Buffer
+	if err := png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	terminal := Terminal{writer: NewWriter(WriterConfig{Destination: io.Discard})}
+	defer func() { _ = terminal.writer.Close() }()
+	for _, protocol := range []graphics.Protocol{graphics.None, graphics.ITerm2, graphics.Sixel} {
+		terminal.imageProtocol = protocol
+		if _, err := terminal.Transmit(pngData.Bytes()); !errors.Is(err, errors.ErrUnsupported) || terminal.writer.Queued() != 0 {
+			t.Fatalf("attempted live image on %s: queued=%d err=%v", protocol, terminal.writer.Queued(), err)
+		}
+	}
+	terminal.imageProtocol = graphics.Kitty
+	if _, err := terminal.Transmit(nil); err == nil {
+		t.Fatal("invalid PNG was accepted")
+	}
+	if err := terminal.writer.pauseAdmission(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := terminal.Transmit(pngData.Bytes()); !errors.Is(err, ErrHandoverActive) {
+		t.Fatal(err)
+	}
+	terminal.writer.resumeAdmission()
+	r, err := terminal.Transmit(pngData.Bytes())
+	if err != nil || r.ID() != 1 {
+		t.Fatalf("first accepted image = %d, %v", r.ID(), err)
 	}
 }

@@ -3,6 +3,7 @@ package scene_test
 import (
 	"errors"
 	"image"
+	"slices"
 	"testing"
 	"time"
 
@@ -200,5 +201,53 @@ func TestOnlyTheLatestFocusGainCanReachTheSameAttachment(t *testing.T) {
 	r.FlushNotifications()
 	if gains != 1 {
 		t.Fatalf("delivered %d gains for the current focus", gains)
+	}
+}
+
+func TestInterceptedReleaseSettlesTheCapturedGesture(t *testing.T) {
+	for _, mode := range []string{"consume", "panic", "new press"} {
+		t.Run(mode, func(t *testing.T) {
+			var r *scene.Root
+			a := control()
+			intercept := true
+			group := scene.NewGroup(scene.GroupConfig{
+				Items: []scene.Item{item("a", a.element)},
+				Element: scene.ElementConfig{Preview: func(e scene.Event) scene.EventResult {
+					m, ok := e.Input().(input.Mouse)
+					if !ok || m.Action != input.MouseUp || !intercept {
+						return scene.EventResult{}
+					}
+					intercept = false
+					switch mode {
+					case "panic":
+						panic("intercepted")
+					case "new press":
+						r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+					}
+					return scene.EventResult{Consumed: true}
+				}},
+			})
+			r = root(t, group.Element())
+			draw(t, r, 4, 1, 0)
+			r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+			release := input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft}
+			func() {
+				defer func() {
+					failure := recover()
+					if mode == "panic" && failure != "intercepted" || mode != "panic" && failure != nil {
+						t.Fatalf("preview failure = %v", failure)
+					}
+				}()
+				r.Handle(release)
+			}()
+			r.Handle(release)
+			want := []input.MouseAction{input.MouseDown, input.MouseCancel}
+			if mode == "new press" {
+				want = append(want, input.MouseDown, input.MouseUp)
+			}
+			if got := mouseActions(a.events); !slices.Equal(got, want) {
+				t.Fatalf("capture events = %v, want %v", got, want)
+			}
+		})
 	}
 }

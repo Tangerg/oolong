@@ -195,7 +195,10 @@ func (r *Runtime) Start[T any](scope *Scope, work Work[T]) (*Task, error) {
 		status: TaskStatus{ID: p.nextTask}, cancel: cancel,
 		done: make(chan struct{}), settled: make(chan struct{}),
 	}
+	// A scope may already be cancelling while AfterFunc installs its callback.
+	task.mu.Lock()
 	task.stopDelivery = context.AfterFunc(scope.ctx, task.revoke)
+	task.mu.Unlock()
 	go task.run(ctx, scope, p, slot, work)
 	return task, nil
 }
@@ -219,16 +222,16 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 			t.noteCancellation()
 		}
 		t.complete(err)
-		t.cancel(nil)
-		if t.Snapshot().Delivery != DeliveryPending {
+		if work.Apply == nil || t.Snapshot().Delivery != DeliveryPending {
 			slot.close()
+			t.settle(false)
 			return
 		}
 		if !slot.post(func() bool {
 			defer slot.close()
 			applied := false
 			defer func() { t.settle(applied) }()
-			if scope.eligible(p) && work.Apply != nil && t.claimDelivery() {
+			if scope.eligible(p) && t.claimDelivery() {
 				work.Apply(value, err)
 				applied = true
 			}
@@ -272,8 +275,9 @@ func (t *Task) Cancel() bool {
 		return false
 	}
 	t.status.CancelRequested = true
+	cancel := t.cancel
 	t.mu.Unlock()
-	t.cancel(context.Canceled)
+	cancel(context.Canceled)
 	return true
 }
 
@@ -305,7 +309,8 @@ func (t *Task) Settled() <-chan struct{} {
 
 func (t *Task) complete(err error) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	cancel := t.cancel
+	t.cancel = nil
 	t.status.Err = err
 	switch err {
 	case nil:
@@ -316,6 +321,8 @@ func (t *Task) complete(err error) {
 		t.status.State = TaskFailed
 	}
 	close(t.done)
+	t.mu.Unlock()
+	cancel(nil)
 }
 
 func (t *Task) claimDelivery() bool {
@@ -334,22 +341,27 @@ func (t *Task) revoke() {
 	if t.claimed || t.status.Delivery != DeliveryPending {
 		return
 	}
-	t.status.Delivery = DeliveryRevoked
-	close(t.settled)
+	t.finishDelivery(DeliveryRevoked)
 }
 
 func (t *Task) settle(applied bool) {
-	if t.stopDelivery != nil {
-		t.stopDelivery()
-	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status.Delivery != DeliveryPending {
 		return
 	}
-	t.status.Delivery = DeliveryRevoked
+	state := DeliveryRevoked
 	if applied {
-		t.status.Delivery = DeliveryApplied
+		state = DeliveryApplied
 	}
+	t.finishDelivery(state)
+}
+
+// A retained task needs only its receipt after settlement. The callback used
+// to revoke delivery otherwise keeps the entire parent context alive.
+func (t *Task) finishDelivery(state DeliveryState) {
+	t.stopDelivery()
+	t.stopDelivery = nil
+	t.status.Delivery = state
 	close(t.settled)
 }

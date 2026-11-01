@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"image"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -37,21 +39,25 @@ func (w *workflow) Reset() {
 	}
 }
 
-func (w *workflow) Apply(update stepUpdate) {
-	if update.Index < 0 || update.Index >= len(w.steps) {
-		return
+func (w *workflow) Apply(update stepUpdate) error {
+	if update.Index < 0 || update.Index >= len(w.steps) || update.State > stepSkipped {
+		return fmt.Errorf("invalid plan update for step %d with state %d", update.Index, update.State)
 	}
 	w.steps[update.Index].state = update.State
+	return nil
 }
 
-func (*workflow) HeightForWidth(int) int { return 6 }
+func (w *workflow) HeightForWidth(int) int { return layout.Sum(len(w.steps), w.box().Overhead().Y) }
 
-func (w *workflow) Draw(view grid.View) {
-	box := kit.Box{
+func (w *workflow) box() kit.Box {
+	return kit.Box{
 		Theme: w.theme, Glyphs: w.glyphs, Title: "run plan",
 		Padding: layout.Symmetric(0, 1),
 	}
-	inner := box.Draw(view)
+}
+
+func (w *workflow) Draw(view grid.View) {
+	inner := w.box().Draw(view)
 	width, height := inner.Size()
 	for row, step := range w.steps {
 		if row >= height {
@@ -76,8 +82,11 @@ func (w *workflow) Draw(view grid.View) {
 }
 
 type reviewRequest struct {
+	ctx      context.Context //nolint:containedctx // A review is only actionable during its issuing request.
 	proposal changeProposal
-	answer   chan bool
+	done     chan struct{}
+	approved bool
+	err      error
 }
 
 type reviewPane struct {

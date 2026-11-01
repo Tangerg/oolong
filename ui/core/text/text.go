@@ -103,7 +103,7 @@ func (l Line) String() string {
 
 // Width is how many columns the line would occupy unwrapped, with tabs expanded.
 func (l Line) Width() int {
-	return advance(l.String(), 0)
+	return Width(l.String())
 }
 
 // Draw writes the line onto v at (x, y) and returns how many columns it advanced.
@@ -114,18 +114,24 @@ func (l Line) Width() int {
 // terminal shows is the text a terminal will open — and a link that a wrap broke in
 // two is stamped on both halves, which is how one hyperlink covers two rows.
 func (l Line) Draw(v grid.View, x, y int) int {
-	col := 0
-	for u := range l.eachUnit() {
-		at := layout.Translate(x, col)
-		width := u.width
-		if u.linked {
-			v.Text(at, y, u.cluster, u.source.Style)
+	col, linkStart := 0, 0
+	var target string
+	endLink := func() {
+		if target != "" {
+			v.Link(layout.Translate(x, linkStart), y, col-linkStart, target)
 		}
-		if u.linked && u.source.Link != "" {
-			v.Link(at, y, width, u.source.Link)
+	}
+	for u := range l.eachUnit() {
+		if link := u.link(); link != target {
+			endLink()
+			linkStart, target = col, link
+		}
+		if u.linked {
+			v.Text(layout.Translate(x, col), y, u.cluster, u.style())
 		}
 		col = layout.Sum(col, u.width)
 	}
+	endLink()
 	return col
 }
 
@@ -361,16 +367,20 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 		ellipsis = prefix(ellipsis, width)
 	}
 
-	units := l.units()
-	kept := make([]unit, 0, len(units))
+	// Every tab ends on a tab stop. After the first one, the remaining suffix
+	// has the same width on every candidate, even when it contains more tabs.
+	head, tail, hasTab := strings.Cut(ellipsis, "\t")
+	headWidth, tailWidth := Width(head), Width(tail)
+	var kept []unit
 	used := 0
 	style := grid.Style{}
-	for _, u := range units {
+	for u := range l.eachUnit() {
 		next := layout.Sum(used, u.width)
-		// A tab in the suffix expands from where the retained text ends, not from
-		// column zero. Asking the canonical advance function keeps the result within
-		// width for every suffix rather than only ordinary ellipses.
-		if advance(ellipsis, next) > width {
+		end := layout.Sum(next, headWidth)
+		if hasTab {
+			end = layout.Sum(advanceCluster("\t", end), tailWidth)
+		}
+		if end > width {
 			break
 		}
 		kept = append(kept, u)
@@ -392,7 +402,7 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 }
 
 // Width is how many columns s would occupy, with tabs expanded from column zero.
-func Width(s string) int { return advance(s, 0) }
+func Width(s string) int { return Advance(s, 0) }
 
 // Truncate is [Line.Truncate] on unstyled text: at most width columns, ended with
 // ellipsis when anything was cut, and carrying that method's treatment of tabs and
@@ -545,7 +555,11 @@ func (u unit) sameRun(other unit) bool {
 	return u.style() == other.style() && u.link() == other.link()
 }
 
-func advance(s string, col int) int {
+// Advance returns the final terminal column after drawing s from col. Tabs use
+// their position in the whole line even when a caller measures it in pieces
+// separated at grapheme boundaries. Negative starting columns count as zero.
+func Advance(s string, col int) int {
+	col = max(0, col)
 	if plainASCII(s) {
 		return layout.Sum(col, len(s))
 	}

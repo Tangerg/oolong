@@ -1,6 +1,7 @@
 package keymap_test
 
 import (
+	"bytes"
 	"encoding/json/v2"
 	"slices"
 	"strings"
@@ -618,5 +619,28 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 	var empty keymap.Matcher
 	if !empty.Reset(nil) {
 		t.Fatal("empty reset was superseded")
+	}
+}
+
+func TestKeybindingTextPreservesWhitespaceAndCannotEmitTerminalControls(t *testing.T) {
+	keys := input.Keys{input.Ctrl.Rune('\t'), {Rune: '\u00a0'}, {Rune: '\u2003'}, {Rune: '\x1b'}, {Rune: '中'}}
+	wire, err := keys.MarshalText()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.ContainsAny(wire, "\t\u00a0\u2003\x1b") {
+		t.Fatalf("ambiguous or executable chord text %q", wire)
+	}
+	var restored input.Keys
+	if err := restored.UnmarshalText(wire); err != nil || !slices.Equal(restored, keys) {
+		t.Fatalf("%q restored %+v, %v", wire, restored, err)
+	}
+	if _, ok := input.ParseChord("\xff"); ok {
+		t.Fatal("invalid UTF-8 became a replacement-character binding")
+	}
+	for _, invalid := range []input.Chord{{Code: input.Enter, Rune: 'z'}, {Mods: 255, Rune: 'x'}, {Rune: 0xd800}} {
+		if _, err := invalid.MarshalText(); err == nil {
+			t.Fatalf("an unrepresentable chord serialized successfully: %#v", invalid)
+		}
 	}
 }

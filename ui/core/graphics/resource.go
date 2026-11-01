@@ -26,10 +26,18 @@ type ImageOwner struct {
 }
 
 type imageRecord struct {
-	owner     *ImageOwner
-	wire      Image
-	releasing bool
+	owner *ImageOwner
+	wire  Image
+	state imageState
 }
+
+type imageState uint8
+
+const (
+	imageLive imageState = iota
+	imageReleasing
+	imageRevokedDuringRelease
+)
 
 // Resource names one transmission, not merely its terminal-local number.
 // Copies share its lifetime. The zero value is not a live image.
@@ -74,25 +82,18 @@ func (o *ImageOwner) Release(r Resource, send func(Image) error) error {
 		return ErrForeignImage
 	}
 	o.mu.Lock()
-	switch {
-	case o.live[record.wire.ID] != record:
+	if err := record.available(); err != nil {
 		o.mu.Unlock()
-		return ErrImageReleased
-	case record.releasing:
-		o.mu.Unlock()
-		return ErrImageReleasing
+		return err
 	}
-	record.releasing = true
+	record.state = imageReleasing
 	o.mu.Unlock()
 	refused := false
 	defer func() {
 		o.mu.Lock()
 		defer o.mu.Unlock()
-		if o.live[record.wire.ID] != record {
-			return
-		}
-		if refused {
-			record.releasing = false
+		if refused && record.state == imageReleasing {
+			record.state = imageLive
 			return
 		}
 		delete(o.live, record.wire.ID)
@@ -102,12 +103,40 @@ func (o *ImageOwner) Release(r Resource, send func(Image) error) error {
 	return err
 }
 
+// ReleaseAll submits deletion for each transmission owned at entry. Each
+// successful admission retires that resource immediately. A refusal leaves
+// the remaining resources available for retry.
+func (o *ImageOwner) ReleaseAll(send func(Image) error) error {
+	o.mu.Lock()
+	resources := make([]Resource, 0, len(o.live))
+	for _, record := range o.live {
+		resources = append(resources, Resource{record: record})
+	}
+	o.mu.Unlock()
+	for _, resource := range resources {
+		if err := o.Release(resource, send); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RevokeAll ends outstanding capabilities when their terminal is no longer
-// available. It sends no commands to a display that may now have another owner.
+// available. A deletion already inside its send callback keeps the wire ID
+// reserved until return, so it cannot erase a newly bound transmission.
 func (o *ImageOwner) RevokeAll() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.live = nil
+	for id, record := range o.live {
+		if record.state == imageLive {
+			delete(o.live, id)
+		} else {
+			record.state = imageRevokedDuringRelease
+		}
+	}
+	if len(o.live) == 0 {
+		o.live = nil
+	}
 }
 
 // ID reports the wire ID for diagnostics and frame identity. It grants no
@@ -137,10 +166,15 @@ func (r Resource) availability() error {
 	o := r.record.owner
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.live[r.ID()] != r.record {
+	return r.record.available()
+}
+
+// The caller holds the owner's lock while testing or claiming the current ID.
+func (r *imageRecord) available() error {
+	if r.owner.live[r.wire.ID] != r || r.state == imageRevokedDuringRelease {
 		return ErrImageReleased
 	}
-	if r.record.releasing {
+	if r.state == imageReleasing {
 		return ErrImageReleasing
 	}
 	return nil

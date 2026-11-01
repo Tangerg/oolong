@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking changes
 
+- Retransmit Kitty images needed after a terminal handoff. The outgoing session releases its live images and cancels outstanding clipboard reads. Calling `Terminal.Transmit` without live-image support returns `errors.ErrUnsupported`.
+- Text marshaling for keys rejects values that cannot round-trip. Chords spell whitespace and control characters as Unicode code points.
+- A writer that has stopped accepting frames returns `term.ErrClosed` to a new producer. Inspect `Writer.Err()` for the outcome of writes already admitted. An invalid or interrupted frame admission can leave the attempted publication prefix in `publication.UnknownPartial`.
+- Permanent capture charges distinct owned strings during drawing and in the final receipt. A drawable that repeatedly overwrites a cell with distinct large strings can exhaust its capture budget. At each entry point a drawable holding a typed nil follows the same absence policy as an untyped nil.
+- Copies of a `grid.Output` share settlement. A `grid.Render` callback view expires when the call returns. Keep `ThemeOwner` as the theme identity. Separate calls to `ThemeOwner.Scope()` may return separate handles to it.
+
 - Replace calls through `base.Field.HeightForWidth` with `field.Element().Measure(layout.Down, width)`. A custom field supplies its intrinsic size on the same element the form arranges. Concrete built-in fields retain their measurement methods.
 - A masked editor or text field returns an empty value from the semantic fill action. Check the action state to learn whether it applied. `Editor.Insert` starts an independent undo step for programmatic insertion.
 - `kit.Cell.HeightForWidth` reports one clipped table row. Use `Cell.Preferred` for the requested column width.
@@ -52,6 +58,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Fixed
+
+- Input, clipboard requests and live images respect terminal handoff. A rejected frame cannot replace the transport failure for earlier frames. Closing a byte ingress wakes every blocked producer. Confirmations arriving before publication admission are retained.
+- An intercepted captured release cancels the gesture exactly once, including when a preview panics or starts another press. Automation pagination resumes at the next node and preserves its semantic parent without replaying earlier siblings.
+- Cross-axis flow measurement accounts for allocated child widths. Viewport anchors survive repaint and header resizing. A transcript exposes the last painted visible range and consistently retires input, content subscriptions and pinned header geometry.
+- Read-only form queries guard custom field callbacks. Field identities are acquired once per update. Theme scope handles cannot silently redirect a component away from the owner's change notifications.
+- Drawing a hyperlink shares its destination across a contiguous run. Text truncation retains the visible prefix. Dense Unicode searches advance through each row. The row encoder preserves the columns of cropped wide glyphs. Scroll detection handles long repeated row bands in linear row comparisons.
+- Thematic breaks respect the visible clip and expose a blank logical row. LaTeX comments handle carriage returns. Mermaid and Markdown diagnostics quote terminal control characters. Expired example tool approvals retire their dialog and invalid plan updates report an error.
+- The release workflow builds the exact published tag from a clean consumer. Manual proposals use the named module and version even when the workflow was launched on a tag.
 
 - Nested flow groups measure the same fixed sizes, floors, bounds and gaps they allocate. Observations and focus traversals reuse the active modal for a synchronous scan. Frame geometry is indexed by attachment for routing and semantic bounds.
 - Bracketed paste chunks fit the default input queue after UTF-8 decoding. An idle gap in an oversized terminal string keeps its payload out of the keyboard route. Numeric-leading notification text is prefixed with a bullet so it cannot select an OSC 9 terminal command. A title that cannot be restored during terminal handover returns `term.ErrPayloadTooLarge` before admission.

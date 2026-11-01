@@ -98,13 +98,15 @@ const (
 // Has reports whether every modifier in want is held.
 func (m Mods) Has(want Mods) bool { return m&want == want }
 
+var modifierNames = [...]struct {
+	mod  Mods
+	name string
+}{{Ctrl, "ctrl"}, {Alt, "alt"}, {Shift, "shift"}, {Super, "super"}}
+
 // String names the modifiers in the order a keybinding is conventionally written.
 func (m Mods) String() string {
 	var parts []string
-	for _, named := range []struct {
-		mod  Mods
-		name string
-	}{{Ctrl, "ctrl"}, {Alt, "alt"}, {Shift, "shift"}, {Super, "super"}} {
+	for _, named := range modifierNames {
 		if m.Has(named.mod) {
 			parts = append(parts, named.name)
 		}

@@ -1,8 +1,6 @@
 package markdown
 
 import (
-	"strings"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -26,7 +24,7 @@ type Block struct {
 	content grid.Drawable
 
 	prefix blockPrefix
-	rule   bool
+	rule   *text.Span
 
 	blankBefore bool
 }
@@ -47,7 +45,7 @@ func (b Block) Draw(v grid.View) {
 }
 
 // Rows returns the meaningful text and offsets of the block's physical rows at
-// width. Markers and quotation rails are decoration and are not included in Text.
+// width. Markers, quotation rails and thematic dividers occupy cells without adding searchable text.
 func (b Block) Rows(width int) []text.Row { return b.layout(width).project() }
 
 // BlankBefore reports whether this block wants a blank row in front of it: false
@@ -64,6 +62,7 @@ func (b Block) BlankBefore() bool { return b.blankBefore }
 type blockLayout struct {
 	rows                []text.Wrapped
 	child               grid.Drawable
+	rule                *text.Span
 	left, width, height int
 	prefix              blockPrefix
 }
@@ -71,6 +70,10 @@ type blockLayout struct {
 func (b Block) layout(width int) blockLayout {
 	if width <= 0 {
 		return blockLayout{}
+	}
+	if b.rule != nil {
+		left := min(b.prefix.indent, width)
+		return blockLayout{rule: b.rule, left: left, width: width - left, height: 1, prefix: b.prefix}
 	}
 	if b.content == nil {
 		rows := b.wrapped(width)
@@ -114,13 +117,18 @@ func (p blockLayout) draw(v grid.View) {
 		if y == 0 {
 			p.prefix.markers.draw(v, y)
 		}
-		if p.child == nil {
+		if p.rule != nil {
+			drawRule(v.Sub(grid.Area(p.left, y, p.width, 1)), *p.rule)
+		} else if p.child == nil {
 			p.rows[y].Draw(v, p.left, y)
 		}
 	}
 }
 
 func (p blockLayout) project() []text.Row {
+	if p.rule != nil {
+		return []text.Row{{Offset: p.left}}
+	}
 	if p.child == nil {
 		return publicRows(p.rows, p.left)
 	}
@@ -129,7 +137,7 @@ func (p blockLayout) project() []text.Row {
 		copy(rows, projector.Rows(p.width))
 	}
 	for i := range rows {
-		rows[i].Offset += p.left
+		rows[i].Offset = layout.Translate(rows[i].Offset, p.left)
 	}
 	return rows
 }
@@ -139,8 +147,6 @@ func (b Block) wrapped(width int) []text.Wrapped {
 	switch {
 	case b.table != nil:
 		return b.table.appendRows(nil, room)
-	case b.rule:
-		return []text.Wrapped{{Line: stretch(b.lines, room)}}
 	default:
 		var rows []text.Wrapped
 		for _, line := range b.lines {
@@ -161,17 +167,21 @@ func publicRows(rows []text.Wrapped, offset int) []text.Row {
 	return out
 }
 
-func stretch(lines []text.Line, room int) text.Line {
-	if len(lines) == 0 || len(lines[0]) == 0 {
-		return nil
+// Repetition stays anchored to the logical origin even when a viewport clips its left edge.
+func drawRule(v grid.View, glyph text.Span) {
+	unit := text.Width(glyph.Text)
+	if unit == 0 || v.Empty() {
+		return
 	}
-	span := lines[0][0]
-	width := text.Width(span.Text)
-	if width <= 0 {
-		return nil
+	width, _ := v.Size()
+	visible := v.Visible()
+	for x := visible.Min.X - visible.Min.X%unit; x < visible.Max.X; {
+		v.Text(x, 0, text.Truncate(glyph.Text, width-x, ""), glyph.Style)
+		if visible.Max.X-x <= unit {
+			break
+		}
+		x += unit
 	}
-	span.Text = strings.Repeat(span.Text, room/width+1)
-	return text.Line{span}.Truncate(room, "")
 }
 
 var _ grid.Drawable = Block{}

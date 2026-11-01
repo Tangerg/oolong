@@ -160,3 +160,24 @@ func TestEveryDrawingOperationKeepsTheOuterWriteRestriction(t *testing.T) {
 		t.Fatalf("a rejected write changed cells: %q", got)
 	}
 }
+
+func TestOneShotRenderersReleaseTheRasterBehindRetainedViews(t *testing.T) {
+	var retained grid.View
+	draw := func(view grid.View) {
+		retained = view.Sub(view.Bounds())
+		view.Text(0, 0, "a", grid.Style{})
+	}
+	if rows := grid.Render(2, 1, draw); len(rows) != 1 || rows[0] != "a" {
+		t.Fatal(rows)
+	}
+	if !retained.Empty() {
+		t.Fatal("Render retained its scratch raster")
+	}
+	rejectsPublicationReentry(t, func() { retained.Text(0, 0, "x", grid.Style{}) })
+	if _, err := grid.Capture(grid.CaptureConfig{Width: 2, Content: content(1, draw)}); err != nil {
+		t.Fatal(err)
+	}
+	if !retained.Empty() {
+		t.Fatal("Capture retained its scratch raster")
+	}
+}
