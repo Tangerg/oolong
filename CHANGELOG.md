@@ -6,8 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [ui/v0.26.0] — 2026-11-01
+
 ### Added
 
+- Publish the unified `github.com/Tangerg/oolong/ui` module with core primitives, base behavior, kit appearance, semantic automation and test support. This is the first release under the new module path.
 - Local terminal probing now checks direct PNG support on the active channel. Set `kit.Image.Source` to show a region of a transmitted PNG. Run `go run ./examples/image` to try it.
 - Kitty keyboard reports retain shifted and base-layout key identities, F13–F35, and dedicated keypad keys. `keymap.Map.ActionFor` and sequence matching use them for shortcuts. Editors preserve associated text. Use keyed literals for `input.Key`, `kit.Image`, and `graphics.ImagePlacement` when setting their optional fields.
 
@@ -55,11 +58,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Replace `program.Run` and ambiguous `Config.Root` / `Config.Inline` selection with `program.NewScreen` / `program.NewInline`, typed Build functions returning `scene.Element`, and the constructed program's `Run`. One scene root now owns attachment, focus, capture, modal eligibility, geometry and semantics; the independent headless routing tree is removed.
 - Kit components hold private base controllers and expose `Controller()` and the same `Element()`. Stateful construction uses explicit Config values. Editable text and undo belong to EditSession; ambiguous controlled accessors and duplicate mutation paths are removed. Explicit domain controls use versioned Snapshot / Change / Subscribe contracts without a local answer copy. ThemeOwner owns application palette changes, with immutable scopes and per-instance overrides.
 - Background results use scoped typed work and owner-side application. Cancellation, completion, stale delivery and physical output settlement are separately observable. Typed scene actions and bounded automation snapshots share production controller commands.
-- Replace `markdown.Stream` and its Feed / Open / Flush prefix protocol with `content.StreamDocument` plus complete immutable snapshot preparation through `markdown.NewRenderer`. Append changes source; End records EOF; Accept verifies identity, revision and finality. Final Markdown is equivalent to whole-source rendering regardless of transport partition.
 - Replace Transcript Append / Changed / Finish / Commit glue with Add or AddDocument and explicit retention configuration. Transcript owns subscriptions, finalization policy, reading state and publication resumption. KeepCompleted preserves bounded recent interactive context; MaxItems bounds retained references. Selection uses content identity, revision and logical text positions.
 - Replace Inline Print / Append / Tail / Break queues with publication admission and immutable frozen content. The inline producer returns a Receipt; Accepted differs from Written, Failed and UnknownPartial. Grid output is a candidate with Commit / Abort, and exact encoded payload admission precedes owner commits. Native paint is refused for permanent history.
 - Add bounded VirtualWindow materialization with stable keys, source revisions and explicit estimated extent. Archive storage and offscreen loading remain application policies rather than hidden copies of transcript content.
-- Replace `ssh.Run` with `ssh.Open` and an explicitly closed host passed to program configuration. Optional session services report unsupported capabilities and delivery errors.
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Breaking API migration
@@ -122,6 +123,64 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
   boundaries. Truncated multibyte sequences no longer discard adjacent valid text
   or make byte-to-column coordinates disagree with the ASCII fast path. Drawing,
   wrapping, truncation and cursor movement retain the original byte offsets.
+
+## [extensions/markdown/v0.26.0] — 2026-11-01
+
+### Breaking API migration
+
+#### markdown
+
+- Change imports from `github.com/Tangerg/oolong/markdown` to `github.com/Tangerg/oolong/extensions/markdown`. The extension consumes the new `ui` core contracts.
+- Replace `markdown.Stream` and its Feed / Open / Flush prefix protocol with `content.StreamDocument` plus complete immutable snapshot preparation through `markdown.NewRenderer`. Append changes source; End records EOF; Accept verifies identity, revision and finality. Final Markdown is equivalent to whole-source rendering regardless of transport partition.
+
+### Fixed
+
+- Keep layout caches with immutable block sequences and reject stale preparation. Preserve reference destinations across transport chunks and document replacement.
+- Preserve the surrounding destination for image links, nesting order for list markers and quote rails, and the visible clip for thematic breaks. Decorative glyphs stay out of copied text, and diagnostics render terminal controls as text.
+
+## [extensions/highlight/v0.26.0] — 2026-11-01
+
+### Breaking changes
+
+- Change imports from `github.com/Tangerg/oolong/highlight` to `github.com/Tangerg/oolong/extensions/highlight`. Highlighted lines use the new `ui/core/text` types.
+
+### Fixed
+
+- Preserve the complete source when tokenization fails, including failures while iterating tokens. Retain a trailing blank code row and use the shared Unicode segmentation policy.
+
+## [extensions/latex/v0.26.0] — 2026-11-01
+
+### Breaking changes
+
+- Change imports from `github.com/Tangerg/oolong/latex` to `github.com/Tangerg/oolong/extensions/latex`. Formulas use the new `ui` drawing and text contracts.
+
+### Fixed
+
+- Preserve explicit control spaces and word boundaries in text mode, accept spaces before command arguments, and end comments on carriage returns. Rendering diagnostics quote terminal control characters.
+
+## [extensions/mermaid/v0.26.0] — 2026-11-01
+
+### Breaking changes
+
+- Change imports from `github.com/Tangerg/oolong/mermaid` to `github.com/Tangerg/oolong/extensions/mermaid`. The module remains independent of the UI module and prepares PNG data through an installed official Mermaid CLI.
+
+### Fixed
+
+- Resolve the selected CLI installation's own entry point. Check source limits before scanning input and enforce diagnostic retention for direct writes and subprocess pipe copies.
+- Verify rendering with the official CLI 11.17.1, including themes, authored colors, cancellation and process ownership.
+
+## [extensions/ssh/v0.26.0] — 2026-11-01
+
+### Breaking API migration
+
+#### ssh
+
+- Change imports from `github.com/Tangerg/oolong/ssh` to `github.com/Tangerg/oolong/extensions/ssh`.
+- Replace `ssh.Run` with `ssh.Open` and an explicitly closed host passed to program configuration. Optional session services report unsupported capabilities and delivery errors.
+
+### Fixed
+
+- End window intake when input reaches EOF and settle reader failures at the owning endpoint. Deliver accepted bytes before source failure, including abnormal reader exits.
 
 ## [0.25.0] — 2026-10-22
 

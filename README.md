@@ -20,7 +20,7 @@ go get github.com/Tangerg/oolong/ui@latest
 go get github.com/Tangerg/oolong/extensions/markdown@latest
 ```
 
-The new paths require a release containing this redesign. From this checkout, `go.work` resolves the local modules; no tags are created by applying the patch.
+The v0.26.0 redesign uses these new module paths. From this checkout, `go.work` resolves the local modules; published modules use the dependency versions declared in their manifests.
 
 [Build your first interface](docs/guides/getting-started.md) contains a complete program checked by the repository's documentation tests. Follow the [bilingual learning path](docs/README.md), or run the smallest and most complete applications:
 
