@@ -223,7 +223,7 @@ func (p *Prepared) Commit(sequence uint64) {
 }
 
 // Abort discards an unsettled candidate without undoing model or attachment changes.
-// It panics if called on a copy of a live candidate or during a pure projection. It panics during a pure phase.
+// It panics if called on a copy of a live candidate or during a pure projection.
 func (p *Prepared) Abort() {
 	if p == nil || p.done {
 		return
