@@ -14,6 +14,12 @@ Run `go run ./examples/picker` and read the [picker example](https://github.com/
 
 Use a controller's typed operations for programmatic changes. For example, `base.NewButton(ButtonConfig)` exposes one activation action through its element, and forms expose their value and submission operations. Do not create a second semantic action in the skin merely to make it discoverable.
 
+## Keep receipts with the owner that issued them
+
+A form calls `Submit(id)` with an opaque `base.SubmissionID`. Return `scene.Applied` for synchronous success or `scene.Started` after accepting asynchronous work. Deliver completion on the owner turn with `form.Settle(id, outcome)` after the callback returns. A different form, a superseded attempt, or an attempt still inside its callback cannot consume that receipt.
+
+An editor element snapshot carries its captured text: call `element.Text()` even after editing. Use the opaque `base.ElementID` to key associated payloads, and pass it only to an editor sharing the issuing `EditSession`. Use `tabs.SetRule(glyph)` to change both the visible rule and the space it occupies; the empty string removes it.
+
 ## Assemble real parts
 
 A `scene.Group` receives keyed `scene.Item` children and a layout function. An overlay uses `scene.Overlay` for its actual attachment and modal boundary. These same parts determine paint, focus, routing, lifecycle and semantic observation.

@@ -39,6 +39,8 @@ A controller stages its geometry only through the root that mounts its actual El
 
 Pointer events use the projection associated with their arrival or written frame identity. A resize invalidates incompatible geometry, and written history is bounded. Newer geometry must not reinterpret an old cell coordinate. Capture, focus and modal routing are owned centrally by the root rather than by independent component containers.
 
+Each paint callback borrows its cells and geometry together. A read-only query or later painter cannot write through an earlier frame, even if the compositor has not yet encoded it. The original hit and each receiver authorize a pointer route; a press cannot be carried into replacement content by a different participant.
+
 The runtime composes scene candidates, publication candidates and exact terminal payloads before committing their corresponding owners. A refused writer admission leaves candidates retryable. Physical writer completion advances the receipt separately from frame acceptance. Callbacks are not invoked halfway through those commits.
 
 ## Text and editing

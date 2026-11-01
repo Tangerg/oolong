@@ -31,3 +31,5 @@ Actions requiring parameters receive their concrete parameter type. Mouse, key a
 Cancellation requests, worker completion, UI delivery, publication acceptance and terminal writing remain separate facts. A cancelled view cannot revive a detached target, and a successful background operation can still have revoked UI delivery.
 
 A page can omit nodes before it as well as after it. Follow `Observation.Next` for pagination. `FindUnique` returns `ErrIncompleteObservation` when a missing page, depth boundary or clipped candidate name prevents a proof. A displayed name prefix never authorizes an exact-name action; clipping an unrelated description does not invalidate a complete name. Node eligibility comes from the same scene rule used by input and invocation.
+
+Action discovery does not run a parameter-dependent precondition with a made-up value. Invocation accepts an actual nil for a nullable Go parameter, just as the typed action does. Semantic relations expose live attachments in the observed scene; a related target can legitimately lie outside the queried subtree.

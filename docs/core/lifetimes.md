@@ -49,7 +49,7 @@ A controller's drawing and staging use the frame of the root that mounts its act
 
 Read-only borrows also refuse snapshot staging and refinement. A pending candidate must commit or abort before a new read-only borrow or measurement can begin. This prevents a saved candidate from changing the observed geometry inside a callback while preserving Commit's ability to settle already-admitted output without another rejection point.
 
-`ScrollLayout` reads and refines that one staged candidate while Prepare is active. It holds no independently advancing offset copy. A refused refinement leaves both the candidate and its observable offset unchanged; after preparation, read the current controller position through `Scroll.Offset`.
+`ScrollLayout` reads and refines that one staged candidate within the producing paint callback. It holds no independently advancing offset copy. A refused refinement leaves both the candidate and its observable offset unchanged; after preparation, read the current controller position through `Scroll.Offset`.
 
 ## Atomic output and shutdown
 
@@ -64,3 +64,15 @@ Inline shutdown drains the final accepted frame before admitting cursor cleanup,
 StreamDocument bounds retained source bytes. Capture bounds cells and owned strings. Publisher bounds complete retained captures. The runtime bounds action and resource admission; the writer bounds encoded bytes and pending transport. These quantities are deliberately not added into a fictitious universal memory number, and caller allocations inside a custom renderer remain the caller's responsibility.
 
 An application obtains a producer with `runtime.Publisher()`. Its `TryPublish` checks the live session and writer on every admission, including through a saved handle. A successful admission schedules a frame. Only the compositor can set geometry, admit a writer sequence, or settle receipts. For a custom compositor, construct and own a separate `publication.Publisher`.
+
+## Callback authority
+
+A scene grants cells and staged geometry to one paint callback. A copied frame, its child views, its plain grid view and its staged handles all expire when that callback returns. Nested read-only work cannot write through them. The compositor still owns the underlying destination; rendering another sibling does not renew an old painter's access. A custom layout may reuse its rectangle slice after returning.
+
+Pointer commands check the original hit as well as the node receiving preview or bubbling. A claimed press stops propagation. Drag and release require a recorded arrival map for the same captured content; losing that evidence cancels the gesture. Cleanup notifications cannot claim a new press. A modal with no focusable child can receive keys itself without creating a fictional focus target. For non-pointer input, `Event.Read` reads a staged projection from this scene's current layout; an absent producer is not a producer that staged nil.
+
+## Handing a terminal or image to another consumer
+
+The terminal owner pauses ordinary frame admission before draining pending output and handing off the display. A retained frame sink cannot switch to the control queue or close the writer. Its ordinary writes resume only after a successful return of the terminal. Setup queries the environment before acquiring raw mode.
+
+A host that supports native images binds each accepted transmission through its own `graphics.ImageOwner` and reports that owner's `NativeTarget`. Resource handles carry the issuing destination and transmission lifetime. Stop drawing a resource before releasing it through the same host. Placing a live resource on another terminal is refused even when the two local wire IDs match. The low-level `graphics.Image` encoder still describes explicit protocol operations; its wire ID is not a resource receipt.

@@ -14,6 +14,12 @@ contentType: How-to
 
 程序化修改使用控制器的类型化操作。例如，`base.NewButton(ButtonConfig)` 通过其元素暴露唯一激活动作，表单暴露值与提交操作。不要为了让动作可发现，在皮肤里再创建第二个语义动作。
 
+## 回执归签发它的所有者
+
+表单调用 `Submit(id)` 时传入不透明的 `base.SubmissionID`。同步成功返回 `scene.Applied`，已接受的异步任务返回 `scene.Started`。回调返回后，在所有者回合通过 `form.Settle(id, outcome)` 交付结果。其他表单、已被取代的提交以及仍在执行提交回调的请求都不能使用该回执结算。
+
+编辑器的元素快照保存捕获时的文本；即使文档已修改，仍可用 `element.Text()` 读取旧内容。关联的业务数据以不透明的 `base.ElementID` 为键；只有共享签发该标识的 `EditSession` 的编辑器能用它操作元素。调用 `tabs.SetRule(glyph)` 会同时更新分隔线和它占用的空间，空字符串移除该行。
+
 ## 装配实际部件
 
 `scene.Group` 接收带 key 的 `scene.Item` 子项与布局函数。覆盖层使用 `scene.Overlay` 提供实际挂载与模态边界。绘制、焦点、路由、生命周期和语义观察由这些相同部件决定。
