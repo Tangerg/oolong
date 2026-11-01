@@ -58,7 +58,13 @@ func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 
 // CurrentLayout reports whether this input belongs to the latest admitted geometry.
 func (e Event) CurrentLayout() bool {
-	return e.root != nil && (e.layout == nil || e.root.layout == e.layout)
+	if e.root == nil || e.root.closed {
+		return false
+	}
+	if _, pointer := e.input.(input.Mouse); !pointer {
+		return true
+	}
+	return e.layout != nil && e.root.layout == e.layout && e.layout.epoch == e.root.geometryEpoch
 }
 
 // checkDelivery guards the authority of one callback, independently of whether
@@ -70,8 +76,16 @@ func (e Event) checkDelivery() error {
 	if err := e.root.mutable(); err != nil {
 		return err
 	}
+	n := e.root.resolve(e.target)
 	_, pointer := e.input.(input.Mouse)
-	if e.turn != e.root.inputTurn || e.delivery != e.root.delivery || e.root.resolve(e.target) == nil || !pointer && e.focusTurn != e.root.focusTurn {
+	if e.turn != e.root.inputTurn || e.delivery != e.root.delivery || n == nil {
+		return ErrStale
+	}
+	if pointer {
+		if !e.root.currentGeometry(n, e.layout) {
+			return ErrStale
+		}
+	} else if e.focusTurn != e.root.focusTurn {
 		return ErrStale
 	}
 	return nil
@@ -94,9 +108,6 @@ func (e Event) FocusNext(backward bool) bool {
 func (e Event) Capture() error {
 	if err := e.checkDelivery(); err != nil {
 		return err
-	}
-	if e.layout == nil || e.layout.epoch != e.root.geometryEpoch {
-		return ErrStale
 	}
 	mouse, ok := e.input.(input.Mouse)
 	if !ok || mouse.Action != input.MouseDown {
@@ -351,11 +362,15 @@ func (r *Root) routeCurrent(origin Target, snapshot *layoutSnapshot) bool {
 	if r.mutable() != nil || !r.allowed(n) {
 		return false
 	}
-	if snapshot == nil {
-		return true
+	return snapshot == nil || r.currentGeometry(n, snapshot)
+}
+
+func (r *Root) currentGeometry(n *node, snapshot *layoutSnapshot) bool {
+	if snapshot == nil || snapshot.epoch != r.geometryEpoch {
+		return false
 	}
-	p, ok := findGeometry(snapshot, origin)
-	return snapshot.epoch == r.geometryEpoch && ok && r.currentContent(n, p)
+	p, ok := findGeometry(snapshot, n.target())
+	return ok && r.currentContent(n, p)
 }
 
 func (r *Root) bubble(start *node, event input.Event, snapshot *layoutSnapshot) bool {

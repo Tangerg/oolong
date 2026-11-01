@@ -266,3 +266,35 @@ func TestCaptureCancellationCannotResumePointerRoutingInAPreparedFrame(t *testin
 	}
 	pending.Abort()
 }
+
+func TestPointerCannotClaimNewContentFromInsideItsHandler(t *testing.T) {
+	for _, change := range []string{"content", "geometry"} {
+		t.Run(change, func(t *testing.T) {
+			var r *scene.Root
+			id := "original"
+			var focus, capture error
+			current := true
+			button := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }, Semantics: func() scene.Semantic { return scene.Semantic{ContentID: id} }, Handle: func(e scene.Event) scene.EventResult {
+				if m, ok := e.Input().(input.Mouse); !ok || m.Action != input.MouseDown {
+					return scene.EventResult{}
+				}
+				if change == "content" {
+					id = "replacement"
+					r.Changed()
+				} else {
+					r.InvalidateGeometry()
+				}
+				current = e.CurrentLayout()
+				focus = e.RequestFocus()
+				capture = e.Capture()
+				return scene.EventResult{Consumed: true}
+			}})
+			r = root(t, button)
+			draw(t, r, 2, 1, 0)
+			r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+			if !errors.Is(focus, scene.ErrStale) || !errors.Is(capture, scene.ErrStale) || (change == "geometry" && current) {
+				t.Errorf("current=%t, focus=%v, capture=%v", current, focus, capture)
+			}
+		})
+	}
+}
