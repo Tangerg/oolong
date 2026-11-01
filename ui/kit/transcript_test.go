@@ -1,9 +1,12 @@
 package kit_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/oolong/ui/core/content"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -120,7 +123,9 @@ func TestTranscriptSelectionAndMatchesDecorateTheSharedProjection(t *testing.T) 
 		t.Fatal("highlight changed text")
 	}
 	model.Selection().Clear()
-	model.SetMatches([]base.Match{{Row: 0, Spans: []base.Span{{Col: 0, Width: 3}}}, {Row: 0, Spans: []base.Span{{Col: 8, Width: 3}}}})
+	if err := model.SetMatches(model.Layout(), []base.Match{{Row: 0, Spans: []base.Span{{Col: 0, Width: 3}}}, {Row: 0, Spans: []base.Span{{Col: 8, Width: 3}}}}); err != nil {
+		t.Fatal(err)
+	}
 	if !model.RevealMatch(1) {
 		t.Fatal("match was not revealed")
 	}
@@ -238,5 +243,52 @@ func TestTranscriptThemeScopeKeepsBehaviorIdentityAcrossPaletteAndWidthChanges(t
 	}
 	if got := transcriptRow(surface.View(), 0); got != "context" {
 		t.Fatalf("theme changed content: %q", got)
+	}
+}
+
+func TestPhysicalSearchMarksBelongToOneTranscriptProjection(t *testing.T) {
+	theme := kit.Dark()
+	skin, r := transcriptSkin(t, kit.TranscriptConfig{Theme: theme})
+	m := skin.Controller()
+	d, err := content.NewStreamDocument(content.StreamConfig{Format: "text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.AddDocument(d); err != nil {
+		t.Fatal(err)
+	}
+	prepare := func(body string) {
+		if appendErr := d.Append([]byte(body)); appendErr != nil {
+			t.Fatal(appendErr)
+		}
+		if prepareErr := d.Accept(d.Snapshot().Prepare(t.Context(), func(_ context.Context, _ string) (grid.Drawable, error) { return &said{[]string{body}}, nil })); prepareErr != nil {
+			t.Fatal(prepareErr)
+		}
+	}
+	prepare("former")
+	transcriptPaint(t, r, 20, 1, 1)
+	marks := []base.Match{{Row: 0, Spans: []base.Span{{Col: 0, Width: 1}}}}
+	wide := m.Layout()
+	if installErr := m.SetMatches(wide, marks); installErr != nil {
+		t.Fatal(installErr)
+	}
+	resized := transcriptPaint(t, r, 12, 1, 2)
+	if transcriptCell(resized.View(), 0, 0).Style == theme.Selection {
+		t.Error("resized frame displayed old physical marks")
+	}
+	if staleErr := m.SetMatches(wide, marks); !errors.Is(staleErr, base.ErrStaleMatches) {
+		t.Fatalf("old width accepted: %v", staleErr)
+	}
+	narrow := m.Layout()
+	if installErr := m.SetMatches(narrow, marks); installErr != nil {
+		t.Fatal(installErr)
+	}
+	prepare("replaced")
+	if staleErr := m.SetMatches(narrow, marks); !errors.Is(staleErr, base.ErrStaleMatches) {
+		t.Fatalf("old body accepted before repaint: %v", staleErr)
+	}
+	updated := transcriptPaint(t, r, 12, 1, 3)
+	if transcriptCell(updated.View(), 0, 0).Style == theme.Selection || m.RevealMatch(0) {
+		t.Error("old match survived a new prepared body at the same size")
 	}
 }

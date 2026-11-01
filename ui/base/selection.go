@@ -21,6 +21,7 @@ type TextPoint struct {
 	Content    BlockID
 	Revision   uint64
 	Position   text.Position
+	identity   *byte // non-retaining identity: a BlockID is local to its transcript
 	projection [32]byte
 }
 

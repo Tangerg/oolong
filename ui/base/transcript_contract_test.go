@@ -404,13 +404,16 @@ func TestTranscriptSearchCopiesOnlyVisibleMatches(t *testing.T) {
 	for i := range matches {
 		matches[i] = base.Match{Row: i, Spans: []base.Span{{Width: 1}}}
 	}
-	m.SetMatches(matches)
-	first, visible := m.MatchesIn(9000, 9010)
+	transcriptCommit(t, transcriptScene(t, m), 20, 1, 1)
+	if err := m.SetMatches(m.Layout(), matches); err != nil {
+		t.Fatal(err)
+	}
+	first, visible := m.MatchesIn(m.Layout(), 9000, 9010)
 	if first != 9000 || len(visible) != 10 {
 		t.Fatalf("visible=%d,%d", first, len(visible))
 	}
 	visible[0].Spans[0].Width = 999
-	_, again := m.MatchesIn(9000, 9001)
+	_, again := m.MatchesIn(m.Layout(), 9000, 9001)
 	if again[0].Spans[0].Width != 1 {
 		t.Fatal("read projection advanced match owner")
 	}

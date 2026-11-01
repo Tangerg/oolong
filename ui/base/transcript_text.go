@@ -122,12 +122,12 @@ func (l TranscriptLayout) placed(id BlockID) (placed, bool) {
 }
 
 func (l TranscriptLayout) point(block placed, position text.Position) TextPoint {
-	return TextPoint{Content: block.id, Revision: block.revision, Position: position, projection: block.mapping.fingerprint}
+	return TextPoint{Content: block.id, identity: l.key.owner, Revision: block.revision, Position: position, projection: block.mapping.fingerprint}
 }
 
 func (l TranscriptLayout) valid(point TextPoint) bool {
 	block, ok := l.placed(point.Content)
-	return ok && block.mapping != nil && block.revision == point.Revision && block.mapping.fingerprint == point.projection
+	return ok && block.mapping != nil && l.key.owner == point.identity && block.revision == point.Revision && block.mapping.fingerprint == point.projection
 }
 
 // Hit maps a visible cell to a half-open logical range in its content revision.

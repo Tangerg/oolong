@@ -13,7 +13,8 @@ func TestTranscriptInputRejectsPresentationReentryBeforeChangingGesture(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	transcript.clicked, transcript.dragged = 9, true
+	transcript.clicked = 9
+	transcript.Selection().Begin(TextPoint{})
 	if paintErr := transcript.Element().SetPaint(func(scene.Frame) {
 		defer func() {
 			if recover() == nil {
@@ -34,7 +35,7 @@ func TestTranscriptInputRejectsPresentationReentryBeforeChangingGesture(t *testi
 		t.Fatal(err)
 	}
 	candidate.Abort()
-	if transcript.clicked != 9 || !transcript.dragged {
+	if transcript.clicked != 9 || !transcript.Selection().Dragging() {
 		t.Fatal("phase guard ran after gesture mutation")
 	}
 }

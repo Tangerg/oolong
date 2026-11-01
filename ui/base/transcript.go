@@ -19,6 +19,9 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
+// ErrStaleMatches rejects physical row and column matches from a different transcript, content revision or width.
+var ErrStaleMatches = errors.New("base: search result does not match the transcript projection")
+
 // ErrTranscriptCapacity refuses another retained reference without discarding existing content.
 var ErrTranscriptCapacity = errors.New("base: transcript item budget exhausted")
 
@@ -84,12 +87,10 @@ type TranscriptConfig struct {
 // Retaining this handle never retains the completed conversation's source bytes.
 type TranscriptItem struct {
 	id       BlockID
-	revision uint64
+	observed content.Revision // last preparation announced to the selection owner
 	body     Block
 	document *content.StreamDocument
 	cancel   func()
-	state    ContentState
-	final    bool
 	receipt  publication.Receipt
 	err      error
 }
@@ -104,10 +105,14 @@ func (i *TranscriptItem) ID() BlockID {
 
 // State reports whether this reference can still revise or participate in the live transcript.
 func (i *TranscriptItem) State() ContentState {
-	if i == nil {
+	if i == nil || i.document == nil && i.body == nil {
 		return ContentRetired
 	}
-	return i.state
+	state := i.content()
+	if state.Publishable() || state.State == content.Failed {
+		return ContentRetained
+	}
+	return ContentLive
 }
 
 // Receipt reports permanent-output progress after admission; before admission its zero value is invalid.
@@ -123,7 +128,27 @@ func (i *TranscriptItem) Err() error {
 	if i == nil {
 		return nil
 	}
-	return i.err
+	if i.document == nil {
+		return i.err
+	}
+	state := i.document.Current()
+	return errors.Join(state.SourceError, state.PrepareError, i.err)
+}
+
+func (i *TranscriptItem) content() content.DocumentChange {
+	if i.document != nil {
+		return i.document.Current()
+	}
+	return content.DocumentChange{Body: i.body, PreparedRevision: 1, State: content.Final}
+}
+
+func (i *TranscriptItem) retire() {
+	i.err = i.Err()
+	if i.cancel != nil {
+		i.cancel()
+		i.cancel = nil
+	}
+	i.body, i.document = nil, nil
 }
 
 // Transcript owns retained references and reading behavior. Content semantics
@@ -133,6 +158,8 @@ func (i *TranscriptItem) Err() error {
 // or content capture. Revision and row counters panic rather than wrap identities.
 // A Transcript must not be copied after first use.
 type Transcript struct {
+	namespace       *byte // Does not retain content when an endpoint outlives the transcript.
+	matchLayout     transcriptLayoutKey
 	noCopy          noCopy
 	cfg             TranscriptConfig
 	initialized     bool
@@ -151,7 +178,6 @@ type Transcript struct {
 	geometry        scene.Snapshot[TranscriptLayout]
 	presentation    scene.Snapshot[transcriptPresentation]
 	clicked         uint64
-	dragged         bool
 	scrollAction    *scene.Action[ScrollRequest, int]
 }
 
@@ -189,6 +215,7 @@ func (t *Transcript) initialize() {
 		return
 	}
 	t.initialized = true
+	t.namespace = new(byte)
 	if t.cfg.MaxItems == 0 {
 		t.cfg.MaxItems = 64
 	}
@@ -242,6 +269,8 @@ func (t *Transcript) changed() {
 		panic("base: transcript revisions exhausted")
 	}
 	t.revision++
+	t.matches = nil
+	t.current = -1
 	t.element.Invalidate()
 }
 
@@ -291,10 +320,15 @@ func (t *Transcript) add(body Block, document *content.StreamDocument) (*Transcr
 	if t.next == BlockID(math.MaxUint64) {
 		return nil, errors.New("base: transcript identities exhausted")
 	}
-	item := &TranscriptItem{id: t.next, revision: 1, body: body, document: document, state: ContentRetained, final: document == nil}
+	item := &TranscriptItem{id: t.next, body: body, document: document}
+	if document != nil {
+		item.observed = document.Current().PreparedRevision
+		item.cancel = document.Subscribe(func(change content.DocumentChange) { t.accept(item, change) })
+	}
 	t.next++
 	t.entries = append(t.entries, item)
 	t.changed()
+	t.publish()
 	return item, nil
 }
 
@@ -304,12 +338,7 @@ func (t *Transcript) Add(body Block) (*TranscriptItem, error) {
 	if body == nil {
 		return nil, errors.New("base: transcript content is nil")
 	}
-	item, err := t.add(body, nil)
-	if err != nil {
-		return nil, err
-	}
-	t.publish()
-	return item, nil
+	return t.add(body, nil)
 }
 
 // AddDocument subscribes once to source revisions, final preparation and automatic retention transitions.
@@ -317,32 +346,14 @@ func (t *Transcript) AddDocument(document *content.StreamDocument) (*TranscriptI
 	if document == nil {
 		return nil, errors.New("base: transcript document is nil")
 	}
-	item, err := t.add(nil, document)
-	if err != nil {
-		return nil, err
-	}
-	item.state = ContentLive
-	item.cancel = document.Subscribe(func(change content.DocumentChange) { t.accept(item, change) })
-	t.accept(item, document.Current())
-	return item, nil
+	return t.add(nil, document)
 }
 
 func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange) {
 	t.assertMutable()
-	if item.state == ContentRetired {
-		return
-	}
-	if item.revision != uint64(change.PreparedRevision) {
+	if item.observed != change.PreparedRevision {
 		t.selection.ContentChanged(item.id, uint64(change.PreparedRevision))
-	}
-	item.revision = uint64(change.PreparedRevision)
-	item.body = change.Body
-	item.final = change.State == content.Final || t.cfg.PublishPartial && change.State == content.Partial
-	item.err = errors.Join(change.SourceError, change.PrepareError)
-	if change.Publishable() || change.State == content.Failed {
-		item.state = ContentRetained
-	} else {
-		item.state = ContentLive
+		item.observed = change.PreparedRevision
 	}
 	t.changed()
 	t.publish()
@@ -360,7 +371,9 @@ func (t *Transcript) publish() {
 	}()
 	completed := 0
 	for _, item := range t.entries {
-		if !item.final || item.body == nil {
+		change := item.content()
+		complete := change.State == content.Final || t.cfg.PublishPartial && change.State == content.Partial
+		if change.Body == nil || !complete {
 			break
 		}
 		completed++
@@ -373,10 +386,10 @@ func (t *Transcript) publish() {
 		}
 		var receipt publication.Receipt
 		var err error
-		t.element.ReadOnly(func() { receipt, err = t.cfg.Publisher.TryPublish(item.body) })
+		t.element.ReadOnly(func() { receipt, err = t.cfg.Publisher.TryPublish(item.content().Body) })
 		if err != nil {
 			if !errors.Is(err, publication.ErrCapacity) {
-				item.err = errors.Join(item.err, err)
+				item.err = err
 			}
 			return
 		}
@@ -384,20 +397,14 @@ func (t *Transcript) publish() {
 		t.start += rows
 		t.scroll.Discard(rows)
 		t.selection.DiscardBefore(item.id + 1)
-		item.state = ContentRetired
-		if item.cancel != nil {
-			item.cancel()
-			item.cancel = nil
-		}
-		item.body, item.document = nil, nil
+		item.err = nil
+		item.retire()
 		t.entries[0] = nil
 		t.entries = t.entries[1:]
 		if len(t.entries) == 0 {
 			t.entries = nil
 		}
 		t.sticky.DiscardBefore(t.FirstBlock())
-		t.matches = nil
-		t.current = -1
 		t.changed()
 	}
 }
@@ -418,16 +425,10 @@ func (t *Transcript) Close() {
 		t.stopPublication = nil
 	}
 	for _, item := range t.entries {
-		if item.cancel != nil {
-			item.cancel()
-			item.cancel = nil
-		}
-		item.body, item.document = nil, nil
-		item.state = ContentRetired
+		item.retire()
 	}
 	clear(t.entries)
 	t.entries = nil
-	t.matches = nil
 	t.selection.Clear()
 	t.changed()
 }
@@ -436,7 +437,7 @@ func (t *Transcript) Close() {
 func (t *Transcript) Block(id BlockID) Block {
 	for _, item := range t.entries {
 		if item.id == id {
-			return item.body
+			return item.content().Body
 		}
 	}
 	return nil
@@ -447,7 +448,7 @@ func (t *Transcript) Last() Block {
 	if len(t.entries) == 0 {
 		return nil
 	}
-	return t.entries[len(t.entries)-1].body
+	return t.entries[len(t.entries)-1].content().Body
 }
 
 // Stage measures into immutable candidate storage. It never updates content,
@@ -458,21 +459,23 @@ func (t *Transcript) Last() Block {
 func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 	requireProjection(t.element, frame)
 	width = max(width, 0)
-	state := TranscriptLayout{width: width, start: t.start, first: t.FirstBlock()}
+	state := TranscriptLayout{key: transcriptLayoutKey{owner: t.namespace, revision: t.revision, width: width}, start: t.start, first: t.FirstBlock()}
 	top := t.start
 	for _, item := range t.entries {
+		change := item.content()
 		rows := 0
-		if item.body != nil && width > 0 {
-			rows = max(item.body.HeightForWidth(width), 0)
+		if change.Body != nil && width > 0 {
+			rows = max(change.Body.HeightForWidth(width), 0)
 		}
 		if rows > math.MaxInt-top {
 			panic("base: transcript row coordinates exhausted")
 		}
 		var mapping *transcriptTextMap
-		if projector, ok := item.body.(TextProjector); ok {
-			mapping = newTranscriptTextMap(projector.Rows(width))
+		if projector, ok := change.Body.(TextProjector); ok && rows > 0 {
+			projected := projector.Rows(width)
+			mapping = newTranscriptTextMap(projected[:min(rows, len(projected))])
 		}
-		state.blocks = append(state.blocks, placed{id: item.id, revision: item.revision, mapping: mapping, block: item.body, top: top, height: rows})
+		state.blocks = append(state.blocks, placed{id: item.id, revision: uint64(change.PreparedRevision), mapping: mapping, block: change.Body, top: top, height: rows})
 		top += rows
 	}
 	state.rows = top - state.start
@@ -490,13 +493,20 @@ type placed struct {
 
 // TranscriptLayout is immutable geometry and text mapping for one complete scene candidate.
 type TranscriptLayout struct {
-	blocks             []placed
-	width, rows, start int
-	first              BlockID
+	key         transcriptLayoutKey
+	blocks      []placed
+	rows, start int
+	first       BlockID
+}
+
+type transcriptLayoutKey struct {
+	owner    *byte
+	revision uint64
+	width    int
 }
 
 // Width is the column count used by every placement in this projection.
-func (l TranscriptLayout) Width() int { return l.width }
+func (l TranscriptLayout) Width() int { return l.key.width }
 
 // Height is the total retained row span in this projection.
 func (l TranscriptLayout) Height() int { return l.rows }
@@ -589,14 +599,12 @@ func (l TranscriptLayout) Rows(from, count int) []text.Row {
 	out := make([]text.Row, count)
 	first, last := l.visible(from, count)
 	for _, b := range l.blocks[first:last] {
-		projector, ok := b.block.(TextProjector)
-		if !ok {
+		if b.mapping == nil {
 			continue
 		}
-		rows := projector.Rows(l.width)
-		for i, row := range rows {
+		for i, row := range b.mapping.rows {
 			at := b.top + i - from
-			if at >= 0 && at < count && i < b.height {
+			if at >= 0 && at < count {
 				out[at] = row
 			}
 		}
@@ -630,6 +638,9 @@ func (t *Transcript) Rows(from, count int) []text.Row { return t.geometry.Value(
 
 // Matches returns a detached copy of the current search projection.
 func (t *Transcript) Matches() []Match {
+	if t.matchLayout != t.Layout().key {
+		return nil
+	}
 	out := slices.Clone(t.matches)
 	for i := range out {
 		out[i].Spans = slices.Clone(out[i].Spans)
@@ -639,8 +650,8 @@ func (t *Transcript) Matches() []Match {
 
 // MatchesIn copies only the visible projection; archived search results do not
 // make painting a fixed viewport proportional to the age of a transcript.
-func (t *Transcript) MatchesIn(from, to int) (first int, matches []Match) {
-	if len(t.matches) == 0 || from >= to {
+func (t *Transcript) MatchesIn(source TranscriptLayout, from, to int) (first int, matches []Match) {
+	if t.matchLayout != source.key || len(t.matches) == 0 || from >= to {
 		return 0, nil
 	}
 	first = sort.Search(len(t.matches), func(i int) bool { return t.matches[i].Row >= from })
@@ -659,28 +670,42 @@ func (t *Transcript) MatchesIn(from, to int) (first int, matches []Match) {
 }
 
 // CurrentMatch returns the revealed match index, or -1 when no match is current.
-func (t *Transcript) CurrentMatch() int { return t.current }
+func (t *Transcript) CurrentMatch(source TranscriptLayout) int {
+	if t.matchLayout != source.key || len(t.matches) == 0 {
+		return -1
+	}
+	return t.current
+}
 
-// SetMatches copies a sorted search projection and clears its revealed match; callers must validate source revision.
-func (t *Transcript) SetMatches(matches []Match) {
+// SetMatches installs sorted physical matches computed from source.Rows. The
+// source must still describe the current committed content and width; a stale
+// or foreign result returns ErrStaleMatches without disturbing newer results.
+func (t *Transcript) SetMatches(source TranscriptLayout, matches []Match) error {
 	t.assertMutable()
+	if source.key.owner != t.namespace || source.key.revision != t.revision || source.key != t.Layout().key {
+		return ErrStaleMatches
+	}
+	t.matchLayout = source.key
 	t.matches = slices.Clone(matches)
 	for i := range t.matches {
 		t.matches[i].Spans = slices.Clone(t.matches[i].Spans)
 	}
 	t.current = -1
+	t.element.Invalidate()
+	return nil
 }
 
 // RevealMatch selects a valid match and asks the scroll owner to reveal its complete row span.
 func (t *Transcript) RevealMatch(index int) bool {
 	t.assertMutable()
-	if index < 0 || index >= len(t.matches) || len(t.matches[index].Spans) == 0 {
+	if t.matchLayout != t.Layout().key || index < 0 || index >= len(t.matches) || len(t.matches[index].Spans) == 0 {
 		return false
 	}
 	match := t.matches[index]
 	t.current = index
 	first := match.Row - t.StartRow()
 	t.scroll.Reveal(first, layout.Sum(first, len(match.Spans)-1))
+	t.element.Invalidate()
 	return true
 }
 
@@ -753,13 +778,11 @@ func (t *Transcript) handleInput(event input.Event, presented transcriptPresenta
 	switch mouse.Action {
 	case input.MouseCancel:
 		t.clicked = 0
-		t.dragged = false
 		t.selection.Done()
 		return false
 	case input.MouseUp:
 		if mouse.Releases(input.ButtonLeft) {
-			was := t.dragged
-			t.dragged = false
+			was := t.selection.Dragging()
 			t.selection.Done()
 			return was
 		}
@@ -780,7 +803,6 @@ func (t *Transcript) handleInput(event input.Event, presented transcriptPresenta
 }
 
 func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
-	t.dragged = false
 	t.selection.Done()
 	if mouse.Button != input.ButtonLeft {
 		return false
@@ -812,12 +834,11 @@ func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
 	}
 	t.selection.Begin(selected.Start)
 	t.selection.Extend(selected.End)
-	t.dragged = true
 	return true
 }
 
 func (t *Transcript) drag(mouse input.Mouse, p transcriptPresentation) bool {
-	if !t.dragged || !mouse.Drags(input.ButtonLeft) {
+	if !t.selection.Dragging() || !mouse.Drags(input.ButtonLeft) {
 		return false
 	}
 	if p.revision != t.revision {

@@ -22,7 +22,10 @@ func BenchmarkTranscriptMarkCommittedHistory(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			transcript.Controller().SetMatches(matches)
+			newTestRoot(transcript.Element()).Draw(grid.NewSurface(80, 24).View())
+			if err := transcript.Controller().SetMatches(transcript.Controller().Layout(), matches); err != nil {
+				b.Fatal(err)
+			}
 			view := grid.NewSurface(80, 24).View()
 			from := count + 100
 
@@ -44,8 +47,11 @@ func TestVisibleMatchesIncludesTheOneCrossingTheViewportEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transcript.SetMatches(matches)
-	start, visible := transcript.MatchesIn(4, 10)
+	newTestRoot(transcript.Element()).Draw(grid.NewSurface(20, 2).View())
+	if err := transcript.SetMatches(transcript.Layout(), matches); err != nil {
+		t.Fatal(err)
+	}
+	start, visible := transcript.MatchesIn(transcript.Layout(), 4, 10)
 	if start != 0 || len(visible) != 2 {
 		t.Fatalf("visible range = [%d:%d], want [0:2]", start, start+len(visible))
 	}

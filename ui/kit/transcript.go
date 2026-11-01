@@ -122,15 +122,15 @@ func (t *Transcript) mark(view grid.View, from int, content base.TranscriptLayou
 			}
 		}
 	}
-	t.markMatches(view, from, palette)
+	t.markMatches(view, from, content, palette)
 }
 
-func (t *Transcript) markMatches(view grid.View, from int, palette Theme) {
+func (t *Transcript) markMatches(view grid.View, from int, content base.TranscriptLayout, palette Theme) {
 	width, height := view.Size()
-	first, matches := t.controller.MatchesIn(from, layout.Sum(from, height))
+	first, matches := t.controller.MatchesIn(content, from, layout.Sum(from, height))
 	for i, match := range matches {
 		style := palette.Selection
-		if first+i == t.controller.CurrentMatch() {
+		if first+i == t.controller.CurrentMatch(content) {
 			style = palette.Accent
 		}
 		for row, span := range match.Spans {
