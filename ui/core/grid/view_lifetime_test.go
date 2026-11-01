@@ -2,6 +2,7 @@ package grid_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"runtime"
 	"testing"
@@ -136,5 +137,26 @@ func TestCaptureCannotReuseAnEarlierCapturesView(t *testing.T) {
 		view.Text(0, 0, "current", grid.Style{})
 	})}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEveryDrawingOperationKeepsTheOuterWriteRestriction(t *testing.T) {
+	src := grid.NewSurface(4, 1)
+	blocked := errors.New("no write authority")
+	outer := src.View().RestrictWrites(func() error { return blocked })
+	inner := outer.RestrictWrites(func() error { return nil }).Sub(src.Bounds())
+	for name, write := range viewMutations(inner) {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				err, _ := recover().(error)
+				if !errors.Is(err, blocked) {
+					t.Fatalf("write guard=%v", err)
+				}
+			}()
+			write()
+		})
+	}
+	if got := src.Rows()[0]; got != "" {
+		t.Fatalf("a rejected write changed cells: %q", got)
 	}
 }

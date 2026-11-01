@@ -262,7 +262,7 @@ func (e Element) CheckProjection(frame Frame) error {
 	if err := frame.checkProjection(); err != nil {
 		return err
 	}
-	if e.node.root != frame.transaction.root {
+	if e.node.root != frame.lease.tx.root {
 		return ErrInvalid
 	}
 	return nil
@@ -643,7 +643,8 @@ func (g *Group) rectangles(space image.Point) []image.Rectangle {
 		if len(rects) != len(g.items) {
 			panic("scene: layout returned a different number of child rectangles")
 		}
-		return rects
+		// Nested layouts can reuse the same scratch slice during this traversal.
+		return slices.Clone(rects)
 	}
 	if g.config.Overlay {
 		rects := make([]image.Rectangle, len(g.items))

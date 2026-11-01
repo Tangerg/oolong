@@ -254,8 +254,8 @@ type scrollProjection struct {
 	reveal   *scrollRange
 }
 
-// ScrollLayout borrows the sole staged scroll projection during its owning Prepare
-// call. It must not be copied after first use. Its operations panic after Prepare
+// ScrollLayout borrows the sole staged scroll projection during its producing paint
+// callback. It must not be copied after first use. Its operations panic after Prepare
 // returns; read Scroll.Offset for the current controller position.
 type ScrollLayout struct {
 	noCopy noCopy

@@ -11,13 +11,12 @@ import (
 // here becomes observable only after the entire frame is admitted and committed.
 type Frame struct {
 	grid.View
-	transaction *transaction
-	generation  uint64
+	lease *paintLease
 }
 
 // Sub creates a clipped child frame sharing the same atomic preparation transaction.
 func (f Frame) Sub(area image.Rectangle) Frame {
-	return Frame{View: f.View.Sub(area), transaction: f.transaction, generation: f.generation}
+	return Frame{View: f.View.Sub(area), lease: f.lease}
 }
 
 // Subs projects several rectangles through this frame and its transaction.
@@ -49,7 +48,7 @@ func (s *Snapshot[T]) Revision() uint64 { return s.revision }
 func (s *Snapshot[T]) prepared() any { return s.pending }
 
 // Stage reserves the sole producer of this snapshot in a candidate frame.
-// The returned handle can refine that producer's value until Prepare returns.
+// The returned handle can refine that producer's value until its paint callback returns.
 // It panics outside an active Prepare, during a read-only projection, or when a
 // second producer stages the same snapshot.
 func (s *Snapshot[T]) Stage(frame Frame, value T) *Staged[T] {
@@ -59,35 +58,32 @@ func (s *Snapshot[T]) Stage(frame Frame, value T) *Staged[T] {
 	if s.staged != nil {
 		panic("scene: snapshot has multiple candidate producers")
 	}
-	s.staged, s.pending = frame.transaction, value
-	frame.transaction.states = append(frame.transaction.states, s)
-	return &Staged[T]{snapshot: s, frame: frame}
+	s.staged, s.pending = frame.lease.tx, value
+	frame.lease.tx.states = append(frame.lease.tx.states, s)
+	return &Staged[T]{snapshot: s, lease: frame.lease}
 }
 
-// Staged is a temporary capability for refining one projection during its active Prepare call.
+// Staged is a temporary capability for refining one projection during its producing paint callback.
 type Staged[T any] struct {
 	snapshot *Snapshot[T]
-	frame    Frame
+	lease    *paintLease
 }
 
-func (s *Staged[T]) valid() {
-	if s == nil || !s.frame.active() || s.snapshot.staged != s.frame.transaction {
-		panic("scene: candidate geometry used after Prepare")
+func (s *Staged[T]) valid(write bool) {
+	if s == nil || s.lease == nil || s.snapshot == nil || s.snapshot.staged != s.lease.tx {
+		panic(ErrInvalid)
 	}
-}
-
-// Value reads the candidate. It panics after its preparation borrow has expired.
-func (s *Staged[T]) Value() T { s.valid(); return s.snapshot.pending }
-
-// Set refines the candidate. It panics after its preparation borrow has expired
-// or while the frame's scene is borrowed for a read-only projection.
-func (s *Staged[T]) Set(value T) {
-	s.valid()
-	if err := s.frame.checkProjection(); err != nil {
+	if err := s.lease.check(write); err != nil {
 		panic(err)
 	}
-	s.snapshot.pending = value
 }
+
+// Value reads the candidate. It panics after its painter returns.
+func (s *Staged[T]) Value() T { s.valid(false); return s.snapshot.pending }
+
+// Set refines the candidate. It panics outside the issuing paint callback or
+// while that callback has entered a read-only projection.
+func (s *Staged[T]) Set(value T) { s.valid(true); s.snapshot.pending = value }
 
 func (s *Snapshot[T]) commit(tx *transaction) {
 	if s.staged != tx {
@@ -113,26 +109,32 @@ type stagedState interface {
 	prepared() any
 }
 type transaction struct {
-	root       *Root
-	states     []stagedState
-	active     bool
-	generation uint64
-	revision   uint64
+	root     *Root
+	states   []stagedState
+	painter  *paintLease
+	revision uint64
 }
 
-func (f Frame) active() bool {
-	return f.transaction != nil && f.transaction.active && f.generation == f.transaction.generation
-}
+// Cells and staged geometry carry the same borrow; neither can be changed by a
+// later painter or by a nested measurement using a saved handle.
+type paintLease struct{ tx *transaction }
 
-func (f Frame) checkProjection() error {
-	if !f.active() {
+func (p *paintLease) check(write bool) error {
+	if p == nil || p.tx.root == nil {
 		return ErrInvalid
 	}
-	if f.transaction.root.observing {
+	if write && p.tx.root.observing {
 		return ErrBusy
+	}
+	if p.tx.painter != p {
+		return ErrInvalid
 	}
 	return nil
 }
+
+func (p *paintLease) writable() error { return p.check(true) }
+
+func (f Frame) checkProjection() error { return f.lease.writable() }
 
 func (t *transaction) commit() {
 	for _, state := range t.states {
@@ -148,7 +150,6 @@ func (t *transaction) abort() {
 	}
 	clear(t.states)
 	t.states = nil
-	t.active = false
 }
 
 type geometry struct {
@@ -255,19 +256,19 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	}
 	r.preparing = true
 	candidate := &layoutSnapshot{model: r.modelRevision, revision: next(r.layoutRevision()), epoch: r.geometryEpoch}
-	tx := &transaction{root: r, active: true, generation: 1, revision: candidate.revision}
+	tx := &transaction{root: r, revision: candidate.revision}
 	prepared = &Prepared{root: r, tx: tx, layout: candidate}
 	succeeded := false
 	defer func() {
 		r.preparing = false
-		tx.active = false
+		tx.painter = nil
+		tx.root = nil
 		if !succeeded {
 			tx.abort()
 		}
 	}()
-	frame := Frame{View: view, transaction: tx, generation: tx.generation}
 	if r.content.node != nil {
-		r.paint(Item{Element: r.content}, frame, image.Point{}, candidate)
+		r.paint(Item{Element: r.content}, view, tx, image.Point{}, candidate)
 	}
 	candidate.projections = make(map[stagedState]any, len(tx.states))
 	for _, state := range tx.states {
@@ -278,9 +279,9 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	return prepared, nil
 }
 
-func (r *Root) paint(item Item, frame Frame, origin image.Point, into *layoutSnapshot) {
+func (r *Root) paint(item Item, view grid.View, tx *transaction, origin image.Point, into *layoutSnapshot) {
 	n := item.Element.node
-	placed := geometry{target: n.target(), area: frame.Bounds().Add(origin), clip: frame.Visible().Add(origin), hit: r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil)}
+	placed := geometry{target: n.target(), area: view.Bounds().Add(origin), clip: view.Visible().Add(origin), hit: r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil)}
 	placed.content = r.contentVersion(n)
 	into.geometry = append(into.geometry, placed)
 	paint := item.Paint
@@ -288,13 +289,16 @@ func (r *Root) paint(item Item, frame Frame, origin image.Point, into *layoutSna
 		paint = n.config.Paint
 	}
 	if paint != nil {
-		paint(frame)
+		lease := &paintLease{tx: tx}
+		tx.painter = lease
+		paint(Frame{View: view.RestrictWrites(lease.writable), lease: lease})
+		tx.painter = nil
 	}
 	if g := n.group; g != nil {
-		width, height := frame.Size()
+		width, height := view.Size()
 		areas := r.project(func() []image.Rectangle { return g.rectangles(image.Pt(width, height)) })
 		for i, item := range g.items {
-			r.paint(item, frame.Sub(areas[i]), origin.Add(areas[i].Min), into)
+			r.paint(item, view.Sub(areas[i]), tx, origin.Add(areas[i].Min), into)
 		}
 	}
 }
