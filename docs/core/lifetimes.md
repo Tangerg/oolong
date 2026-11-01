@@ -14,6 +14,12 @@ The UI owner creates `Scope` with `Runtime.NewScope`. `ScopeConfig.Attachment` c
 
 `TaskStatus` separates the worker outcome, `CancelRequested`, and result delivery. Calling `Cancel` requests cooperation; it cannot truthfully declare external work finished. A successful worker can have revoked UI delivery after its view is detached. `Task.Done` and `Task.Settled` expose those distinct boundaries. Ordinary dispatcher congestion does not discard an already accepted task's completion.
 
+## Admitted frames and pointer input
+
+A custom compositor calls `Root.Wrote(sequence)` when its writer advances. If several admissions are waiting, the watermark selects the newest covered layout; later admissions remain pending. A single acknowledgement does not assign fictional times to skipped frames. `RootConfig.MaxPendingFrames` bounds this queue independently of timestamp history (default eight). When `Prepare` returns `scene.ErrBusy` at capacity, wait for an acknowledgement before preparing again. Resizing or invalidating geometry clears the old coordinate authority, including semantic bounds.
+
+Pointer input names a mount, content ID, revision and coordinate frame. A callback that changes any of these cannot send the same click to replacement content. Modal shortcuts run inside the active modal. The optional `DialogConfig.Dismissed` callback lets application work follow the actual close, including when an agent invokes it.
+
 ## Moving a live element
 
 An attachment's `Done` closes at detach. Its old blur, capture cancellation or detach callback may still be queued or executing. If mounting the same element returns `scene.ErrCleanupPending`, let the old callback return and flush the old root on its owner before retrying. Unrelated elements can mount immediately. An interrupted flush keeps the remaining notifications in order; reentering a flush does not overtake them. Closing a root wakes current and subsequent change subscribers.

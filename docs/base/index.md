@@ -31,3 +31,7 @@ A field controller owns its value. Form output and semantic values are projectio
 Estimated total height remains marked inexact until all relevant heights are known. The metadata index and prefix pass are bounded by `MaxItems` and `MaxKeyBytes`; measurement work is bounded by `MaxMeasurements`. See [history and virtualization](../guides/history.md) for the separate ownership of archived content.
 
 With no Build callback the virtual window can measure a range without mounting any rows. Its scene layout describes only actual children. An explicit scroll offset remains the request while estimated heights are refined; consult the resulting range for the final offset.
+
+## Transcript search
+
+Keep the layout you searched: `source := transcript.Layout()`. Read `source.Rows(...)`, compute matches, then handle the error from `transcript.SetMatches(source, matches)`. A changed width, different transcript or replaced content can make physical rows obsolete. On `base.ErrStaleMatches`, take the current layout and recompute. A custom painter reads `MatchesIn(source, from, to)` and `CurrentMatch(source)` using the layout it is drawing.

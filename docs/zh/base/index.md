@@ -31,3 +31,7 @@ Base 提供更换外观后仍可复用的行为：编辑、选择、列表、表
 所有相关高度已知前，总高度明确标为估计。元数据索引与前缀遍历受 `MaxItems`、`MaxKeyBytes` 限制，测量工作受 `MaxMeasurements` 限制。[历史与虚拟化](../guides/history.md) 说明归档内容的独立所有权。
 
 未配置 Build 时，虚拟窗口可以只测量范围，不挂载行，scene 布局也只描述真实子项。高度估算被修正时，原始滚动请求保持不变；最终 offset 从计算出的范围读取。
+
+## Transcript 搜索
+
+先保留实际搜索的布局：`source := transcript.Layout()`。从 `source.Rows(...)` 计算匹配，再调用 `transcript.SetMatches(source, matches)` 并处理返回错误。宽度变化、正文替换或切换 transcript 都可能让物理行列失效。收到 `base.ErrStaleMatches` 时，取当前布局重新计算。自定义绘制器应向 `MatchesIn(source, from, to)` 和 `CurrentMatch(source)` 传入本次正在绘制的布局。

@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking changes
 
+- Use `automation.NewDriver(runtime)` instead of `automation.DriverConfig`. A custom UI session supplies its own `Scene()` and `Dispatcher()`. Separate scene and dispatcher arguments could schedule an action on a different session's owner.
+- `scene.Target.Node`, `Generation` and `Part` are read-only methods. Keep the target issued by the current mount; editing numeric identity fields is no longer possible.
+- Transcript search uses `SetMatches(source, matches)`, `MatchesIn(source, from, to)` and `CurrentMatch(source)`. Retain the layout used to compute text and check `base.ErrStaleMatches` when installing results.
+- Hosts send concrete `input.Key`, `input.Mouse`, `input.Paste` and other terminal values. Mutable pointers, wrappers and nil input return `program.ErrInvalidInput` at admission. `input.ByteSize` is the shared admission and payload accounting rule.
+- A modal bounds preview as well as bubbling. Install shortcuts intended for the active modal inside it. Use `DialogConfig.Dismissed` to settle application work when the dialog actually closes, including by semantic action.
+
 - Read a routed event through `scene.Event.Input()` and `Target()`, and a captured input through `scene.CapturedInput.Input()`. Focus and capture commands belong to the active handler. To request focus later, use the current element or root.
 - A detached element with outstanding lifecycle callbacks returns `scene.ErrCleanupPending` on remount. Settle its old root's notifications on its owner sequence before reusing it. Retained children keep their attachment when reordered.
 - Custom `base.Field.Validation` receipts must identify the checked answer on failed as well as successful validations. Spoken confirmation distinguishes an unavailable or pending domain request from an accepted answer. `Form.SubmitWith` binds external answer collection to the submission it validates.
@@ -34,6 +40,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Release one explicitly named public module at a time. The release script does not bump dependencies or other modules, create implementation commits, or publish a coordinated tag set. Declared dependencies must already be independently consumable.
 
 ### Fixed
+
+- A retained Surface view cannot address removed cells after resize. A native painter's borrowed writer expires on callback exit. An old pointer report cannot act on another document with the same revision or resume after its geometry changed during preview.
+- Scene write confirmations publish the latest eligible admitted layout. Standalone compositors report `Wrote` between pure phases; `RootConfig.MaxPendingFrames` bounds outstanding input maps and a full budget refuses `Prepare` before painting. Invalidated bounds are unavailable until a new layout commits.
+- Cancelled, unclaimed dispatcher work no longer creates a model change. Stopped ingress cannot accept more data or EOF. Session shutdown settles publication and attachment cleanup even if another callback exits abnormally.
+- Transcript rows, selection, search and document state now use the same prepared evidence. Appearance callbacks cannot change retained match offsets; committed edit, document and theme notifications reach subsequent subscribers on interrupted delivery.
+- A decoder's open line cannot rewrite finished output. At EOF an incomplete UTF-8 character follows the malformed text policy; incomplete escapes remain discarded. Mermaid diagnostic retention applies equally to direct writes and subprocess pipe copies.
 
 - Scene construction revokes provisional attachments on interruption; notification delivery preserves order after reentry or interruption. Modal reordering and out-of-order dismissal preserve the focus of surviving layers.
 - Editor cursors and lists read actual scene focus. Tabs, collection controls and form field painters publish coherent relations; meaningful slider configuration changes wake observers.
