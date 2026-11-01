@@ -3,7 +3,7 @@ module github.com/Tangerg/oolong/extensions/markdown
 go 1.27.0
 
 require (
-	github.com/Tangerg/oolong/ui v0.0.0
+	github.com/Tangerg/oolong/ui v0.26.0
 	github.com/yuin/goldmark v1.8.6
 )
 
