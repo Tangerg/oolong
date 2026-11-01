@@ -325,6 +325,5 @@ func (l *List[T]) Subscribe(callback func()) func() {
 }
 
 func (l *List[T]) notifyChange() {
-	l.element.Invalidate()
-	l.changes.publish(struct{}{})
+	l.changes.publish(struct{}{}, l.element.Invalidate)
 }

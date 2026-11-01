@@ -113,3 +113,37 @@ func TestKitButtonUsesOneControllerForKeysPointerAndAX(t *testing.T) {
 		t.Fatalf("calls=%d invocation=%v err=%v", calls, invocation, err)
 	}
 }
+
+func TestThemePublicationWakesEverySceneDespiteAnInterruptedPredicate(t *testing.T) {
+	owner := kit.NewThemeOwner(kit.Dark())
+	first := kit.NewInput(kit.InputConfig{Scope: owner.Scope()})
+	second := kit.NewInput(kit.InputConfig{Scope: owner.Scope()})
+	armed := false
+	if err := first.Element().SetFocusable(func() bool {
+		if armed {
+			armed = false
+			panic("theme predicate")
+		}
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, b := newTestRoot(first.Element()), newTestRoot(second.Element())
+	defer a.root.Close()
+	defer b.root.Close()
+	wake := b.root.Changes()
+	armed = true
+	func() {
+		defer func() {
+			if recover() != "theme predicate" {
+				t.Fatal("unexpected predicate outcome")
+			}
+		}()
+		owner.Set(kit.Light())
+	}()
+	select {
+	case <-wake:
+	default:
+		t.Fatal("a committed theme left a consumer asleep")
+	}
+}

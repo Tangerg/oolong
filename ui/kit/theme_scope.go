@@ -3,6 +3,7 @@ package kit
 import (
 	"errors"
 	"math"
+	"slices"
 	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -66,9 +67,10 @@ func (o *ThemeOwner) Set(palette Theme) bool {
 	o.consumers = live
 	o.palette = palette
 	o.revision++
-	for _, weakConsumer := range live {
+	// Register every wake before a scene predicate can interrupt publication.
+	for _, weakConsumer := range slices.Backward(live) {
 		if consumer := weakConsumer.Value(); consumer != nil {
-			consumer.element.Invalidate()
+			defer consumer.element.Invalidate()
 		}
 	}
 	return true

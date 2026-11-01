@@ -2,6 +2,7 @@ package base
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"weak"
 
@@ -183,14 +184,14 @@ func (s *EditSession) commit(initiator *Editor, oldLines []string, change Change
 	s.lastChange = change
 	s.revision = change.After
 	initiator.revealCursor()
-	s.invalidateViews()
-	s.changes.publish(change)
+	s.changes.publish(change, s.invalidateViews)
 }
 
 func (s *EditSession) invalidateViews() {
-	for _, reference := range s.views {
+	// Register all wakes before the first focus predicate can interrupt delivery.
+	for _, reference := range slices.Backward(s.views) {
 		if view := reference.Value(); view != nil {
-			view.element.Invalidate()
+			defer view.element.Invalidate()
 		}
 	}
 }

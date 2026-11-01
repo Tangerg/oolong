@@ -6,10 +6,14 @@ import "slices"
 // unsubscribe itself without corrupting the current delivery; removal takes effect
 // before the next callback is considered.
 type (
-	subscription[T any]  struct{ callback func(T) }
+	subscription[T any] struct{ callback func(T) }
+	notice[T any]       struct {
+		receiver *subscription[T]
+		value    T
+	}
 	subscriptions[T any] struct {
 		entries    []*subscription[T]
-		pending    []T
+		pending    []notice[T]
 		publishing bool
 	}
 )
@@ -31,24 +35,39 @@ func (s *subscriptions[T]) add(callback func(T)) func() {
 	}
 }
 
-// publish queues reentrant deliveries behind the current completed notification
-// batch. Every observer therefore receives committed versions in source order.
-func (s *subscriptions[T]) publish(value T) {
-	s.pending = append(s.pending, value)
+// Capture membership at commit. Waking scenes may execute application code;
+// every committed change still belongs to the listeners present before that wake.
+func (s *subscriptions[T]) publish(value T, wake func()) {
+	for _, entry := range s.entries {
+		s.pending = append(s.pending, notice[T]{entry, value})
+	}
 	if s.publishing {
+		wake()
 		return
 	}
 	s.publishing = true
-	defer func() { s.publishing = false; clear(s.pending); s.pending = nil }()
-	for len(s.pending) > 0 {
+	defer func() { s.publishing = false }()
+	defer s.drain()
+	wake()
+}
+
+func (s *subscriptions[T]) drain() {
+	// Only an abnormal exit can leave work here. Run its successors while the
+	// interrupted call unwinds, without replaying it or waiting for a later edit.
+	defer func() {
+		if len(s.pending) != 0 {
+			s.drain()
+		}
+	}()
+	for len(s.pending) != 0 {
 		next := s.pending[0]
-		var zero T
-		s.pending[0] = zero
+		s.pending[0] = notice[T]{}
 		s.pending = s.pending[1:]
-		for _, entry := range slices.Clone(s.entries) {
-			if entry.callback != nil {
-				entry.callback(next)
-			}
+		if len(s.pending) == 0 {
+			s.pending = nil
+		}
+		if fn := next.receiver.callback; fn != nil {
+			fn(next.value)
 		}
 	}
 }
