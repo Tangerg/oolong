@@ -181,11 +181,11 @@ func (r *Renderer) Render(ctx context.Context, source string) (result *Image, er
 	if r == nil || r.slot == nil {
 		return nil, errors.New("mermaid: uninitialized renderer")
 	}
-	if !utf8.ValidString(source) {
-		return nil, errors.New("mermaid: source is not valid UTF-8")
-	}
 	if len(source) > r.cfg.MaxSourceBytes {
 		return nil, fmt.Errorf("%w: source bytes", ErrLimit)
+	}
+	if !utf8.ValidString(source) {
+		return nil, errors.New("mermaid: source is not valid UTF-8")
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.Timeout)
 	defer cancel()

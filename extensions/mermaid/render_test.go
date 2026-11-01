@@ -145,8 +145,10 @@ func TestPublicBackendConfigurationAndResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, renderErr := limited.Render(ctx, "long"); !errors.Is(renderErr, mermaid.ErrLimit) {
-		t.Fatal(renderErr)
+	for _, oversized := range []string{"long", "abc\xff"} {
+		if _, renderErr := limited.Render(ctx, oversized); !errors.Is(renderErr, mermaid.ErrLimit) {
+			t.Fatalf("oversized source: %v", renderErr)
+		}
 	}
 	if _, renderErr := renderer.Render(ctx, string([]byte{255})); renderErr == nil {
 		t.Fatal("invalid UTF-8 accepted")
