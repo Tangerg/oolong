@@ -12,7 +12,7 @@ import (
 // Styling is supplied as [text.Line] values, which keeps syntax choice and the
 // optional highlight module outside the component dependency graph. Code owns only
 // the assembly every caller otherwise repeats: wrapping, optional line numbers and
-// copying. A viewport can make a tall block interactive through [base.Static].
+// copying. Interaction stays with the containing scene rather than the finished block.
 type Code struct {
 	// Gutter draws beside the source. Nil gives every column to the code.
 	Gutter base.RowGutter
@@ -42,7 +42,6 @@ func (c *Code) Lines() []text.Line {
 	return c.body.Lines()
 }
 
-// HeightForWidth is how many wrapped rows the code needs at width.
 func (c *Code) HeightForWidth(width int) int {
 	if c == nil {
 		return 0
@@ -50,7 +49,6 @@ func (c *Code) HeightForWidth(width int) int {
 	return c.body.HeightForWidth(c.textWidth(width))
 }
 
-// Draw paints the number gutter and source text.
 func (c *Code) Draw(view grid.View) {
 	if c == nil || view.Empty() {
 		return

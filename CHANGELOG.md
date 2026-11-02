@@ -8,19 +8,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Breaking API migration
 
+#### ui
+
+- Implement `core/grid.Painter.Paint` and `core/grid.Painter.Erase` with the signature `func(grid.PaintContext) error` instead of accepting a writer and separate size. The context implements `io.Writer`; read cell dimensions through `PaintContext.Size()` and the compositor-assigned native layer through `PaintContext.Layer()`. Context copies lose write access together when the callback ends. `core/grid.NativeTarget.Accepts` now accepts that same context. `core/graphics.ResourcePlacement.Paint` and `core/graphics.ResourcePlacement.Erase` use it directly. There is no writer-based compatibility path.
+- Pass an explicit negative native layer to `core/graphics.ImagePlacement.Paint` as `placement.Paint(writer, size, layer)` when using the low-level protocol encoder. The frame compositor supplies the layer for live resources. An image ID identifies uploaded data and does not decide placement order.
+- Replace `base.TranscriptView.From` with `base.TranscriptView.BodyFrom` in custom skins. `Scroll.Offset` describes the full viewport; `BodyFrom` is the first content row visible below the pinned overlay. A pinned header no longer changes the scroll range or page size.
+- Set `kit.ButtonConfig.Ellipsis` and `kit.Paragraph.Ellipsis` from the resolved `Glyphs.Ellipsis` when a truncation marker is desired. Their zero value now truncates silently, matching `kit.Label`; no component independently assumes Unicode support.
+- `term.Suspend` preserves host signal policy and relies on synchronous job-control delivery on Linux, Darwin and FreeBSD. An ignored or handled signal, or an orphaned process group, may leave the process running. A blocked stop signal and other platforms return `errors.ErrUnsupported` without queuing a delayed stop. `program.Session.Suspend` applies this contract inside terminal handover.
+
 #### extensions/ssh
 
 - Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
 
 ### Changed
 
-- Native painters are an ordered composition over the frame's cells. A change to either restores the cells and redraws the regions in order; custom painters must tolerate repeated erasure and placement. An unchanged composition still emits no output, and retained image data is not retransmitted.
+- Frame composition owns native placement order independently of upload identities. Text cells remain above native image layers; order within each plane follows composition. A change restores cells and redraws regions in order, so custom painters must tolerate repeated erasure and placement. An unchanged composition emits no output, and retained image data is not retransmitted.
+- Semantic observation has one per-page budget for all returned string payloads and one for actions plus live relations, in addition to node and display-text limits. `scene.Query.ByteLimit` and `scene.Query.DetailLimit` paginate complete nodes; a node that cannot fit on an empty page returns `scene.ErrObservationBudget`. Keys, target parts, content IDs, action IDs and type names remain complete. Action labels and availability reasons can be clipped with explicit `ActionDescription.TruncatedText` evidence.
+- The agent example defines workflow identities and step descriptions once. Backend events carry those identities; a typed session outcome owns idle feedback, styling and native progress. Composer attachments preserve original paste bytes while deriving line counts from CR, LF and CRLF boundaries.
+- Resource defaults now have local semantic names. Reusable storage shares one overflow-safe compaction policy. Button measurement and drawing derive decoration width from the decoration itself. Redundant comments are removed while ownership, lifetime, concurrency and failure contracts remain documented; lint retains existing-comment checks without requiring a comment for every exported spelling.
 - An editor with a masked document refuses clipboard copy and cut from every view sharing that document. A refused cut preserves the selection and its contents.
 - Multi-select options that compare equal under `Same` share one selection and one place in the selection limit. `Taken` returns the first matching option in option order.
 - Completion providers can bind `Completion.CurrentToken` to `Editor.TokenAtCursor` to make an offer unavailable after the caret leaves its original token. `Token.Line` identifies the logical editor line. External unkeyed token literals must name their fields or use the token constructors.
 - The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
 
 ### Fixed
+
+- Suspend no longer waits forever for a continuation signal when the operating system did not stop the process. Linux, Darwin and FreeBSD share subprocess regression cases for stop/continue, orphaned groups and host signal policy.
+- Public editor, scroll, selection and sticky mutations invalidate their owning element only after the complete operation settles. No-op commands do not manufacture revisions. Editor page and bottom navigation use the scroll owner's effective viewport, including immediately after committed layout changes.
+- Transcript sticky headers, visible rows, pointer coordinates, paging and reading anchors share the full viewport's coordinate system. Following the end no longer feeds a reduced body height back into scroll state. Reveal positions are derived through that same viewport projection so a pinned header cannot hide the requested row or let a reading anchor override it.
+- Opaque painter callbacks start and end with reset SGR and closed OSC 8 state. Copied paint contexts cannot write into a later frame. Kitty image layers preserve composition order even when upload IDs are reversed.
+- Text decoding records explicit SGR attribute enable and disable decisions, so selective resets can clear attributes inherited from a base style. Encoder and decoder consume the same named protocol parameters.
+- Markdown entity decoding preserves inline word boundaries and interprets numeric entities as Unicode scalar values without HTML's Windows-1252 remapping. Entity text cannot create new Markdown structure.
+- URL detection preserves apostrophes inside paths and queries, including `O'Brien`, while recognizing surrounding single quotes as prose delimiters.
+- Large composer pastes containing carriage returns retain their original payload when attached, submitted and restored from history. ASCII glyph selection reaches button and paragraph truncation without a hidden Unicode ellipsis.
 
 - Terminal shutdown joins its input reader before restoring modes or returning ownership. Windows reads bounded virtual-terminal character records without entering a blocking character read after a non-character event; retained records drain before handover, and relaunch no longer guesses completion with a fixed delay.
 - Screen and inline rendering erase the previous native composition before restoring cells and painting the next one. Reordering, inserting, moving or removing regions preserves overlap order and restores covered text. Failed preparation and aborted output retain the same invalidation state.

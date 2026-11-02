@@ -8,14 +8,8 @@ import (
 	"syscall"
 )
 
-// resizeSource is this platform's announcement that the terminal changed size,
-// already subscribed to.
-//
-// Subscribing is separate from watching because of what sits between them: the
-// first measurement. Until the subscription exists the signal goes to the default
-// handler, which ignores it, so a change between measuring and subscribing is one
-// nothing would ever report — and the session would draw at the wrong size until
-// some later, unrelated change happened to correct it.
+// Subscribe before measuring: a resize between measurement and subscription
+// would otherwise disappear until a later, unrelated signal.
 type resizeSource struct{ changed chan os.Signal }
 
 func subscribeResize() resizeSource {

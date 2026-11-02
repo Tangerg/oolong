@@ -1,10 +1,5 @@
-// Command latex renders mathematical LaTeX without Markdown.
-//
-// Render returns one immutable Formula. The formula measures, draws, and exposes
-// selectable rows from the same two-dimensional box layout, so it can be placed
-// anywhere a passive grid drawable can be used.
-//
-// Press q or Ctrl+C to leave.
+// Command latex uses one immutable formula so drawing, measurement and selection
+// share the same two-dimensional layout.
 package main
 
 import (

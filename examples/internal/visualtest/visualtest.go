@@ -1,10 +1,5 @@
-// Package visualtest captures the screen produced by an example program.
-//
-// It composes uitest's in-process host with ptytest's renderer-sized screen
-// model. The first drives the real program loop and captures its frame bytes; the
-// second answers what those bytes leave in terminal cells. Keeping that composition
-// here gives examples one visual assertion path instead of a private screen model in
-// every command.
+// Package visualtest composes the real program loop with one terminal screen
+// model so every example asserts the same observable rendering contract.
 package visualtest
 
 import (
@@ -23,22 +18,20 @@ import (
 
 var update = flag.Bool("update", false, "update visual golden files")
 
-// Host is a uitest host that also reports the terminal colours an example is
-// being checked against. No other optional capability is invented.
+// Host adds only terminal ground because inventing unrelated capabilities would make
+// visual tests exercise a different host contract.
 type Host struct {
 	*uitest.Host
 	ground grid.Ground
 }
 
-// Config is the complete initial state of a visual-test [Host]. Width and Height
-// must be positive terminal-cell dimensions. The zero Ground models an unknown
-// terminal background.
+// Config requires positive terminal-cell dimensions to keep captures meaningful. An unspecified
+// ground preserves the application's unknown-background path.
 type Config struct {
 	Width, Height int
 	Ground        grid.Ground
 }
 
-// New returns a visual host at size with the given terminal colours.
 func New(tb testing.TB, config Config) *Host {
 	tb.Helper()
 	return &Host{
@@ -47,7 +40,6 @@ func New(tb testing.TB, config Config) *Host {
 	}
 }
 
-// Ground reports the terminal colours used to build the example's theme.
 func (h *Host) Ground() grid.Ground {
 	if h == nil {
 		return grid.Ground{}
@@ -55,15 +47,15 @@ func (h *Host) Ground() grid.Ground {
 	return h.ground
 }
 
-// Capture is one completely repainted program screen and the renderer bytes that
-// produced that repaint.
+// Capture retains rows and encoded bytes from the same completed repaint so visual and
+// protocol assertions describe one screen.
 type Capture struct {
 	Rows     []string
 	Encoding string
 }
 
-// Capture asks for a full repaint, waits for it to reach the host, and interprets
-// every frame written so far as one terminal screen.
+// Capture interprets a full repaint with all preceding frames so retained
+// terminal state cannot be mistaken for newly drawn output.
 func (h *Host) Capture(tb testing.TB) Capture {
 	tb.Helper()
 	if h == nil || h.Host == nil {
@@ -88,11 +80,8 @@ func (h *Host) Capture(tb testing.TB) Capture {
 	return Capture{Rows: screen.Rows(), Encoding: snapshot.Frame}
 }
 
-// Match compares the visible part of rows with the golden file at path. Running the
-// example module's tests with -update replaces the file with the captured result.
-//
-// Trailing spaces and blank rows carry no visible information and are removed.
-// Spaces inside a row and empty rows between content remain significant.
+// Match ignores trailing spaces and blank rows because they carry no visible information; internal spaces
+// and blank rows remain significant. -update replaces only the chosen test fixture.
 func Match(tb testing.TB, path string, rows []string) {
 	tb.Helper()
 	if path == "" {

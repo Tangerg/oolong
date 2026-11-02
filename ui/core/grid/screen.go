@@ -5,18 +5,14 @@ import (
 	"io"
 )
 
-// CursorShape is the terminal cursor's geometry.
 type CursorShape uint8
 
 const (
 	// CursorDefault asks the terminal for its configured default shape. Blink is
 	// ignored. It is the zero value and the shape restored when a session ends.
 	CursorDefault CursorShape = iota
-	// CursorBlock fills one cell.
 	CursorBlock
-	// CursorUnderline is a line along the bottom of one cell.
 	CursorUnderline
-	// CursorBar is a vertical line inside one cell.
 	CursorBar
 )
 
@@ -59,7 +55,6 @@ func (s CursorStyle) normalized() CursorStyle {
 	return s
 }
 
-// Cursor is where and how the terminal's own cursor should end a frame.
 type Cursor struct {
 	Visible bool
 	Pos     image.Point
@@ -89,8 +84,6 @@ type Screen struct {
 	full bool
 }
 
-// NewScreen returns a screen of the given size whose first flush repaints
-// everything.
 func NewScreen(w, h int) *Screen { return (NativeTarget{}).Screen(w, h) }
 
 // Screen creates a canvas fixed to the native destination for its lifetime.
@@ -101,7 +94,7 @@ func (target NativeTarget) Screen(w, h int) *Screen {
 	}
 }
 
-// Size returns the screen's width and height.
+// Size measures canvas cells, independently of native image pixel dimensions.
 func (s *Screen) Size() (w, h int) { return s.buffers.size() }
 
 // Resize changes the screen's size. The next flush repaints everything: after a
@@ -161,12 +154,8 @@ func (s *Screen) Frame() View {
 	return s.buffers.begin(&s.placed, &s.publication)
 }
 
-// Cursor is where the last frame asked for the terminal's cursor to go.
-//
-// It reads back what [View.PlaceCursor] recorded, which is otherwise only
-// observable by decoding the escape stream. A caller that has to know where the
-// caret is — to place something beside it, or to check that drawing put it where
-// it meant to — had no way to ask before this.
+// Cursor is the frame's requested cursor; it can differ from the terminal until
+// the frame's output commits.
 func (s *Screen) Cursor() Cursor { return s.placed }
 
 // Prepare encodes a candidate frame without changing the accepted display.
@@ -241,8 +230,8 @@ func (s *Screen) paintRegions() error {
 		return err
 	}
 	if len(s.buffers.back.regions()) > 0 {
-		// A painter was handed the writer, and what it wrote is not something this
-		// package can read: where the cursor ended up is no longer known.
+		// Opaque output cannot update the encoder's cursor cache, so later
+		// cursor restoration must position explicitly.
 		s.frame.forcePos()
 	}
 	return nil
@@ -259,13 +248,8 @@ func (s *Screen) paintCells(full bool) {
 	s.frame.paint(s.buffers.back, 0, s.buffers.back.h, changedAgainst(s.buffers.front, s.buffers.back))
 }
 
-// paintScroll takes the terminal's own scrolling shortcut when the frame is a row
-// shift and the shortcut is genuinely shorter.
-//
-// A shift is only worth taking if it beats the diff it replaces, so each
-// candidate is measured against a floor on what the diff must cost. Measuring
-// against a floor rather than against the diff itself means the diff is never
-// built twice.
+// Compare scroll candidates against a lower bound on ordinary diff cost.
+// A winning candidate is shorter without encoding the rejected diff twice.
 func (s *Screen) paintScroll() bool {
 	// Terminal scrolling moves placements too; use ordinary diff while images exist.
 	if len(s.buffers.front.paints) > 0 || len(s.buffers.back.paints) > 0 {
@@ -302,12 +286,9 @@ func (s *Screen) paintScroll() bool {
 	return true
 }
 
-// cursorState de-duplicates cursor commands across frames.
-//
-// The point is the blink timer: a terminal restarts it on every positioning
-// command, so a UI that re-states an unchanged cursor position every frame has a
-// cursor that never blinks. An idle frame must therefore say nothing at all, and
-// a frame that only wrote cells must re-anchor without moving.
+// cursorState avoids redundant positioning because each command can restart
+// terminal blinking. Cell output still requires re-anchoring the requested
+// cursor; a completely idle frame emits nothing.
 type cursorState struct {
 	known      bool
 	visible    bool

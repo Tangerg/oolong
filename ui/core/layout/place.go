@@ -2,13 +2,9 @@ package layout
 
 import "image"
 
-// Anchor is where a rectangle sits inside a larger space.
 type Anchor uint8
 
-// Where a rectangle can sit: the centre, then the eight edges and corners clockwise
-// from the top left. Middle is first because it is the zero value.
 const (
-	// Middle is the centre and the zero value.
 	Middle Anchor = iota
 	TopLeft
 	Top
@@ -34,8 +30,6 @@ type Placement struct {
 	Margin int
 }
 
-// In is where the rectangle goes inside a space of the given size, in that space's own
-// coordinates.
 func (p Placement) In(space image.Point) image.Rectangle {
 	space.X, space.Y = max(space.X, 0), max(space.Y, 0)
 	margin := max(p.Margin, 0)

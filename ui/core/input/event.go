@@ -1,14 +1,6 @@
-// Package input turns the bytes a terminal sends into events.
-//
-// A terminal reports input as a stream that mixes plain text with escape
-// sequences, and it splits that stream wherever the read happens to land: half a
-// sequence in one read and half in the next is normal, not an error. [Parser] is
-// therefore incremental — it is fed whatever arrived and returns whatever is now
-// unambiguous.
-//
-// Nothing here touches a terminal. The parser is a function of its bytes, which
-// is what lets every sequence this package claims to understand be stated as a
-// test.
+// Package input retains ambiguous bytes across read boundaries so splitting a
+// terminal sequence or UTF-8 character cannot change its decoded events.
+// Transports own I/O and timing; Parser owns protocol interpretation.
 package input
 
 import (
@@ -55,16 +47,9 @@ func ByteSize(event Event) int {
 	}
 }
 
-// Stamp fills missing arrival times in events and returns the same slice.
-//
-// A [Parser] owns protocol decoding and therefore produces zero times. The
-// transport that read its bytes owns when they arrived; calling Stamp once at that
-// boundary keeps key-sequence expiry, clicks, and wheel gestures on one time model.
-// Existing non-zero times are preserved so replayed and synthetic events retain the
-// clock chosen by their producer.
-//
-// Stamp replaces value events in place. The caller owns slices returned by
-// [Parser.Feed] and [Parser.Flush], so no copy is needed at the ordinary call site.
+// Stamp preserves transport arrival time across queueing so key sequences,
+// clicks, and wheel gestures use the same clock. Existing nonzero timestamps
+// retain their producer's clock. It mutates the caller-owned event slice.
 func Stamp(events []Event, at time.Time) []Event {
 	for i, event := range events {
 		switch timed := event.(type) {
@@ -83,7 +68,6 @@ func Stamp(events []Event, at time.Time) []Event {
 	return events
 }
 
-// Mods is the set of modifier keys held during an event.
 type Mods uint8
 
 // Modifier bits follow the Kitty wire encoding before its one-based offset.
@@ -98,7 +82,6 @@ const (
 	Meta
 )
 
-// Has reports whether every modifier in want is held.
 func (m Mods) Has(want Mods) bool { return m&want == want }
 
 var modifierNames = [...]struct {
@@ -106,7 +89,6 @@ var modifierNames = [...]struct {
 	name string
 }{{Ctrl, "ctrl"}, {Alt, "alt"}, {Shift, "shift"}, {Super, "super"}, {Hyper, "hyper"}, {Meta, "meta"}}
 
-// String names the modifiers in the order a keybinding is conventionally written.
 func (m Mods) String() string {
 	var parts []string
 	for _, named := range modifierNames {
@@ -121,9 +103,6 @@ func (m Mods) String() string {
 // carried in [Key.Rune].
 type Code int
 
-// The keys a terminal can report: a character press, then the named keys in the
-// order a keyboard is usually described — what finishes a line, what cancels,
-// what edits, then movement, the function row and the numeric keypad.
 const (
 	// Character is the zero value, so a Key literal with only a rune in it is a
 	// character press — which is what most of them are.
@@ -208,7 +187,6 @@ const (
 	KeypadBegin
 )
 
-// String names the key the way a help line would print it.
 func (c Code) String() string {
 	if name, ok := codeNames[c]; ok {
 		return name
@@ -240,11 +218,9 @@ var codeNames = map[Code]string{
 	Insert:    "insert",
 }
 
-// Transition is what happened to a key.
 type Transition uint8
 
-// What happened to a key. Repeat and Release only ever arrive from a terminal
-// speaking the Kitty keyboard protocol; everything else reports presses.
+// Terminals without event-type reporting produce Press for every key event.
 const (
 	// Press is the zero value: an ordinary terminal only ever reports presses,
 	// and a Key literal that says nothing about its transition means one.
@@ -268,37 +244,23 @@ type Key struct {
 	ShiftedRune rune
 	BaseRune    rune
 	Mods        Mods
-	// Transition is Press unless the terminal speaks the Kitty keyboard protocol,
-	// which is the only way repeats and releases are ever reported.
-	Transition Transition
+	Transition  Transition
 	// Text is what the key produced, when the terminal was able to say. It can
 	// hold more than one code point, and is empty on terminals that do not report
 	// it. [Key.FallbackRune] supplies the character fallback.
 	Text string
-	// At is when the keystroke arrived, as whatever read it saw. It is zero when
-	// nothing timed it, which is what a parser fed bytes directly produces.
-	//
-	// It is here for the same reason it is on [Mouse]: a key means different things
-	// depending on when it came. Two chords typed in one burst are a sequence and a
-	// terminal never says so; the same two with a pause between them are two
-	// keystrokes that happen to be adjacent. Only the goroutine that did the reading
-	// knows, so it is stamped there rather than left for every caller to supply a
-	// clock for a fact the library already had. Sequence matchers can therefore judge
-	// elapsed time without inventing a second clock at the call site.
+	// At belongs to the transport reader so queueing delay cannot change whether
+	// two keys form a sequence. Zero means arrival was not timed.
 	At time.Time
 }
 
 func (Key) terminalEvent() {}
 
-// Is reports whether the key is code with exactly mods held.
-//
-// Exactly, not at least: a binding on Ctrl+C that also fired for Ctrl+Shift+C
-// would swallow a keystroke its owner never claimed.
+// Is requires exact modifiers so a Ctrl binding cannot claim Ctrl+Shift.
 func (k Key) Is(code Code, mods Mods) bool {
 	return k.Code == code && k.Mods == mods
 }
 
-// IsRune reports whether the key is the character r with exactly mods held.
 func (k Key) IsRune(r rune, mods Mods) bool {
 	return k.Code == Character && k.Rune == r && k.Mods == mods
 }
@@ -308,17 +270,11 @@ func (k Key) IsRune(r rune, mods Mods) bool {
 // on terminals that report repeats.
 func (k Key) Down() bool { return k.Transition != Release }
 
-// String names the keystroke the way a help line or a keybinding file writes it.
-//
-// It is [Chord.String]: what a key event is called is what was pressed, and nothing
-// about this particular occurrence of it.
 func (k Key) String() string { return k.Chord().String() }
 
-// MouseAction is what the mouse did.
 type MouseAction uint8
 
-// What the mouse did. Drag is a move with a button held, and the two wheel
-// directions are actions rather than buttons because no button is involved.
+// Wheel directions are actions because scrolling does not hold a button.
 const (
 	MouseDown MouseAction = iota
 	MouseUp
@@ -334,11 +290,8 @@ const (
 	MouseCancel
 )
 
-// Button identifies which mouse button an action belongs to.
 type Button uint8
 
-// The buttons a terminal reports. There is no fourth: the higher button numbers
-// in the protocol are the wheel, which arrives as an action instead.
 const (
 	// ButtonNone means no button for movement or a wheel, and an unspecified
 	// released button on MouseUp.
@@ -354,15 +307,8 @@ type Mouse struct {
 	Action MouseAction
 	Button Button
 	Mods   Mods
-	// At is when the report arrived, as whatever read it saw. It is zero when nothing
-	// timed it, which is what a parser fed bytes directly produces.
-	//
-	// A mouse report means different things depending on when it came. Two presses
-	// close together are a double-click and a terminal never says so; a run of wheel
-	// reports without a gap is a trackpad and not the wheel. Both questions are about
-	// arrival, and the only thing that knows the answer is the goroutine that did the
-	// reading — so it is stamped there rather than left for every caller to supply a
-	// clock for a fact the library already had.
+	// At belongs to the transport reader so queueing delay cannot change click
+	// or wheel-gesture classification. Zero means arrival was not timed.
 	At time.Time
 }
 
@@ -384,19 +330,12 @@ func (m Mouse) matchesButton(button Button) bool {
 	return m.Button == ButtonNone || m.Button == button
 }
 
-// Paste is a block of text the terminal delivered as a paste rather than as
-// keystrokes, so it can be inserted whole instead of being interpreted a
-// character at a time.
+// Paste separates payload from keystrokes so embedded shortcuts cannot run
+// while the caller inserts text.
 type Paste struct{ Text string }
 
 func (Paste) terminalEvent() {}
 
-// OSC is an operating system command the terminal sent.
-//
-// This is how a terminal answers a question. A program writes a query, and the
-// answer comes back on the input stream mixed in with whatever the user is
-// typing — asking what colour the terminal draws on and reading its clipboard
-// both work this way. A session that asks nothing never sees one.
 type OSC struct {
 	Command int
 	// Params is everything after the command number and its semicolon, left as
@@ -423,15 +362,8 @@ func (o OSC) Paste(channel *clipboard.Channel, at time.Time) (Paste, bool) {
 	return Paste{Text: text}, ok
 }
 
-// DCS is a device control string the terminal sent.
-//
-// It is the other shape an answer comes in, and the one that carries a terminal's own
-// name and version — the reply to the version query is ">|kitty(0.32.2)". There is no
-// command number and no single grammar, so the body comes back as it was written and
-// what it means is decided by whoever asked.
-//
-// Only the shapes a terminal actually replies in are decoded as one. See the package's
-// own notes on why: the introducer is also Alt+Shift+P.
+// DCS leaves its body uninterpreted because reply syntax belongs to the query
+// owner. Only recognized reply prefixes are framed, preserving Alt+Shift+P.
 type DCS struct{ Body string }
 
 func (DCS) terminalEvent() {}
@@ -462,7 +394,6 @@ func (KeyboardFlags) terminalEvent() {}
 // be two vocabularies for one protocol. Zero is the historical keyboard encoding.
 type KeyboardFeatures int
 
-// The protocol's progressive enhancements, as the bits on the wire name them.
 const (
 	// KeyboardDisambiguate makes every key arrive as an unambiguous code rather than as
 	// whatever byte it historically produced. It is what makes Shift+Enter and
@@ -471,9 +402,7 @@ const (
 	// KeyboardReportEvents adds key releases and repeats. Without it a key going down is
 	// all there is, and anything held cannot be known to have been let go.
 	KeyboardReportEvents
-	// KeyboardReportAlternates adds the key a different layout would have produced.
 	KeyboardReportAlternates
-	// KeyboardReportAllAsEscapes makes even plain letters arrive as sequences.
 	KeyboardReportAllAsEscapes
 	// KeyboardReportText requests associated text. Session setup also enables
 	// KeyboardReportAllAsEscapes, its prerequisite in the Kitty protocol.
@@ -486,19 +415,10 @@ const (
 		KeyboardReportAllAsEscapes | KeyboardReportText
 )
 
-// Has reports whether every requested feature is in k.
 func (k KeyboardFeatures) Has(features KeyboardFeatures) bool { return k&features == features }
 
-// DeviceVersion is a terminal's answer to being asked which version of itself it is.
-//
-// It is the query for the terminals that answer nothing else. Alacritty exports no
-// version in the environment and declines the version string on principle; this is
-// what it does answer.
-//
-// The numbers are as the terminal sent them, because what they mean is the terminal's
-// convention and not a standard: most pack a version as major, minor and patch into
-// [DeviceVersion.Version], and reading it as anything is a bet on which terminal is
-// being asked.
+// DeviceVersion retains raw numbers because their interpretation depends on
+// the terminal; the protocol does not define a shared version encoding.
 type DeviceVersion struct {
 	Kind           int
 	Version, Patch int
@@ -506,30 +426,18 @@ type DeviceVersion struct {
 
 func (DeviceVersion) terminalEvent() {}
 
-// DeviceAttributes is a terminal's answer to being asked what it is.
-//
-// Every terminal answers this one, which makes it useful for more than what it
-// says. A question a terminal might not understand can be followed by this one,
-// and this answer arriving without the other is how a terminal says it did not
-// understand — which is not something any terminal says out loud.
+// DeviceAttributes can delimit an earlier capability query: a session may
+// settle unanswered probes when this later response arrives.
 type DeviceAttributes struct {
 	// Class is the terminal class the answer led with: 62 for a VT220, 64 for a
 	// VT420. Little depends on it, and terminals that emulate one of those are
 	// not otherwise alike.
 	Class int
-	// claims is the numbered extensions, semicolon-separated as the terminal wrote
-	// them.
-	//
-	// A string rather than a slice so that this event is comparable, like every
-	// other one. Comparing events through the interface is what a caller does and
-	// what this package's own tests do, and a slice field turns that into a panic
-	// at run time rather than an error at compile time — the fuzz target that
-	// checks a split read decodes the same way found exactly that.
+	// Claims stay in a string so Event values remain comparable. A slice here
+	// would make interface equality panic at runtime.
 	claims string
 }
 
-// Attributes is an answer with the given class and extensions, for anything
-// standing in for a terminal.
 func Attributes(class int, features ...int) DeviceAttributes {
 	var b strings.Builder
 	for _, n := range features {
@@ -563,10 +471,8 @@ func (d DeviceAttributes) Features() []int {
 	return out
 }
 
-// Has reports whether the terminal claimed extension n.
-//
-// It reads the claims rather than building the slice, because this is asked once per
-// capability and a session asks about two of them.
+// Has reads claims directly so checking one capability need not allocate a
+// slice of every advertised extension.
 func (d DeviceAttributes) Has(n int) bool {
 	if n <= 0 {
 		return false
@@ -584,28 +490,16 @@ type Resize struct{ Width, Height int }
 
 func (Resize) terminalEvent() {}
 
-// FocusIn reports that the terminal window took focus.
 type FocusIn struct{}
 
 func (FocusIn) terminalEvent() {}
 
-// FocusOut reports that the terminal window lost focus.
 type FocusOut struct{}
 
 func (FocusOut) terminalEvent() {}
 
-// Rune is the chord of a character key held with these modifiers:
-//
-//	input.Ctrl.Rune('w')
 func (m Mods) Rune(r rune) Chord { return Chord{Code: Character, Rune: r, Mods: m} }
 
-// With is the chord of a named key held with these modifiers:
-//
-//	input.Alt.With(input.Enter)
-//
-// A key with nothing held is a chord literal, because there is no modifier to hang the
-// call off: input.Chord{Code: input.Enter}.
 func (m Mods) With(code Code) Chord { return Chord{Code: code, Mods: m} }
 
-// Chord is the keystroke this event is one of.
 func (k Key) Chord() Chord { return Chord{Code: k.Code, Rune: k.Rune, Mods: k.Mods} }

@@ -1,10 +1,5 @@
-// Command state demonstrates owned drafts, controlled domain state and live themes.
-//
-// Each field owns its editable document. The application reads those owners once
-// on submission and creates its immutable result. Validation may reject submission
-// while preserving the user's draft; normalization belongs to the accepted domain
-// value instead of a second writable binding that races the editor. The live
-// notification field uses a versioned domain owner shared with an external action.
+// Command state commits field drafts once on submission so normalization cannot
+// race editable text; live notification controls share one versioned domain owner.
 package main
 
 import (
@@ -27,8 +22,10 @@ import (
 
 func main() {
 	var values answers
-	form, local := fields(&values)
+	var local *base.Text
 	app, err := program.NewScreen(program.ScreenConfig{Build: func(runtime *program.Runtime) (scene.Element, error) {
+		form, draft := fields(&values, kit.GlyphsFor(runtime.Environment().Locale()))
+		local = draft
 		return dress(runtime, form), nil
 	}})
 	if err == nil {
@@ -52,7 +49,7 @@ type stateForm struct {
 	done          func()
 }
 
-func fields(values *answers) (*stateForm, *base.Text) {
+func fields(values *answers, glyphs kit.Glyphs) (*stateForm, *base.Text) {
 	local := base.NewText(base.TextConfig{Label: "Local — the field owns this draft", Placeholder: "component state"})
 	exact := base.NewText(base.TextConfig{Label: "Exact — copied only on submission", Placeholder: "owned document"})
 	normalized := base.NewText(base.TextConfig{Label: "Normalized — submission stores uppercase", Placeholder: "domain normalization"})
@@ -65,7 +62,7 @@ func fields(values *answers) (*stateForm, *base.Text) {
 	form := &stateForm{theme: kit.NewThemeOwner(kit.Theme{}), notifications: newNotificationSettings()}
 	form.confirm = base.NewConfirm(base.ConfirmConfig{Label: "Live — domain-owned notifications", Yes: "on", No: "off", Control: form.notifications})
 	form.view = kit.NewForm(kit.FormConfig{
-		Scope: form.theme.Scope(),
+		Scope: form.theme.Scope(), Glyphs: glyphs,
 		Title: "Who owns this text?", Gap: 1,
 		Fields: []base.Field{local, exact, normalized, guarded, form.confirm},
 		Keys:   base.DefaultFormKeys(), Hints: []keymap.Action{base.FocusNext, base.Submit, base.Cancel},
@@ -86,7 +83,7 @@ func fields(values *answers) (*stateForm, *base.Text) {
 	accent := grid.Style{Attr: grid.Bold}
 	buttonScope := form.theme.Scope().With(kit.ThemeOverride{Accent: &accent})
 	reset := kit.NewButton(kit.ButtonConfig{
-		Key: "reset-domain", Label: "Reset domain", Scope: buttonScope,
+		Key: "reset-domain", Label: "Reset domain", Scope: buttonScope, Ellipsis: glyphs.Ellipsis,
 		Availability: func() scene.Availability {
 			if !form.notifications.Snapshot().Value {
 				return scene.Availability{Disabled: true, Reason: "notifications are already off"}
@@ -99,7 +96,7 @@ func fields(values *answers) (*stateForm, *base.Text) {
 		},
 	})
 	palette := kit.NewButton(kit.ButtonConfig{
-		Key: "switch-palette", Label: "Switch palette", Scope: buttonScope,
+		Key: "switch-palette", Label: "Switch palette", Scope: buttonScope, Ellipsis: glyphs.Ellipsis,
 		Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
 			next := kit.Light()
 			if form.theme.Scope().Snapshot().Palette == next {
@@ -119,7 +116,6 @@ func fields(values *answers) (*stateForm, *base.Text) {
 func dress(runtime *program.Runtime, form *stateForm) scene.Element {
 	form.done = runtime.Quit
 	form.theme.Set(kit.Suited(runtime.Environment().Ground()))
-	form.view.Glyphs = kit.GlyphsFor(runtime.Environment().Locale())
 	return scene.NewGroup(scene.GroupConfig{
 		Axis: layout.Down,
 		Element: scene.ElementConfig{Detached: form.confirm.Close, Preview: func(event scene.Event) scene.EventResult {

@@ -3,7 +3,6 @@ package graphics
 import (
 	"errors"
 	"image"
-	"io"
 	"sync"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -156,7 +155,6 @@ func (r Resource) Size() image.Point {
 	return r.record.wire.Size
 }
 
-// Live reports whether the transmission can still be placed.
 func (r Resource) Live() bool { return r.availability() == nil }
 
 func (r Resource) availability() error {
@@ -198,7 +196,6 @@ type ResourcePlacement struct {
 	Source image.Rectangle
 }
 
-// SourceBounds is the intersection with the transmitted image, before scaling to cells.
 func (p ResourcePlacement) SourceBounds() image.Rectangle {
 	return sourceBounds(p.resource.Size(), p.Source)
 }
@@ -236,28 +233,28 @@ func (p ResourcePlacement) target() grid.NativeTarget {
 }
 
 // Paint refuses a retired transmission rather than naming a reused wire ID.
-func (p ResourcePlacement) Paint(w io.Writer, size image.Point) error {
+func (p ResourcePlacement) Paint(context grid.PaintContext) error {
 	if err := p.resource.availability(); err != nil {
 		return err
 	}
-	if !p.target().Accepts(w) {
+	if !p.target().Accepts(context) {
 		return grid.ErrForeignPaint
 	}
 	wire := p.resource.record.wire.Placement(p.id)
 	wire.Source = p.Source
-	return wire.Paint(w, size)
+	return wire.Paint(context, context.Size(), context.Layer())
 }
 
 // Erase has no work once data release has removed all of its placements.
-func (p ResourcePlacement) Erase(w io.Writer) error {
+func (p ResourcePlacement) Erase(context grid.PaintContext) error {
 	if err := p.resource.availability(); err != nil {
 		if errors.Is(err, ErrImageReleased) {
 			return nil
 		}
 		return err
 	}
-	if !p.target().Accepts(w) {
+	if !p.target().Accepts(context) {
 		return grid.ErrForeignPaint
 	}
-	return p.resource.record.wire.Placement(p.id).Erase(w)
+	return p.resource.record.wire.Placement(p.id).Erase(context)
 }

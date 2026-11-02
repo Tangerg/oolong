@@ -8,12 +8,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
-// Terminal modes, each written as a pair: what turns it on, and what puts it back.
-//
-// Every one of these outlives the process if it is not put back. A program that
-// exits with mouse reporting on leaves the shell printing escape sequences when
-// the user moves the mouse; one that exits on the alternate screen loses whatever
-// the user had on screen before it started. Restoring them is not tidiness.
+// Pair mode acquisition with restoration: terminal modes outlive the process
+// and would otherwise affect the next foreground owner.
 const (
 	altScreenOn  = "\x1b[?1049h"
 	altScreenOff = "\x1b[?1049l"
@@ -123,15 +119,12 @@ func keyboardOn(features input.KeyboardFeatures) string {
 	return "\x1b[>" + strconv.Itoa(int(features)) + "u"
 }
 
-// mode pairs one mode's enable and disable sequences with whether it is wanted.
 type mode struct {
 	on, off string
 	wanted  bool
 }
 
-// sequence lists the modes in the order they are turned on. Bracketed paste is
-// always wanted: a terminal that cannot tell a paste from typing turns pasted code
-// into keystrokes, and there is no reason to want that.
+// Bracketed paste is unconditional so pasted code cannot become shortcuts.
 func (m Modes) sequence() []mode {
 	return []mode{
 		{altScreenOn, altScreenOff, m.altScreen},
@@ -142,8 +135,6 @@ func (m Modes) sequence() []mode {
 	}
 }
 
-// Enter is what to write to take the terminal over: every wanted mode, in
-// acquisition order.
 func (m Modes) Enter() string {
 	var b strings.Builder
 	for _, mode := range m.sequence() {

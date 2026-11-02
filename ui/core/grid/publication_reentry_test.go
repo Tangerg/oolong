@@ -3,7 +3,6 @@ package grid_test
 import (
 	"bytes"
 	"errors"
-	"image"
 	"io"
 	"testing"
 
@@ -130,8 +129,8 @@ func (w publicationCallbackWriter) Write(p []byte) (int, error) {
 
 type publicationCallbackPainter struct{ callback func() }
 
-func (p publicationCallbackPainter) Paint(io.Writer, image.Point) error { p.callback(); return nil }
-func (p publicationCallbackPainter) Erase(io.Writer) error              { p.callback(); return nil }
+func (p publicationCallbackPainter) Paint(grid.PaintContext) error { p.callback(); return nil }
+func (p publicationCallbackPainter) Erase(grid.PaintContext) error { p.callback(); return nil }
 
 func TestCanvasPublicationRejectsMutationsFromExternalCallbacks(t *testing.T) {
 	for _, mode := range []string{"screen", "inline"} {

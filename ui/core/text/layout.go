@@ -11,7 +11,6 @@ import (
 // chooses the side when an external byte offset falls inside a grapheme.
 type Affinity uint8
 
-// Affinity chooses the side of a soft visual break without changing logical bytes.
 const (
 	Forward Affinity = iota
 	Backward
@@ -40,9 +39,7 @@ const (
 	// It is suitable for editable text. Paragraph-style whitespace consumption is
 	// the distinct contract of Line.Wrap and is never silently applied to edits.
 	WrapWords WrapMode = iota
-	// WrapGraphemes breaks only between grapheme clusters without word preference.
 	WrapGraphemes
-	// WrapNone keeps each logical line in one visual row.
 	WrapNone
 )
 
@@ -88,7 +85,6 @@ func NewLayout(cfg LayoutConfig) *Layout {
 	return l
 }
 
-// Revision returns the caller's document revision associated with this layout.
 func (l *Layout) Revision() uint64 {
 	if l == nil {
 		return 0
@@ -96,7 +92,6 @@ func (l *Layout) Revision() uint64 {
 	return l.revision
 }
 
-// Width returns the requested nonnegative terminal-column width.
 func (l *Layout) Width() int {
 	if l == nil {
 		return 0
@@ -104,7 +99,6 @@ func (l *Layout) Width() int {
 	return l.width
 }
 
-// Len returns the number of prepared visual rows.
 func (l *Layout) Len() int {
 	if l == nil {
 		return 0
@@ -112,7 +106,6 @@ func (l *Layout) Len() int {
 	return len(l.rows)
 }
 
-// Row returns one visual row and whether its index is in bounds.
 func (l *Layout) Row(index int) (LayoutRow, bool) {
 	if l == nil || index < 0 || index >= len(l.rows) {
 		return LayoutRow{}, false

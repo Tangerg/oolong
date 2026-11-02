@@ -101,29 +101,22 @@ type FrameWriter interface {
 	Drain(timeout time.Duration) error
 }
 
-// GroundHost supplies the colours discovered before a program starts.
 type GroundHost interface{ Ground() grid.Ground }
 
-// ColorHost supplies the colour depth of the user-facing terminal.
 type ColorHost interface{ Color() grid.Depth }
 
-// WheelHost supplies the host's wheel-event scale.
 type WheelHost interface{ Wheel() input.Wheel }
 
-// KeyboardHost supplies keyboard protocol features negotiated with the host.
 type KeyboardHost interface {
 	Keyboard() (input.KeyboardFeatures, bool)
 }
 
-// LocaleHost supplies the character locale of the user-facing terminal.
 type LocaleHost interface{ Locale() string }
 
-// DirectoryHost tells a terminal how to resolve relative paths in program output.
 type DirectoryHost interface {
 	ReportDirectory(path string) error
 }
 
-// CopyHost writes to the clipboard associated with the user-facing host.
 type CopyHost interface{ Copy(text string) bool }
 
 // PasteHost requests text from the clipboard associated with the user-facing host.
@@ -141,18 +134,14 @@ type HandoverHost interface {
 	Hand(prepare, run func() error) error
 }
 
-// TitleHost names the user-facing host window.
 type TitleHost interface{ SetTitle(title string) error }
 
-// ProgressHost presents task progress outside the interface's cell grid.
 type ProgressHost interface {
 	SetProgress(progress term.Progress) error
 }
 
-// BellHost rings the user-facing host's audible or visible bell.
 type BellHost interface{ Bell() error }
 
-// NotifyHost sends a notification through the user-facing host.
 type NotifyHost interface{ Notify(text string) error }
 
 // ImageHost transmits images and reports the protocol geometry needed to place

@@ -110,7 +110,6 @@ func (t *Table[T]) SetItems(items []T) {
 // Items returns the rows in the order the table put them in.
 func (t *Table[T]) Items() []T { return t.list().Items() }
 
-// Len is how many rows there are.
 func (t *Table[T]) Len() int { return t.list().Len() }
 
 // At returns one row by index, and whether there is one.
@@ -131,10 +130,8 @@ func (t *Table[T]) Move(n int) { t.configureRows(); t.rows.Move(n) }
 // Scroll is the table's position, for a scrollbar drawn beside it.
 func (t *Table[T]) Scroll() *Scroll { return t.list().Scroll() }
 
-// Focus takes the keyboard, or gives it up — see [List.Focus].
 func (t *Table[T]) focusChanged(has bool) { t.list().focusChanged(has) }
 
-// Focused reports whether this table has the keyboard.
 func (t *Table[T]) Focused() bool { return t.list().Focused() }
 
 // Handle answers the keys, the wheel and a press that move the cursor.
@@ -143,10 +140,8 @@ func (t *Table[T]) Handle(ev input.Event) bool { t.configureRows(); return t.row
 // Do runs one of the list's actions by name. See [Doer].
 func (t *Table[T]) Do(action keymap.Action) bool { t.configureRows(); return t.rows.Do(action) }
 
-// HeightForWidth is one row per row.
 func (t *Table[T]) HeightForWidth(width int) int { return t.list().HeightForWidth(width) }
 
-// Draw paints the rows that fit.
 func (t *Table[T]) Draw(v scene.Frame) { t.rows.DrawRows(v, t.Row) }
 
 // DrawRows paints the rows that fit with a caller's own row painter — see
@@ -155,8 +150,6 @@ func (t *Table[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
 	t.list().DrawRows(v, draw)
 }
 
-// Project configuration before every List operation so movement cannot read stale
-// wrapping or key bindings while waiting for the next draw.
 func (t *Table[T]) list() *List[T] { return &t.rows }
 
 func (t *Table[T]) configureRows() {

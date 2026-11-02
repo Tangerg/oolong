@@ -18,6 +18,8 @@ Construct interactive components with their explicit `Config` values. `Controlle
 
 A custom skin can fill a base element's paint and measure slots before attachment. Slot changes while mounted are refused. Theme and glyph inputs affect appearance; they cannot decide which field is focused, which value is committed or which action is available.
 
+Resolve glyph capability once for the host, then pass `glyphs.Ellipsis` to `ButtonConfig.Ellipsis`, `Paragraph.Ellipsis` and `Label.Ellipsis` where a truncation marker is wanted. An empty marker truncates silently. Measurement and drawing use the same marker; changing a paragraph's marker also changes its layout-cache identity.
+
 ## Theme ownership
 
 Create `kit.NewThemeOwner(initial)` for a live application palette, pass `owner.Scope()` through component Config values, and call `owner.Set(next)` on the UI owner turn. The owner invalidates attached consumers without rebuilding their elements or controllers. `scope.With(kit.ThemeOverride{...})` creates an immutable subtree branch; `Appearance` supplies an instance override. Resolution is application → ancestor scopes → local scope → instance.

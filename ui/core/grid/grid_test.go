@@ -1241,7 +1241,7 @@ type falliblePicture struct {
 	eraseErr error
 }
 
-func (p *falliblePicture) Paint(w io.Writer, _ image.Point) error {
+func (p *falliblePicture) Paint(w grid.PaintContext) error {
 	if p.paintErr != nil {
 		return p.paintErr
 	}
@@ -1249,7 +1249,7 @@ func (p *falliblePicture) Paint(w io.Writer, _ image.Point) error {
 	return err
 }
 
-func (p *falliblePicture) Erase(w io.Writer) error {
+func (p *falliblePicture) Erase(w grid.PaintContext) error {
 	if p.eraseErr != nil {
 		return p.eraseErr
 	}
@@ -1426,13 +1426,14 @@ func TestAZeroPaintIdentityNeverClaimsThePreviousFrame(t *testing.T) {
 	}
 }
 
-func (p picture) Paint(w io.Writer, size image.Point) error {
+func (p picture) Paint(w grid.PaintContext) error {
+	size := w.Size()
 	*p.log = append(*p.log, fmt.Sprintf("paint %s %dx%d", p.name, size.X, size.Y))
 	_, err := io.WriteString(w, "<"+p.name+">")
 	return err
 }
 
-func (p picture) Erase(w io.Writer) error {
+func (p picture) Erase(w grid.PaintContext) error {
 	*p.log = append(*p.log, "erase "+p.name)
 	_, err := io.WriteString(w, "</"+p.name+">")
 	return err

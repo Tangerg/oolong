@@ -13,15 +13,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// waker is a wait for the terminal to have something to say that this process can
-// end on its own.
-//
-// A blocking read cannot be cancelled portably, which is the usual answer and the
-// wrong shape: the goroutine is then inside a read at exactly the moments a session
-// needs it not to be. So the waiting happens before the read instead, on the
-// terminal and on a pipe this process writes a byte to when it wants the reader
-// back. What is woken this way has read nothing, which is the whole property — a
-// byte taken here is a byte the child it was handed to never sees.
+// waker waits on input readiness and an owned pipe before reading. A wake can
+// therefore return input ownership without consuming a byte meant for the child,
+// unlike an uncancellable blocking read.
 type waker struct {
 	fd int
 	// in and out are the two ends of the pipe. One byte on it means "stop waiting";
@@ -32,14 +26,8 @@ type waker struct {
 	closed bool
 }
 
-// interruptible reports whether the reader can be taken off the terminal without
-// waiting for a keystroke. Here it always can: the wait is on the terminal and on a
-// pipe this process writes to, and neither depends on what was opened.
-//
-// It is a question about the session rather than about the platform, because on one
-// of them it is: a Windows console can be waited on and a Windows pipe cannot.
-// Everything that depends on it — handing the terminal to a child, suspending —
-// asks the session it has rather than the operating system's name.
+// This session's readiness wait always includes an owned wake pipe, so handing
+// input back never depends on the user typing a key.
 func (w *waker) interruptible() bool { return true }
 
 func newWaker(fd int) (*waker, error) {
@@ -79,8 +67,6 @@ func (w *waker) reset() {}
 
 func (w *waker) buffered() bool { return false }
 
-// wait blocks until the terminal has something to say, reporting false when this
-// process asked for the reader back instead.
 func (w *waker) wait() (bool, error) {
 	terminal, ok := pollFd(w.fd)
 	if !ok {
@@ -145,11 +131,8 @@ func (w *waker) drain() {
 	}
 }
 
-// pollFd is one descriptor to watch, and whether it can be watched at all.
-//
-// The check is on the number rather than on the conversion: a descriptor is an int
-// and the field it goes in is 32 bits, and quietly narrowing one would watch a
-// descriptor the caller never named.
+// Validate descriptor width before narrowing to poll's int32 field; wrapping
+// would wait on a descriptor the caller never supplied.
 func pollFd(fd int) (unix.PollFd, bool) {
 	if fd < 0 || fd > math.MaxInt32 {
 		return unix.PollFd{}, false

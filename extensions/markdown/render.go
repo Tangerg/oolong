@@ -3,10 +3,10 @@ package markdown
 import (
 	"bytes"
 	"errors"
-	"html"
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -21,17 +21,9 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// parse reads a document into the tree the renderer walks.
-//
-// One parser rather than one per call: building it walks a list of extensions and
-// their priorities, and doing that for every chunk of a streaming answer would be
-// the most expensive thing in the module. Parsing itself keeps no state on it —
-// every parse gets a context of its own — so the one instance is shared.
-//
-// GFM is on. Tables, task lists, strikethrough and bare URLs are what is actually
-// written, whatever the specification says is core; a renderer that showed a table
-// as the pipes it was typed with would be one nobody could use for the thing this
-// module exists for.
+// Each parse has its own context, so one lazily initialized parser can safely
+// serve full-source snapshots without rebuilding extension priorities per chunk.
+// GFM keeps tables, task lists, strikethrough and bare links semantic.
 func parse(source []byte, context gparser.Context) ast.Node {
 	return parser().Parse(gtext.NewReader(source), gparser.WithContext(context))
 }
@@ -45,12 +37,10 @@ var parser = sync.OnceValue(func() gparser.Parser {
 	).Parser()
 })
 
-// Render turns a whole markdown document into blocks.
-// Invalid UTF-8 runs and NUL become replacement text before parsing. Extension failures
-// return readable blocks alongside errors; callers must observe both results.
-//
-// Live previews and final documents use this same parser. Source revisions and
-// finalization belong to content.StreamDocument, not to transport chunk boundaries.
+// Render normalizes invalid UTF-8 and NUL before parsing so every syntax uses the
+// same characters and offsets. Extension failures retain readable blocks alongside
+// errors. Live and final snapshots share parsing; source revision and finalization
+// belong to the stream document.
 func Render(source string, look Look) ([]Block, error) {
 	return render(source, look, nil)
 }
@@ -71,13 +61,9 @@ type frame struct {
 	rails   *prefixMark
 	pending *pendingMark
 	body    grid.Style
-	// tight says no blank row goes before this block: the first block of a document,
-	// and the first block of a list item.
-	tight bool
-	// dense says nothing inside this block is spaced out either, which is what a list
-	// written without blank lines in it means. Without it the text of an item and the
-	// list nested under it would be two blocks with a blank row between them, and a
-	// tight list would come out loose the moment anything was nested in it.
+	tight   bool
+	// Nested blocks inherit list tightness so a tight item cannot become loose
+	// merely because it contains another list.
 	dense bool
 }
 
@@ -123,9 +109,8 @@ type renderAction struct {
 	frame frame
 }
 
-// render walks the block tree with explicit actions. Markdown nesting is input, not
-// trusted program structure; it therefore consumes heap storage proportional to the
-// active depth and never the goroutine call stack.
+// Markdown nesting is untrusted input, so an explicit action stack bounds
+// goroutine stack usage independently of document depth.
 func (r *renderer) render(root ast.Node, in frame) {
 	stack := make([]renderAction, 0, 16)
 	r.scheduleChildren(&stack, root, in)
@@ -137,8 +122,8 @@ func (r *renderer) render(root ast.Node, in frame) {
 	}
 }
 
-// scheduleChildren pushes children in reverse so the action stack visits them in
-// document order. Tightness belongs to the child's position among its siblings.
+// Reverse scheduling preserves source order on the action stack. Tightness
+// belongs to each child's position among its siblings.
 func (r *renderer) scheduleChildren(stack *[]renderAction, n ast.Node, in frame) {
 	for child := n.LastChild(); child != nil; child = child.PreviousSibling() {
 		at := in
@@ -148,11 +133,8 @@ func (r *renderer) scheduleChildren(stack *[]renderAction, n ast.Node, in frame)
 	}
 }
 
-// block renders one node of the document.
-//
-// What is not here is as deliberate as what is. Raw HTML is dropped: a terminal
-// cannot show a tag, printing it as text is noise, and a renderer that guessed at
-// what a tag meant would be a browser.
+// Raw HTML is omitted because interpreting tags would add a second markup engine
+// and printing them verbatim would expose syntax as document content.
 func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	switch node := n.(type) {
 	case *ast.Heading:
@@ -163,7 +145,6 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 		r.list(node, in, stack)
 	case *ast.ListItem:
 		if node.ChildCount() == 0 {
-			// The first row carries the marker even for an empty item.
 			r.push(Block{
 				lines: []text.Line{nil},
 			}, in)
@@ -198,23 +179,15 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 }
 
 func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
-	// An ordered list carries its own first number, and zero is one a document may
-	// legitimately write. Only a bullet list has no number at all, and it never asks
-	// for one — see [renderer.bullet].
+	// Zero is a valid ordered-list start; only unordered lists omit numbering.
 	number := max(n.Start, 0)
 	index := n.ChildCount() - 1
 	for item := n.LastChild(); item != nil; item = item.PreviousSibling() {
 		marker := r.bullet(n, ordinal(number, index))
 		inner := in
 		inner.pending = &pendingMark{mark: inner.place(marker), outer: in.pending}
-		// An item is against the one before it in a tight list and spaced from it in a
-		// loose one, which is the distinction markdown draws by whether there are blank
-		// lines between them — and the one thing about a list a reader notices.
-		//
-		// The first item is not spaced from the item before it, because there is none:
-		// what it is spaced from is whatever came before the list, which is the frame's
-		// to say. A list that took its own tightness for that would run into the
-		// paragraph above it.
+		// The first item inherits spacing from the enclosing frame; later items use the
+		// list's own tightness. Otherwise a tight list would join the preceding paragraph.
 		inner.tight = (index == 0 && in.tight) || (index > 0 && n.IsTight)
 		inner.dense = n.IsTight
 		*stack = append(*stack, renderAction{node: item, frame: inner})
@@ -300,12 +273,8 @@ func (r *renderer) sourceLines(n ast.Node) []string {
 	return source
 }
 
-// inline turns the inline nodes under n into lines, splitting where the text said to
-// and nowhere else.
-//
-// A soft break — the line break somebody typed inside a paragraph — becomes a space,
-// because the width the text will be laid out in is not the width it was written in.
-// A hard break is a line break, because it was asked for.
+// Soft breaks become spaces because output width differs from source width.
+// Hard breaks remain structural because the author explicitly requested them.
 func (r *renderer) inline(n ast.Node, style grid.Style) []text.Line {
 	var out inlineWriter
 
@@ -429,7 +398,7 @@ func (w *inlineWriter) add(s string, style grid.Style, link string) {
 		w.flush()
 		w.style, w.link, w.open = style, link, true
 	}
-	w.run.WriteString(s)
+	w.run.WriteString(inlineText(s))
 }
 
 func (w *inlineWriter) breakLine() {
@@ -468,16 +437,8 @@ func pushInlineChildren(stack *[]inlineAction, n ast.Node, style grid.Style, lin
 	}
 }
 
-// target writes where a link points, after the words that point there.
-//
-// Only when the look has a style for it. The words themselves carry the address
-// now, so a terminal that shows hyperlinks needs nothing written out — and a
-// document full of parenthesised URLs is what that costs. A look that has no style
-// for an address says it wants the shorter reading, which is the same rule the
-// glyphs keep: what a look does not describe, it does not draw.
-//
-// It is left out either way when it says nothing the text did not: a bare URL as its
-// own link text is the commonest link there is.
+// Hyperlinked words already carry their destination. Repeat the address only
+// when its appearance is explicitly configured and it adds information.
 func (r *renderer) target(out *inlineWriter, destination, shown string, style grid.Style) {
 	if destination == "" || destination == shown || r.look.Target == (grid.Style{}) {
 		return
@@ -529,7 +490,7 @@ func (r *renderer) plain(n ast.Node) string {
 			pushNodes(node)
 		}
 	}
-	return b.String()
+	return inlineText(b.String())
 }
 
 func stringValue(node *ast.String) string {
@@ -539,6 +500,23 @@ func stringValue(node *ast.String) string {
 	}
 	return markdownText(value)
 }
+
+// Character references cannot introduce Markdown structure. Their whitespace must
+// survive the single-line projection so terminal control filtering cannot join words.
+var inlineWhitespace = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ", "\f", " ")
+
+func inlineText(value string) string {
+	if !strings.ContainsAny(value, "\r\n\f") {
+		return value
+	}
+	return inlineWhitespace.Replace(value)
+}
+
+const (
+	maxEntityLength        = len("&CounterClockwiseContourIntegral;")
+	maxDecimalEntityDigits = 7
+	maxHexEntityDigits     = 6
+)
 
 func markdownText(source string) string {
 	if !strings.ContainsAny(source, "\\&") {
@@ -552,7 +530,7 @@ func markdownText(source string) string {
 			continue
 		}
 		if source[i] == '&' {
-			if end := strings.IndexByte(source[i:min(i+33, len(source))], ';'); end >= 0 && end <= 32 {
+			if end := strings.IndexByte(source[i:min(i+maxEntityLength, len(source))], ';'); end >= 0 {
 				entity := source[i : i+end+1]
 				resolved, valid := markdownEntity(entity)
 				if valid {
@@ -577,17 +555,23 @@ func markdownEntity(entity string) (string, bool) {
 		}
 		return string(value.Characters), true
 	}
-	digits, base, limit := name[1:], 10, 7
+	digits, base, limit := name[1:], 10, maxDecimalEntityDigits
 	if strings.HasPrefix(digits, "x") || strings.HasPrefix(digits, "X") {
-		digits, base, limit = digits[1:], 16, 6
+		digits, base, limit = digits[1:], 16, maxHexEntityDigits
 	}
 	if len(digits) == 0 || len(digits) > limit {
 		return "", false
 	}
-	if _, err := strconv.ParseUint(digits, base, 32); err != nil {
+	codepoint, err := strconv.ParseUint(digits, base, 32)
+	if err != nil {
 		return "", false
 	}
-	return html.UnescapeString(entity), true
+	// CommonMark maps numeric references directly to Unicode; HTML's legacy C1
+	// remapping would turn control characters into different, visible text.
+	if codepoint == 0 || codepoint > utf8.MaxRune {
+		return string(utf8.RuneError), true
+	}
+	return string(rune(codepoint)), true
 }
 
 func (r *renderer) codeSpan(node *ast.CodeSpan) string {

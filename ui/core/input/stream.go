@@ -24,7 +24,6 @@ type Stream struct {
 	waiting  bool
 }
 
-// StreamConfig owns the complete construction contract of a [Stream].
 type StreamConfig struct {
 	// Grace is how long an ambiguous sequence waits for the bytes that would settle
 	// it. Zero uses [DefaultEscapeTimeout].
@@ -35,8 +34,6 @@ type StreamConfig struct {
 	Clipboard *clipboard.Channel
 }
 
-// NewStream makes a decoder for one transport. Every setting it leaves out means
-// what it means in the zero Stream.
 func NewStream(cfg StreamConfig) *Stream {
 	return &Stream{grace: cfg.Grace, clipboard: cfg.Clipboard}
 }
@@ -117,16 +114,9 @@ func (s *Stream) arm(at time.Time) {
 
 func (s *Stream) disarm() { s.deadline, s.waiting = time.Time{}, false }
 
-// settle applies the two facts a transport boundary owns: when the events arrived,
-// and whether a clipboard answer among them belongs to this session.
-//
-// Only an answer that was asked for becomes a paste. A terminal has no reason to
-// volunteer one and none is known to, but the alternative rule — any of them is a
-// paste — would let text arrive in a document nobody asked to put it in, which is not
-// a thing to relax about on the strength of what terminals are known to do. An answer
-// that arrives with nothing readable in it still answered, so it is passed through as
-// the command it was rather than turned into an empty paste that would clear a
-// selection the user still has.
+// Only a matching outstanding clipboard request can turn an OSC 52 reply into
+// a paste. Empty or unreadable answers remain commands so they cannot clear the
+// user's selection. Arrival time remains the transport's read-completion time.
 func (s *Stream) settle(events []Event, at time.Time) []Event {
 	events = Stamp(events, at)
 	if s.clipboard == nil {

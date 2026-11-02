@@ -16,7 +16,7 @@ import (
 
 func TestOwnedDraftsValidateBeforePublishingANormalizedSubmission(t *testing.T) {
 	var values answers
-	form, local := fields(&values)
+	form, local := fields(&values, kit.Unicode())
 	host := uitest.New(t, uitest.Config{Width: 70, Height: 18})
 	done := make(chan error, 1)
 	go func() {
@@ -55,7 +55,7 @@ func TestOwnedDraftsValidateBeforePublishingANormalizedSubmission(t *testing.T) 
 }
 
 func TestControlledFieldAndExternalButtonShareOneDomainVersion(t *testing.T) {
-	form, _ := fields(new(answers))
+	form, _ := fields(new(answers), kit.Unicode())
 	host := uitest.New(t, uitest.Config{Width: 70, Height: 18})
 	done := make(chan error, 1)
 	go func() {

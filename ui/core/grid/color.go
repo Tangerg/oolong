@@ -1,34 +1,18 @@
 package grid
 
-// Depth is how much colour a terminal is being asked to show.
-//
-// A frame is always built in truecolor — a [Color] is either the terminal's
-// default or a 24-bit value, and nothing above this package thinks about anything
-// else. The depth is applied at the very last step, where a style becomes bytes,
-// so a drawing caller never has to know what it is drawing onto and a palette never has to
-// be authored twice.
-//
-// The zero value is [Auto], which leaves the choice to whoever opened the
-// terminal — this package cannot read an environment variable and has no business
-// guessing. Everything here treats it as [TrueColor], which is the bet the library
-// made before this type existed; the difference is that it is now a bet a caller
-// can lose gracefully instead of one they cannot opt out of.
+// Depth is applied only when truecolor cells cross the wire so themes and
+// drawing operations remain independent of terminal palettes. Auto delegates
+// selection to the host; encoding treats unresolved Auto as TrueColor.
 type Depth uint8
 
 const (
 	// Auto is the zero value: whatever the caller decides, and truecolor to
 	// anything that has to draw before they have.
 	Auto Depth = iota
-	// TrueColor emits the 24-bit value unchanged.
 	TrueColor
-	// Depth256 maps each colour to the nearest entry of the xterm 256 palette.
 	Depth256
-	// Depth16 maps each colour to the nearest of the eight ANSI colours and their
-	// bright forms — the only colours a terminal is really obliged to have.
 	Depth16
-	// NoColor drops colour entirely and keeps the attributes. It is what NO_COLOR
-	// asks for, and what a terminal being logged to a file wants: bold and
-	// underline still carry meaning in a transcript, and a colour does not.
+	// NoColor retains text attributes so emphasis survives without color.
 	NoColor
 )
 
@@ -36,9 +20,8 @@ const (
 // indices 16–231 of the xterm palette.
 var cube = [6]uint8{0, 95, 135, 175, 215, 255}
 
-// ansi16 are the sixteen colours every terminal has, in the order the SGR codes
-// number them. The values are the common xterm defaults: a terminal is free to
-// render its own, which is the point of using an index rather than a value.
+// ANSI palette entries are themeable; these xterm defaults support estimates,
+// not a promise about the terminal's actual colors.
 var ansi16 = [16]RGB{
 	{0, 0, 0},
 	{128, 0, 0},

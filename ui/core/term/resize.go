@@ -5,13 +5,9 @@ import (
 	"time"
 )
 
-// dimensions is the newest successful platform observation offered to the input
-// stream.
-//
-// A failed observation is not a new size, and the first successful observation
-// is a change only when Open could not report an opening size. Keeping that rule
-// here makes a polling platform obey the same event contract as a signalling one
-// without teaching the pump how either platform discovered the change.
+// dimensions owns resize deduplication for polling and signal-driven sources.
+// Failed observations do not replace the last valid size; the first successful
+// observation is new only when startup had no size.
 type dimensions struct {
 	point image.Point
 	known bool

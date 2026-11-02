@@ -3,7 +3,6 @@ package grid_test
 import (
 	"bytes"
 	"errors"
-	"image"
 	"io"
 	"testing"
 
@@ -26,14 +25,14 @@ func TestRetainedSurfaceViewClipsToCurrentStorage(t *testing.T) {
 
 type writerBorrow struct{ onPaint, onErase func(io.Writer) }
 
-func (b writerBorrow) Paint(w io.Writer, _ image.Point) error {
+func (b writerBorrow) Paint(w grid.PaintContext) error {
 	if b.onPaint != nil {
 		b.onPaint(w)
 	}
 	return nil
 }
 
-func (b writerBorrow) Erase(w io.Writer) error {
+func (b writerBorrow) Erase(w grid.PaintContext) error {
 	if b.onErase != nil {
 		b.onErase(w)
 	}

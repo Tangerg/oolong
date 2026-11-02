@@ -2,18 +2,14 @@ package anim
 
 import "math"
 
-// The numbers a spring falls back on when it was given none.
-//
-// A frequency in radians per tick, which at a conventional 60 Hz tick rate settles
-// in about a second, and the damping that arrives without going past —
-// because overshooting is a decision and not a default.
+// Default frequency is in radians per tick; critical damping avoids overshoot
+// unless the caller explicitly requests it.
 const (
 	defaultFrequency = 0.35
 	defaultDamping   = 1.0
 
-	// settled is how close to the target, and how slow, a spring has to be before it
-	// is called arrived. A spring never reaches its target exactly — the maths says
-	// so — so something has to say when it is close enough to stop the clock.
+	// A spring approaches its target asymptotically, so position and velocity
+	// tolerances determine when its owner can stop the clock.
 	settledDistance = 0.001
 	settledSpeed    = 0.001
 )
@@ -35,29 +31,23 @@ type Spring struct {
 	velocity float64
 }
 
-// To sets what the spring is moving toward, keeping the speed it already has.
 func (s *Spring) To(target float64) {
 	s.target = target
 	s.settle()
 }
 
-// Set puts the value where it is asked and stops it there, which is how to place a
-// spring without animating it — the first frame, or a resize nobody should watch.
+// Set discards velocity so initialization and resizing do not animate.
 func (s *Spring) Set(value float64) {
 	s.target, s.position, s.velocity = value, value, 0
 }
 
-// Value is where the spring is now, and Velocity how fast it is moving. The speed is
-// worth having: something being flung reads as the same movement continuing only if
-// whatever takes over starts with the speed it had.
+// Value and Velocity can seed another animation without interrupting motion.
 func (s *Spring) Value() float64 { return s.position }
 
-// Velocity is how fast the value is changing, per tick.
 func (s *Spring) Velocity() float64 { return s.velocity }
 
-// Done reports whether the spring has arrived: near enough its target and slow
-// enough that nothing further would be visible. It is what tells its owner it can stop
-// the clock driving this, and it is the same question [Transition.Done] answers.
+// Done uses position and velocity tolerances because an exact spring never
+// reaches its target in finite time.
 func (s *Spring) Done() bool {
 	return s.position == s.target && s.velocity == 0
 }
@@ -68,14 +58,8 @@ func (s *Spring) settle() {
 	}
 }
 
-// Tick advances the spring by one step.
-//
-// The step is the exact solution of the equation rather than a small step of it,
-// which matters at ordinary tick rates: stepping a stiff spring approximately is how
-// a spring turns into an oscillation that grows instead
-// of one that dies away. There are three solutions and which one applies is decided
-// by the damping — under one it rings, at one it just arrives, above one it creeps —
-// so all three are here rather than the one that is usually enough.
+// Tick uses the exact damped-oscillator solution: approximate integration can
+// make a stiff spring gain energy at ordinary tick rates.
 func (s *Spring) Tick() {
 	frequency, damping := s.Frequency, s.Damping
 	if frequency <= 0 {
@@ -88,9 +72,7 @@ func (s *Spring) Tick() {
 		return
 	}
 
-	// Everything is worked out on the distance still to go, which is what the
-	// equation is written in: a spring is a value pulled toward zero, and the target
-	// is where zero is.
+	// The oscillator equation is centered on zero; translate by the target.
 	u, v := s.position-s.target, s.velocity
 	switch {
 	case damping < 1:

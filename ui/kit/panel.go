@@ -44,7 +44,6 @@ func (p *Panel) ensure() {
 	}})
 }
 
-// Element is the panel's one scene group.
 func (p *Panel) Element() scene.Element { p.ensure(); return p.group.Element() }
 
 // Content returns the scene child currently inside the panel.
@@ -72,7 +71,6 @@ func (p *Panel) SetContent(child scene.Element) {
 	}
 }
 
-// HeightForWidth adds box overhead to the child's measured height.
 func (p *Panel) HeightForWidth(width int) int {
 	return p.measure(layout.Down, width)
 }

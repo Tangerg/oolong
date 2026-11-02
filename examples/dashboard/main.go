@@ -1,16 +1,5 @@
-// Command dashboard is more panes than fit, with one of them showing.
-//
-// Two things worth looking at. The strip of names is drawn by the kit and the panes
-// are held by the behaviour underneath it, so a press on a name selects a pane and
-// everything else reaches the pane in the pane's own coordinates. And the table has
-// a cursor: the rows and their order are one thing, where the columns go is another,
-// and the two meet in four lines rather than in a widget that owns both.
-// The activity pane projects those same tasks as progress, a bounded sparkline, and
-// category bars; the application owns sampling and labels while the charts remain
-// passive blocks.
-//
-// Alt+left and alt+right or 1–3 move between panes, the arrows move in them, a press
-// on a heading sorts by it, and q leaves.
+// Command dashboard keeps task data with the application while scene children own
+// input and layout, so multiple presentations share one task model.
 package main
 
 import (
@@ -44,16 +33,12 @@ func main() {
 	}
 }
 
-// What a task can be doing. Named because the table sorts by them and the look
-// colours them, and a string in three places is a string that will be misspelled in
-// one of them.
 const (
 	waiting = "waiting"
 	running = "running"
 	done    = "done"
 )
 
-// task is a row of the table.
 type task struct {
 	name  string
 	done  int
@@ -71,7 +56,6 @@ func (t task) state() string {
 	}
 }
 
-// dashboard is the strip and the panes under it.
 type dashboard struct {
 	runtime *program.Runtime
 	theme   kit.Theme
@@ -197,8 +181,6 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 	}
 }
 
-// queue is the tasks pane: rows with a cursor and an order, and the geometry they
-// are drawn through.
 type queue struct {
 	element scene.Element
 	theme   kit.Theme
@@ -275,8 +257,8 @@ func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, select
 	columns.Cells(v, at, base)
 }
 
-// cell draws one cell. The row index is the table's, so what is in a cell comes from
-// this program's own rows and not from anything a widget copied.
+// The table owns row order, while application rows own cell content; rendering
+// reads that mapping without retaining a second task model.
 func (q *queue) cell(row, column int) kit.Cell {
 	item, ok := q.rows.At(row)
 	if !ok {
@@ -284,9 +266,9 @@ func (q *queue) cell(row, column int) kit.Cell {
 	}
 	switch column {
 	case 0:
-		return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: "…"})
+		return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: q.view.Glyphs.Ellipsis})
 	case 1:
-		return kit.LabelCell(kit.Label{Text: item.state(), Style: q.state(item), Ellipsis: "…"})
+		return kit.LabelCell(kit.Label{Text: item.state(), Style: q.state(item), Ellipsis: q.view.Glyphs.Ellipsis})
 	default:
 		return kit.Cell{
 			Preferred: 12,
@@ -332,8 +314,6 @@ func (q *queue) remaining() (finished, total int) {
 	return finished, total
 }
 
-// activity is the second pane: the queue as one number, and something that says work
-// is happening at all.
 type activity struct {
 	theme   kit.Theme
 	glyphs  kit.Glyphs
@@ -410,8 +390,7 @@ func (a *activity) Draw(v scene.Frame) {
 
 func (a *activity) Element() scene.Element { return a.element }
 
-// record keeps a bounded history of aggregate completion. The dashboard owns this
-// sampling policy; Sparkline only projects the values it is given.
+// The dashboard owns sampling policy; Sparkline only projects its bounded history.
 func (a *activity) record() {
 	finished, total := a.of.remaining()
 	value := 0.0
@@ -426,8 +405,8 @@ func (a *activity) record() {
 	a.samples = append(a.samples, value)
 }
 
-// bars projects the task model into chart categories. Labels, percentage formatting,
-// and the decision to compare completion are application grammar, not kit policy.
+// Category labels and completion comparison are application grammar, so chart
+// blocks receive a projection of the task model.
 func (a *activity) bars() []kit.Bar {
 	items := a.of.rows.Items()
 	bars := make([]kit.Bar, len(items))

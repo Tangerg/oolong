@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+const (
+	gracefulExitTimeout      = time.Second
+	processGroupWaitTimeout  = time.Second
+	processGroupPollInterval = time.Millisecond
+)
+
 func platformSupported() error { return nil }
 
 func run(ctx context.Context, cmd *exec.Cmd) error {
@@ -23,7 +29,7 @@ func run(ctx context.Context, cmd *exec.Cmd) error {
 		}
 		return err
 	}
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = gracefulExitTimeout
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -39,7 +45,7 @@ func run(ctx context.Context, cmd *exec.Cmd) error {
 }
 
 func waitGroup(pid int) error {
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(processGroupWaitTimeout)
 	for {
 		err := syscall.Kill(-pid, 0)
 		if errors.Is(err, syscall.ESRCH) {
@@ -54,6 +60,6 @@ func waitGroup(pid int) error {
 		if !time.Now().Before(deadline) {
 			return errors.Join(fmt.Errorf("mermaid: process group %d did not finish shutdown", pid), err)
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(processGroupPollInterval)
 	}
 }

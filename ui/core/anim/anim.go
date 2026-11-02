@@ -1,22 +1,9 @@
-// Package anim is the arithmetic behind things that move.
-//
-// It is pure functions of a tick and an eased value that advances one step at a
-// time. Nothing here holds a clock, opens anything, or knows what a cell is: the
-// caller decides when time passes, and what these numbers are then used for —
-// brightening a colour, growing a pane — is the caller's.
-//
-// Everything counts ticks rather than wall-clock time, and a tick is whatever the
-// caller's scheduler decided one is. An animation that asked what time it is could be
-// neither stepped by a test nor paused by an owner that parked because nothing was
-// happening.
+// Package anim advances in caller-owned ticks so animations can pause and tests
+// can step them without a wall clock.
 package anim
 
-// EaseOutCubic maps a linear position in [0,1] to an eased one.
-//
-// Out-cubic rather than anything else because it is the curve that reads as
-// "arrived": most of the distance is covered early and the last part settles, which
-// is what makes a pane that grows look like it stopped rather than like it was cut
-// off.
+// EaseOutCubic settles gradually near the endpoint so a growing region appears
+// to arrive instead of stopping abruptly.
 func EaseOutCubic(t float64) float64 {
 	if t <= 0 {
 		return 0
@@ -28,15 +15,11 @@ func EaseOutCubic(t float64) float64 {
 	return 1 - u*u*u
 }
 
-// Transition moves a value toward a target over a number of ticks, eased.
-//
-// The zero Transition is settled at zero and animates nothing, so a caller who
-// never starts one pays for nothing. [Transition.Tick] is what advances it, and a
-// caller with several can drive them all from the one clock they already have.
+// Transition is settled at zero until retargeted. Only Tick advances it, so
+// multiple transitions can share their owner's clock.
 type Transition struct {
 	from, to float64
-	// at is how many ticks have been taken of span. A span of zero is a settled
-	// transition, which is also what the zero value is.
+	// A zero span represents a settled transition, including the zero value.
 	at, span uint64
 }
 
@@ -60,7 +43,6 @@ func (t *Transition) Tick() {
 	}
 }
 
-// Value is where the transition is now.
 func (t *Transition) Value() float64 {
 	if t.Done() {
 		return t.to
@@ -68,6 +50,4 @@ func (t *Transition) Value() float64 {
 	return t.from + (t.to-t.from)*EaseOutCubic(float64(t.at)/float64(t.span))
 }
 
-// Done reports whether the transition has arrived, which is what tells its owner it
-// can stop the clock driving it.
 func (t *Transition) Done() bool { return t.at >= t.span }

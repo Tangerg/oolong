@@ -79,7 +79,6 @@ func NewScreen(size Size) (*Screen, error) {
 	}, nil
 }
 
-// Size returns the fixed dimensions of the assertion model.
 func (s *Screen) Size() Size {
 	if s == nil {
 		return Size{}

@@ -5,16 +5,9 @@ import (
 	"unicode/utf8"
 )
 
-// Printable returns the terminal-safe text in s.
-//
-// A tab is kept, because it is laid out rather than obeyed — see [TabStop] — and
-// every other control character is an instruction for a terminal this package is
-// not asking it to perform. Each invalid UTF-8 byte becomes a replacement rune. Cleaning occurs
-// before layout rather than at the cell so measuring, cursor offsets and drawing see
-// the same text.
-//
-// A newline is a control character too. Call Printable on one logical line at a time
-// when line breaks carry meaning of their own.
+// Printable cleans one logical line before layout so measurement, byte offsets,
+// and drawing agree. Tabs remain for layout; other controls, including newlines,
+// are removed. Each malformed UTF-8 byte becomes a replacement rune.
 func Printable(s string) string {
 	if utf8.ValidString(s) && !strings.ContainsFunc(s, droppedRune) {
 		return s

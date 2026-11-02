@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/retention"
 )
 
 // Diff draws a change to a text.
@@ -17,9 +18,8 @@ import (
 // between one hunk and the next is how the reader is told they were. [diff.Hunks] is
 // what makes them.
 //
-// It is a passive [base.Block]. A change too tall for its pane becomes live
-// viewport content through [base.Static], without giving finished content an
-// interaction lifecycle of its own.
+// Finished content remains a passive [base.Block]; scrolling and input belong to
+// its containing scene.
 //
 // Diff owns its hunks and appearance. Mutations go through its methods so the wrapped
 // representation measured and drawn in one frame cannot describe different inputs.
@@ -103,8 +103,6 @@ func (d *Diff) SetNumbers(show bool) {
 	d.invalidate()
 }
 
-// HeightForWidth reports the physical rows needed at width. Long lines wrap through the
-// same layout Draw consumes, so measurement cannot promise rows drawing truncates.
 func (d *Diff) HeightForWidth(width int) int {
 	if d == nil {
 		return 0
@@ -112,7 +110,6 @@ func (d *Diff) HeightForWidth(width int) int {
 	return len(d.layout(width))
 }
 
-// Draw paints the hunks in order, with a break between them.
 func (d *Diff) Draw(v grid.View) {
 	if d == nil || v.Empty() {
 		return
@@ -185,7 +182,7 @@ func (d *Diff) layout(width int) []diffRow {
 	}
 	if len(rows) == 0 {
 		rows = nil
-	} else if cap(rows) > 2*len(rows)+16 {
+	} else if retention.ShouldCompact(cap(rows), len(rows)) {
 		rows = append([]diffRow(nil), rows...)
 	}
 	d.wrapped = diffLayout{width: width, rows: rows, fresh: true}

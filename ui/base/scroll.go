@@ -40,13 +40,6 @@ type Scroll struct {
 	matcher keymap.Matcher
 }
 
-// layout updates committed bounds before an owner-side semantic operation. Drawing
-// uses Stage so new bounds become visible only with the complete root frame.
-func (s *Scroll) layout(total, window int) {
-	s.begin()
-	s.current.layout(total, window)
-}
-
 // Wheel says what the terminal's wheel reports are worth, which is not a constant:
 // terminals disagree about how many of them one notch is. Pass what
 // [input.WheelFor] answered, once.
@@ -72,23 +65,36 @@ func (s *Scroll) FollowingEnd() bool { return s.resolved().following }
 // Reaching the end starts following again, which is what every log viewer does and
 // what a reader means by scrolling to the bottom.
 func (s *Scroll) By(rows int) {
-	s.begin()
-	s.reveal = nil
-	s.current.by(rows)
+	if s.change(func() {
+		s.reveal = nil
+		s.current.by(rows)
+	}) {
+		s.element.Invalidate()
+	}
 }
 
 // ToBottom follows the end of the content.
 func (s *Scroll) ToBottom() {
-	s.begin()
-	s.reveal = nil
-	s.current.toBottom()
+	if s.change(func() {
+		s.reveal = nil
+		s.current.toBottom()
+	}) {
+		s.element.Invalidate()
+	}
 }
 
 // ToTop shows the start of the content and stops following.
 func (s *Scroll) ToTop() {
-	s.begin()
-	s.reveal = nil
-	s.current.toTop()
+	if s.toTop() {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Scroll) toTop() bool {
+	return s.change(func() {
+		s.reveal = nil
+		s.current.toTop()
+	})
 }
 
 // Discard removes rows from the start of the content while preserving the row under
@@ -97,14 +103,21 @@ func (s *Scroll) ToTop() {
 // A streaming transcript uses this after publishing a prefix. A following window
 // stays at the new end; a reader above the new start lands on the first retained row.
 func (s *Scroll) Discard(rows int) {
-	s.begin()
-	s.current.discard(rows)
-	if s.reveal != nil {
-		s.reveal = &scrollRange{
-			first: layout.Remaining(s.reveal.first, rows), last: layout.Remaining(s.reveal.last, rows),
-			origin: layout.Remaining(s.reveal.origin, rows),
-		}
+	if s.discard(rows) {
+		s.element.Invalidate()
 	}
+}
+
+func (s *Scroll) discard(rows int) bool {
+	return s.change(func() {
+		s.current.discard(rows)
+		if s.reveal != nil {
+			s.reveal = &scrollRange{
+				first: layout.Remaining(s.reveal.first, rows), last: layout.Remaining(s.reveal.last, rows),
+				origin: layout.Remaining(s.reveal.origin, rows),
+			}
+		}
+	})
 }
 
 // Reveal scrolls as little as it can to bring as much of [first, last] into the
@@ -124,7 +137,25 @@ func (s *Scroll) Discard(rows int) {
 // reading begins. Anything else would show the end of a match and leave the reader
 // to scroll backwards to find out what it was part of.
 func (s *Scroll) Reveal(first, last int) {
-	s.begin()
+	if s.requestReveal(first, last) {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Scroll) requestReveal(first, last int) bool {
+	return s.change(func() { s.setReveal(first, last) })
+}
+
+// The content owner supplies its new extent; Scroll alone resolves the effective
+// viewport before moving. The containing transaction publishes the completed change.
+func (s *Scroll) revealContent(total, first, last int) bool {
+	return s.change(func() {
+		s.current.layout(total, s.current.window)
+		s.setReveal(first, last)
+	})
+}
+
+func (s *Scroll) setReveal(first, last int) {
 	s.reveal = &scrollRange{first: first, last: last, origin: s.current.offset}
 	s.current.following = false
 	s.current.revealRange(first, last)
@@ -133,9 +164,12 @@ func (s *Scroll) Reveal(first, last int) {
 // Pages scrolls whole windows, keeping one row of overlap so the reader has
 // something to recognise on the other side of the jump.
 func (s *Scroll) Pages(n int) {
-	s.begin()
-	s.reveal = nil
-	s.current.pages(n)
+	if s.change(func() {
+		s.reveal = nil
+		s.current.pages(n)
+	}) {
+		s.element.Invalidate()
+	}
 }
 
 // Handle scrolls in response to keys and the mouse wheel, reporting whether it
@@ -251,10 +285,21 @@ func (s *Scroll) basis() (scrollState, *scrollRange) {
 	return shown.state, s.reveal
 }
 
-func (s *Scroll) begin() {
+func (s *Scroll) change(apply func()) bool {
 	requireMutable(s.element)
 	s.current, s.reveal = s.basis()
+	before, reveal := s.current, s.reveal
+	apply()
+	if before == s.current && sameScrollRange(reveal, s.reveal) {
+		s.reveal = reveal
+		return false
+	}
 	s.revision++
+	return true
+}
+
+func sameScrollRange(a, b *scrollRange) bool {
+	return a == b || a != nil && b != nil && *a == *b
 }
 
 type scrollProjection struct {

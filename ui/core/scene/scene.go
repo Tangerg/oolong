@@ -62,7 +62,6 @@ func (t Target) Generation() Generation { return t.generation }
 // Part identifies the component part addressed by this attachment.
 func (t Target) Part() PartID { return t.part }
 
-// IsZero reports whether this handle names no attachment.
 func (t Target) IsZero() bool { return t.root == nil || t.node == 0 }
 
 // Valid is an owner-turn query, not a concurrency-safe lifetime lease.
@@ -117,10 +116,8 @@ func NewElement(cfg ElementConfig) Element {
 	return Element{node: &node{config: cfg}}
 }
 
-// IsZero reports whether this is the empty element handle.
 func (e Element) IsZero() bool { return e.node == nil }
 
-// Key returns the application's stable locator key.
 func (e Element) Key() string {
 	if e.node == nil {
 		return ""
@@ -136,15 +133,12 @@ func (e Element) Target() Target {
 	return e.node.target()
 }
 
-// Alive reports whether the element currently belongs to a scene.
 func (e Element) Alive() bool { return !e.Target().IsZero() }
 
-// Focused reports whether this exact element owns scene keyboard focus.
 func (e Element) Focused() bool {
 	return e.node != nil && e.node.root != nil && e.node.root.focus == e.node.target()
 }
 
-// FocusedWithin reports whether this element or one of its descendants owns scene keyboard focus.
 func (e Element) FocusedWithin() bool {
 	if e.node == nil || e.node.root == nil {
 		return false
@@ -157,7 +151,6 @@ func (e Element) FocusedWithin() bool {
 	return false
 }
 
-// RequestFocusFirst focuses the first eligible node within this composition.
 func (e Element) RequestFocusFirst() error {
 	if e.node == nil || e.node.root == nil {
 		return ErrDetached
@@ -198,7 +191,6 @@ func (e Element) Attachment() Attachment {
 	return Attachment{target: e.node.target(), done: e.node.done}
 }
 
-// Target returns the exact generation associated with this lifetime lease.
 func (a Attachment) Target() Target { return a.target }
 
 // Done closes synchronously when this attachment is revoked. An empty lease is already done.
@@ -209,7 +201,6 @@ func (a Attachment) Done() <-chan struct{} {
 	return a.done
 }
 
-// RequestFocus asks this element's scene to assign it keyboard focus.
 func (e Element) RequestFocus() error {
 	if e.node == nil || e.node.root == nil {
 		return ErrDetached
@@ -369,7 +360,6 @@ func (n *node) target() Target {
 	return Target{node: n.id, generation: n.generation, part: n.config.Part, root: n.root}
 }
 
-// Item is one keyed child relation and its layout request.
 type Item struct {
 	Key     string
 	Size    layout.Sizing
@@ -413,7 +403,6 @@ func NewGroup(cfg GroupConfig) *Group {
 	return g
 }
 
-// Element returns the group's stable opaque scene node.
 func (g *Group) Element() Element {
 	if g == nil {
 		return Element{}
@@ -534,7 +523,6 @@ func (g *Group) install(items []Item, children map[*node]bool) {
 	}
 }
 
-// GroupItems replaces the immediate child relation of Group.
 type GroupItems struct {
 	Group *Group
 	Items []Item

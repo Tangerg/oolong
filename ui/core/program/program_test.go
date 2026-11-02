@@ -192,12 +192,12 @@ type brokenPainter struct {
 	calls int
 }
 
-func (p *brokenPainter) Paint(io.Writer, image.Point) error {
+func (p *brokenPainter) Paint(grid.PaintContext) error {
 	p.calls++
 	return p.cause
 }
 
-func (*brokenPainter) Erase(io.Writer) error { return nil }
+func (*brokenPainter) Erase(grid.PaintContext) error { return nil }
 
 type paintedComponent struct{ painter grid.Painter }
 
@@ -213,13 +213,13 @@ type handoverPainter struct {
 	eraseCalls int
 }
 
-func (p *handoverPainter) Paint(w io.Writer, _ image.Point) error {
+func (p *handoverPainter) Paint(w grid.PaintContext) error {
 	p.paintCalls++
 	_, err := io.WriteString(w, "<picture>")
 	return err
 }
 
-func (p *handoverPainter) Erase(io.Writer) error {
+func (p *handoverPainter) Erase(grid.PaintContext) error {
 	p.eraseCalls++
 	return p.cause
 }

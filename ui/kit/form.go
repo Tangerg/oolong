@@ -86,10 +86,8 @@ func NewForm(config FormConfig) *Form {
 	return f
 }
 
-// Controller is the sole owner of fields, validation and asynchronous submission settlement.
 func (f *Form) Controller() *base.Form { return f.controller }
 
-// Element is the composed title, base form and help scene subtree.
 func (f *Form) Element() scene.Element {
 	if f == nil || f.group == nil {
 		return scene.Element{}
@@ -97,7 +95,6 @@ func (f *Form) Element() scene.Element {
 	return f.group.Element()
 }
 
-// HeightForWidth measures the form and its title/help without changing validation.
 func (f *Form) HeightForWidth(width int) int {
 	return layout.Sum(f.titleRows(), f.help().HeightForWidth(width), f.controller.HeightForWidth(width))
 }

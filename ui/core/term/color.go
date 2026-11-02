@@ -6,28 +6,9 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
-// DetectDepth works out how much colour a terminal can show from its environment.
-//
-// This is the one place the library detects rather than asks. Every other optional
-// behaviour is requested and ignored if unimplemented, which costs nothing when the
-// guess is wrong; a truecolor sequence sent to a terminal that cannot read it does
-// not degrade, it prints wrong.
-//
-// What it reads, in the order it reads it:
-//
-//   - A nonempty NO_COLOR disables colour regardless of its value.
-//   - COLORTERM naming truecolor or 24-bit means truecolor. Terminals that mean it
-//     say so here.
-//   - TERM of "dumb", or no TERM at all, means no colour.
-//   - TERM mentioning 256 means the 256-colour palette.
-//   - Anything else is truecolor.
-//
-// Plenty of terminals handle 24-bit colour and describe themselves as plain "xterm",
-// so that last line makes the common case better at the rare one's expense.
-//
-// lookup is explicit because the environment belongs
-// to the terminal being driven, which may be a PTY or SSH client rather than this
-// process.
+// DetectDepth uses the driven terminal's environment, which may belong to a
+// remote PTY rather than this process. Nonempty NO_COLOR has priority. Unknown
+// terminals default to truecolor because capable peers often advertise only xterm.
 func DetectDepth(lookup func(string) (string, bool)) grid.Depth {
 	if lookup == nil {
 		return grid.NoColor
@@ -52,6 +33,4 @@ func DetectDepth(lookup func(string) (string, bool)) grid.Depth {
 	}
 }
 
-// sixelAttribute is the extension number a terminal claims when it can draw sixel
-// graphics. It is claimed in the device attributes and nowhere else.
 const sixelAttribute = 4

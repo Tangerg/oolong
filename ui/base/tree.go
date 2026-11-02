@@ -277,8 +277,6 @@ func (t *Tree[T]) upToParent(at int) bool {
 	return false
 }
 
-// Focus takes the keyboard, or gives it up — see [List.Focus], which is where the
-// rows this is made of hold it.
 func (t *Tree[T]) focusChanged(has bool) {
 	change := func() {
 		t.list.focusChanged(has)
@@ -290,17 +288,13 @@ func (t *Tree[T]) focusChanged(has bool) {
 	}
 }
 
-// Focused reports whether this tree has the keyboard.
 func (t *Tree[T]) Focused() bool { return t.list.Focused() }
 
-// HeightForWidth is one row per row showing, which is what a container needs to decide how
-// much room to give it.
 func (t *Tree[T]) HeightForWidth(int) int { return t.list.Len() }
 
 // Scroll exposes the position, for a scrollbar drawn beside the tree.
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
 
-// Draw paints the rows that fit.
 func (t *Tree[T]) Draw(v scene.Frame) {
 	t.DrawRows(v, t.Row)
 }

@@ -22,7 +22,7 @@ func TestThePeerRenderersComposeAndQuit(t *testing.T) {
 	}()
 
 	host.Shows(t, "Three peers, one document")
-	host.Shows(t, "explicitly bind")
+	host.Shows(t, "github-dark")
 	host.Shows(t, "√")
 	host.Shows(t, "drawable contract")
 	host.Type("2")

@@ -45,7 +45,6 @@ type Progress struct {
 	Percent bool
 }
 
-// Fraction is how much of the work is done, from 0 to 1.
 func (p Progress) Fraction() float64 {
 	if p.Total <= 0 {
 		return 0
@@ -57,10 +56,8 @@ func (p Progress) Fraction() float64 {
 // deciding whether the bar is still worth showing.
 func (p Progress) Finished() bool { return p.Total > 0 && p.Done >= p.Total }
 
-// HeightForWidth is one row, whatever the width.
 func (p Progress) HeightForWidth(int) int { return 1 }
 
-// Draw writes the label, the bar and the percentage into the first row of v.
 func (p Progress) Draw(v grid.View) {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {

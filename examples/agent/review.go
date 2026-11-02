@@ -2,84 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"image"
 
 	"github.com/Tangerg/oolong/ui/base"
-	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
 )
-
-type workflowStep struct {
-	label string
-	state stepState
-}
-
-type workflow struct {
-	theme  kit.Theme
-	glyphs kit.Glyphs
-	steps  []workflowStep
-}
-
-func newWorkflow(theme kit.Theme, glyphs kit.Glyphs) workflow {
-	w := workflow{theme: theme, glyphs: glyphs}
-	w.Reset()
-	return w
-}
-
-func (w *workflow) Reset() {
-	w.steps = []workflowStep{
-		{label: "understand request", state: stepWaiting},
-		{label: "inspect ownership", state: stepWaiting},
-		{label: "review and apply", state: stepWaiting},
-		{label: "verify invariants", state: stepWaiting},
-	}
-}
-
-func (w *workflow) Apply(update stepUpdate) error {
-	if update.Index < 0 || update.Index >= len(w.steps) || update.State > stepSkipped {
-		return fmt.Errorf("invalid plan update for step %d with state %d", update.Index, update.State)
-	}
-	w.steps[update.Index].state = update.State
-	return nil
-}
-
-func (w *workflow) HeightForWidth(int) int { return layout.Sum(len(w.steps), w.box().Overhead().Y) }
-
-func (w *workflow) box() kit.Box {
-	return kit.Box{
-		Theme: w.theme, Glyphs: w.glyphs, Title: "run plan",
-		Padding: layout.Symmetric(0, 1),
-	}
-}
-
-func (w *workflow) Draw(view grid.View) {
-	inner := w.box().Draw(view)
-	width, height := inner.Size()
-	for row, step := range w.steps {
-		if row >= height {
-			return
-		}
-		mark, state, style := w.glyphs.Free, "waiting", w.theme.Subtle
-		switch step.state {
-		case stepWaiting:
-		case stepRunning:
-			mark, state, style = w.glyphs.Marker, "running", w.theme.Accent
-		case stepDone:
-			mark, state, style = w.glyphs.Taken, "done", w.theme.Success
-		case stepSkipped:
-			mark, state, style = w.glyphs.Bullet, "skipped", w.theme.Muted
-		}
-		at := inner.Text(0, row, mark+" "+step.label, style)
-		stateWidth := len(state)
-		if width-at > stateWidth+1 {
-			inner.Text(width-stateWidth, row, state, style)
-		}
-	}
-}
 
 type reviewRequest struct {
 	ctx      context.Context //nolint:containedctx // A review is only actionable during its issuing request.
@@ -92,13 +22,13 @@ type reviewRequest struct {
 type reviewPane struct {
 	sessionKey func(input.Key) bool
 	diff       *kit.Diff
-	// window scrolls the change. A diff is as tall as the change is, and a review
-	// pane is as tall as the terminal: without a window the part that did not fit was
-	// simply not there, and somebody was asked to allow a change they could not read.
+	// A review must remain readable when the diff exceeds terminal height; a
+	// viewport prevents approval from depending on content the user cannot reach.
 	window  *base.Viewport
 	element scene.Element
 	form    *kit.Form
 	theme   kit.Theme
+	glyphs  kit.Glyphs
 	title   string
 }
 
@@ -107,7 +37,7 @@ func (p *reviewPane) Element() scene.Element {
 		return p.element
 	}
 	title := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: "…"}.Draw(frame.View)
+		kit.Label{Text: p.title, Style: p.theme.Subtle, Ellipsis: p.glyphs.Ellipsis}.Draw(frame.View)
 	}})
 	p.element = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{{Element: title}, {Element: p.window.Element()}, {Element: p.form.Element()}},

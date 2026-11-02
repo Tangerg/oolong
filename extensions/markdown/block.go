@@ -6,18 +6,9 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Block is one immutable piece of a rendered document.
-//
-// A block keeps source and layout semantics together until its final width is
-// known. That distinction matters for more than wrapping: a thematic break
-// stretches, and a table allocates columns or becomes records when columns stop
-// being readable. Exposing pre-laid-out lines would make those decisions too early.
-//
-// Blocks come from [Render]. Their zero value is empty. They can be
-// retained, copied, measured and drawn independently; [Doc] is the convenient way
-// to compose them with their inter-block spacing. Extension renderers must uphold
-// the same stability contract: published children cannot be mutated or released
-// while retained blocks still refer to them.
+// Block defers layout to the final width because tables may need records and dividers
+// may need to stretch. Blocks and their retained extension content remain immutable
+// so copies can be measured, drawn and selected independently.
 type Block struct {
 	lines   []text.Line
 	table   *table
@@ -29,13 +20,10 @@ type Block struct {
 	blankBefore bool
 }
 
-// HeightForWidth reports how many rows the block needs at width. It excludes the blank
-// row that may separate this block from the one before it; [Block.BlankBefore]
-// exposes that relationship to custom composers.
+// HeightForWidth excludes inter-block spacing because only the composer knows
+// whether another block precedes this one.
 func (b Block) HeightForWidth(width int) int { return b.layout(width).height }
 
-// Draw writes the block into v. It excludes any blank row before the block, because
-// only the composer knows whether a preceding block exists.
 func (b Block) Draw(v grid.View) {
 	if v.Empty() {
 		return
@@ -44,21 +32,16 @@ func (b Block) Draw(v grid.View) {
 	b.layout(width).draw(v)
 }
 
-// Rows returns the meaningful text and offsets of the block's physical rows at
-// width. Markers, quotation rails and thematic dividers occupy cells without adding searchable text.
+// Rows preserves marker, quotation-rail and divider geometry separately because
+// those cells affect selection offsets without becoming searchable content.
 func (b Block) Rows(width int) []text.Row { return b.layout(width).project() }
 
-// BlankBefore reports whether this block wants a blank row in front of it: false
-// between the items of a tight list, true where separate prose blocks need to read as
-// separate things.
-//
-// It is the block's own spacing and not a statement about the document. Whether
-// anything precedes this block is the composer's to know — the same reason
-// [Block.Draw] leaves the row out — and a stream settles its answer one piece at a
-// time, so no block can say whether it is the first one anybody will see.
+// BlankBefore leaves spacing to the composer because only it knows whether a
+// preceding block exists; a block cannot declare itself the first visible block.
 func (b Block) BlankBefore() bool { return b.blankBefore }
 
-// blockLayout keeps an embedded child's geometry without flattening its drawing.
+// An embedded drawable keeps its own geometry so text projection cannot flatten
+// its drawing contract.
 type blockLayout struct {
 	rows                []text.Wrapped
 	child               grid.Drawable

@@ -30,8 +30,6 @@ type Settings[T any] struct {
 	editRevision uint64
 }
 
-// Focus takes or releases the keyboard with the list. Releasing it also
-// cancels a partial value binding owned by the settings controller.
 func (s *Settings[T]) focusChanged(has bool) {
 	change := func() {
 		s.list.focusChanged(has)
@@ -43,8 +41,6 @@ func (s *Settings[T]) focusChanged(has bool) {
 	}
 }
 
-// Handle first lets list navigation and pointer selection act, then offers a key to
-// the selected value.
 func (s *Settings[T]) Handle(event input.Event) bool {
 	requireMutable(s.list.element)
 	if s.list.Handle(event) {

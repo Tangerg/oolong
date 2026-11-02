@@ -11,17 +11,15 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/retention"
 )
 
 // Action identifies an operation independently of the keystrokes bound to it.
 // Empty is reserved for no action.
 type Action string
 
-// String returns the action identifier.
 func (a Action) String() string { return string(a) }
 
-// DefaultTimeout is how long a partially typed sequence remains current when a
-// [Map] does not specify a positive Timeout.
 const DefaultTimeout = time.Second
 
 // Resolver schedules resolve after wait and returns a function that cancels it.
@@ -114,7 +112,6 @@ type Binding struct {
 	Action Action
 }
 
-// String returns the chord sequence followed by its action identifier.
 func (b Binding) String() string { return b.Keys.String() + " " + b.Action.String() }
 
 // Map associates chord sequences with actions.
@@ -162,7 +159,6 @@ func (m *Map) Bind(action Action, keys ...input.Chord) {
 	m.rebuild()
 }
 
-// Unbind removes a sequence and reports whether it was bound.
 func (m *Map) Unbind(keys ...input.Chord) bool {
 	if m == nil {
 		return false
@@ -187,7 +183,7 @@ func (m *Map) trim() {
 		m.bound = nil
 		return
 	}
-	if cap(m.bound) > 2*len(m.bound)+16 {
+	if retention.ShouldCompact(cap(m.bound), len(m.bound)) {
 		m.bound = slices.Clone(m.bound)
 	}
 }
@@ -223,7 +219,6 @@ func (m *Map) Bindings() []Binding {
 	return bindings
 }
 
-// Action returns the action named by a complete sequence.
 func (m *Map) Action(keys ...input.Chord) (Action, bool) {
 	node, ok := m.follow(keys)
 	if !ok || node.action == "" {

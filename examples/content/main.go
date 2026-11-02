@@ -1,10 +1,5 @@
-// Command content composes Markdown, syntax highlighting, and LaTeX.
-//
-// Markdown owns the document syntax and streaming-capable block model. Highlight
-// and LaTeX remain independent peer renderers, connected only at the application by
-// the semantic renderer registry and their shared core drawable contract.
-//
-// Press q or Ctrl+C to leave.
+// Command content binds peer renderers at the application boundary so parser
+// dependencies and format policies remain independent.
 package main
 
 import (
@@ -140,7 +135,6 @@ Markdown recognizes the semantic blocks. The application chooses their renderers
 
 ~~~go
 highlighter := highlight.New("github-dark")
-// Applications explicitly bind format names to passive content.
 ~~~
 
 $$

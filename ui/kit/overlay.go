@@ -23,7 +23,6 @@ type Overlay struct {
 	Theme Theme
 }
 
-// Draw shades what is behind the layer and returns the view to draw the layer into.
 func (o Overlay) Draw(v grid.View) grid.View {
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {

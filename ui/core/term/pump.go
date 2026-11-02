@@ -15,12 +15,8 @@ type readResult struct {
 	restart bool
 }
 
-// pump turns raw terminal bytes into events.
-//
-// It is separated from the terminal it normally reads because the interesting part
-// has nothing to do with a terminal: deciding when a buffered escape has waited
-// long enough is a matter of timing, and timing is what a real terminal makes
-// impossible to test.
+// pump receives transport results separately so Escape timing can be tested
+// without a real terminal or a competing input reader.
 type pump struct {
 	// raw preserves data and the terminal result in read-completion order.
 	raw <-chan readResult

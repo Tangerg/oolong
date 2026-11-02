@@ -14,12 +14,9 @@ var ErrHandoverActive = errors.New("term: terminal handover already active")
 // that case: only the reader can confirm it stopped consuming keystrokes.
 const parkGrace = 100 * time.Millisecond
 
-// handover is the reader's side of giving the terminal up: a latch it parks on,
-// and a signal saying it has.
-//
-// It is a latch rather than a flag because parking has to be a wait. A flag would
-// be read between two reads and leave the reader inside the next one, which is
-// exactly where it must not be: a byte read there is a byte the child never sees.
+// handover parks the sole reader before input ownership changes. A flag
+// checked between reads would leave a race in which the next read steals the
+// child's keystroke.
 type handover struct {
 	mu sync.Mutex
 	// resume is closed to let the reader go on. Nil when no handover is claimed.
@@ -61,8 +58,7 @@ func (h *handover) park(stop <-chan struct{}) {
 	h.mu.Lock()
 	resume, parked := h.resume, h.parked
 	if resume != nil {
-		// Answered once: the signal is what a handover waits on, and closing it twice
-		// would be a panic on the second read of the terminal.
+		// Confirm once; a second close would panic on the next reader iteration.
 		h.parked = nil
 	}
 	h.mu.Unlock()

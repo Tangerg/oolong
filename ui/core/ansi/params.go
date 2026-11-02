@@ -6,13 +6,8 @@ import (
 	"strings"
 )
 
-// Params is a sequence's parameter section, parsed once and read by whichever
-// decoder the final byte selects.
-//
-// There is one parser rather than one per sequence family. Two parsers over the
-// same syntax drift: they disagree about what an empty field means, or about what
-// to do with a field that is not a number, and the sequence that exercises the
-// difference is the one nobody tested.
+// Params owns shared parameter syntax so decoders cannot disagree about empty,
+// malformed, or out-of-range fields.
 type Params struct {
 	marker byte
 	groups []Parameter
@@ -28,18 +23,10 @@ type Params struct {
 // parser's storage.
 type Parameter struct{ values []int }
 
-// Limit is the largest value a parameter may hold; a number beyond it is treated
-// as malformed.
-//
-// The largest real parameter is a Unicode code point — a Kitty key report names the
-// key by its scalar value, and the last plane runs to U+10FFFF — so the bound is the
-// whole 21-bit space that can hold one. A tighter bound reads as generous and is
-// not: it refuses the top plane, and the refusal looks like a terminal sending
-// nonsense rather than like this deciding it was.
+// Limit includes the full 21-bit space needed for Kitty Unicode key reports;
+// a smaller bound would reject valid keys in the last Unicode plane.
 const Limit = 1 << 21
 
-// Parse reads a control sequence's parameter section — everything between the
-// introducer and the final byte.
 func Parse(body string) Params {
 	var ps Params
 	if body != "" && body[0] >= 0x3c && body[0] <= 0x3f {
@@ -113,10 +100,8 @@ func (ps Params) Group(i int) Parameter {
 	return ps.groups[i]
 }
 
-// Len is how many parameters the sequence carried.
 func (ps Params) Len() int { return len(ps.groups) }
 
-// Len is how many fields the parameter carries, including its leading value.
 func (p Parameter) Len() int { return len(p.values) }
 
 // At returns field i, or zero when i is outside the parameter. Zero is also the

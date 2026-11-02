@@ -1,23 +1,12 @@
-// Package present decides when a frame is drawn.
-//
-// A terminal UI has more reasons to redraw than it has frames worth drawing: a
-// streamed token, a spinner tick, a scroll wheel and a resize can all land inside
-// one refresh interval. The presenter turns that stream of reasons into a paced
-// sequence of draws, and refuses to draw at all while the terminal is still
-// swallowing the last frame.
-//
-// It is state, not machinery: it owns no goroutine, opens nothing, and writes
-// nothing. Its driver asks what to do and it answers. That is what makes the
-// pacing rules testable without a terminal.
+// Package present coalesces redraw requests and waits for accepted output to
+// finish, preventing fast event sources from queuing redundant terminal frames.
+// Its driver owns clocks and I/O so pacing can be tested independently.
 package present
 
 import "time"
 
-// Presenter tracks whether a frame is owed, whether one is still in flight, and
-// when the next one may go.
-//
-// Not safe for concurrent use. It belongs to the driver that draws, and the whole
-// point of a single owner is that "is a frame in flight" has one answer.
+// Presenter belongs to one driver goroutine so frame admission and completion
+// have one owner. Concurrent use is unsupported.
 type Presenter struct {
 	// owed is set by every request and cleared by the draw that satisfies them
 	// all. Many requests collapsing into one draw is the coalescing.
@@ -31,8 +20,7 @@ type Presenter struct {
 	queued, written uint64
 
 	drawnAt time.Time
-	// dueAt is when a throttled request that was turned away becomes allowed.
-	dueAt time.Time
+	dueAt   time.Time
 	// drawing is the unfinished frame's time. It excludes reentry and establishes
 	// pacing for requests made by its composition callback.
 	drawing *time.Time

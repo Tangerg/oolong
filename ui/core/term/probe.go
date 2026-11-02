@@ -21,55 +21,26 @@ const (
 
 	queryBackground = "\x1b]11;?\x07"
 
-	// queryForeground asks the terminal what colour it draws with.
-	//
-	// It is the other half of the same question, and it is asked for a different
-	// reason: the background decides which theme suits, while the pair of them is
-	// what a translucent layer mixes with. A cell left at the terminal's own colours
-	// is the commonest cell there is, and without both answers such a cell cannot be
-	// dimmed — see [grid.Ground].
+	// Blending terminal-default cells needs both queried colors; the
+	// background alone can choose a theme but cannot resolve the foreground.
 	queryForeground = "\x1b]10;?\x07"
 
-	// queryVersion asks the terminal to name itself.
-	//
-	// It is the question worth asking most, because everything else this library does
-	// to identify a terminal reads environment variables — and those do not survive
-	// ssh, do not exist in a container, and are rewritten by a multiplexer. A terminal
-	// that answers this has told the truth about itself; one that does not leaves the
-	// environment as the only evidence there was.
+	// A direct name reply describes the destination; environment hints can
+	// instead describe an outer terminal or the remote host.
 	queryVersion = "\x1b[>0q"
 
-	// queryDeviceVersion asks for a version number rather than a name.
-	//
-	// It is for the terminals that answer nothing else: Alacritty exports no version
-	// in its environment and declines to answer the question above, and this is what
-	// it does answer.
+	// Numeric identity probes cover peers that omit a human-readable name.
 	queryDeviceVersion = "\x1b[>0c"
 
-	// queryKeyboard asks which of the Kitty keyboard protocol's enhancements are
-	// actually on, which is not the same as which were asked for.
-	//
-	// It must be written after the request that turns them on, which is what modes
-	// does before any of this runs. Asking first would report the state of a terminal
-	// this session had not spoken to yet.
+	// Query after mode acquisition so the reply describes accepted keyboard
+	// features rather than the terminal's previous settings.
 	queryKeyboard = "\x1b[?u"
 
-	// queryAttributes asks the terminal what it is.
-	//
-	// It is sent after every other question as the marker that the answers are
-	// over. Every terminal answers this one, so its answer arriving without the
-	// answer to the question that mattered is how a terminal says it did not
-	// understand — which no terminal says any other way. Without it, learning that
-	// a terminal does not support a query would cost the whole timeout, on every
-	// start, for exactly the terminals that can least afford to look slow.
+	// Send DA1 last so its reply can settle earlier unanswered queries
+	// without spending the full timeout. Silent peers still need answerGrace.
 	queryAttributes = "\x1b[c"
 
-	// answerGrace bounds the wait for a terminal that answers nothing at all.
-	//
-	// It is the backstop rather than the mechanism: a terminal that speaks at all
-	// is done in one round trip, and one that is silent has a broken or filtered
-	// connection. Long enough to cross a slow one, short enough that a start
-	// nobody is waiting on does not look like a hang.
+	// Bound startup even when a terminal ignores or filters every query.
 	answerGrace = 200 * time.Millisecond
 
 	// Startup cannot apply event backpressure until Open returns. Yield the
@@ -86,20 +57,9 @@ type queryWriter interface {
 	SetWriteDeadline(deadline time.Time) error
 }
 
-// probe puts questions to the terminal during startup and collects the answers.
-//
-// It reads the terminal directly, which is only safe because it runs before the
-// pump goroutine does: a terminal has exactly one reader, and two would race for
-// the same bytes. Everything it decodes and did not ask for — a key the user
-// managed to press first — is kept and handed on.
-//
-// It decodes through the session's own [input.Stream] rather than a parser of its
-// own, and that is the whole of what makes startup input ordinary input. A probe
-// with a bare parser answers "what bytes are these" and nothing else, so the two
-// decisions a stream owns — when an ambiguous escape has waited long enough, and
-// when each event arrived — would go unmade for as long as the probe held the
-// terminal. An Escape pressed while the questions were in flight would come back as
-// the Alt-modified form of whatever the user typed next.
+// Startup probing and the later input pump share one Stream and never read
+// concurrently. This preserves incomplete framing, Escape deadlines, and arrival
+// times while retaining user events received among capability replies.
 type probe struct {
 	raw    <-chan readResult
 	out    queryWriter
@@ -124,7 +84,6 @@ const (
 	graphicsRejected
 )
 
-// answers is what a terminal was willing to say about itself.
 type answers struct {
 	kitty      graphicsProbeResult
 	background grid.RGB
@@ -145,11 +104,8 @@ type answers struct {
 	hasKeyboard bool
 }
 
-// run asks everything worth asking and returns what came back.
-//
-// A failure to write, a terminal that says nothing, and a terminal that answers
-// only some of it are all the same kind of outcome — a session runs perfectly well
-// without knowing any of this — so none of them is an error.
+// Capability discovery is optional: write failure, silence, and partial replies
+// retain the session's unprobed defaults instead of preventing startup.
 func (p *probe) run() answers {
 	var got answers
 	// One budget for the whole exchange, held over the transport as well as the wait.
@@ -225,8 +181,6 @@ func (p *probe) drainRaw(got *answers) bool {
 	return false
 }
 
-// take files one decoded event: as an answer if it is one, and otherwise as input
-// that belongs to the session.
 func (p *probe) take(ev input.Event, got *answers) {
 	// The marker ends the exchange even in the middle of one transport read.
 	if got.hasAttrs {
@@ -299,14 +253,8 @@ func (a answers) graphics(hint graphics.Protocol) graphics.Protocol {
 	return protocol
 }
 
-// parseXParseColor reads the colour specification a terminal answers a colour
-// query with.
-//
-// The form is the one X has always used: "rgb:" and then three channels of one to
-// four hexadecimal digits, separated by slashes. The digit count is the precision,
-// so "f" and "ffff" are both full brightness and "8" is not the same as "0008" —
-// which is why each channel is scaled by the largest value its own width could
-// hold rather than simply padded.
+// X color channels encode precision in their digit count: f and ffff both
+// mean full brightness. Scale by each channel's maximum instead of padding it.
 func parseXParseColor(spec string) (grid.RGB, bool) {
 	body, ok := strings.CutPrefix(spec, "rgb:")
 	if !ok {
@@ -350,14 +298,8 @@ func parseChannel(s string) (uint8, bool) {
 	return scaleChannel(value, full), true
 }
 
-// scaleChannel turns a channel worth full at its own width into the eight bits a
-// cell holds.
-//
-// Rounding to nearest rather than towards zero: without it every channel loses up
-// to a step, and a white background answered as "f/f/f" comes back not quite
-// white. The answer is given in the type it is used as, and clamped on the way, so
-// the narrowing is visible here instead of being a conversion whose safety has to
-// be reconstructed by reading the caller.
+// Round channel scaling to nearest to avoid a systematic downward bias. Clamp
+// before narrowing so the returned byte cannot wrap.
 func scaleChannel(value, full int) uint8 {
 	scaled := (value*255 + full/2) / full
 	switch {

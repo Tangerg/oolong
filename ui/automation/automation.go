@@ -39,7 +39,6 @@ type Driver struct {
 	owner Owner
 }
 
-// Driver errors distinguish invalid configuration from an owner that has stopped.
 var (
 	ErrInvalid = errors.New("automation: root and owner are required")
 	ErrStopped = errors.New("automation: owner stopped")
@@ -65,7 +64,6 @@ func (d *Driver) valid() error {
 	return nil
 }
 
-// Observe obtains a read-only semantic snapshot on the owner sequence.
 func (d *Driver) Observe(ctx context.Context, query scene.Query) (scene.Observation, error) {
 	if err := d.valid(); err != nil {
 		return scene.Observation{}, err
@@ -79,7 +77,6 @@ func (d *Driver) Observe(ctx context.Context, query scene.Query) (scene.Observat
 	return observation, err
 }
 
-// Find returns the unique match in a complete bounded observation.
 func (d *Driver) Find(ctx context.Context, query scene.Query, match scene.Match) (scene.Target, error) {
 	observation, err := d.Observe(ctx, query)
 	if err != nil {
@@ -110,7 +107,6 @@ type Locator struct {
 	match  scene.Match
 }
 
-// Locate creates a query that resolves again when invoked, rather than retaining an attachment.
 func (d *Driver) Locate(query scene.Query, match scene.Match) Locator {
 	return Locator{driver: d, query: query, match: match}
 }

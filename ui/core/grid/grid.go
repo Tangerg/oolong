@@ -18,7 +18,6 @@ import (
 // cell stores are allocated. It does not limit independently owned surfaces.
 const MaxTerminalCells = 1 << 18
 
-// ErrInvalidTerminalSize rejects empty or excessive terminal geometry.
 var ErrInvalidTerminalSize = errors.New("grid: invalid terminal size")
 
 // ValidateTerminalSize reports whether the reported dimensions can safely back a
@@ -34,14 +33,9 @@ func ValidateTerminalSize(width, height int) error {
 	return nil
 }
 
-// Area builds a rectangle from a terminal-natural origin and size. The result is
-// half-open: it covers columns [x, x+w) and rows [y, y+h). Negative sizes become
-// zero and endpoints that exceed int range saturate.
-//
-// Not Rect, which is [image.Rect]'s name for the same four integers read as two
-// corners. Two functions with one signature, one return type and two meanings is a
-// mistake nothing catches: a caller reaching for the familiar one gets a rectangle
-// that compiles, draws, and is the wrong shape.
+// Area names origin-and-size geometry separately from image.Rect's two-corner
+// geometry, because their identical argument types cannot catch a mix-up. The
+// rectangle is half-open; negative sizes collapse and overflowing ends saturate.
 func Area(x, y, w, h int) image.Rectangle {
 	w, h = max(w, 0), max(h, 0)
 	return image.Rectangle{
@@ -84,16 +78,10 @@ func coordinateExtent(from, to int) int {
 	return int(extent)
 }
 
-// RGB is a 24-bit colour.
 type RGB struct{ R, G, B uint8 }
 
-// Blend mixes c toward over by opacity, clamped to [0,1].
-//
-// This is the whole of compositing in a terminal. There is no alpha channel on the
-// wire — a cell holds one background and one foreground, and both are opaque — so a
-// translucent layer has to be resolved to opaque colours before anything is written.
-// Doing the mixing here, on two colours that are certainly numbers, is what keeps
-// that resolution in one place.
+// Blend resolves opacity before output because terminal cells have no alpha
+// channel. Opacity is clamped to [0,1].
 func (c RGB) Blend(over RGB, opacity float64) RGB {
 	opacity = min(max(opacity, 0), 1)
 	lerp := func(a, b uint8) uint8 {
@@ -109,28 +97,17 @@ type Color struct {
 	rgb RGB
 }
 
-// RGBColor returns a colour that overrides the terminal default.
 func RGBColor(r, g, b uint8) Color { return Color{set: true, rgb: RGB{r, g, b}} }
 
-// Default reports whether the colour defers to the terminal.
 func (c Color) Default() bool { return !c.set }
 
 // RGB returns the colour's components. They are meaningless when the colour is
 // the terminal default.
 func (c Color) RGB() RGB { return c.rgb }
 
-// Blend mixes c toward over by opacity, clamped to [0,1].
-//
-// A colour that defers to the terminal is not a number, so a blend involving one
-// cannot be computed and c is returned unchanged. That is the rule everywhere
-// blending appears: what cannot be resolved is left alone, rather than guessed at.
-// Guessing would tint an interface differently on every terminal, and be wrong in
-// the direction that makes text vanish — a scrim assumed to be over black, painted
-// over white, blacks out the screen.
-//
-// Turning a default into a number is [Ground]'s job, and doing it first is what
-// makes a blend answerable. A frame drawn by a program has one, because the
-// terminal was asked at startup.
+// Blend cannot resolve a terminal-default color to a number, so it leaves c
+// unchanged if either input is unresolved. Ground supplies queried RGB values
+// when available; guessing a background could make text disappear.
 func (c Color) Blend(over Color, opacity float64) Color {
 	if c.Default() || over.Default() {
 		return c
@@ -139,11 +116,8 @@ func (c Color) Blend(over Color, opacity float64) Color {
 	return RGBColor(blended.R, blended.G, blended.B)
 }
 
-// Attr is a set of text attributes.
 type Attr uint8
 
-// The attributes a cell can carry. They are the ones every terminal implements
-// and the ones a single SGR parameter turns on, which is why there are six.
 const (
 	Bold Attr = 1 << iota
 	Dim
@@ -153,7 +127,6 @@ const (
 	Strike
 )
 
-// Has reports whether every attribute in want is set.
 func (a Attr) Has(want Attr) bool { return a&want == want }
 
 // Style is how a cell looks. The zero Style is the terminal's own appearance.
@@ -222,15 +195,9 @@ func (g Ground) Resolve(s Style) Style {
 // head/trail pair is not a sufficient storage model.
 type span int
 
-// Cell is one terminal cell.
-//
-// The zero Cell is a blank single-width cell in the terminal's own style, so a
-// freshly allocated or cleared surface is already valid.
-//
-// A cell's content is read through [Cell.Content] rather than a writable field.
-// Only drawing through a [View] can create content, which keeps its measured span
-// and continuation cells inseparable. Style and Link remain writable on copied
-// rows because changing appearance cannot invalidate that geometry.
+// Cell content changes only through View so an atom's measured width and
+// continuation cells cannot diverge. Copied rows may change Style and Link
+// without changing geometry. The zero value is a valid blank single-column cell.
 type Cell struct {
 	content string
 	Style   Style
@@ -255,26 +222,14 @@ func (c Cell) Width() int {
 	return max(int(c.span), 1)
 }
 
-// Blank reports whether the cell would print as empty space.
 func (c Cell) Blank() bool { return c.content == "" && c.span >= 0 }
 
-// Index256 is the nearest entry of the xterm 256-colour palette.
-//
-// Both the colour cube and the grey ramp are searched and the closer of the two
-// wins. Searching only the cube would turn every near-grey into a muddy brown: the
-// cube's greys are the six points where all three channels agree, and the ramp has
-// twenty-four.
-//
-// The first sixteen indices are left out of the search on purpose. A terminal is
-// free to render those as anything at all — a theme's own palette, usually — so
-// choosing one because its default value happened to be close is choosing a colour
-// nobody can predict.
+// Index256 compares the color cube and grayscale ramp so near-gray colors
+// keep their luminance. Themeable ANSI entries are excluded: their nominal RGB
+// values do not predict what the destination will display.
 func (c RGB) Index256() uint8 {
-	// All of this is uint8 arithmetic on purpose. Each cube index is at most 5, so
-	// the largest value reachable here is 16+36*5+6*5+5 = 231, and the largest grey
-	// index is 232+23 = 255 — both inside the type the answer is returned in. Doing
-	// the sums in a wider type and converting at the end would be the same numbers
-	// with a conversion nobody can check by reading it.
+	// Palette arithmetic fits uint8: cube entries end at 231 and the ramp
+	// ends at 255, so no narrowing can wrap a selected index.
 	r, g, b := nearestCube(c.R), nearestCube(c.G), nearestCube(c.B)
 	best := 16 + 36*r + 6*g + b
 	bestDist := distance(c, RGB{cube[r], cube[g], cube[b]})
@@ -291,14 +246,8 @@ func (c RGB) Index256() uint8 {
 	return best
 }
 
-// Dark reports whether this colour is dark enough that what goes on top of it
-// should be light.
-//
-// That, rather than "is it dark" in the abstract, is the question a theme asks
-// when it learns what the terminal draws on. The answer weights the channels by
-// how much of brightness the eye takes from each — green far more than blue — and
-// puts the line down the middle. An unweighted average would call a saturated
-// blue light and a saturated green dark, and get both backwards.
+// Dark weights perceived channel brightness so theme contrast does not treat
+// saturated blue and saturated green as equally bright.
 func (c RGB) Dark() bool {
 	// The weights sum to a thousand, so the sum is a thousand times a value in
 	// 0–255 and the middle of that range is 128 thousand. Kept in integers because
@@ -306,7 +255,6 @@ func (c RGB) Dark() bool {
 	return 299*int(c.R)+587*int(c.G)+114*int(c.B) < 128_000
 }
 
-// Index16 is the nearest of the sixteen colours every terminal has.
 func (c RGB) Index16() uint8 {
 	best, bestDist := uint8(0), distance(c, ansi16[0])
 	for i := 1; i < len(ansi16); i++ {

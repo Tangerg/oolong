@@ -22,20 +22,6 @@ type runRequest struct {
 	mode   planMode
 }
 
-type stepState uint8
-
-const (
-	stepWaiting stepState = iota
-	stepRunning
-	stepDone
-	stepSkipped
-)
-
-type stepUpdate struct {
-	Index int
-	State stepState
-}
-
 type changeProposal struct {
 	Path          string
 	Summary       string
@@ -68,23 +54,23 @@ type mockBackend struct{ delay time.Duration }
 
 func (m mockBackend) Run(ctx context.Context, request runRequest, output agentOutput) error {
 	run := &script{backend: m, output: output}
-	run.step(ctx, 0, stepRunning)
+	run.step(ctx, stepUnderstand, stepRunning)
 	run.say(ctx, "# Working plan\n\nI\u2019ll inspect the parser boundary for **"+clip(request.prompt)+"**.\n\n")
-	run.step(ctx, 0, stepDone)
+	run.step(ctx, stepUnderstand, stepDone)
 
 	if request.mode == planFast {
-		run.step(ctx, 1, stepSkipped)
+		run.step(ctx, stepInspect, stepSkipped)
 	} else {
-		run.step(ctx, 1, stepRunning)
+		run.step(ctx, stepInspect, stepRunning)
 		run.say(ctx, "The behavior is correct, but the validation and state transition are split across two functions. I can make the parser own that invariant.\n\n")
-		run.step(ctx, 1, stepDone)
+		run.step(ctx, stepInspect, stepDone)
 	}
 
 	proposal := parserProposal()
-	run.step(ctx, 2, stepRunning)
+	run.step(ctx, stepReview, stepRunning)
 	if !run.review(ctx, proposal) {
-		run.step(ctx, 2, stepSkipped)
-		run.step(ctx, 3, stepSkipped)
+		run.step(ctx, stepReview, stepSkipped)
+		run.step(ctx, stepVerify, stepSkipped)
 		run.say(ctx, "I left the workspace unchanged. The review decision is a domain result, not a transport failure.\n")
 		return run.err
 	}
@@ -92,10 +78,10 @@ func (m mockBackend) Run(ctx context.Context, request runRequest, output agentOu
 	run.tool(ctx, toolResult{
 		Name: "apply_patch", Summary: "updated internal/parser.go", Change: proposal,
 	})
-	run.step(ctx, 2, stepDone)
-	run.step(ctx, 3, stepRunning)
+	run.step(ctx, stepReview, stepDone)
+	run.step(ctx, stepVerify, stepRunning)
 	run.say(ctx, "## Verification\n\nThe focused tests and race detector pass. The parser now owns validation and callers have one obvious path.\n\nAll checks pass.\n")
-	run.step(ctx, 3, stepDone)
+	run.step(ctx, stepVerify, stepDone)
 	return run.err
 }
 
@@ -108,9 +94,9 @@ type script struct {
 	err     error
 }
 
-func (s *script) step(ctx context.Context, index int, state stepState) {
+func (s *script) step(ctx context.Context, step stepID, state stepState) {
 	if s.err == nil {
-		s.err = s.output.Step(ctx, stepUpdate{Index: index, State: state})
+		s.err = s.output.Step(ctx, stepUpdate{Step: step, State: state})
 	}
 }
 

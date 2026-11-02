@@ -105,7 +105,6 @@ func (h *History[T]) trim() {
 	}
 }
 
-// Len reports the number of retained entries, excluding the draft.
 func (h *History[T]) Len() int { return h.entries.Len() }
 
 // At returns a snapshot of the entry n steps back, one being the newest.

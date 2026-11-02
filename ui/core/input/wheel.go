@@ -5,16 +5,9 @@ import (
 	"time"
 )
 
-// Wheel says what a terminal's wheel reports are worth.
-//
-// It is not a constant because a wheel report carries a direction and no magnitude,
-// and terminals disagree about how many reports one notch is: Apple Terminal, kitty,
-// Ghostty and alacritty send three, iTerm2 and WezTerm send one, and the protocol has
-// no way to say which.
-//
-// The zero value is the commoner arrangement: three reports to a notch, three rows to
-// a notch, which comes to one row a report. It is a reasonable answer everywhere and
-// the right one on most terminals.
+// Wheel compensates for terminal-specific report batching, which the mouse
+// protocol does not describe. The zero value uses three reports and three rows
+// per notch; explicit profiles can override that assumption.
 type Wheel struct {
 	// Reports is how many wheel events the terminal sends for one physical notch.
 	Reports int
@@ -40,8 +33,7 @@ type Wheel struct {
 // a report, and that is what Trackpad says.
 const trackpadReports = 3
 
-// wheelDefault is what a terminal that says nothing is assumed to do, and what every
-// field left at zero falls back to. Three and three is the commonest pair.
+// wheelDefault supplies omitted report and row settings consistently.
 const wheelDefault = 3
 
 // Distance is how many rows one report of the wheel is worth, as a fraction of a row.
@@ -68,12 +60,8 @@ func (w Wheel) TrackpadDistance() float64 {
 	return float64(w.Trackpad) / trackpadReports
 }
 
-// wheelProfiles are the terminals worth knowing about, matched as lowercase
-// substrings of what they call themselves.
-//
-// Conservative on purpose: a terminal not on the list gets the common arrangement,
-// which is wrong by at most a factor of three, while a wrong entry is wrong for
-// everyone who uses that terminal and looks like the library being broken.
+// Keep wheel profiles conservative: a false identity match applies the wrong
+// batching to every gesture, while unknown terminals can retain the default.
 var wheelProfiles = []struct {
 	name  string
 	wheel Wheel
@@ -91,8 +79,7 @@ var wheelProfiles = []struct {
 	{"cursor", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
 	{"windsurf", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
 	{"zed", Wheel{Reports: 1, Rows: 3, Trackpad: 3}},
-	// Three reports to a notch, which is the common arrangement and the default. On
-	// these the two numbers come to the same thing, and the telling apart is moot.
+	// These profiles match the default report-to-row ratio.
 	{"apple_terminal", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
 	{"ghostty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
 	{"kitty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
@@ -170,16 +157,8 @@ func environmentValue(lookup func(string) (string, bool), name string) string {
 	return value
 }
 
-// Advance turns a run of wheel reports into whole rows, keeping what is left over.
-//
-// The remainder is the whole reason this is a type and not a division. On a terminal
-// that sends three reports to a notch worth three rows, each report is worth exactly
-// one and nothing is left; on one that sends three reports to a notch worth one row,
-// each is worth a third, and rounding each to zero would mean the view never moved at
-// all while the wheel turned.
-//
-// Zero rows is an ordinary answer. A caller scrolls by what it gets and asks again on
-// the next report.
+// Advance retains fractional rows so reports worth less than one row still
+// produce movement after accumulating. Zero rows is a valid intermediate result.
 type Advance struct {
 	wheel   Wheel
 	carried float64

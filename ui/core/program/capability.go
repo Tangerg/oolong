@@ -31,7 +31,6 @@ func environmentFor(host hostServices) Environment {
 	}}
 }
 
-// Ground reports the host's foreground and background colours when known.
 func (e Environment) Ground() grid.Ground {
 	if e.facts == nil {
 		return grid.Ground{}
@@ -39,7 +38,6 @@ func (e Environment) Ground() grid.Ground {
 	return e.facts.ground
 }
 
-// Color reports the colour depth of the user-facing terminal.
 func (e Environment) Color() grid.Depth {
 	if e.facts == nil {
 		return grid.NoColor
@@ -47,7 +45,6 @@ func (e Environment) Color() grid.Depth {
 	return e.facts.color
 }
 
-// Wheel reports how host wheel events should be scaled.
 func (e Environment) Wheel() input.Wheel {
 	if e.facts == nil {
 		return input.Wheel{}
@@ -55,7 +52,6 @@ func (e Environment) Wheel() input.Wheel {
 	return e.facts.wheel
 }
 
-// Keyboard reports negotiated keyboard protocol features.
 func (e Environment) Keyboard() (input.KeyboardFeatures, bool) {
 	if e.facts == nil {
 		return 0, false
@@ -76,7 +72,6 @@ func (e Environment) Locale() string {
 // refuses writes and reads.
 type Clipboard struct{ runtime *Runtime }
 
-// Copy puts text on the host clipboard when supported.
 func (c Clipboard) Copy(text string) bool { return c.runtime.services().copy(text) }
 
 // Paste requests clipboard contents and reports whether the host accepted the
@@ -146,16 +141,11 @@ func (s Session) Hand(run func() error) error {
 	}, run)
 }
 
-// Suspend restores the terminal and stops the process until it is continued.
-//
-// It is [Session.Hand] with the child being this process stopping itself, and it
-// fails on exactly the same terms: [errors.ErrUnsupported] without a live owner or a
-// [HandoverHost], [ErrFrameTimeout] when pending frames cannot drain, and
-// [ErrDisplayFailed] once a frame or the transport has failed. Checking any of that
-// here as well would be a second answer to a question Hand already answers.
+// Suspend uses [Session.Hand] so terminal ownership is released before job
+// control can stop this process. Hand owns admission and restoration; [term.Suspend]
+// preserves the host's signal policy and owns the platform's delivery boundary.
 func (s Session) Suspend() error { return s.Hand(term.Suspend) }
 
-// SetTitle names the host window when supported.
 func (s Session) SetTitle(title string) error { return s.host().setTitle(title) }
 
 // SetProgress presents task progress outside the cell grid when supported. The
@@ -163,23 +153,18 @@ func (s Session) SetTitle(title string) error { return s.host().setTitle(title) 
 // the interface, which remains ordinary component state.
 func (s Session) SetProgress(progress term.Progress) error { return s.host().setProgress(progress) }
 
-// Bell asks the host for the user's attention.
 func (s Session) Bell() error { return s.host().bell() }
 
-// Notify asks the host to display a desktop notification.
 func (s Session) Notify(text string) error { return s.host().notify(text) }
 
 // Images is the host's image transport. Its zero value reports no protocol and
 // refuses transmission.
 type Images struct{ runtime *Runtime }
 
-// Protocol reports the host's richest image protocol.
 func (i Images) Protocol() graphics.Protocol { return i.runtime.services().graphics() }
 
-// CellSize reports one terminal cell's pixel size when known.
 func (i Images) CellSize() (image.Point, bool) { return i.runtime.services().cellSize() }
 
-// Transmit sends one PNG and returns the image handle used by frames.
 func (i Images) Transmit(png []byte) (graphics.Resource, error) {
 	return i.runtime.services().transmit(png)
 }

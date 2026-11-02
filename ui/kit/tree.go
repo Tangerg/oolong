@@ -64,7 +64,6 @@ func NewTree[T any](config TreeConfig[T]) *Tree[T] {
 	return tree
 }
 
-// Controller returns the base tree that owns hierarchy and selection state.
 func (t *Tree[T]) Controller() *base.Tree[T] {
 	if t == nil {
 		return nil
@@ -72,7 +71,6 @@ func (t *Tree[T]) Controller() *base.Tree[T] {
 	return t.controller
 }
 
-// HeightForWidth is one row per row the tree is showing.
 func (t *Tree[T]) HeightForWidth(across int) int {
 	if t == nil || t.controller == nil {
 		return 0
@@ -80,7 +78,6 @@ func (t *Tree[T]) HeightForWidth(across int) int {
 	return t.controller.HeightForWidth(across)
 }
 
-// Draw paints the rows that fit.
 func (t *Tree[T]) Draw(v scene.Frame) {
 	if t == nil || t.controller == nil {
 		return
@@ -135,7 +132,6 @@ func (t *Tree[T]) mark(row base.Shown[T]) string {
 	}
 }
 
-// Element returns the controller's one scene identity with its kit appearance installed.
 func (t *Tree[T]) Element() scene.Element {
 	if t == nil || t.controller == nil {
 		return scene.Element{}

@@ -96,7 +96,6 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 	return scene.EventResult{Consumed: handled}
 }
 
-// Element returns the single scene identity shared by drawing, input and actions.
 func (b *Button) Element() scene.Element {
 	if b == nil {
 		return scene.Element{}
@@ -131,10 +130,8 @@ func (b *Button) Press(ctx context.Context) (scene.ActionResult[struct{}], error
 // Programmatic and agent activation return their error directly.
 func (b *Button) Error() error { return b.lastError }
 
-// HeightForWidth reserves one row for the default button appearance.
 func (b *Button) HeightForWidth(int) int { return 1 }
 
-// Draw stages the pointer extent and paints the current label without changing action state.
 func (b *Button) Draw(frame scene.Frame) { b.Stage(frame); frame.Text(0, 0, b.label, Look{}.Text) }
 
 // Stage derives this candidate frame's pointer extent for an alternate appearance.

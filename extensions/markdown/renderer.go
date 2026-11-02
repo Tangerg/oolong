@@ -10,13 +10,12 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
-// RendererConfig freezes the appearance used by each independent whole-source preparation.
+// RendererConfig is snapshotted so later caller edits cannot change retained
+// source projections.
 type RendererConfig struct{ Look Look }
 
-// NewRenderer captures an owned appearance configuration. The returned renderer
-// prepares a complete source snapshot; StreamDocument decides which version is
-// current and when it is final. Each result has its own private layout cache and
-// exposes no semantic mutation API.
+// NewRenderer requires complete snapshots to keep parse semantics independent of chunk boundaries.
+// StreamDocument owns revision and finalization; each result owns its layout cache.
 func NewRenderer(cfg RendererConfig) content.Renderer {
 	look := cloneLook(cfg.Look)
 	return func(ctx context.Context, source string) (grid.Drawable, error) {

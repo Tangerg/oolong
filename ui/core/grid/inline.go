@@ -41,21 +41,15 @@ type Inline struct {
 	// A full repaint restores cells and terminal-native regions as one composition.
 	full bool
 
-	// left says the block has been finished with and nothing has been written since,
-	// so finishing it again has nothing to do. Whether the terminal has been given the
-	// block back is this type's fact: a caller that has to remember whether it already
-	// asked would be keeping a second copy of it, and two callers with reason to ask —
-	// an exit and a handover — would each keep their own.
+	// Completion belongs to Inline so exit and handover callers can finish
+	// the same block without each retaining a competing completion flag.
 	left bool
 
 	buf []byte
 }
 
-// NewInline returns an inline block that may grow to h rows of w columns, whose
-// first flush draws everything.
-//
-// The height is a ceiling rather than a size: it is what the terminal can spare,
-// and the block takes as much of it as the interface draws into.
+// NewInline treats h as a ceiling: the live block occupies only rows drawn by
+// the frame. Its first publication establishes the complete display.
 func NewInline(w, h int) *Inline { return (NativeTarget{}).Inline(w, h) }
 
 // Inline creates a canvas fixed to the native destination for its lifetime.
@@ -95,8 +89,6 @@ func (i *Inline) SetGround(g Ground) {
 	i.buffers.setGround(g)
 }
 
-// Invalidate forgets what the terminal is showing, so the next flush rewrites the
-// whole block.
 func (i *Inline) Invalidate() {
 	i.publication.requireIdle()
 	i.invalidate()
@@ -285,10 +277,8 @@ func (i *Inline) used() int {
 	if i.placed.Visible {
 		last = max(last, i.placed.Pos.Y)
 	}
-	// A region something else paints has no cells in it, and the block still has to
-	// be tall enough to hold it: a picture below the block's last written row would
-	// be drawn outside it, and the next frame would move up over rows it does not
-	// own.
+	// Native regions contribute height even without cells, otherwise the
+	// next relative frame could move above rows the live block still occupies.
 	for _, region := range i.buffers.back.regions() {
 		last = max(last, region.rect.Max.Y-1)
 	}
@@ -435,10 +425,8 @@ func (i *Inline) rowChanged(y int, full bool) bool {
 }
 
 func (i *Inline) composeEnd(used, total int, full bool) (image.Point, error) {
-	// The regions something else paints, from where the rows left the cursor. They
-	// go after the rows for the reason they do on a screen — the rows would write the
-	// blanks they think are underneath over what was painted — and before the cursor,
-	// which has to end up where this frame asked whatever a painter did on the way.
+	// Opaque regions follow restored cells so those cells cannot overwrite
+	// them. Cursor restoration follows every painter callback.
 	cur, err := i.paintRegions(image.Pt(0, max(total-1, 0)), full)
 	if err != nil {
 		return i.at, err
@@ -483,8 +471,6 @@ func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 	return cur, nil
 }
 
-// cursorPending reports whether the terminal has to be told something about its
-// cursor that it does not already know.
 func (i *Inline) cursorPending() bool {
 	if !i.known || i.placed.Visible != i.shown {
 		return true

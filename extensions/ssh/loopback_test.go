@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"image"
 	"io"
 	"net"
 	"strings"
@@ -236,23 +235,23 @@ func (*canvas) Handle(input.Event) bool { return false }
 // found it — and writes a line feed of its own to get to the row below.
 type lineFeedPainter struct{}
 
-func (lineFeedPainter) Paint(w io.Writer, _ image.Point) error {
+func (lineFeedPainter) Paint(w grid.PaintContext) error {
 	_, err := io.WriteString(w, "\x1b7\nX\x1b8")
 	return err
 }
 
-func (lineFeedPainter) Erase(io.Writer) error { return nil }
+func (lineFeedPainter) Erase(grid.PaintContext) error { return nil }
 
 // movingPainter does the same thing the session can carry: it goes down a row by
 // asking the terminal to, rather than by writing the byte that means it.
 type movingPainter struct{}
 
-func (movingPainter) Paint(w io.Writer, _ image.Point) error {
+func (movingPainter) Paint(w grid.PaintContext) error {
 	_, err := io.WriteString(w, "\x1b7\x1b[BX\x1b8")
 	return err
 }
 
-func (movingPainter) Erase(io.Writer) error { return nil }
+func (movingPainter) Erase(grid.PaintContext) error { return nil }
 
 func TestAFrameReachesTheClientAsTheBytesItWasWritten(t *testing.T) {
 	const frame = "top\r\nbottom\x1b7\x1b[BX\x1b8"

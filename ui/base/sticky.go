@@ -48,15 +48,37 @@ type Sticky struct {
 // SetBlocks replaces the identities that can be pinned. Sticky owns the slice; the
 // caller may reuse or change its input afterwards.
 func (s *Sticky) SetBlocks(blocks []BlockID) {
+	if s.setBlocks(blocks) {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Sticky) setBlocks(blocks []BlockID) bool {
 	requireMutable(s.element)
+	if s.blocks.Len() == len(blocks) {
+		equal := true
+		for i, id := range blocks {
+			if s.blocks.At(i) != id {
+				equal = false
+				break
+			}
+		}
+		if equal {
+			return false
+		}
+	}
 	s.blocks.Clear()
 	s.blocks.Push(blocks...)
+	return true
 }
 
 // Add appends pinnable block identities in transcript order.
 func (s *Sticky) Add(blocks ...BlockID) {
 	requireMutable(s.element)
-	s.blocks.Push(blocks...)
+	if len(blocks) > 0 {
+		s.blocks.Push(blocks...)
+		s.element.Invalidate()
+	}
 }
 
 // Blocks returns a copy of the pinnable identities in transcript order.
@@ -67,7 +89,6 @@ func (s *Sticky) Blocks() []BlockID {
 	return slices.Collect(s.blocks.Values())
 }
 
-// Len reports how many pinnable identities Sticky owns.
 func (s *Sticky) Len() int {
 	if s == nil {
 		return 0
@@ -176,10 +197,17 @@ func (s *Sticky) nextAfter(t TranscriptLayout, id BlockID) (int, bool) {
 // per terminal-owned block would otherwise make the sticky state grow with session
 // age even though the transcript itself had released the payload.
 func (s *Sticky) DiscardBefore(first BlockID) {
+	if s.discardBefore(first) {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Sticky) discardBefore(first BlockID) bool {
 	requireMutable(s.element)
 	n := 0
 	for n < s.blocks.Len() && s.blocks.At(n) < first {
 		n++
 	}
 	s.blocks.Discard(n)
+	return n > 0
 }

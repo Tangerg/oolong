@@ -1,14 +1,8 @@
 package text
 
-// Edit is a range of a document replaced by other text.
-//
-// It is the only shape a change to text has. An insertion is an empty range with
-// text, a deletion is a range with none, and a replacement is both — so anything
-// that has to react to a change reacts to one thing rather than to three.
-//
-// Offsets are bytes from the start of the whole document. Not lines and columns:
-// how a document is stored is the business of whatever stores it, and a change
-// described in line numbers could only be applied to something that had them.
+// Edit represents insertion, deletion, and replacement with one byte range so
+// document text and attached metadata can apply the same transition. Offsets are
+// document-wide bytes, independent of the document's line storage.
 type Edit struct {
 	// Start and End are the range replaced, the end exclusive.
 	Start, End int
@@ -59,46 +53,27 @@ func (e Edit) delta() int { return len(e.Text) - (e.End - e.Start) }
 // text never changes anything.
 func (e Edit) empty() bool { return e.Start == e.End && e.Text == "" }
 
-// Mark is a range of a document that moves as the document is edited.
-//
-// It is how anything can be said about a piece of text without being said in the
-// text: which run of it stands for a file the user picked, which run is a search
-// result, which run somebody spelled wrong. Every one of those is a range that has
-// to still be over the same words after something is typed somewhere else, and
-// keeping them in step is the same problem each time — see [Edit.Shift].
-//
-// The identity and the kind mean nothing here. A caller keeps whatever the mark
-// stands for beside it, keyed by the identity, and this only promises that the
-// identity survives as long as the mark does.
+// Mark keeps external metadata attached to a byte range as edits move it.
+// The caller owns ID and meaning; Edit.Shift owns only the range projection.
 type Mark struct {
 	// ID is the caller's handle on the mark. Nothing here reads it.
 	ID   uint64
 	Kind int
 	// Start and End are the byte range, the end exclusive.
 	Start, End int
-	// Atomic says the mark stands for one thing, so an edit reaching inside it
-	// destroys it rather than stretching it.
-	//
-	// A chip in a prompt naming a file is atomic: text typed into the middle of it
-	// names something else, and a chip that still looks like a file and points at
-	// half of one is worse than no chip. A highlight is not: it is about the text it
-	// covers, and text inserted in the middle of it is still covered.
+	// Atomic marks lose their meaning if edited internally, so they are removed
+	// instead of stretched. Non-atomic highlights continue to cover inserted text.
 	Atomic bool
 }
 
-// Empty reports whether the mark covers nothing.
 func (m Mark) Empty() bool { return m.Start >= m.End }
 
 // Covers reports whether a byte offset is inside the mark. The end is exclusive, so
 // the offset just after a mark is outside it.
 func (m Mark) Covers(at int) bool { return at >= m.Start && at < m.End }
 
-// Within reports whether an offset is strictly inside the mark.
-//
-// Strictly, unlike [Mark.Covers]: a mark's two ends are places a cursor may sit, and
-// only what is between them is not. They are different questions and the difference
-// matters — treating the start as inside would mean a cursor arriving from the left
-// skipped straight past the mark, and nothing could be typed in front of one.
+// Within excludes both endpoints so a cursor can stop before or after an
+// atomic mark without being forced to skip it.
 func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 
 // Shift moves marks over the edit in a document of length n, in order, dropping the

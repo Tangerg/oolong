@@ -11,6 +11,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const (
+	jobMessageNewProcess        = 6
+	jobMessageActiveProcessZero = 4
+	processHandleWaitTimeout    = time.Second
+	jobTreeWaitTimeout          = 2 * time.Second
+)
+
 // Accounting reaches zero before the last process object is signaled. Retain
 // process handles from NEW_PROCESS notifications and wait on those actual objects.
 type jobTree struct {
@@ -62,12 +69,12 @@ func (t *jobTree) observe() (err error) {
 			return nil
 		}
 		switch message {
-		case 6: // JOB_OBJECT_MSG_NEW_PROCESS: value carries the process ID, not a pointer.
+		case jobMessageNewProcess:
 			observed++
 			if handles, err = observing(handles, uint32(processID)); err != nil {
 				return err
 			}
-		case 4: // JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+		case jobMessageActiveProcessZero:
 			if err := t.verifyObserved(observed); err != nil {
 				return err
 			}
@@ -76,8 +83,8 @@ func (t *jobTree) observe() (err error) {
 	}
 }
 
-// observing adds the handle of a process the job has just reported. One that exited
-// and was destroyed before this could reach it is not an error and adds nothing.
+// A process destroyed before its notification is handled needs no retained
+// handle; other open failures must remain visible.
 func observing(handles []windows.Handle, pid uint32) ([]windows.Handle, error) {
 	h, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
@@ -90,7 +97,7 @@ func observing(handles []windows.Handle, pid uint32) ([]windows.Handle, error) {
 }
 
 func waitAll(handles []windows.Handle) error {
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(processHandleWaitTimeout)
 	for _, h := range handles {
 		remaining := max(0, time.Until(deadline).Milliseconds())
 		result, err := windows.WaitForSingleObject(h, uint32(remaining)) //nolint:gosec // G115: remaining is bounded by the one-second deadline.
@@ -123,7 +130,7 @@ func (t *jobTree) verifyObserved(observed uint32) error {
 }
 
 func (t *jobTree) wait() error {
-	timer := time.NewTimer(2 * time.Second)
+	timer := time.NewTimer(jobTreeWaitTimeout)
 	defer timer.Stop()
 	select {
 	case <-t.done:

@@ -76,7 +76,6 @@ func NewSettings[T any](config SettingsConfig[T]) *Settings[T] {
 	return settings
 }
 
-// Controller returns the base settings list that owns selection and actions.
 func (s *Settings[T]) Controller() *base.Settings[T] {
 	if s == nil {
 		return nil
@@ -84,7 +83,6 @@ func (s *Settings[T]) Controller() *base.Settings[T] {
 	return s.controller
 }
 
-// HeightForWidth is one row per setting.
 func (s *Settings[T]) HeightForWidth(int) int {
 	if s == nil || s.controller == nil {
 		return 0
@@ -92,7 +90,6 @@ func (s *Settings[T]) HeightForWidth(int) int {
 	return s.controller.List().Len()
 }
 
-// Draw paints the visible rows with one shared table layout.
 func (s *Settings[T]) Draw(frame scene.Frame) {
 	if s == nil || s.controller == nil {
 		return
@@ -109,12 +106,6 @@ func (s *Settings[T]) Draw(frame scene.Frame) {
 		columns.Cells(view, row, base)
 	})
 }
-
-// Handle routes navigation, pointer selection and value actions to the controller.
-
-// Do runs a navigation or value action.
-
-// Focus takes or releases the keyboard.
 
 func (s *Settings[T]) table() Table {
 	return Table{
@@ -147,7 +138,6 @@ func project[T any](f func(T) string, item T) string {
 	return f(item)
 }
 
-// Element returns the controller's one scene identity with its kit appearance installed.
 func (s *Settings[T]) Element() scene.Element {
 	if s == nil || s.controller == nil {
 		return scene.Element{}

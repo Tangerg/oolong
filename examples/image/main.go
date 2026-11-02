@@ -1,5 +1,5 @@
-// Command image shows a PNG and switches between crops of the same transmission.
-// Run it from the repository root, optionally passing a different PNG path.
+// Command image retains its host until the final image is released so terminal
+// teardown cannot orphan a transmission.
 package main
 
 import (

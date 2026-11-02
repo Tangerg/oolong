@@ -1,10 +1,5 @@
-// Command streaming is Oolong's canonical streaming interface.
-//
-// One path exercises the architecture rather than displaying its pieces beside one
-// another: a background producer writes through bounded ingress, a bounded source
-// document stays revisable until EOF, scoped workers prepare its immutable snapshots,
-// and the final content transfers to terminal scrollback through a receipt. A compound
-// dialog owns approval. Scene owns every coordinate and focus transition.
+// Command streaming owns source work in a scope so cancellation can settle the
+// producer, bounded ingress and accepted output as one lifecycle.
 package main
 
 import (

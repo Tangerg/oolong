@@ -6,14 +6,8 @@ import (
 	"unicode/utf8"
 )
 
-// ErrSequenceTooLong means an escape sequence crossed the amount a stream scanner
-// will carry. A sequence that long is more likely an accidental or hostile
-// retention leak than terminal syntax.
-//
-// The bound is on the sequence and not on what happens to be held, because a
-// scanner's answer may not depend on where a read split. A sequence that arrived
-// whole and one assembled from sixteen chunks are the same bytes, and the one that
-// was refused while incomplete cannot become acceptable by finishing.
+// ErrSequenceTooLong bounds retained escape syntax. The bound applies to whole
+// sequences as well as incomplete ones so acceptance cannot depend on read splits.
 var ErrSequenceTooLong = errors.New("ansi: sequence exceeds 65536 bytes")
 
 const maxPending = 1 << 16
@@ -29,11 +23,8 @@ type Scanner struct {
 	held          strings.Builder
 	scanned       int
 	intermediates bool
-	// refusing says the sequence being held has been refused for its length and
-	// will not be delivered. Its introducer is still held, because a refusal has to
-	// go on looking for where the sequence ends: a scanner that simply forgot would
-	// be back in ordinary text at whatever byte the next read began with, and the
-	// rest of a control string would come out as the text it is not.
+	// Retain refused framing until its terminator; otherwise the next chunk
+	// would expose the remaining control-string body as ordinary text.
 	refusing bool
 }
 
@@ -91,8 +82,6 @@ func (s *Scanner) scan(source string, visit func(Piece) error) error {
 			return refused
 		}
 		at += n
-		// A refused sequence ends here, and only here is where it ends known. What
-		// follows it is ordinary and is read as such.
 		if refusing {
 			refusing = false
 			continue
@@ -213,7 +202,6 @@ func (s *Scanner) incomplete(source string) bool {
 	return true
 }
 
-// scanStep is what one byte says about a sequence that is still being read.
 type scanStep int
 
 const (
@@ -235,9 +223,8 @@ func (s *Scanner) step(source string, at int) scanStep {
 	}
 }
 
-// controlStep reads one byte of a control sequence's parameter section. An
-// intermediate byte ends that section, so a parameter byte after one is the final byte
-// rather than another parameter.
+// A parameter after an intermediate cannot extend the parameter section;
+// treating it as completion lets recovery preserve the next byte.
 func (s *Scanner) controlStep(b byte) scanStep {
 	switch {
 	case intermediate(b):

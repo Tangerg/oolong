@@ -27,5 +27,4 @@ func (s *State) Receive(has bool) (turn uint64, leaving bool) {
 	return s.turn, leaving
 }
 
-// Superseded reports whether a later notification revoked the caller's callback epoch.
 func (s *State) Superseded(turn uint64) bool { return s.turn != turn }

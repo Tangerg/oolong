@@ -4,17 +4,12 @@ package term
 
 import "time"
 
-// Windows exposes console resize records through the same input handle as keys.
-// Reading those records separately would give the terminal two competing readers,
-// while the VT byte reader deliberately has sole ownership of input. Sampling the
-// console geometry here preserves that ownership and presents the same Resize
-// stream as SIGWINCH platforms.
+// Console resize records share the keyboard handle. Poll geometry instead of
+// adding a competing record reader, preserving sole ownership of input.
 const resizePollInterval = 100 * time.Millisecond
 
-// resizeSource is the clock this platform watches its console with. It is started
-// before the first measurement for the same reason a signal subscription is: what
-// happens between measuring and starting to watch has to be something the watcher
-// can still find out about.
+// Start sampling before the initial measurement so changes during startup
+// remain observable by the watcher.
 type resizeSource struct{ ticker *time.Ticker }
 
 func subscribeResize() resizeSource {

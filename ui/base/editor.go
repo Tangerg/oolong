@@ -41,6 +41,7 @@ type Editor struct {
 	session    *EditSession
 	local      EditSession
 	registered bool
+	updates    editorViewUpdates
 	// line is the cursor's logical line; col is its byte offset within that line.
 	line, col int
 	// Short rows must not erase the desired column for later vertical moves. Negative means unset.
@@ -143,7 +144,8 @@ func clusters(s string) int {
 }
 
 func (e *Editor) setPolicy(singleLine bool, mask string) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	doc := e.document()
 	if doc.singleLine == singleLine && doc.mask == mask {
 		return
@@ -184,7 +186,8 @@ func (e *Editor) SetText(s string) { e.replaceDocument(s, true) }
 
 // replaceDocument settles history policy before publishing the document change.
 func (e *Editor) replaceDocument(s string, remember bool) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	e.endTyping()
 	start := Caret{}
@@ -241,9 +244,9 @@ func (e *Editor) Empty() bool {
 	return len(lines) == 0 || len(lines) == 1 && lines[0] == ""
 }
 
-// Clear empties the field.
 func (e *Editor) Clear() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	e.endTyping()
 	start := Caret{}
@@ -262,7 +265,8 @@ func (e *Editor) Cursor() (line, col int) { return e.line, e.col }
 
 // SetCursor clamps the logical line and byte offset, snapping backward to a grapheme boundary.
 func (e *Editor) SetCursor(line, col int) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -277,7 +281,8 @@ func (e *Editor) SetCursor(line, col int) {
 func (e *Editor) Insert(s string) { e.insert(s, false) }
 
 func (e *Editor) insert(s string, typed bool) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	if !typed {
 		e.endTyping()
 	}
@@ -319,7 +324,8 @@ func (e *Editor) insert(s string, typed bool) {
 // accepting a completion is one thing the user did, and taking it back should not
 // take two. A token never spans lines, which is why the range does not either.
 func (e *Editor) Replace(start, end int, s string) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	line := e.document().lines[e.line]
 	start = min(max(start, 0), len(line))
@@ -393,9 +399,9 @@ var (
 
 func (e *Editor) oneLine() bool { return e.SingleLine() || e.Mask() != "" }
 
-// InsertRune puts one character in.
 func (e *Editor) InsertRune(r rune) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	// InsertRune cannot create logical lines; Printable preserves tabs but not line breaks.
 	e.insert(text.Printable(string(r)), true)
 }
@@ -403,8 +409,9 @@ func (e *Editor) InsertRune(r rune) {
 // Newline splits the line at the cursor, and does nothing at all in a field that holds
 // one line.
 func (e *Editor) Newline() {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	if e.oneLine() {
-		e.requireMutable()
 		e.endTyping()
 		return
 	}
@@ -414,7 +421,8 @@ func (e *Editor) Newline() {
 // DeleteBack removes the cluster before the cursor, or joins this line to the one
 // above when the cursor is at the start of a line.
 func (e *Editor) DeleteBack() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	e.breakContinuation()
 	if e.col > 0 {
@@ -441,7 +449,8 @@ func (e *Editor) DeleteBack() {
 
 // DeleteForward removes the cluster after the cursor, or joins the line below.
 func (e *Editor) DeleteForward() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	e.endTyping()
 	current := e.document().lines[e.line]
@@ -463,7 +472,8 @@ func (e *Editor) DeleteForward() {
 
 // DeleteWordBack removes from the cursor back to the start of the word behind it.
 func (e *Editor) DeleteWordBack() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	end := Caret{Line: e.line, Col: e.col}
 	start := end
@@ -480,7 +490,8 @@ func (e *Editor) DeleteWordBack() {
 // KillToEnd cuts from the cursor to the end of the line, keeping what it cut.
 // At the end of a line, the line break itself belongs to the kill.
 func (e *Editor) KillToEnd() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	start := Caret{Line: e.line, Col: e.col}
 	end := Caret{Line: e.line, Col: len(e.document().lines[e.line])}
@@ -492,7 +503,8 @@ func (e *Editor) KillToEnd() {
 
 // KillToStart cuts from the start of the line to the cursor.
 func (e *Editor) KillToStart() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	e.killRange(Caret{Line: e.line}, Caret{Line: e.line, Col: e.col}, true)
 }
@@ -510,7 +522,8 @@ func (e *Editor) killRange(start, end Caret, prepend bool) {
 
 // Yank puts back the most recently killed text.
 func (e *Editor) Yank() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.endTyping()
 	killed, ok := e.kills.newest()
 	if !ok {
@@ -528,7 +541,8 @@ func (e *Editor) Yank() {
 // through the bounded ring. Any intervening edit, movement, or selection ends the
 // sequence and makes this a no-op.
 func (e *Editor) YankPop() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	if e.continuation != editorContinuationYank {
 		e.endTyping()
 		return
@@ -559,9 +573,9 @@ func (e *Editor) applyYank(start, end Caret, killed string, ring int) {
 	}
 }
 
-// MoveLeft moves one cluster left, over a line break when there is nowhere else.
 func (e *Editor) MoveLeft() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -576,9 +590,9 @@ func (e *Editor) MoveLeft() {
 	}
 }
 
-// MoveRight moves one cluster right, over a line break when there is nowhere else.
 func (e *Editor) MoveRight() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -593,9 +607,9 @@ func (e *Editor) MoveRight() {
 	}
 }
 
-// MoveWordLeft moves to the start of the word behind the cursor.
 func (e *Editor) MoveWordLeft() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -607,9 +621,9 @@ func (e *Editor) MoveWordLeft() {
 	e.col = e.snapElementBoundary(e.line, wordStart(e.document().lines[e.line], e.col), false)
 }
 
-// MoveWordRight moves past the end of the word in front of the cursor.
 func (e *Editor) MoveWordRight() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -621,9 +635,9 @@ func (e *Editor) MoveWordRight() {
 	e.col = e.snapElementBoundary(e.line, wordEnd(e.document().lines[e.line], e.col), true)
 }
 
-// MoveLineStart moves to the start of the logical line.
 func (e *Editor) MoveLineStart() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -631,9 +645,9 @@ func (e *Editor) MoveLineStart() {
 	e.col = 0
 }
 
-// MoveLineEnd moves to the end of the logical line.
 func (e *Editor) MoveLineEnd() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -641,9 +655,9 @@ func (e *Editor) MoveLineEnd() {
 	e.col = len(e.document().lines[e.line])
 }
 
-// Undo steps back to before the last change.
 func (e *Editor) Undo() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.endTyping()
 	if !e.document().history.canBack() {
 		return
@@ -656,9 +670,9 @@ func (e *Editor) Undo() {
 	e.restore(previous)
 }
 
-// Redo steps forward again.
 func (e *Editor) Redo() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.endTyping()
 	if !e.document().history.canForward() {
 		return
@@ -784,7 +798,8 @@ func isWord(cluster string) bool {
 // separator prevents joining the preceding grapheme. Empty bodies insert nothing.
 // Identities are never reused; exhaustion panics before insertion.
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	body = elementBody(body)
 	if body == "" {
 		return Element{}
@@ -879,7 +894,8 @@ func (e *Editor) ElementAt(line, col int) (Element, bool) {
 // RemoveElement deletes an element's text and forgets it, reporting whether it was
 // there to remove.
 func (e *Editor) RemoveElement(id ElementID) bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	if id.owner != e.document().elementOwner || id.owner == nil {
 		return false
 	}
@@ -1037,7 +1053,8 @@ func (e *Editor) RetainedElementIDs() []ElementID {
 // ForgetHistory ends the lifetime of edits no longer available to Undo or Redo.
 // Current document elements remain live.
 func (e *Editor) ForgetHistory() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.endTyping()
 	e.document().history.clear()
 }
@@ -1050,7 +1067,8 @@ func (e *Editor) ForgetHistory() {
 // container's decision, and an editor that swallowed it would take that decision
 // away from every container that embeds one.
 func (e *Editor) Handle(ev input.Event) bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	if paste, ok := ev.(input.Paste); ok {
 		e.Insert(paste.Text)
 		return true
@@ -1072,6 +1090,8 @@ func (e *Editor) Handle(ev input.Event) bool {
 // handleKey leaves action and insertion ownership with the controller. Deferred
 // keymap resolution must re-enter that same controller's acceptance boundary.
 func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed func(input.Key) bool) bool {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	if !key.Down() {
 		return false
 	}
@@ -1104,7 +1124,8 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 // Do runs one of the field's actions by name, reporting whether it was one this field
 // knows. See [Doer] for why a widget answers to a name at all.
 func (e *Editor) Do(action keymap.Action) bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.ensure()
 	if e.move(action) {
 		e.SelectNone()
@@ -1171,15 +1192,14 @@ func (e *Editor) offsetIn(width, row, column int) (line, col int) {
 	return position.Line, position.Byte
 }
 
-// MoveUp moves the cursor up one visual row, keeping the column it started from.
 func (e *Editor) MoveUp() { e.moveRow(-1) }
 
-// MoveDown moves the cursor down one visual row.
 func (e *Editor) MoveDown() { e.moveRow(1) }
 
 // Preserve the desired column across short rows so repeated vertical movement cannot drift left.
 func (e *Editor) moveRow(delta int) {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -1215,7 +1235,6 @@ func (e *Editor) moveRow(delta int) {
 	e.wantColumn = column
 }
 
-// HeightForWidth is how many rows the field needs at a width, within its cap.
 func (e *Editor) HeightForWidth(width int) int {
 	width = e.textWidth(width)
 	if e.oneLine() {
@@ -1228,7 +1247,6 @@ func (e *Editor) HeightForWidth(width int) int {
 	return rows
 }
 
-// Draw paints the field and places the cursor.
 func (e *Editor) Draw(frame scene.Frame) {
 	e.DrawWith(frame, e.Look)
 }
@@ -1367,8 +1385,7 @@ func (e *Editor) revealCursor() {
 	e.ensure()
 	width := e.geometry.read(&e.presentation).width
 	row, _ := e.rowAt(width)
-	e.scroll.layout(len(e.rows(width)), e.scroll.current.window)
-	e.scroll.Reveal(row, row)
+	e.scroll.revealContent(len(e.rows(width)), row, row)
 	e.cursorReveal = e.scroll.reveal
 }
 
@@ -1445,24 +1462,25 @@ func (e *Editor) atLine(x int) Caret {
 // means while the shift key is held, so every way of moving a cursor selects with
 // shift and none of them had to be taught to — see [Editor.Handle].
 func (e *Editor) Anchor() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.breakContinuation()
 	if !e.selecting {
 		e.anchor, e.selecting = Caret{Line: e.line, Col: e.col}, true
 	}
 }
 
-// SelectNone drops the selection, leaving the cursor where it is.
 func (e *Editor) SelectNone() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.dragging = false
 	e.breakContinuation()
 	e.selecting = false
 }
 
-// SelectAll selects the whole text.
 func (e *Editor) SelectAll() {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
@@ -1518,7 +1536,8 @@ func (e *Editor) textBetween(start, end Caret) string {
 
 // DeleteSelection removes the selected text and reports whether there was any.
 func (e *Editor) DeleteSelection() bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	start, end, ok := e.Selection()
 	if !ok {
 		return false
@@ -1599,7 +1618,8 @@ func (e *Editor) applyRange(start, end Caret, s string) ([]string, ChangeMap) {
 // Copy sends the selection to the clipboard. Masked sessions never export their
 // underlying text. Like Paste and Cut, clipboard access is an owner-side effect.
 func (e *Editor) Copy() bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	start, end, ok := e.Selection()
 	return ok && e.copyRange(start, end)
 }
@@ -1612,7 +1632,8 @@ func (e *Editor) copyRange(start, end Caret) bool {
 // callbacks that change content or the selected range revoke the removal, so an
 // older copy cannot authorize deleting newer text.
 func (e *Editor) Cut() bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.endTyping()
 	start, end, selected := e.Selection()
 	if !selected {
@@ -1633,7 +1654,8 @@ func (e *Editor) Cut() bool {
 // accepted. What comes back arrives later as an ordinary paste event, which this
 // editor already inserts.
 func (e *Editor) Paste() bool {
-	e.requireMutable()
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	e.endTyping()
 	return e.Clipboard != nil && e.Clipboard.Paste()
 }
@@ -1721,7 +1743,6 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 	return out
 }
 
-// SelectionSpans is where the selection is, or nothing when there is none.
 func (e *Editor) SelectionSpans(width int) []RowSpan {
 	start, end, ok := e.Selection()
 	if !ok {
@@ -1767,6 +1788,8 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 }
 
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
 	switch ev.Action {
 	case input.MouseCancel:
 		e.dragging = false

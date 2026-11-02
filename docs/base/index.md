@@ -24,6 +24,10 @@ A field controller owns its value. Form output and semantic values are projectio
 
 `Selection` stores content-relative logical endpoints. `Scroll` owns reading intent. `Sticky` owns content identities eligible for pinning. Transcript's frame candidate composes their projections; painting does not advance their state. `Scan` is a bounded synchronous search operation that callers may schedule as scoped work and accept only for the matching content revision.
 
+Public controller commands publish invalidation through that same element after the entire mutation settles. A composite operation uses the atomic primitives internally and publishes once; callers do not add a second notification path. Commands that leave the value unchanged do not advance the model revision.
+
+A transcript scrolls one full viewport. A sticky header overlays its top rows without reducing the scroll range or page size. Custom skins draw `TranscriptView.Body` from `TranscriptView.BodyFrom`; this body origin includes the rows hidden by the overlay and differs from `Scroll.Offset`. Pointer mapping and reading anchors use the same projection. Recomputing the header from the reduced body origin would create a circular layout decision at section boundaries.
+
 ## Large datasets
 
 `VirtualWindow.Resolve` runs explicitly on the owner before painting. A `VirtualSource` supplies dataset revision, stable keys and pure height measurements. The window retains only materialized elements and bounded measurements, reusing an element while its key remains present. Leaving the window detaches its target; reappearing later receives a new mount lifetime.

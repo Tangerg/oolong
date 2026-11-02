@@ -1,8 +1,7 @@
-// Package graphics encodes Kitty and iTerm2 terminal images from PNG without decoding
-// pixels. ImageOwner binds transmitted data to one native destination. Live regions
-// require reusable handles and erasure; [Protocol.Supports] distinguishes these
-// from printed output. Sixel is detected but
-// not encoded because its encoding requires pixel decoding.
+// Package graphics keeps PNG pixel decoding outside terminal transport. Live
+// images need reusable handles and erasure; printed images do not. ImageOwner
+// binds transmissions to one destination. Sixel encoding is unavailable because
+// it would require pixel decoding.
 package graphics
 
 import (
@@ -13,33 +12,26 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"math/big"
 	"strings"
 )
 
-// Protocol is the inline-image capability of a terminal.
-//
-// The zero value is [None], so anything that has not been told what it is talking
-// to draws no images rather than corrupting a screen with escape sequences the
-// terminal will print instead of obey.
+// Protocol defaults to None so an unnegotiated destination receives no image
+// commands it might print as ordinary text.
 type Protocol uint8
 
 const (
-	// None is a terminal that cannot show an image. A caller draws a placeholder.
 	None Protocol = iota
-	// Kitty is the kitty graphics protocol: kitty, Ghostty, WezTerm and Warp. It is
-	// the only one usable in a region the interface redraws.
+	// Kitty provides the named placements needed for live redraw and erasure.
 	Kitty
-	// ITerm2 is iTerm2's own inline-image protocol, also spoken by WezTerm and
-	// mintty. An image goes at the cursor and cannot be referred to again.
+	// ITerm2 is limited to printed output because placements cannot be named
+	// and erased independently.
 	ITerm2
-	// Sixel is the oldest of the three and the most widely implemented after
-	// kitty's: xterm, foot, mlterm, contour, and recent Windows Terminal. This
-	// package reports it and does not write it — see the package comment.
+	// Sixel is detected but cannot be encoded without pixel decoding.
 	Sixel
 )
 
-// String names the protocol the way a diagnostic would.
 func (p Protocol) String() string {
 	switch p {
 	case Kitty:
@@ -53,17 +45,11 @@ func (p Protocol) String() string {
 	}
 }
 
-// Placement is where an image is going, which is what decides whether a protocol
-// will do.
 type Placement uint8
 
 const (
-	// Printed is output written once that then belongs to the terminal, scrolling
-	// away with the rest of the session. Nothing draws over it again, so a protocol
-	// that cannot be told to remove an image is no worse off here than one that can.
-	//
-	// It is the zero value because it is the weaker requirement: code that has not
-	// said where an image is going gets the answer that holds in both places.
+	// Printed output needs no later erasure, so it is the weaker placement
+	// requirement and the zero value.
 	Printed Placement = iota
 	// Live is a region the interface redraws. An image there has to be placeable
 	// again on the next frame and removable on the frame after, which takes a
@@ -71,13 +57,8 @@ const (
 	Live
 )
 
-// Supports reports whether an image can go in that place over this protocol.
-//
-// Asking it is worth more than a single yes or no about the terminal. A terminal
-// that draws images but cannot be told to move them is a different thing to tell
-// the user about from one that draws none: the first shows a picture in printed
-// output and nothing in a live view, and a caller holding one boolean can explain
-// neither.
+// Supports separates live placement from printed output because image support
+// without reusable handles cannot safely redraw an interactive region.
 func (p Protocol) Supports(where Placement) bool {
 	switch where {
 	case Live:
@@ -94,17 +75,9 @@ func (p Protocol) Supports(where Placement) bool {
 	}
 }
 
-// Image is a transmitted image and the size it arrived at.
 type Image struct {
-	// ID is the resource identity known to the terminal, and is never zero. Each
-	// placement adds its own identity so several views can share the same
-	// transmitted data.
-	//
-	// Zero is the protocol's way of saying "no identity given", not an identity: a
-	// deletion naming it does not name this image, and a placement naming it does
-	// not name this image either. The zero Image is therefore not an image, which is
-	// why every operation here refuses it rather than putting an i=0 on the wire and
-	// letting the terminal decide what that meant.
+	// ID must be nonzero: Kitty treats zero as unspecified, which cannot name
+	// a transmission for later placement or deletion.
 	ID uint32
 	// Size is the image's size in pixels, for working out how many cells it should
 	// occupy with [Fit].
@@ -122,24 +95,24 @@ func pngSize(data []byte) (image.Point, error) {
 	return image.Pt(config.Width, config.Height), nil
 }
 
-// The two identities this protocol carries, and what it means that neither may be
-// zero. Kitty reads i=0 and p=0 as "not given", so a sequence written with one
-// names nothing: the transmission is unaddressable, the placement unremovable, and
-// the deletion aimed at whatever the terminal decides an unnamed image is.
+// Both Kitty identities must be nonzero; zero means unspecified and cannot
+// address the transmission or placement for later removal.
 var (
 	errImageIdentity     = errors.New("graphics: image identity must be nonzero")
 	errPlacementIdentity = errors.New("graphics: placement identity must be nonzero")
 )
 
-// chunkLimit is the most base64 the kitty protocol takes in one escape.
-const chunkLimit = 4096
+const (
+	chunkLimit           = 4096
+	kittyPNG             = 100
+	kittySuppressReplies = 2
+	kittyPreserveCursor  = 1
+	// Kitty puts lower layers behind non-default cell backgrounds.
+	minimumImageLayer = math.MinInt32 / 2
+)
 
-// Transmit sends a PNG to the terminal under an ID, without placing it.
-//
-// Transmission and placement are separate because they happen at different times:
-// an image is sent once and placed on every frame that shows it, and re-sending
-// the payload each frame would put a megabyte on the wire to move a picture by
-// one row.
+// Transmit separates upload from placement so moving an image does not resend
+// its PNG payload on every frame.
 func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 	if id == 0 {
 		return Image{}, errImageIdentity
@@ -159,12 +132,11 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 		if len(png) > 0 {
 			more = 1
 		}
-		// a=t transmits without placing, f=100 says the payload is PNG, q=2 asks the
-		// terminal not to answer — there is nobody reading for a reply, and an
-		// unread one would arrive in the middle of the next keystroke.
+		// Suppress acknowledgements because this path does not await them; replies
+		// would otherwise enter the terminal input stream without a request owner.
 		var sequence string
 		if first {
-			sequence = fmt.Sprintf("\x1b_Ga=t,f=100,i=%d,q=2,m=%d;%s\x1b\\", id, more, chunk)
+			sequence = fmt.Sprintf("\x1b_Ga=t,f=%d,i=%d,q=%d,m=%d;%s\x1b\\", kittyPNG, id, kittySuppressReplies, more, chunk)
 		} else {
 			sequence = fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
 		}
@@ -207,14 +179,18 @@ func sourceBounds(size image.Point, source image.Rectangle) image.Rectangle {
 	return bounds.Intersect(source)
 }
 
-// Paint shows this placement at the cursor without moving it. A nonzero source
-// with no pixels inside the image returns an error before writing any bytes.
-func (p ImagePlacement) Paint(w io.Writer, size image.Point) error {
+// Paint preserves the cursor and keeps native layers below text but above cell
+// backgrounds. The composition owns layer; zero and out-of-range layers are refused
+// before writing bytes. A nonzero source must intersect the image.
+func (p ImagePlacement) Paint(w io.Writer, size image.Point, layer int) error {
 	if p.Image.ID == 0 {
 		return errImageIdentity
 	}
 	if p.ID == 0 {
 		return errPlacementIdentity
+	}
+	if layer < minimumImageLayer || layer >= 0 {
+		return fmt.Errorf("graphics: native layer %d outside [%d, -1]: %w", layer, minimumImageLayer, errors.ErrUnsupported)
 	}
 	var crop string
 	if p.Source != (image.Rectangle{}) {
@@ -224,7 +200,7 @@ func (p ImagePlacement) Paint(w io.Writer, size image.Point) error {
 		}
 		crop = fmt.Sprintf(",x=%d,y=%d,w=%d,h=%d", bounds.Min.X, bounds.Min.Y, bounds.Dx(), bounds.Dy())
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d%s,c=%d,r=%d,z=-1,C=1,q=2;\x1b\\", p.Image.ID, p.ID, crop, size.X, size.Y))
+	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d%s,c=%d,r=%d,z=%d,C=%d,q=%d;\x1b\\", p.Image.ID, p.ID, crop, size.X, size.Y, layer, kittyPreserveCursor, kittySuppressReplies))
 }
 
 // Erase removes only this placement, retaining the image for later Paint calls.
@@ -235,7 +211,7 @@ func (p ImagePlacement) Erase(w io.Writer) error {
 	if p.ID == 0 {
 		return errPlacementIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=2;\x1b\\", p.Image.ID, p.ID))
+	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=%d;\x1b\\", p.Image.ID, p.ID, kittySuppressReplies))
 }
 
 // Release destroys transmitted data and all placements. The handle must not be
@@ -244,18 +220,12 @@ func (i Image) Release(w io.Writer) error {
 	if i.ID == 0 {
 		return errImageIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2;\x1b\\", i.ID))
+	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=%d;\x1b\\", i.ID, kittySuppressReplies))
 }
 
-// Inline writes an image at the cursor over iTerm2's protocol.
-//
-// There is no counterpart to [ImagePlacement.Paint] or [ImagePlacement.Erase], because the protocol has none:
-// the image goes where the cursor is and the program never hears of it again. That
-// is why it is only for [Printed] output — see the package comment — and why this
-// takes the payload every time rather than an identifier.
-//
-// The box is in cells, and the image is fitted inside it rather than stretched to
-// it, so a caller passes what [Fit] worked out and gets the aspect ratio kept.
+// Inline is limited to Printed output because iTerm2 supplies no reusable
+// placement identity or erasure. Box dimensions are cells; the protocol fits
+// the image inside them while preserving its aspect ratio.
 func Inline(w io.Writer, data []byte, size image.Point) error {
 	if _, err := pngSize(data); err != nil {
 		return err
@@ -327,17 +297,13 @@ func nearestCellExtent(numerator, denominator *big.Int) int {
 	return max(int(rounded.Int64()), 1)
 }
 
-// kittyPrograms are the TERM_PROGRAM values, matched as lowercase substrings, of
-// terminals that speak the kitty protocol without saying so in TERM.
-//
-// WezTerm speaks iTerm2's protocol too and is listed here rather than there, because
-// where both are available the one with handles is the one worth having.
+// Prefer Kitty when a terminal supports both image protocols, because its
+// handles support erasure and live redraw. Environment names are lowercase
+// substring matches to accommodate terminal-specific spelling.
 var kittyPrograms = []string{"kitty", "ghostty", "wezterm", "warp"}
 
-// iterm2Programs are the same for iTerm2's protocol.
-// The substring that identifies each, not its full name: a terminal names itself
-// differently in every place it is asked. iTerm2 is "iTerm.app" in TERM_PROGRAM,
-// "iTerm2" in LC_TERMINAL, and "iTerm2 3.5.0" when it is asked directly.
+// iTerm2 uses different names in TERM_PROGRAM, LC_TERMINAL, and replies, so
+// detection matches identifying substrings rather than one complete name.
 var iterm2Programs = []string{"iterm", "mintty"}
 
 // Detect chooses a protocol from negotiated name, sixel support and environment.
@@ -381,8 +347,6 @@ func environmentValue(lookup func(string) (string, bool), name string) string {
 	return value
 }
 
-// named is the protocol whichever terminal an identity names speaks, if it is one this
-// package knows.
 func named(identity string) (Protocol, bool) {
 	if identity == "" {
 		return None, false

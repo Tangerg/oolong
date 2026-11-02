@@ -1,6 +1,5 @@
-// Command mermaid prepares a diagram in a worker and embeds its accepted image in
-// Markdown. Install the official mmdc executable before running. Optional browser
-// selection uses OOLONG_MERMAID_BROWSER. Press r to replace the source, q to leave.
+// Command mermaid prepares browser output away from the UI owner so rendering
+// cannot stall terminal input.
 package main
 
 import (

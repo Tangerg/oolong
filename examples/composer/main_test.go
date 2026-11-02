@@ -47,7 +47,7 @@ func TestAReferenceCompletionBecomesOrdinaryPromptText(t *testing.T) {
 
 func TestALargePasteIsOneApplicationOwnedElement(t *testing.T) {
 	host, done := runPrompt(t)
-	host.Shows(t, "paste three or more lines")
+	host.Shows(t, "Type @ to reference")
 	host.Send(input.Paste{Text: "one\ntwo\nthree\nfour"})
 	host.Shows(t, "[paste 4 lines]")
 	host.Type(" summarize")
@@ -59,7 +59,7 @@ func TestALargePasteIsOneApplicationOwnedElement(t *testing.T) {
 
 func TestUndoRestoresTheOriginalPastePayload(t *testing.T) {
 	host, done := runPrompt(t)
-	host.Shows(t, "paste three or more lines")
+	host.Shows(t, "Type @ to reference")
 	host.Send(input.Paste{Text: "one\ntwo\nthree\nfour"})
 	host.Shows(t, "[paste 4 lines]")
 	host.Press(input.Backspace)
@@ -99,7 +99,7 @@ func TestRemovedPasteRetainsOriginalIdentityAndBytesThroughUndo(t *testing.T) {
 	editor.Undo()
 	p.releaseRemovedPastes()
 	elements := editor.Elements()
-	if len(elements) != 1 || elements[0].ID != id || p.pastes[id] != body {
+	if len(elements) != 1 || elements[0].ID != id || string(p.pastes[id]) != body {
 		t.Fatalf("elements=%v payload=%q", elements, p.pastes[id])
 	}
 }
@@ -189,7 +189,7 @@ func TestHistoryDistinguishesAttachmentsWithTheSameLabel(t *testing.T) {
 		if len(elements) != 1 {
 			t.Fatalf("recalled attachments = %v, want one", elements)
 		}
-		if got := p.pastes[elements[0].ID]; got != want {
+		if got := string(p.pastes[elements[0].ID]); got != want {
 			t.Fatalf("recalled payload = %q, want %q", got, want)
 		}
 	}
@@ -205,4 +205,34 @@ func TestMovingAwayFromAReferenceLeavesTheDraftUntouched(t *testing.T) {
 	host.Press(input.Enter)
 	host.Shows(t, "sent: keep @arch")
 	quit(t, host, done)
+}
+
+func TestLargePasteKeepsPhysicalLineEndingsThroughHistory(t *testing.T) {
+	for _, body := range []string{"one\ntwo\nthree", "one\r\ntwo\r\nthree", "one\rtwo\rthree", "one\r\ntwo\rthree"} {
+		t.Run(body, func(t *testing.T) {
+			p := newPrompt(nil)
+			if !p.Handle(input.Paste{Text: body}) {
+				t.Fatal("three physical lines were not attached")
+			}
+			if got := p.composer.Controller().Text(); got != "[paste 3 lines] " {
+				t.Fatalf("paste label = %q", got)
+			}
+			p.submit()
+			p.recallBack()
+			elements := p.composer.Controller().Elements()
+			if len(elements) != 1 {
+				t.Fatalf("recalled attachments = %v", elements)
+			}
+			if got := string(p.pastes[elements[0].ID]); got != body {
+				t.Fatalf("recalled paste = %q, want original %q", got, body)
+			}
+		})
+	}
+}
+
+func TestLargePasteCountsCRLFAsOneBoundary(t *testing.T) {
+	p := newPrompt(nil)
+	if p.Handle(input.Paste{Text: "one\r\ntwo"}) {
+		t.Fatal("two physical lines crossed the three-line attachment threshold")
+	}
 }

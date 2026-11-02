@@ -1,10 +1,5 @@
-// Command hello is the smallest complete Oolong program.
-//
-// It draws text, handles one kind of event, and stops. The other examples add
-// layout, reusable components, appearance, streaming output, and background work
-// one layer at a time.
-//
-// Press any key to increment the count. Press q or Ctrl+C to leave.
+// Command hello uses one scene owner for input and painting so even the smallest
+// program has an explicit terminal lifecycle.
 package main
 
 import (

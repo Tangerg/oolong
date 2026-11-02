@@ -18,6 +18,8 @@ Kit 提供主题、字形选择、被动内容块和常用复合控件。它组�
 
 自定义皮肤可以在挂载前填入 base 元素的绘制与测量槽。挂载期间修改这些槽会被拒绝。Theme 和 glyph 输入只改变外观，不能决定字段焦点、已提交值或动作可用性。
 
+宿主字形能力只解析一次。需要截断标记时，将 `glyphs.Ellipsis` 传给 `ButtonConfig.Ellipsis`、`Paragraph.Ellipsis` 和 `Label.Ellipsis`。空标记表示静默截断。测量与绘制使用同一个标记；更改 Paragraph 的标记也会改变其布局缓存身份。
+
 ## 主题所有权
 
 通过 `kit.NewThemeOwner(initial)` 创建应用的动态调色板，将 `owner.Scope()` 传入组件 Config，并在 UI owner turn 调用 `owner.Set(next)`。所有者使已挂载消费者失效重绘，不重建元素或控制器。`scope.With(kit.ThemeOverride{...})` 创建不可变子树分支；`Appearance` 提供实例覆盖。解析顺序为应用 → 祖先 scope → 当前 scope → 实例。

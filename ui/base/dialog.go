@@ -100,7 +100,6 @@ func (d *Dialog) placement(space image.Point) image.Rectangle {
 	return image.Rectangle{Max: space}
 }
 
-// Element is the modal group whose attachment, focus trap and capture belong to scene.
 func (d *Dialog) Element() scene.Element { d.ensure(); return d.group.Element() }
 
 // Open reports the current open policy. A nil dialog is closed.

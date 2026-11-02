@@ -1,16 +1,7 @@
-// Package text lays styled text out in terminal columns: measuring it, wrapping
-// it, truncating it, and drawing it onto a [grid.View].
-//
-// Everything here counts columns rather than bytes or runes. A display atom is
-// never split: ordinary CJK and emoji clusters occupy two columns, while spacing
-// modifiers can make one Unicode grapheme wider still. A combining mark on its
-// own occupies none. Text that is measured one way and drawn another is the source
-// of every misaligned terminal UI, so measuring and drawing live in the same place
-// and agree by construction.
-//
-// [Decoder] is the other direction: the output of a command an interface ran, read
-// back into the same [Span]s everything here lays out. It lives here rather than
-// beside the terminal because what it produces is text.
+// Package text shares terminal-column layout across measurement and drawing so
+// wrapping, carets, and cells cannot disagree. Display atoms remain indivisible,
+// including wide grapheme clusters and zero-width combining marks. Decoder turns
+// command output into the same styled spans after removing terminal commands.
 package text
 
 import (
@@ -25,24 +16,15 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
-// TabStop is how far apart tab stops are.
-//
-// Eight, because that is where a terminal would have put them: the output being
-// rendered was usually formatted by a program writing to a terminal, and lining
-// its columns up means agreeing with the assumption it made.
+// TabStop matches conventional terminal tab stops so previously formatted
+// command output retains its column relationships.
 const TabStop = 8
 
-// Span is a run of text sharing one style, and — where it points at something —
-// one address.
 type Span struct {
 	Text  string
 	Style grid.Style
-	// Link is where the run points, and empty is text that points nowhere.
-	//
-	// It is carried here rather than stamped onto cells afterwards because by then the
-	// columns are gone: a line is wrapped, truncated and drawn wherever it fits, and
-	// byte offsets into the original text cannot say which cells the third word
-	// reached. A span survives all three — see [Line.Draw].
+	// Links travel with spans through wrapping and clipping; original byte
+	// offsets alone cannot identify the resulting terminal cells.
 	Link string
 }
 
@@ -82,7 +64,6 @@ func CloneLines(lines []Line) []Line {
 	return out
 }
 
-// Of is the one-span line for a piece of plain styled text.
 func Of(s string, style grid.Style) Line {
 	if s == "" {
 		return nil
@@ -128,7 +109,6 @@ func Highlight(value string, offsets []int, normal, matched grid.Style) Line {
 	return line
 }
 
-// String is the line's text with the styling dropped.
 func (l Line) String() string {
 	if len(l) == 1 {
 		return l[0].Text
@@ -174,21 +154,15 @@ func (l Line) Draw(v grid.View, x, y int) int {
 	return col
 }
 
-// Wrapped is one physical row produced by wrapping a [Line].
 type Wrapped struct {
 	Line Line
 	// Joined marks a row that continues the line above it rather than starting a
 	// line of its own. Anything rejoining rows — copying a selection, say — needs
 	// to know which line breaks were the text's and which were the width's.
 	Joined bool
-	// From and To are the byte range of the line this row came from, as [Line.String]
-	// numbers it. They make the wrap invertible: anything that found something in the
-	// text before it was wrapped — a URL, a search match, the ends of a selection —
-	// can work out which rows it landed on and where along them.
-	//
-	// The range is not the same text as the row: the spaces a break consumed are
-	// outside it at either end, a tab inside it became the spaces it stands for, and a
-	// control character inside it was dropped. It is provenance, not content.
+	// From and To retain the source byte interval so selection and search can
+	// map through wrapping. They describe provenance: tabs may be expanded,
+	// controls dropped, and break whitespace excluded from the displayed row.
 	From, To int
 	// Gap is the text the break before this row consumed, which rejoining it to the
 	// row above has to put back.
@@ -199,10 +173,8 @@ type Wrapped struct {
 	Gap string
 }
 
-// Width is how many columns the row occupies.
 func (w Wrapped) Width() int { return w.Line.Width() }
 
-// Draw writes the row onto v at (x, y).
 func (w Wrapped) Draw(v grid.View, x, y int) int { return w.Line.Draw(v, x, y) }
 
 // Wrap breaks the line into rows of at most width columns.
@@ -232,7 +204,6 @@ func (l Line) Wrap(width int) []Wrapped {
 			i++
 			continue
 		}
-		// A word is a maximal run of clusters with no break opportunity in it.
 		end, wordWidth := i, 0
 		for end < n && !units[end].space {
 			wordWidth = layout.Sum(wordWidth, units[end].width)
@@ -450,7 +421,6 @@ func Truncate(s string, width int, ellipsis string) string {
 	return Of(s, grid.Style{}).Truncate(width, ellipsis).String()
 }
 
-// unit is one grapheme cluster with everything wrapping needs to know about it.
 type unit struct {
 	cluster string
 	// source owns appearance and link identity. Carrying one pointer per cluster
@@ -491,14 +461,9 @@ func (l Line) units() []unit {
 	return units
 }
 
-// eachCluster is the line's characters, each with the span it takes its appearance
-// from: the one holding its first byte.
-//
-// Where characters begin — and whether some bytes are a character at all — is a
-// property of the line and not of a span. A style change is invisible to a reader
-// and free to fall inside a character, leaving its bytes in two spans; segmenting
-// spans separately would let that boundary decide which characters exist. So there
-// is one segmentation, and everything that needs it asks here.
+// Segment the whole line once: a style boundary may split a UTF-8 character
+// or grapheme and must not create a display boundary. The span containing a
+// cluster's first byte owns its appearance.
 func (l Line) eachCluster() iter.Seq2[string, *Span] {
 	return func(yield func(string, *Span) bool) {
 		spanIndex, spanEnd := 0, 0
@@ -630,12 +595,9 @@ func plainASCII(s string) bool {
 
 func plainASCIIByte(b byte) bool { return b >= ' ' && b <= '~' }
 
-// dropped reports whether a cluster is discarded rather than laid out.
-//
-// Measuring has to agree with drawing about this, or a line's reported width is not
-// the width it takes. It shares [Printable]'s rule about control characters and not
-// its rule about invalid UTF-8: text somebody will store keeps a mark where invalid
-// bytes were, and text a terminal was shown does not, because nothing was.
+// Measurement and drawing share dropped so their widths agree. Unlike
+// Printable, display projection omits malformed bytes; stored text retains a
+// replacement marker for them.
 func dropped(cluster string) bool {
 	if !utf8.ValidString(cluster) {
 		return true
@@ -644,9 +606,7 @@ func dropped(cluster string) bool {
 	return droppedRune(r)
 }
 
-// droppedRune is that rule. A tab is laid out rather than obeyed — see [TabStop] —
-// and every other control character is an instruction for a terminal this package is
-// not asking it to perform.
+// Tabs are expanded by layout; other controls must not reach terminal output.
 func droppedRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
 
 // printable is the line with the clusters that never reach a cell removed. Tabs
@@ -710,13 +670,9 @@ func prefix(s string, budget int) string {
 // measured here exactly as it will be drawn there.
 func clusterWidth(cluster string) int { return grid.ClusterWidth(cluster) }
 
-// Clusters iterates the grapheme clusters of s with the byte offset each starts at.
-//
-// It is what anything holding a cursor into text needs. A cursor cannot live on a
-// rune boundary: a letter and the accent that modifies it are two runes and one
-// thing on screen, and a cursor between them has no position a terminal could show.
-// Malformed bytes remain separate zero-width clusters so offsets still address s
-// without letting corrupt bytes absorb valid text on either side.
+// Clusters preserves grapheme boundaries because a cursor between a base and
+// its combining mark has no display position. Malformed bytes remain separate
+// zero-width clusters so later offsets still address the original input.
 func Clusters(s string) iter.Seq2[int, string] {
 	return func(yield func(int, string) bool) {
 		clusters := grapheme.New(s)
@@ -831,19 +787,9 @@ func OffsetAt(s string, col int) int {
 	return at
 }
 
-// StampLink turns the columns occupied by the byte range [start, end) of s into a
-// hyperlink, on text already drawn at (x, y), and reports the columns it covered.
-//
-// The conversion is the whole point of it existing. Anything that finds links works
-// in bytes, because bytes are what text is; a cell is a column, and the two counts
-// are not the same one. A URL written after an emoji begins at a different column
-// than at its byte offset, one containing a full-width character covers more columns
-// than it has clusters, and a tab before it moves everything by however much was
-// left to the next stop. Getting that wrong underlines the wrong text — visibly, and
-// only for the people whose text is not ASCII.
-//
-// The returned width is what a caller records so that a click on those columns can
-// be answered later.
+// StampLink converts source byte ranges to terminal columns so wide clusters
+// and preceding tabs cannot shift a link onto unrelated text. The returned
+// width lets the caller use those same columns for hit testing.
 func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col, width int) {
 	if start < 0 || end > len(s) || start >= end {
 		return 0, 0
@@ -854,34 +800,24 @@ func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col
 	return col, width
 }
 
-// Class is the family of characters a cluster belongs to, for deciding where a word
-// begins and ends.
 type Class uint8
 
 const (
-	// Space denotes whitespace.
 	Space Class = iota
 	// Word is a letter, a digit or an underscore — the run a double-click takes in
 	// text written in an alphabet.
 	Word
-	// Han is Chinese, and the first of the three scripts written without spaces.
-	//
-	// In those, a run of letters is not a word and the script itself is the only
-	// boundary left. Double-clicking inside 中文词组 takes the whole run: taking the
-	// alphabetic rule instead would swallow the Latin beside it, and taking one
-	// character would select less than anybody meant.
+	// Han stays separate from adjacent alphabetic text: script runs provide a
+	// selection boundary where spaces do not.
 	Han
 	// Kana is Japanese hiragana and katakana, which are one boundary between them
 	// because a word switches from one to the other inside itself.
 	Kana
-	// Hangul is Korean.
 	Hangul
-	// Punct is everything else. It selects only itself, because a run of punctuation
-	// is not a thing anybody means to have selected.
+	// Punct selects one cluster to avoid claiming adjacent symbols.
 	Punct
 )
 
-// ClassOf is the family the first character of a cluster belongs to.
 func ClassOf(cluster string) Class {
 	for _, r := range cluster {
 		switch {
@@ -920,10 +856,8 @@ func WordAt(s string, at int) (start, end int, ok bool) {
 	if s == "" || at < 0 || at >= len(s) {
 		return 0, 0, false
 	}
-	// The clusters, with the class of each, and which of them the offset is inside.
-	// Materialised rather than walked twice: the walk is the expensive part, this
-	// runs once per double-click, and expanding in both directions from the middle of
-	// an iterator is how the first version of it came to be wrong.
+	// Materialize once so selection can expand from the hit in both directions
+	// without repeating grapheme segmentation.
 	type span struct {
 		from, to int
 		class    Class

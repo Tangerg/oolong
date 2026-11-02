@@ -5,8 +5,6 @@ import (
 )
 
 const (
-	// bel is the older of the two ways a terminal ends a string it is sending. The
-	// other is ST: an escape and a backslash.
 	bel = ansi.Bell
 
 	// Each introducer is also what a terminal sends for a chord — Alt+] and
@@ -35,7 +33,6 @@ const (
 	maxStringBody = 1 << 20
 )
 
-// stringKind is which of the two strings is being read.
 type stringKind uint8
 
 const (

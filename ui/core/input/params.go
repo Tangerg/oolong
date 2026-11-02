@@ -15,13 +15,8 @@ type params struct{ ansi.Params }
 
 func parseParams(body string) params { return params{ansi.Parse(body)} }
 
-// deviceAttributes reads what a terminal answered when asked what it is: a class,
-// then the extensions it claims.
-//
-// A malformed number is left out rather than refused. Unlike a key report, where
-// the wrong modifiers fire something nobody asked for, a claim that cannot be read
-// is simply a claim nobody can act on — and the rest of the list is still worth
-// having.
+// Malformed capability claims are omitted independently: unlike malformed key
+// modifiers, an unreadable claim cannot trigger an unintended user action.
 func (ps params) deviceAttributes() DeviceAttributes {
 	class := max(ps.At(0), 0)
 	features := make([]int, 0, max(ps.Len()-1, 0))
@@ -33,13 +28,8 @@ func (ps params) deviceAttributes() DeviceAttributes {
 	return Attributes(class, features...)
 }
 
-// namesNoKey reports whether the group before the modifiers is what a report that
-// names its key by its final byte may carry there.
-//
-// A cursor key and shift-tab put nothing in it: the field is absent, or it is the
-// protocol's only value, one. Something else there is another sequence that happens
-// to end in the same byte, and it used to arrive as the keystroke because only the
-// modifier group was ever examined.
+// Final-byte keys permit only an absent or one-valued leading group. Other
+// values may identify unrelated replies and must not become keystrokes.
 func (ps params) namesNoKey() bool {
 	group := ps.Group(0)
 	if group.Len() == 0 {
@@ -48,12 +38,8 @@ func (ps params) namesNoKey() bool {
 	return group.Len() == 1 && group.At(0) <= 1
 }
 
-// keyMeta reads the modifier and transition group that key reports carry, and
-// that the Kitty keyboard protocol also adds to arrow and numbered-key reports.
-//
-// It reports false for a group that is malformed rather than guessing: a key
-// event with the wrong modifiers is worse than no key event, because it fires
-// something the user did not ask for.
+// keyMeta rejects malformed metadata because guessed modifiers could execute
+// a binding the user did not press.
 func (ps params) keyMeta() (Mods, Transition, bool) {
 	group := ps.Group(1)
 	if group.Len() == 0 {
@@ -112,14 +98,8 @@ func (ps params) text() (string, bool) {
 	return b.String(), true
 }
 
-// codePoint turns a parsed number into the rune it names, reporting whether it
-// names one at all.
-//
-// The range is checked on the number rather than on the rune, because converting
-// is what destroys the evidence: a rune is 32 bits, so a code point of
-// 0x100000041 narrows quietly to "A" and asking utf8.ValidRune afterwards asks
-// about a value the terminal never sent. Every number in this package arrives
-// from a sequence somebody else wrote, so every one of them gets this.
+// Validate before converting to rune: narrowing an out-of-range wire integer
+// can turn it into a valid but different Unicode scalar.
 func codePoint(cp int) (rune, bool) {
 	if cp < 0 || cp > utf8.MaxRune {
 		return 0, false
@@ -145,9 +125,6 @@ func (ps params) functionalKey(code Code, extra Mods) Event {
 	return Key{Code: code, Mods: mods | extra, Transition: transition}
 }
 
-// extendedKey reads the Kitty keyboard protocol's key report, which is the
-// only form that distinguishes releases from presses and can say what text a key
-// produced.
 func (ps params) extendedKey() Event {
 	if ps.Len() > 3 {
 		return nil
@@ -234,11 +211,8 @@ func (ps params) mouse(down bool) Event {
 	return ev
 }
 
-// report reads a control sequence that carried a private marker.
-//
-// Every one of these is a terminal answering rather than a person typing, so an
-// unrecognised one is dropped. Reading it as a key would put whatever the terminal
-// said into whatever had focus.
+// Private-marker sequences are terminal reports. Unknown reports cannot fall
+// through to keys without injecting unsolicited text into the focused control.
 func (ps params) report(final byte) Event {
 	switch {
 	case ps.Marker() == '<' && (final == 'M' || final == 'm'):

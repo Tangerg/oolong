@@ -6,7 +6,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
-// BlockConfig configures an immutable collection of styled logical lines.
 type BlockConfig struct {
 	Lines []Line
 	Wrap  bool
@@ -65,7 +64,6 @@ func (b *Block) physical(width int) []blockRow {
 // HeightForWidth reports physical rows, with no rows at nonpositive widths.
 func (b *Block) HeightForWidth(width int) int { return len(b.physical(width)) }
 
-// Draw paints the visible part without changing the source.
 func (b *Block) Draw(view grid.View) {
 	width, _ := view.Size()
 	rows := b.physical(width)

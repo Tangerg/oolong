@@ -1,7 +1,5 @@
-// Package markdownlook maps the example theme onto Markdown.
-//
-// It lives with the examples because this mapping is application appearance; the
-// Markdown module does not choose a component theme or terminal glyph set.
+// Package markdownlook keeps Markdown appearance with the examples because the
+// application owns its palette and the host owns its terminal glyph repertoire.
 package markdownlook
 
 import (
@@ -10,7 +8,6 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
-// New returns the document appearance shared by the Markdown examples.
 func New(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
 	return markdown.Look{
 		Text:     theme.Text,

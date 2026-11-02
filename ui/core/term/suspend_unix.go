@@ -3,35 +3,26 @@
 package term
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"os/signal"
-
-	"golang.org/x/sys/unix"
+	"runtime"
 )
 
-// Suspend stops this process the way Ctrl+Z does, and returns when it is continued.
-//
-// It does nothing to the terminal, which is what makes it a separate thing: a
-// program that stopped while holding the alternate screen leaves the user looking
-// at half an interface they cannot type into, so the terminal has to be given back
-// first. [Terminal.Hand] with this as its callback is the two together, and is what
-// a session wants.
-//
-// The stop signal is sent to this process and not handled, so the default action
-// takes it: the shell that started this program takes the terminal back, prints its
-// prompt, and this call has not returned. Continuing is what returns from it, which
-// is why the continue signal is waited for rather than assumed — the kill returns
-// as soon as the signal is queued, and going on from there would resume an
-// interface while the process was still stopped.
-func Suspend() error {
-	cont := make(chan os.Signal, 1)
-	signal.Notify(cont, unix.SIGCONT)
-	defer signal.Stop(cont)
+var errSuspendSignalBlocked = fmt.Errorf("SIGTSTP is blocked on the calling thread: %w", errors.ErrUnsupported)
 
-	if err := unix.Kill(unix.Getpid(), unix.SIGTSTP); err != nil {
+// Suspend borrows the calling thread to deliver SIGTSTP before returning, so
+// [Terminal.Hand] cannot reclaim the terminal ahead of the stop. The operating
+// system owns stopping and continuation; an ignored signal, an orphaned process
+// group, or a host-installed handler may leave the process running.
+//
+// Suspend preserves the host's signal policy. A platform that cannot deliver the
+// signal synchronously, or a caller that blocks it, reports [errors.ErrUnsupported].
+func Suspend() error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	if err := suspendProcess(); err != nil {
 		return fmt.Errorf("term: suspend: %w", err)
 	}
-	<-cont
 	return nil
 }

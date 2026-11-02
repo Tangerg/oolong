@@ -5,6 +5,8 @@ package fifo
 import (
 	"iter"
 	"slices"
+
+	"github.com/Tangerg/oolong/ui/internal/retention"
 )
 
 // Queue owns an ordered collection of values waiting to be taken.
@@ -17,13 +19,11 @@ type Queue[T any] struct {
 	head  int
 }
 
-// Len reports the number of values waiting.
 func (q *Queue[T]) Len() int { return len(q.items) - q.head }
 
 // Capacity includes removed slots still backed by the live allocation.
 func (q *Queue[T]) Capacity() int { return cap(q.items) }
 
-// At reads one live value by its zero-based index.
 func (q *Queue[T]) At(index int) T { return q.items[q.head:][index] }
 
 // Values visits the live sequence in order. The queue must not change during iteration.
@@ -31,17 +31,14 @@ func (q *Queue[T]) Values() iter.Seq[T] {
 	return func(yield func(T) bool) { slices.Values(q.items[q.head:])(yield) }
 }
 
-// Push appends values in order.
 func (q *Queue[T]) Push(values ...T) { q.items = append(q.items, values...) }
 
-// Discard releases at most count oldest values.
 func (q *Queue[T]) Discard(count int) {
 	if n := min(count, q.Len()); n > 0 {
 		q.release(n)
 	}
 }
 
-// Pop removes and returns the oldest value.
 func (q *Queue[T]) Pop() (T, bool) {
 	if q.Len() == 0 {
 		var zero T
@@ -64,7 +61,6 @@ func (q *Queue[T]) Take(limit int) []T {
 	return values
 }
 
-// Clear removes every value and releases all storage.
 func (q *Queue[T]) Clear() {
 	clear(q.items)
 	q.items = nil
@@ -80,7 +76,7 @@ func (q *Queue[T]) release(n int) {
 		q.head = 0
 		return
 	}
-	if cap(q.items) > 2*live+16 {
+	if retention.ShouldCompact(cap(q.items), live) {
 		items := make([]T, live)
 		copy(items, q.items[q.head:])
 		q.items = items

@@ -1,11 +1,10 @@
-// Package mermaid prepares neutral PNG diagrams using the optional official
-// Mermaid CLI. It does not parse a Mermaid subset, upload terminal images, or do
-// work during drawing. Applications run Render in a worker and accept its result
-// on their content owner before binding it to a terminal.
+// Package mermaid delegates Mermaid syntax to the optional official CLI so no
+// second parser dialect develops here. Applications prepare PNGs in workers and
+// accept immutable results on their content owner.
 //
-// The CLI and its browser are installed and versioned by the application. This
-// backend supports Unix process groups and Windows 10+ Job Objects; other platforms report ErrUnsupported
-// instead of promising cancellation that leaves browser children running.
+// The application installs and versions the CLI and browser. Unix process groups
+// and Windows 10+ jobs provide cancellation ownership; other platforms reject
+// rendering because they cannot guarantee browser-child cleanup.
 package mermaid
 
 import (
@@ -28,30 +27,36 @@ import (
 	"unicode/utf8"
 )
 
-// Config describes one backend instance. Zero limits choose documented defaults.
-// Executable, Node and Browser are trusted application configuration, never
-// diagram input. There is no shell interpolation or automatic package download.
+const (
+	defaultRenderTimeout  = 30 * time.Second
+	defaultMaxSourceBytes = 64 << 10
+	defaultMaxOutputBytes = 8 << 20
+	defaultMaxPixels      = 16_000_000
+	defaultMaxEdges       = 500
+	defaultViewportWidth  = 1200
+	defaultViewportHeight = 800
+	maxDiagnosticBytes    = 64 << 10
+)
+
+// Config treats Executable, Node and Browser as trusted application configuration because
+// source must never select code to execute. Zero limits choose bounded defaults.
 type Config struct {
-	// Executable locates the installed official mmdc package (default mmdc).
-	// Node selects its JavaScript runtime (default node). Arbitrary CLI launchers
-	// and argument injection are not supported; the renderer owns browser launch.
+	// Resolve the installed official mmdc package (default mmdc) and its runtime
+	// (default node) so the adapter owns browser launch without interpreting shims.
 	Executable string
 	Node       string
-	// Browser optionally selects a Chromium executable for Puppeteer. Empty uses
-	// its installed headless shell, matching the official CLI browser mode.
+	// An empty browser uses the installed headless shell to match the official CLI
+	// rendering mode.
 	Browser string
-	// Theme is default, dark, forest, neutral or base. Empty selects default.
-	Theme string
-	// Timeout defaults to 30 seconds. Unix shutdown allows one second for graceful
-	// exit and one second to confirm forced process-group termination.
-	Timeout time.Duration
-	// MaxSourceBytes defaults to 64 KiB; MaxOutputBytes to 8 MiB.
+	Theme   string
+	// The deadline includes admission waiting so queued renders cannot wait forever.
+	// Unix shutdown also allows bounded graceful and forced process-group cleanup.
+	Timeout        time.Duration
 	MaxSourceBytes int
 	MaxOutputBytes int64
-	// MaxPixels defaults to 16 million decoded pixels. MaxEdges defaults to 500.
-	MaxPixels int64
-	MaxEdges  int
-	// Width and Height are browser viewport pixels, defaulting to 1200 by 800.
+	MaxPixels      int64
+	MaxEdges       int
+	// Puppeteer sizes content in viewport pixels before the PNG is validated.
 	Width, Height int
 }
 
@@ -64,16 +69,16 @@ type Renderer struct {
 	slot    chan struct{}
 }
 
-// ErrLimit identifies rejected source or output resource limits.
 var ErrLimit = errors.New("mermaid: resource limit exceeded")
 
-// Image is an owned neutral PNG; it carries no terminal handle or live process.
+// Image may outlive its browser because its immutable PNG retains no terminal handle
+// or live process.
 type Image struct {
 	data []byte
 	size image.Point
 }
 
-// PNG returns an independent copy suitable for Runtime.Images().Transmit.
+// PNG detaches its bytes so image consumers can retain or modify their copy independently.
 func (i *Image) PNG() []byte {
 	if i == nil {
 		return nil
@@ -81,7 +86,6 @@ func (i *Image) PNG() []byte {
 	return slices.Clone(i.data)
 }
 
-// Size reports the PNG dimensions validated during preparation.
 func (i *Image) Size() image.Point {
 	if i == nil {
 		return image.Point{}
@@ -89,7 +93,6 @@ func (i *Image) Size() image.Point {
 	return i.size
 }
 
-// New snapshots configuration and resolves the explicitly installed backend.
 func New(cfg Config) (*Renderer, error) {
 	if err := platformSupported(); err != nil {
 		return nil, err
@@ -125,36 +128,34 @@ func absoluteBrowser(name string) (string, error) {
 	return absolute, nil
 }
 
-// applyDefaults gives every zero field the meaning [Config] states for it.
 func (c *Config) applyDefaults() {
 	if c.Theme == "" {
 		c.Theme = "default"
 	}
 	if c.Timeout == 0 {
-		c.Timeout = 30 * time.Second
+		c.Timeout = defaultRenderTimeout
 	}
 	if c.MaxSourceBytes == 0 {
-		c.MaxSourceBytes = 64 << 10
+		c.MaxSourceBytes = defaultMaxSourceBytes
 	}
 	if c.MaxOutputBytes == 0 {
-		c.MaxOutputBytes = 8 << 20
+		c.MaxOutputBytes = defaultMaxOutputBytes
 	}
 	if c.MaxPixels == 0 {
-		c.MaxPixels = 16_000_000
+		c.MaxPixels = defaultMaxPixels
 	}
 	if c.MaxEdges == 0 {
-		c.MaxEdges = 500
+		c.MaxEdges = defaultMaxEdges
 	}
 	if c.Width == 0 {
-		c.Width = 1200
+		c.Width = defaultViewportWidth
 	}
 	if c.Height == 0 {
-		c.Height = 800
+		c.Height = defaultViewportHeight
 	}
 }
 
-// validate reports a configuration no renderer could honour. It runs after the
-// defaults, so what it refuses is what the caller actually asked for.
+// Validate after defaults so zero values retain their useful construction meaning.
 func (c *Config) validate() error {
 	switch c.Theme {
 	case "default", "dark", "forest", "neutral", "base":
@@ -172,11 +173,9 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// Render generates and validates PNG output. Source and diagnostics are bounded.
-// A backend error, invalid PNG, timeout or cancellation returns no image. Errors
-// preserve context cancellation and process exit identities with errors.Is/As.
-// Limits bound accepted input/output, not the browser's peak memory or disk usage;
-// an application needing an adversarial sandbox must supply one around the CLI.
+// Render returns no image on failure, timeout or cancellation, while errors
+// preserve cancellation and process identities. Accepted input and output are
+// bounded; containing browser peak memory or disk usage requires an external sandbox.
 func (r *Renderer) Render(ctx context.Context, source string) (result *Image, err error) {
 	if r == nil || r.slot == nil {
 		return nil, errors.New("mermaid: uninitialized renderer")
@@ -215,7 +214,7 @@ func (r *Renderer) Render(ctx context.Context, source string) (result *Image, er
 	cmd := exec.CommandContext(ctx, r.backend.node, args...) //nolint:gosec // Trusted backend configuration, fixed flags, source only on stdin.
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(source)
-	diagnostics := &boundedOutput{limit: 64 << 10}
+	diagnostics := &boundedOutput{limit: maxDiagnosticBytes}
 	cmd.Stdout, cmd.Stderr = diagnostics, diagnostics
 	if runErr := run(ctx, cmd); runErr != nil {
 		return nil, fmt.Errorf("mermaid: backend: %w: %q", runErr, diagnostics.buffer.String())

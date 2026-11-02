@@ -20,7 +20,6 @@ var (
 	ErrClosed   = errors.New("publication: closed")
 )
 
-// Config combines the standalone compositor's capture geometry and retention limits.
 type Config struct {
 	Limits
 	Width  int
@@ -36,10 +35,16 @@ type Limits struct {
 	MaxPendingBytes int64
 }
 
+const (
+	defaultMaxItems        = 128
+	defaultMaxCells        = 1 << 16
+	defaultMaxItemBytes    = 4 << 20
+	defaultMaxPendingBytes = 8 << 20
+)
+
 // ID identifies an accepted publication independently of its eventual writer sequence.
 type ID uint64
 
-// State records the strongest transport outcome known for an accepted publication.
 type State uint8
 
 // Publication states never infer a physical write from queue admission.
@@ -131,7 +136,6 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
-// New creates a bounded owner for pending and writer-admitted permanent content.
 func New(cfg Config) (*Publisher, error) {
 	if cfg.Width <= 0 {
 		return nil, errors.New("publication: width must be positive")
@@ -144,7 +148,6 @@ func New(cfg Config) (*Publisher, error) {
 	return &Publisher{cfg: cfg}, nil
 }
 
-// Validate checks the effective budgets, including zero-valued defaults.
 func (l Limits) Validate() error { _, err := l.normalized(); return err }
 
 func (l Limits) normalized() (Limits, error) {
@@ -152,16 +155,16 @@ func (l Limits) normalized() (Limits, error) {
 		return Limits{}, errors.New("publication: invalid configuration")
 	}
 	if l.MaxItems == 0 {
-		l.MaxItems = 128
+		l.MaxItems = defaultMaxItems
 	}
 	if l.MaxCells == 0 {
-		l.MaxCells = 1 << 16
+		l.MaxCells = defaultMaxCells
 	}
 	if l.MaxItemBytes == 0 {
-		l.MaxItemBytes = 4 << 20
+		l.MaxItemBytes = defaultMaxItemBytes
 	}
 	if l.MaxPendingBytes == 0 {
-		l.MaxPendingBytes = 8 << 20
+		l.MaxPendingBytes = defaultMaxPendingBytes
 	}
 	if l.MaxItemBytes > l.MaxPendingBytes {
 		return Limits{}, errors.New("publication: item budget exceeds pending budget")
@@ -279,7 +282,6 @@ func (b Batch) Items() []Contribution {
 	return out
 }
 
-// Len counts complete contributions in this candidate prefix.
 func (b Batch) Len() int { return len(b.entries) }
 
 // Commit cannot fail after writer admission. A stale batch, wrong owner or

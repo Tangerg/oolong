@@ -51,7 +51,6 @@ func (t *Transcript) Bytes() []byte {
 	return bytes.Clone(t.buf.Bytes())
 }
 
-// String is the snapshot as a string, byte for byte.
 func (t *Transcript) String() string { return string(t.Bytes()) }
 
 // Screen interprets the current transcript as cell-renderer output at size.
@@ -103,7 +102,6 @@ func (t *Transcript) WaitFor(ctx context.Context, tokens ...string) error {
 	}
 }
 
-// missing reports what never turned up, with the transcript that did.
 type missing struct {
 	tokens     []string
 	transcript string

@@ -50,7 +50,6 @@ type MultiSelect[T any] struct {
 	revision uint64
 }
 
-// Prompt is what the field is asking for.
 func (m *MultiSelect[T]) Prompt() string { return m.Label }
 
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
@@ -166,7 +165,6 @@ func (m *MultiSelect[T]) toggle() bool {
 	return true
 }
 
-// HeightForWidth is the label, the options within their cap, and the problem if there is one.
 func (m *MultiSelect[T]) HeightForWidth(int) int {
 	rows := len(m.list.items)
 	if m.Rows > 0 {
@@ -175,12 +173,10 @@ func (m *MultiSelect[T]) HeightForWidth(int) int {
 	return layout.Sum(max(rows, 1), m.rows(m.Label))
 }
 
-// Draw paints the label, the options and whatever was wrong with the choices.
 func (m *MultiSelect[T]) Draw(v scene.Frame) {
 	m.DrawWith(v, Look{})
 }
 
-// DrawWith paints the field using this frame's look without changing configuration.
 func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
 		chosen := readProjection(m.element, func() bool {
@@ -220,7 +216,6 @@ func (m *MultiSelect[T]) Do(action keymap.Action) bool {
 	return m.list.Do(action)
 }
 
-// Validate checks the choices.
 func (m *MultiSelect[T]) Validate() error { return m.validate(nil, m.Revision, m.checkAnswer) }
 
 func (m *MultiSelect[T]) checkAnswer() error {
@@ -230,7 +225,6 @@ func (m *MultiSelect[T]) checkAnswer() error {
 	return m.Check(m.Taken())
 }
 
-// Focus takes the keyboard or gives it up, and checks the choices on the way out.
 func (m *MultiSelect[T]) focusChanged(has bool) {
 	change := func() {
 		m.focus(has, m.list.focusChanged, nil, m.Validate)

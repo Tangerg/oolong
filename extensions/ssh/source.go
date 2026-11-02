@@ -12,6 +12,12 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
+const (
+	inputChunkBytes          = 4096
+	queuedReadResults        = 4
+	maxConsecutiveEmptyReads = 100
+)
+
 type readResult struct {
 	data []byte
 	at   time.Time
@@ -20,10 +26,8 @@ type readResult struct {
 
 var errReadInterrupted = errors.New("ssh: input read interrupted; reader ended")
 
-// eventSource turns the two ordered facts an SSH terminal supplies — bytes and
-// window changes — into one program input stream. Window intake has its own
-// latest-value mailbox so a client resize cannot block the SSH request loop behind
-// a slow frame.
+// Window intake needs its own latest-value mailbox so a client resize cannot
+// block the SSH request loop behind slow frame output.
 type eventSource struct {
 	cancelled <-chan struct{}
 	in        io.Reader
@@ -52,7 +56,7 @@ func newEventSource(
 		windows:   windows,
 		clip:      clip,
 		events:    make(chan input.Event),
-		raw:       make(chan readResult, 4),
+		raw:       make(chan readResult, queuedReadResults),
 		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
 	}
@@ -63,18 +67,12 @@ func newEventSource(
 
 func (s *eventSource) Events() <-chan input.Event { return s.events }
 
-// Err reports the terminal result after Events closes. Channel closure
-// synchronizes run's write with this read.
+// Events closure synchronizes the terminal result with readers of Err.
 func (s *eventSource) Err() error { return s.err }
 
-// Close stops decoding and waits for everything this source owns the end of.
-//
-// It does not wait for the session reader. That goroutine may be inside a read of
-// an SSH channel, which has no deadline and belongs to the caller, so waiting for
-// it would mean waiting for the client to send something or disconnect. It begins no
-// further read once this returns — see [eventSource.readInput] — and the one already
-// in flight ends with the channel. This is why [Terminal.Open] requires exclusive use of
-// session input for the remaining channel lifetime.
+// The caller owns the channel, whose read has no deadline. Waiting for the
+// reader could therefore block forever; its in-flight read ends with the channel.
+// Terminal.Open requires exclusive input ownership for that remaining lifetime.
 func (s *eventSource) Close() {
 	s.stopIntake()
 	<-s.done
@@ -84,15 +82,9 @@ func (s *eventSource) stopIntake() {
 	s.closeOnce.Do(func() { close(s.stop) })
 }
 
-// readInput takes the session's bytes until the session ends or nobody is left to
-// want them.
-//
-// An SSH channel cannot be read with a deadline and this package does not own the
-// channel, so one read can still be in flight when the source is closed — see
-// [eventSource.Close]. That one is unavoidable; every one after it is not, which is
-// why ending is checked before a chunk is offered and again before the next read.
-// Offering it in a select alongside the stop signal would let a closed source go on
-// taking the caller's bytes for as long as the buffer had room.
+// The caller-owned channel permits one in-flight read after decoding stops.
+// Check termination before offering a chunk and before the next read: a select
+// with both a ready send and stop signal could keep consuming caller bytes.
 func (s *eventSource) readInput() {
 	completed := false
 	defer func() {
@@ -115,7 +107,7 @@ func (s *eventSource) readInput() {
 }
 
 func (s *eventSource) readChunks() {
-	buffer := make([]byte, 4096)
+	buffer := make([]byte, inputChunkBytes)
 	emptyReads := 0
 	for {
 		if s.ending() {
@@ -131,7 +123,7 @@ func (s *eventSource) readChunks() {
 			emptyReads = 0
 		} else if err == nil {
 			emptyReads++
-			if emptyReads >= 100 {
+			if emptyReads >= maxConsecutiveEmptyReads {
 				err = io.ErrNoProgress
 			}
 		}
@@ -173,9 +165,8 @@ func (s *eventSource) ending() bool {
 	}
 }
 
-// run decodes the accepted session's bytes. How an escape is settled by time and how
-// a clipboard answer becomes a paste belong to [input.Stream]; what is left here is
-// this transport's own — which channels carry what, and when the session is over.
+// input.Stream owns escape deadlines and clipboard interpretation so this
+// transport only decides channel delivery and session termination.
 func (s *eventSource) run() {
 	defer close(s.done)
 	defer close(s.events)

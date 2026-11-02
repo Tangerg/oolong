@@ -1,10 +1,5 @@
-// Command markdown renders a finished Markdown document.
-//
-// The parser produces immutable blocks. A Doc composes those blocks, measures them
-// at the final terminal width, and draws them directly; no component-specific
-// Markdown widget or intermediate string is needed.
-//
-// Press q or Ctrl+C to leave.
+// Command markdown prepares an immutable document so drawing and measurement
+// consume one complete source snapshot.
 package main
 
 import (

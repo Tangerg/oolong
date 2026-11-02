@@ -1,13 +1,6 @@
-// Package fuzzy ranks candidates against what someone has typed.
-//
-// Every character of the pattern has to appear in the candidate, in order, and the score depends on
-// where. A match at the start of a word counts for more than one in the middle of
-// one, characters that run together count for more than characters spread out, and a
-// pattern typed in the same case as the candidate counts for a little more than one
-// that was not.
-//
-// It answers in byte offsets rather than character counts so callers can address the
-// original UTF-8 string without converting between coordinate systems.
+// Package fuzzy returns original UTF-8 byte offsets so consumers can highlight
+// matches without translating coordinates. Matching favors word starts and runs
+// of adjacent characters, with case used to distinguish otherwise equal matches.
 package fuzzy
 
 import (
@@ -35,7 +28,6 @@ const (
 	bonusStart = 24
 )
 
-// Match is how well a candidate answered a pattern.
 type Match struct {
 	// Score is meaningful only against other scores for the same pattern. Higher is
 	// better, and a match is never worth less than one, so that "matched at all" and
@@ -195,11 +187,8 @@ func opensWord(prev rune) bool {
 	return prev < 0
 }
 
-// Ranked is one candidate that matched, named by its position in what was searched.
-//
-// It is an index rather than the string so that a caller ranking its own items —
-// files with a kind, commands with a description — gets back something it can look
-// its own item up with, instead of having to match strings back up afterwards.
+// Ranked uses an index so callers retain their item identity without matching
+// the resulting text back to their records.
 type Ranked struct {
 	Index int
 	Match Match
@@ -214,13 +203,8 @@ func Filter(pattern string, candidates []string) []Ranked {
 	return FilterFunc(pattern, candidates, func(s string) string { return s })
 }
 
-// FilterFunc is Filter over items that are not strings, ranking each by the text
-// that text returns for it.
-//
-// Ranking one's own items is the ordinary case — files with a kind, commands with a
-// description — and the alternative is for every caller to build a parallel slice of
-// strings and then map the results back through it. [Ranked.Index] addresses items,
-// so nothing has to be mapped back at all.
+// FilterFunc ranks caller-owned items directly so a parallel string slice
+// cannot drift from the records addressed by Ranked.Index.
 func FilterFunc[T any](pattern string, items []T, text func(T) string) []Ranked {
 	out := make([]Ranked, 0, len(items))
 	for i, item := range items {

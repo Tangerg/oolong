@@ -93,12 +93,13 @@ func TestPaintSequenceOwnsOverlappingComposition(t *testing.T) {
 
 type cellPaint string
 
-func (p cellPaint) Paint(w io.Writer, size image.Point) error {
+func (p cellPaint) Paint(w grid.PaintContext) error {
+	size := w.Size()
 	_, err := fmt.Fprintf(w, "%s\x1b[%dD", strings.Repeat(string(p), size.X), size.X)
 	return err
 }
 
-func (cellPaint) Erase(io.Writer) error { return nil }
+func (cellPaint) Erase(grid.PaintContext) error { return nil }
 
 func TestCellPaintersAndCellsShareOneComposition(t *testing.T) {
 	for _, test := range []struct {
@@ -155,12 +156,12 @@ func TestCellPaintersAndCellsShareOneComposition(t *testing.T) {
 
 type blankCanvasPainter struct{}
 
-func (blankCanvasPainter) Paint(w io.Writer, _ image.Point) error {
+func (blankCanvasPainter) Paint(w grid.PaintContext) error {
 	_, err := io.WriteString(w, "\x1b[2J")
 	return err
 }
 
-func (blankCanvasPainter) Erase(w io.Writer) error {
+func (blankCanvasPainter) Erase(w grid.PaintContext) error {
 	_, err := io.WriteString(w, "\x1b[2J")
 	return err
 }

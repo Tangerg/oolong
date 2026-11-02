@@ -49,7 +49,6 @@ var (
 	_ base.TextProjector = (*Entry)(nil)
 )
 
-// HeightForWidth is how many rows the entry needs at this width.
 func (e *Entry) HeightForWidth(width int) int {
 	if e == nil {
 		return 0
@@ -57,7 +56,6 @@ func (e *Entry) HeightForWidth(width int) int {
 	return layout.Sum(e.head(), len(e.body().rows(e.wrapWidth(width))), e.trailing())
 }
 
-// Draw paints the label, the body and the blank rows after it.
 func (e *Entry) Draw(v grid.View) {
 	if e == nil || v.Empty() {
 		return

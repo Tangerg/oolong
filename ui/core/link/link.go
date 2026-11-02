@@ -1,14 +1,6 @@
-// Package link finds the things in a piece of text that point somewhere.
-//
-// It reports byte ranges and normalized destinations without deciding how a caller
-// presents or opens them. A URL and a file path are two kinds rather than two
-// spellings of one: a URL is opened by a browser, and a file by an editor, possibly at
-// a line and column.
-//
-// Opening one is not here. Which browser, which editor, whether the process is
-// sandboxed — none of that belongs to detection. Nor is the filesystem: this package
-// reads text and nothing else, which is why the one rule that needs the filesystem
-// takes it as an argument — see [Detect].
+// Package link keeps detection independent of presentation, opening policy and
+// the local filesystem. Ambiguous file references require the caller's evidence
+// through Detect; text from another machine cannot authorize a local lookup.
 package link
 
 import (
@@ -19,18 +11,13 @@ import (
 	"strings"
 )
 
-// Kind is what a link points at.
 type Kind uint8
 
 const (
-	// URL is a web address. It is the zero value because it is the kind that needs no
-	// confirmation from anywhere: a thing shaped like a URL is a URL.
 	URL Kind = iota
-	// File is a path in the local filesystem.
 	File
 )
 
-// String names the kind the way a diagnostic would.
 func (k Kind) String() string {
 	if k == File {
 		return "file"
@@ -38,7 +25,6 @@ func (k Kind) String() string {
 	return "url"
 }
 
-// Link is one thing in a piece of text that points somewhere.
 type Link struct {
 	// Start and End are the byte range of the text that was matched, so a caller can
 	// attach the destination to its own representation of that range.
@@ -60,7 +46,6 @@ type Link struct {
 // Links is an ordered, non-overlapping set of links detected in one text.
 type Links []Link
 
-// Text is the matched range of s, which is what was actually written.
 func (l Link) Text(s string) string {
 	if l.Start < 0 || l.End > len(s) || l.Start > l.End {
 		return ""
@@ -68,10 +53,8 @@ func (l Link) Text(s string) string {
 	return s[l.Start:l.End]
 }
 
-// At returns the link covering a byte offset.
-//
-// Start is inclusive and End exclusive, so the character after a link is not part
-// of it. The scan is linear because a line normally holds only a handful of links.
+// At uses a half-open byte interval so a following character cannot activate the
+// preceding link. A linear scan suits the handful of links in an ordinary line.
 func (links Links) At(offset int) (Link, bool) {
 	for _, link := range links {
 		if offset >= link.Start && offset < link.End {
@@ -81,33 +64,32 @@ func (links Links) At(offset int) (Link, bool) {
 	return Link{}, false
 }
 
-// urlPattern finds http(s) URLs and bare www. hosts in one pass.
-//
-// One alternation rather than two passes, so "https://www.example.com" is taken by
-// the scheme branch and never reported twice; and \b so that a "www." inside a
-// longer word — "awww.example" — is not a host.
-//
-// The body is the RFC 3986 URI character set rather than "anything that is not a
-// space". That is the part worth keeping: it stops the match cleanly where non-URL
-// text is butted straight against the URL, which is the normal case in Chinese and
-// Japanese prose — 见 https://example.com 页面 must not swallow 页面. Brackets and
-// parentheses are admitted so that the trimming below can apply a heuristic to
-// them, rather than the pattern silently cutting a path short at the first one.
-var urlPattern = regexp.MustCompile(`(?:https?://|\bwww\.)[A-Za-z0-9\-._~:/?#\[\]@!$&()*+,;=%]+`)
+const (
+	httpsPrefix    = "https://"
+	httpPrefix     = "http://"
+	wwwPrefix      = "www."
+	uriPunctuation = "-.~:/?#[]@!$&'()*+,;=%"
+)
 
-// pathPattern finds the shapes a file path is written in, in the order they must be
-// tried.
-//
-//   - Quoted, in single or double quotes, which is how anything with a space in it is
-//     written and the only form where a space may appear anywhere. It is what makes
-//     "Demo App.app" one path rather than two words.
-//   - Rooted, beginning with "/" or "~/", where the leading character is evidence
-//     enough on its own. "24/7" and "and/or" have no leading slash.
-//   - Relative with a directory part, "a/b.go", where the slash says it is a path and
-//     the extension keeps slashed prose out: "TCP/IP" and "and/or" have none.
-//
-// A bare name with neither — "main.go" — is deliberately absent here, and is found
-// only when a caller can confirm it. See [Detect].
+var urlPrefixes = [...]string{httpsPrefix, httpPrefix, wwwPrefix}
+
+// Searching only prefixes lets the scanner stop at a quotation boundary without
+// rescanning a suffix already consumed by a greedy URI match.
+var urlPrefixPattern = func() *regexp.Regexp {
+	patterns := make([]string, 0, len(urlPrefixes))
+	for _, prefix := range urlPrefixes {
+		pattern := regexp.QuoteMeta(prefix)
+		if prefix == wwwPrefix {
+			pattern = `\b` + pattern
+		}
+		patterns = append(patterns, pattern)
+	}
+	return regexp.MustCompile(strings.Join(patterns, "|"))
+}()
+
+// Quotes admit spaces; rooted paths supply their own evidence; relative paths
+// require an extension to exclude slashed prose such as TCP/IP. Bare filenames
+// need external confirmation and therefore have a separate admission path.
 var pathPattern = regexp.MustCompile(
 	`'[^']*\.[A-Za-z0-9]+'` +
 		`|"[^"]*\.[A-Za-z0-9]+"` +
@@ -115,31 +97,22 @@ var pathPattern = regexp.MustCompile(
 		`|[A-Za-z0-9\-._~%@+]+(?:/[A-Za-z0-9\-._~%@+]+)*/[A-Za-z0-9\-._~%@+]*\.[A-Za-z0-9]+`,
 )
 
-// barePattern finds a name with an extension and no directory part.
-//
-// It is the shape that cannot be told from prose by looking at it: "node.js" is a file
-// in one sentence and a runtime in the next, and "1.2.3" and "U.S.A" are neither. So
-// it is only ever reported when something that can see the filesystem says it is there.
+// A bare name such as node.js can be prose, so syntax alone cannot admit it.
 var barePattern = regexp.MustCompile(`[A-Za-z0-9\-._~%@+]+\.[A-Za-z0-9]+`)
 
-// linePattern is a line, and optionally a column, written after a path.
 var linePattern = regexp.MustCompile(`^:([0-9]{1,9})(?::([0-9]{1,9}))?`)
 
 // trailing is trimmed from the end of a match: the punctuation that almost always
 // belongs to the sentence around a link rather than to the link.
-const trailing = ".,;:!?)]}"
+const (
+	closingDelimiters = ")]}"
+	trailing          = ".,;:!?" + closingDelimiters
+)
 
-// Detect finds every link in s, in the order it appears, as a byte range into s.
-//
-// exists is given a path exactly as it was written, relative and unexpanded, and
-// answers whether there is a file there. Nil asks nothing and leaves ambiguous bare
-// filenames out, which is the right answer for text whose paths belong to somebody
-// else's machine. When supplied, exists confirms all relative file targets. URLs,
-// rooted paths and home-relative paths never trigger a lookup.
-//
-// It is an argument rather than a call into the operating system because this package
-// reads text. A library that quietly stat'd every word of a model's output would be
-// doing something no reader of its documentation had reason to expect.
+// Detect delegates filesystem evidence to exists so remote text does not trigger
+// implicit local I/O. The callback receives relative paths exactly as written;
+// URLs, rooted paths and home-relative paths never trigger it. A nil callback
+// leaves ambiguous bare filenames out.
 func Detect(s string, exists func(path string) bool) Links {
 	found := detectURLs(s)
 	found = append(found, detectPaths(s, pathPattern)...)
@@ -151,18 +124,87 @@ func Detect(s string, exists func(path string) bool) Links {
 
 func detectURLs(s string) []Link {
 	var found []Link
-	for _, m := range urlPattern.FindAllStringIndex(s, -1) {
-		text := trimTrailing(s[m[0]:m[1]])
+	scanner := urlScanner{source: s}
+	for {
+		from, to, quoted, ok := scanner.next()
+		if !ok {
+			return found
+		}
+		text := trimTrailing(s[from:to], quoted)
 		scheme, ok := prefixOf(text)
 		if !ok || len(text) == len(scheme) {
-			// Nothing left after the scheme once the punctuation went: a bare
-			// "https://" at the end of a sentence is not a link.
 			continue
 		}
 		kind, target := destination(text)
-		found = append(found, Link{Start: m[0], End: m[0] + len(text), Kind: kind, Target: target})
+		found = append(found, Link{Start: from, End: from + len(text), Kind: kind, Target: target})
 	}
-	return found
+}
+
+// Quotation context must advance with candidate consumption. Finding every
+// match first would hide a later URL swallowed by an earlier quoted candidate.
+type urlScanner struct {
+	source string
+	offset int
+	quote  byte
+}
+
+func (s *urlScanner) next() (from, to int, quoted, ok bool) {
+	match := urlPrefixPattern.FindStringIndex(s.source[s.offset:])
+	if match == nil {
+		return 0, 0, false, false
+	}
+	from, to = s.offset+match[0], s.offset+match[1]
+	s.quotationBefore(from)
+	for to < len(s.source) && uriByte(s.source[to]) {
+		if s.quote == '\'' && s.source[to] == '\'' && !wordApostrophe(s.source, to) {
+			s.offset, s.quote = to+1, 0
+			return from, to, true, true
+		}
+		to++
+	}
+	s.offset = to
+	if s.quote == '"' && to < len(s.source) && s.source[to] == '"' {
+		s.offset, s.quote = to+1, 0
+		return from, to, true, true
+	}
+	return from, to, false, true
+}
+
+func (s *urlScanner) quotationBefore(until int) {
+	for s.offset < until {
+		at := s.offset
+		s.offset++
+		quote := s.source[at]
+		if quote != '\'' && quote != '"' || quote == '\'' && wordApostrophe(s.source, at) {
+			continue
+		}
+		if s.quote != 0 {
+			if s.quote == quote {
+				s.quote = 0
+			}
+			continue
+		}
+		// A possessive apostrophe or inch mark cannot open a quotation after a word.
+		if at == 0 || !wordByte(s.source[at-1]) {
+			s.quote = quote
+		}
+	}
+}
+
+// Word-internal apostrophes do not end a quotation. Within a single-quoted URI,
+// other apostrophes delimit it; percent-encoding disambiguates URI data there.
+// Without a surrounding quotation every URI apostrophe remains data.
+func wordApostrophe(source string, at int) bool {
+	return at > 0 && at+1 < len(source) && wordByte(source[at-1]) && wordByte(source[at+1])
+}
+
+func wordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_'
+}
+
+// ASCII URI syntax keeps adjacent non-Latin prose outside the destination.
+func uriByte(b byte) bool {
+	return wordByte(b) || strings.IndexByte(uriPunctuation, b) >= 0
 }
 
 func detectPaths(s string, pattern *regexp.Regexp) []Link {
@@ -183,7 +225,7 @@ func pathAt(s string, from, to int) (Link, bool) {
 	if quoted {
 		text = text[1 : len(text)-1]
 	} else {
-		text = trimTrailing(text)
+		text = trimTrailing(text, false)
 	}
 	if text == "" || text == "/" || text == "~/" || text == "~" {
 		return Link{}, false
@@ -213,19 +255,21 @@ func pathAt(s string, from, to int) (Link, bool) {
 }
 
 func destination(target string) (Kind, string) {
-	match := urlPattern.FindStringIndex(target)
 	scheme, ok := prefixOf(target)
-	if !ok || len(target) == len(scheme) || match == nil || match[0] != 0 || match[1] != len(target) {
+	if !ok || len(target) == len(scheme) {
 		return File, target
 	}
-	if scheme == "www." {
-		target = "https://" + target
+	for at := len(scheme); at < len(target); at++ {
+		if !uriByte(target[at]) {
+			return File, target
+		}
+	}
+	if scheme == wwwPrefix {
+		target = httpsPrefix + target
 	}
 	return URL, target
 }
 
-// startsWord reports whether a match at this offset begins where a path could begin.
-//
 // The rooted branch of the pattern matches from a slash, and a slash appears in the
 // middle of ordinary prose: "and/or" holds "/or", "24/7" holds "/7". A regular
 // expression cannot look backwards, so the check that the match is not the tail of a
@@ -236,17 +280,15 @@ func startsWord(s string, at int) bool {
 		return true
 	}
 	switch b := s[at-1]; {
-	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+	case wordByte(b):
 		return false
-	case b == '.' || b == '-' || b == '_' || b == '~' || b == '%' || b == '@' || b == '+' || b == '/':
+	case b == '.' || b == '-' || b == '~' || b == '%' || b == '@' || b == '+' || b == '/':
 		return false
 	default:
 		return true
 	}
 }
 
-// inOrder sorts links by where they start and drops any that overlap one already kept.
-//
 // Overlap is possible because the shapes are looked for separately, and two links over
 // the same cells would stamp one target on top of the other — leaving whichever ran
 // last, which is not a rule anybody could predict from the text.
@@ -275,20 +317,22 @@ func inOrder(found []Link, exists func(string) bool) Links {
 	return Links(out)
 }
 
-// trimTrailing strips the sentence punctuation off the end of a match.
-//
 // Keep a closing delimiter that belongs to the URL, including an IPv6 host's
 // final bracket. Count surplus closers once so removing a run of punctuation
 // does not repeatedly rescan the entire candidate.
-func trimTrailing(text string) string {
-	if text == "" || !strings.ContainsRune(trailing, rune(text[len(text)-1])) {
+func trimTrailing(text string, quoted bool) string {
+	punctuation := trailing
+	if quoted {
+		punctuation = closingDelimiters
+	}
+	if text == "" || !strings.ContainsRune(punctuation, rune(text[len(text)-1])) {
 		return text
 	}
 	round := strings.Count(text, ")") - strings.Count(text, "(")
 	square := strings.Count(text, "]") - strings.Count(text, "[")
 	for len(text) > 0 {
 		last := text[len(text)-1]
-		if !strings.ContainsRune(trailing, rune(last)) {
+		if !strings.ContainsRune(punctuation, rune(last)) {
 			break
 		}
 		switch last {
@@ -309,7 +353,7 @@ func trimTrailing(text string) string {
 }
 
 func prefixOf(text string) (string, bool) {
-	for _, p := range []string{"https://", "http://", "www."} {
+	for _, p := range urlPrefixes {
 		if strings.HasPrefix(text, p) {
 			return p, true
 		}

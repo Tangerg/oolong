@@ -1,7 +1,5 @@
-// Package latexlook maps the example theme onto mathematical LaTeX.
-//
-// It lives with the examples because formula colour is application appearance and
-// terminal glyph repertoire is a fact supplied by the host environment.
+// Package latexlook keeps formula appearance with the examples because palettes
+// belong to the application and glyph repertoire comes from the host environment.
 package latexlook
 
 import (
@@ -9,7 +7,6 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
-// New returns formula appearance for locale's terminal repertoire.
 func New(theme kit.Theme, locale string) latex.Look {
 	return latex.Look{
 		Text: theme.Text, Rule: theme.Subtle, Error: theme.Danger,

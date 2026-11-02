@@ -11,12 +11,8 @@ import (
 	"unicode/utf8"
 )
 
-// Chord is one keystroke: a key with the modifiers held down with it.
-//
-// It is a [Key] with everything that is not part of the identity taken off — which
-// transition it was, what text the terminal said it produced, when it arrived. Those
-// describe one occurrence of a keystroke; a chord describes which keystroke it was, so
-// only a chord can be written down in advance and bound to something.
+// Chord excludes occurrence-specific text, transition, and arrival time so
+// bindings compare only the identity that can be specified in advance.
 type Chord struct {
 	Code Code
 	Rune rune
@@ -101,8 +97,8 @@ func (k Key) FallbackRune() rune {
 	return k.Rune
 }
 
-// String writes the chord the way a keybinding is conventionally written, and the way
-// [ParseChord] reads one back: the modifiers, then the key.
+// String and ParseChord share the configuration spelling so displayed bindings
+// can be read back without a second naming convention.
 func (c Chord) String() string {
 	var b strings.Builder
 	if mods := c.Mods.String(); mods != "" {
@@ -135,10 +131,8 @@ func (c Chord) MarshalText() ([]byte, error) {
 	return []byte(written), nil
 }
 
-// UnmarshalText reads what MarshalText wrote.
-//
-// It is here rather than left to a configuration reader because the parse is part of
-// the chord's text representation and can therefore be reused by any decoder.
+// UnmarshalText shares ParseChord so configuration decoders cannot introduce
+// a second chord grammar.
 func (c *Chord) UnmarshalText(b []byte) error {
 	chord, ok := ParseChord(string(b))
 	if !ok {
@@ -244,7 +238,6 @@ var codesByName = func() map[string]Code {
 	return out
 }()
 
-// Keys is a sequence of chords: one keystroke, or several typed one after another.
 type Keys []Chord
 
 // String writes the sequence with a space between the chords, which is how a
@@ -257,7 +250,6 @@ func (k Keys) String() string {
 	return strings.Join(parts, " ")
 }
 
-// MarshalText writes the sequence as [Keys.String] does.
 func (k Keys) MarshalText() ([]byte, error) {
 	written := k.String()
 	if read, ok := ParseKeys(written); !ok || !slices.Equal(k, read) {
@@ -266,7 +258,6 @@ func (k Keys) MarshalText() ([]byte, error) {
 	return []byte(written), nil
 }
 
-// UnmarshalText reads what MarshalText wrote.
 func (k *Keys) UnmarshalText(b []byte) error {
 	keys, ok := ParseKeys(string(b))
 	if !ok {

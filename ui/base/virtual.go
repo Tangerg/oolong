@@ -40,6 +40,12 @@ type VirtualConfig struct {
 	MaxMeasurements int
 }
 
+const (
+	defaultVirtualItems        = 100_000
+	defaultVirtualKeyBytes     = 4 << 20
+	defaultVirtualMeasurements = 512
+)
+
 // VirtualItem is one materialized content identity with its projected dataset index and row extent.
 type VirtualItem struct {
 	Key    ItemKey
@@ -83,13 +89,13 @@ func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
 		cfg.EstimatedHeight = 1
 	}
 	if cfg.MaxItems == 0 {
-		cfg.MaxItems = 100000
+		cfg.MaxItems = defaultVirtualItems
 	}
 	if cfg.MaxKeyBytes == 0 {
-		cfg.MaxKeyBytes = 4 << 20
+		cfg.MaxKeyBytes = defaultVirtualKeyBytes
 	}
 	if cfg.MaxMeasurements == 0 {
-		cfg.MaxMeasurements = 512
+		cfg.MaxMeasurements = defaultVirtualMeasurements
 	}
 	v := &VirtualWindow{cfg: cfg, heights: make(map[ItemKey]measuredHeight)}
 	v.group = scene.NewGroup(scene.GroupConfig{Layout: func(size image.Point, children []scene.Item) []image.Rectangle {
@@ -103,7 +109,6 @@ func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
 	return v, nil
 }
 
-// Element is the stable group attachment; individual item attachments expire when they leave its window.
 func (v *VirtualWindow) Element() scene.Element {
 	if v == nil {
 		return scene.Element{}

@@ -2,12 +2,13 @@ package scene
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
-// Role describes a node's semantic purpose without changing its behavior.
 type Role uint8
 
 // Standard roles describe the composed scene rather than a second editable tree.
@@ -39,7 +40,6 @@ const (
 	RoleMenuItem
 )
 
-// SemanticState combines independently projected accessibility states.
 type SemanticState uint16
 
 // Semantic flags project current state. Scene supplies actual focus and node eligibility.
@@ -56,10 +56,8 @@ const (
 	StateChecked
 )
 
-// Has reports whether every state in the mask is present.
 func (state SemanticState) Has(flags SemanticState) bool { return flags != 0 && state&flags == flags }
 
-// ContentAvailability describes whether content is live, archived or no longer retained.
 type ContentAvailability uint8
 
 // Content locations describe which capability can still provide an item.
@@ -70,10 +68,8 @@ const (
 	ContentRetired
 )
 
-// RelationKind names a semantic relation between exact targets.
 type RelationKind uint8
 
-// Relation kinds identify common accessible naming and control relationships.
 const (
 	LabelledBy RelationKind = iota
 	DescribedBy
@@ -109,6 +105,7 @@ type ActionDescription struct {
 	ResultType         string
 	Availability       Availability
 	RequiresParameters bool
+	TruncatedText      TextTruncation
 }
 
 // TextTruncation records which displayed fields lost a suffix to the query budget.
@@ -119,6 +116,8 @@ const (
 	NameTruncated TextTruncation = 1 << iota
 	DescriptionTruncated
 	ValueTruncated
+	LabelTruncated
+	ReasonTruncated
 )
 
 // SemanticNode combines model meaning with geometry from the admitted frame.
@@ -166,25 +165,33 @@ type observationStep struct {
 	parent Target
 }
 
-// Query bounds a semantic subtree, output count and text size. Zero limits use package defaults.
+// Query budgets keep each admitted node complete. Zero limits use package
+// defaults; positive limits are capped by the corresponding package maximum.
+// If the first node cannot fit, Observe returns ErrObservationBudget so callers
+// can increase the budget without mistaking an omitted node for absence.
+// Identities remain complete; only presentation text can be clipped.
 type Query struct {
 	Root      Target
 	RootKey   string
 	Depth     int
 	Limit     int
 	TextLimit int
-	Cursor    Cursor
+	// ByteLimit covers all strings in the returned nodes and action descriptions.
+	ByteLimit int
+	// DetailLimit bounds the combined number of actions and live relations.
+	DetailLimit int
+	Cursor      Cursor
 }
 
-// DefaultQueryLimit is the default maximum number of returned semantic nodes.
 const (
-	DefaultQueryLimit = 256
-	// MaxQueryLimit caps one observation's returned node count.
-	MaxQueryLimit = 4096
-	// DefaultTextLimit is the default byte budget per projected text field.
-	DefaultTextLimit = 4096
-	// MaxTextLimit caps the byte budget per projected text field.
-	MaxTextLimit = 1 << 20
+	DefaultQueryLimit  = 256
+	MaxQueryLimit      = 4096
+	DefaultTextLimit   = 4096
+	MaxTextLimit       = 1 << 20
+	DefaultByteLimit   = 1 << 20
+	MaxByteLimit       = 8 << 20
+	DefaultDetailLimit = 4096
+	MaxDetailLimit     = 1 << 16
 )
 
 // Observation errors keep absence, ambiguity and stale pagination explicit.
@@ -193,7 +200,26 @@ var (
 	ErrNotFound              = errors.New("scene: no matching target")
 	ErrAmbiguous             = errors.New("scene: more than one matching target")
 	ErrObservationChanged    = errors.New("scene: observation changed between pages")
+	ErrObservationBudget     = errors.New("scene: semantic node exceeds observation budget")
 )
+
+func (q Query) normalized() (Query, error) {
+	if q.Depth < 0 || q.Limit < 0 || q.TextLimit < 0 || q.ByteLimit < 0 || q.DetailLimit < 0 {
+		return Query{}, ErrInvalid
+	}
+	q.Limit = queryLimit(q.Limit, DefaultQueryLimit, MaxQueryLimit)
+	q.TextLimit = queryLimit(q.TextLimit, DefaultTextLimit, MaxTextLimit)
+	q.ByteLimit = queryLimit(q.ByteLimit, DefaultByteLimit, MaxByteLimit)
+	q.DetailLimit = queryLimit(q.DetailLimit, DefaultDetailLimit, MaxDetailLimit)
+	return q, nil
+}
+
+func queryLimit(value, fallback, maximum int) int {
+	if value == 0 {
+		return fallback
+	}
+	return min(value, maximum)
+}
 
 // Observation is a detached bounded semantic projection. Truncated means that
 // nodes were omitted before, after, or below this page. Only Next requests another page.
@@ -264,7 +290,6 @@ func (o Observation) FindUnique(match Match) (Target, error) {
 	return found, nil
 }
 
-// Progress reads the current model, admitted-layout and writer-completion revisions.
 func (r *Root) Progress() Progress {
 	if r == nil {
 		return Progress{}
@@ -289,8 +314,9 @@ func (r *Root) Observe(query Query) (Observation, error) {
 	if r.preparing || r.observing || r.pending != nil {
 		return Observation{}, ErrBusy
 	}
-	if query.Depth < 0 || query.Limit < 0 || query.TextLimit < 0 {
-		return Observation{}, ErrInvalid
+	query, err := query.normalized()
+	if err != nil {
+		return Observation{}, err
 	}
 	r.observing = true
 	defer func() { r.observing = false }()
@@ -299,14 +325,10 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		return Observation{}, err
 	}
 	query.Cursor = cursor
-	if query.Limit == 0 {
-		query.Limit = DefaultQueryLimit
+	builder := observationBuilder{
+		root: r, query: query, result: Observation{Progress: r.Progress()},
+		budget: observationBudget{bytes: query.ByteLimit, details: query.DetailLimit},
 	}
-	if query.TextLimit == 0 {
-		query.TextLimit = DefaultTextLimit
-	}
-	query.Limit, query.TextLimit = min(query.Limit, MaxQueryLimit), min(query.TextLimit, MaxTextLimit)
-	builder := observationBuilder{root: r, query: query, result: Observation{Progress: r.Progress()}}
 	if cursor.next == nil {
 		builder.modal = r.modal()
 	} else {
@@ -315,6 +337,9 @@ func (r *Root) Observe(query Query) (Observation, error) {
 		builder.result.Truncated = true
 	}
 	builder.visit(origin, Target{}, 0)
+	if builder.err != nil {
+		return Observation{}, builder.err
+	}
 	return builder.result, nil
 }
 
@@ -382,6 +407,8 @@ type observationBuilder struct {
 	result Observation
 	resume []observationStep
 	path   []observationStep
+	budget observationBudget
+	err    error
 }
 
 func (b *observationBuilder) visit(n *node, parent Target, depth int) bool {
@@ -425,27 +452,42 @@ func (b *observationBuilder) project(n *node, parent Target) (Target, bool) {
 		return parent, true
 	}
 	if len(b.result.Nodes) == b.query.Limit {
-		next := &continuation{path: slices.Clone(b.path), root: b.query.Root, key: strings.Clone(b.query.RootKey)}
-		if b.modal != nil {
-			next.modal = b.modal.target()
-		}
-		b.result.Truncated = true
-		b.result.Next = b.query.Cursor
-		b.result.Next.next = next
+		b.continueFromCurrent()
 		return parent, false
 	}
-	b.result.Nodes = append(b.result.Nodes, b.semanticNode(n, parent, semantic))
+	remaining := b.budget
+	entry := b.semanticNode(n, parent, semantic, &remaining)
+	if remaining.err != nil {
+		if len(b.result.Nodes) == 0 {
+			b.err = remaining.err
+		} else {
+			b.continueFromCurrent()
+		}
+		return parent, false
+	}
+	b.budget = remaining
+	b.result.Nodes = append(b.result.Nodes, entry)
 	return n.target(), true
 }
 
-func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Semantic) SemanticNode {
-	r, textLimit := b.root, b.query.TextLimit
+func (b *observationBuilder) continueFromCurrent() {
+	next := &continuation{path: slices.Clone(b.path), root: b.query.Root, key: strings.Clone(b.query.RootKey)}
+	if b.modal != nil {
+		next.modal = b.modal.target()
+	}
+	b.result.Truncated = true
+	b.result.Next = b.query.Cursor
+	b.result.Next.next = next
+}
+
+func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Semantic, budget *observationBudget) SemanticNode {
+	r := b.root
 	var truncated TextTruncation
 	clip := func(value string, field TextTruncation) string {
-		if len(value) > textLimit {
+		if len(value) > b.query.TextLimit {
 			truncated |= field
 		}
-		return boundedText(value, textLimit)
+		return budget.text(textPrefix(value, b.query.TextLimit))
 	}
 	semantic.Name = clip(semantic.Name, NameTruncated)
 	semantic.Description = clip(semantic.Description, DescriptionTruncated)
@@ -454,8 +496,8 @@ func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Seman
 	} else {
 		semantic.Value = clip(semantic.Value, ValueTruncated)
 	}
-	semantic.ContentID = strings.Clone(semantic.ContentID)
-	semantic.Relations = slices.DeleteFunc(slices.Clone(semantic.Relations), func(rel Relation) bool { return !r.Valid(rel.Target) })
+	semantic.ContentID = budget.text(semantic.ContentID)
+	semantic.Relations = b.relations(semantic.Relations, budget)
 	allowed := r.allowedIn(n, b.modal)
 	semantic.State &^= StateFocused | StateDisabled
 	if r.focus == n.target() {
@@ -464,30 +506,105 @@ func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Seman
 	if !allowed {
 		semantic.State |= StateDisabled
 	}
-	entry := SemanticNode{Target: n.target(), Parent: parent, Key: strings.Clone(n.config.Key), Semantic: semantic, TruncatedText: truncated}
+	entry := SemanticNode{
+		Target: budget.target(n.target()), Parent: budget.target(parent), Key: budget.text(n.config.Key),
+		Semantic: semantic, TruncatedText: truncated,
+	}
 	if placement, ok := r.layout.lookup(n.target()); ok && r.layout.epoch == r.geometryEpoch {
 		entry.Bounds, entry.HasBounds = placement.clip, true
 	}
 	for _, action := range n.config.Actions {
-		var availability Availability
-		needs := !unitParameter(action.parameter)
-		if !allowed {
-			availability = Availability{Disabled: true, Reason: "target is outside the active scope"}
-		} else if !needs {
-			availability, _ = action.availability(nil)
+		if !budget.detail() {
+			break
 		}
-		entry.Actions = append(entry.Actions, ActionDescription{ID: action.id, Label: strings.Clone(action.label), ParameterType: action.parameter.String(), ResultType: action.result.String(), Availability: availability, RequiresParameters: needs})
+		entry.Actions = append(entry.Actions, b.actionDescription(action, allowed, budget))
 	}
 	return entry
 }
 
-func boundedText(value string, maximum int) string {
+func (b *observationBuilder) relations(relations []Relation, budget *observationBudget) []Relation {
+	var live []Relation
+	for _, relation := range relations {
+		if !b.root.Valid(relation.Target) {
+			continue
+		}
+		if !budget.detail() {
+			break
+		}
+		relation.Target = budget.target(relation.Target)
+		live = append(live, relation)
+	}
+	return live
+}
+
+func (b *observationBuilder) actionDescription(action ActionBinding, allowed bool, budget *observationBudget) ActionDescription {
+	var available Availability
+	needs := !unitParameter(action.parameter)
+	if !allowed {
+		available = Availability{Disabled: true, Reason: "target is outside the active scope"}
+	} else if !needs {
+		available, _ = action.availability(nil)
+	}
+	var truncated TextTruncation
+	if len(action.label) > b.query.TextLimit {
+		truncated |= LabelTruncated
+	}
+	if len(available.Reason) > b.query.TextLimit {
+		truncated |= ReasonTruncated
+	}
+	available.Reason = budget.text(textPrefix(available.Reason, b.query.TextLimit))
+	return ActionDescription{
+		ID:            ActionID(budget.text(string(action.id))),
+		Label:         budget.text(textPrefix(action.label, b.query.TextLimit)),
+		ParameterType: budget.text(action.parameter.String()), ResultType: budget.text(action.result.String()),
+		Availability: available, RequiresParameters: needs, TruncatedText: truncated,
+	}
+}
+
+// A node spends a provisional budget. Admission publishes the node and its
+// remaining budget together, so pagination never exposes half of its metadata.
+type observationBudget struct {
+	bytes   int
+	details int
+	err     error
+}
+
+func (b *observationBudget) target(target Target) Target {
+	target.part = PartID(b.text(string(target.part)))
+	return target
+}
+
+func (b *observationBudget) text(value string) string {
+	if b.err != nil {
+		return ""
+	}
+	if len(value) > b.bytes {
+		b.err = fmt.Errorf("%w: string bytes exceed ByteLimit", ErrObservationBudget)
+		return ""
+	}
+	b.bytes -= len(value)
+	return strings.Clone(value)
+}
+
+func (b *observationBudget) detail() bool {
+	if b.err != nil {
+		return false
+	}
+	if b.details == 0 {
+		b.err = fmt.Errorf("%w: actions and relations exceed DetailLimit", ErrObservationBudget)
+		return false
+	}
+	b.details--
+	return true
+}
+
+func textPrefix(value string, maximum int) string {
 	if len(value) <= maximum {
-		return strings.Clone(value)
+		return value
 	}
 	end := maximum
-	for end > 0 && value[end]&0xc0 == 0x80 {
+	for end > 0 && !utf8.RuneStart(value[end]) {
 		end--
 	}
-	return strings.Clone(value[:end])
+	return value[:end]
 }

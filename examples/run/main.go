@@ -1,23 +1,5 @@
-// Command run runs something and shows what it said, in colour.
-//
-// This is the shape of a program that drives other programs. Three things are worth
-// looking at, and none of them is the running:
-//
-// The output arrives coloured, and stays coloured. A command writes escape sequences
-// to say what it means — a failing test in red, a path underlined — and a decoder
-// reads them back into styled text, a chunk at a time, because output does not
-// arrive on line boundaries and a sequence can be split down the middle.
-//
-// What is finished belongs to the terminal. Every line the decoder completes is
-// printed into the terminal's own scrollback, where it can be scrolled back to,
-// selected, and found after this program exits. The live block at the bottom is the
-// only part this program still owns.
-//
-// The terminal can be given away. Ctrl+E opens $EDITOR and takes the terminal back
-// when it exits; Ctrl+Z stops this process the way a shell does. Both put the
-// terminal back exactly as it was found, and both take it back the same way.
-//
-//	go run ./run -- go version
+// Command run publishes completed lines to terminal scrollback so only the open
+// line remains revisable by the application.
 package main
 
 import (
@@ -60,16 +42,14 @@ func main() {
 	}
 }
 
-// runner is the live block: what is still being written, and what is happening.
 type runner struct {
 	element scene.Element
 	runtime *program.InlineRuntime
 	theme   kit.Theme
 	command []string
 
-	// out reads the escape sequences a command wrote back into styled text. It holds
-	// the state between chunks — the colour in force, half a sequence — which is why
-	// it is a decoder and not a function.
+	// Escape sequences may span command chunks, so one decoder must retain colour
+	// and partial-sequence state for the whole output stream.
 	out       text.Decoder
 	spinner   kit.Spinner
 	result    string
@@ -83,10 +63,8 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	r.out.Base = theme.Text
 	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs}
 
-	// Window metadata and notifications are optional enhancements. The visible status
-	// remains authoritative even when the terminal does not support them.
-	// The window says what is happening to somebody looking at another window, which
-	// is the one thing an interface cannot say by drawing.
+	// Terminal metadata is optional; the visible status remains authoritative
+	// when a host cannot show window titles or notifications.
 	_ = runtime.Session().SetTitle(strings.Join(command, " "))
 	scope, err := runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
@@ -202,7 +180,6 @@ func (r *runner) finish(err error) {
 	_ = r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.result)
 }
 
-// Draw is the line still being written, and a row saying what is happening.
 func (r *runner) Draw(v grid.View) {
 	slots := []layout.Slot{
 		{Size: layout.Fixed(1)},

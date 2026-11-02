@@ -39,10 +39,8 @@ type Confirm struct {
 	split scene.Snapshot[int]
 }
 
-// Prompt is what the field is asking.
 func (c *Confirm) Prompt() string { return c.Label }
 
-// Answer is what has been answered.
 func (c *Confirm) Answer() bool {
 	return c.Snapshot().Value
 }
@@ -60,10 +58,8 @@ func (c *Confirm) requestAnswer(before ConfirmSnapshot, yes bool) (scene.ActionR
 	return result, err
 }
 
-// HeightForWidth is the label, the two answers on one row, and the problem if there is one.
 func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.Label)) }
 
-// Draw paints the label and the two answers.
 func (c *Confirm) Draw(v scene.Frame) {
 	c.DrawWith(v, Look{})
 }
@@ -133,7 +129,6 @@ func (c *Confirm) Do(action keymap.Action) bool {
 	return true
 }
 
-// Validate checks the answer.
 func (c *Confirm) Validate() error {
 	return c.validate(nil, c.Revision, c.checkAnswer)
 }
@@ -145,7 +140,6 @@ func (c *Confirm) checkAnswer() error {
 	return c.Check(c.Answer())
 }
 
-// Focus takes the keyboard or gives it up, and checks the answer on the way out.
 func (c *Confirm) focusChanged(has bool) {
 	change := func() {
 		c.focus(has, nil, nil, c.Validate)
@@ -177,7 +171,6 @@ func (c *Confirm) keys() *keymap.Map {
 	return confirmKeys()
 }
 
-// Ask is the question and the two words that answer it.
 func (c *Confirm) Ask() string {
 	return c.Label + " (" + c.word(true) + "/" + c.word(false) + ")"
 }

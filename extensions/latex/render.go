@@ -292,14 +292,16 @@ func (n *nesting) closed() error {
 	return nil
 }
 
+const maxRenderDepth = 256
+
 type formulaRenderer struct {
 	look  Look
 	depth int
 }
 
 func (r *formulaRenderer) node(node ast.Node, style grid.Style) (box, error) {
-	if r.depth >= 256 {
-		return box{}, errors.New("formula nesting exceeds 256 nodes")
+	if r.depth >= maxRenderDepth {
+		return box{}, fmt.Errorf("formula nesting exceeds %d nodes", maxRenderDepth)
 	}
 	r.depth++
 	defer func() { r.depth-- }()

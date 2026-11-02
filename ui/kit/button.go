@@ -2,6 +2,7 @@ package kit
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -14,11 +15,13 @@ import (
 // application theme; Theme is an alternative static palette. Appearance overrides
 // either source for this instance only.
 type ButtonConfig struct {
-	Key, Label   string
-	Keys         *keymap.Map
-	Theme        Theme
-	Scope        *ThemeScope
-	Appearance   ThemeOverride
+	Key, Label string
+	Keys       *keymap.Map
+	Theme      Theme
+	Scope      *ThemeScope
+	Appearance ThemeOverride
+	// Empty truncates silently; terminal character policy comes from the caller's Glyphs.
+	Ellipsis     string
 	Availability func() scene.Availability
 	Activate     func(context.Context) (scene.ActionResult[struct{}], error)
 }
@@ -29,6 +32,20 @@ type Button struct {
 	noCopy     noCopy
 	controller *base.Button
 	appearance appearance
+	ellipsis   string
+}
+
+type buttonBrackets struct{ prefix, suffix string }
+
+func (b buttonBrackets) width() int {
+	return layout.Sum(text.Width(b.prefix), text.Width(b.suffix))
+}
+
+func (b *Button) brackets() buttonBrackets {
+	if !b.controller.Availability().Disabled && b.Element().Focused() {
+		return buttonBrackets{prefix: "[>", suffix: "<]"}
+	}
+	return buttonBrackets{prefix: "[ ", suffix: " ]"}
 }
 
 // NewButton constructs one action-bearing button. It panics if Theme and Scope
@@ -38,7 +55,7 @@ func NewButton(config ButtonConfig) *Button {
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	b := &Button{controller: base.NewButton(base.ButtonConfig{Key: config.Key, Label: config.Label, Keys: config.Keys, Availability: config.Availability, Activate: config.Activate}), appearance: look}
+	b := &Button{controller: base.NewButton(base.ButtonConfig{Key: config.Key, Label: config.Label, Keys: config.Keys, Availability: config.Availability, Activate: config.Activate}), appearance: look, ellipsis: strings.Clone(config.Ellipsis)}
 	element := b.controller.Element()
 	if err := element.SetPaint(b.Draw); err != nil {
 		panic(err)
@@ -47,7 +64,7 @@ func NewButton(config ButtonConfig) *Button {
 		if axis == layout.Down {
 			return 1
 		}
-		return layout.Sum(text.Width(b.controller.Label()), 4)
+		return layout.Sum(text.Width(b.controller.Label()), b.brackets().width())
 	}); err != nil {
 		panic(err)
 	}
@@ -55,30 +72,24 @@ func NewButton(config ButtonConfig) *Button {
 	return b
 }
 
-// Controller is the sole behaviour owner shared by keyboard, pointer and AX.
 func (b *Button) Controller() *base.Button { return b.controller }
 
-// Element is the controller's exact scene identity with the kit skin installed.
 func (b *Button) Element() scene.Element { return b.controller.Element() }
 
-// HeightForWidth reserves one row for the button.
 func (*Button) HeightForWidth(int) int { return 1 }
 
-// Draw paints a bracketed label, including a visible focus marker without colour.
-// It stages the same pointer extent as the base controller; it changes no model.
 func (b *Button) Draw(frame scene.Frame) {
 	b.controller.Stage(frame)
 	palette := b.appearance.palette()
 	style := palette.Text
-	prefix, suffix := "[ ", " ]"
+	brackets := b.brackets()
 	if b.controller.Availability().Disabled {
 		style = palette.Muted
 	} else if b.Element().Focused() {
 		style = style.Merge(palette.Selection).Merge(palette.Accent)
-		prefix, suffix = "[>", "<]"
 	}
 	width, _ := frame.Size()
-	label := prefix + text.Truncate(b.controller.Label(), layout.Remaining(width, 4), "…") + suffix
+	label := brackets.prefix + text.Truncate(b.controller.Label(), layout.Remaining(width, brackets.width()), b.ellipsis) + brackets.suffix
 	frame.Fill(frame.Bounds(), style)
 	Label{Text: label, Style: style}.Draw(frame.View)
 }

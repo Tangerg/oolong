@@ -8,30 +8,24 @@ import (
 )
 
 const (
-	// Escape introduces every sequence there is.
 	Escape = 0x1b
-	// Bell ends a string command on the terminals that never adopted the standard
-	// terminator, which is most of them.
+	// Bell remains necessary for OSC peers that do not send ST.
 	Bell = 0x07
 )
 
-// Body reports whether b may appear between a control sequence's introducer and
-// final byte. It is the scanning predicate shared by stream readers; [Piece]
-// separates the parameter and intermediate sections for semantic decoders.
+// Body accepts both parameter and intermediate bytes so scanners can share the
+// framing rule; Piece keeps those sections separate for semantic decoding.
 func Body(b byte) bool { return intermediate(b) || parameter(b) }
 
 func intermediate(b byte) bool { return b >= 0x20 && b <= 0x2f }
 
 func parameter(b byte) bool { return b >= 0x30 && b <= 0x3f }
 
-// Final reports whether b ends a control sequence and says what it was.
 func Final(b byte) bool { return b >= 0x40 && b <= 0x7e }
 
-// Kind says what a piece of a stream turned out to be.
 type Kind uint8
 
 const (
-	// Plain is text carrying no sequence.
 	Plain Kind = iota
 	// Control is ESC [ — parameters and a final byte. Styling, cursor movement,
 	// erasure and mode changes are all this shape.
@@ -49,7 +43,6 @@ const (
 	Malformed
 )
 
-// Piece is one part of a stream: a run of text, or one sequence.
 type Piece struct {
 	Kind Kind
 	// Raw is the piece's own bytes, whole. For a sequence it includes the
@@ -71,16 +64,8 @@ type Piece struct {
 	Final byte
 }
 
-// Next reads the piece at the front of s.
-//
-// It reports the piece and how many bytes it took. The false case is the one that
-// matters for anything reading a stream: what is at the front of s could still
-// become a longer sequence or UTF-8 character, nothing about it can be decided
-// until more arrives, and no bytes were consumed. [Scanner] owns that undecided
-// suffix for callers reading arbitrary chunks.
-//
-// Text runs up to the next escape byte and no further, so a caller is handed the
-// largest run it can treat as one thing.
+// Next consumes nothing while the prefix could still grow into a sequence or
+// UTF-8 character. Scanner retains that undecided suffix across arbitrary chunks.
 func Next(s string) (p Piece, n int, ok bool) {
 	if s == "" {
 		return Piece{}, 0, false
@@ -151,9 +136,8 @@ func control(s string) (Piece, int, bool) {
 		return Piece{}, 0, false
 	}
 	if !Final(s[i]) {
-		// A byte that cannot appear in a control sequence at all. What came before it
-		// is dropped and reading starts again at the byte that proved it malformed,
-		// which is the only reading that does not swallow whatever follows.
+		// Leave the byte that proved the sequence malformed for the next read,
+		// otherwise recovery would swallow adjacent input.
 		return Piece{Kind: Malformed, Raw: s[:i]}, i, true
 	}
 	return Piece{

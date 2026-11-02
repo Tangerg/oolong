@@ -1,12 +1,5 @@
-// Command picker narrows a list as you type.
-//
-// It is three things put together, and the point is that they are three things: a
-// field that takes the typing, a fuzzy match that scores every candidate against
-// what was typed, and a list that shows what is left. The library deliberately does
-// not sell you a "picker" — where the field goes, what a row looks like and what
-// choosing one means are all decisions this program makes in twenty lines.
-//
-// Type to narrow. Up and down move, Enter picks, Esc leaves.
+// Command picker composes editor, filter and list capabilities so application
+// search policy stays outside reusable controls.
 package main
 
 import (
@@ -45,7 +38,6 @@ func main() {
 	}
 }
 
-// picker is a query and the matches under it.
 type picker struct {
 	runtime *program.Runtime
 	theme   kit.Theme

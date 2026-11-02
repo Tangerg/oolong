@@ -268,7 +268,6 @@ func (s *Slider) focusChanged(has bool) {
 	}
 }
 
-// Focused projects the scene's actual focus; it stores no separate focus flag.
 func (s *Slider) Focused() bool { return s != nil && s.element.Focused() }
 
 func (s *Slider) keys() *keymap.Map {

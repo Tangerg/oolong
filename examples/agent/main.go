@@ -1,9 +1,5 @@
-// Command agent is a complete mock coding-agent session.
-//
-// It deliberately uses no model SDK and changes no files. The point is the interface
-// contract around that work: ordered streaming bytes cross a bounded ingress, stable
-// output moves to terminal scrollback, a live plan remains small, a proposed tool call
-// blocks on an explicit diff review, and cancellation settles every background edge.
+// Command agent uses a mock backend so review, streaming and cancellation contracts can be
+// exercised without model access or workspace changes.
 package main
 
 import (
@@ -31,15 +27,18 @@ import (
 )
 
 const (
-	sendPrompt  keymap.Action = "send"
-	cancelRun   keymap.Action = "cancel-run"
-	quitAgent   keymap.Action = "quit"
-	ingressSize               = 64 << 10
+	sendPrompt              keymap.Action = "send"
+	cancelRun               keymap.Action = "cancel-run"
+	quitAgent               keymap.Action = "quit"
+	ingressSize                           = 64 << 10
+	mockStreamDelay                       = 18 * time.Millisecond
+	statusTickInterval                    = 120 * time.Millisecond
+	settledProgressDuration               = 2 * time.Second
 )
 
 func main() {
 	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-		agent, err := newAgent(context.Background(), runtime, mockBackend{delay: 18 * time.Millisecond})
+		agent, err := newAgent(context.Background(), runtime, mockBackend{delay: mockStreamDelay})
 		if err != nil {
 			return scene.Element{}, err
 		}
@@ -64,6 +63,7 @@ type agent struct {
 	conversation *conversation
 	workflow     workflow
 	status       kit.Status
+	outcome      sessionOutcome
 	composer     *kit.Composer
 	commands     base.Commands[commandAction]
 	completion   base.Completion
@@ -104,7 +104,7 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 		glyphs:  glyphs,
 		keys:    keys,
 		model:   planCareful,
-		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
+		status:  kit.Status{Theme: theme, Glyphs: glyphs},
 	}
 	var err error
 	a.scope, err = runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig explicitly carries ctx; the analyser does not track context through config fields.
@@ -238,7 +238,7 @@ func (a *agent) submit() {
 		return
 	}
 	if a.run != nil {
-		a.status.Doing = "finish or cancel the current run first"
+		a.inform("finish or cancel the current run first")
 		return
 	}
 	a.startRun(line)
@@ -252,7 +252,7 @@ func (a *agent) registerCommands() {
 				Theme: a.theme, Label: "commands",
 				Body: a.commandHelp(),
 			}); err != nil {
-				a.status.Doing = err.Error()
+				a.inform(err.Error())
 			}
 		}},
 	)
@@ -260,12 +260,12 @@ func (a *agent) registerCommands() {
 		base.Command{Name: "clear", Title: "release the live transcript"},
 		commandAction{run: func(string) {
 			if a.run != nil {
-				a.status.Doing = "the active run owns the transcript"
+				a.inform("the active run owns the transcript")
 				return
 			}
 			a.conversation.Reset()
 			a.workflow.Reset()
-			a.status.Doing = "cleared"
+			a.inform("cleared")
 		}},
 	)
 	a.commands.Add(
@@ -274,9 +274,9 @@ func (a *agent) registerCommands() {
 			switch mode := planMode(arg); mode {
 			case planFast, planCareful:
 				a.model = mode
-				a.status.Doing = "model: " + arg
+				a.inform("model: " + arg)
 			default:
-				a.status.Doing = "usage: /model " + planArgument
+				a.inform("usage: /model " + planArgument)
 			}
 		}},
 	)
@@ -302,11 +302,11 @@ func (a *agent) commandHelp() string {
 func (a *agent) runCommand(name, arg string) {
 	command, action, ok := a.commands.Lookup(name)
 	if !ok || action.run == nil {
-		a.status.Doing = "unknown command: /" + name
+		a.inform("unknown command: /" + name)
 		return
 	}
 	if action.argument != "" && arg == "" {
-		a.status.Doing = "/" + command.Name + " needs an argument"
+		a.inform("/" + command.Name + " needs an argument")
 		return
 	}
 	a.commands.Used(command.Name)
@@ -344,6 +344,8 @@ func (a *agent) refreshCompletion() {
 func (a *agent) startRun(prompt string) {
 	run := &agentRun{}
 	a.run = run
+	a.outcome = sessionOutcome{}
+	a.status.Doing = ""
 	if err := a.conversation.User(a.scope.Context(), prompt); err != nil {
 		a.finishRun(err)
 		return
@@ -352,10 +354,10 @@ func (a *agent) startRun(prompt string) {
 	a.completion.Dismiss()
 	a.workflow.Reset()
 	request := runRequest{prompt: prompt, mode: a.model}
-	a.status.Doing = "planning with " + string(request.mode)
+	a.inform("planning with " + string(request.mode))
 	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
 	a.started = time.Now()
-	timer, err := a.runtime.Every(a.scope, 120*time.Millisecond, a.tick)
+	timer, err := a.runtime.Every(a.scope, statusTickInterval, a.tick)
 	if err != nil {
 		a.finishRun(err)
 		return
@@ -403,23 +405,28 @@ func (a *agent) finishRun(err error) {
 		a.run.task.Cancel()
 	}
 	a.run = nil
+	a.status.Doing = ""
 	a.status.Elapsed = ""
-	native := term.Progress{State: term.ProgressNormal, Percent: 100}
-	switch {
-	case err == context.Canceled: //nolint:errorlint // Only bare cancellation has no failure diagnostics to display.
-		a.status.Doing = "cancelled"
-		native.State = term.ProgressWarning
-	case err != nil:
-		a.status.Doing = "failed: " + err.Error()
-		native.State = term.ProgressError
-		if appendErr := a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()}); appendErr != nil {
-			a.status.Doing = "failed: " + errors.Join(err, appendErr).Error()
-		}
-	default:
-		a.status.Doing = "complete"
+	if err != nil && err != context.Canceled { //nolint:errorlint // Only bare cancellation has no diagnostics to publish.
+		appendErr := a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()})
+		err = errors.Join(err, appendErr)
+	}
+	a.outcome = finishedOutcome(err)
+	if progressErr := a.settledProgress(a.outcome.progress()); progressErr != nil {
+		a.outcome = finishedOutcome(errors.Join(err, progressErr))
+		a.setProgress(a.outcome.progress())
+	}
+	if a.outcome.kind == outcomeCompleted {
 		_ = a.runtime.Session().Notify("mock agent completed")
 	}
-	a.settledProgress(native)
+}
+
+func (a *agent) inform(message string) {
+	if a.run != nil {
+		a.status.Doing = message
+		return
+	}
+	a.outcome = sessionOutcome{detail: message}
 }
 
 func (a *agent) setProgress(progress term.Progress) {
@@ -430,24 +437,24 @@ func (a *agent) setProgress(progress term.Progress) {
 	_ = a.runtime.Session().SetProgress(progress)
 }
 
-func (a *agent) settledProgress(progress term.Progress) {
+func (a *agent) settledProgress(progress term.Progress) error {
 	a.setProgress(progress)
-	timer, err := a.runtime.After(a.scope, 2*time.Second, func() {
+	timer, err := a.runtime.After(a.scope, settledProgressDuration, func() {
 		_ = a.runtime.Session().SetProgress(term.Progress{})
 		a.stopProgressReset = nil
 	})
 	if err != nil {
-		a.status.Doing = err.Error()
-		return
+		return err
 	}
 	a.stopProgressReset = timer.Stop
+	return nil
 }
 
 func (a *agent) stopRun() {
 	if a.run == nil {
 		return
 	}
-	a.status.Doing = "cancelling"
+	a.inform("cancelling")
 	a.element.Invalidate()
 	a.run.task.Cancel()
 	a.withdrawReview(context.Canceled)
@@ -465,9 +472,8 @@ func clip(s string) string { return text.Truncate(strings.TrimSpace(s), 52, "…
 
 type agentRun struct{ task *program.Task }
 
-// agentStatus distinguishes an active operation from an idle outcome. A Status is a
-// busy indicator even when its spinner is not ticking, so idle states use plain text
-// rather than showing a frozen promise of work.
+// An idle spinner would imply unfinished work, so settled outcomes use a
+// plain label derived from their typed result.
 type agentStatus struct{ owner *agent }
 
 func (s agentStatus) Draw(view grid.View) {
@@ -475,16 +481,7 @@ func (s agentStatus) Draw(view grid.View) {
 		s.owner.status.Draw(view)
 		return
 	}
-	style := s.owner.theme.Muted
-	switch {
-	case s.owner.status.Doing == "complete":
-		style = s.owner.theme.Success
-	case s.owner.status.Doing == "cancelled":
-		style = s.owner.theme.Warning
-	case strings.HasPrefix(s.owner.status.Doing, "failed"):
-		style = s.owner.theme.Danger
-	}
-	kit.Label{Text: s.owner.status.Doing, Style: style, Ellipsis: s.owner.glyphs.Ellipsis}.Draw(view)
+	s.owner.outcome.label(s.owner.theme, s.owner.glyphs).Draw(view)
 }
 
 func (a *agent) buildReview() {
@@ -509,7 +506,7 @@ func (a *agent) buildReview() {
 		}
 		return 0
 	}})
-	a.reviewPane = reviewPane{sessionKey: a.sessionKey, diff: change, window: base.NewViewport(base.ViewportConfig{Content: content}), form: dressed, theme: a.theme}
+	a.reviewPane = reviewPane{sessionKey: a.sessionKey, diff: change, window: base.NewViewport(base.ViewportConfig{Content: content}), form: dressed, theme: a.theme, glyphs: a.glyphs}
 	if err := a.reviewPane.window.Element().SetFocusable(func() bool { return false }); err != nil {
 		panic(err)
 	}
@@ -569,7 +566,7 @@ func (a *agent) openReview(request *reviewRequest) error {
 	a.reviewPane.window.Scroll().ToTop()
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
-	a.status.Doing = "waiting for tool approval"
+	a.inform("waiting for tool approval")
 	a.reviewDialog.Controller().Show()
 	return nil
 }
@@ -587,10 +584,10 @@ func (a *agent) answerReview(approved bool) error {
 	defer close(request.done)
 	request.approved = approved
 	if approved {
-		a.status.Doing = "applying approved change"
+		a.inform("applying approved change")
 		return nil
 	}
-	a.status.Doing = "tool call denied"
+	a.inform("tool call denied")
 	request.err = a.conversation.Append(a.scope.Context(), &kit.Entry{
 		Theme: a.theme, Label: "tool", Body: request.proposal.Path + " — denied",
 	})
@@ -600,7 +597,7 @@ func (a *agent) answerReview(approved bool) error {
 func (a *agent) withdrawReview(cause error) {
 	if request := a.review; request != nil {
 		a.dismissReview()
-		a.status.Doing = "tool review cancelled"
+		a.inform("tool review cancelled")
 		request.err = cause
 		close(request.done)
 	}

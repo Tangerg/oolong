@@ -75,7 +75,6 @@ func (q inputRoute) checkTarget(target Target) error {
 // Input returns the routed input in local coordinates.
 func (e Event) Input() input.Event { return e.input }
 
-// Target returns the exact attachment that received this delivery.
 func (e Event) Target() Target { return e.target }
 
 // Read returns a value staged in this pointer's arrival frame or, for other
@@ -185,7 +184,6 @@ type CapturedInput struct {
 	layout *layoutSnapshot
 }
 
-// Input returns the input that arrived with this geometry.
 func (c CapturedInput) Input() input.Event { return c.input }
 
 // CaptureInput accepts immutable terminal values; invalid inputs return a zero capture.
@@ -390,7 +388,6 @@ func (r *Root) modalPointer(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 	return r.route(modal, mouse, snapshot).dispatch(modal, modal.config.Handle, mouse, placement.area).Consumed
 }
 
-// preview offers one route from its outermost allowed ancestor to the hit or focus.
 func (q inputRoute) preview(start *node, event input.Event) bool {
 	if q.check(q.origin) != nil {
 		return true

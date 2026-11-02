@@ -8,8 +8,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// box is the terminal analogue of TeX's box: marks placed relative to one
-// baseline. above and below count rows on either side of that baseline.
+// A shared baseline lets independently rendered atoms compose without flattening
+// fractions or scripts. above and below are row distances from that baseline.
 type box struct {
 	width, above, below int
 	marks               []mark
@@ -95,11 +95,8 @@ func scripted(base, superscript, subscript box) box {
 	return out
 }
 
-// annotated centres one box above another and leaves the lower one on the baseline.
-//
-// It is what distinguishes a stacked relation from a superscript: the annotation
-// belongs over the relation it qualifies, so the two read as one symbol, while a
-// superscript sits beside its base and reads as a second one.
+// A stacked relation needs its annotation above the relation; a superscript
+// would instead change the meaning of the neighboring operand.
 func annotated(base, annotation box) box {
 	if annotation.empty() {
 		return base
@@ -115,11 +112,8 @@ func annotated(base, annotation box) box {
 	return out
 }
 
-// indexed puts a root's index above and to the left of the radical.
-//
-// TeX tucks it into the crook of the sign, which a grid of cells has no room for.
-// After the sign is where a power goes, so a cube root placed there would read as a
-// cube; before and above it cannot be read as anything else.
+// A terminal cannot tuck an index into a radical. Placing it before the sign
+// keeps a root index distinct from a power of the radicand.
 func indexed(root, index box) box {
 	if index.empty() {
 		return root
@@ -215,13 +209,8 @@ func (b *box) lines() []text.Line {
 	return out
 }
 
-// spanRun builds one row's spans without rewriting what it has already placed.
-//
-// Marks arrive one cell at a time and adjacent ones usually share a style. Merging
-// them by appending to the last span's string copies everything written so far on
-// every mark, which is quadratic in the length of the row: a formula of 56 KiB
-// allocated gigabytes to draw a few thousand columns. A builder holds the run open
-// until the style changes and copies it once.
+// Adjacent cell marks commonly share a style. A builder keeps their coalescing
+// linear instead of repeatedly copying the growing last span.
 type spanRun struct {
 	line  text.Line
 	run   strings.Builder

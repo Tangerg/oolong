@@ -55,7 +55,6 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	return t, nil
 }
 
-// Controller exposes the sole owner of transcript content, reading and publication policy.
 func (t *Transcript) Controller() *base.Transcript {
 	if t == nil {
 		return nil
@@ -63,7 +62,6 @@ func (t *Transcript) Controller() *base.Transcript {
 	return t.controller
 }
 
-// Element returns the controller attachment, preserving identity through appearance changes.
 func (t *Transcript) Element() scene.Element {
 	if t == nil || t.controller == nil {
 		return scene.Element{}
@@ -71,7 +69,6 @@ func (t *Transcript) Element() scene.Element {
 	return t.controller.Element()
 }
 
-// Draw composes the controller candidate with header, selection and search appearance without changing behavior.
 func (t *Transcript) Draw(frame scene.Frame) {
 	if t == nil || t.controller == nil {
 		return
@@ -83,8 +80,8 @@ func (t *Transcript) Draw(frame scene.Frame) {
 			t.mark(frame.View.Sub(window.Header), window.HeaderFrom, window.Content)
 		}
 	}
-	window.Content.Draw(window.Body, window.From)
-	t.mark(window.Body, window.From, window.Content)
+	window.Content.Draw(window.Body, window.BodyFrom)
+	t.mark(window.Body, window.BodyFrom, window.Content)
 }
 
 func (t *Transcript) drawHeader(window base.TranscriptView, view grid.View) {

@@ -146,6 +146,13 @@ linters:
     generated: disable
     warn-unused: true
     rules:
+      # AGENTS.md requires comments for non-obvious contracts, not for every
+      # exported spelling. Keep revive's naming and existing-comment checks;
+      # requiring presence here would force signature narration back into code.
+      - linters:
+          - revive
+        text: 'exported (function|method|type|var|const) .* should have comment( \(or a comment on this block\))? or be unexported'
+
       # A failed assertion in a test is a test failure with a stack trace pointing
       # at the assertion. The comma-ok form would add a branch that can only ever
       # report the same thing less directly.

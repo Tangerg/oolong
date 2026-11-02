@@ -51,12 +51,8 @@ var ErrFrameRefused = errors.New("term: destination refused the frame")
 
 var errWriteInterrupted = errors.New("term: destination write interrupted; writer ended")
 
-// DrainGrace is how long to wait for queued frames to reach the terminal before
-// abandoning them. A terminal that has stopped accepting bytes must not be able to
-// hold up an exit, and no amount of waiting makes one start accepting them again.
-//
-// It is what [Writer.Close] waits, and the right answer for anyone else with a
-// reason to wait for the terminal to catch up.
+// DrainGrace bounds shutdown when the destination stops accepting bytes.
+// Writer.Close and explicit handover drains share this budget.
 const DrainGrace = 250 * time.Millisecond
 
 const controlByteLimit = 64 << 10
@@ -85,13 +81,8 @@ type Writer struct {
 	// and a wake-up taken from it is gone.
 	changes chan struct{}
 
-	// advanced is closed and replaced every time the watermark moves.
-	//
-	// It exists because [Writer.Drain] also waits for the watermark, and a second
-	// consumer of changes would take wake-ups the primary consumer is owed. A closed channel
-	// is a broadcast: every waiter sees it, and none can take it from another.
-	// Waiting on progress from two places was a hang that only appeared on a
-	// machine slow enough for Drain to reach the channel first.
+	// Drain needs a broadcast distinct from the single-consumer changes
+	// channel; sharing that channel would steal the UI owner's wakeup.
 	advanceMu sync.Mutex
 	advanced  chan struct{}
 
@@ -112,7 +103,6 @@ type Writer struct {
 	closeErr  error
 }
 
-// frame is one queued payload with the sequence reserved for it.
 type frame struct {
 	seq     uint64
 	data    []byte
@@ -278,8 +268,6 @@ func (w *Writer) release(f frame) {
 	w.queueMu.Unlock()
 }
 
-// signal wakes the writer without accumulating notifications for changes it has
-// not observed yet.
 func (w *Writer) signal() {
 	select {
 	case w.wake <- struct{}{}:
@@ -302,14 +290,9 @@ func (w *Writer) Queued() uint64 { return w.queued.current() }
 // vouch for an earlier one that never did.
 func (w *Writer) Written() uint64 { return w.written.Load() }
 
-// Err reports the first delivery failure. An admission refusal belongs to
-// its Queue caller and cannot replace the outcome of any accepted frame.
-//
-// A terminal that has failed a write does not recover, and a UI that cannot reach
-// its terminal has nothing left to do, so this is a reason to exit rather than
-// something to retry. A refused frame — see [ErrFrameRefused] — is the same reason
-// to exit and not the same terminal: frames queued after it are still written, so
-// the exit can reach it.
+// Err preserves the first delivery failure; admission refusals stay with
+// their Queue caller. A clean ErrFrameRefused still permits later restoration
+// output, while a broken write ends the stream.
 func (w *Writer) Err() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

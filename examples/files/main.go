@@ -1,14 +1,5 @@
-// Command files browses a directory beside what is in it.
-//
-// Two panes and a keyboard that moves between them, which is what a scene is
-// for: a key goes to the pane that has it, a press goes to the pane it is over in
-// that pane's own coordinates, and neither is worked out by this program. Tab moves
-// the keyboard, the arrows move within a pane, right and left open and close a
-// branch, and q leaves.
-//
-// The tree is read once at startup and never again. A real one would watch, and
-// would still be this tree — which branches are open is remembered by position, so a
-// tree that is replaced under the reader keeps the shape they gave it.
+// Command files revokes obsolete preview tasks so late file reads cannot replace
+// the selection currently owned by the tree.
 package main
 
 import (
@@ -30,13 +21,19 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
+const (
+	directoryScanDepth = 2
+	maxPreviewBytes    = 64 << 10
+	maxPreviewRows     = 200
+)
+
 func main() {
 	root := "."
 	if len(os.Args) > 1 {
 		root = os.Args[1]
 	}
 	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
-		nodes, readErr := read(root, 2)
+		nodes, readErr := read(root, directoryScanDepth)
 		if readErr != nil {
 			return scene.Element{}, readErr
 		}
@@ -51,7 +48,6 @@ func main() {
 	}
 }
 
-// entry is one file or directory: what it is called and where it is.
 type entry struct {
 	name    string
 	path    string
@@ -59,8 +55,8 @@ type entry struct {
 	scanErr error
 }
 
-// browser composes two scene children. The tree owns selection; its change
-// notification starts a scoped preview task whose stale delivery is revoked.
+// The tree owns selection. Scoped preview delivery is revoked on a later
+// selection so stale I/O cannot replace current content.
 type browser struct {
 	runtime *program.Runtime
 	theme   kit.Theme
@@ -83,9 +79,8 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 		theme:   theme,
 		preview: &kit.Paragraph{},
 	}
-	// The tree with a look on it. It is still a widget — it takes the keyboard and
-	// answers events by passing them down — so the container holds this rather than
-	// the bare tree, and nothing here has to dress it at drawing time.
+	// The dressed tree retains its controller's scene identity, so this container
+	// can delegate input without duplicating tree behavior.
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	b.dressed = kit.NewTree(kit.TreeConfig[entry]{
 		Theme: theme, Glyphs: glyphs, Nodes: nodes,
@@ -196,8 +191,7 @@ func preview(of entry, theme kit.Theme) []text.Line {
 	if of.dir {
 		return []text.Line{text.Of(of.path+" is a directory", theme.Muted)}
 	}
-	// A real browser would read as much as the window can show. Reading a fixed
-	// amount is the same idea with the size decided here rather than there.
+	// Preview budgets bound retained file content independently of terminal size.
 	file, err := openPreview(of.path)
 	if err != nil {
 		return []text.Line{text.Of(err.Error(), theme.Danger)}
@@ -210,13 +204,13 @@ func preview(of entry, theme kit.Theme) []text.Line {
 	if !info.Mode().IsRegular() {
 		return []text.Line{text.Of("Preview requires a regular file", theme.Danger)}
 	}
-	body, err := io.ReadAll(io.LimitReader(file, 64<<10))
+	body, err := io.ReadAll(io.LimitReader(file, maxPreviewBytes))
 	if err != nil {
 		return []text.Line{text.Of(err.Error(), theme.Danger)}
 	}
 	var lines []text.Line
 	for row := range strings.SplitSeq(string(body), "\n") {
-		if len(lines) >= 200 {
+		if len(lines) >= maxPreviewRows {
 			break
 		}
 		lines = append(lines, text.Of(row, theme.Text))

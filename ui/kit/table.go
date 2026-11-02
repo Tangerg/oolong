@@ -49,10 +49,8 @@ func LabelCell(label Label) Cell {
 	}
 }
 
-// HeightForWidth is one row, even when a narrow column clips the cell.
 func (Cell) HeightForWidth(int) int { return 1 }
 
-// Draw paints the cell over its row style.
 func (c Cell) Draw(view grid.View, base grid.Style) {
 	if c.Paint != nil {
 		c.Paint(view, base)
@@ -169,7 +167,6 @@ func (t Table) flow() layout.Flow {
 	return layout.Flow{Axis: layout.Across, Gap: max(t.Gap, 1)}
 }
 
-// HeightForWidth is the rows plus the header, which is what a container measures against.
 func (t Table) HeightForWidth(int) int {
 	rows := max(t.Rows, 0)
 	if t.Header {
@@ -178,7 +175,6 @@ func (t Table) HeightForWidth(int) int {
 	return rows
 }
 
-// Draw paints the header and as many rows as fit.
 func (t Table) Draw(v grid.View) {
 	if v.Empty() {
 		return

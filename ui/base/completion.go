@@ -337,7 +337,6 @@ func (c *Completion) acceptCurrent() (scene.ActionResult[Candidate], bool) {
 	return scene.ActionResult[Candidate]{State: scene.Applied, Value: candidate}, true
 }
 
-// HeightForWidth is how tall the list wants to be: a row per candidate, capped.
 func (c *Completion) HeightForWidth(int) int {
 	if !c.Open() {
 		return 0
@@ -397,7 +396,6 @@ func (c *Completion) renderer() CompletionRenderer {
 // detailGap is what separates a row's label from its detail.
 const detailGap = 2
 
-// Draw renders the visible candidates.
 func (c *Completion) Draw(v scene.Frame) {
 	if !c.Open() {
 		return
@@ -409,8 +407,6 @@ func (c *Completion) Draw(v scene.Frame) {
 	})
 }
 
-// DrawRow draws one candidate: its label with the matched characters picked out, and
-// its detail pushed to the right.
 func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selected bool, look Look) {
 	width, _ := v.Size()
 	base := look.Text

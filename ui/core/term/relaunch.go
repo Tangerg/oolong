@@ -13,32 +13,14 @@ import (
 // to starting and then failing on its own terms.
 var ErrRelaunch = errors.New("term: relaunch")
 
-// Relaunch starts argv again in place of this process, keeping the terminal.
+// Relaunch requires terminal restoration and deferred cleanup before entry:
+// Unix exec replaces the process, so those obligations cannot run afterwards.
+// Windows runs and waits for a child, returning its exit code so the caller can
+// exit without competing for the console.
 //
-// It is what a session does to change something only startup can decide — which
-// screen it draws on, above all: the alternate screen and the terminal's own
-// scrollback are different rendering models, and the second needs the scroll region
-// from the beginning.
-//
-// The caller must give the terminal back first. [Terminal.Close] and every deferred
-// call that a normal exit would have run has to have run, because this cannot know
-// which terminal was taken over, and relaunching from raw mode hands the next run a
-// mode it did not set and will not restore. Rebuilding argv is the caller's too.
-//
-// On success it does not return on Unix, where exec replaces the process image. On
-// Windows it returns the exit code of the process it ran, so the same three lines
-// work everywhere and the exit is unreachable on Unix:
-//
-//	code, err := term.Relaunch(argv, nil)
-//	if err != nil {
-//		return err
-//	}
-//	os.Exit(code)
-//
-// A nil env inherits this process's environment. A name given more than once keeps
-// its last value on every platform: appending to os.Environ leaves the old value in
-// front of the new one, exec would hand the kernel both and let the first win, and a
-// relaunch that kept the state it was leaving would relaunch forever.
+// Nil env inherits the process environment. Repeated names keep their last
+// value on every platform so appending an override cannot retain the setting
+// that caused the relaunch.
 func Relaunch(argv, env []string) (code int, err error) {
 	if len(argv) == 0 || argv[0] == "" {
 		return 0, fmt.Errorf("%w: no program to run", ErrRelaunch)

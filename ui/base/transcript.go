@@ -214,12 +214,11 @@ func (t *Transcript) initialize() {
 	scrollAction := scene.NewAction(scene.ActionConfig[ScrollRequest, int]{
 		ID: ActionScroll, Label: "Scroll document",
 		Run: func(_ context.Context, request ScrollRequest) (scene.ActionResult[int], error) {
-			before := t.scroll.Offset()
+			before := t.scroll.revision
 			t.scroll.By(request.Rows)
 			state := scene.Unchanged
-			if t.scroll.Offset() != before {
+			if t.scroll.revision != before {
 				state = scene.Applied
-				t.element.Invalidate()
 			}
 			return scene.ActionResult[int]{State: state, Value: t.scroll.Offset()}, nil
 		},
@@ -240,7 +239,7 @@ func (t *Transcript) initialize() {
 		Paint: func(frame scene.Frame) {
 			view := t.StageWindow(frame)
 			view.Content.Draw(frame.Sub(view.Header).View, view.HeaderFrom)
-			view.Content.Draw(view.Body, view.From)
+			view.Content.Draw(view.Body, view.BodyFrom)
 		},
 	})
 	t.scroll.element = t.element
@@ -271,7 +270,6 @@ func (t *Transcript) changed() {
 	t.element.Invalidate()
 }
 
-// Element is the sole attachment identity shared by all transcript reading behaviors and skins.
 func (t *Transcript) Element() scene.Element { t.initialize(); return t.element }
 
 // Scroll returns the owned reading-intent controller, not a copy of its current projection.
@@ -283,7 +281,6 @@ func (t *Transcript) Selection() *Selection { return &t.selection }
 // Sticky returns the owned set of pinnable content identities.
 func (t *Transcript) Sticky() *Sticky { return &t.sticky }
 
-// Len counts current retained references, including documents awaiting preparation.
 func (t *Transcript) Len() int { return t.entries.Len() }
 
 // Width is the last committed layout width; preparing or aborting a frame does not advance it.
@@ -349,7 +346,7 @@ func (t *Transcript) AddDocument(document *content.StreamDocument) (*TranscriptI
 func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange) {
 	t.assertMutable()
 	if item.observed != change.PreparedRevision {
-		t.selection.ContentChanged(item.id, uint64(change.PreparedRevision))
+		t.selection.contentChanged(item.id, uint64(change.PreparedRevision))
 		item.observed = change.PreparedRevision
 	}
 	t.changed()
@@ -387,12 +384,12 @@ func (t *Transcript) publish() {
 		}
 		item.receipt = receipt
 		t.start += rows
-		t.scroll.Discard(rows)
-		t.selection.DiscardBefore(item.id + 1)
+		t.scroll.discard(rows)
+		t.selection.discardBefore(item.id + 1)
 		item.err = nil
 		item.retire()
 		t.entries.Discard(1)
-		t.sticky.DiscardBefore(t.FirstBlock())
+		t.sticky.discardBefore(t.FirstBlock())
 		t.changed()
 	}
 }
@@ -416,8 +413,8 @@ func (t *Transcript) Close() {
 		item.retire()
 	}
 	t.entries.Clear()
-	t.selection.Clear()
-	t.sticky.SetBlocks(nil)
+	t.selection.clear()
+	t.sticky.setBlocks(nil)
 	t.changed()
 }
 
@@ -553,7 +550,6 @@ func (l TranscriptLayout) At(row int) (BlockID, int, bool) {
 	return b.id, row - b.top, true
 }
 
-// Draw paints only placements intersecting the supplied row window and leaves geometry unchanged.
 func (l TranscriptLayout) Draw(view grid.View, from int) {
 	width, _ := view.Size()
 	visible := view.Visible()
@@ -682,7 +678,7 @@ func (t *Transcript) RevealMatch(index int) bool {
 	match := t.matches[index]
 	t.current = index
 	first := match.Row - t.StartRow()
-	t.scroll.Reveal(first, layout.Sum(first, len(match.Spans)-1))
+	t.scroll.requestReveal(first, layout.Sum(first, len(match.Spans)-1))
 	t.element.Invalidate()
 	return true
 }
@@ -690,12 +686,55 @@ func (t *Transcript) RevealMatch(index int) bool {
 // TranscriptView is a single candidate shared by paint and pointer projection.
 // The borrowed Body remains writable only during its scene Prepare call.
 type TranscriptView struct {
-	Content    TranscriptLayout
-	Body       grid.View
-	From       int
+	Content TranscriptLayout
+	Body    grid.View
+	// BodyFrom is an absolute content row aligned with Body's first local row.
+	// The Scroll offset instead addresses the full viewport, including its overlay.
+	BodyFrom   int
 	Header     image.Rectangle
 	HeaderFrom int
 	Pinned     Pinned
+}
+
+// Sticky furniture covers part of the full scroll viewport; it never changes the
+// scroll range or page size. BodyFrom skips exactly the rows that the overlay hides.
+type transcriptViewport struct {
+	viewportFrom int
+	pinned       Pinned
+	headerFrom   int
+}
+
+func (t *Transcript) viewport(content TranscriptLayout, offset, height int) transcriptViewport {
+	window := transcriptViewport{viewportFrom: content.StartRow() + offset}
+	pinned, ok := t.sticky.At(content, window.viewportFrom, height)
+	if !ok || pinned.Rows >= height {
+		return window
+	}
+	window.pinned = pinned
+	if top, _, exists := content.Extent(pinned.Block); exists {
+		window.headerFrom = top + pinned.ClipTop
+	}
+	return window
+}
+
+func (v transcriptViewport) bodyFrom() int { return layout.Sum(v.viewportFrom, v.pinned.Rows) }
+
+// Body starts stay ordered as the viewport advances, including collapsed and
+// pushed headers. Their inverse gives reveal and reflow the latest offset whose
+// visible body has not passed the requested row, without duplicating Sticky's
+// geometry policy. Scroll remains the sole position owner.
+func (t *Transcript) offsetForBodyRow(content TranscriptLayout, relativeRow, height int) int {
+	row := layout.Sum(content.StartRow(), max(relativeRow, 0))
+	low, high := 0, min(max(relativeRow, 0), layout.Remaining(content.Height(), height))
+	for low < high {
+		middle := high - (high-low)/2
+		if t.viewport(content, middle, height).bodyFrom() <= row {
+			low = middle
+		} else {
+			high = middle - 1
+		}
+	}
+	return low
 }
 
 // StageWindow composes layout, reading anchor, sticky header and pointer mapping into one frame candidate.
@@ -704,30 +743,33 @@ func (t *Transcript) StageWindow(frame scene.Frame) TranscriptView {
 	width, height := frame.Size()
 	state := t.Stage(frame, width)
 	scroll := t.scroll.Stage(frame, state.Height(), height)
+	if reveal := scroll.reveal; reveal != nil {
+		first, last := min(reveal.first, reveal.last), max(reveal.first, reveal.last)
+		scroll.Reveal(t.offsetForBodyRow(state, first, height), last)
+	}
 	if old := t.geometry.Value(); old.Width() != width {
 		if anchor, ok := t.ReadingAnchor(); ok && !anchor.FollowingEnd {
 			if at, valid := state.Caret(anchor.Point); valid {
-				scroll.Anchor(at.Row - state.StartRow() - anchor.ViewportOffset)
+				relativeRow := at.Row - state.StartRow()
+				scroll.Anchor(relativeRow - anchor.ViewportOffset)
+				// Preserve an attainable screen offset during push-off. Reflowed
+				// furniture otherwise needs the new visible-body boundary.
+				if t.viewport(state, scroll.Offset(), height).bodyFrom() != at.Row {
+					scroll.Anchor(t.offsetForBodyRow(state, relativeRow, height))
+				}
 			}
 		}
 	}
-	from := state.StartRow() + scroll.Offset()
-	view := TranscriptView{Content: state, Body: frame.View, From: from}
-	body := grid.Area(0, 0, width, height)
-	pinned, ok := t.sticky.At(state, from, height)
-	if ok && pinned.Rows < height {
-		scroll.Resize(layout.Remaining(height, pinned.Rows))
-		from = state.StartRow() + scroll.Offset()
-		body = grid.Area(0, pinned.Rows, width, layout.Remaining(height, pinned.Rows))
-		view.Body = frame.Sub(body).View
-		view.From = from
-		view.Pinned = pinned
-		if top, _, exists := state.Extent(pinned.Block); exists && pinned.Visible() > 0 {
-			view.Header = grid.Area(0, 0, width, pinned.Visible())
-			view.HeaderFrom = top + pinned.ClipTop
-		}
+	window := t.viewport(state, scroll.Offset(), height)
+	body := grid.Area(0, window.pinned.Rows, width, layout.Remaining(height, window.pinned.Rows))
+	view := TranscriptView{
+		Content: state, Body: frame.Sub(body).View, BodyFrom: window.bodyFrom(),
+		Pinned: window.pinned, HeaderFrom: window.headerFrom,
 	}
-	t.presentation.Stage(frame, transcriptPresentation{layout: state, revision: t.revision, visible: frame.Visible(), body: body, header: view.Header, from: from, headerFrom: view.HeaderFrom})
+	if window.pinned.Visible() > 0 {
+		view.Header = grid.Area(0, 0, width, window.pinned.Visible())
+	}
+	t.presentation.Stage(frame, transcriptPresentation{layout: state, revision: t.revision, visible: frame.Visible(), body: body, header: view.Header, bodyFrom: view.BodyFrom, headerFrom: view.HeaderFrom})
 	return view
 }
 
@@ -813,8 +855,9 @@ func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
 	if !ok {
 		return false
 	}
-	t.selection.Begin(selected.Start)
-	t.selection.Extend(selected.End)
+	if t.selection.setRange(selected, true) {
+		t.element.Invalidate()
+	}
 	return true
 }
 
@@ -845,7 +888,7 @@ type transcriptPresentation struct {
 	layout                TranscriptLayout
 	revision              uint64
 	body, header, visible image.Rectangle
-	from, headerFrom      int
+	bodyFrom, headerFrom  int
 }
 
 func (p transcriptPresentation) pointAt(point image.Point, nearest bool) (Point, bool) {
@@ -879,7 +922,7 @@ func (p transcriptPresentation) rowAt(point image.Point) (image.Rectangle, int, 
 	case point.In(p.header):
 		return p.header, p.headerFrom + point.Y - p.header.Min.Y, true
 	case point.In(p.body):
-		return p.body, p.from + point.Y - p.body.Min.Y, true
+		return p.body, p.bodyFrom + point.Y - p.body.Min.Y, true
 	default:
 		return image.Rectangle{}, 0, false
 	}
@@ -893,7 +936,7 @@ func (p transcriptPresentation) nearestRow(y int) (image.Rectangle, int, bool) {
 	}
 	if !body.Empty() {
 		at := min(max(y, body.Min.Y), body.Max.Y-1)
-		return p.body, p.from + at - p.body.Min.Y, true
+		return p.body, p.bodyFrom + at - p.body.Min.Y, true
 	}
 	if !header.Empty() {
 		at := min(max(y, header.Min.Y), header.Max.Y-1)

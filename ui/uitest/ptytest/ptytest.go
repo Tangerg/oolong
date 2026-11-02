@@ -18,31 +18,19 @@ import (
 // ErrUnsupported is reported by [Start] on a platform with no pty here.
 var ErrUnsupported = errors.New("ptytest: no pty on this platform")
 
-// Supported reports whether this platform has a pty here.
-//
-// It is worth asking before doing the work a pty test needs — building the
-// binary under test, usually — rather than after: a skip that happens at the end
-// of the expensive part is a skip that still costs what it skipped.
+// Supported lets a test skip before paying to build a child it cannot launch.
 func Supported() bool { return supported }
 
 // Size is a terminal size in cells.
 type Size struct{ Cols, Rows int }
 
-// check rejects a size the winsize ioctl cannot carry.
-//
-// Zero is refused at the door rather than passed on: a terminal collapsed to no
-// size is a state a test almost never means to ask for and always struggles to
-// diagnose, because everything downstream simply draws nothing.
+// A zero-sized terminal silently draws nothing, hiding the invalid test setup.
 func (s Size) check() error {
 	_, _, err := s.dims()
 	return err
 }
 
-// dims is the size in the type the winsize ioctl takes, or the reason it is not a
-// size at all.
-//
-// The bound and the narrowing are in one function on purpose: a conversion whose
-// safety depends on a check somewhere else is a conversion nobody can read.
+// The bound and narrowing stay together so no caller can bypass the ioctl's limit.
 func (s Size) dims() (cols, rows uint16, err error) {
 	if s.Cols <= 0 || s.Rows <= 0 {
 		return 0, 0, fmt.Errorf("ptytest: size %dx%d: both must be positive", s.Cols, s.Rows)
@@ -53,7 +41,6 @@ func (s Size) dims() (cols, rows uint16, err error) {
 	return uint16(s.Cols), uint16(s.Rows), nil
 }
 
-// Config describes a session before it starts.
 type Config struct {
 	// Size is the terminal's opening size. The zero value is 80 by 24.
 	Size Size
@@ -164,7 +151,6 @@ func (s *Session) read() {
 	}
 }
 
-// wait reaps the child once, so Wait and Close can both ask.
 func (s *Session) wait(cmd *exec.Cmd) {
 	defer close(s.waitDone)
 	// The waiting goroutine is the only owner of exec.Cmd after Start returns.
@@ -173,10 +159,8 @@ func (s *Session) wait(cmd *exec.Cmd) {
 	s.waitErr = cmd.Wait()
 }
 
-// Transcript is everything the program has written, as it arrives.
 func (s *Session) Transcript() *Transcript { return s.transcript }
 
-// Write sends bytes to the program as though they were typed.
 func (s *Session) Write(p []byte) (int, error) { return s.primary.Write(p) }
 
 // Resize changes the PTY geometry. The kernel notifies the current foreground

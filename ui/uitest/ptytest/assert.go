@@ -5,11 +5,7 @@ import (
 	"strings"
 )
 
-// TestingT is the part of [testing.TB] these assertions use.
-//
-// An interface rather than *testing.T so that the assertions can be tested: a
-// test that checks an assertion fails when it should has to be able to catch the
-// failure, and it cannot do that with the real thing.
+// TestingT lets assertion tests capture failures without failing the enclosing test.
 type TestingT interface {
 	Helper()
 	Errorf(format string, args ...any)
@@ -26,7 +22,6 @@ func quoteAll(tokens []string) []string {
 	return out
 }
 
-// RequireContains asserts that every token appears somewhere.
 func RequireContains(t TestingT, transcript []byte, tokens ...string) {
 	t.Helper()
 	text := string(transcript)
@@ -38,10 +33,6 @@ func RequireContains(t TestingT, transcript []byte, tokens ...string) {
 	}
 }
 
-// RequireNotContains asserts that no token appears.
-//
-// It is how the interesting half of a renderer's promises are stated: what an
-// idle frame must not write, what a shrinking block must not leave behind.
 func RequireNotContains(t TestingT, transcript []byte, tokens ...string) {
 	t.Helper()
 	text := string(transcript)
@@ -53,8 +44,6 @@ func RequireNotContains(t TestingT, transcript []byte, tokens ...string) {
 	}
 }
 
-// RequireOrdered asserts that the tokens appear in the order given. Anything may
-// appear between them.
 func RequireOrdered(t TestingT, transcript []byte, tokens ...string) {
 	t.Helper()
 	text := string(transcript)
@@ -70,25 +59,14 @@ func RequireOrdered(t TestingT, transcript []byte, tokens ...string) {
 	}
 }
 
-// Mode pairs the sequence that turns a terminal mode on with the one that turns
-// it off.
 type Mode struct {
 	Name    string
 	On, Off string
 }
 
-// RequireSymmetricModes asserts that a session gave the terminal back exactly as
-// it found it.
-//
-// Every mode is turned on once and off once, the on-sequences appear in the order
-// given, and the off-sequences appear in the reverse of it. That last part is the
-// one worth checking and the one nothing else would catch: modes interact, and a
-// session that leaves the alternate screen before it releases the mouse has
-// released the mouse of a screen that is already gone.
-//
-// A terminal left in a mode nobody turned off is a terminal the user has to
-// close, which is why this is worth a dedicated assertion rather than three
-// RequireOrdered calls.
+// RequireSymmetricModes checks reverse teardown because terminal modes interact:
+// leaving the alternate screen before releasing its mouse mode changes which
+// screen receives the release. Each mode must be acquired and released once.
 func RequireSymmetricModes(t TestingT, transcript []byte, modes ...Mode) {
 	t.Helper()
 	text := string(transcript)

@@ -332,7 +332,6 @@ func NewForm(config FormConfig) *Form {
 	return f
 }
 
-// Element returns the form's single field group and semantic submission target.
 func (f *Form) Element() scene.Element { f.ensure(); return f.group.Element() }
 
 func (f *Form) ensure() {
@@ -421,7 +420,6 @@ func (f *Form) Error() error {
 	return readProjection(f.group.Element(), f.problem)
 }
 
-// Focused projects the scene's actual keyboard target onto the current field relation.
 func (f *Form) Focused() Field {
 	for _, field := range f.fields {
 		if field.Element().FocusedWithin() {
@@ -553,7 +551,6 @@ func (f *Form) Cancel() error {
 
 func (f *Form) canCancel() bool { return f.cancel != nil && f.attempt.State == SubmissionPending }
 
-// HeightForWidth measures fields, inter-field gaps and the current form problem without validating or changing submission state.
 func (f *Form) HeightForWidth(width int) int {
 	if f.group == nil {
 		return 0

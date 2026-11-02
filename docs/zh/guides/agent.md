@@ -16,7 +16,11 @@ contentType: How-to
 
 `automation.NewDriver(runtime)` 将查询和动作调度到 UI 所有者。可以在 Build 阶段保存语义句柄，挂载后再查询。它无法准备帧、推进写入水位或关闭程序的 Root。`Observe` 读取现有语义投影，不启动绘制、不填充隐藏内容、不创建后台工作。
 
-`scene.Query` 限制深度、节点数量和文本。把不透明的 `Observation.Next` 原样传回 `Query.Cursor`。游标绑定场景、模型修订、实际子树及深度；串用不同遍历会返回 `ErrObservationChanged`。每页节点数与文本预算可调整；零值游标开始新遍历。敏感值会被隐藏。`Progress` 分别报告模型、已准备布局和已写入帧进度；观察到模型不代表它已经出现在终端上。
+`scene.Query` 限制深度与节点数量。`TextLimit` 限制每个显示字段，`ByteLimit` 限制返回节点与动作中全部字符串的总字节数，`DetailLimit` 限制动作和有效关系的合计数量。零值使用包内默认政策，正值不超过对应的包级上限。这些预算约束观察投影；应用回调内部的分配及传输序列化仍由各自边界负责。
+
+把不透明的 `Observation.Next` 原样传回 `Query.Cursor`。游标绑定场景、模型修订、实际子树及深度；串用不同遍历会返回 `ErrObservationChanged`。每页预算可以调整，但节点及其动作、关系列表始终整体接纳。如果第一个节点也无法放入空页，返回 `ErrObservationBudget`，让调用方提高对应预算，而不会将缺失字段的节点伪装成完整证据。Key、target 的 part、内容 ID、动作 ID 和类型名不会截断；动作标签与可用性原因的截断会记录在 `ActionDescription.TruncatedText` 中。
+
+零值游标开始新遍历，敏感值会被隐藏。`Progress` 分别报告模型、已准备布局和已写入帧进度；观察到模型不代表它已经出现在终端上。
 
 ## 定位并调用唯一当前目标
 

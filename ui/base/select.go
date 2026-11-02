@@ -69,7 +69,6 @@ type Select[T any] struct {
 	revision uint64
 }
 
-// Prompt is what the field is asking for.
 func (s *Select[T]) Prompt() string { return s.Label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
@@ -116,7 +115,6 @@ func (s *Select[T]) Chosen() (Option[T], bool) {
 
 func (s *Select[T]) selected() int { return s.list.Selected() }
 
-// HeightForWidth is the label, the options within their cap, and the problem if there is one.
 func (s *Select[T]) HeightForWidth(int) int {
 	rows := len(s.list.items)
 	if s.Rows > 0 {
@@ -125,12 +123,10 @@ func (s *Select[T]) HeightForWidth(int) int {
 	return layout.Sum(max(rows, 1), s.rows(s.Label))
 }
 
-// Draw paints the label, the options and whatever was wrong with the choice.
 func (s *Select[T]) Draw(v scene.Frame) {
 	s.DrawWith(v, Look{})
 }
 
-// DrawWith paints the field using this frame's look without changing configuration.
 func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
 	s.list.DrawRows(s.frame(v, s.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
 		if s.Row != nil {
@@ -167,12 +163,10 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 	return false
 }
 
-// Do runs one of the field's actions by name. See [Doer].
 func (s *Select[T]) Do(action keymap.Action) bool {
 	return s.list.navigate(action, s.selectAt)
 }
 
-// Validate checks the choice.
 func (s *Select[T]) Validate() error {
 	return s.validate(nil, s.Revision, s.checkAnswer)
 }
@@ -185,7 +179,6 @@ func (s *Select[T]) checkAnswer() error {
 	return s.Check(chosen.Value)
 }
 
-// Focus takes the keyboard or gives it up, and checks the choice on the way out.
 func (s *Select[T]) focusChanged(has bool) {
 	change := func() {
 		s.focus(has, s.list.focusChanged, nil, s.Validate)

@@ -127,7 +127,7 @@ func TestSlashCompletionRunsTheRegisteredCommand(t *testing.T) {
 type waitingBackend struct{}
 
 func (waitingBackend) Run(ctx context.Context, _ runRequest, output agentOutput) error {
-	if err := output.Step(ctx, stepUpdate{Index: 0, State: stepRunning}); err != nil {
+	if err := output.Step(ctx, stepUpdate{Step: stepUnderstand, State: stepRunning}); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(output, "Waiting for a cancellable source.\n"); err != nil {

@@ -14,6 +14,8 @@ var ErrInvalidInput = errors.New("program: input source returned an invalid even
 // ErrInputTooLarge ends input instead of retaining a single unbounded event.
 var ErrInputTooLarge = errors.New("program: input event exceeds queue byte budget")
 
+const defaultInputEventCapacity = 256
+
 type ownerInput struct {
 	event   scene.CapturedInput
 	repaint bool
@@ -33,7 +35,7 @@ type inputPipe struct {
 func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, cfg Config) *inputPipe {
 	count, bytes := cfg.InputEvents, cfg.InputBytes
 	if count == 0 {
-		count = 256
+		count = defaultInputEventCapacity
 	}
 	if bytes == 0 {
 		bytes = input.MaxDecodedEventBytes

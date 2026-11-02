@@ -3,7 +3,6 @@ package grid_test
 import (
 	"errors"
 	"image"
-	"io"
 	"strings"
 	"testing"
 
@@ -28,8 +27,8 @@ func (b captureBlock) Draw(v grid.View) {
 
 type capturePainter struct{}
 
-func (capturePainter) Paint(io.Writer, image.Point) error { return nil }
-func (capturePainter) Erase(io.Writer) error              { return nil }
+func (capturePainter) Paint(grid.PaintContext) error { return nil }
+func (capturePainter) Erase(grid.PaintContext) error { return nil }
 
 func TestCaptureReleasesDrawingAuthorityAndPreservesAtoms(t *testing.T) {
 	var saved grid.View

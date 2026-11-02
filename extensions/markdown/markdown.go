@@ -1,7 +1,6 @@
-// Package markdown isolates its parser and renders source snapshots into
-// width-dependent [Block]s. Provisional and final snapshots share full document
-// semantics. Code and mathematics use [Look.SetRenderer], keeping
-// their parser dependencies and policies outside this module.
+// Package markdown keeps document syntax independent of code and mathematics
+// renderers. Immutable source snapshots give provisional and final documents the
+// same semantics without importing peer parser dependencies.
 package markdown
 
 import (
@@ -32,12 +31,13 @@ type documentView struct {
 	extended atomic.Bool
 }
 
-// SetBlocks replaces the document and owns the supplied slice.
+// SetBlocks copies the slice to prevent caller edits from replacing retained blocks.
 func (d *Doc) SetBlocks(blocks []Block) {
 	d.view = &documentView{blocks: slices.Clone(blocks)}
 }
 
-// Append adds immutable blocks while preserving the meaning of earlier copies.
+// Append lets copies advance independently; only one descendant can claim shared spare
+// capacity without changing another copy's sequence.
 func (d *Doc) Append(blocks ...Block) {
 	if len(blocks) == 0 {
 		return
@@ -52,7 +52,6 @@ func (d *Doc) Append(blocks ...Block) {
 	d.view = &documentView{blocks: append(prefix, blocks...)}
 }
 
-// Len reports how many rendered blocks the document owns.
 func (d *Doc) Len() int {
 	if d == nil || d.view == nil {
 		return 0
@@ -60,7 +59,7 @@ func (d *Doc) Len() int {
 	return len(d.view.blocks)
 }
 
-// Blocks returns an independent slice of the immutable blocks in document order.
+// Blocks detaches its slice so callers can reorder their copy without changing the document.
 func (d *Doc) Blocks() []Block {
 	if d == nil || d.view == nil {
 		return nil
@@ -68,14 +67,14 @@ func (d *Doc) Blocks() []Block {
 	return slices.Clone(d.view.blocks)
 }
 
-// HeightForWidth returns the composed height. It panics if the row space cannot fit in int.
+// HeightForWidth panics on unrepresentable row space to prevent composed geometry overflow.
 func (d *Doc) HeightForWidth(width int) int { return d.view.HeightForWidth(width) }
 
-// Draw paints the visible blocks from one layout. It panics for unrepresentable row space.
+// Draw panics on unrepresentable row space to prevent addressing unrelated rows.
 func (d *Doc) Draw(v grid.View) { d.view.Draw(v) }
 
-// Rows projects meaningful text using the same placements as Draw. A child
-// without Rows contributes blank rows. It panics for unrepresentable row space.
+// Rows preserves blank placements for children without text rows so selection
+// matches drawing. Unrepresentable row space panics.
 func (d *Doc) Rows(width int) []text.Row { return d.view.Rows(width) }
 
 type placedBlock struct {
@@ -141,22 +140,12 @@ func (d *documentView) arrange(width int) *documentLayout {
 	return result
 }
 
-// Look is how a document is drawn: a style for every part of one, and the characters
-// its furniture is made of.
-//
-// The zero Look draws everything in the terminal's own appearance, which is legible
-// and says nothing. A caller with a palette builds one from it — which is deliberately
-// not done here, because this module cannot see the palette without depending on the
-// package that has one, and that is the dependency this whole boundary exists to
-// avoid.
+// Look uses terminal-default appearance at its zero value so this parser module need not
+// depend on the component package that owns application palettes.
 type Look struct {
 	Text grid.Style
-	// Headings are the levels, from one: the first entry is a level-one heading, and a
-	// level deeper than the list gets the last entry.
-	//
-	// One field rather than a style for headings and a list that overrides it. Two
-	// ways to say one thing is a thing to be inconsistent about, and "every heading
-	// alike" is already sayable — it is a list of one.
+	// One sequence owns heading appearance; deeper levels reuse its final style.
+	// A single entry already expresses one style for every heading.
 	Headings []grid.Style
 
 	Strong   grid.Style
@@ -164,63 +153,48 @@ type Look struct {
 	Struck   grid.Style
 	Code     grid.Style
 	Block    grid.Style
-	// Link is the text of a link. The words carry the address themselves — see
-	// [github.com/Tangerg/oolong/ui/core/text.Span.Link] — so a terminal that shows
-	// hyperlinks opens what was written.
+	// Styled words retain their address so wrapping cannot change the hyperlink.
 	Link grid.Style
-	// Target is the address written out after the words, for output going somewhere
-	// that cannot show a hyperlink. A look with no style for it does not write one,
-	// which is the shorter reading and the one worth having on a terminal.
+	// An explicit address helps outputs without hyperlinks. A zero style omits that
+	// redundant text when the words already carry a usable link.
 	Target grid.Style
 	Quote  grid.Style
 	Rail   grid.Style
 	Marker grid.Style
 	Rule   grid.Style
 
-	// Glyphs are the characters the furniture is drawn with, kept apart from the
-	// styles for the reason the two are different questions: which grey a quotation
-	// is drawn in is taste, and whether the terminal can draw the bar beside it is a
-	// fact about the terminal. It is the same division the kit package makes between
-	// a theme and a glyph set, and a caller with one of those builds this from it.
+	// Terminal repertoire varies independently of colour, so the application passes
+	// glyphs separately from its palette.
 	Glyphs Glyphs
 
-	// Extension renderers handle recognized semantic blocks whose implementation belongs in a
-	// sibling module. Code highlighting and mathematical typesetting use this same
-	// boundary. Missing renderers leave source readable in Block style.
-	//
-	// The functions consume and produce core values. They never receive parser
-	// nodes, so the Markdown implementation and its dependency remain private.
+	// Peer renderers receive core values instead of parser nodes so their dependencies
+	// and policies remain independent of Markdown. Missing renderers leave source readable.
 	extensions map[Extension]Renderer
 }
 
-// Extension identifies a semantic block recognized by Markdown. It is not a parser
-// plug-in API: syntax and parse correctness remain this module's responsibility;
-// rendering the resulting domain content is the replaceable part.
+// Extension permits replacement of semantic block rendering while Markdown
+// retains ownership of recognition and parse correctness.
 type Extension uint8
 
 const (
 	_ Extension = iota
-	// FencedCode is a backtick or tilde fence. The renderer's info is the language
-	// written after the fence.
 	FencedCode
-	// DisplayMath is a $$ block or a fenced block whose language is math.
 	DisplayMath
 )
 
-// Renderer prepares one semantic block. The result owns layout and may optionally
-// implement Rows(width int) []text.Row. Its semantics must remain stable for the
-// lifetime of every published Block: replace content rather than mutating it.
-// Calls are synchronous preparation, never Draw/HeightForWidth/Rows callbacks.
-// Expensive backends must be prepared separately and return accepted snapshots.
-// A result and error may coexist. ErrUnhandled explicitly requests source text;
-// nil content without an error violates this contract.
+// Renderer results may outlive preparation, so a returned drawable must retain
+// stable semantics until every block releases it. Preparation is synchronous and
+// never runs during drawing or measurement; expensive backends supply prepared
+// snapshots. Content and error may coexist. ErrUnhandled requests source text;
+// nil content without an error violates the contract.
 type Renderer func(info, source string) (grid.Drawable, error)
 
-// ErrUnhandled explicitly declines an extension body; Markdown displays its source.
+// ErrUnhandled distinguishes a deliberate decline from backend failure so source
+// fallback does not conceal diagnostics.
 var ErrUnhandled = errors.New("markdown: extension not handled")
 
-// ExtensionError locates an extension failure in the blocks returned by one
-// Render call or complete source preparation. Block is a zero-based index in that result.
+// ExtensionError keeps a zero-based Block index in one Render result so a backend
+// failure stays associated with the readable content returned alongside it.
 type ExtensionError struct {
 	Block     int
 	Extension Extension
@@ -232,13 +206,10 @@ func (e *ExtensionError) Error() string {
 	return fmt.Sprintf("markdown: block %d extension %d (%q): %q", e.Block, e.Extension, e.Info, e.Err)
 }
 
-// Unwrap preserves the backend's diagnostic identity.
 func (e *ExtensionError) Unwrap() error { return e.Err }
 
-// SetRenderer sets the sole renderer for extension. A nil renderer removes it.
-//
-// The zero Look is ready. The private registry is copied before mutation, so changing
-// a copied Look does not silently change the value it was copied from.
+// SetRenderer copies the registry before mutation to keep copied Looks independent.
+// A nil renderer removes that extension; the zero Look is ready for registration.
 func (l *Look) SetRenderer(extension Extension, renderer Renderer) {
 	l.extensions = maps.Clone(l.extensions)
 	if renderer == nil {
@@ -256,12 +227,8 @@ func (l *Look) SetRenderer(extension Extension, renderer Renderer) {
 
 func (l *Look) renderer(extension Extension) Renderer { return l.extensions[extension] }
 
-// Glyphs are the characters a document's furniture is drawn with.
-//
-// The zero value draws none of it, which is legible and plain: a list is still
-// indented, a quotation is still inset, and a rule is still a row of its own. That
-// is the right answer for a terminal that cannot draw the characters, and the
-// caller is the one who knows whether it can.
+// Glyphs keeps structural spacing at its zero value without assuming the terminal can
+// draw decorative characters. The caller owns that capability decision.
 type Glyphs struct {
 	Bullet             string
 	Bar                string
@@ -276,7 +243,4 @@ func (l *Look) heading(level int) grid.Style {
 	return l.Headings[min(max(level, 1), len(l.Headings))-1]
 }
 
-// A Doc is a Measurer, which is what lets it go in a slot without an adapter. The
-// assertion is here so that a change to either side is a build failure rather than a
-// surprise at a call site in somebody else's program.
 var _ grid.Drawable = (*Doc)(nil)

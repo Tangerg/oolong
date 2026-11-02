@@ -2,8 +2,6 @@ package grid
 
 import (
 	"errors"
-	"image"
-	"io"
 	"runtime"
 	"strings"
 	"testing"
@@ -74,8 +72,8 @@ func TestCaptureReleasesItsTemporaryDrawing(t *testing.T) {
 
 type retainedPainter struct{ payload []byte }
 
-func (*retainedPainter) Paint(io.Writer, image.Point) error { return nil }
-func (*retainedPainter) Erase(io.Writer) error              { return nil }
+func (*retainedPainter) Paint(PaintContext) error { return nil }
+func (*retainedPainter) Erase(PaintContext) error { return nil }
 
 func TestReusableFrameStorageReleasesDiscardedPayloads(t *testing.T) {
 	surface := NewSurface(2, 2)

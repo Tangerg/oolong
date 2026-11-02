@@ -194,7 +194,7 @@ func (s *EditSession) invalidateViews() {
 	// Register all wakes before the first focus predicate can interrupt delivery.
 	for _, reference := range slices.Backward(s.views) {
 		if view := reference.Value(); view != nil {
-			defer view.element.Invalidate()
+			defer view.publishViewUpdate()
 		}
 	}
 }

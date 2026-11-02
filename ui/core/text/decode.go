@@ -16,11 +16,11 @@ import (
 type Decoder struct {
 	noCopy noCopy
 
-	// Base supplies initial and reset style; zero uses terminal appearance.
+	// Base supplies defaults for attributes and colors not explicitly overridden by
+	// SGR. Changes affect subsequent text; existing spans keep their resolved style.
 	Base grid.Style
 
-	// Keep sequence overrides separate so default foreground resolves through Base.
-	state grid.Style
+	state rendition
 	link  string
 	scan  ansi.Scanner
 	// Mutable runs absorb small chunks; Open publishes an immutable view only when needed.
@@ -86,10 +86,9 @@ func (d *Decoder) Flush() []Line {
 	return []Line{d.takeLine()}
 }
 
-// Reset returns the decoder to where it started, keeping [Decoder.Base]. It is what
-// a component reuses one for a second command rather than allocating another.
+// Reset discards stream state while preserving Base for the next stream.
 func (d *Decoder) Reset() {
-	d.state = grid.Style{}
+	d.state = rendition{}
 	d.link = ""
 	d.scan.Reset()
 	d.runs = nil
@@ -97,12 +96,8 @@ func (d *Decoder) Reset() {
 	d.dirty = false
 }
 
-// Decode is one string of output, whole, in one call.
-//
-// The base style is what it arrives in before any sequence says otherwise — see
-// [Decoder.Base]. This is the form for output that has already finished; anything
-// still arriving wants a [Decoder], which is the same reading with the state kept
-// between pieces.
+// Decode applies base only where SGR has not supplied an explicit override.
+// An unfinished stream requires Decoder so partial sequences keep their state.
 func Decode(s string, base grid.Style) []Line {
 	d := Decoder{Base: base}
 	return append(d.Feed(s), d.Flush()...)
@@ -158,15 +153,13 @@ func (d *Decoder) write(s string) []Line {
 	}
 }
 
-// append puts a run of text on the end of the open line, joining it to what is
-// there when the style has not changed — so a line that arrived in twenty pieces is
-// as few spans as it has styles.
+// Chunk boundaries must not create additional style spans.
 func (d *Decoder) append(s string) {
 	s = Printable(s)
 	if s == "" {
 		return
 	}
-	style := d.Base.Merge(d.state)
+	style := d.state.resolve(d.Base)
 	if n := len(d.runs); n > 0 && d.runs[n-1].style == style && d.runs[n-1].link == d.link {
 		d.runs[n-1].text = append(d.runs[n-1].text, s...)
 		d.dirty = true
@@ -195,7 +188,7 @@ func (d *Decoder) sgr(ps ansi.Params) {
 	if ps.Len() == 0 {
 		// A bare "ESC [ m" is a reset, which is what an empty parameter defaulting to
 		// zero already means.
-		d.state = grid.Style{}
+		d.state = rendition{}
 		return
 	}
 	for i := 0; i < ps.Len(); i++ {
@@ -204,25 +197,25 @@ func (d *Decoder) sgr(ps ansi.Params) {
 			continue
 		}
 		switch code := group.At(0); code {
-		case 4:
+		case ansi.SGRUnderline:
 			// The one attribute with a shape of its own: "4:0" is off and every other
 			// subparameter is a style of underline a cell cannot tell apart.
-			if group.Len() > 1 && group.At(1) == 0 {
-				d.state.Attr &^= grid.Underline
+			if group.Len() > 1 && group.At(1) == ansi.SGRNoUnderline {
+				d.state.attributes.set(grid.Underline, false)
 				continue
 			}
-			d.state.Attr |= grid.Underline
-		case 38, 48, 58:
+			d.state.attributes.set(grid.Underline, true)
+		case ansi.SGRForeground, ansi.SGRBackground, ansi.SGRUnderlineColor:
 			colour, used, ok := colourAt(ps, i, group)
 			i += used
 			if !ok {
 				continue
 			}
 			switch code {
-			case 38:
-				d.state.FG = colour
-			case 48:
-				d.state.BG = colour
+			case ansi.SGRForeground:
+				d.state.foreground = colour
+			case ansi.SGRBackground:
+				d.state.background = colour
 			}
 			// 58 is the colour of the underline, which a cell has nowhere to keep. It
 			// is read this far so that its parameters cannot be mistaken for the next
@@ -257,7 +250,7 @@ func colourOf(args []int) (grid.Color, int, bool) {
 		return grid.Color{}, 0, false
 	}
 	switch args[0] {
-	case 5:
+	case ansi.SGRColorIndexed:
 		if len(args) < 2 {
 			return grid.Color{}, len(args), false
 		}
@@ -266,11 +259,11 @@ func colourOf(args []int) (grid.Color, int, bool) {
 			return grid.Color{}, 2, false
 		}
 		return rgb(grid.PaletteRGB(uint8(index))), 2, true
-	case 2:
+	case ansi.SGRColorRGB:
 		channels, used := args[1:], 1
 		if len(channels) == 4 {
-			// The subparameter spelling carries a colour-space identifier before the
-			// channels, which is always empty and always ignored.
+			// The colon form reserves a color-space field before RGB. Skip it so
+			// it cannot be misread as the red channel.
 			channels, used = channels[1:], 2
 		}
 		if len(channels) < 3 {
@@ -291,27 +284,23 @@ func colourOf(args []int) (grid.Color, int, bool) {
 
 func (d *Decoder) simple(code int) {
 	switch {
-	case code == 0:
-		d.state = grid.Style{}
-	case code >= 30 && code <= 37:
-		d.state.FG = ansiColor(code - 30)
-	case code == 39:
-		d.state.FG = grid.Color{}
-	case code >= 40 && code <= 47:
-		d.state.BG = ansiColor(code - 40)
-	case code == 49:
-		d.state.BG = grid.Color{}
-	case code >= 90 && code <= 97:
-		d.state.FG = ansiColor(code - 90 + 8)
-	case code >= 100 && code <= 107:
-		d.state.BG = ansiColor(code - 100 + 8)
+	case code == ansi.SGRReset:
+		d.state = rendition{}
+	case code >= ansi.SGRForegroundFirst && code <= ansi.SGRForegroundLast:
+		d.state.foreground = ansiColor(code - ansi.SGRForegroundFirst)
+	case code == ansi.SGRForegroundDefault:
+		d.state.foreground = grid.Color{}
+	case code >= ansi.SGRBackgroundFirst && code <= ansi.SGRBackgroundLast:
+		d.state.background = ansiColor(code - ansi.SGRBackgroundFirst)
+	case code == ansi.SGRBackgroundDefault:
+		d.state.background = grid.Color{}
+	case code >= ansi.SGRBrightForegroundFirst && code <= ansi.SGRBrightForegroundLast:
+		d.state.foreground = ansiColor(code - ansi.SGRBrightForegroundFirst + ansi.ColorsPerIntensity)
+	case code >= ansi.SGRBrightBackgroundFirst && code <= ansi.SGRBrightBackgroundLast:
+		d.state.background = ansiColor(code - ansi.SGRBrightBackgroundFirst + ansi.ColorsPerIntensity)
 	default:
 		if attr, on, ok := attribute(code); ok {
-			if on {
-				d.state.Attr |= attr
-			} else {
-				d.state.Attr &^= attr
-			}
+			d.state.attributes.set(attr, on)
 		}
 	}
 }
@@ -319,36 +308,35 @@ func (d *Decoder) simple(code int) {
 // Use the specified underline meaning for SGR 21; treating it as not-bold would erase unrelated emphasis.
 func attribute(code int) (grid.Attr, bool, bool) {
 	switch code {
-	case 1:
+	case ansi.SGRBold:
 		return grid.Bold, true, true
-	case 2:
+	case ansi.SGRFaint:
 		return grid.Dim, true, true
-	case 3:
+	case ansi.SGRItalic:
 		return grid.Italic, true, true
-	case 7:
+	case ansi.SGRReverse:
 		return grid.Reverse, true, true
-	case 9:
+	case ansi.SGRStrike:
 		return grid.Strike, true, true
-	case 21:
+	case ansi.SGRDoubleUnderline:
 		return grid.Underline, true, true
-	case 22:
+	case ansi.SGRNormalIntensity:
 		return grid.Bold | grid.Dim, false, true
-	case 23:
+	case ansi.SGRNotItalic:
 		return grid.Italic, false, true
-	case 24:
+	case ansi.SGRNotUnderlined:
 		return grid.Underline, false, true
-	case 27:
+	case ansi.SGRNotReversed:
 		return grid.Reverse, false, true
-	case 29:
+	case ansi.SGRNotStruckOut:
 		return grid.Strike, false, true
 	default:
 		return 0, false, false
 	}
 }
 
-// channel reads one of the three numbers a truecolor parameter carries, refusing
-// anything that is not a byte rather than narrowing it to one — a red of 999 is a
-// sequence to distrust, not a red of 231.
+// Reject out-of-byte-range channels before narrowing; conversion would turn
+// a malformed value into a different, valid color.
 func channel(v int) (uint8, bool) {
 	switch {
 	case v < 0, v > 255:
@@ -365,8 +353,7 @@ func ansiColor(index int) grid.Color {
 	return ansiColors[index]
 }
 
-// ansiColors is what those sixteen resolve to, worked out once. See
-// [grid.PaletteRGB] for why the values are xterm's and not a promise.
+// Resolve the named palette once through grid's color authority.
 var ansiColors = func() [16]grid.Color {
 	var out [16]grid.Color
 	for i := range uint8(len(out)) {

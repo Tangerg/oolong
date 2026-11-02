@@ -60,13 +60,11 @@ func NewDialog(config DialogConfig) *Dialog {
 	return d
 }
 
-// Controller returns the only dialog open-state and semantic owner.
 func (d *Dialog) Controller() *base.Dialog { return d.controller }
 
 // Panel returns the ordinary body container for content replacement and box geometry.
 func (d *Dialog) Panel() *Panel { return d.panel }
 
-// Element is the base dialog's modal identity with the kit composition attached.
 func (d *Dialog) Element() scene.Element {
 	if d == nil || d.controller == nil {
 		return scene.Element{}

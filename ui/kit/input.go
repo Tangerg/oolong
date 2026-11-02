@@ -51,13 +51,10 @@ func NewInput(config InputConfig) *Input {
 // the same. Compose Element directly to retain the standalone appearance.
 func (i *Input) Controller() *base.Text { return i.controller }
 
-// Element is the controller's exact scene identity with the standalone skin.
 func (i *Input) Element() scene.Element { return i.controller.Element() }
 
-// HeightForWidth includes the field's label, answer and validation problem.
 func (i *Input) HeightForWidth(width int) int { return i.controller.HeightForWidth(width) }
 
-// Draw projects the current owner through this frame's resolved theme.
 func (i *Input) Draw(frame scene.Frame) {
 	i.controller.DrawWith(frame, i.appearance.palette().Look(i.glyphs))
 }

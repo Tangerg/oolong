@@ -24,8 +24,7 @@ type Surface struct {
 	// ground is a property of the cells' meaning rather than of one view onto them:
 	// every view derived from a surface is looking at the same terminal.
 	ground Ground
-	// paints are the regions of this frame that something else writes into — see
-	// [Painter]. A frame is drawn from nothing every time, so they die with it.
+	// Painter regions belong to one frame and expire when its cells reset.
 	paints []painted
 }
 
@@ -71,7 +70,6 @@ func surfaceSize(w, h int) (int, int, int) {
 	return w, h, w * h
 }
 
-// Reset blanks every cell and forgets the regions something else was to paint.
 func (s *Surface) Reset() {
 	s.endDrawing()
 	clear(s.cells)
@@ -87,14 +85,12 @@ func (s *Surface) releaseScratch() {
 	s.w, s.h = 0, 0
 }
 
-// Size returns the surface's width and height.
 func (s *Surface) Size() (w, h int) { return s.w, s.h }
 
 // SetGround says what a default colour in these cells resolves to. It survives a
 // resize and a reset, because it describes the terminal rather than the contents.
 func (s *Surface) SetGround(g Ground) { s.ground = g }
 
-// Ground is what a default colour in these cells resolves to.
 func (s *Surface) Ground() Ground {
 	if s == nil {
 		return Ground{}
@@ -105,7 +101,6 @@ func (s *Surface) Ground() Ground {
 // Bounds is the surface's own rectangle, with its origin at zero.
 func (s *Surface) Bounds() image.Rectangle { return Area(0, 0, s.w, s.h) }
 
-// View returns a drawing view over the whole surface.
 func (s *Surface) View() View {
 	if s == nil {
 		return View{}
@@ -219,23 +214,17 @@ func (s *Surface) mutateAppearance(area image.Rectangle, mutate func(*Style, *st
 	}
 }
 
-// View is a clipped window onto a [Surface], addressed in its own coordinates.
+// View bounds drawing intent, but display atoms remain indivisible. Replacing
+// any column clears the complete old atom; appearance changes follow the head.
+// Those repairs are the only writes allowed beyond the clip.
 //
-// The clip bounds drawing intent, not storage, because a multi-column display atom
-// is indivisible: replacing any of its columns blanks the complete old atom, and an
-// appearance change containing the atom's head changes the complete atom. Those are
-// the only mutations a view causes beyond its clip.
-//
-// The zero View draws nowhere and reports a size of zero, which is the right answer
-// for content laid out into no space at all.
-// Canvas views are borrowed: writing after their frame or callback ends panics.
-// Copies and subviews have the same lifetime. Surface.View has the surface owner's
-// lifetime instead and is not a canvas borrow.
+// Canvas views are borrowed: copies and subviews lose write authority when the
+// frame or callback ends. Surface.View instead follows its surface's lifetime.
+// The zero value draws nowhere.
 type View struct {
 	surface *Surface
 	scope   *viewScope
-	// origin is where this view's (0, 0) sits on the surface.
-	origin image.Point
+	origin  image.Point
 	// size is the box the view was laid out into, which is not what it may draw on:
 	// content half scrolled off the screen still lays out for its whole size.
 	size image.Point
@@ -256,10 +245,8 @@ func (v View) clipped() image.Rectangle {
 	return v.clip.Intersect(v.surface.Bounds())
 }
 
-// Size returns the box the view was laid out into.
 func (v View) Size() (w, h int) { return v.size.X, v.size.Y }
 
-// Bounds is the view's own coordinate space, origin at zero.
 func (v View) Bounds() image.Rectangle { return image.Rectangle{Max: v.size} }
 
 // Visible is the part of the view that will actually reach the screen, in the view's
@@ -271,7 +258,6 @@ func (v View) Visible() image.Rectangle {
 	return untranslateRect(v.clipped(), v.origin)
 }
 
-// Empty reports whether the view has nowhere to draw.
 func (v View) Empty() bool { return v.clipped().Empty() }
 
 // Sub returns a view onto r, expressed in this view's coordinates. Clipping only ever
@@ -356,18 +342,11 @@ func (v View) MergeStyle(x, y int, style Style) bool {
 	return true
 }
 
-// Ground is what a default colour in this view's cells resolves to.
 func (v View) Ground() Ground { return v.surface.Ground() }
 
-// Blend moves every cell's foreground and background in r toward over by opacity.
-//
-// Both colours move by the same amount, which is what makes the region recede as a
-// whole: text and its background keep their relationship and lose contrast against
-// everything outside the sheet. Content is untouched, so what is behind stays
-// readable and stays where it was.
-//
-// A cell whose colour is the terminal's own resolves through [View.Ground] first, and
-// where that has no answer the cell keeps the colour it had — see [Color.Blend].
+// Blend changes foreground and background together so a region recedes
+// without moving or replacing its text. Terminal defaults resolve through
+// Ground first; unknown colors remain unchanged.
 func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	v.scope.requireWritable()
 	if v.surface == nil || over.Default() || opacity <= 0 {
@@ -385,15 +364,9 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	})
 }
 
-// Fade moves each cell's foreground in r toward that cell's own background by amount,
-// from 0 for nothing to 1 for gone.
-//
-// It takes no colour because the colour is different in every cell and is already
-// there, which is why a [View.Blend] cannot stand in for it: the sheet would have to
-// be one colour over the themed part and another over the plain part.
-//
-// A cell whose colours are the terminal's own resolves through [View.Ground] first,
-// and where that has no answer the cell is left alone.
+// Fade blends each foreground toward its own background, preserving mixed
+// themes without guessing one overlay color. Zero leaves text unchanged and
+// one hides it; unresolved terminal-default colors are left alone.
 func (v View) Fade(r image.Rectangle, amount float64) {
 	v.scope.requireWritable()
 	if v.surface == nil || amount <= 0 {
@@ -410,7 +383,6 @@ func (v View) Fade(r image.Rectangle, amount float64) {
 	})
 }
 
-// Fill blanks every cell in r, in this view's coordinates, and gives it style.
 func (v View) Fill(r image.Rectangle, style Style) {
 	v.scope.requireWritable()
 	if v.surface == nil {
@@ -479,8 +451,6 @@ func (v View) Text(x, y int, s string, style Style) int {
 	return advanced
 }
 
-// writeAtom replaces the w columns from (cx, y) with one display atom: a head holding
-// the cluster, and continuations pointing back at it.
 func (v View) writeAtom(cx, y, w int, cluster string, style Style) {
 	surf := v.surface
 	content := surf.capture.own(cluster)
@@ -527,8 +497,6 @@ func ownedCluster(cluster string) string {
 	return strings.Clone(cluster)
 }
 
-// combine appends a zero-width cluster to the atom owning the column to the left,
-// stepping over a continuation cell to reach its head.
 func (v View) combine(cx, y int, cluster string) {
 	head := layout.Translate(cx, -1)
 	prev := v.surface.cellAt(head, y)
@@ -588,22 +556,14 @@ func graphemeWidth(s string) int {
 	return total
 }
 
-// columns is built explicitly instead of using the package-level default, whose East
-// Asian width setting comes from the locale of whatever machine the program runs on.
-// That would make "…" one column wide here and two there — the same layout code
-// producing different frames.
+// Fix ambiguous-width behavior instead of inheriting the server locale, which
+// may differ from the terminal being drawn and would change identical layouts.
 var columns = &runewidth.Condition{EastAsianWidth: false, StrictEmojiNeutral: false}
 
-// ClusterWidth is Oolong's deterministic estimate of how many terminal columns one
-// grapheme cluster occupies. A control character measures zero.
-//
-// Everything that lays text out shares this function: measuring text one way and
-// drawing it another is the cause of every misaligned terminal UI.
-//
-// Display width is terminal behaviour rather than a complete Unicode property, so
-// this is an estimate. Ambiguous-width characters are fixed at one column, and U+FF9E
-// and U+FF9F are counted separately because common terminals render those
-// halfwidth-katakana sound marks as spacing characters.
+// ClusterWidth is shared by measurement and drawing so terminal-column
+// geometry has one authority. Width remains an estimate of terminal behavior:
+// ambiguous characters use one column, while halfwidth-katakana sound marks
+// U+FF9E and U+FF9F contribute their own spacing columns. Controls measure zero.
 func ClusterWidth(cluster string) int {
 	if control(cluster) {
 		return 0
@@ -630,13 +590,8 @@ func ClusterWidth(cluster string) int {
 	return layout.Sum(max(columns.StringWidth(base), 0), marks)
 }
 
-// control reports whether a cluster begins with a control character.
-//
-// Such a cluster is dropped rather than stored, because a control byte living in a
-// cell would be written to the terminal verbatim on the next repaint: a tab would
-// move the cursor out from under the renderer and an escape would begin a sequence
-// the terminal obeys. Cells are filled from tool and model output, so this is a trust
-// boundary rather than a tidiness rule.
+// Reject control bytes before they enter a cell: repaint writes cell content
+// verbatim, so a stored Escape or tab would become an instruction instead of text.
 func control(cluster string) bool {
 	if cluster == "" {
 		return false
@@ -648,12 +603,9 @@ func control(cluster string) bool {
 	return r < 0x20 || r >= 0x7f && r <= 0x9f
 }
 
-// Render draws something at a size and returns what it came to, one string per row,
-// with the styling dropped and trailing blanks cut.
-//
-// It is the way out of the grid for a program with no terminal: output being piped, a
-// run under a build server, a transcript written to a file. A caller that wants the
-// colours too has [EncodeRow]. The drawing view expires when the callback returns.
+// Render supports nonterminal output with unstyled rows and trimmed trailing
+// blanks. The callback's view expires before return so retained references
+// cannot mutate the completed projection.
 func Render(w, h int, draw func(View)) []string {
 	s := NewSurface(w, h)
 	defer s.releaseScratch()
@@ -663,8 +615,6 @@ func Render(w, h int, draw func(View)) []string {
 	return s.Rows()
 }
 
-// Rows is what the surface says, one string per row, with the styling dropped and
-// trailing blanks cut.
 func (s *Surface) Rows() []string {
 	if s == nil {
 		return nil
@@ -675,7 +625,6 @@ func (s *Surface) Rows() []string {
 		for _, c := range s.row(y) {
 			switch {
 			case c.span < 0:
-				// A continuation column, which the atom's head already wrote.
 			case c.content == "":
 				b.WriteByte(' ')
 			default:
@@ -687,7 +636,8 @@ func (s *Surface) Rows() []string {
 	return out
 }
 
-// Paint appends r to the frame's ordered [Painter] composition, drawn after cells.
+// Paint registers r in the frame's [Painter] composition. Native content stays
+// below the text plane; registration order resolves overlap within each plane.
 // Unchanged cells and ordered regions with equal identities at equal positions
 // persist across frames. Identity zero repaints every frame. The region must fit
 // entirely because grid cannot crop opaque terminal content. Cells remain available

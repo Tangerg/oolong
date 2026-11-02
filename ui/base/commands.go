@@ -82,7 +82,6 @@ func (c *Commands[T]) Remove(name string) bool {
 	return false
 }
 
-// Len is how many commands are registered.
 func (c *Commands[T]) Len() int { return len(c.list) }
 
 // Lookup returns a command snapshot and its caller-owned value for exactly this name
@@ -111,7 +110,6 @@ func (c *Commands[T]) lookup(name string) (registeredCommand[T], bool) {
 	return registeredCommand[T]{}, false
 }
 
-// Used records that a command was run, which is what moves it up the list.
 func (c *Commands[T]) Used(name string) {
 	entry, ok := c.lookup(name)
 	if !ok {

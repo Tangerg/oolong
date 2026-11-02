@@ -19,7 +19,6 @@ func rowsMeasure(height func(int) int) func(layout.Axis, int) int {
 	}
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (t *Text) Element() scene.Element {
 	if t.element.IsZero() {
 		t.editor.SetSingleLine(true)
@@ -43,7 +42,6 @@ func (f *field) semanticState() scene.SemanticState {
 	return 0
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (c *Confirm) Element() scene.Element {
 	if c.element.IsZero() {
 		set := scene.NewAction(scene.ActionConfig[bool, bool]{ID: scene.ActionSetValue, Label: "Set answer", Run: func(ctx context.Context, value bool) (scene.ActionResult[bool], error) {
@@ -67,7 +65,6 @@ func (c *Confirm) Element() scene.Element {
 	return c.element
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (s *Select[T]) Element() scene.Element {
 	if s.element.IsZero() {
 		selectValue := scene.NewAction(scene.ActionConfig[T, T]{ID: scene.ActionSelect, Label: "Select", Availability: func(value T) scene.Availability {
@@ -99,7 +96,6 @@ func (s *Select[T]) Element() scene.Element {
 	return s.element
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (m *MultiSelect[T]) Element() scene.Element {
 	if m.element.IsZero() {
 		m.element = scene.NewElement(scene.ElementConfig{
@@ -117,7 +113,6 @@ func (m *MultiSelect[T]) Element() scene.Element {
 	return m.element
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (e *Editor) Element() scene.Element {
 	if e.element.IsZero() {
 		e.element = scene.NewElement(scene.ElementConfig{
@@ -157,7 +152,6 @@ func (e *Editor) semanticValue() string {
 	return e.Text()
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (l *List[T]) Element() scene.Element {
 	if l.element.IsZero() {
 		l.element = scene.NewElement(scene.ElementConfig{
@@ -172,12 +166,10 @@ func (l *List[T]) Element() scene.Element {
 	return l.element
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (t *Tree[T]) Element() scene.Element {
 	return collectionElement(&t.element, &t.list, scene.RoleTree, t.HeightForWidth, t.Draw, t.Handle, t.focusChanged)
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (f *Filter[T]) Element() scene.Element {
 	if f.element.IsZero() {
 		f.element = scene.NewElement(scene.ElementConfig{
@@ -195,12 +187,10 @@ func (f *Filter[T]) Element() scene.Element {
 	return f.element
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (t *Table[T]) Element() scene.Element {
 	return collectionElement(&t.element, &t.rows, scene.RoleTable, t.HeightForWidth, t.Draw, t.Handle, t.focusChanged)
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (s *Settings[T]) Element() scene.Element {
 	if s.list.element.IsZero() {
 		s.list.element = scene.NewElement(scene.ElementConfig{
@@ -217,7 +207,6 @@ func (s *Settings[T]) Element() scene.Element {
 	return s.list.element
 }
 
-// Element returns the one scene identity shared by this controller and its appearance.
 func (s *Slider) Element() scene.Element {
 	if s.element.IsZero() {
 		set := scene.NewAction(scene.ActionConfig[int, int]{ID: scene.ActionSetValue, Label: "Set value", Run: func(_ context.Context, value int) (scene.ActionResult[int], error) {
@@ -250,7 +239,6 @@ func (s *Slider) Element() scene.Element {
 
 // Element is the completion's one candidate-list identity. It receives pointer
 // input while keyboard focus remains with the composing editor.
-// Element returns the one scene identity shared by this controller and its appearance.
 func (c *Completion) Element() scene.Element {
 	if c.element.IsZero() {
 		accept := scene.NewAction(scene.ActionConfig[struct{}, Candidate]{ID: scene.ActionActivate, Label: "Accept completion", Availability: func(struct{}) scene.Availability {

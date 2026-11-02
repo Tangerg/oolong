@@ -163,8 +163,9 @@ func TestFinalRendererFailureCannotAnnounceRunSuccess(t *testing.T) {
 			return err
 		}
 		a.finishRun(nil)
-		if !strings.Contains(a.status.Doing, failure.Error()) {
-			t.Errorf("failed final renderer produced status %q", a.status.Doing)
+		label := a.outcome.label(a.theme, a.glyphs)
+		if a.outcome.kind != outcomeFailed || !strings.Contains(label.Text, failure.Error()) || a.status.Doing != "" {
+			t.Errorf("failed final renderer produced outcome %+v and activity %q", a.outcome, a.status.Doing)
 		}
 		return nil
 	}); err != nil {
@@ -182,12 +183,12 @@ func TestSourceErrorDoesNotPoisonTheNextRun(t *testing.T) {
 	if err := first.dispatch.Invoke(t.Context(), func() error {
 		a := first.owner
 		a.accept(program.ByteBatch{Data: make([]byte, (1<<20)+1)})
-		if a.run != nil || !strings.Contains(a.status.Doing, "failed:") {
-			t.Errorf("oversized first run: %s", a.status.Doing)
+		if a.run != nil || a.outcome.kind != outcomeFailed || a.status.Doing != "" {
+			t.Errorf("oversized first run: outcome=%+v activity=%q", a.outcome, a.status.Doing)
 		}
 		a.startRun("independent next run")
-		if a.run == nil {
-			t.Errorf("previous failure leaked to next run: %s", a.status.Doing)
+		if a.run == nil || a.outcome != (sessionOutcome{}) {
+			t.Errorf("previous failure leaked to next run: outcome=%+v activity=%q", a.outcome, a.status.Doing)
 		}
 		return nil
 	}); err != nil {

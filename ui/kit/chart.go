@@ -30,7 +30,6 @@ type Sparkline struct {
 // moving the surrounding layout when its first sample arrives.
 func (s Sparkline) HeightForWidth(int) int { return 1 }
 
-// Draw paints the newest samples from left to right in the first row of v.
 func (s Sparkline) Draw(v grid.View) {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 || len(s.Values) == 0 || len(s.Glyphs.Sparkline) == 0 {
@@ -71,11 +70,8 @@ type BarChart struct {
 	Maximum float64
 }
 
-// HeightForWidth is one row per bar.
 func (b BarChart) HeightForWidth(int) int { return len(b.Bars) }
 
-// Draw paints the visible category rows of v with shared label, track, and value
-// columns, so changing one value never moves another bar's geometry.
 func (b BarChart) Draw(v grid.View) {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 || len(b.Bars) == 0 {

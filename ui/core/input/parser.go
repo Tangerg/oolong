@@ -9,21 +9,13 @@ import (
 	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
-// DefaultEscapeTimeout is how long a byte stream waits before treating a lone
-// escape byte as the Escape key rather than the beginning of a terminal sequence.
-//
-// The parser itself has no clock: a transport feeds bytes into [Parser] and flushes
-// a pending parse after this interval. Keeping the default beside the protocol
-// makes a local terminal and a remote terminal interpret the same byte stream the
-// same way.
+// DefaultEscapeTimeout belongs to the protocol boundary so local and remote
+// transports resolve the same ambiguous bytes consistently. Parser owns no clock.
 const DefaultEscapeTimeout = 30 * time.Millisecond
 
-// esc is the byte every sequence begins with, under the name this package's own
-// reading of them uses.
 const esc = ansi.Escape
 
 const (
-	// maxSequenceBody bounds control parameters, including Kitty associated text.
 	maxSequenceBody = 64 << 10
 
 	// maxPaste bounds what one paste may accumulate. A terminal that opens a
@@ -40,16 +32,11 @@ const pasteOpen = "\x1b[200~"
 
 var pasteClose = []byte{esc, '[', '2', '0', '1', '~'}
 
-// dropping says which kind of runaway sequence the parser is throwing away, if
-// any.
-//
-// Both kinds have to be remembered rather than simply left behind: the bytes
-// still to come would otherwise arrive as a flood of keystrokes, and a hostile
-// terminal could aim that.
+// Dropping retains oversized-sequence framing so later payload bytes cannot
+// be interpreted as keystrokes.
 type dropping uint8
 
 const (
-	// droppingNothing is the zero value: nothing is being thrown away.
 	droppingNothing dropping = iota
 	// droppingParams is a control sequence whose parameter section overran. It
 	// ends at the first byte a sequence could have ended with.
@@ -90,7 +77,6 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
-// Feed adds bytes and returns everything now decodable.
 func (p *Parser) Feed(b []byte) []Event {
 	p.buf = append(p.buf, b...)
 	return p.drain(false)
@@ -138,8 +124,6 @@ func (p *Parser) Expire() []Event {
 	return p.drain(true)
 }
 
-// drain decodes as much as it can. When final, trailing ambiguity is resolved
-// rather than kept.
 func (p *Parser) drain(final bool) (events []Event) {
 	initial := len(p.buf)
 	defer func() {
@@ -216,7 +200,6 @@ func (p *Parser) advanceInput(final bool) (Event, bool) {
 		return nil, false
 	}
 	if p.buf[0] == esc {
-		// Nothing followed it in time, so it was the key.
 		p.take(1)
 		return Key{Code: Esc}, true
 	}
@@ -317,14 +300,9 @@ func (p *Parser) closePaste() string {
 	return p.takePaste()
 }
 
-// decode reads one event from the front of b. It reports how many bytes it
-// consumed, the event — nil when the bytes were understood but mean nothing to
-// report — and whether it got far enough to decide. When it did not, no bytes
-// were consumed.
-//
-// final says the wait for more bytes is over, which only an escape sequence has
-// any use for: it is the difference between a sequence still arriving and one
-// that was never a sequence.
+// decode consumes nothing when more bytes may change the result. A nil event
+// with consumed bytes means recognized input that deliberately produces no event.
+// final closes Escape ambiguity because no continuation can arrive.
 func (p *Parser) decode(b []byte, final bool) (n int, ev Event, done bool) {
 	switch c := b[0]; {
 	case c == esc:
@@ -373,15 +351,9 @@ func c0Rune(c byte) rune {
 	}
 }
 
-// decodeEscape reads a sequence introduced by the escape byte.
-//
-// When the wait is over and the sequence never completed, what arrived is read as
-// a chord instead. Every introducer is also a character a terminal sends for Alt
-// with that key — "\x1b[" is Alt+[ as much as it is the start of a control
-// sequence — and by the time the wait is over the two are no longer ambiguous:
-// both bytes arrived before the pause, so they came in one burst, and a burst is
-// what a chord is. An escape that stood alone never reaches here; it is resolved
-// a step earlier, when nothing had followed it at all.
+// Once the Escape wait expires, an unfinished introducer can be read as an
+// Alt chord: ESC [ names Alt+[ as well as a CSI prefix. A lone Escape is settled
+// before this path.
 func (p *Parser) decodeEscape(b []byte, final bool) (n int, ev Event, done bool) {
 	if len(b) == 1 {
 		return 0, nil, false
@@ -533,11 +505,8 @@ func (ps params) numberedKey() Event {
 	return ps.functionalKey(code, 0)
 }
 
-// extendedKeyCode maps a Kitty key number onto a [Code].
-//
-// Numbers in the Unicode private-use area that this program does not recognise
-// are rejected rather than passed through: emitting one as a character would put
-// a glyph nobody typed into the text.
+// Unknown Kitty private-use key numbers are refused so unsupported keys do not
+// insert glyphs the user never typed.
 func extendedKeyCode(num int) (Code, rune, bool) {
 	if code, ok := extendedKeys[num]; ok {
 		return code, 0, true
@@ -643,15 +612,8 @@ func (p *Parser) introduceString(b []byte, kind stringKind, cmd, size int) (int,
 	}
 }
 
-// readString moves buffered bytes into the current string's body until its terminator
-// arrives, reporting the finished event when one does.
-//
-// OSC and DCS also accept BEL. Graphics replies require the ST that ECMA-48
-// specifies, which is an escape and a backslash. An escape followed by anything else
-// never legitimately appears inside one, so it is taken to have abandoned the string:
-// the body so far is dropped and the escape is read again on its own terms. That is
-// what makes a terminal which stops mid-answer cost one keystroke rather than every
-// keystroke after it.
+// OSC and DCS accept BEL; graphics replies require ST. An unexpected Escape
+// abandons the current body so a truncated reply cannot consume every later key.
 func (p *Parser) readString() (Event, bool) {
 	for i := 0; i < len(p.buf); {
 		c := p.buf[i]
@@ -691,11 +653,8 @@ func (p *Parser) readString() (Event, bool) {
 	return nil, false
 }
 
-// endString finishes the current string and returns it as an event.
-//
-// The body is a string, which every consumer will treat as text. Invalid UTF-8 is
-// replaced rather than passed on, for the same reason it is in a paste: this is where
-// untrusted bytes stop being untrusted.
+// Reply bodies become text at this boundary; replace invalid UTF-8 before
+// consumers can treat the result as displayable text.
 func (p *Parser) endString() Event {
 	body := strings.ToValidUTF8(string(p.strBody), "�")
 	kind, cmd := p.str, p.oscCmd

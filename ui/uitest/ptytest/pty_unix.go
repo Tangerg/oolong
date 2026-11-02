@@ -13,7 +13,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// supported says this platform has a pty.
 const supported = true
 
 // attach makes the replica the child's controlling terminal, which is what makes
@@ -29,8 +28,6 @@ func attach(cmd *exec.Cmd, replica *os.File) {
 	}
 }
 
-// setSize tells the pty how big it is.
-//
 // The descriptor is borrowed through the syscall connection rather than taken with
 // Fd: taking it puts the file back into blocking mode and out of the poller, which
 // is the one property Close depends on to end a read nobody else will.

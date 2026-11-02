@@ -1,6 +1,5 @@
-// Package highlight converts source code to styled text. Keeping lexer dependencies
-// in this module lets terminal-only consumers avoid them. Public types remain Oolong
-// text and named themes, so callers do not depend on the highlighter implementation.
+// Package highlight isolates lexer dependencies so terminal-only consumers need not
+// import them. Public values use core text and named schemes to keep Chroma private.
 package highlight
 
 import (
@@ -14,14 +13,10 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Style is a colour scheme by name — "github-dark", "monokai", "solarized-light".
-// [Styles] is the list of them, and a name that is not one of them gets the
-// highlighter's own default rather than nothing.
+// Style uses the fallback scheme for unknown names so source remains readable.
 type Style string
 
-// Styles returns the available schemes in alphabetical order. A program offering
-// the choice to a user reads from this list, so its values have the same [Style]
-// type [New] accepts and require no conversion at the call site.
+// Styles sorts scheme names so application selection lists remain deterministic.
 func Styles() []Style {
 	names := styles.Names()
 	available := make([]Style, len(names))
@@ -31,35 +26,20 @@ func Styles() []Style {
 	return available
 }
 
-// Renderer highlights source with one resolved colour scheme.
-//
-// Its zero value uses the highlighter's fallback scheme. A Renderer is immutable
-// and cheap to copy; resolving the named style once keeps [Renderer.Lines] suitable
-// for every fenced block of a streaming answer.
+// Renderer resolves an immutable scheme once to keep each fenced block independent of
+// later configuration. The zero value uses the fallback scheme.
 type Renderer struct{ scheme *chroma.Style }
 
-// New constructs a renderer for style. An unknown name uses the highlighter's
-// fallback scheme, so source always remains readable.
+// New uses a fallback scheme for unknown names so highlighting never hides source.
 func New(style Style) Renderer { return Renderer{scheme: styles.Get(string(style))} }
 
-// Lines is one block of code, highlighted.
-//
-// The language is what the author wrote after the fence, unexamined — "go", "Go",
-// "golang" and "" all end up somewhere sensible, because an unknown one is guessed
-// at from the source and a guess that fails is plain text rather than an error. Code
-// nobody could name is still code, and showing it uncoloured is the whole of what
-// going wrong here should cost.
+// Lines keeps source readable when classification fails by falling back to plain text.
 func (r Renderer) Lines(language, source string) []text.Line {
 	return highlight(lexerFor(language, source), source, r.resolved())
 }
 
-// Background is the colour a style expects its code to sit on, and whether it has
-// one.
-//
-// It is worth asking because a scheme is a whole picture: light text from a dark
-// scheme on a light terminal is unreadable, and the caller is the one holding the
-// pane it goes in. A caller that would rather keep its own background ignores this,
-// which is why it is a question rather than something written into the lines.
+// Background belongs to the pane; applying it to every token would make
+// source text impose page appearance on its container.
 func (r Renderer) Background() (grid.Color, bool) {
 	entry := r.resolved().Get(chroma.Background)
 	if !entry.Background.IsSet() {
@@ -175,12 +155,8 @@ func lexerFor(language, source string) chroma.Lexer {
 	return lexer
 }
 
-// styleOf turns one scheme entry into a cell style.
-//
-// The colour and the three attributes a scheme states, and not the background: a
-// token's own background belongs to the scheme's idea of a page, and the page here
-// is whatever pane the code was put in. [Background] is how a caller asks for that
-// separately, and how it stays the caller's decision.
+// Token backgrounds describe the highlighter's page. The application owns the
+// pane, so only foreground and text attributes cross this boundary.
 func styleOf(entry chroma.StyleEntry) grid.Style {
 	var style grid.Style
 	if entry.Colour.IsSet() {

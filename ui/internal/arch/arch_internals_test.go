@@ -73,6 +73,7 @@ var rings = []struct {
 	{"ui/internal/identity/", "identity"},
 	{"ui/internal/focus/", "componentbase"},
 	{"ui/internal/fifo/", "foundation"},
+	{"ui/internal/retention/", "foundation"},
 	{"extensions/markdown/", "extensions/markdown"},
 	{"extensions/mermaid/", "extensions/mermaid"},
 	{"extensions/highlight/", "extensions/highlight"},

@@ -7,41 +7,28 @@ import (
 	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
-// The things a program says to the terminal that are not a frame.
-//
-// Each is one sequence, and each is ignored by a terminal that does not implement
-// it — which is the whole reason they can be sent without asking first.
+// Session metadata is separate from frames because its restoration obligation
+// survives ordinary redraws.
 const (
-	// titleSet names the window. Command 0 sets the icon name and the window title
-	// together: a terminal that keeps them apart shows the same thing in both
-	// places, and a program that had to choose between them would be choosing on
-	// behalf of every terminal.
+	// OSC 0 updates icon and window titles together so destinations that
+	// distinguish them do not retain inconsistent names.
 	titleSet = "\x1b]0;"
-	// titlePush and titlePop are the title stack. What a session set has to be put
-	// back for the same reason a mode does — a shell whose window is still called
-	// "building oolong" an hour after the build is a program that left something
-	// behind.
+	// Balance the title stack so a session does not leave its title on the shell.
 	titlePush = "\x1b[22;0t"
 	titlePop  = "\x1b[23;0t"
 
-	// notifySend is the desktop notification iTerm2 defined and others followed. It
-	// is the one with any reach; the alternatives are one terminal apiece.
 	notifySend = "\x1b]9;"
 	commandEnd = string(rune(ansi.Bell))
 )
 
-// title is the window title a session set, and what has to be put back after it.
-//
-// It is guarded because it can be set from anywhere — a download reporting its
-// progress is not on the interface's goroutine — and read by the session's own
-// unwinding.
+// Title changes can originate outside the UI goroutine, so admission and the
+// restoration obligation share one lock.
 type title struct {
 	mu sync.Mutex
 	// An accepted command also owns the obligation to pop the saved title.
 	set string
 }
 
-// to advances the retained title and its output in the same order.
 func (t *title) to(s string, modeBytes int, queue func([]byte) (uint64, error)) error {
 	set := titleCommand(s)
 	// Reacquisition restores modes and the title stack in one reserved frame.
@@ -91,13 +78,8 @@ func notification(text string) string {
 	return notifySend + body + commandEnd
 }
 
-// printable drops what cannot go inside a sequence.
-//
-// The text comes from a program's own output, a file name, or a model's answer, and
-// any of those may hold an escape byte or a bell. Either would end the sequence
-// early and leave the rest of the text to be read as commands by the terminal, which
-// is the oldest trick there is. This is the same trust boundary a cell keeps and it
-// is kept here for the same reason.
+// Strip control bytes before framing metadata: ESC and BEL can end an OSC
+// early and turn the remaining caller text into terminal commands.
 func printable(s string) string {
 	s = strings.ToValidUTF8(s, "�")
 	if !strings.ContainsFunc(s, unprintable) {

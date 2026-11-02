@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"unicode/utf8"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 const (
@@ -19,13 +21,9 @@ const (
 	endSync   = "\x1b[?2026l"
 )
 
-// painter accumulates one frame's escape stream while tracking the terminal
-// state it has already established — style, hyperlink and cursor column — so
-// nothing is re-stated that is already true.
-//
-// It exists because every way of emitting cells wants exactly this bookkeeping:
-// a full repaint, a diff, and the rows a scroll exposed differ only in which
-// cells they consider dirty, not in how a cell reaches the wire.
+// painter owns established style, hyperlink, and cursor state while encoding
+// cells. Full redraws, diffs, and scroll repairs share it so their wire state
+// transitions cannot diverge.
 type painter struct {
 	out []byte
 	// sourceStyle avoids quantizing an unchanged logical style for every cell;
@@ -33,9 +31,8 @@ type painter struct {
 	sourceStyle Style
 	style       wireStyle
 	link        string
-	// depth is how much colour the terminal is being asked to show. It is applied
-	// here and nowhere else: a frame is built in truecolor all the way down, and
-	// this is the one place a style becomes bytes.
+	// Color depth is applied only at this wire boundary; stored cells stay
+	// truecolor so rendering never depends on the destination palette.
 	depth Depth
 	// at is where the terminal's cursor sits, and known says whether that is
 	// worth believing. A run of adjacent cells needs no positioning.
@@ -109,8 +106,7 @@ func (p *painter) moveTo(x, y int) {
 	p.known = true
 }
 
-// cell writes one cell unit spanning width columns, emitting only the state
-// changes it needs first. It assumes the cursor is already in place.
+// The cursor must already be positioned at this atom's head.
 func (p *painter) cell(c *Cell, width int) {
 	if c.Style != p.sourceStyle {
 		p.sourceStyle = c.Style
@@ -145,10 +141,10 @@ func (p *painter) appendStyle(next wireStyle) {
 		}
 	}
 	if next.fg.kind != defaultWireColor {
-		p.appendColor(foreground, next.fg)
+		p.appendColor(ansi.SGRForeground, next.fg)
 	}
 	if next.bg.kind != defaultWireColor {
-		p.appendColor(background, next.bg)
+		p.appendColor(ansi.SGRBackground, next.bg)
 	}
 	p.out = append(p.out, 'm')
 }
@@ -207,14 +203,6 @@ func colorOnWire(color Color, depth Depth) wireColor {
 	}
 }
 
-// The SGR bases for the two colours a cell has. The sixteen-colour forms are
-// numbered from them rather than written out: 30 and 40 begin the ANSI eight, and
-// 90 and 100 begin their bright counterparts.
-const (
-	foreground int64 = 38
-	background int64 = 48
-)
-
 func (p *painter) appendColor(base int64, color wireColor) {
 	switch color.kind {
 	case defaultWireColor:
@@ -222,11 +210,9 @@ func (p *painter) appendColor(base int64, color wireColor) {
 		// new wire colour kind cannot silently acquire truecolor semantics.
 	case indexed16WireColor:
 		index := color.index
-		// 30–37 and 40–47 are the eight; 90–97 and 100–107 are the bright ones,
-		// which are 60 above their plain forms in both cases.
-		code := base - 8 + int64(index%8)
-		if index >= 8 {
-			code += 60
+		code := base - ansi.ColorsPerIntensity + int64(index%ansi.ColorsPerIntensity)
+		if index >= ansi.ColorsPerIntensity {
+			code += ansi.SGRBrightForegroundFirst - ansi.SGRForegroundFirst
 		}
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, code, 10)
@@ -234,13 +220,17 @@ func (p *painter) appendColor(base int64, color wireColor) {
 	case indexed256WireColor:
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, base, 10)
-		p.out = append(p.out, ";5;"...)
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, ansi.SGRColorIndexed, 10)
+		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, int64(color.index), 10)
 
 	case truecolorWireColor:
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, base, 10)
-		p.out = append(p.out, ";2;"...)
+		p.out = append(p.out, ';')
+		p.out = strconv.AppendInt(p.out, ansi.SGRColorRGB, 10)
+		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, int64(color.rgb.R), 10)
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, int64(color.rgb.G), 10)
@@ -347,12 +337,12 @@ var attrCodes = [...]struct {
 	attr Attr
 	code int64
 }{
-	{Bold, 1},
-	{Dim, 2},
-	{Italic, 3},
-	{Underline, 4},
-	{Reverse, 7},
-	{Strike, 9},
+	{Bold, ansi.SGRBold},
+	{Dim, ansi.SGRFaint},
+	{Italic, ansi.SGRItalic},
+	{Underline, ansi.SGRUnderline},
+	{Reverse, ansi.SGRReverse},
+	{Strike, ansi.SGRStrike},
 }
 
 // LinkTarget preserves an OSC 8 destination verbatim or returns the empty
@@ -369,16 +359,10 @@ func LinkTarget(target string) string {
 	return target
 }
 
-// EncodeRow renders one row of cells as inline terminal text: style and
-// hyperlink transitions and printable graphemes, and nothing that moves the
-// cursor or erases anything.
-//
-// It is how a finished transcript line is printed into the terminal's own
-// scrollback, where the line must survive on its own with no screen to address.
-// The result always closes an open hyperlink and returns to the default style, so
-// rows can be concatenated safely. If cells starts or ends inside a multi-column display
-// atom, EncodeRow emits styled blanks for the visible columns rather than a
-// partial atom that would advance the terminal beyond the slice.
+// EncodeRow emits no cursor movement so a row can survive in terminal
+// scrollback independently of a live screen. It closes links and resets style
+// before return. Partial atoms become styled blanks, preserving the supplied
+// column count instead of advancing beyond the slice.
 func EncodeRow(cells []Cell, depth Depth) string {
 	return encodeCells(trimBlankTail(cells), depth)
 }

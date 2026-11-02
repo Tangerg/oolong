@@ -234,7 +234,7 @@ func TestRejectedPlanUpdateReachesTheBackend(t *testing.T) {
 	if err := bridge.dispatch.Invoke(t.Context(), func() error { bridge.owner.workflow.Reset(); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	for _, update := range []stepUpdate{{Index: -1}, {Index: 4}, {State: 255}} {
+	for _, update := range []stepUpdate{{}, {Step: "unknown"}, {Step: stepUnderstand, State: 255}} {
 		if err := bridge.Step(t.Context(), update); err == nil {
 			t.Errorf("acknowledged invalid step %+v", update)
 		}

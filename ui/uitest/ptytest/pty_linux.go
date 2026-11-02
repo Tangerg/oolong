@@ -9,8 +9,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// openPTY allocates a pty pair the way Linux wants: unlock, then build the
-// replica's path from the index it reports.
 func openPTY() (primary, replica *os.File, err error) {
 	// The primary is opened non-blocking so that os.NewFile registers it with the
 	// runtime's poller. That is what makes a read on it interruptible: Close can

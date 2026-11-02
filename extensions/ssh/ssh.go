@@ -15,8 +15,7 @@ import (
 var (
 	// ErrNoPTY means the accepted SSH session did not request a terminal. Oolong
 	// draws cells and therefore cannot run as a plain exec byte stream.
-	ErrNoPTY = errors.New("ssh: session has no PTY")
-	// ErrWindowSize means an SSH window cannot safely describe a cell surface.
+	ErrNoPTY      = errors.New("ssh: session has no PTY")
 	ErrWindowSize = errors.New("ssh: invalid PTY window size")
 	// ErrAllocatedPTY means the server gave this session a terminal of its own and
 	// is already reading the channel into it. A host needs the channel to itself.
@@ -75,8 +74,7 @@ func (c exactChannel) Write(p []byte) (int, error) {
 	return c.to.Write(p)
 }
 
-// bareLineFeed is where a line feed stands on its own rather than after a carriage
-// return, or -1 for nowhere. It is the emulation's own rule, read from this side.
+// PTY emulation rewrites a bare LF, so exact frame delivery must reject it.
 func bareLineFeed(p []byte) int {
 	for at := 0; ; {
 		found := bytes.IndexByte(p[at:], '\n')

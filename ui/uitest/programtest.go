@@ -85,10 +85,8 @@ func New(tb testing.TB, config Config) *Host {
 	return host
 }
 
-// Input returns the host's clean-ending input stream.
 func (h *Host) Input() program.EventSource { return h }
 
-// Events is the ordered input channel.
 func (h *Host) Events() <-chan input.Event {
 	if h == nil || h.input == nil {
 		return nil
@@ -100,7 +98,6 @@ func (h *Host) Events() <-chan input.Event {
 // context or the program's own quit action.
 func (h *Host) Err() error { return nil }
 
-// Writer is where the program queues terminal frames.
 func (h *Host) Writer() program.FrameWriter {
 	if h == nil || h.writer == nil {
 		return nil
@@ -108,7 +105,6 @@ func (h *Host) Writer() program.FrameWriter {
 	return h.writer.Frames()
 }
 
-// Size returns the current size, initially the dimensions passed to New.
 func (h *Host) Size() (width, height int, err error) {
 	if h == nil {
 		return 0, 0, nil
@@ -132,7 +128,6 @@ func (h *Host) Send(event input.Event) bool {
 	return h.input.post(event)
 }
 
-// Type sends text one character key at a time.
 func (h *Host) Type(text string) bool {
 	if h == nil || h.input == nil || !h.input.accepting() {
 		return false
@@ -145,7 +140,6 @@ func (h *Host) Type(text string) bool {
 	return true
 }
 
-// Press sends a non-character key.
 func (h *Host) Press(code input.Code) bool {
 	return h.Send(input.Key{Code: code})
 }
@@ -217,7 +211,6 @@ func (h *Host) repaint(ctx context.Context) (frameObservation, error) {
 	}
 }
 
-// Frames returns every byte written so far as a string.
 func (h *Host) Frames() string {
 	if h == nil || h.out == nil {
 		return ""
@@ -326,7 +319,6 @@ func (h *Host) observeFrame(ctx context.Context, first bool) (frameObservation, 
 	return h.visibility, err
 }
 
-// Repaints is the ordered complete-frame request stream consumed by program.Run.
 func (h *Host) Repaints() <-chan func(int, int, error) {
 	if h == nil || h.input == nil {
 		return nil
@@ -505,7 +497,6 @@ func (s *eventSource) close() {
 	<-s.ended
 }
 
-// sink accumulates terminal output and broadcasts each frame write to every waiter.
 type sink struct {
 	mu      sync.Mutex
 	all     strings.Builder

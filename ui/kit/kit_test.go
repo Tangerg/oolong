@@ -426,6 +426,7 @@ func TestParagraphIndentsEveryRow(t *testing.T) {
 
 func TestParagraphCapsItsHeight(t *testing.T) {
 	p := kit.NewParagraph("one two three four five", grid.Style{})
+	p.Ellipsis = kit.Unicode().Ellipsis
 	p.MaxRows = 2
 	if got := p.HeightForWidth(6); got != 2 {
 		t.Fatalf("height = %d, want the cap", got)
@@ -1471,6 +1472,7 @@ func TestACappedParagraphStillSaysWhatTheWrapSwallowed(t *testing.T) {
 	// a split word is recoverable from the rows afterwards. The row a cap ends with
 	// is still a row with a break above it.
 	p := kit.NewParagraph("one two three four five", grid.Style{})
+	p.Ellipsis = kit.Unicode().Ellipsis
 	p.MaxRows = 2
 
 	rows := p.Rows(6)

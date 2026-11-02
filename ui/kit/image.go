@@ -57,14 +57,11 @@ type Image struct {
 // third of a terminal, which leaves room to read around it.
 const defaultMaxRows = 8
 
-// HeightForWidth is how many rows the picture takes at this width, or one row for the
-// alternative text where it cannot be shown.
 func (i Image) HeightForWidth(width int) int {
 	_, cells := i.fit(width, i.rowLimit())
 	return max(1, cells.Y)
 }
 
-// Draw keeps the room the picture needs, or writes the alternative text.
 func (i Image) Draw(v grid.View) {
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {

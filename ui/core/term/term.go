@@ -1,10 +1,5 @@
-// Package term owns the terminal itself: taking it over, giving it back, reading
-// what it sends, and writing frames to it without blocking whoever drew them.
-//
-// It is the only package in the TUI that touches the operating system. Everything
-// above it works in cells, events and frames, and can be tested without a terminal
-// at all — which is the point of putting the parts that need one here and nowhere
-// else.
+// Package term owns OS terminal acquisition, input, output, and restoration so
+// higher layers can operate on cells and events without a terminal.
 package term
 
 import (
@@ -29,8 +24,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
-// ErrNotTerminal is reported by [Open] when the process is not attached to a
-// terminal — piped, redirected, or running under something that gave it no tty.
 var ErrNotTerminal = errors.New("term: not a terminal")
 
 // ErrImageIDsExhausted means a terminal session has used every image identity the
@@ -38,12 +31,8 @@ var ErrNotTerminal = errors.New("term: not a terminal")
 // older image that can still be present, so the session refuses another transmission.
 var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
 
-// Features are the optional terminal behaviours a session requests.
-//
-// They are separate from [Config] because optional capability requests can travel
-// between terminal transports without carrying the session's screen-ownership
-// decision with them. The zero value asks for none of them, which is a legitimate
-// choice for a session that only wants raw keys.
+// Features can cross transport boundaries without carrying screen ownership.
+// The zero value requests no optional capabilities.
 type Features struct {
 	// Mouse asks for mouse reporting, including movement and not only clicks.
 	Mouse bool
@@ -55,14 +44,8 @@ type Features struct {
 	// [input.KeyboardReportEvents] only when the application consumes them.
 	// Terminals that do not implement the protocol ignore the request.
 	Keyboard input.KeyboardFeatures
-	// Probe asks the terminal about itself while [Open] is still running: the
-	// colour it draws on, and the extensions it claims. See [Terminal.Ground]
-	// and [Terminal.Attributes].
-	//
-	// It is the only setting that costs anything — one round trip to the terminal,
-	// normally a millisecond and bounded either way — and the only one whose answer
-	// a session cannot get any other way. A theme that has to be told whether the
-	// terminal is light is a theme that is wrong for half the people who run it.
+	// Probe trades a bounded startup round trip for the destination's own
+	// color and capability replies; environment hints cannot provide those facts.
 	Probe bool
 }
 
@@ -73,21 +56,15 @@ type Features struct {
 // present before it opened. Keeping the two facts distinct lets adapters share
 // feature requests without duplicating that ownership decision.
 type Config struct {
-	// Features are the optional behaviours to request.
 	Features Features
 	// AltScreen draws on a screen of its own, leaving the user's scrollback as it
 	// was. Without it, frames are drawn in place among whatever else is on screen.
 	AltScreen bool
 }
 
-// Terminal is a terminal taken over for a session.
-//
-// It is the whole boundary: raw mode, the modes it turned on, the goroutines
-// reading input, and the writer frames go through. [Terminal.Close] gives all of
-// it back, in the order that leaves the terminal as it was found, and is safe to
-// call more than once — including from a deferred call on a path that already
-// failed. A Terminal must not be copied after construction; the files, modes,
-// goroutines and restoration obligation are one session.
+// Terminal binds raw mode, requested modes, readers, writer, and restoration
+// to one session. Close restores resources in reverse acquisition order and is
+// idempotent, including after failure. A Terminal must not be copied.
 type Terminal struct {
 	in, out     *os.File
 	inFD, outFD int
@@ -105,9 +82,7 @@ type Terminal struct {
 	writer *Writer
 	// waker owns interruptible input, including the platform's buffered characters.
 	// Only the reader may consume it; Close joins that owner before restoring modes.
-	waker *waker
-	// handed is the latch the reader parks on while the terminal is somebody else's
-	// — see [Terminal.Hand].
+	waker  *waker
 	handed handover
 	// The reader orders this boundary after its earlier bytes and before its
 	// next read, even if backpressure outlasted the handover.
@@ -126,9 +101,7 @@ type Terminal struct {
 	color         grid.Depth
 	wheelProfile  input.Wheel
 	imageProtocol graphics.Protocol
-	// title is what this session called the window, and what it owes the terminal
-	// when it gives it back.
-	title title
+	title         title
 	// task is progress shown outside the cell grid. It owns its keepalive and
 	// pauses it whenever another process owns the terminal.
 	task *taskProgress
@@ -139,10 +112,8 @@ type Terminal struct {
 
 	resized  chan input.Resize
 	resizeMu sync.Mutex
-	// size is the last size anything measured, and the one thing that decides
-	// whether the next measurement is news. Both paths that measure — the platform
-	// watcher and taking the terminal back from a child — advance it. See
-	// [Terminal.noteResize].
+	// The watcher and handover both publish through one resize owner, so the
+	// latest accepted measurement alone decides whether another size is new.
 	size       dimensions
 	readerDone chan struct{}
 	stop       chan struct{}
@@ -154,30 +125,15 @@ type Terminal struct {
 	inputErr  error
 }
 
-// Open takes over the terminal on standard input and output.
-//
-// It reports [ErrNotTerminal] when there is no terminal to take over, which is the
-// case a caller has to handle rather than force: a program whose output is being
-// piped wants to write text, not frames.
+// Open refuses redirected input or output with ErrNotTerminal so callers can
+// choose ordinary text instead of writing frames into a pipe.
 func Open(cfg Config) (*Terminal, error) {
 	return OpenOn(os.Stdin, os.Stdout, cfg, os.LookupEnv)
 }
 
-// OpenOn takes over a terminal that is not this process's own.
-//
-// Standard input and output are the ordinary answer and [Open] is the ordinary
-// call. This exists because they are not the only answer: a program serving a
-// session over a pty holds one at each end, and everything below this line worked
-// on whatever files it was handed long before anything could hand it any.
-//
-// lookup is the environment of the files' terminal. It is explicit because the
-// terminal may belong to a pty or another session whose TERM and TMUX are not this
-// process's. Nil means no environment facts are available.
-//
-// OpenOn is also what makes this package testable at all. A terminal that could only
-// ever be the process's own is one whose lifecycle — raw mode, the modes it turns
-// on, the order it puts them back in — could be checked only by running a second
-// program and reading what came out of it.
+// OpenOn accepts explicit files and their terminal environment so PTY and
+// remote sessions do not inherit this process's terminal assumptions. Nil
+// lookup means no environment facts are available.
 func OpenOn(
 	in, out *os.File,
 	cfg Config,
@@ -392,21 +348,11 @@ func (t *Terminal) Events() <-chan input.Event { return t.events }
 // cause. The channel close synchronizes the pump's write with this read.
 func (t *Terminal) InputErr() error { return t.inputErr }
 
-// Writer is where frames go.
 func (t *Terminal) Writer() FrameSink { return t.writer.Frames() }
 
-// Ground is what the terminal's own two colours are, and whether it said.
-//
-// It answers two questions that used to be one. Which theme suits is decided by the
-// background alone — [grid.RGB.Dark] turns it into a yes or no. What a translucent
-// layer mixes with needs both, because a cell left at the terminal's own colours has
-// no numbers of its own until this says what they are; that is what [grid.Ground] is
-// for and why a frame is given one.
-//
-// A colour the terminal was not asked for, or would not give, comes back as the
-// default — see [grid.Color.Default]. A session that gets one has to choose for
-// itself, because there is no safe guess: dark is the commoner choice and light is
-// the one that becomes unreadable when guessed wrong.
+// Ground preserves unknown colors as terminal defaults. Blending needs known
+// RGB values for both colors; guessing them can make text unreadable on a
+// different terminal theme.
 func (t *Terminal) Ground() grid.Ground {
 	var g grid.Ground
 	if t.said.hasFg {
@@ -418,26 +364,16 @@ func (t *Terminal) Ground() grid.Ground {
 	return g
 }
 
-// Attributes is what the terminal said it was, and whether it said.
-//
-// The class is of little use. What the extensions carry is worth having: sixel
-// graphics is claimed here and nowhere else, so this is how a program learns it
-// can draw pixels on a terminal that does not speak Kitty's protocol.
+// Attributes exposes the terminal's claims, including sixel support. These
+// claims are negotiation evidence rather than proof that rendering will succeed.
 func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
 	return t.said.attributes, t.said.hasAttrs
 }
 
-// Copy asks the terminal to put text on the system clipboard, reporting false for
-// text too large to carry — see [clipboard.MaxPayload].
-//
-// The terminal does it rather than the process, because the terminal is the only
-// part of this on the user's side of the connection. Over ssh, in a container, or
-// through a multiplexer running elsewhere, shelling out to pbcopy fills a clipboard
-// nobody can paste from.
-//
-// The sequence is queued beside the frames, so it lands between two of them and
-// never inside one. A terminal is free to refuse and says nothing when it does, so
-// true means asked for rather than done.
+// Copy addresses the user's terminal clipboard, which may be remote from this
+// process. Admission is serialized with frames so OSC bytes cannot split one.
+// Success means queued: terminals may refuse clipboard access silently. Oversized
+// text is refused according to clipboard.MaxPayload.
 func (t *Terminal) Copy(text string) bool {
 	seq, ok := t.clipboard.Copy(clipboard.System, text)
 	if !ok {
@@ -447,16 +383,9 @@ func (t *Terminal) Copy(text string) bool {
 	return err == nil
 }
 
-// Paste asks the terminal what is on the system clipboard.
-//
-// The answer arrives on [Terminal.Events] as an ordinary [input.Paste], because
-// that is what it is: a component that already inserts what the user pasted needs
-// nothing further to insert what they copied somewhere else.
-//
-// It reports whether this request was queued. False means a previous unidentified
-// request is still eligible for an answer or the writer refuses admission. Most
-// terminals refuse to answer, because a program can read what the user copied out of a
-// password manager; that refusal has no reply, so true does not promise an answer.
+// Paste reports admission, not clipboard delivery: terminals may refuse
+// silently. A matching reply becomes input.Paste on Events. An outstanding
+// unidentified request or refused writer admission prevents a second request.
 func (t *Terminal) Paste() bool {
 	return t.clipboard.Request(clipboard.System, func(sequence string) bool {
 		_, err := t.writer.Queue([]byte(sequence))
@@ -464,15 +393,8 @@ func (t *Terminal) Paste() bool {
 	})
 }
 
-// Name is what the terminal called itself when asked, and whether it answered.
-//
-// It is worth more than anything the environment says, which is why everything here
-// that identifies a terminal prefers it. Environment variables do not survive ssh, do
-// not exist in a container, and are rewritten by a multiplexer; an answer to this came
-// from the terminal that is actually drawing.
-//
-// The form is whatever the terminal chose — "kitty(0.32.2)", "WezTerm 20240203" — so
-// it is matched against and not parsed.
+// Name prefers the destination's direct reply over environment hints that may
+// describe an outer or remote terminal. Its spelling is terminal-defined.
 func (t *Terminal) Name() (string, bool) { return t.said.name, t.said.hasName }
 
 // Version is the number a terminal gives when it will not give a name, and whether it
@@ -481,18 +403,9 @@ func (t *Terminal) Version() (input.DeviceVersion, bool) {
 	return t.said.version, t.said.hasVersion
 }
 
-// Keyboard is which of the Kitty keyboard protocol's enhancements the terminal
-// actually turned on, and whether it said.
-//
-// Asking for them is not the same as getting them, and that difference is invisible in
-// the events themselves. A terminal can accept the request for unambiguous key codes
-// and give nothing for key releases: the protocol is live, Shift+Enter works, the
-// teardown still owes a pop — and every key is held forever as far as this program can
-// tell. A component that waits for a key to be let go would wait for ever, and nothing
-// would say why.
-//
-// A session that did not ask for the protocol, or a terminal that does not implement
-// it, reports false.
+// Keyboard reports accepted features, which may be fewer than requested.
+// Consumers cannot infer release-event support from presses alone. The boolean
+// is false without a keyboard request or a matching terminal reply.
 func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
 	return t.said.keyboard, t.said.hasKeyboard
 }
@@ -502,7 +415,6 @@ func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
 // means none was supplied.
 func (t *Terminal) Locale() string { return t.locale }
 
-// Color is how much colour this terminal's environment says it can show.
 func (t *Terminal) Color() grid.Depth { return t.color }
 
 func (t *Terminal) identity() string {
@@ -512,10 +424,7 @@ func (t *Terminal) identity() string {
 	return ""
 }
 
-// Wheel is what this terminal's wheel reports are worth.
-//
-// It prefers what the terminal said it was over what the environment claims, for the
-// reason [Terminal.Name] gives.
+// Wheel uses negotiated identity before environment hints, as Name does.
 func (t *Terminal) Wheel() input.Wheel {
 	return t.wheelProfile
 }
@@ -529,21 +438,10 @@ func (t *Terminal) Graphics() graphics.Protocol {
 	return t.imageProtocol
 }
 
-// ReportDirectory tells the terminal which directory the program is working in.
-//
-// It is the other half of leaving relative paths alone. A terminal finds paths in its
-// own output and offers to open them, and it can only resolve "src/main.go" against a
-// directory it knows — which, once a program has changed its own, is not the one the
-// shell started in. Without this the terminal's own path handling quietly stops
-// working for exactly the output a program produces, and the reason a program declines
-// to make a relative path a hyperlink is that the terminal would do it better.
-//
-// The path is made absolute, because a relative one tells the terminal nothing it did
-// not already have. An empty path reports the process's own working directory.
-//
-// It is written beside the frames, so it lands between two of them and never inside
-// one. A terminal that does not implement it ignores it. A nil error means queued;
-// [Terminal.Writer] reports the delivery outcome.
+// ReportDirectory lets the terminal resolve relative paths in output after
+// the program changes directory. The path becomes absolute; empty uses the
+// process working directory. A nil error means queued with the frames, while
+// Writer reports delivery.
 func (t *Terminal) ReportDirectory(path string) error {
 	if path == "" {
 		cwd, err := os.Getwd()
@@ -576,32 +474,19 @@ func (t *Terminal) Size() (w, h int, err error) {
 	return xterm.GetSize(t.outFD)
 }
 
-// NativeTarget is the image namespace of this physical terminal.
 func (t *Terminal) NativeTarget() grid.NativeTarget { return t.imageOwner.NativeTarget() }
 
-// CellSize is how many pixels one cell is, and whether the terminal said.
-//
-// It is what a picture has to be fitted with — see [graphics.Fit] — and it is the
-// one number about a terminal that cannot be worked out from the others. Plenty of
-// terminals do not report it, which is what the false is for: a picture scaled by an
-// invented cell size is a picture the wrong shape, and not showing one is the better
-// answer.
+// CellSize can remain unknown because cell counts do not determine pixel
+// dimensions. Image fitting must respect the boolean instead of inventing an
+// aspect ratio.
 func (t *Terminal) CellSize() (image.Point, bool) {
 	return cellSize(t.outFD)
 }
 
-// Transmit queues a picture and returns its handle for later placement in a frame
-// — see [graphics.Image.Placement]. [Terminal.Writer] reports the delivery outcome.
-//
-// The number is this session's to allocate, because two pictures under one name are
-// one picture: nothing above this can know what else has been sent. It is sent
-// beside the frames, so it lands between two of them and never inside one, and it
-// happens once — placing it again on every frame that shows it costs nothing more.
-//
-// A terminal that cannot show pictures is not asked. Whether this one can is
-// [Terminal.Graphics], and a caller that sends without asking has written a
-// megabyte of base64 to something that will print it. It reports
-// [ErrImageIDsExhausted] rather than reusing a handle that may still name an image.
+// Transmit allocates a session-owned identity and queues the PNG once; later
+// graphics.Resource.Placement calls reuse it. Writer reports delivery. The
+// terminal must support graphics, and ErrImageIDsExhausted refuses identity
+// reuse that could overwrite a still-visible transmission.
 func (t *Terminal) Transmit(png []byte) (graphics.Resource, error) {
 	if !t.Graphics().Supports(graphics.Live) {
 		return graphics.Resource{}, errors.ErrUnsupported
@@ -658,19 +543,14 @@ func (t *Terminal) releaseImages() error {
 	})
 }
 
-// Close gives the terminal back.
-//
-// The order is the reverse of taking it over, and every step runs even if an
-// earlier one failed: a terminal left in raw mode is unusable, so a failure to
-// write the restore sequences must not be a reason to skip leaving raw mode.
+// Close attempts every restoration step even after failure: output errors
+// must not leave raw mode active for the next terminal owner.
 func (t *Terminal) Close() error {
 	t.closeOnce.Do(func() {
 		t.writer.CloseAdmission()
 		close(t.stop)
-		// The reader is waiting for the terminal to say something, and nothing will:
-		// waking it is what lets it see that the session is over. It is also what
-		// releases a reader parked mid-handover, so a session closed while the
-		// terminal is somebody else's still ends.
+		// Wake both kernel waits and handover parking so shutdown can join the
+		// reader without requiring input or a child to return.
 		t.waker.wake()
 		// A wake request is not a completed read. Modes and input belong to this
 		// session until the reader has actually stopped consuming the descriptor.
@@ -805,81 +685,39 @@ func (t *Terminal) sendRead(raw chan<- readResult, result readResult) bool {
 	}
 }
 
-// SetTitle names the terminal's window, and remembers to put back whatever it was
-// called before.
-//
-// The title is where a program says what it is doing to somebody who is not looking
-// at it: a tab in a window behind this one, a taskbar entry, a window list. That is
-// the whole of its value, and it is why the text should be the task and not the
-// program's name — which the user can already see.
-//
-// It is queued beside the frames, so it lands between two of them and never inside
-// one. A terminal that does not implement it ignores it, and one that does not
-// implement the title stack ignores the putting back — which is why a program that
-// cares should set something sensible on the way out rather than rely on it.
-// A title too large to restore after a handover returns [ErrPayloadTooLarge].
+// SetTitle retains the title-stack restoration obligation alongside writer
+// admission. Peers may omit title-stack support, so restoration is best-effort.
+// Titles too large to restate after handover return ErrPayloadTooLarge.
 func (t *Terminal) SetTitle(s string) error {
 	return t.title.to(s, len(t.modes.Enter()), t.writer.Queue)
 }
 
-// Bell asks the terminal for its attention.
-//
-// What that is, is the user's to decide and not this program's: a sound, a flash of
-// the window, a mark on the tab, or nothing at all. That is the reason to send this
-// rather than to invent an attention-getting animation — the user has already told
-// their terminal what they want to happen.
+// Bell delegates attention policy to the user's terminal configuration.
 func (t *Terminal) Bell() error { _, err := t.writer.Queue([]byte{ansi.Bell}); return err }
 
-// Notify asks for a desktop notification.
-//
-// It is for the thing that finished while the user was looking at something else,
-// which is the case a terminal interface cannot answer on its own: the window is
-// not on screen, so nothing drawn in it is seen.
-//
-// Terminals that do not implement it ignore it, and there is no way to find out
-// which did — so a program that has something to say should say it in the interface
-// as well, and treat this as the extra it is.
-// Numeric-leading text is prefixed with a bullet to distinguish it from OSC 9
-// control commands on terminals that share the notification namespace.
+// Notify is supplementary: unsupported peers may ignore it without a reply.
+// Numeric-leading text receives a bullet so OSC 9 peers cannot interpret it as
+// a control command in their shared notification namespace.
 func (t *Terminal) Notify(text string) error {
 	_, err := t.writer.Queue([]byte(notification(text)))
 	return err
 }
 
-// Hand gives the terminal to something else and takes it back when it returns.
+// Hand parks the reader before restoring modes so the child owns every input
+// byte. It runs synchronously on the caller's goroutine; the caller must keep
+// other output producers idle until return. Ownership is restored even if run
+// panics, unless the session was closed from run.
 //
-// It is what opening an editor or a pager is made of. The session is put back exactly
-// as it was found — the modes it turned on, off in the opposite order, then cooked
-// mode — and then the whole of that is done again in reverse.
+// prepare runs after the handover claim while interface modes remain active.
+// A prepare error leaves modes unchanged and skips run. Failure to park within
+// the grace period wraps os.ErrDeadlineExceeded and also skips run. Nested or
+// concurrent calls return ErrHandoverActive; closed sessions return ErrClosed.
+// Unsupported input handover returns errors.ErrUnsupported without changes.
 //
-// The reader comes off the terminal first and goes back on last, which is the part
-// nothing else can do for a caller: a session that only restored the modes would
-// still be reading, and every second keystroke would go to this process.
-//
-// It runs on the caller's goroutine and does not return until run does, because an
-// interface that drew a frame while a child owned the terminal would draw it over the
-// child. The caller is responsible for nothing else writing meanwhile.
-// The optional prepare callback runs after claiming the handover, with the normal
-// interface modes still active. It can finish and drain interface output. A failed
-// prepare returns its error without changing modes or calling run.
-// If the reader cannot park within the handover grace period, Hand returns an
-// error wrapping [os.ErrDeadlineExceeded] without running the child.
-// Nested or concurrent Hand calls return [ErrHandoverActive] without preparing or
-// running their child. A closed session returns [ErrClosed]; closing from run ends the session
-// rather than reacquiring it when run returns.
-//
-// A successful handoff revokes transmitted images and outstanding clipboard
-// reads. Retransmit live images before repainting after Hand returns. An
-// accepted image deletion also stands if a later handoff step fails.
-// The window may be a different size afterwards with nothing having reported it,
-// because the signal went to whichever process group was in the foreground. A fresh
-// size is asked for and delivered on [Terminal.Events].
-//
-// Where the reader cannot be taken off the terminal this reports
-// [errors.ErrUnsupported] and does nothing, because handing over while still reading
-// is a child that drops every other keystroke. Whether it can is a question about the
-// session rather than the platform: a console can be waited on, and a pipe pretending
-// to be one cannot.
+// Successful handoff revokes images and outstanding clipboard reads. Retransmit
+// live images before repainting; accepted deletions remain effective if a later
+// step fails. Reacquisition publishes a fresh size because foreground resize
+// signals may have belonged to the child.
 func (t *Terminal) Hand(prepare, run func() error) (err error) {
 	if run == nil {
 		return nil
@@ -923,11 +761,9 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 	if err := t.writer.pauseAdmission(); err != nil {
 		return err
 	}
-	// Whatever the interface drew has to reach the terminal before the modes go
-	// back, for the same reason it does on the way out: a frame written after the
-	// alternate screen was given up is a frame drawn onto the user's own screen. Do
-	// this before changing modes, so a timeout only needs to end the reader claim
-	// and resume keepalives, without restoring terminal modes.
+	// Drain before changing modes: a late frame would otherwise enter the
+	// child's screen. Refusal here only needs to release the reader claim
+	// and resume keepalives, leaving mode ownership intact.
 	if err := t.writer.Drain(DrainGrace); err != nil {
 		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.resumeOutput())
 	}
@@ -991,12 +827,8 @@ func (t *Terminal) retakeModes() error {
 	}
 	errs = append(errs, t.resumeOutput())
 
-	// The same latest-value mailbox a window resize uses, rather than the public
-	// event queue: the pump owns and closes that queue. Report even an unchanged size
-	// because foreground signals belonged to the child while it held the terminal,
-	// and the program must rebuild the screen whose contents the child replaced. The
-	// measurement becomes the watcher's too — those same signals are the ones it did
-	// not get, so what it remembers may be a size that has not been true for a while.
+	// Publish through the watcher's same mailbox, owned by the pump. Even
+	// unchanged dimensions require repaint after a child has owned the display.
 	t.noteResize(t.Size, true)
 	return errors.Join(errs...)
 }

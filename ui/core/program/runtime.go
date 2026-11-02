@@ -56,15 +56,12 @@ func (r *Runtime) Environment() Environment {
 	return r.p.environment
 }
 
-// Clipboard returns the runtime's clipboard capability.
 func (r *Runtime) Clipboard() Clipboard {
 	return Clipboard{runtime: r}
 }
 
-// Session returns the terminal-session capability owned by this runtime.
 func (r *Runtime) Session() Session { return Session{runtime: r} }
 
-// Images returns the runtime's image capability.
 func (r *Runtime) Images() Images {
 	return Images{runtime: r}
 }
@@ -85,7 +82,6 @@ func (r *Runtime) Refresh() {
 	}
 }
 
-// Quit asks the program to stop.
 func (r *Runtime) Quit() {
 	p := r.owner()
 	if p == nil {

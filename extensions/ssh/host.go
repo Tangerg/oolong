@@ -13,10 +13,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
-// Host is the one transport boundary. In addition to the required program.Host
-// methods it exposes colour, locale, wheel profile and clipboard determined by the
-// client terminal's environment. An SSH PTY does not prove notification, image or
-// probe capabilities merely by existing, so those remain absent.
+// Host resolves optional capabilities from the accepted client environment because
+// an SSH PTY proves only cell I/O.
 // A Host must not be copied after opening.
 type Host struct {
 	source *eventSource
@@ -66,23 +64,21 @@ func newHost(
 	return h
 }
 
-// Input is the ordered client input and PTY resize stream owned by this host.
 func (h *Host) Input() program.EventSource { return h.source }
 
-// Writer is the same bounded FIFO used for session modes and application frames.
+// Writer shares one FIFO with terminal modes so teardown cannot overtake accepted
+// application output.
 func (h *Host) Writer() program.FrameWriter { return h.writer.Frames() }
 
-// Locale is the accepted session's locale, frozen when the host was opened.
+// Locale stays frozen for the host's lifetime to preserve the accepted session facts.
 func (h *Host) Locale() string { return h.locale }
 
-// Color is the capability inferred from the accepted client's terminal type.
 func (h *Host) Color() grid.Depth { return h.color }
 
-// Wheel describes the client's negotiated wheel input convention.
 func (h *Host) Wheel() input.Wheel { return h.wheel }
 
-// Copy asks the client terminal to update the clipboard beside the user, not one
-// attached to the remote server process.
+// Copy targets the user's client terminal because the server
+// process does not own the user's local clipboard.
 func (h *Host) Copy(text string) bool {
 	sequence, ok := h.clip.Copy(clipboard.System, text)
 	if !ok {
@@ -92,9 +88,8 @@ func (h *Host) Copy(text string) bool {
 	return err == nil
 }
 
-// Paste asks the client terminal for that same clipboard. A valid answer is
-// translated by eventSource into the ordinary input.Paste event components already
-// consume.
+// Paste answers reenter through input.Paste so components consume the same
+// ordered input path as physical paste.
 func (h *Host) Paste() bool {
 	return h.clip.Request(clipboard.System, func(sequence string) bool {
 		_, err := h.writer.Queue([]byte(sequence))
@@ -102,19 +97,16 @@ func (h *Host) Paste() bool {
 	})
 }
 
-// Size reads the latest accepted PTY dimensions and is safe during resize delivery.
+// Size uses window-feed synchronization to permit reads during resize delivery.
 func (h *Host) Size() (width, height int, _ error) {
 	size := h.windows.size()
 	return size.Width, size.Height, nil
 }
 
-// Close settles output in ownership order: stop accepting input, queue the inverse
-// modes after the final frame, then close the writer that owns both. The SSH channel
-// remains the caller's so its handler can still send the chosen exit status.
-//
-// Stopping input stops the decoding of it. Reading the channel is the channel's own
-// lifetime — see [eventSource.Close] — so nothing here is waiting for a client that
-// may say nothing more.
+// Close stops input before queuing inverse modes behind the final frame.
+// The caller retains the SSH channel so it can send its chosen exit status.
+// An in-flight channel read may last until that caller closes the channel;
+// teardown must not wait for another client byte.
 func (h *Host) Close() error {
 	h.closeOnce.Do(func() {
 		h.source.Close()

@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	defaultInputHistory     = 8
+	defaultMaxPendingFrames = 8
+)
+
 // RootConfig supplies one scene and the bounded history used to resolve timestamped physical input.
 type RootConfig struct {
 	Element Element
@@ -15,7 +20,8 @@ type RootConfig struct {
 	// Already captured inputs retain their own immutable snapshot separately.
 	InputHistory int
 	// MaxPendingFrames bounds admitted input maps awaiting writer confirmation.
-	// Zero allows eight. Prepare returns ErrBusy at capacity, before painting.
+	// Zero selects the package default. Prepare returns ErrBusy at capacity,
+	// before painting.
 	MaxPendingFrames int
 	Now              func() time.Time
 }
@@ -58,7 +64,6 @@ type Root struct {
 
 type namespace struct{ _ byte }
 
-// NewRoot mounts one content element and establishes its initial focus.
 func NewRoot(cfg RootConfig) (*Root, error) {
 	r := &Root{nodes: make(map[NodeID]*node), changes: make(chan struct{})}
 	r.namespace = &namespace{}
@@ -67,11 +72,11 @@ func NewRoot(cfg RootConfig) (*Root, error) {
 	}
 	r.maxPendingFrames = cfg.MaxPendingFrames
 	if r.maxPendingFrames == 0 {
-		r.maxPendingFrames = 8
+		r.maxPendingFrames = defaultMaxPendingFrames
 	}
 	r.inputHistory = cfg.InputHistory
 	if r.inputHistory == 0 {
-		r.inputHistory = 8
+		r.inputHistory = defaultInputHistory
 	}
 	r.now = cfg.Now
 	if r.now == nil {
@@ -107,7 +112,6 @@ func (r *Root) mutable() error {
 	return nil
 }
 
-// Content returns the mounted composition handle.
 func (r *Root) Content() Element {
 	if r == nil {
 		return Element{}
@@ -237,7 +241,6 @@ func (r *Root) resolve(target Target) *node {
 // Owns checks the target namespace without claiming that its attachment remains alive.
 func (r *Root) Owns(target Target) bool { return r != nil && target.root == r }
 
-// Valid reports whether this exact target generation remains attached to the root.
 func (r *Root) Valid(target Target) bool { return r.resolve(target) != nil }
 
 // project applies the same read barrier to eligibility and preconditions as to

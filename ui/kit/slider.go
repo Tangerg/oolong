@@ -73,7 +73,6 @@ func NewSlider(config SliderConfig) *Slider {
 	return slider
 }
 
-// Controller returns the base slider that owns value and interaction state.
 func (s *Slider) Controller() *base.Slider {
 	if s == nil {
 		return nil
@@ -81,7 +80,6 @@ func (s *Slider) Controller() *base.Slider {
 	return s.controller
 }
 
-// HeightForWidth is one row whenever a controller is present.
 func (s *Slider) HeightForWidth(int) int {
 	if s == nil || s.controller == nil {
 		return 0
@@ -89,7 +87,6 @@ func (s *Slider) HeightForWidth(int) int {
 	return 1
 }
 
-// Draw paints the label, track, thumb, and formatted value.
 func (s *Slider) Draw(frame scene.Frame) {
 	if s == nil || s.controller == nil {
 		return
@@ -146,7 +143,6 @@ func (s *Slider) format(value int) string {
 	return strconv.Itoa(value)
 }
 
-// Element returns the controller's one scene identity with its kit appearance installed.
 func (s *Slider) Element() scene.Element {
 	if s == nil || s.controller == nil {
 		return scene.Element{}

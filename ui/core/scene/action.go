@@ -107,7 +107,6 @@ func (a *Action[P, R]) run(ctx context.Context, params P) (ActionResult[R], erro
 	return result, err
 }
 
-// ID returns this operation's stable semantic name.
 func (a *Action[P, R]) ID() ActionID {
 	if a == nil {
 		return ""
@@ -194,7 +193,6 @@ func actionParameter[T any](value any) (T, error) {
 	return zero, fmt.Errorf("%w: expected %s, got %T", ErrArgument, reflect.TypeFor[T](), value)
 }
 
-// ID returns the semantic operation name exposed by this binding.
 func (a ActionBinding) ID() ActionID { return a.id }
 
 // Invoke resolves an exact current attachment, validates scope and calls its typed operation.

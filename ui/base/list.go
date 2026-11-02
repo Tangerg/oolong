@@ -102,7 +102,7 @@ func (l *List[T]) replaceItems(items []T, selected int) {
 	l.itemsID = new(byte)
 	next := l.clampIndex(selected)
 	if len(l.items) == 0 {
-		l.scroll.ToTop()
+		l.scroll.toTop()
 	} else if next != l.selected {
 		l.reveal(next)
 	}
@@ -114,7 +114,6 @@ func (l *List[T]) Items() []T {
 	return slices.Clone(l.items)
 }
 
-// Len reports how many items the list owns.
 func (l *List[T]) Len() int {
 	return len(l.items)
 }
@@ -173,7 +172,9 @@ func (l *List[T]) navigate(action keymap.Action, choose func(int)) bool {
 	choose(at)
 	if l.Selected() == before {
 		// Explicit navigation requests visibility even at a boundary.
-		l.reveal(before)
+		if l.reveal(before) {
+			l.element.Invalidate()
+		}
 	}
 	return true
 }
@@ -248,7 +249,6 @@ func (l *List[T]) keys() *keymap.Map {
 	return listKeys()
 }
 
-// HeightForWidth returns one row per item.
 func (l *List[T]) HeightForWidth(int) int { return len(l.items) }
 
 // Losing focus cancels an unfinished gesture or key sequence.
@@ -259,13 +259,11 @@ func (l *List[T]) focusChanged(has bool) {
 	}
 }
 
-// Focused reports whether this list has the keyboard.
 func (l *List[T]) Focused() bool { return l.element.Focused() }
 
 // Scroll exposes the position, for a scrollbar drawn beside the list.
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }
 
-// Draw paints the visible items.
 func (l *List[T]) Draw(v scene.Frame) {
 	l.DrawRows(v, l.Row)
 }
@@ -296,12 +294,11 @@ func (l *List[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
 	}
 }
 
-func (l *List[T]) reveal(at int) {
+func (l *List[T]) reveal(at int) bool {
 	if len(l.items) == 0 {
-		return
+		return false
 	}
-	l.scroll.layout(len(l.items), l.geometry.read(&l.presentation).window)
-	l.scroll.Reveal(at, at)
+	return l.scroll.revealContent(len(l.items), at, at)
 }
 
 type listPresentation struct {

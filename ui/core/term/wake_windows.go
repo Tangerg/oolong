@@ -12,12 +12,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// waker is a wait for the terminal to have something to say that this process can
-// end on its own.
-//
-// A console can signal for records without text. Nonblocking record reads keep
-// those notifications from becoming an uncancellable ReadConsole, and owning the
-// UTF-16 decoder keeps buffered characters from waiting on an empty OS queue.
+// Console readiness may describe records without text. Nonblocking record
+// reads avoid uncancellable ReadConsole waits; owning UTF-16 decoding keeps
+// buffered characters available after the OS queue empties.
 type waker struct {
 	// input is the console this session reads, and console says it is one. A session
 	// whose input is a pipe cannot supply cancellable console input and is refused
@@ -99,8 +96,6 @@ func (w *waker) read(_ *os.File) ([]byte, error) {
 
 func (w *waker) reset() { w.text.reset() }
 
-// wait blocks until the terminal has something to say, reporting false when this
-// process asked for the reader back instead.
 func (w *waker) wait() (bool, error) {
 	if !w.console {
 		return false, fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)

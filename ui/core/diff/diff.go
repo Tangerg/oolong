@@ -1,8 +1,5 @@
-// Package diff says what changed between two texts, line by line.
-//
-// It computes a line-oriented edit script without deciding how that script is stored,
-// rendered or applied. Lines are the unit because line-oriented producers and formats
-// can consume the result without reconstructing their boundaries.
+// Package diff keeps line boundaries in its edit script so consumers can render
+// or apply changes without reconstructing them.
 package diff
 
 import (
@@ -10,18 +7,14 @@ import (
 	"strings"
 )
 
-// Kind is what happened to a line.
 type Kind uint8
 
-// What happened to a line. Context is the zero value, because a line that was left
-// alone is what most lines are.
 const (
 	Context Kind = iota
 	Added
 	Removed
 )
 
-// String names the kind the way a diff marks it.
 func (k Kind) String() string {
 	switch k {
 	case Added:
@@ -33,7 +26,6 @@ func (k Kind) String() string {
 	}
 }
 
-// Line is one line of a diff.
 type Line struct {
 	Kind Kind
 	Text string
@@ -44,7 +36,6 @@ type Line struct {
 	Old, New int
 }
 
-// String writes the line the way a diff writes one: its mark, then its text.
 func (l Line) String() string { return l.Kind.String() + l.Text }
 
 // Script is a change to a text, as the lines that make it.
@@ -53,7 +44,6 @@ func (l Line) String() string { return l.Kind.String() + l.Text }
 // in an order in which the removals and the additions of the same passage sit together.
 type Script []Line
 
-// Between is what changed between two texts.
 func Between(before, after []string) Script {
 	// The ends first. Two versions of a file usually differ in the middle, and the
 	// shortest edit script between them is found by not looking at the parts that are
@@ -85,13 +75,10 @@ func Between(before, after []string) Script {
 	return out
 }
 
-// Same reports whether the two texts were the same, which is a script with nothing
-// changed in it.
 func (s Script) Same() bool {
 	return !slices.ContainsFunc(s, func(line Line) bool { return line.Kind != Context })
 }
 
-// String writes the script the way a diff is written: one line each, marked.
 func (s Script) String() string {
 	var b strings.Builder
 	for _, line := range s {
@@ -140,15 +127,12 @@ func (s Script) Hunks(context int) []Hunk {
 	return out
 }
 
-// Hunk is a run of a script worth showing: what changed, and a few lines either side of
-// it so a reader can see where they are.
 type Hunk struct {
 	Lines Script
 	// Old and New are where the hunk begins in each text, counting from one.
 	Old, New int
 }
 
-// String writes the hunk the way a diff writes one.
 func (h Hunk) String() string { return h.Lines.String() }
 
 func hunkOf(lines Script) Hunk {
@@ -166,21 +150,12 @@ func hunkOf(lines Script) Hunk {
 	return h
 }
 
-// maxEdits bounds how much work one comparison may do.
-//
-// The algorithm's cost grows with the number of differing lines, not with the size of
-// the texts, so two nearly identical files are cheap however long they are. Past this
-// many differences the two texts have nothing much in common and the answer is the
-// honest one: what was there is gone and what is there is new. Nobody reads a
-// five-hundred-line diff line by line anyway.
+// maxEdits bounds the Myers search, whose cost grows with differing lines.
+// Beyond this limit, the changed middle is represented as removal and addition.
 const maxEdits = 512
 
-// myers is one comparison, from the two texts to the lines that describe the change.
-//
-// It is a type rather than four functions passing the same three arguments between
-// them, because the algorithm is a walk forward and then a walk back over one piece of
-// state: how far each diagonal had got after every edit. That state is the whole of it,
-// and naming it is what makes the two walks readable as the two halves of one thing.
+// myers retains one frontier history for the forward search and backtracking,
+// preventing the two phases from reconstructing different paths.
 type myers struct {
 	before, after []string
 	// from is how many lines were the same before these, which is what turns a

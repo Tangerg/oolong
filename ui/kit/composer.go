@@ -59,7 +59,6 @@ func NewComposer(config ComposerConfig) *Composer {
 	return c
 }
 
-// Controller returns the sole editor after assembling its scene parts. Its document, selection and scroll remain the editor's responsibility.
 func (c *Composer) Controller() *base.Editor { c.ensure(); return &c.editor }
 
 func (c *Composer) ensure() {
@@ -98,10 +97,8 @@ func (c *Composer) ensure() {
 	c.appearance.bind(c.group.Element())
 }
 
-// Element returns the prompt, editor and help composition without a second input router.
 func (c *Composer) Element() scene.Element { c.ensure(); return c.group.Element() }
 
-// HeightForWidth measures the editor cap and help at the available width.
 func (c *Composer) HeightForWidth(width int) int {
 	rows := min(c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth())), c.rows())
 	return layout.Sum(rows, c.help().HeightForWidth(width))

@@ -1,8 +1,5 @@
-// Command read shows an answer as it is written.
-//
-// Each preview uses the complete Markdown source available so far: a reference
-// definition arriving near the end can change a link near the start. EOF is the
-// point at which the prepared document can be offered to terminal scrollback.
+// Command read prepares whole-source snapshots because a late reference definition
+// can change an earlier Markdown link.
 package main
 
 import (
@@ -41,8 +38,6 @@ func main() {
 	}
 }
 
-// reader is the live part: the block still being written, and a line saying what is
-// happening.
 type reader struct {
 	runtime  *program.InlineRuntime
 	theme    kit.Theme
@@ -57,8 +52,7 @@ type reader struct {
 	stepErr  error
 }
 
-// How fast the answer arrives. A model's is decided by a model; these two are what a
-// demonstration has instead, and the test turns them up so it does not have to wait.
+// Tests control the mock delivery pace without introducing real-time waits.
 const (
 	piece = 7
 	pace  = 60 * time.Millisecond

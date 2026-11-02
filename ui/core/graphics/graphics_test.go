@@ -321,7 +321,7 @@ func TestTransmitChunksWhatDoesNotFit(t *testing.T) {
 func TestPaintAndEraseNameTheImage(t *testing.T) {
 	transmitted := graphics.Image{ID: 9}
 	var buf bytes.Buffer
-	if err := transmitted.Placement(1).Paint(&buf, image.Pt(20, 10)); err != nil {
+	if err := transmitted.Placement(1).Paint(&buf, image.Pt(20, 10), -1); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); !strings.Contains(got, "i=9") ||
@@ -341,7 +341,7 @@ func TestPlacementDeletionDoesNotReleaseSharedImageData(t *testing.T) {
 	img := graphics.Image{ID: 9}
 	var out bytes.Buffer
 	for _, id := range []uint32{1, 2} {
-		if err := img.Placement(id).Paint(&out, image.Pt(2, 1)); err != nil {
+		if err := img.Placement(id).Paint(&out, image.Pt(2, 1), -1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -371,7 +371,7 @@ func TestGraphicsWritesRejectSilentTruncation(t *testing.T) {
 			_, err := graphics.Transmit(shortWriter{}, 1, data)
 			return err
 		},
-		"paint":  func() error { return (graphics.Image{ID: 1}).Placement(1).Paint(shortWriter{}, image.Pt(1, 1)) },
+		"paint":  func() error { return (graphics.Image{ID: 1}).Placement(1).Paint(shortWriter{}, image.Pt(1, 1), -1) },
 		"erase":  func() error { return (graphics.Image{ID: 1}).Placement(1).Erase(shortWriter{}) },
 		"inline": func() error { return graphics.Inline(shortWriter{}, data, image.Pt(1, 1)) },
 	}
@@ -485,7 +485,7 @@ func TestNothingIsWrittenWithoutAnIdentity(t *testing.T) {
 		t.Error("releasing an image that was never transmitted was accepted")
 	}
 	placement := graphics.ImagePlacement{ID: 1}
-	if err := placement.Paint(&buf, image.Pt(2, 2)); err == nil {
+	if err := placement.Paint(&buf, image.Pt(2, 2), -1); err == nil {
 		t.Error("painting a placement of no image was accepted")
 	}
 	if err := placement.Erase(&buf); err == nil {

@@ -2,8 +2,6 @@ package program_test
 
 import (
 	"errors"
-	"image"
-	"io"
 	"strings"
 	"testing"
 
@@ -53,8 +51,8 @@ func TestInlineCaptureRefusesAllRowsWhenALaterRowIsUnsupported(t *testing.T) {
 
 type admissionPainter struct{}
 
-func (admissionPainter) Paint(io.Writer, image.Point) error { return nil }
-func (admissionPainter) Erase(io.Writer) error              { return nil }
+func (admissionPainter) Paint(grid.PaintContext) error { return nil }
+func (admissionPainter) Erase(grid.PaintContext) error { return nil }
 
 func TestInlinePublicationRequiresAnInlineProgram(t *testing.T) {
 	err := runFixture(t.Context(), program.ScreenConfig{Host: newHost(t), Build: func(r *program.Runtime) (scene.Element, error) {

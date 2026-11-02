@@ -22,13 +22,10 @@ type Status struct {
 	spinner Spinner
 }
 
-// Tick advances the spinner by one frame.
 func (s *Status) Tick() { s.spinner.Tick() }
 
-// HeightForWidth is one row.
 func (s *Status) HeightForWidth(int) int { return 1 }
 
-// Draw paints the spinner, the label and the elapsed time.
 func (s *Status) Draw(v grid.View) {
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {

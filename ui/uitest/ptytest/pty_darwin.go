@@ -12,8 +12,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// openPTY allocates a pty pair the way macOS wants: grant, unlock, then ask for
-// the replica's name rather than working it out from an index.
 func openPTY() (primary, replica *os.File, err error) {
 	// The primary is opened non-blocking so that os.NewFile registers it with the
 	// runtime's poller. That is what makes a read on it interruptible: Close can

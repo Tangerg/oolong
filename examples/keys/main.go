@@ -1,6 +1,5 @@
-// Command keys demonstrates an exact binding that is also the prefix of a longer
-// one. Press g once to move one row after a short pause, gg to jump to the first row,
-// and q or Ctrl+C to leave.
+// Command keys delays a prefix binding until it can no longer become a longer
+// shortcut, preserving both single-key and sequence actions.
 package main
 
 import (

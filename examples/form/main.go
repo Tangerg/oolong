@@ -1,17 +1,5 @@
-// Command form asks four questions, on a screen or in words.
-//
-// A form is a container with two things added: an answer checked when the keyboard
-// leaves a field, and the set checked on submission. The four fields are the four
-// anything ever asks for — a line of text, one choice, several, and a yes or no —
-// and each owns its answer until submission creates one application snapshot.
-//
-// The second half is the point of the example. Run it with its output going
-// somewhere that is not a terminal:
-//
-//	go run ./form | cat
-//
-// and the same form is asked one question at a time, in words. The questions are the
-// fields' own, so nothing is described twice.
+// Command form shares field owners and validation across screen and textual flows
+// so each accepted submission has one meaning.
 package main
 
 import (

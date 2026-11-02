@@ -45,16 +45,12 @@ func (t *Text) SetMask(mask string) { t.editor.SetMask(mask) }
 // Mask returns the presentation glyph, or an empty string for visible text.
 func (t *Text) Mask() string { return t.editor.Mask() }
 
-// Prompt is the semantic label used by visual and spoken forms.
 func (t *Text) Prompt() string { return t.Label }
 
-// HeightForWidth includes the answer, optional label and current validation problem.
 func (t *Text) HeightForWidth(int) int { return layout.Sum(1, t.rows(t.Label)) }
 
-// Draw paints the field using terminal-default semantic styles.
 func (t *Text) Draw(v scene.Frame) { t.DrawWith(v, Look{}) }
 
-// DrawWith paints this frame using a supplied look without changing field configuration or its answer.
 func (t *Text) DrawWith(v scene.Frame, look Look) {
 	view := t.editor.lineView()
 	view.placeholder, view.gutter, view.cursorStyle = t.Placeholder, t.Gutter, t.CursorStyle
@@ -73,7 +69,6 @@ func (t *Text) Handle(event input.Event) bool {
 // Do executes one named editing action against the same editor owner.
 func (t *Text) Do(action keymap.Action) bool { t.configureEditor(); return t.editor.Do(action) }
 
-// Validate checks one answer revision and publishes its validation receipt. A callback that supersedes the check cannot publish stale success.
 func (t *Text) Validate() error { return t.validate(nil, t.Revision, t.checkAnswer) }
 
 func (t *Text) checkAnswer() error {
@@ -94,7 +89,6 @@ func (t *Text) configureEditor() {
 	t.editor.Clipboard, t.editor.Gutter, t.editor.CursorStyle = t.Clipboard, t.Gutter, t.CursorStyle
 }
 
-// Ask describes the field for the line-oriented form adapter.
 func (t *Text) Ask() string {
 	if t.Placeholder == "" {
 		return t.Label

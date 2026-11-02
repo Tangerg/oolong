@@ -1,6 +1,10 @@
 package base
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/Tangerg/oolong/ui/internal/retention"
+)
 
 // noCopy is the standard go vet marker for mutable owners whose internal references
 // make copying after first use unsafe. Its methods are never called.
@@ -18,7 +22,7 @@ func own[T any](dst, src []T) []T {
 		clear(dst)
 		return nil
 	}
-	if cap(dst) < len(src) || cap(dst) > 2*len(src)+16 {
+	if cap(dst) < len(src) || retention.ShouldCompact(cap(dst), len(src)) {
 		return slices.Clone(src)
 	}
 	old := len(dst)
@@ -38,7 +42,7 @@ func trim[T any](items []T) []T {
 		clear(items)
 		return nil
 	}
-	if cap(items) > 2*len(items)+16 {
+	if retention.ShouldCompact(cap(items), len(items)) {
 		return slices.Clone(items)
 	}
 	return items

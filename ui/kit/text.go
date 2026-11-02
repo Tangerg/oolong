@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/link"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/retention"
 )
 
 // Label is one line of text that does not wrap.
@@ -25,10 +26,8 @@ type Label struct {
 	Ellipsis string
 }
 
-// HeightForWidth is one row, whatever the width.
 func (l Label) HeightForWidth(int) int { return 1 }
 
-// Draw writes the label into the first row of v.
 func (l Label) Draw(v grid.View) {
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
@@ -40,9 +39,8 @@ func (l Label) Draw(v grid.View) {
 
 // Paragraph is text that wraps to the width it is given.
 //
-// Its height is not known until its width is, which is the whole reason a passive
-// [base.Block] measures itself: publication and a [base.Static] viewport
-// adapter both have to ask before they can decide how much room to give.
+// Publication and viewport layout share the drawing wrap so they reserve the
+// same rows that the reader will see.
 // Copies detach their private wrap on the next layout or text change.
 // Text and link-policy changes prepare detection before publishing their results.
 // A detection panic preserves the previous text, links and policy. Detection
@@ -55,18 +53,21 @@ type Paragraph struct {
 	// Indent is held clear on the left of every row, including continuations, so a
 	// wrapped paragraph reads as one block rather than as several.
 	Indent int
-	// MaxRows caps the height. Zero means no cap; a cap replaces the last row it
-	// keeps with one ending in an ellipsis.
-	MaxRows    int
+	// Zero leaves the paragraph uncapped.
+	MaxRows int
+	// Empty truncates silently. The caller supplies its resolved Glyphs.Ellipsis
+	// so a paragraph cannot choose a competing terminal character policy.
+	Ellipsis   string
 	linkConfig LinkConfig
 	links      []detectedLinks
 	detecting  bool
 
 	// Measurement and drawing share one wrap so their source-row coordinates remain consistent.
-	wrapped []row
-	atWidth int
-	atLimit int
-	fresh   bool
+	wrapped    []row
+	atWidth    int
+	atLimit    int
+	atEllipsis string
+	fresh      bool
 }
 
 // LinkConfig says which destinations a [Paragraph] detects.
@@ -157,7 +158,6 @@ func (p *Paragraph) Lines() []text.Line {
 // reporting no content would let a parent collapse the paragraph permanently.
 func (p *Paragraph) HeightForWidth(width int) int { return len(p.rows(width)) }
 
-// Draw writes the paragraph, one wrapped row per row of v.
 func (p *Paragraph) Draw(v grid.View) {
 	if v.Empty() {
 		return
@@ -353,7 +353,7 @@ func (p *Paragraph) rows(width int) []row {
 	// so text follows the same rule here as Entry, Diff and Markdown: lay it out at
 	// one column even when the eventual view has no drawable interior.
 	room := max(layout.Remaining(width, p.Indent), 1)
-	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows {
+	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows && p.atEllipsis == p.Ellipsis {
 		return p.wrapped
 	}
 	var rows []row
@@ -365,31 +365,32 @@ func (p *Paragraph) rows(width int) []row {
 	if p.MaxRows > 0 && len(rows) > p.MaxRows {
 		rows = rows[:p.MaxRows]
 		last := len(rows) - 1
-		rows[last].Line = cutOff(rows[last].Line, room)
+		rows[last].Line = cutOff(rows[last].Line, room, p.Ellipsis)
 		rows[last].elided = true
 	}
 	if len(rows) == 0 {
 		rows = nil
-	} else if cap(rows) > 2*len(rows)+16 {
+	} else if retention.ShouldCompact(cap(rows), len(rows)) {
 		rows = append([]row(nil), rows...)
 	}
-	p.wrapped, p.atWidth, p.atLimit, p.fresh = rows, room, p.MaxRows, true
+	p.wrapped, p.atWidth, p.atLimit, p.atEllipsis, p.fresh = rows, room, p.MaxRows, p.Ellipsis, true
 	return rows
 }
 
-// A height cap can discard whole rows even when the surviving row fits; it still needs an ellipsis.
-func cutOff(l text.Line, room int) text.Line {
-	const ellipsis = "…"
-	budget := room - text.Width(ellipsis)
-	if budget <= 0 {
-		return text.Of(ellipsis, grid.Style{})
-	}
-	if l.Width() > budget {
-		l = l.Truncate(budget, "")
-	}
+// A height cap can discard whole rows even when the surviving row fits, so its
+// configured marker must not depend on whether that row itself overflows.
+func cutOff(l text.Line, room int, ellipsis string) text.Line {
+	ellipsis = text.Truncate(ellipsis, room, "")
 	style := grid.Style{}
 	if n := len(l); n > 0 {
 		style = l[n-1].Style
+	}
+	l = l.Truncate(layout.Remaining(room, text.Width(ellipsis)), "")
+	if n := len(l); n > 0 {
+		style = l[n-1].Style
+	}
+	if ellipsis == "" {
+		return l
 	}
 	return append(l, text.Span{Text: ellipsis, Style: style})
 }

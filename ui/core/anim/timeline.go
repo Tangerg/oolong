@@ -2,37 +2,25 @@ package anim
 
 import "slices"
 
-// Keyframe is a value a [Timeline] passes through, and when.
 type Keyframe struct {
 	At    uint64
 	Value float64
 }
 
-// Timeline is a value that follows a sequence of keyframes: it eases from each to
-// the next and holds the last one.
-//
-// It is the third kind of movement here, and the one the other two cannot express. A
-// [Transition] goes from one value to another and a [Spring] chases a target; a
-// sequence — appear, hold, fade — is neither, and writing one out of transitions
-// means keeping a step number and a counter beside them and remembering to advance
-// both.
-//
-// The zero Timeline holds zero for ever, which is what a caller who never set any
-// frames should get.
+// Timeline owns sequence progress so callers do not maintain a parallel step
+// index. It holds its endpoints; the zero value holds zero.
 type Timeline struct {
 	// frames are owned and strictly ordered so interpolation cannot observe a
 	// different sequence from the one Span and Done describe.
 	frames []Keyframe
-	// Ease shapes the movement between two frames. Nil is linear, which is what a
-	// sequence of steps usually wants — each step already says how long it takes, and
-	// easing every one of them separately reads as a stutter.
+	// Nil Ease is linear: each keyframe already specifies the duration, and
+	// easing every interval separately would introduce a stop at each boundary.
 	Ease func(t float64) float64
 	Loop bool
 
 	tick uint64
 }
 
-// NewTimeline constructs a timeline from frames in strictly increasing tick order.
 func NewTimeline(frames ...Keyframe) *Timeline {
 	t := &Timeline{}
 	t.SetFrames(frames)
@@ -56,7 +44,7 @@ func (t *Timeline) SetFrames(frames []Keyframe) {
 	t.tick = 0
 }
 
-// Frames returns a copy of the keyframes in tick order.
+// Frames returns an owned snapshot so edits cannot alter interpolation.
 func (t *Timeline) Frames() []Keyframe {
 	if t == nil {
 		return nil
@@ -87,13 +75,10 @@ func (t *Timeline) Tick() {
 	}
 }
 
-// Reset takes the timeline back to its beginning.
 func (t *Timeline) Reset() { t.tick = 0 }
 
-// At is how many ticks in the timeline is.
 func (t *Timeline) At() uint64 { return t.tick }
 
-// Span is how long the whole timeline is, which is when its last frame is reached.
 func (t *Timeline) Span() uint64 {
 	if len(t.frames) == 0 {
 		return 0
@@ -101,15 +86,11 @@ func (t *Timeline) Span() uint64 {
 	return t.frames[len(t.frames)-1].At
 }
 
-// Done reports whether the last frame has been reached. A looping timeline is never
-// done, which is the honest answer: nothing is waiting for it.
+// Done remains false while looping, because no terminal state will be reached.
 func (t *Timeline) Done() bool { return !t.Loop && t.tick >= t.Span() }
 
-// Value is where the timeline is now.
-//
-// Before the first frame it is the first frame's value, and after the last it is the
-// last one's — a timeline holds its ends rather than running off them, so a caller
-// that draws one tick late draws the end state instead of nothing.
+// Value holds the first and last keyframes outside their interval so a late
+// draw still receives the endpoint.
 func (t *Timeline) Value() float64 {
 	if len(t.frames) == 0 {
 		return 0

@@ -223,7 +223,9 @@ func (t *Transcript) ReadingAnchor() (ReadingAnchor, bool) {
 	if t.scroll.FollowingEnd() {
 		return ReadingAnchor{FollowingEnd: true}, true
 	}
-	id, row, ok := current.At(current.StartRow() + t.scroll.Offset())
+	scroll := t.scroll.resolved()
+	window := t.viewport(current, scroll.offset, scroll.window)
+	id, row, ok := current.At(window.bodyFrom())
 	if !ok {
 		return ReadingAnchor{}, false
 	}
@@ -231,5 +233,5 @@ func (t *Transcript) ReadingAnchor() (ReadingAnchor, bool) {
 	if block.mapping == nil || row >= len(block.mapping.starts) {
 		return ReadingAnchor{}, false
 	}
-	return ReadingAnchor{Point: current.point(block, block.mapping.starts[row])}, true
+	return ReadingAnchor{Point: current.point(block, block.mapping.starts[row]), ViewportOffset: window.pinned.Rows}, true
 }

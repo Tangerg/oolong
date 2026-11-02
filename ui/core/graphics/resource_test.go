@@ -42,7 +42,7 @@ func TestResourcePlacementUsesDestinationAndTransmissionGeneration(t *testing.T)
 			if err := draw(foreign); !errors.Is(err, grid.ErrForeignPaint) || out.Len() != 0 {
 				t.Fatalf("foreign placement reusing a visible ID = %q, %v", out.Bytes(), err)
 			}
-			if err := foreign.Placement(1).Erase(&out); !errors.Is(err, grid.ErrForeignPaint) || out.Len() != 0 {
+			if err := foreign.Placement(1).Erase(grid.PaintContext{}); !errors.Is(err, grid.ErrForeignPaint) || out.Len() != 0 {
 				t.Fatalf("unbound erase = %q, %v", out.Bytes(), err)
 			}
 			deny := errors.New("admission paused")
@@ -156,7 +156,7 @@ func TestPlacementRejectsAnEmptySourceIntersectionBeforeWriting(t *testing.T) {
 	p := (graphics.Image{ID: 3, Size: image.Pt(12, 12)}).Placement(1)
 	for _, crop := range []image.Rectangle{image.Rect(1, 2, 1, 7), image.Rect(12, 0, 24, 10)} {
 		p.Source = crop
-		if err := p.Paint(&out, image.Pt(2, 2)); err == nil || out.Len() != 0 {
+		if err := p.Paint(&out, image.Pt(2, 2), -1); err == nil || out.Len() != 0 {
 			t.Fatalf("painting %v wrote %q, err = %v", crop, &out, err)
 		}
 	}

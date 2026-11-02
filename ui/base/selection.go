@@ -50,33 +50,45 @@ type Selection struct {
 
 // Begin starts a directional selection anchored to one content revision.
 func (s *Selection) Begin(p TextPoint) {
-	requireMutable(s.element)
-	s.anchor, s.extent = p, p
-	s.active, s.dragging = true, true
+	if s.setRange(TextRange{Start: p, End: p}, true) {
+		s.element.Invalidate()
+	}
 }
 
 // Extend moves the active endpoint while preserving the gesture anchor.
 func (s *Selection) Extend(p TextPoint) {
 	requireMutable(s.element)
 
-	if s.dragging {
+	if s.dragging && s.extent != p {
 		s.extent = p
+		s.element.Invalidate()
 	}
 }
 
-// Anchor returns the original endpoint, independent of normalized reading order.
 func (s *Selection) Anchor() TextPoint { return s.anchor }
 
 // Done ends dragging while retaining the selected logical range.
-func (s *Selection) Done() { requireMutable(s.element); s.dragging = false }
-
-// Clear releases the range and its gesture state.
-func (s *Selection) Clear() {
+func (s *Selection) Done() {
 	requireMutable(s.element)
+	if s.dragging {
+		s.dragging = false
+		s.element.Invalidate()
+	}
+}
 
+func (s *Selection) Clear() {
+	if s.clear() {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Selection) clear() bool {
+	requireMutable(s.element)
+	changed := s.active || s.dragging || s.anchor != (TextPoint{}) || s.extent != (TextPoint{})
 	s.anchor, s.extent = TextPoint{}, TextPoint{}
 	s.active, s.dragging = false, false
 	s.clicks.Reset()
+	return changed
 }
 
 // SetClickInterval configures the gap between presses in one selection gesture.
@@ -89,7 +101,6 @@ func (s *Selection) SetClickInterval(interval time.Duration) {
 // Active reports whether a logical range is selected, including an empty range.
 func (s *Selection) Active() bool { return s.active }
 
-// Dragging reports whether the current selection still owns an active pointer gesture.
 func (s *Selection) Dragging() bool { return s.dragging }
 
 // Range returns endpoints in reading order without changing the directional anchor.
@@ -102,38 +113,58 @@ func (s *Selection) Range() (TextPoint, TextPoint) {
 
 // Set replaces the logical range and settles any active drag.
 func (s *Selection) Set(selected TextRange) {
-	requireMutable(s.element)
+	if s.setRange(selected, false) {
+		s.element.Invalidate()
+	}
+}
 
+func (s *Selection) setRange(selected TextRange, dragging bool) bool {
+	requireMutable(s.element)
+	changed := !s.active || s.anchor != selected.Start || s.extent != selected.End || s.dragging != dragging
 	s.anchor, s.extent = selected.Start, selected.End
-	s.active = true
-	s.dragging = false
+	s.active, s.dragging = true, dragging
+	return changed
 }
 
 // ContentChanged invalidates a range touching replaced semantic content. There is
 // no guessed byte adjustment across arbitrary renderer revisions.
 func (s *Selection) ContentChanged(id BlockID, revision uint64) {
+	if s.contentChanged(id, revision) {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Selection) contentChanged(id BlockID, revision uint64) bool {
 	requireMutable(s.element)
 
 	if !s.active {
-		return
+		return false
 	}
 	first, last := s.Range()
 	if id >= first.Content && id <= last.Content && (id != first.Content || first.Revision != revision || id != last.Content || last.Revision != revision) {
-		s.Clear()
+		return s.clear()
 	}
+	return false
 }
 
 // DiscardBefore invalidates a selection that touches retired content identities.
 func (s *Selection) DiscardBefore(id BlockID) {
+	if s.discardBefore(id) {
+		s.element.Invalidate()
+	}
+}
+
+func (s *Selection) discardBefore(id BlockID) bool {
 	requireMutable(s.element)
 
 	if !s.active {
-		return
+		return false
 	}
 	first, _ := s.Range()
 	if first.Content < id {
-		s.Clear()
+		return s.clear()
 	}
+	return false
 }
 
 // Text copies safe logical text from the supplied projection, joining soft wraps without inventing source syntax.

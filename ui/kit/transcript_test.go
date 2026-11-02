@@ -148,7 +148,7 @@ func TestTranscriptPinnedHeaderSharesContentAndSelectionCoordinates(t *testing.T
 	model.Selection().Set(base.TextRange{Start: a.Start, End: b.End})
 	model.Scroll().By(1)
 	surface := transcriptPaint(t, root, 20, 4, 2)
-	if transcriptRow(surface.View(), 0) != "question" || transcriptRow(surface.View(), 2) != "one" {
+	if transcriptRow(surface.View(), 0) != "question" || transcriptRow(surface.View(), 2) != "three" {
 		t.Fatalf("header/body mismatch: %q / %q", transcriptRow(surface.View(), 0), transcriptRow(surface.View(), 2))
 	}
 	if transcriptCell(surface.View(), 0, 0).Style != theme.Surface.Merge(theme.Selection) {

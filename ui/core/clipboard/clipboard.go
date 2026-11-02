@@ -11,10 +11,8 @@ import (
 	"time"
 )
 
-// Command is OSC 52's operating system command number.
 const Command = 52
 
-// Selection is which of a terminal's two clipboards is meant.
 type Selection uint8
 
 const (

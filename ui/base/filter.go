@@ -60,7 +60,6 @@ type hit[T any] struct {
 	match fuzzy.Match
 }
 
-// Pattern is what the items are being narrowed by.
 func (f *Filter[T]) Pattern() string { return f.pattern }
 
 // SetPattern narrows the list, keeping the cursor at the top of what matched.
@@ -109,7 +108,6 @@ func (f *Filter[T]) Items() []T {
 	return slices.Clone(f.items)
 }
 
-// Len reports how many unfiltered items the filter owns.
 func (f *Filter[T]) Len() int {
 	if f == nil {
 		return 0
@@ -117,7 +115,6 @@ func (f *Filter[T]) Len() int {
 	return len(f.items)
 }
 
-// Matched is how many items answered the pattern.
 func (f *Filter[T]) Matched() int {
 	return f.list.Len()
 }
@@ -164,17 +161,12 @@ func (f *Filter[T]) Do(action keymap.Action) bool {
 	return f.list.Do(action)
 }
 
-// Focus takes the keyboard, or gives it up — see [List.Focus].
 func (f *Filter[T]) focusChanged(has bool) { f.list.focusChanged(has) }
 
-// Focused reports whether this list has the keyboard.
 func (f *Filter[T]) Focused() bool { return f.list.Focused() }
 
-// HeightForWidth is one row per match. Match state is rebuilt by semantic operations, so
-// measuring only observes the last complete projection.
 func (f *Filter[T]) HeightForWidth(int) int { return f.list.Len() }
 
-// Draw paints the matches that fit.
 func (f *Filter[T]) Draw(v scene.Frame) {
 	f.list.DrawRows(v, f.row)
 }
@@ -188,7 +180,7 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 
 func (f *Filter[T]) replaceMatches(hits []hit[T]) {
 	f.list.replaceItems(hits, 0)
-	f.list.Scroll().ToTop()
+	f.list.scroll.toTop()
 	f.list.notifyChange()
 }
 

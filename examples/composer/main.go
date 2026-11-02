@@ -1,6 +1,5 @@
-// Command composer demonstrates a product-grade prompt without inventing a prompt
-// framework: completion, history and atomic paste chips are ordinary editor behavior
-// composed with application policy.
+// Command composer keeps paste payloads with application-owned elements so undo and
+// history can preserve their exact bytes.
 package main
 
 import (
@@ -25,10 +24,10 @@ import (
 )
 
 const (
-	submitPrompt keymap.Action    = "submit"
-	quitPrompt   keymap.Action    = "quit"
-	pasteElement base.ElementKind = 1
-	largePaste                    = 3
+	submitPrompt    keymap.Action    = "submit"
+	quitPrompt      keymap.Action    = "quit"
+	pasteElement    base.ElementKind = 1
+	largePasteLines                  = 3
 )
 
 func main() {
@@ -58,7 +57,7 @@ type prompt struct {
 	output     kit.Paragraph
 	status     string
 	references []reference
-	pastes     map[base.ElementID]string
+	pastes     map[base.ElementID]pasteText
 	element    scene.Element
 }
 
@@ -71,7 +70,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 
 	p := &prompt{
 		runtime: runtime, theme: theme, glyphs: glyphs, keys: keys,
-		status: "paste three or more lines to make one atomic chip",
+		status: fmt.Sprintf("paste %d or more lines to make one atomic chip", largePasteLines),
 		history: base.NewHistory(base.HistoryConfig[draft]{
 			Clone: draft.clone,
 			Equal: draft.equal,
@@ -82,7 +81,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			{name: "ui/core/program", detail: "runtime and ingress"},
 			{name: "ui/base", detail: "behavior without appearance"},
 		},
-		pastes: make(map[base.ElementID]string),
+		pastes: make(map[base.ElementID]pasteText),
 	}
 	p.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme: theme, Prompt: glyphs.Marker + " ",
@@ -164,7 +163,7 @@ func (p *prompt) Handle(event input.Event) bool {
 		p.releaseRemovedPastes()
 		return true
 	}
-	if paste, ok := event.(input.Paste); ok && strings.Count(paste.Text, "\n")+1 >= largePaste {
+	if paste, ok := event.(input.Paste); ok && pasteText(paste.Text).lineCount() >= largePasteLines {
 		p.insertPaste(paste.Text)
 		return true
 	}
@@ -195,19 +194,19 @@ func (p *prompt) walk(key input.Key) bool {
 }
 
 func (p *prompt) insertPaste(body string) {
-	p.attach(body)
-	p.status = fmt.Sprintf("%d-line paste attached; backspace removes it atomically",
-		strings.Count(body, "\n")+1)
+	paste := pasteText(body)
+	p.attach(paste)
+	p.status = fmt.Sprintf("%d-line paste attached; backspace removes it atomically", paste.lineCount())
 	p.refreshCompletion()
 }
 
-func (p *prompt) attach(body string) {
-	element := p.composer.Controller().InsertElement(pasteElement, pasteLabel(body))
+func (p *prompt) attach(body pasteText) {
+	element := p.composer.Controller().InsertElement(pasteElement, body.label())
 	if element.ID != (base.ElementID{}) {
 		if p.pastes == nil {
-			p.pastes = make(map[base.ElementID]string)
+			p.pastes = make(map[base.ElementID]pasteText)
 		}
-		p.pastes[element.ID] = strings.Clone(body)
+		p.pastes[element.ID] = pasteText(strings.Clone(string(body)))
 	}
 }
 
@@ -216,11 +215,11 @@ type draft struct {
 	chips []chip
 }
 
-// chip is one attachment: where its label begins in the text, and the bytes it
-// stands for.
+// History stores payload identity with its offset because equal visible labels
+// can refer to different original pastes.
 type chip struct {
 	at   int
-	body string
+	body pasteText
 }
 
 func (d draft) clone() draft {
@@ -254,11 +253,8 @@ func (p *prompt) current() draft {
 	return d
 }
 
-// restore puts a recalled document back with its attachments, not merely its words.
-//
-// The chips go in as elements again, at the offsets they were recorded at, so the
-// bytes behind them are attached to this draft as they were to the one it came from.
-// A document nobody recorded chips for is exactly its text.
+// History must restore attachment elements, not just their labels, so each
+// recalled draft keeps the original payload and editing behavior.
 func (p *prompt) restore(d draft) {
 	editor := p.composer.Controller()
 	if len(d.chips) == 0 {
@@ -275,7 +271,7 @@ func (p *prompt) restore(d draft) {
 		}
 		editor.Insert(d.text[at:c.at])
 		p.attach(c.body)
-		at = c.at + len(pasteLabel(c.body))
+		at = c.at + len(c.body.label())
 		// InsertElement writes the separator that follows a chip. Where the recorded
 		// document has one it is that one, and where it does not — the writer deleted
 		// it and carried straight on — it is a word this draft never had.
@@ -302,11 +298,26 @@ func (p *prompt) recallForward() {
 	}
 }
 
-// pasteLabel is what a chip says. One function, because the label written when a
-// paste arrives and the label looked for when its entry comes back have to be the
-// same string.
-func pasteLabel(body string) string {
-	return fmt.Sprintf("[paste %d lines]", strings.Count(body, "\n")+1)
+type pasteText string
+
+func (p pasteText) lineCount() int {
+	lines := 1
+	for i := 0; i < len(p); i++ {
+		switch p[i] {
+		case '\n':
+			lines++
+		case '\r':
+			lines++
+			if i+1 < len(p) && p[i+1] == '\n' {
+				i++
+			}
+		}
+	}
+	return lines
+}
+
+func (p pasteText) label() string {
+	return fmt.Sprintf("[paste %d lines]", p.lineCount())
 }
 
 func (p *prompt) releaseRemovedPastes() {

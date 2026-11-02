@@ -2,10 +2,8 @@ package grid
 
 import "slices"
 
-// frameBuffer owns the state every terminal renderer needs to move from one
-// frame to the next: the surface believed to be visible, the surface being drawn,
-// and the colour depth used when cells cross the wire. Screen and Inline differ
-// in how they publish a frame, not in how these three facts are maintained.
+// frameBuffer keeps candidate cells, accepted cells, and wire depth under one
+// transition owner. Screen and Inline differ only in publication geometry.
 type frameBuffer struct {
 	front, back *Surface
 	depth       Depth

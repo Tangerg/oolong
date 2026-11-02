@@ -13,6 +13,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const terminatedProcessExitCode = 1
+
 func platformSupported() error { return nil }
 
 // Job membership is installed by CreateProcess, before any application code can
@@ -64,8 +66,8 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 	return supervise(ctx, job, tree, process, output, copied)
 }
 
-// supervise waits for the process, ends the job whether the process finished or the
-// context did, and joins everything that went wrong on the way.
+// Launcher completion does not prove that descendants have stopped, so every
+// exit path settles the job before releasing its output owner.
 func supervise(
 	ctx context.Context,
 	job windows.Handle,
@@ -79,7 +81,7 @@ func supervise(
 	go func() {
 		select {
 		case <-ctx.Done():
-			cancelled <- windows.TerminateJobObject(job, 1)
+			cancelled <- windows.TerminateJobObject(job, terminatedProcessExitCode)
 		case <-finished:
 			cancelled <- nil
 		}
@@ -87,7 +89,7 @@ func supervise(
 	state, waitErr := process.Wait()
 	close(finished)
 	cancelErr := <-cancelled
-	terminateErr := windows.TerminateJobObject(job, 1)
+	terminateErr := windows.TerminateJobObject(job, terminatedProcessExitCode)
 	settledErr := tree.wait()
 	if terminateErr != nil || settledErr != nil {
 		// Something may still hold the pipe's other end, so the copier would never
@@ -149,13 +151,13 @@ func startInJob(cmd *exec.Cmd, job windows.Handle, input, output *os.File) (_ *o
 	defer func() { err = errors.Join(err, windows.CloseHandle(info.Thread), windows.CloseHandle(info.Process)) }()
 	process, err := os.FindProcess(int(info.ProcessId))
 	if err != nil {
-		return nil, errors.Join(err, windows.TerminateJobObject(job, 1))
+		return nil, errors.Join(err, windows.TerminateJobObject(job, terminatedProcessExitCode))
 	}
 	return process, nil
 }
 
-// fill copies src into dst and rewinds it, which is what a handle the job inherits
-// has to be: a started process reads from the file's own position.
+// An inherited handle starts at the file's current position, so prepared stdin
+// must be rewound before process creation.
 func fill(dst *os.File, src io.Reader) error {
 	if _, err := io.Copy(dst, src); err != nil {
 		return err
@@ -164,10 +166,10 @@ func fill(dst *os.File, src io.Reader) error {
 	return err
 }
 
-// abandon ends the job and waits for what it started, so a launch that failed part of
-// the way through leaves nothing running behind it.
+// A partially successful launch still owns its descendants and must settle them
+// before returning the launch failure.
 func abandon(job windows.Handle, process *os.Process, tree *jobTree, cause error) error {
-	stopErr := windows.TerminateJobObject(job, 1)
+	stopErr := windows.TerminateJobObject(job, terminatedProcessExitCode)
 	_, waitErr := process.Wait()
 	return errors.Join(cause, stopErr, waitErr, tree.wait())
 }

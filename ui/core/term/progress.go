@@ -6,19 +6,13 @@ import (
 	"time"
 )
 
-// ProgressState is how a host should present the state of one foreground task.
 type ProgressState uint8
 
 const (
-	// ProgressNone clears native progress. It is the zero value.
 	ProgressNone ProgressState = iota
-	// ProgressNormal is work proceeding normally.
 	ProgressNormal
-	// ProgressError is work that failed.
 	ProgressError
-	// ProgressIndeterminate is active work whose completion cannot be measured.
 	ProgressIndeterminate
-	// ProgressWarning is work that completed or paused with a warning.
 	ProgressWarning
 )
 

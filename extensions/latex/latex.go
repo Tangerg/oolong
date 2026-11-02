@@ -12,18 +12,14 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Delimiter is one side of a grouped expression. Single is used for a one-row
-// group; Top, Middle and Bottom stretch it beside taller content.
+// Delimiter keeps separate ends and a repeatable middle to group tall formulas.
 type Delimiter struct {
 	Single, Top, Middle, Bottom string
 }
 
-// Glyphs are the characters used to construct a formula's two-dimensional
-// furniture. They are separate from [Look] because character repertoire is a fact
-// about the driven terminal while colour is application appearance.
-//
-// The zero value is completed from [Unicode]. Set Plain when custom glyphs must also
-// spell named symbols such as alpha and leq in ASCII.
+// Glyphs stays separate from Look because terminal repertoire and application colour
+// vary independently. Zero fields use Unicode; Plain also spells named symbols
+// in ASCII.
 type Glyphs struct {
 	Horizontal string
 	Radical    string
@@ -33,7 +29,6 @@ type Glyphs struct {
 	Plain      bool
 }
 
-// Unicode is the formula set for a UTF-8 terminal.
 func Unicode() Glyphs {
 	return Glyphs{
 		Horizontal: "─",
@@ -48,8 +43,8 @@ func Unicode() Glyphs {
 	}
 }
 
-// ASCII is the formula set for output that cannot safely carry Unicode. Named
-// symbols are written as names; structural lines and delimiters use ASCII.
+// ASCII output spells named symbols because replacing only the structural glyphs
+// would still leave a formula dependent on Unicode support.
 func ASCII() Glyphs {
 	return Glyphs{
 		Horizontal: "-",
@@ -65,13 +60,8 @@ func ASCII() Glyphs {
 	}
 }
 
-// GlyphsFor picks the set a terminal in locale can draw. An empty locale keeps the
-// modern Unicode default; a locale that explicitly names another encoding uses the
-// ASCII set.
-//
-// The resolved locale is an argument because choosing which environment belongs to
-// a terminal is a transport concern. Formula appearance only interprets the fact it
-// was given.
+// GlyphsFor uses the transport-resolved locale because the transport owns the terminal environment.
+// An unspecified locale keeps Unicode; an explicit non-UTF encoding selects ASCII.
 func GlyphsFor(locale string) Glyphs {
 	if text.PrefersUnicode(locale) {
 		return Unicode()
@@ -114,12 +104,8 @@ func (d Delimiter) normalized(base Delimiter) Delimiter {
 	return d
 }
 
-// Look is a formula's appearance. Text covers symbols and operands, Rule covers
-// fractions and overlines, and Error covers source shown when the expression is not
-// supported. Align places a formula narrower than its region.
-//
-// The zero value uses terminal-default styles, Unicode furniture and start
-// alignment.
+// Look remains readable without a palette: its zero value uses terminal-default
+// styles, Unicode structure and start alignment.
 type Look struct {
 	Text, Rule, Error grid.Style
 	Glyphs            Glyphs
@@ -131,12 +117,9 @@ func (l Look) normalized() Look {
 	return l
 }
 
-// Formula is one immutable rendered expression.
-//
-// Unsupported input is still a Formula: [Formula.Err] reports why it could not be
-// typeset and its drawing is printable source text in Look.Error. This is the useful
-// failure mode for streamed model output, where an unfinished command must remain
-// visible and a later chunk may make it valid.
+// Formula retains unsupported source with Err because an unfinished streamed
+// expression may become valid when its next chunk arrives. Prepared rows are
+// immutable so drawing and selection share the same mathematical layout.
 type Formula struct {
 	source string
 	look   Look
@@ -145,11 +128,9 @@ type Formula struct {
 	err    error
 }
 
-// Render lays out source. Source is the body of one math expression; surrounding
-// $, $$, \( and \[ delimiters are not part of it. To keep untrusted input off the
-// goroutine stack, structural group nesting and rendered AST depth are bounded
-// at 256 levels. Missing script atoms and unsupported accents are reported through
-// [Formula.Err] and shown as source.
+// Render accepts an expression body because enclosing math delimiters would conflict with
+// the parser wrapper. Bounded source and AST depth keep untrusted nesting off the
+// goroutine stack. Unsupported constructs remain visible through Formula.Err.
 func Render(source string, look Look) *Formula {
 	look = look.normalized()
 	f := &Formula{source: strings.Clone(source), look: look}
@@ -172,7 +153,6 @@ func Render(source string, look Look) *Formula {
 	return f
 }
 
-// Source returns the expression body supplied to [Render].
 func (f *Formula) Source() string {
 	if f == nil {
 		return ""
@@ -180,8 +160,6 @@ func (f *Formula) Source() string {
 	return f.source
 }
 
-// Err reports why the source was shown rather than typeset. It is nil for an empty
-// or successfully rendered formula.
 func (f *Formula) Err() error {
 	if f == nil {
 		return nil
@@ -189,8 +167,7 @@ func (f *Formula) Err() error {
 	return f.err
 }
 
-// Lines returns a deep copy of the laid-out terminal lines. It is the styled-text
-// boundary used by Markdown and custom passive-content composers.
+// Lines detaches span storage so callers can compose rows without mutating the formula.
 func (f *Formula) Lines() []text.Line {
 	if f == nil {
 		return nil
@@ -198,7 +175,6 @@ func (f *Formula) Lines() []text.Line {
 	return text.CloneLines(f.lines)
 }
 
-// Width reports the natural width of the formula in terminal columns.
 func (f *Formula) Width() int {
 	if f == nil {
 		return 0
@@ -206,8 +182,8 @@ func (f *Formula) Width() int {
 	return f.width
 }
 
-// HeightForWidth reports the formula's fixed row count. A formula does not wrap: changing
-// mathematical line breaks changes the expression, so a narrow view clips it.
+// HeightForWidth preserves prepared rows because changing mathematical line breaks
+// changes the expression; narrow views therefore clip instead of wrapping.
 func (f *Formula) HeightForWidth(int) int {
 	if f == nil {
 		return 0
@@ -215,8 +191,7 @@ func (f *Formula) HeightForWidth(int) int {
 	return len(f.lines)
 }
 
-// Draw writes the formula, clipping wide rows and preserving its two-dimensional
-// layout. Drawing never reparses or changes semantic state.
+// Draw consumes prepared rows so it cannot advance parsing or semantic state.
 func (f *Formula) Draw(v grid.View) {
 	if f == nil || v.Empty() {
 		return
@@ -231,10 +206,8 @@ func (f *Formula) Draw(v grid.View) {
 	}
 }
 
-// Rows returns the meaningful text and rendered offset of each physical formula
-// row at width. Selection therefore copies the same readable two-dimensional form
-// that was drawn; [Formula.Source] remains available when an application wants the
-// original LaTeX instead.
+// Rows preserves the drawn two-dimensional form for selection. Formula.Source
+// remains available separately when callers need the original TeX.
 func (f *Formula) Rows(width int) []text.Row {
 	if f == nil {
 		return nil

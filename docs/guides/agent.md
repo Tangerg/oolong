@@ -16,7 +16,11 @@ Run `go run ./examples/agent` and read the [agent example](https://github.com/Ta
 
 `automation.NewDriver(runtime)` schedules queries and actions onto the UI owner. The semantic handle may be retained from Build; queries run after attachment. It cannot prepare frames, advance a transport watermark, or close the program’s root. `Observe` reads the existing semantic projection and does not start painting, populate hidden content or create background work.
 
-A `scene.Query` bounds depth, node count and text. Pass the opaque `Observation.Next` back as `Query.Cursor`. It identifies the same scene, model revision, resolved subtree and depth; mixing traversals returns `ErrObservationChanged`. The page size and text budget can change. A zero cursor starts a new traversal. Sensitive values are redacted. `Progress` separately reports model, prepared layout and written-frame progress. An observation is not proof that its model has already appeared on the terminal.
+A `scene.Query` bounds depth and node count. `TextLimit` bounds each display field, `ByteLimit` bounds all returned node and action strings together, and `DetailLimit` bounds actions plus live relations. Zero limits select package defaults and positive limits are capped by the corresponding package maximum. These are projection budgets; allocations inside application callbacks and transport serialization have their own owners.
+
+Pass the opaque `Observation.Next` back as `Query.Cursor`. It identifies the same scene, model revision, resolved subtree and depth; mixing traversals returns `ErrObservationChanged`. Page budgets can change. Each node, including its action and relation lists, is admitted as a whole. If the first node cannot fit, `ErrObservationBudget` asks the caller to increase the relevant budget instead of presenting an incomplete node as complete evidence. Keys, target parts, content IDs, action IDs and type names are never truncated. Action label and availability-reason clipping is recorded in `ActionDescription.TruncatedText`.
+
+A zero cursor starts a new traversal. Sensitive values are redacted. `Progress` separately reports model, prepared layout and written-frame progress. An observation is not proof that its model has already appeared on the terminal.
 
 ## Locate and invoke one current target
 

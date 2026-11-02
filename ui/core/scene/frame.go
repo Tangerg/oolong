@@ -19,7 +19,6 @@ func (f Frame) Sub(area image.Rectangle) Frame {
 	return Frame{View: f.View.Sub(area), lease: f.lease}
 }
 
-// Subs projects several rectangles through this frame and its transaction.
 func (f Frame) Subs(areas []image.Rectangle) []Frame {
 	children := make([]Frame, len(areas))
 	for i, area := range areas {

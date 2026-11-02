@@ -9,12 +9,8 @@ import (
 	"os/exec"
 )
 
-// relaunch runs the program again beside this one, because a Windows process cannot
-// be replaced.
-//
-// It waits for the child rather than returning immediately, so the shell that
-// started this process does not begin competing for the console while the new
-// interface is drawing in it. The exit code comes back for the caller to exit with.
+// Windows cannot replace this process. Waiting for the child keeps the parent
+// shell from reclaiming the console while the replacement interface runs.
 func relaunch(path string, argv, env []string) (int, error) {
 	// noctx: there is no context to honour. This stands in for replacing the
 	// process, which on every other platform leaves nothing behind that could be

@@ -10,17 +10,14 @@ import (
 	"slices"
 )
 
-// Align is how an extent sits in a larger space.
 type Align uint8
 
-// Where an extent sits within its space.
 const (
 	Start Align = iota
 	Center
 	End
 )
 
-// Offset is where an extent starts inside a space of the given size.
 func (a Align) Offset(space, extent int) int {
 	switch a {
 	case Center:
@@ -32,10 +29,8 @@ func (a Align) Offset(space, extent int) int {
 	}
 }
 
-// Inset is space held clear on each side.
 type Inset struct{ Top, Right, Bottom, Left int }
 
-// Uniform is the same inset on every side.
 func Uniform(n int) Inset {
 	n = max(n, 0)
 	return Inset{Top: n, Right: n, Bottom: n, Left: n}
@@ -50,7 +45,6 @@ func Symmetric(vertical, horizontal int) Inset {
 	return Inset{Top: vertical, Right: horizontal, Bottom: vertical, Left: horizontal}
 }
 
-// Size is the horizontal and vertical extent the inset takes.
 func (i Inset) Size() image.Point {
 	i = i.normalized()
 	return image.Pt(Sum(i.Left, i.Right), Sum(i.Top, i.Bottom))
@@ -90,10 +84,8 @@ type Measurer interface {
 	Measure(axis Axis, across int) int
 }
 
-// MeasureFunc adapts an axis-aware function to [Measurer].
 type MeasureFunc func(axis Axis, across int) int
 
-// Measure calls f with the requested axis and cross extent.
 func (f MeasureFunc) Measure(axis Axis, across int) int { return f(axis, across) }
 
 // Sizing says how much of an axis a slot wants.
@@ -185,8 +177,6 @@ func (s Sizing) AtLeast(minimum int) Sizing {
 	return s
 }
 
-// Slot is one division of a region: how much room it gets, and what to ask when
-// that follows from its item.
 type Slot struct {
 	Size Sizing
 	// Of is asked how much of the divided axis this slot wants, and is only
@@ -198,26 +188,15 @@ type Slot struct {
 	Cross Cross
 }
 
-// Cross is how much of the other axis a slot's item takes, and where in the slot
-// it sits when that is less than all of it.
-//
-// It is the answer to the one question dividing an axis cannot ask: how a smaller
-// cross-axis extent is aligned within the rectangle allocated to its slot.
-//
-// The size is a number rather than a [Measurer] on purpose. An item answers about
-// one axis — [Down] asks how tall at a width, [Across] how wide at a height — and a
-// slot that asked the other way round would be asking most values a question they
-// cannot answer.
+// Cross supplies the extent the divided axis cannot determine. Size is explicit
+// because an axis-specific Measurer may not support the perpendicular question.
 type Cross struct {
 	// Size is how many units across the other axis the item takes. Zero, and
 	// anything larger than the region, is all of it.
-	Size int
-	// Align is where it sits when it is less than all of it.
+	Size  int
 	Align Align
 }
 
-// place narrows r to the slot's cross size and puts it where the alignment says.
-// across is the whole of the other axis, and a is the axis being divided.
 func (c Cross) place(r image.Rectangle, a Axis, across int) image.Rectangle {
 	if c.Size <= 0 || c.Size >= across {
 		return r
@@ -229,16 +208,11 @@ func (c Cross) place(r image.Rectangle, a Axis, across int) image.Rectangle {
 	return image.Rect(r.Min.X+at, r.Min.Y, r.Min.X+at+c.Size, r.Max.Y)
 }
 
-// Axis is which way a region is divided.
-//
-// It exists so that something arranging its contents can be told which way round it
-// goes instead of being written twice. [Down] and [Across] are its two values.
+// Axis lets the same sizing rules serve rows and columns.
 type Axis uint8
 
 const (
-	// Down stacks bands one above another, dividing height.
 	Down Axis = iota
-	// Across puts regions side by side, dividing width.
 	Across
 )
 
@@ -285,7 +259,6 @@ func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 	return rects
 }
 
-// Divide splits total among the slots, holding back the gaps between them first.
 func (f Flow) Divide(total, across int, slots []Slot) []int {
 	available := max(total, 0)
 	return divide(f.Axis, Remaining(available, f.gaps(len(slots))), across, slots)

@@ -11,7 +11,6 @@ import (
 // adapter must stop instead of asking the user to correct or repeat that input.
 var ErrReplyUnavailable = errors.New("base: reply unavailable")
 
-// Ask is the label and the choices, numbered.
 func (s *Select[T]) Ask() string {
 	return s.Label + choices(s.list.items)
 }
@@ -28,7 +27,6 @@ func (s *Select[T]) Reply(said string) error {
 	}, s.Revision, s.checkAnswer)
 }
 
-// Ask is the label and the choices, numbered, with a word about giving several.
 func (m *MultiSelect[T]) Ask() string {
 	return m.Label + choices(m.list.items) + " — several, separated by commas"
 }

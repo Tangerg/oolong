@@ -25,6 +25,79 @@ func TestQuotedURLsKeepTheirSemanticKind(t *testing.T) {
 	}
 }
 
+func TestURLApostrophesRemainInsideTheDestination(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{"https://example.com/O'Brien", "https://example.com/O'Brien"},
+		{"https://example.com/?q=O'Brien", "https://example.com/?q=O'Brien"},
+		{"'https://example.com/O'Brien'", "https://example.com/O'Brien"},
+		{"'https://example.com/O'Brien'.", "https://example.com/O'Brien"},
+		{"\"https://example.com/O'Brien\"", "https://example.com/O'Brien"},
+		{"https://example.com/O'Brien页面", "https://example.com/O'Brien"},
+		{"(https://example.com/O'Brien_(name)).", "https://example.com/O'Brien_(name)"},
+		{"https://example.com/quote'", "https://example.com/quote'"},
+		{"'https://example.com/path?'", "https://example.com/path?"},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			found := link.Detect(tc.input, nil)
+			if len(found) != 1 || found[0].Kind != link.URL || found[0].Target != tc.want {
+				t.Fatalf("Detect(%q) = %+v; want %q", tc.input, found, tc.want)
+			}
+			if matched := found[0].Text(tc.input); matched != tc.want {
+				t.Fatalf("matched %q; want %q", matched, tc.want)
+			}
+		})
+	}
+}
+
+func TestQuotedURLBoundariesKeepFollowingTextSeparate(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  []string
+	}{
+		{"'https://a.test/one','https://b.test/two'", []string{"https://a.test/one", "https://b.test/two"}},
+		{"'https://a.test/one';'https://b.test/two'", []string{"https://a.test/one", "https://b.test/two"}},
+		{"'https://example.com/O'Brien',next", []string{"https://example.com/O'Brien"}},
+		{"'https://example.com/O'Brien';next", []string{"https://example.com/O'Brien"}},
+		{"'(https://example.com/O'Brien)'", []string{"https://example.com/O'Brien"}},
+		{"'[https://example.com/O'Brien]'", []string{"https://example.com/O'Brien"}},
+		{"\"(https://example.com/O'Brien)\"", []string{"https://example.com/O'Brien"}},
+		{"'see https://example.com/O'Brien',then 'https://b.test/two'", []string{"https://example.com/O'Brien", "https://b.test/two"}},
+		{"O'Brien recommends 'https://example.com/O'Brien',next", []string{"https://example.com/O'Brien"}},
+		{"don't truncate https://example.com/quote'", []string{"https://example.com/quote'"}},
+		{"users' links include https://example.com/quote'", []string{"https://example.com/quote'"}},
+		{"https://example.com/?q='value'&next=2", []string{"https://example.com/?q='value'&next=2"}},
+		{"https://example.com/a'/'b", []string{"https://example.com/a'/'b"}},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			found := link.Detect(tc.input, nil)
+			if len(found) != len(tc.want) {
+				t.Fatalf("Detect(%q) = %+v; want %q", tc.input, found, tc.want)
+			}
+			for i, target := range tc.want {
+				if found[i].Kind != link.URL || found[i].Target != target || found[i].Text(tc.input) != target {
+					t.Fatalf("link %d = %+v (%q); want %q", i, found[i], found[i].Text(tc.input), target)
+				}
+			}
+		})
+	}
+}
+
+func TestQuotedURLsPreserveTheirFinalURIPunctuation(t *testing.T) {
+	for _, quote := range []string{"'", "\""} {
+		for _, punctuation := range []string{"?", "!", ".", ",", ";", ":"} {
+			target := "https://example.com/path" + punctuation
+			input := quote + target + quote + ",next"
+			found := link.Detect(input, nil)
+			if len(found) != 1 || found[0].Kind != link.URL || found[0].Target != target || found[0].Text(input) != target {
+				t.Errorf("Detect(%q) = %+v; want %q", input, found, target)
+			}
+		}
+	}
+}
+
 func TestDetect(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -198,6 +271,9 @@ func FuzzDetectNeverPanicsAndStaysInside(f *testing.F) {
 		"src/main.go:42:7", `"Demo App.app"`, "and/or", "~/x/y.txt",
 		"https://a.test/b.html and /c/d.go", "node.js", "//////", "~~~~", ".....",
 		"a" + strings.Repeat("/b", 200), strings.Repeat(".", 300),
+		"'https://a.test/one','https://b.test/two'",
+		"'https://example.com/O'Brien',next", "'(https://example.com/O'Brien)'",
+		"'https://example.com/path?'", "https://example.com/?q='value'&next=2",
 	} {
 		f.Add(seed)
 	}

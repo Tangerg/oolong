@@ -42,9 +42,11 @@ type ScanConfig struct {
 // ErrSearchLimit reports that a complete result would exceed the configured bound.
 var ErrSearchLimit = errors.New("base: search match limit exceeded")
 
+const defaultSearchMatches = 10_000
+
 // Scan is pure work over an immutable row snapshot. It owns no goroutine or
 // delivery queue; the caller chooses task lifetime and checks Revision on delivery.
-// Zero MaxMatches allows 10,000 matches. Exceeding it returns ErrSearchLimit,
+// Zero MaxMatches uses the default budget. Exceeding it returns ErrSearchLimit,
 // never a silently incomplete set which could masquerade as the whole document.
 func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	result := Result{Query: config.Query, Revision: config.Revision}
@@ -56,7 +58,7 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	}
 	limit := config.MaxMatches
 	if limit == 0 {
-		limit = 10000
+		limit = defaultSearchMatches
 	}
 	if limit < 0 {
 		return result, errors.New("base: search limit must not be negative")

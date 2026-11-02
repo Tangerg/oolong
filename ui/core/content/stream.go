@@ -21,10 +21,8 @@ var (
 // Revision identifies one immutable source version within its document.
 type Revision uint64
 
-// DocumentState combines source completion with the current preparation result.
 type DocumentState uint8
 
-// Document states distinguish provisional previews, final results and useful partial results.
 const (
 	Receiving DocumentState = iota
 	Preparing
@@ -34,7 +32,10 @@ const (
 	Failed
 )
 
-// StreamConfig selects syntax and bounds retained source bytes; zero MaxSourceBytes uses 4 MiB.
+const defaultMaxSourceBytes = 4 << 20
+
+// StreamConfig bounds source retention independently of renderer preparation.
+// A zero MaxSourceBytes selects the package default.
 type StreamConfig struct {
 	Format         Format
 	MaxSourceBytes int
@@ -50,10 +51,8 @@ type SourceSnapshot struct {
 	final    bool
 }
 
-// Revision identifies the source version captured by this snapshot.
 func (s SourceSnapshot) Revision() Revision { return s.revision }
 
-// Format selects the renderer without inspecting source text.
 func (s SourceSnapshot) Format() Format { return s.format }
 
 // Text returns immutable complete source bytes, including any incomplete final UTF-8 sequence.
@@ -135,7 +134,6 @@ func (*noCopy) Unlock() {}
 
 type documentListener struct{ fn func(DocumentChange) }
 
-// NewStreamDocument creates a single-owner bounded source with an explicit format.
 func NewStreamDocument(cfg StreamConfig) (*StreamDocument, error) {
 	format, err := normalize(cfg.Format)
 	if err != nil {
@@ -145,7 +143,7 @@ func NewStreamDocument(cfg StreamConfig) (*StreamDocument, error) {
 		return nil, errors.New("content: source byte budget cannot be negative")
 	}
 	if cfg.MaxSourceBytes == 0 {
-		cfg.MaxSourceBytes = 4 << 20
+		cfg.MaxSourceBytes = defaultMaxSourceBytes
 	}
 	cfg.Format = format
 	return &StreamDocument{id: new(byte), cfg: cfg}, nil

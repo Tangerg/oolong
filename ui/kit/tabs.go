@@ -76,10 +76,8 @@ func (t *Tabs) SetRule(glyph string) {
 	}
 }
 
-// Controller returns the one pane-selection owner.
 func (t *Tabs) Controller() *base.Tabs { return t.controller }
 
-// Element is the controller's exact strip and panel composition.
 func (t *Tabs) Element() scene.Element {
 	if t == nil || t.controller == nil {
 		return scene.Element{}
@@ -87,7 +85,6 @@ func (t *Tabs) Element() scene.Element {
 	return t.controller.Element()
 }
 
-// HeightForWidth measures the controller's strip and current pane.
 func (t *Tabs) HeightForWidth(width int) int {
 	if t == nil || t.controller == nil {
 		return 0

@@ -35,7 +35,6 @@ func (n LineNumbers) Width(lines int) int {
 	return layout.Sum(decimalWidth(last), text.Width(n.Separator), n.gap())
 }
 
-// Draw paints one number for each logical line beginning in rows.
 func (n LineNumbers) Draw(view grid.View, rows []text.Row) {
 	if view.Empty() {
 		return

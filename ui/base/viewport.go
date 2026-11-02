@@ -55,7 +55,6 @@ func (p *Viewport) ensure() {
 	}})
 }
 
-// Element is the viewport group; scene alone clips and translates its child input.
 func (p *Viewport) Element() scene.Element {
 	p.ensure()
 	p.scroll.element = p.group.Element()
@@ -89,14 +88,8 @@ func (p *Viewport) SetContent(content scene.Element) {
 // Scroll returns the sole scrolling intention owner used by this viewport.
 func (p *Viewport) Scroll() *Scroll { return &p.scroll }
 
-// HeightForWidth measures the child content before viewport clipping.
 func (p *Viewport) HeightForWidth(width int) int { return p.Content().Measure(layout.Down, width) }
 
-// Do applies one named scrolling operation and invalidates the viewport when handled.
 func (p *Viewport) Do(action keymap.Action) bool {
-	handled := p.scroll.Do(action)
-	if handled {
-		p.Element().Invalidate()
-	}
-	return handled
+	return p.scroll.Do(action)
 }

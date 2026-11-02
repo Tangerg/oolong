@@ -95,7 +95,6 @@ func (t *Tabs) stripHeight() int {
 	return max(1, readProjection(t.Element(), t.stripRows))
 }
 
-// Element is the scene composition of this controller's strip and selected panel.
 func (t *Tabs) Element() scene.Element { t.ensure(); return t.group.Element() }
 
 // Strip is the owned trigger group; it shares the same selection state as Panel.
@@ -155,7 +154,6 @@ func (t *Tabs) Items() []Tab {
 	return items
 }
 
-// Len is the number of logical tabs.
 func (t *Tabs) Len() int { return len(t.parts) }
 
 // At returns the tab at index; invalid indices return false.
@@ -256,7 +254,6 @@ func (t *Tabs) handleEvent(event scene.Event) scene.EventResult {
 	return scene.EventResult{Consumed: handled}
 }
 
-// HeightForWidth measures the trigger strip and selected pane without changing selection.
 func (t *Tabs) HeightForWidth(width int) int {
 	rows := t.stripHeight()
 	if tab, ok := t.Current(); ok {
