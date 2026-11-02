@@ -57,7 +57,7 @@ func TestRunNormalizesOnlyBareInputEOF(t *testing.T) {
 				result: test.result,
 			}
 			component := &inputResultComponent{}
-			err := runSSHFixture(session, program.ScreenConfig{Build: func(*program.Runtime) (scene.Element, error) { return fixtureElement(component), nil }})
+			err := runFakeSSHFixture(session, program.ScreenConfig{Build: func(*program.Runtime) (scene.Element, error) { return fixtureElement(component), nil }})
 			if !errors.Is(err, test.want) {
 				t.Errorf("Run = %v, want %v", err, test.want)
 			}

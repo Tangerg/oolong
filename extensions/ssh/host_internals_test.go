@@ -30,7 +30,7 @@ func TestSourcePreservesReadTimesUnderBackpressure(t *testing.T) {
 					t.Error(err)
 				}
 			}()
-			source := newEventSource(t.Context().Done(), reader, nil, nil, nil)
+			source := newEventSource(t.Context().Done(), reader, nil, nil)
 			defer source.Close()
 			if _, err := writer.Write([]byte("x")); err != nil {
 				t.Fatal(err)
@@ -109,15 +109,11 @@ func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
 
 func TestEventSourceTurnsOnlyTheRequestedClipboardAnswerIntoPaste(t *testing.T) {
 	reader := make(chanReader)
-	windows := make(chan charmssh.Window)
 	clip := &clipboard.Channel{}
 	if !clip.Request(clipboard.System, func(string) bool { return true }) {
 		t.Fatal("clipboard request was refused")
 	}
-	source := newEventSource(t.Context().Done(), reader, windows,
-		func(window charmssh.Window) (input.Resize, bool, error) {
-			return input.Resize{Width: window.Width, Height: window.Height}, true, nil
-		}, clip)
+	source := newEventSource(t.Context().Done(), reader, nil, clip)
 	t.Cleanup(source.Close)
 
 	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the client")
@@ -148,13 +144,12 @@ func TestSessionEnvironmentOwnsTheLastWellFormedValue(t *testing.T) {
 }
 
 func TestAWindowUpdateIsAtomicAndZeroKeepsItsAxis(t *testing.T) {
-	h := &Host{window: charmssh.Window{Width: 80, Height: 24}}
-	resized, changed, err := h.resize(charmssh.Window{Height: 40})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !changed || resized != (input.Resize{Width: 80, Height: 40}) {
-		t.Fatalf("resize = %#v, %t", resized, changed)
+	windows := make(chan charmssh.Window)
+	h := &Host{windows: newWindowFeed(charmssh.Window{Width: 80, Height: 24}, windows)}
+	defer h.windows.stop()
+	windows <- charmssh.Window{Height: 40}
+	if got := <-h.windows.events; got != (input.Resize{Width: 80, Height: 40}) {
+		t.Fatalf("resize = %v", got)
 	}
 	width, height, err := h.Size()
 	if err != nil || width != 80 || height != 40 {
@@ -163,10 +158,12 @@ func TestAWindowUpdateIsAtomicAndZeroKeepsItsAxis(t *testing.T) {
 }
 
 func TestAnInvalidLaterWindowEndsInputWithoutChangingSize(t *testing.T) {
-	h := &Host{window: charmssh.Window{Width: 80, Height: 24}}
-	_, changed, err := h.resize(charmssh.Window{Width: grid.MaxTerminalCells, Height: 2})
-	if !errors.Is(err, ErrWindowSize) || changed {
-		t.Fatalf("resize = changed %t, error %v", changed, err)
+	windows := make(chan charmssh.Window)
+	h := &Host{windows: newWindowFeed(charmssh.Window{Width: 80, Height: 24}, windows)}
+	defer h.windows.stop()
+	windows <- charmssh.Window{Width: grid.MaxTerminalCells, Height: 2}
+	if _, ok := <-h.windows.events; ok || !errors.Is(h.windows.result(), ErrWindowSize) {
+		t.Fatalf("invalid resize: open=%v err=%v", ok, h.windows.result())
 	}
 	width, height, _ := h.Size()
 	if width != 80 || height != 24 {
@@ -177,10 +174,9 @@ func TestAnInvalidLaterWindowEndsInputWithoutChangingSize(t *testing.T) {
 func TestEventSourceDecodesBytesThenReportsItsResult(t *testing.T) {
 	reader := make(chanReader)
 	windows := make(chan charmssh.Window)
-	source := newEventSource(t.Context().Done(), reader, windows,
-		func(window charmssh.Window) (input.Resize, bool, error) {
-			return input.Resize{Width: window.Width, Height: window.Height}, true, nil
-		}, nil)
+	feed := newWindowFeed(charmssh.Window{Width: 80, Height: 24}, windows)
+	t.Cleanup(feed.stop)
+	source := newEventSource(t.Context().Done(), reader, feed, nil)
 	t.Cleanup(source.Close)
 
 	reader <- readResult{data: []byte("a")}
@@ -207,21 +203,15 @@ func TestEventSourceDecodesBytesThenReportsItsResult(t *testing.T) {
 
 func TestResizeIntakeKeepsTheLatestWindow(t *testing.T) {
 	reader := make(chanReader)
-	windows := make(chan charmssh.Window, 32)
-	observed := make(chan struct{}, 32)
-	source := newEventSource(t.Context().Done(), reader, windows,
-		func(window charmssh.Window) (input.Resize, bool, error) {
-			observed <- struct{}{}
-			return input.Resize{Width: window.Width, Height: window.Height}, true, nil
-		}, nil)
+	windows := make(chan charmssh.Window)
+	feed := newWindowFeed(charmssh.Window{Width: 80, Height: 24}, windows)
+	t.Cleanup(feed.stop)
+	source := newEventSource(t.Context().Done(), reader, feed, nil)
 	t.Cleanup(source.Close)
 
 	for width := 81; width <= 100; width++ {
-		windows <- charmssh.Window{Width: width, Height: 24}
-	}
-	for range 20 {
 		select {
-		case <-observed:
+		case windows <- charmssh.Window{Width: width, Height: 24}:
 		case <-time.After(time.Second):
 			t.Fatal("window intake stopped behind the event consumer")
 		}
@@ -249,10 +239,7 @@ func TestResizeIntakeKeepsTheLatestWindow(t *testing.T) {
 func TestAClosedSourceStopsTakingTheSessionsBytes(t *testing.T) {
 	for attempt := range 10 {
 		reader := make(chanReader)
-		source := newEventSource(t.Context().Done(), reader, make(chan charmssh.Window),
-			func(window charmssh.Window) (input.Resize, bool, error) {
-				return input.Resize{Width: window.Width, Height: window.Height}, true, nil
-			}, nil)
+		source := newEventSource(t.Context().Done(), reader, nil, nil)
 
 		// One byte through the whole source, so the reader is known to be running
 		// and waiting on the next read rather than on its first.
@@ -312,7 +299,7 @@ func TestSourcePreservesInputEndTimeUnderBackpressure(t *testing.T) {
 				t.Error(err)
 			}
 		}()
-		source := newEventSource(t.Context().Done(), reader, nil, nil, nil)
+		source := newEventSource(t.Context().Done(), reader, nil, nil)
 		defer source.Close()
 		if _, err := writer.Write([]byte("x")); err != nil {
 			t.Fatal(err)
@@ -335,24 +322,57 @@ func TestSourcePreservesInputEndTimeUnderBackpressure(t *testing.T) {
 	})
 }
 
-func TestWindowIntakeRetiresWithTheEventStream(t *testing.T) {
+func TestWindowIntakeBelongsToTheChannelLifetime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		windows := make(chan charmssh.Window)
+		feed := newWindowFeed(charmssh.Window{Width: 80, Height: 24}, windows)
 		reader := make(chanReader)
-		source := newEventSource(t.Context().Done(), reader, windows, func(charmssh.Window) (input.Resize, bool, error) {
-			t.Error("accepted resize after terminal input ended")
-			return input.Resize{}, false, nil
-		}, nil)
+		source := newEventSource(t.Context().Done(), reader, feed, nil)
 		defer source.Close()
 		reader <- readResult{err: io.EOF}
 		for range source.Events() {
 			t.Fatal("unexpected event")
 		}
+		windows <- charmssh.Window{Width: 99}
 		synctest.Wait()
+		if got := feed.size(); got.Width != 99 {
+			t.Fatalf("stopped draining before SSH channel teardown: %v", got)
+		}
+		feed.stop()
 		select {
-		case windows <- charmssh.Window{Width: 80, Height: 24}:
-			t.Fatal("window watcher survived the input stream")
+		case windows <- charmssh.Window{Width: 100}:
+			t.Fatal("window listener survived channel teardown")
 		default:
 		}
 	})
+}
+
+func TestResizeFailureFollowsTheLastAcceptedWindow(t *testing.T) {
+	for range 16 {
+		synctest.Test(t, func(t *testing.T) {
+			reader, writer := io.Pipe()
+			defer func() { _ = writer.Close() }()
+			defer func() { _ = reader.Close() }()
+			windows := make(chan charmssh.Window)
+			feed := newWindowFeed(charmssh.Window{Width: 80, Height: 24}, windows)
+			defer feed.stop()
+			source := newEventSource(t.Context().Done(), reader, feed, nil)
+			defer source.Close()
+			if _, err := writer.Write([]byte("x")); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			windows <- charmssh.Window{Width: 100}
+			windows <- charmssh.Window{Height: -1}
+			synctest.Wait()
+
+			<-source.Events()
+			if got := <-source.Events(); got != (input.Resize{Width: 100, Height: 24}) {
+				t.Fatalf("last accepted window lost before resize error: %v", got)
+			}
+			if _, open := <-source.Events(); open || !errors.Is(source.Err(), ErrWindowSize) {
+				t.Fatalf("open=%v err=%v", open, source.Err())
+			}
+		})
+	}
 }

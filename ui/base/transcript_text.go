@@ -5,6 +5,7 @@ import (
 	"image"
 	"strings"
 
+	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -37,7 +38,7 @@ func newTranscriptTextMap(rows []text.Row) *transcriptTextMap {
 		line := len(builders) - 1
 		m.starts[i] = text.Position{Line: line, Byte: builders[line].Len()}
 		_, _ = builders[line].WriteString(row.Text)
-		m.lineLayouts[i] = text.NewLayout(text.LayoutConfig{Lines: []string{row.Text}, Width: max(text.Width(row.Text)+1, 1), Wrap: text.WrapNone})
+		m.lineLayouts[i] = text.NewLayout(text.LayoutConfig{Lines: []string{row.Text}, Wrap: text.WrapNone})
 	}
 	lines := make([]string, len(builders))
 	for i, builder := range builders {
@@ -56,15 +57,17 @@ func (m *transcriptTextMap) hit(row, col int, nearest bool) (text.Range, bool) {
 	}
 	content := m.rows[row]
 	width := text.Width(content.Text)
-	if !nearest && (col < content.Offset || col >= content.Offset+width) {
+	col = layout.Relative(col, content.Offset)
+	if !nearest && (col < 0 || col >= width) {
 		return text.Range{}, false
 	}
-	col = max(col-content.Offset, 0)
+	col = max(col, 0)
 	point := m.lineLayouts[row].Hit(image.Pt(col, 0))
 	start := m.starts[row]
 	start.Byte += point.Byte
 	end := start
 	end.Byte = m.starts[row].Byte + text.NextCluster(content.Text, point.Byte)
+	end.Affinity = text.Backward
 	return text.Range{Start: start, End: end}, true
 }
 
@@ -75,14 +78,21 @@ func (m *transcriptTextMap) caret(position text.Position) (image.Point, bool) {
 	position = m.logical.Normalize(position)
 	for i, start := range m.starts {
 		end := start.Byte + len(m.rows[i].Text)
-		if start.Line != position.Line || position.Byte < start.Byte || position.Byte > end {
+		if start.Line != position.Line || position.Byte > end {
 			continue
 		}
-		if position.Byte == end && i+1 < len(m.rows) && m.starts[i+1].Line == position.Line && position.Affinity == text.Forward {
-			continue
+		if position.Byte < start.Byte && position.Affinity == text.Backward {
+			// Whitespace consumed by reflow has two visible neighbors.
+			i--
+			start = m.starts[i]
+		} else if position.Byte == end && position.Affinity == text.Forward && i+1 < len(m.rows) {
+			next := m.starts[i+1]
+			if next.Line == start.Line && next.Byte == end {
+				continue
+			}
 		}
 		point := m.lineLayouts[i].Caret(text.Position{Byte: position.Byte - start.Byte, Affinity: position.Affinity})
-		return image.Pt(m.rows[i].Offset+point.X, i), true
+		return image.Pt(layout.Translate(m.rows[i].Offset, point.X), i), true
 	}
 	return image.Point{}, false
 }
@@ -191,6 +201,7 @@ func (s *Selection) SelectLine(layout TranscriptLayout, point Point) bool {
 	start := block.mapping.starts[row]
 	end := start
 	end.Byte += len(block.mapping.rows[row].Text)
+	end.Affinity = text.Backward
 	if end.Byte == start.Byte {
 		return false
 	}

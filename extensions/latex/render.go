@@ -1,6 +1,7 @@
 package latex
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -107,7 +108,7 @@ func writeParserByte(out *strings.Builder, source string, at int, text bool) int
 func writeControlSequence(out *strings.Builder, source string, at int) (next int, startsText bool) {
 	// The parser discards a control-space token in math mode. Reuse the
 	// explicit spacing atom that survives the parser for both text and math.
-	if strings.HasPrefix(source[at:], `\ `) {
+	if at+1 < len(source) && isSpace(source[at+1]) {
 		out.WriteString(`\,`)
 		return at + 2, false
 	}
@@ -162,6 +163,11 @@ func braceScriptAtoms(source string) string {
 			continue
 		}
 
+		// The upstream scanner reads an underscore after a number as a Go digit
+		// separator. End the preceding token before handing it the TeX subscript.
+		if source[at] == '_' {
+			out.WriteByte(' ')
+		}
 		out.WriteByte(source[at])
 		at++
 		for at < len(source) && isSpace(source[at]) {
@@ -253,30 +259,34 @@ func refused(source string, at int, r rune) error {
 // because what it bounds is the tree the parser will build, not the spelling.
 const maxGroups = 256
 
-type nesting struct{ braces, brackets int }
+type nesting struct{ open []byte }
 
 func (n *nesting) step(r rune) error {
 	switch r {
 	case '[':
-		n.brackets++
-	case ']':
-		n.brackets = max(0, n.brackets-1)
+		n.open = append(n.open, '[')
 	case '{':
-		n.braces++
+		n.open = append(n.open, '{')
+	case ']':
+		// A bracket inside braces is literal to the enclosing optional argument.
+		if last := len(n.open) - 1; last >= 0 && n.open[last] == '[' {
+			n.open = n.open[:last]
+		}
 	case '}':
-		n.braces--
-		if n.braces < 0 {
+		last := bytes.LastIndexByte(n.open, '{')
+		if last < 0 {
 			return &parseError{message: "source has an unmatched closing brace"}
 		}
+		n.open = n.open[:last]
 	}
-	if n.braces+n.brackets > maxGroups {
+	if len(n.open) > maxGroups {
 		return &parseError{message: fmt.Sprintf("source nesting exceeds %d groups", maxGroups)}
 	}
 	return nil
 }
 
 func (n *nesting) closed() error {
-	if n.braces != 0 {
+	if bytes.IndexByte(n.open, '{') >= 0 {
 		return &parseError{message: "source has an unclosed group"}
 	}
 	return nil

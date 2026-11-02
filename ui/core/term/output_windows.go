@@ -16,9 +16,10 @@ import (
 // shutdown deadline can cancel that exact I/O operation and join it before the
 // display is returned to another owner.
 type terminalOutput struct {
-	file     *os.File
-	mu       sync.Mutex
-	deadline time.Time
+	file         *os.File
+	originalMode uint32
+	mu           sync.Mutex
+	deadline     time.Time
 }
 
 var cancelSynchronousIO = windows.NewLazySystemDLL("kernel32.dll").NewProc("CancelSynchronousIo")
@@ -27,9 +28,26 @@ func newTerminalOutput(file *os.File) (*terminalOutput, error) {
 	if err := cancelSynchronousIO.Find(); err != nil {
 		return nil, err
 	}
-	return &terminalOutput{file: file}, nil
+	o := &terminalOutput{file: file}
+	if err := windows.GetConsoleMode(windows.Handle(file.Fd()), &o.originalMode); err != nil {
+		return nil, err
+	}
+	if err := o.active(true); err != nil {
+		return nil, err
+	}
+	return o, nil
 }
-func (o *terminalOutput) active(bool) error { return nil }
+
+func (o *terminalOutput) active(active bool) error {
+	mode := o.originalMode
+	if active {
+		// The renderer assumes VT parsing and delayed wrap at the right margin.
+		mode |= windows.ENABLE_PROCESSED_OUTPUT | windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING |
+			windows.ENABLE_WRAP_AT_EOL_OUTPUT | windows.DISABLE_NEWLINE_AUTO_RETURN
+	}
+	return windows.SetConsoleMode(windows.Handle(o.file.Fd()), mode)
+}
+
 func (o *terminalOutput) SetWriteDeadline(deadline time.Time) error {
 	o.mu.Lock()
 	o.deadline = deadline

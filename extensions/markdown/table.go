@@ -66,7 +66,7 @@ func (t *table) columnWidths(room int) ([]int, bool) {
 	if len(natural) == 0 {
 		return nil, true
 	}
-	budget := layout.Remaining(room, t.separatorWidth(len(natural)))
+	budget := room - t.separatorWidth(len(natural))
 	widths := make([]int, len(natural))
 	used := 0
 	for i, width := range natural {

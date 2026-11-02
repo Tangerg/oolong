@@ -92,31 +92,13 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 
 func (p *picker) Element() scene.Element { return p.element }
 
-// row draws one match, with the characters that answered the query picked out.
-//
-// The offsets are bytes and can land inside a grapheme cluster — a query character
-// can match a combining mark — so a cluster is emphasised when it contains one rather
-// than when it begins at one. That is the whole reason the match is handed over
-// instead of being worked out again here.
 func (p *picker) row(v grid.View, _ int, item string, match fuzzy.Match, selected bool) {
 	base := p.theme.Text
 	if selected {
 		base = base.Merge(p.theme.Selection)
 		v.Fill(v.Bounds(), p.theme.Selection)
 	}
-	hit := base.Merge(p.theme.Accent)
-
-	next, at := 0, 0
-	for off, cluster := range text.Clusters(item) {
-		for next < len(match.At) && match.At[next] < off {
-			next++
-		}
-		style := base
-		if next < len(match.At) && match.At[next] < off+len(cluster) {
-			style = hit
-		}
-		at += v.Text(at, 0, cluster, style)
-	}
+	text.Highlight(item, match.At, base, base.Merge(p.theme.Accent)).Draw(v, 0, 0)
 }
 
 // Preview keeps navigation policy on the composition. The query's own scene

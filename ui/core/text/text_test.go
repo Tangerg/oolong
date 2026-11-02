@@ -1137,3 +1137,25 @@ func TestAdvanceComposesAtGraphemeBoundaries(t *testing.T) {
 		t.Fatalf("composed column = %d, want %d", col, want)
 	}
 }
+
+func TestHighlightPreservesGraphemeAndTabGeometry(t *testing.T) {
+	normal, matched := grid.Style{}, grid.Style{Attr: grid.Bold}
+	value := "x\te\u0301界!"
+	offsets := []int{6, -1, 4, 99}
+	line := text.Highlight(value, offsets, normal, matched)
+	if !slices.Equal(offsets, []int{6, -1, 4, 99}) || line.String() != value {
+		t.Fatalf("highlight changed its inputs: offsets=%v text=%q", offsets, line.String())
+	}
+	surface := grid.NewSurface(16, 1)
+	if got := line.Draw(surface.View(), 2, 0); got != 12 {
+		t.Fatal(got)
+	}
+	for _, at := range []int{10, 11} {
+		if cellAt(surface, at).Style != matched {
+			t.Fatalf("cluster at column %d lost its highlight", at)
+		}
+	}
+	if got := cellAt(surface, 13); got.Content() != "!" || got.Style != normal {
+		t.Fatalf("trailing cell = %+v", got)
+	}
+}

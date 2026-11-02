@@ -2,6 +2,7 @@ package base_test
 
 import (
 	"image"
+	"math"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -214,5 +215,15 @@ func TestSliderConfigurationWakesObserversWhenItChanges(t *testing.T) {
 			default:
 			}
 		})
+	}
+}
+
+func TestSliderDragClampsAnExtremeCapturedCoordinate(t *testing.T) {
+	slider := base.NewSlider(base.SliderConfig{Maximum: 10})
+	newTestRoot(&sliderTrack{control: slider, rect: image.Rect(2, 0, 8, 1)}).Draw(grid.NewSurface(8, 1).View())
+	slider.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDown, Button: input.ButtonLeft})
+	slider.Handle(input.Mouse{Pos: image.Pt(math.MinInt, 0), Action: input.MouseDrag, Button: input.ButtonLeft})
+	if slider.Value() != 0 {
+		t.Fatalf("drag beyond minimum jumped to %d", slider.Value())
 	}
 }

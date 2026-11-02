@@ -23,9 +23,9 @@ func (s *Select[T]) Reply(said string) error {
 		if err != nil {
 			return err
 		}
-		s.list.Select(at)
+		s.selectAt(at)
 		return nil
-	}, s.checkAnswer)
+	}, s.Revision, s.checkAnswer)
 }
 
 // Ask is the label and the choices, numbered, with a word about giving several.
@@ -37,8 +37,7 @@ func (m *MultiSelect[T]) Ask() string {
 // which is how a reader says they want none of them.
 func (m *MultiSelect[T]) Reply(said string) error {
 	return m.validate(func() error {
-		taken := make([]bool, len(m.list.items))
-		count := 0
+		var values []T
 		for part := range strings.SplitSeq(said, ",") {
 			if strings.TrimSpace(part) == "" {
 				continue
@@ -47,16 +46,15 @@ func (m *MultiSelect[T]) Reply(said string) error {
 			if err != nil {
 				return err
 			}
-			if !taken[at] {
-				taken[at], count = true, count+1
-			}
+			values = append(values, m.list.items[at].Value)
 		}
-		if m.limit > 0 && count > m.limit {
+		taken := m.indices(m.list.items, values)
+		if m.limit > 0 && len(taken) > m.limit {
 			return fmt.Errorf("at most %d may be chosen", m.limit)
 		}
 		m.store(taken)
 		return nil
-	}, m.checkAnswer)
+	}, m.Revision, m.checkAnswer)
 }
 
 func choices[T any](options []Option[T]) string {

@@ -5,6 +5,7 @@ package term
 import (
 	"errors"
 	"os"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -31,6 +32,9 @@ func newTerminalOutput(original *os.File) (*terminalOutput, error) {
 		if setup != nil {
 			return
 		}
+		// A concurrent Go child must not inherit the duplicate before close-on-exec is set.
+		syscall.ForkLock.RLock()
+		defer syscall.ForkLock.RUnlock()
 		fd, setup = unix.Dup(int(source))
 		if setup != nil {
 			return

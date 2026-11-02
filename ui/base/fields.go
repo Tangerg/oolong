@@ -74,15 +74,13 @@ func (t *Text) Handle(event input.Event) bool {
 func (t *Text) Do(action keymap.Action) bool { t.configureEditor(); return t.editor.Do(action) }
 
 // Validate checks one answer revision and publishes its validation receipt. A callback that supersedes the check cannot publish stale success.
-func (t *Text) Validate() error { return t.validate(nil, t.checkAnswer) }
+func (t *Text) Validate() error { return t.validate(nil, t.Revision, t.checkAnswer) }
 
-func (t *Text) checkAnswer() fieldCheck {
-	answer, revision := t.Text(), t.Revision()
-	checked := fieldCheck{current: func() bool { return t.Revision() == revision }}
-	if t.Check != nil {
-		checked.err = t.Check(answer)
+func (t *Text) checkAnswer() error {
+	if t.Check == nil {
+		return nil
 	}
-	return checked
+	return t.Check(t.Text())
 }
 
 func (t *Text) focusChanged(has bool) {
@@ -106,5 +104,5 @@ func (t *Text) Ask() string {
 
 // Reply sets and validates a spoken answer through the same document owner.
 func (t *Text) Reply(said string) error {
-	return t.validate(func() error { t.SetText(said); return nil }, t.checkAnswer)
+	return t.validate(func() error { t.SetText(said); return nil }, t.Revision, t.checkAnswer)
 }

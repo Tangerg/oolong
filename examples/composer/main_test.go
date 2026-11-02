@@ -41,7 +41,7 @@ func TestAReferenceCompletionBecomesOrdinaryPromptText(t *testing.T) {
 	host.Press(input.Tab)
 	host.Type(" explain the ownership rule")
 	host.Press(input.Enter)
-	host.Shows(t, "sent: @docs/architecture.md explain the ownership rule")
+	host.Shows(t, "sent: @docs/core/architecture.md explain the ownership rule")
 	quit(t, host, done)
 }
 
@@ -193,4 +193,16 @@ func TestHistoryDistinguishesAttachmentsWithTheSameLabel(t *testing.T) {
 			t.Fatalf("recalled payload = %q, want %q", got, want)
 		}
 	}
+}
+
+func TestMovingAwayFromAReferenceLeavesTheDraftUntouched(t *testing.T) {
+	host, done := runPrompt(t)
+	host.Shows(t, "Type @ to reference")
+	host.Type("keep @arch")
+	host.Shows(t, "ownership and layering")
+	host.Send(input.Key{Code: input.Character, Rune: 'a', Mods: input.Ctrl})
+	host.Press(input.Tab)
+	host.Press(input.Enter)
+	host.Shows(t, "sent: keep @arch")
+	quit(t, host, done)
 }

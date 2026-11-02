@@ -1,10 +1,12 @@
 package base_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 // clip stands in for a system clipboard, and can refuse the way a terminal does.
@@ -320,4 +322,34 @@ func TestShiftWithSomethingThatIsNotAMovementStillTypes(t *testing.T) {
 	if _, _, ok := e.Selection(); ok {
 		t.Error("typing a capital letter started a selection")
 	}
+}
+
+func TestMaskedEditorCannotExportTheSelectionFromAnyView(t *testing.T) {
+	session := base.NewEditSession(base.EditSessionConfig{Initial: "secret"})
+	owner := base.NewEditor(base.EditorConfig{Session: session})
+	view := base.NewEditor(base.EditorConfig{Session: session})
+	clipboard := &clip{held: "unchanged"}
+	view.Clipboard = clipboard
+	owner.SetMask("*")
+	view.SelectAll()
+	if view.Copy() || view.Cut() || clipboard.held != "unchanged" || view.Text() != "secret" {
+		t.Fatal("masked selection escaped to clipboard or was deleted")
+	}
+	owner.SetMask("")
+	if !view.Copy() || clipboard.held != "secret" {
+		t.Fatal("visible selection failed to copy")
+	}
+}
+
+func TestCopyDuringObservationNeverInvokesClipboard(t *testing.T) {
+	editor := base.NewEditor(base.EditorConfig{Initial: "private"})
+	clipboard := &clip{}
+	editor.Clipboard = clipboard
+	editor.SelectAll()
+	defer func() {
+		if err, _ := recover().(error); !errors.Is(err, scene.ErrBusy) || clipboard.held != "" {
+			t.Fatal("clipboard export was not refused during observation")
+		}
+	}()
+	editor.Element().ReadOnly(func() { editor.Copy() })
 }

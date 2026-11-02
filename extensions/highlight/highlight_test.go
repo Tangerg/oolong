@@ -123,3 +123,11 @@ func TestHighlightPreservesEverySourceRow(t *testing.T) {
 		})
 	}
 }
+
+func TestStalledLexerReturnsTheCompleteSource(t *testing.T) {
+	const source = "value ^"
+	lines := highlight.New("").Lines("jsonata", source)
+	if len(lines) != 1 || lines[0].String() != source {
+		t.Fatalf("incomplete highlighting of %q: %v", source, lines)
+	}
+}

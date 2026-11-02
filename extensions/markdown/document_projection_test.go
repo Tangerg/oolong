@@ -107,3 +107,32 @@ func TestThematicBreakProjectsDecorationWithinTheVisibleClip(t *testing.T) {
 		}
 	}
 }
+
+func TestNarrowPrefixLeavesRoomForTheBody(t *testing.T) {
+	look := markdown.Look{Glyphs: markdown.Glyphs{Bar: "|", Bullet: "-", Divider: "="}}
+	for _, tc := range []struct{ source, first string }{
+		{"> > word", "w"}, {"- code", "c"}, {"> ```\n> code\n> ```", "c"}, {"> ---", "="},
+	} {
+		var doc markdown.Doc
+		doc.SetBlocks(mustRender(t, tc.source, look))
+		surface := grid.NewSurface(1, 1)
+		doc.Draw(surface.View())
+		if first := cellAt(surface, 0, 0).Content(); first != tc.first {
+			t.Errorf("%q: drew %q, want %q", tc.source, first, tc.first)
+		}
+		rows := doc.Rows(1)
+		if len(rows) == 0 || rows[0].Offset != 0 {
+			t.Errorf("%q: no projected body in the visible column: %+v", tc.source, rows)
+		}
+	}
+}
+
+func TestEmptyTableStillBudgetsItsSeparators(t *testing.T) {
+	var doc markdown.Doc
+	doc.SetBlocks(mustRender(t, "|||\n|-|-|\n|||", markdown.Look{Glyphs: markdown.Glyphs{Bar: "|"}}))
+	for _, row := range doc.Rows(1) {
+		if row.Text != "" {
+			t.Fatalf("empty cells at width one project decoration past the edge: %q", row.Text)
+		}
+	}
+}

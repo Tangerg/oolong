@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Tangerg/oolong/examples/internal/streamtask"
 	"github.com/Tangerg/oolong/ui/base"
@@ -76,7 +77,7 @@ type agent struct {
 	reviewPane    reviewPane
 	reviewDialog  *kit.Dialog
 
-	model             string
+	model             planMode
 	run               *agentRun
 	stopClock         func()
 	stopProgressReset func()
@@ -84,8 +85,8 @@ type agent struct {
 }
 
 type commandAction struct {
-	takesArgument bool
-	run           func(string)
+	argument string
+	run      func(string)
 }
 
 func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agentBackend) (*agent, error) {
@@ -102,7 +103,7 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 		theme:   theme,
 		glyphs:  glyphs,
 		keys:    keys,
-		model:   "oolong-mock-1",
+		model:   planCareful,
 		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
 	var err error
@@ -125,6 +126,13 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 	completionKeys.Bind(base.Accept, input.Chord{Code: input.Enter})
 	a.completion = base.Completion{
 		Look: theme.Look(glyphs), Keys: completionKeys,
+		CurrentToken: func() (base.Token, bool) {
+			editor := a.composer.Controller()
+			if line, _ := editor.Cursor(); line != 0 {
+				return base.Token{}, false
+			}
+			return editor.TokenAtCursor(base.Trigger{Prefix: "/", AtStart: true})
+		},
 		Accept: func(candidate base.Candidate, token base.Token) {
 			a.composer.Controller().Replace(token.Start, token.End, candidate.Text)
 			a.completion.Dismiss()
@@ -242,7 +250,7 @@ func (a *agent) registerCommands() {
 		commandAction{run: func(string) {
 			if err := a.conversation.Append(a.scope.Context(), &kit.Entry{
 				Theme: a.theme, Label: "commands",
-				Body: "/clear — release the live transcript\n/model <fast|careful> — choose the mock plan\n/quit — leave",
+				Body: a.commandHelp(),
 			}); err != nil {
 				a.status.Doing = err.Error()
 			}
@@ -262,13 +270,13 @@ func (a *agent) registerCommands() {
 	)
 	a.commands.Add(
 		base.Command{Name: "model", Title: "choose fast or careful planning"},
-		commandAction{takesArgument: true, run: func(arg string) {
-			switch arg {
-			case "fast", "careful":
-				a.model = arg
+		commandAction{argument: planArgument, run: func(arg string) {
+			switch mode := planMode(arg); mode {
+			case planFast, planCareful:
+				a.model = mode
 				a.status.Doing = "model: " + arg
 			default:
-				a.status.Doing = "usage: /model fast|careful"
+				a.status.Doing = "usage: /model " + planArgument
 			}
 		}},
 	)
@@ -278,13 +286,26 @@ func (a *agent) registerCommands() {
 	)
 }
 
+func (a *agent) commandHelp() string {
+	var lines []string
+	for _, match := range a.commands.Find("") {
+		cmd, action, _ := a.commands.Lookup(match.Command.Name)
+		usage := "/" + cmd.Name
+		if action.argument != "" {
+			usage += " " + action.argument
+		}
+		lines = append(lines, usage+" — "+cmd.Title)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (a *agent) runCommand(name, arg string) {
 	command, action, ok := a.commands.Lookup(name)
 	if !ok || action.run == nil {
 		a.status.Doing = "unknown command: /" + name
 		return
 	}
-	if action.takesArgument && arg == "" {
+	if action.argument != "" && arg == "" {
 		a.status.Doing = "/" + command.Name + " needs an argument"
 		return
 	}
@@ -296,18 +317,15 @@ func parseCommand(line string) (name, arg string, ok bool) {
 	if !strings.HasPrefix(line, "/") {
 		return "", "", false
 	}
-	name, arg, _ = strings.Cut(strings.TrimPrefix(line, "/"), " ")
-	return name, strings.TrimSpace(arg), true
+	command := strings.TrimPrefix(line, "/")
+	if split := strings.IndexFunc(command, unicode.IsSpace); split >= 0 {
+		return command[:split], strings.TrimSpace(command[split:]), true
+	}
+	return command, "", true
 }
 
 func (a *agent) refreshCompletion() {
-	lines := strings.Split(a.composer.Controller().Text(), "\n")
-	line, column := a.composer.Controller().Cursor()
-	if line < 0 || line >= len(lines) {
-		a.completion.Dismiss()
-		return
-	}
-	token, ok := base.TokenAt(lines[line], column, base.Trigger{Prefix: "/", AtStart: true})
+	token, ok := a.completion.CurrentToken()
 	if !ok {
 		a.completion.Dismiss()
 		return
@@ -333,7 +351,8 @@ func (a *agent) startRun(prompt string) {
 	a.composer.Controller().Clear()
 	a.completion.Dismiss()
 	a.workflow.Reset()
-	a.status.Doing = "planning with " + a.model
+	request := runRequest{prompt: prompt, mode: a.model}
+	a.status.Doing = "planning with " + string(request.mode)
 	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
 	a.started = time.Now()
 	timer, err := a.runtime.Every(a.scope, 120*time.Millisecond, a.tick)
@@ -357,7 +376,7 @@ func (a *agent) startRun(prompt string) {
 	}
 
 	run.task = streamtask.Start(a.runtime.Runtime, a.scope, ingress, func(ctx context.Context) error {
-		return a.backend.Run(ctx, prompt, output)
+		return a.backend.Run(ctx, request, output)
 	})
 }
 

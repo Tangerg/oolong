@@ -71,21 +71,21 @@ func (b Block) layout(width int) blockLayout {
 	if width <= 0 {
 		return blockLayout{}
 	}
-	if b.rule != nil {
-		left := min(b.prefix.indent, width)
-		return blockLayout{rule: b.rule, left: left, width: width - left, height: 1, prefix: b.prefix}
-	}
-	if b.content == nil {
-		rows := b.wrapped(width)
-		return blockLayout{rows: rows, left: b.prefix.indent, width: width, height: len(rows), prefix: b.prefix}
-	}
-	left := min(b.prefix.indent, width)
+	// Even a deeply nested block needs a content column. Clip its furniture to
+	// the same inset used for drawing, wrapping and semantic row offsets.
+	left := min(b.prefix.indent, width-1)
 	room := width - left
-	height := 0
-	if room > 0 {
-		height = max(0, b.content.HeightForWidth(room))
+	placed := blockLayout{left: left, width: room, prefix: b.prefix}
+	switch {
+	case b.rule != nil:
+		placed.rule, placed.height = b.rule, 1
+	case b.content != nil:
+		placed.child, placed.height = b.content, max(0, b.content.HeightForWidth(room))
+	default:
+		placed.rows = b.wrapped(room)
+		placed.height = len(placed.rows)
 	}
-	return blockLayout{child: b.content, left: left, width: room, height: height, prefix: b.prefix}
+	return placed
 }
 
 // Nested blocks share the immutable quotation rails. Empty list indentation
@@ -112,10 +112,11 @@ func (p blockLayout) draw(v grid.View) {
 		p.child.Draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
 	}
 	visible := v.Visible()
+	inset := v.Sub(grid.Area(0, 0, p.left, p.height))
 	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
-		p.prefix.rails.draw(v, y)
+		p.prefix.rails.draw(inset, y)
 		if y == 0 {
-			p.prefix.markers.draw(v, y)
+			p.prefix.markers.draw(inset, y)
 		}
 		if p.rule != nil {
 			drawRule(v.Sub(grid.Area(p.left, y, p.width, 1)), *p.rule)
@@ -142,8 +143,7 @@ func (p blockLayout) project() []text.Row {
 	return rows
 }
 
-func (b Block) wrapped(width int) []text.Wrapped {
-	room := max(layout.Remaining(width, b.prefix.indent), 1)
+func (b Block) wrapped(room int) []text.Wrapped {
 	switch {
 	case b.table != nil:
 		return b.table.appendRows(nil, room)

@@ -22,6 +22,8 @@ func TestParseCommandKeepsProductSyntaxInTheApplication(t *testing.T) {
 		ok        bool
 	}{
 		{line: "/clear", name: "clear", ok: true},
+		{line: "/model\tfast", name: "model", arg: "fast", ok: true},
+		{line: "/model\u3000careful", name: "model", arg: "careful", ok: true},
 		{line: "/model gpt-5", name: "model", arg: "gpt-5", ok: true},
 		{line: "/model   spaced  out  ", name: "model", arg: "spaced  out", ok: true},
 		{line: "/", ok: true},
@@ -124,7 +126,7 @@ func TestSlashCompletionRunsTheRegisteredCommand(t *testing.T) {
 
 type waitingBackend struct{}
 
-func (waitingBackend) Run(ctx context.Context, _ string, output agentOutput) error {
+func (waitingBackend) Run(ctx context.Context, _ runRequest, output agentOutput) error {
 	if err := output.Step(ctx, stepUpdate{Index: 0, State: stepRunning}); err != nil {
 		return err
 	}
@@ -151,7 +153,7 @@ func TestCancellingSettlesTheBackgroundRun(t *testing.T) {
 
 type failedBackend struct{ err error }
 
-func (b failedBackend) Run(context.Context, string, agentOutput) error { return b.err }
+func (b failedBackend) Run(context.Context, runRequest, agentOutput) error { return b.err }
 
 func TestCancellationCannotHideABackendFailure(t *testing.T) {
 	for _, tc := range []struct {
@@ -243,7 +245,7 @@ func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
 
 type panickingBackend struct{}
 
-func (panickingBackend) Run(_ context.Context, _ string, output agentOutput) error {
+func (panickingBackend) Run(_ context.Context, _ runRequest, output agentOutput) error {
 	if _, err := io.WriteString(output, "partial response"); err != nil {
 		return err
 	}
@@ -257,4 +259,18 @@ func TestBackendPanicKeepsTheSessionAndPartialResponse(t *testing.T) {
 	host.Press(input.Enter)
 	host.Shows(t, "partial response")
 	host.Shows(t, "producer failed")
+}
+
+func TestModelCommandSelectsThePlanForTheNextRequest(t *testing.T) {
+	host, stop := runAgent(t, mockBackend{})
+	host.Shows(t, "Ask the mock agent")
+	host.Send(input.Paste{Text: "/model fast"})
+	host.Press(input.Enter)
+	host.Shows(t, "model: fast")
+	host.Type("audit")
+	host.Press(input.Enter)
+	host.Shows(t, "Review tool call")
+	host.Press(input.Enter)
+	host.Shows(t, "skipped")
+	stop()
 }

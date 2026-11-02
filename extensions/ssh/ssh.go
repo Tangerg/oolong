@@ -9,9 +9,6 @@ import (
 
 	charmssh "charm.land/ssh"
 
-	"github.com/Tangerg/oolong/ui/core/clipboard"
-	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
@@ -22,54 +19,13 @@ var (
 	// ErrWindowSize means an SSH window cannot safely describe a cell surface.
 	ErrWindowSize = errors.New("ssh: invalid PTY window size")
 	// ErrAllocatedPTY means the server gave this session a terminal of its own and
-	// is already reading the channel into it. Open needs the channel to itself.
+	// is already reading the channel into it. A host needs the channel to itself.
 	ErrAllocatedPTY = errors.New("ssh: session's PTY is allocated by the server")
 	// ErrLineFeed means a frame contained a line feed of its own, which this session
 	// cannot carry. The frame is refused whole and the session is left as it was, so
-	// what [Host] owns is still given back on the way out. See [Open].
+	// what [Host] owns is still given back on the way out. See [Terminal.Open].
 	ErrLineFeed = errors.New("ssh: the session cannot carry a line feed")
 )
-
-// Config names the already accepted channel and the modes this host owns.
-// A supplied host owns terminal setup independently of program construction.
-type Config struct {
-	Session  charmssh.Session
-	Terminal term.Config
-}
-
-// Open acquires decoder, writer and modes for an accepted SSH PTY. The caller
-// passes the resulting Host to program and closes it after Run. The surrounding
-// SSH handler retains the channel and exit status. A blocked SSH read belongs to
-// channel lifetime; after Open no other reader may consume that channel.
-func Open(cfg Config) (*Host, error) {
-	if cfg.Session == nil {
-		return nil, errors.New("ssh: session is required")
-	}
-	session := cfg.Session
-	pty, windows, ok := session.Pty()
-	if !ok {
-		return nil, ErrNoPTY
-	}
-	if !session.EmulatedPty() {
-		return nil, ErrAllocatedPTY
-	}
-	if err := validateInitialWindow(pty.Window); err != nil {
-		return nil, err
-	}
-	env := newEnvironment(session.Environ())
-	env.set("TERM", pty.Term)
-	return newHost(session.Context().Done(), exactly(session), pty.Window, windows,
-		cfg.Terminal.Modes(env.lookup), clipboard.New(env.lookup),
-		term.DetectLocale(env.lookup), term.DetectDepth(env.lookup),
-		input.WheelFor(env.lookup, "")), nil
-}
-
-func validateInitialWindow(window charmssh.Window) error {
-	if err := grid.ValidateTerminalSize(window.Width, window.Height); err != nil {
-		return fmt.Errorf("%w: %w", ErrWindowSize, err)
-	}
-	return nil
-}
 
 // environment owns a session's last value for each variable. SSH environment
 // requests are ordered, and the last request has the same meaning as the last

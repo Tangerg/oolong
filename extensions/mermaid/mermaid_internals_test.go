@@ -36,6 +36,9 @@ func TestOutputValidationAndOwnership(t *testing.T) {
 	if result.PNG()[0] == 0 || result.Size() != image.Pt(4, 3) {
 		t.Fatal("image does not own its PNG")
 	}
+	if _, err := decodePNG(append(data.Bytes(), data.Bytes()...), 12); err == nil {
+		t.Fatal("unvalidated trailing image was included in the published PNG")
+	}
 	if err := os.WriteFile(path, []byte("not png"), 0o600); err != nil {
 		t.Fatal(err)
 	}

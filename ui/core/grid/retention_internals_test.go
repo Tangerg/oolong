@@ -155,7 +155,7 @@ func TestIsolatedMarkDoesNotRetainTheCallersAllocation(t *testing.T) {
 	s.View().Text(1, 0, mark, Style{})
 	cell, _ := s.CellAt(0, 0)
 	//nolint:gosec // Allocation identity is compared without dereferencing either address.
-	if cell.content != mark || unsafe.StringData(cell.content) == unsafe.StringData(mark) {
+	if cell.content != " "+mark || unsafe.StringData(cell.content[1:]) == unsafe.StringData(mark) {
 		t.Fatal("isolated mark on a blank cell did not acquire its own storage")
 	}
 }

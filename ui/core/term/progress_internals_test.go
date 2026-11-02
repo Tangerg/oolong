@@ -194,7 +194,40 @@ func TestRefusedProgressCannotAdvancePublishedState(t *testing.T) {
 	if err := p.to(Progress{}, func([]byte) (uint64, error) { return 0, ErrQueueFull }); err == nil {
 		t.Error("refused operation reported success")
 	}
-	if got := p.leave(); got != progressClear {
-		t.Fatalf("refused clear erased an existing cleanup obligation: %q", got)
+	for range 2 {
+		if got := p.leave(); got != progressClear {
+			t.Fatalf("an unadmitted clear erased an existing cleanup obligation: %q", got)
+		}
+	}
+}
+
+func TestProgressRetriesOwedClearWithoutAnExtraKeepalive(t *testing.T) {
+	p := newTaskProgress()
+	var written []string
+	queue := func(data []byte) (uint64, error) {
+		written = append(written, string(data))
+		return uint64(len(written)), nil
+	}
+	active := Progress{State: ProgressNormal}
+	if err := p.to(active, queue); err != nil {
+		t.Fatal(err)
+	}
+	p.pause()
+	if err := p.to(Progress{}, queue); err != nil {
+		t.Fatal(err)
+	}
+	refuse := func([]byte) (uint64, error) { return 0, ErrQueueFull }
+	if err := p.restore(refuse); !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("restore = %v", err)
+	}
+	if err := p.to(Progress{}, queue); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(written, []string{active.sequence(), progressClear}) {
+		t.Fatalf("retry left progress displayed: %q", written)
+	}
+	p.repeat(queue)
+	if len(written) != 2 {
+		t.Fatalf("settled clear was repeated: %q", written)
 	}
 }

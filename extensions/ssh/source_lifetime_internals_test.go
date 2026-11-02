@@ -24,7 +24,7 @@ func (r *exitingReader) Read(data []byte) (int, error) {
 
 func TestSourceReportsAReaderExitAfterDeliveringAcceptedBytes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		source := newEventSource(t.Context().Done(), &exitingReader{prefix: "a"}, nil, nil, nil)
+		source := newEventSource(t.Context().Done(), &exitingReader{prefix: "a"}, nil, nil)
 		defer source.Close()
 		select {
 		case event := <-source.Events():
@@ -51,7 +51,7 @@ func (r panickingReader) Read([]byte) (int, error) { panic(r.cause) }
 
 func TestSSHReaderPanicEndsItsOwnSession(t *testing.T) {
 	cause := errors.New("ssh read failure")
-	source := newEventSource(t.Context().Done(), panickingReader{cause}, nil, nil, nil)
+	source := newEventSource(t.Context().Done(), panickingReader{cause}, nil, nil)
 	defer source.Close()
 	for range source.Events() {
 		t.Fatal("unexpected input after panic")

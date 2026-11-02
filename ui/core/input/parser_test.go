@@ -657,6 +657,10 @@ func TestAReportThisPackageCannotReadIsNotAKeystroke(t *testing.T) {
 		// Groups past the ones this form reads.
 		"\x1b[1;1;999999999999A",
 		"\x1b[1;1;999999999999Z",
+		"\x1b[1;1;65A",
+		"\x1b[1;1;2Z",
+		"\x1b[3;5;1~",
+		"\x1b[3:1~",
 		// A subparameter of the group that names the key.
 		"\x1b[3:999999999999~",
 	} {

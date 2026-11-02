@@ -9,6 +9,19 @@ import (
 	"github.com/Tangerg/oolong/ui/core/program"
 )
 
+type planMode string
+
+const (
+	planFast     planMode = "fast"
+	planCareful  planMode = "careful"
+	planArgument          = "<" + string(planFast) + "|" + string(planCareful) + ">"
+)
+
+type runRequest struct {
+	prompt string
+	mode   planMode
+}
+
 type stepState uint8
 
 const (
@@ -38,7 +51,7 @@ type toolResult struct {
 // review, but nothing about terminal frames, components or the owner goroutine.
 // Bare context.Canceled reports cancellation; every other error retains its diagnostics.
 type agentBackend interface {
-	Run(ctx context.Context, prompt string, output agentOutput) error
+	Run(ctx context.Context, request runRequest, output agentOutput) error
 }
 
 // agentOutput is the complete conversation one backend run may have with its owner.
@@ -53,15 +66,19 @@ type agentOutput interface {
 
 type mockBackend struct{ delay time.Duration }
 
-func (m mockBackend) Run(ctx context.Context, prompt string, output agentOutput) error {
+func (m mockBackend) Run(ctx context.Context, request runRequest, output agentOutput) error {
 	run := &script{backend: m, output: output}
 	run.step(ctx, 0, stepRunning)
-	run.say(ctx, "# Working plan\n\nI\u2019ll inspect the parser boundary for **"+clip(prompt)+"**.\n\n")
+	run.say(ctx, "# Working plan\n\nI\u2019ll inspect the parser boundary for **"+clip(request.prompt)+"**.\n\n")
 	run.step(ctx, 0, stepDone)
 
-	run.step(ctx, 1, stepRunning)
-	run.say(ctx, "The behavior is correct, but the validation and state transition are split across two functions. I can make the parser own that invariant.\n\n")
-	run.step(ctx, 1, stepDone)
+	if request.mode == planFast {
+		run.step(ctx, 1, stepSkipped)
+	} else {
+		run.step(ctx, 1, stepRunning)
+		run.say(ctx, "The behavior is correct, but the validation and state transition are split across two functions. I can make the parser own that invariant.\n\n")
+		run.step(ctx, 1, stepDone)
+	}
 
 	proposal := parserProposal()
 	run.step(ctx, 2, stepRunning)

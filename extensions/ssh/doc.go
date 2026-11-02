@@ -1,13 +1,16 @@
-// Package ssh runs an Oolong program on an accepted SSH terminal session.
+// Package ssh runs an Oolong program on a terminal accepted by a charm.land/ssh server.
 //
-// It is a transport adapter, not an SSH server. Authentication, host keys,
-// listening, connection limits and command routing remain with the application and
-// [charm.land/ssh]. Open takes the session only after that policy has accepted it,
-// and joins its byte stream and PTY window changes into the ordinary program host
-// contract. The caller supplies the returned Host to program.NewScreen or
-// program.NewInline, then closes it after the application has stopped.
+// Install an [Adapter] in the vacant PTY slot with server.SetOption(adapter.Install)
+// as the final PTY configuration step before Serve.
+// A zero Adapter uses emulation. Supply a custom allocator with [NewAdapter]
+// and [AdapterConfig]. The adapter starts collecting window changes
+// when the server accepts a PTY request. A client can resize before asking for
+// a shell; waiting until the shell handler to collect windows can block that request.
 //
-// Core does not know this package exists. Programs and components therefore behave
-// the same on a local terminal and over SSH, while applications that do not serve
-// SSH do not acquire its dependency tree.
+// In each shell, exec or subsystem handler, pass the original session to
+// [Adapter.Bind]. Use [Terminal.Open] on the returned handle once application policy
+// has accepted the session. Only then are input and terminal modes acquired.
+// Supply the resulting [Host] to program.NewScreen or program.NewInline and
+// close it after Run. Authentication, routing, channel lifetime and exit status
+// remain with the application.
 package ssh

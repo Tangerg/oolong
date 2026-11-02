@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+### Breaking API migration
+
+#### extensions/ssh
+
+- Replace `ssh.Open` and `ssh.Config` with a server-scoped `ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. The zero adapter uses emulation. For a custom allocator use `ssh.NewAdapter(ssh.AdapterConfig{Allocate: allocator})`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. The PTY request now owns window intake from acceptance through channel teardown. Each channel can open one host.
+
+### Changed
+
+- An editor with a masked document refuses clipboard copy and cut from every view sharing that document. A refused cut preserves the selection and its contents.
+- Multi-select options that compare equal under `Same` share one selection and one place in the selection limit. `Taken` returns the first matching option in option order.
+- Completion providers can bind `Completion.CurrentToken` to `Editor.TokenAtCursor` to make an offer unavailable after the caret leaves its original token. `Token.Line` identifies the logical editor line. External unkeyed token literals must name their fields or use the token constructors.
+- The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
+
 ## [ui/v0.26.0] — 2026-11-01
 
 ### Added

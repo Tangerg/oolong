@@ -137,13 +137,14 @@ func (f *field) Error() error {
 // Validation returns a receipt whose validity belongs to this field's checked answer.
 func (f *field) Validation() func() bool {
 	checked := f.checked
-	if checked.current == nil || checked.validation != f.validation || !checked.current() {
+	if !checked.validated || checked.validation != f.validation || !checked.current() {
 		return nil
 	}
 	return func() bool { return checked.validation == f.validation && checked.current() }
 }
 
 type fieldCheck struct {
+	validated  bool
 	err        error
 	current    func() bool
 	validation uint64
@@ -202,7 +203,7 @@ type fieldPresentation struct {
 	visible image.Rectangle
 }
 
-func (f *field) validate(prepare func() error, check func() fieldCheck) error {
+func (f *field) validate(prepare func() error, revision func() uint64, check func() error) error {
 	requireMutable(f.element)
 	f.validation++
 	turn := f.validation
@@ -216,12 +217,15 @@ func (f *field) validate(prepare func() error, check func() fieldCheck) error {
 	if errors.Is(err, ErrReplyUnavailable) {
 		return err
 	}
-	checked := fieldCheck{err: err, validation: turn}
-	if err == nil {
-		checked = check()
-		checked.validation = turn
+	version := revision()
+	checked := fieldCheck{
+		err: err, validated: err == nil, validation: turn,
+		current: func() bool { return revision() == version },
 	}
-	if turn != f.validation || errors.Is(checked.err, ErrValidationSuperseded) || checked.current != nil && !checked.current() {
+	if checked.validated {
+		checked.err = check()
+	}
+	if turn != f.validation || errors.Is(checked.err, ErrValidationSuperseded) || !checked.current() {
 		return ErrValidationSuperseded
 	}
 	f.checked = checked

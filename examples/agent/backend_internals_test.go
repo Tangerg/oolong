@@ -128,7 +128,7 @@ func TestBridgeKeepsRunIdentityWithTheApplication(t *testing.T) {
 
 type captureRuns struct{ started chan *agentBridge }
 
-func (b captureRuns) Run(ctx context.Context, _ string, output agentOutput) error {
+func (b captureRuns) Run(ctx context.Context, _ runRequest, output agentOutput) error {
 	b.started <- output.(*agentBridge)
 	<-ctx.Done()
 	return context.Cause(ctx)

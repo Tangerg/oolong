@@ -131,8 +131,15 @@ func codePoint(cp int) (rune, bool) {
 // modifiedKey is code with the modifiers the sequence carried, or nil when the
 // sequence names a key of its own as well — one keystroke has one name.
 func (ps params) modifiedKey(code Code, extra Mods) Event {
+	if !ps.namesNoKey() {
+		return nil
+	}
+	return ps.functionalKey(code, extra)
+}
+
+func (ps params) functionalKey(code Code, extra Mods) Event {
 	mods, transition, ok := ps.keyMeta()
-	if !ok || !ps.namesNoKey() {
+	if !ok || ps.Len() > 2 {
 		return nil
 	}
 	return Key{Code: code, Mods: mods | extra, Transition: transition}

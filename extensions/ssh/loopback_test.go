@@ -1,12 +1,13 @@
 package ssh_test
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"net"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -31,40 +32,21 @@ import (
 // the bytes it wrote. Nothing short of an accepted connection demonstrates any of
 // them — a stand-in session answers whatever it was told to.
 
-// recorded is a session that keeps what was written through it, and is otherwise
-// the session it was given. It stands in for nothing: every call reaches the real
-// session, and what it records is the argument the transport was handed.
-type recorded struct {
-	charmssh.Session
-	mu   sync.Mutex
-	sent []byte
-}
-
-func (r *recorded) Write(p []byte) (int, error) {
-	r.mu.Lock()
-	r.sent = append(r.sent, p...)
-	r.mu.Unlock()
-	return r.Session.Write(p)
-}
-
-func (r *recorded) written() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return string(r.sent)
-}
-
-func serve(t *testing.T, run func(charmssh.Session), options ...charmssh.Option) *gossh.Session {
+func serveClient(t *testing.T, adapter *ssh.Adapter, run func(*ssh.Adapter, charmssh.Session), options ...charmssh.Option) *gossh.Client {
 	t.Helper()
 	var listen net.ListenConfig
 	listener, err := listen.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &charmssh.Server{Handler: run}
+	server := &charmssh.Server{Handler: func(s charmssh.Session) { run(adapter, s) }}
 	for _, option := range options {
 		if optionErr := option(server); optionErr != nil {
 			t.Fatal(optionErr)
 		}
+	}
+	if installErr := server.SetOption(adapter.Install); installErr != nil {
+		t.Fatal(installErr)
 	}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
@@ -81,12 +63,22 @@ func serve(t *testing.T, run func(charmssh.Session), options ...charmssh.Option)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+func serve(t *testing.T, run func(*ssh.Adapter, charmssh.Session)) *gossh.Session {
+	t.Helper()
+	return requestSession(t, serveClient(t, new(ssh.Adapter), run), 24, 80)
+}
+
+func requestSession(t *testing.T, client *gossh.Client, rows, cols int) *gossh.Session {
+	t.Helper()
 	session, err := client.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
-	if err := session.RequestPty("xterm-256color", 24, 80, gossh.TerminalModes{}); err != nil {
+	if err := session.RequestPty("xterm-256color", rows, cols, gossh.TerminalModes{}); err != nil {
 		t.Fatal(err)
 	}
 	return session
@@ -116,8 +108,8 @@ func (r keyReader) Handle(event input.Event) bool {
 func TestAKeystrokeReachesTheProgramOverARealSession(t *testing.T) {
 	keys := make(chan input.Key, 1)
 	done := make(chan error, 1)
-	client := serve(t, func(session charmssh.Session) {
-		done <- runSSHFixture(session, program.ScreenConfig{
+	client := serve(t, func(adapter *ssh.Adapter, session charmssh.Session) {
+		done <- runSSHFixture(adapter, session, program.ScreenConfig{
 			Build: func(runtime *program.Runtime) (scene.Element, error) {
 				return fixtureElement(keyReader{runtime: runtime, keys: keys}), nil
 			},
@@ -172,8 +164,8 @@ func (*resizeReader) Handle(input.Event) bool { return false }
 func TestAWindowChangeReachesTheProgramOverARealSession(t *testing.T) {
 	sizes := make(chan [2]int, 1)
 	done := make(chan error, 1)
-	client := serve(t, func(session charmssh.Session) {
-		done <- runSSHFixture(session, program.ScreenConfig{
+	client := serve(t, func(adapter *ssh.Adapter, session charmssh.Session) {
+		done <- runSSHFixture(adapter, session, program.ScreenConfig{
 			Build: func(runtime *program.Runtime) (scene.Element, error) {
 				return fixtureElement(&resizeReader{runtime: runtime, sizes: sizes}), nil
 			},
@@ -263,51 +255,37 @@ func (movingPainter) Paint(w io.Writer, _ image.Point) error {
 func (movingPainter) Erase(io.Writer) error { return nil }
 
 func TestAFrameReachesTheClientAsTheBytesItWasWritten(t *testing.T) {
-	// The server's default handling emulates the terminal, and the emulation is a
-	// writer: it turns a line feed into a carriage return and a line feed. A frame is
-	// exact bytes, so what is compared is what the transport was handed against what
-	// the client received — and not the shape of what arrived, which a rewritten
-	// frame satisfies just as well as an untouched one.
+	const frame = "top\r\nbottom\x1b7\x1b[BX\x1b8"
+	cfg := term.Config{AltScreen: true}
 	done := make(chan error, 1)
-	var session *recorded
-	client := serve(t, func(accepted charmssh.Session) {
-		session = &recorded{Session: accepted}
-		done <- runSSHFixture(session, program.ScreenConfig{
-			Build: func(runtime *program.Runtime) (scene.Element, error) {
-				return fixtureElement(&canvas{runtime: runtime, paint: movingPainter{}}), nil
-			},
-		})
+	client := serve(t, func(adapter *ssh.Adapter, session charmssh.Session) {
+		terminal, err := adapter.Bind(session)
+		if err != nil {
+			done <- err
+			return
+		}
+		host, err := terminal.Open(cfg)
+		if err != nil {
+			done <- err
+			return
+		}
+		_, err = host.Writer().Queue([]byte(frame))
+		done <- errors.Join(err, host.Close())
 	})
-	out, err := client.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
+	var output bytes.Buffer
+	client.Stdout = &output
 	if err := client.Shell(); err != nil {
 		t.Fatal(err)
 	}
-	received := make(chan string, 1)
-	go func() {
-		all, _ := io.ReadAll(out)
-		received <- string(all)
-	}()
-
 	if err := <-done; err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatal(err)
 	}
-	var got string
-	select {
-	case got = <-received:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the client never saw the session end")
+	if err := client.Wait(); err != nil {
+		t.Fatal(err)
 	}
-	if sent := session.written(); got != sent {
-		t.Fatalf("the client received %d bytes and the session was handed %d:\n got %q\nsent %q",
-			len(got), len(sent), got, sent)
-	}
-	for _, want := range []string{"top", "bottom", "\x1b7\x1b[BX\x1b8"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("the client received %q, without %q", got, want)
-		}
+	modes := cfg.Modes(nil)
+	if got, want := output.String(), modes.Enter()+frame+modes.Leave(); got != want {
+		t.Fatalf("client received %q, want %q", got, want)
 	}
 }
 
@@ -334,15 +312,15 @@ func TestAFrameTheSessionCannotCarryIsRefusedRatherThanRewritten(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			done := make(chan error, 1)
-			var session *recorded
-			client := serve(t, func(accepted charmssh.Session) {
-				session = &recorded{Session: accepted}
-				done <- runSSHFixture(session, program.ScreenConfig{
+			client := serve(t, func(adapter *ssh.Adapter, session charmssh.Session) {
+				done <- runSSHFixture(adapter, session, program.ScreenConfig{
 					Terminal: features, Build: func(runtime *program.Runtime) (scene.Element, error) {
 						return fixtureElement(&canvas{runtime: runtime, paint: test.paint}), nil
 					},
 				})
 			})
+			var output bytes.Buffer
+			client.Stdout = &output
 			if err := client.Shell(); err != nil {
 				t.Fatal(err)
 			}
@@ -358,7 +336,13 @@ func TestAFrameTheSessionCannotCarryIsRefusedRatherThanRewritten(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				t.Fatal("the frame was neither sent nor refused")
 			}
-			sent := session.written()
+			if err := client.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			sent := output.String()
+			if !test.refused && (!strings.Contains(sent, "top") || !strings.Contains(sent, "bottom") || !strings.Contains(sent, "\x1b7\x1b[BX\x1b8")) {
+				t.Fatalf("client did not receive the composed frame: %q", sent)
+			}
 			if test.refused && strings.Contains(sent, "\x1b7") {
 				t.Fatalf("the refused frame was handed to the session anyway: %q", sent)
 			}
@@ -376,14 +360,19 @@ func TestRunRefusesAServerThatAllocatedTheTerminal(t *testing.T) {
 	// charm.land/ssh's AllocatePty starts copying the channel into that terminal, and
 	// draining its window changes, before the handler runs. Refusing is the only
 	// honest answer: the keystroke that went to the other reader is gone.
+	allocator := new(charmssh.Server)
+	if err := allocator.SetOption(charmssh.AllocatePty()); err != nil {
+		t.Fatal(err)
+	}
+	adapter := ssh.NewAdapter(ssh.AdapterConfig{Allocate: allocator.PtyHandler})
 	done := make(chan error, 1)
-	client := serve(t, func(session charmssh.Session) {
-		done <- runSSHFixture(session, program.ScreenConfig{
+	client := requestSession(t, serveClient(t, adapter, func(adapter *ssh.Adapter, session charmssh.Session) {
+		done <- runSSHFixture(adapter, session, program.ScreenConfig{
 			Build: func(runtime *program.Runtime) (scene.Element, error) {
 				return fixtureElement(keyReader{runtime: runtime, keys: make(chan input.Key, 1)}), nil
 			},
 		})
-	}, charmssh.AllocatePty())
+	}), 24, 80)
 	if err := client.Shell(); err != nil {
 		t.Fatal(err)
 	}
@@ -394,5 +383,189 @@ func TestRunRefusesAServerThatAllocatedTheTerminal(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run neither refused the session nor returned")
+	}
+}
+
+func awaitSSH[T any](t *testing.T, result <-chan T) T {
+	t.Helper()
+	select {
+	case value := <-result:
+		return value
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the SSH session")
+		var zero T
+		return zero
+	}
+}
+
+// An acknowledgement on this channel follows every earlier window-change on it.
+func synchronizeRequests(t *testing.T, session *gossh.Session) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := session.SendRequest("oolong-test-barrier", true, nil)
+		done <- err
+	}()
+	if err := awaitSSH(t, done); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResizesBeforeShellAndDuringHandlerSetup(t *testing.T) {
+	for _, phase := range []string{"before shell", "during handler setup"} {
+		t.Run(phase, func(t *testing.T) {
+			entered := make(chan struct{})
+			open := make(chan struct{})
+			done := make(chan error, 1)
+			sizes := make(chan [2]int, 1)
+			client := serve(t, func(adapter *ssh.Adapter, session charmssh.Session) {
+				close(entered)
+				select {
+				case <-open:
+				case <-session.Context().Done():
+					return
+				}
+				done <- runSSHFixture(adapter, session, program.ScreenConfig{
+					Build: func(rt *program.Runtime) (scene.Element, error) {
+						return fixtureElement(&resizeReader{runtime: rt, sizes: sizes}), nil
+					},
+				})
+			})
+			if _, err := client.StdinPipe(); err != nil {
+				t.Fatal(err)
+			}
+			if phase == "during handler setup" {
+				if err := client.Shell(); err != nil {
+					t.Fatal(err)
+				}
+				awaitSSH(t, entered)
+			}
+			for _, columns := range []int{81, 95, 100} {
+				if err := client.WindowChange(30, columns); err != nil {
+					t.Fatal(err)
+				}
+			}
+			synchronizeRequests(t, client)
+			if phase == "before shell" {
+				if err := client.Shell(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			close(open)
+			if got := awaitSSH(t, sizes); got != [2]int{100, 30} {
+				t.Fatalf("painted size = %v", got)
+			}
+			if err := awaitSSH(t, done); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestSessionClaimsAreIndependentOnOneConnection(t *testing.T) {
+	done := make(chan error, 2)
+	client := serveClient(t, new(ssh.Adapter), func(adapter *ssh.Adapter, session charmssh.Session) {
+		terminal, err := adapter.Bind(session)
+		if err != nil {
+			done <- err
+			return
+		}
+		host, err := terminal.Open(term.Config{})
+		if err != nil {
+			done <- err
+			return
+		}
+		w, h, sizeErr := host.Size()
+		_, writeErr := host.Writer().Queue(fmt.Appendf(nil, "window=%dx%d", w, h))
+		var claimErr error
+		copied := *terminal
+		if second, openErr := copied.Open(term.Config{}); openErr == nil {
+			claimErr = errors.Join(errors.New("opened the same terminal twice"), second.Close())
+		}
+		done <- errors.Join(sizeErr, writeErr, claimErr, host.Close())
+	})
+	// A channel with a granted PTY may end without ever starting a shell.
+	dropped := requestSession(t, client, 15, 70)
+	if err := dropped.Close(); err != nil {
+		t.Fatal(err)
+	}
+	first := requestSession(t, client, 20, 82)
+	second := requestSession(t, client, 30, 103)
+	var outputs [2]bytes.Buffer
+	for i, session := range []*gossh.Session{first, second} {
+		session.Stdout = &outputs[i]
+		if err := session.Shell(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, session := range []*gossh.Session{first, second} {
+		if err := awaitSSH(t, done); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Wait(); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"window=82x20", "window=103x30"}[i]
+		if got := outputs[i].String(); !strings.Contains(got, want) {
+			t.Fatalf("session %d got %q, want %s", i, got, want)
+		}
+	}
+}
+
+func TestInvalidPreShellResizeStillDrainsTheSSHRequestLoop(t *testing.T) {
+	done := make(chan error, 1)
+	client := serve(t, func(adapter *ssh.Adapter, session charmssh.Session) {
+		terminal, err := adapter.Bind(session)
+		if err == nil {
+			host, openErr := terminal.Open(term.Config{})
+			err = openErr
+			if err == nil {
+				source := host.Input()
+				for range source.Events() {
+				}
+				err = errors.Join(source.Err(), host.Close())
+			}
+		}
+		done <- err
+	})
+	if _, err := client.StdinPipe(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.WindowChange(2, grid.MaxTerminalCells); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		if err := client.WindowChange(24, 90); err != nil {
+			t.Fatal(err)
+		}
+	}
+	synchronizeRequests(t, client)
+	if err := client.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	if err := awaitSSH(t, done); !errors.Is(err, ssh.ErrWindowSize) {
+		t.Fatalf("invalid resize outcome = %v", err)
+	}
+}
+
+func TestRejectedPTYCannotBeBoundByTheHandler(t *testing.T) {
+	done := make(chan error, 1)
+	client := serveClient(t, new(ssh.Adapter), func(adapter *ssh.Adapter, session charmssh.Session) {
+		_, err := adapter.Bind(session)
+		done <- err
+	}, charmssh.NoPty())
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	if err := session.RequestPty("xterm", 24, 80, nil); err == nil {
+		t.Fatal("a request denied by the PTY policy was accepted")
+	}
+	if err := session.Shell(); err != nil {
+		t.Fatal(err)
+	}
+	if err := awaitSSH(t, done); !errors.Is(err, ssh.ErrNoPTY) {
+		t.Fatalf("rejected PTY = %v", err)
 	}
 }

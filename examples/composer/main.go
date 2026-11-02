@@ -78,7 +78,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		}),
 		references: []reference{
 			{name: "README.md", detail: "project introduction"},
-			{name: "docs/architecture.md", detail: "ownership and layering"},
+			{name: "docs/core/architecture.md", detail: "ownership and layering"},
 			{name: "ui/core/program", detail: "runtime and ingress"},
 			{name: "ui/base", detail: "behavior without appearance"},
 		},
@@ -94,6 +94,9 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	p.composer.Controller().Clipboard = runtime.Clipboard()
 	p.completion = base.Completion{
 		Look: theme.Look(glyphs), MaxRows: 5,
+		CurrentToken: func() (base.Token, bool) {
+			return p.composer.Controller().TokenAtCursor(base.Trigger{Prefix: "@"})
+		},
 		Accept: func(candidate base.Candidate, token base.Token) {
 			p.composer.Controller().Replace(token.Start, token.End, candidate.Text)
 			p.completion.Dismiss()
@@ -347,12 +350,7 @@ func (p *prompt) submit() {
 }
 
 func (p *prompt) refreshCompletion() {
-	line, column := p.composer.Controller().Cursor()
-	if line != 0 {
-		p.completion.Dismiss()
-		return
-	}
-	token, ok := base.TokenAt(p.composer.Controller().Text(), column, base.Trigger{Prefix: "@"})
+	token, ok := p.completion.CurrentToken()
 	if !ok {
 		p.completion.Dismiss()
 		return

@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	charmssh "charm.land/ssh"
-
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/deadline"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -30,17 +28,13 @@ type eventSource struct {
 	cancelled <-chan struct{}
 	in        io.Reader
 
-	windows <-chan charmssh.Window
-	resize  func(charmssh.Window) (input.Resize, bool, error)
+	windows *windowFeed
 	clip    *clipboard.Channel
 
-	events     chan input.Event
-	raw        chan readResult
-	resized    chan input.Resize
-	resizeErr  chan error
-	stop       chan struct{}
-	done       chan struct{}
-	resizeDone chan struct{}
+	events chan input.Event
+	raw    chan readResult
+	stop   chan struct{}
+	done   chan struct{}
 
 	closeOnce sync.Once
 	err       error
@@ -49,26 +43,20 @@ type eventSource struct {
 func newEventSource(
 	cancelled <-chan struct{},
 	in io.Reader,
-	windows <-chan charmssh.Window,
-	resize func(charmssh.Window) (input.Resize, bool, error),
+	windows *windowFeed,
 	clip *clipboard.Channel,
 ) *eventSource {
 	s := &eventSource{
-		cancelled:  cancelled,
-		in:         in,
-		windows:    windows,
-		resize:     resize,
-		clip:       clip,
-		events:     make(chan input.Event),
-		raw:        make(chan readResult, 4),
-		resized:    make(chan input.Resize, 1),
-		resizeErr:  make(chan error, 1),
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
-		resizeDone: make(chan struct{}),
+		cancelled: cancelled,
+		in:        in,
+		windows:   windows,
+		clip:      clip,
+		events:    make(chan input.Event),
+		raw:       make(chan readResult, 4),
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 	go s.readInput()
-	go s.watchWindows()
 	go s.run()
 	return s
 }
@@ -85,7 +73,7 @@ func (s *eventSource) Err() error { return s.err }
 // an SSH channel, which has no deadline and belongs to the caller, so waiting for
 // it would mean waiting for the client to send something or disconnect. It begins no
 // further read once this returns — see [eventSource.readInput] — and the one already
-// in flight ends with the channel. This is why [Open] requires exclusive use of
+// in flight ends with the channel. This is why [Terminal.Open] requires exclusive use of
 // session input for the remaining channel lifetime.
 func (s *eventSource) Close() {
 	s.stopIntake()
@@ -185,63 +173,17 @@ func (s *eventSource) ending() bool {
 	}
 }
 
-func (s *eventSource) watchWindows() {
-	defer close(s.resizeDone)
-	for {
-		select {
-		case window, ok := <-s.windows:
-			if !ok {
-				return
-			}
-			resized, changed, err := s.resize(window)
-			if err != nil {
-				select {
-				case s.resizeErr <- err:
-				case <-s.stop:
-				case <-s.cancelled:
-				}
-				return
-			}
-			if changed {
-				s.postResize(resized)
-			}
-		case <-s.stop:
-			return
-		case <-s.cancelled:
-			return
-		}
-	}
-}
-
-func (s *eventSource) postResize(resized input.Resize) {
-	select {
-	case s.resized <- resized:
-		return
-	default:
-	}
-	select {
-	case <-s.resized:
-	default:
-	}
-	select {
-	case s.resized <- resized:
-	case <-s.stop:
-	case <-s.cancelled:
-	}
-}
-
 // run decodes the accepted session's bytes. How an escape is settled by time and how
 // a clipboard answer becomes a paste belong to [input.Stream]; what is left here is
 // this transport's own — which channels carry what, and when the session is over.
 func (s *eventSource) run() {
 	defer close(s.done)
 	defer close(s.events)
-	defer func() {
-		// A terminal read or resize failure ends the other feed as well. A read
-		// already blocked on the caller's SSH channel may still outlive us.
-		s.stopIntake()
-		<-s.resizeDone
-	}()
+	defer s.stopIntake()
+	var resized <-chan input.Resize
+	if s.windows != nil {
+		resized = s.windows.events
+	}
 	stream := input.NewStream(input.StreamConfig{Clipboard: s.clip})
 
 	due := deadline.NewTimer()
@@ -258,13 +200,14 @@ func (s *eventSource) run() {
 			if !s.drainRaw(stream) || !s.deliver(stream.Expire(time.Now())) {
 				return
 			}
-		case resized := <-s.resized:
-			if !s.deliver([]input.Event{resized}) {
+		case size, ok := <-resized:
+			if !ok {
+				s.err = s.windows.result()
 				return
 			}
-		case err := <-s.resizeErr:
-			s.err = err
-			return
+			if !s.deliver([]input.Event{size}) {
+				return
+			}
 		case <-s.stop:
 			return
 		case <-s.cancelled:

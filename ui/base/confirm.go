@@ -89,7 +89,8 @@ func (c *Confirm) DrawWith(v scene.Frame, look Look) {
 			style = look.Selection.Merge(look.Accent)
 		}
 		if mark, width := look.mark(yes == answer); width > 0 {
-			x = layout.Sum(x, row.Text(x, 0, mark, style), 1)
+			row.Text(x, 0, mark, style)
+			x = layout.Sum(x, width)
 		}
 		x = layout.Sum(x, row.Text(x, 0, c.word(yes), style))
 		x = layout.Sum(x, row.Text(x, 0, "  ", look.Text))
@@ -134,17 +135,14 @@ func (c *Confirm) Do(action keymap.Action) bool {
 
 // Validate checks the answer.
 func (c *Confirm) Validate() error {
-	return c.validate(nil, c.checkAnswer)
+	return c.validate(nil, c.Revision, c.checkAnswer)
 }
 
-func (c *Confirm) checkAnswer() fieldCheck {
-	snapshot := c.Snapshot()
-	answer, revision := snapshot.Value, snapshot.Revision
-	checked := fieldCheck{current: func() bool { return c.Revision() == revision }}
-	if c.Check != nil {
-		checked.err = c.Check(answer)
+func (c *Confirm) checkAnswer() error {
+	if c.Check == nil {
+		return nil
 	}
-	return checked
+	return c.Check(c.Answer())
 }
 
 // Focus takes the keyboard or gives it up, and checks the answer on the way out.
@@ -205,7 +203,7 @@ func (c *Confirm) Reply(said string) error {
 			return ErrValidationSuperseded
 		}
 		return nil
-	}, c.checkAnswer)
+	}, c.Revision, c.checkAnswer)
 }
 
 // Revision identifies a semantic value version; view-only navigation does not change it.

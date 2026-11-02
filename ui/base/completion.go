@@ -24,6 +24,8 @@ type Trigger struct {
 
 // Token is the run of text a completion is being offered for.
 type Token struct {
+	// Line distinguishes identical ranges in a multiline editor. TokenAt reads one line.
+	Line int
 	// Start and End are the byte range in the line that accepting a candidate
 	// replaces: everything after the prefix, through the end of the token. The prefix
 	// itself stays where it is — it is what the user typed to ask for the completion,
@@ -106,6 +108,19 @@ func tokenEnd(line string, start int) int {
 	return len(line)
 }
 
+// TokenAtCursor reads the token on the current line. Masked text cannot be offered to a completion provider.
+func (e *Editor) TokenAtCursor(triggers ...Trigger) (Token, bool) {
+	lines := e.document().lines
+	if e.Mask() != "" || e.line < 0 || e.line >= len(lines) {
+		return Token{}, false
+	}
+	token, ok := TokenAt(lines[e.line], e.col, triggers...)
+	if ok {
+		token.Line = e.line
+	}
+	return token, ok
+}
+
 // Candidate is one thing a completion offers.
 type Candidate struct {
 	Text string
@@ -145,6 +160,9 @@ type Completion struct {
 	noCopy  noCopy
 
 	Look Look
+	// CurrentToken ties an offer to a live editing position. Cursor movement alone
+	// can invalidate it without an edit-session notification. The query must be pure.
+	CurrentToken func() (Token, bool)
 	// Renderer owns the one-row layout and its intrinsic width. Nil uses
 	// DefaultCompletionRenderer. Callbacks must be observationally pure.
 	Renderer CompletionRenderer
@@ -209,10 +227,27 @@ func (c *Completion) Dismiss() bool {
 
 // Open reports whether anything is being offered, which is what tells the interface
 // around it to make room and to offer it keys first.
-func (c *Completion) Open() bool { return c.list.Len() > 0 }
+func (c *Completion) Open() bool {
+	return c.list.Len() != 0 && c.valid(c.token)
+}
+
+func (c *Completion) valid(offered Token) bool {
+	if c.CurrentToken == nil {
+		return true
+	}
+	return readProjection(c.Element(), func() bool {
+		token, ok := c.CurrentToken()
+		return ok && token == offered
+	})
+}
 
 // Token is what is being completed, and whether anything is.
-func (c *Completion) Token() (Token, bool) { return c.token, c.Open() }
+func (c *Completion) Token() (Token, bool) {
+	if c.Open() {
+		return c.token, true
+	}
+	return Token{}, false
+}
 
 // Current is a snapshot of the candidate under the cursor, and whether there is one.
 func (c *Completion) Current() (Candidate, bool) {
@@ -295,6 +330,9 @@ func (c *Completion) acceptCurrent() (scene.ActionResult[Candidate], bool) {
 	if !c.Dismiss() {
 		return scene.ActionResult[Candidate]{}, true
 	}
+	if !c.valid(token) {
+		return scene.ActionResult[Candidate]{}, true
+	}
 	accept(candidate.snapshot(), token)
 	return scene.ActionResult[Candidate]{State: scene.Applied, Value: candidate}, true
 }
@@ -310,6 +348,9 @@ func (c *Completion) HeightForWidth(int) int {
 // Width is how wide the widest row wants to be, so a caller sizing a layer around it
 // does not have to measure the candidates itself.
 func (c *Completion) Width() int {
+	if !c.Open() {
+		return 0
+	}
 	widest := 0
 	renderer := c.renderer()
 	c.Element().ReadOnly(func() {
@@ -377,7 +418,8 @@ func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selec
 		base = base.Merge(look.Selection)
 		v.Fill(v.Bounds(), base)
 	}
-	at := drawMatched(v, candidate.shown(), candidate.Matched, base, look.Accent)
+	label := text.Highlight(candidate.shown(), candidate.Matched, base, base.Merge(look.Accent))
+	at := label.Draw(v, 0, 0)
 
 	if candidate.Detail == "" {
 		return
@@ -389,23 +431,6 @@ func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selec
 	}
 	v.Text(width-min(room, text.Width(candidate.Detail)), 0,
 		text.Truncate(candidate.Detail, room, look.Ellipsis), detail)
-}
-
-// Match offsets can fall inside a grapheme; emphasize the containing cluster rather than only its start.
-func drawMatched(v grid.View, label string, matched []int, base, accent grid.Style) int {
-	hit := base.Merge(accent)
-	next, at := 0, 0
-	for off, cluster := range text.Clusters(label) {
-		for next < len(matched) && matched[next] < off {
-			next++
-		}
-		style := base
-		if next < len(matched) && matched[next] < layout.Sum(off, len(cluster)) {
-			style = hit
-		}
-		at = layout.Sum(at, v.Text(at, 0, cluster, style))
-	}
-	return at
 }
 
 func (c *Completion) rows() int {

@@ -36,6 +36,7 @@ var renderingCallbacks = map[string]callbackRule{
 	"ui/kit:ButtonConfig.Activate":        {callbackEvent, "the skin supplies activation policy to its single base action"},
 	"ui/kit:ButtonConfig.Availability":    {callbackProjection, "the skin shares the base action's pure eligibility policy"},
 	"ui/base:Completion.Accept":           {callbackEvent, "acceptance follows an input action after the completion closes"},
+	"ui/base:Completion.CurrentToken":     {callbackProjection, "offer eligibility reads the current editor position without advancing it"},
 	"ui/base:Confirm.Check":               {callbackEvent, "validation follows an answer change or form submission"},
 	"ui/base:Filter.Row":                  {callbackProjection, "a matched row paints only its assigned frame"},
 	"ui/base:Filter.text":                 {callbackSemantic, "item text is read while the filter model is rebuilt"},

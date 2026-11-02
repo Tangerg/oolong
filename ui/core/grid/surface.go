@@ -539,19 +539,20 @@ func (v View) combine(cx, y int, cluster string) {
 	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clipped()) {
 		return
 	}
-	if prev.content == "" {
-		prev.content = v.surface.capture.own(cluster)
-		return
+	base := prev.content
+	if base == "" {
+		// The implicit blank still advances a column on the wire.
+		base = " "
 	}
 	if pool := v.surface.capture; pool != nil {
-		if int64(len(cluster)) > pool.limit-int64(len(prev.content)) {
+		if int64(len(cluster)) > pool.limit-int64(len(base)) {
 			pool.err = ErrCaptureLimit
 			return
 		}
-		prev.content = pool.own(prev.content + cluster)
+		prev.content = pool.own(base + cluster)
 		return
 	}
-	prev.content += cluster
+	prev.content = base + cluster
 }
 
 // Link stamps target onto the display atoms whose heads occupy w columns from local

@@ -1,7 +1,12 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/Tangerg/oolong/ui/kit"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -56,5 +61,34 @@ func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
 	host.Type("q")
 	if err := <-done; err != nil {
 		t.Fatalf("the program ended with %v", err)
+	}
+}
+
+func TestDirectoryReadErrorsReachTheRootAndPreview(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	nodes, err := read(missing, 1)
+	if len(nodes) != 0 || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing root returned %d selectable entries and error %v", len(nodes), err)
+	}
+	lines := preview(entry{path: missing, dir: true, scanErr: err}, kit.Theme{})
+	if len(lines) != 1 || lines[0].String() != err.Error() {
+		t.Fatal("directory preview lost its scan error")
+	}
+}
+
+func TestPreviewDoesNotFollowASelectedLink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	const contents = "only visible when the target is selected"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(path, link); err != nil {
+		t.Skipf("cannot create a symbolic link on this host: %v", err)
+	}
+	lines := preview(entry{path: link}, kit.Theme{})
+	if len(lines) != 1 || lines[0].String() == contents {
+		t.Fatalf("preview followed the selected link: %v", lines)
 	}
 }

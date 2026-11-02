@@ -1,4 +1,4 @@
-// The contract of [ssh.Open] is checked from outside the package, because that is
+// The contract of [ssh.Adapter] is checked from outside the package, because that is
 // where its callers stand. A test that shares the package can reach an unexported
 // helper to arrange a case the published signature cannot express, and then the
 // passing test says nothing about whether the operation is usable at all.
@@ -35,7 +35,7 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 		environ: []string{"TERM=dumb", "COLORTERM=truecolor"},
 	}
 
-	err := runSSHFixture(session, program.ScreenConfig{
+	err := runFakeSSHFixture(session, program.ScreenConfig{
 		Terminal: term.Features{
 			Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible,
 		}, Build: func(runtime *program.Runtime) (scene.Element, error) {
@@ -76,7 +76,7 @@ func TestRunUsesTheClientEnvironmentForKeyboardCompatibility(t *testing.T) {
 		},
 	}
 
-	err := runSSHFixture(session, program.ScreenConfig{
+	err := runFakeSSHFixture(session, program.ScreenConfig{
 		Terminal: term.Features{Keyboard: input.KeyboardAll}, Build: func(runtime *program.Runtime) (scene.Element, error) {
 			return fixtureElement(quittingComponent{runtime: runtime}), nil
 		},
@@ -101,7 +101,7 @@ func TestRunUsesTheClientEnvironmentForItsWheel(t *testing.T) {
 	}
 
 	var got input.Wheel
-	err := runSSHFixture(session, program.ScreenConfig{
+	err := runFakeSSHFixture(session, program.ScreenConfig{
 		Build: func(runtime *program.Runtime) (scene.Element, error) {
 			got = runtime.Environment().Wheel()
 			return fixtureElement(quittingComponent{runtime: runtime}), nil
@@ -128,7 +128,7 @@ func TestRunUsesTheClientEnvironmentForItsLocale(t *testing.T) {
 	}
 
 	var got string
-	err := runSSHFixture(session, program.ScreenConfig{
+	err := runFakeSSHFixture(session, program.ScreenConfig{
 		Build: func(runtime *program.Runtime) (scene.Element, error) {
 			got = runtime.Environment().Locale()
 			return fixtureElement(quittingComponent{runtime: runtime}), nil
@@ -153,7 +153,7 @@ func TestRunPreservesAnOutputFailure(t *testing.T) {
 		ptyOK:     true,
 		outputErr: want,
 	}
-	err := runSSHFixture(session, program.ScreenConfig{
+	err := runFakeSSHFixture(session, program.ScreenConfig{
 		Build: func(runtime *program.Runtime) (scene.Element, error) {
 			return fixtureElement(quittingComponent{runtime: runtime}), nil
 		},
@@ -164,7 +164,14 @@ func TestRunPreservesAnOutputFailure(t *testing.T) {
 }
 
 func TestOpenRequiresASession(t *testing.T) {
-	if _, err := ssh.Open(ssh.Config{}); err == nil {
+	var adapter ssh.Adapter
+	if err := adapter.Install(nil); err == nil {
+		t.Fatal("missing server accepted")
+	}
+	if _, err := adapter.Bind(&fakeSession{}); err == nil || errors.Is(err, ssh.ErrNoPTY) {
+		t.Fatalf("uninstalled adapter reported a client result: %v", err)
+	}
+	if _, err := adapter.Bind(nil); err == nil {
 		t.Fatal("missing session accepted")
 	}
 }
@@ -179,7 +186,7 @@ func TestRunRefusesATerminalTheServerAllocated(t *testing.T) {
 		ptyOK:     true,
 		allocated: true,
 	}
-	err := runSSHFixture(session, program.ScreenConfig{
+	err := runFakeSSHFixture(session, program.ScreenConfig{
 		Build: func(runtime *program.Runtime) (scene.Element, error) {
 			return fixtureElement(quittingComponent{runtime: runtime}), nil
 		},
@@ -206,8 +213,8 @@ func TestRunRequiresAnAllocatedCellWindow(t *testing.T) {
 		{"too many cells", charmssh.Window{Width: grid.MaxTerminalCells, Height: 2}, true, ssh.ErrWindowSize, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := &fakeSession{ptyOK: tc.pty, window: tc.window}
-			err := runSSHFixture(session, program.ScreenConfig{Build: func(*program.Runtime) (scene.Element, error) {
+			session := &fakeSession{ctx: newFakeContext(t.Context()), ptyOK: tc.pty, window: tc.window}
+			err := runFakeSSHFixture(session, program.ScreenConfig{Build: func(*program.Runtime) (scene.Element, error) {
 				return fixtureElement(quittingComponent{}), nil
 			}})
 			if !errors.Is(err, tc.wantErr) {
@@ -243,8 +250,13 @@ type fakeSession struct {
 
 func (s *fakeSession) Context() charmssh.Context { return s.ctx }
 func (s *fakeSession) Environ() []string         { return append([]string(nil), s.environ...) }
+func (s *fakeSession) requestedPTY() (charmssh.Pty, bool) {
+	return charmssh.Pty{Term: "xterm-256color", Window: s.window}, s.ptyOK
+}
+
 func (s *fakeSession) Pty() (charmssh.Pty, <-chan charmssh.Window, bool) {
-	return charmssh.Pty{Term: "xterm-256color", Window: s.window}, s.windows, s.ptyOK
+	pty, ok := s.requestedPTY()
+	return pty, s.windows, ok
 }
 func (s *fakeSession) EmulatedPty() bool          { return !s.allocated }
 func (s *fakeSession) Read(p []byte) (int, error) { return s.input.Read(p) }
@@ -302,3 +314,52 @@ func (c *fakeContext) Permissions() *charmssh.Permissions { return &c.permission
 func (*fakeContext) SetValue(any, any)                    {}
 
 var _ io.Writer = (*lockedBuffer)(nil)
+
+func TestBindRejectsANonComparableSessionWrapper(t *testing.T) {
+	var adapter ssh.Adapter
+	wrapped := struct {
+		charmssh.Session
+		tags []string
+	}{Session: &fakeSession{}}
+	if _, err := adapter.Bind(wrapped); err == nil {
+		t.Fatal("a wrapper without a comparable channel identity was accepted")
+	}
+}
+
+func TestServerAdmitsOneWindowOwner(t *testing.T) {
+	server := new(charmssh.Server)
+	start := make(chan struct{})
+	installed := make(chan error, 2)
+	for range cap(installed) {
+		go func() {
+			var adapter ssh.Adapter
+			<-start
+			installed <- server.SetOption(adapter.Install)
+		}()
+	}
+	close(start)
+	accepted := 0
+	for range cap(installed) {
+		if <-installed == nil {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("one server accepted %d window owners", accepted)
+	}
+}
+
+func TestInstallPreservesAnOccupiedPTYSlot(t *testing.T) {
+	called := false
+	server := &charmssh.Server{PtyHandler: func(charmssh.Context, charmssh.Session, charmssh.Pty) (func() error, error) {
+		called = true
+		return func() error { return nil }, nil
+	}}
+	var adapter ssh.Adapter
+	if err := adapter.Install(server); err == nil {
+		t.Fatal("an already occupied PTY slot was taken over")
+	}
+	if _, err := server.PtyHandler(nil, nil, charmssh.Pty{}); err != nil || !called {
+		t.Fatalf("existing PTY handler was replaced: called=%t err=%v", called, err)
+	}
+}

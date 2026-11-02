@@ -527,14 +527,10 @@ func controlEvent(ps params, final byte) Event {
 
 func (ps params) numberedKey() Event {
 	code, ok := numberedKeys[ps.At(0)]
-	if !ok {
+	if !ok || ps.Group(0).Len() != 1 {
 		return nil
 	}
-	mods, transition, ok := ps.keyMeta()
-	if !ok {
-		return nil
-	}
-	return Key{Code: code, Mods: mods, Transition: transition}
+	return ps.functionalKey(code, 0)
 }
 
 // extendedKeyCode maps a Kitty key number onto a [Code].

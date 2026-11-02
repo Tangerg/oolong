@@ -257,7 +257,7 @@ func (s *Slider) setAt(x int, track image.Rectangle) {
 		s.Set(s.minimum)
 		return
 	}
-	at := min(max(x-track.Min.X, 0), positions-1)
+	at := min(max(layout.Relative(x, track.Min.X), 0), positions-1)
 	s.Set(s.minimum + layout.Scale(s.maximum-s.minimum, at, positions-1))
 }
 

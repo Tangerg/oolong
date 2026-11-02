@@ -96,18 +96,14 @@ func (p *taskProgress) to(next Progress, queue func([]byte) (uint64, error)) err
 	if p.closed {
 		return ErrClosed
 	}
-	if next == p.current {
+	if next == p.current && !p.dirty {
 		return nil
 	}
 	if p.paused {
 		p.current = next
 		p.dirty = true
-	} else {
-		if _, err := queue([]byte(next.sequence())); err != nil {
-			return err
-		}
-		p.current = next
-		p.published = next.State != ProgressNone
+	} else if err := p.publish(next, queue); err != nil {
+		return err
 	}
 	p.signal()
 	return nil
@@ -118,7 +114,7 @@ func (p *taskProgress) to(next Progress, queue func([]byte) (uint64, error)) err
 func (p *taskProgress) pause() {
 	p.mu.Lock()
 	p.paused = true
-	p.dirty = p.current.State != ProgressNone
+	p.dirty = p.dirty || p.current.State != ProgressNone
 	p.mu.Unlock()
 	p.signal()
 }
@@ -136,17 +132,16 @@ func (p *taskProgress) restore(queue func([]byte) (uint64, error)) error {
 	if !p.dirty {
 		return nil
 	}
-	return p.publish(queue)
+	return p.publish(p.current, queue)
 }
 
-// leave clears active progress without forgetting it, so a handover can restore it.
+// Building cleanup bytes cannot discharge the obligation: their admission can still fail.
 func (p *taskProgress) leave() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.published {
 		return ""
 	}
-	p.published = false
 	return progressClear
 }
 
@@ -200,17 +195,17 @@ func (p *taskProgress) repeat(queue func([]byte) (uint64, error)) {
 	if p.closed || p.paused || (p.current.State == ProgressNone && !p.dirty) {
 		return
 	}
-	_ = p.publish(queue) // A full queue retains dirty state for the next keepalive.
+	_ = p.publish(p.current, queue) // A full queue retains dirty state for the next keepalive.
 }
 
 // Admission creates or settles the cleanup obligation; a refused proposal cannot
 // replace what the writer already owns. The caller holds mu through admission.
-func (p *taskProgress) publish(queue func([]byte) (uint64, error)) error {
-	if _, err := queue([]byte(p.current.sequence())); err != nil {
-		p.dirty = true
+func (p *taskProgress) publish(next Progress, queue func([]byte) (uint64, error)) error {
+	if _, err := queue([]byte(next.sequence())); err != nil {
 		return err
 	}
-	p.published = p.current.State != ProgressNone
+	p.current = next
+	p.published = next.State != ProgressNone
 	p.dirty = false
 	return nil
 }

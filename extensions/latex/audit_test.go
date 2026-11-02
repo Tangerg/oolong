@@ -14,7 +14,7 @@ func TestScriptValidationAndTokenization(t *testing.T) {
 			t.Fatalf("accepted unsupported formula %q", source)
 		}
 	}
-	for _, pair := range [][2]string{{"x^23", "x^{2}3"}, {"x_12", "x_{1}2"}, {"x^abc", "x^{a}bc"}} {
+	for _, pair := range [][2]string{{"x^23", "x^{2}3"}, {"x_12", "x_{1}2"}, {"x^abc", "x^{a}bc"}, {"2_3", "{2}_{3}"}, {"3.14_{x}", "{3.14}_{x}"}} {
 		a, b := latex.Render(pair[0], latex.Look{}), latex.Render(pair[1], latex.Look{})
 		if a.Err() != nil || b.Err() != nil {
 			t.Fatalf("valid scripts: %v, %v", a.Err(), b.Err())

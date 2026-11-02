@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -41,6 +42,9 @@ type waker struct {
 func (w *waker) interruptible() bool { return true }
 
 func newWaker(fd int) (*waker, error) {
+	// Pipe and close-on-exec are separate on some Unix targets.
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
 	var pipe [2]int
 	if err := unix.Pipe(pipe[:]); err != nil {
 		return nil, fmt.Errorf("term: a pipe to wake the reader: %w", err)

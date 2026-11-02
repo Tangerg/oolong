@@ -25,11 +25,12 @@ func fixtureElement(component interface {
 	})
 }
 
-func runSSHFixture(session charmssh.Session, cfg program.ScreenConfig) (err error) {
-	host, err := ssh.Open(ssh.Config{
-		Session:  session,
-		Terminal: term.Config{Features: cfg.Terminal, AltScreen: true},
-	})
+func runSSHFixture(adapter *ssh.Adapter, session charmssh.Session, cfg program.ScreenConfig) (err error) {
+	terminal, err := adapter.Bind(session)
+	if err != nil {
+		return err
+	}
+	host, err := terminal.Open(term.Config{Features: cfg.Terminal, AltScreen: true})
 	if err != nil {
 		return err
 	}
@@ -40,4 +41,26 @@ func runSSHFixture(session charmssh.Session, cfg program.ScreenConfig) (err erro
 		return err
 	}
 	return screen.Run(session.Context())
+}
+
+func runFakeSSHFixture(session interface {
+	charmssh.Session
+	requestedPTY() (charmssh.Pty, bool)
+}, cfg program.ScreenConfig,
+) (err error) {
+	adapter := ssh.NewAdapter(ssh.AdapterConfig{Allocate: func(charmssh.Context, charmssh.Session, charmssh.Pty) (func() error, error) {
+		return func() error { return nil }, nil
+	}})
+	server := new(charmssh.Server)
+	if installErr := server.SetOption(adapter.Install); installErr != nil {
+		return installErr
+	}
+	if pty, ok := session.requestedPTY(); ok {
+		closer, setupErr := server.PtyHandler(session.Context(), session, pty)
+		if setupErr != nil {
+			return setupErr
+		}
+		defer func() { err = errors.Join(err, closer()) }()
+	}
+	return runSSHFixture(adapter, session, cfg)
 }

@@ -6,8 +6,6 @@ import (
 	"io"
 	"sync"
 
-	charmssh "charm.land/ssh"
-
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -19,7 +17,7 @@ import (
 // methods it exposes colour, locale, wheel profile and clipboard determined by the
 // client terminal's environment. An SSH PTY does not prove notification, image or
 // probe capabilities merely by existing, so those remain absent.
-// A Host must not be copied after Open.
+// A Host must not be copied after opening.
 type Host struct {
 	source *eventSource
 	writer *term.Writer
@@ -29,8 +27,7 @@ type Host struct {
 	color  grid.Depth
 	wheel  input.Wheel
 
-	windowMu sync.RWMutex
-	window   charmssh.Window
+	windows *windowFeed
 
 	closeOnce sync.Once
 	closeErr  error
@@ -48,8 +45,7 @@ var (
 func newHost(
 	cancelled <-chan struct{},
 	channel io.ReadWriter,
-	window charmssh.Window,
-	windows <-chan charmssh.Window,
+	windows *windowFeed,
 	modes term.Modes,
 	clip *clipboard.Channel,
 	locale string,
@@ -57,16 +53,16 @@ func newHost(
 	wheel input.Wheel,
 ) *Host {
 	h := &Host{
-		writer: term.NewWriter(term.WriterConfig{Destination: channel}),
-		modes:  modes,
-		clip:   clip,
-		locale: locale,
-		color:  color,
-		wheel:  wheel,
-		window: window,
+		writer:  term.NewWriter(term.WriterConfig{Destination: channel}),
+		modes:   modes,
+		clip:    clip,
+		locale:  locale,
+		color:   color,
+		wheel:   wheel,
+		windows: windows,
 	}
 	_, _ = h.writer.QueueControl([]byte(h.modes.Enter()))
-	h.source = newEventSource(cancelled, channel, windows, h.resize, h.clip)
+	h.source = newEventSource(cancelled, channel, windows, h.clip)
 	return h
 }
 
@@ -108,37 +104,8 @@ func (h *Host) Paste() bool {
 
 // Size reads the latest accepted PTY dimensions and is safe during resize delivery.
 func (h *Host) Size() (width, height int, _ error) {
-	h.windowMu.RLock()
-	defer h.windowMu.RUnlock()
-	return h.window.Width, h.window.Height, nil
-}
-
-// resize applies the RFC rule that a zero dimension leaves that dimension alone.
-// A positive update is published only after Size observes it, so handling the
-// resulting event and asking the host can never disagree about one window.
-func (h *Host) resize(next charmssh.Window) (input.Resize, bool, error) {
-	h.windowMu.Lock()
-	defer h.windowMu.Unlock()
-
-	if next.Width < 0 || next.Height < 0 {
-		return input.Resize{}, false, fmt.Errorf("%w: %dx%d", ErrWindowSize,
-			next.Width, next.Height)
-	}
-	window := h.window
-	if next.Width > 0 {
-		window.Width = next.Width
-	}
-	if next.Height > 0 {
-		window.Height = next.Height
-	}
-	if err := grid.ValidateTerminalSize(window.Width, window.Height); err != nil {
-		return input.Resize{}, false, fmt.Errorf("%w: %w", ErrWindowSize, err)
-	}
-	if window.Width == h.window.Width && window.Height == h.window.Height {
-		return input.Resize{}, false, nil
-	}
-	h.window = window
-	return input.Resize{Width: window.Width, Height: window.Height}, true, nil
+	size := h.windows.size()
+	return size.Width, size.Height, nil
 }
 
 // Close settles output in ownership order: stop accepting input, queue the inverse

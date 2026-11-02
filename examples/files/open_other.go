@@ -1,4 +1,4 @@
-//go:build !unix
+//go:build !unix && !windows
 
 package main
 
@@ -15,5 +15,16 @@ func openPreview(path string) (*os.File, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("preview requires a regular file")
 	}
-	return os.Open(path) //nolint:gosec // G304: explicitly selected local preview path; the caller validates the opened file and bounds reads.
+	file, err := os.Open(path) //nolint:gosec // The selected file is verified before its contents can be read.
+	if err != nil {
+		return nil, err
+	}
+	opened, err := file.Stat()
+	if err == nil && os.SameFile(info, opened) {
+		return file, nil
+	}
+	if err == nil {
+		err = errors.New("selected file changed while opening preview")
+	}
+	return nil, errors.Join(err, file.Close())
 }

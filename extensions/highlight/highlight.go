@@ -76,6 +76,7 @@ func (r Renderer) resolved() *chroma.Style {
 }
 
 func highlight(lexer chroma.Lexer, source string, scheme *chroma.Style) []text.Line {
+	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 	tokens := tokenize(lexer, source)
 	if len(tokens) == 0 {
 		return plain(source)
@@ -103,7 +104,7 @@ func highlight(lexer chroma.Lexer, source string, scheme *chroma.Style) []text.L
 	}
 	// Chroma omits the final empty row and some lexers synthesize their own
 	// terminator. Only a line ending in the caller's source opens another row.
-	if strings.HasSuffix(source, "\n") || strings.HasSuffix(source, "\r") {
+	if strings.HasSuffix(source, "\n") {
 		out = append(out, nil)
 	}
 	return out
@@ -121,13 +122,48 @@ func tokenize(lexer chroma.Lexer, source string) (tokens []chroma.Token) {
 	if err != nil {
 		return nil
 	}
-	return iterator.Tokens()
+	return sourceTokens(iterator, source)
 }
 
-// lexerFor picks the lexer for a language, guessing from the source when the name
-// says nothing and coalescing what it finds — which merges the runs of one token
-// type that a lexer emits character by character, and is the difference between a
-// line of forty spans and a line of six.
+// Lexers can return zero-width capture groups. Bound consecutive empty tokens
+// before coalescing: an iterator stuck at one input position would otherwise spin
+// inside the coalescer. Source owns the text, the lexer only classifies its bytes.
+func sourceTokens(next chroma.Iterator, source string) []chroma.Token {
+	const maxEmptyTokens = 100
+	var tokens []chroma.Token
+	for at, empty := 0, 0; at < len(source); {
+		token := next()
+		if token == chroma.EOF {
+			return nil
+		}
+		if token.Value == "" {
+			empty++
+			if empty >= maxEmptyTokens {
+				return nil
+			}
+			continue
+		}
+		empty = 0
+		remaining := source[at:]
+		if len(token.Value) > len(remaining) {
+			// A line-oriented lexer can supply its own final newline.
+			token.Value, _ = strings.CutSuffix(token.Value, "\n")
+		}
+		if !strings.HasPrefix(remaining, token.Value) {
+			return nil
+		}
+		end := at + len(token.Value)
+		last := len(tokens) - 1
+		if last >= 0 && tokens[last].Type == token.Type {
+			tokens[last].Value = source[at-len(tokens[last].Value) : end]
+		} else {
+			tokens = append(tokens, chroma.Token{Type: token.Type, Value: source[at:end]})
+		}
+		at = end
+	}
+	return tokens
+}
+
 func lexerFor(language, source string) chroma.Lexer {
 	lexer := lexers.Get(language)
 	if lexer == nil {
@@ -136,7 +172,7 @@ func lexerFor(language, source string) chroma.Lexer {
 	if lexer == nil {
 		lexer = lexers.Fallback
 	}
-	return chroma.Coalesce(lexer)
+	return lexer
 }
 
 // styleOf turns one scheme entry into a cell style.
@@ -167,7 +203,6 @@ func colour(c chroma.Colour) grid.Color {
 }
 
 func plain(source string) []text.Line {
-	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 	rows := strings.Split(source, "\n")
 	out := make([]text.Line, 0, len(rows))
 	for _, row := range rows {

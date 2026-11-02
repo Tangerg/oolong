@@ -15,6 +15,7 @@ package text
 
 import (
 	"iter"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -87,6 +88,44 @@ func Of(s string, style grid.Style) Line {
 		return nil
 	}
 	return Line{{Text: s, Style: style}}
+}
+
+// Highlight styles each grapheme containing a matched byte offset as one display
+// atom. The original bytes remain intact so normal Line layout owns tab stops,
+// clipping and control handling. Out-of-range offsets have no effect.
+func Highlight(value string, offsets []int, normal, matched grid.Style) Line {
+	if len(offsets) == 0 || normal == matched {
+		return Of(value, normal)
+	}
+	if !slices.IsSorted(offsets) {
+		offsets = slices.Clone(offsets)
+		slices.Sort(offsets)
+	}
+	var line Line
+	start := 0
+	style := normal
+	for at, cluster := range Clusters(value) {
+		for len(offsets) > 0 && offsets[0] < at {
+			offsets = offsets[1:]
+		}
+		next := normal
+		if len(offsets) > 0 && offsets[0] < at+len(cluster) {
+			next = matched
+		}
+		if next != style {
+			if start < at {
+				line = append(line, Span{Text: value[start:at], Style: style})
+			}
+			start, style = at, next
+		}
+		if len(offsets) == 0 {
+			break
+		}
+	}
+	if start < len(value) {
+		line = append(line, Span{Text: value[start:], Style: style})
+	}
+	return line
 }
 
 // String is the line's text with the styling dropped.

@@ -326,8 +326,12 @@ func decodePNG(data []byte, maxPixels int64) (*Image, error) {
 	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width) > maxPixels/int64(cfg.Height) {
 		return nil, fmt.Errorf("%w: output pixels", ErrLimit)
 	}
-	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+	reader := bytes.NewReader(data)
+	if _, err := png.Decode(reader); err != nil {
 		return nil, fmt.Errorf("mermaid: invalid PNG: %w", err)
+	}
+	if reader.Len() != 0 {
+		return nil, errors.New("mermaid: trailing data after PNG")
 	}
 	return &Image{data: data, size: image.Pt(cfg.Width, cfg.Height)}, nil
 }

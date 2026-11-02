@@ -64,8 +64,9 @@ type Select[T any] struct {
 	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
 	Row func(grid.View, Option[T], bool, bool, Look)
 
-	list    List[Option[T]]
-	matcher keymap.Matcher
+	list     List[Option[T]]
+	matcher  keymap.Matcher
+	revision uint64
 }
 
 // Prompt is what the field is asking for.
@@ -84,8 +85,11 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 	}
 	previous, exists := s.Chosen()
 	at := s.list.Selected()
-	if exists {
-		if found, ok := s.indexOf(options, previous.Value); ok {
+	changed := exists != (len(options) != 0)
+	if exists && len(options) != 0 {
+		found, retained := s.indexOf(options, previous.Value)
+		changed = !retained
+		if retained {
 			at = found
 		}
 	}
@@ -93,6 +97,9 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 		s.list.replaceItems(options, at)
 		for i := range s.list.items {
 			s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
+		}
+		if changed {
+			s.revision++
 		}
 		s.invalidateValidation()
 		s.list.notifyChange()
@@ -134,17 +141,13 @@ func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
 	})
 }
 
-func (s *Select[T]) indexOf(options []Option[T], want T) (int, bool) {
-	index := -1
-	s.Element().ReadOnly(func() {
-		for i, option := range options {
-			if option.holds(want, s.Same) {
-				index = i
-				break
-			}
-		}
-	})
-	return index, index >= 0
+func optionIndex[T any](options []Option[T], value T, same func(T, T) bool) int {
+	return slices.IndexFunc(options, func(option Option[T]) bool { return option.holds(value, same) })
+}
+
+func (s *Select[T]) indexOf(options []Option[T], value T) (int, bool) {
+	at := readProjection(s.Element(), func() int { return optionIndex(options, value, s.Same) })
+	return at, at >= 0
 }
 
 // Handle moves the cursor, and takes the choice with it.
@@ -159,33 +162,27 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 		return handled
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
-		return s.list.mouse(s.local(mouse), s.list.Select)
+		return s.list.mouse(s.local(mouse), s.selectAt)
 	}
 	return false
 }
 
 // Do runs one of the field's actions by name. See [Doer].
 func (s *Select[T]) Do(action keymap.Action) bool {
-	return s.list.Do(action)
+	return s.list.navigate(action, s.selectAt)
 }
 
 // Validate checks the choice.
 func (s *Select[T]) Validate() error {
-	return s.validate(nil, s.checkAnswer)
+	return s.validate(nil, s.Revision, s.checkAnswer)
 }
 
-func (s *Select[T]) checkAnswer() fieldCheck {
-	chosen, ok := s.Chosen()
-	var answer T
-	if ok {
-		answer = chosen.Value
+func (s *Select[T]) checkAnswer() error {
+	if s.Check == nil {
+		return nil
 	}
-	revision := s.Revision()
-	checked := fieldCheck{current: func() bool { return s.Revision() == revision }}
-	if s.Check != nil {
-		checked.err = s.Check(answer)
-	}
-	return checked
+	chosen, _ := s.Chosen()
+	return s.Check(chosen.Value)
 }
 
 // Focus takes the keyboard or gives it up, and checks the choice on the way out.
@@ -206,9 +203,21 @@ func (s *Select[T]) Choose(value T) bool {
 	if !ok {
 		return false
 	}
-	s.list.Select(at)
+	s.selectAt(at)
 	return true
 }
 
+func (s *Select[T]) selectAt(at int) {
+	requireMutable(s.element)
+	before, ok := s.Chosen()
+	next, found := s.list.At(at)
+	if ok && found && s.selected() != at {
+		if !readProjection(s.Element(), func() bool { return next.holds(before.Value, s.Same) }) {
+			s.revision++
+		}
+	}
+	s.list.Select(at)
+}
+
 // Revision identifies a semantic value version; view-only navigation does not change it.
-func (s *Select[T]) Revision() uint64 { return s.list.revision }
+func (s *Select[T]) Revision() uint64 { return s.revision }

@@ -450,6 +450,16 @@ func TestZeroWidthClusterJoinsTheCellToItsLeft(t *testing.T) {
 	}
 }
 
+func TestZeroWidthClusterOnBlankKeepsItsBaseColumn(t *testing.T) {
+	s := grid.NewSurface(3, 1)
+	v := s.View()
+	v.Text(1, 0, "\u0301x", grid.Style{})
+	row := []grid.Cell{cellAt(s, 0, 0), cellAt(s, 1, 0)}
+	if got := grid.EncodeRow(row, grid.NoColor); got != " \u0301x" {
+		t.Fatalf("wire row = %q, want the accented blank before x", got)
+	}
+}
+
 func TestFillStylesAndBlanks(t *testing.T) {
 	s := grid.NewSurface(4, 2)
 	v := s.View()

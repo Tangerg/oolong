@@ -161,12 +161,16 @@ func (l *List[T]) Handle(ev input.Event) bool {
 
 // Do handles list actions and reports whether the action was accepted.
 func (l *List[T]) Do(action keymap.Action) bool {
+	return l.navigate(action, l.Select)
+}
+
+func (l *List[T]) navigate(action keymap.Action, choose func(int)) bool {
 	before := l.Selected()
 	at, known := l.target(action, before)
 	if !known {
 		return false
 	}
-	l.Select(at)
+	choose(at)
 	if l.Selected() == before {
 		// Explicit navigation requests visibility even at a boundary.
 		l.reveal(before)

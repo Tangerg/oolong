@@ -762,3 +762,87 @@ func TestFormAcquiresEachElementOnceAfterMutationAdmission(t *testing.T) {
 		t.Fatalf("Set acquired the field identity %d times", field.calls)
 	}
 }
+
+func TestMultiSelectAliasesShareOneChoiceAcrossInputPaths(t *testing.T) {
+	field := multiWith([]base.Option[string]{{Label: "A", Value: "a"}, {Label: "B", Value: "b"}, {Label: "Also A", Value: "a"}})
+	field.SetLimit(1)
+	if err := field.Reply("A,Also A"); err != nil || !slices.Equal(field.Taken(), []string{"a"}) {
+		t.Fatalf("aliases exceeded a one-value limit: taken=%v error=%v", field.Taken(), err)
+	}
+	var drawn []bool
+	field.Row = func(_ grid.View, _ base.Option[string], _, taken bool, _ base.Look) { drawn = append(drawn, taken) }
+	newTestRoot(field).Draw(grid.NewSurface(8, 3).View())
+	if !slices.Equal(drawn, []bool{true, false, true}) {
+		t.Fatalf("rows disagree about the selected identity: %v", drawn)
+	}
+	field.Do(base.SelectLast)
+	if !field.Toggle() || len(field.Taken()) != 0 {
+		t.Fatalf("toggling an alias could not clear the selected identity: %v", field.Taken())
+	}
+	field.Toggle()
+	before := field.Revision()
+	field.SetOptions(base.Options("b", "a"))
+	if field.Revision() != before || !slices.Equal(field.Taken(), []string{"a"}) {
+		t.Fatal("moving the representative option advanced the answer revision")
+	}
+}
+
+func TestSelectRevisionsFollowAnswerIdentityThroughRefreshAndNavigation(t *testing.T) {
+	field := selectWith([]base.Option[string]{{Label: "A", Value: "a"}, {Label: "Also A", Value: "a"}, {Label: "B", Value: "b"}})
+	version := field.Revision()
+	field.Do(base.SelectNext)
+	if err := field.Reply("A"); err != nil {
+		t.Fatal(err)
+	}
+	field.SetOptions(base.Options("b", "a"))
+	chosen, _ := field.Chosen()
+	if field.Revision() != version || chosen.Value != "a" {
+		t.Fatal("alias or collection refresh marked the answer changed")
+	}
+	if !field.Choose("b") || field.Revision() != version+1 {
+		t.Fatal("replacing the answer lost its revision")
+	}
+	field.SetOptions(nil)
+	if field.Revision() != version+2 {
+		t.Fatal("removing the answer lost its revision")
+	}
+}
+
+func TestConfirmLabelsAndHitRegionsKeepTheirColumnsWhenTheAnswerChanges(t *testing.T) {
+	field := base.NewConfirm(base.ConfirmConfig{})
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
+	styleFields(form, base.Look{Taken: "XX"})
+	for _, answer := range []bool{true, false} {
+		field.Say(answer)
+		rows := paintWidget(20, 1, form)
+		if strings.Index(rows[0], "yes") != 3 || strings.Index(rows[0], "no") != 11 {
+			t.Fatalf("changed choice moved the labels: %q", rows[0])
+		}
+		field.Handle(input.Mouse{Pos: image.Pt(7, 0), Action: input.MouseDown, Button: input.ButtonLeft})
+		if !field.Answer() {
+			t.Fatalf("first choice lost the last cell of its hit region when %t was selected", answer)
+		}
+	}
+}
+
+func TestMultiSelectIdentityCannotPaintFromARetainedRow(t *testing.T) {
+	field := multiWith(base.Options("x", "y"))
+	field.SetTaken([]string{"x"})
+	var previous grid.View
+	field.Row = func(v grid.View, _ base.Option[string], _, _ bool, _ base.Look) {
+		previous = v
+	}
+	field.Same = func(a, b string) bool {
+		if !previous.Empty() {
+			previous.Text(0, 0, "unexpected", grid.Style{})
+		}
+		return a == b
+	}
+	surface := grid.NewSurface(12, 2)
+	defer func() {
+		if got, _ := recover().(error); !errors.Is(got, scene.ErrBusy) {
+			t.Fatalf("identity comparison could write through a retained row: panic=%v, rows=%q", got, surface.Rows())
+		}
+	}()
+	newTestRoot(field).Draw(surface.View())
+}

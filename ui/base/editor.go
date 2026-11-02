@@ -1603,17 +1603,16 @@ func (e *Editor) applyRange(start, end Caret, s string) ([]string, ChangeMap) {
 	return before, change
 }
 
-// Copy puts the selection where a paste would find it, and reports whether anything
-// was sent. Nothing selected sends nothing, which is not a failure.
+// Copy sends the selection to the clipboard. Masked sessions never export their
+// underlying text. Like Paste and Cut, clipboard access is an owner-side effect.
 func (e *Editor) Copy() bool {
-	if e.Clipboard == nil {
-		return false
-	}
-	selected := e.Selected()
-	if selected == "" {
-		return false
-	}
-	return e.Clipboard.Copy(selected)
+	e.requireMutable()
+	start, end, ok := e.Selection()
+	return ok && e.copyRange(start, end)
+}
+
+func (e *Editor) copyRange(start, end Caret) bool {
+	return e.Mask() == "" && e.Clipboard != nil && e.Clipboard.Copy(e.textBetween(start, end))
 }
 
 // Cut copies and removes the selection only after clipboard acceptance. Clipboard
@@ -1623,11 +1622,11 @@ func (e *Editor) Cut() bool {
 	e.requireMutable()
 	e.endTyping()
 	start, end, selected := e.Selection()
-	if !selected || e.Clipboard == nil {
+	if !selected {
 		return false
 	}
 	revision := e.document().revision
-	if !e.Clipboard.Copy(e.textBetween(start, end)) {
+	if !e.copyRange(start, end) {
 		return false
 	}
 	currentStart, currentEnd, current := e.Selection()

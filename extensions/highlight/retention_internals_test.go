@@ -47,7 +47,7 @@ func (interruptedLexer) Tokenise(*chroma.TokeniseOptions, string) (chroma.Iterat
 			panic("lexer interrupted")
 		}
 		first = false
-		return chroma.Token{Type: chroma.Comment, Value: "partial"}
+		return chroma.Token{Type: chroma.Comment, Value: "one\n"}
 	}, nil
 }
 
@@ -55,5 +55,17 @@ func TestInterruptedLexerFallsBackToEverySourceRow(t *testing.T) {
 	lines := highlight(interruptedLexer{}, "one\r\ntwo\n", New("").resolved())
 	if len(lines) != 3 || lines[0].String() != "one" || lines[1].String() != "two" || lines[2].String() != "" {
 		t.Fatalf("interrupted highlight lost source: %v", lines)
+	}
+}
+
+func TestTokenStylesMayOnlyCoverTheSource(t *testing.T) {
+	for _, tokens := range [][]chroma.Token{
+		{{Type: chroma.Name, Value: "a"}},
+		{{Type: chroma.Name, Value: "ac"}},
+		{{Type: chroma.Name, Value: "abx"}},
+	} {
+		if got := sourceTokens(chroma.Literator(tokens...), "ab"); got != nil {
+			t.Fatalf("published incomplete or altered source: %v", got)
+		}
 	}
 }

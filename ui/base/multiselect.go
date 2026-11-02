@@ -20,8 +20,8 @@ import (
 //
 // The zero value is empty and ready. A MultiSelect must not be copied after first use:
 // its options, chosen set, cursor and matcher are one mutable field.
-// Choices are stored once in option order. SetTaken canonicalizes incoming values
-// under the configured equality and limit.
+// Options with equal values are aliases of one choice. Its first option fixes
+// its place in Taken, and selecting any alias applies to all of them.
 type MultiSelect[T any] struct {
 	noCopy noCopy
 
@@ -43,8 +43,8 @@ type MultiSelect[T any] struct {
 	Row func(grid.View, Option[T], bool, bool, Look)
 
 	list List[Option[T]]
-	// taken is the sole chosen-set representation, in option order.
-	taken    []bool
+	// Each selected value is represented by its first equivalent option index.
+	taken    []int
 	limit    int
 	matcher  keymap.Matcher
 	revision uint64
@@ -63,25 +63,22 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	if len(options) > 0 && m.Same == nil {
 		panic("base: MultiSelect requires Same before SetOptions")
 	}
-	taken := make([]bool, len(options))
-	m.Element().ReadOnly(func() {
-		for _, want := range m.takenOptions() {
-			for i, option := range options {
-				if !taken[i] && option.holds(want.Value, m.Same) {
-					taken[i] = true
-					break
-				}
-			}
-		}
+	before := m.Taken()
+	taken := m.indices(options, before)
+	changed := readProjection(m.Element(), func() bool {
+		return !slices.EqualFunc(before, taken, func(value T, at int) bool {
+			return options[at].holds(value, m.Same)
+		})
 	})
-	clampTaken(taken, m.limit)
 	m.matcher.Reset(func() {
 		m.list.replaceItems(options, m.list.selected)
 		for i := range m.list.items {
 			m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
 		}
 		m.taken = taken
-		m.revision++
+		if changed {
+			m.revision++
+		}
 		m.invalidateValidation()
 		m.list.notifyChange()
 	})
@@ -99,12 +96,16 @@ func (m *MultiSelect[T]) SetLimit(limit int) {
 	if limit < 0 {
 		panic("base: multi-select limit cannot be negative")
 	}
-	m.limit = limit
-	// Settle against the new limit directly, without publishing an intermediate set.
-	if clampTaken(m.taken, m.limit) {
-		m.revision++
-		m.element.Invalidate()
+	if m.limit == limit {
+		return
 	}
+	m.limit = limit
+	m.invalidateValidation()
+	if limit > 0 && len(m.taken) > limit {
+		m.store(m.taken[:limit])
+		return
+	}
+	m.element.Invalidate()
 }
 
 // Limit reports how many choices may be taken at once. Zero allows every option.
@@ -114,60 +115,27 @@ func (m *MultiSelect[T]) Limit() int {
 
 // Taken returns a copy of the selected values in option order.
 func (m *MultiSelect[T]) Taken() []T {
-	return m.valuesOf(m.taken)
-}
-
-func (m *MultiSelect[T]) valuesOf(taken []bool) []T {
-	var out []T
-	for i, option := range m.list.items {
-		if i < len(taken) && taken[i] {
-			out = append(out, option.Value)
-		}
+	if len(m.taken) == 0 {
+		return nil
+	}
+	out := make([]T, len(m.taken))
+	for i, at := range m.taken {
+		out[i] = m.list.items[at].Value
 	}
 	return out
 }
 
-func (m *MultiSelect[T]) takenOptions() []Option[T] {
-	var out []Option[T]
-	for i, option := range m.list.items {
-		if i < len(m.taken) && m.taken[i] {
-			out = append(out, option)
+func (m *MultiSelect[T]) indices(options []Option[T], values []T) []int {
+	var indices []int
+	m.Element().ReadOnly(func() {
+		for _, value := range values {
+			if at := optionIndex(options, value, m.Same); at >= 0 {
+				indices = append(indices, at)
+			}
 		}
-	}
-	return out
-}
-
-func takenCount(taken []bool) int {
-	count := 0
-	for _, selected := range taken {
-		if selected {
-			count++
-		}
-	}
-	return count
-}
-
-// clampTaken is the one enforcement point for a choice limit. It preserves option
-// order, which is the order MultiSelect reports and the only stable priority
-// available.
-func clampTaken(taken []bool, limit int) bool {
-	if limit <= 0 {
-		return false
-	}
-	kept := 0
-	changed := false
-	for i, selected := range taken {
-		if !selected {
-			continue
-		}
-		if kept < limit {
-			kept++
-			continue
-		}
-		taken[i] = false
-		changed = true
-	}
-	return changed
+	})
+	slices.Sort(indices)
+	return slices.Compact(indices)
 }
 
 // Toggle takes the option under the cursor, or gives it back, and reports whether
@@ -178,17 +146,23 @@ func (m *MultiSelect[T]) Toggle() bool {
 }
 
 func (m *MultiSelect[T]) toggle() bool {
-	before := m.taken
-	at := m.list.Selected()
-	if at < 0 || at >= len(before) {
+	option, ok := m.list.Current()
+	if !ok {
 		return false
 	}
-	if !before[at] && m.limit > 0 && takenCount(before) >= m.limit {
+	at := readProjection(m.Element(), func() int { return optionIndex(m.list.items, option.Value, m.Same) })
+	if at < 0 {
 		return false
 	}
-	proposed := slices.Clone(before)
-	proposed[at] = !proposed[at]
-	m.store(proposed)
+	pos, selected := slices.BinarySearch(m.taken, at)
+	if selected {
+		m.store(slices.Delete(slices.Clone(m.taken), pos, pos+1))
+	} else {
+		if m.limit > 0 && len(m.taken) >= m.limit {
+			return false
+		}
+		m.store(slices.Insert(slices.Clone(m.taken), pos, at))
+	}
 	return true
 }
 
@@ -208,8 +182,12 @@ func (m *MultiSelect[T]) Draw(v scene.Frame) {
 
 // DrawWith paints the field using this frame's look without changing configuration.
 func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
-	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, at int, option Option[T], under bool) {
-		chosen := at < len(m.taken) && m.taken[at]
+	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
+		chosen := readProjection(m.element, func() bool {
+			return slices.ContainsFunc(m.taken, func(at int) bool {
+				return m.list.items[at].holds(option.Value, m.Same)
+			})
+		})
 		if m.Row != nil {
 			m.Row(v, option, under, chosen, look)
 		} else {
@@ -243,16 +221,13 @@ func (m *MultiSelect[T]) Do(action keymap.Action) bool {
 }
 
 // Validate checks the choices.
-func (m *MultiSelect[T]) Validate() error { return m.validate(nil, m.checkAnswer) }
+func (m *MultiSelect[T]) Validate() error { return m.validate(nil, m.Revision, m.checkAnswer) }
 
-func (m *MultiSelect[T]) checkAnswer() fieldCheck {
-	answer := m.Taken()
-	revision := m.Revision()
-	checked := fieldCheck{current: func() bool { return m.Revision() == revision }}
-	if m.Check != nil {
-		checked.err = m.Check(slices.Clone(answer))
+func (m *MultiSelect[T]) checkAnswer() error {
+	if m.Check == nil {
+		return nil
 	}
-	return checked
+	return m.Check(m.Taken())
 }
 
 // Focus takes the keyboard or gives it up, and checks the choices on the way out.
@@ -270,22 +245,14 @@ func (m *MultiSelect[T]) focusChanged(has bool) {
 // SetTaken replaces the chosen set. Unavailable and duplicate values are discarded.
 func (m *MultiSelect[T]) SetTaken(values []T) {
 	requireMutable(m.element)
-	taken := make([]bool, len(m.list.items))
-	m.Element().ReadOnly(func() {
-		for _, want := range values {
-			for i, option := range m.list.items {
-				if option.holds(want, m.Same) {
-					taken[i] = true
-					break
-				}
-			}
-		}
-	})
-	clampTaken(taken, m.limit)
+	taken := m.indices(m.list.items, values)
+	if m.limit > 0 && len(taken) > m.limit {
+		taken = taken[:m.limit]
+	}
 	m.store(taken)
 }
 
-func (m *MultiSelect[T]) store(taken []bool) {
+func (m *MultiSelect[T]) store(taken []int) {
 	requireMutable(m.element)
 	if slices.Equal(m.taken, taken) {
 		return

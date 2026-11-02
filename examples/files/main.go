@@ -36,7 +36,11 @@ func main() {
 		root = os.Args[1]
 	}
 	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
-		return newBrowser(runtime, read(root, 2)).Element(), nil
+		nodes, readErr := read(root, 2)
+		if readErr != nil {
+			return scene.Element{}, readErr
+		}
+		return newBrowser(runtime, nodes).Element(), nil
 	}})
 	if err == nil {
 		err = app.Run(context.Background())
@@ -49,9 +53,10 @@ func main() {
 
 // entry is one file or directory: what it is called and where it is.
 type entry struct {
-	name string
-	path string
-	dir  bool
+	name    string
+	path    string
+	dir     bool
+	scanErr error
 }
 
 // browser composes two scene children. The tree owns selection; its change
@@ -69,8 +74,6 @@ type browser struct {
 	body         *scene.Group
 	element      scene.Element
 	previewScope *program.Scope
-
-	showing string
 }
 
 func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
@@ -135,17 +138,22 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 func (b *browser) Element() scene.Element { return b.element }
 
 func (b *browser) show() {
-	row, ok := b.tree.CurrentRow()
-	if !ok || row.Item.path == b.showing {
-		return
-	}
-	b.showing = row.Item.path
 	if b.previewScope != nil {
 		b.previewScope.Close()
+		b.previewScope = nil
 	}
-	selected, theme := row.Item, b.theme
-	b.preview.SetText([]text.Line{text.Of("Loading "+selected.path, theme.Muted)})
 	b.window.Scroll().ToTop()
+	selected, ok := b.tree.Current()
+	if !ok {
+		b.preview.SetText(nil)
+		return
+	}
+	theme := b.theme
+	if selected.dir {
+		b.preview.SetText(preview(selected, theme))
+		return
+	}
+	b.preview.SetText([]text.Line{text.Of("Loading "+selected.path, theme.Muted)})
 	scope, err := b.runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
 		b.preview.SetText([]text.Line{text.Of(err.Error(), theme.Danger)})
@@ -182,6 +190,9 @@ func (b *browser) Handle(ev input.Event) bool {
 }
 
 func preview(of entry, theme kit.Theme) []text.Line {
+	if of.scanErr != nil {
+		return []text.Line{text.Of(of.scanErr.Error(), theme.Danger)}
+	}
 	if of.dir {
 		return []text.Line{text.Of(of.path+" is a directory", theme.Muted)}
 	}
@@ -204,8 +215,8 @@ func preview(of entry, theme kit.Theme) []text.Line {
 		return []text.Line{text.Of(err.Error(), theme.Danger)}
 	}
 	var lines []text.Line
-	for i, row := range strings.Split(string(body), "\n") {
-		if i >= 200 {
+	for row := range strings.SplitSeq(string(body), "\n") {
+		if len(lines) >= 200 {
 			break
 		}
 		lines = append(lines, text.Of(row, theme.Text))
@@ -213,15 +224,13 @@ func preview(of entry, theme kit.Theme) []text.Line {
 	return lines
 }
 
-func read(root string, depth int) []base.Node[entry] {
+func read(root string, depth int) ([]base.Node[entry], error) {
 	if depth < 0 {
-		return nil
+		return nil, nil
 	}
 	items, err := os.ReadDir(root)
 	if err != nil {
-		// A directory nobody may open is not an empty directory, and drawing it as one
-		// tells the reader something untrue about their own filesystem.
-		return []base.Node[entry]{{Item: entry{name: filepath.Base(root) + ": " + err.Error()}}}
+		return nil, err
 	}
 	slices.SortFunc(items, func(a, b os.DirEntry) int {
 		if a.IsDir() != b.IsDir() {
@@ -243,9 +252,9 @@ func read(root string, depth int) []base.Node[entry] {
 			Item: entry{name: item.Name(), path: path, dir: item.IsDir()},
 		}
 		if item.IsDir() {
-			node.Children = read(path, depth-1)
+			node.Children, node.Item.scanErr = read(path, depth-1)
 		}
 		nodes = append(nodes, node)
 	}
-	return nodes
+	return nodes, nil
 }

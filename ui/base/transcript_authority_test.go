@@ -141,3 +141,30 @@ func TestTranscriptObservesTheDocumentThatHasAlreadySettled(t *testing.T) {
 		t.Fatalf("earlier subscriber saw stale item state: %v", states)
 	}
 }
+
+func TestTranscriptCaretSurvivesConsumedWrapWhitespace(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{})
+	transcriptAdd(t, m, transcriptBody("ab  cd"))
+	root := transcriptScene(t, m)
+	transcriptCommit(t, root, 12, 3, 1)
+	wide := m.Layout()
+	boundary, ok := wide.Hit(base.Point{Col: 2})
+	if !ok {
+		t.Fatal("gap has no source position")
+	}
+	space, _ := wide.Hit(base.Point{Col: 3})
+	transcriptCommit(t, root, 3, 3, 2)
+	narrow := m.Layout()
+	for _, tc := range []struct {
+		point base.TextPoint
+		want  base.Point
+	}{
+		{boundary.Start, base.Point{Col: 2}},
+		{boundary.End, base.Point{Col: 2}},
+		{space.Start, base.Point{Row: 1}},
+	} {
+		if got, ok := narrow.Caret(tc.point); !ok || got != tc.want {
+			t.Fatalf("caret for %+v = %+v,%v want %+v", tc.point.Position, got, ok, tc.want)
+		}
+	}
+}

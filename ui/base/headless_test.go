@@ -1528,3 +1528,39 @@ func TestAPressOnAListScrolledDownReachesTheRowUnderIt(t *testing.T) {
 		t.Fatalf("pressing the second row on screen selected %d, want %d", got, first+1)
 	}
 }
+
+func TestCompletionTracksTheEditorsLiveToken(t *testing.T) {
+	editor := base.NewEditor(base.EditorConfig{Initial: "@one\n@one"})
+	accepted := false
+	completion := &base.Completion{
+		CurrentToken: func() (base.Token, bool) { return editor.TokenAtCursor(base.Trigger{Prefix: "@"}) },
+		Accept:       func(base.Candidate, base.Token) { accepted = true },
+	}
+	editor.SetCursor(0, 4)
+	token, ok := completion.CurrentToken()
+	if !ok {
+		t.Fatal("missing initial token")
+	}
+	completion.Offer(token, []base.Candidate{{Text: "one"}})
+	editor.SetCursor(1, 4)
+	if completion.Open() || completion.Width() != 0 || completion.Do(base.Accept) || accepted {
+		t.Fatal("an offer from another line remained actionable")
+	}
+	if stale, open := completion.Token(); open || stale != (base.Token{}) {
+		t.Fatalf("inactive completion exposed %v", stale)
+	}
+	editor.SetCursor(0, 4)
+	if !completion.Do(base.Accept) || !accepted {
+		t.Fatal("the matching offer could not be accepted")
+	}
+}
+
+func TestMaskedEditorDoesNotOfferCompletionText(t *testing.T) {
+	editor := base.NewEditor(base.EditorConfig{Initial: "@secret"})
+	editor.SetMask("*")
+	editor.SetCursor(0, len(editor.Text()))
+	token, ok := editor.TokenAtCursor(base.Trigger{Prefix: "@"})
+	if ok || token != (base.Token{}) {
+		t.Fatal("masked text escaped through a completion token")
+	}
+}

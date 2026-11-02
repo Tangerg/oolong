@@ -115,3 +115,22 @@ func TestAWidgetWithNoLookDrawsNoLook(t *testing.T) {
 		t.Errorf("an undressed palette drew %+v", got)
 	}
 }
+
+func TestCompletionAndPaletteRenderTheSameTabStops(t *testing.T) {
+	name := "f\t界"
+	accent := grid.Style{Attr: grid.Bold}
+	for _, draw := range []func(grid.View){
+		func(v grid.View) {
+			base.DefaultCompletionRenderer{}.DrawRow(v, base.Candidate{Text: name, Matched: []int{2}}, false, base.Look{Accent: accent})
+		},
+		func(v grid.View) {
+			kit.Palette{Found: []base.Found{{Command: base.Command{Name: name}, At: []int{2}}}, Theme: kit.Theme{Accent: accent}}.Draw(v)
+		},
+	} {
+		surface := grid.NewSurface(12, 1)
+		draw(surface.View())
+		if got := cellAt(surface, 8, 0); got.Content() != "界" || got.Style != accent {
+			t.Fatalf("first cell after the tab = %+v", got)
+		}
+	}
+}

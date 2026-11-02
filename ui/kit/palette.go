@@ -1,8 +1,6 @@
 package kit
 
 import (
-	"slices"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
@@ -80,22 +78,8 @@ func (p Palette) Draw(v grid.View) {
 }
 
 func (p Palette) row(v grid.View, y, x, w int, found base.Found, style grid.Style) {
-	name := found.Command.Name
-	// Written cluster by cluster, because the match offsets are into the bytes and a
-	// cluster is what occupies a column. An offset can fall inside a cluster — a
-	// pattern character can match a combining mark — so a cluster counts as matched
-	// when it contains an offset rather than when it begins at one.
-	for at, cluster := range text.Clusters(name) {
-		if x >= w {
-			return
-		}
-		clusterStyle := style
-		if matchedIn(found.At, at, at+len(cluster)) {
-			clusterStyle = style.Merge(p.Theme.Accent)
-		}
-		v.Text(x, y, cluster, clusterStyle)
-		x = layout.Sum(x, text.Width(cluster))
-	}
+	name := text.Highlight(found.Command.Name, found.At, style, style.Merge(p.Theme.Accent))
+	x = layout.Sum(x, name.Draw(v, x, y))
 
 	if found.Command.Title == "" || layout.Sum(x, 2) >= w {
 		return
@@ -103,8 +87,4 @@ func (p Palette) row(v grid.View, y, x, w int, found base.Found, style grid.Styl
 	x = layout.Sum(x, 2)
 	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: p.Glyphs.Ellipsis}.
 		Draw(v.Sub(grid.Area(x, y, layout.Remaining(w, x), 1)))
-}
-
-func matchedIn(at []int, from, to int) bool {
-	return slices.ContainsFunc(at, func(offset int) bool { return offset >= from && offset < to })
 }
