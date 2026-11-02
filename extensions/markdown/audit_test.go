@@ -27,6 +27,50 @@ func TestMarkdownTextFollowsSemanticNormalization(t *testing.T) {
 	}
 }
 
+func TestSourceNormalizationPrecedesEveryMarkdownSyntax(t *testing.T) {
+	for _, test := range []struct{ name, source, want string }{
+		{"prose", "before\x00after", "before�after"},
+		{"code span", "`before\x00after`", "before�after"},
+		{"fenced code", "```\nbefore\x00after\n```", "before�after"},
+		{"indented code", "    before\x00after", "before�after"},
+		{"image label", "![before\x00after](image.png)", "[before�after]"},
+		{"reference identity", "[kept][a\x00b]\n\n[a�b]: /target", "kept"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rows := render(t, 60, test.source)
+			if !slices.Equal(rows, []string{test.want}) {
+				t.Fatalf("Render(%q) = %q, want %q", test.source, rows, test.want)
+			}
+		})
+	}
+}
+
+func TestExtensionPreparationReceivesTheNormalizedSource(t *testing.T) {
+	for _, test := range []struct {
+		name, source, info string
+		kind               markdown.Extension
+	}{
+		{"code", "```a\x00b\r\nbefore\x00after\r\n```", "a�b", markdown.FencedCode},
+		{"math", "$$\r\nbefore\x00after\r\n$$", "", markdown.DisplayMath},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var appearance markdown.Look
+			calls := 0
+			appearance.SetRenderer(test.kind, func(info, source string) (grid.Drawable, error) {
+				calls++
+				if info != test.info || source != "before�after" {
+					t.Errorf("extension info=%q source=%q", info, source)
+				}
+				return nil, markdown.ErrUnhandled
+			})
+			_ = mustRender(t, test.source, appearance)
+			if calls != 1 {
+				t.Fatalf("extension calls = %d, want 1", calls)
+			}
+		})
+	}
+}
+
 func TestFenceInfoHasSemanticTextButCodeKeepsItsSource(t *testing.T) {
 	for _, info := range []string{"go&#108;ang", `go\+\+`} {
 		look := look()

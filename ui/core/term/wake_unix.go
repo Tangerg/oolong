@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"syscall"
 
@@ -61,6 +62,22 @@ func newWaker(fd int) (*waker, error) {
 	}
 	return &waker{fd: fd, in: pipe[0], out: pipe[1]}, nil
 }
+
+// Raw input has one consumer, so readiness permits a bounded read while the
+// session still owns its modes. Close joins that read before restoring them.
+func (w *waker) read(in *os.File) ([]byte, error) {
+	ready, err := w.wait()
+	if err != nil || !ready {
+		return nil, err
+	}
+	buf := make([]byte, readChunkBytes)
+	n, err := in.Read(buf)
+	return buf[:n], err
+}
+
+func (w *waker) reset() {}
+
+func (w *waker) buffered() bool { return false }
 
 // wait blocks until the terminal has something to say, reporting false when this
 // process asked for the reader back instead.

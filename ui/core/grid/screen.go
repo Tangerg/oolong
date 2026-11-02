@@ -83,14 +83,10 @@ type Screen struct {
 	frame   painter
 	scratch painter
 
-	// full forces the next flush to repaint every cell, because the terminal's
+	// full forces the next flush to repaint the composition, because the terminal's
 	// contents are no longer known: after a resize, or after something else has
 	// written to the terminal.
 	full bool
-	// repaintAll says the same about the regions something else painted, which the
-	// cells say nothing about. It is a second flag because the cell repaint happens
-	// before them and clears the first one.
-	repaintAll bool
 }
 
 // NewScreen returns a screen of the given size whose first flush repaints
@@ -150,7 +146,6 @@ func (s *Screen) Invalidate() {
 
 func (s *Screen) invalidate() {
 	s.full = true
-	s.repaintAll = true
 	s.cursor.forget()
 }
 
@@ -178,9 +173,9 @@ func (s *Screen) Cursor() Cursor { return s.placed }
 func (s *Screen) Prepare() (output *Output, err error) {
 	s.publication.begin()
 	s.buffers.back.endDrawing()
-	beforeCursor, beforeFull, beforeRepaint := s.cursor, s.full, s.repaintAll
+	beforeCursor := s.cursor
 	defer func() {
-		s.cursor, s.full, s.repaintAll = beforeCursor, beforeFull, beforeRepaint
+		s.cursor = beforeCursor
 		if output == nil {
 			s.publication.end()
 		}
@@ -191,14 +186,22 @@ func (s *Screen) Prepare() (output *Output, err error) {
 	if err = s.buffers.checkTargets(); err != nil {
 		return nil, err
 	}
+	full := s.full || s.buffers.regionsNeedRepaint()
 	s.frame.restart()
-	s.paintCells()
+	if full {
+		if err := eraseRegions(s.buffers.target, &s.frame.out, s.buffers.front.regions()); err != nil {
+			return nil, err
+		}
+	}
+	s.paintCells(full)
 	s.frame.end()
-	if err := s.paintRegions(); err != nil {
-		return nil, err
+	if full {
+		if err := s.paintRegions(); err != nil {
+			return nil, err
+		}
 	}
 	s.cursor.emit(&s.frame, s.placed, len(s.frame.out) > 0)
-	afterCursor, afterFull, afterRepaint := s.cursor, s.full, s.repaintAll
+	afterCursor := s.cursor
 	var payload []byte
 	if len(s.frame.out) > 0 {
 		payload = append(payload, beginSync...)
@@ -207,7 +210,7 @@ func (s *Screen) Prepare() (output *Output, err error) {
 	}
 	output = newOutput(payload, func(commit bool) {
 		if commit {
-			s.cursor, s.full, s.repaintAll = afterCursor, afterFull, afterRepaint
+			s.cursor, s.full = afterCursor, false
 			s.buffers.swap()
 		}
 		s.publication.end()
@@ -232,27 +235,12 @@ func (s *Screen) Flush(w io.Writer) error {
 	return nil
 }
 
-// paintRegions writes what turns the regions the terminal is showing into the ones
-// this frame asked for.
-//
-// A full repaint says nothing about them: what the terminal remembers being shown is
-// not a cell and is not undone by writing over the cells. So a frame that repainted
-// everything erases every region it knew about and paints them again, which is also
-// what makes a resize and a handover come back right.
+// Opaque painters go after the restored cells, in their registered drawing order.
 func (s *Screen) paintRegions() error {
-	was := s.buffers.front.regions()
-	out := &s.frame.out
-	if s.repaintAll {
-		s.repaintAll = false
-		if err := repaint(s.buffers.target, out, was, nil, s.frame.moveToPoint); err != nil {
-			return err
-		}
-		was = nil
-	}
-	if err := repaint(s.buffers.target, out, was, s.buffers.back.regions(), s.frame.moveToPoint); err != nil {
+	if err := paintRegions(s.buffers.target, &s.frame.out, s.buffers.back.regions(), s.frame.moveToPoint); err != nil {
 		return err
 	}
-	if len(s.buffers.back.regions()) > 0 || len(was) > 0 {
+	if len(s.buffers.back.regions()) > 0 {
 		// A painter was handed the writer, and what it wrote is not something this
 		// package can read: where the cursor ended up is no longer known.
 		s.frame.forcePos()
@@ -260,9 +248,8 @@ func (s *Screen) paintRegions() error {
 	return nil
 }
 
-func (s *Screen) paintCells() {
-	if s.full {
-		s.full = false
+func (s *Screen) paintCells(full bool) {
+	if full {
 		s.frame.paint(s.buffers.back, 0, s.buffers.back.h, everything)
 		return
 	}

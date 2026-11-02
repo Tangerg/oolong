@@ -14,13 +14,35 @@ import (
 )
 
 func TestUnresponsiveRendererCannotLeaveTheBrowserRunning(t *testing.T) {
+	if runWithProcessReaper(t) {
+		return
+	}
+	call, pid := unresponsiveRender(t)
+	finishReaping := startBrowserReaper(t, pid)
+	t.Cleanup(func() {
+		call.cancel()
+		<-call.done
+		finishReaping()
+	})
+	call.cancel()
+	<-call.done
+	if !errors.Is(call.err, context.Canceled) || errors.Is(call.err, syscall.EPERM) || strings.Contains(call.err.Error(), "did not finish") {
+		t.Fatalf("shutdown=%v", call.err)
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("browser %d still exists: %v", pid, err)
+	}
+}
+
+func unresponsiveRender(t *testing.T) (*renderCall, int) {
+	t.Helper()
 	cfg := backendConfig(t, 0)
 	renderer, err := mermaid.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), cfg.Timeout)
-	defer cancel()
+	t.Cleanup(cancel)
 	endpoint, ready := readinessServer(t)
 	call := startRender(ctx, t, renderer, "spin:"+endpoint)
 	data, err := waitReady(ctx, ready, call)
@@ -31,12 +53,5 @@ func TestUnresponsiveRendererCannotLeaveTheBrowserRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call.cancel()
-	<-call.done
-	if !errors.Is(call.err, context.Canceled) || errors.Is(call.err, syscall.EPERM) || strings.Contains(call.err.Error(), "did not finish") {
-		t.Fatalf("shutdown=%v", call.err)
-	}
-	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("browser %d still exists: %v", pid, err)
-	}
+	return call, pid
 }

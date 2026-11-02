@@ -860,9 +860,14 @@ func (e *Editor) Elements() []Element {
 }
 
 // ElementAt is the element covering a position, and whether there is one. The end is
-// exclusive, so the position just after an element is outside it.
+// exclusive, so the position just after an element is outside it. Out-of-range
+// positions return false.
 func (e *Editor) ElementAt(line, col int) (Element, bool) {
-	at := e.offsetOf(Caret{Line: line, Col: col})
+	lines := e.document().lines
+	if line < 0 || line >= len(lines) || col < 0 || col >= len(lines[line]) {
+		return Element{}, false
+	}
+	at := offsetInLines(lines, Caret{Line: line, Col: col})
 	for _, m := range e.document().marks {
 		if m.Covers(at) {
 			return e.elementOf(m), true

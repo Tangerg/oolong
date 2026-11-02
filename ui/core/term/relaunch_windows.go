@@ -7,17 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"time"
 )
-
-// consoleHandover is how long the new process is held back.
-//
-// A Windows console has one queue of input records and no way to hand it over. The
-// reader this process started outlives the request to stop — a blocking read cannot
-// be cancelled portably — so for a moment there are two readers, and a record taken
-// by the one on its way out is a keystroke the new process never sees. Waiting is
-// the only lever there is.
-const consoleHandover = 150 * time.Millisecond
 
 // relaunch runs the program again beside this one, because a Windows process cannot
 // be replaced.
@@ -36,7 +26,6 @@ func relaunch(path string, argv, env []string) (int, error) {
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
-	time.Sleep(consoleHandover)
 	err := cmd.Run()
 	if err == nil {
 		return 0, nil

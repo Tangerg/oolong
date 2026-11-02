@@ -103,8 +103,8 @@ type Terminal struct {
 
 	events chan input.Event
 	writer *Writer
-	// waker ends the reader's wait when this process, rather than the terminal, has
-	// something to say about it.
+	// waker owns interruptible input, including the platform's buffered characters.
+	// Only the reader may consume it; Close joins that owner before restoring modes.
 	waker *waker
 	// handed is the latch the reader parks on while the terminal is somebody else's
 	// — see [Terminal.Hand].
@@ -672,6 +672,9 @@ func (t *Terminal) Close() error {
 		// releases a reader parked mid-handover, so a session closed while the
 		// terminal is somebody else's still ends.
 		t.waker.wake()
+		// A wake request is not a completed read. Modes and input belong to this
+		// session until the reader has actually stopped consuming the descriptor.
+		<-t.readerDone
 		<-t.resizeDone
 		<-t.task.done
 
@@ -747,50 +750,38 @@ func (t *Terminal) control(value string) error {
 	return errors.Join(t.writer.Drain(DrainGrace), t.writer.Err())
 }
 
-// read waits for the terminal to have something to say, reads it, and hands the
-// chunk to the pump.
-//
-// The waiting is separate from the reading, and that is the whole shape of it. A
-// blocking read cannot be cancelled portably, so a reader that simply read would be
-// inside a read at exactly the moments a session needs it not to be: while the
-// terminal belongs to a child, and after the session has been closed. Waiting first
-// means every one of those finds this goroutine holding nothing — see [waker].
-//
-// Where there is no way to wait — see [interruptible] — the wait reports "maybe"
-// and the read below it does the blocking, which is what a reader that cannot be
-// woken did before any of this existed.
+const readChunkBytes = 4096
+
+// read is the sole input consumer. The platform atom owns waiting and reading
+// together: console readiness can describe records that produce no characters.
+// Returning to this loop after each bounded read lets handover and shutdown claim
+// input without cancelling a kernel read or leaving a second consumer behind.
 func (t *Terminal) read(raw chan<- readResult) {
 	defer close(t.readerDone)
 	defer t.waker.close()
 	for {
-		// Before the read and not after it: a byte taken while the terminal is
-		// somebody else's is a byte they never see.
-		t.handed.park(t.stop)
+		// Bytes already removed from the terminal precede the handover boundary.
+		// Drain that bounded platform buffer before confirming that input parked;
+		// only then may the child own the next kernel read.
+		if !t.waker.buffered() {
+			t.handed.park(t.stop)
+		}
 		select {
 		case <-t.stop:
 			return
 		default:
 		}
-		if t.restartInput.Swap(false) && !t.sendRead(raw, readResult{restart: true}) {
-			return
-		}
-		ready, err := t.waker.wait()
-		if err != nil {
-			t.sendRead(raw, readResult{err: err, at: time.Now()})
-			return
-		}
-		if !ready {
-			// This process asked for the reader back, so nothing was read and there is
-			// nothing to hand on. Whether that was a handover or the end of the session
-			// is answered at the top of the loop.
-			continue
+		if t.restartInput.Swap(false) {
+			t.waker.reset()
+			if !t.sendRead(raw, readResult{restart: true}) {
+				return
+			}
 		}
 
-		buf := make([]byte, 4096)
-		n, err := t.in.Read(buf)
+		data, err := t.waker.read(t.in)
 		at := time.Now()
-		if n > 0 || err != nil {
-			if !t.sendRead(raw, readResult{data: buf[:n], at: at, err: err}) {
+		if len(data) > 0 || err != nil {
+			if !t.sendRead(raw, readResult{data: data, at: at, err: err}) {
 				return
 			}
 		}

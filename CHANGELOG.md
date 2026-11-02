@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Changed
 
+- Native painters are an ordered composition over the frame's cells. A change to either restores the cells and redraws the regions in order; custom painters must tolerate repeated erasure and placement. An unchanged composition still emits no output, and retained image data is not retransmitted.
 - An editor with a masked document refuses clipboard copy and cut from every view sharing that document. A refused cut preserves the selection and its contents.
 - Multi-select options that compare equal under `Same` share one selection and one place in the selection limit. `Taken` returns the first matching option in option order.
 - Completion providers can bind `Completion.CurrentToken` to `Editor.TokenAtCursor` to make an offer unavailable after the caret leaves its original token. `Token.Line` identifies the logical editor line. External unkeyed token literals must name their fields or use the token constructors.
@@ -21,6 +22,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
+- Terminal shutdown joins its input reader before restoring modes or returning ownership. Windows reads bounded virtual-terminal character records without entering a blocking character read after a non-character event; retained records drain before handover, and relaunch no longer guesses completion with a fixed delay.
+- Screen and inline rendering erase the previous native composition before restoring cells and painting the next one. Reordering, inserting, moving or removing regions preserves overlap order and restores covered text. Failed preparation and aborted output retain the same invalidation state.
+- Panel and tab measurement use the child geometry that layout actually allocates, including decoration and the tab strip. Line-number measurement normalizes the line count before subtracting, including the minimum integer.
+- `Editor.ElementAt` rejects invalid line and byte-column coordinates instead of clamping them onto a real element.
+- Markdown replaces NUL at the single source-normalization boundary, before parsing. Prose, code, reference identity, image labels and extension callbacks now consume the same normalized source.
+- Linux Mermaid shutdown tests collect their own orphaned browser in an isolated process. They verify completed cleanup and visible cleanup failure without depending on the host's process-reaping timing or relaxing the production deadline.
 - Startup probes yield to normal input after a bounded byte prefix and accept only well-formed terminal reports. An empty `NO_COLOR` leaves color detection enabled. Set it to a nonempty value to disable color.
 - Text decoding and terminal output use the same hyperlink target validation. Wrapped paragraph links use the displayed tab columns for both clicks and terminal hyperlinks.
 - Invalidating scene geometry ends the old hover. Assigning the same panel content preserves its focused child. Box padding and image placement use the same geometry for measurement and drawing.

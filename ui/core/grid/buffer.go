@@ -1,5 +1,7 @@
 package grid
 
+import "slices"
+
 // frameBuffer owns the state every terminal renderer needs to move from one
 // frame to the next: the surface believed to be visible, the surface being drawn,
 // and the colour depth used when cells cross the wire. Screen and Inline differ
@@ -54,6 +56,17 @@ func (b *frameBuffer) begin(cursor *Cursor, owner *publication) View {
 }
 
 func (b *frameBuffer) swap() { b.front, b.back = b.back, b.front }
+
+// Opaque painters can replace cells without recording those changes in either
+// surface. A changed composition must restore the base cells and then paint its
+// ordered regions again, including regions whose own identity did not change.
+func (b *frameBuffer) regionsNeedRepaint() bool {
+	was, now := b.front.regions(), b.back.regions()
+	if len(was) == 0 && len(now) == 0 {
+		return false
+	}
+	return !sameRegions(was, now) || !slices.Equal(b.front.cells, b.back.cells)
+}
 
 // Validate even unchanged regions: a different terminal may have issued the
 // same numeric painter ID for the same cell rectangle.

@@ -34,13 +34,8 @@ func (p *Panel) ensure() {
 		return
 	}
 	p.group = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{
-		Paint: func(frame scene.Frame) { p.Box.paint(frame.View) },
-		Measure: func(axis layout.Axis, across int) int {
-			if axis == layout.Down {
-				return p.HeightForWidth(across)
-			}
-			return layout.Sum(p.Box.Overhead().X, p.Content().Measure(axis, across))
-		},
+		Paint:   func(frame scene.Frame) { p.Box.paint(frame.View) },
+		Measure: p.measure,
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {
 			return nil
@@ -79,6 +74,14 @@ func (p *Panel) SetContent(child scene.Element) {
 
 // HeightForWidth adds box overhead to the child's measured height.
 func (p *Panel) HeightForWidth(width int) int {
+	return p.measure(layout.Down, width)
+}
+
+func (p *Panel) measure(axis layout.Axis, across int) int {
 	overhead := p.Box.Overhead()
-	return layout.Sum(overhead.Y, p.Content().Measure(layout.Down, layout.Remaining(width, overhead.X)))
+	along, cross := overhead.X, overhead.Y
+	if axis == layout.Down {
+		along, cross = overhead.Y, overhead.X
+	}
+	return layout.Sum(along, p.Content().Measure(axis, layout.Remaining(across, cross)))
 }

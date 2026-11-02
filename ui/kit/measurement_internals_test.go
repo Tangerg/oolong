@@ -53,6 +53,11 @@ func TestLineNumberWidthDoesNotWrapAtIntegerLimits(t *testing.T) {
 	if got := (LineNumbers{First: maxInt}).Width(maxInt); got != want {
 		t.Fatalf("line-number width = %d, want %d", got, want)
 	}
+	for _, lines := range []int{math.MinInt, -1, 0, 1} {
+		if got := (LineNumbers{}).Width(lines); got != 2 {
+			t.Errorf("line-number width for %d lines = %d, want one digit and one gap", lines, got)
+		}
+	}
 }
 
 func TestMeterValueColumnIsAtomic(t *testing.T) {

@@ -687,10 +687,11 @@ func (s *Surface) Rows() []string {
 	return out
 }
 
-// Paint reserves r for a [Painter]. Equal identities at equal positions persist
-// across frames; replacements erase the previous image. Identity zero repaints every
-// frame. The region must fit entirely because grid cannot crop opaque terminal
-// content. Cells remain available for captions where the terminal supports layering.
+// Paint appends r to the frame's ordered [Painter] composition, drawn after cells.
+// Unchanged cells and ordered regions with equal identities at equal positions
+// persist across frames. Identity zero repaints every frame. The region must fit
+// entirely because grid cannot crop opaque terminal content. Cells remain available
+// for captions where the terminal supports layering.
 func (v View) Paint(r image.Rectangle, id uint64, by Painter) {
 	v.scope.requireWritable()
 	if v.surface == nil || by == nil || r.Empty() {

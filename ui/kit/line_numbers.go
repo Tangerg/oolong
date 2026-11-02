@@ -31,7 +31,7 @@ var _ base.RowGutter = LineNumbers{}
 
 // Width is the stable gutter width for this many logical lines.
 func (n LineNumbers) Width(lines int) int {
-	last := layout.Sum(n.first(), max(lines-1, 0))
+	last := layout.Sum(n.first(), layout.Remaining(lines, 1))
 	return layout.Sum(decimalWidth(last), text.Width(n.Separator), n.gap())
 }
 

@@ -46,7 +46,7 @@ var parser = sync.OnceValue(func() gparser.Parser {
 })
 
 // Render turns a whole markdown document into blocks.
-// Invalid UTF-8 runs become replacement text before parsing. Extension failures
+// Invalid UTF-8 runs and NUL become replacement text before parsing. Extension failures
 // return readable blocks alongside errors; callers must observe both results.
 //
 // Live previews and final documents use this same parser. Source revisions and
@@ -60,7 +60,7 @@ func render(source string, look Look, context gparser.Context) ([]Block, error) 
 		return nil, nil
 	}
 	look = cloneLook(look)
-	r := &renderer{look: look, source: []byte(strings.ToValidUTF8(normalizeNewlines(source), "�"))}
+	r := &renderer{look: look, source: []byte(normalizeSource(source))}
 	root := parse(r.source, context)
 	r.render(root, frame{body: look.Text})
 	return r.blocks, errors.Join(r.errors...)
@@ -541,7 +541,7 @@ func stringValue(node *ast.String) string {
 }
 
 func markdownText(source string) string {
-	if !strings.ContainsAny(source, "\\&\x00") {
+	if !strings.ContainsAny(source, "\\&") {
 		return source
 	}
 	var out strings.Builder
@@ -562,11 +562,7 @@ func markdownText(source string) string {
 				}
 			}
 		}
-		if source[i] == 0 {
-			out.WriteRune('�')
-		} else {
-			out.WriteByte(source[i])
-		}
+		out.WriteByte(source[i])
 		i++
 	}
 	return out.String()
@@ -611,8 +607,12 @@ func (r *renderer) codeSpan(node *ast.CodeSpan) string {
 	return out.String()
 }
 
-// Parser offsets refer to normalized Markdown source, where every line ending is LF.
-func normalizeNewlines(source string) string {
+// CommonMark normalization precedes parsing so code, references and extension
+// bodies share the same characters and all parser offsets address that source.
+func normalizeSource(source string) string {
+	const replacement = "�"
+	source = strings.ToValidUTF8(source, replacement)
+	source = strings.ReplaceAll(source, "\x00", replacement)
 	return strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 }
 

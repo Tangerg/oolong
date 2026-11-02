@@ -8,9 +8,9 @@ import (
 
 // Painter writes terminal-native content into a frame region. Paint must preserve
 // the cursor or subsequent relative output moves to the wrong position. Erase removes
-// persistent named images when their region disappears; cell-only painters need no
-// erasure output. The writer belongs to the synchronous callback; after it returns,
-// writes fail with [io.ErrClosedPipe].
+// persistent content before the next composition restores its cells and paints its
+// regions. Cell-only painters may leave erasure to that restoration. The writer
+// belongs to the synchronous callback; after it returns, writes fail with [io.ErrClosedPipe].
 type Painter interface {
 	// Paint writes what puts this in a region of size cells, with the
 	// terminal's cursor already at its top-left corner, and leaves the cursor there.
@@ -90,29 +90,19 @@ func withPaintWriter(target NativeTarget, buf *[]byte, call func(io.Writer) erro
 	return call(w)
 }
 
-// repaint writes what turns the regions the terminal is showing into the regions
-// this frame asked for, positioning each with move.
-//
-// Everything that changed is erased before anything is painted. A region that moved
-// is the same picture in two places to a terminal that remembers it, and painting
-// the new one first would leave both on screen until the old one was taken away —
-// which is the one order that flickers.
-func repaint(target NativeTarget, out *[]byte, was, now []painted, move func(image.Point)) error {
-	if len(was) == 0 && len(now) == 0 {
-		return nil
-	}
-	for _, before := range was {
-		if held(now, before) {
-			continue
-		}
-		if err := withPaintWriter(target, out, before.by.Erase); err != nil {
+// Erasure can touch cells as well as named resources. Renderers must restore their
+// base cells after this step and only then draw the next ordered composition.
+func eraseRegions(target NativeTarget, out *[]byte, regions []painted) error {
+	for _, region := range regions {
+		if err := withPaintWriter(target, out, region.by.Erase); err != nil {
 			return err
 		}
 	}
-	for _, region := range now {
-		if held(was, region) {
-			continue
-		}
+	return nil
+}
+
+func paintRegions(target NativeTarget, out *[]byte, regions []painted, move func(image.Point)) error {
+	for _, region := range regions {
 		move(region.rect.Min)
 		if err := withPaintWriter(target, out, func(w io.Writer) error { return region.by.Paint(w, region.rect.Size()) }); err != nil {
 			return err
@@ -121,26 +111,14 @@ func repaint(target NativeTarget, out *[]byte, was, now []painted, move func(ima
 	return nil
 }
 
-func held(set []painted, region painted) bool {
-	for _, other := range set {
-		if other.same(region) {
-			return true
-		}
-	}
-	return false
-}
-
-// sameRegions reports whether repaint would leave every region alone. Regions are
-// a set for this purpose: drawing the same identity twice does not make two terminal
-// objects, and order does not change what is on screen.
+// Drawing order is part of the composition even when every identity and
+// rectangle survives; generic painters need not have independent native layers.
 func sameRegions(a, b []painted) bool {
-	for _, region := range a {
-		if !held(b, region) {
-			return false
-		}
+	if len(a) != len(b) {
+		return false
 	}
-	for _, region := range b {
-		if !held(a, region) {
+	for i, region := range a {
+		if !region.same(b[i]) {
 			return false
 		}
 	}

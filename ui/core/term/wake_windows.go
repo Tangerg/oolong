@@ -3,8 +3,11 @@
 package term
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -12,23 +15,13 @@ import (
 // waker is a wait for the terminal to have something to say that this process can
 // end on its own.
 //
-// The shape is the same as everywhere else and the mechanism is what the platform
-// gives: a console is a waitable object, so waiting on it and on an event this
-// process can set is one call. What comes back from that wait has read nothing,
-// which is the property the whole thing exists for — a byte taken there is a byte
-// the child it was handed to never sees.
-//
-// # What it cannot promise
-//
-// A console is signalled for anything in its input queue, and not everything in
-// there is a keystroke: a mouse report, a focus change and a window resize are
-// records too. A wait woken by one of those falls into a read that then blocks until
-// a key arrives. Hand refuses the handover if the reader cannot confirm that
-// it parked, so the next key never belongs to both the session and its child.
+// A console can signal for records without text. Nonblocking record reads keep
+// those notifications from becoming an uncancellable ReadConsole, and owning the
+// UTF-16 decoder keeps buffered characters from waiting on an empty OS queue.
 type waker struct {
 	// input is the console this session reads, and console says it is one. A session
-	// whose input is a pipe cannot be woken, which is what [waker.interruptible]
-	// reports and what stops a handover from pretending.
+	// whose input is a pipe cannot supply cancellable console input and is refused
+	// by read. OpenOn checks this before creating a session.
 	input   windows.Handle
 	console bool
 	// signal is set when this process wants the reader back. It is manual-reset, so a
@@ -37,9 +30,24 @@ type waker struct {
 
 	mu     sync.Mutex
 	closed bool
+
+	records [128]consoleInputRecord
+	text    consoleText
 }
 
+var readConsoleInputEx = windows.NewLazySystemDLL("kernel32.dll").NewProc("ReadConsoleInputExW")
+
+// INPUT_RECORD's tagged union starts at byte four and occupies sixteen bytes.
+// Check the native layout at compile time before passing it across the syscall.
+var (
+	_ [20]byte = [unsafe.Sizeof(consoleInputRecord{})]byte{}
+	_ [4]byte  = [unsafe.Offsetof(consoleInputRecord{}.key)]byte{}
+)
+
 func newWaker(fd int) (*waker, error) {
+	if err := readConsoleInputEx.Find(); err != nil {
+		return nil, fmt.Errorf("term: find nonblocking console input: %w", err)
+	}
 	input := windows.Handle(fd)
 	var mode uint32
 	console := windows.GetConsoleMode(input, &mode) == nil
@@ -53,16 +61,52 @@ func newWaker(fd int) (*waker, error) {
 
 func (w *waker) interruptible() bool { return w.console }
 
+func (w *waker) buffered() bool { return len(w.text.records) > 0 }
+
+func (w *waker) read(_ *os.File) ([]byte, error) {
+	if !w.console {
+		return nil, fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)
+	}
+	if w.buffered() {
+		return w.text.read(), nil
+	}
+	ready, err := w.wait()
+	if err != nil || !ready {
+		return nil, err
+	}
+	var count uint32
+	const consoleReadNowait = 0x0002
+	//nolint:gosec // G103: the checked INPUT_RECORD layout and uint32 count remain live through this synchronous kernel call.
+	result, _, cause := readConsoleInputEx.Call(
+		uintptr(w.input),
+		uintptr(unsafe.Pointer(&w.records[0])),
+		uintptr(len(w.records)),
+		uintptr(unsafe.Pointer(&count)),
+		consoleReadNowait,
+	)
+	if result == 0 {
+		if errors.Is(cause, windows.ERROR_SUCCESS) {
+			cause = errors.New("console read failed without an error code")
+		}
+		return nil, fmt.Errorf("term: read console input: %w", cause)
+	}
+	if count > uint32(len(w.records)) {
+		return nil, fmt.Errorf("term: console returned %d records into a %d-record buffer", count, len(w.records))
+	}
+	w.text.records = w.records[:count]
+	return w.text.read(), nil
+}
+
+func (w *waker) reset() { w.text.reset() }
+
 // wait blocks until the terminal has something to say, reporting false when this
 // process asked for the reader back instead.
 func (w *waker) wait() (bool, error) {
 	if !w.console {
-		// Nothing to wait on, so the read below does the waiting — which is what a
-		// reader that cannot be woken did before any of this existed.
-		return true, nil
+		return false, fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)
 	}
 	// A wait-any selects the lowest ready index. A handover already requested
-	// must take precedence over starting another potentially blocking console read.
+	// must take precedence over removing more records from the console.
 	which, err := windows.WaitForMultipleObjects([]windows.Handle{w.signal, w.input}, false, windows.INFINITE)
 	if err != nil {
 		return false, fmt.Errorf("term: watch the terminal: %w", err)

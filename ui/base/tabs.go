@@ -73,10 +73,19 @@ func (t *Tabs) ensure() {
 		if axis == layout.Down {
 			return t.HeightForWidth(across)
 		}
-		return max(t.Strip().Measure(axis, across), t.Panel().Measure(axis, across))
+		flow, slots := t.flow()
+		return flow.CrossWanted(across, slots)
 	}}, Items: []scene.Item{{Element: t.strip.Element()}, {Element: t.panel.Element()}}, Layout: func(size image.Point, _ []scene.Item) []image.Rectangle {
-		return (layout.Flow{Axis: layout.Down}).Rects(size, []layout.Slot{{Size: layout.Fixed(t.stripHeight())}, {Size: layout.Flex(1)}})
+		flow, slots := t.flow()
+		return flow.Rects(size, slots)
 	}})
+}
+
+func (t *Tabs) flow() (layout.Flow, []layout.Slot) {
+	return layout.Flow{Axis: layout.Down}, []layout.Slot{
+		{Size: layout.Fixed(t.stripHeight()), Of: t.Strip()},
+		{Size: layout.Flex(1), Of: t.Panel()},
+	}
 }
 
 func (t *Tabs) stripHeight() int {

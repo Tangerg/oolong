@@ -27,6 +27,23 @@ func TestElementIsInsertedWithASeparator(t *testing.T) {
 	}
 }
 
+func TestElementLookupRejectsCoordinatesOutsideTheDocument(t *testing.T) {
+	var editor base.Editor
+	first := editor.InsertElement(fileChip, "@first")
+	editor.Newline()
+	last := editor.InsertElement(fileChip, "@last")
+	for _, element := range []base.Element{first, last} {
+		if found, ok := editor.ElementAt(element.Line, element.Start); !ok || found.ID != element.ID {
+			t.Fatalf("element lookup at its own start = %+v, %v; want %+v", found, ok, element)
+		}
+	}
+	for _, position := range []base.Caret{{Line: -1}, {Line: 2}, {Col: -1}, {Line: 1, Col: -1}, {Col: 100}, {Line: 1, Col: 100}} {
+		if found, ok := editor.ElementAt(position.Line, position.Col); ok {
+			t.Errorf("invalid position %+v resolved to element %+v", position, found)
+		}
+	}
+}
+
 func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

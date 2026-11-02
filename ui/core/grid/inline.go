@@ -38,9 +38,8 @@ type Inline struct {
 	cursorStyleKnown bool
 	cursorStyle      CursorStyle
 
-	// Cell rows do not describe terminal-native paint, so a full repaint must invalidate both.
-	full       bool
-	repaintAll bool
+	// A full repaint restores cells and terminal-native regions as one composition.
+	full bool
 
 	// left says the block has been finished with and nothing has been written since,
 	// so finishing it again has nothing to do. Whether the terminal has been given the
@@ -105,7 +104,6 @@ func (i *Inline) Invalidate() {
 
 func (i *Inline) invalidate() {
 	i.full = true
-	i.repaintAll = true
 	i.known = false
 	i.cursorStyleKnown = false
 }
@@ -131,20 +129,20 @@ type inlineState struct {
 	at                             image.Point
 	known, shown, cursorStyleKnown bool
 	cursorStyle                    CursorStyle
-	full, repaintAll, left         bool
+	full, left                     bool
 }
 
 func (i *Inline) state() inlineState {
 	return inlineState{
 		i.rows, i.at, i.known, i.shown, i.cursorStyleKnown,
-		i.cursorStyle, i.full, i.repaintAll, i.left,
+		i.cursorStyle, i.full, i.left,
 	}
 }
 
 func (i *Inline) restore(s inlineState) {
 	i.rows, i.at = s.rows, s.at
 	i.known, i.shown, i.cursorStyleKnown = s.known, s.shown, s.cursorStyleKnown
-	i.cursorStyle, i.full, i.repaintAll, i.left = s.cursorStyle, s.full, s.repaintAll, s.left
+	i.cursorStyle, i.full, i.left = s.cursorStyle, s.full, s.left
 }
 
 // Prepare composes immutable permanent contributions and the live frame together.
@@ -304,6 +302,12 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	if !i.compositionNeeded(used) {
 		return i.at, nil
 	}
+	full := i.full || len(i.contribution) > 0 || i.buffers.regionsNeedRepaint()
+	if full {
+		if err := eraseRegions(i.buffers.target, &i.buf, i.buffers.front.regions()); err != nil {
+			return i.at, err
+		}
+	}
 
 	// The terminal's style at the start of a frame is not knowable — another program
 	// may have written to it — so a frame that writes anything makes it knowable.
@@ -318,7 +322,6 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	if err != nil {
 		return i.at, err
 	}
-	full := i.full || advance > 0
 	// Clear released live rows after accounting for the physical rows that accepted
 	// output now occupies, including wrapping caused by a width change.
 	extra := max(i.rows-advance-used, 0)
@@ -454,16 +457,10 @@ func (i *Inline) composeEnd(used, total int, full bool) (image.Point, error) {
 	return i.placeCursor(at), nil
 }
 
-// paintRegions writes what turns the regions the terminal is showing into the ones
-// this frame asked for, and reports where it left the cursor.
-//
-// Everything is relative, like every other movement in an inline block. A frame that
-// published output moved the block down past it, which moved what the terminal is
-// showing with it, so that frame paints its regions again from nothing — the same
-// answer a full repaint gives, and for the same reason.
+// Paint the next ordered composition after its cells, using the same relative
+// anchor as every other movement in an inline block.
 func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
-	was, now := i.buffers.front.regions(), i.buffers.back.regions()
-	if len(was) == 0 && len(now) == 0 {
+	if !full || len(i.buffers.back.regions()) == 0 {
 		return cur, nil
 	}
 	out := &i.buf
@@ -480,14 +477,7 @@ func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 		}
 		cur = to
 	}
-	if full || i.repaintAll {
-		i.repaintAll = false
-		if err := repaint(i.buffers.target, out, was, nil, move); err != nil {
-			return cur, err
-		}
-		was = nil
-	}
-	if err := repaint(i.buffers.target, out, was, now, move); err != nil {
+	if err := paintRegions(i.buffers.target, out, i.buffers.back.regions(), move); err != nil {
 		return cur, err
 	}
 	return cur, nil

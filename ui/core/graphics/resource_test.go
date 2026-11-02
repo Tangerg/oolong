@@ -134,9 +134,12 @@ func TestCropsShareOneTransmissionAndKeepIndependentPlacements(t *testing.T) {
 		t.Fatalf("unchanged crops were repainted: %q", unchanged)
 	}
 	left.Source = image.Rect(40, 10, 60, 40)
-	if next := draw(); !strings.Contains(next, "a=p,i=31,p=1,x=40,y=10,w=20,h=30,") ||
-		strings.Contains(next, "a=t") || strings.Contains(next, "p=2") {
-		t.Fatalf("updating one crop disturbed its peer or retransmitted data: %q", next)
+	// A changed opaque composition is rebuilt in drawing order. Each crop must
+	// retain its own source and placement while sharing the transmitted image.
+	if next := draw(); !strings.Contains(next, "a=p,i=31,p=1,x=40,y=10,w=20,h=30,c=2,r=3,") ||
+		!strings.Contains(next, "a=p,i=31,p=2,x=20,y=10,w=20,h=30,c=2,r=3,") ||
+		strings.Contains(next, "a=t") {
+		t.Fatalf("updating crops lost placement geometry or retransmitted data: %q", next)
 	}
 	if err := owner.Release(resource, func(i graphics.Image) error { return i.Release(&out) }); err != nil {
 		t.Fatal(err)
