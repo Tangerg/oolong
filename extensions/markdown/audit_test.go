@@ -1,6 +1,7 @@
 package markdown_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -63,6 +64,28 @@ func TestLinkedImageKeepsItsLabelAndOuterDestination(t *testing.T) {
 		doc.Draw(surface.View())
 		if got := cellAt(surface, 0, 0).Link; got != tc.want {
 			t.Errorf("%s points at %q, want %q", tc.source, got, tc.want)
+		}
+	}
+}
+
+func TestFenceInfoDispatchesOnTheFirstWord(t *testing.T) {
+	type call struct {
+		kind markdown.Extension
+		info string
+	}
+	want := []call{{markdown.FencedCode, "go"}, {markdown.DisplayMath, ""}}
+	for _, sep := range []string{" ", "\t"} {
+		var calls []call
+		var appearance markdown.Look
+		for _, kind := range []markdown.Extension{markdown.FencedCode, markdown.DisplayMath} {
+			appearance.SetRenderer(kind, func(info, _ string) (grid.Drawable, error) {
+				calls = append(calls, call{kind, info})
+				return nil, markdown.ErrUnhandled
+			})
+		}
+		_ = mustRender(t, "~~~go"+sep+"example\nx\n~~~\n\n~~~math"+sep+"display\ny\n~~~", appearance)
+		if !slices.Equal(calls, want) {
+			t.Errorf("separator %q dispatched %v, want %v", sep, calls, want)
 		}
 	}
 }

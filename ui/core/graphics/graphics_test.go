@@ -212,6 +212,15 @@ func TestFitDoesNotOverflowAtIntegerLimits(t *testing.T) {
 	if box != image.Pt(limit, limit) {
 		t.Fatalf("scaled fit = %v, want (%d,%d)", box, limit, limit)
 	}
+
+	box = graphics.Fit(image.Pt(maxInt, maxInt), image.Pt(1, maxInt), image.Pt(limit, maxInt))
+	if box != image.Pt(limit, 1) {
+		t.Fatalf("wide product fit = %v, want (%d,1)", box, limit)
+	}
+	box = graphics.Fit(image.Pt(maxInt, maxInt), image.Pt(maxInt, 1), image.Pt(maxInt, limit))
+	if box != image.Pt(1, limit) {
+		t.Fatalf("tall product fit = %v, want (1,%d)", box, limit)
+	}
 }
 
 func TestTheZeroProtocolShowsNothing(t *testing.T) {
@@ -383,6 +392,11 @@ func TestFit(t *testing.T) {
 		{"capped width shrinks the height with it", 800, 400, 10, 20, 20, 24, 20, 5},
 		{"capped height shrinks the width with it", 400, 800, 10, 20, 80, 10, 10, 10},
 		{"rounded up so it is never squeezed", 15, 25, 10, 20, 80, 24, 2, 2},
+		{"both limits use the original aspect", 40, 280, 10, 20, 3, 9, 3, 9},
+		{"both limits with axes exchanged", 140, 80, 10, 20, 9, 3, 9, 3},
+		{"fractional columns scale from pixels", 21, 100, 10, 10, 2, 5, 1, 5},
+		{"fractional rows scale from pixels", 100, 21, 10, 10, 5, 2, 5, 1},
+		{"ties round to the larger cell count", 30, 100, 10, 10, 2, 5, 2, 5},
 		{"nothing sensible gives one cell", 0, 0, 10, 20, 80, 24, 1, 1},
 		{"no cell size gives one cell", 100, 100, 0, 0, 80, 24, 1, 1},
 		{"a zero cap is still one cell", 100, 100, 10, 20, 0, 0, 1, 1},

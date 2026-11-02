@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"os"
@@ -37,10 +38,20 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, path string, host program.Host) error {
+func run(ctx context.Context, path string, host program.Host) (err error) {
 	data, err := os.ReadFile(path) //nolint:gosec // The user selects the PNG to display.
 	if err != nil {
 		return err
+	}
+	var resource graphics.Resource
+	// Run closes its own terminal. A supplied host survives Run, along with
+	// any transmission the viewer did not explicitly retire.
+	if images, ok := host.(program.ImageHost); ok {
+		defer func() {
+			if resource.Live() {
+				err = errors.Join(err, images.ReleaseImage(resource))
+			}
+		}()
 	}
 	app, err := program.NewScreen(program.ScreenConfig{
 		Host: host, Terminal: term.Features{Probe: true, Keyboard: term.KeyboardCompatible},
@@ -49,7 +60,8 @@ func run(ctx context.Context, path string, host program.Host) error {
 			picture := kit.Image{Alt: "PNG preview unavailable: " + filepath.Base(path)}
 			cell, known := images.CellSize()
 			if known && images.Protocol().Supports(graphics.Live) {
-				resource, uploadErr := images.Transmit(data)
+				var uploadErr error
+				resource, uploadErr = images.Transmit(data)
 				if uploadErr != nil {
 					return scene.Element{}, uploadErr
 				}

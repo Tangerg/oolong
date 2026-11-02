@@ -12,12 +12,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
-// AdapterConfig selects the allocator the adapter invokes at PTY admission.
-// A nil Allocate selects the standard emulated PTY.
-type AdapterConfig struct {
-	Allocate charmssh.PtyHandler
-}
-
 // The PTY slot belongs to the server, so competing installers cannot coordinate
 // with a lock on either adapter. Registration ends before the server starts.
 var installMu sync.Mutex
@@ -26,16 +20,12 @@ var installMu sync.Mutex
 // Install one adapter per server before Serve. A connection may multiplex sessions.
 // An Adapter must not be copied after installation.
 type Adapter struct {
-	allocate charmssh.PtyHandler
 	mu       sync.Mutex
 	sessions map[charmssh.Session]*terminalBinding
 }
 
-// NewAdapter captures the PTY allocator. The zero Adapter uses emulation.
-func NewAdapter(cfg AdapterConfig) *Adapter { return &Adapter{allocate: cfg.Allocate} }
-
-// Install claims the server's vacant PTY slot. The explicitly configured
-// allocator retains its cleanup and leaves emulated window input to this adapter.
+// Install claims the vacant PTY handler for emulation. PTY admission belongs to
+// server.PtyCallback, which runs before the SSH request loop commits a channel to a PTY.
 func (a *Adapter) Install(server *charmssh.Server) error {
 	if server == nil {
 		return errors.New("ssh: server is required")
@@ -50,19 +40,16 @@ func (a *Adapter) Install(server *charmssh.Server) error {
 	if a.sessions != nil {
 		return errors.New("ssh: adapter already installed")
 	}
-	allocate := a.allocate
-	if allocate == nil {
-		if err := charmssh.EmulatePty()(server); err != nil {
-			return err
-		}
-		allocate = server.PtyHandler
+	if err := charmssh.EmulatePty()(server); err != nil {
+		return err
 	}
+	emulate := server.PtyHandler
 	a.sessions = make(map[charmssh.Session]*terminalBinding)
 	server.PtyHandler = func(ctx charmssh.Context, session charmssh.Session, request charmssh.Pty) (func() error, error) {
 		if session == nil || !reflect.ValueOf(session).Comparable() {
 			return nil, errors.New("ssh: PTY session has no comparable channel identity")
 		}
-		release, err := allocate(ctx, session, request)
+		release, err := emulate(ctx, session, request)
 		if err != nil {
 			return nil, err
 		}

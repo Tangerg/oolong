@@ -15,8 +15,7 @@ import (
 //
 // What it reads, in the order it reads it:
 //
-//   - NO_COLOR, set to anything at all, means no colour. That is the whole of the
-//     convention, including the part where an empty value still counts.
+//   - A nonempty NO_COLOR disables colour regardless of its value.
 //   - COLORTERM naming truecolor or 24-bit means truecolor. Terminals that mean it
 //     say so here.
 //   - TERM of "dumb", or no TERM at all, means no colour.
@@ -26,15 +25,14 @@ import (
 // Plenty of terminals handle 24-bit colour and describe themselves as plain "xterm",
 // so that last line makes the common case better at the rare one's expense.
 //
-// lookup reports value and presence separately, so an empty NO_COLOR stays
-// distinguishable from an absent one. It is explicit because the environment belongs
+// lookup is explicit because the environment belongs
 // to the terminal being driven, which may be a PTY or SSH client rather than this
 // process.
 func DetectDepth(lookup func(string) (string, bool)) grid.Depth {
 	if lookup == nil {
 		return grid.NoColor
 	}
-	if _, set := lookup("NO_COLOR"); set {
+	if value, set := lookup("NO_COLOR"); set && value != "" {
 		return grid.NoColor
 	}
 	colorTerm, _ := lookup("COLORTERM")

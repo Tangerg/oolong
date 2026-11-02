@@ -501,3 +501,17 @@ func (r *Root) hoverTo(target Target, mouse input.Mouse, snapshot *layoutSnapsho
 }
 
 func (r *Root) leave(mouse input.Mouse) { r.hoverTo(Target{}, mouse, r.written) }
+
+// Geometry loss and detachment revoke the hit before user code can reenter.
+// A newer hit on the same attachment supersedes its queued leave.
+func (r *Root) revokeHover(n *node) {
+	previous := r.hover
+	r.hover = Target{}
+	if n.config.Handle != nil {
+		r.notify(n, func() {
+			if r.hover != previous {
+				n.config.Handle(Event{input: input.Mouse{Action: input.MouseLeave}, target: previous})
+			}
+		})
+	}
+}

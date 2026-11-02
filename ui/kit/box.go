@@ -42,12 +42,18 @@ func (b Box) border() Border {
 // Overhead is how many columns and rows the frame and padding take, which is what a
 // caller subtracts to know what is left for the content.
 func (b Box) Overhead() image.Point {
+	return b.insets().Size()
+}
+
+func (b Box) insets() layout.Inset {
 	edge := 0
 	if b.border().drawn() {
-		edge = 2
+		edge = 1
 	}
-	pad := b.Padding.Size()
-	return image.Pt(layout.Sum(edge, pad.X), layout.Sum(edge, pad.Y))
+	return layout.Inset{
+		Top: layout.Sum(edge, b.Padding.Top), Bottom: layout.Sum(edge, b.Padding.Bottom),
+		Left: layout.Sum(edge, b.Padding.Left), Right: layout.Sum(edge, b.Padding.Right),
+	}
 }
 
 // InnerRect is the region left for content within a space of size.
@@ -59,20 +65,15 @@ func (b Box) InnerRect(size image.Point) image.Rectangle {
 		// can draw in.
 		return image.Rectangle{}
 	}
-	edge := 0
-	if b.border().drawn() {
-		edge = 1
-	}
-	over := b.Overhead()
+	insets := b.insets()
+	over := insets.Size()
 	inner := image.Pt(layout.Remaining(size.X, over.X), layout.Remaining(size.Y, over.Y))
 	x, y := 0, 0
 	if inner.X > 0 {
-		// A positive remainder proves this addition fits: Overhead already includes
-		// both sides and is strictly smaller than size on this axis.
-		x = edge + b.Padding.Left
+		x = insets.Left
 	}
 	if inner.Y > 0 {
-		y = edge + b.Padding.Top
+		y = insets.Top
 	}
 	return grid.Area(x, y, inner.X, inner.Y)
 }

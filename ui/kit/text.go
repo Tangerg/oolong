@@ -214,7 +214,8 @@ func (p *Paragraph) detectedLine(line int) (detectedLinks, bool) {
 // rowLinks projects a logical line's destinations onto one wrapped byte range.
 type rowLinks struct {
 	text         string
-	from         int
+	base, from   int
+	origin       int
 	destinations []link.Link
 }
 
@@ -222,27 +223,38 @@ func (d detectedLinks) row(r row) rowLinks {
 	if r.To <= r.From || r.From < 0 || r.To > len(d.text) {
 		return rowLinks{}
 	}
+	base := r.From
+	if strings.IndexByte(d.text[r.From:r.To], '\t') >= 0 {
+		// Wrapping expands tabs on the logical line. The preceding tab stop
+		// is a sufficient origin for both the rendered and clickable columns.
+		base = strings.LastIndexByte(d.text[:r.From], '\t') + 1
+	}
+	source := d.text[base:r.To]
 	return rowLinks{
-		text: d.text[r.From:r.To], from: r.From, destinations: d.destinations,
+		text: source, base: base, from: r.From, origin: text.ColumnOf(source, r.From-base),
+		destinations: d.destinations,
 	}
 }
 
-func (r rowLinks) rangeOf(destination link.Link) (start, end int, ok bool) {
-	start = max(destination.Start, r.from) - r.from
-	end = min(destination.End, r.from+len(r.text)) - r.from
-	return start, end, start < end
+func (r rowLinks) columns(destination link.Link) (start, end int, ok bool) {
+	first := max(destination.Start, r.from) - r.base
+	last := min(destination.End-r.base, len(r.text))
+	if first >= last {
+		return 0, 0, false
+	}
+	return text.ColumnOf(r.text, first) - r.origin, text.ColumnOf(r.text, last) - r.origin, true
 }
 
 func (p *Paragraph) stamp(v grid.View, y int, row rowLinks) {
 	for _, destination := range row.destinations {
-		start, end, ok := row.rangeOf(destination)
+		start, end, ok := row.columns(destination)
 		if !ok {
 			continue
 		}
 		// A relative path is still found by LinkAt, but left without OSC 8 so the
 		// terminal can resolve it against its reported directory.
 		target := hyperlinkTarget(destination)
-		text.StampLink(v, p.Indent, y, row.text, start, end, target)
+		v.Link(layout.Translate(p.Indent, start), y, end-start, target)
 	}
 }
 
@@ -308,7 +320,7 @@ func (p *Paragraph) projectRows(rows []row, first, last int) []text.Row {
 // answer is a pure projection of the same wrapped rows Draw uses, so measuring or
 // drawing cannot publish hidden hit-test state.
 func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
-	if x < p.Indent || y < 0 {
+	if x < max(0, p.Indent) || x >= width || y < 0 {
 		return link.Link{}, false
 	}
 	rows := p.rows(width)
@@ -321,12 +333,12 @@ func (p *Paragraph) LinkAt(x, y, width int) (link.Link, bool) {
 	}
 	row := detected.row(rows[y])
 	for _, destination := range row.destinations {
-		start, end, ok := row.rangeOf(destination)
+		start, end, ok := row.columns(destination)
 		if !ok {
 			continue
 		}
-		from := layout.Sum(p.Indent, text.ColumnOf(row.text, start))
-		to := layout.Sum(p.Indent, text.ColumnOf(row.text, end))
+		from := layout.Translate(p.Indent, start)
+		to := layout.Translate(p.Indent, end)
 		if x >= from && x < to {
 			return destination, true
 		}

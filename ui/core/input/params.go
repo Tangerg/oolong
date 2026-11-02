@@ -184,12 +184,24 @@ func primaryKey(group ansi.Parameter, mods Mods) (Key, bool) {
 	return Key{Code: code, Rune: r, ShiftedRune: shifted, BaseRune: base, Mods: mods}, true
 }
 
+func (ps params) scalars(count int) bool {
+	if ps.Len() != count {
+		return false
+	}
+	for i := range count {
+		if group := ps.Group(i); group.Len() != 1 || group.At(0) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (ps params) mouse(down bool) Event {
-	if ps.Len() != 3 || ps.Group(0).Len() != 1 || ps.Group(1).Len() != 1 || ps.Group(2).Len() != 1 {
+	if !ps.scalars(3) {
 		return nil
 	}
 	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
-	if bits < 0 || bits & ^127 != 0 || x < 1 || y < 1 {
+	if bits & ^127 != 0 || x < 1 || y < 1 {
 		return nil
 	}
 	// The terminal counts from one; everything above this package counts from zero.
@@ -233,10 +245,10 @@ func (ps params) report(final byte) Event {
 		return ps.mouse(final == 'M')
 	case ps.Marker() == '?' && final == 'c':
 		return ps.deviceAttributes()
-	case ps.Marker() == '?' && final == 'u' && ps.Len() == 1 && ps.Group(0).Len() == 1 && ps.Valid():
+	case ps.Marker() == '?' && final == 'u' && ps.scalars(1):
 		return KeyboardFlags{Features: KeyboardFeatures(ps.At(0))}
-	case ps.Marker() == '>' && final == 'c':
-		return DeviceVersion{Kind: max(ps.At(0), 0), Version: max(ps.At(1), 0), Patch: max(ps.At(2), 0)}
+	case ps.Marker() == '>' && final == 'c' && ps.scalars(3):
+		return DeviceVersion{Kind: ps.At(0), Version: ps.At(1), Patch: ps.At(2)}
 	default:
 		return nil
 	}

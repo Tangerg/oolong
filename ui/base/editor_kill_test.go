@@ -78,3 +78,18 @@ func TestAnInterveningActionEndsYankPop(t *testing.T) {
 		t.Fatalf("yank-pop replaced text after another edit: %q", got)
 	}
 }
+
+func TestBackwardWordKillsCanYankAcrossLineBreaks(t *testing.T) {
+	const original = "keep one\ntwo"
+	editor := base.NewEditor(base.EditorConfig{Initial: original})
+	for range 3 {
+		editor.Do(base.DeleteWordBack)
+	}
+	if got := editor.Text(); got != "keep " {
+		t.Fatalf("after kills = %q", got)
+	}
+	editor.Do(base.Yank)
+	if got := editor.Text(); got != original {
+		t.Fatalf("yank = %q, want %q", got, original)
+	}
+}

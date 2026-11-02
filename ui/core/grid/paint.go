@@ -258,7 +258,7 @@ func (p *painter) appendLink(target string) {
 		p.out = append(p.out, osc8Close...)
 	}
 	p.link = ""
-	if target == "" || !printableTarget(target) {
+	if LinkTarget(target) == "" {
 		return
 	}
 	p.out = append(p.out, osc8Open...)
@@ -355,16 +355,18 @@ var attrCodes = [...]struct {
 	{Strike, 9},
 }
 
-func printableTarget(target string) bool {
+// LinkTarget preserves an OSC 8 destination verbatim or returns the empty
+// destination. Removing individual controls could create a different address.
+func LinkTarget(target string) string {
 	if !utf8.ValidString(target) {
-		return false
+		return ""
 	}
 	for _, r := range target {
 		if r < 0x20 || r >= 0x7f && r <= 0x9f {
-			return false
+			return ""
 		}
 	}
-	return true
+	return target
 }
 
 // EncodeRow renders one row of cells as inline terminal text: style and

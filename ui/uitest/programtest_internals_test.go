@@ -3,6 +3,7 @@ package uitest
 import (
 	"strings"
 	"testing"
+	"testing/synctest"
 )
 
 func TestVisibleRunsJoinAppearanceBoundaries(t *testing.T) {
@@ -32,4 +33,36 @@ func TestTextAssertionCannotInterpretCustomCharacterSetsAsASCII(t *testing.T) {
 	if got, err := visibleRuns("\x1b(0qqq"); err == nil {
 		t.Fatalf("reported %q for line-drawing glyphs", got)
 	}
+}
+
+func TestVisibilityWaitsForOutputInsteadOfRequestingIdleFrames(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		host := New(t, Config{Width: 20, Height: 2})
+		done := make(chan struct{}, 2)
+		wait := func() {
+			defer func() { done <- struct{}{} }()
+			host.Shows(t, "ready")
+		}
+		go wait()
+		reply := <-host.Repaints()
+		_, _ = host.out.Write([]byte("pending"))
+		reply(20, 2, nil)
+		synctest.Wait()
+		go wait()
+		reply = <-host.Repaints()
+		_, _ = host.out.Write([]byte("pending"))
+		reply(20, 2, nil)
+		synctest.Wait()
+		select {
+		case reply = <-host.Repaints():
+			t.Error("visibility assertion itself requested another idle frame")
+		default:
+			_, _ = host.out.Write([]byte("changed"))
+			reply = <-host.Repaints()
+		}
+		_, _ = host.out.Write([]byte("ready"))
+		reply(20, 2, nil)
+		<-done
+		<-done
+	})
 }

@@ -48,9 +48,7 @@ func runFakeSSHFixture(session interface {
 	requestedPTY() (charmssh.Pty, bool)
 }, cfg program.ScreenConfig,
 ) (err error) {
-	adapter := ssh.NewAdapter(ssh.AdapterConfig{Allocate: func(charmssh.Context, charmssh.Session, charmssh.Pty) (func() error, error) {
-		return func() error { return nil }, nil
-	}})
+	adapter := new(ssh.Adapter)
 	server := new(charmssh.Server)
 	if installErr := server.SetOption(adapter.Install); installErr != nil {
 		return installErr

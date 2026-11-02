@@ -391,3 +391,18 @@ func TestInputConsumptionDoesNotInventAModelChange(t *testing.T) {
 		t.Fatalf("consumption advanced model revision %d -> %d", before, after)
 	}
 }
+
+func TestGeometryLossEndsHoverUntilAnotherHitArrives(t *testing.T) {
+	c := control()
+	r := root(t, c.element)
+	draw(t, r, 10, 2, 0)
+	r.Handle(input.Mouse{Action: input.MouseMove})
+	r.InvalidateGeometry()
+	r.InvalidateGeometry()
+	r.FlushNotifications()
+	draw(t, r, 10, 2, 0)
+	r.Handle(input.Mouse{Action: input.MouseMove})
+	if got := mouseActions(c.events); !slices.Equal(got, []input.MouseAction{input.MouseMove, input.MouseLeave, input.MouseMove}) {
+		t.Fatalf("hover across lost geometry: %v", got)
+	}
+}

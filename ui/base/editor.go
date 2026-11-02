@@ -465,59 +465,47 @@ func (e *Editor) DeleteForward() {
 func (e *Editor) DeleteWordBack() {
 	e.requireMutable()
 	e.ensure()
-	join := e.continuation == editorContinuationKill
-	e.endTyping()
-	if e.col == 0 {
-		e.DeleteBack()
-		return
+	end := Caret{Line: e.line, Col: e.col}
+	start := end
+	if start.Col > 0 {
+		at := wordStart(e.document().lines[e.line], e.col)
+		start.Col = e.snapElementBoundary(e.line, at, false)
+	} else if start.Line > 0 {
+		start.Line--
+		start.Col = len(e.document().lines[start.Line])
 	}
-	e.snapshot()
-	at := wordStart(e.document().lines[e.line], e.col)
-	// Word boundaries may fall inside an atomic element; deletion must include the whole element.
-	if element, inside := e.insideElement(e.line, at); inside {
-		at = element.Start
-	}
-	e.rememberKill(e.document().lines[e.line][at:e.col], true, join)
-	e.replaceRange(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
+	e.killRange(start, end, true)
 }
 
 // KillToEnd cuts from the cursor to the end of the line, keeping what it cut.
-//
-// On an already-empty tail it takes the line break instead, which is what makes
-// repeated presses swallow a paragraph rather than stop at the first line.
+// At the end of a line, the line break itself belongs to the kill.
 func (e *Editor) KillToEnd() {
 	e.requireMutable()
 	e.ensure()
-	join := e.continuation == editorContinuationKill
-	e.endTyping()
-	current := e.document().lines[e.line]
-	if e.col >= len(current) && e.line == len(e.document().lines)-1 {
-		return
+	start := Caret{Line: e.line, Col: e.col}
+	end := Caret{Line: e.line, Col: len(e.document().lines[e.line])}
+	if start == end && end.Line+1 < len(e.document().lines) {
+		end = Caret{Line: end.Line + 1}
 	}
-	e.snapshot()
-	if e.col < len(current) {
-		e.rememberKill(current[e.col:], false, join)
-		e.replaceRange(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: len(current)}, "")
-		return
-	}
-	if e.line < len(e.document().lines)-1 {
-		e.rememberKill("\n", false, join)
-		e.replaceRange(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
-	}
+	e.killRange(start, end, false)
 }
 
 // KillToStart cuts from the start of the line to the cursor.
 func (e *Editor) KillToStart() {
 	e.requireMutable()
 	e.ensure()
+	e.killRange(Caret{Line: e.line}, Caret{Line: e.line, Col: e.col}, true)
+}
+
+func (e *Editor) killRange(start, end Caret, prepend bool) {
 	join := e.continuation == editorContinuationKill
 	e.endTyping()
-	if e.col == 0 {
+	if start == end {
 		return
 	}
 	e.snapshot()
-	e.rememberKill(e.document().lines[e.line][:e.col], true, join)
-	e.replaceRange(Caret{Line: e.line}, Caret{Line: e.line, Col: e.col}, "")
+	e.rememberKill(e.textBetween(start, end), prepend, join)
+	e.replaceRange(start, end, "")
 }
 
 // Yank puts back the most recently killed text.

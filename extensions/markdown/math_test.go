@@ -102,3 +102,25 @@ func TestMathRendererOutputIsOwned(t *testing.T) {
 
 	equal(t, rows(t, 20, blocks), []string{"formula"})
 }
+
+func TestDisplayMathChecksEachFenceAtItsOwnIndent(t *testing.T) {
+	for _, tc := range []struct{ source, body string }{
+		{"  $$\nab$$\n$$\nafter", "ab$$"},
+		{"$$\nx\n    $$\ny\n  $$\nafter", "x\n    $$\ny"},
+		{"> $$\n> x\n>     $$\n> y\n> $$\nafter", "x\n    $$\ny"},
+	} {
+		var body string
+		var look markdown.Look
+		look.SetRenderer(markdown.DisplayMath, func(_, source string) (grid.Drawable, error) {
+			body = source
+			return nil, markdown.ErrUnhandled
+		})
+		blocks := mustRender(t, tc.source, look)
+		if len(blocks) != 2 || body != tc.body {
+			t.Fatalf("%q: %d blocks, math body %q, want %q followed by prose", tc.source, len(blocks), body, tc.body)
+		}
+		if prose := blocks[1].Rows(20); len(prose) != 1 || prose[0].Text != "after" {
+			t.Errorf("trailing prose = %v", prose)
+		}
+	}
+}

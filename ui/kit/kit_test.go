@@ -1484,3 +1484,66 @@ func TestACappedParagraphStillSaysWhatTheWrapSwallowed(t *testing.T) {
 		t.Fatalf("the capped row reports gap %q, want the space the wrap swallowed", rows[1].Gap)
 	}
 }
+
+func TestBoxUsesNormalizedInsetsForTheContentOrigin(t *testing.T) {
+	box := kit.Box{Glyphs: kit.Unicode(), Padding: layout.Inset{Left: -2, Top: -3, Right: 2}}
+	if got, want := box.InnerRect(image.Pt(10, 5)), image.Rect(1, 1, 7, 4); got != want {
+		t.Fatalf("inner area = %v, want %v", got, want)
+	}
+}
+
+func TestPanelKeepsFocusedDescendantWhenReinstallingContent(t *testing.T) {
+	focusable := func() bool { return true }
+	first := scene.NewElement(scene.ElementConfig{Focusable: focusable})
+	second := scene.NewElement(scene.ElementConfig{Focusable: focusable})
+	child := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: first}, {Element: second}}}).Element()
+	panel := kit.NewPanel(kit.PanelConfig{Content: child})
+	root, err := scene.NewRoot(scene.RootConfig{Element: panel.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := second.RequestFocus(); err != nil {
+		t.Fatal(err)
+	}
+	before := root.Progress().ModelRevision
+	panel.SetContent(child)
+	if root.Progress().ModelRevision != before {
+		t.Fatal("unchanged panel content published a new model revision")
+	}
+	if !second.Focused() {
+		t.Fatal("unchanged panel content moved focus away from its selected descendant")
+	}
+}
+
+func TestImagePreservesAspectRatioInAShortPane(t *testing.T) {
+	var owner graphics.ImageOwner
+	picture := kit.Image{Of: owner.Bind(graphics.Image{ID: 5, Size: image.Pt(80, 80)}), Cell: image.Pt(10, 10)}
+	screen := owner.NativeTarget().Screen(8, 2)
+	picture.Draw(screen.Frame())
+	var wire strings.Builder
+	if err := screen.Flush(&wire); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(wire.String(), "c=2,r=2,") {
+		t.Fatalf("short pane placement = %q, want a square 2 by 2 placement", wire.String())
+	}
+}
+
+func TestParagraphLinksUseTheTabsLogicalLineOriginAfterWrapping(t *testing.T) {
+	const width = 6
+	p := kit.NewParagraph("xxxxx y\t/a.c", grid.Style{})
+	p.SetLinks(kit.LinkConfig{Enabled: true})
+	if _, ok := p.LinkAt(0, 7, 0); ok {
+		t.Fatal("a zero-width paragraph has no clickable cells")
+	}
+	s := grid.NewSurface(width, 3)
+	p.Draw(s.View())
+	for x, cell := range linkedCells(s.View(), 1, width) {
+		_, hit := p.LinkAt(x, 1, width)
+		want := x >= 2
+		if hit != want || (cell == "file:///a.c") != want {
+			t.Errorf("column %d: clicked=%t, terminal link=%q, want linked=%t", x, hit, cell, want)
+		}
+	}
+}

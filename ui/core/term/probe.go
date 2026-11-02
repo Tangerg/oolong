@@ -71,6 +71,10 @@ const (
 	// connection. Long enough to cross a slow one, short enough that a start
 	// nobody is waiting on does not look like a hang.
 	answerGrace = 200 * time.Millisecond
+
+	// Startup cannot apply event backpressure until Open returns. Yield the
+	// shared decoder to the pump after a bounded prefix, even during a flood.
+	probeInputBudget = 16 << 10
 )
 
 // queryWriter is the terminal as a probe needs it: somewhere to write a question,
@@ -104,7 +108,8 @@ type probe struct {
 	// by whoever started the probe, which is also what holds the transport to the
 	// same instant; measuring the wait from after the write would leave the write
 	// itself unbounded.
-	deadline time.Time
+	deadline  time.Time
+	readBytes int
 
 	graphicsReplyPrefix string
 	early               []input.Event
@@ -194,6 +199,7 @@ func (p *probe) run() answers {
 }
 
 func (p *probe) read(result readResult, got *answers) bool {
+	p.readBytes += len(result.data)
 	for _, ev := range p.stream.Feed(result.data, result.at) {
 		p.take(ev, got)
 	}
@@ -202,7 +208,7 @@ func (p *probe) read(result readResult, got *answers) bool {
 		p.end = &result
 		return false
 	}
-	return true
+	return p.readBytes < probeInputBudget
 }
 
 func (p *probe) drainRaw(got *answers) bool {

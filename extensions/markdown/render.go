@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bytes"
 	"errors"
 	"html"
 	"strconv"
@@ -181,7 +182,7 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 		inner.body = r.look.Quote
 		r.scheduleChildren(stack, node, inner)
 	case *ast.FencedCodeBlock:
-		r.code(node, markdownText(string(node.Language(r.source))), in)
+		r.code(node, r.fenceLanguage(node), in)
 	case *ast.CodeBlock:
 		r.code(node, "", in)
 	case *mathBlock:
@@ -238,6 +239,15 @@ func (r *renderer) bullet(n *ast.List, number int) text.Span {
 		return text.Span{Text: "  ", Style: r.look.Marker}
 	}
 	return text.Span{Text: r.look.Glyphs.Bullet + " ", Style: r.look.Marker}
+}
+
+func (r *renderer) fenceLanguage(node *ast.FencedCodeBlock) string {
+	if node.Info != nil {
+		for word := range bytes.FieldsSeq(node.Info.Segment.Value(r.source)) {
+			return markdownText(string(word))
+		}
+	}
+	return ""
 }
 
 func (r *renderer) code(n ast.Node, language string, in frame) {

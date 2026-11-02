@@ -13,7 +13,7 @@ import (
 	"image"
 	"image/png"
 	"io"
-	"math/bits"
+	"math/big"
 	"strings"
 )
 
@@ -291,21 +291,23 @@ func Fit(pixels, cell, limit image.Point) image.Point {
 		return image.Pt(1, 1)
 	}
 
-	// Rounded up, so an image that fits is never shrunk to fit better. Quotient and
-	// remainder avoid the overflowing n+d-1 spelling of ceiling division.
-	box := image.Pt(max(ceilDiv(pixels.X, cell.X), 1), max(ceilDiv(pixels.Y, cell.Y), 1))
+	natural := image.Pt(ceilDiv(pixels.X, cell.X), ceilDiv(pixels.Y, cell.Y))
+	if natural.X <= limit.X && natural.Y <= limit.Y {
+		return natural
+	}
 
-	// Each axis is capped and the other shrinks with it, so the box keeps the
-	// image's proportions instead of squashing it against one edge.
-	if box.X > limit.X {
-		box.Y = max(scaleNearest(box.Y, limit.X, box.X), 1)
-		box.X = limit.X
+	// The exact width:height ratio in cells is (pxWidth * cellHeight) :
+	// (pxHeight * cellWidth). Rounding before choosing the tighter limit can
+	// distort even small pictures. The comparison can involve three full ints.
+	var width, height, fromWidth, fromHeight big.Int
+	width.Mul(big.NewInt(int64(pixels.X)), big.NewInt(int64(cell.Y)))
+	height.Mul(big.NewInt(int64(pixels.Y)), big.NewInt(int64(cell.X)))
+	fromWidth.Mul(&height, big.NewInt(int64(limit.X)))
+	fromHeight.Mul(&width, big.NewInt(int64(limit.Y)))
+	if fromWidth.Cmp(&fromHeight) <= 0 {
+		return image.Pt(limit.X, nearestCellExtent(&fromWidth, &width))
 	}
-	if box.Y > limit.Y {
-		box.X = max(scaleNearest(box.X, limit.Y, box.Y), 1)
-		box.Y = limit.Y
-	}
-	return box
+	return image.Pt(nearestCellExtent(&fromHeight, &height), limit.Y)
 }
 
 func ceilDiv(n, d int) int {
@@ -316,30 +318,13 @@ func ceilDiv(n, d int) int {
 	return quotient
 }
 
-const maxInt = int(^uint(0) >> 1)
-
-// scaleNearest returns total*part/whole rounded to the nearest integer without an
-// overflowing intermediate product. Fit needs nearest rather than layout's endpoint
-// rounding: losing a row from a two-row image visibly changes its aspect ratio.
-func scaleNearest(total, part, whole int) int {
-	if total <= 0 || part <= 0 || whole <= 0 {
-		return 0
-	}
-	if part >= whole {
-		return total
-	}
-	hi, lo := bits.Mul64(uint64(total), uint64(part))
-	quotient, remainder := bits.Div64(hi, lo, uint64(whole))
-	if remainder >= uint64(whole)/2+uint64(whole)%2 {
-		quotient++
-	}
-	// part < whole proves quotient <= total, and total is an int. Keep the proof at
-	// the conversion boundary as well: a future change to the arithmetic cannot turn
-	// a representability assumption into a wrapped image dimension.
-	if quotient > uint64(maxInt) {
-		return maxInt
-	}
-	return int(quotient)
+// The binding axis guarantees the quotient fits the other axis's integer limit.
+func nearestCellExtent(numerator, denominator *big.Int) int {
+	var rounded big.Int
+	rounded.Rsh(denominator, 1)
+	rounded.Add(&rounded, numerator)
+	rounded.Quo(&rounded, denominator)
+	return max(int(rounded.Int64()), 1)
 }
 
 // kittyPrograms are the TERM_PROGRAM values, matched as lowercase substrings, of

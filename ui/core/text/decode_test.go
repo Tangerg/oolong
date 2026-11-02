@@ -396,3 +396,12 @@ func TestOpenLineCannotRewriteCompletedOutput(t *testing.T) {
 		t.Fatalf("borrower rewrote output: %q", got)
 	}
 }
+
+func TestInvalidOSC8DestinationClearsPreviousLinkWithoutRewriting(t *testing.T) {
+	for _, invalid := range []string{"https://one\x00two.test", "https://one\ttwo.test", "https://one\u009ctwo.test", "https://one\xfftwo.test"} {
+		lines := text.Decode("\x1b]8;;https://old.test\x07a\x1b]8;;"+invalid+"\x07b", grid.Style{})
+		if len(lines) != 1 || len(lines[0]) != 2 || lines[0][1].Text != "b" || lines[0][1].Link != "" {
+			t.Errorf("invalid target %q produced %+v", invalid, lines)
+		}
+	}
+}

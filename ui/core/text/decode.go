@@ -142,7 +142,7 @@ func (d *Decoder) osc(body string) {
 	}
 	// body may point into the temporary partial-sequence buffer or a much larger
 	// caller chunk. A live hyperlink owns only its address.
-	d.link = strings.Clone(Printable(target))
+	d.link = strings.Clone(grid.LinkTarget(target))
 }
 
 func (d *Decoder) write(s string) []Line {

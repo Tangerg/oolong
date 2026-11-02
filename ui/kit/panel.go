@@ -57,8 +57,14 @@ func (p *Panel) Content() scene.Element { item, _ := p.group.At(0); return item.
 
 // SetContent replaces the child and requests focus transfer from the old content. It panics for an invalid scene relation or mutation during presentation or observation.
 func (p *Panel) SetContent(child scene.Element) {
-	p.ensure()
-	transfer := p.Content().FocusedWithin()
+	if err := p.Element().CheckMutation(); err != nil {
+		panic(err)
+	}
+	previous := p.Content()
+	if child == previous {
+		return
+	}
+	transfer := previous.FocusedWithin()
 	var items []scene.Item
 	if !child.IsZero() {
 		items = []scene.Item{{Element: child, Size: layout.Flex(1)}}

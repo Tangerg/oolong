@@ -2,8 +2,8 @@
 //
 // Install an [Adapter] in the vacant PTY slot with server.SetOption(adapter.Install)
 // as the final PTY configuration step before Serve.
-// A zero Adapter uses emulation. Supply a custom allocator with [NewAdapter]
-// and [AdapterConfig]. The adapter starts collecting window changes
+// A zero Adapter installs emulation. Configure server.PtyCallback for admission
+// before Serve. The adapter starts collecting window changes
 // when the server accepts a PTY request. A client can resize before asking for
 // a shell; waiting until the shell handler to collect windows can block that request.
 //

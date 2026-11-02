@@ -222,3 +222,11 @@ func TestOversizedGraphicsReplyIsDiscardedThroughST(t *testing.T) {
 		t.Fatalf("input after oversized reply: %#v", got)
 	}
 }
+
+func TestVersionQueryAndMalformedRepliesCannotClaimDeviceIdentity(t *testing.T) {
+	for _, seq := range []string{"\x1b[>c", "\x1b[>0c", "\x1b[>1;2c", "\x1b[>1;2;3;4c", "\x1b[>1;2:3;4c", "\x1b[>1;99999999;3c"} {
+		if got := feed(seq); len(got) != 0 {
+			t.Errorf("%q decoded as %+v", seq, got)
+		}
+	}
+}

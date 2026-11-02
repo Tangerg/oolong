@@ -1559,3 +1559,14 @@ func TestEncodingSlicedAtomsPreservesVisibleColumns(t *testing.T) {
 		t.Fatalf("incomplete head swallowed its neighbor: %q", got)
 	}
 }
+
+func TestCellInspectionAndEncodingAgreeOnRefusedLink(t *testing.T) {
+	s := grid.NewSurface(1, 1)
+	v := s.View()
+	v.Link(0, 0, 1, "https://old.test")
+	v.Link(0, 0, 1, "https://one\x00two.test")
+	c, _ := s.CellAt(0, 0)
+	if c.Link != "" {
+		t.Fatalf("inspection reports refused destination %q", c.Link)
+	}
+}

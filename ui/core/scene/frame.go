@@ -368,6 +368,9 @@ func (r *Root) InvalidateGeometry() {
 	r.inFlight = nil
 	r.geometryEpoch = next(r.geometryEpoch)
 	r.published.Store(nil)
+	if n := r.resolve(r.hover); n != nil {
+		r.revokeHover(n)
+	}
 	previous := r.capture
 	r.capture.phase = captureRevoked
 	r.signal()

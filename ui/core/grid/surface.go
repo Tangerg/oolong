@@ -573,7 +573,7 @@ func (v View) Link(x, y, w int, target string) {
 	if from >= to {
 		return
 	}
-	target = v.surface.capture.own(target)
+	target = v.surface.capture.own(LinkTarget(target))
 	v.surface.mutateAppearance(Area(from, at.Y, to-from, 1), func(_ *Style, link *string) {
 		*link = target
 	})

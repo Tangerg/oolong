@@ -207,3 +207,39 @@ func TestDirectGraphicsQueryOwnsTheStartupDecision(t *testing.T) {
 		})
 	}
 }
+
+func TestProbeYieldsToInputWithoutLosingPendingFraming(t *testing.T) {
+	const chunkSize = 1024
+	const count = probeInputBudget - len("\x1b[")
+	at := time.Now()
+	raw := make(chan readResult, probeInputBudget/chunkSize+1)
+	rawBytes := strings.Repeat("x", count) + "\x1b["
+	for i := 0; i < len(rawBytes); i += chunkSize {
+		raw <- readResult{data: []byte(rawBytes[i:min(len(rawBytes), i+chunkSize)]), at: at}
+	}
+	raw <- readResult{data: []byte("A\x1b[?62c"), at: at, err: io.EOF}
+	stream := &input.Stream{}
+	pr := probe{raw: raw, out: answerWriter(func(string) {}), stream: stream, deadline: at.Add(time.Second)}
+	if got := pr.run(); got.hasAttrs || len(pr.early) != count {
+		t.Fatalf("probe consumed the next read after %d keys: attrs=%v early=%d", count, got.hasAttrs, len(pr.early))
+	}
+	out := make(chan input.Event, count+2)
+	p := pump{raw: raw, end: pr.end, stream: stream, early: pr.early, out: out}
+	if err := p.run(); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != count+2 {
+		t.Fatalf("pump delivered %d events, want %d", len(out), count+2)
+	}
+	for range count {
+		if key, ok := (<-out).(input.Key); !ok || !key.IsRune('x', 0) {
+			t.Fatal("startup input was lost or reordered")
+		}
+	}
+	if key, ok := (<-out).(input.Key); !ok || !key.Is(input.Up, 0) {
+		t.Fatal("handoff lost the split key")
+	}
+	if a, ok := (<-out).(input.DeviceAttributes); !ok || a.Class != 62 {
+		t.Fatal("the session lost the late probe answer")
+	}
+}

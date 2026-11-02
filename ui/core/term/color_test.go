@@ -21,8 +21,9 @@ func TestDetectDepth(t *testing.T) {
 	}{
 		{"nothing said", map[string]string{}, grid.NoColor},
 		{"NO_COLOR wins outright", map[string]string{
-			"NO_COLOR": "", "COLORTERM": "truecolor", "TERM": "xterm-256color",
+			"NO_COLOR": "1", "COLORTERM": "truecolor", "TERM": "xterm-256color",
 		}, grid.NoColor},
+		{"empty NO_COLOR keeps terminal color", map[string]string{"NO_COLOR": "", "TERM": "xterm-256color"}, grid.Depth256},
 		{"NO_COLOR with a value is still NO_COLOR", map[string]string{"NO_COLOR": "0"}, grid.NoColor},
 		{"COLORTERM says truecolor", map[string]string{"COLORTERM": "truecolor"}, grid.TrueColor},
 		{"COLORTERM says 24bit", map[string]string{"COLORTERM": "24bit"}, grid.TrueColor},
@@ -61,7 +62,7 @@ func TestDetectDepthUsesTheGivenEnvironment(t *testing.T) {
 	if got := term.DetectDepth(lookup); got != grid.Depth256 {
 		t.Fatalf("depth = %v, want %v", got, grid.Depth256)
 	}
-	env["NO_COLOR"] = ""
+	env["NO_COLOR"] = "1"
 	if got := term.DetectDepth(lookup); got != grid.NoColor {
 		t.Fatalf("NO_COLOR depth = %v, want %v", got, grid.NoColor)
 	}

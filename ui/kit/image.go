@@ -60,7 +60,7 @@ const defaultMaxRows = 8
 // HeightForWidth is how many rows the picture takes at this width, or one row for the
 // alternative text where it cannot be shown.
 func (i Image) HeightForWidth(width int) int {
-	_, cells := i.fit(width)
+	_, cells := i.fit(width, i.rowLimit())
 	return max(1, cells.Y)
 }
 
@@ -70,16 +70,16 @@ func (i Image) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	placement, cells := i.fit(width)
+	placement, cells := i.fit(width, min(height, i.rowLimit()))
 	if cells.Y == 0 {
 		Label{Text: i.Alt, Style: i.Theme.Muted, Align: i.Align, Ellipsis: i.Glyphs.Ellipsis}.Draw(v)
 		return
 	}
 	at := i.Align.Offset(width, cells.X)
-	placement.Draw(v, grid.Area(at, 0, cells.X, min(cells.Y, height)))
+	placement.Draw(v, grid.Area(at, 0, cells.X, cells.Y))
 }
 
-func (i Image) fit(width int) (graphics.ResourcePlacement, image.Point) {
+func (i Image) fit(width, height int) (graphics.ResourcePlacement, image.Point) {
 	if !i.Of.Live() || i.Cell.X <= 0 || i.Cell.Y <= 0 || width <= 0 {
 		return graphics.ResourcePlacement{}, image.Point{}
 	}
@@ -89,11 +89,14 @@ func (i Image) fit(width int) (graphics.ResourcePlacement, image.Point) {
 	if bounds.Empty() {
 		return graphics.ResourcePlacement{}, image.Point{}
 	}
-	limit := i.MaxRows
-	if limit <= 0 {
-		limit = defaultMaxRows
+	return placement, graphics.Fit(bounds.Size(), i.Cell, image.Pt(width, height))
+}
+
+func (i Image) rowLimit() int {
+	if i.MaxRows > 0 {
+		return i.MaxRows
 	}
-	return placement, graphics.Fit(bounds.Size(), i.Cell, image.Pt(width, limit))
+	return defaultMaxRows
 }
 
 // Width is the cell width of the alternative text. It lets Image satisfy a

@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sync/atomic"
 	"time"
-
-	"github.com/Tangerg/oolong/ui/core/input"
 )
 
 // RootConfig supplies one scene and the bounded history used to resolve timestamped physical input.
@@ -213,10 +211,7 @@ func (r *Root) detach(n *node) {
 		}
 	}
 	if r.hover == previous {
-		r.hover = Target{}
-		if n.config.Handle != nil {
-			r.notify(n, func() { n.config.Handle(Event{input: input.Mouse{Action: input.MouseLeave}, target: previous}) })
-		}
+		r.revokeHover(n)
 	}
 	if n.group != nil {
 		for _, item := range n.group.items {

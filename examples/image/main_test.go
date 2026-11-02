@@ -16,6 +16,7 @@ import (
 type imageHost struct {
 	*uitest.Host
 	resources graphics.ImageOwner
+	image     graphics.Resource
 }
 
 func (h *imageHost) NativeTarget() grid.NativeTarget { return h.resources.NativeTarget() }
@@ -27,7 +28,8 @@ func (h *imageHost) Transmit(data []byte) (graphics.Resource, error) {
 	if err != nil {
 		return graphics.Resource{}, err
 	}
-	return h.resources.Bind(wire), nil
+	h.image = h.resources.Bind(wire)
+	return h.image, nil
 }
 
 func (h *imageHost) ReleaseImage(resource graphics.Resource) error {
@@ -53,6 +55,9 @@ func TestViewerCropsTheSamePNGAndQuits(t *testing.T) {
 	host.Send(input.Key{Code: input.Character, Rune: 'с', BaseRune: 'c', Mods: input.Ctrl})
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+	if host.image.Live() {
+		t.Fatal("viewer left an image allocated on its caller-owned host")
 	}
 }
 

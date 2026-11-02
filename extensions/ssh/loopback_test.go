@@ -356,33 +356,14 @@ func TestAFrameTheSessionCannotCarryIsRefusedRatherThanRewritten(t *testing.T) {
 	}
 }
 
-func TestRunRefusesAServerThatAllocatedTheTerminal(t *testing.T) {
-	// charm.land/ssh's AllocatePty starts copying the channel into that terminal, and
-	// draining its window changes, before the handler runs. Refusing is the only
-	// honest answer: the keystroke that went to the other reader is gone.
-	allocator := new(charmssh.Server)
-	if err := allocator.SetOption(charmssh.AllocatePty()); err != nil {
+func TestAdapterRefusesAnOSAllocatorBeforeServing(t *testing.T) {
+	server := new(charmssh.Server)
+	if err := server.SetOption(charmssh.AllocatePty()); err != nil {
 		t.Fatal(err)
 	}
-	adapter := ssh.NewAdapter(ssh.AdapterConfig{Allocate: allocator.PtyHandler})
-	done := make(chan error, 1)
-	client := requestSession(t, serveClient(t, adapter, func(adapter *ssh.Adapter, session charmssh.Session) {
-		done <- runSSHFixture(adapter, session, program.ScreenConfig{
-			Build: func(runtime *program.Runtime) (scene.Element, error) {
-				return fixtureElement(keyReader{runtime: runtime, keys: make(chan input.Key, 1)}), nil
-			},
-		})
-	}), 24, 80)
-	if err := client.Shell(); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-done:
-		if !errors.Is(err, ssh.ErrAllocatedPTY) {
-			t.Fatalf("Run = %v, want ErrAllocatedPTY", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run neither refused the session nor returned")
+	var adapter ssh.Adapter
+	if err := server.SetOption(adapter.Install); err == nil {
+		t.Fatal("emulation took over an OS PTY server")
 	}
 }
 
@@ -548,24 +529,43 @@ func TestInvalidPreShellResizeStillDrainsTheSSHRequestLoop(t *testing.T) {
 	}
 }
 
-func TestRejectedPTYCannotBeBoundByTheHandler(t *testing.T) {
+func TestRejectedPTYLeavesTheChannelAvailable(t *testing.T) {
 	done := make(chan error, 1)
 	client := serveClient(t, new(ssh.Adapter), func(adapter *ssh.Adapter, session charmssh.Session) {
 		_, err := adapter.Bind(session)
 		done <- err
-	}, charmssh.NoPty())
-	session, err := client.NewSession()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = session.Close() })
-	if err := session.RequestPty("xterm", 24, 80, nil); err == nil {
-		t.Fatal("a request denied by the PTY policy was accepted")
-	}
-	if err := session.Shell(); err != nil {
-		t.Fatal(err)
-	}
-	if err := awaitSSH(t, done); !errors.Is(err, ssh.ErrNoPTY) {
-		t.Fatalf("rejected PTY = %v", err)
+	}, func(server *charmssh.Server) error {
+		server.PtyCallback = func(_ charmssh.Context, pty charmssh.Pty) bool { return pty.Term == "xterm" }
+		return nil
+	})
+	for _, retry := range []bool{false, true} {
+		session, err := client.NewSession()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = session.Close() })
+		if err := session.RequestPty("denied", 24, 80, nil); err == nil {
+			t.Fatal("a request denied by the PTY policy was accepted")
+		}
+		if err := session.WindowChange(25, 81); err != nil {
+			t.Fatal(err)
+		}
+		synchronizeRequests(t, session)
+		want := ssh.ErrNoPTY
+		if retry {
+			if err := session.RequestPty("xterm", 24, 80, nil); err != nil {
+				t.Fatal(err)
+			}
+			want = nil
+		}
+		if err := session.Shell(); err != nil {
+			t.Fatal(err)
+		}
+		if err := awaitSSH(t, done); !errors.Is(err, want) {
+			t.Fatalf("retry %t: Bind = %v, want %v", retry, err, want)
+		}
+		if err := session.Wait(); err != nil {
+			t.Fatalf("retry %t: channel exit = %v", retry, err)
+		}
 	}
 }

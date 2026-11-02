@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### extensions/ssh
 
-- Replace `ssh.Open` and `ssh.Config` with a server-scoped `ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. The zero adapter uses emulation. For a custom allocator use `ssh.NewAdapter(ssh.AdapterConfig{Allocate: allocator})`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. The PTY request now owns window intake from acceptance through channel teardown. Each channel can open one host.
+- Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
 
 ### Changed
 
@@ -18,6 +18,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Multi-select options that compare equal under `Same` share one selection and one place in the selection limit. `Taken` returns the first matching option in option order.
 - Completion providers can bind `Completion.CurrentToken` to `Editor.TokenAtCursor` to make an offer unavailable after the caret leaves its original token. `Token.Line` identifies the logical editor line. External unkeyed token literals must name their fields or use the token constructors.
 - The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
+
+### Fixed
+
+- Startup probes yield to normal input after a bounded byte prefix and accept only well-formed terminal reports. An empty `NO_COLOR` leaves color detection enabled. Set it to a nonempty value to disable color.
+- Text decoding and terminal output use the same hyperlink target validation. Wrapped paragraph links use the displayed tab columns for both clicks and terminal hyperlinks.
+- Invalidating scene geometry ends the old hover. Assigning the same panel content preserves its focused child. Box padding and image placement use the same geometry for measurement and drawing.
+- Killing a word across a line break retains the newline for yank. Display math closes only at a valid delimiter, and fenced math recognizes tab-separated attributes.
+- The image example retires its transmission on a caller-owned host. Visibility assertions wait for new output after an unsuccessful repaint.
 
 ## [ui/v0.26.0] — 2026-11-01
 

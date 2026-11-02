@@ -46,6 +46,9 @@ type Host struct {
 	sizeMu sync.Mutex
 	w, h   int
 
+	visibilityMu sync.Mutex
+	visibility   frameObservation
+
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -173,34 +176,44 @@ type FrameSnapshot struct {
 // Bound ctx to the program lifetime: a program that stops before taking the request
 // cannot acknowledge it. Closing the host also releases the wait.
 func (h *Host) Repaint(ctx context.Context) (FrameSnapshot, error) {
+	observed, err := h.repaint(ctx)
+	return observed.FrameSnapshot, err
+}
+
+type frameObservation struct {
+	FrameSnapshot
+	changed <-chan struct{}
+}
+
+func (h *Host) repaint(ctx context.Context) (frameObservation, error) {
 	if cause := context.Cause(ctx); cause != nil {
-		return FrameSnapshot{}, cause
+		return frameObservation{}, cause
 	}
 	if h == nil || h.input == nil {
-		return FrameSnapshot{}, program.ErrStopped
+		return frameObservation{}, program.ErrStopped
 	}
 	result := make(chan error, 1)
-	var snapshot FrameSnapshot
+	var snapshot frameObservation
 	admitted := h.input.postRepaint(func(width, height int, err error) {
 		if err == nil {
 			snapshot.Width, snapshot.Height = width, height
-			snapshot.Frame, snapshot.Frames = h.out.snapshot()
+			snapshot.Frame, snapshot.Frames, snapshot.changed = h.out.snapshot()
 		}
 		result <- err
 	})
 	if !admitted {
-		return FrameSnapshot{}, program.ErrStopped
+		return frameObservation{}, program.ErrStopped
 	}
 	select {
 	case err := <-result:
 		if err != nil {
-			return FrameSnapshot{}, err
+			return frameObservation{}, err
 		}
 		return snapshot, nil
 	case <-ctx.Done():
-		return FrameSnapshot{}, context.Cause(ctx)
+		return frameObservation{}, context.Cause(ctx)
 	case <-h.input.ended:
-		return FrameSnapshot{}, program.ErrStopped
+		return frameObservation{}, program.ErrStopped
 	}
 }
 
@@ -209,7 +222,7 @@ func (h *Host) Frames() string {
 	if h == nil || h.out == nil {
 		return ""
 	}
-	_, frames := h.out.snapshot()
+	_, frames, _ := h.out.snapshot()
 	return frames
 }
 
@@ -221,7 +234,7 @@ func (h *Host) Frame() string {
 	if h == nil || h.out == nil {
 		return ""
 	}
-	frame, _ := h.out.snapshot()
+	frame, _, _ := h.out.snapshot()
 	return strings.Clone(frame)
 }
 
@@ -270,8 +283,8 @@ func (h *Host) assertText(tb testing.TB, text string, want bool) {
 	tb.Helper()
 	ctx, cancel := context.WithTimeout(tb.Context(), assertionTimeout)
 	defer cancel()
-	for {
-		snapshot, err := h.Repaint(ctx)
+	for first := true; ; first = false {
+		snapshot, err := h.observeFrame(ctx, first)
 		if err != nil {
 			tb.Fatalf("uitest: waiting for visibility %t of %q: %v; last frame %q", want, text, err, h.Frame())
 		}
@@ -282,7 +295,35 @@ func (h *Host) assertText(tb testing.TB, text string, want bool) {
 		if strings.Contains(visible, text) == want {
 			return
 		}
+		select {
+		case <-snapshot.changed:
+		case <-h.input.ended:
+			tb.Fatalf("uitest: host closed while waiting for visibility %t of %q", want, text)
+		case <-ctx.Done():
+			tb.Fatalf("uitest: timed out waiting for visibility %t of %q; last frame %q", want, text, h.Frame())
+		}
 	}
+}
+
+// Each caller's first request orders its preceding input. After that barrier,
+// simultaneous waiters may share a full frame until a later write invalidates it.
+func (h *Host) observeFrame(ctx context.Context, first bool) (frameObservation, error) {
+	if h == nil || h.out == nil {
+		return frameObservation{}, program.ErrStopped
+	}
+	h.visibilityMu.Lock()
+	defer h.visibilityMu.Unlock()
+	if !first && h.visibility.changed == h.out.Changed() {
+		return h.visibility, nil
+	}
+	observation, err := h.repaint(ctx)
+	if err == nil {
+		// Assertions need only the last frame, not the backing transcript.
+		observation.Frame = strings.Clone(observation.Frame)
+		observation.Frames = ""
+		h.visibility = observation
+	}
+	return h.visibility, err
 }
 
 // Repaints is the ordered complete-frame request stream consumed by program.Run.
@@ -485,11 +526,11 @@ func (s *sink) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (s *sink) snapshot() (frame, frames string) {
+func (s *sink) snapshot() (frame, frames string, changed <-chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	frames = s.all.String()
-	return frames[s.last:], frames
+	return frames[s.last:], frames, s.changed
 }
 
 func (s *sink) Changed() <-chan struct{} {
