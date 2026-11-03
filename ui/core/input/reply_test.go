@@ -4,9 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
@@ -70,21 +68,6 @@ func TestTheKeyboardFlagsOfNothing(t *testing.T) {
 	}
 	if got.Features.Has(input.KeyboardDisambiguate) {
 		t.Error("a flag was reported when none were set")
-	}
-}
-
-func TestAClipboardAnswerBecomesPasteOnlyForItsLiveChannel(t *testing.T) {
-	channel := &clipboard.Channel{}
-	if !channel.Request(clipboard.System, func(string) bool { return true }) {
-		t.Fatal("clipboard request was refused")
-	}
-	command := one(t, "\x1b]52;c;cGFzdGVk\x1b\\").(input.OSC)
-	paste, ok := command.Paste(channel, time.Now())
-	if !ok || paste.Text != "pasted" {
-		t.Fatalf("paste = %+v, %t", paste, ok)
-	}
-	if paste, ok := command.Paste(channel, time.Now()); ok {
-		t.Fatalf("settled answer was accepted again as %+v", paste)
 	}
 }
 

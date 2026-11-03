@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -139,7 +140,7 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"selection", func(e *base.Editor) { e.SelectAll() }},
 		{"focus", func(e *base.Editor) { testFocus(e, false) }},
 		{"copy", func(e *base.Editor) { e.Clipboard = &clip{}; e.Copy() }},
-		{"paste request", func(e *base.Editor) { e.Clipboard = &clip{}; e.Paste() }},
+		{"paste request", func(e *base.Editor) { e.Clipboard = &clip{}; _ = e.Paste(context.Background(), func(error) {}) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			editor := &base.Editor{}

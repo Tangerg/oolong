@@ -196,7 +196,7 @@ func TestUnsupportedFormulaStaysReadable(t *testing.T) {
 	}
 }
 
-func TestHostileSourceIsRejectedBeforeTheExternalParser(t *testing.T) {
+func TestHostileSourceCannotReachFormulaLayout(t *testing.T) {
 	for _, source := range []string{
 		string([]byte{'x', 0}),
 		string([]byte{'x', 0xff}),

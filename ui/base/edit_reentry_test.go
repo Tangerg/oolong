@@ -1,6 +1,8 @@
 package base_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -9,7 +11,9 @@ import (
 type callbackClipboard struct{ copy func(string) bool }
 
 func (c callbackClipboard) Copy(text string) bool { return c.copy(text) }
-func (callbackClipboard) Paste() bool             { return false }
+func (callbackClipboard) Read(context.Context, func(string, error)) error {
+	return errors.ErrUnsupported
+}
 
 func TestCutCannotDeleteASelectionChangedDuringCopy(t *testing.T) {
 	for _, change := range []string{"content", "selection"} {

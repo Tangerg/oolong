@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -32,12 +33,12 @@ type Host struct {
 }
 
 var (
-	_ program.Host       = (*Host)(nil)
-	_ program.ColorHost  = (*Host)(nil)
-	_ program.LocaleHost = (*Host)(nil)
-	_ program.WheelHost  = (*Host)(nil)
-	_ program.CopyHost   = (*Host)(nil)
-	_ program.PasteHost  = (*Host)(nil)
+	_ program.Host            = (*Host)(nil)
+	_ program.ColorHost       = (*Host)(nil)
+	_ program.LocaleHost      = (*Host)(nil)
+	_ program.WheelHost       = (*Host)(nil)
+	_ program.CopyHost        = (*Host)(nil)
+	_ program.ClipboardReader = (*Host)(nil)
 )
 
 func newHost(
@@ -88,12 +89,12 @@ func (h *Host) Copy(text string) bool {
 	return err == nil
 }
 
-// Paste answers reenter through input.Paste so components consume the same
-// ordered input path as physical paste.
-func (h *Host) Paste() bool {
-	return h.clip.Request(clipboard.System, func(sequence string) bool {
+// ReadClipboard addresses the remote user's terminal. A cancelled read retains
+// its unanswered wire slot; a later query cannot adopt that reply.
+func (h *Host) ReadClipboard(ctx context.Context) (string, error) {
+	return h.clip.Read(ctx, clipboard.System, func(sequence string) error {
 		_, err := h.writer.Queue([]byte(sequence))
-		return err == nil
+		return err
 	})
 }
 
@@ -111,6 +112,7 @@ func (h *Host) Close() error {
 	h.closeOnce.Do(func() {
 		h.source.Close()
 		h.writer.CloseAdmission()
+		h.clip.Interrupt()
 		if _, err := h.writer.QueueControl([]byte(h.modes.Leave())); err != nil {
 			h.closeErr = err
 		}

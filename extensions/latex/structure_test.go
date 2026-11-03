@@ -128,10 +128,9 @@ func TestEveryReportedFailureNamesThisPackage(t *testing.T) {
 	}
 }
 
-func TestNoFailureNamesTheDelimiterThisPackageAdds(t *testing.T) {
-	// The expression is wrapped in math delimiters before it reaches the parser, so a
-	// complaint quoting one describes a character the caller never typed. Saying the
-	// expression ended early says the same thing about the source they wrote.
+func TestMissingArgumentsDoNotInventSourceCharacters(t *testing.T) {
+	// Diagnostics must describe the expression body, including incomplete control
+	// sequences; parser-internal delimiters are not part of the caller's source.
 	for _, source := range []string{`\frac{1}`, `\binom{1}`, `\sqrt`, `\stackrel{d}`, `\overline`} {
 		err := latex.Render(source, latex.Look{}).Err()
 		if err == nil {
@@ -145,8 +144,8 @@ func TestNoFailureNamesTheDelimiterThisPackageAdds(t *testing.T) {
 }
 
 func TestADelimiterInTheSourceIsRefused(t *testing.T) {
-	// Refusing it is what makes the rule above exact: after this, a delimiter in any
-	// message can only have come from the wrapper.
+	// The public API accepts expression bodies, so document math delimiters would
+	// change the caller's contract rather than introduce another nested expression.
 	for _, source := range []string{`$x$`, `a $ b`, `x + $`} {
 		err := latex.Render(source, latex.Look{}).Err()
 		if err == nil || !strings.Contains(err.Error(), "math delimiters") {
@@ -233,9 +232,8 @@ func TestSpacingMacrosOccupyTheRoomTheyName(t *testing.T) {
 }
 
 func TestATextArgumentKeepsTheSpacesItWasWritten(t *testing.T) {
-	// The expression reaches the parser in math mode, where a space between two
-	// tokens is dropped before an AST exists. A font applied afterwards cannot put
-	// back what the parse never saw, and two words would come out as one.
+	// Text spacing belongs to the argument's parse context; applying its appearance
+	// after discarding spaces cannot recover word boundaries.
 	for _, tc := range []struct {
 		source string
 		want   string

@@ -1,5 +1,6 @@
-// Package process separates observing child exit from releasing its kernel
-// identity, so a process-group owner can finish signaling before reaping.
+// Package process preserves operating-system identities through process cleanup.
+// Unix exit observation leaves the child waitable until group signals finish;
+// Windows jobs install descendant membership at creation and observe completion.
 package process
 
 import (
@@ -24,6 +25,8 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("process: exit status %d", e.Code)
 }
 
+// Supported reports whether non-reaping Unix exit observation is available.
+// Windows Job support is independent of this capability.
 func Supported() bool { return supported }
 
 // WaitExit leaves the child waitable, reserving its PID until the caller reaps it.

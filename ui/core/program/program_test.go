@@ -333,17 +333,16 @@ func (h *host) Copy(text string) bool {
 	return true
 }
 
-// Paste answers the way a host that is not a terminal would: by delivering the
-// text itself. Nothing above cares which it was.
-func (h *host) Paste() bool {
+func (h *host) ReadClipboard(ctx context.Context) (string, error) {
 	h.clipMu.Lock()
-	text, deliver := h.pasteFor, h.pasteFor != ""
+	text := h.pasteFor
 	h.asked++
 	h.clipMu.Unlock()
-	if deliver {
-		h.events <- input.Paste{Text: text}
+	if text != "" {
+		return text, nil
 	}
-	return true
+	<-ctx.Done()
+	return "", context.Cause(ctx)
 }
 
 // Hand runs it. A host with no terminal has nothing to give away, and the half
@@ -827,7 +826,7 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 			if !runtime.Clipboard().Copy("copied") {
 				t.Error("independent Copy capability was hidden")
 			}
-			if runtime.Clipboard().Paste() {
+			if err := runtime.Clipboard().Read(t.Context(), func(string, error) {}); err == nil {
 				t.Error("missing Paste capability accepted a request")
 			}
 			if err := runtime.Session().SetTitle("ignored"); err == nil {
@@ -875,7 +874,7 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	if clipboard.Copy("text") {
 		t.Fatal("zero Clipboard accepted a copy")
 	}
-	if clipboard.Paste() {
+	if err := clipboard.Read(t.Context(), func(string, error) {}); err == nil {
 		t.Fatal("zero Clipboard accepted a paste request")
 	}
 
@@ -2275,39 +2274,45 @@ func TestCopyReportsAHostThatWillNotTakeIt(t *testing.T) {
 	}
 }
 
-// TestPasteComesBackAsAPaste is the seam that makes this worth having: a component
-// that already inserts what the user pasted needs nothing further to insert what
-// they copied somewhere else.
-func TestPasteComesBackAsAPaste(t *testing.T) {
+func TestClipboardReadCompletesOnItsOwnerWithoutBecomingInput(t *testing.T) {
 	r, rec := startRecording(t)
 	r.host.clipMu.Lock()
 	r.host.pasteFor = "copied"
 	r.host.clipMu.Unlock()
-
-	if !r.fromLoop(rec.runtime, rec.runtime.Clipboard().Paste) {
-		t.Fatal("the host refused a paste request")
+	result := make(chan string, 1)
+	if !r.fromLoop(rec.runtime, func() bool {
+		return rec.runtime.Clipboard().Read(t.Context(), func(value string, err error) {
+			if err != nil {
+				t.Error(err)
+			}
+			result <- value
+		}) == nil
+	}) {
+		t.Fatal("read admission refused")
 	}
-	r.until("the answer to arrive as a paste", func() bool { return len(rec.pasted()) == 1 })
-	if got := rec.pasted()[0]; got != "copied" {
-		t.Errorf("pasted %q, want %q", got, "copied")
+	if value := <-result; value != "copied" {
+		t.Fatalf("read = %q", value)
+	}
+	if got := rec.pasted(); len(got) != 0 {
+		t.Fatalf("solicited read became user input: %q", got)
 	}
 }
 
-func TestPasteThatIsNeverAnsweredIsNotAnError(t *testing.T) {
-	// Most terminals refuse to be read, and a refusal has no reply. Asking has to
-	// be safe and silent.
+func TestUnansweredReadDoesNotBlockInputAndCancellationRevokesDelivery(t *testing.T) {
 	r, rec := startRecording(t)
-	if !r.fromLoop(rec.runtime, rec.runtime.Clipboard().Paste) {
-		t.Fatal("the host refused a paste request")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if !r.fromLoop(rec.runtime, func() bool {
+		return rec.runtime.Clipboard().Read(ctx, func(string, error) { t.Error("cancelled read delivered") }) == nil
+	}) {
+		t.Fatal("read admission refused")
 	}
 	r.until("the host to be asked", func() bool { return r.host.timesAsked() == 1 })
-
-	// Followed by something observable, so the absence of a paste is waited for
-	// rather than assumed.
+	cancel()
 	r.host.rune('z')
 	r.until("the key after the unanswered request", func() bool { return rec.handled.Load() >= 1 })
 	if got := rec.pasted(); len(got) != 0 {
-		t.Errorf("an unanswered request produced the paste %q", got)
+		t.Fatalf("unanswered read produced input %q", got)
 	}
 }
 

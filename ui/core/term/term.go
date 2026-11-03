@@ -4,6 +4,7 @@ package term
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -379,13 +380,12 @@ func (t *Terminal) Copy(text string) bool {
 	return err == nil
 }
 
-// Paste reports admission, not clipboard delivery: terminals may refuse
-// silently. A matching reply becomes input.Paste on Events. An outstanding
-// unidentified request or refused writer admission prevents a second request.
-func (t *Terminal) Paste() bool {
-	return t.clipboard.Request(clipboard.System, func(sequence string) bool {
+// ReadClipboard waits outside terminal mode locks. Cancellation ends delivery;
+// an unanswered OSC 52 query still owns its protocol slot across handover.
+func (t *Terminal) ReadClipboard(ctx context.Context) (string, error) {
+	return t.clipboard.Read(ctx, clipboard.System, func(sequence string) error {
 		_, err := t.writer.Queue([]byte(sequence))
-		return err == nil
+		return err
 	})
 }
 
@@ -522,6 +522,7 @@ func (t *Terminal) Close() error {
 		t.modeMu.Lock()
 		t.writer.CloseAdmission()
 		t.modeMu.Unlock()
+		t.clipboard.Interrupt()
 		t.cancelUploads(ErrClosed)
 		uploadErr := t.awaitUploads()
 		close(t.stop)
@@ -777,7 +778,7 @@ func (t *Terminal) release() error {
 		return errors.Join(err, t.retakeModes())
 	}
 	t.ownsModes = false
-	t.clipboard.CancelPending()
+	t.clipboard.Interrupt()
 	t.restartInput.Store(true)
 	return nil
 }

@@ -184,7 +184,7 @@ func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 			if err := session.Notify("stale"); err == nil {
 				t.Error("refused operation reported success")
 			}
-			if clipboard.Copy("stale") || clipboard.Paste() || runtime.Clipboard().Copy("late") {
+			if clipboard.Copy("stale") || clipboard.Read(t.Context(), func(string, error) {}) == nil || runtime.Clipboard().Copy("late") {
 				t.Error("an ended runtime changed its externally owned host clipboard")
 			}
 			if _, err := images.Transmit(t.Context(), nil); !errors.Is(err, errors.ErrUnsupported) {

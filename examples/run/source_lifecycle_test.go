@@ -97,16 +97,69 @@ func TestCommandDescendantsStopOnCancellationAndParentExit(t *testing.T) {
 			if err := task.Snapshot().Err; ending == "exit" && err != nil || ending == "cancel" && !errors.Is(err, context.Canceled) {
 				t.Fatalf("command %s: %v", ending, err)
 			}
-			// The live descendant owns this connection. EOF proves termination without
-			// mistaking an unreaped zombie for running work or signaling a reused PID.
+			// The fixture keeps this connection for its lifetime. Forced process exit
+			// may reset TCP instead of sending FIN, especially on Windows.
 			if err := connection.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 				t.Fatal(err)
 			}
 			var tail [1]byte
-			if n, err := connection.Read(tail[:]); n != 0 || !errors.Is(err, io.EOF) {
-				t.Fatalf("command task finished while its descendant connection remained live: %d, %v", n, err)
+			if n, err := connection.Read(tail[:]); !connectionEnded(n, err) {
+				t.Fatalf("command task finished without evidence of descendant connection closure: %d, %v", n, err)
 			}
 		})
+	}
+}
+
+func connectionEnded(n int, err error) bool {
+	return n == 0 && (errors.Is(err, io.EOF) || connectionReset(err))
+}
+
+func TestDescendantConnectionClosureRejectsLiveConnections(t *testing.T) {
+	for _, mode := range []string{"closed", "reset", "live", "data"} {
+		t.Run(mode, func(t *testing.T) {
+			listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = listener.Close() })
+			client, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = client.Close() })
+			connection, err := listener.AcceptTCP()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = connection.Close() })
+			if err = connection.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "closed":
+				err = client.Close()
+			case "reset":
+				if err = client.(*net.TCPConn).SetLinger(0); err == nil {
+					err = client.Close()
+				}
+			case "live":
+				err = connection.SetReadDeadline(time.Now())
+			case "data":
+				_, err = client.Write([]byte("still running"))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var tail [1]byte
+			n, err := connection.Read(tail[:])
+			wantClosed := mode == "closed" || mode == "reset"
+			if connectionEnded(n, err) != wantClosed {
+				t.Fatalf("closure evidence: n=%d err=%v, want closed=%v", n, err, wantClosed)
+			}
+		})
+	}
+	if connectionEnded(0, errors.New("unrelated I/O failure")) {
+		t.Fatal("an unknown failure was accepted as termination evidence")
 	}
 }
 

@@ -44,20 +44,22 @@ type Element struct {
 // edits cannot make an old snapshot read a replacement range.
 func (el Element) Text() string { return el.body }
 
-// Both ends need grapheme boundaries so an element cannot partly own a neighbor.
-// Actual neighboring text may still join the normalized body; the editor checks it
-// at insertion.
+// Sentinel spaces expose the edge clusters that would absorb a separator. One
+// segmentation removes both edges without rescanning the body for each removed rune.
+// Actual neighboring text may still join the body; insertion checks that boundary.
 func elementBody(body string) string {
 	body = oneLineText(body)
-	for body != "" && clusters(" "+body) != 1+clusters(body) {
-		_, size := utf8.DecodeRuneInString(body)
-		body = body[size:]
+	framed := " " + body + " "
+	start, end := 0, len(body)
+	for at, cluster := range text.Clusters(framed) {
+		if at == 0 {
+			start = len(cluster) - 1
+		}
+		if at+len(cluster) == len(framed) {
+			end = at - 1
+		}
 	}
-	for body != "" && clusters(body+" ") != clusters(body)+1 {
-		_, size := utf8.DecodeLastRuneInString(body)
-		body = body[:len(body)-size]
-	}
-	return body
+	return body[start:end]
 }
 
 // clusterPosition is the closest caret position in direction when at falls inside a

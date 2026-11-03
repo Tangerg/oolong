@@ -61,7 +61,8 @@ type Editor struct {
 	continuation editorContinuation
 	yank         editorYank
 
-	matcher keymap.Matcher
+	matcher  keymap.Matcher
+	pasteErr error
 
 	scroll Scroll
 	// Scroll owns request consumption and cancellation; drawing only resolves its visual row.
@@ -1647,16 +1648,6 @@ func (e *Editor) Cut() bool {
 	return e.DeleteSelection()
 }
 
-// Paste asks the clipboard for its contents and reports whether the request was
-// accepted. What comes back arrives later as an ordinary paste event, which this
-// editor already inserts.
-func (e *Editor) Paste() bool {
-	e.beginViewUpdate()
-	defer e.endViewUpdate()
-	e.endTyping()
-	return e.Clipboard != nil && e.Clipboard.Paste()
-}
-
 // Shift-selection and ordinary movement share actions; only ordinary movement releases the anchor.
 func (e *Editor) move(action keymap.Action) bool {
 	switch action {
@@ -1873,7 +1864,7 @@ var editorActions = map[keymap.Action]func(*Editor){
 	SelectAll:      (*Editor).SelectAll,
 	Copy:           func(e *Editor) { e.Copy() },
 	Cut:            func(e *Editor) { e.Cut() },
-	Paste:          func(e *Editor) { e.Paste() },
+	Paste:          (*Editor).pasteFromInput,
 }
 
 // RowSpan is a visual column run. Row is relative to the whole wrapped text so

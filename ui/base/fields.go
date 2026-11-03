@@ -1,6 +1,8 @@
 package base
 
 import (
+	"context"
+
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -67,6 +69,17 @@ func (t *Text) Handle(event input.Event) bool {
 
 // Do executes one named editing action against the same editor owner.
 func (t *Text) Do(action keymap.Action) bool { t.configureEditor(); return t.editor.Do(action) }
+
+// Paste uses the field's single-line edit owner and the same directed completion
+// contract as Editor.Paste, including attachment and cancellation checks.
+func (t *Text) Paste(ctx context.Context, complete func(error)) error {
+	t.configureEditor()
+	return t.editor.Paste(ctx, complete)
+}
+
+// PasteError exposes keyboard paste feedback from the field's existing editor.
+// Programmatic paste failures go to their own return or completion receiver.
+func (t *Text) PasteError() error { return t.editor.PasteError() }
 
 func (t *Text) Validate() error { return t.validate(nil, t.Revision, t.checkAnswer) }
 

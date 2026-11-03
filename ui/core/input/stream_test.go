@@ -3,7 +3,6 @@ package input_test
 import (
 	"strings"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/clipboard"
@@ -173,43 +172,6 @@ func TestEventsCarryWhenTheyArrived(t *testing.T) {
 	}
 }
 
-func TestAnAnsweredClipboardRequestBecomesAPaste(t *testing.T) {
-	channel := &clipboard.Channel{}
-	if !channel.Request(clipboard.System, func(string) bool { return true }) {
-		t.Fatal("clipboard request was refused")
-	}
-	stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-
-	events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\"), time.Now())
-	if len(events) != 1 {
-		t.Fatalf("got %+v, want one event", events)
-	}
-	paste, ok := events[0].(input.Paste)
-	if !ok || paste.Text != "pasted" {
-		t.Fatalf("got %+v, want the answer settled as a paste", events[0])
-	}
-}
-
-func TestAnAnswerCarryingNoTextIsNotAPaste(t *testing.T) {
-	// Base64 ignores line breaks, so a payload of one newline is a field with
-	// something in it that decodes to nothing. Delivered as a paste, it replaces the
-	// selection the user still has with an empty string.
-	for _, answer := range []string{"\x1b]52;c;\x1b\\", "\x1b]52;c;\n\x1b\\"} {
-		channel := &clipboard.Channel{}
-		if !channel.Request(clipboard.System, func(string) bool { return true }) {
-			t.Fatal("clipboard request was refused")
-		}
-		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-		events := stream.Feed([]byte(answer), time.Now())
-		if len(events) != 1 {
-			t.Fatalf("%q got %+v, want one event", answer, events)
-		}
-		if paste, ok := events[0].(input.Paste); ok {
-			t.Errorf("%q became a paste of %q", answer, paste.Text)
-		}
-	}
-}
-
 func TestAnUnaskedClipboardAnswerStaysTheCommandItWas(t *testing.T) {
 	// A terminal has no reason to volunteer one, and text arriving in a document
 	// nobody asked to put it in is not a thing to relax about.
@@ -246,23 +208,6 @@ func TestFlushEndsTheStreamAndDisarmsIt(t *testing.T) {
 	if _, waiting := stream.DueAt(); waiting {
 		t.Fatal("flush left a deadline nobody will reach")
 	}
-}
-
-func TestClipboardSettlementUsesTheTransportArrival(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		channel := &clipboard.Channel{}
-		channel.Request(clipboard.System, func(string) bool { return true })
-		at := time.Now()
-		time.Sleep(11 * time.Second)
-		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-		events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\"), at)
-		if len(events) != 1 {
-			t.Fatalf("events = %v", events)
-		}
-		if paste, ok := events[0].(input.Paste); !ok || paste.Text != "pasted" {
-			t.Fatalf("timely reply lost during decoding: %v", events)
-		}
-	})
 }
 
 func TestDiscardedControlStringCannotBecomeKeystrokesAcrossAPause(t *testing.T) {

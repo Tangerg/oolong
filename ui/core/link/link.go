@@ -7,7 +7,6 @@ import (
 	"cmp"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -87,21 +86,6 @@ var urlPrefixPattern = func() *regexp.Regexp {
 	return regexp.MustCompile("(?i)" + strings.Join(patterns, "|"))
 }()
 
-// Quotes admit spaces; rooted paths supply their own evidence; relative paths
-// require an extension to exclude slashed prose such as TCP/IP. Bare filenames
-// need external confirmation and therefore have a separate admission path.
-var pathPattern = regexp.MustCompile(
-	`'[^']*\.[A-Za-z0-9]+'` +
-		`|"[^"]*\.[A-Za-z0-9]+"` +
-		`|~?/[A-Za-z0-9\-._~%@+]+(?:/[A-Za-z0-9\-._~%@+]+)*/?` +
-		`|[A-Za-z0-9\-._~%@+]+(?:/[A-Za-z0-9\-._~%@+]+)*/[A-Za-z0-9\-._~%@+]*\.[A-Za-z0-9]+`,
-)
-
-// A bare name such as node.js can be prose, so syntax alone cannot admit it.
-var barePattern = regexp.MustCompile(`[A-Za-z0-9\-._~%@+]+\.[A-Za-z0-9]+`)
-
-var linePattern = regexp.MustCompile(`^:([0-9]{1,9})(?::([0-9]{1,9}))?`)
-
 // trailing is trimmed from the end of a match: the punctuation that almost always
 // belongs to the sentence around a link rather than to the link.
 const (
@@ -112,13 +96,11 @@ const (
 // Detect delegates filesystem evidence to exists so remote text does not trigger
 // implicit local I/O. The callback receives relative paths exactly as written;
 // URLs, rooted paths and home-relative paths never trigger it. A nil callback
-// leaves ambiguous bare filenames out.
+// leaves ambiguous bare filenames out. File names retain their Unicode spelling
+// and original byte ranges; quotes admit spaces and punctuation within a name.
 func Detect(s string, exists func(path string) bool) Links {
 	found := detectURLs(s)
-	found = append(found, detectPaths(s, pathPattern)...)
-	if exists != nil {
-		found = append(found, detectPaths(s, barePattern)...)
-	}
+	found = append(found, detectPaths(s, exists != nil)...)
 	return inOrder(found, exists)
 }
 
@@ -207,53 +189,6 @@ func uriByte(b byte) bool {
 	return wordByte(b) || strings.IndexByte(uriPunctuation, b) >= 0
 }
 
-func detectPaths(s string, pattern *regexp.Regexp) []Link {
-	var found []Link
-	for _, m := range pattern.FindAllStringIndex(s, -1) {
-		if startsWord(s, m[0]) {
-			if l, ok := pathAt(s, m[0], m[1]); ok {
-				found = append(found, l)
-			}
-		}
-	}
-	return found
-}
-
-func pathAt(s string, from, to int) (Link, bool) {
-	text := s[from:to]
-	quoted := len(text) >= 2 && (text[0] == '\'' || text[0] == '"') && text[len(text)-1] == text[0]
-	if quoted {
-		text = text[1 : len(text)-1]
-	} else {
-		text = trimTrailing(text, false)
-	}
-	if text == "" || text == "/" || text == "~/" || text == "~" {
-		return Link{}, false
-	}
-
-	end := from + len(text)
-	if quoted {
-		end += 2
-	}
-	kind, target := destination(text)
-	l := Link{Start: from, End: end, Kind: kind, Target: target}
-	if kind == URL {
-		return l, true
-	}
-
-	// A line and column written after a path belong to the link and not to the
-	// sentence: "src/main.go:42" points at a line, and a reader clicking it means to
-	// go there.
-	if m := linePattern.FindStringSubmatch(s[end:]); m != nil {
-		l.Line, _ = strconv.Atoi(m[1])
-		if m[2] != "" {
-			l.Column, _ = strconv.Atoi(m[2])
-		}
-		l.End += len(m[0])
-	}
-	return l, true
-}
-
 func destination(target string) (Kind, string) {
 	scheme, ok := prefixOf(target)
 	if !ok || len(target) == len(scheme) {
@@ -268,25 +203,6 @@ func destination(target string) (Kind, string) {
 		target = httpsPrefix + target
 	}
 	return URL, target
-}
-
-// The rooted branch of the pattern matches from a slash, and a slash appears in the
-// middle of ordinary prose: "and/or" holds "/or", "24/7" holds "/7". A regular
-// expression cannot look backwards, so the check that the match is not the tail of a
-// longer word is made here — and it is the same check the bare branch needs, for the
-// same reason.
-func startsWord(s string, at int) bool {
-	if at == 0 {
-		return true
-	}
-	switch b := s[at-1]; {
-	case wordByte(b):
-		return false
-	case b == '.' || b == '-' || b == '~' || b == '%' || b == '@' || b == '+' || b == '/':
-		return false
-	default:
-		return true
-	}
 }
 
 // Overlap is possible because the shapes are looked for separately, and two links over

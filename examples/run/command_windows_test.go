@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"golang.org/x/sys/windows"
 )
 
 func TestCommandResolvesWindowsExecutableExtensions(t *testing.T) {
@@ -29,31 +27,5 @@ func TestCommandResolvesWindowsExecutableExtensions(t *testing.T) {
 				t.Fatalf("command did not execute: %q", output.String())
 			}
 		})
-	}
-}
-
-func TestCommandJobDoesNotRetainAProcessOutsideItsJob(t *testing.T) {
-	job, err := newCommandJob()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if closeErr := job.close(); closeErr != nil {
-			t.Error(closeErr)
-		}
-	})
-	handle, owned, err := job.observeProcess(windows.GetCurrentProcessId())
-	if handle != 0 {
-		t.Cleanup(func() {
-			if closeErr := windows.CloseHandle(handle); closeErr != nil {
-				t.Error(closeErr)
-			}
-		})
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if owned || handle != 0 {
-		t.Fatal("a notification for an unrelated PID acquired command wait ownership")
 	}
 }

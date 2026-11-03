@@ -7,7 +7,9 @@ import (
 	"os/exec"
 )
 
-// The command owns its descendants and merged output until shutdown completes.
+// The command owns its Unix process group or Windows job, and merged output,
+// until shutdown completes. Unix descendants that leave the group and Windows
+// processes created through unrelated brokers fall outside that membership.
 // Stdin stays disconnected because terminal input belongs to the inline program.
 type commandProcess struct{ cmd *exec.Cmd }
 

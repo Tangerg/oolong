@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### ui
 
+- Replace `core/clipboard.(*Channel).Request` with `core/clipboard.(*Channel).Read(ctx, selection, send)`. The call waits away from the UI owner and returns the read result or error. The send callback must atomically admit the query. Replace `core/clipboard.(*Channel).CancelPending` with `core/clipboard.(*Channel).Interrupt`; cancellation, interruption and the response deadline revoke delivery but retain an unanswered wire query. `core/clipboard.(*Channel).Answer` now returns only whether it consumed that query's reply. Handle `clipboard.ErrPending` until the old reply arrives; OSC 52 has no request identifier that would make timeout-based reuse safe.
+- Replace `core/program.PasteHost` with `core/program.ClipboardReader`, implementing `ReadClipboard(context.Context) (string, error)`. Replace `core/term.(*Terminal).Paste` with `ReadClipboard` and `core/program.Clipboard.Paste` with `Read(ctx, receive)`. Runtime completion runs on the owner; cancellation or runtime shutdown revokes the callback. `core/input.OSC.Paste` is removed: an OSC 52 reply settles its originating read and is never converted to ordinary `input.Paste`. Native bracketed paste remains normal input.
+- Implement `base.Clipboard.Read` with `Read(ctx, receive) error` in place of `base.Clipboard.Paste`. Call `base.(*Editor).Paste` with `(ctx, complete)` and a non-nil completion receiver. Admission errors return immediately; eligible completion reports the final result. A changed document, revision, selection or attachment returns `base.ErrPasteStale` instead of redirecting insertion. Keyboard paste failures are available through `base.(*Editor).PasteError`; `base.Text` exposes the same operations through its retained editor. A standalone editor can read only before it has ever been attached; `scene.Element.HasBeenAttached` projects that existing lifecycle fact.
+
 - Completion's `scene.ActionSelect` and `scene.ActionActivate` now accept `base.CollectionIndex` instead of a bare index or an empty activation argument. Read candidates with `base.ActionReadItems` and a revision-qualified `base.CollectionQuery`; pass the returned revision and candidate index to either action. Activation accepts that candidate in one owner turn, so a replacement offer cannot inherit an earlier selection or acceptance. Candidate match offsets are detached in returned projections.
 - Keep live `kit.Tabs`, `kit.Slider`, `kit.Settings`, `kit.Tree`, `kit.Dialog`, `kit.Form` and `kit.Transcript` values behind pointers after construction. Their measurement and rendering callbacks retain the constructed identity; the existing Go vet no-copy marker now guards each type. Construct another instance from configuration when independent appearance is required.
 - `core/term.(*Terminal).Hand` keeps input active while pending image allocations settle before handover. Unresolved obligations return `core/term.ErrImageCleanupIncomplete` without running the child or surrendering the terminal. `Close` still restores terminal state and returns this error when it cannot confirm cleanup. Do not treat a cancelled upload result as proof that its physical allocation has been released.
@@ -29,6 +33,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### extensions/ssh
 
+- Replace `ssh.(*Host).Paste` with `ReadClipboard(context.Context) (string, error)`. The read belongs to its caller and preserves unresolved OSC 52 queries across cancellation or terminal handover. Publish the updated UI module before resolving this adapter's new declared dependency.
+
 - Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
 
 #### extensions/mermaid
@@ -36,6 +42,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Unix cancellation now retains the launcher identity until all group signals finish, then reaps that launcher and settles its pipes. Reaping non-child zombies belongs to their external reaper and no longer controls a render's outcome. Linux, Darwin, FreeBSD, NetBSD and DragonFly have the required non-reaping observation; other Unix hosts now reject construction with `errors.ErrUnsupported`. Windows retains its job-object ownership. The adapter now composes `ui/core/process`; release the updated UI module before publishing the adapter.
 
 ### Changed
+
+- Windows command launchers and Mermaid compose one `core/process.Job` for atomic job membership, process observation, termination and handle cleanup. Each adapter retains its own standard streams, output delivery and cancellation policy. `process.JobStartConfig` borrows explicitly prepared files; the caller reaps the returned launcher and closes its job. This new UI capability must be published before updating independently released consumers.
+- LaTeX parses its expression subset directly into terminal layout. Command arguments, whitespace and scripts have one grammar owner; symbol names continue to use the dependency's symbol tables. Go literal rules, parser wrappers and process-global diagnostics no longer participate.
 
 - CI checks every module against its declared published dependencies with `GOWORK=off` and no local replacements, separately from workspace integration. Consumers now declare resolvable UI revisions matching the APIs and dependency graphs they use. Workspace replacements remain generated from those requirements.
 - Key help and sequence timing read the actual keymap. Dashboard tab ranges derive from the tab collection, and its activity panel composes real scene children so slider painting and input share the child layout's geometry.
@@ -54,6 +63,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
 
 ### Fixed
+
+- Clipboard read completion stays with the originating editor across focus changes. Detached or edited targets cannot inherit an earlier read, and an expired query cannot donate a late reply to a newer request. Invalid UTF-8 replacement cannot expand a received payload beyond the clipboard's byte limit.
+- Editor Fill always delegates replacement to the edit session. Equal displayed text still removes atomic element identity, records undo and reports the owner's revision change. Atomic labels normalize both grapheme edges in one segmentation instead of repeatedly scanning a shrinking string.
+- File detection consumes complete Unicode tokens, preserving original byte spans, quoted names and line/column suffixes. Rejected relative tokens cannot donate a rooted suffix or trigger a second filesystem query for a fragment.
+- Formula diagnostics remain in `Formula.Err` and never write stdout or stderr. Mathematical text such as `08`, `1e` and `0x` is not interpreted as a Go numeric literal. Formula atoms preserve complete display graphemes when computing geometry.
+- Windows descendant tests recognize both orderly TCP closure and connection reset as the witness connection ending; live connections, unexpected data and unrelated errors still fail. Unix command documentation describes process-group ownership without promising containment of processes that deliberately leave the group.
 
 - Button and confirmation changes publish applied or started effects even when the action also returns an error. UI error creation and clearing publish only after feedback is installed; synchronous confirmation-domain notifications share that settlement boundary without copying the domain answer.
 - Standalone `grid.EncodeRow` establishes default SGR and closes inherited OSC 8 links before emitting cells, including empty rows, and leaves the same clean boundary for subsequent output. Inline composition retains its existing known-rendition path.

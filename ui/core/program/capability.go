@@ -75,11 +75,38 @@ type Clipboard struct{ runtime *Runtime }
 
 func (c Clipboard) Copy(text string) bool { return c.runtime.services().copy(text) }
 
-// Paste requests clipboard contents and reports whether the host accepted the
-// request. False means the host cannot read the clipboard or an earlier unidentified
-// request is still in flight. An accepted answer arrives asynchronously as
-// [input.Paste]; true does not mean the terminal will answer.
-func (c Clipboard) Paste() bool { return c.runtime.services().paste() }
+// Read reserves completion capacity before starting a host read. receive runs
+// once on this UI owner with the result or failure. Caller cancellation or runtime
+// shutdown revokes the callback; ctx communicates cancellation to the caller.
+// A returned error means no work was accepted. A nil callback is invalid.
+func (c Clipboard) Read(ctx context.Context, receive func(string, error)) error {
+	p := c.runtime.owner()
+	if p == nil {
+		return ErrStopped
+	}
+	reader := p.host.clipboardReader
+	if reader == nil {
+		return errors.ErrUnsupported
+	}
+	if receive == nil {
+		return errors.New("program: clipboard read requires a receiver")
+	}
+	scope, err := c.runtime.NewScope(ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig carries the caller's context into the existing lifetime owner.
+	if err != nil {
+		return err
+	}
+	_, err = c.runtime.Start(scope, Work[string]{
+		Run: reader.ReadClipboard,
+		Apply: func(value string, readErr error) {
+			defer scope.Close()
+			receive(value, readErr)
+		},
+	})
+	if err != nil {
+		scope.Close()
+	}
+	return err
+}
 
 // Session controls the live terminal session around rendered frames. It groups
 // operations that must remain ordered with the interface owner's state. Its zero

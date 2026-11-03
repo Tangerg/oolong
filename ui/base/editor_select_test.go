@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,9 +12,10 @@ import (
 
 // clip stands in for a system clipboard, and can refuse the way a terminal does.
 type clip struct {
-	held   string
-	refuse bool
-	asked  int
+	held    string
+	refuse  bool
+	asked   int
+	receive func(string, error)
 }
 
 func (c *clip) Copy(text string) bool {
@@ -24,12 +26,17 @@ func (c *clip) Copy(text string) bool {
 	return true
 }
 
-func (c *clip) Paste() bool {
+func (c *clip) Read(ctx context.Context, receive func(string, error)) error {
 	if c.refuse {
-		return false
+		return errors.ErrUnsupported
 	}
 	c.asked++
-	return true
+	c.receive = func(text string, err error) {
+		if ctx.Err() == nil {
+			receive(text, err)
+		}
+	}
+	return nil
 }
 
 // shift is the same key with shift held, which is what a terminal sends.
@@ -276,8 +283,7 @@ func TestEditorAsksTheClipboardForAPaste(t *testing.T) {
 	if c.asked != 1 {
 		t.Fatalf("the clipboard was asked %d times, want 1", c.asked)
 	}
-	// The answer comes back as an ordinary paste, which the editor already inserts.
-	e.Handle(input.Paste{Text: "from elsewhere"})
+	c.receive("from elsewhere", nil)
 	if got := e.Text(); got != "from elsewhere" {
 		t.Errorf("text = %q", got)
 	}
@@ -292,8 +298,8 @@ func TestEditorWithoutAClipboardDoesNothingQuietly(t *testing.T) {
 	if e.Cut() {
 		t.Error("a cut with nowhere to put it reported success")
 	}
-	if e.Paste() {
-		t.Error("a paste with nowhere to read from reported success")
+	if err := e.Paste(t.Context(), func(error) {}); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("paste without a clipboard = %v", err)
 	}
 	if got, want := e.Text(), "hello"; got != want {
 		t.Errorf("text = %q, want it untouched", got)

@@ -63,4 +63,10 @@ Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `
 
 剪贴板默认使用原生 OSC 52，在 tmux 内也一样。`TMUX` 和 `TERM` 不能证明 DCS 透传已启用。只有会话明确配置了透传时，才设置 `term.Features{Clipboard: clipboard.Config{TmuxPassthrough: true}}`；SSH 适配器将同一配置用于已接受的远端终端。应用经 tmux 原生复制需要它的 `set-clipboard on` 路径；透传则受独立的 `allow-passthrough` 策略控制。[tmux 剪贴板](https://github.com/tmux/tmux/wiki/Clipboard) · [tmux 透传](https://github.com/tmux/tmux/wiki/FAQ)
 
+使用 `runtime.Clipboard().Read(ctx, receive)` 发起定向读取。接纳错误立即返回；回调在 UI 所有者上接收读取结果。自定义宿主实现 `program.ClipboardReader.ReadClipboard(context.Context) (string, error)`，可以在该工作线程调用中阻塞。调用方取消或 runtime 结束会撤销回调交付。普通括号粘贴仍是输入事件；OSC 52 回复只结算发起它的读取。
+
+`editor.Paste(ctx, complete)` 捕获原文档、修订、光标、选择区和挂载身份。焦点移动不会把结果转交另一编辑器。改变捕获的编辑位置或卸载编辑器会使结果过期；未挂载编辑器只有在从未挂载过时才能发起读取。接纳和完成错误均明确报告，键盘触发的失败可通过 `editor.PasteError()` 读取。空剪贴板成功返回，不删除当前选择区。
+
+OSC 52 没有请求标识。响应超时会在十秒后结束等待，但不能证明迟到回复可以安全地归属新请求。取消和终端交接遵守相同规则：旧回复被消费前一直返回 `clipboard.ErrPending`，重复读取不能绕过未结清的查询。直接使用 `clipboard.Channel` 时，发送回调必须提供原子接纳语义；已经部分发出的查询也属于已发送，必须保留接收其回复的义务。
+
 Ghostty 支持这两套线协议。嵌入 libghostty 的宿主可以单独配置各项能力，Oolong 以当前连接为准。内嵌 SSH 服务端适配器可处理键盘输入，目前未提供实时图像宿主接口。多路复用器的图像透传需要传输层另行支持。[Ghostty 终端能力](https://ghostty.org/docs/features)

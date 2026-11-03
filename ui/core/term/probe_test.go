@@ -1,6 +1,7 @@
 package term_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -347,42 +348,44 @@ func TestClipboardRefusesAfterTerminalClose(t *testing.T) {
 	if tty.Copy("must remain selected") {
 		t.Fatal("a closed terminal accepted a clipboard command")
 	}
-	if tty.Paste() {
+	if _, err := tty.ReadClipboard(t.Context()); err == nil {
 		t.Fatal("a closed terminal accepted a paste request")
 	}
 }
 
-// TestPasteArrivesAsAPaste is the translation. Reading a clipboard and pasting into
-// a terminal are the same event to whatever receives them, and this is the layer
-// that knows the difference so that nothing above has to.
-func TestPasteArrivesAsAPaste(t *testing.T) {
-	tty, primary := open(t, term.Config{})
-	<-tty.Events() // the opening size
+type terminalClipboardResult struct {
+	text string
+	err  error
+}
 
-	tty.Paste()
-	want := "\x1b]52;c;?\x1b\\"
-	if got := read(t, primary, time.Second); !strings.Contains(got, want) {
-		t.Fatalf("the terminal was sent %q, which does not ask for the clipboard", got)
+func beginTerminalClipboardRead(t *testing.T, tty *term.Terminal, primary *os.File) <-chan terminalClipboardResult {
+	t.Helper()
+	result := make(chan terminalClipboardResult, 1)
+	go func() {
+		value, err := tty.ReadClipboard(t.Context())
+		result <- terminalClipboardResult{value, err}
+	}()
+	if got := read(t, primary, time.Second); !strings.Contains(got, "\x1b]52;c;?\x1b\\") {
+		t.Fatalf("clipboard query missing from %q", got)
 	}
+	return result
+}
 
+func TestClipboardResultReturnsToTheReaderWithoutBecomingInput(t *testing.T) {
+	tty, primary := open(t, term.Config{})
+	<-tty.Events()
+	result := beginTerminalClipboardRead(t, tty, primary)
 	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the clipboard")
-	if _, err := primary.WriteString(answer); err != nil {
+	if _, err := primary.WriteString(answer + "z"); err != nil {
 		t.Fatal(err)
 	}
-	for {
-		ev, ok := next(t, tty)
-		if !ok {
-			t.Fatal("the answer never arrived")
-		}
-		switch e := ev.(type) {
-		case input.Paste:
-			if e.Text != "from the clipboard" {
-				t.Errorf("pasted %q", e.Text)
-			}
-			return
-		case input.OSC:
-			t.Fatalf("the answer arrived untranslated as %+v", e)
-		}
+	if got := <-result; got.err != nil || got.text != "from the clipboard" {
+		t.Fatalf("read result = %+v", got)
+	}
+	if event, ok := next(t, tty); !ok {
+		t.Fatal("following input missing")
+	} else if key, ok := event.(input.Key); !ok || !key.IsRune('z', 0) {
+		t.Fatalf("clipboard result leaked to focus input: %#v", event)
 	}
 }
 
@@ -414,27 +417,36 @@ func TestAnAnswerNobodyAskedForIsNotAPaste(t *testing.T) {
 	}
 }
 
-// TestAnUnreadableAnswerIsNotAnEmptyPaste, because an empty paste would clear a
-// selection the user still has.
-func TestAnUnreadableAnswerIsNotAnEmptyPaste(t *testing.T) {
-	tty, primary := open(t, term.Config{})
-	<-tty.Events()
+func TestEmptyAndInvalidClipboardRepliesCannotBecomePaste(t *testing.T) {
+	for _, payload := range []string{"", "not-base64"} {
+		t.Run(payload, func(t *testing.T) {
+			tty, primary := open(t, term.Config{})
+			<-tty.Events()
+			result := beginTerminalClipboardRead(t, tty, primary)
+			if _, err := primary.WriteString("\x1b]52;c;" + payload + "\x1b\\z"); err != nil {
+				t.Fatal(err)
+			}
+			got := <-result
+			if got.text != "" || (payload != "") != errors.Is(got.err, clipboard.ErrResponse) {
+				t.Fatalf("result = %+v", got)
+			}
+			if event, ok := next(t, tty); !ok {
+				t.Fatal("following key missing")
+			} else if key, ok := event.(input.Key); !ok || !key.IsRune('z', 0) {
+				t.Fatalf("reply became input: %#v", event)
+			}
+		})
+	}
+}
 
-	tty.Paste()
-	if _, err := primary.WriteString("\x1b]52;c;\x1b\\"); err != nil {
+func TestCloseInterruptsTheClipboardReader(t *testing.T) {
+	tty, primary := open(t, term.Config{})
+	result := beginTerminalClipboardRead(t, tty, primary)
+	if err := tty.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for {
-		ev, ok := next(t, tty)
-		if !ok {
-			t.Fatal("the answer never arrived")
-		}
-		switch e := ev.(type) {
-		case input.OSC:
-			return // passed through as what it is
-		case input.Paste:
-			t.Fatalf("an unreadable answer became the paste %q", e.Text)
-		}
+	if got := <-result; !errors.Is(got.err, clipboard.ErrInterrupted) {
+		t.Fatalf("closed read = %+v", got)
 	}
 }
 

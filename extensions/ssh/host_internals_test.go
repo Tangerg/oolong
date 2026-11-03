@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -64,31 +65,33 @@ func TestSourcePreservesReadTimesUnderBackpressure(t *testing.T) {
 }
 
 func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
-	var output strings.Builder
-	host := &Host{
-		writer: term.NewWriter(term.WriterConfig{Destination: &output}),
-		clip:   &clipboard.Channel{},
-	}
-	if !host.Copy("copied remotely") {
-		t.Fatal("a small copy was refused")
-	}
-	if !host.Paste() {
-		t.Fatal("the first paste request was refused")
-	}
-	if host.Paste() {
-		t.Fatal("a second unidentified paste request was accepted")
-	}
-	if err := host.writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	written := output.String()
-	wantCopy, _ := (&clipboard.Channel{}).Copy(clipboard.System, "copied remotely")
-	wantPaste := "\x1b]52;c;?\x1b\\"
-	for name, sequence := range map[string]string{"copy": wantCopy, "paste": wantPaste} {
-		if !strings.Contains(written, sequence) {
-			t.Errorf("client %s sequence was not written: %q", name, written)
+	synctest.Test(t, func(t *testing.T) {
+		var output strings.Builder
+		host := &Host{writer: term.NewWriter(term.WriterConfig{Destination: &output}), clip: &clipboard.Channel{}}
+		if !host.Copy("copied remotely") {
+			t.Fatal("a small copy was refused")
 		}
-	}
+		result := make(chan error, 1)
+		go func() { _, err := host.ReadClipboard(t.Context()); result <- err }()
+		synctest.Wait()
+		if _, err := host.ReadClipboard(t.Context()); !errors.Is(err, clipboard.ErrPending) {
+			t.Fatalf("second read = %v", err)
+		}
+		host.clip.Answer("c;aGk=", time.Now())
+		if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+		if err := host.writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		written := output.String()
+		wantCopy, _ := (&clipboard.Channel{}).Copy(clipboard.System, "copied remotely")
+		for _, sequence := range []string{wantCopy, "\x1b]52;c;?\x1b\\"} {
+			if !strings.Contains(written, sequence) {
+				t.Errorf("client clipboard sequence missing: %q", written)
+			}
+		}
+	})
 }
 
 func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
@@ -99,31 +102,39 @@ func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
 	if h.Copy("must remain selected") {
 		t.Fatal("a closed SSH writer accepted a clipboard command")
 	}
-	if h.Paste() {
+	if _, err := h.ReadClipboard(t.Context()); err == nil {
 		t.Fatal("a closed SSH writer accepted a paste request")
 	}
-	if _, ok := h.clip.Answer("c;dGV4dA==", time.Now()); ok {
+	if h.clip.Answer("c;dGV4dA==", time.Now()) {
 		t.Fatal("a refused paste authorized an unsolicited answer")
 	}
 }
 
-func TestEventSourceTurnsOnlyTheRequestedClipboardAnswerIntoPaste(t *testing.T) {
+func TestEventSourceConsumesRequestedClipboardAnswersWithoutInput(t *testing.T) {
 	reader := make(chanReader)
 	clip := &clipboard.Channel{}
-	if !clip.Request(clipboard.System, func(string) bool { return true }) {
-		t.Fatal("clipboard request was refused")
-	}
+	ready := make(chan struct{})
+	result := make(chan string, 1)
+	go func() {
+		value, err := clip.Read(t.Context(), clipboard.System, func(string) error { close(ready); return nil })
+		if err != nil {
+			t.Error(err)
+		}
+		result <- value
+	}()
+	<-ready
 	source := newEventSource(t.Context().Done(), reader, nil, clip)
 	t.Cleanup(source.Close)
 
 	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the client")
-	reader <- readResult{data: []byte(answer)}
-	event := receiveEvent(t, source.Events())
-	paste, ok := event.(input.Paste)
-	if !ok || paste.Text != "from the client" {
-		t.Fatalf("clipboard answer = %#v, want client paste", event)
+	reader <- readResult{data: []byte(answer + "z")}
+	if value := <-result; value != "from the client" {
+		t.Fatalf("read = %q", value)
 	}
-
+	event := receiveEvent(t, source.Events())
+	if key, ok := event.(input.Key); !ok || !key.IsRune('z', 0) {
+		t.Fatalf("reply became input: %#v", event)
+	}
 	unasked, _ := (&clipboard.Channel{}).Copy(clipboard.System, "unasked")
 	reader <- readResult{data: []byte(unasked)}
 	if event := receiveEvent(t, source.Events()); event == nil {
@@ -131,6 +142,27 @@ func TestEventSourceTurnsOnlyTheRequestedClipboardAnswerIntoPaste(t *testing.T) 
 	} else if _, ok := event.(input.OSC); !ok {
 		t.Fatalf("unasked clipboard answer became %#v", event)
 	}
+}
+
+func TestHostReadCancellationRetainsWireOwnership(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		host := &Host{writer: term.NewWriter(term.WriterConfig{Destination: io.Discard}), clip: &clipboard.Channel{}}
+		defer func() { _ = host.writer.Close() }()
+		ctx, cancel := context.WithCancel(t.Context())
+		result := make(chan error, 1)
+		go func() { _, err := host.ReadClipboard(ctx); result <- err }()
+		synctest.Wait()
+		cancel()
+		if err := <-result; !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled read = %v", err)
+		}
+		if _, err := host.ReadClipboard(t.Context()); !errors.Is(err, clipboard.ErrPending) {
+			t.Fatalf("cancelled query lost wire ownership: %v", err)
+		}
+		if !host.clip.Answer("c;b2xk", time.Now()) {
+			t.Fatal("old reply was not absorbed")
+		}
+	})
 }
 
 func TestSessionEnvironmentOwnsTheLastWellFormedValue(t *testing.T) {

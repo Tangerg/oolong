@@ -13,6 +13,7 @@ import (
 
 	xterm "golang.org/x/term"
 
+	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -709,7 +710,7 @@ func TestHandoverRevokesBothRetainedFramesAndTerminalCommands(t *testing.T) {
 		if e = tty.Notify("leaked message"); !errors.Is(e, term.ErrHandoverActive) {
 			t.Errorf("child notification admitted: %v", e)
 		}
-		if tty.Copy("leaked clipboard") || tty.Paste() {
+		if _, clipboardErr := tty.ReadClipboard(t.Context()); tty.Copy("leaked clipboard") || clipboardErr == nil {
 			t.Error("clipboard admission crossed handover")
 		}
 		if e = writer.Drain(time.Second); e != nil {
@@ -793,9 +794,7 @@ func TestHandoverEndsThePreviousForegroundsInputAndImageLifetimes(t *testing.T) 
 		t.Fatal(outcome.Err)
 	}
 	resource := outcome.Resource
-	if !tty.Paste() {
-		t.Fatal("cannot issue clipboard read")
-	}
+	clipboardResult := beginTerminalClipboardRead(t, tty, primary)
 	// The key and open paste are decoded in the same read. Observing the key
 	// proves the parser entered paste mode before the foreground changes.
 	if _, err := primary.WriteString("a\x1b[200~old"); err != nil {
@@ -832,13 +831,16 @@ func TestHandoverEndsThePreviousForegroundsInputAndImageLifetimes(t *testing.T) 
 		}
 		t.Fatal(err)
 	}
-	if !tty.Paste() {
-		t.Error("previous foreground still owns the anonymous clipboard reply")
+	if result := <-clipboardResult; !errors.Is(result.err, clipboard.ErrInterrupted) {
+		t.Fatalf("handover read = %+v", result)
+	}
+	if _, err := tty.ReadClipboard(t.Context()); !errors.Is(err, clipboard.ErrPending) {
+		t.Fatalf("handover discarded the unanswered wire query: %v", err)
 	}
 	if resource.Live() {
 		t.Error("external owner could replace a supposedly live terminal image")
 	}
-	if _, err := primary.WriteString("b"); err != nil {
+	if _, err := primary.WriteString("\x1b]52;c;b2xk\x1b\\b"); err != nil {
 		t.Fatal(err)
 	}
 	readKey('b')

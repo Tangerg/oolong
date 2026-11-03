@@ -132,6 +132,11 @@ func (e Element) Target() Target {
 
 func (e Element) Alive() bool { return !e.Target().IsZero() }
 
+// HasBeenAttached distinguishes a standalone element from one whose scene lifetime
+// ended. Zero and never-mounted elements return false; detachment keeps it true.
+// Like Target, this is an owner-turn query, not a concurrency-safe lifetime lease.
+func (e Element) HasBeenAttached() bool { return e.node != nil && e.node.identityRoot != nil }
+
 func (e Element) Focused() bool {
 	return e.node != nil && e.node.root != nil && e.node.root.focus == e.node.target()
 }

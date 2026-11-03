@@ -130,9 +130,10 @@ func (e *Editor) fillAction() scene.ActionBinding {
 	return scene.NewAction(scene.ActionConfig[string, string]{
 		ID: scene.ActionFill, Label: "Fill", Run: func(_ context.Context, value string) (scene.ActionResult[string], error) {
 			masked := e.Mask() != ""
+			before := e.Revision()
+			e.SetText(value)
 			result := scene.ActionResult[string]{}
-			if e.Text() != e.canonicalText(value) {
-				e.SetText(value)
+			if e.Revision() != before {
 				result.State = scene.Applied
 			}
 			if !masked {

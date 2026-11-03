@@ -24,9 +24,13 @@ A renderer consumes context and a complete source string, returning a passive `g
 
 Markdown extension hooks accept passive rendering functions from applications. This lets code fences use highlighting and mathematics use LaTeX without making the Markdown module import its peers. Prepared Mermaid output has an external-process lifetime; perform it in scoped work before drawing.
 
+`latex.Render` accepts a bounded expression body, without math delimiters or document commands. Its parser owns the supported command arguments, scripts and grouping, and returns every unsupported-input diagnostic through `Formula.Err`. Rendering writes neither stdout nor stderr. Ordinary mathematical text such as `08`, `1e`, `0x` and quote characters follows the expression grammar, without Go literal interpretation. Literal atoms retain display graphemes, so joined emoji and combining marks have the same geometry during layout and drawing. Math whitespace is ignored; text-style arguments preserve whitespace, including the line boundary after a percent comment. This is a terminal expression subset, not a TeX document engine.
+
 Native terminal images remain live resources. Capturing their cell rectangle is not a permanent image publication protocol: `grid.Capture` refuses native painters with `errors.ErrUnsupported`. Applications may select a textual final representation explicitly.
 
-Mermaid's Unix adapter keeps its launcher waitable until group cancellation and final termination finish, then reaps the launcher and settles its pipes. It does not wait for another process to reap terminated non-child zombies. `core/process` owns the shared operating-system observation and signal boundary; hosts without that identity guarantee return `errors.ErrUnsupported` at construction. Windows keeps its job-object lifetime. Publish an updated UI module before releasing an adapter that consumes its new process capability.
+Mermaid's Unix adapter keeps its launcher waitable until group cancellation and final termination finish, then reaps the launcher and settles its pipes. It does not wait for another process to reap terminated non-child zombies. `core/process` owns the shared operating-system observation and signal boundary; hosts without that identity guarantee return `errors.ErrUnsupported` at construction. Processes that deliberately leave the Unix process group are outside that boundary.
+
+On Windows, Mermaid and the command example compose `process.Job`. That capability owns job membership at process creation, process-handle observation, termination and cleanup. Each consumer owns its prepared standard files, output copying and cancellation policy; it reaps the returned launcher and closes the job. Publish an updated UI module before resolving and releasing an adapter that consumes this new process capability.
 
 ## Keep copying honest
 

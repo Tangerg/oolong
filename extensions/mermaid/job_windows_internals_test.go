@@ -119,26 +119,3 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 		})
 	}
 }
-
-func TestJobObservationRejectsAnUnrelatedProcess(t *testing.T) {
-	job, err := windows.CreateJobObject(nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if closeErr := windows.CloseHandle(job); closeErr != nil {
-			t.Error(closeErr)
-		}
-	})
-	handles, err := observing(nil, job, windows.GetCurrentProcessId())
-	t.Cleanup(func() {
-		for _, handle := range handles {
-			if closeErr := windows.CloseHandle(handle); closeErr != nil {
-				t.Error(closeErr)
-			}
-		}
-	})
-	if err != nil || len(handles) != 0 {
-		t.Fatalf("unrelated process acquired job wait ownership: %v, %v", handles, err)
-	}
-}

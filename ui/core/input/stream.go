@@ -29,9 +29,9 @@ type StreamConfig struct {
 	// Grace is how long an ambiguous sequence waits for the bytes that would settle
 	// it. Zero uses [DefaultEscapeTimeout].
 	Grace time.Duration
-	// Clipboard settles an OSC 52 answer into a [Paste] when it belongs to a request
-	// this session made. Nil leaves such answers as the [OSC] events they arrived as,
-	// which is what a transport with no clipboard of its own wants.
+	// Clipboard consumes replies for this session's reads. Solicited results travel
+	// to their requesting caller, never through focus-based input routing. Nil
+	// leaves all OSC commands uninterpreted.
 	Clipboard *clipboard.Channel
 }
 
@@ -115,22 +115,20 @@ func (s *Stream) arm(at time.Time) {
 
 func (s *Stream) disarm() { s.deadline, s.waiting = time.Time{}, false }
 
-// Only a matching outstanding clipboard request can turn an OSC 52 reply into
-// a paste. Empty or unreadable answers remain commands so they cannot clear the
-// user's selection. Arrival time remains the transport's read-completion time.
+// Reply settlement happens before input delivery so a later focus change cannot
+// turn a solicited result into a new user paste.
 func (s *Stream) settle(events []Event, at time.Time) []Event {
 	events = Stamp(events, at)
 	if s.clipboard == nil {
 		return events
 	}
-	for i, event := range events {
-		osc, ok := event.(OSC)
-		if !ok {
+	out := events[:0]
+	for _, event := range events {
+		if osc, ok := event.(OSC); ok && osc.Command == clipboard.Command && s.clipboard.Answer(osc.Params, at) {
 			continue
 		}
-		if pasted, ok := osc.Paste(s.clipboard, at); ok {
-			events[i] = pasted
-		}
+		out = append(out, event)
 	}
-	return events
+	clear(events[len(out):])
+	return out
 }

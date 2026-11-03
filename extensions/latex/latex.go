@@ -128,9 +128,9 @@ type Formula struct {
 	err    error
 }
 
-// Render accepts an expression body because enclosing math delimiters would conflict with
-// the parser wrapper. Bounded source and AST depth keep untrusted nesting off the
-// goroutine stack. Unsupported constructs remain visible through Formula.Err.
+// Render accepts an expression body rather than a TeX document. Bounded parser
+// depth keeps untrusted nesting off the goroutine stack. Unsupported constructs
+// remain visible through Formula.Err without writing process output.
 func Render(source string, look Look) *Formula {
 	look = look.normalized()
 	f := &Formula{source: strings.Clone(source), look: look}
@@ -244,33 +244,6 @@ var (
 	_ error         = (*parseError)(nil)
 )
 
-// parseError keeps the external parser and its panic conventions out of the public
-// API while preserving a useful explanation through Formula.Err.
 type parseError struct{ message string }
 
 func (e *parseError) Error() string { return "latex: " + e.message }
-
-// mathDelimiter is what the expression is wrapped in for a parser that reads
-// documents rather than expressions. It is the one thing the parser sees that the
-// caller did not write.
-const mathDelimiter = "$"
-
-// validateSource excludes the wrapper delimiter from user input, so a parser error
-// naming it means the expression ended prematurely rather than containing that character.
-func explain(message string) error {
-	if strings.Contains(message, mathDelimiter) {
-		message = "the expression ends while something is still open"
-	}
-	return &parseError{message: message}
-}
-
-func parseFailure(v any) error {
-	switch value := v.(type) {
-	case error:
-		return explain(value.Error())
-	case string:
-		return explain(value)
-	default:
-		return explain("parser failed")
-	}
-}

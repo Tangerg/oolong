@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Tangerg/oolong/ui/core/clipboard"
 )
 
 // Event is one terminal report. A host supplies the concrete value types in this
@@ -348,19 +346,6 @@ type OSC struct {
 }
 
 func (OSC) terminalEvent() {}
-
-// Paste settles o as clipboard text when channel owns the live OSC 52 request.
-// Keeping the interpretation on the decoded command gives every terminal adapter
-// one path from the same wire event to [Paste], while the lower clipboard package
-// remains independent of the event model.
-// at is the transport's read-completion time, as in [clipboard.Channel.Answer].
-func (o OSC) Paste(channel *clipboard.Channel, at time.Time) (Paste, bool) {
-	if o.Command != clipboard.Command || channel == nil {
-		return Paste{}, false
-	}
-	text, ok := channel.Answer(o.Params, at)
-	return Paste{Text: text}, ok
-}
 
 // DCS leaves its body uninterpreted because reply syntax belongs to the query
 // owner. Only recognized reply prefixes are framed, preserving Alt+Shift+P.

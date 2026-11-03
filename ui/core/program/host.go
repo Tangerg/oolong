@@ -120,10 +120,12 @@ type DirectoryHost interface {
 
 type CopyHost interface{ Copy(text string) bool }
 
-// PasteHost requests text from the clipboard associated with the user-facing host.
-// Paste reports whether the request was accepted; answers arrive asynchronously
-// through [EventSource.Events] as an [input.Paste].
-type PasteHost interface{ Paste() bool }
+// ClipboardReader returns a solicited result to its caller, never through Events.
+// ReadClipboard may block and must return when ctx is cancelled. It is invoked on
+// a worker; terminal input and the UI owner must remain free to deliver the answer.
+type ClipboardReader interface {
+	ReadClipboard(ctx context.Context) (string, error)
+}
 
 // HandoverHost owns the complete display handover. It first claims exclusive
 // ownership, then calls prepare while the interface still has its normal modes,
@@ -162,20 +164,20 @@ type ImageHost interface {
 // fallback semantics, so the event loop invokes ordinary methods and never repeats
 // type assertions or spreads nil checks through its state machine.
 type hostServices struct {
-	groundHost   GroundHost
-	colorHost    ColorHost
-	wheelHost    WheelHost
-	keyboardHost KeyboardHost
-	localeHost   LocaleHost
-	directory    DirectoryHost
-	copyHost     CopyHost
-	pasteHost    PasteHost
-	handover     HandoverHost
-	titleHost    TitleHost
-	progressHost ProgressHost
-	bellHost     BellHost
-	notifyHost   NotifyHost
-	images       ImageHost
+	groundHost      GroundHost
+	colorHost       ColorHost
+	wheelHost       WheelHost
+	keyboardHost    KeyboardHost
+	localeHost      LocaleHost
+	directory       DirectoryHost
+	copyHost        CopyHost
+	clipboardReader ClipboardReader
+	handover        HandoverHost
+	titleHost       TitleHost
+	progressHost    ProgressHost
+	bellHost        BellHost
+	notifyHost      NotifyHost
+	images          ImageHost
 }
 
 func hostServicesFor(host Host) hostServices {
@@ -187,7 +189,7 @@ func hostServicesFor(host Host) hostServices {
 	services.localeHost, _ = host.(LocaleHost)
 	services.directory, _ = host.(DirectoryHost)
 	services.copyHost, _ = host.(CopyHost)
-	services.pasteHost, _ = host.(PasteHost)
+	services.clipboardReader, _ = host.(ClipboardReader)
 	services.handover, _ = host.(HandoverHost)
 	services.titleHost, _ = host.(TitleHost)
 	services.progressHost, _ = host.(ProgressHost)
@@ -241,10 +243,6 @@ func (s hostServices) reportDirectory(path string) error {
 
 func (s hostServices) copy(text string) bool {
 	return s.copyHost != nil && s.copyHost.Copy(text)
-}
-
-func (s hostServices) paste() bool {
-	return s.pasteHost != nil && s.pasteHost.Paste()
 }
 
 func (s hostServices) hand(prepare, run func() error) error {

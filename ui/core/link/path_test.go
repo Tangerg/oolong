@@ -1,6 +1,7 @@
 package link_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -203,9 +204,6 @@ func TestDetectFindsNothingInNothing(t *testing.T) {
 	}
 }
 
-// TestPathsThatAreTheTailOfALongerWord. A slash appears in the middle of prose and a
-// regular expression cannot look backwards, so the check is made by hand — and getting
-// it wrong is what turned "and/or" into the path "/or".
 func TestPathsThatAreTheTailOfALongerWord(t *testing.T) {
 	for _, in := range []string{
 		"and/or",
@@ -257,11 +255,7 @@ func TestAPathThatIsOnlyPunctuationIsNotAPath(t *testing.T) {
 	}
 }
 
-// TestOverlappingShapesKeepTheFirst, because two links over the same cells would stamp
-// one target on top of the other.
-func TestOverlappingShapesKeepTheFirst(t *testing.T) {
-	// The bare branch would find "b.go" inside the relative path the other branch
-	// already found.
+func TestARelativePathDoesNotAlsoPublishItsBareFilename(t *testing.T) {
 	got := link.Detect("in src/b.go now", files("src/b.go", "b.go"))
 	if len(got) != 1 || got[0].Target != "src/b.go" {
 		t.Errorf("found %v, want only the whole path", targets(got))
@@ -288,5 +282,75 @@ func TestBareLinkChecksCompleteExtension(t *testing.T) {
 	got := link.Detect(name, files(name))
 	if len(got) != 1 || got[0].Target != name || got[0].Text(name) != name {
 		t.Fatalf("links = %+v, want %q", got, name)
+	}
+}
+
+func TestUnicodePathsKeepTheirWholeIdentityAndOriginalByteRange(t *testing.T) {
+	for _, target := range []string{
+		"/tmp/报告.go", "/tmp/目录/file.go", "/tmp/café.go", "/tmp/cafe\u0301.go",
+		"/tmp/👩‍💻.go", "/tmp/🇯🇵/报告.go", "/tmp/中·文.go", "~/目录/报告.go", "目录/报告.go",
+		"/tmp/🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F.go", "/tmp/\ue000.go",
+	} {
+		for _, quoted := range []bool{false, true} {
+			reference := target
+			if quoted {
+				reference = `"` + target + `"`
+			}
+			reference += ":42:7"
+			prefix := "见 "
+			source := prefix + reference + "。"
+			found := link.Detect(source, nil)
+			if len(found) != 1 || found[0].Kind != link.File || found[0].Target != target || found[0].Line != 42 || found[0].Column != 7 {
+				t.Fatalf("Detect(%q) = %+v; want complete file %q at 42:7", source, found, target)
+			}
+			if found[0].Start != len(prefix) || found[0].End != len(prefix)+len(reference) || found[0].Text(source) != reference {
+				t.Fatalf("Detect(%q) lost original byte range: %+v", source, found[0])
+			}
+		}
+	}
+}
+
+func TestUnicodePathEvidenceIsAskedOnlyAboutTheWholeRelativeName(t *testing.T) {
+	source := "/tmp/报告.go ~/目录/报告.go 目录/报告.go 报告.go"
+	var queried []string
+	found := link.Detect(source, func(path string) bool {
+		queried = append(queried, path)
+		return true
+	})
+	if got := targets(found); !reflect.DeepEqual(got, []string{"/tmp/报告.go", "~/目录/报告.go", "目录/报告.go", "报告.go"}) {
+		t.Fatalf("destinations = %q", got)
+	}
+	if !reflect.DeepEqual(queried, []string{"目录/报告.go", "报告.go"}) {
+		t.Fatalf("filesystem evidence requested for %q", queried)
+	}
+	if found := link.Detect("报告.go", nil); len(found) != 0 {
+		t.Fatalf("bare filename accepted without caller evidence: %+v", found)
+	}
+	queried = nil
+	if found := link.Detect("目录/file.go", func(path string) bool {
+		queried = append(queried, path)
+		return path == "file.go"
+	}); len(found) != 0 || !reflect.DeepEqual(queried, []string{"目录/file.go"}) {
+		t.Fatalf("rejected whole path donated a different file: %+v, evidence=%q", found, queried)
+	}
+}
+
+func TestUnicodeSlashedProseCannotDonateARootedSuffix(t *testing.T) {
+	for _, source := range []string{"甲/乙", "甲/乙/丙", "café/菜单", "家族👩‍👩‍👧/成员", "证据/目录。"} {
+		if found := link.Detect(source, nil); len(found) != 0 {
+			t.Fatalf("slashed prose %q produced file identities: %+v", source, found)
+		}
+	}
+}
+
+func TestQuotedUnicodeNamesKeepSpacesAndPunctuation(t *testing.T) {
+	for _, target := range []string{"/tmp/目录/报告 副本.go", "目录/报告:版本?.go", "/tmp/有 空格"} {
+		for _, quote := range []string{`"`, `'`} {
+			source := quote + target + quote + ":42"
+			found := link.Detect(source, nil)
+			if len(found) != 1 || found[0].Target != target || found[0].Line != 42 || found[0].Text(source) != source {
+				t.Fatalf("quoted path %q = %+v", source, found)
+			}
+		}
 	}
 }

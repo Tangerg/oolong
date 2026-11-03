@@ -1,18 +1,21 @@
-// Package clipboard owns OSC 52 requests and replies for the user-facing terminal,
-// which may be remote from the process. Terminal refusal is silent, so unanswered
-// requests expire before unrelated replies can claim them. [Channel] handles protocol
-// state; adapters own sending the bytes.
+// Package clipboard owns OSC 52 queries and their uncorrelated replies. Cancelling
+// a read ends delivery, not the terminal's ability to answer it. Adapters own transport.
 package clipboard
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-const Command = 52
+const (
+	Command      = 52
+	queryPayload = "?"
+)
 
 // Selection uses wire identities so encoding and reply matching cannot drift.
 // Zero selects System at admission; an unknown value is refused.
@@ -39,25 +42,39 @@ type Config struct {
 // copy that did nothing.
 const MaxPayload = 100_000
 
-// responseTimeout bounds ownership of one read request. A response is a terminal
-// round trip, including an SSH round trip when remote; ten seconds leaves room for a
-// severely delayed connection without letting a terminal that silently refused the
-// request arm an unrelated OSC 52 indefinitely.
+// A silent terminal refusal must not leave the caller waiting for the session's
+// lifetime. This deadline never releases the uncorrelated protocol slot.
 const responseTimeout = 10 * time.Second
 
-// Channel is one stateful OSC 52 path to a user-facing terminal.
-//
-// Its zero value is a direct path ready for use; a nil *Channel is inert. [New]
-// selects passthrough only when explicitly configured. All methods are safe to
-// call from different goroutines. A Channel must not be copied
-// after first use.
+var (
+	ErrPending     = errors.New("clipboard: an earlier query remains unanswered")
+	ErrSelection   = errors.New("clipboard: unsupported selection")
+	ErrResponse    = errors.New("clipboard: invalid response")
+	ErrInterrupted = errors.New("clipboard: terminal ownership interrupted")
+)
+
+// Channel owns one OSC 52 path. Its zero value is ready and a nil receiver refuses
+// operations. Methods are concurrency-safe; a Channel must not be copied after use.
+// An unanswered query continues to own the path after its caller stops waiting.
+// A transport must keep the same Channel for its reply stream: constructing another
+// one cannot make that stream's uncorrelated outstanding replies safe to reuse.
 type Channel struct {
 	passthrough bool
+	mu          sync.Mutex
+	pending     *query
+}
 
-	mu        sync.Mutex
-	selection Selection
-	until     time.Time
-	now       func() time.Time
+type query struct {
+	selection      Selection
+	started, until time.Time
+	// A nil delivery means its one result has already been settled. The query
+	// itself stays pending until a matching wire reply discharges it.
+	delivery chan readResult
+}
+
+type readResult struct {
+	text string
+	err  error
 }
 
 func New(cfg Config) *Channel { return &Channel{passthrough: cfg.TmuxPassthrough} }
@@ -78,80 +95,120 @@ func (c *Channel) Copy(sel Selection, text string) (string, bool) {
 	return c.wrap(encode(selection, base64.StdEncoding.EncodeToString([]byte(text)))), true
 }
 
-// Request starts one clipboard read only when send accepts its sequence.
+// Read waits for one query's result, caller cancellation, or the response deadline.
+// send must admit synchronously without waiting for delivery or reentering Channel.
+// An error from send must guarantee that no bytes or queued write escaped admission;
+// physical delivery errors after admission cannot be reported as send errors.
+// A send error is returned unchanged and creates no query. ErrPending means an
+// earlier query still owns the wire, even if its caller timed out or cancelled.
 //
-// It reports false while an earlier request is still eligible for an answer. OSC
-// 52 has no request identity, so sending two and guessing which response belongs to
-// which would make ownership weaker rather than concurrency stronger. A request a
-// terminal silently refuses expires by itself. A nil send refuses the request.
-// send must enqueue synchronously without blocking for delivery or reentering this
-// Channel. It runs under the request lock, so an answer cannot settle a proposal
-// before transport admission decides whether that request exists.
-func (c *Channel) Request(sel Selection, send func(string) bool) bool {
+// The first result settled under the channel lock wins. A decoded reply received
+// before admission cannot settle this read. A reply received at/after its deadline
+// settles DeadlineExceeded. Timely bytes decoded after cancellation has settled
+// cannot revive delivery. A cancellation signal racing with reply settlement does
+// not retract a reply that settles first. A settled result remains successful even
+// if the caller reads it later. Empty clipboard contents are a successful empty result.
+func (c *Channel) Read(ctx context.Context, sel Selection, send func(string) error) (string, error) {
 	selection, valid := normalized(sel)
-	if c == nil || send == nil || !valid {
+	if c == nil || send == nil {
+		return "", errors.ErrUnsupported
+	}
+	if !valid {
+		return "", ErrSelection
+	}
+	if err := ctx.Err(); err != nil {
+		return "", context.Cause(ctx)
+	}
+	delivery := make(chan readResult, 1)
+	q := &query{selection: selection, delivery: delivery}
+	if err := c.admit(ctx, q, send); err != nil {
+		return "", err
+	}
+	timer := time.NewTimer(time.Until(q.until))
+	defer timer.Stop()
+	select {
+	case result := <-delivery:
+		return result.text, result.err
+	case <-ctx.Done():
+		c.settle(q, readResult{err: context.Cause(ctx)})
+	case <-timer.C:
+		c.settle(q, readResult{err: context.DeadlineExceeded})
+	}
+	result := <-delivery
+	return result.text, result.err
+}
+
+// Answer consumes a matching query reply, including invalid or empty payloads and
+// replies whose delivery has been revoked. Only consumption releases the wire slot.
+// Foreign selections and bytes received before admission remain unrelated input.
+// at is transport receive time, not the time a queued read was decoded.
+func (c *Channel) Answer(params string, at time.Time) bool {
+	if c == nil {
+		return false
+	}
+	selection, payload, valid := splitAnswer(params)
+	if !valid {
 		return false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	now := c.clock()
-	if c.live(now) {
+	q := c.pending
+	if q == nil || selection != q.selection || at.Before(q.started) {
 		return false
 	}
-	if !send(c.wrap(encode(selection, "?"))) {
-		return false
+	c.pending = nil
+	if !at.Before(q.until) {
+		q.settle(readResult{err: context.DeadlineExceeded})
+		return true
 	}
-	c.selection = selection
-	c.until = now.Add(responseTimeout)
+	value, err := decodePayload(payload)
+	q.settle(readResult{text: value, err: err})
 	return true
 }
 
-// Answer settles a live request only for its selection and receive interval.
-// A matching reply consumes the request even when its payload is invalid or empty;
-// in that case it returns false and produces no paste. Foreign or unrecognized
-// selections leave the request pending. at is transport receive time before
-// queueing: pre-request and deadline replies cannot settle, while delayed decoding
-// preserves timely replies.
-func (c *Channel) Answer(params string, at time.Time) (string, bool) {
+// Interrupt revokes delivery when foreground ownership changes. It does not
+// establish that the terminal forgot the query, so its wire slot remains occupied.
+func (c *Channel) Interrupt() {
 	if c == nil {
-		return "", false
+		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.live(at) {
-		return "", false
-	}
-	selection, payload, ok := splitAnswer(params)
-	if !ok || selection != c.selection {
-		return "", false
-	}
-	c.until = time.Time{}
-	return decodePayload(payload)
-}
-
-// CancelPending revokes the outstanding read when another foreground owner takes
-// the terminal. Its reply can no longer be attributed to this session.
-func (c *Channel) CancelPending() {
-	if c != nil {
-		c.mu.Lock()
-		c.until = time.Time{}
-		c.mu.Unlock()
+	if c.pending != nil {
+		c.pending.settle(readResult{err: ErrInterrupted})
 	}
 }
 
-// live is the one ownership rule for both issuing a request and settling its answer.
-// A deadline is the first instant no request is live, matching context and network
-// deadline semantics; keeping the comparison here prevents the two operations from
-// disagreeing at that exact boundary.
-func (c *Channel) live(at time.Time) bool {
-	return !c.until.IsZero() && !at.Before(c.until.Add(-responseTimeout)) && at.Before(c.until)
+func (c *Channel) settle(q *query, result readResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	q.settle(result)
 }
 
-func (c *Channel) clock() time.Time {
-	if c.now != nil {
-		return c.now()
+func (q *query) settle(result readResult) {
+	if q.delivery != nil {
+		q.delivery <- result
+		q.delivery = nil
 	}
-	return time.Now()
+}
+
+func (c *Channel) admit(ctx context.Context, q *query, send func(string) error) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending != nil {
+		return ErrPending
+	}
+	if err := ctx.Err(); err != nil {
+		return context.Cause(ctx)
+	}
+	q.started = time.Now()
+	q.until = q.started.Add(responseTimeout)
+	c.pending = q
+	if err := send(c.wrap(encode(q.selection, queryPayload))); err != nil {
+		c.pending = nil
+		return err
+	}
+	return nil
 }
 
 func (c *Channel) wrap(sequence string) string {
@@ -185,22 +242,19 @@ func splitAnswer(params string) (Selection, string, bool) {
 	return sel, payload, sel == System || sel == Primary
 }
 
-func decodePayload(payload string) (string, bool) {
+func decodePayload(payload string) (string, error) {
 	if len(payload) > base64.StdEncoding.EncodedLen(MaxPayload) {
-		return "", false
+		return "", ErrResponse
 	}
 	raw, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil || len(raw) > MaxPayload {
-		return "", false
+		return "", ErrResponse
 	}
-	// Emptiness is decided after decoding, not before. The encoding ignores line
-	// breaks, so a payload of one newline is a non-empty field carrying no text at
-	// all — and an answer with nothing in it, delivered as a paste, replaces what the
-	// user had selected with nothing.
-	if len(raw) == 0 {
-		return "", false
+	value := strings.ToValidUTF8(string(raw), "�")
+	if len(value) > MaxPayload {
+		return "", ErrResponse
 	}
-	return strings.ToValidUTF8(string(raw), "�"), true
+	return value, nil
 }
 
 // encode wraps a payload in the sequence that carries it. ST is used rather than
