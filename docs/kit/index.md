@@ -16,6 +16,8 @@ Kit provides theme, glyph choices, passive content blocks and useful compound co
 
 Construct interactive components with their explicit `Config` values. `Controller()` returns the actual behavior owner. `Element()` returns its scene attachment, or the compound component's scene group when it has several real parts. It does not create a fresh element on each call.
 
+Keep live skins by pointer after construction. Their installed controller callbacks retain that appearance owner; copying the struct would separate its editable fields from the object actually measured and painted. These types state that they must not be copied, a contract checked by `go vet`. Construct another skin from its Config when an independent component is needed; passive content and immutable theme snapshots retain their ordinary value semantics.
+
 A custom skin can fill a base element's paint and measure slots before attachment. Slot changes while mounted are refused. Theme and glyph inputs affect appearance; they cannot decide which field is focused, which value is committed or which action is available.
 
 Resolve glyph capability once for the host, then pass `glyphs.Ellipsis` to `ButtonConfig.Ellipsis`, `Paragraph.Ellipsis` and `Label.Ellipsis` where a truncation marker is wanted. An empty marker truncates silently. Measurement and drawing use the same marker; changing a paragraph's marker also changes its layout-cache identity.

@@ -19,4 +19,5 @@ replace (
 	github.com/Tangerg/oolong/extensions/markdown v0.26.0 => ./extensions/markdown
 	github.com/Tangerg/oolong/extensions/mermaid v0.26.0 => ./extensions/mermaid
 	github.com/Tangerg/oolong/ui v0.26.0 => ./ui
+	github.com/Tangerg/oolong/ui v0.26.1-0.20261103045038-97f052d4fee8 => ./ui
 )

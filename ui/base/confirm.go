@@ -16,7 +16,7 @@ import (
 //
 // The zero value answers no and is ready. A Confirm must not be copied after first
 // use: its answer, matcher and committed pointer split are one mutable field.
-// NewConfirm selects the answer owner; every change goes through Request.
+// NewConfirm selects the answer owner; all input shares one revision-checked request path.
 type Confirm struct {
 	noCopy noCopy
 
@@ -29,12 +29,14 @@ type Confirm struct {
 	// Keys say which keystrokes answer. Nil reads through [DefaultConfirmKeys].
 	Keys *keymap.Map
 
-	control     ConfirmControl
-	unsubscribe func()
-	closed      bool
-	changeErr   error
-	answer      ownedValue[bool]
-	matcher     keymap.Matcher
+	control       ConfirmControl
+	unsubscribe   func()
+	closed        bool
+	changeErr     error
+	requestDepth  int
+	pendingChange bool
+	answer        ownedValue[bool]
+	matcher       keymap.Matcher
 	// split is the committed column where the second answer begins.
 	split scene.Snapshot[int]
 }
@@ -45,7 +47,6 @@ func (c *Confirm) Answer() bool {
 	return c.Snapshot().Value
 }
 
-// Say answers the field.
 // Say requests an answer against the current revision. ChangeError reports a
 // rejected UI request; use Request when the caller needs the typed result directly.
 func (c *Confirm) Say(yes bool) {
@@ -53,9 +54,7 @@ func (c *Confirm) Say(yes bool) {
 }
 
 func (c *Confirm) requestAnswer(before ConfirmSnapshot, yes bool) (scene.ActionResult[ConfirmSnapshot], error) {
-	result, err := c.Request(context.Background(), ConfirmRequest{ExpectedRevision: before.Revision, Value: yes})
-	c.changeErr = err
-	return result, err
+	return c.request(context.Background(), ConfirmRequest{ExpectedRevision: before.Revision, Value: yes}, true)
 }
 
 func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.Label)) }

@@ -22,6 +22,8 @@ const (
 	next keymap.Action = "next"
 	top  keymap.Action = "top"
 	quit keymap.Action = "quit"
+
+	sequenceTimeout = 400 * time.Millisecond
 )
 
 func main() {
@@ -52,7 +54,7 @@ func newKeys(runtime *program.Runtime) (scene.Element, error) {
 		return scene.Element{}, err
 	}
 	k := &keys{runtime: runtime}
-	bindings := &keymap.Map{Timeout: 400 * time.Millisecond, Resolve: func(delay time.Duration, resolve func()) func() {
+	bindings := &keymap.Map{Timeout: sequenceTimeout, Resolve: func(delay time.Duration, resolve func()) func() {
 		timer, err := runtime.After(scope, delay, resolve)
 		if err != nil {
 			k.last = err.Error()
@@ -69,7 +71,7 @@ func newKeys(runtime *program.Runtime) (scene.Element, error) {
 		mapKeys: bindings,
 		theme:   kit.Suited(runtime.Environment().Ground()),
 		glyphs:  kit.GlyphsFor(runtime.Environment().Locale()),
-		last:    "waiting for g or gg",
+		last:    "waiting for a shortcut",
 	}
 	return k.Element(), nil
 }
@@ -82,7 +84,9 @@ func (k *keys) Draw(view grid.View) {
 	}
 	area := grid.Area(max((width-54)/2, 0), max((height-7)/2, 0), min(width, 54), min(height, 7))
 	inside := box.Draw(view.Sub(area))
-	kit.Label{Text: "g: next after 400ms   gg: top   q: quit", Style: k.theme.Text}.Draw(inside)
+	kit.Help{Theme: k.theme, Keys: k.mapKeys, Show: []keymap.Action{next, top, quit}}.Draw(inside)
+	kit.Label{Text: fmt.Sprintf("prefix timeout: %s", k.mapKeys.Timeout), Style: k.theme.Subtle}.
+		Draw(inside.Sub(grid.Area(0, 1, inside.Bounds().Dx(), 1)))
 	kit.Label{Text: fmt.Sprintf("row %d — %s", k.row, k.last), Style: k.theme.Accent}.
 		Draw(inside.Sub(grid.Area(0, 2, inside.Bounds().Dx(), 1)))
 }
@@ -100,15 +104,14 @@ func (k *keys) Do(action keymap.Action) bool {
 	switch action {
 	case next:
 		k.row++
-		k.last = "resolved g"
 	case top:
 		k.row = 0
-		k.last = "resolved gg"
 	case quit:
 		k.runtime.Quit()
 	default:
 		return false
 	}
+	k.last = "resolved " + action.String()
 	k.element.Invalidate()
 	return true
 }

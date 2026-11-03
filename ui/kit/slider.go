@@ -17,7 +17,9 @@ import (
 // Its base controller owns the value and every interaction. This layer formats
 // the label and value, paints the track, and stages exactly the rectangle it painted
 // so pointer routing and appearance cannot disagree.
+// A Slider must not be copied after first use: its controller retains this appearance.
 type Slider struct {
+	noCopy     noCopy
 	appearance appearance
 	Glyphs     Glyphs
 	// Format turns the integer value into its right-hand label. Nil uses strconv.Itoa;

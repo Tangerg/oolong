@@ -22,6 +22,8 @@ A zero-width extension joins the preceding atom through the same geometry writer
 
 The caller positions the cursor before writing `EncodeRow` output, ending any preceding grapheme, and ensures the row fits between that column and the terminal margin. The encoding may contain those relative cursor barriers, but never depends on an absolute screen row. Plain `Surface.Rows` strings contain text rather than terminal geometry; concatenating their bytes does not retain independent atom boundaries.
 
+`EncodeRow` establishes default SGR rendition and closes any inherited OSC 8 hyperlink before emitting cells. It leaves those defaults in place after the row, including an empty row, so unrelated preceding output cannot change the row's appearance or leak a link into subsequent text.
+
 ## Editors and transcripts compose the mapping
 
 `base.EditSession` owns editable text changes and revision maps. Multiple editors can view that document without becoming additional text owners. Selection and caret positions are mapped through edits by the document contract; width changes only rebuild the visual projection.

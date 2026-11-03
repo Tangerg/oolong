@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"image"
 	"os"
 	"time"
 
@@ -74,8 +73,11 @@ type dashboard struct {
 type preference string
 
 const (
-	ratePreference   preference = "rate"
-	motionPreference preference = "motion"
+	ratePreference    preference    = "rate"
+	motionPreference  preference    = "motion"
+	quitDashboard     keymap.Action = "quit"
+	firstPaneShortcut               = '1'
+	lastPaneShortcut                = '9'
 )
 
 func newDashboard(runtime *program.Runtime) *dashboard {
@@ -83,6 +85,8 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 
 	d := &dashboard{runtime: runtime, theme: theme, motion: true}
+	keys := base.DefaultTabsKeys()
+	keys.Bind(quitDashboard, input.Chord{Rune: 'q'})
 	d.work = newQueue(theme, glyphs)
 	d.watch = newActivity(theme, glyphs, d.work)
 	d.prefs = kit.NewSettings(kit.SettingsConfig[preference]{
@@ -92,7 +96,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	})
 
 	d.strip = kit.NewTabs(kit.TabsConfig{
-		Theme: theme, Glyphs: glyphs,
+		Theme: theme, Glyphs: glyphs, Keys: keys,
 		Items: []base.Tab{
 			{Title: "tasks", Content: d.work.Element()},
 			{Title: "activity", Content: d.watch.Element()},
@@ -100,9 +104,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 		},
 	})
 	d.tabs = d.strip.Controller()
-	footer := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Label{Text: "1–3 or alt+←/→: pane   arrows: row or value   click a heading to sort   q: quit", Style: d.theme.Subtle}.Draw(frame.View)
-	}})
+	footer := scene.NewElement(scene.ElementConfig{Paint: d.drawHelp})
 	d.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Key: "dashboard", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: d.Handle(event.Input())} }}, Items: []scene.Item{
 		{Element: d.strip.Element(), Size: layout.Flex(1)}, {Element: footer, Size: layout.Fixed(1)},
 	}}).Element()
@@ -123,12 +125,19 @@ func (d *dashboard) Element() scene.Element { return d.element }
 
 func (d *dashboard) Handle(ev input.Event) bool {
 	if key, ok := ev.(input.Key); ok && key.Down() {
-		switch key.Rune {
-		case 'q':
+		if action, ok := d.tabs.Keys.ActionFor(key); ok && action == quitDashboard {
 			d.runtime.Quit()
 			return true
-		case '1', '2', '3':
-			d.tabs.Select(int(key.Rune - '1'))
+		}
+		first, last := d.paneShortcutRange()
+		if first == 0 {
+			return false
+		}
+		for chord := range key.ShortcutChords() {
+			if chord.Code != input.Character || chord.Mods != 0 || chord.Rune < first || chord.Rune > last {
+				continue
+			}
+			d.tabs.Select(int(chord.Rune - first))
 			if tab, ok := d.tabs.Current(); ok {
 				_ = tab.Content.RequestFocusFirst()
 			}
@@ -136,6 +145,31 @@ func (d *dashboard) Handle(ev input.Event) bool {
 		}
 	}
 	return false
+}
+
+func (d *dashboard) paneShortcutRange() (first, last rune) {
+	count := d.tabs.Len()
+	if count <= 0 {
+		return 0, 0
+	}
+	if count >= lastPaneShortcut-firstPaneShortcut+1 {
+		return firstPaneShortcut, lastPaneShortcut
+	}
+	return firstPaneShortcut, firstPaneShortcut + rune(count) - 1
+}
+
+func (d *dashboard) drawHelp(frame scene.Frame) {
+	width, height := frame.Size()
+	var prefix string
+	first, last := d.paneShortcutRange()
+	if first != 0 && first == last {
+		prefix = fmt.Sprintf("%c pane  ", first)
+	} else if first != 0 {
+		prefix = fmt.Sprintf("%c–%c pane  ", first, last)
+	}
+	x := frame.Text(0, 0, prefix, d.theme.Subtle)
+	kit.Help{Theme: d.theme, Keys: d.tabs.Keys, Show: []keymap.Action{base.PrevTab, base.NextTab, quitDashboard}}.
+		Draw(frame.View.Sub(grid.Area(x, 0, width-x, height)))
 }
 
 func (d *dashboard) advance() {
@@ -370,8 +404,12 @@ func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 		Theme: theme, Glyphs: glyphs, Label: "watching",
 	}
 	activity.record()
-	activity.element = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{Paint: activity.Draw}, Items: []scene.Item{{Element: activity.rate.Element()}}, Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
-		return []image.Rectangle{grid.Area(0, 1, space.X, 1)}
+	activity.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
+		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawProgress}), Size: layout.Fixed(1)},
+		{Element: activity.rate.Element(), Size: layout.Fixed(1)},
+		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawHistory}), Size: layout.Fixed(1)},
+		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawStatus}), Size: layout.Fixed(1)},
+		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawTasks}), Size: layout.Flex(1)},
 	}}).Element()
 	return activity
 }
@@ -380,19 +418,8 @@ func (a *activity) tick() {
 	a.spinner.Tick()
 }
 
-func (a *activity) Draw(v scene.Frame) {
+func (a *activity) drawProgress(frame scene.Frame) {
 	completedUnits, totalUnits := a.of.completionTotals()
-	// The rectangles are kept, not asked of the children afterwards: a child frame's
-	// own bounds begin at zero, and staging a pointer region with those would put the
-	// slider's row wherever the first row is.
-	rects := (layout.Flow{Axis: layout.Down}).Rects(v.Bounds().Size(), []layout.Slot{
-		{Size: layout.Fixed(1)},
-		{Size: layout.Fixed(1)},
-		{Size: layout.Fixed(1)},
-		{Size: layout.Fixed(1)},
-		{Size: layout.Flex(1).AtLeast(a.of.rows.Len())},
-	})
-	rows := v.Subs(rects)
 	kit.Progress{
 		Theme:   a.theme,
 		Glyphs:  a.glyphs,
@@ -400,24 +427,30 @@ func (a *activity) Draw(v scene.Frame) {
 		Done:    completedUnits,
 		Total:   totalUnits,
 		Percent: true,
-	}.Draw(rows[0].View)
+	}.Draw(frame.View)
+}
+
+func (a *activity) drawHistory(frame scene.Frame) {
 	kit.Sparkline{
 		Theme: a.theme, Glyphs: a.glyphs, Values: a.samples,
 		Minimum: 0, Maximum: 1,
-	}.Draw(rows[2].View)
+	}.Draw(frame.View)
+}
 
-	// A spinner is for work with no total and a bar is for work with one. Both are
-	// here because the two questions are different: how far along, and is anything
-	// happening at all.
+func (a *activity) drawStatus(frame scene.Frame) {
+	completedUnits, totalUnits := a.of.completionTotals()
 	if completedUnits >= totalUnits {
-		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[3].View)
+		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(frame.View)
 	} else {
-		a.spinner.Draw(rows[3].View)
+		a.spinner.Draw(frame.View)
 	}
+}
+
+func (a *activity) drawTasks(frame scene.Frame) {
 	kit.BarChart{
 		Theme: a.theme, Glyphs: a.glyphs, Maximum: 100,
 		Bars: a.bars(),
-	}.Draw(rows[4].View)
+	}.Draw(frame.View)
 }
 
 func (a *activity) Element() scene.Element { return a.element }

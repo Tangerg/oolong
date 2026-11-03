@@ -124,14 +124,7 @@ func (r *runner) run(ctx context.Context, progress <-chan struct{}) error {
 		}
 		return err
 	}}
-	// A single stdout/stderr writer keeps the byte stream ordered. Cmd waits for
-	// each write; downstream pressure thus reaches the child through its pipe.
-	//nolint:gosec // G204: running the user's own command line.
-	cmd := exec.CommandContext(ctx, r.command[0], r.command[1:]...)
-	cmd.Stdout, cmd.Stderr = output, output
-	// A descendant may retain stdout after the command exits.
-	cmd.WaitDelay = time.Second
-	result := cmd.Run()
+	result := runCommand(ctx, r.command, output)
 	if cause := context.Cause(ctx); cause != nil {
 		return errors.Join(result, cause)
 	}

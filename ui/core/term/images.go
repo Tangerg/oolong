@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	ErrImageNumbersExhausted = errors.New("term: image request numbers exhausted")
-	ErrImageUploadCapacity   = errors.New("term: too many unanswered image uploads")
-	ErrImageResponseTimeout  = errors.New("term: image creation was not acknowledged")
+	ErrImageNumbersExhausted  = errors.New("term: image request numbers exhausted")
+	ErrImageUploadCapacity    = errors.New("term: too many unanswered image uploads")
+	ErrImageResponseTimeout   = errors.New("term: image creation was not acknowledged")
+	ErrImageCleanupIncomplete = errors.New("term: image cleanup is incomplete")
 )
 
 const (
@@ -39,6 +40,8 @@ func nextGraphicsRequestNumber() (uint32, error) {
 	return uint32(value), nil //nolint:gosec // atomicSequence.next refuses values above the supplied 32-bit protocol bound.
 }
 
+// Result delivery and allocation ownership end independently: cancellation must
+// leave a reply correlation until the terminal's allocation can be released.
 type imageUpload struct {
 	ctx     context.Context //nolint:containedctx // The request owns cancellation eligibility until its asynchronous terminal reply settles.
 	until   time.Time
@@ -164,22 +167,54 @@ func (t *Terminal) cancelUpload(number uint32, cause error) {
 	}
 }
 
-func (t *Terminal) endUploads(cause error) {
+// Cancelling a result cannot retire its physical allocation obligation. A late
+// acknowledgement must still be deleted while this session owns the terminal.
+func (t *Terminal) cancelUploads(cause error) {
 	if cause == nil {
 		cause = io.EOF
 	}
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
-	t.cancelUploads(cause)
+	for _, upload := range t.uploads {
+		upload.settle(graphics.UploadResult{Err: cause})
+	}
 }
 
-func (t *Terminal) cancelUploads(cause error) {
-	for number, upload := range t.uploads {
-		upload.settle(graphics.UploadResult{Err: cause})
-		if upload.image.ID == 0 {
-			t.retireUpload(number)
+// Ordinary writer admission must be sealed before this snapshot: no later
+// upload may cross the boundary after its outstanding obligations were checked.
+// Input stays owned and active until every request has a resource or deletion.
+func (t *Terminal) awaitUploads() error {
+	t.modeMu.Lock()
+	pending := make([]<-chan struct{}, 0, len(t.uploads))
+	for _, upload := range t.uploads {
+		pending = append(pending, upload.done)
+	}
+	t.modeMu.Unlock()
+	if len(pending) == 0 {
+		return nil
+	}
+	grace := time.NewTimer(DrainGrace)
+	defer grace.Stop()
+	for _, done := range pending {
+		select {
+		case <-done:
+		case <-grace.C:
+			return t.uploadCleanupError()
+		case <-t.stop:
+			return ErrClosed
 		}
 	}
+	return nil
+}
+
+func (t *Terminal) uploadCleanupError() error {
+	t.modeMu.Lock()
+	pending := len(t.uploads)
+	t.modeMu.Unlock()
+	if pending == 0 {
+		return nil
+	}
+	return errors.Join(fmt.Errorf("%w: %d pending upload(s)", ErrImageCleanupIncomplete, pending), t.writer.Err())
 }
 
 func (t *Terminal) retireUpload(number uint32) {
@@ -211,7 +246,6 @@ func (t *Terminal) takeImageReply(event input.Event) (bool, error) {
 	upload.expire()
 	if parseErr != nil || reply.Placement != 0 {
 		upload.settle(graphics.UploadResult{Err: graphics.ErrMalformedReply})
-		t.retireUpload(reply.Number)
 		return true, nil
 	}
 	if err := reply.Err(); err != nil {
@@ -225,7 +259,6 @@ func (t *Terminal) takeImageReply(event input.Event) (bool, error) {
 func (t *Terminal) acceptImage(reply graphics.Reply, upload *imageUpload) error {
 	if t.imageOwner.Contains(reply.ID) || t.deletingImage(reply.ID) {
 		upload.settle(graphics.UploadResult{Err: graphics.ErrMalformedReply})
-		t.retireUpload(reply.Number)
 		return nil
 	}
 	wire := graphics.Image{ID: reply.ID, Size: upload.size}

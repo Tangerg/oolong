@@ -52,10 +52,16 @@ var ErrFrameRefused = errors.New("term: destination refused the frame")
 var errWriteInterrupted = errors.New("term: destination write interrupted; writer ended")
 
 // DrainGrace bounds shutdown when the destination stops accepting bytes.
-// Writer.Close and explicit handover drains share this budget.
+// Writer.Close, pending image settlement, and handover drains share this budget.
 const DrainGrace = 250 * time.Millisecond
 
-const controlByteLimit = 64 << 10
+const (
+	defaultMaxFrames       = 64
+	defaultMaxFrameBytes   = 16 << 20
+	defaultMaxPendingBytes = 32 << 20
+	controlFrameLimit      = 4
+	controlByteLimit       = 64 << 10
+)
 
 // Writer keeps blocking terminal I/O off producer goroutines. Admission assigns
 // sequences in FIFO order under one owner; completion uses a watermark signaled
@@ -121,13 +127,13 @@ func NewWriter(cfg WriterConfig) *Writer {
 		panic("term: negative writer budget")
 	}
 	if cfg.MaxFrames == 0 {
-		cfg.MaxFrames = 64
+		cfg.MaxFrames = defaultMaxFrames
 	}
 	if cfg.MaxFrameBytes == 0 {
-		cfg.MaxFrameBytes = 16 << 20
+		cfg.MaxFrameBytes = defaultMaxFrameBytes
 	}
 	if cfg.MaxPendingBytes == 0 {
-		cfg.MaxPendingBytes = 32 << 20
+		cfg.MaxPendingBytes = defaultMaxPendingBytes
 	}
 	if cfg.MaxFrameBytes > cfg.MaxPendingBytes {
 		panic("term: frame limit exceeds pending byte limit")
@@ -188,7 +194,7 @@ func (w *Writer) CloseAdmission() {
 func (w *Writer) pauseAdmission() error {
 	w.queueMu.Lock()
 	defer w.queueMu.Unlock()
-	if w.admissionErr != nil {
+	if w.admissionErr != nil && !errors.Is(w.admissionErr, ErrHandoverActive) {
 		return w.admissionErr
 	}
 	w.admissionErr = ErrHandoverActive
@@ -242,7 +248,7 @@ func (w *Writer) capacity(bytes int, control bool) error {
 		if bytes > controlByteLimit {
 			return ErrPayloadTooLarge
 		}
-		if w.controlFrames >= 4 || bytes > controlByteLimit-w.controlBytes {
+		if w.controlFrames >= controlFrameLimit || bytes > controlByteLimit-w.controlBytes {
 			return ErrQueueFull
 		}
 	} else {

@@ -394,23 +394,32 @@ func LinkTarget(target string) string {
 // No absolute screen position is assumed. It closes links and resets style before
 // return. Partial atoms become styled blanks.
 func EncodeRow(cells []Cell, depth Depth) string {
-	return encodeCells(trimBlankTail(cells), depth)
+	p := painter{depth: depth}
+	p.begin()
+	p.paintCells(trimBlankTail(cells))
+	p.end()
+	return string(p.out)
 }
 
 // encodeCells preserves the supplied columns. A reflow chunk can end in default
 // blanks that still precede accepted content, so only its caller may trim them.
+// The inline compositor has already established default rendition and closed links.
 func encodeCells(cells []Cell, depth Depth) string {
 	p := painter{depth: depth}
-	for i := 0; i < len(cells); {
-		unit := paintUnitAt(cells, i, len(cells)-i)
-		unit.paint(&p)
-		i += unit.width
-	}
+	p.paintCells(cells)
 	p.closeLink()
 	if p.style != (wireStyle{}) {
 		p.out = append(p.out, sgrReset...)
 	}
 	return string(p.out)
+}
+
+func (p *painter) paintCells(cells []Cell) {
+	for i := 0; i < len(cells); {
+		unit := paintUnitAt(cells, i, len(cells)-i)
+		unit.paint(p)
+		i += unit.width
+	}
 }
 
 // Trailing default blanks can wrap the terminal cursor. Styled blanks and wide-glyph continuations must remain.

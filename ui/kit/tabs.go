@@ -21,7 +21,9 @@ type TabsConfig struct {
 }
 
 // Tabs dresses one base.Tabs controller with a measured strip and optional rule. Its controller alone owns selected-pane state.
+// Tabs must not be copied after first use: its controller retains this appearance.
 type Tabs struct {
+	noCopy     noCopy
 	appearance appearance
 	rule       string
 	controller *base.Tabs

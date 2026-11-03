@@ -32,7 +32,9 @@ type FormConfig struct {
 }
 
 // Form composes one base.Form with a title, help and field appearance. It does not own a second field collection, validation state or submission attempt.
+// A Form must not be copied after first use: its controller and group retain this appearance.
 type Form struct {
+	noCopy     noCopy
 	appearance appearance
 	Glyphs     Glyphs
 	hints      []keymap.Action

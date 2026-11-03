@@ -655,7 +655,11 @@ func TestUnparkedReaderRefusesHandoverAndReopensOutput(t *testing.T) {
 		writer := NewWriter(WriterConfig{Destination: io.Discard})
 		defer func() { _ = writer.Close() }()
 		term := &Terminal{waker: wake, writer: writer, task: newTaskProgress()}
-		err = term.release(make(chan struct{}))
+		if !term.handed.hold() {
+			t.Fatal("cannot claim input")
+		}
+		defer term.handed.release()
+		err = term.release()
 		if !errors.Is(err, os.ErrDeadlineExceeded) {
 			t.Fatalf("reader never parked: %v", err)
 		}

@@ -30,7 +30,9 @@ type TranscriptConfig struct {
 // Transcript contributes appearance to one base controller. Reading, selection,
 // retention and publication are owned by that controller, including when a caller
 // supplies a different skin for its element.
+// A Transcript must not be copied after first use: its controller retains this appearance.
 type Transcript struct {
+	noCopy     noCopy
 	controller *base.Transcript
 	appearance appearance
 	Glyphs     Glyphs

@@ -229,11 +229,13 @@ func TestSemanticActivationReportsOnlyAnAcceptedCompletion(t *testing.T) {
 	completion.Offer(Token{}, []Candidate{{Text: "old"}})
 	r := newTestRoot(completion.Element())
 	completion.Handle(input.Key{Rune: 'g'})
-	result, err := r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, nil)
+	address := CollectionIndex{ContentRevision: completion.list.contentRevision}
+	result, err := r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, address)
 	if err != nil || result.State != scene.Unchanged || called != 0 {
 		t.Fatalf("receipt for a superseded candidate: %+v, %v, calls=%d", result, err, called)
 	}
-	result, err = r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, nil)
+	address.ContentRevision = completion.list.contentRevision
+	result, err = r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, address)
 	if err != nil || result.State != scene.Applied || called != 1 {
 		t.Fatalf("new offer: %+v, %v, calls=%d", result, err, called)
 	}

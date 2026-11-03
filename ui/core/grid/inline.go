@@ -417,7 +417,7 @@ func (i *Inline) composeRows(used, extra int, full bool) int {
 // erase-to-end there would erase the last character rather than clear an empty tail.
 func encodeInlineRow(cells []Cell, depth Depth) (row string, atMargin bool) {
 	visible := trimBlankTail(cells)
-	return EncodeRow(visible, depth), len(visible) > 0 && len(visible) == len(cells)
+	return encodeCells(visible, depth), len(visible) > 0 && len(visible) == len(cells)
 }
 
 func (i *Inline) rowChanged(y int, full bool) bool {

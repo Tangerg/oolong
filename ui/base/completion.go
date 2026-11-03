@@ -312,7 +312,7 @@ func (c *Completion) Do(action keymap.Action) bool {
 		c.Dismiss()
 		return true
 	case Accept:
-		_, handled := c.acceptCurrent()
+		_, handled := c.acceptIndex(c.list.Selected())
 		return handled
 	}
 	return c.list.Do(action)
@@ -320,8 +320,8 @@ func (c *Completion) Do(action keymap.Action) bool {
 
 // A superseding offer consumes the physical key but did not accept its old
 // candidate. The semantic caller needs that outcome separately.
-func (c *Completion) acceptCurrent() (scene.ActionResult[Candidate], bool) {
-	candidate, ok := c.list.Current()
+func (c *Completion) acceptIndex(index int) (scene.ActionResult[Candidate], bool) {
+	candidate, ok := c.list.At(index)
 	accept, token := c.Accept, c.token
 	if !ok || accept == nil {
 		return scene.ActionResult[Candidate]{}, false

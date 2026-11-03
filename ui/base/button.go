@@ -79,7 +79,7 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 				return false
 			}
 			if mouse.Action == input.MouseUp && b.pointer.Clicked(input.ButtonLeft) {
-				_, b.lastError = b.Press(context.Background())
+				b.Do(Activate)
 			}
 			return mouse.Action == input.MouseDown || mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp
 		}, &b.pointer.geometry)
@@ -117,9 +117,18 @@ func (b *Button) Availability() scene.Availability { return b.action.Availabilit
 
 // Press checks the current action policy and invokes its owner. It panics during presentation or observation; action failures are returned unchanged.
 func (b *Button) Press(ctx context.Context) (scene.ActionResult[struct{}], error) {
+	return b.press(ctx, false)
+}
+
+func (b *Button) press(ctx context.Context, recordError bool) (scene.ActionResult[struct{}], error) {
 	requireMutable(b.element)
 	result, err := b.action.Invoke(ctx, struct{}{})
-	if err == nil && result.State != scene.Unchanged {
+	changed := result.State != scene.Unchanged
+	if recordError {
+		changed = changed || b.lastError != nil || err != nil
+		b.lastError = err
+	}
+	if changed {
 		b.element.Invalidate()
 	}
 	return result, err
@@ -140,11 +149,10 @@ func (b *Button) Stage(frame scene.Frame) {
 	b.pointer.Stage(frame, frame.Bounds())
 }
 
-// Do executes a named activation through Press and records its UI error.
 func (b *Button) Do(action keymap.Action) bool {
 	if action != Activate {
 		return false
 	}
-	_, b.lastError = b.Press(context.Background())
+	_, _ = b.press(context.Background(), true)
 	return true
 }

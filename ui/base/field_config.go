@@ -102,8 +102,7 @@ func NewConfirm(config ConfirmConfig) *Confirm {
 		ref := weak.Make(c)
 		c.unsubscribe = c.control.Subscribe(func() {
 			if owner := ref.Value(); owner != nil && !owner.closed {
-				requireMutable(owner.element)
-				owner.element.Invalidate()
+				owner.invalidate()
 			}
 		})
 		if c.unsubscribe == nil {

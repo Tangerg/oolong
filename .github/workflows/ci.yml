@@ -132,6 +132,17 @@ jobs:
           check-latest: true
           cache-dependency-path: "**/go.sum"
 
+      # Local replacements cannot prove that a declared dependency supplies the
+      # imported API. Resolve published versions before checking local integration.
+      - name: Test declared published dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          modules=$(scripts/modules.sh)
+          for m in $modules; do
+            (cd "$m" && GOWORK=off go test -mod=readonly -count=1 ./...)
+          done
+
       # A workspace can make an undeclared local dependency look healthy. Work in a
       # disposable checkout with the workspace off and local versions of declared
       # Oolong dependencies. A replacement does not add a requirement, so an

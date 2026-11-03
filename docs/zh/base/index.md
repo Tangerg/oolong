@@ -20,14 +20,15 @@ Base 提供更换外观后仍可复用的行为：编辑、选择、列表、表
 
 ## 类型化集合与控制器动作
 
-List、Filter、Select、MultiSelect、Tree、Table 和 Settings 在已有元素上提供 `base.ActionReadItems`。传入 `CollectionQuery{ContentRevision: observed.ContentRevision, Start: start, Limit: limit}`，得到复制的 `CollectionPage[T]`、当前选择与总条数。零 limit 使用 `DefaultCollectionPageSize`，超过 `MaxCollectionPageSize` 的请求不可用。条目内部引用沿用控制器普通快照 API 的所有权合同。Tree 返回当前显示的 `Shown[T]`，Filter 返回排序后的匹配项，MultiSelect 返回包含选项值、标签和已选状态的 `ChoiceState[T]`。
+List、Filter、Select、MultiSelect、Tree、Table、Settings 和 Completion 在已有元素上提供 `base.ActionReadItems`。传入 `CollectionQuery{ContentRevision: observed.ContentRevision, Start: start, Limit: limit}`，得到复制的 `CollectionPage[T]`、当前选择与总条数。零 limit 使用 `DefaultCollectionPageSize`，超过 `MaxCollectionPageSize` 的请求不可用。条目内部引用沿用控制器普通快照 API 的所有权合同。Tree 返回当前显示的 `Shown[T]`，Filter 返回排序后的匹配项，MultiSelect 返回包含选项值、标签和已选状态的 `ChoiceState[T]`。Completion 返回 `Candidate`，其匹配偏移切片与所有者存储分离。
 
 `CollectionIndex{ContentRevision: observed.ContentRevision, Index: index}` 仅指向该修订顺序中的条目。替换条目、过滤、排序或展开分支都会使旧位置地址失效。无效或过期地址返回 `scene.ErrUnavailable`，不会钳制到另一条目。重试前先观察当前语义修订，再读取新页。
 
 | 控制器 | 动作 | 参数 | 结果 |
 | --- | --- | --- | --- |
-| List、Filter、MultiSelect、Tree、Table、Settings | `scene.ActionSelect` | `CollectionIndex` | `CollectionSelection[R]`，其中 `R` 是页面条目类型 |
+| List、Filter、MultiSelect、Tree、Table、Settings、Completion | `scene.ActionSelect` | `CollectionIndex` | `CollectionSelection[R]`，其中 `R` 是页面条目类型 |
 | Select | `scene.ActionSelect` | `T` | 已选值 `T` |
+| Completion | `scene.ActionActivate` | `CollectionIndex` | 已接受的 `Candidate` |
 | Filter | `scene.ActionFill` | 模式 `string` | 当前模式 |
 | MultiSelect | `scene.ActionSetValue` | 已选值 `[]T` | 按选项顺序返回的实际已选值 |
 | Tree | `scene.ActionExpand`、`scene.ActionCollapse` | `CollectionIndex` | 当前分支展开状态 |
@@ -39,6 +40,10 @@ List、Filter、Select、MultiSelect、Tree、Table 和 Settings 在已有元素
 | Form | `base.ActionCancel` | 提交返回的 `SubmissionID` | 当前 `Submission` |
 
 动作组合键盘和指针使用的同一所有者操作。重复设置相同 `SetSort` 顺序不改变状态；交互式 `SortBy` 仍切换升降序。MultiSelect 在变更前拒绝不可用值和超限选择，等价选项别名仍表示同一个选择。表单取消请求在应用结算前报告 `Started`；旧 attempt ID 不能取消后续提交。
+
+Completion 激活动作在一次操作中接受地址指定的候选，不依赖当前选择。后续 offer 会使旧地址失效，因此自动化不需要可能跨越候选版本的“先选择、再接受”流程。物理 Enter 仍接受当前候选。候选已关闭或编辑位置已过期时，所有集合动作均不可用。
+
+Button 和 Confirm 即使在后续步骤返回错误时，也会发布已接受的 `Applied` 或 `Started` 结果。物理输入还会发布其保留的 UI 错误，包括值未改变但旧错误被清除的情况。`Button.Press`、`Confirm.Request` 与语义动作直接返回错误，并保留上一次物理输入的反馈。Confirm 将同步领域通知延迟到请求结果和 UI 反馈结算后统一发布，答案始终仅由领域所有者持有。
 
 Table 列索引的含义属于 `SetLess` 比较器。行控制器不拥有列 schema：排序可用性检查索引非负、存在比较器且行非空，调用方必须使用该比较器支持的列。
 

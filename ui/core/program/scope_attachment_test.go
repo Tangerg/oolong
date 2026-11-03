@@ -66,6 +66,7 @@ func TestScopeAttachmentSeparatesTheSessionFromAnExplicitMount(t *testing.T) {
 		if runErr != nil {
 			t.Fatal(runErr)
 		}
+		<-mountedTask.Done()
 		<-mountedTask.Settled()
 		<-sessionTask.Settled()
 		if status := mountedTask.Snapshot(); mountedApplied || status.State != program.TaskSucceeded || status.Delivery != program.DeliveryRevoked {

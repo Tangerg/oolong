@@ -429,29 +429,31 @@ func TestDrainGivesUpOnATerminalThatNeverAccepts(t *testing.T) {
 }
 
 func TestCloseReportsAbandonedFrames(t *testing.T) {
-	dst := newBlocker()
-	w := newTestWriter(t, dst)
-	defer dst.releaseAll()
-	if _, err := w.Queue([]byte("first")); err != nil {
-		t.Error(err)
-	}
-	if _, err := w.Queue([]byte("second")); err != nil {
-		t.Error(err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		dst := newBlocker()
+		w := newTestWriter(t, dst)
+		defer dst.releaseAll()
+		if _, err := w.Queue([]byte("first")); err != nil {
+			t.Error(err)
+		}
+		if _, err := w.Queue([]byte("second")); err != nil {
+			t.Error(err)
+		}
 
-	start := time.Now()
-	err := w.Close()
-	if err == nil {
-		t.Fatal("Close hid the frames it abandoned")
-	}
-	if !errors.Is(err, term.ErrClosed) {
-		t.Fatalf("Close error = %v, want it to be recognisable as term.ErrClosed", err)
-	}
-	// A write already inside the terminal cannot be interrupted, so Close returns on
-	// its grace period rather than waiting for one that never comes back.
-	if elapsed := time.Since(start); elapsed > 2*term.DrainGrace {
-		t.Fatalf("Close took %v, want it bounded by the grace period", elapsed)
-	}
+		start := time.Now()
+		err := w.Close()
+		if err == nil {
+			t.Fatal("Close hid the frames it abandoned")
+		}
+		if !errors.Is(err, term.ErrClosed) {
+			t.Fatalf("Close error = %v, want it to be recognisable as term.ErrClosed", err)
+		}
+		// A write already inside the terminal cannot be interrupted, so Close returns on
+		// its grace period rather than waiting for one that never comes back.
+		if elapsed := time.Since(start); elapsed != term.DrainGrace {
+			t.Fatalf("Close took %v, want the grace period %v", elapsed, term.DrainGrace)
+		}
+	})
 }
 
 func TestCloseIsIdempotent(t *testing.T) {

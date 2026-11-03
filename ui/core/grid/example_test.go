@@ -70,5 +70,5 @@ func ExampleEncodeRow() {
 
 	fmt.Printf("%q\n", grid.EncodeRow(s.Row(0), grid.TrueColor))
 	// Output:
-	// "see \x1b[0;4m\x1b]8;;https://example.test\x1b\\docs\x1b]8;;\x1b\\\x1b[0m"
+	// "\x1b]8;;\x1b\\\x1b[0msee \x1b[0;4m\x1b]8;;https://example.test\x1b\\docs\x1b]8;;\x1b\\\x1b[0m"
 }

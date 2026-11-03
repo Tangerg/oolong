@@ -265,10 +265,13 @@ func (s *Slider) Element() scene.Element {
 // input while keyboard focus remains with the composing editor.
 func (c *Completion) Element() scene.Element {
 	if c.element.IsZero() {
-		accept := scene.NewAction(scene.ActionConfig[struct{}, Candidate]{ID: scene.ActionActivate, Label: "Accept completion", Availability: func(struct{}) scene.Availability {
-			return scene.Availability{Disabled: !c.Open() || c.Accept == nil, Reason: "completion is not accepting"}
-		}, Run: func(context.Context, struct{}) (scene.ActionResult[Candidate], error) {
-			result, _ := c.acceptCurrent()
+		accept := scene.NewAction(scene.ActionConfig[CollectionIndex, Candidate]{ID: scene.ActionActivate, Label: "Accept completion", Availability: func(address CollectionIndex) scene.Availability {
+			if !c.Open() || c.Accept == nil {
+				return scene.Availability{Disabled: true, Reason: "completion is not accepting"}
+			}
+			return c.list.indexAvailability(address)
+		}, Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[Candidate], error) {
+			result, _ := c.acceptIndex(address.Index)
 			return result, nil
 		}})
 		dismiss := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionDismiss, Label: "Dismiss completion", Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
@@ -278,22 +281,11 @@ func (c *Completion) Element() scene.Element {
 			}
 			return scene.ActionResult[struct{}]{State: state}, nil
 		}})
-		selectRow := scene.NewAction(scene.ActionConfig[int, int]{ID: scene.ActionSelect, Label: "Select completion", Availability: func(index int) scene.Availability {
-			return scene.Availability{Disabled: !c.Open() || index < 0 || index >= c.list.Len(), Reason: "candidate is not available"}
-		}, Run: func(_ context.Context, index int) (scene.ActionResult[int], error) {
-			before := c.list.Selected()
-			c.list.Select(index)
-			state := scene.Unchanged
-			if before != c.list.Selected() {
-				state = scene.Applied
-			}
-			return scene.ActionResult[int]{State: state, Value: c.list.Selected()}, nil
-		}})
 		c.element = scene.NewElement(scene.ElementConfig{Enabled: c.Open, Measure: rowsMeasure(c.HeightForWidth), Paint: c.Draw, Handle: func(event scene.Event) scene.EventResult {
 			return partEvent(event, c.Handle, &c.list.geometry, &c.list.pointer.geometry)
 		}, Semantics: func() scene.Semantic {
 			return scene.Semantic{Role: scene.RoleList, ContentRevision: c.list.contentRevision, Value: strconv.Itoa(c.list.Selected())}
-		}, Actions: []scene.ActionBinding{accept.Binding(), dismiss.Binding(), selectRow.Binding()}})
+		}, Actions: append([]scene.ActionBinding{accept.Binding(), dismiss.Binding()}, collectionActions(&c.list, Candidate.snapshot)...)})
 	}
 	c.list.element, c.list.scroll.element = c.element, c.element
 	return c.element

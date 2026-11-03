@@ -27,7 +27,9 @@ type DialogConfig struct {
 
 // Dialog composes the ordinary Panel and base modal controller. There is no
 // second dialog-specific body route, open flag or focus owner in this layer.
+// A Dialog must not be copied after first use: its controller retains this appearance.
 type Dialog struct {
+	noCopy     noCopy
 	appearance appearance
 	Where      layout.Placement
 	controller *base.Dialog

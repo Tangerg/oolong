@@ -77,18 +77,19 @@ func TestClosingEndsTheWholeSessionItStarted(t *testing.T) {
 // it.
 func TestClosingEndsTheSessionAProgramLeftBehind(t *testing.T) {
 	needPTY(t)
-	s, err := ptytest.Start(t.Context(), ptytest.Config{}, "sh", "-c",
-		`(trap '' HUP; sleep 300 & wait) & printf 'descendant %d\n' "$!"; exit 0`)
+	s, err := ptytest.Start(t.Context(), ptytest.Config{Dir: t.TempDir()}, "sh", "-c",
+		`(trap '' HUP; touch ready; sleep 300 & wait) & pid=$!; while ! test -e ready; do sleep 0.01; done; printf 'descendant %d\n' "$pid"; exit 0`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = s.Close() }()
 	waitFor(t, s.Transcript(), "descendant ")
 	descendant := reportedPID(t, s.Transcript().String())
 	if err := s.Wait(t.Context()); err != nil {
 		t.Fatalf("waiting for the program: %v", err)
 	}
 	if !alive(descendant) {
-		t.Skip("the descendant did not outlive the program that started it")
+		t.Fatal("the ready descendant did not outlive the program that started it")
 	}
 
 	if err := s.Close(); err != nil {

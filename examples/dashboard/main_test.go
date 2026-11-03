@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
@@ -133,5 +135,38 @@ func TestTaskStatusIsDerivedFromCompletedWork(t *testing.T) {
 		if got := state(row); got != done {
 			t.Errorf("finished row %d: %q", row, got)
 		}
+	}
+}
+
+func TestNumberedPaneShortcutsAndHelpFollowTheTabOwner(t *testing.T) {
+	d := &dashboard{tabs: base.NewTabs(base.TabsConfig{Keys: base.DefaultTabsKeys(), Items: []base.Tab{
+		{Title: "first"}, {Title: "second"}, {Title: "third"}, {Title: "fourth"},
+	}})}
+	if !d.Handle(input.Key{Rune: '4'}) || d.tabs.Selected() != 3 {
+		t.Fatal("a newly added fourth pane has no numeric shortcut")
+	}
+	if d.Handle(input.Key{Rune: '2', Mods: input.Ctrl}) || d.tabs.Selected() != 3 {
+		t.Fatal("modified digit unexpectedly selected a pane")
+	}
+	visible := func() string {
+		surface := grid.NewSurface(80, 1)
+		d.drawHelp(scene.Frame{View: surface.View()})
+		return surface.Rows()[0]
+	}
+	if help := visible(); !strings.Contains(help, "1–4 pane") {
+		t.Fatalf("help does not reflect the fourth pane: %q", help)
+	}
+	d.tabs.Set(base.Tab{Title: "only"})
+	if d.Handle(input.Key{Rune: '4'}) {
+		t.Fatal("removed pane retained a numeric shortcut")
+	}
+	if help := visible(); !strings.Contains(help, "1 pane") || strings.Contains(help, "1–4") {
+		t.Fatalf("help retained a removed pane: %q", help)
+	}
+	d.tabs.Keys = new(keymap.Map)
+	d.tabs.Keys.Bind(base.NextTab, input.Alt.Rune('n'))
+	d.tabs.Keys.Bind(quitDashboard, input.Chord{Rune: 'x'})
+	if help := visible(); !strings.Contains(help, "alt+n next tab") || !strings.Contains(help, "x quit") {
+		t.Fatalf("help retained a replaced key map: %q", help)
 	}
 }

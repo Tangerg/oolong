@@ -53,13 +53,10 @@ type Target struct {
 	root       *Root
 }
 
-// Node names the element within this root's namespace.
 func (t Target) Node() NodeID { return t.node }
 
-// Generation identifies this particular mount of the node.
 func (t Target) Generation() Generation { return t.generation }
 
-// Part identifies the component part addressed by this attachment.
 func (t Target) Part() PartID { return t.part }
 
 func (t Target) IsZero() bool { return t.root == nil || t.node == 0 }

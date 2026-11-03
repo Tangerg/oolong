@@ -21,22 +21,28 @@ type handover struct {
 	mu sync.Mutex
 	// resume is closed to let the reader go on. Nil when no handover is claimed.
 	resume chan struct{}
-	// parked is closed by the reader once it has stopped reading, and nil once that
-	// has happened, so it cannot be closed twice.
+	// Parking is requested only after terminal replies have settled. The sole
+	// reader closes parked once before blocking until this claim is released.
 	parked chan struct{}
 }
 
 // hold claims the handover lifetime before any modes or reader state can change.
-// The signal closes once the reader has noticed; an active claim cannot be replaced.
-func (h *handover) hold() (<-chan struct{}, bool) {
+// Input remains available for outstanding replies until pause requests parking.
+func (h *handover) hold() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.resume != nil {
-		return nil, false
+		return false
 	}
 	h.resume = make(chan struct{})
+	return true
+}
+
+func (h *handover) pause() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.parked = make(chan struct{})
-	return h.parked, true
+	return h.parked
 }
 
 // release ends the claim after restoration or rollback, including a child panic.
@@ -57,18 +63,12 @@ func (h *handover) release() {
 func (h *handover) park(stop <-chan struct{}) {
 	h.mu.Lock()
 	resume, parked := h.resume, h.parked
-	if resume != nil {
-		// Confirm once; a second close would panic on the next reader iteration.
-		h.parked = nil
-	}
 	h.mu.Unlock()
 
-	if resume == nil {
+	if parked == nil {
 		return
 	}
-	if parked != nil {
-		close(parked)
-	}
+	close(parked)
 	select {
 	case <-resume:
 	case <-stop:

@@ -21,7 +21,10 @@ const treeIndent = 2
 // It is one answer to the question that behaviour refuses — what a branch looks like
 // — and the answer is: as far in as it is deep, a mark that turns over when it
 // opens, and the row under the cursor drawn as a selection.
+// A Tree must not be copied after first use: its controller retains this appearance.
 type Tree[T any] struct {
+	noCopy noCopy
+
 	// Text is what a row says. A tree given none draws nothing but its marks, which
 	// is what an item that cannot be read as text comes to. Text runs during drawing
 	// and must be an observationally pure projection.

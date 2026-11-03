@@ -31,7 +31,9 @@ Remove that constraint when the extension accepts the fixed series itself.
 
 ### Workspace
 
-This is a workspace of several modules. `go.work` is committed and a checkout does not build without it.
+The repository root is a workspace, not a module. Run Go commands inside a member module or use `go -C`.
+The committed `go.work` integrates local members; each member also builds with its declared dependencies when
+the workspace is off.
 
 `scripts/modules.sh` is the executable inventory for all workspace modules, and its `--public` form is the
 only tooling source for tagged modules. Public membership is derived from externally importable production
@@ -61,12 +63,18 @@ modules=$(scripts/modules.sh)
 for m in $modules; do (cd "$m" && \
   go vet ./... && go test -race -count=1 ./... && \
   golangci-lint run ./... && govulncheck ./...); done
+for m in $modules; do (cd "$m" && GOWORK=off go test -mod=readonly -count=1 ./...); done
 scripts/check-reachability.sh
 go -C ui run ./internal/cmd/apiledger -root ..
 scripts/sync-workspace.sh --check
 npm ci
 npm run docs:check
 ```
+
+Every module must also pass with `go.work` off and its declared published dependencies, without local replacements.
+For an unreleased lower-module API, first push that implementation and let `GOWORK=off go get <module>@<commit>`
+resolve its canonical pseudo-version in each consumer that needs it. Keep the resulting checksums and regenerate
+workspace replacements with `scripts/sync-workspace.sh`.
 
 CI additionally copies the repository, turns `go.work` off, and checks every module with local replacements
 for its declared Oolong dependencies, running both tests and `go mod tidy -diff` in that disposable graph.

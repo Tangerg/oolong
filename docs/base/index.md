@@ -20,14 +20,15 @@ A field controller owns its value. Form output and semantic values are projectio
 
 ## Typed collection and controller actions
 
-List, Filter, Select, MultiSelect, Tree, Table and Settings expose `base.ActionReadItems` on their existing element. Pass `CollectionQuery{ContentRevision: observed.ContentRevision, Start: start, Limit: limit}` to read a copied `CollectionPage[T]`, including the current selection and total count. A zero limit uses `DefaultCollectionPageSize`; requests beyond `MaxCollectionPageSize` are unavailable. Item values keep the same reference ownership as the controller's ordinary snapshot API. Tree pages contain the currently shown `Shown[T]` rows, filter pages contain ranked matches, and multi-select pages contain `ChoiceState[T]` with each option's value, label and chosen state.
+List, Filter, Select, MultiSelect, Tree, Table, Settings and Completion expose `base.ActionReadItems` on their existing element. Pass `CollectionQuery{ContentRevision: observed.ContentRevision, Start: start, Limit: limit}` to read a copied `CollectionPage[T]`, including the current selection and total count. A zero limit uses `DefaultCollectionPageSize`; requests beyond `MaxCollectionPageSize` are unavailable. Item values keep the same reference ownership as the controller's ordinary snapshot API. Tree pages contain the currently shown `Shown[T]` rows, filter pages contain ranked matches, and multi-select pages contain `ChoiceState[T]` with each option's value, label and chosen state. Completion pages contain `Candidate` values with detached match offsets.
 
 `CollectionIndex{ContentRevision: observed.ContentRevision, Index: index}` addresses an item in that exact order. Replacing items, filtering, sorting or expanding a branch invalidates old positional addresses. An invalid or stale address returns `scene.ErrUnavailable` instead of clamping to a different item. Read the current semantic revision and request a new page before retrying.
 
 | Controller | Action | Parameter | Result |
 | --- | --- | --- | --- |
-| List, Filter, MultiSelect, Tree, Table, Settings | `scene.ActionSelect` | `CollectionIndex` | `CollectionSelection[R]`, where `R` is the page item type |
+| List, Filter, MultiSelect, Tree, Table, Settings, Completion | `scene.ActionSelect` | `CollectionIndex` | `CollectionSelection[R]`, where `R` is the page item type |
 | Select | `scene.ActionSelect` | `T` | Selected value `T` |
+| Completion | `scene.ActionActivate` | `CollectionIndex` | Accepted `Candidate` |
 | Filter | `scene.ActionFill` | Pattern `string` | Current pattern |
 | MultiSelect | `scene.ActionSetValue` | Chosen values `[]T` | Actual chosen values, in option order |
 | Tree | `scene.ActionExpand`, `scene.ActionCollapse` | `CollectionIndex` | Current branch openness |
@@ -39,6 +40,10 @@ List, Filter, Select, MultiSelect, Tree, Table and Settings expose `base.ActionR
 | Form | `base.ActionCancel` | The `SubmissionID` returned by submit | Current `Submission` |
 
 Actions compose the same owner operations as pointer and keyboard input. Repeating an explicit table `SetSort` order is unchanged; `SortBy` retains its interactive toggle behavior. Multi-select set-value rejects unavailable values and excess choices before mutation, while equivalent option aliases still name one choice. A form cancellation request reports `Started` until the application settles the attempt; an old attempt ID cannot cancel a later submission.
+
+Completion activation accepts the addressed candidate in one operation, independently of the current selection. A later offer invalidates its address, so automation does not need a selection-then-accept sequence that could cross offer versions. Physical Enter continues to accept the current candidate. Closed or expired offers are unavailable to all collection actions.
+
+Button and Confirm publish accepted `Applied` or `Started` outcomes even when a later step returns an error. Physical input also publishes its retained UI error, including clearing an earlier error without changing the value. `Button.Press`, `Confirm.Request` and semantic actions return their errors directly and preserve the last physical-input feedback. Confirm batches synchronous domain notifications until its request outcome and UI feedback have settled; the domain remains the sole owner of the answer.
 
 Table column interpretation belongs to its `SetLess` comparator. The row controller has no column schema: sort availability checks a nonnegative index, an installed comparator and nonempty rows, and callers must use columns supported by that comparator.
 

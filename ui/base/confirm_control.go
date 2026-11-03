@@ -52,7 +52,28 @@ func (c *Confirm) Snapshot() ConfirmSnapshot {
 // External owners may return Started while performing asynchronous work; the
 // displayed answer changes only when that owner publishes its next version.
 func (c *Confirm) Request(ctx context.Context, request ConfirmRequest) (scene.ActionResult[ConfirmSnapshot], error) {
+	return c.request(ctx, request, false)
+}
+
+func (c *Confirm) request(ctx context.Context, request ConfirmRequest, recordError bool) (scene.ActionResult[ConfirmSnapshot], error) {
 	requireMutable(c.element)
+	c.requestDepth++
+	defer func() {
+		c.requestDepth--
+		if c.requestDepth == 0 && c.pendingChange {
+			c.invalidate()
+		}
+	}()
+	result, err := c.applyRequest(ctx, request)
+	if recordError {
+		c.pendingChange = c.pendingChange || c.changeErr != nil || err != nil
+		c.changeErr = err
+	}
+	c.pendingChange = c.pendingChange || result.State != scene.Unchanged
+	return result, err
+}
+
+func (c *Confirm) applyRequest(ctx context.Context, request ConfirmRequest) (scene.ActionResult[ConfirmSnapshot], error) {
 	if c.closed {
 		return scene.ActionResult[ConfirmSnapshot]{}, scene.ErrClosed
 	}
@@ -70,8 +91,18 @@ func (c *Confirm) Request(ctx context.Context, request ConfirmRequest) (scene.Ac
 		return c.control.Change(ctx, request)
 	}
 	c.answer.set(request.Value)
-	c.element.Invalidate()
 	return scene.ActionResult[ConfirmSnapshot]{State: scene.Applied, Value: c.Snapshot()}, nil
+}
+
+func (c *Confirm) invalidate() {
+	requireMutable(c.element)
+	// A synchronous domain publication must wait for the request's UI feedback.
+	if c.requestDepth != 0 {
+		c.pendingChange = true
+		return
+	}
+	c.pendingChange = false
+	c.element.Invalidate()
 }
 
 // ChangeError is the last failure from a keyboard, pointer, Say or Reply request.
@@ -92,5 +123,5 @@ func (c *Confirm) Close() {
 		defer c.unsubscribe()
 		c.unsubscribe = nil
 	}
-	c.element.Invalidate()
+	c.invalidate()
 }

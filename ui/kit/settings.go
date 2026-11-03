@@ -14,7 +14,9 @@ import (
 // are projections supplied by the application, so this component can display any
 // setting without naming a product schema or storing a second copy of it. The value
 // column is fitted to its widest cell and the label receives the remaining width.
+// Settings must not be copied after first use: its controller retains this appearance.
 type Settings[T any] struct {
+	noCopy     noCopy
 	appearance appearance
 	Glyphs     Glyphs
 	// Label and Value are the two columns shown for an item. Nil returns an empty

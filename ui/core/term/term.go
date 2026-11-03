@@ -312,7 +312,7 @@ func (t *Terminal) start(cfg Config) {
 	go func() {
 		defer close(t.pumpDone)
 		t.inputErr = p.run()
-		t.endUploads(t.inputErr)
+		t.cancelUploads(t.inputErr)
 		close(t.events)
 	}()
 }
@@ -514,11 +514,16 @@ func (t *Terminal) releaseImages() error {
 }
 
 // Close attempts every restoration step even after failure: output errors
-// must not leave raw mode active for the next terminal owner.
+// must not leave raw mode active for the next terminal owner. If pending image
+// cleanup cannot settle within DrainGrace, it returns ErrImageCleanupIncomplete
+// without guessing which physical allocation the next owner may inherit.
 func (t *Terminal) Close() error {
 	t.closeOnce.Do(func() {
+		t.modeMu.Lock()
 		t.writer.CloseAdmission()
-		t.endUploads(ErrClosed)
+		t.modeMu.Unlock()
+		t.cancelUploads(ErrClosed)
+		uploadErr := t.awaitUploads()
 		close(t.stop)
 		// Wake both kernel waits and handover parking so shutdown can join the
 		// reader without requiring input or a child to return.
@@ -529,7 +534,7 @@ func (t *Terminal) Close() error {
 		<-t.resizeDone
 		<-t.task.done
 
-		t.closeErr = t.closeOutput()
+		t.closeErr = errors.Join(uploadErr, t.closeOutput())
 		// The pump owns the event channel, so it has to have finished before anyone
 		// could observe the channel closed.
 		<-t.pumpDone
@@ -686,7 +691,10 @@ func (t *Terminal) Notify(text string) error {
 // concurrent calls return ErrHandoverActive; closed sessions return ErrClosed.
 // Unsupported input handover returns errors.ErrUnsupported without changes.
 //
-// Successful handoff revokes images and outstanding clipboard reads. Retransmit
+// Pending image cleanup that cannot settle within DrainGrace returns
+// ErrImageCleanupIncomplete without relinquishing terminal ownership. Upload
+// requests remain eligible for later replies. Successful handoff revokes images
+// and outstanding clipboard reads. Retransmit
 // live images before repainting; accepted deletions remain effective if a later
 // step fails. Reacquisition publishes a fresh size because foreground resize
 // signals may have belonged to the child.
@@ -702,8 +710,7 @@ func (t *Terminal) Hand(prepare, run func() error) (err error) {
 	if !t.waker.interruptible() {
 		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
 	}
-	parked, acquired := t.handed.hold()
-	if !acquired {
+	if !t.handed.hold() {
 		return ErrHandoverActive
 	}
 	defer t.handed.release()
@@ -717,7 +724,7 @@ func (t *Terminal) Hand(prepare, run func() error) (err error) {
 		return ErrClosed
 	default:
 	}
-	if releaseErr := t.release(parked); releaseErr != nil {
+	if releaseErr := t.release(); releaseErr != nil {
 		return releaseErr
 	}
 	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
@@ -726,7 +733,7 @@ func (t *Terminal) Hand(prepare, run func() error) (err error) {
 	return run()
 }
 
-func (t *Terminal) release(parked <-chan struct{}) error {
+func (t *Terminal) release() error {
 	// Keepalives are output too. Pause before taking the writer's watermark so a
 	// refresh cannot appear after the drain and inside the child's output.
 	t.task.pause()
@@ -742,10 +749,11 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 	if err := t.writer.Err(); err != nil {
 		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.resumeOutput())
 	}
+	if err := t.awaitUploads(); err != nil {
+		return errors.Join(err, t.resumeOutput())
+	}
 
-	// The lifetime claim can already have parked the reader. Confirm that it noticed
-	// before giving the terminal's input and modes to the child.
-	if err := t.park(parked); err != nil {
+	if err := t.park(t.handed.pause()); err != nil {
 		return errors.Join(err, t.resumeOutput())
 	}
 	t.modeMu.Lock()
@@ -755,10 +763,14 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 		return ErrClosed
 	default:
 	}
+	// Close can seal admission while replies settle. Its seal and this final
+	// handoff check share modeMu, so handoff cannot commit after that seal.
+	if err := t.writer.pauseAdmission(); err != nil {
+		return err
+	}
 	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
 		return errors.Join(err, t.resumeOutput())
 	}
-	t.cancelUploads(ErrHandoverActive)
 	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
 		// release is transactional: on failure no child runs and the session is made
 		// live again before the error reaches the caller.

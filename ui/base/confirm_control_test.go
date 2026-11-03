@@ -16,6 +16,8 @@ type confirmDomain struct {
 	notify       func()
 	pending      *base.ConfirmRequest
 	asynchronous bool
+	reject       bool
+	problem      error
 	requests     int
 	closed       int
 }
@@ -26,12 +28,15 @@ func (d *confirmDomain) Change(_ context.Context, request base.ConfirmRequest) (
 	if request.ExpectedRevision != d.snapshot.Revision {
 		return scene.ActionResult[base.ConfirmSnapshot]{}, base.ErrConfirmStale
 	}
+	if d.reject {
+		return scene.ActionResult[base.ConfirmSnapshot]{}, d.problem
+	}
 	if d.asynchronous {
 		d.pending = &request
-		return scene.ActionResult[base.ConfirmSnapshot]{State: scene.Started, Value: d.snapshot}, nil
+		return scene.ActionResult[base.ConfirmSnapshot]{State: scene.Started, Value: d.snapshot}, d.problem
 	}
 	d.publish(request.Value)
-	return scene.ActionResult[base.ConfirmSnapshot]{State: scene.Applied, Value: d.snapshot}, nil
+	return scene.ActionResult[base.ConfirmSnapshot]{State: scene.Applied, Value: d.snapshot}, d.problem
 }
 
 func (d *confirmDomain) Subscribe(notify func()) func() {

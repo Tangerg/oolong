@@ -187,7 +187,7 @@ func TestDisplayAtomsCanOccupyMoreThanTwoColumns(t *testing.T) {
 	if got := s.Rows(); len(got) != 1 || got[0] != "あﾞx" {
 		t.Fatalf("Rows = %q, want the atom emitted once", got)
 	}
-	if got := grid.EncodeRow(s.Row(0), grid.TrueColor); got != "あﾞx" {
+	if got := grid.EncodeRow(s.Row(0), grid.TrueColor); got != rowAppearanceStart+"あﾞx"+rowAppearanceEnd {
 		t.Fatalf("EncodeRow = %q, want the atom emitted once", got)
 	}
 }
@@ -455,7 +455,7 @@ func TestZeroWidthClusterOnBlankKeepsItsBaseColumn(t *testing.T) {
 	v := s.View()
 	v.Text(1, 0, "\u0301x", grid.Style{})
 	row := []grid.Cell{cellAt(s, 0, 0), cellAt(s, 1, 0)}
-	if got := grid.EncodeRow(row, grid.NoColor); got != " \u0301x" {
+	if got := grid.EncodeRow(row, grid.NoColor); got != rowAppearanceStart+" \u0301x"+rowAppearanceEnd {
 		t.Fatalf("wire row = %q, want the accented blank before x", got)
 	}
 }
@@ -1018,7 +1018,7 @@ func TestEncodeRowContainsItsAppearanceWithoutAbsolutePositioning(t *testing.T) 
 func TestEncodeRowSkipsTrailingHalvesOfWideClusters(t *testing.T) {
 	s := grid.NewSurface(4, 1)
 	s.View().Text(0, 0, "中文", grid.Style{})
-	if got := grid.EncodeRow(s.Row(0), grid.TrueColor); got != "中文" {
+	if got := grid.EncodeRow(s.Row(0), grid.TrueColor); got != rowAppearanceStart+"中文"+rowAppearanceEnd {
 		t.Fatalf("row = %q, want each wide cluster emitted once", got)
 	}
 }
@@ -1039,7 +1039,7 @@ func TestEncodeRowDoesNotEmitAnAtomPastItsSlice(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := grid.EncodeRow(row[:test.end], grid.TrueColor); got != test.want {
+			if got := grid.EncodeRow(row[:test.end], grid.TrueColor); got != rowAppearanceStart+test.want+rowAppearanceEnd {
 				t.Fatalf("EncodeRow(row[:%d]) = %q, want %q", test.end, got, test.want)
 			}
 		})
@@ -1056,7 +1056,7 @@ func TestEncodeRowDropsAppearanceThatCannotOwnATruncatedAtom(t *testing.T) {
 	if strings.Contains(got, "あ") || strings.Contains(got, "ﾞ") {
 		t.Fatalf("truncated row = %q, want no partial display atom", got)
 	}
-	if strings.Contains(got, "\x1b]8;;") {
+	if strings.Contains(got, "https://example.test") {
 		t.Fatalf("truncated row = %q, want no hyperlink owned by an omitted atom", got)
 	}
 	if strings.Count(got, " ") != 2 {
@@ -1552,11 +1552,11 @@ func TestEncodingSlicedAtomsPreservesVisibleColumns(t *testing.T) {
 	s := grid.NewSurface(4, 1)
 	s.View().Text(0, 0, "界a", grid.Style{})
 	row := s.Row(0)
-	if got := grid.EncodeRow(row[1:3], grid.TrueColor); got != " a" {
+	if got := grid.EncodeRow(row[1:3], grid.TrueColor); got != rowAppearanceStart+" a"+rowAppearanceEnd {
 		t.Fatalf("left clip encoded %q, want a blank before a", got)
 	}
 	joined := []grid.Cell{row[0], row[2]}
-	if got := grid.EncodeRow(joined, grid.TrueColor); got != " a" {
+	if got := grid.EncodeRow(joined, grid.TrueColor); got != rowAppearanceStart+" a"+rowAppearanceEnd {
 		t.Fatalf("incomplete head swallowed its neighbor: %q", got)
 	}
 }

@@ -31,7 +31,10 @@ func uploadTerminal(t *testing.T, destination io.Writer) *Terminal {
 	t.Helper()
 	terminal := &Terminal{writer: NewWriter(WriterConfig{Destination: destination}), imageProtocol: graphics.Kitty}
 	t.Cleanup(func() {
-		terminal.endUploads(ErrClosed)
+		terminal.cancelUploads(ErrClosed)
+		terminal.modeMu.Lock()
+		terminal.revokeUploads()
+		terminal.modeMu.Unlock()
 		_ = terminal.writer.Close()
 	})
 	return terminal
@@ -182,7 +185,7 @@ func TestCancelledUploadsRemainBoundedAndCleanUpLateAllocations(t *testing.T) {
 		if err != nil {
 			t.Fatal("settled correlation did not release capacity:", err)
 		}
-		terminal.endUploads(ErrClosed)
+		terminal.cancelUploads(ErrClosed)
 		uploadOutcome(t, result, ErrClosed)
 	})
 }
@@ -198,30 +201,85 @@ func TestSilentImageRequestsTimeOut(t *testing.T) {
 	})
 }
 
-func TestHandoverRetiresPendingCorrelationBeforeTheNextForeground(t *testing.T) {
-	var wire bytes.Buffer
-	terminal := uploadTerminal(t, &wire)
-	data := uploadPNG(t)
-	result, err := terminal.Transmit(t.Context(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	priorNumber := pendingImageNumber(t, terminal)
-	terminal.endUploads(ErrHandoverActive)
-	uploadOutcome(t, result, ErrHandoverActive)
-	if consumed, err := terminal.takeImageReply(input.APC{Body: fmt.Sprintf("Gi=77,I=%d;OK", priorNumber)}); consumed || err != nil {
-		t.Fatal("prior foreground response acquired a cleanup owner")
-	}
-	next := acknowledgedImage(t, terminal, data, 88)
-	if next.ID() != 88 {
-		t.Fatal("resumed upload reused its old correlation or physical identity")
-	}
-	if err := terminal.writer.Drain(time.Second); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(wire.String(), "a=d") {
-		t.Fatal("a late response deleted the next foreground's image")
-	}
+func TestCancelledImageRetainsItsCleanupObligation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		for _, malformed := range []bool{false, true} {
+			var wire bytes.Buffer
+			terminal := uploadTerminal(t, &wire)
+			result, err := terminal.Transmit(t.Context(), uploadPNG(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			number := pendingImageNumber(t, terminal)
+			cause := ErrClosed
+			if malformed {
+				cause = graphics.ErrMalformedReply
+				if _, replyErr := terminal.takeImageReply(input.APC{Body: fmt.Sprintf("Gi=broken,I=%d;OK", number)}); replyErr != nil {
+					t.Fatal(replyErr)
+				}
+			} else {
+				terminal.cancelUploads(cause)
+			}
+			uploadOutcome(t, result, cause)
+			terminal.writer.CloseAdmission()
+			if waitErr := terminal.awaitUploads(); !errors.Is(waitErr, ErrImageCleanupIncomplete) {
+				t.Fatalf("unconfirmed cleanup = %v", waitErr)
+			}
+			if pendingImageNumber(t, terminal) != number {
+				t.Fatal("cancellation lost the allocation obligation")
+			}
+			if consumed, replyErr := terminal.takeImageReply(input.APC{Body: fmt.Sprintf("Gi=77,I=%d;OK", number)}); !consumed || replyErr != nil {
+				t.Fatalf("late allocation = %t, %v", consumed, replyErr)
+			}
+			if waitErr := terminal.awaitUploads(); waitErr != nil {
+				t.Fatal(waitErr)
+			}
+			if drainErr := terminal.writer.Drain(time.Second); drainErr != nil {
+				t.Fatal(drainErr)
+			}
+			if strings.Count(wire.String(), "a=d,d=I,i=77,") != 1 {
+				t.Fatalf("cleanup did not delete the exact allocation once: %q", wire.String())
+			}
+		}
+	})
+}
+
+func TestImageCleanupWaitsForAnAllocationWhileInputRemainsOwned(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var wire bytes.Buffer
+		terminal := uploadTerminal(t, &wire)
+		result, err := terminal.Transmit(t.Context(), uploadPNG(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		number := pendingImageNumber(t, terminal)
+		terminal.writer.CloseAdmission()
+		terminal.cancelUploads(ErrClosed)
+		uploadOutcome(t, result, ErrClosed)
+		if !terminal.handed.hold() {
+			t.Fatal("cannot claim input")
+		}
+		defer terminal.handed.release()
+		replied := make(chan error, 1)
+		go func() {
+			time.Sleep(DrainGrace / 2)
+			terminal.handed.park(terminal.stop)
+			_, replyErr := terminal.takeImageReply(input.APC{Body: fmt.Sprintf("Gi=77,I=%d;OK", number)})
+			replied <- replyErr
+		}()
+		if waitErr := terminal.awaitUploads(); waitErr != nil {
+			t.Fatal(waitErr)
+		}
+		if replyErr := <-replied; replyErr != nil {
+			t.Fatal(replyErr)
+		}
+		if drainErr := terminal.writer.Drain(time.Second); drainErr != nil {
+			t.Fatal(drainErr)
+		}
+		if strings.Count(wire.String(), "a=d,d=I,i=77,") != 1 {
+			t.Fatal("closed ordinary admission prevented reserved image cleanup")
+		}
+	})
 }
 
 func TestImageWaitersObserveWriterFailure(t *testing.T) {
@@ -262,7 +320,7 @@ func TestNewTerminalCannotClaimThePreviousInstancesLateReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldNumber := pendingImageNumber(t, first)
-	first.endUploads(ErrClosed)
+	first.cancelUploads(ErrClosed)
 	uploadOutcome(t, oldResult, ErrClosed)
 	if closeErr := first.writer.Close(); closeErr != nil {
 		t.Fatal(closeErr)
@@ -359,7 +417,10 @@ func TestCancelledImageDeletionRetriesBoundedOutputBackpressure(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		synctest.Wait()
+		terminal.writer.CloseAdmission()
+		if err := terminal.awaitUploads(); !errors.Is(err, ErrImageCleanupIncomplete) {
+			t.Fatalf("blocked deletion lost its cleanup obligation: %v", err)
+		}
 		terminal.modeMu.Lock()
 		retained := len(terminal.uploads)
 		terminal.modeMu.Unlock()
@@ -368,7 +429,9 @@ func TestCancelledImageDeletionRetriesBoundedOutputBackpressure(t *testing.T) {
 		}
 		close(release)
 		released = true
-		synctest.Wait()
+		if err := terminal.awaitUploads(); err != nil {
+			t.Fatal("sealed admission prevented exact cleanup:", err)
+		}
 		if err := terminal.writer.Drain(time.Second); err != nil {
 			t.Fatal(err)
 		}

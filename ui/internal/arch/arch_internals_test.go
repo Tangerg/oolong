@@ -253,8 +253,11 @@ func TestOnlyCoreOwnsCoreDependencies(t *testing.T) {
 		for _, imported := range imports(t, fset, path) {
 			// These adapters own external Windows processes, not terminal text,
 			// input or transport. Other packages and core dependencies stay barred.
-			if imported == "golang.org/x/sys/windows" && (dir == "extensions/mermaid" || dir == "examples/mermaid") {
-				continue
+			if imported == "golang.org/x/sys/windows" {
+				switch dir {
+				case "extensions/mermaid", "examples/mermaid", "examples/run":
+					continue
+				}
 			}
 			for _, dep := range dependencyRules["ui"] {
 				if imported == dep || strings.HasPrefix(imported, dep+"/") {
